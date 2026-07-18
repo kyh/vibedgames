@@ -2,7 +2,6 @@ import Phaser from "phaser";
 import { CROP_ORDER } from "../data/crops";
 import { parseWorldMap } from "../world/worldmap";
 import { setWorldMap, getWorldMap } from "../world/map-store";
-import { isTrailerMode } from "../trailer/trailer-shell";
 
 const CHAR = { frameWidth: 96, frameHeight: 64 };
 
@@ -202,16 +201,26 @@ export class BootScene extends Phaser.Scene {
       for (let y = 2; y < 16; y += 4) g.fillRect(2, y, 12, 2);
     });
 
+    const params = new URLSearchParams(window.location.search);
     // ?trailer=1 hands the boot over to the trailer director (lazy-loaded so
-    // trailer code stays out of the normal play path entirely)
-    if (isTrailerMode()) {
+    // trailer code stays out of the normal play path entirely; presence-check
+    // only — importing trailer-shell here would hoist it into the main chunk)
+    if (params.has("trailer")) {
       void import("../trailer/trailer-director").then(({ startTrailer }) => {
         startTrailer(this.game);
       });
       return;
     }
-    // #gallery opens the asset-inspection page instead of the game
-    this.scene.start(window.location.hash.includes("gallery") ? "Gallery" : "Title");
+    // ?gallery opens the asset-inspection page instead of the game
+    // (lazy-loaded so gallery code stays out of the main chunk)
+    if (params.has("gallery")) {
+      void import("./gallery-scene").then(({ GalleryScene }) => {
+        if (!this.scene.get("Gallery")) this.scene.add("Gallery", GalleryScene);
+        this.scene.start("Gallery");
+      });
+      return;
+    }
+    this.scene.start("Title");
   }
 
   private makeIcon(

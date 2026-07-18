@@ -15,7 +15,7 @@ import { HEROES } from "../data/heroes";
 import { clipGameMs } from "../entities/player";
 import { HIT_BACK, HIT_DOWN, HIT_UP } from "../entities/player-body";
 
-// ?editor=1 — an animation viewer / debug page, styled after the Battle Arena
+// ?viewer=1 — an animation viewer / debug page, styled after the Battle Arena
 // editor: a DOM chrome (top bar + character roster + clip list) over a big stage
 // that plays ONE clip large enough to actually read the frames + the attack's
 // hitbox reach. LEFT/RIGHT (or click) switch character; UP/DOWN (or click) switch
@@ -52,7 +52,7 @@ function hotkeyFor(char: Char, clip: string): string {
   }
 }
 
-export class EditorScene extends Phaser.Scene {
+export class ViewerScene extends Phaser.Scene {
   private ci = 0;
   private clipI = 0;
   private clips: ClipInfo[] = [];
@@ -62,7 +62,7 @@ export class EditorScene extends Phaser.Scene {
   private ui?: HTMLDivElement;
 
   constructor() {
-    super("editor");
+    super("viewer");
   }
 
   create() {
@@ -81,7 +81,7 @@ export class EditorScene extends Phaser.Scene {
     kb?.on("keydown-UP", () => this.selectClip(this.clipI - 1));
     kb?.on("keydown-DOWN", () => this.selectClip(this.clipI + 1));
     // The actual game action keys jump to + play the matching clip, so you can
-    // press J / K / L and watch what they fire (movement keys stay editor-nav).
+    // press J / K / L and watch what they fire (movement keys stay viewer-nav).
     kb?.on("keydown-J", () => this.playHotkey("J"));
     kb?.on("keydown-K", () => this.playHotkey("K"));
     kb?.on("keydown-L", () => this.playHotkey("⇧ / L"));
@@ -137,7 +137,7 @@ export class EditorScene extends Phaser.Scene {
     if (!info || !char || !this.sprite) return;
     const hero = char.hero ? HEROES[char.key] : undefined;
     // Preview the retimed @kit variant when the game would play one, so the
-    // editor shows true in-game attack timing (contact frame on the hitbox).
+    // viewer shows true in-game attack timing (contact frame on the hitbox).
     const key = hero ? kitClipKey(this, hero.name, info.clip) : `${char.key}:${info.clip}`;
     this.sprite.play({ key, repeat: -1 });
     // timeScale (not duration) re-times without freezing per-frame-duration anims.
@@ -184,7 +184,7 @@ export class EditorScene extends Phaser.Scene {
   private buildUI() {
     injectStyle();
     const ui = document.createElement("div");
-    ui.id = "lf-editor";
+    ui.id = "lf-viewer";
     const roster = CHARS.map((c, i) => {
       const dot = c.hero ? `#${HEROES[c.key].color.toString(16).padStart(6, "0")}` : "#8b95a1";
       const tag = c.hero ? "" : `<em>foe</em>`;
@@ -265,10 +265,10 @@ function injectStyle() {
   styled = true;
   const s = document.createElement("style");
   s.textContent = `
-#lf-editor{position:fixed;inset:0;z-index:40;pointer-events:none;font-family:ui-monospace,"Courier New",monospace;color:#f4f7fb}
-#lf-editor button{pointer-events:auto;cursor:pointer;font:600 11px ui-monospace,monospace;color:#c7d0db;background:rgba(20,26,42,.85);border:1px solid rgba(255,255,255,.14);border-radius:7px;padding:6px 9px}
-#lf-editor button:hover{border-color:#34e5c8;color:#34e5c8}
-#lf-editor .on{border-color:#34e5c8;color:#34e5c8;background:rgba(20,54,54,.9)}
+#lf-viewer{position:fixed;inset:0;z-index:40;pointer-events:none;font-family:ui-monospace,"Courier New",monospace;color:#f4f7fb}
+#lf-viewer button{pointer-events:auto;cursor:pointer;font:600 11px ui-monospace,monospace;color:#c7d0db;background:rgba(20,26,42,.85);border:1px solid rgba(255,255,255,.14);border-radius:7px;padding:6px 9px}
+#lf-viewer button:hover{border-color:#34e5c8;color:#34e5c8}
+#lf-viewer .on{border-color:#34e5c8;color:#34e5c8;background:rgba(20,54,54,.9)}
 .lf-top{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;gap:10px;padding:9px 14px;background:linear-gradient(#05070bee,#05070b00)}
 .lf-logo{font:900 italic 18px system-ui,sans-serif;letter-spacing:-1px;color:#34e5c8}
 .lf-sub{font:800 10px ui-monospace,monospace;letter-spacing:2px;opacity:.55}
@@ -278,16 +278,16 @@ function injectStyle() {
 .lf-clips{right:12px;width:186px}
 .lf-h{font:800 10px ui-monospace,monospace;letter-spacing:1.5px;opacity:.5;padding:2px 2px 4px}
 .lf-scroll{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:4px;min-height:0}
-#lf-editor .lf-char{display:flex;align-items:center;gap:8px;text-align:left}
-#lf-editor .lf-char i{width:12px;height:12px;border-radius:50%;flex:none;box-shadow:0 0 6px currentColor}
-#lf-editor .lf-char span{flex:1;text-transform:capitalize}
-#lf-editor .lf-char em{font:700 8px ui-monospace,monospace;opacity:.5;font-style:normal;letter-spacing:1px}
-#lf-editor .lf-clip{display:flex;flex-direction:column;align-items:stretch;gap:2px;text-align:left}
+#lf-viewer .lf-char{display:flex;align-items:center;gap:8px;text-align:left}
+#lf-viewer .lf-char i{width:12px;height:12px;border-radius:50%;flex:none;box-shadow:0 0 6px currentColor}
+#lf-viewer .lf-char span{flex:1;text-transform:capitalize}
+#lf-viewer .lf-char em{font:700 8px ui-monospace,monospace;opacity:.5;font-style:normal;letter-spacing:1px}
+#lf-viewer .lf-clip{display:flex;flex-direction:column;align-items:stretch;gap:2px;text-align:left}
 .lf-clip-row{display:flex;align-items:center;justify-content:space-between;gap:6px;width:100%}
-#lf-editor .lf-clip span{font-weight:700}
-#lf-editor .lf-clip kbd{flex:none;font:800 9px ui-monospace,monospace;color:#ffd15c;background:rgba(255,209,92,.12);border:1px solid rgba(255,209,92,.5);border-radius:4px;padding:1px 5px;box-shadow:0 1px 0 rgba(255,209,92,.25)}
-#lf-editor .lf-clip em{font:600 9px ui-monospace,monospace;opacity:.6;font-style:normal}
-#lf-editor .lf-warn{color:#ff8a5c}
+#lf-viewer .lf-clip span{font-weight:700}
+#lf-viewer .lf-clip kbd{flex:none;font:800 9px ui-monospace,monospace;color:#ffd15c;background:rgba(255,209,92,.12);border:1px solid rgba(255,209,92,.5);border-radius:4px;padding:1px 5px;box-shadow:0 1px 0 rgba(255,209,92,.25)}
+#lf-viewer .lf-clip em{font:600 9px ui-monospace,monospace;opacity:.6;font-style:normal}
+#lf-viewer .lf-warn{color:#ff8a5c}
 .lf-help{position:absolute;left:0;right:0;bottom:0;text-align:center;padding:9px;font:600 10px ui-monospace,monospace;opacity:.55;background:linear-gradient(#05070b00,#05070bdd)}
 `;
   document.head.appendChild(s);

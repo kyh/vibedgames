@@ -50,7 +50,7 @@ const BODY_H = 22;
 const EPS = 0.0001;
 
 // Melee hitbox extents (px), relative to the player's feet at (x, y). Exported so
-// the editor's reach box can draw the ACTUAL hit area instead of an approximation.
+// the viewer's reach box can draw the ACTUAL hit area instead of an approximation.
 export const HIT_BACK = 8; // overlaps this far behind center so point-blank hits land
 export const HIT_UP = 34; // reaches up over the body
 export const HIT_DOWN = 6; // down to just past the feet (catches grounded enemies)

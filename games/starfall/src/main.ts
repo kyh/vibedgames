@@ -3,15 +3,20 @@ import Phaser from "phaser";
 import { BootScene } from "./scenes/boot-scene";
 import { GameScene } from "./scenes/game-scene";
 import { reseed } from "./shared/rng";
-import { isTrailerMode } from "./trailer/trailer-shell";
+
+// Presence-check inline — importing isTrailerMode from trailer-shell here
+// would hoist the whole shell (gate/cards/CSS) into the main chunk, since the
+// lazy director chunk imports the same module.
+const bootParams = new URLSearchParams(location.search);
+const trailerMode = bootParams.has("trailer");
 
 // Bot-playtest seeding (boot-time variant of the diagnostics contract — see
 // shared/diag.ts): the scene is single-start, so the seed must land before
 // any gameplay roll rather than via a mid-run hook.
-const seedParam = new URLSearchParams(location.search).get("seed");
+const seedParam = bootParams.get("seed");
 if (seedParam !== null && seedParam !== "" && Number.isFinite(Number(seedParam))) {
   reseed(Number(seedParam));
-} else if (isTrailerMode()) {
+} else if (trailerMode) {
   // Trailer runs seed the gameplay stream so takes are repeatable.
   reseed(7);
 }
@@ -45,7 +50,7 @@ if (import.meta.env.DEV) window.__game = game;
 // stages a scripted, letterboxed gameplay trailer over a forced-offline
 // session (GameScene skips the socket under this flag). Lazy import — the
 // director/shell UI never loads in normal play.
-if (isTrailerMode()) {
+if (trailerMode) {
   void import("./trailer/trailer-director").then(({ bootTrailerDirector }) =>
     bootTrailerDirector(game),
   );

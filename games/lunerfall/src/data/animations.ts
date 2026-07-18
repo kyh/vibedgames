@@ -138,7 +138,7 @@ export function firstFrame(scene: Phaser.Scene, key: string): string | undefined
 export type ClipInfo = { clip: string; frames: number; ms: number; loop: boolean };
 
 // Enumerate an atlas's clips with their authored frame count + total duration —
-// the data behind the ?editor gallery (and a quick way to spot a 1-frame / wrong
+// the data behind the ?viewer page (and a quick way to spot a 1-frame / wrong
 // clip). Mirrors buildAnimsFromAseprite's tag→clip mapping; dedupes shared slugs.
 export function clipsFor(scene: Phaser.Scene, key: string): ClipInfo[] {
   const data: unknown = scene.cache.json.get(key);

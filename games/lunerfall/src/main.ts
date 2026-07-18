@@ -5,7 +5,6 @@ import { BASE_H, BASE_W, clampAspect } from "./config";
 import { createLunerfallPauseOverlay } from "./pause-overlay";
 import { BootScene } from "./scenes/boot-scene";
 import { installTestHooks } from "./sys/diag";
-import { EditorScene } from "./scenes/editor-scene";
 import { GameScene } from "./scenes/game-scene";
 import { SelectScene } from "./scenes/select-scene";
 
@@ -21,7 +20,7 @@ const config: Phaser.Types.Core.GameConfig = {
     width: BASE_W,
     height: BASE_H,
   },
-  scene: [BootScene, SelectScene, GameScene, EditorScene],
+  scene: [BootScene, SelectScene, GameScene],
 };
 
 const game = new Phaser.Game(config);

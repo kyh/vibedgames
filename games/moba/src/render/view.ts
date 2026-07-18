@@ -50,7 +50,7 @@ const D_BRIDGE = -84; // minus a per-strip index (northern strips on top), stays
 const DEPTH_DECAL = -50;
 
 // Terrain autotile tables (flat/elevated grass), cliff + slope frames live in
-// ./autotile — the single source shared with the ?ui=map gallery.
+// ./autotile — the single source shared with the ?gallery=map gallery.
 // Bridge_All frames: 0/1/2 = horizontal left-cap/middle/right-cap, 11 = shadow.
 const BRIDGE_L = 0;
 const BRIDGE_M = 1;

@@ -57,12 +57,19 @@ export class BootScene extends Phaser.Scene {
     }
 
     const params = new URLSearchParams(location.search);
-    if (params.get("editor")) this.scene.start("editor");
-    else if (
+    // ?viewer — animation viewer (scenes/viewer-scene.ts). Lazy import so the
+    // viewer never ships in the main game chunk; dedupe the add because scene
+    // instances persist across start/stop in Phaser 4.
+    if (params.has("viewer")) {
+      void import("./viewer-scene").then(({ ViewerScene }) => {
+        if (!this.scene.manager.getScene("viewer")) this.scene.add("viewer", ViewerScene);
+        return this.scene.start("viewer");
+      });
+    } else if (
       params.get("demo") ||
       params.get("room") ||
       params.get("hero") ||
-      params.get("trailer") // trailer mode boots straight into a solo run (src/trailer)
+      params.has("trailer") // trailer mode boots straight into a solo run (src/trailer)
     ) {
       notifyGameStarted();
       this.scene.start("game");

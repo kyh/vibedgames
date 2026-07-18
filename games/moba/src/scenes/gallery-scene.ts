@@ -4,7 +4,7 @@ import { CELL } from "../data/map";
 import { CLIFF_FRAMES, SLOPE_FRAMES, autotileFrame, autotileMask } from "../render/autotile";
 import { buildGalleryNav } from "./gallery-nav";
 
-// Asset showcase pages (reachable via ?ui=units|terrain|fx) that present
+// Asset showcase pages (reachable via ?gallery=units|terrain|fx) that present
 // the game's asset sections in isolation — a viewer to verify every sprite,
 // animation, and terrain tile renders correctly before composing the live game.
 
@@ -23,7 +23,7 @@ const UNIT_SUBJECTS: Subject[] = [
 ];
 const UNIT_ANIMS = ["idle", "walk", "attack", "death"] as const;
 
-// --- showcase battlefield (?ui=map): a composed example map, to learn how
+// --- showcase battlefield (?gallery=map): a composed example map, to learn how
 // terrain + cliffs + buildings + units + props compose. CELL + the autotile/cliff/
 // slope frame tables come from the shared sources (data/map + render/autotile), so
 // the gallery and the live game render terrain identically with no hand-sync.

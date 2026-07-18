@@ -3,11 +3,9 @@ import { setPauseHandlers } from "@repo/embed";
 
 import { hide as hidePauseOverlay, show as showPauseOverlay } from "./pause-overlay";
 import { BootScene } from "./scenes/boot-scene";
-import { GalleryScene } from "./scenes/gallery-scene";
 import { GameScene } from "./scenes/game-scene";
 import { HudScene } from "./scenes/hud-scene";
 import { MenuScene } from "./scenes/menu-scene";
-import { ShowcaseScene } from "./scenes/showcase-scene";
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.WEBGL,
@@ -23,7 +21,10 @@ const config: Phaser.Types.Core.GameConfig = {
   // GameScene owns its own pointer handling; disable the right-click menu so
   // right-click can drive move orders the way a MOBA expects.
   disableContextMenu: true,
-  scene: [BootScene, MenuScene, GameScene, HudScene, GalleryScene, ShowcaseScene],
+  // Dev surfaces (ShowcaseScene, GalleryScene) are lazy-added by BootScene /
+  // gallery-nav via dev-scenes.ts — keep them out of this array so their code
+  // stays out of the main chunk.
+  scene: [BootScene, MenuScene, GameScene, HudScene],
 };
 
 // The display font must be resolved before any Phaser Text is created, or those

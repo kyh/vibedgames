@@ -206,7 +206,7 @@ export const inField = (tx: number, ty: number): boolean =>
 
 export type Semantics = { kind: Uint8Array };
 
-// Per-layer classification, shared by buildSemantics and the #gallery page.
+// Per-layer classification, shared by buildSemantics and the ?gallery page.
 export function classifyLandIndex(i: number): Cell {
   if (LAND_GRASS.has(i)) return CELL.grass;
   if (LAND_SAND.has(i)) return CELL.sand;

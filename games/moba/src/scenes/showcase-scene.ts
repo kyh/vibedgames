@@ -2,7 +2,7 @@ import Phaser from "phaser";
 
 // Character "storybook": pick any hero / creep / neutral and demo its animations,
 // its spells (cast at a training dummy, with the real projectiles + fx), and read
-// its stats + abilities. Reached via ?ui. It runs a stripped-down
+// its stats + abilities. Reached via ?viewer. It runs a stripped-down
 // sim (one subject + one dummy, no waves/towers/camps) rendered by the real
 // WorldView, so everything looks exactly as it does in a match.
 
@@ -295,7 +295,7 @@ export class ShowcaseScene extends Phaser.Scene {
   // ---- UI ------------------------------------------------------------------
   private buildChrome(): void {
     const W = this.scale.width;
-    buildGalleryNav(this, "ui");
+    buildGalleryNav(this, "viewer");
     this.add
       .text(W / 2, 64, "ELDERMOOR — UI", {
         fontFamily: FONT,

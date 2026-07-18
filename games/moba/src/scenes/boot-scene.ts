@@ -43,7 +43,7 @@ export class BootScene extends Phaser.Scene {
 
     // --- terrain ---
     // The live map renders with the terrain tileset (flat + elevated autotile,
-    // cliffs, stairs) — the same sheet the ?ui=map showcase composes
+    // cliffs, stairs) — the same sheet the ?gallery=map showcase composes
     // tile-by-tile.
     this.load.image("tiles-img", "assets/terrain/tiles.png");
     this.load.spritesheet("tiles", "assets/terrain/tiles.png", { frameWidth: 64, frameHeight: 64 });
@@ -63,7 +63,7 @@ export class BootScene extends Phaser.Scene {
       frameWidth: UNIT,
       frameHeight: UNIT,
     });
-    // kept for the ?ui=terrain showcase
+    // kept for the ?gallery=terrain showcase
     this.load.spritesheet("t-ground", "assets/terrain/ground_flat.png", {
       frameWidth: 64,
       frameHeight: 64,
@@ -208,9 +208,9 @@ export class BootScene extends Phaser.Scene {
     // (imported lazily to keep BootScene's compile surface small)
     void import("../render/anims").then(({ registerAnims }) => {
       registerAnims(this);
-      // Everything dev-facing is nested under ?ui: bare ?ui opens the UI hub (the
-      // character/bot showcase); ?ui=units|terrain|fx|map opens that asset page.
-      // No param → the menu.
+      // Dev surfaces: ?viewer opens the character/bot showcase;
+      // ?gallery=units|terrain|fx|map opens that asset page (bare ?gallery =
+      // units). Both are lazy-loaded via dev-scenes. No param → the menu.
       const params = new URLSearchParams(window.location.search);
       if (params.has("trailer")) {
         // TRAILER MODE (?trailer=1): a scripted, letterboxed gameplay trailer.
@@ -220,11 +220,12 @@ export class BootScene extends Phaser.Scene {
         );
         return;
       }
-      if (params.has("ui")) {
-        const sub = params.get("ui") ?? "";
-        const SECTIONS = ["units", "terrain", "fx", "map"];
-        if (SECTIONS.includes(sub)) this.scene.start("Gallery", { section: sub });
-        else this.scene.start("Showcase");
+      if (params.has("gallery")) {
+        void import("./dev-scenes").then(({ gallerySection, startGallery }) =>
+          startGallery(this, gallerySection(params.get("gallery"))),
+        );
+      } else if (params.has("viewer")) {
+        void import("./dev-scenes").then(({ startShowcase }) => startShowcase(this));
       } else {
         this.scene.start("Menu");
       }

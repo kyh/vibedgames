@@ -18,7 +18,7 @@ export type BiomePalette = {
 };
 
 // The starting world — also the guaranteed fallback, so lookups never widen to
-// undefined and the default render (editor, first room) matches the raw art.
+// undefined and the default render (viewer, first room) matches the raw art.
 const MOONWOOD: BiomePalette = {
   name: "MOONWOOD",
   sky: [0x464f66, 0x59637b, 0x6b768e],
