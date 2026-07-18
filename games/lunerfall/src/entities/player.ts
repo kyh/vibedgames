@@ -18,7 +18,7 @@ const DOWNED_TINT = 0x7a8494; // greyed-out crumple while in co-op last stand
 
 // A clip's gameplay-matched playback duration (ms), or undefined to keep the
 // authored timing. Swings/special/dash are re-timed to their mechanic; run is
-// nudged snappier. Shared with the ?editor gallery so it previews true in-game
+// nudged snappier. Shared with the ?viewer page so it previews true in-game
 // playback.
 export function clipGameMs(hero: HeroDef, clip: string): number | undefined {
   const kit = hero.kit;

@@ -17,7 +17,6 @@ import { PhysicsWorld } from "../physics/physics-world";
 import { Rng } from "../shared/rng";
 import { Car } from "../vehicle/car";
 import { RaycastVehicle } from "../vehicle/raycast-vehicle";
-import { mountTunePanel } from "../vehicle/tune-panel";
 import { skinById } from "../vehicle/car";
 import { CityModel, type CityRestPayload } from "../world/city";
 import { editorMode, loadLocalOverrides } from "../world/custom-map";
@@ -32,7 +31,6 @@ import {
   writeWorldCache,
 } from "../world/world-cache";
 import { fetchBakedRest, fetchBakedWorld } from "../world/world-fetch";
-import { packRest, packWorld, serializeWorldBin, WORLD_REV } from "../world/world-bin";
 import { Minimap } from "../ui/minimap";
 
 export type WorldSpawn = {
@@ -320,7 +318,16 @@ async function finishLoad(
   const vehicle = new RaycastVehicle(physics, 0, 0, 0, 0);
   car.attachPhysics(vehicle);
   deps.snapToCar(car);
-  if (new URLSearchParams(window.location.search).has("tune")) mountTunePanel(vehicle);
+  if (new URLSearchParams(window.location.search).has("tune")) {
+    // Optional dev tooling: a failed chunk fetch degrades to no-panel rather
+    // than blocking boot. (The ?bake import below stays loud on purpose.)
+    try {
+      const { mountTunePanel } = await import("../vehicle/tune-panel");
+      mountTunePanel(vehicle);
+    } catch (e) {
+      console.error("[tune] panel failed to load:", e);
+    }
+  }
   await paint();
 
   // Prewarm shaders BEFORE declaring playable: the countdown swoop reveals
@@ -396,36 +403,10 @@ async function finishLoad(
 
   // ?bake=1: download the two world artifacts (gzipped) for public/world/.
   // Run on a COLD dev build so the capture reflects the current pipeline.
+  // Machinery lives in world/bake-download.ts, lazy-loaded behind the param.
   if (new URLSearchParams(window.location.search).has("bake")) {
-    const gzip = async (bytes: Uint8Array): Promise<Blob> => {
-      const stream = new Blob([new Uint8Array(bytes)])
-        .stream()
-        .pipeThrough(new CompressionStream("gzip"));
-      return await new Response(stream).blob();
-    };
-    const save = (blob: Blob, name: string): void => {
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = name;
-      a.click();
-    };
-    const worldPayload = bakePayload;
-    if (worldPayload) {
-      console.log("[bake] packing world…");
-      save(
-        await gzip(serializeWorldBin({ rev: WORLD_REV, world: packWorld(worldPayload) })),
-        "world.bin",
-      );
-    }
-    if (city.restCapture) {
-      console.log("[bake] packing rest…");
-      const packed = packRest(city.restCapture);
-      console.log("[bake] serializing rest…");
-      const bin = serializeWorldBin({ rev: WORLD_REV, rest: packed });
-      console.log(`[bake] gzipping rest (${bin.byteLength} bytes)…`);
-      save(await gzip(bin), "rest.bin");
-    }
-    console.log("[bake] artifacts downloaded — move into public/world/ and commit");
+    const { downloadWorldArtifacts } = await import("../world/bake-download");
+    await downloadWorldArtifacts(bakePayload, city.restCapture);
   }
 }
 

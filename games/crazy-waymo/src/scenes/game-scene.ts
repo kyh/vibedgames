@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { notifyGameStarted, watchControlContext } from "@repo/embed";
+import type { PlayerMap } from "@vibedgames/multiplayer";
 import { Sky } from "three/addons/objects/Sky.js";
 
 import { ModelCache } from "../assets/loader";
@@ -54,7 +55,7 @@ import { GaragePreview } from "../ui/garage-preview";
 import { Hud } from "../ui/hud";
 import type { Minimap, MinimapMarker } from "../ui/minimap";
 import { setTouchPlaying, setupTouch, type TouchControls } from "../ui/touch";
-import type { Car } from "../vehicle/car";
+import type { Car, CarInput } from "../vehicle/car";
 import type { CityModel, Garage } from "../world/city";
 import { HECKLES, SpeechBubbles } from "../fx/speech-bubbles";
 import { ROBOTAXI_SKINS, skinById } from "../vehicle/car";
@@ -169,6 +170,41 @@ function readBest(): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+// TRAILER (src/trailer/trailer-director.ts): the staging facade beginTrailer()
+// hands the director — controlled access to the private systems it stages
+// (player pose/speed, traffic placement, fares, cones, camera, day phase,
+// scripted input, fake multiplayer). Only constructed in ?trailer=1 boots.
+export type TrailerStage = {
+  readonly car: Car;
+  readonly city: CityModel;
+  readonly traffic: Traffic;
+  readonly fares: FareManager;
+  readonly cones: SmashCones;
+  readonly hud: Hud;
+  readonly state: GameState;
+  readonly camera: THREE.PerspectiveCamera;
+  /** Teleport the taxi to an exact world pose (y overrides the drive surface —
+   *  elevated decks) with a pre-rolled speed along the heading. */
+  placeCar(x: number, z: number, yaw: number, speed: number, y?: number): void;
+  /** Instantly set the taxi's planar speed along its current heading. */
+  setSpeed(speed: number): void;
+  /** Snap the chase rig behind the car (for chase-cam scenes). */
+  snapCamera(): void;
+  /** true = the director owns the camera; false = the game's chase rig. */
+  setFreecam(on: boolean): void;
+  /** Scripted pedals/steer override; null returns control to the keyboard. */
+  setScriptedInput(input: CarInput | null): void;
+  /** Pin the day-night cycle (0.25 noon, 0.40 golden, 0.47 sunset). */
+  setDayPhase(p: number): void;
+  /** Fake multiplayer robotaxis (visual-only remote cars); null = live map. */
+  setFakePlayers(players: PlayerMap | null): void;
+  /** Re-park every punted parked car at its curb spec (fresh row per scene). */
+  restoreParked(): void;
+  /** Stage `n` parked cars as a curbside row from (x0, z0) along (tx, tz) —
+   *  the traffic-chaos plow toy (natural curb rows never exceed ~3 cars). */
+  stageParkedRow(x0: number, z0: number, tx: number, tz: number, n: number, spacing: number): void;
+};
+
 export class GameScene {
   readonly scene = new THREE.Scene();
   // Coarse primary pointer = phone/tablet: mobile-only budgets apply.
@@ -185,11 +221,8 @@ export class GameScene {
   // Multiplayer: free-roam presence over the shared (fixed-seed) city. Connects
   // as soon as the scene exists; falls back to solo if the party server is
   // unreachable. Only the local car transform is broadcast — no shared scoring.
-  private net = new NetSession({
-    room: MP_ROOM,
-    maxPlayers: MP_MAX_PLAYERS,
-    fallbackMs: OFFLINE_FALLBACK_MS,
-  });
+  // Assigned in the constructor (trailer boots force it offline).
+  private net: NetSession;
   private remoteCars: RemoteCars | null = null;
   private bubbles = new SpeechBubbles();
   private heckleCooldown = 0;
@@ -358,8 +391,18 @@ export class GameScene {
   // so an external tool can park it anywhere for inspection.
   freecam = false;
 
-  constructor(aspect: number) {
+  constructor(
+    aspect: number,
+    // TRAILER: ?trailer=1 boots stage everything locally — never join a room.
+    private readonly trailerMode = false,
+  ) {
     this.rig = new ChaseCamera(aspect);
+    this.net = new NetSession({
+      room: MP_ROOM,
+      maxPlayers: MP_MAX_PLAYERS,
+      fallbackMs: OFFLINE_FALLBACK_MS,
+      forceOffline: this.trailerMode,
+    });
 
     // Plugging in / unplugging a pad changes which control hints apply — the
     // title banner is the only live instruction surface, so redraw it.
@@ -844,6 +887,7 @@ float ocNoise(vec2 p) {
   }
 
   private updateGarages(dt: number): void {
+    if (this.trailerMode) return; // no showroom popping over a staged shot
     if (this.garageOpen) this.garagePreview?.update(dt);
     const city = this.city;
     const car = this.car;
@@ -1216,13 +1260,14 @@ float ocNoise(vec2 p) {
     if (this.paused) return;
     // Publishes the on-screen stick into `input` before carInput() reads it.
     this.touch?.update();
-    if (this.input.consumeStart()) {
+    if (this.input.consumeStart() && !this.trailerMode) {
       if (this.mode.kind === "playing" && !this.input.typing) this.openChat();
       else this.handleStartPress();
     }
     // Single read — calling consumeRestart() twice would clear the one-shot flag
     // before the second branch could see it. R restarts from any state.
-    if (this.input.consumeRestart()) this.start();
+    // (Trailer mode owns the run: chat/restart would wreck a staged scene.)
+    if (this.input.consumeRestart() && !this.trailerMode) this.start();
     if (this.input.consumeMute()) this.toggleMute();
     this.updateGarages(dt);
     this.heckleCooldown = Math.max(0, this.heckleCooldown - dt);
@@ -1317,7 +1362,9 @@ float ocNoise(vec2 p) {
       }
     }
 
-    remote.sync(this.net.players, this.net.playerId, car.position);
+    // TRAILER: the director can substitute a fake player map (staged remote
+    // robotaxis); null in every normal boot.
+    remote.sync(this.trailerFakes ?? this.net.players, this.net.playerId, car.position);
     remote.update(dt);
 
     if (this.netInfoEl) {
@@ -1411,7 +1458,9 @@ float ocNoise(vec2 p) {
 
     if (this.hitStop > 0) {
       this.hitStop = Math.max(0, this.hitStop - dt);
-      this.rig.update(dt, car, solids);
+      // Freecam (DEV hooks / trailer director) owns the camera — the chase rig
+      // yanking it back for a hit-stop beat would glitch the framed shot.
+      if (!this.freecam) this.rig.update(dt, car, solids);
       this.tickHud(dt, car, fares, false);
       return;
     }
@@ -1615,7 +1664,10 @@ float ocNoise(vec2 p) {
       const minY = city.heightAt(cam.position.x, cam.position.z) + 2.5;
       if (cam.position.y < minY) cam.position.y = minY;
     }
-    this.speedLines.update(dt, this.rig.camera, car.speed / CAR.boostSpeed);
+    // Speed streaks are a first-person effect glued to the chase camera —
+    // under freecam (trailer fixed shots, DEV) feed 0 so leftovers fade out
+    // instead of rushing along a static camera's forward axis.
+    this.speedLines.update(dt, this.rig.camera, this.freecam ? 0 : car.speed / CAR.boostSpeed);
     this.hud.setVignette(THREE.MathUtils.clamp((car.speed - 45) / 40, 0, 1) * 0.6);
     this.tickHud(dt, car, fares, true);
 
@@ -1888,6 +1940,87 @@ float ocNoise(vec2 p) {
   // DEV-only: jump the day-night cycle (night-look verification).
   debugSetDayPhase(p: number): void {
     this.dayNight.setPhase(p);
+  }
+
+  // TRAILER (src/trailer/trailer-director.ts): fake remote robotaxis staged by
+  // the director; null in every normal boot (updateNet checks it).
+  private trailerFakes: PlayerMap | null = null;
+  private trailerStage: TrailerStage | null = null;
+
+  /** TRAILER: flip the loaded scene straight into gameplay — no banner, no
+   *  countdown, audio unmuted for capture — and hand the director its staging
+   *  facade. Only functional in ?trailer=1 boots after `ready`; idempotent. */
+  beginTrailer(): TrailerStage | null {
+    if (this.trailerStage) return this.trailerStage;
+    if (!this.trailerMode || !this.loadDone) return null;
+    const car = this.car;
+    const city = this.city;
+    const fares = this.fares;
+    const traffic = this.traffic;
+    const cones = this.cones;
+    if (!car || !city || !fares || !traffic || !cones) return null;
+    // Audio: beginTrailer is reached from the shell's click gate, so the
+    // context is unlocked. Unmute for the session only (no persistence).
+    this.sfx.ensure();
+    this.sfx.setMuted(false);
+    this.sfx.startMusic();
+    this.hud.hideBanner();
+    this.hud.setLanding(false);
+    this.minimap?.setVisible(false);
+    // No teach toasts or garage waypoints photobombing a staged shot.
+    this.hintDriftShown = true;
+    this.hintBoostShown = true;
+    if (this.garagePillar) this.garagePillar.visible = false;
+    if (this.garageRings) this.garageRings.visible = false;
+    // Speech bubbles (NPC heckles, passenger chatter) photobomb the subject
+    // in staged shots and go stale across cuts — hidden for the whole boot.
+    this.bubbles.group.visible = false;
+    this.state.reset();
+    this.mode = { kind: "playing" };
+    this.trailerStage = {
+      car,
+      city,
+      traffic,
+      fares,
+      cones,
+      hud: this.hud,
+      state: this.state,
+      camera: this.rig.camera,
+      placeCar: (x, z, yaw, speed, y) => {
+        car.reset(x, z, yaw);
+        const veh = car.physicsVehicle;
+        if (veh) {
+          if (y !== undefined) {
+            veh.teleport(x, y + 1.4, z, yaw);
+            car.position.y = y;
+          }
+          veh.chassis.setLinvel({ x: Math.sin(yaw) * speed, y: 0, z: Math.cos(yaw) * speed }, true);
+        }
+        this.rig.snapTo(car);
+      },
+      setSpeed: (speed) => {
+        const veh = car.physicsVehicle;
+        if (!veh) return;
+        const vy = veh.chassis.linvel().y;
+        veh.chassis.setLinvel(
+          { x: Math.sin(car.heading) * speed, y: vy, z: Math.cos(car.heading) * speed },
+          true,
+        );
+      },
+      snapCamera: () => this.rig.snapTo(car),
+      setFreecam: (on) => {
+        this.freecam = on;
+      },
+      setScriptedInput: (input) => this.input.setScripted(input),
+      setDayPhase: (p) => this.dayNight.setPhase(p),
+      setFakePlayers: (players) => {
+        this.trailerFakes = players;
+      },
+      restoreParked: () => this.parked?.restore(),
+      stageParkedRow: (x0, z0, tx, tz, n, spacing) =>
+        this.parked?.stageRow(x0, z0, tx, tz, n, spacing),
+    };
+    return this.trailerStage;
   }
 
   private updateHud(car: Car, fares: FareManager): void {

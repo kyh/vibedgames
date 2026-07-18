@@ -65,6 +65,28 @@ export class NpcManager {
     }
   }
 
+  /** Trailer staging: move an NPC (and its wander anchor) to a tile.
+   *  Dead in normal play (NPCs live at their fixed homes). */
+  placeNpc(id: NpcId, tx: number, ty: number): void {
+    const l = this.live.find((n) => n.id === id);
+    if (!l) return;
+    const x = tx * TILE + 8;
+    const y = ty * TILE + 14;
+    l.home = { x, y };
+    l.target = { x, y };
+    l.rest = 0;
+    l.spr.setPosition(x, y);
+    l.shadow.setPosition(x, y + 1);
+  }
+
+  /** Trailer staging: a live NPC's feet tile — NPCs wander around their anchor,
+   *  so scripted approach/gifting resolves the live position. Dead otherwise. */
+  trailerTileOf(id: NpcId): { tx: number; ty: number } | null {
+    const l = this.live.find((n) => n.id === id);
+    if (!l) return null;
+    return { tx: Math.floor(l.spr.x / TILE), ty: Math.floor((l.spr.y - 1) / TILE) };
+  }
+
   update(dt: number): void {
     const day = this.scene.timeMin < 20 * 60 && this.scene.timeMin > 7 * 60;
     for (const l of this.live) {

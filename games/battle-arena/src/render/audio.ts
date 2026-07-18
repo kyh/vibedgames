@@ -80,6 +80,7 @@ export class Audio {
   private amb: GainNode | null = null;
   private noiseBuf: AudioBuffer | null = null;
   private musicInst: Music | null = null;
+  private mutedOverride: boolean | null = null; // setMutedEphemeral — never persisted
   private last: Record<string, number> = {};
   private live = 0;
   // listener position + screen-right basis (rx,ry) = (-aimY, aimX)
@@ -118,11 +119,23 @@ export class Audio {
   }
 
   setMuted(on: boolean): void {
+    this.mutedOverride = null; // an explicit choice always wins
     try {
       localStorage.setItem("ba-muted", on ? "1" : "0");
     } catch {
       /* private mode — session-only */
     }
+    if (this.master && this.ctx) {
+      this.master.gain.setTargetAtTime(on ? 0 : 0.5, this.ctx.currentTime, 0.03);
+    }
+  }
+
+  /** Session-only mute override (trailer mode): drives the master gain WITHOUT
+   *  touching the persisted localStorage["ba-muted"] preference, so normal
+   *  gameplay keeps its muted-by-default contract. Survives a late ensure()
+   *  (the AudioContext is created on the first trusted gesture). */
+  setMutedEphemeral(on: boolean): void {
+    this.mutedOverride = on;
     if (this.master && this.ctx) {
       this.master.gain.setTargetAtTime(on ? 0 : 0.5, this.ctx.currentTime, 0.03);
     }
@@ -147,7 +160,7 @@ export class Audio {
     const ctx = new Ctor();
     this.ctx = ctx;
     this.master = ctx.createGain();
-    this.master.gain.value = this.isMuted ? 0 : 0.5;
+    this.master.gain.value = (this.mutedOverride ?? this.isMuted) ? 0 : 0.5;
     this.master.connect(ctx.destination);
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -18;

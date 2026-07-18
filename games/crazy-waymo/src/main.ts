@@ -41,7 +41,10 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.62;
 container.appendChild(renderer.domElement);
 
-const game = new GameScene(window.innerWidth / window.innerHeight);
+// Trailer mode (?trailer=1): forces an offline solo session at construction;
+// the director itself is a lazy chunk loaded below — zero cost normally.
+const trailerMode = new URLSearchParams(window.location.search).has("trailer");
+const game = new GameScene(window.innerWidth / window.innerHeight, trailerMode);
 game.applyEnvironment(renderer);
 
 // Post chain (bloom + grade) is desktop-only; phones keep the single pass.
@@ -116,4 +119,15 @@ if (new URLSearchParams(window.location.search).has("editor")) {
     await game.ready; // editor needs the fully built city
     startEditor(game, renderer);
   });
+}
+
+// TRAILER MODE: ?trailer=1 plays a fully staged in-game trailer (see
+// src/trailer/). Lazy chunk, mirrors the editor wiring.
+if (trailerMode) {
+  void Promise.all([import("./trailer/trailer-director"), loaded]).then(
+    async ([{ startTrailer }]) => {
+      await game.ready; // staging needs traffic/physics/cones — full readiness
+      startTrailer(game);
+    },
+  );
 }

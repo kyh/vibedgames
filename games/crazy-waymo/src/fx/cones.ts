@@ -157,6 +157,43 @@ export class SmashCones {
     this.writeAll();
   }
 
+  /** TRAILER (src/trailer/): rebase the first `count` cones into a staggered
+   *  barricade centred at (cx, cz) spanning along (lineX, lineZ), stagger rows
+   *  along (travelX, travelZ). Cones become "resting", so the normal
+   *  tryHit → physics-launch path smashes them; reset() restores the seeded
+   *  street homes. Normal play never calls this. */
+  stageBarricade(
+    cx: number,
+    cz: number,
+    lineX: number,
+    lineZ: number,
+    travelX: number,
+    travelZ: number,
+    count = 12,
+    gap = 1.15,
+  ): void {
+    const n = Math.min(count, this.cones.length);
+    for (let i = 0; i < n; i++) {
+      const c = this.cones[i];
+      if (!c) continue;
+      this.releaseBody(c);
+      const off = (i - (n - 1) / 2) * gap;
+      const stagger = (i % 2) * 1.4;
+      const x = cx + lineX * off + travelX * stagger;
+      const z = cz + lineZ * off + travelZ * stagger;
+      c.x = x;
+      c.y = this.city.heightAt(x, z);
+      c.z = z;
+      c.yaw = (i * 2.4) % (Math.PI * 2);
+      c.quat.identity();
+      c.restTimer = 0;
+      c.flightTime = 0;
+      c.fade = 1;
+      c.mode = "resting";
+    }
+    this.writeAll();
+  }
+
   // DEV: where the resting cones are (verification harness).
   restingPositions(): { x: number; z: number }[] {
     return this.cones.filter((c) => c.mode === "resting").map((c) => ({ x: c.x, z: c.z }));

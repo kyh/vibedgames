@@ -341,6 +341,7 @@ import {
 import { now as simNow, pauseClock, resumeClock } from "../shared/clock";
 import { diag, installTestHooks } from "../shared/diag";
 import { rand } from "../shared/rng";
+import type { TrailerStageApi, TrailerStaging } from "../trailer/trailer-staging";
 
 /** What a HOMING beam (or ARC hop) is steering toward / hit. */
 type TargetRef =
@@ -505,6 +506,8 @@ const PLASMA_TINT_A = 0xff2d78;
 const PLASMA_TINT_B = 0xff9a3d;
 /** PHASE LANCE: the asteroid pass iterates this instead (skip, zero alloc). */
 const NO_ASTEROIDS: ReadonlyArray<AsteroidState> = [];
+/** Trailer mode: the pip pass draws this (clears the layer, zero alloc). */
+const NO_PIPS: ReadonlyArray<PipTarget> = [];
 /** Beams vanish this far outside the world. */
 const BEAM_CULL_MARGIN = 200;
 /** Black mask thickness past the world edge (covers any screen half-width). */
@@ -701,7 +704,8 @@ export class GameScene extends Phaser.Scene {
     // Offline: synthesize the self entry so every `id === myId` render path
     // (ship gfx, shield ring, impact arcs, twin drone, windup glow, nitro
     // trail, minimap own-dot) still runs solo. cssToInt(undefined) → white.
-    return this.offline ? SOLO_PEERS : this.client.players;
+    // Trailer scenes may swap in a fake peer map (staged local "remotes").
+    return this.offline ? (this.trailer?.peers ?? SOLO_PEERS) : this.client.players;
   }
 
   /** Events loop straight back into the local host when offline. */
@@ -901,6 +905,9 @@ export class GameScene extends Phaser.Scene {
   private paused = false;
   /** Cosmetic start-screen dogfight backdrop. Non-null only until play begins. */
   private attract: AttractBattle | null = null;
+  /** Trailer-mode staging overrides (src/trailer/). Null outside ?trailer=1,
+   *  so every trailer guard below is dead code in normal play. */
+  private trailer: TrailerStaging | null = null;
 
   constructor() {
     super("Game");
@@ -993,7 +1000,10 @@ export class GameScene extends Phaser.Scene {
     // must skip the socket entirely rather than lean on the failure fallback
     // (maybeGoOffline). Every `this.client` access is guarded by
     // `this.offline`, so the client simply never exists on this path.
-    if (new URLSearchParams(location.search).get("offline") === "1") {
+    // Trailer mode (?trailer=1) is always a fully offline session: the
+    // director stages "multiplayer" with local fake peers, never the network.
+    const bootQuery = new URLSearchParams(location.search);
+    if (bootQuery.get("offline") === "1" || bootQuery.has("trailer")) {
       this.offline = true;
       this.ensureSeeded();
     } else {
@@ -1187,6 +1197,7 @@ export class GameScene extends Phaser.Scene {
   /** Resize/rotation: re-read the safe-area insets and re-derive camera zoom. */
   private onViewportChange(): void {
     this.safeInset = safeAreaInset();
+    if (this.trailer) return; // trailer scenes own zoom (per-shot framing)
     const zoom = Phaser.Math.Clamp(this.scale.width / CAMERA_REF_WIDTH, CAMERA_MIN_ZOOM, 1);
     this.cameras.main.setZoom(zoom);
   }
@@ -1516,6 +1527,20 @@ export class GameScene extends Phaser.Scene {
     deadZone: number;
     aim: boolean;
   } | null {
+    // Trailer mode: the director owns steering outright — real input sources
+    // are never read, so a stray cursor can't steal the ship mid-take.
+    const trailer = this.trailer;
+    if (trailer) {
+      const s = trailer.steer;
+      if (!s) return null;
+      return {
+        angle: s.angle,
+        thrust: s.thrust,
+        dist: s.thrust > 0 ? SHIP_DEAD_ZONE + SHIP_THRUST_RAMP * s.thrust : 0,
+        deadZone: SHIP_DEAD_ZONE,
+        aim: true,
+      };
+    }
     // Physical stick past its dead zone owns the frame (same heading+magnitude
     // model as the touch joystick, and the same override rule touch applies to
     // the mouse); inside the dead zone it yields, so an idle pad never fights
@@ -1564,6 +1589,7 @@ export class GameScene extends Phaser.Scene {
    *  SPACE on desktop, or RT / A held on a physical controller (merged,
    *  never exclusive). */
   private isFiring(): boolean {
+    if (this.trailer) return this.trailer.fire; // trailer: scripted trigger only
     if (this.pad.connected && (this.pad.isButtonDown("rt") || this.pad.isButtonDown("a")))
       return true;
     if (this.fireKey?.isDown) return true;
@@ -3842,8 +3868,10 @@ export class GameScene extends Phaser.Scene {
     }
 
     // UFO is the weapon piñata; the v2 gate relaxes to < 2 weapon items live.
+    // Trailer mode: never — a wandering piñata (and its weapon drop landing
+    // in the player's pickup radius) would derail a staged shot.
     const weaponItemsInFlight = w.items.filter((it) => it.kind === "weapon").length;
-    if (!w.ufo && weaponItemsInFlight < 2 && rand() < UFO_SPAWN_RATE * dt) {
+    if (!w.ufo && !this.trailer && weaponItemsInFlight < 2 && rand() < UFO_SPAWN_RATE * dt) {
       w.ufo = spawnUfoState(w.playW, w.playH);
       d.ufo = true;
     }
@@ -3878,7 +3906,9 @@ export class GameScene extends Phaser.Scene {
       w.pulls = livePulls;
       d.pulls = true;
     }
-    this.hostDespawnBreather(now, intensity, pressure, wave, players);
+    // Trailer: staged crowds are deliberately far over the cap and the wide
+    // zooms put the despawn line on camera — never cull them mid-shot.
+    if (!this.trailer) this.hostDespawnBreather(now, intensity, pressure, wave, players);
 
     const liveShots = w.enemyShots.filter(
       (s) => s.diesAt > now && inWorld(s.x, s.y, 60, w.playW, w.playH),
@@ -5915,6 +5945,10 @@ export class GameScene extends Phaser.Scene {
    *  is young and the screen shows no hostiles — red triangles at the nearest
    *  inbound enemies (qa-007: an empty screen still telegraphs the action). */
   private drawEdgePips(now: number): void {
+    if (this.trailer) {
+      this.edgePips.draw(this.cameras.main, NO_PIPS, now); // HUD policy: no pips
+      return;
+    }
     const targets: PipTarget[] = [];
     const b = this.world.beacon;
     if (b && now < b.diesAt) targets.push({ x: b.x, y: b.y, tint: BEACON_TINT, shape: "diamond" });
@@ -6078,12 +6112,17 @@ export class GameScene extends Phaser.Scene {
    * no bounds clamping.
    */
   private updateCamera(dt: number, timeMs: number): void {
-    if (!this.spawned) return;
+    // Trailer camera override: fixed/panned shots still ride the trauma shake
+    // (real recoil/impacts keep selling), only the follow target changes.
+    const lock = this.trailer?.camPos ?? null;
+    if (!this.spawned && !lock) return;
     const decay = Math.exp(-8 * dt);
     this.kickX *= decay;
     this.kickY *= decay;
     const s = this.trauma.update(dt, timeMs / 1000);
-    this.cameras.main.centerOn(this.shipX + this.kickX + s.ox, this.shipY + this.kickY + s.oy);
+    const cx = lock ? lock.x : this.shipX + this.kickX;
+    const cy = lock ? lock.y : this.shipY + this.kickY;
+    this.cameras.main.centerOn(cx + s.ox, cy + s.oy);
     this.cameras.main.setAngle(s.rot);
     this.camRollDeg = s.rot; // syncScreenUi counters this roll on the HUD layer
   }
@@ -6321,6 +6360,7 @@ export class GameScene extends Phaser.Scene {
   private drawMinimap(now: number): void {
     const g = this.minimapGfx;
     g.clear();
+    if (this.trailer) return; // trailer HUD policy: no minimap
     // Safe-area insets keep the corner box off the home indicator/notch.
     const x0 = this.scale.width - MINIMAP_W - MINIMAP_PAD - this.safeInset.right;
     const y0 = this.scale.height - MINIMAP_H - MINIMAP_PAD - this.safeInset.bottom;
@@ -6630,6 +6670,155 @@ export class GameScene extends Phaser.Scene {
     }
     const secs = dead ? Math.max(0, Math.ceil((this.respawnAt - now) / 1000)) : 0;
     setText(this.countdownEl, secs > 0 ? `Respawning in ${secs}...` : "");
+  }
+
+  // ---- trailer staging (src/trailer/trailer-director.ts) -----------------------------------
+
+  /** Install the trailer staging overrides and return the scripted-staging
+   *  surface. Only ever called by the trailer director under ?trailer=1 (the
+   *  same query flag that forced this session offline in create()), so none
+   *  of this runs in normal play. Every lever routes through the same code
+   *  paths gameplay uses — spawn factories, hostDamageEnemy, gainXp, die —
+   *  so staged shots are real gameplay. */
+  trailerStage(): TrailerStageApi {
+    const staging: TrailerStaging = { steer: null, fire: false, camPos: null, peers: null };
+    this.trailer = staging;
+    return {
+      staging,
+      forceStart: (): void => this.forceOfflineSolo(),
+      clearWorld: (): void => {
+        const w = this.world;
+        w.enemies = [];
+        w.enemyShots = [];
+        w.items = [];
+        w.shards = [];
+        w.pulls = [];
+        w.beacon = null;
+        w.ufo = null;
+        // Re-stage from "arena just opened": keeps the organic director (safe
+        // opening, spawn intervals, beacon cadence, boss guarantee) asleep for
+        // the whole shot — everything on screen is placed by the director.
+        w.arenaEpoch = simNow();
+        this.enemySim.clear();
+        this.lastEnemySpawnAt = simNow();
+        this.lastAsteroidSpawnAt = simNow();
+        this.lastBeacon = null;
+        this.beams = [];
+        this.sentry = null;
+        this.splinters = [];
+        this.muzzleFlashes = [];
+        this.predictedKills.clear();
+        this.recentPickups.clear();
+        this.recentShardPickups.clear();
+        this.recentConsumedShots.clear();
+        // Silent display cleanup — bypass the death-FX removal sweeps so a
+        // cleared crowd doesn't explode into 40 shatters on the next cut.
+        for (const [, rec] of this.enemyObjs) rec.gfx.destroy();
+        this.enemyObjs.clear();
+        for (const [, rec] of this.itemObjs) {
+          this.tweens.killTweensOf(rec.gfx);
+          rec.gfx.destroy();
+        }
+        this.itemObjs.clear();
+        // Pilot combat state back to a clean baseline.
+        this.streak = 0;
+        this.comboTier = 1;
+        this.comboExpiresAt = 0;
+        this.windupAcc = 0;
+        this.shootCooldown = 0;
+        this.shieldHp = SHIELD_MAX;
+        this.overHp = 0;
+        this.shieldMod = null;
+        this.shieldModUntil = 0;
+        this.boosts.clear();
+        this.invulnUntil = 0;
+        this.phasedUntil = 0;
+        this.contactIframeUntil = 0;
+        this.impactArcs = [];
+        this.kickX = 0;
+        this.kickY = 0;
+      },
+      setPlayerPose: (pose): void => {
+        this.spawned = true;
+        this.alive = true;
+        this.paused = false;
+        this.respawnAt = 0;
+        this.invulnUntil = 0; // no spawn blink on camera
+        this.shipX = pose.x;
+        this.shipY = pose.y;
+        if (pose.angle !== undefined) this.shipAngle = pose.angle;
+        this.shipVX = pose.vx ?? 0;
+        this.shipVY = pose.vy ?? 0;
+        this.cameras.main.centerOn(pose.x, pose.y);
+      },
+      setLevel: (level, xpIntoLevel = 0): void => {
+        this.level = Math.max(1, Math.min(LEVEL_CAP, Math.round(level)));
+        this.xp = Math.max(0, xpIntoLevel);
+        this.specialBase = null;
+        this.weaponUntil = 0;
+        this.applyBaseLoadout(simNow());
+      },
+      grantWeapon: (name): void => {
+        const weapon = WEAPONS_SPECIAL.find((w) => w.name === name);
+        if (!weapon) return;
+        this.specialBase = weapon;
+        this.weapon = scaleWeaponForLevel(weapon, this.level);
+        this.weaponUntil = simNow() + SPECIAL_WEAPON_DURATION_MS;
+        this.windupAcc = 0;
+      },
+      grantBooster: (kind): void => {
+        if (kind === "repair") {
+          this.shieldHp = Math.max(this.shieldHp, SHIELD_MAX);
+          this.lastDamageAt = 0;
+        } else {
+          this.boosts.set(kind, simNow() + BOOSTER_SPECS[kind].durationMs);
+        }
+      },
+      grantXp: (amount): void => this.gainXp(amount, simNow()),
+      setShieldHp: (hp): void => {
+        this.shieldHp = Math.max(0, Math.min(SIPHON_OVERHEAL_MAX, hp));
+      },
+      killPlayer: (cause): void => {
+        if (!this.alive) return;
+        this.shieldHp = 0;
+        this.overHp = 0;
+        this.die(simNow(), null, cause);
+      },
+      spawnEnemy: (kind, x, y, aimAt): string => {
+        const e = spawnEnemyState(kind, x, y);
+        if (aimAt) e.angle = Math.atan2(aimAt.y - y, aimAt.x - x);
+        if (kind === "dreadnought") {
+          e.hp = bossHp(Math.max(1, Object.keys(this.peers).length));
+          e.maxHp = e.hp;
+        } else if (ELITE_HP_BASE[kind] !== undefined) {
+          e.hp = eliteHp(kind, this.maxPresentLevel());
+          e.maxHp = e.hp;
+        }
+        this.world.enemies.push(e);
+        this.dirty.enemies = true;
+        return e.id;
+      },
+      setEnemyHp: (id, hp): void => {
+        const e = this.world.enemies.find((en) => en.id === id);
+        if (e) e.hp = Math.max(1, hp);
+      },
+      damageEnemy: (id, amount): void => this.hostDamageEnemy(id, amount, 0, 0),
+      spawnBeacon: (x, y, chargeS, activeS): void =>
+        this.hostSpawnBeacon(x, y, simNow(), chargeS, activeS),
+      spawnShards: (count, x, y): void => this.hostSpawnShards(x, y, count),
+      enemies: (): ReadonlyArray<Readonly<EnemyState>> => this.world.enemies,
+      player: () => ({
+        x: this.shipX,
+        y: this.shipY,
+        vx: this.shipVX,
+        vy: this.shipVY,
+        angle: this.shipAngle,
+        alive: this.alive,
+        level: this.level,
+        shieldHp: this.shieldHp,
+      }),
+      worldSize: () => ({ w: this.world.playW, h: this.world.playH }),
+    };
   }
 
   // ---- dev hooks (headless driving for reviewers) ------------------------------------------

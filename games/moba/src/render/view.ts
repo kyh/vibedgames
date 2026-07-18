@@ -50,7 +50,7 @@ const D_BRIDGE = -84; // minus a per-strip index (northern strips on top), stays
 const DEPTH_DECAL = -50;
 
 // Terrain autotile tables (flat/elevated grass), cliff + slope frames live in
-// ./autotile — the single source shared with the ?ui=map gallery.
+// ./autotile — the single source shared with the ?gallery=map gallery.
 // Bridge_All frames: 0/1/2 = horizontal left-cap/middle/right-cap, 11 = shadow.
 const BRIDGE_L = 0;
 const BRIDGE_M = 1;
@@ -1071,6 +1071,26 @@ export class WorldView {
   clearUnitViews(): void {
     for (const [, v] of this.units) v.container.destroy();
     this.units.clear();
+  }
+
+  /** Staging hook (trailer/director): restore structure views to match a freshly
+   *  staged world. The normal game never revives a structure, so syncStructures
+   *  only handles the alive→dead edge; a director that swaps in a new World needs
+   *  the reverse (rubble back to the intact tower/castle art + bars). */
+  resetStructures(world: World): void {
+    for (const [id, sv] of this.structs) {
+      const u = world.units.get(id);
+      if (!u || !u.alive || !sv.dead) continue;
+      sv.dead = false;
+      const tier = u.structure?.tier ?? "t1";
+      const tex =
+        tier === "ancient"
+          ? `b-castle-${u.team === "radiant" ? "blue" : "red"}`
+          : `b-tower-${u.team === "radiant" ? "blue" : "red"}`;
+      sv.sprite.setTexture(tex).setAlpha(1);
+      sv.hpBg.setVisible(true);
+      sv.hpFill.setVisible(true);
+    }
   }
 
   /** Hero attack flourish: a sweeping slash arc for melee, a muzzle spark for

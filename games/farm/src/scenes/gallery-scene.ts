@@ -12,7 +12,7 @@ import {
 } from "../world/worldmap";
 import { getWorldMap } from "../world/map-store";
 
-// Asset inspection page (open the game with #gallery). Every tile index the
+// Asset inspection page (open the game with ?gallery). Every tile index the
 // world map actually uses, with its gameplay classification; every placed
 // deco sprite with its animation; character/animal/crop sheets. Click any
 // cell to pin its details in the top bar.

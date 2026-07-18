@@ -9,7 +9,6 @@ import { MineScene } from "./scenes/mine-scene";
 import { MineHudScene } from "./scenes/mine-hud-scene";
 import { HudScene } from "./scenes/hud-scene";
 import { InventoryScene } from "./scenes/inventory-scene";
-import { GalleryScene } from "./scenes/gallery-scene";
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.WEBGL,
@@ -19,16 +18,7 @@ const config: Phaser.Types.Core.GameConfig = {
   pixelArt: true,
   roundPixels: true,
   physics: { default: "arcade", arcade: { gravity: { x: 0, y: 0 }, debug: false } },
-  scene: [
-    BootScene,
-    TitleScene,
-    GameScene,
-    MineScene,
-    MineHudScene,
-    HudScene,
-    InventoryScene,
-    GalleryScene,
-  ],
+  scene: [BootScene, TitleScene, GameScene, MineScene, MineHudScene, HudScene, InventoryScene],
 };
 
 declare global {

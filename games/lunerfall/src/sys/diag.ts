@@ -46,7 +46,7 @@ export function installTestHooks(game: Phaser.Game): void {
 }
 
 function restartSolo(game: Phaser.Game): void {
-  for (const key of ["select", "game", "editor"]) {
+  for (const key of ["select", "game", "viewer"]) {
     if (game.scene.isActive(key)) game.scene.stop(key);
   }
   diag.frame = 0;

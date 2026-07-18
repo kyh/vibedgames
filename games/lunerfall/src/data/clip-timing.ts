@@ -82,7 +82,7 @@ export function buildKitClips(scene: Phaser.Scene) {
 }
 
 // The anim key playback should use for a hero clip — the retimed kit variant
-// when one exists, else the base authored clip. Shared by Player + the editor.
+// when one exists, else the base authored clip. Shared by Player + the viewer.
 export function kitClipKey(scene: Phaser.Scene, hero: HeroName, clip: string): string {
   const kitKey = `${hero}:${clip}${KIT_SUFFIX}`;
   return scene.anims.exists(kitKey) ? kitKey : `${hero}:${clip}`;

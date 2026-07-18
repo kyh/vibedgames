@@ -10,13 +10,8 @@ import { RoadNetwork } from "../src/world/network.ts";
 import { parkCell } from "../src/world/park-clear.ts";
 import { NETWORK_GEN_ID, SF_BASE_NODES } from "../src/world/sf-network.ts";
 import { STREETS_GEN_ID } from "../src/world/sf-streets.ts";
-import {
-  deserializeWorldBin,
-  packWorld,
-  serializeWorldBin,
-  unpackWorld,
-  WORLD_REV,
-} from "../src/world/world-bin.ts";
+import { deserializeWorldBin, unpackWorld, WORLD_REV } from "../src/world/world-bin.ts";
+import { packWorld, serializeWorldBin } from "../src/world/world-bin-pack.ts";
 
 let pass = 0;
 let fail = 0;

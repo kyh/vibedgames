@@ -220,8 +220,16 @@ export class PhysicsWorld {
   }
 
   // A parked car: kinematic (stays exactly put) until the taxi punts it, then
-  // makeDynamic() lets it bounce. Yawed to face along its curb.
-  createParkedBody(x: number, y: number, z: number, yaw: number): RAPIER.RigidBody {
+  // makeDynamic() lets it bounce. Yawed to face along its curb. `density`
+  // defaults to the normal-play value; the trailer's staged plow row passes a
+  // lighter one so a full-speed plow launches cars instead of spinning the taxi.
+  createParkedBody(
+    x: number,
+    y: number,
+    z: number,
+    yaw: number,
+    density = 18,
+  ): RAPIER.RigidBody {
     const body = this.world.createRigidBody(
       RAPIER.RigidBodyDesc.kinematicPositionBased()
         .setTranslation(x, y, z)
@@ -233,7 +241,7 @@ export class PhysicsWorld {
       RAPIER.ColliderDesc.cuboid(1.0, 0.75, 1.25)
         .setFriction(0.7)
         .setRestitution(0.05)
-        .setDensity(18),
+        .setDensity(density),
       body,
     );
     return body;

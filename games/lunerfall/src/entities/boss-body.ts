@@ -139,6 +139,13 @@ export class BossBody {
     this.stateT = 0;
   }
 
+  /** Trailer-mode choreography: force an attack state through the real FSM
+   * entry (same transition takeHit/idle use), so telegraphs/timings stay
+   * authentic. Never called by gameplay. */
+  forceState(s: BossState) {
+    this.setState(s);
+  }
+
   step(dt: number, tx: number, ty: number) {
     this.prevX = this.x;
     this.prevY = this.y;

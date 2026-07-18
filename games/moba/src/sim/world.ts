@@ -251,16 +251,24 @@ export function spawnHero(
 }
 
 // ---- spawning creeps -------------------------------------------------------
-function spawnCreep(w: World, team: Team, lane: LaneId, ckind: CreepKind, idx: number): void {
+function spawnCreep(
+  w: World,
+  team: Team,
+  lane: LaneId,
+  ckind: CreepKind,
+  idx: number,
+  at?: Vec2,
+): Unit {
   const def = CREEPS[ckind];
   const wps = lanePath(lane, team);
-  const start = wps[0] ?? BASES[team].creepSpawn;
-  const jitter = (n: number) => (rand(w) - 0.5) * n;
+  const start = at ?? wps[0] ?? BASES[team].creepSpawn;
+  // staged spawns (trailer/director) want tight placement; wave spawns spread out
+  const jitter = (n: number) => (rand(w) - 0.5) * (at ? 24 : n);
   const u = baseUnit(
     nextId(w, "c"),
     "creep",
     team,
-    start.x + jitter(90) + idx * 12,
+    start.x + jitter(90) + (at ? 0 : idx * 12),
     start.y + jitter(90),
     def.radius,
   );
@@ -285,8 +293,46 @@ function spawnCreep(w: World, team: Team, lane: LaneId, ckind: CreepKind, idx: n
   u.projectileSpeed = def.projectileSpeed;
   u.moveSpeedBase = def.moveSpeed;
   u.order = { type: "lane" };
-  u.creep = { ckind, lane, waypoints: wps, wpIdx: 1, spawnWave: w.waveCount };
+  u.creep = {
+    ckind,
+    lane,
+    waypoints: wps,
+    wpIdx: at ? forwardWaypoint(wps, at) : 1,
+    spawnWave: w.waveCount,
+  };
   w.units.set(u.id, u);
+  return u;
+}
+
+/** The waypoint a mid-lane spawned creep should march toward: the one after the
+ *  nearest, so it keeps moving forward instead of walking back to the base. */
+function forwardWaypoint(wps: Vec2[], at: Vec2): number {
+  let best = 0;
+  let bestD = Infinity;
+  for (let i = 0; i < wps.length; i++) {
+    const p = wps[i];
+    if (!p) continue;
+    const d = (p.x - at.x) ** 2 + (p.y - at.y) ** 2;
+    if (d < bestD) {
+      bestD = d;
+      best = i;
+    }
+  }
+  return Math.min(best + 1, Math.max(0, wps.length - 1));
+}
+
+/** Staging hook (trailer/director): spawn a single lane creep at an arbitrary
+ *  world point, already marching its lane. Uses the exact wave-creep stat path
+ *  (ramps, megacreeps) so a staged creep is indistinguishable from a real one. */
+export function spawnCreepAt(
+  w: World,
+  team: Team,
+  lane: LaneId,
+  ckind: CreepKind,
+  x: number,
+  y: number,
+): Unit {
+  return spawnCreep(w, team, lane, ckind, 0, { x, y });
 }
 
 function spawnWave(w: World): void {

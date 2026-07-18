@@ -132,6 +132,16 @@ async function main(): Promise<void> {
 
   const params = new URLSearchParams(location.search);
 
+  // ── Gameplay trailer (?trailer=1): scripted, letterboxed, offline-staged
+  //    showcase; its own scene/loop + a separate vite chunk so gameplay never
+  //    pays for trailer code. No menus, no pause wiring, no network. ──
+  if (params.has("trailer")) {
+    const { runBattleArenaTrailer } = await import("./trailer/trailer-director");
+    runBattleArenaTrailer(view, lib);
+    window.addEventListener("resize", () => view.resize());
+    return;
+  }
+
   // ── Map editor (?editor=1): its own scene + input; a separate vite chunk so
   //    gameplay never pays for the editor code ──
   if (params.has("editor")) {

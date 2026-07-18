@@ -61,6 +61,14 @@ declare global {
 /** Routine saves are debounced: flushed at most this often (seconds). */
 const SAVE_FLUSH_SEC = 3;
 
+// ---- trailer mode (src/trailer/) --------------------------------------------
+// Set once by the trailer director before the scene boots. Keeps a staged demo
+// run fully isolated: no co-op session, no HUD scene. Dead in normal play.
+let trailerStaging = false;
+export function enableTrailerStaging(): void {
+  trailerStaging = true;
+}
+
 /** A single tile's synced state: tilled, watered, crop id (or null), grow-days. */
 type TileEdit = { t: number; w: number; c: CropId | null; d: number };
 
@@ -133,6 +141,8 @@ export class GameScene extends Phaser.Scene {
   fishing!: Fishing;
   animals!: AnimalManager;
   npcs!: NpcManager;
+  /** Trailer-mode scripted movement — read like a stick when real input is silent. */
+  trailerMove: { x: number; y: number; run: boolean } | null = null;
   private fainted = false;
   private onResizeHandler?: (gs: Phaser.Structs.Size) => void;
   private saveHandler = (): void => this.save();
@@ -192,6 +202,7 @@ export class GameScene extends Phaser.Scene {
     this.pathStuck = 0;
     this.saveDirty = false;
     this.saveAcc = 0;
+    this.trailerMove = null;
 
     if (data?.fromMine) {
       // returning from the mine — world/state already initialized; just rebuild
@@ -208,7 +219,7 @@ export class GameScene extends Phaser.Scene {
     // save from before the fixed seed is a DIFFERENT map — half-merging two
     // worlds (tilling grass that is water elsewhere) is worse than playing it
     // solo (Phase 1). The session survives mine trips: only created once.
-    if (!this.net && this.seed === FARM_SEED) {
+    if (!trailerStaging && !this.net && this.seed === FARM_SEED) {
       this.net = new NetSession({
         room: MP_ROOM,
         maxPlayers: MP_MAX_PLAYERS,
@@ -263,8 +274,10 @@ export class GameScene extends Phaser.Scene {
     // fresh press (and swing a tool) on this scene's first frame.
     this.pad.update();
 
-    if (!this.scene.isActive("Hud")) this.scene.launch("Hud");
-    else this.scene.get("Hud").events.emit("hud-rebind");
+    if (!trailerStaging) {
+      if (!this.scene.isActive("Hud")) this.scene.launch("Hud");
+      else this.scene.get("Hud").events.emit("hud-rebind");
+    }
 
     this.game.events.off("hidden", this.saveHandler);
     this.game.events.on("hidden", this.saveHandler);
@@ -528,6 +541,32 @@ export class GameScene extends Phaser.Scene {
       this.cropImgs.set(i, img);
     } else {
       img.setTexture(`crop-${crop}`, stage);
+    }
+  }
+
+  /** Trailer staging: set a tile's full farm state (soil/water/crop) with
+   *  correct art in one call. Uses the same render helpers as gameplay. */
+  stageTile(
+    tx: number,
+    ty: number,
+    s: { tilled: boolean; watered: boolean; crop: CropId | null; daysGrown: number },
+  ): void {
+    if (!inBounds(tx, ty)) return;
+    const idx = this.world.idx(tx, ty);
+    this.world.crops.delete(idx);
+    this.cropImgs.get(idx)?.destroy();
+    this.cropImgs.delete(idx);
+    this.world.tilled[idx] = s.tilled ? 1 : 0;
+    this.world.watered[idx] = s.tilled && s.watered ? 1 : 0;
+    if (s.tilled) this.ensureSoil(idx);
+    else {
+      this.soilImgs.get(idx)?.destroy();
+      this.soilImgs.delete(idx);
+    }
+    this.refreshSoilTint(idx);
+    if (s.tilled && s.crop) {
+      this.world.crops.set(idx, { crop: s.crop, daysGrown: s.daysGrown });
+      this.ensureCrop(idx, s.crop, cropStage(CROPS[s.crop], s.daysGrown));
     }
   }
 
@@ -818,6 +857,13 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    // trailer choreography fills in like a stick when real input is silent
+    if (dx === 0 && dy === 0 && this.trailerMove) {
+      dx = this.trailerMove.x;
+      dy = this.trailerMove.y;
+      stickRun = this.trailerMove.run;
+    }
+
     // keyboard/stick input cancels click-to-move; otherwise steer along the path
     if (dx !== 0 || dy !== 0) this.clickPath = [];
     else if (this.clickPath.length > 0) {
@@ -985,6 +1031,7 @@ export class GameScene extends Phaser.Scene {
 
   private updateHighlight(): void {
     this.highlight.clear();
+    if (trailerStaging) return; // trailer shots: no target-tile chrome
     if (this.uiOpen || this.transitioning || this.fishing.active) return;
     const { tx, ty } = this.targetTile();
     if (!inBounds(tx, ty)) return;
@@ -1005,7 +1052,8 @@ export class GameScene extends Phaser.Scene {
 
   // ---------------------------------------------------------------- actions
 
-  private tryAction(target?: { tx: number; ty: number }): void {
+  /** Public: the trailer director drives staged actions through this exact path. */
+  tryAction(target?: { tx: number; ty: number }): void {
     if (this.uiOpen || this.acting || this.transitioning) return;
     if (this.fishing.active) {
       this.fishing.onActionPress();

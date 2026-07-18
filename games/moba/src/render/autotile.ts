@@ -1,5 +1,5 @@
 // Single source of truth for the terrain tileset's autotile layout (the 9-wide
-// sheet shared by tiles.png in the live game and sc-tiles in the ?ui=map gallery).
+// sheet shared by tiles.png in the live game and sc-tiles in the ?gallery=map gallery).
 // The renderer (render/view.ts) and the gallery (scenes/gallery-scene.ts) both
 // paint from these tables, so they MUST agree tile-for-tile — keeping them here
 // removes the hand-sync ("verified tile-by-tile") drift between the two files.

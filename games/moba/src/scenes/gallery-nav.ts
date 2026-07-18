@@ -1,15 +1,18 @@
 import Phaser from "phaser";
 
 import { FONT } from "../render/font";
+import { startGallery, startShowcase } from "./dev-scenes";
+import type { GallerySection } from "./dev-scenes";
 
 // A shared row of clickable tabs across the top of every gallery page, so hopping
 // between them is one click instead of a URL edit. "UI" is the character/bot
-// showcase (ShowcaseScene); the rest are asset pages (GalleryScene sections).
+// showcase (ShowcaseScene, ?viewer); the rest are asset pages (GalleryScene
+// sections, ?gallery=<section>).
 
-export type GallerySection = "ui" | "units" | "terrain" | "fx" | "map";
+type TabId = "viewer" | GallerySection;
 
-const TABS: { id: GallerySection; label: string }[] = [
-  { id: "ui", label: "UI" },
+const TABS: { id: TabId; label: string }[] = [
+  { id: "viewer", label: "UI" },
   { id: "units", label: "Units" },
   { id: "terrain", label: "Terrain" },
   { id: "fx", label: "FX" },
@@ -20,12 +23,12 @@ const TAB_W = 100;
 const GAP = 8;
 
 export function buildGalleryNav(scene: Phaser.Scene, current: string, y = 26): void {
-  const go = (id: GallerySection): void => {
+  const go = (id: TabId): void => {
     if (id === current) return;
-    // keep the address bar on the ?ui scheme so any page is shareable/refreshable
-    window.history.replaceState(null, "", id === "ui" ? "?ui" : `?ui=${id}`);
-    if (id === "ui") scene.scene.start("Showcase");
-    else scene.scene.start("Gallery", { section: id });
+    // keep the address bar on the route scheme so any page is shareable/refreshable
+    window.history.replaceState(null, "", id === "viewer" ? "?viewer" : `?gallery=${id}`);
+    if (id === "viewer") void startShowcase(scene);
+    else void startGallery(scene, id);
   };
 
   const total = TABS.length * TAB_W + (TABS.length - 1) * GAP;

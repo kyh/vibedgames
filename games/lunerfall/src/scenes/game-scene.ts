@@ -9,7 +9,7 @@ import {
 import { sfx } from "../audio/sfx";
 import { BASE_H, BASE_W, COLORS, TILE } from "../config";
 import { type EnemyName, ENEMY_NAMES, HERO_NAMES, type HeroName } from "../data/animations";
-import { rollAffix } from "../data/affixes";
+import { type Affix, AFFIXES, rollAffix } from "../data/affixes";
 import { type BiomePalette, biomePalette, enemyPool } from "../data/biomes";
 import { ENEMIES } from "../data/enemies";
 import { type HeroDef, HEROES } from "../data/heroes";
@@ -50,7 +50,7 @@ import {
 } from "../sys/fx";
 import { diag } from "../sys/diag";
 import { Grid } from "../sys/grid";
-import { rand } from "../sys/rng";
+import { rand, reseed } from "../sys/rng";
 import { type Offer, RunManager } from "../sys/run";
 import { Input, type InputState } from "../sys/input";
 import { gameInset, isCoarse } from "../sys/screen";
@@ -298,6 +298,13 @@ export class GameScene extends Phaser.Scene {
   private heartsText!: Phaser.GameObjects.Text;
   private infoText!: Phaser.GameObjects.Text;
   private banner!: Phaser.GameObjects.Text;
+
+  // ── trailer mode (src/trailer/trailer-director.ts) ─────────────────────────
+  // Both stay unset in normal play: only the trailer director — lazy-loaded
+  // behind the ?trailer=1 check in main.ts — writes them via the trailer*
+  // methods at the bottom of this class, so all of it is dead code otherwise.
+  private trailerActive = false;
+  private trailerIn: (() => TrailerInputs) | null = null;
 
   private demo = false;
   private demoT = 0;
@@ -749,8 +756,8 @@ export class GameScene extends Phaser.Scene {
 
   // Elite room: roll an affix onto an enemy — recolour it and bend its combat
   // multipliers (host-authoritative; guests render the puppet without the tint).
-  private applyAffix(e: Enemy) {
-    const a = rollAffix();
+  // The affix parameter is only supplied by trailer staging; gameplay rolls.
+  private applyAffix(e: Enemy, a: Affix = rollAffix()) {
     e.body.hp = Math.round(e.body.hp * a.hpMult) + 1;
     e.body.speedMult = a.speedMult;
     e.body.dmgTakenMult = a.dmgTakenMult;
@@ -1010,7 +1017,8 @@ export class GameScene extends Phaser.Scene {
     if (this.state === "dead") {
       this.deadT += dts;
       this.enemies.forEach((e) => e.render());
-      if (this.deadT > 2.4) this.scene.start("select");
+      // Trailer scenes stage their own restart — never bounce to the hub.
+      if (this.deadT > 2.4 && !this.trailerActive) this.scene.start("select");
       return;
     }
     if (this.state === "transition") {
@@ -1046,8 +1054,9 @@ export class GameScene extends Phaser.Scene {
 
     // Host / solo: authoritative fixed-step sim.
     if (this.role === "host") this.syncRemotePresence();
-    const snap = this.demo ? this.demoInput() : this.controls.sample();
-    const remoteIn = this.remote ? this.readRemoteInput() : null;
+    const scripted = this.trailerIn ? this.trailerIn() : null;
+    const snap = scripted ? scripted.p1 : this.demo ? this.demoInput() : this.controls.sample();
+    const remoteIn = scripted ? scripted.p2 : this.remote ? this.readRemoteInput() : null;
     if (this.vs) {
       // Match over + hold lapsed: either duelist's attack press restarts it.
       if (this.vs.canRematch && (snap.attackPressed || (remoteIn?.attackPressed ?? false))) {
@@ -2125,6 +2134,13 @@ export class GameScene extends Phaser.Scene {
     // Push one final hearts=0 snapshot so the guest sees the shared death.
     if (this.role === "host" && this.session)
       this.session.patchShared({ snap: this.encodeSnapshot() });
+    if (this.trailerActive) {
+      // Trailer deaths never touch the real meta/best-score saves; show the
+      // shard yield the death WOULD bank (death-as-progress is the beat).
+      const would = Math.floor(this.gold / 4) + this.run.depth * 2 + (this.run.biome - 1) * 6;
+      this.showBanner(`YOU FELL   SCORE ${this.score}   +${would} ✦`, 2600);
+      return;
+    }
     const earned = bankRun(loadMeta(), this.gold, this.run.depth, this.run.biome);
     const best = recordBestScore(this.score);
     const pb = this.score > 0 && this.score >= best ? "  ★ NEW BEST" : "";
@@ -2489,6 +2505,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private checkDoors() {
+    // Trailer scenes are single-room shots: a door walk-through mid-take would
+    // rebuild the world under the camera.
+    if (this.trailerActive) return;
     // No leaving a downed teammate behind: doors lock during a last stand.
     if (!this.cleared || this.state !== "active" || this.lastStand) return;
     for (const d of this.doors) {
@@ -2532,4 +2551,228 @@ export class GameScene extends Phaser.Scene {
       `${biomePalette(biome).name} ${biome}   DEPTH ${depth}   ⬡ ${this.gold}${relics}   ★ ${this.score}`,
     );
   }
+
+  // ── trailer-mode hooks ──────────────────────────────────────────────────────
+  // Staging surface for src/trailer/trailer-director.ts (?trailer=1 only). All
+  // methods drive the exact same code paths gameplay uses — real rooms, real
+  // enemies, real combat resolution — they only skip the menu/network plumbing.
+  // Nothing in normal play calls any of this.
+
+  /** Fully restage the world as one trailer shot: fresh solo/duo actors, a
+   * seeded room, scene-scoped mods/hearts/gold, HUD policy, and the sim frozen
+   * until the shell reveals the scene (trailerFreeze(0) on first run frame). */
+  trailerStage(o: TrailerStageOpts): void {
+    this.trailerActive = true;
+    if (o.seed !== undefined) reseed(o.seed);
+    // Cross-scene reset: every shot stages from nothing, independent of what
+    // the previous shot did (deaths, versus rounds, last stands, relics).
+    this.state = "active";
+    this.deadT = 0;
+    this.transT = 0;
+    this.transBuilt = false;
+    this.pendingOffer = null;
+    this.freeze = 0;
+    this.mods = { ...baseMods(), ...o.mods };
+    this.ownedRelics = new Set(o.ownedRelics ?? []);
+    this.maxHearts = Math.max(1, this.mods.maxHearts);
+    this.hearts = o.hearts ?? this.maxHearts;
+    this.gold = o.gold ?? 0;
+    this.score = o.score ?? 0;
+    this.combo = 0;
+    this.comboT = 0;
+    this.lastCrit = false;
+    this.tweens.killTweensOf(this.comboText);
+    this.comboText.setAlpha(0);
+    this.lastStand = null;
+    this.destroyLastStandUi();
+    this.mode = "coop";
+    this.vs = null;
+    this.vsSpawns = [];
+    this.vsHitSeq = new WeakMap();
+
+    // Fresh actors — hero kits bind at construction, so scenes swap heroes by
+    // rebuilding the Player wrappers (same spawnPlayer path as create()).
+    this.player.destroy();
+    this.remote?.destroy();
+    this.remote = undefined;
+    this.heroName = o.hero;
+
+    if (o.room === "versus") {
+      // Offline duel: both fighters are local bodies through the real
+      // VersusMatch machine (sys/versus.ts) — no network, same rules.
+      this.mode = "versus";
+      const vs = new VersusMatch();
+      this.vs = vs;
+      const g = new Grid();
+      this.player = this.spawnPlayer(HEROES[o.hero], g, 0, 0);
+      this.remote = this.spawnPlayer(HEROES[o.hero2 ?? "reaper"], g, 0, 0);
+      this.buildVersusRoom();
+      vs.beginMatch();
+      vs.t = 0.03; // collapse the round-intro freeze: FIGHT! lands on reveal
+      const st = o.vsState;
+      if (st) {
+        vs.hp.host = st.hostHp ?? vs.hp.host;
+        vs.hp.guest = st.guestHp ?? vs.hp.guest;
+        vs.score.host = st.hostScore ?? vs.score.host;
+        vs.score.guest = st.guestScore ?? vs.score.guest;
+        vs.round = st.round ?? vs.round;
+      }
+    } else {
+      const def = this.run.debugEnter(o.room, o.biome ?? 1, o.depth ?? 2);
+      if (o.noEnemies) def.enemySpawns.length = 0;
+      this.player = this.spawnPlayer(
+        HEROES[o.hero],
+        def.grid,
+        def.playerSpawn.x,
+        def.playerSpawn.y,
+      );
+      if (o.hero2)
+        this.remote = this.spawnPlayer(
+          HEROES[o.hero2],
+          def.grid,
+          def.playerSpawn.x,
+          def.playerSpawn.y,
+        );
+      this.buildRoom(def);
+      if (o.hideDoors) {
+        // Scenic shots (e.g. the moonrise release beat) stage the hero where an
+        // active exit gate would otherwise pulse in frame. Safe to drop them:
+        // checkDoors is trailer-gated and checkClear's setActive no-ops on an
+        // empty list, so nothing else reads the doors mid-shot.
+        this.doors.forEach((d) => d.destroy());
+        this.doors = [];
+      }
+    }
+    if (o.playerAt) this.player.enterRoom(this.grid, o.playerAt.x, o.playerAt.y);
+    if (o.player2At) this.remote?.enterRoom(this.grid, o.player2At.x, o.player2At.y);
+
+    // HUD policy: everything hidden unless the shot opts in; visibility (not
+    // alpha) so showBanner/updateHud can't resurrect a hidden element.
+    const hud = o.hud ?? {};
+    this.heartsText.setVisible(hud.hearts ?? false);
+    this.infoText.setVisible(hud.info ?? false).setFontSize(9); // versus HUD bumps to 12
+    this.banner.setVisible(hud.banner ?? false);
+    this.comboText.setVisible(hud.combo ?? false);
+    const bossBar = hud.bossBar ?? false;
+    this.bossHp?.setVisible(bossBar);
+    this.bossHpBg?.setVisible(bossBar);
+    // Kill the room-build announcement; scenes trigger their own banners.
+    this.tweens.killTweensOf(this.banner);
+    this.banner.setAlpha(0);
+    this.fadeRect.setAlpha(0);
+    this.updateHud();
+    // Hold the sim until the shell reveals the shot (dip/card is still black).
+    this.freeze = 9999;
+  }
+
+  /** Spawn one enemy into the live fight (real Enemy + biome HP scaling; the
+   * optional affix id recolours/buffs it exactly like an elite-room roll). */
+  trailerSpawnEnemy(name: EnemyName, x: number, y: number, affixId?: string): void {
+    const e = new Enemy(this, this.grid, ENEMIES[name], x, y);
+    e.body.hp += Math.floor((this.run.biome - 1) / 2);
+    const affix = AFFIXES.find((a) => a.id === affixId);
+    if (affix) this.applyAffix(e, affix);
+    this.enemies.push(e);
+  }
+
+  /** Scripted input source: sampled once per frame in place of the keyboard
+   * (p1 = local hero, p2 = the staged second hero). null restores normal input. */
+  trailerSetInput(provider: (() => TrailerInputs) | null): void {
+    this.trailerIn = provider;
+  }
+
+  /** Advance the sim by n fixed steps while the screen is black — pre-rolls
+   * velocity/AI so the first visible frame is already mid-action. Bypasses the
+   * freeze on purpose. */
+  trailerTick(steps: number): void {
+    for (let i = 0; i < steps; i++) {
+      const s = this.trailerIn ? this.trailerIn() : null;
+      if (s) {
+        this.player.buffer(s.p1);
+        if (this.remote && s.p2) this.remote.buffer(s.p2);
+      }
+      this.simStep(STEP);
+    }
+    // Settle the views so the camera snap targets real positions.
+    this.player.render(1);
+    this.remote?.render(1);
+    this.enemies.forEach((e) => e.render(1));
+    this.boss?.render(1);
+  }
+
+  /** Freeze (seconds — the existing hitstop clock) or unfreeze (0) the sim. */
+  trailerFreeze(seconds: number): void {
+    this.freeze = seconds;
+  }
+
+  /** Mid-shot mod tweak (e.g. arm 100% ward once a last stand is staged). */
+  trailerMods(m: Partial<RunMods>): void {
+    Object.assign(this.mods, m);
+  }
+
+  /** Fire the game's own centre banner (visible only if the shot's HUD opts in). */
+  trailerBanner(text: string, ms: number): void {
+    this.showBanner(text, ms);
+  }
+
+  /** Live handles for choreography: steering reads positions, boss direction
+   * calls forceState, versus scripts read the encoded match state. */
+  trailerWorld(): TrailerWorld {
+    return {
+      p1: this.player,
+      p2: this.remote ?? null,
+      boss: this.boss,
+      enemies: this.enemies,
+      vs: this.vs ? this.vs.encode() : null,
+    };
+  }
 }
+
+// ── trailer-mode types (consumed by src/trailer/trailer-director.ts) ─────────
+export type TrailerInputs = { p1: InputState; p2: InputState | null };
+export type TrailerHudOpts = {
+  hearts?: boolean;
+  info?: boolean;
+  banner?: boolean;
+  combo?: boolean;
+  bossBar?: boolean;
+};
+export type TrailerStageOpts = {
+  hero: HeroName;
+  /** Stage a second local hero (offline co-op / versus scenes). */
+  hero2?: HeroName;
+  room: RoomType | "versus";
+  biome?: number;
+  depth?: number;
+  /** Seeds the gameplay RNG (rooms, crits, relic offers) for repeatable shots. */
+  seed?: number;
+  mods?: Partial<RunMods>;
+  hearts?: number;
+  gold?: number;
+  score?: number;
+  /** Pre-owned relic ids — narrows merchant/cache offers deterministically. */
+  ownedRelics?: readonly string[];
+  /** Strip the room template's enemy spawns (the shot places its own). */
+  noEnemies?: boolean;
+  /** Destroy the room's exit doors after build — for still/scenic shots where
+   * an active gate's pulsing glow + label would sit in frame. */
+  hideDoors?: boolean;
+  playerAt?: { x: number; y: number };
+  player2At?: { x: number; y: number };
+  hud?: TrailerHudOpts;
+  /** Versus only: mid-match state (hearts / round pips) staged before the shot. */
+  vsState?: {
+    hostHp?: number;
+    guestHp?: number;
+    hostScore?: number;
+    guestScore?: number;
+    round?: number;
+  };
+};
+export type TrailerWorld = {
+  p1: Player;
+  p2: Player | null;
+  boss: Boss | null;
+  enemies: readonly Enemy[];
+  vs: NetVersus | null;
+};
