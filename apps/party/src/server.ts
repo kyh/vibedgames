@@ -16,19 +16,20 @@ type Env = {
 };
 
 /**
- * The player as stored on its connection. The two liveness clocks live here,
- * on the socket's attachment, rather than in an instance-level map — see the
- * class comment for why that matters under hibernation.
+ * Durable presence: identity plus the two liveness clocks, kept in the
+ * connection's attachment so it survives Cloudflare's WebSocket hibernation
+ * (which evicts the Durable Object instance but keeps the sockets). Tiny and
+ * bounded — deliberately NOT the per-frame game state, which would risk the 2KB
+ * attachment cap and cost a serialize every tick.
  *
- * - `lastAlive`: last time we heard *anything at all*, pongs included — drives
- *   eviction. A hidden tab keeps this fresh, so backgrounding never removes a
- *   player.
- * - `lastSeen`: last time we heard anything *except a pong* — drives
- *   host-liveness migration when a host vanishes ungracefully or is merely
- *   backgrounded. Pongs are excluded on purpose: a hidden tab still pongs, and
- *   must still lose the host role.
+ * - `aliveAt`: last time we heard *anything* on the keepalive channel (heartbeat
+ *   or pong) — drives eviction. A hidden tab still pongs, so backgrounding never
+ *   removes a player.
+ * - `seenAt`: last time we heard a *non-pong* keepalive (heartbeat) — drives
+ *   host-liveness migration. A hidden tab's rAF heartbeat pauses while it still
+ *   pongs, so a backgrounded host loses the host role but keeps its seat.
  */
-type StoredPlayer = Player & { lastSeen: number; lastAlive: number };
+type Presence = { id: string; color: string; hue: string; seenAt: number; aliveAt: number };
 
 /** Durable, low-frequency room fields, persisted so they survive hibernation. */
 const HOST_ID_KEY = "hostId";
@@ -73,30 +74,31 @@ export class VgServer extends Server {
   /**
    * Room state is split by how it must behave under Cloudflare's WebSocket
    * Hibernation API, which partyserver uses: an idle Durable Object is evicted
-   * and its instance destroyed, but the open sockets — and their serialized
-   * attachments — survive.
+   * and its instance destroyed, but the open sockets — and their attachments —
+   * survive. The split also mirrors how game netcode separates a high-frequency,
+   * drop-tolerant snapshot channel from low-frequency reliable bookkeeping.
    *
-   * - Players and their liveness clocks live on each connection's attachment
-   *   (see `StoredPlayer`), NOT in an instance map. A parallel `players` map
-   *   was emptied on every hibernation, after which `onMessage` dropped every
-   *   surviving connection's messages (they were no longer "admitted"), freezing
-   *   those players into ghosts that could never move or be evicted. Deriving
-   *   players from the live sockets makes that unrepresentable.
-   * - `hostId` and `cap` change rarely but MUST persist: a wiped `hostId` makes
-   *   the real host's `state_patch` get rejected as non-host after a wake; a
-   *   wiped `cap` lets a post-wake join exceed it. They're mirrored in memory
-   *   and written through to storage, and rehydrated in `onStart()`.
-   * - `sharedState` is host-authoritative game state streamed ~30×/s. It is
-   *   intentionally NOT persisted: the room only hibernates when idle (nobody
-   *   streaming), and the host re-establishes it within a tick on resume — and
-   *   clients re-send on reconnect. Persisting it would be pure write
-   *   amplification.
+   * - PRESENCE (identity + liveness) lives on each connection's attachment (see
+   *   `Presence`), NOT an instance map. A parallel map was emptied on every
+   *   hibernation, after which `onMessage` dropped every surviving connection's
+   *   messages (they were no longer "admitted"), freezing those players into
+   *   ghosts. Deriving presence from the live sockets makes that unrepresentable.
+   * - SNAPSHOT (per-player game state + shared state) is the hot channel: kept in
+   *   memory, broadcast every tick, never persisted. It self-heals — clients
+   *   re-send on reconnect, the host re-streams shared state within a tick, and
+   *   the room only hibernates when idle (nobody streaming). Persisting it would
+   *   be pure write amplification and risk the 2KB attachment cap.
+   * - SESSION (`hostId`, `cap`) changes rarely but MUST persist: a wiped host
+   *   makes the real host's `state_patch` get rejected as non-host after a wake;
+   *   a wiped cap lets a post-wake join exceed it. Mirrored in memory, written
+   *   through to storage, rehydrated in `onStart()`.
    */
-  private sharedState: Record<string, unknown> = {};
+  private shared: Record<string, unknown> = {};
+  private snapshots = new Map<string, Record<string, unknown>>();
   private hostId: string | null = null;
   private cap: number | null = null;
 
-  /** Rehydrate durable fields before any handler runs (partyserver awaits this). */
+  /** Rehydrate durable session fields before any handler runs (partyserver awaits this). */
   async onStart() {
     this.hostId = (await this.ctx.storage.get<string | null>(HOST_ID_KEY)) ?? null;
     this.cap = (await this.ctx.storage.get<number | null>(CAP_KEY)) ?? null;
@@ -112,36 +114,50 @@ export class VgServer extends Server {
     await this.ctx.storage.put(CAP_KEY, cap);
   }
 
-  /** The stored player for a connection id, or undefined if not admitted. */
-  private storedPlayer(id: string): StoredPlayer | undefined {
-    for (const connection of this.getConnections<StoredPlayer>()) {
-      if (connection.id === id) return connection.state ?? undefined;
-    }
-    return undefined;
+  private toPlayer(presence: Presence): Player {
+    return {
+      id: presence.id,
+      color: presence.color,
+      hue: presence.hue,
+      state: this.snapshots.get(presence.id) ?? {},
+    };
   }
 
-  /** Public player map (no liveness fields) derived from the live sockets. */
+  /** The presence for a connection id, or undefined if not admitted. */
+  private presenceOf(id: string): Presence | undefined {
+    const connection = this.getConnection<Presence>(id);
+    return connection?.state ?? undefined;
+  }
+
+  /** Public player map (identity from the attachment, state from the snapshot). */
   private players(): PlayerMap {
     const players: PlayerMap = {};
-    for (const connection of this.getConnections<StoredPlayer>()) {
-      const stored = connection.state;
-      if (stored) players[connection.id] = this.toPlayer(stored);
+    for (const connection of this.getConnections<Presence>()) {
+      const presence = connection.state;
+      if (presence) players[connection.id] = this.toPlayer(presence);
     }
     return players;
   }
 
-  private toPlayer(stored: StoredPlayer): Player {
-    return { id: stored.id, color: stored.color, hue: stored.hue, state: stored.state };
-  }
-
-  /** Count of admitted players (connections carrying state), optionally minus one. */
+  /** Count of admitted players (connections carrying presence), optionally minus one. */
   private playerCount(excludeId?: string): number {
     let count = 0;
-    for (const connection of this.getConnections<StoredPlayer>()) {
+    for (const connection of this.getConnections<Presence>()) {
       if (connection.id === excludeId) continue;
       if (connection.state) count++;
     }
     return count;
+  }
+
+  /**
+   * Mark a connection heard-from on the keepalive channel. `seen` is true for a
+   * non-pong keepalive (heartbeat) — the signal a backgrounded tab stops sending.
+   */
+  private touch(connection: Connection<Presence>, seen: boolean) {
+    const presence = connection.state;
+    if (!presence) return;
+    const now = Date.now();
+    connection.setState({ ...presence, aliveAt: now, seenAt: seen ? now : presence.seenAt });
   }
 
   /** Migrate host off a connection we haven't heard from within the liveness
@@ -151,27 +167,27 @@ export class VgServer extends Server {
     const host = this.hostId;
     if (!host) return;
     const now = Date.now();
-    const hostStored = this.storedPlayer(host);
-    if (hostStored && now - hostStored.lastSeen <= HOST_LIVENESS_TIMEOUT_MS) return;
+    const hostPresence = this.presenceOf(host);
+    if (hostPresence && now - hostPresence.seenAt <= HOST_LIVENESS_TIMEOUT_MS) return;
 
-    let next: Connection<StoredPlayer> | null = null;
-    for (const connection of this.getConnections<StoredPlayer>()) {
-      const stored = connection.state;
-      if (!stored || connection.id === host) continue;
-      if (now - stored.lastSeen > HOST_LIVENESS_TIMEOUT_MS) continue;
+    let next: Connection<Presence> | null = null;
+    for (const connection of this.getConnections<Presence>()) {
+      const presence = connection.state;
+      if (!presence || connection.id === host) continue;
+      if (now - presence.seenAt > HOST_LIVENESS_TIMEOUT_MS) continue;
       if (!next || connection.id < next.id) next = connection;
     }
     if (!next) return; // nobody healthier to hand off to — keep the current host
 
     // Grace on the new host so we don't immediately re-migrate.
-    const stored = next.state;
-    if (stored) next.setState({ ...stored, lastSeen: now });
+    const presence = next.state;
+    if (presence) next.setState({ ...presence, seenAt: now });
     await this.setHostId(next.id);
     const hostMessage: ServerMessage = { type: "host", data: { id: next.id } };
     this.broadcast(JSON.stringify(hostMessage), []);
   }
 
-  async onConnect(connection: Connection<StoredPlayer>, ctx: ConnectionContext) {
+  async onConnect(connection: Connection<Presence>, ctx: ConnectionContext) {
     // The room's effective cap for this admission decision: the sticky cap an
     // earlier admitted client established, or — if none yet — the cap this
     // client advertises. We don't persist the requested cap until we've
@@ -202,15 +218,15 @@ export class VgServer extends Server {
 
     const now = Date.now();
     const { color, hue } = getColorById(connection.id);
-    const stored: StoredPlayer = {
+    const presence: Presence = {
       id: connection.id,
       color,
       hue,
-      state: {},
-      lastSeen: now,
-      lastAlive: now,
+      seenAt: now,
+      aliveAt: now,
     };
-    connection.setState(stored);
+    connection.setState(presence);
+    this.snapshots.set(connection.id, {});
     void this.scheduleSweep();
     if (!this.hostId) {
       await this.setHostId(connection.id);
@@ -223,7 +239,7 @@ export class VgServer extends Server {
       type: "sync",
       data: {
         players: this.players(),
-        state: this.sharedState,
+        state: this.shared,
         hostId: this.hostId ?? connection.id,
       },
     };
@@ -231,54 +247,50 @@ export class VgServer extends Server {
 
     const joinedMessage: ServerMessage = {
       type: "player_joined",
-      data: this.toPlayer(stored),
+      data: this.toPlayer(presence),
     };
     this.broadcast(JSON.stringify(joinedMessage), [connection.id]);
   }
 
-  async onMessage(sender: Connection<StoredPlayer>, rawMessage: string): Promise<void> {
+  async onMessage(sender: Connection<Presence>, rawMessage: string): Promise<void> {
     try {
-      // Ignore messages from connections that were never admitted — e.g. a
-      // capacity-refused connection that sends in the window before its close
-      // settles. Such a connection carries no state, so it must not be able to
-      // broadcast into the room. (A connection that survived hibernation keeps
-      // its attachment, so it stays admitted — no false drop.)
-      const stored = sender.state;
-      if (!stored) return;
+      // Admission gate: presence lives in the attachment, so a connection that
+      // survived hibernation is still admitted even though its in-memory
+      // snapshot was wiped — the next patch just re-fills it. A capacity-refused
+      // connection carries no presence, so it cannot broadcast into the room.
+      const presence = sender.state;
+      if (!presence) return;
 
       const message = JSON.parse(rawMessage) as ClientMessage;
-      const now = Date.now();
-
-      // Any message at all proves the peer is reachable, so it defers eviction.
-      // But only a non-pong message proves the tab is actually *running*: a
-      // hidden tab still answers pings from its message handler while its rAF
-      // heartbeat is paused, so counting pongs as `lastSeen` would keep a
-      // backgrounded host in the seat forever — the thing host-liveness prevents.
-      // Fold both bumps into a single state write (below), including the state
-      // patch when this is a player_state_patch.
-      const nextSeen = message.type === "pong" ? stored.lastSeen : now;
 
       switch (message.type) {
-        case "heartbeat":
-        case "pong":
-          // liveness only — the timestamp bumps are the whole point
-          sender.setState({ ...stored, lastSeen: nextSeen, lastAlive: now });
+        case "player_state_patch": {
+          // Hot path: snapshot + broadcast only. Liveness rides the heartbeat/
+          // pong keepalive channel, so a per-tick stream costs no attachment write.
+          const next = { ...(this.snapshots.get(sender.id) ?? {}), ...message.data };
+          this.snapshots.set(sender.id, next);
+          const updateMessage: ServerMessage = {
+            type: "player_state",
+            data: { id: sender.id, state: next },
+          };
+          this.broadcast(JSON.stringify(updateMessage), [sender.id]);
           break;
+        }
         case "state_patch": {
-          sender.setState({ ...stored, lastSeen: nextSeen, lastAlive: now });
-          // Shared state is host-authoritative: only the elected host can
-          // write. Non-host writes get a `state` echo back so the client can
-          // rewind its local mirror, and we drop the patch instead of relaying.
+          // Shared state is host-authoritative: only the elected host can write.
+          // Non-host writes get a `state` echo back so the client can rewind its
+          // local mirror, and we drop the patch instead of relaying. Also a hot
+          // path (host streams ~30×/s), so no attachment write here either.
           if (sender.id !== this.hostId) {
             const echo: ServerMessage = {
               type: "state_patch",
-              data: this.sharedState,
+              data: this.shared,
             };
             sender.send(JSON.stringify(echo));
             break;
           }
-          this.sharedState = {
-            ...this.sharedState,
+          this.shared = {
+            ...this.shared,
             ...message.data,
           };
           const broadcastMessage: ServerMessage = {
@@ -288,22 +300,19 @@ export class VgServer extends Server {
           this.broadcast(JSON.stringify(broadcastMessage), []);
           break;
         }
-        case "player_state_patch": {
-          sender.setState({
-            ...stored,
-            state: { ...stored.state, ...message.data },
-            lastSeen: nextSeen,
-            lastAlive: now,
-          });
-          const updateMessage: ServerMessage = {
-            type: "player_state",
-            data: { id: sender.id, state: { ...stored.state, ...message.data } },
-          };
-          this.broadcast(JSON.stringify(updateMessage), [sender.id]);
+        case "heartbeat":
+          // The keepalive that pauses when a tab is hidden — refreshes both
+          // clocks and is the cadence we re-check host liveness on.
+          this.touch(sender, true);
+          await this.checkHostLiveness();
           break;
-        }
+        case "pong":
+          // Answers a server ping even from a hidden tab: proves reachable
+          // (aliveAt) but not running (seenAt untouched).
+          this.touch(sender, false);
+          break;
         case "emit": {
-          sender.setState({ ...stored, lastSeen: nextSeen, lastAlive: now });
+          this.touch(sender, true);
           const eventMessage: ServerMessage = {
             type: "event",
             data: {
@@ -316,19 +325,15 @@ export class VgServer extends Server {
           break;
         }
         default:
-          sender.setState({ ...stored, lastSeen: nextSeen, lastAlive: now });
+          this.touch(sender, true);
           break;
       }
-
-      // every inbound message is a chance to notice the host went silent and
-      // hand off — guests heartbeat every ~2s, so this fires often enough.
-      await this.checkHostLiveness();
     } catch (error) {
       console.error("Error handling message", error);
     }
   }
 
-  onClose(connection: Connection<StoredPlayer>) {
+  onClose(connection: Connection<Presence>) {
     return this.removePlayer(connection);
   }
 
@@ -338,7 +343,7 @@ export class VgServer extends Server {
    * Both tear the connection down, so both must reap the player — otherwise the
    * error path leaks a ghost that keeps occupying a slot against the room cap.
    */
-  onError(connection: Connection<StoredPlayer>) {
+  onError(connection: Connection<Presence>) {
     return this.removePlayer(connection);
   }
 
@@ -352,14 +357,14 @@ export class VgServer extends Server {
   async onAlarm() {
     const now = Date.now();
     const pingMessage = JSON.stringify({ type: "ping" } satisfies ServerMessage);
-    const stale: Connection<StoredPlayer>[] = [];
+    const stale: Connection<Presence>[] = [];
 
-    for (const connection of this.getConnections<StoredPlayer>()) {
-      const stored = connection.state;
+    for (const connection of this.getConnections<Presence>()) {
+      const presence = connection.state;
       // Not-yet-admitted connections (room_full, closing) aren't players; leave them.
-      if (!stored) continue;
+      if (!presence) continue;
 
-      if (now - stored.lastAlive > EVICTION_TIMEOUT_MS) {
+      if (now - presence.aliveAt > EVICTION_TIMEOUT_MS) {
         stale.push(connection);
         continue;
       }
@@ -402,14 +407,15 @@ export class VgServer extends Server {
     await this.ctx.storage.setAlarm(Date.now() + PING_INTERVAL_MS);
   }
 
-  private async removePlayer(connection: Connection<StoredPlayer>): Promise<void> {
+  private async removePlayer(connection: Connection<Presence>): Promise<void> {
     // A connection refused at capacity (room_full) is closed before being
-    // admitted, so it carries no state and no client saw it join. Skip the
+    // admitted, so it carries no presence and no client saw it join. Skip the
     // announce so we don't broadcast a spurious player_left. `player_left` is
     // idempotent on the client anyway, so a trailing onClose after a sweep is
     // harmless.
     if (!connection.state) return;
     const id = connection.id;
+    this.snapshots.delete(id);
 
     const leftMessage: ServerMessage = {
       type: "player_left",
@@ -420,7 +426,7 @@ export class VgServer extends Server {
     // Remaining admitted players, now that this connection is torn down.
     let firstRemaining: string | null = null;
     let remainingCount = 0;
-    for (const other of this.getConnections<StoredPlayer>()) {
+    for (const other of this.getConnections<Presence>()) {
       if (other.id === id || !other.state) continue;
       remainingCount++;
       if (firstRemaining === null || other.id < firstRemaining) firstRemaining = other.id;
@@ -445,7 +451,7 @@ export class VgServer extends Server {
     // host's first broadcast.
     if (remainingCount === 0) {
       await this.setCap(null);
-      this.sharedState = {};
+      this.shared = {};
     }
   }
 }
