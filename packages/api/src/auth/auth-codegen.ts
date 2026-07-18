@@ -12,6 +12,7 @@ import { betterAuth } from "better-auth";
 import { admin, oAuthProxy } from "better-auth/plugins";
 
 export const auth = betterAuth({
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- codegen-only stub; the CLI introspects plugins/schema, never opens a real DB connection
   database: { provider: "sqlite", type: "sqlite" } as never,
   plugins: [oAuthProxy(), expo(), admin(), apiKey()],
   emailAndPassword: { enabled: true },

@@ -42,12 +42,20 @@ export const inviteCodeRelations = relations(inviteCode, ({ one }) => ({
   }),
 }));
 
-export const waitlist = sqliteTable("waitlist", {
-  id: text("id").primaryKey().notNull(),
-  userId: text("user_id").references(() => user.id),
-  source: text("source"),
-  email: text("email"),
-});
+export const waitlist = sqliteTable(
+  "waitlist",
+  {
+    id: text("id").primaryKey().notNull(),
+    userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
+    source: text("source"),
+    email: text("email"),
+  },
+  // SQLite doesn't auto-index FK columns; user deletions would otherwise
+  // seq-scan to satisfy ON DELETE SET NULL.
+  (table) => ({
+    userIdx: index("waitlist_user_id_idx").on(table.userId),
+  }),
+);
 
 export const waitlistRelations = relations(waitlist, ({ one }) => ({
   user: one(user, {
