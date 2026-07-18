@@ -124,6 +124,7 @@ function SidebarProvider({
       <div
         data-slot="sidebar-wrapper"
         style={
+          // oxlint-disable-next-line typescript/consistent-type-assertions -- CSS custom properties aren't in the CSSProperties index type
           {
             "--sidebar-width": SIDEBAR_WIDTH,
             "--sidebar-width-icon": SIDEBAR_WIDTH_ICON,
@@ -182,6 +183,7 @@ function Sidebar({
           data-mobile="true"
           className="w-(--sidebar-width) bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
           style={
+            // oxlint-disable-next-line typescript/consistent-type-assertions -- CSS custom properties aren't in the CSSProperties index type
             {
               "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
             } as React.CSSProperties
@@ -598,6 +600,7 @@ function SidebarMenuSkeleton({
         className="h-4 max-w-(--skeleton-width) flex-1"
         data-sidebar="menu-skeleton-text"
         style={
+          // oxlint-disable-next-line typescript/consistent-type-assertions -- CSS custom properties aren't in the CSSProperties index type
           {
             "--skeleton-width": width,
           } as React.CSSProperties

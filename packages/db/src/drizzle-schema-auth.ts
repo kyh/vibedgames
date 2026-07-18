@@ -122,3 +122,15 @@ export const apikey = sqliteTable(
     keyIdx: index("apikey_key_idx").on(table.key),
   }),
 );
+
+// better-auth's database rate-limit store (rateLimit.storage = "database" in
+// auth.ts). Keyed by IP+path; `key` is unique so the counter upsert is a single
+// indexed lookup. `lastRequest` is the raw epoch-ms number the store writes
+// (not a Date), so it stays a plain integer column. Hand-added — the @better-auth
+// CLI regen emits this table too, so keep it if you regenerate the schema.
+export const rateLimit = sqliteTable("rate_limit", {
+  id: text("id").primaryKey(),
+  key: text("key").notNull().unique(),
+  count: integer("count").notNull(),
+  lastRequest: integer("last_request").notNull(),
+});

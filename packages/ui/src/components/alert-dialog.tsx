@@ -178,9 +178,12 @@ export type AlertState = {
 
 type Listener = () => void;
 
+const initialAlertState: AlertState = { open: false, title: "" };
+const initialListeners: Listener[] = [];
+
 const alertDialogStore = {
-  state: { open: false, title: "" } as AlertState,
-  listeners: [] as Listener[],
+  state: initialAlertState,
+  listeners: initialListeners,
   subscribe: (listener: Listener) => {
     alertDialogStore.listeners.push(listener);
     return () => {

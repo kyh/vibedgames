@@ -104,6 +104,16 @@ export const createAuth = (opts: AuthOptions) => {
       },
     },
     trustedOrigins: opts.trustedOrigins ?? ["expo://"],
+    // Persist rate-limit counters in D1. The default in-memory store keeps
+    // per-isolate counters, so on Cloudflare Workers the effective limit
+    // multiplies across isolates and resets on eviction — no real protection.
+    // 10 requests/60s per IP throttles credential-stuffing against auth routes.
+    rateLimit: {
+      enabled: true,
+      storage: "database",
+      window: 60,
+      max: 10,
+    },
     // Keep the session cookie host-only so user-uploaded games served from
     // `{slug}.vibedgames.com` never see it. We explicitly DO NOT enable
     // crossSubDomainCookies — the platform domain hosts untrusted code.

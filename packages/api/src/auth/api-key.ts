@@ -84,6 +84,7 @@ export const resolveApiKeySession = async (
     // `session.token`) is read downstream; the token is namespaced so it can
     // never collide with a real session token.
     const now = new Date();
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- synthesized better-auth Session shape at the API-key boundary; only `user` and the namespaced token are read downstream
     return {
       user,
       session: {
