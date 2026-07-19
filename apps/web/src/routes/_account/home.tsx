@@ -126,7 +126,7 @@ function GamesPage() {
 
   return (
     <section>
-      <h1 className="sr-only">Games</h1>
+      <h1 className="sr-only">Home</h1>
 
       {list.isError && (
         <p className="text-muted-foreground text-sm">Couldn't load your games. Try reloading.</p>

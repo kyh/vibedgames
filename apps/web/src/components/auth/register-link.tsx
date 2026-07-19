@@ -22,7 +22,7 @@ export const RegisterLink = () => {
           to="/home"
           className="text-muted-foreground hover:text-foreground font-mono text-xs transition"
         >
-          Games
+          Home
         </Link>
       ) : (
         <Link

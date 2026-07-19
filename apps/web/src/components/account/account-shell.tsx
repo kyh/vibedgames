@@ -30,7 +30,7 @@ export type ShellUser = {
 };
 
 const railItems = [
-  { to: "/home", label: "Games", icon: Gamepad2Icon, adminOnly: false },
+  { to: "/home", label: "Home", icon: Gamepad2Icon, adminOnly: false },
   { to: "/settings", label: "Settings", icon: SettingsIcon, adminOnly: false },
   { to: "/admin", label: "Admin", icon: ShieldIcon, adminOnly: true },
 ] as const;
