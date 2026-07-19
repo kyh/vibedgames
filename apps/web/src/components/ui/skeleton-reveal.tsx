@@ -11,7 +11,13 @@ const WIPE_DURATION = 0.6;
  * gradient mask sweeping across the frame while an exactly inverse mask
  * fades the skeleton out at the same moving edge — at every point the two
  * opacities sum to one, so there's no cover slab and no double exposure.
- * Once the sweep completes, the masks and the skeleton drop from the DOM.
+ *
+ * The skeleton and content each keep ONE tree position across every phase —
+ * only styles change — so nothing remounts mid-reveal (remounts replay CSS
+ * entrance animations and refetch images, which reads as flashing). Masks
+ * are removed once the sweep retires so they can't linger as a backdrop
+ * root and break descendant backdrop-filter. Mounting with `ready` already
+ * true (cached data, revisits) skips the animation entirely.
  */
 export const SkeletonReveal = ({
   ready,
@@ -24,13 +30,13 @@ export const SkeletonReveal = ({
   children: React.ReactNode;
   className?: string;
 }) => {
-  const [retired, setRetired] = useState(false);
+  const [retired, setRetired] = useState(ready);
   const prefersReducedMotion = useReducedMotion();
 
   // -100 → content fully masked out (skeleton fully visible); 100 → content
   // fully revealed. The soft edge spans the whole frame, so this reads as a
   // directional fade rather than a hard wipe.
-  const progress = useMotionValue(-100);
+  const progress = useMotionValue(retired ? 100 : -100);
   const contentMask = useTransform(
     progress,
     (value) => `linear-gradient(105deg, black ${value}%, transparent ${value + 100}%)`,
@@ -46,6 +52,7 @@ export const SkeletonReveal = ({
       setRetired(false);
       return;
     }
+    if (retired) return;
     // Reduced motion still needs the skeleton to get out of the way — it
     // just shouldn't travel to do it.
     if (prefersReducedMotion) {
@@ -58,23 +65,24 @@ export const SkeletonReveal = ({
       onComplete: () => setRetired(true),
     });
     return () => controls.stop();
-  }, [ready, progress, prefersReducedMotion]);
-
-  if (!ready) return <div className={className}>{skeleton}</div>;
-  if (retired) return <div className={className}>{children}</div>;
+  }, [ready, retired, progress, prefersReducedMotion]);
 
   return (
     <div className={cn("relative", className)}>
-      <motion.div style={{ maskImage: contentMask, WebkitMaskImage: contentMask }}>
-        {children}
-      </motion.div>
       <motion.div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 overflow-hidden"
-        style={{ maskImage: skeletonMask, WebkitMaskImage: skeletonMask }}
+        style={retired ? undefined : { maskImage: contentMask, WebkitMaskImage: contentMask }}
       >
-        {skeleton}
+        {ready ? children : null}
       </motion.div>
+      {!retired && (
+        <motion.div
+          aria-hidden
+          className={ready ? "pointer-events-none absolute inset-0 overflow-hidden" : undefined}
+          style={ready ? { maskImage: skeletonMask, WebkitMaskImage: skeletonMask } : undefined}
+        >
+          {skeleton}
+        </motion.div>
+      )}
     </div>
   );
 };
