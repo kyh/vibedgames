@@ -145,16 +145,31 @@ async function readErrorSnippet(response: Response, label: string): Promise<stri
   }
 }
 
+export async function throwProviderError(response: Response, label: string): Promise<never> {
+  const text = await readErrorSnippet(response, `${label} error response`);
+  throw new TRPCError({
+    code: "BAD_GATEWAY",
+    message: `${label} failed (${response.status}): ${text}`,
+  });
+}
+
 export async function fetchProviderResponse({
   url,
   init,
   label,
   credentialed,
+  tolerateHttpError = false,
 }: {
   url: string | URL;
   init?: RequestInit;
   label: string;
   credentialed: boolean;
+  /**
+   * Return non-2xx responses instead of throwing, for callers that must
+   * inspect an error response (e.g. billing headers on a failed-job result
+   * fetch) before surfacing the failure. Redirects are still refused.
+   */
+  tolerateHttpError?: boolean;
 }): Promise<Response> {
   const response = await fetch(url, { ...init, redirect: "manual" });
   if (response.status >= 300 && response.status < 400) {
@@ -165,12 +180,8 @@ export async function fetchProviderResponse({
       }.`,
     });
   }
-  if (!response.ok) {
-    const text = await readErrorSnippet(response, `${label} error response`);
-    throw new TRPCError({
-      code: "BAD_GATEWAY",
-      message: `${label} failed (${response.status}): ${text}`,
-    });
+  if (!response.ok && !tolerateHttpError) {
+    await throwProviderError(response, label);
   }
   return response;
 }

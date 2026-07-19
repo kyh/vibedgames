@@ -2,7 +2,7 @@
  * Application schema
  */
 import { relations, sql } from "drizzle-orm";
-import { index, integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, primaryKey, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 import { user } from "./drizzle-schema-auth";
 
@@ -145,6 +145,105 @@ export const deploymentFile = sqliteTable(
     }),
   }),
 );
+
+/**
+ * Append-only ledger of user credit movements, denominated in micro-USD
+ * (1_000_000 = $1). A user's balance is `SUM(delta_micro)` — there is no
+ * cached balance column, so the ledger can never disagree with itself.
+ *
+ * Idempotency lives in the `id`: entries that must exist at most once use a
+ * deterministic id (`signup:{userId}`, `hold:{requestId}`,
+ * `settle:{requestId}`, `release:{requestId}`) inserted with
+ * ON CONFLICT DO NOTHING; admin grants use a random UUID.
+ */
+export const creditEntry = sqliteTable(
+  "credit_entry",
+  {
+    id: text("id").primaryKey().notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    /** Signed micro-USD. Positive = grant/refund, negative = charge. */
+    deltaMicro: integer("delta_micro").notNull(),
+    kind: text("kind", {
+      enum: [
+        "signup_grant",
+        "admin_grant",
+        "generation_hold",
+        "generation_settle",
+        "generation_release",
+      ],
+    }).notNull(),
+    /** Provider request id, set on generation_* entries. */
+    requestId: text("request_id"),
+    endpointId: text("endpoint_id"),
+    note: text("note"),
+    /** Admin who issued a grant; null for system entries. */
+    createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .notNull(),
+  },
+  (table) => ({
+    userIdx: index("credit_entry_user_idx").on(table.userId),
+  }),
+);
+
+export const creditEntryRelations = relations(creditEntry, ({ one }) => ({
+  user: one(user, {
+    fields: [creditEntry.userId],
+    references: [user.id],
+  }),
+}));
+
+/**
+ * One row per generation submitted through `generate.forward`, keyed by the
+ * provider's request id. Tracks the credit lifecycle:
+ *
+ *   held    — an estimated hold was debited at submit
+ *   settled — the result fetch reported actual billable units and the hold
+ *             was corrected to `settledMicro`
+ *   released — the job failed/was cancelled and the hold was refunded
+ *
+ * The status transition out of `held` is a conditional UPDATE, so concurrent
+ * result fetches settle exactly once. Rows that stay `held` (result never
+ * fetched through the proxy) keep their estimated charge.
+ */
+export const generation = sqliteTable(
+  "generation",
+  {
+    requestId: text("request_id").primaryKey().notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    endpointId: text("endpoint_id").notNull(),
+    /** Provider pricing unit (e.g. "megapixels", "seconds"); null if unknown. */
+    unit: text("unit"),
+    /** Micro-USD per unit at submit time; null if pricing lookup failed. */
+    unitPriceMicro: integer("unit_price_micro"),
+    /** Estimated charge debited at submit, micro-USD. */
+    holdMicro: integer("hold_micro").notNull(),
+    /** Actual units reported by the provider on the result fetch. */
+    billedUnits: real("billed_units"),
+    /** Final charge, micro-USD. Set when status leaves `held`. */
+    settledMicro: integer("settled_micro"),
+    status: text("status", { enum: ["held", "settled", "released"] }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .notNull(),
+    settledAt: integer("settled_at", { mode: "timestamp_ms" }),
+  },
+  (table) => ({
+    userIdx: index("generation_user_idx").on(table.userId),
+  }),
+);
+
+export const generationRelations = relations(generation, ({ one }) => ({
+  user: one(user, {
+    fields: [generation.userId],
+    references: [user.id],
+  }),
+}));
 
 export const gameRelations = relations(game, ({ one, many }) => ({
   user: one(user, {

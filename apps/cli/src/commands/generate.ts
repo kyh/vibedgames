@@ -273,6 +273,29 @@ const statusCommand = defineCommand({
       query: action === "status" && args.logs ? { logs: "1" } : undefined,
     });
 
+    // Cancellation is confirmed asynchronously, and the platform refunds a
+    // cancelled job's credit hold when a status poll reports the terminal
+    // state — so confirm with a few polls instead of leaving the refund to
+    // whenever the user next checks. Best-effort: a miss just defers it.
+    if (action === "cancel") {
+      const statusPath = `/${ep}/requests/${args.request_id}/status`;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+        try {
+          const poll = await client.generate.forward.mutate({
+            target: "queue",
+            method: "GET",
+            path: statusPath,
+          });
+          const status =
+            isRecord(poll) && typeof poll.status === "string" ? poll.status.toUpperCase() : "";
+          if (["CANCELLED", "FAILED", "COMPLETED"].includes(status)) break;
+        } catch {
+          break;
+        }
+      }
+    }
+
     let downloaded: Awaited<ReturnType<typeof downloadMedia>> | undefined;
     if (action === "result" && downloadFlag.mode === "on") {
       const refs = extractMediaRefs(data);

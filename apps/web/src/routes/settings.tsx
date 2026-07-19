@@ -3,6 +3,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 
 import { ApiKeySettings } from "@/components/settings/api-key-settings";
+import { CreditsSettings } from "@/components/settings/credits-settings";
 import { getServerContext } from "@/auth/server";
 
 const requireAuth = createServerFn({ method: "GET" }).handler(async () => {
@@ -26,8 +27,9 @@ export const Route = createFileRoute("/settings")({
 function SettingsPage() {
   return (
     <div className="min-h-dvh overflow-auto p-6">
-      <div className="mx-auto max-w-3xl pt-10">
+      <div className="mx-auto max-w-3xl space-y-16 pt-10">
         <ApiKeySettings />
+        <CreditsSettings />
       </div>
     </div>
   );

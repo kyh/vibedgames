@@ -42,6 +42,13 @@ For the full command surface (every flag, every option, every example), see [ref
 
 > **Own a Codex plan with image generation?** Add `--provider codex` to `vg generate run` (or set `VG_GENERATE_PROVIDER=codex`) to generate **images** through your local `codex` CLI instead of the vibedgames catalog — nothing hits the vibedgames backend, and it needs no vibedgames auth (`vg login`/`VG_TOKEN` not required; only your signed-in Codex plan). Constraints an agent must respect: images only (no video/audio/3D — use the default provider), synchronous (no `--async`), and output is saved straight to disk — read `downloaded_files[]` from the `--json` result (there are no URLs). Requires the `codex` CLI on `PATH` and a signed-in Codex plan; if it's missing the command exits non-zero, so fall back to the default provider. Full contract (recognized inputs, JSON shape, failure semantics): [full-reference.md](references/full-reference.md#provider-codex-use-your-own-codex-plan-for-images).
 
+## Credits
+
+Every `vg generate run` debits the account's credit balance: an estimated hold at submit, corrected to the actual cost when the result is fetched. Failed or cancelled jobs are refunded automatically. New accounts start with $20.00.
+
+- **Check balance:** `vg credits` (or `vg credits --json` for agents). `vg generate pricing <id> --json` estimates cost before running.
+- **If a submit fails with a FORBIDDEN error whose message starts with `insufficient_credits:`, STOP.** Retries cannot succeed — the balance is exhausted, and switching endpoints or re-queueing will fail the same way. Surface the error message to the human; only a platform admin can grant more credits.
+
 ## Standard workflow
 
 The canonical genmedia loop that every domain skill (character-design, cinematography, storytelling, …) runs:

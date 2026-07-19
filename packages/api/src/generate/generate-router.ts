@@ -1,10 +1,29 @@
+import type { Db } from "@repo/db/drizzle-client";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
 import type { MediaProviderConfig } from "../trpc";
+import {
+  formatUsd,
+  getBalanceMicro,
+  holdGeneration,
+  releaseGeneration,
+  settleGeneration,
+} from "../credits/credit-ledger";
+import { getEndpointPricing } from "../credits/endpoint-pricing";
+import {
+  classifyQueueCall,
+  isUnbilledTerminalStatus,
+  parseBillableUnits,
+} from "../credits/queue-calls";
 import { createTRPCRouter, protectedProcedure } from "../trpc";
 import { MAX_PARAMS_BYTES } from "./limits";
-import { fetchProviderResponse, readJsonBounded, readSseJson } from "./provider-io";
+import {
+  fetchProviderResponse,
+  readJsonBounded,
+  readSseJson,
+  throwProviderError,
+} from "./provider-io";
 
 // ---- fal target routing -----------------------------------------------------
 //
@@ -97,8 +116,15 @@ const forwardInput = z.object({
   method: z.enum(["GET", "POST", "PUT", "DELETE"]),
   // Must be a server-relative path. Empty bodies and trailing-only paths
   // are fine. We refuse anything that doesn't start with `/` so a caller
-  // can't smuggle a full URL (which would change the host).
-  path: z.string().min(1).max(512).regex(/^\//, "path must start with `/`"),
+  // can't smuggle a full URL (which would change the host), and refuse
+  // `?`/`#` so the path the credit classifier sees is exactly the path the
+  // upstream URL gets — a `#` in the path would otherwise let a queue
+  // submit reach fal while classifying (and billing) as nothing.
+  path: z
+    .string()
+    .min(1)
+    .max(512)
+    .regex(/^\/[^?#]*$/, "path must start with `/` and contain no `?` or `#`"),
   query: z.record(z.string(), z.union([z.string(), z.array(z.string())])).optional(),
   body: z.unknown().optional(),
 });
@@ -139,6 +165,71 @@ function serializeBody(value: unknown): string {
   }
 }
 
+// ---- credit accounting ------------------------------------------------------
+
+/**
+ * Credentialed platform-API transport for pricing lookups. Same
+ * fetch/parse path as user-driven platform hops so size bounds and
+ * redirect policy apply.
+ */
+function platformFetchJson(apiKey: string, config: MediaProviderConfig) {
+  return async (req: {
+    method: "GET" | "POST";
+    path: string;
+    query?: Record<string, string>;
+    body?: unknown;
+  }): Promise<unknown> => {
+    const url = buildUrl(targetBase("platform", config), req.path, req.query);
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+      Authorization: `Key ${apiKey}`,
+    };
+    let body: string | undefined;
+    if (req.body !== undefined) {
+      body = JSON.stringify(req.body);
+      headers["Content-Type"] = "application/json";
+    }
+    const res = await fetchProviderResponse({
+      url,
+      label: `fal platform ${req.method} ${req.path}`,
+      credentialed: true,
+      init: { method: req.method, headers, body },
+    });
+    return readJsonBounded(res, "fal platform response");
+  };
+}
+
+/**
+ * Gate a queue submit on remaining credits. Balance must be positive to
+ * start a generation; the estimated hold may push it negative, which
+ * simply blocks the next submit. The message carries the
+ * `insufficient_credits` token so agents can branch on it.
+ */
+async function requirePositiveBalance(db: Db, userId: string): Promise<void> {
+  const balanceMicro = await getBalanceMicro(db, userId);
+  if (balanceMicro > 0) return;
+  throw new TRPCError({
+    code: "FORBIDDEN",
+    message:
+      `insufficient_credits: your balance is ${formatUsd(balanceMicro)}. ` +
+      "Generation is paused until an admin grants more credits " +
+      "(check with `vg credits`).",
+  });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readRequestId(body: unknown): string | null {
+  if (!isRecord(body)) return null;
+  return typeof body.request_id === "string" && body.request_id.length > 0 ? body.request_id : null;
+}
+
+function readQueueStatus(body: unknown): unknown {
+  return isRecord(body) ? body.status : null;
+}
+
 // ---- Router ----------------------------------------------------------------
 
 export const generateRouter = createTRPCRouter({
@@ -152,6 +243,24 @@ export const generateRouter = createTRPCRouter({
    */
   forward: protectedProcedure.input(forwardInput).mutation(async ({ ctx, input }) => {
     const { apiKey, config } = pickFalKey(ctx.media);
+    const userId = ctx.session.user.id;
+
+    // Credit gate + hold estimate happen before any fal spend. Everything
+    // else about the hop is unchanged when the call isn't a queue submit.
+    // Admins are metered but never gated: their usage is still recorded
+    // (holds/settles) so spend stays visible, but a negative balance can't
+    // block them.
+    const queueCall =
+      input.target === "queue"
+        ? classifyQueueCall(input.method, input.path)
+        : { kind: "other" as const };
+    let pricing: Awaited<ReturnType<typeof getEndpointPricing>> | null = null;
+    if (queueCall.kind === "submit") {
+      if (ctx.session.user.role !== "admin") {
+        await requirePositiveBalance(ctx.db, userId);
+      }
+      pricing = await getEndpointPricing(queueCall.endpointId, platformFetchJson(apiKey, config));
+    }
 
     let serialized: string | undefined;
     if (input.body !== undefined) {
@@ -177,15 +286,75 @@ export const generateRouter = createTRPCRouter({
     // client advertises it accepts text/event-stream.
     if (input.target === "docs") headers.Accept = "application/json, text/event-stream";
 
+    const fetchLabel = `fal ${input.target} ${input.method} ${input.path}`;
     const res = await fetchProviderResponse({
       url,
-      label: `fal ${input.target} ${input.method} ${input.path}`,
+      label: fetchLabel,
       credentialed: true,
       init: { method: input.method, headers, body: serialized },
+      // Result fetches of failed jobs come back non-2xx but may still carry
+      // the billable-units header — we need the response, not a throw.
+      tolerateHttpError: queueCall.kind === "result",
     });
 
-    if (res.status === 204 || res.headers.get("content-length") === "0") return null;
+    if (!res.ok) {
+      // Failed-job result fetch. Settle only on an explicit usage signal;
+      // with no header the hold stays for the status-poll release path
+      // (fal doesn't bill failures, so guessing a charge here would be
+      // wrong more often than not).
+      const units = parseBillableUnits(res.headers.get("x-fal-billable-units"));
+      if (queueCall.kind === "result" && units !== null) {
+        try {
+          await settleGeneration(ctx.db, queueCall.requestId, units);
+        } catch (err) {
+          console.error(`credit settle failed for ${queueCall.requestId}`, err);
+        }
+      }
+      await throwProviderError(res, fetchLabel);
+    }
+
+    const empty = res.status === 204 || res.headers.get("content-length") === "0";
     const label = `fal ${input.target} response`;
-    return input.target === "docs" ? readSseJson(res, label) : readJsonBounded(res, label);
+    const body = empty
+      ? null
+      : input.target === "docs"
+        ? await readSseJson(res, label)
+        : await readJsonBounded(res, label);
+
+    // Ledger updates ride the same hops the client already makes; the fal
+    // call has succeeded by this point, so a charge always has a real
+    // generation behind it. A ledger hiccup must never destroy the response
+    // the user's money already bought — the ops are idempotent and converge
+    // on this request's next hop, so log and move on.
+    try {
+      if (queueCall.kind === "submit" && pricing !== null) {
+        const requestId = readRequestId(body);
+        if (requestId !== null) {
+          await holdGeneration(ctx.db, {
+            userId,
+            requestId,
+            endpointId: queueCall.endpointId,
+            unit: pricing.unit,
+            unitPriceMicro: pricing.unitPriceMicro,
+            holdMicro: pricing.holdMicro,
+          });
+        }
+      } else if (queueCall.kind === "result") {
+        // fal reports actual usage on the result fetch; a missing header
+        // settles at the hold so the books still close.
+        await settleGeneration(
+          ctx.db,
+          queueCall.requestId,
+          parseBillableUnits(res.headers.get("x-fal-billable-units")),
+        );
+      } else if (queueCall.kind === "status" && isUnbilledTerminalStatus(readQueueStatus(body))) {
+        // fal doesn't bill failed/cancelled jobs — refund the hold.
+        await releaseGeneration(ctx.db, queueCall.requestId);
+      }
+    } catch (err) {
+      console.error(`credit accounting failed for ${fetchLabel}`, err);
+    }
+
+    return body;
   }),
 });
