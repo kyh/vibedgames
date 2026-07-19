@@ -123,6 +123,13 @@ export const createAuth = (opts: AuthOptions) => {
         sameSite: "lax",
         secure: true,
       },
+      // Rate-limit buckets key on client IP. `cf-connecting-ip` is set by
+      // the Cloudflare edge (not client-forgeable there); `x-forwarded-for`
+      // is the local-dev fallback so the limiter doesn't collapse into one
+      // shared per-path bucket.
+      ipAddress: {
+        ipAddressHeaders: ["cf-connecting-ip", "x-forwarded-for"],
+      },
     },
   });
 
