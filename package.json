@@ -7,7 +7,7 @@
     "clean:workspaces": "turbo run clean",
     "deploy:games": "turbo run build --filter=./games/* --filter=vibedgames && for d in games/*/; do node apps/cli/dist/index.js deploy \"$d\" || exit 1; done",
     "db:push": "pnpm -F db push",
-    "db:push-remote": "pnpm -F db push:remote && pnpm -F builder push:remote",
+    "db:push-remote": "pnpm -F db push:remote",
     "db:push-local": "pnpm -F db push:local",
     "db:seed-local": "pnpm -C apps/web exec wrangler d1 execute vibedgames --local --file=../../packages/db/seed.sql",
     "db:local": "pnpm db:push-local && pnpm db:seed-local",

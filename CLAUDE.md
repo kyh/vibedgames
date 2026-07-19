@@ -71,7 +71,7 @@ pnpm lint:fix         # Lint + fix
 pnpm format           # Format check (oxfmt)
 pnpm format:fix       # Format + write
 pnpm db:push          # Push schema (drizzle-kit push) to REMOTE prod D1
-pnpm db:push-remote   # Push schema to prod (db + builder, .env.production.local)
+pnpm db:push-remote   # Push schema to prod (.env.production.local)
 pnpm db:push-local    # Push schema to the local Miniflare D1 (dev:web's D1)
 pnpm db:seed-local    # Seed local dev identity (wrangler d1 execute seed.sql)
 pnpm db:local         # push-local + seed-local (one-shot local DB setup)
