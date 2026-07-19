@@ -30,7 +30,7 @@ export type ShellUser = {
 };
 
 const railItems = [
-  { to: "/games", label: "Games", icon: Gamepad2Icon, adminOnly: false },
+  { to: "/home", label: "Games", icon: Gamepad2Icon, adminOnly: false },
   { to: "/settings", label: "Settings", icon: SettingsIcon, adminOnly: false },
   { to: "/admin", label: "Admin", icon: ShieldIcon, adminOnly: true },
 ] as const;
@@ -92,7 +92,7 @@ const initials = (user: ShellUser): string => {
 };
 
 /**
- * Shared chrome for every logged-in page (/games, /settings, /admin/*).
+ * Shared chrome for every logged-in page (/home, /settings, /admin/*).
  * All chrome is fixed — logo top-left, avatar menu top-right, island rail
  * mid-left sharing the logo's vertical axis (both center in the same
  * `w-11` gutter) — so only the content column scrolls. One page-level

@@ -19,7 +19,7 @@ export const RegisterLink = () => {
     <FadeInBlur className="absolute top-0 right-0 z-10 flex items-center gap-4 px-4 pt-8 sm:pt-6">
       {signedIn ? (
         <Link
-          to="/games"
+          to="/home"
           className="text-muted-foreground hover:text-foreground font-mono text-xs transition"
         >
           Games

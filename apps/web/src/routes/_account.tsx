@@ -6,7 +6,7 @@ import { getServerContext } from "@/auth/server";
 import { AccountShell } from "@/components/account/account-shell";
 
 /**
- * Layout for the logged-in pages (/games, /settings, /admin/*). Server-checks
+ * Layout for the logged-in pages (/home, /settings, /admin/*). Server-checks
  * the session once in beforeLoad; children read the user from route context
  * instead of re-guarding. The admin subtree adds its own role check on top.
  */

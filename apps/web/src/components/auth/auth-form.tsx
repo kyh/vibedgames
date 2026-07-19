@@ -150,7 +150,7 @@ const RegisterCredentialsStep = ({
 }) => {
   const router = useRouter();
   const search = useSearch({ from: "/auth" });
-  const nextPath = search.nextPath ?? "/";
+  const nextPath = search.nextPath ?? "/home";
 
   const form = useForm({
     resolver: zodResolver(
@@ -260,7 +260,7 @@ const RegisterCredentialsStep = ({
 export const LoginForm = ({ className, callbackUrl, ...props }: StepFormProps) => {
   const router = useRouter();
   const search = useSearch({ from: "/auth" });
-  const nextPath = search.nextPath ?? "/";
+  const nextPath = search.nextPath ?? "/home";
   const [authError, setAuthError] = useState(false);
   const [shakeScope, shake] = useShake();
 

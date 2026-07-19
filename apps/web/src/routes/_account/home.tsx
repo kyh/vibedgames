@@ -20,8 +20,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@repo/ui/components/too
 import { SkeletonReveal } from "@/components/ui/skeleton-reveal";
 import { useTRPC } from "@/lib/trpc";
 
-export const Route = createFileRoute("/_account/games")({
-  head: () => ({ meta: [{ title: "Games — Vibedgames" }] }),
+export const Route = createFileRoute("/_account/home")({
+  head: () => ({ meta: [{ title: "Home — Vibedgames" }] }),
   component: GamesPage,
 });
 
