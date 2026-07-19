@@ -91,6 +91,16 @@ export class Controls {
     return this.uiMode;
   }
 
+  /** Touch look stick: fold a deflection (unit-clamped, y-down screen axes)
+   *  into yaw/pitch at the same rates as the physical pad's right stick.
+   *  MOUSE-mode guarded like every other look path (menus own the pointer). */
+  applyStickLook(dx: number, dy: number, dt: number): void {
+    if (this.uiMode || (dx === 0 && dy === 0)) return;
+    this.yaw -= dx * dt * PAD_YAW_SPEED;
+    this.pitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, this.pitch - dy * dt * PAD_PITCH_SPEED));
+    this.hadInput = true;
+  }
+
   /** Poll the physical gamepad and fold it into the keyboard/mouse fields.
    *  Call once per frame, before the frame's reads (works without pointer
    *  lock — pad look integrates yaw/pitch directly, dt-scaled). */
