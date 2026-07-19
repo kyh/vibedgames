@@ -11,7 +11,7 @@ import { AccountShell } from "@/components/account/account-shell";
  * instead of re-guarding. The admin subtree adds its own role check on top.
  */
 const requireAuth = createServerFn({ method: "GET" })
-  .inputValidator((redirectTo: string) => redirectTo)
+  .validator((redirectTo: string) => redirectTo)
   .handler(async ({ data: redirectTo }) => {
     const { auth } = getServerContext();
     const headers = new Headers(getRequestHeaders());
