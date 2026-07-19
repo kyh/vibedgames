@@ -1,22 +1,40 @@
 import { Link } from "@tanstack/react-router";
 
+import { authClient } from "@/auth/client";
 import { GitHubIcon, XIcon } from "@/components/ui/brand-icons";
 import { FadeInBlur } from "@/components/ui/fade-in-blur";
 
 const GITHUB_URL = "https://github.com/kyh/vibedgames";
 const X_URL = "https://x.com/kaiyuhsu";
 
-// Top-right entry point to registration, mirroring the bottom-left Nav.
-export const RegisterLink = () => (
-  <FadeInBlur className="absolute top-0 right-0 z-10 flex items-center gap-4 px-4 pt-8 sm:pt-6">
-    <Link
-      to="/auth/register"
-      className="text-muted-foreground hover:text-foreground font-mono text-xs transition"
-    >
-      Register
-    </Link>
-  </FadeInBlur>
-);
+// Top-right entry point, mirroring the bottom-left Nav. Signed-out visitors
+// get Register; signed-in users get their dashboard. Session resolves
+// client-side after mount — Register is the placeholder while it loads, so
+// the link never pops in from nothing.
+export const RegisterLink = () => {
+  const session = authClient.useSession();
+  const signedIn = session.data !== null && !session.isPending;
+
+  return (
+    <FadeInBlur className="absolute top-0 right-0 z-10 flex items-center gap-4 px-4 pt-8 sm:pt-6">
+      {signedIn ? (
+        <Link
+          to="/games"
+          className="text-muted-foreground hover:text-foreground font-mono text-xs transition"
+        >
+          Games
+        </Link>
+      ) : (
+        <Link
+          to="/auth/register"
+          className="text-muted-foreground hover:text-foreground font-mono text-xs transition"
+        >
+          Register
+        </Link>
+      )}
+    </FadeInBlur>
+  );
+};
 
 // Bottom-right, aligned right with RegisterLink and bottom with the Nav.
 export const GitHubLink = () => (

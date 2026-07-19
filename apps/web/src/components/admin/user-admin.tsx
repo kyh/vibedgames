@@ -11,9 +11,11 @@ import {
 } from "@repo/ui/components/dialog";
 import { Field, FieldContent, FieldLabel } from "@repo/ui/components/field";
 import { Input } from "@repo/ui/components/input";
+import { Skeleton } from "@repo/ui/components/skeleton";
 import { toast } from "@repo/ui/components/sonner";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { SkeletonReveal } from "@/components/ui/skeleton-reveal";
 import { formatUsd } from "@/lib/credits-format";
 import { useTRPC } from "@/lib/trpc";
 
@@ -34,6 +36,20 @@ const initialForm: UserForm = {
 };
 
 const parseRole = (value: string): Role => (value === "admin" ? "admin" : "user");
+
+const UsersSkeleton = () => (
+  <ul className="divide-y divide-white/10 rounded-md border border-white/10">
+    {Array.from({ length: 3 }, (_, i) => (
+      <li key={i} className="flex h-12 items-center gap-3 p-3">
+        <Skeleton className="h-4 w-44" />
+        <Skeleton className="h-3 w-20" />
+        <Skeleton className="ml-auto h-4 w-12" />
+        <Skeleton className="h-3 w-14" />
+        <Skeleton className="h-4 w-20" />
+      </li>
+    ))}
+  </ul>
+);
 
 export const UserAdmin = () => {
   const trpc = useTRPC();
@@ -167,40 +183,49 @@ export const UserAdmin = () => {
         <h3 className="mb-2 text-sm font-medium uppercase tracking-wide text-muted-foreground">
           Existing users
         </h3>
-        {list.isLoading && <p className="text-muted-foreground text-sm">Loading…</p>}
-        {list.data?.users.length === 0 && (
-          <p className="text-muted-foreground text-sm">No users yet.</p>
-        )}
-        <ul className="divide-y divide-white/10 rounded-md border border-white/10">
-          {list.data?.users.map((u) => (
-            <li key={u.id} className="flex items-center gap-3 p-3 text-sm">
-              <span className="font-mono">{u.email}</span>
-              <span className="text-muted-foreground">{u.name}</span>
-              {u.role === "admin" && (
-                <span className="rounded bg-amber-900/40 px-2 py-0.5 text-xs text-amber-200">
-                  admin
-                </span>
-              )}
-              {u.banned && (
-                <span className="rounded bg-red-900/40 px-2 py-0.5 text-xs text-red-200">
-                  banned
-                </span>
-              )}
-              <span className="ml-auto tabular-nums">{balanceLabel(u.id)}</span>
-              <span className="text-muted-foreground text-xs">
-                {new Date(u.createdAt).toLocaleDateString()}
-              </span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => openGrant({ id: u.id, email: u.email })}
-              >
-                Grant credits
-              </Button>
-            </li>
-          ))}
-        </ul>
+        <SkeletonReveal
+          ready={list.data !== undefined || list.isError}
+          skeleton={<UsersSkeleton />}
+        >
+          {list.isError && (
+            <p className="text-muted-foreground text-sm">Couldn't load users. Try reloading.</p>
+          )}
+          {list.data?.users.length === 0 && (
+            <p className="text-muted-foreground text-sm">No users yet.</p>
+          )}
+          {list.data && list.data.users.length > 0 && (
+            <ul className="divide-y divide-white/10 rounded-md border border-white/10">
+              {list.data.users.map((u) => (
+                <li key={u.id} className="flex items-center gap-3 p-3 text-sm">
+                  <span className="font-mono">{u.email}</span>
+                  <span className="text-muted-foreground">{u.name}</span>
+                  {u.role === "admin" && (
+                    <span className="rounded bg-amber-900/40 px-2 py-0.5 text-xs text-amber-200">
+                      admin
+                    </span>
+                  )}
+                  {u.banned && (
+                    <span className="rounded bg-red-900/40 px-2 py-0.5 text-xs text-red-200">
+                      banned
+                    </span>
+                  )}
+                  <span className="ml-auto tabular-nums">{balanceLabel(u.id)}</span>
+                  <span className="text-muted-foreground text-xs">
+                    {new Date(u.createdAt).toLocaleDateString()}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => openGrant({ id: u.id, email: u.email })}
+                  >
+                    Grant credits
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </SkeletonReveal>
       </div>
 
       <Dialog

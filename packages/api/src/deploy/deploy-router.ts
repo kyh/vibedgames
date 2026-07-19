@@ -1,4 +1,4 @@
-import { and, eq } from "@repo/db";
+import { and, eq, inArray } from "@repo/db";
 import { deployment, deploymentFile, game } from "@repo/db/drizzle-schema";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
@@ -305,7 +305,36 @@ export const deployRouter = createTRPCRouter({
       where: eq(game.userId, ctx.session.user.id),
       orderBy: (g, { desc }) => desc(g.updatedAt),
     });
-    return { games };
+
+    // Surface each game's live deployment (status/size/date) for the games
+    // dashboard. One IN query over the pinned deployment ids — games with no
+    // deployment yet (or mid-first-deploy) get `deployment: null`.
+    const currentIds = games
+      .map((g) => g.currentDeploymentId)
+      .filter((id): id is string => id !== null);
+    const deployments =
+      currentIds.length > 0
+        ? await ctx.db
+            .select({
+              id: deployment.id,
+              status: deployment.status,
+              fileCount: deployment.fileCount,
+              totalBytes: deployment.totalBytes,
+              createdAt: deployment.createdAt,
+            })
+            .from(deployment)
+            .where(inArray(deployment.id, currentIds))
+        : [];
+    const byId = new Map(deployments.map((d) => [d.id, d]));
+
+    return {
+      games: games.map((g) =>
+        Object.assign(g, {
+          deployment:
+            g.currentDeploymentId !== null ? (byId.get(g.currentDeploymentId) ?? null) : null,
+        }),
+      ),
+    };
   }),
 
   /**

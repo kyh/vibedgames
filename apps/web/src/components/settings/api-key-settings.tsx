@@ -2,13 +2,32 @@ import { useState } from "react";
 import { Button } from "@repo/ui/components/button";
 import { Field, FieldContent, FieldLabel } from "@repo/ui/components/field";
 import { Input } from "@repo/ui/components/input";
+import { Skeleton } from "@repo/ui/components/skeleton";
 import { toast } from "@repo/ui/components/sonner";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckIcon, CopyIcon } from "lucide-react";
 
+import { SkeletonReveal } from "@/components/ui/skeleton-reveal";
 import { useTRPC } from "@/lib/trpc";
 
 const fmt = (d: Date | null | undefined) => (d ? new Date(d).toLocaleDateString() : "never");
+
+const KeysSkeleton = () => (
+  <ul className="divide-y divide-white/10 rounded-md border border-white/10">
+    {Array.from({ length: 2 }, (_, i) => (
+      <li key={i} className="flex items-center gap-3 p-3">
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-4 w-16" />
+            <Skeleton className="h-4 w-24" />
+          </div>
+          <Skeleton className="h-3 w-56" />
+        </div>
+        <Skeleton className="ml-auto h-4 w-14" />
+      </li>
+    ))}
+  </ul>
+);
 
 export const ApiKeySettings = () => {
   const trpc = useTRPC();
@@ -56,7 +75,7 @@ export const ApiKeySettings = () => {
   return (
     <div className="space-y-8">
       <header>
-        <h1 className="text-2xl font-light">API keys</h1>
+        <h2 className="text-2xl font-light">API keys</h2>
         <p className="text-muted-foreground text-sm">
           Long-lived keys for using the <code>vg</code> CLI in CI. Set a key as the{" "}
           <code>VG_TOKEN</code> environment variable.
@@ -127,47 +146,53 @@ export const ApiKeySettings = () => {
       </form>
 
       <section>
-        <h2 className="mb-2 text-sm font-medium uppercase tracking-wide text-muted-foreground">
+        <h3 className="mb-2 text-sm font-medium uppercase tracking-wide text-muted-foreground">
           Your keys
-        </h2>
-        {list.isLoading && <p className="text-muted-foreground text-sm">Loading…</p>}
-        {list.data?.keys.length === 0 && (
-          <p className="text-muted-foreground text-sm">No keys yet.</p>
-        )}
-        <ul className="divide-y divide-white/10 rounded-md border border-white/10">
-          {list.data?.keys.map((k) => {
-            const expired = k.expiresAt != null && new Date(k.expiresAt).getTime() < Date.now();
-            return (
-              <li key={k.id} className="flex items-center gap-3 p-3 text-sm">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <code className="font-mono">{k.keyPrefix}…</code>
-                    <span className="truncate font-medium">{k.name}</span>
-                    {expired && (
-                      <span className="rounded bg-red-900/40 px-2 py-0.5 text-xs text-red-200">
-                        expired
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-muted-foreground text-xs">
-                    created {fmt(k.createdAt)} · last used {fmt(k.lastUsedAt)} · expires{" "}
-                    {fmt(k.expiresAt)}
-                  </div>
-                </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="ml-auto"
-                  loading={revoke.isPending && revoke.variables?.id === k.id}
-                  onClick={() => revoke.mutate({ id: k.id })}
-                >
-                  Revoke
-                </Button>
-              </li>
-            );
-          })}
-        </ul>
+        </h3>
+        <SkeletonReveal ready={list.data !== undefined || list.isError} skeleton={<KeysSkeleton />}>
+          {list.isError && (
+            <p className="text-muted-foreground text-sm">Couldn't load keys. Try reloading.</p>
+          )}
+          {list.data?.keys.length === 0 && (
+            <p className="text-muted-foreground text-sm">No keys yet.</p>
+          )}
+          {list.data && list.data.keys.length > 0 && (
+            <ul className="divide-y divide-white/10 rounded-md border border-white/10">
+              {list.data.keys.map((k) => {
+                const expired = k.expiresAt != null && new Date(k.expiresAt).getTime() < Date.now();
+                return (
+                  <li key={k.id} className="flex items-center gap-3 p-3 text-sm">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <code className="font-mono">{k.keyPrefix}…</code>
+                        <span className="truncate font-medium">{k.name}</span>
+                        {expired && (
+                          <span className="rounded bg-red-900/40 px-2 py-0.5 text-xs text-red-200">
+                            expired
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-muted-foreground text-xs">
+                        created {fmt(k.createdAt)} · last used {fmt(k.lastUsedAt)} · expires{" "}
+                        {fmt(k.expiresAt)}
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="ml-auto"
+                      loading={revoke.isPending && revoke.variables?.id === k.id}
+                      onClick={() => revoke.mutate({ id: k.id })}
+                    >
+                      Revoke
+                    </Button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </SkeletonReveal>
       </section>
     </div>
   );

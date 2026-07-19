@@ -2,16 +2,31 @@ import { useState } from "react";
 import { Button } from "@repo/ui/components/button";
 import { Field, FieldContent, FieldLabel } from "@repo/ui/components/field";
 import { Input } from "@repo/ui/components/input";
+import { Skeleton } from "@repo/ui/components/skeleton";
 import { toast } from "@repo/ui/components/sonner";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckIcon, CopyIcon } from "lucide-react";
 
+import { SkeletonReveal } from "@/components/ui/skeleton-reveal";
 import { useTRPC } from "@/lib/trpc";
 
 const buildInviteLink = (code: string) => {
   if (typeof window === "undefined") return `/auth/register?invite=${code}`;
   return `${window.location.origin}/auth/register?invite=${code}`;
 };
+
+const CodesSkeleton = () => (
+  <ul className="divide-y divide-white/10 rounded-md border border-white/10">
+    {Array.from({ length: 3 }, (_, i) => (
+      <li key={i} className="flex h-12 items-center gap-3 p-3">
+        <Skeleton className="h-5 w-16" />
+        <Skeleton className="h-4 w-16" />
+        <Skeleton className="h-3 w-14" />
+        <Skeleton className="ml-auto h-4 w-24" />
+      </li>
+    ))}
+  </ul>
+);
 
 const codeStatus = (row: {
   revokedAt: Date | null;
@@ -133,61 +148,70 @@ export const InviteAdmin = () => {
         <h2 className="mb-2 text-sm font-medium uppercase tracking-wide text-muted-foreground">
           Existing codes
         </h2>
-        {list.isLoading && <p className="text-muted-foreground text-sm">Loading…</p>}
-        {list.data?.codes.length === 0 && (
-          <p className="text-muted-foreground text-sm">No codes yet.</p>
-        )}
-        <ul className="divide-y divide-white/10 rounded-md border border-white/10">
-          {list.data?.codes.map((row) => {
-            const status = codeStatus(row);
-            return (
-              <li key={row.id} className="flex items-center gap-3 p-3 text-sm">
-                <code className="font-mono text-base">{row.code}</code>
-                <span
-                  className={
-                    status === "available"
-                      ? "rounded bg-green-900/40 px-2 py-0.5 text-xs text-green-200"
-                      : status === "used"
-                        ? "rounded bg-zinc-800 px-2 py-0.5 text-xs text-zinc-300"
-                        : "rounded bg-red-900/40 px-2 py-0.5 text-xs text-red-200"
-                  }
-                >
-                  {status}
-                </span>
-                <span className="text-muted-foreground">
-                  {row.usedCount}/{row.maxUses ?? "∞"} uses
-                </span>
-                {row.note && <span className="text-muted-foreground italic">{row.note}</span>}
-                <span className="ml-auto flex items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => copyLink(row.code)}
-                  >
-                    {copied === row.code ? (
-                      <CheckIcon className="size-3.5" />
-                    ) : (
-                      <CopyIcon className="size-3.5" />
-                    )}
-                    Link
-                  </Button>
-                  {status === "available" && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      loading={revoke.isPending && revoke.variables?.id === row.id}
-                      onClick={() => revoke.mutate({ id: row.id })}
+        <SkeletonReveal
+          ready={list.data !== undefined || list.isError}
+          skeleton={<CodesSkeleton />}
+        >
+          {list.isError && (
+            <p className="text-muted-foreground text-sm">Couldn't load codes. Try reloading.</p>
+          )}
+          {list.data?.codes.length === 0 && (
+            <p className="text-muted-foreground text-sm">No codes yet.</p>
+          )}
+          {list.data && list.data.codes.length > 0 && (
+            <ul className="divide-y divide-white/10 rounded-md border border-white/10">
+              {list.data.codes.map((row) => {
+                const status = codeStatus(row);
+                return (
+                  <li key={row.id} className="flex items-center gap-3 p-3 text-sm">
+                    <code className="font-mono text-base">{row.code}</code>
+                    <span
+                      className={
+                        status === "available"
+                          ? "rounded bg-green-900/40 px-2 py-0.5 text-xs text-green-200"
+                          : status === "used"
+                            ? "rounded bg-zinc-800 px-2 py-0.5 text-xs text-zinc-300"
+                            : "rounded bg-red-900/40 px-2 py-0.5 text-xs text-red-200"
+                      }
                     >
-                      Revoke
-                    </Button>
-                  )}
-                </span>
-              </li>
-            );
-          })}
-        </ul>
+                      {status}
+                    </span>
+                    <span className="text-muted-foreground">
+                      {row.usedCount}/{row.maxUses ?? "∞"} uses
+                    </span>
+                    {row.note && <span className="text-muted-foreground italic">{row.note}</span>}
+                    <span className="ml-auto flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => copyLink(row.code)}
+                      >
+                        {copied === row.code ? (
+                          <CheckIcon className="size-3.5" />
+                        ) : (
+                          <CopyIcon className="size-3.5" />
+                        )}
+                        Link
+                      </Button>
+                      {status === "available" && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          loading={revoke.isPending && revoke.variables?.id === row.id}
+                          onClick={() => revoke.mutate({ id: row.id })}
+                        >
+                          Revoke
+                        </Button>
+                      )}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </SkeletonReveal>
       </section>
     </div>
   );
