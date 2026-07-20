@@ -179,7 +179,10 @@ export function scoutVista(ctx: ScoutCtx): VistaSpot | null {
       if (grade < 0.07) continue;
       const tx = a.tx * dir;
       const tz = a.tz * dir;
-      if (!waterAt(a.x + tx * LOOK, a.z + tz * LOOK) && !waterAt(a.x + tx * 1.4 * LOOK, a.z + tz * 1.4 * LOOK)) {
+      if (
+        !waterAt(a.x + tx * LOOK, a.z + tz * LOOK) &&
+        !waterAt(a.x + tx * 1.4 * LOOK, a.z + tz * 1.4 * LOOK)
+      ) {
         continue;
       }
       // Bench: a local convex break mid-run (SF cross-street shelf) → hop.
@@ -190,8 +193,7 @@ export function scoutVista(ctx: ScoutCtx): VistaSpot | null {
         const pb = ctx.network.sample(e, s - 9 * dir);
         const pf = ctx.network.sample(e, s + 9 * dir);
         const conv =
-          ctx.heightAt(p.x, p.z) -
-          (ctx.heightAt(pb.x, pb.z) + ctx.heightAt(pf.x, pf.z)) / 2;
+          ctx.heightAt(p.x, p.z) - (ctx.heightAt(pb.x, pb.z) + ctx.heightAt(pf.x, pf.z)) / 2;
         if (conv > 0.22) {
           hasBench = true;
           break;

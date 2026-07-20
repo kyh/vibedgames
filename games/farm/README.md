@@ -12,10 +12,10 @@ pnpm --filter @repo/farm build
 
 ## Routes
 
-| URL | What |
-|---|---|
-| `/` | the game |
-| `/?trailer=1` | scripted gameplay trailer (`&autostart=1` skips the gate, `&loop=1` replays, Esc exits) |
+| URL           | What                                                                                                                   |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `/`           | the game                                                                                                               |
+| `/?trailer=1` | scripted gameplay trailer (`&autostart=1` skips the gate, `&loop=1` replays, Esc exits)                                |
 | `/?gallery=1` | asset gallery — every world tile index with its gameplay classification, deco animations, character/animal/crop sheets |
 
 Multiplayer: shared farm via `@vibedgames/multiplayer` (auto-join, offline solo fallback if the party server doesn't answer).

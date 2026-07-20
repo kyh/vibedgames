@@ -14,10 +14,11 @@
     "PRODUCTION_URL": "https://vibedgames.com",
     "R2_BUCKET_NAME": "vibedgames-games",
   },
-  // Set with: wrangler secret put AUTH_SECRET
+  // Set with: wrangler secret put BETTER_AUTH_SECRET
   //           wrangler secret put R2_ACCOUNT_ID
   //           wrangler secret put R2_ACCESS_KEY_ID
   //           wrangler secret put R2_SECRET_ACCESS_KEY
+  //           wrangler secret put FAL_API_KEY   (optional — enables `vg generate`)
   "d1_databases": [
     {
       "binding": "DB",

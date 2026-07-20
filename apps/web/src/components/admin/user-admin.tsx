@@ -17,6 +17,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { SkeletonReveal } from "@/components/ui/skeleton-reveal";
 import { formatUsd } from "@/lib/credits-format";
+import { formatDate } from "@/lib/format";
 import { useTRPC } from "@/lib/trpc";
 
 type Role = "user" | "admin";
@@ -71,6 +72,9 @@ export const UserAdmin = () => {
     trpc.admin.credits.grant.mutationOptions({
       onSuccess: ({ balanceMicro }) => {
         qc.invalidateQueries({ queryKey: trpc.admin.credits.balances.queryKey() });
+        // A grant can target the admin's own account, and /settings reads
+        // the balance + ledger from `credits.me`.
+        qc.invalidateQueries({ queryKey: trpc.credits.me.queryKey() });
         setGrantTarget(null);
         toast.success(`Credits updated — new balance ${formatUsd(balanceMicro)}`);
       },
@@ -210,9 +214,7 @@ export const UserAdmin = () => {
                     </span>
                   )}
                   <span className="ml-auto tabular-nums">{balanceLabel(u.id)}</span>
-                  <span className="text-muted-foreground text-xs">
-                    {new Date(u.createdAt).toLocaleDateString()}
-                  </span>
+                  <span className="text-muted-foreground text-xs">{formatDate(u.createdAt)}</span>
                   <Button
                     type="button"
                     variant="ghost"

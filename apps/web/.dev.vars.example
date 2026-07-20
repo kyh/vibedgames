@@ -1,0 +1,31 @@
+# Worker runtime secrets for local dev. Copy to `apps/web/.dev.vars`.
+#
+# These are NOT the same as the repo-root `.env`. The dev Worker reads its
+# config off the Cloudflare `env` binding, whose local sources are
+# `wrangler.jsonc` (`vars`) and this file — never `process.env`. The root
+# `.env` only feeds drizzle-kit and the wrangler CLI. Putting
+# BETTER_AUTH_SECRET in `.env` does nothing; it has to be here.
+#
+# In production the same names are set with `wrangler secret put`.
+
+# Signs session cookies and the local `/api/r2-upload` proxy URLs.
+# Any long random string: `openssl rand -base64 32`.
+BETTER_AUTH_SECRET=""
+
+# R2, for presigning game deploys via the S3 API. Missing values leave the
+# deploy router throwing INTERNAL_SERVER_ERROR instead of failing boot.
+#
+# WARNING: these are real credentials. `vg deploy` against localhost:5173
+# uploads to the PRODUCTION bucket — only the slug -> deploymentId mapping
+# is local. See AGENTS.md.
+R2_ACCOUNT_ID=""
+R2_ACCESS_KEY_ID=""
+R2_SECRET_ACCESS_KEY=""
+
+# Optional — enables `vg generate`. Absent just means the media procedures
+# error until it is configured.
+FAL_API_KEY=""
+# FAL_QUEUE_BASE_URL=""
+# FAL_PLATFORM_BASE_URL=""
+# FAL_STORAGE_BASE_URL=""
+# FAL_DOCS_BASE_URL=""

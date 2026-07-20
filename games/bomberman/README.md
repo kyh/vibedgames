@@ -12,16 +12,16 @@ pnpm --filter @repo/bomberman preview    # vite preview
 
 ## Routes
 
-| URL | What |
-|---|---|
+| URL | What     |
+| --- | -------- |
 | `/` | the game |
 
 ## Controls
 
-| Input | Action |
-|---|---|
-| WASD / arrows (pad stick/d-pad, touch drag) | move |
-| Space (pad A, touch 💣) | drop a bomb |
-| R (pad Start, touch tap) | restart |
+| Input                                       | Action      |
+| ------------------------------------------- | ----------- |
+| WASD / arrows (pad stick/d-pad, touch drag) | move        |
+| Space (pad A, touch 💣)                     | drop a bomb |
+| R (pad Start, touch tap)                    | restart     |
 
 Multiplayer: all players auto-join the shared `bomberman-default` room; offline it degrades to solo play.

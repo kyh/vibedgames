@@ -14,20 +14,20 @@ npx tsx games/tetris/scripts/smoke.ts  # headless game-core smoke checks (no thr
 
 ## Routes
 
-| URL | What |
-|---|---|
+| URL | What     |
+| --- | -------- |
 | `/` | the game |
 
 ## Controls
 
-| Input | Action |
-|---|---|
-| ←→↑↓ / 📷 lean (touch drag, pad stick/d-pad) | move |
-| R / 📷 twist (pad A) | rotate |
-| Q / E (pad LB/RB) | turn view |
-| Space (pad B) | hard drop |
-| Shift (pad LT/RT) | soft drop |
-| C (pad X) | hold piece |
-| F / 📷 T-pose (pad Y) | power sweep |
-| V | recenter |
-| M / P | mute / pause |
+| Input                                        | Action       |
+| -------------------------------------------- | ------------ |
+| ←→↑↓ / 📷 lean (touch drag, pad stick/d-pad) | move         |
+| R / 📷 twist (pad A)                         | rotate       |
+| Q / E (pad LB/RB)                            | turn view    |
+| Space (pad B)                                | hard drop    |
+| Shift (pad LT/RT)                            | soft drop    |
+| C (pad X)                                    | hold piece   |
+| F / 📷 T-pose (pad Y)                        | power sweep  |
+| V                                            | recenter     |
+| M / P                                        | mute / pause |

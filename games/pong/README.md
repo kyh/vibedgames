@@ -13,16 +13,16 @@ pnpm --filter @repo/pong preview     # vite preview
 
 ## Routes
 
-| URL | What |
-|---|---|
+| URL | What     |
+| --- | -------- |
 | `/` | the game |
 
 ## Controls
 
-| Input | Action |
-|---|---|
+| Input                              | Action           |
+| ---------------------------------- | ---------------- |
 | ✋ hand (mouse, finger, pad stick) | steer the paddle |
-| ✊ fist (click, tap, pad A) | serve · rematch |
-| M | mute |
+| ✊ fist (click, tap, pad A)        | serve · rematch  |
+| M                                  | mute             |
 
 Multiplayer: auto-joins the shared `pong-default` room (2 players max) for a live 1v1; solo fallback (vs AI paddle) when the party server is unreachable or nobody else is around.

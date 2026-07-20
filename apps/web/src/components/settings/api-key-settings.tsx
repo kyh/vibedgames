@@ -8,9 +8,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckIcon, CopyIcon } from "lucide-react";
 
 import { SkeletonReveal } from "@/components/ui/skeleton-reveal";
+import { formatDate } from "@/lib/format";
 import { useTRPC } from "@/lib/trpc";
 
-const fmt = (d: Date | null | undefined) => (d ? new Date(d).toLocaleDateString() : "never");
+const fmt = (d: Date | null | undefined) => (d ? formatDate(d) : "never");
 
 const KeysSkeleton = () => (
   <ul className="divide-y divide-white/10 rounded-md border border-white/10">

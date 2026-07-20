@@ -1,5 +1,9 @@
 # Agent Instructions
 
+## Agent-driven development
+
+**Read [`AGENTS.md`](./AGENTS.md) first.** It is the tool-agnostic, runnable guide: quickstart, the two env files, seeded logins, headless auth, the `pnpm verify` gate, an agent-browser recipe, and which surfaces are checkable at runtime versus which need a human. This file carries the product context, architectural decisions and conventions that sit on top of it.
+
 ## What This Is
 
 **vibedgames** — infrastructure platform for deploying, hosting, and adding multiplayer to browser games. Users build games locally, deploy via CLI (`vg deploy`), and their game is served at `{slug}.vibedgames.com`. The web app is the central hub for discovering and playing games.
@@ -68,7 +72,8 @@ pnpm build            # Build all packages
 pnpm typecheck        # Type check all
 pnpm lint             # Lint all (oxlint)
 pnpm lint:fix         # Lint + fix
-pnpm format           # Format check (oxfmt)
+pnpm test             # Run all tests (turbo run test)
+pnpm format           # Format check (oxfmt --check)
 pnpm format:fix       # Format + write
 pnpm db:push          # Push schema (drizzle-kit push) to REMOTE prod D1
 pnpm db:push-remote   # Push schema to prod (.env.production.local)
@@ -77,40 +82,22 @@ pnpm db:seed-local    # Seed local dev identity (wrangler d1 execute seed.sql)
 pnpm db:local         # push-local + seed-local (one-shot local DB setup)
 pnpm dogfood          # Link local vg CLI + sync plugin skills into .claude/skills/
 pnpm dogfood:reset    # Unlink local vg CLI
+pnpm verify           # typecheck + lint + format + test (run before every commit)
 ```
 
 ## Environment
 
-- Copy `.env.example` to `.env`
-- Required: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_DATABASE_ID`, `CLOUDFLARE_D1_TOKEN`, `CLOUDFLARE_API_TOKEN`, `BETTER_AUTH_SECRET`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`
-- Optional: `FAL_API_KEY` (enables `vg generate`)
+Two files, two runtimes: root `.env` feeds anything reading `process.env` (drizzle-kit, the wrangler CLI); `apps/web/.dev.vars` feeds the dev Worker through the Cloudflare `env` binding. `BETTER_AUTH_SECRET` and the R2/fal keys only work in the second one. Full table + templates in `AGENTS.md` → Environment.
 
 ## Local development & headless verification
 
+Setup, seeded logins and the headless auth recipes live in `AGENTS.md`. What matters architecturally:
+
 The dev Worker (`pnpm dev:web`, http://localhost:5173) binds to a **local** Miniflare D1 — separate from prod, isolated, starts empty. Schema management is `drizzle-kit push` (TS schema is the source of truth, no SQL migration files): `db:push`/`db:push-remote` push to remote prod; `db:push-local` pushes the same schema to the local D1 (via `drizzle.config.local.ts`, which resolves the Miniflare SQLite path).
-
-Get a working, verifiable local stack (no browser, no prod):
-
-```bash
-pnpm dev:web   # once, to initialize the local D1
-pnpm db:local  # push schema to local D1 + seed dev identity
-```
-
-`db:seed-local` runs `packages/db/seed.sql`, creating:
-
-- dev user `dev@vibedgames.local` (role `admin`)
-- invite code `DEV123`
-- a long-lived session, token `dev-local-session-token-0000000000`
-
-Authenticate headlessly (no browser):
-
-- **CLI:** `VG_API_URL=http://localhost:5173 VG_TOKEN=dev-local-session-token-0000000000 vg <cmd>` — `VG_TOKEN` overrides the saved login without clobbering `~/.config/vg/auth.json`.
-- **tRPC/HTTP:** `Authorization: Bearer dev-local-session-token-0000000000`.
-- **Web UI:** sign up a real account to get a real session cookie — `curl -X POST localhost:5173/api/auth/sign-up/email -H 'Origin: http://localhost:5173' -H 'Content-Type: application/json' -d '{"email":"...","password":"...","name":"x","inviteCode":"DEV123"}'` returns `Set-Cookie: better-auth.session_token=...` (and a `set-auth-token` bearer). Feed the cookie to Playwright's context. (No hand-signing — the seeded session is for the bearer paths; the cookie comes from the real signup/signin flow.)
 
 Schema workflow: edit `packages/db/src/drizzle-schema*.ts` → `pnpm db:push-local` (local) / `pnpm db:push-remote` (prod). No migration files. Re-run `pnpm db:seed-local` anytime (idempotent); re-run `db:push-local` after schema changes, and restart `dev:web` if a change doesn't show.
 
-**Footgun: `vg deploy` against local still uploads to prod R2.** Local D1 is isolated, but the dev Worker is configured with real R2 credentials from `.env`, so `vg deploy --slug X` against `localhost:5173` will upload the bundle to the production R2 bucket — the only thing keeping it user-invisible is that the slug → deploymentId mapping lives in local D1. Treat the deploy code path as testable locally, but assume every successful local deploy leaves orphaned objects in prod R2 (until R2 gets a local-only binding).
+**Footgun: `vg deploy` against local still uploads to prod R2.** Local D1 is isolated, but the dev Worker is configured with real R2 credentials from `apps/web/.dev.vars`, so `vg deploy --slug X` against `localhost:5173` will upload the bundle to the production R2 bucket — the only thing keeping it user-invisible is that the slug → deploymentId mapping lives in local D1. Treat the deploy code path as testable locally, but assume every successful local deploy leaves orphaned objects in prod R2 (until R2 gets a local-only binding).
 
 ## Dogfooding (build games in ./games using local CLI + skills)
 
