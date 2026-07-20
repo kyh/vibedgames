@@ -43,7 +43,7 @@ The Worker never sees `process.env` — putting `BETTER_AUTH_SECRET` in `.env` s
 | `dev-local-session-token-0000000000`   | long-lived bearer token for the CLI and raw HTTP              |
 | `DEV123`                               | invite code, unlimited uses — for exercising `/auth/register` |
 
-Five sample games are seeded onto the admin account, so `/discover` is non-empty for everyone and `/home` is non-empty when signed in as `admin@vibedgames.com`. (The games themselves are served from the live prod subdomains; only the D1 rows are local.)
+Five sample games are seeded onto the admin account, so `/home` is non-empty when signed in as `admin@vibedgames.com`, and they show up in `/admin/users`. (The games themselves are served from the live prod subdomains; only the D1 rows are local.) `/` and `/discover` never read D1 — they render the hardcoded `featuredGames` array in `apps/web/src/components/game/data.ts`, so re-seeding cannot change them.
 
 Headless auth without a browser:
 
@@ -89,7 +89,7 @@ agent-browser screenshot /tmp/after.png
 
 The auth form uses react-hook-form, so prefer the `data-test` attributes over positional refs for the two credential fields; everything else is reliable off `snapshot`.
 
-Five flows cover every mutation in the app: `/settings` (create + revoke an API key), `/admin/invites` (create + revoke a code), `/admin/users` (create a user, grant credits, then re-check `/settings`), `/home` (delete a game).
+Six flows cover all nine `useMutation` sites in the app: `/settings` (create + revoke an API key), `/admin/invites` (create + revoke a code), `/admin/users` (create a user, grant credits, then re-check `/settings`), `/home` (delete a game), `/auth/register` (type `DEV123` into the invite OTP field — that is the `auth.validateInvite` mutation), `/auth/cli?code=<code>` (confirm a CLI device code — fires on mount, and deliberately invalidates nothing).
 
 ## Platform matrix
 
@@ -109,7 +109,7 @@ For the surfaces marked No, `pnpm typecheck` and `pnpm build` are the gate; a re
 ## Rules that matter
 
 - **Never `wrangler deploy` locally.** Deploys happen from GitHub Actions on push to `main`.
-- **`vg deploy` against localhost still writes to production R2.** The dev Worker holds real R2 credentials (from `apps/web/.dev.vars`); only the slug → deploymentId mapping is local. Assume every successful local deploy leaves orphaned objects in the prod bucket.
+- **`vg deploy` against `localhost` is safe — but only `localhost`.** When the Host header is `localhost[:port]`, `presignPut`/`presignGet` hand back HMAC-signed `/api/r2-upload` and `/api/r2-download` proxy URLs, so bytes land in the Miniflare-simulated `GAMES_BUCKET`, not prod R2 (`packages/api/src/deploy/r2-presign.ts`); `deletePrefix` always goes through the binding. The `R2_*` values in `apps/web/.dev.vars` only need to be non-empty for the config to be constructed — dummies work. The check is on the literal host string, so pointing the CLI at `http://127.0.0.1:5173` bypasses the proxy and presigns against **production** R2.
 - **Never push schema to remote.** `pnpm db:push` and `pnpm db:push-remote` both target production D1. Local work is `pnpm db:push-local` / `pnpm db:local`.
 - **Every mutation invalidates exactly the query keys it touches**, in its own `onSuccess`. There is no blanket invalidation in the query client; if a write should refresh a list, say so at the call site.
 - **No `any`, no non-null `!`, no `as` casts. Kebab-case filenames.** Make illegal states unrepresentable.

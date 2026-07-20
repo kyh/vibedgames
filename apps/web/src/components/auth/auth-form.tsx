@@ -23,11 +23,15 @@ const DEFAULT_NEXT_PATH = "/home";
 /**
  * Post-auth redirect targets arrive as free-form search params
  * (`?callbackUrl=`, `?nextPath=`), so constrain them to same-origin paths
- * before handing one to the router. `//evil.example` is protocol-relative,
- * hence the second check.
+ * before handing one to the router. The second character is the one that
+ * matters: WHATWG URL parsing resolves both `//evil.example` and
+ * `/\evil.example` to a cross-origin URL, so reject a slash *or* a backslash
+ * there.
  */
+const PROTOCOL_RELATIVE = /^\/[/\\]/;
+
 const safeNextPath = (path?: string): string =>
-  path?.startsWith("/") && !path.startsWith("//") ? path : DEFAULT_NEXT_PATH;
+  path?.startsWith("/") && !PROTOCOL_RELATIVE.test(path) ? path : DEFAULT_NEXT_PATH;
 
 type StepFormProps = { callbackUrl?: string } & React.HTMLAttributes<HTMLDivElement>;
 

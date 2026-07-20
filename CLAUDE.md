@@ -97,7 +97,7 @@ The dev Worker (`pnpm dev:web`, http://localhost:5173) binds to a **local** Mini
 
 Schema workflow: edit `packages/db/src/drizzle-schema*.ts` → `pnpm db:push-local` (local) / `pnpm db:push-remote` (prod). No migration files. Re-run `pnpm db:seed-local` anytime (idempotent); re-run `db:push-local` after schema changes, and restart `dev:web` if a change doesn't show.
 
-**Footgun: `vg deploy` against local still uploads to prod R2.** Local D1 is isolated, but the dev Worker is configured with real R2 credentials from `apps/web/.dev.vars`, so `vg deploy --slug X` against `localhost:5173` will upload the bundle to the production R2 bucket — the only thing keeping it user-invisible is that the slug → deploymentId mapping lives in local D1. Treat the deploy code path as testable locally, but assume every successful local deploy leaves orphaned objects in prod R2 (until R2 gets a local-only binding).
+**Local R2 is isolated too, and the isolation keys off the literal hostname.** `getServerContext` (`apps/web/src/auth/server.ts`) sets `proxyUploadBaseUrl`/`proxyUploadSecret` only when the Host header is `localhost` or `localhost:<port>`. With those set, `presignPut`/`presignGet` return HMAC-signed `/api/r2-upload` and `/api/r2-download` URLs instead of S3 presigned ones, so bytes flow through the `GAMES_BUCKET` binding — Miniflare-simulated locally. `deletePrefix` always uses the binding. Net: `vg deploy` against `http://localhost:5173` is fully local and the `R2_*` values in `.dev.vars` only need to be non-empty. `http://127.0.0.1:5173` misses the host check and presigns against **production** R2 — always address the dev worker as `localhost`.
 
 ## Dogfooding (build games in ./games using local CLI + skills)
 
@@ -111,4 +111,4 @@ A fresh remote clone resolves `.claude/skills/` automatically (the symlinks are 
 
 - **Auth:** `VG_TOKEN` set as an environment secret (device-code `vg login` needs a browser and blocks an agent). `VG_API_URL` defaults to prod; override for local/staging.
 - **Network:** egress allowed to `registry.npmjs.org` and the target API host.
-- **Prod-R2 footgun (above):** a successful `vg deploy` writes to **production** R2 regardless of which D1 the API points at.
+- **R2 (above):** only a `localhost[:port]` `VG_API_URL` gets the local upload proxy. Against prod — or against `127.0.0.1` — a successful `vg deploy` writes to **production** R2.

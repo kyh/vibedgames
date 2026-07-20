@@ -12,15 +12,19 @@
 # Any long random string: `openssl rand -base64 32`.
 BETTER_AUTH_SECRET=""
 
-# R2, for presigning game deploys via the S3 API. Missing values leave the
-# deploy router throwing INTERNAL_SERVER_ERROR instead of failing boot.
+# R2, for presigning game deploys via the S3 API. All three must be
+# non-empty or the deploy router throws INTERNAL_SERVER_ERROR (a missing
+# value doesn't fail boot, it just disables deploys).
 #
-# WARNING: these are real credentials. `vg deploy` against localhost:5173
-# uploads to the PRODUCTION bucket — only the slug -> deploymentId mapping
-# is local. See AGENTS.md.
-R2_ACCOUNT_ID=""
-R2_ACCESS_KEY_ID=""
-R2_SECRET_ACCESS_KEY=""
+# Locally these can be dummy strings. On a `localhost[:port]` Host header the
+# deploy router returns HMAC-signed `/api/r2-upload` / `/api/r2-download`
+# proxy URLs, so bytes go through the Miniflare-simulated GAMES_BUCKET
+# binding and the S3 keys are never used. Reaching the dev worker at
+# `127.0.0.1` skips that proxy and presigns against real R2 — use
+# `localhost`. See AGENTS.md → Rules that matter.
+R2_ACCOUNT_ID="local"
+R2_ACCESS_KEY_ID="local"
+R2_SECRET_ACCESS_KEY="local"
 
 # Optional — enables `vg generate`. Absent just means the media procedures
 # error until it is configured.

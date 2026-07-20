@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "prompt": "vibedgames is agent-driven — read AGENTS.md first. Local stack: `pnpm install`, copy both env templates (`.env.example` -> `.env` and `apps/web/.dev.vars.example` -> `apps/web/.dev.vars`), run `pnpm dev:web` once so the Miniflare D1 exists, then `pnpm db:local`. Seeded browser login: user@vibedgames.com / password123 (admin@vibedgames.com for admin). Gate every change with `pnpm verify`. Never run `wrangler deploy`, `pnpm db:push` or `pnpm db:push-remote` — those hit production; and `vg deploy` against localhost still writes to the production R2 bucket.",
+  "prompt": "vibedgames is agent-driven — read AGENTS.md first. Local stack: `pnpm install`, copy both env templates (`.env.example` -> `.env` and `apps/web/.dev.vars.example` -> `apps/web/.dev.vars`), run `pnpm dev:web` once so the Miniflare D1 exists, then `pnpm db:local`. Seeded browser login: user@vibedgames.com / password123 (admin@vibedgames.com for admin). Gate every change with `pnpm verify`. Never run `wrangler deploy`, `pnpm db:push` or `pnpm db:push-remote` — those hit production. `vg deploy` against `http://localhost:5173` is safe: uploads proxy into the local Miniflare R2 bucket. `http://127.0.0.1:5173` is not — that host skips the proxy and writes to production R2.",
   "permissions": {
     "allow": [
       "Bash(pnpm verify:*)",
@@ -8,8 +8,20 @@
       "Bash(pnpm db:push-local:*)",
       "Bash(pnpm db:seed-local:*)",
       "Bash(pnpm dogfood:*)",
-      "Bash(pnpm dev:web:*)"
+      "Bash(pnpm dev:web:*)",
+      "Bash(agent-browser:*)"
     ],
-    "deny": ["Bash(wrangler deploy:*)", "Bash(pnpm db:push)", "Bash(pnpm db:push-remote)"]
+    "deny": [
+      "Bash(wrangler deploy:*)",
+      "Bash(pnpm exec wrangler deploy:*)",
+      "Bash(pnpm * exec wrangler deploy:*)",
+      "Bash(pnpm db:push)",
+      "Bash(pnpm run db:push)",
+      "Bash(pnpm db:push-remote)",
+      "Bash(pnpm run db:push-remote)",
+      "Bash(pnpm -F db push)",
+      "Bash(pnpm -F db push:remote)",
+      "Bash(pnpm -C packages/db exec drizzle-kit push:*)"
+    ]
   }
 }

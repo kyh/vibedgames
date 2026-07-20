@@ -26,3 +26,10 @@ jobs:
 
       # typecheck · lint · format · test — the same gate `pnpm verify` runs locally.
       - run: pnpm verify
+
+      # `verify` does not build. deploy.yml runs `turbo run build` before every
+      # `wrangler deploy`, so without this a PR can be green here and still
+      # break the deploy on merge.
+      - run: pnpm build
+        env:
+          CI: "1"
