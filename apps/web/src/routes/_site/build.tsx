@@ -9,9 +9,8 @@ import { GitHubLink, RegisterLink } from "@/components/auth/register-link";
 import { ClaudeIcon, CodexIcon, CursorIcon } from "@/components/ui/brand-icons";
 import { FadeInBlur } from "@/components/ui/fade-in-blur";
 import { chromatic, RollingLabel, RollingText } from "@/components/ui/rolling-text";
+import { INSTALL_PROMPT } from "@/lib/install-prompt";
 import { useCopyToClipboard } from "@/lib/use-copy-to-clipboard";
-
-const INSTALL_PROMPT = "Read https://vibedgames.com/install then help me build my game";
 
 function InstallPrompt() {
   const { copied, copy } = useCopyToClipboard();

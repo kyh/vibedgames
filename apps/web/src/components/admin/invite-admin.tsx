@@ -16,9 +16,9 @@ const buildInviteLink = (code: string) => {
 };
 
 const CodesSkeleton = () => (
-  <ul className="divide-y divide-white/10 rounded-md border border-white/10">
+  <ul className="divide-y divide-white/10 border-t border-white/10">
     {Array.from({ length: 3 }, (_, i) => (
-      <li key={i} className="flex h-12 items-center gap-3 p-3">
+      <li key={i} className="flex h-12 items-center gap-3">
         <Skeleton className="h-5 w-16" />
         <Skeleton className="h-4 w-16" />
         <Skeleton className="h-3 w-14" />
@@ -67,7 +67,10 @@ export const InviteAdmin = () => {
   const [count, setCount] = useState(1);
   const [maxUses, setMaxUses] = useState<number | "">(1);
   const [note, setNote] = useState("");
+  const [customCode, setCustomCode] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
+
+  const trimmedCustomCode = customCode.trim();
 
   const copyLink = (code: string) => {
     navigator.clipboard
@@ -80,74 +83,94 @@ export const InviteAdmin = () => {
   };
 
   return (
-    <div className="space-y-8">
+    <section
+      id="invites"
+      className="grid scroll-mt-28 grid-cols-1 gap-x-8 gap-y-6 py-12 first:pt-0 last:pb-0 md:grid-cols-3"
+    >
       <header>
-        <h1 className="text-2xl font-light">Invite codes</h1>
-        <p className="text-muted-foreground text-sm">
+        <h2 className="text-base font-semibold">Invite codes</h2>
+        <p className="text-muted-foreground mt-1 text-sm">
           Generate codes for early-preview signups. Single-use by default.
         </p>
       </header>
 
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          create.mutate({
-            count,
-            maxUses: maxUses === "" ? null : maxUses,
-            expiresAt: null,
-            note: note.trim() || null,
-          });
-        }}
-        className="grid grid-cols-1 gap-3 rounded-md border border-white/10 p-4 sm:grid-cols-4"
-      >
-        <Field className="gap-1">
-          <FieldLabel htmlFor="count">Count</FieldLabel>
-          <FieldContent>
-            <Input
-              id="count"
-              type="number"
-              min={1}
-              max={100}
-              value={count}
-              onChange={(e) => setCount(Number(e.target.value) || 1)}
-            />
-          </FieldContent>
-        </Field>
-        <Field className="gap-1">
-          <FieldLabel htmlFor="maxUses">Max uses (blank = unlimited)</FieldLabel>
-          <FieldContent>
-            <Input
-              id="maxUses"
-              type="number"
-              min={1}
-              value={maxUses}
-              onChange={(e) => setMaxUses(e.target.value === "" ? "" : Number(e.target.value) || 1)}
-            />
-          </FieldContent>
-        </Field>
-        <Field className="gap-1 sm:col-span-2">
-          <FieldLabel htmlFor="note">Note</FieldLabel>
-          <FieldContent>
-            <Input
-              id="note"
-              type="text"
-              placeholder="e.g. twitter giveaway"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-            />
-          </FieldContent>
-        </Field>
-        <div className="sm:col-span-4">
-          <Button type="submit" loading={create.isPending}>
-            Generate
-          </Button>
-        </div>
-      </form>
+      <div className="space-y-6 md:col-span-2">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            create.mutate({
+              count,
+              maxUses: maxUses === "" ? null : maxUses,
+              expiresAt: null,
+              note: note.trim() || null,
+              code: trimmedCustomCode === "" ? null : trimmedCustomCode,
+            });
+          }}
+          className="bg-input/40 space-y-4 rounded-md p-4 backdrop-blur-sm"
+        >
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field className="gap-1">
+              <FieldLabel htmlFor="count">Count</FieldLabel>
+              <FieldContent>
+                <Input
+                  id="count"
+                  type="number"
+                  min={1}
+                  max={100}
+                  disabled={trimmedCustomCode !== ""}
+                  value={count}
+                  onChange={(e) => setCount(Number(e.target.value) || 1)}
+                />
+              </FieldContent>
+            </Field>
+            <Field className="gap-1">
+              <FieldLabel htmlFor="maxUses">Max uses (blank = unlimited)</FieldLabel>
+              <FieldContent>
+                <Input
+                  id="maxUses"
+                  type="number"
+                  min={1}
+                  value={maxUses}
+                  onChange={(e) =>
+                    setMaxUses(e.target.value === "" ? "" : Number(e.target.value) || 1)
+                  }
+                />
+              </FieldContent>
+            </Field>
+            <Field className="gap-1">
+              <FieldLabel htmlFor="custom-code">Custom code (optional)</FieldLabel>
+              <FieldContent>
+                <Input
+                  id="custom-code"
+                  type="text"
+                  maxLength={6}
+                  placeholder="e.g. LAUNCH — 6 chars, replaces count"
+                  className="font-mono uppercase"
+                  value={customCode}
+                  onChange={(e) => setCustomCode(e.target.value.toUpperCase())}
+                />
+              </FieldContent>
+            </Field>
+            <Field className="gap-1">
+              <FieldLabel htmlFor="note">Note</FieldLabel>
+              <FieldContent>
+                <Input
+                  id="note"
+                  type="text"
+                  placeholder="e.g. twitter giveaway"
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                />
+              </FieldContent>
+            </Field>
+          </div>
+          <div className="flex justify-end">
+            <Button type="submit" size="sm" loading={create.isPending}>
+              Generate
+            </Button>
+          </div>
+        </form>
 
-      <section>
-        <h2 className="mb-2 text-sm font-medium uppercase tracking-wide text-muted-foreground">
-          Existing codes
-        </h2>
         <SkeletonReveal
           ready={list.data !== undefined || list.isError}
           skeleton={<CodesSkeleton />}
@@ -159,11 +182,11 @@ export const InviteAdmin = () => {
             <p className="text-muted-foreground text-sm">No codes yet.</p>
           )}
           {list.data && list.data.codes.length > 0 && (
-            <ul className="divide-y divide-white/10 rounded-md border border-white/10">
+            <ul className="divide-y divide-white/10 border-t border-white/10">
               {list.data.codes.map((row) => {
                 const status = codeStatus(row);
                 return (
-                  <li key={row.id} className="flex items-center gap-3 p-3 text-sm">
+                  <li key={row.id} className="flex items-center gap-3 py-3 text-sm">
                     <code className="font-mono text-base">{row.code}</code>
                     <span
                       className={
@@ -176,10 +199,14 @@ export const InviteAdmin = () => {
                     >
                       {status}
                     </span>
-                    <span className="text-muted-foreground">
+                    <span className="text-muted-foreground shrink-0">
                       {row.usedCount}/{row.maxUses ?? "∞"} uses
                     </span>
-                    {row.note && <span className="text-muted-foreground italic">{row.note}</span>}
+                    {row.note && (
+                      <span className="text-muted-foreground min-w-0 truncate italic">
+                        {row.note}
+                      </span>
+                    )}
                     <span className="ml-auto flex items-center gap-2">
                       <Button
                         type="button"
@@ -212,7 +239,7 @@ export const InviteAdmin = () => {
             </ul>
           )}
         </SkeletonReveal>
-      </section>
-    </div>
+      </div>
+    </section>
   );
 };

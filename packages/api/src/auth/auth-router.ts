@@ -164,19 +164,43 @@ export const authRouter = createTRPCRouter({
         maxUses: z.number().int().min(1).nullable().default(1),
         expiresAt: z.date().nullable().default(null),
         note: z.string().max(200).nullable().default(null),
+        // Explicit code instead of random generation; overrides `count`.
+        code: z.string().max(50).nullable().default(null),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const rows = buildInviteRows({
-        count: input.count,
-        maxUses: input.maxUses,
-        expiresAt: input.expiresAt,
-        note: input.note,
-        createdBy: ctx.session.user.id,
-      });
+      let rows;
+      try {
+        rows = buildInviteRows({
+          count: input.count,
+          maxUses: input.maxUses,
+          expiresAt: input.expiresAt,
+          note: input.note,
+          code: input.code,
+          createdBy: ctx.session.user.id,
+        });
+      } catch (err) {
+        // buildInviteRows throws on a malformed custom code — a caller
+        // mistake, not a server fault.
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: err instanceof Error ? err.message : "Invalid invite code",
+        });
+      }
 
-      const created = await ctx.db.insert(inviteCode).values(rows).returning();
-      return { codes: created };
+      try {
+        const created = await ctx.db.insert(inviteCode).values(rows).returning();
+        return { codes: created };
+      } catch (err) {
+        // Drizzle wraps the D1 constraint failure; the "UNIQUE" detail sits
+        // somewhere down the `cause` chain, not on the top-level message.
+        for (let e: unknown = err; e instanceof Error; e = e.cause) {
+          if (input.code != null && e.message.includes("UNIQUE")) {
+            throw new TRPCError({ code: "CONFLICT", message: "That invite code already exists." });
+          }
+        }
+        throw err;
+      }
     }),
 
   revokeInvite: adminProcedure
