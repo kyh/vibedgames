@@ -1,17 +1,16 @@
 @import "@repo/ui/globals.css";
 
 @theme {
-  /* Page-level FadeInBlur entrance for the account shell. CSS (not motion)
-     on purpose: with no fill-mode, every style reverts to natural once the
-     animation ends, so no `filter` lingers on the wrapper — a lingering
-     filter would both disable descendant backdrop-filter (new backdrop
-     root) and re-anchor `position: fixed` children to the wrapper. */
+  /* Page-level fade entrance for the account shell. CSS (not motion) on
+     purpose: with no fill-mode every style reverts once the animation ends,
+     so nothing lingers on the wrapper. Keep `filter` out of this keyframe —
+     even a transient one re-anchors `position: fixed` children and breaks
+     descendant backdrop-filter while it runs. */
   --animate-page-enter: page-enter 0.6s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @keyframes page-enter {
   from {
     opacity: 0;
-    filter: blur(5px);
   }
 }
