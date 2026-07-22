@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull } from "@repo/db";
+import { and, desc, eq } from "@repo/db";
 import { inviteCode } from "@repo/db/drizzle-schema";
 import { user, verification } from "@repo/db/drizzle-schema-auth";
 import { TRPCError } from "@trpc/server";
@@ -203,19 +203,38 @@ export const authRouter = createTRPCRouter({
       }
     }),
 
-  revokeInvite: adminProcedure
-    .input(z.object({ id: z.string() }))
+  // Revoke, unrevoke, or change the use limit of an existing code. Omitted
+  // fields are left untouched. Lowering `maxUses` below `usedCount` is allowed
+  // and simply exhausts the code; raising it re-opens an exhausted code.
+  updateInvite: adminProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        // `null` = unlimited uses; omit to leave unchanged.
+        maxUses: z.number().int().min(1).nullable().optional(),
+        // `true` revokes now, `false` clears an existing revocation.
+        revoked: z.boolean().optional(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
-      const [revoked] = await ctx.db
-        .update(inviteCode)
-        .set({ revokedAt: new Date() })
-        .where(and(eq(inviteCode.id, input.id), isNull(inviteCode.revokedAt)))
-        .returning();
+      const patch: Partial<typeof inviteCode.$inferInsert> = {};
+      if (input.maxUses !== undefined) patch.maxUses = input.maxUses;
+      if (input.revoked !== undefined) patch.revokedAt = input.revoked ? new Date() : null;
 
-      if (!revoked) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Code not found or already revoked" });
+      if (Object.keys(patch).length === 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Nothing to update" });
       }
 
-      return { code: revoked };
+      const [updated] = await ctx.db
+        .update(inviteCode)
+        .set(patch)
+        .where(eq(inviteCode.id, input.id))
+        .returning();
+
+      if (!updated) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Code not found" });
+      }
+
+      return { code: updated };
     }),
 });

@@ -5,7 +5,7 @@ import { Input } from "@repo/ui/components/input";
 import { Skeleton } from "@repo/ui/components/skeleton";
 import { toast } from "@repo/ui/components/sonner";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckIcon, CopyIcon } from "lucide-react";
+import { CheckIcon, CopyIcon, PencilIcon } from "lucide-react";
 
 import { SkeletonReveal } from "@/components/ui/skeleton-reveal";
 import { useTRPC } from "@/lib/trpc";
@@ -54,11 +54,18 @@ export const InviteAdmin = () => {
       onError: (err) => toast.error(err.message),
     }),
   );
-  const revoke = useMutation(
-    trpc.auth.revokeInvite.mutationOptions({
-      onSuccess: () => {
+  const update = useMutation(
+    trpc.auth.updateInvite.mutationOptions({
+      onSuccess: (_data, variables) => {
         qc.invalidateQueries({ queryKey: trpc.auth.listInvites.queryKey() });
-        toast.success("Code revoked");
+        toast.success(
+          variables.revoked === true
+            ? "Code revoked"
+            : variables.revoked === false
+              ? "Code restored"
+              : "Code updated",
+        );
+        setEditing(null);
       },
       onError: (err) => toast.error(err.message),
     }),
@@ -69,6 +76,8 @@ export const InviteAdmin = () => {
   const [note, setNote] = useState("");
   const [customCode, setCustomCode] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
+  // Row currently having its max-uses edited inline; "" = unlimited.
+  const [editing, setEditing] = useState<{ id: string; maxUses: number | "" } | null>(null);
 
   const trimmedCustomCode = customCode.trim();
 
@@ -199,9 +208,64 @@ export const InviteAdmin = () => {
                     >
                       {status}
                     </span>
-                    <span className="text-muted-foreground shrink-0">
-                      {row.usedCount}/{row.maxUses ?? "∞"} uses
-                    </span>
+                    {editing?.id === row.id ? (
+                      <form
+                        className="flex shrink-0 items-center gap-1"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          update.mutate({
+                            id: row.id,
+                            maxUses: editing.maxUses === "" ? null : editing.maxUses,
+                          });
+                        }}
+                      >
+                        <span className="text-muted-foreground">{row.usedCount}/</span>
+                        <Input
+                          type="number"
+                          min={1}
+                          autoFocus
+                          placeholder="∞"
+                          className="h-7 w-16"
+                          value={editing.maxUses}
+                          onChange={(e) =>
+                            setEditing({
+                              id: row.id,
+                              maxUses: e.target.value === "" ? "" : Number(e.target.value) || 1,
+                            })
+                          }
+                        />
+                        <Button
+                          type="submit"
+                          variant="ghost"
+                          size="sm"
+                          loading={
+                            update.isPending &&
+                            update.variables?.id === row.id &&
+                            update.variables?.maxUses !== undefined
+                          }
+                        >
+                          Save
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setEditing(null)}
+                        >
+                          Cancel
+                        </Button>
+                      </form>
+                    ) : (
+                      <button
+                        type="button"
+                        title="Edit max uses"
+                        className="text-muted-foreground hover:text-foreground inline-flex shrink-0 items-center gap-1"
+                        onClick={() => setEditing({ id: row.id, maxUses: row.maxUses ?? "" })}
+                      >
+                        {row.usedCount}/{row.maxUses ?? "∞"} uses
+                        <PencilIcon className="size-3" />
+                      </button>
+                    )}
                     {row.note && (
                       <span className="text-muted-foreground min-w-0 truncate italic">
                         {row.note}
@@ -226,10 +290,29 @@ export const InviteAdmin = () => {
                           type="button"
                           variant="ghost"
                           size="sm"
-                          loading={revoke.isPending && revoke.variables?.id === row.id}
-                          onClick={() => revoke.mutate({ id: row.id })}
+                          loading={
+                            update.isPending &&
+                            update.variables?.id === row.id &&
+                            update.variables?.revoked === true
+                          }
+                          onClick={() => update.mutate({ id: row.id, revoked: true })}
                         >
                           Revoke
+                        </Button>
+                      )}
+                      {status === "revoked" && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          loading={
+                            update.isPending &&
+                            update.variables?.id === row.id &&
+                            update.variables?.revoked === false
+                          }
+                          onClick={() => update.mutate({ id: row.id, revoked: false })}
+                        >
+                          Unrevoke
                         </Button>
                       )}
                     </span>
