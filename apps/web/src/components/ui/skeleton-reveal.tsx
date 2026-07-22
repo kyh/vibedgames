@@ -14,10 +14,12 @@ const WIPE_DURATION = 0.6;
  *
  * The skeleton and content each keep ONE tree position across every phase —
  * only styles change — so nothing remounts mid-reveal (remounts replay CSS
- * entrance animations and refetch images, which reads as flashing). Masks
- * are removed once the sweep retires so they can't linger as a backdrop
- * root and break descendant backdrop-filter. Mounting with `ready` already
- * true (cached data, revisits) skips the animation entirely.
+ * entrance animations and refetch images, which reads as flashing). On
+ * retire the content mask must be EXPLICITLY set to "none" — motion applies
+ * MotionValue styles imperatively, so passing `undefined` leaves the last
+ * inline mask in place, which keeps the wrapper a backdrop root and breaks
+ * descendant backdrop-filter. Mounting with `ready` already true (cached
+ * data, revisits) skips the animation entirely.
  */
 export const SkeletonReveal = ({
   ready,
@@ -70,7 +72,11 @@ export const SkeletonReveal = ({
   return (
     <div className={cn("relative", className)}>
       <motion.div
-        style={retired ? undefined : { maskImage: contentMask, WebkitMaskImage: contentMask }}
+        style={
+          retired
+            ? { maskImage: "none", WebkitMaskImage: "none" }
+            : { maskImage: contentMask, WebkitMaskImage: contentMask }
+        }
       >
         {ready ? children : null}
       </motion.div>
