@@ -17,6 +17,20 @@ const MAX_BODY_BYTES = MAX_TRPC_BODY_BYTES;
 const TRPC_PAYLOAD_TOO_LARGE = -32013;
 const TRPC_BAD_REQUEST = -32600;
 
+// Codes that are ordinary control flow rather than incidents: an expired
+// session hitting `protectedProcedure`, a non-admin hitting
+// `adminProcedure`, a zod rejection, `auth.cliPoll` reporting "not
+// confirmed yet" to a CLI that polls it in a loop, and better-auth's
+// rate limiter (10 req/60s). Observability is enabled on this Worker, so
+// logging these is billable noise that buries the real errors.
+const EXPECTED_ERROR_CODES = new Set([
+  "UNAUTHORIZED",
+  "FORBIDDEN",
+  "NOT_FOUND",
+  "BAD_REQUEST",
+  "TOO_MANY_REQUESTS",
+]);
+
 function bodySizeError(
   req: Request,
   message: string,
@@ -110,6 +124,7 @@ const handler = async (req: Request): Promise<Response> => {
         media,
       }),
     onError({ error, path }) {
+      if (EXPECTED_ERROR_CODES.has(error.code)) return;
       console.error(`>>> tRPC Error on '${path}'`, error);
     },
   });

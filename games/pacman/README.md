@@ -13,19 +13,19 @@ pnpm --filter @repo/pacman preview     # vite preview
 
 ## Routes
 
-| URL | What |
-|---|---|
+| URL | What     |
+| --- | -------- |
 | `/` | the game |
 
 ## Controls
 
-| Input | Action |
-|---|---|
-| 📷 open mouth (Space, swipe ↑, pad A) | chomp |
-| 📷 turn head (← →, swipe, pad d-pad/stick) | turn |
-| ↓ / swipe ↓ | reverse |
-| Shift (pad LB, touch 🤳) | selfie cam |
-| M | mute |
-| R / click / tap (pad Start) | restart |
+| Input                                      | Action     |
+| ------------------------------------------ | ---------- |
+| 📷 open mouth (Space, swipe ↑, pad A)      | chomp      |
+| 📷 turn head (← →, swipe, pad d-pad/stick) | turn       |
+| ↓ / swipe ↓                                | reverse    |
+| Shift (pad LB, touch 🤳)                   | selfie cam |
+| M                                          | mute       |
+| R / click / tap (pad Start)                | restart    |
 
 Multiplayer: auto-joins the shared `pacman-default` room (up to 4 players), solo fallback when the party server is unreachable.

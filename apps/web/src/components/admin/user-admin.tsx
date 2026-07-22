@@ -17,6 +17,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { SkeletonReveal } from "@/components/ui/skeleton-reveal";
 import { formatUsd } from "@/lib/credits-format";
+import { formatDate } from "@/lib/format";
 import { useTRPC } from "@/lib/trpc";
 
 type Role = "user" | "admin";
@@ -213,7 +214,7 @@ export const UserAdmin = () => {
                   )}
                   <span className="ml-auto shrink-0 tabular-nums">{balanceLabel(u.id)}</span>
                   <span className="text-muted-foreground shrink-0 text-xs">
-                    {new Date(u.createdAt).toLocaleDateString()}
+                    {formatDate(u.createdAt)}
                   </span>
                   <Button
                     type="button"

@@ -18,6 +18,7 @@ import { toast } from "@repo/ui/components/sonner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@repo/ui/components/tooltip";
 
 import { SkeletonReveal } from "@/components/ui/skeleton-reveal";
+import { formatDateCompact } from "@/lib/format";
 import { INSTALL_PROMPT } from "@/lib/install-prompt";
 import { useTRPC } from "@/lib/trpc";
 import { useCopyToClipboard } from "@/lib/use-copy-to-clipboard";
@@ -28,17 +29,6 @@ export const Route = createFileRoute("/_account/home")({
 });
 
 const gameUrl = (slug: string) => `https://${slug}.vibedgames.com`;
-
-/** "Jan 15", with the year appended once it stops being this year. */
-const formatDate = (date: Date): string => {
-  const d = new Date(date);
-  const sameYear = d.getFullYear() === new Date().getFullYear();
-  return d.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    ...(sameYear ? {} : { year: "numeric" }),
-  });
-};
 
 /**
  * The game's real favicon (served from its live subdomain), falling back to
@@ -223,7 +213,7 @@ function GamesPage() {
                           <Trash2Icon className="size-3.5" />
                         </Button>
                         <span className="text-muted-foreground text-xs tabular-nums transition-opacity duration-100 group-hover:opacity-0 peer-focus-visible:opacity-0">
-                          {formatDate(g.updatedAt)}
+                          {formatDateCompact(g.updatedAt)}
                         </span>
                       </div>
                     </li>

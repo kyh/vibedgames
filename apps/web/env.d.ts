@@ -3,7 +3,6 @@
 
 interface CloudflareEnv {
   DB: D1Database;
-  ASSETS: Fetcher;
   GAMES_BUCKET: R2Bucket;
   BETTER_AUTH_SECRET: string;
   PRODUCTION_URL: string;

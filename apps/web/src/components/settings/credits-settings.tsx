@@ -4,6 +4,7 @@ import { Skeleton } from "@repo/ui/components/skeleton";
 
 import { SkeletonReveal } from "@/components/ui/skeleton-reveal";
 import { formatUsd, kindLabel } from "@/lib/credits-format";
+import { formatDate } from "@/lib/format";
 import { useTRPC } from "@/lib/trpc";
 
 const CreditsSkeleton = () => (
@@ -82,7 +83,7 @@ export const CreditsSettings = () => {
                                   <code className="font-mono">{e.endpointId}</code> ·{" "}
                                 </>
                               )}
-                              {new Date(e.createdAt).toLocaleDateString()}
+                              {formatDate(e.createdAt)}
                             </div>
                           </div>
                           <span

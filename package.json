@@ -34,9 +34,10 @@
     "r2:lifecycle": "pnpm -C apps/web exec wrangler r2 bucket lifecycle set vibedgames-games --file ./infra/r2/vibedgames-games.lifecycle.json --force",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
-    "format": "oxfmt",
+    "format": "oxfmt --check",
     "lint:fix": "oxlint --fix",
-    "format:fix": "oxfmt --write"
+    "format:fix": "oxfmt --write",
+    "verify": "pnpm typecheck && pnpm lint && pnpm format && pnpm test"
   },
   "devDependencies": {
     "dotenv-cli": "^11.0.0",

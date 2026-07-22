@@ -54,9 +54,16 @@ plugins/         Claude Code plugins — game-building skills bundled with the C
 
 ```sh
 pnpm install
-cp .env.example .env
-pnpm dev
+cp .env.example .env                              # drizzle-kit + wrangler CLI creds
+cp apps/web/.dev.vars.example apps/web/.dev.vars  # Worker secrets (BETTER_AUTH_SECRET, R2, fal)
+pnpm dev:web                                      # run once, then stop — creates the local D1
+pnpm db:local                                     # push schema + seed dev logins
+pnpm dev                                          # http://localhost:5173
 ```
+
+The first `dev:web` is not a typo — the Miniflare D1 file has to exist before
+`db:local` can push to it. Seeded login: `user@vibedgames.com` / `password123`.
+Full agent-oriented guide, including headless auth: [AGENTS.md](./AGENTS.md).
 
 ## Common commands
 
@@ -66,6 +73,7 @@ pnpm dev:web          # web app only
 pnpm dev:party        # multiplayer server only
 pnpm build            # build everything
 pnpm typecheck        # type check all packages
+pnpm verify           # typecheck + lint + format + test (run before every commit)
 pnpm db:local         # push schema to local D1 + seed dev identity
 pnpm db:push-remote   # push schema to production
 ```

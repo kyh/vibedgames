@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,7 +21,10 @@ export function makeCleanups(): {
 }
 
 export function makeTmpDir(cleanups: (() => void)[], prefix = "vg-test-"): string {
-  const dir = mkdtempSync(join(tmpdir(), prefix));
+  // realpath because macOS's tmpdir is a symlink (/var -> /private/var):
+  // any test that chdirs into the dir gets the resolved path back from
+  // `process.cwd()`, so the unresolved one would never compare equal.
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
   cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
   return dir;
 }

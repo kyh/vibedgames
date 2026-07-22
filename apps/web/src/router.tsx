@@ -16,9 +16,12 @@ export function getRouter() {
         staleTime: 30 * 1000,
       },
       mutations: {
-        onSuccess: async () => {
-          await queryClient.invalidateQueries();
-        },
+        // No default `onSuccess`. Every mutation invalidates exactly the
+        // query keys it touches in its own `onSuccess` — a blanket
+        // `invalidateQueries()` refetches every mounted query on every
+        // write, and (because react-query shallow-merges these defaults)
+        // it silently stops applying the moment a call site declares its
+        // own handler, so it was never a net you could rely on anyway.
         onError: (error) => {
           toast.error(error.message);
         },

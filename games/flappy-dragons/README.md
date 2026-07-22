@@ -13,16 +13,16 @@ pnpm --filter @repo/flappy-dragons preview     # vite preview
 
 ## Routes
 
-| URL | What |
-|---|---|
+| URL | What     |
+| --- | -------- |
 | `/` | the game |
 
 ## Controls
 
-| Input | Action |
-|---|---|
-| Space / ↑ (click, tap, pad A) | flap |
-| 📷 webcam | jump or flap your arms |
-| M | mute |
+| Input                         | Action                 |
+| ----------------------------- | ---------------------- |
+| Space / ↑ (click, tap, pad A) | flap                   |
+| 📷 webcam                     | jump or flap your arms |
+| M                             | mute                   |
 
 Multiplayer: auto-joins the shared `flappy-dragons-default` room (up to 8 players), solo fallback when the party server is unreachable. Webcam is optional — keyboard/tap always works.

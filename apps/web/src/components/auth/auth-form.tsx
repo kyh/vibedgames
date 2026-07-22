@@ -18,6 +18,21 @@ import { useTRPC } from "@/lib/trpc";
 
 const OTP_SLOT_KEYS = Array.from({ length: INVITE_CODE_LENGTH }, (_, i) => `otp-slot-${i}`);
 
+const DEFAULT_NEXT_PATH = "/home";
+
+/**
+ * Post-auth redirect targets arrive as free-form search params
+ * (`?callbackUrl=`, `?nextPath=`), so constrain them to same-origin paths
+ * before handing one to the router. The second character is the one that
+ * matters: WHATWG URL parsing resolves both `//evil.example` and
+ * `/\evil.example` to a cross-origin URL, so reject a slash *or* a backslash
+ * there.
+ */
+const PROTOCOL_RELATIVE = /^\/[/\\]/;
+
+const safeNextPath = (path?: string): string =>
+  path?.startsWith("/") && !PROTOCOL_RELATIVE.test(path) ? path : DEFAULT_NEXT_PATH;
+
 type StepFormProps = { callbackUrl?: string } & React.HTMLAttributes<HTMLDivElement>;
 
 /**
@@ -150,7 +165,7 @@ const RegisterCredentialsStep = ({
 }) => {
   const router = useRouter();
   const search = useSearch({ from: "/auth" });
-  const nextPath = search.nextPath ?? "/home";
+  const nextPath = safeNextPath(search.nextPath);
 
   const form = useForm({
     resolver: zodResolver(
@@ -174,7 +189,7 @@ const RegisterCredentialsStep = ({
       inviteCode,
       fetchOptions: {
         onSuccess: () => {
-          router.navigate({ to: callbackUrl ?? nextPath, replace: true });
+          router.navigate({ to: safeNextPath(callbackUrl ?? nextPath), replace: true });
         },
         onError: (ctx) => {
           // The atomic claim happens at signup; if the code raced and lost
@@ -260,7 +275,7 @@ const RegisterCredentialsStep = ({
 export const LoginForm = ({ className, callbackUrl, ...props }: StepFormProps) => {
   const router = useRouter();
   const search = useSearch({ from: "/auth" });
-  const nextPath = search.nextPath ?? "/home";
+  const nextPath = safeNextPath(search.nextPath);
   const [authError, setAuthError] = useState(false);
   const [shakeScope, shake] = useShake();
 
@@ -280,7 +295,7 @@ export const LoginForm = ({ className, callbackUrl, ...props }: StepFormProps) =
       password: credentials.password,
       fetchOptions: {
         onSuccess: () => {
-          router.navigate({ to: callbackUrl ?? nextPath, replace: true });
+          router.navigate({ to: safeNextPath(callbackUrl ?? nextPath), replace: true });
         },
         onError: (ctx) => {
           toast.error(ctx.error.message);

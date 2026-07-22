@@ -10,6 +10,9 @@ type CliAuthConfirmProps = {
 
 export const CliAuthConfirm = ({ code, userName }: CliAuthConfirmProps) => {
   const trpc = useTRPC();
+  // Deliberately invalidates nothing: `cliConfirm` writes the device-code
+  // row that `auth.cliPoll` reads, and cliPoll is only ever called by the
+  // CLI over HTTP — no query in this app observes it.
   const confirm = useMutation(trpc.auth.cliConfirm.mutationOptions());
 
   // Auto-confirm on mount: reaching this page is the authorization. The loader
