@@ -197,6 +197,11 @@ const onPointerMove = (e: PointerEvent) => {
 ```tsx
 room.sendEvent("explosion", { x: 100, y: 200 });
 
+// Target specific players instead of broadcasting: `to` delivers only to those
+// ids (sender included only if listed), `except` excludes ids.
+room.sendEvent("you_died", { by: killerId }, { to: victimId });
+room.sendEvent("taunt", { line }, { except: room.playerId ?? [] });
+
 // Receive via onEvent config:
 const room = useMultiplayerRoom({
   host,

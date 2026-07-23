@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 
-import type { MultiplayerOptions, PlayerMap } from "./types.js";
+import type { MultiplayerOptions, PlayerMap, SendEventOptions } from "./types.js";
 import { MultiplayerClient } from "./client.js";
 import type { MultiplayerClientOptions, MultiplayerSnapshot } from "./client.js";
 
@@ -21,7 +21,7 @@ export type MultiplayerRoom<TShared = Record<string, unknown>> = MultiplayerSnap
       | Record<string, unknown>
       | ((previous: Record<string, unknown>) => Record<string, unknown>),
   ) => void;
-  sendEvent: (event: string, payload: unknown) => void;
+  sendEvent: (event: string, payload: unknown, options?: SendEventOptions) => void;
 };
 
 export type UseMultiplayerRoomConfig<TShared> = MultiplayerOptions & {
@@ -102,7 +102,8 @@ export function useMultiplayerRoom<
   );
 
   const sendEvent = useCallback(
-    (event: string, payload: unknown) => client.sendEvent(event, payload),
+    (event: string, payload: unknown, options?: SendEventOptions) =>
+      client.sendEvent(event, payload, options),
     [client],
   );
 

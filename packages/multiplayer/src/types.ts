@@ -59,10 +59,28 @@ export type Player = {
 
 export type PlayerMap = Record<string, Player>;
 
+/**
+ * Delivery targeting for `sendEvent`. Omit for the default broadcast to every
+ * player in the room (including the sender).
+ *
+ * - `to`: deliver only to these player ids. The sender is included only if its
+ *   own id is listed.
+ * - `except`: exclude these player ids (applied after `to`, if both given).
+ *
+ * Targeting is enforced by the party server; a server predating it ignores
+ * these fields and falls back to broadcasting to everyone.
+ */
+export type SendEventOptions = {
+  to?: string | string[];
+  except?: string | string[];
+};
+
 export type ClientMessage =
   | { type: "state_patch"; data: Record<string, unknown> }
   | { type: "player_state_patch"; data: Record<string, unknown> }
-  | { type: "emit"; data: { event: string; payload: unknown } }
+  // `to`/`except` are additive so servers and clients on either side of the
+  // targeting feature interoperate: absent fields mean broadcast-to-all.
+  | { type: "emit"; data: { event: string; payload: unknown; to?: string[]; except?: string[] } }
   // Liveness ping sent on an interval so the server can detect a host that has
   // gone away ungracefully (laptop sleep, crashed tab, dropped network) without
   // waiting for the WebSocket's much-longer TCP timeout, and migrate host.
