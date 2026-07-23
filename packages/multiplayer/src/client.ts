@@ -320,6 +320,25 @@ export class MultiplayerClient {
     this.notify();
   };
 
+  /**
+   * Seed `options.initialState` iff we are the host of a genuinely empty room.
+   * Emptiness is judged by `remoteStateSeen` (the server's view), not the
+   * locally pre-seeded `_sharedState`: a guest promoted mid-round has never
+   * tripped `initialStateApplied`, and seeding then would wipe the live board
+   * for everyone (issue #240). Called from both `sync` and `host` handlers.
+   */
+  private maybeSeedInitialState(hostId: string): void {
+    if (
+      hostId === this.socket.id &&
+      this.options.initialState &&
+      !this.initialStateApplied &&
+      !this.remoteStateSeen
+    ) {
+      this.initialStateApplied = true;
+      this.send({ type: "state_patch", data: this.options.initialState });
+    }
+  }
+
   private handleMessage = (event: MessageEvent): void => {
     try {
       const message = JSON.parse(event.data) as ServerMessage;
@@ -345,18 +364,7 @@ export class MultiplayerClient {
               ? message.data.state
               : { ...this._sharedState, ...message.data.state };
 
-          // Seed only a genuinely empty room (per remoteStateSeen, the
-          // server's view — not the locally pre-seeded _sharedState). A room
-          // with live state must never be reset by a (re)joining host.
-          if (
-            message.data.hostId === this.socket.id &&
-            !this.initialStateApplied &&
-            !this.remoteStateSeen &&
-            this.options.initialState
-          ) {
-            this.initialStateApplied = true;
-            this.send({ type: "state_patch", data: this.options.initialState });
-          }
+          this.maybeSeedInitialState(message.data.hostId);
 
           // Every reconnect is a brand-new connection server-side, with an empty
           // player state — and `sync` is the one signal that fires on each of
@@ -387,20 +395,7 @@ export class MultiplayerClient {
         }
         case "host": {
           this._hostId = message.data.id;
-          // Promotion mid-round must NOT re-seed: a guest promoted after the
-          // host left has never tripped initialStateApplied, so that flag
-          // alone let it wipe the live board (issue #240). Only seed here if
-          // no shared state has ever been observed — i.e. the original host
-          // vanished before seeding an empty room.
-          if (
-            message.data.id === this.socket.id &&
-            this.options.initialState &&
-            !this.initialStateApplied &&
-            !this.remoteStateSeen
-          ) {
-            this.initialStateApplied = true;
-            this.send({ type: "state_patch", data: this.options.initialState });
-          }
+          this.maybeSeedInitialState(message.data.id);
           break;
         }
         case "state_patch": {
