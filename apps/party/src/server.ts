@@ -8,6 +8,7 @@ import {
   HOST_LIVENESS_TIMEOUT_MS,
   MAX_MESSAGE_BYTES,
   PING_INTERVAL_MS,
+  DELTA_PATCH_QUERY_PARAM,
   RECONNECT_GRACE_MS,
   RECONNECT_TOKEN_QUERY_PARAM,
   ROOM_CAP_QUERY_PARAM,
@@ -36,6 +37,9 @@ type Env = {
  *   transport drop can park the seat in the grace map keyed by something only
  *   the owner knows. Absent for pre-grace clients, which get the old
  *   remove-on-close behaviour. Never sent to peers.
+ * - `delta`: whether the client advertised delta-patch capability on connect.
+ *   Optional because attachments written by an older deploy (hibernating
+ *   sockets survive deploys) predate the field; absent means full snapshots.
  */
 type Presence = {
   id: string;
@@ -44,6 +48,7 @@ type Presence = {
   seenAt: number;
   aliveAt: number;
   token?: string;
+  delta?: boolean;
 };
 
 /**
@@ -105,9 +110,14 @@ const readIdList = (value: string[] | undefined): string[] | null => {
   return value.filter((id) => typeof id === "string");
 };
 
+/** A single query param off the connect request (untrusted client input).
+ *  Shared by every param reader so the URL parse/shape lives in one place. */
+const searchParam = (ctx: ConnectionContext, key: string): string | null =>
+  new URL(ctx.request.url).searchParams.get(key);
+
 /** Read the client-requested player cap, clamped to the hard ceiling. */
 const readRoomCap = (ctx: ConnectionContext): number | null => {
-  const raw = new URL(ctx.request.url).searchParams.get(ROOM_CAP_QUERY_PARAM);
+  const raw = searchParam(ctx, ROOM_CAP_QUERY_PARAM);
   if (!raw) return null;
   const parsed = Number.parseInt(raw, 10);
   if (!Number.isFinite(parsed) || parsed <= 0) return null;
@@ -116,9 +126,13 @@ const readRoomCap = (ctx: ConnectionContext): number | null => {
 
 /** Read the client's reconnection token, if it sent one (post-grace SDKs do). */
 const readReconnectToken = (ctx: ConnectionContext): string | null => {
-  const raw = new URL(ctx.request.url).searchParams.get(RECONNECT_TOKEN_QUERY_PARAM);
+  const raw = searchParam(ctx, RECONNECT_TOKEN_QUERY_PARAM);
   return raw && raw.length > 0 ? raw : null;
 };
+
+/** Whether the client advertised delta-patch capability (absent = full snapshots). */
+const readDeltaCapable = (ctx: ConnectionContext): boolean =>
+  searchParam(ctx, DELTA_PATCH_QUERY_PARAM) === "1";
 
 export class VgServer extends Server {
   /**
@@ -247,6 +261,25 @@ export class VgServer extends Server {
   }
 
   /**
+   * Per-recipient fan-out over admitted connections: `pick` returns the
+   * serialized message for a recipient, or null to skip it. Serialization
+   * stays with the caller (memoize via `??=` when variants repeat). A dead
+   * socket never aborts the fan-out — the alarm sweep reaps it later.
+   */
+  private sendToEach(pick: (connection: Connection<Presence>) => string | null): void {
+    for (const connection of this.getConnections<Presence>()) {
+      if (!connection.state) continue;
+      const raw = pick(connection);
+      if (raw === null) continue;
+      try {
+        connection.send(raw);
+      } catch {
+        /* peer already gone */
+      }
+    }
+  }
+
+  /**
    * Structural guard for an untrusted patch payload; true means drop the
    * message. Shared by both patch handlers so the check and its logging can't
    * drift apart.
@@ -352,6 +385,7 @@ export class VgServer extends Server {
       seenAt: now,
       aliveAt: now,
       token: token ?? undefined,
+      delta: readDeltaCapable(ctx),
     };
     connection.setState(presence);
     // Seat state: a reclaim resumes the held snapshot; a plain reconnect under
@@ -427,11 +461,24 @@ export class VgServer extends Server {
           if (this.rejectMalformed(sender, message.data, "player_state_patch")) break;
           const next = { ...(this.snapshots.get(sender.id) ?? {}), ...message.data };
           this.snapshots.set(sender.id, next);
-          const updateMessage: ServerMessage = {
-            type: "player_state",
-            data: { id: sender.id, state: next },
-          };
-          this.broadcast(JSON.stringify(updateMessage), [sender.id]);
+          // Fan out per recipient capability: delta-capable clients
+          // shallow-merge `player_state`, so they only need the keys this
+          // patch changed; older clients replace it wholesale and must get the
+          // full merged snapshot. Each variant is serialized at most once.
+          let deltaMessage: string | null = null;
+          let fullMessage: string | null = null;
+          this.sendToEach((connection) => {
+            if (connection.id === sender.id) return null;
+            return connection.state?.delta
+              ? (deltaMessage ??= JSON.stringify({
+                  type: "player_state",
+                  data: { id: sender.id, state: message.data },
+                } satisfies ServerMessage))
+              : (fullMessage ??= JSON.stringify({
+                  type: "player_state",
+                  data: { id: sender.id, state: next },
+                } satisfies ServerMessage));
+          });
           break;
         }
         case "state_patch": {
@@ -498,11 +545,9 @@ export class VgServer extends Server {
           // capacity-refused connection can never be reached by id.
           const targets = new Set(to);
           const excluded = new Set(except ?? []);
-          for (const connection of this.getConnections<Presence>()) {
-            if (!connection.state) continue;
-            if (!targets.has(connection.id) || excluded.has(connection.id)) continue;
-            connection.send(raw);
-          }
+          this.sendToEach((connection) =>
+            targets.has(connection.id) && !excluded.has(connection.id) ? raw : null,
+          );
           break;
         }
         default:

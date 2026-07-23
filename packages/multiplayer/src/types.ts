@@ -39,6 +39,18 @@ export const RECONNECT_TOKEN_QUERY_PARAM = "_reconnectToken";
  */
 export const RECONNECT_GRACE_MS = 30_000;
 
+/**
+ * Query-string key (sent as `_delta=1`) advertising that this client sends
+ * keyed deltas in its `*_patch` messages and shallow-merges incoming
+ * `player_state` payloads, so the server can fan out only the changed keys to
+ * it. A connection without the param is an older published SDK: it replaces
+ * `player_state` wholesale, so the server must keep sending it the full
+ * merged snapshot. Both kinds coexist in one room. A per-capability flag, not
+ * a protocol version — every wire extension here is feature-detected
+ * (`to`/`except`, `connected`, this), so growth stays additive.
+ */
+export const DELTA_PATCH_QUERY_PARAM = "_delta";
+
 export type MultiplayerConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
 
 export type PlayerState<T = Record<string, unknown>> = T;

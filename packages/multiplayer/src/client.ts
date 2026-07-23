@@ -11,6 +11,7 @@ import type {
 } from "./types.js";
 import {
   HEARTBEAT_INTERVAL_MS,
+  DELTA_PATCH_QUERY_PARAM,
   RECONNECT_TOKEN_QUERY_PARAM,
   ROOM_CAP_QUERY_PARAM,
 } from "./types.js";
@@ -105,6 +106,35 @@ const generateReconnectToken = (): string => {
   const uuid = cryptoHost.crypto?.randomUUID?.();
   if (uuid) return uuid;
   return `t-${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
+};
+
+/** True for immutable JSON values (primitives), where `Object.is` equality proves "unchanged". */
+const isPrimitive = (value: unknown): boolean =>
+  value === null || (typeof value !== "object" && typeof value !== "function");
+
+/**
+ * The keyed delta of `candidate` against `prev`: the keys actually worth
+ * sending, or `null` when nothing changed. The whole sync protocol is
+ * shallow-merge on every hop (server state, server broadcast, client mirrors),
+ * so any key that provably didn't change can stay off the wire entirely.
+ *
+ * A key is suppressed only when both sides hold the same *primitive* —
+ * primitives are immutable, so `Object.is` equality is proof. Objects and
+ * arrays are always included: a same-reference value may have been mutated in
+ * place, and dropping it would lose the update.
+ */
+const changedKeys = (
+  prev: Record<string, unknown>,
+  candidate: Record<string, unknown>,
+): Record<string, unknown> | null => {
+  let delta: Record<string, unknown> | null = null;
+  for (const key of Object.keys(candidate)) {
+    const value = candidate[key];
+    if (isPrimitive(value) && isPrimitive(prev[key]) && Object.is(prev[key], value)) continue;
+    delta ??= {};
+    delta[key] = value;
+  }
+  return delta;
 };
 
 /**
@@ -217,10 +247,12 @@ export class MultiplayerClient {
     }
   }
 
-  /** Query params sent on every (re)connect: effective cap + reconnect token. */
+  /** Query params sent on every (re)connect: reconnect token, capability
+   *  flags, and the effective cap. */
   private connectionQuery(): Record<string, string> {
     const query: Record<string, string> = {
       [RECONNECT_TOKEN_QUERY_PARAM]: this.reconnectToken,
+      [DELTA_PATCH_QUERY_PARAM]: "1",
     };
     if (this.cap !== null) query[ROOM_CAP_QUERY_PARAM] = String(this.cap);
     return query;
@@ -309,27 +341,31 @@ export class MultiplayerClient {
     };
   }
 
-  /** Update shared state (merged with current). */
+  /** Update shared state (merged with current). Only changed keys ride the wire. */
   updateSharedState(
     updater: Record<string, unknown> | ((prev: Record<string, unknown>) => Record<string, unknown>),
   ): void {
-    const next =
-      typeof updater === "function"
-        ? updater(this._sharedState)
-        : { ...this._sharedState, ...updater };
+    const prev = this._sharedState;
+    const next = typeof updater === "function" ? updater(prev) : { ...prev, ...updater };
     if (!this.passesSchema("sharedState", "outgoing", next)) return;
     this._sharedState = next;
+    // Flush unconditionally — coalesced events must precede whatever state
+    // message goes out next, even when this particular delta turns out empty.
     this.flushCoalescedEvents();
-    this.send({ type: "state_patch", data: next });
+    // Every hop shallow-merges patches, so unchanged keys can stay local. For
+    // the object form the game already named the keys it means to write; for
+    // the function form, diff the returned state against the previous one.
+    const delta = changedKeys(prev, typeof updater === "function" ? next : updater);
+    if (delta) this.send({ type: "state_patch", data: delta });
     this.notify();
   }
 
-  /** Update this player's state (merged with current). */
+  /** Update this player's state (merged with current). Only changed keys ride the wire. */
   updateMyState(
     updater: Record<string, unknown> | ((prev: Record<string, unknown>) => Record<string, unknown>),
   ): void {
     if (!this._playerId) return;
-    const current = (this._players[this._playerId]?.state as Record<string, unknown>) ?? {};
+    const current = this._players[this._playerId]?.state ?? {};
     const next = typeof updater === "function" ? updater(current) : { ...current, ...updater };
     if (!this.passesSchema("playerState", "outgoing", next)) return;
 
@@ -341,7 +377,8 @@ export class MultiplayerClient {
     this._myState = next;
 
     this.flushCoalescedEvents();
-    this.send({ type: "player_state_patch", data: next });
+    const delta = changedKeys(current, typeof updater === "function" ? next : updater);
+    if (delta) this.send({ type: "player_state_patch", data: delta });
     this.notify();
   }
 
@@ -591,13 +628,20 @@ export class MultiplayerClient {
           break;
         }
         case "player_state": {
-          if (!this.passesSchema("playerState", "incoming", message.data.state, message.data.id)) {
+          // The payload is a keyed delta for a delta-capable server, the full
+          // merged snapshot for an older one — shallow-merging handles both,
+          // because keys are only ever merged, never deleted, so a full
+          // snapshot is a superset of the local mirror. The schema check runs
+          // on the MERGED result, mirroring the sharedState path: a delta is
+          // partial by design and would fail any schema with required fields.
+          const existing = this._players[message.data.id] ?? { id: message.data.id };
+          const mergedState = { ...existing.state, ...message.data.state };
+          if (!this.passesSchema("playerState", "incoming", mergedState, message.data.id)) {
             break;
           }
-          const existing = this._players[message.data.id] ?? { id: message.data.id };
           this._players = {
             ...this._players,
-            [message.data.id]: { ...existing, state: message.data.state },
+            [message.data.id]: { ...existing, state: mergedState },
           };
           break;
         }
