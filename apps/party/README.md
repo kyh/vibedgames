@@ -16,6 +16,19 @@ Clients connect via WebSocket. The server handles:
 - **Player state** — `player_state_patch` per-player, broadcast to others
 - **Events** — `emit` pass-through for custom game events
 
+## HTTP endpoints
+
+- `GET /health` — liveness probe, answered at the Worker layer (never wakes a
+  Durable Object). Returns `{ ok: true, service: "vibedgames-party" }`.
+- `GET /parties/vg-server/:room` — per-room inspection. Returns aggregate stats
+  only (`{ room, playerCount, capacity, hasHost }`) — never player ids or game
+  state, since room slugs are guessable and games are untrusted code. Wakes the
+  room's Durable Object; with no open connections it sleeps again right after.
+
+There is no global room-listing endpoint: Durable Objects have no "list all
+instances" primitive, and maintaining a registry (KV or a directory DO) isn't
+warranted yet. Inspect rooms by id.
+
 ## Design rationale
 
 Multiplayer is **host-authoritative, last-write-wins**. The elected host (a browser)
