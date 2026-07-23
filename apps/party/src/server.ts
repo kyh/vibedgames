@@ -407,6 +407,25 @@ export class VgServer extends Server {
     await this.ctx.storage.setAlarm(Date.now() + PING_INTERVAL_MS);
   }
 
+  /**
+   * HTTP room inspection: `GET /parties/vg-server/:room` returns aggregate
+   * stats for that room. Rooms are addressed by guessable slugs and games are
+   * untrusted code, so this exposes counts only — never player ids, colors, or
+   * game state. Inspecting a room wakes its Durable Object; with no open
+   * connections it goes right back to sleep.
+   */
+  onRequest(request: Request): Response {
+    if (request.method !== "GET") {
+      return Response.json({ error: "method_not_allowed" }, { status: 405 });
+    }
+    return Response.json({
+      room: this.name,
+      playerCount: this.playerCount(),
+      capacity: this.cap,
+      hasHost: this.hostId !== null,
+    });
+  }
+
   private async removePlayer(connection: Connection<Presence>): Promise<void> {
     // A connection refused at capacity (room_full) is closed before being
     // admitted, so it carries no presence and no client saw it join. Skip the
@@ -458,6 +477,12 @@ export class VgServer extends Server {
 
 export default {
   async fetch(request: Request, env: Env) {
+    // Liveness probe. Answered at the Worker layer so it never wakes a
+    // Durable Object — cheap enough for an uptime monitor to hammer.
+    const url = new URL(request.url);
+    if (url.pathname === "/health") {
+      return Response.json({ ok: true, service: "vibedgames-party" });
+    }
     return (await routePartykitRequest(request, env)) || new Response("Not Found", { status: 404 });
   },
 } satisfies ExportedHandler<Env>;
