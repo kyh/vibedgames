@@ -4,7 +4,9 @@ import { routePartykitRequest, Server } from "partyserver";
 import type { ClientMessage, Player, PlayerMap, ServerMessage } from "@vibedgames/multiplayer";
 import {
   EVICTION_TIMEOUT_MS,
+  findStructuralIssue,
   HOST_LIVENESS_TIMEOUT_MS,
+  MAX_MESSAGE_BYTES,
   PING_INTERVAL_MS,
   RECONNECT_GRACE_MS,
   RECONNECT_TOKEN_QUERY_PARAM,
@@ -245,6 +247,18 @@ export class VgServer extends Server {
   }
 
   /**
+   * Structural guard for an untrusted patch payload; true means drop the
+   * message. Shared by both patch handlers so the check and its logging can't
+   * drift apart.
+   */
+  private rejectMalformed(sender: Connection<Presence>, data: unknown, label: string): boolean {
+    const issue = findStructuralIssue(data);
+    if (issue === null) return false;
+    console.warn(`Dropping ${label} from ${sender.id}: ${issue}`);
+    return true;
+  }
+
+  /**
    * Mark a connection heard-from on the keepalive channel. `seen` is true for a
    * non-pong keepalive (heartbeat) — the signal a backgrounded tab stops sending.
    */
@@ -397,12 +411,20 @@ export class VgServer extends Server {
       const presence = sender.state;
       if (!presence) return;
 
+      // Refuse oversized frames before parsing: the platform would drop a
+      // >1 MiB frame anyway, and parsing near-limit garbage burns DO CPU.
+      if (rawMessage.length > MAX_MESSAGE_BYTES) {
+        console.warn(`Dropping oversized message (${rawMessage.length} units) from ${sender.id}`);
+        return;
+      }
+
       const message = JSON.parse(rawMessage) as ClientMessage;
 
       switch (message.type) {
         case "player_state_patch": {
           // Hot path: snapshot + broadcast only. Liveness rides the heartbeat/
           // pong keepalive channel, so a per-tick stream costs no attachment write.
+          if (this.rejectMalformed(sender, message.data, "player_state_patch")) break;
           const next = { ...(this.snapshots.get(sender.id) ?? {}), ...message.data };
           this.snapshots.set(sender.id, next);
           const updateMessage: ServerMessage = {
@@ -425,6 +447,10 @@ export class VgServer extends Server {
             sender.send(JSON.stringify(echo));
             break;
           }
+          // The merge below spreads `data` into shared state, so a non-object
+          // root (string/array) would scatter index keys into every room's
+          // state; depth/forbidden-key checks bound what untrusted games store.
+          if (this.rejectMalformed(sender, message.data, "state_patch")) break;
           this.shared = {
             ...this.shared,
             ...message.data,

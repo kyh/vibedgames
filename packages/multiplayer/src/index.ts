@@ -19,3 +19,12 @@ export {
   PING_INTERVAL_MS,
   EVICTION_TIMEOUT_MS,
 } from "./types.js";
+
+export type {
+  MultiplayerSchemas,
+  SchemaViolation,
+  StandardSchemaV1,
+  StandardSchemaIssue,
+  StandardSchemaResult,
+} from "./validation.js";
+export { findStructuralIssue, MAX_MESSAGE_BYTES, MAX_STATE_DEPTH } from "./validation.js";
