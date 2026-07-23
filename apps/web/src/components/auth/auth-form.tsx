@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useRouter, useSearch } from "@tanstack/react-router";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { INVITE_CODE_LENGTH } from "@repo/api/auth/utils";
@@ -76,10 +76,6 @@ const InviteCodeStep = ({
   onValidated: (code: string) => void;
 }) => {
   const trpc = useTRPC();
-  // The server returns the canonical code; stash it during `verify` so
-  // `onSuccess` (fired after the cascade animation) can hand it to the parent.
-  const validatedCodeRef = useRef("");
-
   const validate = useMutation(trpc.auth.validateInvite.mutationOptions());
 
   return (
@@ -89,7 +85,8 @@ const InviteCodeStep = ({
       </FieldLabel>
       {/* A full code auto-verifies (covers both typing and the `?invite=`
           prefill); wrong codes shake + clear inside the component, so the
-          only error surface here is the toast. */}
+          only error surface here is the toast. Resolving `verify` to the
+          server's canonical code makes `onSuccess` receive it directly. */}
       <OTPInput
         id="invite-code"
         data-test="invite-code-input"
@@ -98,17 +95,16 @@ const InviteCodeStep = ({
         normalizeValue={(value) => value.toUpperCase()}
         defaultValue={defaultValue}
         group
-        verify={async (code) => {
-          try {
-            const data = await validate.mutateAsync({ code });
-            validatedCodeRef.current = data.code;
-            return true;
-          } catch (err) {
-            toast.error(err instanceof Error ? err.message : "Invalid invite code");
-            return false;
-          }
-        }}
-        onSuccess={() => onValidated(validatedCodeRef.current)}
+        verify={(code) =>
+          validate.mutateAsync({ code }).then(
+            (data) => data.code,
+            (err: unknown) => {
+              toast.error(err instanceof Error ? err.message : "Invalid invite code");
+              return false;
+            },
+          )
+        }
+        onSuccess={onValidated}
       />
     </Field>
   );

@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { MotionConfig, motion } from "motion/react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { motion, MotionConfig, useReducedMotion } from "motion/react";
 
 import { cn } from "@repo/ui/lib/utils";
+import { EASE_OUT, SHAKE_KEYFRAMES, SHAKE_TRANSITION } from "@repo/ui/lib/motion";
 
 // OTP segmented input — N cells, secretly ONE real input.
 //
@@ -24,25 +25,28 @@ import { cn } from "@repo/ui/lib/utils";
 //   · Paste just works — "DEV 123" lands in the input, one normalize pass
 //     strips the junk, the cells repaint.
 //   · Backspace walks backwards and ←/→ move the caret because they are the
-//     NATIVE caret — the active cell is derived from selectionStart, never
-//     stored beside it. Select-all paints all cells selected, because a
-//     selection range maps to a cell range.
+//     NATIVE caret — the active cell is derived from the input's selection
+//     (via onSelect), never stored beside it. Select-all paints all cells
+//     selected, because a selection range maps to a cell range.
 //
 // Verification: pass `verify` (sync or async — hit your API). A full code
 // drives the little state machine: right → the cells cascade green left to
 // right, then `onSuccess` fires; wrong → the row shakes, the characters drop
-// out one by one, then the field clears and hands the caret back.
+// out one by one, then the field clears and hands the caret back. `verify`
+// may resolve to a string to hand a server-canonicalized value to
+// `onSuccess` instead of the typed one.
+//
+// Label the input externally (<label htmlFor> pairing with `id`, or pass
+// `aria-label`) — the component does not name itself.
 //
 // Animation via motion/react; honours prefers-reduced-motion.
 
-const EASE = [0.22, 1, 0.36, 1] as const;
-const SHAKE_S = 0.38; // wrong code: the row shake
-const DROP_S = 0.24; // each character's fall-out
+const DROP_S = 0.24; // wrong code: each character's fall-out
 const STAGGER_S = 0.045; // per-character clear offset
 const FILL_S = 0.055; // per-cell success cascade offset
 const VERIFY_DELAY_MS = 320; // beat so the last character is seen landing
 
-const OTP_VARS: CSSProperties & Record<`--${string}`, string> = {
+const OTP_VARS: React.CSSProperties & Record<`--${string}`, string> = {
   "--otp-cell-w": "2.5rem",
   "--otp-cell-h": "3rem",
   "--otp-gap": "0.5rem",
@@ -53,33 +57,79 @@ const SANITIZE: Record<"numeric" | "alphanumeric", RegExp> = {
   alphanumeric: /[^a-zA-Z0-9]/g,
 };
 
+type VerifyState = "idle" | "success" | "error";
+
+// Ring + invalid values mirror `inputVariants` (input.tsx) so the cells stay
+// in step with the system focus/error treatment.
+const CELL_TONE: Record<"idle" | "active" | "selected" | VerifyState, string> = {
+  idle: "border-input bg-input/40 text-foreground",
+  active: "border-ring bg-input/40 text-foreground ring-3 ring-ring/50",
+  // a selection RANGE maps to a cell range — one input
+  selected: "border-input bg-primary/25 text-foreground",
+  error: "border-destructive/50 bg-input/40 text-destructive",
+  success: "border-success/60 bg-success/10 text-success",
+};
+
+const glyphMotion = (state: VerifyState, index: number) =>
+  state === "success"
+    ? {
+        animate: { scale: [1, 1.15, 1], y: 0, opacity: 1, filter: "blur(0px)" },
+        transition: { duration: 0.3, ease: EASE_OUT, delay: index * FILL_S },
+      }
+    : state === "error"
+      ? {
+          animate: { y: "0.5rem", opacity: 0, filter: "blur(2px)" },
+          transition: {
+            duration: DROP_S,
+            ease: "easeOut" as const,
+            delay: SHAKE_TRANSITION.duration + index * STAGGER_S,
+          },
+        }
+      : {
+          animate: { scale: 1, y: 0, opacity: 1, filter: "blur(0px)" },
+          transition: { duration: 0 },
+        };
+
 function OTPInput({
   length,
   defaultValue = "",
   validationType = "numeric",
   normalizeValue,
   verify,
-  onValueChange,
   onSuccess,
-  mask = false,
   group = false,
   className,
   ...props
-}: Omit<React.ComponentProps<"input">, "value" | "defaultValue" | "onChange" | "type"> & {
+}: Omit<
+  React.ComponentProps<"input">,
+  | "value"
+  | "defaultValue"
+  | "onChange"
+  | "type"
+  | "onFocus"
+  | "onBlur"
+  | "onSelect"
+  | "onMouseDown"
+  | "className"
+  | "style"
+  | "children"
+> & {
   length: number;
   defaultValue?: string;
   validationType?: "numeric" | "alphanumeric";
   /** Post-sanitize pass, e.g. uppercasing. Applied to typed, pasted and default values alike. */
   normalizeValue?: (value: string) => string;
-  /** Your check — sync or async (hit your API); return whether the code is right. */
-  verify?: (value: string) => boolean | Promise<boolean>;
-  onValueChange?: (value: string) => void;
+  /**
+   * Your check — sync or async (hit your API). Return `true` for success,
+   * `false` for failure, or a string to pass a canonicalized value to
+   * `onSuccess` in place of the typed one.
+   */
+  verify?: (value: string) => boolean | string | Promise<boolean | string>;
   /** Fires after the success cascade has played. */
   onSuccess?: (value: string) => void;
-  /** Paint • instead of the character. */
-  mask?: boolean;
   /** Split the row in half, like codes read aloud. */
   group?: boolean;
+  className?: string;
 }) {
   const sanitize = (raw: string) => {
     const stripped = raw.replace(SANITIZE[validationType], "").slice(0, length);
@@ -89,19 +139,12 @@ function OTPInput({
   const [value, setValue] = useState(() => sanitize(defaultValue));
   const [sel, setSel] = useState({ start: 0, end: 0 });
   const [focused, setFocused] = useState(false);
-  const [state, setState] = useState<"idle" | "success" | "error">("idle");
+  const [state, setState] = useState<VerifyState>("idle");
 
   const inputRef = useRef<HTMLInputElement>(null);
   const settleTimerRef = useRef<number>(0);
+  const reducedMotion = useReducedMotion();
 
-  // Callbacks live in refs so an inline `verify` closure doesn't churn the
-  // verification effect on every parent render.
-  const verifyRef = useRef(verify);
-  verifyRef.current = verify;
-  const onSuccessRef = useRef(onSuccess);
-  onSuccessRef.current = onSuccess;
-
-  const chars = value.split("");
   const collapsed = sel.start === sel.end;
   const caretCell = Math.min(sel.start, length - 1);
   const groupAt = Math.ceil(length / 2);
@@ -109,27 +152,16 @@ function OTPInput({
   function syncSel() {
     const el = inputRef.current;
     if (!el) return;
-    setSel({ start: el.selectionStart ?? 0, end: el.selectionEnd ?? 0 });
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? 0;
+    // Return the previous object when nothing moved so React can bail out.
+    setSel((prev) => (prev.start === start && prev.end === end ? prev : { start, end }));
   }
 
-  // The active cell is DERIVED from the native selection — arrows, backspace,
-  // select-all all just move the real caret and the paint follows.
-  useEffect(() => {
-    const onSelectionChange = () => {
-      if (document.activeElement === inputRef.current) syncSel();
-    };
-    document.addEventListener("selectionchange", onSelectionChange);
-    return () => document.removeEventListener("selectionchange", onSelectionChange);
-  }, []);
-
   function handleChange(event: React.ChangeEvent<HTMLInputElement>) {
-    if (state !== "idle") return;
     // One sanitize pass covers typing, paste and autofill: "DEV 123",
     // "dev-123" and "DEV123" all become the same characters.
-    const next = sanitize(event.target.value);
-    setValue(next);
-    onValueChange?.(next);
-    requestAnimationFrame(syncSel);
+    setValue(sanitize(event.target.value));
   }
 
   // Native click mapping is the one thing that's wrong for OTP (you can't
@@ -142,45 +174,54 @@ function OTPInput({
     syncSel();
   }
 
+  const runVerify = useEffectEvent(async (candidate: string) => {
+    try {
+      return await Promise.resolve(verify ? verify(candidate) : true);
+    } catch {
+      return false;
+    }
+  });
+
+  const settle = useEffectEvent((result: boolean | string, candidate: string) => {
+    if (result === false) {
+      setState("error");
+      // Shake, then the characters drop out one by one, then the field
+      // clears and the caret comes back for another try. Under reduced
+      // motion neither animation plays, so don't sit through their timings.
+      const clearDelay = reducedMotion
+        ? 400
+        : SHAKE_TRANSITION.duration * 1000 + length * STAGGER_S * 1000 + 260;
+      settleTimerRef.current = window.setTimeout(() => {
+        setValue("");
+        setState("idle");
+        const el = inputRef.current;
+        if (el && document.activeElement === el) {
+          el.setSelectionRange(0, 0);
+          syncSel();
+        } else {
+          setSel({ start: 0, end: 0 });
+        }
+      }, clearDelay);
+    } else {
+      setState("success");
+      // Let the cascade play before the parent moves on.
+      const successDelay = reducedMotion ? 0 : length * FILL_S * 1000 + 500;
+      settleTimerRef.current = window.setTimeout(
+        () => onSuccess?.(typeof result === "string" ? result : candidate),
+        successDelay,
+      );
+    }
+  });
+
   // A full code in → verify. A beat of delay so the last character is seen
-  // landing before the row answers; the check itself may be async.
+  // landing before the row answers; the check itself may be async. Runs on
+  // mount too, which is what auto-submits a prefilled `defaultValue`.
   useEffect(() => {
     if (state !== "idle" || value.length !== length) return undefined;
     let cancelled = false;
     const timer = window.setTimeout(async () => {
-      let ok: boolean;
-      try {
-        ok = await Promise.resolve(verifyRef.current ? verifyRef.current(value) : true);
-      } catch {
-        ok = false;
-      }
-      if (cancelled) return;
-      if (ok) {
-        setState("success");
-        // Let the cascade play before the parent moves on.
-        settleTimerRef.current = window.setTimeout(
-          () => onSuccessRef.current?.(value),
-          length * FILL_S * 1000 + 500,
-        );
-      } else {
-        setState("error");
-        // Shake, then the characters drop out one by one, then the field
-        // clears and the caret comes back for another try.
-        settleTimerRef.current = window.setTimeout(
-          () => {
-            setValue("");
-            setState("idle");
-            const el = inputRef.current;
-            if (el && document.activeElement === el) {
-              el.setSelectionRange(0, 0);
-              syncSel();
-            } else {
-              setSel({ start: 0, end: 0 });
-            }
-          },
-          SHAKE_S * 1000 + length * STAGGER_S * 1000 + 260,
-        );
-      }
+      const result = await runVerify(value);
+      if (!cancelled) settle(result, value);
     }, VERIFY_DELAY_MS);
     return () => {
       cancelled = true;
@@ -189,21 +230,6 @@ function OTPInput({
   }, [value, state, length]);
 
   useEffect(() => () => clearTimeout(settleTimerRef.current), []);
-
-  const cells = useMemo(
-    () =>
-      Array.from({ length }, (_, index) => {
-        const char = chars[index];
-        return {
-          index,
-          char,
-          active: focused && state === "idle" && collapsed && caretCell === index,
-          selected: focused && !collapsed && index >= sel.start && index < sel.end,
-        };
-      }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [chars.join(""), length, focused, state, collapsed, caretCell, sel.start, sel.end],
-  );
 
   return (
     <MotionConfig reducedMotion="user">
@@ -216,76 +242,50 @@ function OTPInput({
         {/* Wrong code: the row shakes once, as one object. */}
         <motion.div
           className="relative flex gap-[var(--otp-gap)]"
-          animate={state === "error" ? { x: [0, -6, 5, -4, 3, -1, 0] } : { x: 0 }}
-          transition={{ duration: SHAKE_S, ease: EASE }}
+          animate={state === "error" ? SHAKE_KEYFRAMES : { x: 0 }}
+          transition={SHAKE_TRANSITION}
         >
-          {cells.map((cell) => (
-            <div
-              key={cell.index}
-              className={cn(
-                "flex h-[var(--otp-cell-h)] w-[var(--otp-cell-w)] items-center justify-center rounded-lg border font-mono text-lg font-medium tabular-nums backdrop-blur-sm",
-                "transition-[border-color,background-color,color,box-shadow] duration-150",
-                group && cell.index === groupAt && "ml-3",
-                // the success cascade retimes the tint with a per-cell delay
-                state === "success"
-                  ? "border-green-500/70 bg-green-500/10 text-green-400"
-                  : cell.selected
-                    ? "border-input bg-primary/25 text-foreground" // a selection RANGE maps to a cell range — one input
-                    : cell.active
-                      ? "border-ring bg-input/40 text-foreground ring-2 ring-ring/30"
-                      : state === "error"
-                        ? "border-destructive/60 bg-input/40 text-destructive"
-                        : "border-input bg-input/40 text-foreground",
-              )}
-              style={
-                state === "success"
-                  ? { transitionDelay: `${cell.index * FILL_S * 1000}ms` }
-                  : undefined
-              }
-              aria-hidden="true"
-            >
-              {cell.char && (
-                <motion.span
-                  className="inline-block"
-                  initial={false}
-                  animate={
-                    state === "success"
-                      ? { scale: [1, 1.15, 1], y: 0, opacity: 1, filter: "blur(0px)" }
-                      : state === "error"
-                        ? { y: "0.5rem", opacity: 0, filter: "blur(2px)" }
-                        : { scale: 1, y: 0, opacity: 1, filter: "blur(0px)" }
-                  }
-                  transition={
-                    state === "success"
-                      ? { duration: 0.3, ease: EASE, delay: cell.index * FILL_S }
-                      : state === "error"
-                        ? {
-                            duration: DROP_S,
-                            ease: "easeOut",
-                            delay: SHAKE_S + cell.index * STAGGER_S,
-                          }
-                        : { duration: 0 }
-                  }
-                >
-                  {mask ? "•" : cell.char}
-                </motion.span>
-              )}
-              {cell.active &&
-                !cell.char && (
-                  // The fake caret: a hard blink (steps, not a fade).
-                  <motion.span
-                    className="h-5 w-[1.5px] rounded-[1px] bg-foreground"
-                    animate={{ opacity: [1, 1, 0, 0] }}
-                    transition={{
-                      duration: 1.1,
-                      times: [0, 0.5, 0.5, 1],
-                      repeat: Infinity,
-                      ease: "linear",
-                    }}
-                  />
+          {Array.from({ length }, (_, index) => {
+            const char = value[index];
+            const active = focused && state === "idle" && collapsed && caretCell === index;
+            const selected =
+              focused && state === "idle" && !collapsed && index >= sel.start && index < sel.end;
+            const tone =
+              state !== "idle" ? state : selected ? "selected" : active ? "active" : "idle";
+            return (
+              <div
+                key={index}
+                className={cn(
+                  "flex h-[var(--otp-cell-h)] w-[var(--otp-cell-w)] items-center justify-center rounded-lg border font-mono text-lg font-medium tabular-nums backdrop-blur-sm",
+                  "transition-[border-color,background-color,color,box-shadow] duration-150",
+                  group && index === groupAt && "ml-3",
+                  CELL_TONE[tone],
                 )}
-            </div>
-          ))}
+                // the success cascade retimes the tint with a per-cell delay
+                style={
+                  state === "success"
+                    ? { transitionDelay: `${index * FILL_S * 1000}ms` }
+                    : undefined
+                }
+                aria-hidden="true"
+              >
+                {char && (
+                  <motion.span
+                    className="inline-block"
+                    initial={false}
+                    {...glyphMotion(state, index)}
+                  >
+                    {char}
+                  </motion.span>
+                )}
+                {active &&
+                  !char && (
+                    // The fake caret: a hard blink (a step, not a fade).
+                    <span className="h-5 w-[1.5px] animate-[otp-caret-blink_1.1s_linear_infinite] rounded-[1px] bg-foreground motion-reduce:animate-none" />
+                  )}
+              </div>
+            );
+          })}
 
           {/* THE component: one real input over the whole row. Transparent, not
               hidden — the browser must see it to autofill and focus it. No
@@ -304,13 +304,13 @@ function OTPInput({
             inputMode={validationType === "numeric" ? "numeric" : "text"}
             autoComplete="one-time-code"
             autoCapitalize={validationType === "alphanumeric" ? "characters" : "off"}
-            aria-label={`${length}-character verification code`}
+            aria-invalid={state === "error" || undefined}
             spellCheck={false}
             autoCorrect="off"
             readOnly={state !== "idle"}
             onChange={handleChange}
+            onSelect={syncSel}
             onMouseDown={handleMouseDown}
-            onKeyUp={syncSel}
             onFocus={() => {
               setFocused(true);
               const el = inputRef.current;
