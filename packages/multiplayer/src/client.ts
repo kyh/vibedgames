@@ -8,7 +8,11 @@ import type {
   PlayerMap,
   ServerMessage,
 } from "./types.js";
-import { HEARTBEAT_INTERVAL_MS, ROOM_CAP_QUERY_PARAM } from "./types.js";
+import {
+  HEARTBEAT_INTERVAL_MS,
+  RECONNECT_TOKEN_QUERY_PARAM,
+  ROOM_CAP_QUERY_PARAM,
+} from "./types.js";
 
 export type MultiplayerClientOptions = MultiplayerOptions & {
   /**
@@ -46,6 +50,25 @@ const rafHost: typeof globalThis & {
   cancelAnimationFrame?: (handle: number) => void;
 } = globalThis;
 
+/** Same structural-view trick for `crypto` (secure contexts only expose
+ *  randomUUID, and non-browser bundles may lack the DOM lib entirely). */
+const cryptoHost: typeof globalThis & {
+  crypto?: { randomUUID?: () => string };
+} = globalThis;
+
+/**
+ * Secret presented on every (re)connect so the server can hand this client its
+ * held seat back after a transport drop. Deliberately NOT the connection id:
+ * ids are broadcast to every peer, so an id-based reclaim would let any player
+ * hijack a disconnected peer's seat. Falls back to Math.random outside secure
+ * contexts — weaker, but still unguessable enough for a 30s window.
+ */
+const generateReconnectToken = (): string => {
+  const uuid = cryptoHost.crypto?.randomUUID?.();
+  if (uuid) return uuid;
+  return `t-${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
+};
+
 /**
  * Framework-agnostic multiplayer client.
  *
@@ -69,6 +92,8 @@ export class MultiplayerClient {
   private redirecting = false;
   /** Effective player cap advertised to the server (server-authoritative on overflow). */
   private cap: number | null;
+  /** Reconnection secret for this client instance — see generateReconnectToken. */
+  private reconnectToken = generateReconnectToken();
   /** Liveness ping driven by requestAnimationFrame so it PAUSES when the tab is
    *  hidden/asleep — exactly when the game loop also stalls — letting the server
    *  migrate host off a backgrounded/dead client. Falls back to setInterval where
@@ -100,7 +125,7 @@ export class MultiplayerClient {
       host: options.host,
       party: options.party,
       room: options.room,
-      query: this.capQuery(),
+      query: this.connectionQuery(),
     });
 
     // Listeners are registered once and survive PartySocket's reconnects,
@@ -139,9 +164,13 @@ export class MultiplayerClient {
     }
   }
 
-  /** Query params advertising the current effective cap to the server. */
-  private capQuery(): Record<string, string> {
-    return this.cap !== null ? { [ROOM_CAP_QUERY_PARAM]: String(this.cap) } : {};
+  /** Query params sent on every (re)connect: effective cap + reconnect token. */
+  private connectionQuery(): Record<string, string> {
+    const query: Record<string, string> = {
+      [RECONNECT_TOKEN_QUERY_PARAM]: this.reconnectToken,
+    };
+    if (this.cap !== null) query[ROOM_CAP_QUERY_PARAM] = String(this.cap);
+    return query;
   }
 
   /**
@@ -173,7 +202,7 @@ export class MultiplayerClient {
     // listeners first — so clearing synchronously is safe and lets genuine
     // overflow-connection failures still surface as error/disconnected.
     this.redirecting = true;
-    this.socket.updateProperties({ room, query: this.capQuery() });
+    this.socket.updateProperties({ room, query: this.connectionQuery() });
     this.socket.reconnect();
     this.redirecting = false;
 
@@ -408,6 +437,18 @@ export class MultiplayerClient {
           this._players = {
             ...this._players,
             [message.data.id]: { ...existing, state: message.data.state },
+          };
+          break;
+        }
+        case "player_connection": {
+          // Transport-drop / reconnect notice for a peer whose seat is held in
+          // the grace window. The player is still in the room, so only flip the
+          // flag — `player_left` is what actually removes them.
+          const holder = this._players[message.data.id];
+          if (!holder) break;
+          this._players = {
+            ...this._players,
+            [message.data.id]: { ...holder, connected: message.data.connected },
           };
           break;
         }

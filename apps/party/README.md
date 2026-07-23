@@ -15,6 +15,12 @@ Clients connect via WebSocket. The server handles:
 - **Shared state** — `state_patch` messages merged server-side, broadcast to all
 - **Player state** — `player_state_patch` per-player, broadcast to others
 - **Events** — `emit` pass-through for custom game events
+- **Reconnection grace** — a dropped (non-1000-close) player's seat is held for
+  30s keyed by a client-secret reconnect token; peers see `connected: false`
+  until reclaim or expiry. Events fired during the window are NOT buffered or
+  replayed — only the seat and its state survive; shared state re-syncs on
+  reclaim. Deliberate leaves (`destroy()`, close code 1000) skip the grace
+  window entirely.
 
 ## HTTP endpoints
 
