@@ -18,6 +18,16 @@ npm install @vibedgames/multiplayer
 - `@vibedgames/multiplayer` — framework-agnostic `MultiplayerClient` class (Phaser, Three.js, vanilla JS)
 - `@vibedgames/multiplayer/react` — React hooks wrapping the client
 
+## Party host
+
+Every example below assumes this constant. Define it **once** — in a real
+game it lives in `net/client.ts` (see Architecture patterns) — and import it;
+never repeat the literal per call site:
+
+```ts
+export const PARTY_HOST = "https://vibedgames-party.kyh.workers.dev";
+```
+
 ## Core concepts
 
 Three types of state:
@@ -37,7 +47,7 @@ instead of being turned away.
 
 ```ts
 const client = new MultiplayerClient({
-  host: "https://vibedgames-party.kyh.workers.dev",
+  host: PARTY_HOST,
   party: "vg-server",
   room: "arena",
   maxPlayers: 8, // 9th player lands in "arena~2", 17th in "arena~3", …
@@ -158,7 +168,7 @@ import {
 } from "@vibedgames/multiplayer/react";
 
 const room = useMultiplayerRoom({
-  host: "https://vibedgames-party.kyh.workers.dev",
+  host: PARTY_HOST,
   party: "vg-server",
   room: "my-game-room",
 });
@@ -206,7 +216,7 @@ const room = useMultiplayerRoom({
 import { MultiplayerClient } from "@vibedgames/multiplayer";
 
 const client = new MultiplayerClient({
-  host: "https://vibedgames-party.kyh.workers.dev",
+  host: PARTY_HOST,
   party: "vg-server",
   room: "my-game-room",
   initialState: { phase: "playing" },
@@ -239,6 +249,12 @@ const { players, sharedState } = client;
 client.destroy();
 ```
 
+### Read vs subscribe — pick by loop ownership
+
+- **Game-loop renderers** (Phaser `update()`, Three.js rAF): **read** `client.players` / `client.sharedState` directly each tick. The loop already runs every frame; a subscription adds nothing but re-render churn.
+- **React / event-driven UI**: **subscribe** — `useMultiplayerState` / `usePlayerState` / `useIsHost` — and let state changes drive re-renders. Don't poll the client from effects or timers.
+- `client.subscribe()` inside a game-loop game is for **edges only**: connection-status overlays, join/leave sounds — things that should fire once per change, not once per frame.
+
 ### Phaser example
 
 ```ts
@@ -247,7 +263,7 @@ class GameScene extends Phaser.Scene {
 
   create() {
     this.client = new MultiplayerClient({
-      host: "https://vibedgames-party.kyh.workers.dev",
+      host: PARTY_HOST,
       party: "vg-server",
       room: "phaser-room",
     });
@@ -268,6 +284,45 @@ class GameScene extends Phaser.Scene {
     this.client.destroy();
   }
 }
+```
+
+### Three.js example
+
+```ts
+const client = new MultiplayerClient({ host: PARTY_HOST, party: "vg-server", room: "three-room" });
+
+const remoteMeshes = new Map<string, THREE.Mesh>();
+let tick = 0;
+
+renderer.setAnimationLoop(() => {
+  // Read directly each frame — never subscribe inside the render loop.
+  for (const [id, player] of Object.entries(client.players)) {
+    if (id === client.playerId) continue;
+    let mesh = remoteMeshes.get(id);
+    if (!mesh) {
+      mesh = new THREE.Mesh(avatarGeometry, avatarMaterial);
+      scene.add(mesh);
+      remoteMeshes.set(id, mesh);
+    }
+    const s = player.state as { x?: number; z?: number };
+    mesh.position.set(s.x ?? 0, 0, s.z ?? 0);
+  }
+
+  // Reap meshes for players who left.
+  for (const [id, mesh] of remoteMeshes) {
+    if (!(id in client.players)) {
+      scene.remove(mesh);
+      remoteMeshes.delete(id);
+    }
+  }
+
+  // Throttled position send (~20Hz at 60fps).
+  if (++tick % 3 === 0) {
+    client.updateMyState({ x: avatar.position.x, z: avatar.position.z });
+  }
+
+  renderer.render(scene, camera);
+});
 ```
 
 ## Architecture patterns
@@ -292,8 +347,11 @@ src/
 ```ts
 import { MultiplayerClient } from "@vibedgames/multiplayer";
 
+// The one place the host literal lives — everything else imports PARTY_HOST.
+export const PARTY_HOST = "https://vibedgames-party.kyh.workers.dev";
+
 export const client = new MultiplayerClient({
-  host: "https://vibedgames-party.kyh.workers.dev",
+  host: PARTY_HOST,
   party: "vg-server",
   room: "my-game-room",
 });
@@ -381,6 +439,23 @@ client.subscribe(() => {
 VFX, sprite refs, and per-frame animation indices are render concerns —
 derive them locally from state changes, don't sync them.
 
+## Local dev loop (two tabs, one room)
+
+How to actually exercise a room before deploying:
+
+1. Run the game's dev server, open it in **two browser tabs** with the same
+   room id (use an incognito window for tab 2 if the game reads per-browser
+   storage). Tab 1 is host.
+2. Smoke both directions: move in tab 2, confirm tab 1 renders it; trigger a
+   host write in tab 1, confirm tab 2 receives the patch.
+3. **Host migration:** close tab 1. Tab 2 must promote to host and the round
+   must survive (see the `initialState` section — if the world resets here,
+   you're re-seeding on promotion).
+4. **Latency pass:** in one tab, DevTools → Network → custom throttling
+   profile with ~200ms latency (DevTools throttling applies to WebSockets).
+   Play for a minute. Movement jitter, rubber-banding, and event/state races
+   only show up here — localhost's ~0ms RTT hides all of them.
+
 ## Anti-patterns
 
 ❌ **Mutating the local mirror directly.**
@@ -400,6 +475,11 @@ Server rejects, your local optimistic mutation flickers.
 
 ❌ **No connection-state UI.**
 A disconnected game looks identical to a frozen one. Render the status.
+
+❌ **Treating a working local room as proof production works.**
+localhost is ~0ms RTT on one machine — it hides jitter, races, and
+reconnection paths. Run the 200ms-throttled pass (see Local dev loop) and
+play the deployed URL from two devices before calling it done.
 
 ## Deploy
 
