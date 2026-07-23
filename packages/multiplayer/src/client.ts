@@ -11,6 +11,14 @@ import type {
 import { HEARTBEAT_INTERVAL_MS, ROOM_CAP_QUERY_PARAM } from "./types.js";
 
 export type MultiplayerClientOptions = MultiplayerOptions & {
+  /**
+   * Shared state to seed the room with, applied exactly once per room by the
+   * FIRST host of a still-empty room. It is never re-applied on host
+   * promotion: when the host leaves mid-round and another client is promoted,
+   * the room's live state wins — the new host must not reset it. Rooms that
+   * already have shared state (observed via `sync` or any `state_patch`) are
+   * never re-seeded.
+   */
   initialState?: Record<string, unknown>;
 };
 
@@ -49,6 +57,13 @@ export class MultiplayerClient {
   private socket: PartySocket;
   private listeners = new Set<Listener>();
   private initialStateApplied = false;
+  /** True once authoritative shared state has been observed from the server —
+   *  a non-empty `sync` snapshot or any `state_patch`. Local `_sharedState`
+   *  can't serve as this signal: the constructor pre-seeds it with
+   *  `initialState`, so it is non-empty even before the room has any state.
+   *  Guards `initialState` so a client promoted to host mid-round never
+   *  re-seeds a room that already has live state (issue #240). */
+  private remoteStateSeen = false;
   private options: MultiplayerClientOptions;
   /** True while we reconnect to an overflow room, to mask the interim close. */
   private redirecting = false;
@@ -146,6 +161,7 @@ export class MultiplayerClient {
     this.cap = capacity > 0 ? capacity : this.cap;
     this._connectionStatus = "connecting";
     this.initialStateApplied = false;
+    this.remoteStateSeen = false;
     this._players = {};
     this._hostId = null;
     this._playerId = null;
@@ -323,14 +339,19 @@ export class MultiplayerClient {
           this._playerId = this.socket.id ?? null;
           this._hostId = message.data.hostId;
           this._players = message.data.players;
+          if (Object.keys(message.data.state).length > 0) this.remoteStateSeen = true;
           this._sharedState =
             Object.keys(this._sharedState).length === 0
               ? message.data.state
               : { ...this._sharedState, ...message.data.state };
 
+          // Seed only a genuinely empty room (per remoteStateSeen, the
+          // server's view — not the locally pre-seeded _sharedState). A room
+          // with live state must never be reset by a (re)joining host.
           if (
             message.data.hostId === this.socket.id &&
             !this.initialStateApplied &&
+            !this.remoteStateSeen &&
             this.options.initialState
           ) {
             this.initialStateApplied = true;
@@ -366,10 +387,16 @@ export class MultiplayerClient {
         }
         case "host": {
           this._hostId = message.data.id;
+          // Promotion mid-round must NOT re-seed: a guest promoted after the
+          // host left has never tripped initialStateApplied, so that flag
+          // alone let it wipe the live board (issue #240). Only seed here if
+          // no shared state has ever been observed — i.e. the original host
+          // vanished before seeding an empty room.
           if (
             message.data.id === this.socket.id &&
             this.options.initialState &&
-            !this.initialStateApplied
+            !this.initialStateApplied &&
+            !this.remoteStateSeen
           ) {
             this.initialStateApplied = true;
             this.send({ type: "state_patch", data: this.options.initialState });
@@ -377,6 +404,7 @@ export class MultiplayerClient {
           break;
         }
         case "state_patch": {
+          this.remoteStateSeen = true;
           this._sharedState = { ...this._sharedState, ...message.data };
           break;
         }
