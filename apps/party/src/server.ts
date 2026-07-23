@@ -6,6 +6,8 @@ import {
   EVICTION_TIMEOUT_MS,
   HOST_LIVENESS_TIMEOUT_MS,
   PING_INTERVAL_MS,
+  RECONNECT_GRACE_MS,
+  RECONNECT_TOKEN_QUERY_PARAM,
   ROOM_CAP_QUERY_PARAM,
 } from "@vibedgames/multiplayer";
 import { getColorById } from "./color";
@@ -28,12 +30,42 @@ type Env = {
  * - `seenAt`: last time we heard a *non-pong* keepalive (heartbeat) — drives
  *   host-liveness migration. A hidden tab's rAF heartbeat pauses while it still
  *   pongs, so a backgrounded host loses the host role but keeps its seat.
+ * - `token`: the client's secret reconnection token (query param), kept so a
+ *   transport drop can park the seat in the grace map keyed by something only
+ *   the owner knows. Absent for pre-grace clients, which get the old
+ *   remove-on-close behaviour. Never sent to peers.
  */
-type Presence = { id: string; color: string; hue: string; seenAt: number; aliveAt: number };
+type Presence = {
+  id: string;
+  color: string;
+  hue: string;
+  seenAt: number;
+  aliveAt: number;
+  token?: string;
+};
+
+/**
+ * A seat held for a dropped player during the reconnection grace window:
+ * identity + last per-player state, parked when the transport died and handed
+ * back if the same secret token returns before `expiresAt`. Persisted under
+ * `grace:{token}` so a hibernation mid-window can't silently forget the seat.
+ */
+type GraceEntry = {
+  token: string;
+  id: string;
+  color: string;
+  hue: string;
+  state: Record<string, unknown>;
+  disconnectedAt: number;
+  expiresAt: number;
+};
 
 /** Durable, low-frequency room fields, persisted so they survive hibernation. */
 const HOST_ID_KEY = "hostId";
 const CAP_KEY = "cap";
+const GRACE_PREFIX = "grace:";
+
+const graceKey = (token: string): string => `${GRACE_PREFIX}${token}`;
 
 /**
  * Upper bound on a single room's player cap, regardless of what a client
@@ -70,6 +102,12 @@ const readRoomCap = (ctx: ConnectionContext): number | null => {
   return Math.min(parsed, HARD_ROOM_CAP);
 };
 
+/** Read the client's reconnection token, if it sent one (post-grace SDKs do). */
+const readReconnectToken = (ctx: ConnectionContext): string | null => {
+  const raw = new URL(ctx.request.url).searchParams.get(RECONNECT_TOKEN_QUERY_PARAM);
+  return raw && raw.length > 0 ? raw : null;
+};
+
 export class VgServer extends Server {
   /**
    * Room state is split by how it must behave under Cloudflare's WebSocket
@@ -92,16 +130,25 @@ export class VgServer extends Server {
    *   makes the real host's `state_patch` get rejected as non-host after a wake;
    *   a wiped cap lets a post-wake join exceed it. Mirrored in memory, written
    *   through to storage, rehydrated in `onStart()`.
+   * - GRACE (held seats for dropped players) also persists: entries are written
+   *   only on disconnect/reclaim/expiry (never on the hot path), are bounded by
+   *   the room cap, and must survive hibernation or a mid-window wake would
+   *   silently forget a seat the alarm was scheduled to expire. Mirrored in
+   *   memory, rehydrated in `onStart()`.
    */
   private shared: Record<string, unknown> = {};
   private snapshots = new Map<string, Record<string, unknown>>();
   private hostId: string | null = null;
   private cap: number | null = null;
+  private grace = new Map<string, GraceEntry>();
 
   /** Rehydrate durable session fields before any handler runs (partyserver awaits this). */
   async onStart() {
     this.hostId = (await this.ctx.storage.get<string | null>(HOST_ID_KEY)) ?? null;
     this.cap = (await this.ctx.storage.get<number | null>(CAP_KEY)) ?? null;
+    this.grace = new Map<string, GraceEntry>();
+    const held = await this.ctx.storage.list<GraceEntry>({ prefix: GRACE_PREFIX });
+    for (const entry of held.values()) this.grace.set(entry.token, entry);
   }
 
   private async setHostId(id: string | null): Promise<void> {
@@ -120,6 +167,7 @@ export class VgServer extends Server {
       color: presence.color,
       hue: presence.hue,
       state: this.snapshots.get(presence.id) ?? {},
+      connected: true,
     };
   }
 
@@ -129,22 +177,59 @@ export class VgServer extends Server {
     return connection?.state ?? undefined;
   }
 
-  /** Public player map (identity from the attachment, state from the snapshot). */
+  /** The grace entry holding a seat for this player id, if any. */
+  private graceById(id: string): GraceEntry | undefined {
+    for (const entry of this.grace.values()) {
+      if (entry.id === id) return entry;
+    }
+    return undefined;
+  }
+
+  /** Drop a held seat from the grace map and its persisted mirror. */
+  private async consumeGrace(entry: GraceEntry): Promise<void> {
+    this.grace.delete(entry.token);
+    await this.ctx.storage.delete(graceKey(entry.token));
+  }
+
+  /**
+   * Public player map: live connections (identity from the attachment, state
+   * from the snapshot) plus held seats from the grace map, so a player mid-drop
+   * is still in the room — just `connected: false` — and a late joiner's sync
+   * includes them.
+   */
   private players(): PlayerMap {
     const players: PlayerMap = {};
     for (const connection of this.getConnections<Presence>()) {
       const presence = connection.state;
       if (presence) players[connection.id] = this.toPlayer(presence);
     }
+    for (const entry of this.grace.values()) {
+      if (entry.id in players) continue;
+      players[entry.id] = {
+        id: entry.id,
+        color: entry.color,
+        hue: entry.hue,
+        state: entry.state,
+        connected: false,
+      };
+    }
     return players;
   }
 
-  /** Count of admitted players (connections carrying presence), optionally minus one. */
+  /**
+   * Count of seats in use — admitted connections plus seats held in grace —
+   * optionally minus one connection id. Held seats count against the room cap;
+   * that's what "keeping the slot" means.
+   */
   private playerCount(excludeId?: string): number {
     let count = 0;
     for (const connection of this.getConnections<Presence>()) {
       if (connection.id === excludeId) continue;
       if (connection.state) count++;
+    }
+    for (const entry of this.grace.values()) {
+      if (entry.id === excludeId) continue;
+      count++;
     }
     return count;
   }
@@ -169,6 +254,14 @@ export class VgServer extends Server {
     const now = Date.now();
     const hostPresence = this.presenceOf(host);
     if (hostPresence && now - hostPresence.seenAt <= HOST_LIVENESS_TIMEOUT_MS) return;
+    // A host whose seat is held in grace gets the same liveness window measured
+    // from the drop: a short blip keeps the host role (their reconnect resumes
+    // seamlessly), while a longer outage migrates it so shared state doesn't
+    // freeze for everyone until the grace window lapses.
+    if (!hostPresence) {
+      const ghost = this.graceById(host);
+      if (ghost && now - ghost.disconnectedAt <= HOST_LIVENESS_TIMEOUT_MS) return;
+    }
 
     let next: Connection<Presence> | null = null;
     for (const connection of this.getConnections<Presence>()) {
@@ -188,6 +281,13 @@ export class VgServer extends Server {
   }
 
   async onConnect(connection: Connection<Presence>, ctx: ConnectionContext) {
+    // A returning token reclaims its held seat: that seat already counts
+    // against the cap, so a reclaim is never bounced to overflow — it is the
+    // same player sitting back down, not a new admission.
+    const token = readReconnectToken(ctx);
+    const reclaimed = token ? this.grace.get(token) : undefined;
+    if (reclaimed) await this.consumeGrace(reclaimed);
+
     // The room's effective cap for this admission decision: the sticky cap an
     // earlier admitted client established, or — if none yet — the cap this
     // client advertises. We don't persist the requested cap until we've
@@ -199,7 +299,7 @@ export class VgServer extends Server {
 
     // Enforce the room cap before admitting the player. If full, point the
     // client at the overflow sibling and close — the SDK reconnects there.
-    if (cap !== null && this.playerCount(connection.id) >= cap) {
+    if (!reclaimed && cap !== null && this.playerCount(connection.id) >= cap) {
       const fullMessage: ServerMessage = {
         type: "room_full",
         data: { room: nextOverflowRoom(this.name), capacity: cap },
@@ -217,16 +317,42 @@ export class VgServer extends Server {
     }
 
     const now = Date.now();
-    const { color, hue } = getColorById(connection.id);
+    // A reclaim keeps its old color for continuity (same value when the
+    // connection id is unchanged — getColorById is deterministic — but also
+    // when PartySocket hands the client a fresh id).
+    const { color, hue } = reclaimed ?? getColorById(connection.id);
     const presence: Presence = {
       id: connection.id,
       color,
       hue,
       seenAt: now,
       aliveAt: now,
+      token: token ?? undefined,
     };
     connection.setState(presence);
-    this.snapshots.set(connection.id, {});
+    // Seat state: a reclaim resumes the held snapshot; a plain reconnect under
+    // the same id (blip the server never saw close) keeps what's already there;
+    // a genuinely new player starts empty.
+    this.snapshots.set(
+      connection.id,
+      reclaimed ? reclaimed.state : (this.snapshots.get(connection.id) ?? {}),
+    );
+
+    // PartySocket normally reuses its connection id across reconnects, but if
+    // the reclaim arrived under a fresh id, retire the old seat explicitly:
+    // peers key everything by player id, so the old id must leave and — if it
+    // held host — hand the role to the new id rather than to a bystander.
+    if (reclaimed && reclaimed.id !== connection.id) {
+      this.snapshots.delete(reclaimed.id);
+      const leftMessage: ServerMessage = { type: "player_left", data: { id: reclaimed.id } };
+      this.broadcast(JSON.stringify(leftMessage), [connection.id]);
+      if (this.hostId === reclaimed.id) {
+        await this.setHostId(connection.id);
+        const hostMessage: ServerMessage = { type: "host", data: { id: connection.id } };
+        this.broadcast(JSON.stringify(hostMessage), []);
+      }
+    }
+
     void this.scheduleSweep();
     if (!this.hostId) {
       await this.setHostId(connection.id);
@@ -333,26 +459,91 @@ export class VgServer extends Server {
     }
   }
 
-  onClose(connection: Connection<Presence>) {
-    return this.removePlayer(connection);
+  onClose(connection: Connection<Presence>, code: number) {
+    // 1000 is the SDK's deliberate `destroy()` — an on-purpose leave, so the
+    // seat is vacated immediately. Anything else (1006 dropped transport, 1005
+    // no-status, 1001 going-away, …) might be a blip, so it gets the grace
+    // window.
+    if (code === 1000) return this.removePlayer(connection);
+    return this.departPlayer(connection);
   }
 
   /**
    * partyserver routes a clean disconnect to `onClose`, but a mid-connection
    * transport failure (dropped wifi, slept laptop, lost radio) to `onError`.
-   * Both tear the connection down, so both must reap the player — otherwise the
-   * error path leaks a ghost that keeps occupying a slot against the room cap.
+   * Both tear the connection down, so both must process the departure —
+   * otherwise the error path leaks a ghost that keeps occupying a slot against
+   * the room cap. An errored transport is exactly what grace exists for.
    */
   onError(connection: Connection<Presence>) {
-    return this.removePlayer(connection);
+    return this.departPlayer(connection);
+  }
+
+  /**
+   * A connection died. If the client presented a reconnection token, park the
+   * seat in the grace map for RECONNECT_GRACE_MS instead of removing the player
+   * — a network blip becomes "reconnecting…" rather than a leave that wipes
+   * per-player state and (accidentally) reshuffles the host. Pre-grace clients
+   * keep the old immediate removal.
+   */
+  private async departPlayer(connection: Connection<Presence>): Promise<void> {
+    const presence = connection.state;
+    if (!presence) return;
+
+    // If a live reconnect under the same id already superseded this socket
+    // (the client re-dialed before the server saw the old transport die), this
+    // close is stale — the player is present, not departing. Iterated rather
+    // than getConnection(id), which throws on exactly this duplicate-id race.
+    for (const other of this.getConnections<Presence>()) {
+      if (other.id === connection.id && other !== connection && other.state) return;
+    }
+
+    const token = presence.token;
+    if (!token) {
+      await this.removePlayer(connection);
+      return;
+    }
+
+    const now = Date.now();
+    const entry: GraceEntry = {
+      token,
+      id: connection.id,
+      color: presence.color,
+      hue: presence.hue,
+      state: this.snapshots.get(connection.id) ?? {},
+      disconnectedAt: now,
+      expiresAt: now + RECONNECT_GRACE_MS,
+    };
+    this.grace.set(token, entry);
+    await this.ctx.storage.put(graceKey(token), entry);
+    this.snapshots.delete(connection.id);
+    // Detach presence so the paired onError/onClose for the same failed
+    // transport can't park the seat twice (refreshing expiresAt).
+    try {
+      connection.setState(null);
+    } catch {
+      /* socket already gone */
+    }
+
+    const droppedMessage: ServerMessage = {
+      type: "player_connection",
+      data: { id: connection.id, connected: false },
+    };
+    this.broadcast(JSON.stringify(droppedMessage), [connection.id]);
+
+    // The alarm must now also cover this seat's expiry — and must run even if
+    // this drop left the room with no open connections at all.
+    await this.scheduleSweep();
   }
 
   /**
    * Pings live connections and evicts the ones that have gone silent past the
-   * eviction window. Players are the connections themselves now, so there is no
-   * separate map to reconcile — a ghost with no socket cannot exist. Reschedules
-   * itself until the room empties, at which point the alarm stops and the
-   * Durable Object is free to shut down.
+   * eviction window, then lapses any grace seats whose window ran out. Players
+   * are the connections themselves now, so there is no separate map to
+   * reconcile — a ghost with no socket cannot exist outside the explicit grace
+   * map. Reschedules itself until the room has neither connections nor held
+   * seats, at which point the alarm stops and the Durable Object is free to
+   * shut down.
    */
   async onAlarm() {
     const now = Date.now();
@@ -377,8 +568,10 @@ export class VgServer extends Server {
       }
     }
 
-    // Evict unreachable peers. Closing may not fire `onClose` for a peer that is
-    // already gone, so reap explicitly; `removePlayer` is idempotent if it does.
+    // Evict unreachable peers. Closing may not fire `onClose` for a peer that
+    // is already gone, so reap explicitly; the departure path is idempotent if
+    // it does. An evicted peer stopped answering pongs for 75s — far past the
+    // grace window — so this is a hard removal, not a held seat.
     for (const connection of stale) {
       try {
         connection.close(1001, "idle");
@@ -388,23 +581,40 @@ export class VgServer extends Server {
       await this.removePlayer(connection);
     }
 
+    // Lapse held seats whose owner never came back: only now do they actually
+    // leave the room (player_left, host handoff, empty-room reset).
+    for (const entry of [...this.grace.values()]) {
+      if (entry.expiresAt > now) continue;
+      await this.consumeGrace(entry);
+      await this.announceDeparture(entry.id);
+    }
+
     await this.scheduleSweep();
   }
 
   private async scheduleSweep(): Promise<void> {
-    // Reschedule while any connection is still open. Read that from the socket
-    // set (restored across hibernation) rather than an in-memory count, so the
-    // ping loop can never stall and starve live idle clients of their pings.
+    // Reschedule while any connection is still open — read from the socket set
+    // (restored across hibernation) rather than an in-memory count, so the ping
+    // loop can never stall and starve live idle clients of their pings — or
+    // while any grace seat still needs an expiry wake (which must fire even in
+    // a room whose last socket just dropped).
     let hasConnections = false;
     for (const _connection of this.getConnections()) {
       hasConnections = true;
       break;
     }
-    if (!hasConnections) return;
 
+    let target: number | null = hasConnections ? Date.now() + PING_INTERVAL_MS : null;
+    for (const entry of this.grace.values()) {
+      target = target === null ? entry.expiresAt : Math.min(target, entry.expiresAt);
+    }
+    if (target === null) return;
+
+    // Keep an earlier pending alarm; pull a later one forward so a grace expiry
+    // is never left waiting on the next ping tick.
     const pending = await this.ctx.storage.getAlarm();
-    if (pending !== null) return;
-    await this.ctx.storage.setAlarm(Date.now() + PING_INTERVAL_MS);
+    if (pending !== null && pending <= target) return;
+    await this.ctx.storage.setAlarm(target);
   }
 
   /**
@@ -432,8 +642,31 @@ export class VgServer extends Server {
     // announce so we don't broadcast a spurious player_left. `player_left` is
     // idempotent on the client anyway, so a trailing onClose after a sweep is
     // harmless.
-    if (!connection.state) return;
-    const id = connection.id;
+    const presence = connection.state;
+    if (!presence) return;
+    // Detach presence first: the eviction sweep calls this before close(), and
+    // the close's own async onClose must find nothing left to grace — otherwise
+    // an evicted player would come straight back as a held seat.
+    try {
+      connection.setState(null);
+    } catch {
+      /* socket already gone */
+    }
+    // Forfeit a held seat only if this connection OWNS it (token match).
+    // Matching by player id would let anyone destroy a held seat: ids are
+    // public (broadcast to every peer), so a rogue client could join under the
+    // ghost's id and cleanly leave, reaping a seat it never held.
+    const held = presence.token ? this.grace.get(presence.token) : undefined;
+    if (held) await this.consumeGrace(held);
+    await this.announceDeparture(connection.id);
+  }
+
+  /**
+   * A player id is actually leaving the room (immediate removal, or a grace
+   * window that lapsed): announce it, hand off host if they held it, and reset
+   * the room once truly empty.
+   */
+  private async announceDeparture(id: string): Promise<void> {
     this.snapshots.delete(id);
 
     const leftMessage: ServerMessage = {
@@ -442,7 +675,9 @@ export class VgServer extends Server {
     };
     this.broadcast(JSON.stringify(leftMessage), [id]);
 
-    // Remaining admitted players, now that this connection is torn down.
+    // Remaining admitted players, now that this seat is gone. Host handoff
+    // targets live connections only — a seat in grace has no transport to
+    // stream shared state, so it can hold a seat but never inherit the host.
     let firstRemaining: string | null = null;
     let remainingCount = 0;
     for (const other of this.getConnections<Presence>()) {
@@ -467,8 +702,9 @@ export class VgServer extends Server {
     // outlives it on the (still-warm) Durable Object: a wrong cap for a session
     // that wants the unlimited default, and ghost world state (eaten pellets,
     // scores, farm tiles) that the next session's clients adopt before their new
-    // host's first broadcast.
-    if (remainingCount === 0) {
+    // host's first broadcast. A room with seats still held in grace is NOT
+    // empty — its dropped players may be seconds from returning.
+    if (remainingCount === 0 && this.grace.size === 0) {
       await this.setCap(null);
       this.shared = {};
     }

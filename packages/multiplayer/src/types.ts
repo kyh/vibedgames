@@ -21,6 +21,24 @@ export type MultiplayerOptions = {
  */
 export const ROOM_CAP_QUERY_PARAM = "_maxPlayers";
 
+/**
+ * Query-string key carrying the client's reconnection token. The token is a
+ * secret generated once per client instance and never broadcast to peers —
+ * unlike the connection id, which every player in the room can see. Presenting
+ * the same token within the grace window reclaims the seat (and its state)
+ * held after a transport drop, so a network blip is a "reconnecting…" pause
+ * instead of a leave + rejoin that wipes per-player state.
+ */
+export const RECONNECT_TOKEN_QUERY_PARAM = "_reconnectToken";
+
+/**
+ * How long the server holds a dropped player's seat (identity, per-player
+ * state, room-cap slot) waiting for the same reconnection token to return
+ * (ms). Peers see the player with `connected: false` during the window; only
+ * after it lapses does the player actually leave the room.
+ */
+export const RECONNECT_GRACE_MS = 30_000;
+
 export type MultiplayerConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
 
 export type PlayerState<T = Record<string, unknown>> = T;
@@ -30,6 +48,13 @@ export type Player = {
   color?: string;
   hue?: string;
   state?: PlayerState;
+  /**
+   * False while the player's transport is down but their seat is being held
+   * for a reconnect (see RECONNECT_GRACE_MS) — render a "reconnecting…"
+   * treatment instead of removing them. Absent on servers that predate
+   * reconnection grace; treat missing as connected.
+   */
+  connected?: boolean;
 };
 
 export type PlayerMap = Record<string, Player>;
@@ -76,6 +101,10 @@ export type ServerMessage =
   | { type: "host"; data: { id: string } }
   | { type: "state_patch"; data: Record<string, unknown> }
   | { type: "player_state"; data: { id: string; state: Record<string, unknown> } }
+  // A player's transport dropped (connected: false — seat held for the grace
+  // window) or came back (connected: true). Pre-grace clients ignore this and
+  // simply see the player leave when the window lapses.
+  | { type: "player_connection"; data: { id: string; connected: boolean } }
   | { type: "event"; data: { event: string; payload: unknown; from: string } }
   // Sent (then the socket is closed) when a player connects to a room that is
   // already at capacity. `room` is the sibling room the client should retry.
