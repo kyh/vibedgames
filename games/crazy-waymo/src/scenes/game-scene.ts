@@ -458,12 +458,15 @@ export class GameScene {
     this.scene.add(this.sun.target);
 
     // Ocean surrounding the island (reflects the sky via scene.environment).
-    // Two scrolling sine fields perturb the normal so the sky reflection
-    // shimmers — reads as swell without any extra geometry. On top of that,
-    // the Mario Kart water grammar: a shore texture (the same pure landFactor
-    // mask terrain uses) drives a turquoise shallow ramp and an animated
-    // lapping foam band along every coast, and rare sine-field crossings pop
-    // as moving sun glints. All fragment work — the plane stays one quad.
+    // A Gerstner-shaped normal field (four directional trochoidal waves, GPU
+    // Gems ch.1) perturbs the normal so the sky reflection organizes into
+    // swell with pinched crests and wide troughs — the surface itself is
+    // never displaced, so the fixed waterline the foam/pier/dock logic
+    // assumes stays put. On top of that, the Mario Kart water grammar: a
+    // shore texture (the same pure landFactor mask terrain uses) drives a
+    // turquoise shallow ramp and an animated lapping foam band along every
+    // coast, and sparse hash twinkles pop as sun glints that ride the wave
+    // crests. All fragment work — the plane stays one quad.
     const oceanMat = new THREE.MeshStandardMaterial({
       color: 0x2e7fc0,
       roughness: 0.32,
@@ -498,19 +501,35 @@ float ocNoise(vec2 p) {
     mix(ocHash(i), ocHash(i + vec2(1.0, 0.0)), u.x),
     mix(ocHash(i + vec2(0.0, 1.0)), ocHash(i + vec2(1.0, 1.0)), u.x),
     u.y);
+}
+// One Gerstner wave's contribution to the surface derivatives, evaluated at
+// the undisplaced position: xz are the normal-tilt terms (dir * w*A * cos),
+// y is the crest-pinch term (q*w*A * sin) that approaches 1 where the
+// trochoid sharpens. d must be normalized; wa = w*A, qwa = q*w*A.
+vec3 ocWave(vec2 d, float w, float wa, float qwa, float sp, vec2 p, float t) {
+  float th = w * dot(d, p) - sp * t;
+  return vec3(d.x * wa * cos(th), qwa * sin(th), d.y * wa * cos(th));
+}
+// Four waves: one long primary swell, a secondary at ~50 degrees, and two
+// shorter cross-chops. Frequencies/speeds sit in the same band as the old
+// sine fields so the overall tempo of the shimmer is unchanged.
+vec3 ocGerstner(vec2 p, float t) {
+  return ocWave(vec2(0.94, 0.34), 0.042, 0.34, 0.26, 0.55, p, t)
+       + ocWave(vec2(0.81, -0.59), 0.071, 0.30, 0.20, 0.83, p, t)
+       + ocWave(vec2(0.99, 0.10), 0.118, 0.24, 0.13, 1.22, p, t)
+       + ocWave(vec2(0.56, 0.83), 0.157, 0.18, 0.08, 1.61, p, t);
 }`,
         )
         .replace(
           "#include <normal_fragment_begin>",
           `#include <normal_fragment_begin>
           {
-            vec2 wp = vOceanPos.xz;
-            float t = uOceanTime;
-            float nx = sin(wp.x * 0.115 + t * 1.3) * 0.5
-                     + sin(wp.x * 0.041 + wp.y * 0.053 - t * 0.62) * 0.5;
-            float nz = sin(wp.y * 0.093 - t * 1.05) * 0.5
-                     + sin((wp.x + wp.y) * 0.035 + t * 0.84) * 0.5;
-            normal = normalize(normal + vec3(nx, 0.0, nz) * 0.2);
+            vec3 g = ocGerstner(vOceanPos.xz, uOceanTime);
+            // Dividing the tilt by (1 - pinch) is what makes this read as
+            // Gerstner rather than summed sines: the normal steepens sharply
+            // at crests and flattens across troughs, so highlights collect
+            // in thin bright lines instead of soft interference blobs.
+            normal = normalize(normal + vec3(-g.x, 0.0, -g.z) * (0.28 / max(1.0 - g.y, 0.35)));
           }`,
         )
         .replace(
@@ -553,6 +572,12 @@ float ocNoise(vec2 p) {
             // Sub-cell jitter so lit cells read as points, not squares.
             vec2 sub = fract(wp * 0.42) - vec2(ocHash(gcell + 19.7), ocHash(gcell + 7.3));
             glint *= smoothstep(0.30, 0.08, length(sub));
+            // Glints favor wave crests (and crests pick up a faint sheen),
+            // so the sparkle travels with the swell instead of sitting in a
+            // static random field.
+            float crest = smoothstep(0.15, 0.60, ocGerstner(wp, t).y);
+            glint *= 0.35 + 0.65 * crest;
+            diffuseColor.rgb *= 1.0 + crest * 0.05;
             diffuseColor.rgb += vec3(glint * 3.2);
             diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.93, 0.97, 0.98), clamp(foam, 0.0, 0.9));
           }`,
