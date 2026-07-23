@@ -7,6 +7,7 @@ export type {
   Player,
   PlayerMap,
   ClientMessage,
+  SendEventOptions,
   ServerMessage,
 } from "./types.js";
 export {

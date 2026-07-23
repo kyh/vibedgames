@@ -93,6 +93,16 @@ const nextOverflowRoom = (room: string): string => {
   return `${room}${OVERFLOW_SEP}2`;
 };
 
+/**
+ * Read a `to`/`except` id list off an untrusted client message: only a real
+ * array counts (null = field absent or malformed), and non-string entries are
+ * dropped rather than failing the whole event.
+ */
+const readIdList = (value: string[] | undefined): string[] | null => {
+  if (!Array.isArray(value)) return null;
+  return value.filter((id) => typeof id === "string");
+};
+
 /** Read the client-requested player cap, clamped to the hard ceiling. */
 const readRoomCap = (ctx: ConnectionContext): number | null => {
   const raw = new URL(ctx.request.url).searchParams.get(ROOM_CAP_QUERY_PARAM);
@@ -447,7 +457,26 @@ export class VgServer extends Server {
               from: sender.id,
             },
           };
-          this.broadcast(JSON.stringify(eventMessage), []);
+          const raw = JSON.stringify(eventMessage);
+          // Targeting is additive to the wire protocol: absent fields mean the
+          // historical broadcast-to-all (sender included). Ids come from an
+          // untrusted client, so re-validate the shape instead of trusting the
+          // parsed type.
+          const to = readIdList(message.data.to);
+          const except = readIdList(message.data.except);
+          if (to === null) {
+            this.broadcast(raw, except ?? []);
+            break;
+          }
+          // `to` wins, minus `except`; deliver only to admitted players so a
+          // capacity-refused connection can never be reached by id.
+          const targets = new Set(to);
+          const excluded = new Set(except ?? []);
+          for (const connection of this.getConnections<Presence>()) {
+            if (!connection.state) continue;
+            if (!targets.has(connection.id) || excluded.has(connection.id)) continue;
+            connection.send(raw);
+          }
           break;
         }
         default:

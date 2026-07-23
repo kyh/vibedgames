@@ -6,6 +6,7 @@ import type {
   MultiplayerOptions,
   Player,
   PlayerMap,
+  SendEventOptions,
   ServerMessage,
 } from "./types.js";
 import {
@@ -13,6 +14,13 @@ import {
   RECONNECT_TOKEN_QUERY_PARAM,
   ROOM_CAP_QUERY_PARAM,
 } from "./types.js";
+
+/** Accept a single id or a list; undefined stays undefined so the field can be
+ *  omitted from the wire message entirely. */
+const normalizeIds = (ids: string | string[] | undefined): string[] | undefined => {
+  if (ids === undefined) return undefined;
+  return Array.isArray(ids) ? ids : [ids];
+};
 
 export type MultiplayerClientOptions = MultiplayerOptions & {
   /**
@@ -286,9 +294,26 @@ export class MultiplayerClient {
     this.notify();
   }
 
-  /** Send a custom event to all players. */
-  sendEvent(event: string, payload: unknown): void {
-    this.send({ type: "emit", data: { event, payload } });
+  /**
+   * Send a custom event. By default it is broadcast to all players (including
+   * this one); pass `to`/`except` to target specific player ids instead — e.g.
+   * `sendEvent("you_died", { by }, { to: victimId })` or
+   * `sendEvent("explosion", at, { except: myId })`.
+   */
+  sendEvent(event: string, payload: unknown, options?: SendEventOptions): void {
+    const to = normalizeIds(options?.to);
+    const except = normalizeIds(options?.except);
+    this.send({
+      type: "emit",
+      data: {
+        event,
+        payload,
+        // Omitted (not undefined) when untargeted, so the wire message stays
+        // byte-identical to the pre-targeting protocol for plain broadcasts.
+        ...(to ? { to } : {}),
+        ...(except ? { except } : {}),
+      },
+    });
   }
 
   /** Set the onEvent callback. */
