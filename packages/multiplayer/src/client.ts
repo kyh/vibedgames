@@ -22,6 +22,29 @@ const normalizeIds = (ids: string | string[] | undefined): string[] | undefined 
   return Array.isArray(ids) ? ids : [ids];
 };
 
+/** A coalesced event waiting for the next microtask flush. */
+type PendingEvent = {
+  event: string;
+  payload: unknown;
+  to?: string[];
+  except?: string[];
+};
+
+/** Emit-message data with targeting fields omitted (not undefined) when
+ *  untargeted, so plain broadcasts stay byte-identical to the pre-targeting
+ *  wire protocol. */
+const emitData = (
+  event: string,
+  payload: unknown,
+  to: string[] | undefined,
+  except: string[] | undefined,
+): { event: string; payload: unknown; to?: string[]; except?: string[] } => ({
+  event,
+  payload,
+  ...(to ? { to } : {}),
+  ...(except ? { except } : {}),
+});
+
 export type MultiplayerClientOptions = MultiplayerOptions & {
   /**
    * Shared state to seed the room with, applied exactly once per room by the
@@ -109,6 +132,12 @@ export class MultiplayerClient {
   private heartbeatRaf: number | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private lastHeartbeatAt = 0;
+  /** Coalesced events awaiting the microtask flush — latest payload per
+   *  event + target signature. Flushed before any other outgoing game message
+   *  so coalescing can delay an event but never reorder it relative to state
+   *  patches. */
+  private pendingCoalesced = new Map<string, PendingEvent>();
+  private coalesceFlushScheduled = false;
 
   private _connectionStatus: MultiplayerConnectionStatus = "connecting";
   private _playerId: string | null = null;
@@ -203,6 +232,8 @@ export class MultiplayerClient {
     this._hostId = null;
     this._playerId = null;
     this._sharedState = this.options.initialState ?? {};
+    // Queued for a room that never admitted us — don't leak them into the new one.
+    this.pendingCoalesced.clear();
 
     // Mask only the one synchronous close that reconnect() dispatches for the
     // old connection. The server's async close(4001) never reaches
@@ -271,6 +302,7 @@ export class MultiplayerClient {
         ? updater(this._sharedState)
         : { ...this._sharedState, ...updater };
     this._sharedState = next;
+    this.flushCoalescedEvents();
     this.send({ type: "state_patch", data: next });
     this.notify();
   }
@@ -290,6 +322,7 @@ export class MultiplayerClient {
     };
     this._myState = next;
 
+    this.flushCoalescedEvents();
     this.send({ type: "player_state_patch", data: next });
     this.notify();
   }
@@ -299,21 +332,35 @@ export class MultiplayerClient {
    * this one); pass `to`/`except` to target specific player ids instead — e.g.
    * `sendEvent("you_died", { by }, { to: victimId })` or
    * `sendEvent("explosion", at, { except: myId })`.
+   *
+   * With `{ coalesce: true }`, rapid same-type events collapse into one wire
+   * message carrying the latest payload, sent on the next microtask. Pending
+   * coalesced events are flushed ahead of every other outgoing game message
+   * (state patches, non-coalesced events), so opting in bounds message rate
+   * without ever reordering an event relative to the state it annotates.
+   * Coalescing composes with targeting: same-type events aimed at different
+   * recipients coalesce independently, each keeping its own audience.
    */
   sendEvent(event: string, payload: unknown, options?: SendEventOptions): void {
     const to = normalizeIds(options?.to);
     const except = normalizeIds(options?.except);
-    this.send({
-      type: "emit",
-      data: {
-        event,
-        payload,
-        // Omitted (not undefined) when untargeted, so the wire message stays
-        // byte-identical to the pre-targeting protocol for plain broadcasts.
-        ...(to ? { to } : {}),
-        ...(except ? { except } : {}),
-      },
-    });
+    if (options?.coalesce) {
+      // Keyed by event + target signature: two "damage" events aimed at
+      // different victims must not collapse into one (the survivor's payload
+      // would reach the wrong audience).
+      const key = `${event}\u0000${to?.join(",") ?? ""}\u0000${except?.join(",") ?? ""}`;
+      this.pendingCoalesced.set(key, { event, payload, to, except });
+      if (!this.coalesceFlushScheduled) {
+        this.coalesceFlushScheduled = true;
+        Promise.resolve().then(() => {
+          this.coalesceFlushScheduled = false;
+          this.flushCoalescedEvents();
+        });
+      }
+      return;
+    }
+    this.flushCoalescedEvents();
+    this.send({ type: "emit", data: emitData(event, payload, to, except) });
   }
 
   /** Set the onEvent callback. */
@@ -323,6 +370,7 @@ export class MultiplayerClient {
 
   /** Disconnect and clean up. */
   destroy(): void {
+    this.flushCoalescedEvents();
     if (this.heartbeatRaf !== null) {
       rafHost.cancelAnimationFrame?.(this.heartbeatRaf);
       this.heartbeatRaf = null;
@@ -343,6 +391,15 @@ export class MultiplayerClient {
 
   private send(message: ClientMessage): void {
     this.socket.send(JSON.stringify(message));
+  }
+
+  /** Send pending coalesced events now, latest payload per key, in first-queued order. */
+  private flushCoalescedEvents(): void {
+    if (this.pendingCoalesced.size === 0) return;
+    for (const { event, payload, to, except } of this.pendingCoalesced.values()) {
+      this.send({ type: "emit", data: emitData(event, payload, to, except) });
+    }
+    this.pendingCoalesced.clear();
   }
 
   private notify(): void {

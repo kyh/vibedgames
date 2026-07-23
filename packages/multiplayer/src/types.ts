@@ -60,19 +60,28 @@ export type Player = {
 export type PlayerMap = Record<string, Player>;
 
 /**
- * Delivery targeting for `sendEvent`. Omit for the default broadcast to every
- * player in the room (including the sender).
+ * Options for `MultiplayerClient.sendEvent`. Omit for the default: an
+ * immediate broadcast to every player in the room (including the sender).
  *
  * - `to`: deliver only to these player ids. The sender is included only if its
  *   own id is listed.
  * - `except`: exclude these player ids (applied after `to`, if both given).
+ * - `coalesce`: collapse rapid events sharing an event type AND target into a
+ *   single wire message carrying the latest payload, flushed on the next
+ *   microtask. Ordering is preserved: pending coalesced events are flushed
+ *   before any outgoing state patch or non-coalesced event, so a coalesced
+ *   event never overtakes — nor lags behind — a state update sent around it.
+ *   Use for high-frequency annotations (damage numbers, cursor pings) where
+ *   only the latest value matters.
  *
  * Targeting is enforced by the party server; a server predating it ignores
- * these fields and falls back to broadcasting to everyone.
+ * those fields and falls back to broadcasting to everyone. Coalescing is
+ * client-side only and works against any server.
  */
 export type SendEventOptions = {
   to?: string | string[];
   except?: string | string[];
+  coalesce?: boolean;
 };
 
 export type ClientMessage =
