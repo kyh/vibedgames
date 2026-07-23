@@ -14,6 +14,7 @@ import {
   RECONNECT_TOKEN_QUERY_PARAM,
   ROOM_CAP_QUERY_PARAM,
 } from "./types.js";
+import type { MultiplayerSchemas, SchemaViolation } from "./validation.js";
 
 /** Accept a single id or a list; undefined stays undefined so the field can be
  *  omitted from the wire message entirely. */
@@ -55,6 +56,12 @@ export type MultiplayerClientOptions = MultiplayerOptions & {
    * never re-seeded.
    */
   initialState?: Record<string, unknown>;
+  /**
+   * Optional state schemas (Standard Schema — zod v3.24+, valibot, arktype…).
+   * Outgoing updates that fail validation are blocked before send; incoming
+   * ones are dropped before merge. See `MultiplayerSchemas` for semantics.
+   */
+  schemas?: MultiplayerSchemas;
 };
 
 export type MultiplayerSnapshot = {
@@ -138,6 +145,8 @@ export class MultiplayerClient {
    *  patches. */
   private pendingCoalesced = new Map<string, PendingEvent>();
   private coalesceFlushScheduled = false;
+  /** One warning per client for async schemas — validation must stay sync. */
+  private warnedAsyncSchema = false;
 
   private _connectionStatus: MultiplayerConnectionStatus = "connecting";
   private _playerId: string | null = null;
@@ -157,6 +166,13 @@ export class MultiplayerClient {
     this._onEvent = options.onEvent;
     this._room = options.room;
     this.cap = options.maxPlayers && options.maxPlayers > 0 ? Math.floor(options.maxPlayers) : null;
+
+    // Surface an invalid initialState immediately, at construction, where the
+    // author is looking. Report-only: blocking the seed would leave the room
+    // permanently empty, which bricks a game harder than imperfect data.
+    if (options.initialState) {
+      this.passesSchema("sharedState", "outgoing", options.initialState);
+    }
 
     this.socket = new PartySocket({
       host: options.host,
@@ -301,6 +317,7 @@ export class MultiplayerClient {
       typeof updater === "function"
         ? updater(this._sharedState)
         : { ...this._sharedState, ...updater };
+    if (!this.passesSchema("sharedState", "outgoing", next)) return;
     this._sharedState = next;
     this.flushCoalescedEvents();
     this.send({ type: "state_patch", data: next });
@@ -314,6 +331,7 @@ export class MultiplayerClient {
     if (!this._playerId) return;
     const current = (this._players[this._playerId]?.state as Record<string, unknown>) ?? {};
     const next = typeof updater === "function" ? updater(current) : { ...current, ...updater };
+    if (!this.passesSchema("playerState", "outgoing", next)) return;
 
     const existing = this._players[this._playerId] ?? { id: this._playerId };
     this._players = {
@@ -402,6 +420,52 @@ export class MultiplayerClient {
     this.pendingCoalesced.clear();
   }
 
+  /**
+   * Run the registered schema (if any) for a channel against a candidate FULL
+   * state. Returns whether the state may be used; a failure is reported via
+   * `schemas.onViolation` (default: console.warn). Empty states bypass
+   * validation — rooms and players start empty by protocol, before any seed
+   * or first update arrives. Async schemas can't gate a synchronous game
+   * loop, so they warn once and pass.
+   */
+  private passesSchema(
+    channel: SchemaViolation["channel"],
+    direction: SchemaViolation["direction"],
+    state: Record<string, unknown>,
+    from?: string,
+  ): boolean {
+    const schemas = this.options.schemas;
+    const schema = channel === "sharedState" ? schemas?.sharedState : schemas?.playerState;
+    if (!schema) return true;
+    if (Object.keys(state).length === 0) return true;
+
+    const result = schema["~standard"].validate(state);
+    if (result instanceof Promise) {
+      if (!this.warnedAsyncSchema) {
+        this.warnedAsyncSchema = true;
+        console.warn(
+          "[multiplayer] async schemas are not supported — validation skipped. Use a synchronous schema.",
+        );
+      }
+      return true;
+    }
+    if (!result.issues) return true;
+
+    const violation: SchemaViolation = {
+      channel,
+      direction,
+      issues: result.issues,
+      data: state,
+      ...(from !== undefined ? { from } : {}),
+    };
+    if (schemas?.onViolation) {
+      schemas.onViolation(violation);
+    } else {
+      console.warn(`[multiplayer] ${direction} ${channel} failed schema validation`, result.issues);
+    }
+    return false;
+  }
+
   private notify(): void {
     for (const listener of this.listeners) listener();
   }
@@ -469,11 +533,21 @@ export class MultiplayerClient {
           this._playerId = this.socket.id ?? null;
           this._hostId = message.data.hostId;
           this._players = message.data.players;
+          // remoteStateSeen tracks the SERVER's view, so it is set even when
+          // the local schema rejects the payload — the room has live state
+          // either way, and a promoted host must never re-seed over it.
           if (Object.keys(message.data.state).length > 0) this.remoteStateSeen = true;
-          this._sharedState =
-            Object.keys(this._sharedState).length === 0
-              ? message.data.state
-              : { ...this._sharedState, ...message.data.state };
+          {
+            const merged =
+              Object.keys(this._sharedState).length === 0
+                ? message.data.state
+                : { ...this._sharedState, ...message.data.state };
+            // On violation keep the previous local state — refusing admission
+            // over bad room data would strand the player on "connecting".
+            if (this.passesSchema("sharedState", "incoming", merged)) {
+              this._sharedState = merged;
+            }
+          }
 
           this.maybeSeedInitialState(message.data.hostId);
 
@@ -511,10 +585,15 @@ export class MultiplayerClient {
         }
         case "state_patch": {
           this.remoteStateSeen = true;
-          this._sharedState = { ...this._sharedState, ...message.data };
+          const merged = { ...this._sharedState, ...message.data };
+          if (!this.passesSchema("sharedState", "incoming", merged)) break;
+          this._sharedState = merged;
           break;
         }
         case "player_state": {
+          if (!this.passesSchema("playerState", "incoming", message.data.state, message.data.id)) {
+            break;
+          }
           const existing = this._players[message.data.id] ?? { id: message.data.id };
           this._players = {
             ...this._players,
