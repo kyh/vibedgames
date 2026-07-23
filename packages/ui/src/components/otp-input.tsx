@@ -166,17 +166,20 @@ function OTPInput({
         setState("error");
         // Shake, then the characters drop out one by one, then the field
         // clears and the caret comes back for another try.
-        settleTimerRef.current = window.setTimeout(() => {
-          setValue("");
-          setState("idle");
-          const el = inputRef.current;
-          if (el && document.activeElement === el) {
-            el.setSelectionRange(0, 0);
-            syncSel();
-          } else {
-            setSel({ start: 0, end: 0 });
-          }
-        }, SHAKE_S * 1000 + length * STAGGER_S * 1000 + 260);
+        settleTimerRef.current = window.setTimeout(
+          () => {
+            setValue("");
+            setState("idle");
+            const el = inputRef.current;
+            if (el && document.activeElement === el) {
+              el.setSelectionRange(0, 0);
+              syncSel();
+            } else {
+              setSel({ start: 0, end: 0 });
+            }
+          },
+          SHAKE_S * 1000 + length * STAGGER_S * 1000 + 260,
+        );
       }
     }, VERIFY_DELAY_MS);
     return () => {
@@ -256,21 +259,31 @@ function OTPInput({
                     state === "success"
                       ? { duration: 0.3, ease: EASE, delay: cell.index * FILL_S }
                       : state === "error"
-                        ? { duration: DROP_S, ease: "easeOut", delay: SHAKE_S + cell.index * STAGGER_S }
+                        ? {
+                            duration: DROP_S,
+                            ease: "easeOut",
+                            delay: SHAKE_S + cell.index * STAGGER_S,
+                          }
                         : { duration: 0 }
                   }
                 >
                   {mask ? "•" : cell.char}
                 </motion.span>
               )}
-              {cell.active && !cell.char && (
-                // The fake caret: a hard blink (steps, not a fade).
-                <motion.span
-                  className="h-5 w-[1.5px] rounded-[1px] bg-foreground"
-                  animate={{ opacity: [1, 1, 0, 0] }}
-                  transition={{ duration: 1.1, times: [0, 0.5, 0.5, 1], repeat: Infinity, ease: "linear" }}
-                />
-              )}
+              {cell.active &&
+                !cell.char && (
+                  // The fake caret: a hard blink (steps, not a fade).
+                  <motion.span
+                    className="h-5 w-[1.5px] rounded-[1px] bg-foreground"
+                    animate={{ opacity: [1, 1, 0, 0] }}
+                    transition={{
+                      duration: 1.1,
+                      times: [0, 0.5, 0.5, 1],
+                      repeat: Infinity,
+                      ease: "linear",
+                    }}
+                  />
+                )}
             </div>
           ))}
 
