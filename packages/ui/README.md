@@ -26,7 +26,7 @@ Global styles + Tailwind theme:
 
 ## Contents
 
-- `src/components/` — button, dialog, sheet, sidebar, field, input, OTP field, tooltip, avatar, skeleton, spinner, logo, …
+- `src/components/` — button, dialog, sheet, sidebar, field, input, OTP input, tooltip, avatar, skeleton, spinner, logo, …
 - `src/hooks/` — `use-mobile` (breakpoint detection), `use-shake` (error shake animation, reduced-motion aware)
 - `src/lib/utils.ts` — `cn()` class merger
 - `src/styles/globals.css` — Tailwind theme tokens
