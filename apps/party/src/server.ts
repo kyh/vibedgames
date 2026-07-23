@@ -464,10 +464,6 @@ export class VgServer extends Server {
           // parsed type.
           const to = readIdList(message.data.to);
           const except = readIdList(message.data.except);
-          if (to === null && except === null) {
-            this.broadcast(raw, []);
-            break;
-          }
           if (to === null) {
             this.broadcast(raw, except ?? []);
             break;
