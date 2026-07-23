@@ -515,15 +515,13 @@ export class VgServer extends Server {
       expiresAt: now + RECONNECT_GRACE_MS,
     };
     this.grace.set(token, entry);
-    await this.ctx.storage.put(graceKey(token), entry);
     this.snapshots.delete(connection.id);
-    // Detach presence so the paired onError/onClose for the same failed
-    // transport can't park the seat twice (refreshing expiresAt).
-    try {
-      connection.setState(null);
-    } catch {
-      /* socket already gone */
-    }
+    // Detach presence before the first await: the paired onError/onClose for
+    // the same failed transport would otherwise interleave at the storage
+    // suspension point, see presence still set, and park the seat twice
+    // (re-broadcasting the drop and refreshing expiresAt).
+    this.detachPresence(connection);
+    await this.ctx.storage.put(graceKey(token), entry);
 
     const droppedMessage: ServerMessage = {
       type: "player_connection",
@@ -636,6 +634,15 @@ export class VgServer extends Server {
     });
   }
 
+  /** Clear a connection's presence, tolerating an already-dead socket. */
+  private detachPresence(connection: Connection<Presence>): void {
+    try {
+      connection.setState(null);
+    } catch {
+      /* socket already gone */
+    }
+  }
+
   private async removePlayer(connection: Connection<Presence>): Promise<void> {
     // A connection refused at capacity (room_full) is closed before being
     // admitted, so it carries no presence and no client saw it join. Skip the
@@ -647,11 +654,7 @@ export class VgServer extends Server {
     // Detach presence first: the eviction sweep calls this before close(), and
     // the close's own async onClose must find nothing left to grace — otherwise
     // an evicted player would come straight back as a held seat.
-    try {
-      connection.setState(null);
-    } catch {
-      /* socket already gone */
-    }
+    this.detachPresence(connection);
     // Forfeit a held seat only if this connection OWNS it (token match).
     // Matching by player id would let anyone destroy a held seat: ids are
     // public (broadcast to every peer), so a rogue client could join under the
