@@ -1,0 +1,10 @@
+{
+  "extends": "@kyh/tsconfig/base.json",
+  "compilerOptions": {
+    // Tests run under Node (node:test + tsx), not workerd — so Node ambient
+    // types here, while src/ keeps @cloudflare/workers-types. The two globals
+    // conflict, hence the separate project.
+    "types": ["node"]
+  },
+  "include": ["."]
+}

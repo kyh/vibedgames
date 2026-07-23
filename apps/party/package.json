@@ -7,7 +7,8 @@
     "clean": "rm -rf .cache .turbo .wrangler dist node_modules",
     "deploy": "wrangler deploy --name vibedgames-party",
     "dev": "pnpm with-env wrangler dev",
-    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/integration.test.ts",
+    "typecheck": "tsc --noEmit && tsc -p test --noEmit",
     "with-env": "dotenv -e ../../.env --"
   },
   "dependencies": {
@@ -18,6 +19,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",
     "@kyh/tsconfig": "catalog:",
+    "@types/node": "catalog:",
     "partyserver": "^0.5.8",
     "typescript": "catalog:",
     "wrangler": "catalog:"
