@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.2.0 — 2026-07-24
+
+All wire changes are additive and feature-detected — old clients and old servers
+interoperate with this version in the same room.
+
+- Targeted events: `sendEvent(event, payload, { to, except })` — server-enforced
+  delivery to specific player ids; untargeted sends stay byte-identical to the old
+  wire protocol.
+- Opt-in event coalescing: `sendEvent(..., { coalesce: true })` collapses rapid
+  same-type/same-target events to the latest payload on a microtask flush, always
+  flushed ahead of outgoing state patches (never reorders vs state). Composes with
+  targeting.
+- Keyed delta state sync: `updateSharedState`/`updateMyState` send only changed
+  top-level keys; client advertises `_delta=1` and the server fans out per-key
+  `player_state` deltas to capable clients, full snapshots to older ones.
+- Schema validation: `schemas` option (`sharedState`/`playerState`/`onViolation`)
+  via the Standard Schema interface — zod v3.24+/v4, valibot, arktype plug in with
+  zero added deps. Always validates the full merged state, never a raw delta.
+  Structural guard (`findStructuralIssue`, `MAX_MESSAGE_BYTES`, `MAX_STATE_DEPTH`)
+  exported and enforced server-side on every patch.
+- Reconnection grace: secret `_reconnectToken` reclaims a dropped player's seat
+  within 30s; `Player.connected` + `player_connection` message let games render
+  "reconnecting…" instead of removing the player. `destroy()` still leaves
+  immediately.
+- `initialState` no longer re-seeds on host promotion mid-round — a guest promoted
+  after the host leaves can't wipe the live board.
+
 ## 0.1.2 — 2026-07-13
 
 - The package now imports under plain Node ESM. Relative imports carry explicit `.js`
