@@ -202,6 +202,12 @@ room.sendEvent("explosion", { x: 100, y: 200 });
 room.sendEvent("you_died", { by: killerId }, { to: victimId });
 room.sendEvent("taunt", { line }, { except: room.playerId ?? [] });
 
+// Coalesce high-frequency annotations (damage numbers, cursor pings) where
+// only the latest value matters: rapid same-type sends collapse into one wire
+// message, flushed on the next microtask. Never reorders relative to state
+// patches, and composes with targeting (per-target coalescing).
+room.sendEvent("damage_popup", { amount }, { to: victimId, coalesce: true });
+
 // Receive via onEvent config:
 const room = useMultiplayerRoom({
   host,
@@ -434,6 +440,15 @@ client.subscribe(() => {
 });
 ```
 
+**Other players dropping:** a peer whose transport dies keeps their seat for
+~30s while the server waits for them to reconnect. During that window
+`player.connected === false` — render a "reconnecting…" treatment (dim the
+avatar, badge the name), don't remove them; `player_left` firing (the id
+vanishing from `client.players`) is the real removal. Treat a missing
+`connected` field as connected. Events fired during the window are **not**
+buffered or replayed to the dropped player — only their seat and state
+survive. A deliberate `client.destroy()` leaves immediately, no grace window.
+
 ### Schema-shape discipline
 
 `sharedState` is the wire format. Keep it minimal:
@@ -443,6 +458,38 @@ client.subscribe(() => {
 
 VFX, sprite refs, and per-frame animation indices are render concerns —
 derive them locally from state changes, don't sync them.
+
+One server-side rule: keys named `__proto__`, `constructor`, or `prototype`
+anywhere in a patch get the **whole patch dropped** (prototype-pollution
+guard) — don't key state by raw user strings without prefixing.
+
+### Schema validation (optional)
+
+Pass `schemas` to the `MultiplayerClient` constructor to validate state
+against a [Standard Schema](https://standardschema.dev) (zod v3.24+/v4,
+valibot, arktype…). Outgoing failures block the send (fail fast on your own bugs);
+incoming failures drop the patch (other clients' malformed data).
+
+```ts
+import { z } from "zod";
+
+const client = new MultiplayerClient({
+  host: PARTY_HOST,
+  party: "vg-server",
+  room: "arena",
+  schemas: {
+    sharedState: z.object({ score: z.number(), phase: z.string() }),
+    playerState: z.object({ x: z.number(), y: z.number() }),
+    onViolation: (v) => console.warn(v.channel, v.direction, v.issues),
+  },
+});
+```
+
+Two rules: schemas describe the **full merged state**, never a partial patch
+(validation always runs post-merge — a schema requiring `{x, y}` still passes
+when a patch carries only `{x}`), and **empty states bypass** (rooms and
+players start `{}` by protocol — model required fields accordingly or seed
+via the host). Schemas must be synchronous; async ones warn once and pass.
 
 ## Local dev loop (two tabs, one room)
 
@@ -480,6 +527,11 @@ Server rejects, your local optimistic mutation flickers.
 
 ❌ **No connection-state UI.**
 A disconnected game looks identical to a frozen one. Render the status.
+
+❌ **Treating broadcast and send-to-one as interchangeable.**
+`sendEvent("secret_role", …)` + filtering in `onEvent` means every client
+still *receives* the payload — anyone can read it in DevTools. Deliver
+private data with `{ to: playerId }`; the server never sends it elsewhere.
 
 ❌ **Treating a working local room as proof production works.**
 localhost is ~0ms RTT on one machine — it hides jitter, races, and
