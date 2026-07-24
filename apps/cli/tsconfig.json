@@ -7,7 +7,7 @@
     "declaration": true,
     "outDir": "dist",
     "rootDir": "src",
-    "tsBuildInfoFile": "./dist/.tsbuildinfo"
+    "tsBuildInfoFile": "./.cache/tsbuildinfo.json"
   },
   "include": ["src"]
 }
