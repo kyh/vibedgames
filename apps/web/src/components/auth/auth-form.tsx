@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useRouter, useSearch } from "@tanstack/react-router";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { INVITE_CODE_LENGTH } from "@repo/api/auth/utils";
 import { Button } from "@repo/ui/components/button";
 import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from "@repo/ui/components/field";
 import { Input } from "@repo/ui/components/input";
-import { OTPField, OTPFieldInput } from "@repo/ui/components/otp-field";
+import { OTPInput } from "@repo/ui/components/otp-input";
 import { toast } from "@repo/ui/components/sonner";
 import { cn } from "@repo/ui/lib/utils";
 import { useShake } from "@repo/ui/hooks/use-shake";
@@ -15,8 +15,6 @@ import { z } from "zod";
 
 import { authClient } from "@/auth/client";
 import { useTRPC } from "@/lib/trpc";
-
-const OTP_SLOT_KEYS = Array.from({ length: INVITE_CODE_LENGTH }, (_, i) => `otp-slot-${i}`);
 
 const DEFAULT_NEXT_PATH = "/home";
 
@@ -78,79 +76,37 @@ const InviteCodeStep = ({
   onValidated: (code: string) => void;
 }) => {
   const trpc = useTRPC();
-  const [code, setCode] = useState(() => defaultValue.toUpperCase().slice(0, INVITE_CODE_LENGTH));
-  const autoSubmittedRef = useRef(false);
-  const [error, setError] = useState(false);
-  const [shakeScope, shake] = useShake();
-
-  const validate = useMutation(
-    trpc.auth.validateInvite.mutationOptions({
-      onSuccess: (data) => onValidated(data.code),
-      onError: (err) => {
-        toast.error(err.message);
-        setError(true);
-        shake();
-      },
-    }),
-  );
-
-  const submit = (value: string) => {
-    if (validate.isPending) return;
-    validate.mutate({ code: value });
-  };
-
-  // Auto-submit when prefilled from the `?invite=` link so the user lands
-  // straight on the email/password step without clicking through.
-  useEffect(() => {
-    if (autoSubmittedRef.current) return;
-    if (code.length === INVITE_CODE_LENGTH) {
-      autoSubmittedRef.current = true;
-      submit(code);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const validate = useMutation(trpc.auth.validateInvite.mutationOptions());
 
   return (
-    <form
-      className="grid gap-4"
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (code.length === INVITE_CODE_LENGTH) submit(code);
-      }}
-    >
-      <Field className="items-center gap-3">
-        <FieldLabel className="sr-only" htmlFor="invite-code">
-          Invite code
-        </FieldLabel>
-        <OTPField
-          ref={shakeScope}
-          id="invite-code"
-          data-test="invite-code-input"
-          className="justify-center"
-          length={INVITE_CODE_LENGTH}
-          validationType="alphanumeric"
-          // Uppercase via the component's own normalizer. Doing it in
-          // onValueChange instead breaks base-ui's focus advance: it compares
-          // its pending-focus value against the controlled value, and a cased
-          // mismatch ('d' vs 'D') silently cancels the focus move.
-          normalizeValue={(value) => value.toUpperCase()}
-          value={code}
-          onValueChange={(value) => {
-            setError(false);
-            setCode(value);
-          }}
-          onValueComplete={(value) => submit(value)}
-        >
-          {OTP_SLOT_KEYS.map((slotKey, index) => (
-            <OTPFieldInput
-              key={slotKey}
-              aria-label={`Character ${index + 1} of ${INVITE_CODE_LENGTH}`}
-              aria-invalid={error}
-            />
-          ))}
-        </OTPField>
-      </Field>
-    </form>
+    <Field className="items-center gap-3">
+      <FieldLabel className="sr-only" htmlFor="invite-code">
+        Invite code
+      </FieldLabel>
+      {/* A full code auto-verifies (covers both typing and the `?invite=`
+          prefill); wrong codes shake + clear inside the component, so the
+          only error surface here is the toast. Resolving `verify` to the
+          server's canonical code makes `onSuccess` receive it directly. */}
+      <OTPInput
+        id="invite-code"
+        data-test="invite-code-input"
+        length={INVITE_CODE_LENGTH}
+        validationType="alphanumeric"
+        normalizeValue={(value) => value.toUpperCase()}
+        defaultValue={defaultValue}
+        group
+        verify={(code) =>
+          validate.mutateAsync({ code }).then(
+            (data) => data.code,
+            (err: unknown) => {
+              toast.error(err instanceof Error ? err.message : "Invalid invite code");
+              return false;
+            },
+          )
+        }
+        onSuccess={onValidated}
+      />
+    </Field>
   );
 };
 
