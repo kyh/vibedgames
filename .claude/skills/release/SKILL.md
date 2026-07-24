@@ -15,7 +15,7 @@ Cut a new npm version of one or more publishable packages in this repo.
   - `vibedgames` → `apps/cli` → tag prefix `vibedgames@`
   - `@vibedgames/multiplayer` → `packages/multiplayer` → tag prefix `@vibedgames/multiplayer@`
   - `@vibedgames/gamepad` → `packages/gamepad` → tag prefix `@vibedgames/gamepad@`
-- All ship `dist/` built by `tsc`. `tsBuildInfoFile` placement VARIES: `apps/cli` keeps it in `dist/.tsbuildinfo` (cleaning dist invalidates it), but `packages/multiplayer` and `packages/gamepad` keep it in `.cache/tsbuildinfo.json` — there, `rm -rf dist` alone makes `tsc` silently emit NOTHING (cache says up-to-date). Always remove both `dist` and `.cache`.
+- All ship `dist/` built by `tsc`. All three keep `tsBuildInfoFile` at `.cache/tsbuildinfo.json` — NEVER inside `dist/` (it would ship in the tarball; vibedgames ≤0.3.0 did exactly that). Consequence: `rm -rf dist` alone makes `tsc` silently emit NOTHING (cache says up-to-date). Always remove both `dist` and `.cache`.
 - `vibedgames` and `@vibedgames/multiplayer` have no internal workspace consumers. `@vibedgames/gamepad` IS consumed in-repo by the example games via `workspace:^`, but `pnpm publish` rewrites that to the published version automatically — no manual downstream sync needed.
 - Current branch: !`git -C /Users/kyh/Documents/Projects/vibedgames rev-parse --abbrev-ref HEAD`
 - Working tree: !`git -C /Users/kyh/Documents/Projects/vibedgames status --short`
