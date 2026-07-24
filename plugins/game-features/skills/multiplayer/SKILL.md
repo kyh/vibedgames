@@ -530,7 +530,7 @@ A disconnected game looks identical to a frozen one. Render the status.
 
 ❌ **Treating broadcast and send-to-one as interchangeable.**
 `sendEvent("secret_role", …)` + filtering in `onEvent` means every client
-still *receives* the payload — anyone can read it in DevTools. Deliver
+still _receives_ the payload — anyone can read it in DevTools. Deliver
 private data with `{ to: playerId }`; the server never sends it elsewhere.
 
 ❌ **Treating a working local room as proof production works.**
