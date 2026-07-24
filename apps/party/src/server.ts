@@ -197,10 +197,21 @@ export class VgServer extends Server {
     };
   }
 
-  /** The presence for a connection id, or undefined if not admitted. */
+  /**
+   * The presence for a connection id, or undefined if not admitted. Iterated
+   * rather than getConnection(id): partyserver's hibernating lookup THROWS
+   * when two live sockets share an id — exactly the fast-reconnect race where
+   * a client re-dials before the server sees the old transport die. Returning
+   * the first socket that still has presence attached picks the live one; a
+   * superseded socket has had its presence detached.
+   */
   private presenceOf(id: string): Presence | undefined {
-    const connection = this.getConnection<Presence>(id);
-    return connection?.state ?? undefined;
+    for (const connection of this.getConnections<Presence>()) {
+      if (connection.id !== id) continue;
+      const presence = connection.state;
+      if (presence) return presence;
+    }
+    return undefined;
   }
 
   /** The grace entry holding a seat for this player id, if any. */
@@ -248,16 +259,20 @@ export class VgServer extends Server {
    * that's what "keeping the slot" means.
    */
   private playerCount(excludeId?: string): number {
-    let count = 0;
+    // Seats are counted by player id, not per connection: during a fast
+    // reconnect the re-dial and the not-yet-closed old socket briefly coexist
+    // under one id, and counting both would spuriously bounce a joiner at
+    // cap. The set also collapses a held seat with a live connection of the
+    // same id, matching how players() presents the room.
+    const seated = new Set<string>();
     for (const connection of this.getConnections<Presence>()) {
-      if (connection.id === excludeId) continue;
-      if (connection.state) count++;
+      if (connection.state) seated.add(connection.id);
     }
     for (const entry of this.grace.values()) {
-      if (entry.id === excludeId) continue;
-      count++;
+      seated.add(entry.id);
     }
-    return count;
+    if (excludeId !== undefined) seated.delete(excludeId);
+    return seated.size;
   }
 
   /**
