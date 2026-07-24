@@ -21,7 +21,7 @@
     "@kyh/tsconfig": "catalog:",
     "@types/node": "catalog:",
     "@types/three": "^0.185.1",
-    "tsx": "^4.23.0",
+    "tsx": "^4.23.1",
     "typescript": "catalog:",
     "vite": "catalog:"
   }
