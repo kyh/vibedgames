@@ -51,7 +51,6 @@ export const InviteAdmin = () => {
         qc.invalidateQueries({ queryKey: trpc.auth.listInvites.queryKey() });
         toast.success("Invite codes created");
       },
-      onError: (err) => toast.error(err.message),
     }),
   );
   const update = useMutation(
@@ -67,7 +66,6 @@ export const InviteAdmin = () => {
         );
         setEditing(null);
       },
-      onError: (err) => toast.error(err.message),
     }),
   );
 

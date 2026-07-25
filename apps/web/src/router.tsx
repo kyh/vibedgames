@@ -22,6 +22,11 @@ export function getRouter() {
         // write, and (because react-query shallow-merges these defaults)
         // it silently stops applying the moment a call site declares its
         // own handler, so it was never a net you could rely on anyway.
+        //
+        // `onError` is the opposite case: it IS the app-wide error surface.
+        // Don't restate it at a call site — that only overrides this with an
+        // identical toast, and a call site that also toasts by hand (say,
+        // from a rejected `mutateAsync`) shows the error twice.
         onError: (error) => {
           toast.error(error.message);
         },

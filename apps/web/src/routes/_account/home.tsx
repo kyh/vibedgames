@@ -132,7 +132,6 @@ function GamesPage() {
         qc.invalidateQueries({ queryKey: trpc.deploy.list.queryKey() });
         toast.success("Game deleted");
       },
-      onError: (err) => toast.error(err.message),
     }),
   );
 

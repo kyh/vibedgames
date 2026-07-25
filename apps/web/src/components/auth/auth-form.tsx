@@ -8,8 +8,10 @@ import { Input } from "@repo/ui/components/input";
 import { OTPInput } from "@repo/ui/components/otp-input";
 import { toast } from "@repo/ui/components/sonner";
 import { cn } from "@repo/ui/lib/utils";
+import { EASE_OUT } from "@repo/ui/lib/motion";
 import { useShake } from "@repo/ui/hooks/use-shake";
 import { useMutation } from "@tanstack/react-query";
+import { AnimatePresence, motion, MotionConfig } from "motion/react";
 import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 
@@ -34,9 +36,36 @@ const safeNextPath = (path?: string): string =>
 type StepFormProps = { callbackUrl?: string } & React.HTMLAttributes<HTMLDivElement>;
 
 /**
+ * The two register steps live side by side on an imaginary rail: the invite
+ * code sits left of the credentials. Each panel enters and leaves through its
+ * OWN edge, so advancing reads as travel to the right and "Change" as travel
+ * back — without either panel tracking which direction it was pushed.
+ */
+const STEP_OFFSET = 16;
+
+// The outgoing panel leaves faster than the incoming one arrives, so the two
+// overlap as a crossfade rather than reading as one long slide.
+const STEP_ENTER = { type: "spring" as const, bounce: 0, visualDuration: 0.28 };
+const STEP_EXIT = { duration: 0.12, ease: EASE_OUT };
+
+const stepMotion = (side: "left" | "right") => {
+  const x = side === "left" ? -STEP_OFFSET : STEP_OFFSET;
+  return {
+    initial: { opacity: 0, x },
+    animate: { opacity: 1, x: 0, transition: STEP_ENTER },
+    exit: { opacity: 0, x, transition: STEP_EXIT },
+  };
+};
+
+/**
  * Controlled two-step register flow. The parent owns `verifiedCode` so it can
- * drive surrounding UI (e.g. hide the invite-required header once verified):
- * `null` = invite step, a code = credentials step.
+ * drive surrounding UI (e.g. the header subtitle): `null` = invite step, a
+ * code = credentials step.
+ *
+ * `layout` on the rail carries the height change between the one-row invite
+ * step and the taller credentials step; without it the page snaps. It needs
+ * `mode="popLayout"` to work: `mode="wait"` swaps children from inside
+ * `AnimatePresence`, so the rail never re-renders and never re-measures.
  */
 export const RegisterForm = ({
   className,
@@ -52,22 +81,39 @@ export const RegisterForm = ({
 
   return (
     <div className={cn("grid gap-6", className)} {...props}>
-      {verifiedCode ? (
-        <RegisterCredentialsStep
-          inviteCode={verifiedCode}
-          callbackUrl={callbackUrl}
-          onChangeCode={() => onVerifiedCodeChange(null)}
-        />
-      ) : (
-        <InviteCodeStep
-          defaultValue={search.invite ?? ""}
-          onValidated={(code) => onVerifiedCodeChange(code)}
-        />
-      )}
+      <MotionConfig reducedMotion="user">
+        <motion.div layout transition={{ layout: STEP_ENTER }} className="grid">
+          <AnimatePresence mode="popLayout" initial={false}>
+            {verifiedCode ? (
+              <motion.div key="credentials" {...stepMotion("right")}>
+                <RegisterCredentialsStep
+                  inviteCode={verifiedCode}
+                  callbackUrl={callbackUrl}
+                  onChangeCode={() => onVerifiedCodeChange(null)}
+                />
+              </motion.div>
+            ) : (
+              <motion.div key="invite" {...stepMotion("left")}>
+                <InviteCodeStep
+                  defaultValue={search.invite ?? ""}
+                  onValidated={(code) => onVerifiedCodeChange(code)}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
+      </MotionConfig>
     </div>
   );
 };
 
+/**
+ * A full code auto-verifies (covers both typing and the `?invite=` prefill);
+ * wrong codes shake + clear inside `OTPInput`, and the message comes from the
+ * query client's default mutation `onError` (router.tsx) — toasting here too
+ * would double it. Resolving `verify` to the server's canonical code makes
+ * `onSuccess` receive it directly.
+ */
 const InviteCodeStep = ({
   defaultValue,
   onValidated,
@@ -83,10 +129,6 @@ const InviteCodeStep = ({
       <FieldLabel className="sr-only" htmlFor="invite-code">
         Invite code
       </FieldLabel>
-      {/* A full code auto-verifies (covers both typing and the `?invite=`
-          prefill); wrong codes shake + clear inside the component, so the
-          only error surface here is the toast. Resolving `verify` to the
-          server's canonical code makes `onSuccess` receive it directly. */}
       <OTPInput
         id="invite-code"
         data-test="invite-code-input"
@@ -98,10 +140,7 @@ const InviteCodeStep = ({
         verify={(code) =>
           validate.mutateAsync({ code }).then(
             (data) => data.code,
-            (err: unknown) => {
-              toast.error(err instanceof Error ? err.message : "Invalid invite code");
-              return false;
-            },
+            () => false,
           )
         }
         onSuccess={onValidated}
@@ -110,125 +149,49 @@ const InviteCodeStep = ({
   );
 };
 
-const RegisterCredentialsStep = ({
-  inviteCode,
-  callbackUrl,
-  onChangeCode,
-}: {
-  inviteCode: string;
-  callbackUrl?: string;
-  onChangeCode: () => void;
-}) => {
-  const router = useRouter();
-  const search = useSearch({ from: "/auth" });
-  const nextPath = safeNextPath(search.nextPath);
+type Credentials = { email: string; password: string };
 
-  const form = useForm({
-    resolver: zodResolver(
-      z.object({
-        email: z.email("Invalid email address"),
-        password: z.string().min(1, "Password is required"),
-      }),
-    ),
-    defaultValues: { email: "", password: "" },
-  });
+/**
+ * What a submit reports back, in the form's terms rather than the caller's.
+ * `bounced` is the one that earns its place: the caller has already moved the
+ * user somewhere else (register kicks a raced invite back to step 1), so the
+ * form must toast WITHOUT shaking — shaking a panel that is sliding away
+ * fights the step transition.
+ */
+type SubmitResult =
+  | { status: "ok" }
+  | { status: "failed"; message: string }
+  | { status: "bounced"; message: string };
 
-  const handleAuthWithPassword = form.handleSubmit(async (credentials) => {
-    const emailPrefix = credentials.email.split("@")[0];
-    // `inviteCode` is an extra body field consumed by the server-side
-    // `user.create.before` hook to validate + atomically redeem the invite.
-    // It isn't part of better-auth's typed signup payload, so we cast.
-    await authClient.signUp.email({
-      email: credentials.email,
-      password: credentials.password,
-      name: emailPrefix ?? "User",
-      inviteCode,
-      fetchOptions: {
-        onSuccess: () => {
-          router.navigate({ to: safeNextPath(callbackUrl ?? nextPath), replace: true });
-        },
-        onError: (ctx) => {
-          // The atomic claim happens at signup; if the code raced and lost
-          // (or was revoked between steps), kick the user back to step 1.
-          if (ctx.error.status === 403 || ctx.error.status === 409) {
-            onChangeCode();
-          }
-          toast.error(ctx.error.message);
-        },
-      },
-    } as Parameters<typeof authClient.signUp.email>[0]);
-  });
-
-  return (
-    <form className="grid gap-2" onSubmit={handleAuthWithPassword}>
-      <p className="text-muted-foreground text-center text-sm">
-        Invite code <span className="text-foreground font-mono">{inviteCode}</span> verified.{" "}
-        <button type="button" onClick={onChangeCode} className="underline">
-          Change
-        </button>
-      </p>
-      <FieldGroup className="gap-2">
-        <Controller
-          control={form.control}
-          name="email"
-          render={({ field, fieldState }) => (
-            <Field data-invalid={!!fieldState.error} className="gap-1">
-              <FieldLabel className="sr-only" htmlFor="email">
-                Email
-              </FieldLabel>
-              <FieldContent>
-                <Input
-                  id="email"
-                  data-test="email-input"
-                  aria-invalid={!!fieldState.error}
-                  required
-                  type="email"
-                  placeholder="name@example.com"
-                  autoCapitalize="none"
-                  autoComplete="email"
-                  autoCorrect="off"
-                  {...field}
-                />
-              </FieldContent>
-              <FieldError>{fieldState.error?.message}</FieldError>
-            </Field>
-          )}
-        />
-        <Controller
-          control={form.control}
-          name="password"
-          render={({ field, fieldState }) => (
-            <Field data-invalid={!!fieldState.error} className="gap-1">
-              <FieldLabel className="sr-only" htmlFor="password">
-                Password
-              </FieldLabel>
-              <FieldContent>
-                <Input
-                  id="password"
-                  data-test="password-input"
-                  aria-invalid={!!fieldState.error}
-                  required
-                  type="password"
-                  placeholder="******"
-                  autoCapitalize="none"
-                  autoComplete="new-password"
-                  autoCorrect="off"
-                  {...field}
-                />
-              </FieldContent>
-              <FieldError>{fieldState.error?.message}</FieldError>
-            </Field>
-          )}
-        />
-      </FieldGroup>
-      <Button type="submit" loading={form.formState.isSubmitting}>
-        Register
-      </Button>
-    </form>
-  );
+/**
+ * better-auth reports through `fetchOptions` callbacks rather than its return
+ * value, so a submit starts out failed and is upgraded by `onSuccess`. The
+ * form then navigates only on a success it actually saw — never merely on the
+ * absence of an error.
+ */
+const UNREPORTED: SubmitResult = {
+  status: "failed",
+  message: "Something went wrong. Please try again.",
 };
 
-export const LoginForm = ({ className, callbackUrl, ...props }: StepFormProps) => {
+/**
+ * Email + password, shared by login and register. Identical fields, identical
+ * error treatment (toast, shake, invalid until the next keystroke) and the
+ * same post-auth redirect; the caller supplies only what actually differs —
+ * the auth call, the button label, and which password the browser should
+ * offer.
+ */
+const CredentialsForm = ({
+  submit,
+  submitLabel,
+  passwordAutoComplete,
+  callbackUrl,
+}: {
+  submit: (credentials: Credentials) => Promise<SubmitResult>;
+  submitLabel: string;
+  passwordAutoComplete: "current-password" | "new-password";
+  callbackUrl?: string;
+}) => {
   const router = useRouter();
   const search = useSearch({ from: "/auth" });
   const nextPath = safeNextPath(search.nextPath);
@@ -246,96 +209,157 @@ export const LoginForm = ({ className, callbackUrl, ...props }: StepFormProps) =
   });
 
   const handleAuthWithPassword = form.handleSubmit(async (credentials) => {
-    await authClient.signIn.email({
-      email: credentials.email,
-      password: credentials.password,
-      fetchOptions: {
-        onSuccess: () => {
-          router.navigate({ to: safeNextPath(callbackUrl ?? nextPath), replace: true });
-        },
-        onError: (ctx) => {
-          toast.error(ctx.error.message);
-          setAuthError(true);
-          shake();
-        },
-      },
-    });
+    const result = await submit(credentials);
+    if (result.status === "ok") {
+      router.navigate({ to: safeNextPath(callbackUrl ?? nextPath), replace: true });
+      return;
+    }
+    toast.error(result.message);
+    if (result.status === "bounced") return;
+    setAuthError(true);
+    shake();
   });
 
   return (
-    <div className={cn("grid gap-6", className)} {...props}>
-      <form ref={shakeScope} className="grid gap-2" onSubmit={handleAuthWithPassword}>
-        <FieldGroup className="gap-2">
-          <Controller
-            control={form.control}
-            name="email"
-            render={({ field, fieldState }) => (
-              <Field data-invalid={!!fieldState.error || authError} className="gap-1">
-                <FieldLabel className="sr-only" htmlFor="email">
-                  Email
-                </FieldLabel>
-                <FieldContent>
-                  <Input
-                    id="email"
-                    data-test="email-input"
-                    aria-invalid={!!fieldState.error || authError}
-                    required
-                    type="email"
-                    placeholder="name@example.com"
-                    autoCapitalize="none"
-                    autoComplete="email"
-                    autoCorrect="off"
-                    variant="frosted"
-                    {...field}
-                    onChange={(e) => {
-                      setAuthError(false);
-                      field.onChange(e);
-                    }}
-                  />
-                </FieldContent>
-                <FieldError>{fieldState.error?.message}</FieldError>
-              </Field>
-            )}
-          />
-          <Controller
-            control={form.control}
-            name="password"
-            render={({ field, fieldState }) => (
-              <Field data-invalid={!!fieldState.error || authError} className="gap-1">
-                <FieldLabel className="sr-only" htmlFor="password">
-                  Password
-                </FieldLabel>
-                <FieldContent>
-                  <Input
-                    id="password"
-                    data-test="password-input"
-                    aria-invalid={!!fieldState.error || authError}
-                    required
-                    type="password"
-                    placeholder="******"
-                    autoCapitalize="none"
-                    autoComplete="current-password"
-                    autoCorrect="off"
-                    variant="frosted"
-                    {...field}
-                    onChange={(e) => {
-                      setAuthError(false);
-                      field.onChange(e);
-                    }}
-                  />
-                </FieldContent>
-                <FieldError>{fieldState.error?.message}</FieldError>
-              </Field>
-            )}
-          />
-        </FieldGroup>
-        <Button type="submit" loading={form.formState.isSubmitting}>
-          Login
-        </Button>
-      </form>
-    </div>
+    <form ref={shakeScope} className="grid gap-2" onSubmit={handleAuthWithPassword}>
+      <FieldGroup className="gap-2">
+        <Controller
+          control={form.control}
+          name="email"
+          render={({ field, fieldState }) => (
+            <Field data-invalid={!!fieldState.error || authError} className="gap-1">
+              <FieldLabel className="sr-only" htmlFor="email">
+                Email
+              </FieldLabel>
+              <FieldContent>
+                <Input
+                  id="email"
+                  data-test="email-input"
+                  aria-invalid={!!fieldState.error || authError}
+                  required
+                  type="email"
+                  placeholder="name@example.com"
+                  autoCapitalize="none"
+                  autoComplete="email"
+                  autoCorrect="off"
+                  variant="frosted"
+                  {...field}
+                  onChange={(e) => {
+                    setAuthError(false);
+                    field.onChange(e);
+                  }}
+                />
+              </FieldContent>
+              <FieldError>{fieldState.error?.message}</FieldError>
+            </Field>
+          )}
+        />
+        <Controller
+          control={form.control}
+          name="password"
+          render={({ field, fieldState }) => (
+            <Field data-invalid={!!fieldState.error || authError} className="gap-1">
+              <FieldLabel className="sr-only" htmlFor="password">
+                Password
+              </FieldLabel>
+              <FieldContent>
+                <Input
+                  id="password"
+                  data-test="password-input"
+                  aria-invalid={!!fieldState.error || authError}
+                  required
+                  type="password"
+                  placeholder="******"
+                  autoCapitalize="none"
+                  autoComplete={passwordAutoComplete}
+                  autoCorrect="off"
+                  variant="frosted"
+                  {...field}
+                  onChange={(e) => {
+                    setAuthError(false);
+                    field.onChange(e);
+                  }}
+                />
+              </FieldContent>
+              <FieldError>{fieldState.error?.message}</FieldError>
+            </Field>
+          )}
+        />
+      </FieldGroup>
+      <Button type="submit" loading={form.formState.isSubmitting}>
+        {submitLabel}
+      </Button>
+    </form>
   );
 };
+
+const RegisterCredentialsStep = ({
+  inviteCode,
+  callbackUrl,
+  onChangeCode,
+}: {
+  inviteCode: string;
+  callbackUrl?: string;
+  onChangeCode: () => void;
+}) => (
+  <CredentialsForm
+    submitLabel="Register"
+    passwordAutoComplete="new-password"
+    callbackUrl={callbackUrl}
+    submit={async (credentials) => {
+      const emailPrefix = credentials.email.split("@")[0];
+      let result: SubmitResult = UNREPORTED;
+      // `inviteCode` is an extra body field consumed by the server-side
+      // `user.create.before` hook to validate + atomically redeem the invite.
+      // It isn't part of better-auth's typed signup payload, so we cast.
+      await authClient.signUp.email({
+        email: credentials.email,
+        password: credentials.password,
+        name: emailPrefix ?? "User",
+        inviteCode,
+        fetchOptions: {
+          onSuccess: () => {
+            result = { status: "ok" };
+          },
+          onError: (ctx) => {
+            // The atomic claim happens at signup; if the code raced and lost
+            // (or was revoked between steps), kick the user back to step 1.
+            const raced = ctx.error.status === 403 || ctx.error.status === 409;
+            if (raced) onChangeCode();
+            result = { status: raced ? "bounced" : "failed", message: ctx.error.message };
+          },
+        },
+      } as Parameters<typeof authClient.signUp.email>[0]);
+      return result;
+    }}
+  />
+);
+
+export const LoginForm = ({ className, callbackUrl, ...props }: StepFormProps) => (
+  <div className={cn("grid gap-6", className)} {...props}>
+    <CredentialsForm
+      submitLabel="Login"
+      passwordAutoComplete="current-password"
+      callbackUrl={callbackUrl}
+      submit={async (credentials) => {
+        let result: SubmitResult = UNREPORTED;
+        await authClient.signIn.email({
+          email: credentials.email,
+          password: credentials.password,
+          fetchOptions: {
+            onSuccess: () => {
+              result = { status: "ok" };
+            },
+            onError: (ctx) => {
+              result = { status: "failed", message: ctx.error.message };
+            },
+          },
+        });
+        return result;
+      }}
+    />
+  </div>
+);
 
 export const RequestPasswordResetForm = () => {
   const form = useForm({

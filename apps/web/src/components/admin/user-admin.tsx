@@ -65,7 +65,6 @@ export const UserAdmin = () => {
         setForm(initialForm);
         toast.success("User created");
       },
-      onError: (err) => toast.error(err.message),
     }),
   );
   const grant = useMutation(
@@ -75,7 +74,6 @@ export const UserAdmin = () => {
         setGrantTarget(null);
         toast.success(`Credits updated — new balance ${formatUsd(balanceMicro)}`);
       },
-      onError: (err) => toast.error(err.message),
     }),
   );
 

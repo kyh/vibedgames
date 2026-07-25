@@ -43,7 +43,6 @@ export const ApiKeySettings = () => {
         setExpiresInDays("");
         toast.success("API key created");
       },
-      onError: (err) => toast.error(err.message),
     }),
   );
   const revoke = useMutation(
@@ -52,7 +51,6 @@ export const ApiKeySettings = () => {
         qc.invalidateQueries({ queryKey: trpc.apiKeys.list.queryKey() });
         toast.success("Key revoked");
       },
-      onError: (err) => toast.error(err.message),
     }),
   );
 
