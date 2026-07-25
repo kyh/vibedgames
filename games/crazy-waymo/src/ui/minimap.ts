@@ -28,7 +28,7 @@ const PARK = "#6f9455";
 const ROAD = "#c9cdd2";
 const DECK = "#c0483c";
 
-// World units across the minimap window. Mobile zooms in: the canvas is ~2/3
+// World units across the minimap window. The small box zooms in: it is ~2/3
 // the desktop size, so the same VIEW would shrink streets below legibility.
 const VIEW_DESKTOP = 560;
 const VIEW_MOBILE = 340;
@@ -48,8 +48,15 @@ export class Minimap {
     const node = document.getElementById("minimap");
     this.canvas = node instanceof HTMLCanvasElement ? node : document.createElement("canvas");
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
-    this.view = window.matchMedia("(pointer: coarse)").matches ? VIEW_MOBILE : VIEW_DESKTOP;
-    this.size = this.canvas.clientWidth > 0 ? this.canvas.clientWidth : 148;
+    // #minimap is `display: none` until setVisible(true) at race start, and a
+    // display:none element reports clientWidth 0 — reading it here always fell
+    // back to the desktop 148 and drew phone HUDs 30% undersized. A resolved
+    // `width` still returns the explicit length the media queries set (this
+    // would NOT hold for auto/percentage widths, which #minimap does not use).
+    this.size = parseFloat(getComputedStyle(this.canvas).width) || 148;
+    // Zoom follows the widget size, not the pointer type: a narrow mouse
+    // window gets the same 104px box as a phone.
+    this.view = this.size < 128 ? VIEW_MOBILE : VIEW_DESKTOP;
     this.canvas.width = this.size * this.dpr;
     this.canvas.height = this.size * this.dpr;
     this.ctx = this.canvas.getContext("2d");

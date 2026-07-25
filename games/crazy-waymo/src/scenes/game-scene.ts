@@ -126,27 +126,6 @@ function tierHex(tier: Parameters<typeof tierColor>[0]): string {
   return s;
 }
 
-// Arcade license classes; give the score a name and a next target.
-const RANKS: readonly { min: number; rank: string }[] = [
-  { min: 12000, rank: "S" },
-  { min: 8000, rank: "A" },
-  { min: 5000, rank: "B" },
-  { min: 3000, rank: "C" },
-  { min: 1500, rank: "D" },
-  { min: 0, rank: "E" },
-];
-
-function rankFor(score: number): { rank: string; next: string | null; nextAt: number } {
-  for (let i = 0; i < RANKS.length; i++) {
-    const r = RANKS[i];
-    if (r && score >= r.min) {
-      const above = RANKS[i - 1];
-      return { rank: r.rank, next: above ? above.rank : null, nextAt: above ? above.min : 0 };
-    }
-  }
-  return { rank: "E", next: "D", nextAt: 1500 };
-}
-
 // localStorage throws in some embeds (sandboxed iframes, blocked cookies,
 // private modes). The game must boot and run without persistence.
 function storageGet(key: string): string | null {
@@ -304,8 +283,8 @@ export class GameScene {
     this.sfx.setScrape(false);
     this.sfx.setBoostLoop(false);
     // Music droning under the PAUSED overlay defeats the pause. Only playing
-    // runs have it on (start()/endRun own it) — remember, so resume restarts
-    // it only when we were the ones to stop it.
+    // runs have it on (start() owns it) — remember, so resume restarts it only
+    // when we were the ones to stop it.
     this.musicPausedByWrapper = this.mode.kind === "playing";
     if (this.musicPausedByWrapper) this.sfx.stopMusic();
   }
@@ -352,7 +331,9 @@ export class GameScene {
     }
     const city = this.city;
     if (!city) return;
-    this.signalLights = new SignalLights(city.network, (x, z) => city.terrain.heightAt(x, z));
+    // Glows ride the drive surface, the same field the signal poles are seated
+    // on — the raw terrain misses the street terrace and detaches them on hills.
+    this.signalLights = new SignalLights(city.network, (x, z) => city.heightAt(x, z));
     this.scene.add(this.signalLights.mesh);
   }
 
@@ -368,12 +349,10 @@ export class GameScene {
   private touchUi = false;
   private touch: TouchControls | null = null;
   private titleT = 0;
-  private lowBeepAt = -1;
   private flameAccum = 0;
   private scrapeFrames = 0;
   private wasBoosting = false;
   private lastDriftTier: 0 | 1 | 2 = 0;
-  private outro = -1; // >=0: slow-mo time-up sting is running
   private countdownShown = -1;
   private camFrom = new THREE.Vector3();
   private hintDriftShown = storageGet(HINT_DRIFT_KEY) !== null;
@@ -846,9 +825,11 @@ vec3 ocGerstner(vec2 p, float t) {
     this.hud.setLanding(true);
     this.hud.showBanner({
       title: "CRAZY WAYMO",
-      sub: "Pick up fares, beat the clock, drive like a maniac.",
+      sub: "Pick up fares, chain combos, drive like a maniac.",
       stats:
-        best > 0 ? `BEST $${best.toLocaleString("en-US")}` : "Every drop-off buys you more time.",
+        best > 0
+          ? `BEST $${best.toLocaleString("en-US")}`
+          : `Chain drop-offs to run the combo up to ${FARE.comboMax}×.`,
       // Just the verbs (the manifest drops "mute" here). Drift, restart and
       // chat are left to be discovered.
       controls: bannerControls(),
@@ -1056,7 +1037,7 @@ vec3 ocGerstner(vec2 p, float t) {
   }
 
   private handleStartPress(): void {
-    if (this.mode.kind === "title" || this.mode.kind === "gameover") this.start();
+    if (this.mode.kind === "title") this.start();
   }
 
   private toggleMute(): void {
@@ -1107,9 +1088,7 @@ vec3 ocGerstner(vec2 p, float t) {
     this.hud.setCombo(1, 0);
     this.hud.setArrow(false, 0, 0, 0);
     this.hud.setVignette(0);
-    this.outro = -1;
     this.hitStop = 0;
-    this.lowBeepAt = -1;
     this.lastDistrict = "";
     this.countdownShown = -1;
     // Swoop-in start pose: high above and behind the fresh spawn. Never the
@@ -1202,7 +1181,8 @@ vec3 ocGerstner(vec2 p, float t) {
     this.rig.snapTo(car);
   }
 
-  // DEV-only: force the run clock (endgame testing).
+  // DEV-only: set the run clock the debug hooks expose. The drive is endless —
+  // nothing reads the clock, so this only moves the state field.
   debugSetTime(seconds: number): void {
     this.state.timeLeft = seconds;
   }
@@ -1333,13 +1313,10 @@ vec3 ocGerstner(vec2 p, float t) {
       case "playing":
         this.updatePlaying(dt);
         break;
-      case "gameover":
-        this.updateTitle(dt);
-        break;
     }
 
     // Sun follow + shadow-frustum snap track wherever the camera ended up —
-    // unconditional at the tail so no mode path (hit-stop, outro, freecam…)
+    // unconditional at the tail so no mode path (hit-stop, freecam…)
     // can forget it and leave shadows lagging the camera.
     this.updateSun();
     // Stream city chunks around wherever the camera ended up this frame (works
@@ -1367,10 +1344,7 @@ vec3 ocGerstner(vec2 p, float t) {
     // Only an active driver broadcasts: title idlers all park at the same
     // deterministic spawn, and streaming that pose 15×/s just piles identical
     // frozen taxis onto everyone's spawn plaza.
-    const driving =
-      this.mode.kind === "countdown" ||
-      this.mode.kind === "playing" ||
-      this.mode.kind === "gameover";
+    const driving = this.mode.kind === "countdown" || this.mode.kind === "playing";
     if (!this.net.offline && driving) {
       this.netAcc += dt;
       if (this.netAcc >= 1 / NET_TICK_HZ) {
@@ -1397,13 +1371,6 @@ vec3 ocGerstner(vec2 p, float t) {
       this.netInfoEl.textContent =
         !this.net.live || this.net.offline || others === 0 ? "" : `${others} ONLINE`;
     }
-  }
-
-  private silenceLoops(): void {
-    this.sfx.stopEngine();
-    this.sfx.setScreech(0, 0);
-    this.sfx.setScrape(false);
-    this.sfx.setBoostLoop(false);
   }
 
   private updateTitle(dt: number): void {
@@ -1466,16 +1433,6 @@ vec3 ocGerstner(vec2 p, float t) {
     const traffic = this.traffic;
     if (!car || !city || !fares || !traffic) return;
 
-    // Time-up outro: 1.2s of slow-mo before the banner so the ending lands.
-    if (this.outro >= 0) {
-      this.outro -= dt;
-      dt *= 0.35;
-      if (this.outro <= 0) {
-        this.endRun();
-        return;
-      }
-    }
-
     // Hit-stop: freeze the sim for a beat after a hard crash so the blow lands.
     // Camera/HUD keep running on real time so it reads as impact, not a stutter.
     const solids = this.solidIndex;
@@ -1510,12 +1467,9 @@ vec3 ocGerstner(vec2 p, float t) {
     this.handleHonks(traffic);
     this.handleCones(car);
 
-    // The run is over during the outro — no fare events, no combo ticking.
-    if (this.outro < 0) {
-      const ev = fares.update(dt, car);
-      this.handleFareEvent(ev);
-      this.state.update(dt, fares.carryingInfo() !== null);
-    }
+    const ev = fares.update(dt, car);
+    this.handleFareEvent(ev);
+    this.state.update(dt, fares.carryingInfo() !== null);
 
     // Drift: score + screech + smoke + skid marks (slip-gated in the car).
     const drifting = car.isDrifting && car.speed > 8;
@@ -1524,11 +1478,8 @@ vec3 ocGerstner(vec2 p, float t) {
     // Hard straight braking reads like the drift: streaks + smoke + screech.
     const brakingHard = !drifting && !car.airborne && input.brake > 0.05 && car.forwardSpeed > 8;
     const slipAmt = Math.min(1, Math.abs(car.slip) / 0.6);
-    // During the outro the farewell skid owns the screech channel.
-    if (this.outro < 0) {
-      const screech = drifting && !car.airborne ? Math.max(0.25, slipAmt) : brakingHard ? 0.3 : 0;
-      this.sfx.setScreech(screech, car.speed / CAR.maxSpeed);
-    }
+    const screech = drifting && !car.airborne ? Math.max(0.25, slipAmt) : brakingHard ? 0.3 : 0;
+    this.sfx.setScreech(screech, car.speed / CAR.maxSpeed);
     this.vehicleFx.update(
       dt,
       car,
@@ -1695,20 +1646,6 @@ vec3 ocGerstner(vec2 p, float t) {
     this.speedLines.update(dt, this.rig.camera, this.freecam ? 0 : car.speed / CAR.boostSpeed);
     this.hud.setVignette(THREE.MathUtils.clamp((car.speed - 45) / 40, 0, 1) * 0.6);
     this.tickHud(dt, car, fares, true);
-
-    if (this.state.timeLeft <= 10) {
-      const sec = Math.ceil(this.state.timeLeft);
-      if (sec !== this.lowBeepAt && sec > 0) {
-        this.lowBeepAt = sec;
-        this.sfx.beep();
-      }
-    }
-
-    if (this.state.timedOut && this.outro < 0) {
-      this.outro = 1.2;
-      this.silenceLoops();
-      this.sfx.setScreech(1, 1); // one long farewell skid
-    }
   }
 
   private handleCones(car: Car): void {
@@ -1733,6 +1670,10 @@ vec3 ocGerstner(vec2 p, float t) {
     const physics = this.physics;
     if (!physics) return;
     for (const c of traffic.cars) {
+      // A wreck is already totalled. Left in the loop, plowing one re-fires the
+      // whole crash package (flash, trauma, debris, SFX) and re-bills the
+      // traffic penalty every 0.25s for the ~7s the wreck survives.
+      if (c.wrecked) continue;
       if (c.puntCooldown > 0) continue;
       if (car.position.y > c.position.y + 1.9) continue; // flying over it
       const dx = c.position.x - car.position.x;
@@ -1815,7 +1756,6 @@ vec3 ocGerstner(vec2 p, float t) {
       this.fx.burst(ev.pos.x, 1.7, ev.pos.z, 0.33, 9, 7);
       this.fx.burst(ev.pos.x, 2.1, ev.pos.z, 0.6, 9, 6);
       this.shocks.fire(ev.pos.x, 1.0, ev.pos.z, 0xffd147);
-      this.hud.flashTimeBonus(reward.timeBonus);
       this.hud.flash("#6bff8e", 0.22);
       this.rig.addTrauma(0.25);
       // Itemized receipt: fare, then tip, then combo — each earns its beat.
@@ -1825,9 +1765,13 @@ vec3 ocGerstner(vec2 p, float t) {
       if (reward.tip > 0) lines.push({ text: `TIP $${reward.tip} SPEEDY!`, color: "#6bff8e" });
       if (reward.combo > 1) lines.push({ text: `${reward.combo}× COMBO`, color: "#ffd147" });
       if (reward.overflowCash > 0)
-        lines.push({ text: `TIME FULL +$${reward.overflowCash}`, color: "#8fd9ff" });
+        lines.push({ text: `LONG HAUL +$${reward.overflowCash}`, color: "#8fd9ff" });
       this.hud.showReceipt(lines);
       this.hud.showCombo(`+$${reward.gross}`);
+      // The drive is endless, so no end-of-run hands the title screen its BEST
+      // line — bank it wherever the score grows instead.
+      const score = this.state.displayScore;
+      if (score > readBest()) storageSet(BEST_KEY, String(score));
       this.sayRiderLine("dropoff");
       if (car) car.addBoost(30);
     } else if (ev.kind === "bail") {
@@ -2098,34 +2042,6 @@ vec3 ocGerstner(vec2 p, float t) {
     const dy = sy - window.innerHeight / 2;
     const rot = Math.atan2(dx, -dy);
     this.hud.setArrow(true, sx - 32, sy - 32, rot, color);
-  }
-
-  private endRun(): void {
-    this.silenceLoops();
-    this.sfx.stopMusic();
-    this.sfx.gameOver();
-    setTouchPlaying(false);
-    this.minimap?.setVisible(false);
-    this.hud.hideFareCard();
-    this.hud.setArrow(false, 0, 0, 0);
-    this.hud.setVignette(0);
-    this.outro = -1;
-    const score = this.state.displayScore;
-    const best = readBest();
-    const isBest = score > best;
-    if (isBest) {
-      storageSet(BEST_KEY, String(score));
-      this.sfx.fanfare();
-    }
-    const { rank, next, nextAt } = rankFor(score);
-    const tease = next ? ` · next: CLASS ${next} at $${nextAt.toLocaleString("en-US")}` : "";
-    this.mode = { kind: "gameover", score, fares: this.state.fares };
-    this.hud.showBanner({
-      title: isBest ? "NEW BEST!" : "TIME'S UP!",
-      sub: `$${score.toLocaleString("en-US")} — CLASS ${rank} LICENSE`,
-      stats: `${this.state.fares} fares · best drift ${this.state.bestDrift.toFixed(1)}s · best air ${this.state.bestAir.toFixed(1)}s${tease}`,
-      cta: this.touchUi ? "TAP TO RETRY" : "PRESS ENTER TO RETRY",
-    });
   }
 }
 

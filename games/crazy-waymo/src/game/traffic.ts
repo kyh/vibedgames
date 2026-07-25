@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { geoLayoutKey, type ModelCache } from "../assets/loader";
 import { modelUrl, POLICE_CAR, SERVICE_CARS, TRAFFIC_CARS } from "../assets/manifest";
 import type { PhysicsWorld } from "../physics/physics-world";
-import { ROAD_TILE, ROAD_Y, TRAFFIC } from "../shared/constants";
+import { CAMERA, ROAD_TILE, ROAD_Y, TRAFFIC } from "../shared/constants";
 import { Rng } from "../shared/rng";
 import type { CityModel, RoadCell } from "../world/city";
 import { type JunctionControl, junctionControl, signalGreen } from "../world/junction-control";
@@ -26,6 +26,17 @@ const RECYCLE_DIST = ROAD_TILE * 20; // beyond this, teleport ahead of the playe
 const RESPAWN_MIN = ROAD_TILE * 6;
 const RESPAWN_MAX = ROAD_TILE * 12;
 const RESPAWN_GUARD = ROAD_TILE * 4; // last resort: never this close
+// A recycle is a teleport, so both ends of it must be off camera: fog starts
+// ~360u out and the draw distance is 760, so a car that lands anywhere inside
+// the recycle radius and inside the view cone is watched blinking into
+// existence (or out of it). The cone is measured at the camera's own spot —
+// CAMERA.distance behind the car — and 60 degrees is the horizontal half-FOV
+// at CAMERA.fovBoost out to a 21:9 window. The rig's drift swing can push the
+// real cone another ~34 degrees to one side mid-slide; padding for that would
+// swallow the side wedge entirely and leave respawns nowhere but straight
+// behind the player, which drains the streets ahead of traffic.
+const VIEW_HALF_ANGLE = Math.PI / 3;
+const VIEW_COS = Math.cos(VIEW_HALF_ANGLE);
 const POLICE_SHARE = 0.08;
 const SERVICE_SHARE = 0.14;
 const POLICE_SPEED_MULT = 1.25;
@@ -99,7 +110,7 @@ type EdgePhase = {
 };
 type NodePhase = {
   kind: "node";
-  node: number; // junction being crossed (stop-token release)
+  node: number; // junction being crossed (node-claim release)
   t: number; // 0..1 along the bezier
   len: number; // approximate bezier length
   p0x: number;
@@ -139,9 +150,9 @@ export class TrafficCar {
   private honkCooldown = 0;
   private yaw = 0;
   private targetQuat = new THREE.Quaternion();
-  // Junction-control state: the stop-sign node we've already served (don't
-  // re-hold while creeping through), and how long we've been held at one.
-  private clearedStop = -1;
+  // Junction-control state: the node whose box we already own (don't re-hold
+  // or re-claim while creeping through), and how long we've been held at one.
+  private clearedNode = -1;
   private stopHeld = 0;
 
   constructor(
@@ -153,7 +164,7 @@ export class TrafficCar {
     speed: number,
     private network: RoadNetwork,
     private rng: Rng,
-    private stopTokens: Map<number, { car: TrafficCar; t: number }>,
+    private nodeClaims: Map<number, { car: TrafficCar; t: number }>,
   ) {
     this.object3D = object3D;
     this.kind = kind;
@@ -189,10 +200,10 @@ export class TrafficCar {
     this.wrecked = false;
     this.wreckTime = 0;
     this.puntCooldown = 0;
-    this.clearedStop = -1;
+    this.clearedNode = -1;
     this.stopHeld = 0;
-    for (const [n, tok] of this.stopTokens) {
-      if (tok.car === this) this.stopTokens.delete(n);
+    for (const [n, tok] of this.nodeClaims) {
+      if (tok.car === this) this.nodeClaims.delete(n);
     }
   }
 
@@ -235,6 +246,16 @@ export class TrafficCar {
     const chosen = pick ?? candidates[0];
     if (!chosen) return { edge: fromEdge, dir: fromEdge.a === node ? 1 : -1 };
     return { edge: chosen.edge, dir: chosen.dir };
+  }
+
+  // Take the junction box at `node` if nobody is crossing it. First come,
+  // first served — a stale claim (holder wrecked, recycled or stuck behind
+  // something) expires so a queue can never deadlock.
+  private claimNode(node: number, t: number): boolean {
+    const tok = this.nodeClaims.get(node);
+    if (tok && tok.car !== this && !tok.car.wrecked && t - tok.t <= 5) return false;
+    this.nodeClaims.set(node, { car: this, t });
+    return true;
   }
 
   // Leave the current edge across `node` onto the next one.
@@ -307,8 +328,9 @@ export class TrafficCar {
     const brakeMul = this.brakeTimer > 0 ? BRAKE_FACTOR : 1;
 
     // Junction control: brake to the hold point at a red signal, serve a
-    // full stop (once) at stop signs. Only while approaching on an edge —
-    // a car already crossing the box always clears it.
+    // full stop (once) at stop signs, and claim the box before crossing one
+    // nothing else arbitrates. Only while approaching on an edge — a car
+    // already crossing the box always clears it.
     let controlFactor = 1;
     if (this.phase.kind === "edge") {
       const ph = this.phase;
@@ -319,27 +341,26 @@ export class TrafficCar {
       const dist = ph.dir > 0 ? holdS - ph.s : ph.s - holdS;
       if (dist < CONTROL_LOOK && dist > -1) {
         const control = controlAt(this.network, node);
-        if (control === "signal") {
-          if (!signalGreen(node, this.tanX, this.tanZ, simTime)) {
-            controlFactor = Math.min(1, Math.max(0, dist / 6));
-          }
-        } else if (control === "stop" && this.clearedStop !== node) {
+        if (control === "signal" && !signalGreen(node, this.tanX, this.tanZ, simTime)) {
+          controlFactor = Math.min(1, Math.max(0, dist / 6));
+        } else if (control === "stop" && this.clearedNode !== node) {
           controlFactor = Math.min(1, Math.max(0, dist / 6));
           if (dist <= 0.5) {
             this.stopHeld += dt;
-            if (this.stopHeld >= STOP_HOLD_S) {
-              // Full stop served — now take the junction if it's free.
-              // First-come-first-served: one car crosses an all-way stop at
-              // a time; a stale claim (holder wrecked/recycled/stuck) expires
-              // so the queue can never deadlock.
-              const tok = this.stopTokens.get(node);
-              if (!tok || tok.car === this || tok.car.wrecked || simTime - tok.t > 5) {
-                this.stopTokens.set(node, { car: this, t: simTime });
-                this.clearedStop = node;
-                this.stopHeld = 0;
-              }
+            // Full stop served — now take the junction if it's free.
+            if (this.stopHeld >= STOP_HOLD_S && this.claimNode(node, simTime)) {
+              this.clearedNode = node;
+              this.stopHeld = 0;
             }
           }
+        } else if (this.clearedNode !== node) {
+          // Uncontrolled nodes — and the conflicting arms a signal phase can
+          // let through together — have no other conflict test, so two cars
+          // would cross the box on intersecting beziers and interpenetrate in
+          // plain view. Same claim as the all-way stop, without the hold: the
+          // second car creeps to the hold point until the box is released.
+          if (this.claimNode(node, simTime)) this.clearedNode = node;
+          else controlFactor = Math.min(1, Math.max(0, dist / 4));
         }
       }
     }
@@ -364,7 +385,7 @@ export class TrafficCar {
       const ph = this.phase;
       ph.t += (speed * dt) / ph.len;
       if (ph.t >= 1) {
-        if (this.stopTokens.get(ph.node)?.car === this) this.stopTokens.delete(ph.node);
+        if (this.nodeClaims.get(ph.node)?.car === this) this.nodeClaims.delete(ph.node);
         const trim = Math.min(
           this.network.nodeTrim(ph.nextDir > 0 ? ph.next.a : ph.next.b),
           ph.next.len * 0.45,
@@ -476,8 +497,8 @@ export class Traffic {
   readonly cars: TrafficCar[] = [];
   private rng: Rng;
   private simTime = 0; // signal-cycle clock (accumulated dt)
-  // All-way-stop tokens: node -> the car currently crossing (+ claim time).
-  private readonly stopTokens = new Map<number, { car: TrafficCar; t: number }>();
+  // Junction claims: node -> the car currently crossing it (+ claim time).
+  private readonly nodeClaims = new Map<number, { car: TrafficCar; t: number }>();
   /** Traffic sim clock — feeds the signal-lamp FX so lights match behavior. */
   get time(): number {
     return this.simTime;
@@ -548,7 +569,7 @@ export class Traffic {
         speed,
         this.network,
         this.rng,
-        this.stopTokens,
+        this.nodeClaims,
       );
       car.update(0, city, 0, 0);
       if (this.physics) {
@@ -666,6 +687,23 @@ export class Traffic {
     return null;
   }
 
+  // On screen for the chase camera (see VIEW_HALF_ANGLE). (hx, hz) is the
+  // player's heading; the cone apex sits CAMERA.distance behind them.
+  private inPlayerView(
+    x: number,
+    z: number,
+    playerX: number,
+    playerZ: number,
+    hx: number,
+    hz: number,
+  ): boolean {
+    const dx = x - (playerX - hx * CAMERA.distance);
+    const dz = z - (playerZ - hz * CAMERA.distance);
+    const d = Math.hypot(dx, dz);
+    if (d < 1e-3) return true;
+    return (dx * hx + dz * hz) / d > VIEW_COS;
+  }
+
   private clearOfCars(x: number, z: number, self: TrafficCar | null): boolean {
     for (const c of this.cars) {
       if (c === self) continue;
@@ -761,18 +799,25 @@ export class Traffic {
     for (const c of this.cars) {
       const d = Math.hypot(c.position.x - playerX, c.position.z - playerZ);
       const recycleWreck = c.wrecked && c.wreckTime > WRECK_RESPAWN_S;
-      if (!this.holdRecycle && (d > RECYCLE_DIST || recycleWreck)) {
-        // Respawn in a ring ahead of the player (any ring cell as fallback).
+      const onCamera = this.inPlayerView(c.position.x, c.position.z, playerX, playerZ, hx, hz);
+      if (!this.holdRecycle && !onCamera && (d > RECYCLE_DIST || recycleWreck)) {
+        // Respawn in a ring ahead of the player but out of shot — the wedge
+        // down a side street or around the corner. Fallback: anywhere off
+        // camera inside the recycle radius, so a car can never land beyond
+        // the distance that would recycle it straight back.
         const spot =
           this.pickSpot((x, z) => {
             const dist = Math.hypot(x - playerX, z - playerZ);
             if (dist < RESPAWN_MIN || dist > RESPAWN_MAX) return false;
             if ((x - playerX) * hx + (z - playerZ) * hz < 0) return false;
+            if (this.inPlayerView(x, z, playerX, playerZ, hx, hz)) return false;
             return this.clearOfCars(x, z, c);
           }) ??
           this.pickSpot((x, z) => {
             const dist = Math.hypot(x - playerX, z - playerZ);
-            return dist > RESPAWN_GUARD && this.clearOfCars(x, z, c);
+            if (dist <= RESPAWN_GUARD || dist >= RECYCLE_DIST) return false;
+            if (this.inPlayerView(x, z, playerX, playerZ, hx, hz)) return false;
+            return this.clearOfCars(x, z, c);
           });
         if (spot) {
           c.respawn(spot.edge, spot.s, spot.dir);

@@ -6,7 +6,10 @@
 // time. Run: `pnpm test`.
 import { GRID_X, GRID_Z, ROAD_TILE, WORLD_HALF_X, WORLD_HALF_Z } from "../src/shared/constants.ts";
 import { generateCity } from "../src/world/grid.ts";
+import { freewayPillars } from "../src/world/freeways.ts";
 import { RoadNetwork } from "../src/world/network.ts";
+import { buildJunctionMap } from "../src/world/roads.ts";
+import { makeTerrain } from "../src/world/sf-map.ts";
 import { parkCell } from "../src/world/park-clear.ts";
 import { NETWORK_GEN_ID, SF_BASE_NODES } from "../src/world/sf-network.ts";
 import { STREETS_GEN_ID } from "../src/world/sf-streets.ts";
@@ -246,6 +249,68 @@ console.log(`  (plan + network in ${Math.round(performance.now() - t0)}ms)`);
     }
   }
   check("generateCity is deterministic", diff === 0, `${diff} differing cells`);
+}
+
+// --- 8. Street paint survives the junction clip. The clip used to be a circle
+// of radius nodeTrim*1.55 while the patch only reaches nodeTrim along an arm,
+// so half the network — the 20-40u blocks that ARE the SF grid — came out with
+// no centre line at all ("the street lines just disappear").
+{
+  const j = buildJunctionMap(network);
+  let total = 0;
+  let painted = 0;
+  let bald = 0;
+  for (const edge of network.edges) {
+    const tA = network.nodeIsPassThrough(edge.a)
+      ? 0
+      : Math.min(network.nodeTrim(edge.a), edge.len * 0.45);
+    const tB = network.nodeIsPassThrough(edge.b)
+      ? 0
+      : Math.min(network.nodeTrim(edge.b), edge.len * 0.45);
+    const sec = edge.len - tA - tB;
+    if (sec <= 0) continue;
+    total += sec;
+    const steps = Math.max(1, Math.ceil(sec / 4));
+    let free = 0;
+    for (let i = 0; i <= steps; i++) {
+      const smp = network.sample(edge, tA + (i / steps) * sec);
+      if (!j.near(smp.x, smp.z, 1.2)) free++;
+    }
+    const frac = free / (steps + 1);
+    painted += frac * sec;
+    if (frac < 0.05) bald++;
+  }
+  const cov = (painted / total) * 100;
+  check(
+    "centre-line paint covers most of the network",
+    cov > 74,
+    `${cov.toFixed(1)}% of ${Math.round(total)}u`,
+  );
+  check("few edges are fully unpainted", bald < 1100, `${bald}/${network.edges.length} bald`);
+}
+
+// --- 9. No freeway pillar stands in the roadway. Stamping one every 24u along
+// the centreline put 24% of them inside street asphalt as solid trimesh
+// columns — SF's viaducts follow the boulevards they were built over.
+{
+  const terrain = makeTerrain();
+  const pillars = freewayPillars(terrain, network);
+  let inRoad = 0;
+  let inLane = 0;
+  for (const p of pillars) {
+    const hit = network.nearest(p.x, p.z, 40);
+    if (!hit || hit.dist >= hit.edge.half + p.half) continue;
+    inRoad++;
+    // Where the whole bay is roadway the search falls back to a MEDIAN pier,
+    // which reads intentional; a pillar out in a travel lane does not.
+    if (hit.dist > 1.5) inLane++;
+  }
+  check(
+    "freeway pillars clear the street asphalt",
+    inRoad / pillars.length < 0.05,
+    `${inRoad}/${pillars.length} on a street`,
+  );
+  check("no freeway pillar stands in a travel lane", inLane === 0, `${inLane} in-lane`);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

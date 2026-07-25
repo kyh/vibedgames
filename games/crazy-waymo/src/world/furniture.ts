@@ -1,4 +1,4 @@
-import { parkCellFloor, parkCellHeight } from "./ground";
+import { makeStandingSurface, parkCellFloor, parkCellHeight } from "./ground";
 import * as THREE from "three";
 
 import type { ModelCache } from "../assets/loader";
@@ -45,9 +45,10 @@ import type { Rng } from "../shared/rng";
 import { type Dir, DIR_DELTA, E, N, S, W } from "../shared/types";
 import type { Solid } from "./city";
 import { controlArms, junctionControl } from "./junction-control";
-import { conformToTerrain, DRAPE_MAX_ERROR } from "./conform";
+import { conformToTerrain, DRAPE_MAX_ERROR, type DrapeField } from "./conform";
 
 import type { RoadNetwork } from "./network";
+import { walkFor } from "./roads";
 import type { CityPlan, RoadResolved } from "./grid";
 import { type DistrictChar, districtAt } from "./sf-map";
 import { parkPathMaskAt } from "./sf-streets";
@@ -61,22 +62,24 @@ import type { Terrain } from "./terrain";
 // are appended.
 
 // Lifts for lot-draped pieces (BAKED into public/world — changes here only
-// land via a rebake). Flat decals (kit paths, the lake) conform finely to the
-// height field, but the ground mesh underneath is a coarse ~9u linear
-// interpolation of the same field with no street depression on lots — on
-// curved ground it can chord-bow above the field by roughly the drape
-// tolerance again, so decals must clear both errors.
-const LOT_DECAL_LIFT = DRAPE_MAX_ERROR * 2 + 0.02; // 0.2
+// land via a rebake). These conform to the ground mesh AS DRAWN (groundDrape),
+// so they only have to clear their own drape bow — not the coarse-lattice
+// error the mesh adds on top of the field, which used to double the lift and
+// leave the paths visibly hovering over the grass.
+const LOT_DECAL_LIFT = DRAPE_MAX_ERROR * 0.5; // 0.045
 // Fences are 3D (posts + rails), not coplanar decals: grass overlapping the
-// bottom rail is occlusion, not z-fighting, and a full decal lift would
-// visibly float the posts — one bow of clearance kills the shimmer of their
-// flat base pieces.
-const LOT_FENCE_LIFT = DRAPE_MAX_ERROR + 0.03; // 0.12
+// bottom rail is occlusion, not z-fighting, and a decal lift would visibly
+// float the posts.
+const LOT_FENCE_LIFT = 0.02;
 
 export type FurnitureCtx = {
   readonly plan: CityPlan;
   readonly network: RoadNetwork;
   readonly terrain: Terrain;
+  /** terrain + street terrace — the field the kerb/sidewalk/asphalt drape onto */
+  readonly roadDrape: DrapeField;
+  /** makeGroundOffset(network, terrain) — the ground mesh's per-vertex shift */
+  readonly groundOffset: (x: number, z: number) => number;
   readonly cache: ModelCache;
   readonly rng: Rng;
   readonly reserved: ReadonlySet<string>; // "gx,gz" cells to leave alone (landmarks)
@@ -202,7 +205,8 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
     await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
     lastYield = performance.now();
   };
-  const { plan, network, terrain, cache, rng, reserved, worldX, worldZ } = ctx;
+  const { plan, network, terrain, roadDrape, groundOffset, cache, rng, reserved, worldX, worldZ } =
+    ctx;
   const objects: THREE.Object3D[] = [];
   const solids: Solid[] = [];
   const openWaterCells = new Set<string>();
@@ -219,6 +223,22 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
   const onAsphalt = (x: number, z: number, margin = 0.3): boolean => {
     const hit = network.nearest(x, z, ROAD_TILE * 1.4);
     return hit !== null && hit.dist < hit.edge.half + margin;
+  };
+  // The height of the surface a prop actually STANDS ON. The raw height field
+  // is neither of the two things that get drawn: inside the paved corridor the
+  // kerb/sidewalk drape through the street terrace (±2.4u on the hill grid),
+  // and outside it the ground mesh linearly smears the street depression and
+  // the terrace over its ~9u lattice. Seating on terrain.heightAt buried or
+  // floated a prop by up to the full terrace cap — half a lamp post gone.
+  const surfaceAt = makeStandingSurface(network, terrain, groundOffset, roadDrape);
+  // Lot decals (front paths, fences, Stow Lake) conform to the GROUND MESH as
+  // drawn rather than to the field it samples — the coarse lattice was the
+  // second error LOT_DECAL_LIFT had to clear, and clearing it by floating is
+  // what a decal must never do.
+  const groundDrape: DrapeField = {
+    heightAt: (x: number, z: number): number => terrain.renderedHeightAt(x, z, groundOffset),
+    normalInto: (out: THREE.Vector3, x: number, z: number): THREE.Vector3 =>
+      terrain.normalInto(out, x, z),
   };
   const nonCardinalStreet = (gx: number, gz: number): boolean => {
     const hit = network.nearest(worldX(gx), worldZ(gz), ROAD_TILE * 1.6);
@@ -259,7 +279,7 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
     allowAsphalt = false,
   ): boolean => {
     if (!allowAsphalt && onAsphalt(x, z, 0.2)) return false;
-    place(url, x, terrain.heightAt(x, z), z, yaw, s);
+    place(url, x, surfaceAt(x, z), z, yaw, s);
     return true;
   };
   // KayKit variants: same as place/seat but tinted toward the Kenney palette.
@@ -274,7 +294,7 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
   };
   const seatKK = (url: string, x: number, z: number, yaw: number, s: number): boolean => {
     if (onAsphalt(x, z, 0.2)) return false;
-    placeKK(url, x, terrain.heightAt(x, z), z, yaw, s);
+    placeKK(url, x, surfaceAt(x, z), z, yaw, s);
     return true;
   };
   // True when a 4-neighbor is a junction tile (crossroad or T).
@@ -306,7 +326,7 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       if (Array.isArray(mat)) return;
       const baked = c.geometry.clone();
       baked.applyMatrix4(c.matrixWorld);
-      const mesh = new THREE.Mesh(conformToTerrain(baked, terrain, lift), mat);
+      const mesh = new THREE.Mesh(conformToTerrain(baked, groundDrape, lift), mat);
       mesh.updateMatrixWorld(true);
       // Unique world-baked buffers belong in the chunk MERGE path (like road
       // ribbons) — as batch items they bloat buckets with one-off geometries.
@@ -378,7 +398,7 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       // every arm out over the houses ("street lights face the wrong way").
       const yaw = Math.atan2(-smp.tz * side, smp.tx * side);
       const char = districtAt(gx, gz).character;
-      const groundY = terrain.heightAt(px, pz);
+      const groundY = surfaceAt(px, pz);
       // A lamp 0.6 off ITS edge can still stand on a NEIGHBOUring edge's
       // asphalt (junction aprons, parallel diagonal spines) — seat() skips
       // there, and the glow head must skip with it or it floats unpoled.
@@ -495,20 +515,31 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
         );
         drape(fence, LOT_FENCE_LIFT);
       }
-      // Front path from the curb to the lot centre.
-      if (rng.chance(0.6)) {
+      // Front path from the curb to the lot centre. Its reach is measured
+      // against the VECTOR street, not the grid cell: on a wide corridor the
+      // cell edge already lies inside the asphalt, so a fixed half-tile run
+      // laid a terracotta-rimmed slab across the sidewalk and the transit lane
+      // and out into the traffic lane.
+      const reach = (): number => {
+        const hit = network.nearest(wx, wz, ROAD_TILE * 1.6);
+        const cell = ROAD_TILE * 0.5;
+        if (!hit) return cell;
+        return Math.min(cell, Math.max(0, hit.dist - hit.edge.half - walkFor(hit.edge.half)));
+      };
+      const run = reach();
+      if (run > 2.4 && rng.chance(0.6)) {
         const url = modelUrl("props", rng.chance(0.5) ? PROP_PATH : PROP_PATH_STONES);
         const axis = longAxis(url);
         const path = cache.instance(url);
         // Long axis spans curb→door; width stays walkway-scale. A uniform
         // stretch of the square kit tile makes a lawn-sized mattress slab
         // (milestone 92).
-        const along = (ROAD_TILE * 0.5) / axis.len;
+        const along = run / axis.len;
         const across = 1.6 / axis.len;
         if (axis.yawAdj === 0) path.scale.set(across, across, along);
         else path.scale.set(along, across, across);
         path.rotation.y = faceYaw + axis.yawAdj;
-        path.position.set(wx + dx * ROAD_TILE * 0.25, 0, wz + dz * ROAD_TILE * 0.25);
+        path.position.set(wx + dx * run * 0.5, 0, wz + dz * run * 0.5);
         drape(path, LOT_DECAL_LIFT);
       }
       // NO driveways: the kit pad (grey slab, navy strip, terracotta rim)
@@ -580,7 +611,7 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
         maxX: bPos.x + 1,
         minZ: bPos.z - 1,
         maxZ: bPos.z + 1,
-        maxY: terrain.heightAt(bPos.x, bPos.z) + 1.6,
+        maxY: surfaceAt(bPos.x, bPos.z) + 1.6,
       });
       const lPos = at(0.08);
       seat(lightUrl, lPos.x, lPos.z, bYaw, scaleToHeight(lightUrl, 2), true);
@@ -596,7 +627,7 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
           maxX: vPos.x + 1.2,
           minZ: vPos.z - 1.2,
           maxZ: vPos.z + 1.2,
-          maxY: terrain.heightAt(vPos.x, vPos.z) + 1.9,
+          maxY: surfaceAt(vPos.x, vPos.z) + 1.9,
         });
       }
     }
@@ -764,7 +795,17 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
           const wall = cache.instance(wallUrl);
           wall.scale.set(wallH, wallH, wallRun);
           wall.rotation.y = along === "x" ? HALF_PI : 0;
-          wall.position.set(px, terrain.heightAt(px, pz), pz);
+          // A rigid run seated on its MIDPOINT leaves an end in the air on any
+          // slope; seat it on the lowest of the two ends and midpoint instead,
+          // so the wall buries into the hill rather than floating off it.
+          const endA = along === "x" ? [px - runLen / 2, pz] : [px, pz - runLen / 2];
+          const endB = along === "x" ? [px + runLen / 2, pz] : [px, pz + runLen / 2];
+          const wallY = Math.min(
+            surfaceAt(px, pz),
+            surfaceAt(endA[0] ?? px, endA[1] ?? pz),
+            surfaceAt(endB[0] ?? px, endB[1] ?? pz),
+          );
+          wall.position.set(px, wallY, pz);
           wall.updateMatrixWorld(true);
           objects.push(wall);
           // Matching low solid so the wall is real (enter via the gate).
@@ -776,21 +817,21 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
                   maxX: px + runLen / 2,
                   minZ: pz - t,
                   maxZ: pz + t,
-                  maxY: terrain.heightAt(px, pz) + 1.4,
+                  maxY: wallY + 1.4,
                 }
               : {
                   minX: px - t,
                   maxX: px + t,
                   minZ: pz - runLen / 2,
                   maxZ: pz + runLen / 2,
-                  maxY: terrain.heightAt(px, pz) + 1.4,
+                  maxY: wallY + 1.4,
                 },
           );
         }
         // Gate posts flanking the 4.4u entry gap. Two simple stone pillars —
         // taller than the wall — read as a park entrance without the KayKit
         // arch's orientation ambiguity.
-        const gy = terrain.heightAt(
+        const gy = surfaceAt(
           along === "x" ? wx : wx + dx * edgeOff,
           along === "x" ? wz + dz * edgeOff : wz,
         );
@@ -1096,7 +1137,7 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       const px = a.px + a.tx * 1.6 + a.tz * (a.half + 0.8);
       const pz = a.pz + a.tz * 1.6 - a.tx * (a.half + 0.8);
       if (onAsphalt(px, pz, 0.2)) continue;
-      const gy = terrain.heightAt(px, pz);
+      const gy = surfaceAt(px, pz);
       // Face plane normal points outward along the arm — straight at the
       // driver approaching the junction.
       const yaw = Math.atan2(a.tx, a.tz);

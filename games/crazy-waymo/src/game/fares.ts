@@ -186,6 +186,10 @@ type Extra = {
   t: number;
   readonly from: THREE.Vector3;
   readonly dir: THREE.Vector3;
+  // Bounds-normalised standing scale; the animations multiply it. Hardcoding
+  // an animation scale instead popped the passenger to a different size than
+  // the one that was standing there a frame earlier.
+  readonly base: number;
 };
 
 export class FareManager {
@@ -403,9 +407,11 @@ export class FareManager {
   // the caller (trailer staging picks both deterministically).
   private spawnWaitingAt(cell: RoadCell, tier: FareTier): void {
     const pos = this.curbPoint(cell);
-    const passenger = this.cache.instance(modelUrl("characters", this.rng.pick(CHARACTERS)));
-    const b = this.cache.bounds(modelUrl("characters", CHARACTERS[0]));
-    passenger.scale.setScalar(PASSENGER_HEIGHT / Math.max(b.size.y, 0.001));
+    // Bounds come from the model actually instanced — reading CHARACTERS[0]
+    // instead made every other character render at the wrong height.
+    const url = modelUrl("characters", this.rng.pick(CHARACTERS));
+    const passenger = this.cache.instance(url);
+    passenger.scale.setScalar(PASSENGER_HEIGHT / Math.max(this.cache.bounds(url).size.y, 0.001));
     passenger.position.copy(pos);
     passenger.rotation.y = this.rng.range(0, Math.PI * 2);
     this.group.add(passenger);
@@ -435,7 +441,7 @@ export class FareManager {
       if (e.kind === "board") {
         const f = Math.min(1, e.t / 0.45);
         e.node.position.lerpVectors(e.from, car.position, f);
-        e.node.scale.setScalar((PASSENGER_HEIGHT / 1) * (1 - f * 0.7) * 0.35);
+        e.node.scale.setScalar(e.base * (1 - f * 0.7));
         if (f >= 1) {
           this.group.remove(e.node);
           this.extras.splice(i, 1);
@@ -444,7 +450,7 @@ export class FareManager {
         const f = Math.min(1, e.t / 1.6);
         e.node.position.copy(e.from).addScaledVector(e.dir, f * 4);
         const pop = e.t < 0.25 ? e.t / 0.25 : 1;
-        e.node.scale.setScalar(0.35 * pop);
+        e.node.scale.setScalar(e.base * pop);
         if (f >= 1) {
           this.group.remove(e.node);
           this.extras.splice(i, 1);
@@ -526,6 +532,7 @@ export class FareManager {
         t: 0,
         from: w.pos.clone(),
         dir: new THREE.Vector3(),
+        base: w.passenger.scale.x, // already carries the standing scale
       });
       const [tMin, tMax] = this.tierRange(w.tier);
       const dest = this.trailerDest ?? this.pickCell(w.cell, tMin, tMax);
@@ -559,7 +566,12 @@ export class FareManager {
   }
 
   private spawnLeaver(at: THREE.Vector3): void {
-    const node = this.cache.instance(modelUrl("characters", this.rng.pick(CHARACTERS)));
+    const url = modelUrl("characters", this.rng.pick(CHARACTERS));
+    const node = this.cache.instance(url);
+    const base = PASSENGER_HEIGHT / Math.max(this.cache.bounds(url).size.y, 0.001);
+    // The pop-in starts at 0; setting it before the add keeps the first frame
+    // from flashing the raw model at full size.
+    node.scale.setScalar(0);
     node.position.copy(at);
     node.rotation.y = this.rng.range(0, Math.PI * 2);
     const ang = this.rng.range(0, Math.PI * 2);
@@ -570,6 +582,7 @@ export class FareManager {
       t: 0,
       from: at.clone(),
       dir: new THREE.Vector3(Math.sin(ang), 0, Math.cos(ang)),
+      base,
     });
   }
 }

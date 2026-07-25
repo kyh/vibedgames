@@ -25,6 +25,20 @@ const MARGIN = 24; // cached field extends past the map edge (camera, shoreline)
 const FIELD_STEP = 2;
 const NORMAL_EPS = 1.6; // finite-difference step for surface normals
 
+// Ground-mesh lattice. Shared by buildMesh and renderedHeightAt so the two can
+// never drift — the whole point of the sampler is that it reports the mesh as
+// DRAWN, which is only true while it mirrors the tessellation exactly.
+const GROUND_SPAN_X = WORLD_W * 1.08;
+const GROUND_SPAN_Z = WORLD_H * 1.08;
+const GROUND_TILES_X = 8;
+const GROUND_TILES_Z = 6;
+const GROUND_TILE_W = GROUND_SPAN_X / GROUND_TILES_X;
+const GROUND_TILE_D = GROUND_SPAN_Z / GROUND_TILES_Z;
+const GROUND_SEGS_X = Math.max(20, Math.round(GROUND_TILE_W / 9));
+const GROUND_SEGS_Z = Math.max(20, Math.round(GROUND_TILE_D / 9));
+const GROUND_STEP_X = GROUND_TILE_W / GROUND_SEGS_X;
+const GROUND_STEP_Z = GROUND_TILE_D / GROUND_SEGS_Z;
+
 const scrFwd = new THREE.Vector3();
 const scrRight = new THREE.Vector3();
 const scrRealFwd = new THREE.Vector3();
@@ -134,6 +148,35 @@ export class Terrain {
     return this.land(worldToU(x), worldToV(z));
   }
 
+  /**
+   * Height of the ground mesh AS DRAWN. buildMesh only evaluates the field on
+   * its ~9u lattice and renders flat triangles between the samples, so the
+   * analytic height is NOT what you see beside a kerb: the street depression
+   * (ground.ts) is a ~3u trench and the street terrace is a 3.25u step — both
+   * narrower than one lattice cell, so the mesh smears them. Seat lawn props
+   * on this; heightAt (and the analytic drive surface) float above the grass.
+   */
+  renderedHeightAt(x: number, z: number, offsetAt: (x: number, z: number) => number): number {
+    const fx = (x + GROUND_SPAN_X / 2) / GROUND_STEP_X;
+    const fz = (z + GROUND_SPAN_Z / 2) / GROUND_STEP_Z;
+    const i = Math.floor(fx);
+    const j = Math.floor(fz);
+    const u = fx - i;
+    const v = fz - j;
+    const at = (a: number, b: number): number => {
+      const px = -GROUND_SPAN_X / 2 + a * GROUND_STEP_X;
+      const pz = -GROUND_SPAN_Z / 2 + b * GROUND_STEP_Z;
+      return this.heightAt(px, pz) + offsetAt(px, pz);
+    };
+    // PlaneGeometry splits each cell on the (i, j+1)–(i+1, j) diagonal.
+    if (u + v <= 1) {
+      const h = at(i, j);
+      return h + u * (at(i + 1, j) - h) + v * (at(i, j + 1) - h);
+    }
+    const h = at(i + 1, j + 1);
+    return h + (1 - u) * (at(i, j + 1) - h) + (1 - v) * (at(i + 1, j) - h);
+  }
+
   // A displaced ground mesh covering the island (the ocean plane sits below
   // it). `colorAt` grades the surface per vertex (sand, park green, concrete) —
   // pair it with a vertexColors material. `offsetAt` shifts vertex height
@@ -148,21 +191,15 @@ export class Terrain {
     // a single world-spanning mesh is always in frustum and always draws all
     // ~260k triangles. Tiles share edge vertices by construction (identical
     // sample positions), so there are no seams.
-    const spanX = WORLD_W * 1.08;
-    const spanZ = WORLD_H * 1.08;
-    const TILES_X = 8;
-    const TILES_Z = 6;
     const group = new THREE.Group();
     const c = new THREE.Color();
-    for (let tx = 0; tx < TILES_X; tx++) {
-      for (let tz = 0; tz < TILES_Z; tz++) {
-        const w = spanX / TILES_X;
-        const d = spanZ / TILES_Z;
-        const cx = -spanX / 2 + (tx + 0.5) * w;
-        const cz = -spanZ / 2 + (tz + 0.5) * d;
-        const segs = Math.max(20, Math.round(w / 9));
-        const segsZ2 = Math.max(20, Math.round(d / 9));
-        const geo = new THREE.PlaneGeometry(w, d, segs, segsZ2);
+    for (let tx = 0; tx < GROUND_TILES_X; tx++) {
+      for (let tz = 0; tz < GROUND_TILES_Z; tz++) {
+        const w = GROUND_TILE_W;
+        const d = GROUND_TILE_D;
+        const cx = -GROUND_SPAN_X / 2 + (tx + 0.5) * w;
+        const cz = -GROUND_SPAN_Z / 2 + (tz + 0.5) * d;
+        const geo = new THREE.PlaneGeometry(w, d, GROUND_SEGS_X, GROUND_SEGS_Z);
         const pos = geo.attributes.position;
         if (pos instanceof THREE.BufferAttribute) {
           const colors = colorAt ? new Float32Array(pos.count * 3) : null;

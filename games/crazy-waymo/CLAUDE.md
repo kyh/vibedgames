@@ -18,10 +18,14 @@ pnpm typecheck
 
 **Run `pnpm test` after touching anything in `src/world/`** — it asserts the
 invariants between the two street representations (see below) that have
-historically caused every "buildings in the road / cars on grass" bug. Two
-baselines inside are BY DESIGN, don't "fix" them: ~21% of edge samples land
-off road cells (diagonal avenues run straightened spines across their cell
-staircases), and worst road-cell→edge distance is ~1.5 tiles (wide junctions).
+historically caused every "buildings in the road / cars on grass" bug, plus
+street-paint coverage and freeway-pillar placement. Three baselines inside are
+BY DESIGN, don't "fix" them: ~21% of edge samples land off road cells (diagonal
+avenues run straightened spines across their cell staircases), worst road-cell→
+edge distance is ~1.5 tiles (wide junctions), and ~2.5% of freeway pillars do
+stand on a street — those are MEDIAN piers, where the viaduct follows the
+boulevard it was built over and no footing off the roadway exists. The travel-
+lane count must stay zero.
 
 **Bump `WORLD_REV` (src/world/world-bin.ts) + run `pnpm bake:world` whenever
 generation OUTPUT changes** — street geometry/paint, building placement,
@@ -54,6 +58,21 @@ bake-network.mts`) from the same park-cleared polylines — car-free-park
   the kinematic branch of `car.update` (that's only the pre-physics fallback).
 - **Drive surface** (`world/surface.ts`): terrain + street-depression offset,
   pier/bridge decks, park-tile terraces — behind `city.heightAt/normalInto`.
+- **Nothing sits on the raw height field.** Three surfaces get drawn and none
+  of them is `terrain.heightAt`: the road drape (terrain + street terrace), the
+  ground mesh as TESSELLATED (`terrain.renderedHeightAt` — its ~9u lattice
+  smears the 3u street-depression trench and the 3.25u terrace), and the
+  freeway decks. Static props seat through `ground.ts makeStandingSurface`,
+  which picks the first two by distance to the nearest edge; road paint is
+  re-seated on the draped asphalt itself (`conform.ts seatOnSurface` +
+  `surfaceSampler`) instead of being lifted clear of it. Seating on the raw
+  field is what buried half a lamp post and floated the paint above the kerb.
+- **The junction patch is the paint clip.** `roads.ts buildJunctionMap` builds
+  each node's patch ring once; the drawn asphalt and the marking clip test the
+  SAME polygon (`near(x, z, margin)`, signed — negative lets boulevard centre
+  paint run into the junction). A circular approximation over-clips along the
+  arms, which is what left most of the 20–40u SF blocks with no centre line.
+  `pnpm test` asserts the resulting coverage.
 - **god objects**: `world/city.ts` (placement + render batching + rest
   capture) and `scenes/game-scene.ts` (loop + modes + loading). Extract seams
   opportunistically (surface.ts and fx/vehicle-fx.ts are the pattern), don't

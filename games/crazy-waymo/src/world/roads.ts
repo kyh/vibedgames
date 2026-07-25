@@ -2,7 +2,14 @@ import * as THREE from "three";
 import polygonClipping from "polygon-clipping";
 
 import { GRID_X, GRID_Z, ROAD_TILE, ROAD_Y, WORLD_HALF_X, WORLD_HALF_Z } from "../shared/constants";
-import { conformToTerrain, DRAPE_MAX_ERROR, type DrapeField } from "./conform";
+import {
+  conformToTerrain,
+  DRAPE_MAX_ERROR,
+  type DrapeField,
+  seatOnSurface,
+  surfaceSampler,
+  type SurfaceSampler,
+} from "./conform";
 import { junctionControl } from "./junction-control";
 import type { NetEdge, RoadNetwork } from "./network";
 import { districtAt } from "./sf-map";
@@ -38,19 +45,28 @@ const CURB_LIFT = SIDEWALK_LIFT + 0.03; // curb lip reads above the walk
 // beacon rings, garage pad rings) must clear this or the street depth-tests
 // them away / z-fights them at distance.
 export const STREET_SURFACE_MAX = CURB_LIFT + DRAPE_MAX_ERROR;
-// Markings drape at a looser sag tolerance than the asphalt (thin decals;
-// the vert savings across all of SF's paint is large), so the lift must
-// cover the worst RELATIVE bow between the two drapes: marking error +
-// asphalt error (DRAPE_MAX_ERROR), with margin. NOTE: feeds BAKED geometry —
-// the derivation keeps today's shipped value (terrain + 0.37); a change here
-// only lands via rebake (or the editor's live street rebuild).
-const MARKING_MAX_ERROR = 0.18;
+// Markings drape at a looser sag tolerance than the asphalt (thin decals; the
+// vert savings across all of SF's paint is large). They no longer need a lift
+// that covers the worst relative bow between the two drapes: paint is SEATED
+// on the asphalt surface after it is draped (seatOnSurface), so PAINT_SEAT is
+// just enough to beat depth precision alongside the decals' polygon offset.
+// LINE_LIFT survives only as the fallback for the handful of marking vertices
+// that fall outside the asphalt shell.
+const MARKING_MAX_ERROR = DRAPE_MAX_ERROR;
+const PAINT_SEAT = 0.03;
 const LINE_LIFT = ASPHALT_LIFT + MARKING_MAX_ERROR + DRAPE_MAX_ERROR + 0.03;
 const LINE_W = 0.24;
 const EDGE_INSET = 0.5;
 const DASH_LEN = 2.2;
 const DASH_GAP = 2.6;
 const MITER_LIMIT = 2.5; // clamp spike joints on hairpin polylines
+// Signed clearances from the junction patch a marking must keep (see
+// nearJunction): positive = stay this far OUTSIDE the patch, negative = may
+// run this far INTO its open asphalt.
+const LINE_CLIP = 1.2; // solid lines (incl. kerb-hugging edge lines)
+const DASH_CLIP = 1.6; // lane dashes on the minor grid
+const CENTRE_CLIP = -1.8; // boulevard centre-of-roadway paint
+const CROSSWALK_ROOM = 4.5; // swept section an arm needs to carry a crosswalk + stop bar
 
 // Materials by stable key — the worker ships buffers tagged with these keys
 // and the main thread looks the material back up.
@@ -416,10 +432,17 @@ type Arm = {
   half: number;
   px: number; // centreline trim point
   pz: number;
+  sec: number; // swept section length of the owning edge
 };
 
 // Junction polygon at a lateral grow of `extra` beyond each arm's asphalt.
-function patchRing(nx: number, nz: number, arms: Arm[], extra: number, trimCap: number): Ring {
+function patchRing(
+  nx: number,
+  nz: number,
+  arms: readonly Arm[],
+  extra: number,
+  trimCap: number,
+): Ring {
   const ring: Ring = [];
   for (let i = 0; i < arms.length; i++) {
     const a = arms[i];
@@ -465,6 +488,29 @@ function capRing(arm: Arm, extra: number): Ring {
     ring.push([snap(arm.px + Math.cos(a) * r), snap(arm.pz + Math.sin(a) * r)]);
   }
   return ring;
+}
+
+// Signed distance from a ring's boundary, negative inside. The paint clip
+// tests the junction patch it actually has to avoid; the old circle of radius
+// nodeTrim*1.55 was the patch's CIRCUMSCRIBED radius, so it over-clipped by
+// ~0.55·nodeTrim at both ends of every block — enough to leave the 20–40u
+// blocks that are most of the SF grid with no centre line at all.
+function ringSignedDist(ring: Ring, x: number, z: number): number {
+  let best = Infinity;
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const a = ring[i];
+    const b = ring[j];
+    if (!a || !b) continue;
+    if (a[1] > z !== b[1] > z && x < ((b[0] - a[0]) * (z - a[1])) / (b[1] - a[1]) + a[0])
+      inside = !inside;
+    const dx = b[0] - a[0];
+    const dz = b[1] - a[1];
+    const l2 = dx * dx + dz * dz;
+    const t = l2 > 0 ? Math.max(0, Math.min(1, ((x - a[0]) * dx + (z - a[1]) * dz) / l2)) : 0;
+    best = Math.min(best, Math.hypot(x - (a[0] + dx * t), z - (a[1] + dz * t)));
+  }
+  return inside ? -best : best;
 }
 
 // The whole boolean pipeline runs PER SPATIAL TILE with bbox-filtered local
@@ -596,45 +642,116 @@ function multiPolyGeo(mp: MultiPoly): THREE.BufferGeometry {
   return flatGeo(pos);
 }
 
+/** patchRing's corner-fan cap, in nodeTrim units. */
+const PATCH_FACTOR = 1.55;
+
+export type JunctionMap = {
+  /** angle-sorted arms per node (null where the node carries no edges) */
+  readonly arms: readonly (readonly Arm[] | null)[];
+  /**
+   * True when (x, z) is within `margin` of a junction patch. `margin` is a
+   * SIGNED offset from the patch boundary: positive keeps a marking that far
+   * clear of the junction, negative lets it run that far into the junction's
+   * open asphalt (boulevard centre-of-roadway paint).
+   */
+  near(x: number, z: number, margin: number): boolean;
+};
+
+/**
+ * Junction patches, built once and shared by the drawn asphalt and the paint
+ * clip — so paint can neither overlap a patch (the old "spoke" stripes) nor be
+ * clipped by a circle the patch never fills. Exported so `pnpm test` can
+ * assert paint coverage against the real predicate.
+ */
+export function buildJunctionMap(network: RoadNetwork): JunctionMap {
+  const nodeArms: (readonly Arm[] | null)[] = network.nodes.map(() => null);
+  const patchRings: (Ring | null)[] = network.nodes.map(() => null);
+  const patchBuckets = new Map<string, number[]>();
+  const NB = 40;
+  let maxPatchR = 0;
+  for (let n = 0; n < network.nodes.length; n++) {
+    const ids = network.nodeEdges[n];
+    const node = network.nodes[n];
+    if (!ids || ids.length === 0 || !node) continue;
+    const arms: Arm[] = [];
+    for (const id of ids) {
+      const edge = network.edges[id];
+      if (!edge) continue;
+      const ends: ("a" | "b")[] = [];
+      if (edge.a === n) ends.push("a");
+      if (edge.b === n) ends.push("b");
+      for (const end of ends) {
+        const trim = Math.min(network.nodeTrim(n), edge.len * 0.45);
+        const s0 = end === "a" ? trim : edge.len - trim;
+        const smp = network.sample(edge, s0);
+        const sign = end === "a" ? 1 : -1;
+        arms.push({
+          angle: Math.atan2(smp.tz * sign, smp.tx * sign),
+          tx: smp.tx * sign,
+          tz: smp.tz * sign,
+          half: edge.half,
+          px: smp.x,
+          pz: smp.z,
+          sec:
+            edge.len -
+            trim -
+            Math.min(network.nodeTrim(end === "a" ? edge.b : edge.a), edge.len * 0.45),
+        });
+      }
+    }
+    if (arms.length === 0) continue;
+    arms.sort((u, v) => u.angle - v.angle);
+    nodeArms[n] = arms;
+    const first = arms[0];
+    const ring =
+      arms.length === 1 && first
+        ? capRing(first, 0)
+        : patchRing(node[0], node[1], arms, 0, network.nodeTrim(n) * PATCH_FACTOR);
+    if (ring.length < 3) continue;
+    patchRings[n] = ring;
+    // Mid-street joints (two near-collinear arms) are not junctions — paint
+    // runs straight through them, so they stay out of the clip index.
+    if (network.nodeIsPassThrough(n)) continue;
+    let r = 0;
+    for (const [px, pz] of ring) r = Math.max(r, Math.hypot(px - node[0], pz - node[1]));
+    maxPatchR = Math.max(maxPatchR, r);
+    const k = `${Math.floor(node[0] / NB)},${Math.floor(node[1] / NB)}`;
+    const arr = patchBuckets.get(k) ?? [];
+    arr.push(n);
+    patchBuckets.set(k, arr);
+  }
+  return {
+    arms: nodeArms,
+    near(x: number, z: number, margin: number): boolean {
+      const bx = Math.floor(x / NB);
+      const bz = Math.floor(z / NB);
+      const reach = maxPatchR + Math.max(margin, 0);
+      const rings = Math.max(1, Math.ceil(reach / NB));
+      for (let ix = bx - rings; ix <= bx + rings; ix++) {
+        for (let iz = bz - rings; iz <= bz + rings; iz++) {
+          for (const n of patchBuckets.get(`${ix},${iz}`) ?? []) {
+            const node = network.nodes[n];
+            const ring = patchRings[n];
+            if (!node || !ring) continue;
+            if (Math.hypot(node[0] - x, node[1] - z) > reach) continue;
+            if (ringSignedDist(ring, x, z) < margin) return true;
+          }
+        }
+      }
+      return false;
+    },
+  };
+}
+
 export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadPartBuffers[] {
   const asphaltPolys: Poly[] = [];
   const curbPolys: Poly[] = [];
   const pavePolys: Poly[] = [];
   const markingParts: Part[] = [];
 
-  // Node lookup for clipping markings out of junction areas.
-  const nodeBuckets = new Map<string, number[]>();
-  const NB = 40;
-  for (let n = 0; n < network.nodes.length; n++) {
-    if ((network.nodeEdges[n]?.length ?? 0) === 0) continue;
-    if (network.nodeIsPassThrough(n)) continue; // paint runs through mid-street joints
-    const node = network.nodes[n];
-    if (!node) continue;
-    const k = `${Math.floor(node[0] / NB)},${Math.floor(node[1] / NB)}`;
-    const arr = nodeBuckets.get(k) ?? [];
-    arr.push(n);
-    nodeBuckets.set(k, arr);
-  }
-  // `factor` scales nodeTrim to match what the junction patch actually owns
-  // (patchRing extends to nodeTrim*1.55; keep the two in lockstep) — paint
-  // clipped at factor 1 still overlapped the patch (the "spoke" stripes).
-  const PATCH_FACTOR = 1.55;
-  const nearJunction = (x: number, z: number, margin: number, factor = PATCH_FACTOR): boolean => {
-    const bx = Math.floor(x / NB);
-    const bz = Math.floor(z / NB);
-    const rings = Math.max(1, Math.ceil((network.maxNodeTrim * factor + margin) / NB));
-    for (let ix = bx - rings; ix <= bx + rings; ix++) {
-      for (let iz = bz - rings; iz <= bz + rings; iz++) {
-        for (const n of nodeBuckets.get(`${ix},${iz}`) ?? []) {
-          const node = network.nodes[n];
-          if (!node) continue;
-          if (Math.hypot(node[0] - x, node[1] - z) < network.nodeTrim(n) * factor + margin)
-            return true;
-        }
-      }
-    }
-    return false;
-  };
+  const junctions = buildJunctionMap(network);
+  const nodeArms = junctions.arms;
+  const nearJunction = junctions.near;
 
   // --- Edge sweeps as polygons + markings ---
   for (const edge of network.edges) {
@@ -658,6 +775,14 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
     const major = h > 4.7; // primary/secondary (see CLASS_HALF in bake-network)
     const eo = h - EDGE_INSET;
     const secLen = edge.len - trimA - trimB;
+    // Mid-street joints (two near-collinear arms) are not junctions — they are
+    // already out of the paint clip — but the rail was still cut back by
+    // nodeTrim at both ends, punching a ~12u hole through every line in the
+    // MIDDLE of a straight block. Paint runs through on its own trim; the
+    // 2-arm patch has already paved that asphalt.
+    const paintA = network.nodeIsPassThrough(edge.a) ? 0 : trimA;
+    const paintB = network.nodeIsPassThrough(edge.b) ? 0 : trimB;
+    const paintLen = edge.len - paintA - paintB;
     const midSmp = network.sample(edge, trimA + secLen / 2);
     let streetAng = Math.atan2(midSmp.tz, midSmp.tx);
     if (streetAng < 0) streetAng += Math.PI;
@@ -671,22 +796,23 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
     const h01 = ((sh ^ (sh >>> 16)) >>> 0) / 4294967296;
     const h2 = (h01 * 7.13) % 1;
     const h3 = (h01 * 13.71) % 1;
+    const h4 = (h01 * 23.31) % 1;
 
     // Junction-clipped line runs: a full-rail strip radiates straight
     // through merged junction blobs (short edges barely trim, and
     // through-streets pass near foreign nodes) — the "spoke" bug.
-    const emitLine = (off: number, mat: THREE.Material, clipFactor = PATCH_FACTOR): void => {
-      const steps = Math.max(1, Math.ceil(secLen / 4));
+    const emitLine = (off: number, mat: THREE.Material, margin = LINE_CLIP): void => {
+      const steps = Math.max(1, Math.ceil(paintLen / 4));
       let runStart = -1;
       for (let i = 0; i <= steps; i++) {
-        const sc = (i / steps) * secLen;
-        const smp = network.sample(edge, trimA + sc);
-        const blocked = nearJunction(smp.x - smp.tz * off, smp.z + smp.tx * off, 1.2, clipFactor);
+        const sc = (i / steps) * paintLen;
+        const smp = network.sample(edge, paintA + sc);
+        const blocked = nearJunction(smp.x - smp.tz * off, smp.z + smp.tx * off, margin);
         if (!blocked && runStart < 0) runStart = sc;
         if (runStart >= 0 && (blocked || i === steps)) {
-          const runEnd = blocked ? Math.max(runStart, sc - secLen / steps) : sc;
+          const runEnd = blocked ? Math.max(runStart, sc - paintLen / steps) : sc;
           if (runEnd - runStart >= 2) {
-            const r = railFor(edge, trimA + runStart, trimA + runEnd);
+            const r = railFor(edge, paintA + runStart, paintA + runEnd);
             if (r) {
               markingParts.push({
                 geo: stripGeo(r, off - LINE_W / 2, off + LINE_W / 2),
@@ -701,13 +827,13 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
     };
     // Dashed line at an offset, junction-clipped, pattern centred in the
     // section so short blocks keep a visible dash.
-    const emitDashes = (off: number, mat: THREE.Material, clipFactor = PATCH_FACTOR): void => {
-      for (let s = (secLen % (DASH_LEN + DASH_GAP)) / 2; s < secLen; s += DASH_LEN + DASH_GAP) {
-        const e = Math.min(s + DASH_LEN, secLen);
+    const emitDashes = (off: number, mat: THREE.Material, margin = DASH_CLIP): void => {
+      for (let s = (paintLen % (DASH_LEN + DASH_GAP)) / 2; s < paintLen; s += DASH_LEN + DASH_GAP) {
+        const e = Math.min(s + DASH_LEN, paintLen);
         if (e - s < 0.6) continue;
-        const mid = network.sample(edge, trimA + (s + e) / 2);
-        if (nearJunction(mid.x, mid.z, 2.5, clipFactor)) continue;
-        const dashRail = railFor(edge, trimA + s, trimA + e);
+        const mid = network.sample(edge, paintA + (s + e) / 2);
+        if (nearJunction(mid.x, mid.z, margin)) continue;
+        const dashRail = railFor(edge, paintA + s, paintA + e);
         if (!dashRail) continue;
         markingParts.push({
           geo: stripGeo(dashRail, off - LINE_W / 2, off + LINE_W / 2),
@@ -728,16 +854,15 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
 
     if (secLen >= 6) {
       if (major) {
-        // Tight clip (factor 1.0): on dense corridors (Market) the default
-        // junction radius covers whole blocks and the boulevard reads bald.
-        // Centre-of-roadway paint inside a junction's open asphalt is fine —
-        // only EDGE lines may not slice across a merged blob.
-        emitDashes(-h * 0.33, MAT_WHITE, 1.0);
-        emitDashes(h * 0.33, MAT_WHITE, 1.0);
+        // Centre-of-roadway paint may run INTO a junction's open asphalt
+        // (negative margin) — only EDGE lines must not slice across a merged
+        // blob. Dense corridors (Market) otherwise read bald between nodes.
+        emitDashes(-h * 0.33, MAT_WHITE, CENTRE_CLIP);
+        emitDashes(h * 0.33, MAT_WHITE, CENTRE_CLIP);
         // Divided-boulevard look on some corridors: double-yellow centre.
         if (h2 < 0.45) {
-          emitLine(0.28, MAT_YELLOW, 1.0);
-          emitLine(-0.28, MAT_YELLOW, 1.0);
+          emitLine(0.28, MAT_YELLOW, CENTRE_CLIP);
+          emitLine(-0.28, MAT_YELLOW, CENTRE_CLIP);
         }
       } else {
         // Minor-grid centre-line variety.
@@ -755,53 +880,72 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
       }
     }
 
-    // A segmented band between offsets [in, out] on one side, junction-inset.
+    // A band between lateral offsets [in, out] on one side. Clipped by RUN
+    // like the lines are: a midpoint test dropped whole 14u segments wherever
+    // one end grazed a junction, which is what chewed the transit lane into
+    // scattered red patches. The run is cut into segments afterwards, so a
+    // continuous band (segLen = Infinity) just ends cleanly at the crosswalk.
     const paintBand = (
       side: -1 | 1,
       bandIn: number,
       bandOut: number,
       segLen: number,
       segGap: number,
-      margin: number,
+      endMargin: number,
       mat: THREE.Material,
       junctionMargin = 4.5,
-      clipFactor = PATCH_FACTOR,
     ): void => {
-      for (let s = margin; s < secLen - margin; s += segLen + segGap) {
-        const e = Math.min(s + segLen, secLen - margin);
-        if (e - s < segLen * 0.35) continue;
-        const mid = network.sample(edge, trimA + (s + e) / 2);
-        if (nearJunction(mid.x, mid.z, junctionMargin, clipFactor)) continue;
-        const r = railFor(edge, trimA + s, trimA + e);
-        if (!r) continue;
-        const o0 = Math.min(side * bandIn, side * bandOut);
-        const o1 = Math.max(side * bandIn, side * bandOut);
-        markingParts.push({ geo: stripGeo(r, o0, o1), mat, lift: LINE_LIFT });
+      const o0 = Math.min(side * bandIn, side * bandOut);
+      const o1 = Math.max(side * bandIn, side * bandOut);
+      const lat = (o0 + o1) / 2;
+      const lo = endMargin;
+      const hi = paintLen - endMargin;
+      if (hi - lo < 1.5) return;
+      const emit = (a: number, b: number): void => {
+        for (let s = a; s < b - 0.4; s += segLen + segGap) {
+          const e = Math.min(s + segLen, b);
+          if (e - s < Math.min(segLen, 1.6)) continue;
+          const r = railFor(edge, paintA + s, paintA + e);
+          if (r) markingParts.push({ geo: stripGeo(r, o0, o1), mat, lift: LINE_LIFT });
+        }
+      };
+      const steps = Math.max(1, Math.ceil((hi - lo) / 2));
+      let runStart = -1;
+      for (let i = 0; i <= steps; i++) {
+        const sc = lo + ((hi - lo) * i) / steps;
+        const smp = network.sample(edge, paintA + sc);
+        const blocked = nearJunction(smp.x - smp.tz * lat, smp.z + smp.tx * lat, junctionMargin);
+        if (!blocked && runStart < 0) runStart = sc;
+        if (runStart >= 0 && (blocked || i === steps)) {
+          const runEnd = blocked ? Math.max(runStart, sc - (hi - lo) / steps) : sc;
+          emit(runStart, runEnd);
+          runStart = -1;
+        }
       }
     };
 
     // Muni red transit lanes: ONLY the widest corridor class (Market/Van
     // Ness/Geary scale) — red everywhere reads rusty instead of special.
-    // A thin curb-hugging lane, near-continuous: the earlier centre-to-edge
-    // band (~3.7u each side) read as huge red slabs, not lanes.
+    // A thin curb-hugging lane, CONTINUOUS between crosswalks: real transit
+    // lanes are one unbroken strip, and the old 14u segmentation read as
+    // random red slabs dropped on the kerb.
     if (h >= 5.5) {
       // primary corridors only
       const laneOut = eo - LINE_W / 2 - 0.3;
       const laneIn = laneOut - 1.9;
-      // nearJunction now scales nodeTrim by the patch factor itself, so the
-      // margin only needs to cover half a 14u segment (the midpoint test).
-      const junctionMargin = 5;
-      paintBand(-1, laneIn, laneOut, 14, 0.8, 6, MAT_MUNI_RED, junctionMargin, 1.1);
-      paintBand(1, laneIn, laneOut, 14, 0.8, 6, MAT_MUNI_RED, junctionMargin, 1.1);
+      paintBand(-1, laneIn, laneOut, Infinity, 0, 3, MAT_MUNI_RED, 2.4);
+      paintBand(1, laneIn, laneOut, Infinity, 0, 3, MAT_MUNI_RED, 2.4);
     }
 
-    // Green bike lanes: a sparse subset of the minor grid (every 3rd edge) —
-    // SF's bike-network look without painting every street. Narrow + dark so
-    // they read as PAINT (the old wide bright band read as grass medians),
-    // and never stacked on solid/double-yellow streets — that combination
-    // was paint soup.
+    // Green bike lanes: a sparse subset of the minor grid — SF's bike-network
+    // look without painting every street. Keyed on the STREET LINE (the same
+    // hash as the centre-line scheme), not the OSM edge id: ids run in bake
+    // order, so a modulo on them scattered 4.5u dashes over unrelated blocks
+    // instead of running a lane the length of a street. Narrow + dark so they
+    // read as PAINT (the old wide bright band read as grass medians), and
+    // never stacked on solid/double-yellow streets — that was paint soup.
     const solidCentre = h2 >= 0.3 && h2 < 0.62;
-    const bikeLane = !major && h >= 3.2 && secLen > 40 && edge.id % 3 === 0 && !solidCentre;
+    const bikeLane = !major && secLen > 8 && h4 < 0.12 && !solidCentre;
     if (bikeLane) {
       paintBand(-1, h - 1.75, h - 0.95, 4.5, 2.2, 3, MAT_BIKE_GREEN);
       paintBand(1, h - 1.75, h - 0.95, 4.5, 2.2, 3, MAT_BIKE_GREEN);
@@ -811,10 +955,10 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
     // street reads as marked parking from above. Only on lined streets with
     // no bike lane claiming the same kerb strip.
     if (!major && h >= 3.6 && hasEdgeLines && !bikeLane && h3 < 0.45) {
-      for (let s = 5; s < secLen - 5; s += 7) {
-        const smp = network.sample(edge, trimA + s);
+      for (let s = 5; s < paintLen - 5; s += 7) {
+        const smp = network.sample(edge, paintA + s);
         if (nearJunction(smp.x, smp.z, 4)) continue;
-        const tickRail = railFor(edge, trimA + s, trimA + s + 0.62);
+        const tickRail = railFor(edge, paintA + s, paintA + s + 0.62);
         if (!tickRail) continue;
         for (const side of [-1, 1] as const) {
           // stripGeo winds by off order (see paintBand) — keep off0 < off1.
@@ -831,8 +975,8 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
 
     // Manhole covers: sparse dark discs, alternating lanes on the minor grid.
     if (!major) {
-      for (let s = 14; s < secLen - 8; s += 34) {
-        const smp = network.sample(edge, trimA + s);
+      for (let s = 14; s < paintLen - 8; s += 34) {
+        const smp = network.sample(edge, paintA + s);
         if (nearJunction(smp.x, smp.z, 5)) continue;
         const off = (Math.floor(s / 34) % 2 === 0 ? 1 : -1) * h * 0.45;
         const cx = smp.x - smp.tz * off;
@@ -845,37 +989,11 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
   let crosswalkArms = 0;
   // --- Junction patches + crosswalks + dead-end caps ---
   for (let n = 0; n < network.nodes.length; n++) {
-    const ids = network.nodeEdges[n];
-    if (!ids || ids.length === 0) continue;
     const node = network.nodes[n];
-    if (!node) continue;
+    const arms = nodeArms[n];
+    if (!node || !arms || arms.length === 0) continue;
     const nx = node[0];
     const nz = node[1];
-
-    const arms: Arm[] = [];
-    for (const id of ids) {
-      const edge = network.edges[id];
-      if (!edge) continue;
-      const ends: ("a" | "b")[] = [];
-      if (edge.a === n) ends.push("a");
-      if (edge.b === n) ends.push("b");
-      for (const end of ends) {
-        const trim = Math.min(network.nodeTrim(n), edge.len * 0.45);
-        const s0 = end === "a" ? trim : edge.len - trim;
-        const smp = network.sample(edge, s0);
-        const sign = end === "a" ? 1 : -1;
-        arms.push({
-          angle: Math.atan2(smp.tz * sign, smp.tx * sign),
-          tx: smp.tx * sign,
-          tz: smp.tz * sign,
-          half: edge.half,
-          px: smp.x,
-          pz: smp.z,
-        });
-      }
-    }
-    if (arms.length === 0) continue;
-    arms.sort((u, v) => u.angle - v.angle);
 
     if (arms.length === 1) {
       const a = arms[0];
@@ -887,7 +1005,7 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
       continue;
     }
 
-    const trimCap = network.nodeTrim(n) * 1.55;
+    const trimCap = network.nodeTrim(n) * PATCH_FACTOR;
     const patchWalk = Math.max(...arms.map((a) => walkFor(a.half)));
     asphaltPolys.push([patchRing(nx, nz, arms, 0, trimCap)]);
     curbPolys.push([patchRing(nx, nz, arms, CURB_W, trimCap)]);
@@ -895,12 +1013,14 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
 
     // Crosswalks follow the junction CONTROL (junction-control.ts): zebra
     // stripes at signalized crossings, transverse two-line crosswalks at
-    // all-way stops — the same split SF paints. Only clean 3-4 arm nodes:
-    // complex multi-arm junctions turn into a tangle, and mega-blob nodes
-    // (big angle-aware trims) put the paint deep inside the merged asphalt
-    // where it floats mid-"street" — open asphalt reads right there.
+    // all-way stops — the same split SF paints. Only clean 3-4 arm nodes;
+    // complex multi-arm junctions turn into a tangle. The room a crosswalk
+    // needs is PER ARM (its band reaches ~4.5u out from the trim point), not
+    // per node: gating the whole junction on its trim left the widest ones —
+    // the ones whose approaches already lose the most paint — as featureless
+    // asphalt lakes where several painted streets appear to just stop.
     const control = junctionControl(network, n);
-    if (arms.length >= 3 && arms.length <= 4 && control !== "none" && network.nodeTrim(n) < 9) {
+    if (arms.length >= 3 && arms.length <= 4 && control !== "none") {
       const zebra = control === "signal";
       // The Castro paints its crosswalks rainbow — so do we.
       const gxN = Math.min(GRID_X - 1, Math.max(0, Math.floor((nx + WORLD_HALF_X) / ROAD_TILE)));
@@ -919,6 +1039,9 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
           return Math.min(g, Math.PI * 2 - g);
         };
         if (Math.min(gapTo(prev), gapTo(next)) < Math.PI / 3) continue;
+        // The band spans [0.9, outer + 1.0] outward — a shorter swept section
+        // would spill it past the strip into the next node's patch.
+        if (a.sec < CROSSWALK_ROOM) continue;
         const ox = -a.tz;
         const oz = a.tx;
         const quad = (out: number[], d0: number, d1: number, l0: number, l1: number): void => {
@@ -1026,31 +1149,48 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
   const { asphalt, curb, walk } = tiledPlanarMap(asphaltPolys, curbPolys, pavePolys);
   console.log(`[roads] planar map in ${Math.round(performance.now() - t0)}ms`);
 
-  const parts: Part[] = [
+  const surfaceParts: Part[] = [
     { geo: multiPolyGeo(asphalt), mat: MAT_ASPHALT, lift: ASPHALT_LIFT },
     { geo: multiPolyGeo(walk), mat: MAT_SIDEWALK, lift: SIDEWALK_LIFT },
     { geo: multiPolyGeo(curb), mat: MAT_CURB, lift: CURB_LIFT },
-    ...markingParts.map((p) => ({ ...p, maxError: MARKING_MAX_ERROR })),
   ];
 
   const keyOfMat = new Map<THREE.Material, string>(
     Object.entries(ROAD_MATERIALS).map(([k, m]) => [m, k]),
   );
   const out: RoadPartBuffers[] = [];
-  for (const p of parts) {
-    const draped = conformToTerrain(p.geo, terrain, p.lift, p.maxError);
+  const publish = (mat: THREE.Material, draped: THREE.BufferGeometry): void => {
     const pos = draped.getAttribute("position");
     const nor = draped.getAttribute("normal");
     const uv = draped.getAttribute("uv");
     const idx = draped.index;
     out.push({
-      matKey: keyOfMat.get(p.mat) ?? "asphalt",
+      matKey: keyOfMat.get(mat) ?? "asphalt",
       position: pos.array as Float32Array,
       normal: nor.array as Float32Array,
       uv: uv ? (uv.array as Float32Array) : null,
       index: idx ? (idx.array as Uint16Array | Uint32Array) : null,
     });
+  };
+
+  let asphaltSurface: SurfaceSampler | null = null;
+  for (const p of surfaceParts) {
+    const draped = conformToTerrain(p.geo, terrain, p.lift, p.maxError);
+    if (p.mat === MAT_ASPHALT) asphaltSurface = surfaceSampler(draped);
+    publish(p.mat, draped);
   }
+  // Paint is SEATED on the asphalt that was just draped, not draped on its own
+  // over the terrain. The two surfaces disagree (a 14u-wide roadway's chords
+  // cut corners a 0.24u line's don't, and the terrace field steps between
+  // them), which is why the lift had grown to 0.30u above the asphalt —
+  // higher than the kerb lip, so every marking parallaxed off the road.
+  const tPaint = performance.now();
+  for (const p of markingParts) {
+    const draped = conformToTerrain(p.geo, terrain, 0, MARKING_MAX_ERROR);
+    seatOnSurface(draped, asphaltSurface, PAINT_SEAT, LINE_LIFT);
+    publish(p.mat, draped);
+  }
+  console.log(`[roads] paint seated in ${Math.round(performance.now() - tPaint)}ms`);
   return out;
 }
 

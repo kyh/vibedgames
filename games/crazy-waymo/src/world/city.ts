@@ -39,6 +39,7 @@ import {
   applyGrassMottle,
   makeGroundColorAt,
   makeGroundOffset,
+  makeStandingSurface,
   makeTerracedDrapeField,
   parkCellHeight,
 } from "./ground";
@@ -406,6 +407,33 @@ export class CityModel {
   private chunks: Chunk[] = [];
   // Road drape target (terrain + step-ladder street terrace), cached per
   // network so live street edits rebuild it exactly once.
+  // makeGroundOffset rasterizes a clearance field AND a full street terrace —
+  // furniture and buildGround must share one, not build two.
+  private groundOffsetCache: ((x: number, z: number) => number) | null = null;
+  private groundOffsetNet: RoadNetwork | null = null;
+  private groundOffset(): (x: number, z: number) => number {
+    if (!this.groundOffsetCache || this.groundOffsetNet !== this.network) {
+      this.groundOffsetCache = makeGroundOffset(this.network, this.terrain);
+      this.groundOffsetNet = this.network;
+    }
+    return this.groundOffsetCache;
+  }
+  // Height of the surface a prop stands on (road drape inside the paved
+  // corridor, ground mesh as tessellated outside it) — see makeStandingSurface.
+  private standCache: ((x: number, z: number) => number) | null = null;
+  private standNet: RoadNetwork | null = null;
+  private standAt(x: number, z: number): number {
+    if (!this.standCache || this.standNet !== this.network) {
+      this.standCache = makeStandingSurface(
+        this.network,
+        this.terrain,
+        this.groundOffset(),
+        this.roadDrape(),
+      );
+      this.standNet = this.network;
+    }
+    return this.standCache(x, z);
+  }
   private roadDrapeCache: DrapeField | null = null;
   private roadDrapeNet: RoadNetwork | null = null;
   private roadDrape(): DrapeField {
@@ -773,7 +801,7 @@ export class CityModel {
           const tz = wz + this.rng.range(-2.6, 2.6);
           if (this.onAsphalt(tx, tz, 0.6)) continue;
           if (nearFreeway(tx, tz, 0.5)) continue; // canopy pierces the deck
-          tree.position.set(tx, this.terrain.heightAt(tx, tz), tz);
+          tree.position.set(tx, this.standAt(tx, tz), tz);
           tree.rotation.y = this.rng.range(0, Math.PI * 2);
           collect(tree);
           if (large) treeSolid(tx, tz);
@@ -837,7 +865,7 @@ export class CityModel {
       const sc = (ROAD_TILE * 0.78) / Math.max(b.size.x, b.size.z, 0.001); // house-sized
       node.scale.setScalar(sc);
       node.rotation.y = g.yaw;
-      node.position.set(g.x, this.terrain.heightAt(g.x, g.z), g.z);
+      node.position.set(g.x, this.standAt(g.x, g.z), g.z);
       node.updateMatrixWorld(true);
       collect(node);
       const half = ROAD_TILE * 0.42;
@@ -978,7 +1006,7 @@ export class CityModel {
           const stz = wz + this.rng.range(-3.5, 3.5);
           if (this.onAsphalt(stx, stz, 0.6)) continue;
           if (nearFreeway(stx, stz, 0.5)) continue;
-          steepTree.position.set(stx, this.terrain.heightAt(stx, stz), stz);
+          steepTree.position.set(stx, this.standAt(stx, stz), stz);
           steepTree.rotation.y = this.rng.range(0, Math.PI * 2);
           collect(steepTree);
         }
@@ -1050,7 +1078,7 @@ export class CityModel {
         const tx = wx + dx * ROAD_TILE * 0.46 + this.rng.range(-1, 1);
         const tz = wz + dz * ROAD_TILE * 0.46 + this.rng.range(-1, 1);
         if (!this.onAsphalt(tx, tz, 0.6)) {
-          tree.position.set(tx, this.terrain.heightAt(tx, tz), tz);
+          tree.position.set(tx, this.standAt(tx, tz), tz);
           tree.rotation.y = this.rng.range(0, Math.PI * 2);
           collect(tree);
           if (large) treeSolid(tx, tz);
@@ -1408,6 +1436,8 @@ export class CityModel {
         plan: this.plan,
         network: this.network,
         terrain: this.terrain,
+        roadDrape: this.roadDrape(),
+        groundOffset: this.groundOffset(),
         cache: this.cache,
         rng: this.rng,
         reserved: lm.reserved,
@@ -1687,7 +1717,7 @@ export class CityModel {
       ground = this.terrain.buildMesh(
         groundMat,
         makeGroundColorAt(this.plan, this.terrain),
-        makeGroundOffset(this.network, this.terrain),
+        this.groundOffset(),
       );
     }
     ground.name = "terrain-ground"; // the map editor raycasts against this

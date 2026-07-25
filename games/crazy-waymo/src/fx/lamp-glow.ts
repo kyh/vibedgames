@@ -1,5 +1,7 @@
 import * as THREE from "three";
 
+import { STREET_SURFACE_MAX } from "../world/roads";
+
 // Streetlights that actually GLOW at night: two instanced draws over every
 // lamp head the furniture pass placed —
 //   1. a view-space billboard halo at the lamp head, and
@@ -10,6 +12,12 @@ import * as THREE from "three";
 
 const HALO_SIZE = 2.6; // world units, quad edge
 const POOL_SIZE = 8;
+// The pool spans asphalt AND the curb/sidewalk the lamp stands on, so it has
+// to clear the tallest draped street layer (roads.ts STREET_SURFACE_MAX) the
+// same way fares.ts GROUND_RING_LIFT and skids.ts SKID_LIFT do. Sitting below
+// it, the quads are depth-rejected by the kerb and each pool reads as a
+// crescent that stops dead at a straight line along the sidewalk.
+const POOL_LIFT = STREET_SURFACE_MAX + 0.02;
 const HALO_ALPHA = 0.5;
 const POOL_ALPHA = 0.2;
 const FADE_NEAR = 380; // camera distance where lamps start to fade
@@ -19,7 +27,10 @@ export type LampHead = {
   readonly x: number;
   readonly y: number; // world height of the lamp head
   readonly z: number;
-  readonly ground: number; // world height of the pavement under it
+  // Height of the pavement AS RENDERED under the lamp (the terraced drive
+  // surface, not the raw height field) — the pool is drawn flat at this Y, so
+  // a raw-field value detaches it by the terrace delta on every steep street.
+  readonly ground: number;
 };
 
 // Soft radial gradient blob, generated at boot — no asset fetch.
@@ -160,7 +171,7 @@ export class LampGlow {
       const h = heads[i];
       if (!h) continue;
       haloCenters.set([h.x, h.y, h.z], i * 3);
-      poolCenters.set([h.x, h.ground + 0.09, h.z], i * 3);
+      poolCenters.set([h.x, h.ground + POOL_LIFT, h.z], i * 3);
     }
     const haloAttr = new THREE.InstancedBufferAttribute(haloCenters, 3);
     const poolAttr = new THREE.InstancedBufferAttribute(poolCenters, 3);
@@ -238,7 +249,7 @@ export class LampGlow {
       const h = p ? c.heads[p.i] : undefined;
       if (!h) continue;
       c.haloArr.set([h.x, h.y, h.z], k * 3);
-      c.poolArr.set([h.x, h.ground + 0.09, h.z], k * 3);
+      c.poolArr.set([h.x, h.ground + POOL_LIFT, h.z], k * 3);
     }
     c.halo.geo.instanceCount = n;
     c.pool.geo.instanceCount = n;

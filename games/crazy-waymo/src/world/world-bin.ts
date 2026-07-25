@@ -11,7 +11,7 @@ import type { CityGenPayload } from "./gen-worker";
 // READ side of the world-bin split: deserialize/unpack live here (main
 // bundle); the pack side in ./world-bin-pack.ts must mirror it exactly.
 
-export const WORLD_REV = 56; // bump when generation code changes → rebake (56 = construction vehicles at chicane pockets)
+export const WORLD_REV = 58; // bump when generation code changes → rebake (58 = paint seated on the asphalt, junction clip by patch polygon, props on the rendered surface, terrace-aware drape)
 
 export type Typed = Float32Array | Uint16Array | Uint32Array | Int8Array | Uint8Array | Int32Array;
 export type BufRef = { $buf: number; $type: "f32" | "u16" | "u32" | "i8" | "u8" | "i32" };

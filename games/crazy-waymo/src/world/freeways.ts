@@ -24,6 +24,19 @@ const CLEAR = 6.5; // deck soffit clearance above local terrain
 const DECK_T = 0.9; // slab thickness
 const MAX_GRADE = 0.05; // per-unit climb limit for the smoothed mainline deck
 const PILLAR_EVERY = 4; // one pillar per N samples (24u)
+const PILLAR_CLEAR = 0.4; // footing must miss street asphalt by this much
+const PIER_CAP_T = 0.55; // crossbeam depth under the soffit
+// Footing search, ordered cheapest-displacement first: shift the pillar to a
+// neighbouring sample (±2 keeps the span between 12u and 36u) and slide it
+// across the deck. Lateral costs less than moving along — a pier under the
+// deck edge reads normal, an uneven bay spacing reads broken.
+const PILLAR_OFFSETS: readonly (readonly [number, number])[] = (() => {
+  const out: [number, number][] = [];
+  for (let dj = -2; dj <= 2; dj++) {
+    for (let l = -6; l <= 6; l++) out.push([dj, l / 6]);
+  }
+  return out.sort((a, b) => Math.hypot(a[0] / 2, a[1] * 0.6) - Math.hypot(b[0] / 2, b[1] * 0.6));
+})();
 const RAMP_ANCHOR_R = 30; // ramp end within this of a mainline → deck height
 const BARRIER_H = 0.85;
 const GROUND_RUN = 96; // dead-end mainlines descend to grade over this run
@@ -90,8 +103,12 @@ type Line = {
   readonly openEnd?: boolean;
 };
 
+/** Placed pillar footprint (centre + half-extent) — see the placement search. */
+export type PillarSpot = { readonly x: number; readonly z: number; readonly half: number };
+
 type FreewayBuild = {
   readonly lines: readonly Line[];
+  readonly pillars: readonly PillarSpot[];
   readonly deckPos: number[];
   readonly deckNor: number[];
   readonly bodyPos: number[];
@@ -341,6 +358,7 @@ function buildData(terrain: Terrain, network?: RoadNetwork): FreewayBuild {
   const signPos: number[] = [];
   const signNor: number[] = [];
   const physPos: number[] = [];
+  const pillars: PillarSpot[] = [];
 
   // Axis-of-the-line box: center (cx, cz), vertical span y0..y1, half-extent
   // along the tangent (halfT) and along the lateral (halfP). Six quads.
@@ -387,6 +405,13 @@ function buildData(terrain: Terrain, network?: RoadNetwork): FreewayBuild {
       sampleHash.set(k, arr);
     }
   });
+  // A footprint of half-extent `hh` at (x, z) overlaps surface-street asphalt.
+  // Undefined network (the pre-network build path) keeps the old behaviour.
+  const blocksStreet = (x: number, z: number, hh: number): boolean => {
+    const hit = network?.nearest(x, z, 40);
+    return hit ? hit.dist < hit.edge.half + hh : false;
+  };
+
   // Another ribbon covers this point at grade (within `grow` of its deck).
   const otherDeckAt = (x: number, z: number, y: number, self: number, grow: number): boolean => {
     const bx = Math.floor(x / CELL);
@@ -535,6 +560,17 @@ function buildData(terrain: Terrain, network?: RoadNetwork): FreewayBuild {
         ) {
           continue;
         }
+        // A grounded end's deck IS road at street grade, so its rail is a
+        // concrete wall standing across whatever street it crosses. Drop the
+        // segment visually AND physically (dropping only the collider leaves
+        // a wall you drive through): falling off a lip near grade is
+        // recoverable, the same rationale the ramp clearance gate uses.
+        if (
+          Math.min(clearanceAt(i), clearanceAt(i + 1)) < RAIL_SOLID_CLEAR &&
+          (blocksStreet(p0[0] ?? 0, p0[2] ?? 0, 0.5) || blocksStreet(p1[0] ?? 0, p1[2] ?? 0, 0.5))
+        ) {
+          continue;
+        }
         const q0 = railIn(i, side);
         const q1 = railIn(i + 1, side);
         pushQuad(
@@ -635,59 +671,69 @@ function buildData(terrain: Terrain, network?: RoadNetwork): FreewayBuild {
       }
     }
 
-    // Pillars (visual quads + arcade solids; the trimesh handles the deck).
+    // Pillars. Dropping one on the centerline every N samples put 24% of them
+    // INSIDE a street — SF's viaducts were built over the boulevards they
+    // follow, so the centerline IS the roadway for long stretches. Search the
+    // neighbouring samples and a lateral band under the deck for a footing
+    // that misses the asphalt; when the whole bay is roadway, fall back to the
+    // street's own MEDIAN (a median pier reads intentional, a pole in a travel
+    // lane reads broken). A pier CAP spans the deck so an off-centre column
+    // still visibly carries it.
+    const pillarH = line.ramp ? 0.7 : 0.95;
+    const latMax = Math.max(0, w - pillarH * 0.5);
     for (let i = PILLAR_EVERY; i < n - 1; i += PILLAR_EVERY) {
-      const [x, z] = line.pts[i] ?? [0, 0];
-      const topY = (line.ys[i] ?? 0) - DECK_T;
+      let spot: { j: number; lat: number } | null = null;
+      let median: { j: number; lat: number; d: number } | null = null;
+      for (const [dj, latF] of PILLAR_OFFSETS) {
+        const j = Math.min(n - 2, Math.max(1, i + dj));
+        const rl = rails[j];
+        const pt = line.pts[j];
+        if (!rl || !pt) continue;
+        const lat = latF * latMax;
+        const cx = pt[0] + rl.px * lat;
+        const cz = pt[1] + rl.pz * lat;
+        const hit = network?.nearest(cx, cz, 40) ?? null;
+        if (!hit || hit.dist - hit.edge.half - pillarH * Math.SQRT2 > PILLAR_CLEAR) {
+          spot = { j, lat };
+          break;
+        }
+        if (!median || hit.dist < median.d) median = { j, lat, d: hit.dist };
+      }
+      const place = spot ?? median;
+      const rl = place ? rails[place.j] : undefined;
+      const pt = place ? line.pts[place.j] : undefined;
+      if (!place || !rl || !pt) continue;
+      const x = pt[0] + rl.px * place.lat;
+      const z = pt[1] + rl.pz * place.lat;
+      const deckY = line.ys[place.j] ?? 0;
+      const topY = deckY - DECK_T;
       const botY = terrain.heightAt(x, z) - 0.6;
       if (topY - botY < 1.2) continue;
-      const h = line.ramp ? 0.7 : 0.95;
-      const c = [
-        [x - h, z - h],
-        [x + h, z - h],
-        [x + h, z + h],
-        [x - h, z + h],
-      ] as const;
-      for (let k = 0; k < 4; k++) {
-        const p = c[k];
-        const q = c[(k + 1) % 4];
-        if (!p || !q) continue;
-        pushQuad(
-          bodyPos,
-          bodyNor,
-          [p[0], botY, p[1]],
-          [q[0], botY, q[1]],
-          [q[0], topY, q[1]],
-          [p[0], topY, p[1]],
-        );
-        // Physics too: pillars stand on the CENTERLINE, so they must stop at
-        // the soffit — the generic solid boxes are a fixed 12u tall and
-        // walled off the very deck they hold up.
-        pushQuad(
-          physPos,
-          null,
-          [p[0], botY, p[1]],
-          [q[0], botY, q[1]],
-          [q[0], topY, q[1]],
-          [p[0], topY, p[1]],
-        );
-      }
-      // Close the pillar TOP in physics: an open shaft is a wheel trap — a
-      // car that drops onto a pillar must land on a lid and drive off.
-      const c0 = c[0];
-      const c1 = c[1];
-      const c2 = c[2];
-      const c3 = c[3];
-      if (c0 && c1 && c2 && c3) {
-        pushQuad(
-          physPos,
-          null,
-          [c0[0], topY, c0[1]],
-          [c1[0], topY, c1[1]],
-          [c2[0], topY, c2[1]],
-          [c3[0], topY, c3[1]],
-        );
-      }
+      // Tangent basis (see the gantry posts): keeps the column square to the
+      // deck instead of to the world axes.
+      const tx = rl.pz;
+      const tz = -rl.px;
+      // Visual + physics are the SAME closed box: an open shaft is a wheel
+      // trap (a car that lands on a pillar must find a lid and drive off),
+      // and the column must stop at the soffit — the generic 12u solid boxes
+      // walled off the very deck they hold up.
+      pillars.push({ x, z, half: pillarH });
+      pushBox(bodyPos, bodyNor, x, z, botY, topY, tx, tz, rl.px, rl.pz, pillarH, pillarH);
+      pushBox(physPos, null, x, z, botY, topY, tx, tz, rl.px, rl.pz, pillarH, pillarH);
+      pushBox(
+        bodyPos,
+        bodyNor,
+        pt[0],
+        pt[1],
+        topY - PIER_CAP_T,
+        topY,
+        tx,
+        tz,
+        rl.px,
+        rl.pz,
+        pillarH * 0.85,
+        w * 0.9,
+      );
       // NO solid: the arcade solid-index is height-blind (a pillar box is an
       // invisible wall ON the deck it holds up). The trimesh walls above
       // already stop street-level traffic into the pillar.
@@ -696,6 +742,7 @@ function buildData(terrain: Terrain, network?: RoadNetwork): FreewayBuild {
 
   cachedBuild = {
     lines,
+    pillars,
     deckPos,
     deckNor,
     bodyPos,
@@ -761,6 +808,11 @@ export function nearFreeway(x: number, z: number, margin: number): boolean {
 // Deck + inner-barrier triangles for the static physics trimesh — the car
 // drives the exact rendered surface. Streets keep the heightfield below:
 // wheel rays cast from under the deck never reach it, so underpasses work.
+/** Pillar footprints of the memoized build — `pnpm test` asserts none sit in a street. */
+export function freewayPillars(terrain: Terrain, network?: RoadNetwork): readonly PillarSpot[] {
+  return buildData(terrain, network).pillars;
+}
+
 export function freewayPhysics(terrain: Terrain, network?: RoadNetwork): Float32Array {
   return new Float32Array(buildData(terrain, network).physPos);
 }

@@ -21,9 +21,11 @@ export const DRAPE_MAX_ERROR = 0.09;
 // resolution (terrain.ts FIELD_STEP) — subdividing much below ~2x that
 // re-samples the same bilinear patch and buys no accuracy, it just multiplies
 // verts. The deepest split level dominates the drape's vertex count, so this
-// floor is the main size knob for the baked world.
+// floor is the main size knob for the baked world; MAX_DEPTH is a runaway
+// guard, and it has to clear the ~240u block-spanning triangles the planar
+// map hands over (240/2^6 = 3.75u, one step above the floor).
 const MIN_EDGE = 3.6;
-const MAX_DEPTH = 4;
+const MAX_DEPTH = 6;
 const UP_DOT = 0.8; // vertices at least this upright adopt the terrain normal
 
 // Meshopt-compressed GLBs arrive with quantized (Int16/interleaved) attributes.
@@ -66,6 +68,97 @@ function mid(a: Vert, b: Vert): Vert {
 // What a drape target must provide — the raw Terrain qualifies, and so does
 // a wrapped field (terrain + street-terrace delta for the SF hill streets).
 export type DrapeField = Pick<Terrain, "heightAt" | "normalInto">;
+
+// --- Layering a decal ON a draped surface ---
+// Two meshes draped over the same field still disagree: each is only within
+// its tolerance of the terrain, and the wide surface's chords cut corners the
+// narrow decal's don't. Guessing a lift big enough to cover the worst case is
+// what put road paint 0.3u — higher than the kerb — above the asphalt. Sample
+// the surface that was ALREADY draped instead, and the decal lies on it.
+
+export type SurfaceSampler = (x: number, z: number) => number | null;
+
+/** Point-in-triangle height lookup over a draped, world-space surface. */
+export function surfaceSampler(geo: THREE.BufferGeometry): SurfaceSampler {
+  const pos = geo.getAttribute("position");
+  const idx = geo.index;
+  const triCount = (idx ? idx.count : pos.count) / 3;
+  const CELL = 12;
+  const grid = new Map<number, number[]>();
+  const cellKey = (cx: number, cz: number): number => (cx + 4096) * 16384 + (cz + 4096);
+  const vi = (t: number, k: number): number => (idx ? idx.getX(t * 3 + k) : t * 3 + k);
+  for (let t = 0; t < triCount; t++) {
+    let x0 = Infinity;
+    let x1 = -Infinity;
+    let z0 = Infinity;
+    let z1 = -Infinity;
+    for (let k = 0; k < 3; k++) {
+      const i = vi(t, k);
+      const x = pos.getX(i);
+      const z = pos.getZ(i);
+      x0 = Math.min(x0, x);
+      x1 = Math.max(x1, x);
+      z0 = Math.min(z0, z);
+      z1 = Math.max(z1, z);
+    }
+    for (let cx = Math.floor(x0 / CELL); cx <= Math.floor(x1 / CELL); cx++) {
+      for (let cz = Math.floor(z0 / CELL); cz <= Math.floor(z1 / CELL); cz++) {
+        const k = cellKey(cx, cz);
+        const arr = grid.get(k);
+        if (arr) arr.push(t);
+        else grid.set(k, [t]);
+      }
+    }
+  }
+  return (x: number, z: number): number | null => {
+    const bucket = grid.get(cellKey(Math.floor(x / CELL), Math.floor(z / CELL)));
+    if (!bucket) return null;
+    let best: number | null = null;
+    for (const t of bucket) {
+      const ia = vi(t, 0);
+      const ib = vi(t, 1);
+      const ic = vi(t, 2);
+      const ax = pos.getX(ia);
+      const az = pos.getZ(ia);
+      const bx = pos.getX(ib);
+      const bz = pos.getZ(ib);
+      const cx = pos.getX(ic);
+      const cz = pos.getZ(ic);
+      const den = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz);
+      if (Math.abs(den) < 1e-9) continue;
+      const w0 = ((bz - cz) * (x - cx) + (cx - bx) * (z - cz)) / den;
+      const w1 = ((cz - az) * (x - cx) + (ax - cx) * (z - cz)) / den;
+      const w2 = 1 - w0 - w1;
+      if (w0 < -1e-4 || w1 < -1e-4 || w2 < -1e-4) continue;
+      const y = w0 * pos.getY(ia) + w1 * pos.getY(ib) + w2 * pos.getY(ic);
+      // Overlapping shells (a junction patch meeting its arm strips) — the
+      // decal belongs on the one the player sees, i.e. the highest.
+      if (best === null || y > best) best = y;
+    }
+    return best;
+  };
+}
+
+/**
+ * Re-seat a draped decal onto `sample`'s surface at `lift`. Vertices the
+ * sampler doesn't cover (paint grazing past the asphalt boundary) keep their
+ * own draped height plus `fallbackLift` — the old float, but only there.
+ */
+export function seatOnSurface(
+  geo: THREE.BufferGeometry,
+  sample: SurfaceSampler | null,
+  lift: number,
+  fallbackLift: number,
+): void {
+  const pos = geo.getAttribute("position");
+  if (!(pos instanceof THREE.BufferAttribute)) return;
+  const arr = pos.array;
+  for (let i = 0; i < pos.count; i++) {
+    const y = sample ? sample(arr[i * 3] ?? 0, arr[i * 3 + 2] ?? 0) : null;
+    arr[i * 3 + 1] = y === null ? (arr[i * 3 + 1] ?? 0) + fallbackLift : y + lift;
+  }
+  pos.needsUpdate = true;
+}
 
 // The geometry must already be in world space (matrixWorld baked in).
 // `maxError` loosens the sag tolerance per call: thin decals on a raised lift
@@ -126,9 +219,22 @@ export function conformToTerrain(
     const dx = p[0] - q[0];
     const dz = p[2] - q[2];
     if (Math.hypot(dx, dz) < MIN_EDGE) return false;
-    const hMid = terrain.heightAt((p[0] + q[0]) / 2, (p[2] + q[2]) / 2);
-    const hAvg = (terrain.heightAt(p[0], p[2]) + terrain.heightAt(q[0], q[2])) / 2;
-    return Math.abs(hMid - hAvg) > maxError;
+    const hA = terrain.heightAt(p[0], p[2]);
+    const hB = terrain.heightAt(q[0], q[2]);
+    // Probe at 1/4, 1/2 and 3/4 — not just the midpoint. The street terrace is
+    // flat-ramp-flat and antisymmetric about a block's middle, so an edge that
+    // spans one scores exactly zero at the midpoint and never splits: the
+    // surface then cuts straight through the landing it is supposed to follow.
+    // The lerp is written symmetrically (a*(1-t) + b*t, never a + (b-a)*t) so
+    // two triangles sharing an edge evaluate it bit-for-bit alike and can't
+    // disagree about splitting it — the T-junction crack the split cases below
+    // exist to avoid.
+    for (const t of [0.25, 0.5, 0.75]) {
+      const x = p[0] * (1 - t) + q[0] * t;
+      const z = p[2] * (1 - t) + q[2] * t;
+      if (Math.abs(terrain.heightAt(x, z) - (hA * (1 - t) + hB * t)) > maxError) return true;
+    }
+    return false;
   };
 
   // Split only the edges that need it (1-, 2- and 3-edge cases). The old

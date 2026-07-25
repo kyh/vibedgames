@@ -366,6 +366,27 @@ export function makeTerracedDrapeField(network: RoadNetwork, terrain: Terrain): 
   };
 }
 
+/**
+ * Height of the surface a static prop STANDS ON — the two things that are
+ * actually drawn, not the field they sample. Inside the paved corridor that is
+ * the road drape (terrain + terrace); outside it, the ground mesh as
+ * tessellated, which smears both the street depression and the terrace over
+ * its ~9u lattice. Seating on `terrain.heightAt` buried or floated props by up
+ * to the full terrace cap — half a lamp post underground, hydrants in the air.
+ */
+export function makeStandingSurface(
+  network: RoadNetwork,
+  terrain: Terrain,
+  groundOffset: (x: number, z: number) => number,
+  roadDrape: DrapeField,
+): (x: number, z: number) => number {
+  return (x: number, z: number): number => {
+    const hit = network.nearest(x, z, ROAD_TILE * 1.4);
+    if (hit && hit.dist <= hit.edge.half + walkFor(hit.edge.half)) return roadDrape.heightAt(x, z);
+    return terrain.renderedHeightAt(x, z, groundOffset);
+  };
+}
+
 // Street depression profile: the ground drops −0.35 under the pavement
 // (clearance v < 1.6 beyond the asphalt edge) and feathers back to the
 // natural field by v = 4.6.
