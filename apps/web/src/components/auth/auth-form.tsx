@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearch } from "@tanstack/react-router";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { INVITE_CODE_LENGTH } from "@repo/api/auth/utils";
@@ -8,7 +8,7 @@ import { Input } from "@repo/ui/components/input";
 import { OTPInput } from "@repo/ui/components/otp-input";
 import { toast } from "@repo/ui/components/sonner";
 import { cn } from "@repo/ui/lib/utils";
-import { EASE_OUT } from "@repo/ui/lib/motion";
+import { BLUR_FADE } from "@repo/ui/lib/motion";
 import { useShake } from "@repo/ui/hooks/use-shake";
 import { useMutation } from "@tanstack/react-query";
 import { AnimatePresence, motion, MotionConfig } from "motion/react";
@@ -35,72 +35,74 @@ const safeNextPath = (path?: string): string =>
 
 type StepFormProps = { callbackUrl?: string } & React.HTMLAttributes<HTMLDivElement>;
 
-/**
- * The two register steps live side by side on an imaginary rail: the invite
- * code sits left of the credentials. Each panel enters and leaves through its
- * OWN edge, so advancing reads as travel to the right and "Change" as travel
- * back — without either panel tracking which direction it was pushed.
- */
-const STEP_OFFSET = 16;
-
-// The outgoing panel leaves faster than the incoming one arrives, so the two
-// overlap as a crossfade rather than reading as one long slide.
-const STEP_ENTER = { type: "spring" as const, bounce: 0, visualDuration: 0.28 };
-const STEP_EXIT = { duration: 0.12, ease: EASE_OUT };
-
-const stepMotion = (side: "left" | "right") => {
-  const x = side === "left" ? -STEP_OFFSET : STEP_OFFSET;
-  return {
-    initial: { opacity: 0, x },
-    animate: { opacity: 1, x: 0, transition: STEP_ENTER },
-    exit: { opacity: 0, x, transition: STEP_EXIT },
-  };
-};
+/** The height change outlives the crossfade, so it gets a spring of its own. */
+const STAGE_RESIZE = { type: "spring" as const, bounce: 0, visualDuration: 0.28 };
 
 /**
  * Controlled two-step register flow. The parent owns `verifiedCode` so it can
  * drive surrounding UI (e.g. the header subtitle): `null` = invite step, a
  * code = credentials step.
  *
- * `layout` on the rail carries the height change between the one-row invite
- * step and the taller credentials step; without it the page snaps. It needs
- * `mode="popLayout"` to work: `mode="wait"` swaps children from inside
- * `AnimatePresence`, so the rail never re-renders and never re-measures.
+ * The stage animates its REAL height between the one-row invite step and the
+ * taller credentials step. Motion's `layout` prop is the obvious tool and the
+ * wrong one here: it fakes the resize with a transform, so the element's
+ * layout box still jumps in a single frame and everything around it — heading
+ * above, footer below — snaps to the new position while the stage merely looks
+ * smooth. Measuring the content and animating `height` moves the page as one.
  */
 export const RegisterForm = ({
   className,
   callbackUrl,
   verifiedCode,
   onVerifiedCodeChange,
+  onVerifyingChange,
   ...props
 }: StepFormProps & {
   verifiedCode: string | null;
   onVerifiedCodeChange: (code: string | null) => void;
+  /** Reports the invite round-trip so the page can swap its footer for a spinner. */
+  onVerifyingChange: (verifying: boolean) => void;
 }) => {
   const search = useSearch({ from: "/auth" });
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [stageHeight, setStageHeight] = useState<number | "auto">("auto");
+
+  useEffect(() => {
+    const content = contentRef.current;
+    if (!content) return undefined;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) setStageHeight(entry.contentRect.height);
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <div className={cn("grid gap-6", className)} {...props}>
       <MotionConfig reducedMotion="user">
-        <motion.div layout transition={{ layout: STEP_ENTER }} className="grid">
-          <AnimatePresence mode="popLayout" initial={false}>
-            {verifiedCode ? (
-              <motion.div key="credentials" {...stepMotion("right")}>
-                <RegisterCredentialsStep
-                  inviteCode={verifiedCode}
-                  callbackUrl={callbackUrl}
-                  onChangeCode={() => onVerifiedCodeChange(null)}
-                />
-              </motion.div>
-            ) : (
-              <motion.div key="invite" {...stepMotion("left")}>
-                <InviteCodeStep
-                  defaultValue={search.invite ?? ""}
-                  onValidated={(code) => onVerifiedCodeChange(code)}
-                />
-              </motion.div>
-            )}
-          </AnimatePresence>
+        <motion.div initial={false} animate={{ height: stageHeight }} transition={STAGE_RESIZE}>
+          <div ref={contentRef} className="grid">
+            <AnimatePresence mode="popLayout" initial={false}>
+              {verifiedCode ? (
+                <motion.div key="credentials" {...BLUR_FADE}>
+                  <RegisterCredentialsStep
+                    inviteCode={verifiedCode}
+                    callbackUrl={callbackUrl}
+                    onChangeCode={() => onVerifiedCodeChange(null)}
+                  />
+                </motion.div>
+              ) : (
+                <motion.div key="invite" {...BLUR_FADE}>
+                  <InviteCodeStep
+                    defaultValue={search.invite ?? ""}
+                    onValidated={(code) => onVerifiedCodeChange(code)}
+                    onVerifyingChange={onVerifyingChange}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
         </motion.div>
       </MotionConfig>
     </div>
@@ -113,13 +115,18 @@ export const RegisterForm = ({
  * query client's default mutation `onError` (router.tsx) — toasting here too
  * would double it. Resolving `verify` to the server's canonical code makes
  * `onSuccess` receive it directly.
+ *
+ * `verifying` brackets the round trip only — it clears the moment a verdict
+ * lands, so nothing is still "loading" while the cells confirm.
  */
 const InviteCodeStep = ({
   defaultValue,
   onValidated,
+  onVerifyingChange,
 }: {
   defaultValue: string;
   onValidated: (code: string) => void;
+  onVerifyingChange: (verifying: boolean) => void;
 }) => {
   const trpc = useTRPC();
   const validate = useMutation(trpc.auth.validateInvite.mutationOptions());
@@ -137,12 +144,19 @@ const InviteCodeStep = ({
         normalizeValue={(value) => value.toUpperCase()}
         defaultValue={defaultValue}
         group
-        verify={(code) =>
-          validate.mutateAsync({ code }).then(
-            (data) => data.code,
-            () => false,
-          )
-        }
+        verify={(code) => {
+          onVerifyingChange(true);
+          return validate.mutateAsync({ code }).then(
+            (data) => {
+              onVerifyingChange(false);
+              return data.code;
+            },
+            () => {
+              onVerifyingChange(false);
+              return false;
+            },
+          );
+        }}
         onSuccess={onValidated}
       />
     </Field>
