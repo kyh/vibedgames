@@ -33,7 +33,17 @@ export const WORLD_HALF_Z = WORLD_H / 2;
 export const CHUNK = 320;
 // ~12M tris/frame at 1900 (the whole city fit inside the fog) — SF haze pulls
 // in instead: full fog by ~1250, chunks released just past it.
-export const DRAW_DISTANCE = 760; // fog far ~900: beyond it is invisible anyway
+//
+// 900, not 760, and NOT the 1100 that was asked for. 760 released merged chunks
+// INSIDE the daylight fog far plane (800), which is the one thing the rule above
+// forbids. Measured from the Twin Peaks summit at noon (the worst vista in the
+// game): 760 = 176 draws / 4.54M tris, 900 = 203 / 4.64M, 1100 = 212 / 4.64M.
+// So 900 buys the invariant back for +27 draws and +2% triangles, and the extra
+// 200u costs another 9 draws for geometry that is not distinguishable from its
+// own imposter through the haze — A/B'd at 800-900u and the crops are identical.
+// Past ~1100 the imposter tiers already carry the skyline; this is not the knob
+// that makes the distance read, the fog grade is (render/aerial-fog.ts).
+export const DRAW_DISTANCE = 900; // fog far 800 by day, 700 at night
 
 // --- Car (arcade handling) ---
 // Turn radius R = speed / (turnRate·authority). A road tile is ROAD_TILE (13u)

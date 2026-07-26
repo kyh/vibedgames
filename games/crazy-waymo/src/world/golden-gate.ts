@@ -2,6 +2,7 @@ import * as THREE from "three";
 
 import type { ModelCache } from "../assets/loader";
 import { BRIDGE_PILLAR_WIDE, modelUrl, PARK_TREES, ROAD_BRIDGE } from "../assets/manifest";
+import type { Beacon } from "../fx/beacon-lights";
 import { GRID_X, GRID_Z, WORLD_HALF_Z, WORLD_W } from "../shared/constants";
 import type { CityPlan } from "./grid";
 import type { Solid, SurfaceDeck } from "./city";
@@ -20,6 +21,7 @@ const DECK_W = 10; // drivable width
 const RAMP_LEN = 26;
 const RAIL_T = 0.8;
 const TOWER_H = 26; // above deck
+const LAMP_H = 2.4; // parapet lamp head above the deck
 // Hunt for the shore anchor around u≈0.25 (map fractions, not world units —
 // the map rescales).
 const APPROACH_U_MIN = 0.19;
@@ -34,12 +36,17 @@ const jit = (i: number, k: number): number => {
   return s - Math.floor(s);
 };
 
-export type GoldenGateCtx = {
+/** Everything the placement solve needs — no model cache, so it is callable
+ * from the baked-bin load path where no geometry is being built. */
+export type GoldenGatePlanCtx = {
   readonly plan: CityPlan;
   readonly terrain: Terrain;
-  readonly cache: ModelCache;
   readonly worldX: (gx: number) => number;
   readonly worldZ: (gz: number) => number;
+};
+
+export type GoldenGateCtx = GoldenGatePlanCtx & {
+  readonly cache: ModelCache;
 };
 
 export type GoldenGateResult = {
@@ -48,6 +55,161 @@ export type GoldenGateResult = {
   readonly decks: readonly SurfaceDeck[];
   readonly openWaterCells: ReadonlySet<string>;
 };
+
+// The geometry-free half of the bridge: where it starts, how high it runs and
+// where it lands. Split out because the MESHES are baked into the world bins
+// (buildGoldenGate only runs on a cold generation) while the night lights are
+// runtime-only and must be published on BOTH load paths — see city.ts.
+export type GoldenGatePlan = {
+  readonly ax: number;
+  readonly anchorGx: number;
+  readonly anchorGz: number;
+  readonly shoreZ: number;
+  readonly shoreH: number;
+  readonly endZ: number;
+  readonly rampLen: number;
+  readonly rampTopZ: number;
+  readonly kneeZ: number;
+  readonly kneeY: number;
+  readonly deckY: number;
+  readonly half: number;
+  readonly landfallZ: number | null;
+  readonly northEndZ: number;
+  readonly railMinZ: number;
+  readonly railMaxZ: number;
+  readonly towerZ: number;
+  readonly topY: number;
+};
+
+/** Height along the two-stage ramp, t = 0 at the shore, 1 at the deck. */
+function rampProfile(plan: GoldenGatePlan, t: number): number {
+  const tc = THREE.MathUtils.clamp(t, 0, 1);
+  return tc < 0.68
+    ? THREE.MathUtils.lerp(plan.shoreH, plan.kneeY, tc / 0.68)
+    : THREE.MathUtils.lerp(plan.kneeY, plan.deckY, (tc - 0.68) / 0.32);
+}
+
+/**
+ * Solve the bridge's placement. Cheap — one grid scan plus arithmetic, no
+ * meshes — so both the cold-gen path and the baked-bin path can call it.
+ * Null when the Presidio coast road the ramp needs does not exist.
+ */
+export function goldenGatePlan(ctx: GoldenGatePlanCtx): GoldenGatePlan | null {
+  // --- Anchor: the northernmost road cell on the Presidio coast near u 0.25 ---
+  let anchor: { gx: number; gz: number } | null = null;
+  for (let gx = 0; gx < GRID_X; gx++) {
+    const wx = ctx.worldX(gx);
+    const u = wx / WORLD_W + 0.5;
+    if (u < APPROACH_U_MIN || u > APPROACH_U_MAX) continue;
+    for (let gz = 8; gz < GRID_Z; gz++) {
+      // gz >= 8 skips the Marin headland strip (v < 0.04): the anchor must
+      // stay on the Presidio shore even now that land exists across the water.
+      if (ctx.plan.cells[gx]?.[gz] !== "road") continue;
+      if (!anchor || gz < anchor.gz) anchor = { gx, gz };
+      break; // first road in this column is the northernmost
+    }
+  }
+  if (!anchor) return null;
+
+  const ax = ctx.worldX(anchor.gx);
+  const shoreZ = ctx.worldZ(anchor.gz);
+  const shoreH = ctx.terrain.heightAt(ax, shoreZ) + 0.04;
+  const endZ = -WORLD_HALF_Z + 3.5; // fallback dead-end just inside the border wall
+  // Fit the ramp to the water span actually available; cap the climb at ~20°.
+  const span = shoreZ - endZ;
+  const rampLen = THREE.MathUtils.clamp(span * 0.6, 10, RAMP_LEN);
+  const deckY = Math.min(DECK_Y, shoreH + rampLen * 0.36);
+  const rampTopZ = shoreZ - rampLen; // north = -Z
+  // Two-stage ramp (steep, then a gentle crown) so cresting onto the deck at
+  // speed pops a small hop instead of launching you into the end barrier.
+  const kneeZ = shoreZ - rampLen * 0.68;
+  const kneeY = shoreH + (deckY - shoreH) * 0.8;
+
+  // --- Marin landfall: where Battery Ridge climbs through deck height. The
+  // deck overlaps the rising ground a touch and max(deck, terrain) hands the
+  // car to the hill seamlessly. If the ridge is somehow missing (terrain
+  // never reaches deck height), fall back to the old railed dead-end. ---
+  let landfallZ: number | null = null;
+  for (let z = rampTopZ - 8; z >= -WORLD_HALF_Z + 6; z -= 2) {
+    if (ctx.terrain.heightAt(ax, z) >= deckY - 0.2) {
+      landfallZ = z;
+      break;
+    }
+  }
+  const northEndZ = landfallZ ?? endZ;
+  // With a Marin landfall the tower stands in the water just off the headland
+  // (where the real north tower lives); the fallback keeps it near the border.
+  const towerZ = landfallZ !== null ? Math.min(landfallZ + 18, rampTopZ - 10) : -WORLD_HALF_Z + 14;
+
+  return {
+    ax,
+    anchorGx: anchor.gx,
+    anchorGz: anchor.gz,
+    shoreZ,
+    shoreH,
+    endZ,
+    rampLen,
+    rampTopZ,
+    kneeZ,
+    kneeY,
+    deckY,
+    half: DECK_W / 2,
+    landfallZ,
+    northEndZ,
+    railMinZ: landfallZ !== null ? landfallZ - 1 : endZ,
+    railMaxZ: shoreZ - 1,
+    towerZ,
+    topY: deckY + TOWER_H,
+  };
+}
+
+// Parapet lamp stations, one entry per post: both sides of the deck, spaced
+// ~11u along the run. The beacons and the baked fixtures are both derived from
+// this, so a halo can never end up without a post under it.
+function lampStations(plan: GoldenGatePlan): { x: number; y: number; z: number }[] {
+  const out: { x: number; y: number; z: number }[] = [];
+  const span = plan.railMaxZ - plan.railMinZ;
+  const n = Math.max(2, Math.round(span / 11));
+  for (let i = 0; i < n; i++) {
+    const lz = plan.railMaxZ - (span * (i + 0.5)) / n;
+    const ly =
+      lz > plan.rampTopZ ? rampProfile(plan, (plan.shoreZ - lz) / plan.rampLen) : plan.deckY;
+    for (const sx of [-(plan.half + RAIL_T / 2), plan.half + RAIL_T / 2]) {
+      out.push({ x: plan.ax + sx, y: ly, z: lz });
+    }
+  }
+  return out;
+}
+
+/**
+ * Night lights for the bridge — warm deck string plus red aviation beacons on
+ * the tower tops. Same colours as the Bay Bridge (landmarks.ts) so the two
+ * crossings read as one city after dark.
+ */
+export function goldenGateBeacons(plan: GoldenGatePlan): readonly Beacon[] {
+  const beacons: Beacon[] = [];
+  for (const sx of [-(plan.half + 2.2), plan.half + 2.2]) {
+    beacons.push({
+      x: plan.ax + sx,
+      y: plan.topY + 1.2,
+      z: plan.towerZ,
+      color: 0xff4436,
+      size: 3.4,
+      blinkS: 2.6,
+    });
+  }
+  for (const st of lampStations(plan)) {
+    beacons.push({
+      x: st.x,
+      y: st.y + LAMP_H,
+      z: st.z,
+      color: 0xffd9a0,
+      size: 2.1,
+      groundY: st.y + 0.05,
+    });
+  }
+  return beacons;
+}
 
 function mesh(
   geo: THREE.BufferGeometry,
@@ -70,51 +232,28 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
   const decks: SurfaceDeck[] = [];
   const openWaterCells = new Set<string>();
 
-  // --- Anchor: the northernmost road cell on the Presidio coast near u 0.25 ---
-  let anchor: { gx: number; gz: number } | null = null;
-  for (let gx = 0; gx < GRID_X; gx++) {
-    const wx = ctx.worldX(gx);
-    const u = wx / WORLD_W + 0.5;
-    if (u < APPROACH_U_MIN || u > APPROACH_U_MAX) continue;
-    for (let gz = 8; gz < GRID_Z; gz++) {
-      // gz >= 8 skips the Marin headland strip (v < 0.04): the anchor must
-      // stay on the Presidio shore even now that land exists across the water.
-      if (ctx.plan.cells[gx]?.[gz] !== "road") continue;
-      if (!anchor || gz < anchor.gz) anchor = { gx, gz };
-      break; // first road in this column is the northernmost
-    }
-  }
-  if (!anchor) return { objects, solids, decks, openWaterCells };
-
-  const ax = ctx.worldX(anchor.gx);
-  const shoreZ = ctx.worldZ(anchor.gz);
-  const shoreH = ctx.terrain.heightAt(ax, shoreZ) + 0.04;
-  const endZ = -WORLD_HALF_Z + 3.5; // fallback dead-end just inside the border wall
-  // Fit the ramp to the water span actually available; cap the climb at ~20°.
-  const span = shoreZ - endZ;
-  const rampLen = THREE.MathUtils.clamp(span * 0.6, 10, RAMP_LEN);
-  const deckY = Math.min(DECK_Y, shoreH + rampLen * 0.36);
-  const rampTopZ = shoreZ - rampLen; // north = -Z
-  const half = DECK_W / 2;
-
-  // --- Marin landfall: where Battery Ridge climbs through deck height. The
-  // deck overlaps the rising ground a touch and max(deck, terrain) hands the
-  // car to the hill seamlessly. If the ridge is somehow missing (terrain
-  // never reaches deck height), fall back to the old railed dead-end. ---
-  let landfallZ: number | null = null;
-  for (let z = rampTopZ - 8; z >= -WORLD_HALF_Z + 6; z -= 2) {
-    if (ctx.terrain.heightAt(ax, z) >= deckY - 0.2) {
-      landfallZ = z;
-      break;
-    }
-  }
-  const northEndZ = landfallZ ?? endZ;
+  const plan = goldenGatePlan(ctx);
+  if (!plan) return { objects, solids, decks, openWaterCells };
+  const {
+    ax,
+    shoreZ,
+    shoreH,
+    endZ,
+    rampLen,
+    rampTopZ,
+    kneeZ,
+    kneeY,
+    deckY,
+    half,
+    landfallZ,
+    northEndZ,
+    railMinZ,
+    railMaxZ,
+    towerZ,
+    topY,
+  } = plan;
 
   // --- Drivable surface ---
-  // Two-stage ramp (steep, then a gentle crown) so cresting onto the deck at
-  // speed pops a small hop instead of launching you into the end barrier.
-  const kneeZ = shoreZ - rampLen * 0.68;
-  const kneeY = shoreH + (deckY - shoreH) * 0.8;
   decks.push({ minX: ax - half, maxX: ax + half, minZ: kneeZ, maxZ: shoreZ, y: kneeY, y2: shoreH });
   decks.push({
     minX: ax - half,
@@ -145,8 +284,6 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
   }
 
   // --- Rails (full height; you do not fall off the Golden Gate) ---
-  const railMinZ = landfallZ !== null ? landfallZ - 1 : endZ;
-  const railMaxZ = shoreZ - 1;
   solids.push({ minX: ax - half - RAIL_T, maxX: ax - half, minZ: railMinZ, maxZ: railMaxZ });
   solids.push({ minX: ax + half, maxX: ax + half + RAIL_T, minZ: railMinZ, maxZ: railMaxZ });
   // End barrier only on the dead-end fallback — landfall is an open road.
@@ -160,8 +297,9 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
   }
 
   // --- Open the water cells the span crosses (no invisible shoreline walls) ---
-  for (let gz = anchor.gz; gz >= 0; gz--) {
-    if (ctx.plan.cells[anchor.gx]?.[gz] === "water") openWaterCells.add(`${anchor.gx},${gz}`);
+  for (let gz = plan.anchorGz; gz >= 0; gz--) {
+    if (ctx.plan.cells[plan.anchorGx]?.[gz] === "water")
+      openWaterCells.add(`${plan.anchorGx},${gz}`);
   }
 
   // --- Visuals ---
@@ -171,20 +309,13 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
   const segLen = 8;
   const boardScaleX = (DECK_W + 1.6) / Math.max(db.size.x, 0.001);
   const boardScaleZ = segLen / Math.max(db.size.z, 0.001);
-  // Height along the two-stage ramp, t = 0 at the shore, 1 at the deck.
-  const rampProfile = (t: number): number => {
-    const tc = THREE.MathUtils.clamp(t, 0, 1);
-    return tc < 0.68
-      ? THREE.MathUtils.lerp(shoreH, kneeY, tc / 0.68)
-      : THREE.MathUtils.lerp(kneeY, deckY, (tc - 0.68) / 0.32);
-  };
   const rampSegs = Math.ceil(rampLen / 4);
   const rampSegLen = rampLen / rampSegs;
   for (let i = 0; i < rampSegs; i++) {
     const t0 = i / rampSegs;
     const t1 = (i + 1) / rampSegs;
-    const h0 = rampProfile(t0);
-    const h1 = rampProfile(t1);
+    const h0 = rampProfile(plan, t0);
+    const h1 = rampProfile(plan, t1);
     const pitch = Math.atan((h1 - h0) / rampSegLen);
     const seg = ctx.cache.instance(deckUrl);
     seg.scale.set(boardScaleX, 1.6, rampSegLen / Math.max(db.size.z, 0.001) / Math.cos(pitch));
@@ -257,11 +388,17 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
     objects.push(p);
   }
 
+  // Parapet lamp posts. The halos come from goldenGateBeacons (runtime), the
+  // fixtures from here (baked) — both off the same lampStations list, so a
+  // glow never floats without a post under it.
+  const postGeo = new THREE.BoxGeometry(0.16, LAMP_H, 0.16);
+  const headGeo = new THREE.BoxGeometry(0.55, 0.55, 0.55);
+  for (const st of lampStations(plan)) {
+    objects.push(mesh(postGeo, RAIL_ORANGE, st.x, st.y + LAMP_H / 2, st.z));
+    objects.push(mesh(headGeo, RAIL_ORANGE, st.x, st.y + LAMP_H, st.z));
+  }
+
   // Tower: legs OUTSIDE the drivable width, portal beams the car passes under.
-  // With a Marin landfall the tower stands in the water just off the headland
-  // (where the real north tower lives); the fallback keeps it near the border.
-  const towerZ = landfallZ !== null ? Math.min(landfallZ + 18, rampTopZ - 10) : -WORLD_HALF_Z + 14;
-  const topY = deckY + TOWER_H;
   for (const sx of [-(half + 2.2), half + 2.2]) {
     objects.push(
       mesh(

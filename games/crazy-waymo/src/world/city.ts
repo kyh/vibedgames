@@ -13,6 +13,7 @@ import {
   TREE_SMALL,
   GARAGE_MODEL,
 } from "../assets/manifest";
+import { registerBeacons } from "../fx/beacon-lights";
 import {
   CHUNK,
   CITY_SEED,
@@ -30,7 +31,7 @@ import { type Dir, DIR_DELTA, E, N, S, W } from "../shared/types";
 import { type DrapeField, toFloat32Attributes } from "./conform";
 import { activeMapProps } from "./map-file";
 import { buildFurniture, type LampHead, type ParkedSpec } from "./furniture";
-import { buildGoldenGate } from "./golden-gate";
+import { buildGoldenGate, goldenGateBeacons, goldenGatePlan } from "./golden-gate";
 import { RoadNetwork } from "./network";
 import { type CityPlan, generateCity } from "./grid";
 import { CUSTOM_MAP, editorMode, loadLocalOverrides } from "./custom-map";
@@ -1810,6 +1811,7 @@ export class CityModel {
       this.group.add(buildLandmarks(this.terrain, this.cache, this.network));
       this.group.add(buildFreeways(this.terrain, this.network));
       this.group.add(buildPiers(this.terrain));
+      this.lightGoldenGate();
 
       // City-rest cache capture: phases 2+3 output in serializable form. Only
       // stored when every batch item is source-tagged (else a rebuild would
@@ -1976,6 +1978,21 @@ export class CityModel {
     this.group.add(buildLandmarks(this.terrain, this.cache, this.network));
     this.group.add(buildFreeways(this.terrain, this.network));
     this.group.add(buildPiers(this.terrain));
+    this.lightGoldenGate();
+  }
+
+  // The Golden Gate's MESHES are baked (buildGoldenGate runs on cold gen only,
+  // its output lands in rest.bin), but beacons are a runtime registry — so the
+  // bridge would be dark on every load that hits the bins, i.e. all of them.
+  // Re-solving the placement is a grid scan plus arithmetic; both paths call it.
+  private lightGoldenGate(): void {
+    const gg = goldenGatePlan({
+      plan: this.plan,
+      terrain: this.terrain,
+      worldX: (g) => this.worldX(g),
+      worldZ: (g) => this.worldZ(g),
+    });
+    if (gg) registerBeacons("golden-gate", goldenGateBeacons(gg));
   }
 
   // Build BatchedMeshes (+ box imposters + chunk instance maps) from filled

@@ -73,6 +73,13 @@ bake-network.mts`) from the same park-cleared polylines — car-free-park
   paint run into the junction). A circular approximation over-clips along the
   arms, which is what left most of the 20–40u SF blocks with no centre line.
   `pnpm test` asserts the resulting coverage.
+- **Two load paths, and only some builders run on both.** `buildLandmarks`,
+  `buildFreeways` and `buildPiers` are rebuilt live on the cold-gen path AND
+  the baked-rest path. `buildGoldenGate` runs on cold gen ONLY — its meshes go
+  into `rest.bin` — so anything runtime-only it wants to publish (night
+  beacons) has to come from `goldenGatePlan` + `goldenGateBeacons`, which
+  `city.ts lightGoldenGate()` calls next to `buildLandmarks` on both paths.
+  Registering beacons inside a gen-only builder lights the world for nobody.
 - **god objects**: `world/city.ts` (placement + render batching + rest
   capture) and `scenes/game-scene.ts` (loop + modes + loading). Extract seams
   opportunistically (surface.ts and fx/vehicle-fx.ts are the pattern), don't

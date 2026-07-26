@@ -1,5 +1,6 @@
 import * as THREE from "three";
 
+import { type Beacon, registerBeacons } from "../fx/beacon-lights";
 import type { ModelCache } from "../assets/loader";
 import { BUILDINGS_SUBURBAN, modelUrl } from "../assets/manifest";
 import {
@@ -53,6 +54,13 @@ export type LandmarkCtx = {
    * fighting the drape.
    */
   readonly onAsphalt: (lx: number, lz: number, margin: number) => boolean;
+  /**
+   * A landmark-LOCAL point in world space, placement rotation, scale and seat
+   * height applied. Geometry never needs this — it is authored in local space
+   * and the group carries the transform — but anything a monument publishes to
+   * a world-space registry does (the night beacons in fx/beacon-lights.ts).
+   */
+  readonly worldPoint: (lx: number, ly: number, lz: number) => readonly [number, number, number];
 };
 
 /**
@@ -126,14 +134,49 @@ function coitTower(): THREE.Group {
   return g;
 }
 
-// Ferry Building — long arcade with a central clock tower. Kept short enough
-// (26 × scale ≈ 36u ≈ 3 cells) that its footprint stays off the road grid.
-function ferryBuilding(): THREE.Group {
+// Ferry Building — the long arcade and its clock tower, authored in world
+// units at MEASURED size. The marine extract puts the tower at 16.2u (72 m,
+// against the real 74.7 m); the old KIT_SCALE version topped out at 42u/188 m,
+// two and a half times over, which made the waterfront's calmest landmark the
+// tallest thing on it. The arcade block is the real 201 m × 34 m footprint.
+const FERRY_LEN = 45.2; // 201 m of arcade, long axis local +X
+const FERRY_DEPTH = 7.6; // 34 m
+const FERRY_EAVES = 4.2; // ~19 m to the cornice
+const FERRY_TOWER = 16.2; // measured tower top
+function ferryBuilding(ctx: LandmarkCtx): THREE.Group {
   const g = new THREE.Group();
-  g.add(box(26, 7, 7, MAT.cream, 0, 3.5, 0));
-  g.add(box(4.5, 22, 4.5, MAT.cream, 0, 11, 0));
-  g.add(box(3, 3, 0.4, MAT.steel, 0, 18, 2.3)); // clock face
-  g.add(mesh(new THREE.ConeGeometry(3, 4, 4), MAT.cream, 0, 24, 0));
+  const W = FERRY_LEN;
+  const D = FERRY_DEPTH;
+  const H = FERRY_EAVES;
+  // It stands ON the shore edge, so the seaward half is over falling ground —
+  // the plinth reaches the lowest point it covers or the block shows daylight.
+  const foot = lowestUnder(ctx, W / 2, D / 2);
+  g.add(box(W + 1.4, 0.8 - foot, D + 1.4, MAT.rock, 0, (0.8 + foot) / 2 - 0.4, 0));
+  g.add(box(W, H, D, MAT.cream, 0, H / 2, 0));
+  g.add(box(W + 0.8, 0.6, D + 0.8, MAT.cream, 0, H + 0.3, 0)); // cornice
+  g.add(box(W - 1.2, 0.5, D - 1.2, MAT.slate, 0, H + 0.8, 0)); // roof
+  // The arcade: a run of tall arched openings on both long faces. It is the
+  // only thing that stops a 45u block reading as a shipping container.
+  const bays = 22;
+  for (let i = 0; i < bays; i++) {
+    const bx = -W / 2 + (W * (i + 0.5)) / bays;
+    for (const sz of [-D / 2, D / 2]) {
+      g.add(box(1.1, 2.6, 0.35, MAT.slate, bx, 1.6, sz));
+    }
+  }
+  // Tower: shaft, colonnaded clock stage, pyramidal cap.
+  const shaft = FERRY_TOWER - 3.8;
+  g.add(box(D, shaft, D, MAT.cream, 0, shaft / 2, 0));
+  g.add(box(D + 0.7, 2.2, D + 0.7, MAT.cream, 0, shaft + 1.1, 0)); // clock stage
+  for (const [cx, cz] of [
+    [0, (D + 0.7) / 2],
+    [0, -(D + 0.7) / 2],
+    [(D + 0.7) / 2, 0],
+    [-(D + 0.7) / 2, 0],
+  ] as const) {
+    g.add(box(cz === 0 ? 0.3 : 2.0, 2.0, cz === 0 ? 2.0 : 0.3, MAT.steel, cx, shaft + 1.1, cz));
+  }
+  g.add(mesh(new THREE.ConeGeometry(D * 0.72, 1.6, 4), MAT.slate, 0, shaft + 3.0, 0));
   return g;
 }
 
@@ -202,25 +245,60 @@ function paintedLadies(ctx: LandmarkCtx): THREE.Group {
 
 // --- The Bay Bridge ------------------------------------------------------
 
-const BAY_DECK_Y = 13; // ~60 m of shipping clearance
-const BAY_TOWER_H = 36; // 160 m towers, true scale
-const BAY_HALF_W = 5.5;
-// Chainage east from the Rincon Hill anchorage at the Embarcadero seawall.
-// The real western crossing is 2.8 km; only ~650u of bay fit between the
-// seawall and the map's east edge, so the two suspension spans are
-// compressed to ~110u each while keeping the real ARRANGEMENT: shore
-// anchorage, tower, centre anchorage, tower, Yerba Buena — then the
-// self-anchored eastern span with its single asymmetric tower.
+// Alignment MEASURED off the licensed downtown model (the marine extract in
+// tools/sf-data): the western crossing bears 40.5° from north, not the 84°
+// this was first authored at — a 43.5° error that aimed it out to sea parallel
+// to the shore. It runs 675u from the Rincon Hill anchorage on the Embarcadero
+// seawall to Yerba Buena, with FOUR towers (two suspension bridges end to end,
+// hinged on a centre anchorage) at the measured 160/175/160u spacing.
+//
+// On the map budget: the crossing is NOT compressed. The old note that "only
+// ~650u of bay fit" was an artefact of the wrong bearing — due east the map
+// edge is 649u away, but on the true north-east heading the full 675u lands
+// Yerba Buena at u 0.934 / v 0.015, inside the map's north-east corner. What
+// does NOT fit is the eastern self-anchored span: its tower would stand ~50u
+// off the north edge, so east of the island only a deck stub runs into the
+// fog. Better an honest true-scale west crossing than a shrunken whole bridge.
+//
+// Local +X runs along the crossing from the shore anchorage; every chainage
+// below is the model's own station minus 305 (the anchorage's station).
+const BAY_DECK_Y = 13; // ~58 m of shipping clearance
+// The model authors its towers at 132 m over a 47 m deck; the real pair is
+// 160 m over ~67 m. Keep the true-scale deck we already had and take the
+// model's PROPORTION instead of its absolute — 93 m of tower above the road.
+// The old 36u tower put the tops at 218 m.
+const BAY_TOWER_H = 21;
+const BAY_HALF_W = 3; // measured roadway 4.7u, plus truss and walkways
+const BAY_CABLE_Z = 4.2; // cable planes = tower leg centres (base ≈ measured 12.9u)
+const BAY_APPROACH = -62; // west end of the descending city approach
+const BAY_RAMP_TOP = -14; // where the approach reaches deck height
 const BAY_ANCHOR_W = 8;
-const BAY_TOWER_1 = 118;
-const BAY_ANCHOR_MID = 232;
-const BAY_TOWER_2 = 346;
-const BAY_YERBA = 462;
-const BAY_SAS_TOWER = 528;
-const BAY_EAST_END = 700; // runs off the map edge into the fog, as it should
+const BAY_TOWER_1 = 65;
+const BAY_TOWER_2 = 225;
+const BAY_ANCHOR_MID = 312;
+const BAY_TOWER_3 = 400;
+const BAY_TOWER_4 = 560;
+const BAY_YERBA = 675;
+const BAY_EAST_END = 760; // off the map's north-east corner, into the fog
+const BAY_ANCHOR_TOP = BAY_DECK_Y + 11;
+
+/**
+ * Main-cable saddles: `[chainage, height, sag to the NEXT saddle]`. Sag is
+ * measured at 18u below the tower tops on a 19.2u tower, so it scales with
+ * BAY_TOWER_H and leaves the cable just clear of the deck at midspan.
+ */
+const BAY_CABLE_SADDLES: readonly (readonly [number, number, number])[] = [
+  [BAY_ANCHOR_W + 4, BAY_ANCHOR_TOP - 1, 1.5],
+  [BAY_TOWER_1, BAY_DECK_Y + BAY_TOWER_H, BAY_TOWER_H - 1.6],
+  [BAY_TOWER_2, BAY_DECK_Y + BAY_TOWER_H, 2.5],
+  [BAY_ANCHOR_MID, BAY_DECK_Y + 13, 2.5],
+  [BAY_TOWER_3, BAY_DECK_Y + BAY_TOWER_H, BAY_TOWER_H - 1.6],
+  [BAY_TOWER_4, BAY_DECK_Y + BAY_TOWER_H, 2],
+  [BAY_YERBA - 10, BAY_ANCHOR_TOP - 1, 0],
+];
 
 /** Deck slab + parapets + the light string, from x0 to x1 at height y. */
-function bayDeck(g: THREE.Group, x0: number, x1: number, y: number): void {
+function bayDeck(g: THREE.Group, x0: number, x1: number, y: number, lamps: THREE.Vector3[]): void {
   const len = x1 - x0;
   const cx = (x0 + x1) / 2;
   g.add(box(len, 1.1, BAY_HALF_W * 2, MAT.steel, cx, y - 0.55, 0)); // upper deck
@@ -229,8 +307,9 @@ function bayDeck(g: THREE.Group, x0: number, x1: number, y: number): void {
     g.add(box(len, 3.4, 0.5, MAT.steel, cx, y - 2.4, sz)); // side truss
     g.add(box(len, 0.9, 0.35, MAT.steel, cx, y + 0.45, sz)); // parapet
   }
-  // Deck lighting: unlit warm boxes on the parapet, one every ~15u. They are
-  // the only thing that keeps the crossing legible after dark.
+  // Deck lighting: warm boxes on the parapet, one every ~15u. They are the
+  // only thing that keeps the crossing legible after dark; each also publishes
+  // a beacon so the string carries a halo and a pool on the roadway.
   const step = 15;
   const n = Math.max(1, Math.round(len / step));
   for (let i = 0; i < n; i++) {
@@ -238,6 +317,7 @@ function bayDeck(g: THREE.Group, x0: number, x1: number, y: number): void {
     for (const sz of [-BAY_HALF_W, BAY_HALF_W]) {
       g.add(box(0.55, 0.55, 0.55, MAT.lamp, x, y + 1.5, sz));
       g.add(box(0.16, 1.4, 0.16, MAT.steel, x, y + 0.9, sz));
+      lamps.push(new THREE.Vector3(x, y + 1.5, sz));
     }
   }
 }
@@ -245,99 +325,143 @@ function bayDeck(g: THREE.Group, x0: number, x1: number, y: number): void {
 /** One western-span tower: two shafts either side of the roadway, braced. */
 function bayTower(g: THREE.Group, x: number): void {
   const top = BAY_DECK_Y + BAY_TOWER_H;
-  for (const sz of [-(BAY_HALF_W + 1.4), BAY_HALF_W + 1.4]) {
-    g.add(box(3.4, top + 8, 3.4, MAT.steel, x, (top - 8) / 2, sz));
+  for (const sz of [-BAY_CABLE_Z, BAY_CABLE_Z]) {
+    g.add(box(2.6, top + 8, 2.6, MAT.steel, x, (top - 8) / 2, sz));
   }
-  for (const by of [BAY_DECK_Y - 6, BAY_DECK_Y + 9, BAY_DECK_Y + 22, top - 2]) {
-    g.add(box(2.4, 1.6, BAY_HALF_W * 2 + 3.4, MAT.steel, x, by, 0));
+  for (const by of [BAY_DECK_Y - 6, BAY_DECK_Y + 6, BAY_DECK_Y + 14, top - 1.5]) {
+    g.add(box(2.0, 1.4, BAY_CABLE_Z * 2 + 2.6, MAT.steel, x, by, 0));
   }
 }
 
-// The Bay Bridge: the west double suspension (shore anchorage → tower →
-// centre anchorage → tower → Yerba Buena) and the self-anchored eastern span
-// with its single asymmetric tower. Authored in world units along +X from
-// the SF landfall, which is the point the (u,v) in the table names.
+/** One main cable, sampled parabolically between the measured saddles. */
+function bayCablePoints(z: number): THREE.Vector3[] {
+  const pts: THREE.Vector3[] = [];
+  for (let i = 0; i < BAY_CABLE_SADDLES.length - 1; i++) {
+    const a = BAY_CABLE_SADDLES[i];
+    const b = BAY_CABLE_SADDLES[i + 1];
+    if (!a || !b) continue;
+    const [ax, ay, sag] = a;
+    const [bx, by] = b;
+    const steps = Math.max(2, Math.round((bx - ax) / 8));
+    for (let s = 0; s < steps; s++) {
+      const t = s / steps;
+      pts.push(
+        new THREE.Vector3(ax + (bx - ax) * t, ay + (by - ay) * t - 4 * sag * t * (1 - t), z),
+      );
+    }
+  }
+  const last = BAY_CABLE_SADDLES[BAY_CABLE_SADDLES.length - 1];
+  if (last) pts.push(new THREE.Vector3(last[0], last[1], z));
+  return pts;
+}
+
+/**
+ * The western approach: a pitched viaduct dropping off the anchorage deck to
+ * the measured 2.4u touchdown on the city grid, instead of the old flat run
+ * that ended 13u up in mid-air. Piers hunt sideways for ground clear of the
+ * roadway before giving up — the real viaduct straddles the streets it
+ * crosses, it does not stand in them.
+ */
+function bayApproach(g: THREE.Group, ctx: LandmarkCtx): void {
+  const D = BAY_DECK_Y;
+  const x0 = BAY_APPROACH;
+  const x1 = BAY_RAMP_TOP;
+  // Clamped at the deck: Rincon Hill already stands ~12u here, so on this
+  // terrain the "ramp" is mostly a short touchdown, never an uphill run.
+  const y0 = THREE.MathUtils.clamp(ctx.groundAt(x0, 0) + 1.4, 2.4, D);
+  const segs = 7;
+  for (let i = 0; i < segs; i++) {
+    const sx0 = x0 + ((x1 - x0) * i) / segs;
+    const sx1 = x0 + ((x1 - x0) * (i + 1)) / segs;
+    const sy0 = y0 + ((D - y0) * i) / segs;
+    const sy1 = y0 + ((D - y0) * (i + 1)) / segs;
+    const len = Math.hypot(sx1 - sx0, sy1 - sy0);
+    const pitch = Math.atan2(sy1 - sy0, sx1 - sx0);
+    const mx = (sx0 + sx1) / 2;
+    const my = (sy0 + sy1) / 2;
+    const slab = box(len, 1.1, BAY_HALF_W * 2, MAT.steel, mx, my - 0.55, 0);
+    slab.rotation.z = pitch;
+    g.add(slab);
+    for (const sz of [-BAY_HALF_W, BAY_HALF_W]) {
+      const rail = box(len, 0.9, 0.35, MAT.steel, mx, my + 0.45, sz);
+      rail.rotation.z = pitch;
+      g.add(rail);
+    }
+  }
+  for (let px = x0 + 8; px < BAY_ANCHOR_W - 12; px += 9) {
+    const pz = [0, -8, 8].find((z) => !ctx.onAsphalt(px, z, 1.6));
+    if (pz === undefined) continue;
+    const deckY = px < x1 ? y0 + ((D - y0) * (px - x0)) / (x1 - x0) : D;
+    const gy = ctx.groundAt(px, pz);
+    const h = deckY - 1.1 - gy;
+    if (h < 2) continue;
+    g.add(box(5, h, 5, MAT.concrete, px, gy + h / 2, pz));
+    g.add(box(7, 1.6, BAY_HALF_W * 2 + 2, MAT.concrete, px, deckY - 1.5, pz * 0.35));
+  }
+}
+
+// The Bay Bridge: the west double suspension (shore anchorage → two towers →
+// centre anchorage → two towers → Yerba Buena), its descending city approach,
+// and a deck stub running east off the map corner. Authored in world units
+// along +X from the SF landfall, which is the point the (u,v) in the table
+// names.
 function bayBridge(ctx: LandmarkCtx): THREE.Group {
   const g = new THREE.Group();
   const D = BAY_DECK_Y;
+  const lamps: THREE.Vector3[] = [];
 
-  // --- SF landfall: the anchorage block on the seawall, plus the elevated
-  // approach viaduct running back west over the Embarcadero, so the crossing
-  // reads as arriving FROM the city instead of starting in mid-air. Every
-  // pier hunts for ground that is not a live street — a column standing in
-  // the roadway is worse than no column. ---
-  g.add(box(26, D + 16, 26, MAT.concrete, BAY_ANCHOR_W, (D + 6) / 2 - 5, 0));
-  g.add(box(20, 5, 20, MAT.concrete, BAY_ANCHOR_W, D + 12, 0)); // stepped crown
-  for (const sz of [-(BAY_HALF_W + 1.4), BAY_HALF_W + 1.4]) {
-    g.add(box(7, 4, 4, MAT.steel, BAY_ANCHOR_W + 11, D + 8, sz)); // cable saddle
+  // --- SF landfall: the anchorage block on the seawall, plus the approach
+  // viaduct running back west over the Embarcadero, so the crossing reads as
+  // arriving FROM the city instead of starting in mid-air. ---
+  const anchH = BAY_ANCHOR_TOP + 10;
+  g.add(box(26, anchH, 26, MAT.concrete, BAY_ANCHOR_W, BAY_ANCHOR_TOP - anchH / 2, 0));
+  g.add(box(20, 4, 20, MAT.concrete, BAY_ANCHOR_W, BAY_ANCHOR_TOP + 1, 0)); // stepped crown
+  for (const sz of [-BAY_CABLE_Z, BAY_CABLE_Z]) {
+    g.add(box(7, 4, 4, MAT.steel, BAY_ANCHOR_W + 11, BAY_ANCHOR_TOP + 1, sz)); // cable saddle
   }
-  const approachEnd = -58;
-  bayDeck(g, approachEnd, BAY_ANCHOR_W, D);
-  // Piers hunt sideways for ground clear of the roadway before giving up: the
-  // real viaduct straddles the streets it crosses, it does not stand in them.
-  for (let px = approachEnd + 4; px < BAY_ANCHOR_W - 12; px += 9) {
-    const pz = [0, -8, 8].find((z) => !ctx.onAsphalt(px, z, 1.6));
-    if (pz === undefined) continue;
-    g.add(box(5, D + 8, 5, MAT.concrete, px, D / 2 - 5, pz));
-    g.add(box(7, 1.6, BAY_HALF_W * 2 + 2, MAT.concrete, px, D - 5.6, pz * 0.35));
-  }
+  bayApproach(g, ctx);
+  bayDeck(g, BAY_RAMP_TOP, BAY_ANCHOR_W, D, lamps);
 
-  // --- Western crossing ---
-  bayDeck(g, BAY_ANCHOR_W, BAY_YERBA, D);
-  bayTower(g, BAY_TOWER_1);
-  bayTower(g, BAY_TOWER_2);
-  // Centre anchorage at the hinge of the two suspension spans: the block the
-  // four main cables actually pull against, rising well above the deck.
-  g.add(box(18, D + 30, 22, MAT.concrete, BAY_ANCHOR_MID, (D + 16) / 2 - 4, 0));
+  // --- Western crossing: four towers, hinged on the centre anchorage ---
+  bayDeck(g, BAY_ANCHOR_W, BAY_YERBA, D, lamps);
+  for (const tx of [BAY_TOWER_1, BAY_TOWER_2, BAY_TOWER_3, BAY_TOWER_4]) bayTower(g, tx);
+  // Centre anchorage: the block the four main cables actually pull against.
+  g.add(box(18, D + 27, 22, MAT.concrete, BAY_ANCHOR_MID, D + 15 - (D + 27) / 2, 0));
 
-  const top = D + BAY_TOWER_H;
-  for (const sz of [-(BAY_HALF_W + 1.4), BAY_HALF_W + 1.4]) {
-    const key = [
-      new THREE.Vector3(BAY_ANCHOR_W + 4, D + 8, sz),
-      new THREE.Vector3(BAY_TOWER_1, top, sz),
-      new THREE.Vector3(BAY_ANCHOR_MID, D + 12, sz),
-      new THREE.Vector3(BAY_TOWER_2, top, sz),
-      new THREE.Vector3(BAY_YERBA - 8, D + 8, sz),
-    ];
-    const curve = new THREE.CatmullRomCurve3(key);
-    g.add(mesh(new THREE.TubeGeometry(curve, 56, 0.5, 5), MAT.steel));
-    for (let i = 1; i < 28; i++) {
-      const p = curve.getPoint(i / 28);
+  for (const sz of [-BAY_CABLE_Z, BAY_CABLE_Z]) {
+    const curve = new THREE.CatmullRomCurve3(bayCablePoints(sz));
+    g.add(mesh(new THREE.TubeGeometry(curve, 96, 0.5, 4), MAT.steel));
+    for (let i = 1; i < 56; i++) {
+      const p = curve.getPoint(i / 56);
       const h = p.y - (D + 1);
-      if (h < 1.2) continue;
+      if (h < 1.5) continue;
       g.add(box(0.22, h, 0.22, MAT.steel, p.x, D + 1 + h / 2, p.z));
     }
   }
 
-  // --- Yerba Buena: the mid-bay island the two crossings hand off across ---
+  // --- Yerba Buena: the island the crossing hands off across, right in the
+  // map's north-east corner. The eastern span leaves as a deck stub. ---
   const rock = cyl(16, 26, 22, 12, MAT.rock, BAY_YERBA, 1, 0);
   rock.scale.set(1.5, 1, 1);
   g.add(rock);
   g.add(box(20, 12, 16, MAT.rock, BAY_YERBA, 12, 0)); // tunnel headland
   g.add(box(6, 9, BAY_HALF_W * 2 + 2, MAT.concrete, BAY_YERBA, D + 1.5, 0)); // tunnel portal
-  bayDeck(g, BAY_YERBA, BAY_EAST_END, D);
+  bayDeck(g, BAY_YERBA, BAY_EAST_END, D, lamps);
 
-  // --- Eastern self-anchored suspension span: ONE tower, all the cable on
-  // its west face, the deck hung from a single looping strand. ---
-  const sasTop = D + 46;
-  for (const sx of [-1.6, 1.6]) {
-    for (const sz of [-1.6, 1.6]) {
-      g.add(box(2, sasTop + 6, 2, MAT.white, BAY_SAS_TOWER + sx, (sasTop - 6) / 2, sz));
+  // --- Night lights: the deck string plus a red aviation beacon on each
+  // tower top (fx/beacon-lights.ts; runtime registry, no bake). ---
+  const beacons: Beacon[] = [];
+  for (const p of lamps) {
+    const [wx, wy, wz] = ctx.worldPoint(p.x, p.y, p.z);
+    beacons.push({ x: wx, y: wy, z: wz, color: 0xffd9a0, size: 2.2, groundY: wy - 1.5 });
+  }
+  for (const tx of [BAY_TOWER_1, BAY_TOWER_2, BAY_TOWER_3, BAY_TOWER_4]) {
+    for (const sz of [-BAY_CABLE_Z, BAY_CABLE_Z]) {
+      const [wx, wy, wz] = ctx.worldPoint(tx, D + BAY_TOWER_H + 5.5, sz);
+      beacons.push({ x: wx, y: wy, z: wz, color: 0xff4436, size: 3.4, blinkS: 2.6 });
     }
   }
-  for (const by of [D + 12, D + 26, sasTop - 4]) {
-    g.add(box(5.6, 1.2, 5.6, MAT.white, BAY_SAS_TOWER, by, 0));
-  }
-  const sasTip = new THREE.Vector3(BAY_SAS_TOWER, sasTop, 0);
-  for (let i = 1; i <= 9; i++) {
-    for (const dir of [-1, 1] as const) {
-      const reach = dir < 0 ? BAY_SAS_TOWER - BAY_YERBA - 10 : BAY_EAST_END - BAY_SAS_TOWER - 10;
-      const x = BAY_SAS_TOWER + (dir * (reach * i)) / 9;
-      for (const sz of [-BAY_HALF_W, BAY_HALF_W]) {
-        g.add(strut(sasTip, new THREE.Vector3(x, D + 0.6, sz), 0.22, MAT.steel, 4));
-      }
-    }
-  }
+  registerBeacons("baybridge", beacons);
   return g;
 }
 
@@ -746,42 +870,157 @@ function fortPoint(ctx: LandmarkCtx): THREE.Group {
 
 // --- China Basin ---------------------------------------------------------
 
-// Oracle Park — the raked bowl, the brick facade, the right-field wall over
-// the water and four light masts. True scale (~200 m across).
+// Oracle Park, rebuilt on the marine extract's measurements. It used to stand
+// 101u (451 m) north-west of the real ballpark — the Wave 0 author pushed it
+// there because the old China Basin water box swallowed the true site. The
+// box is being replaced by the measured creek polygon, so the park goes back
+// where it belongs, on the basin's north bank.
+//
+// Authored in COMPASS BEARINGS with `rotDeg: 0`, so the measurements read
+// straight off the tables below. The model's two roof-edge rows radiate from
+// home plate at bearing 262°; the bowl opens onto McCovey Cove between 55°
+// and 155°; the 24-bin sector profile gives the grandstand ceiling. The
+// 65.8 × 56.8u rim is the OSM parcel (plazas and all) — the bowl is kept
+// inside it at the real 235 × 210 m.
+const OP_PARCEL_A = 32.9; // measured 65.8u east-west
+const OP_PARCEL_B = 28.4; // measured 56.8u north-south
+const OP_BOWL_A = 26.5; // the real bowl, 235 m
+const OP_BOWL_B = 23.6; // the real bowl, 210 m
+const OP_OPEN_FROM = 55; // bearings of the outfield gap onto the Cove
+const OP_OPEN_TO = 155;
+// Field centre, pushed toward the Cove: home plate sits at bearing 262°.
+const OP_FIELD_X = 5;
+const OP_FIELD_Z = -0.7;
+/**
+ * Measured grandstand ceiling per 15° bearing bin (`sectorProfile`, converted
+ * out of the extract's east-CCW frame). The 330° bin has no faces in the
+ * model and inherits the modal 6.6u; single-bin dropouts elsewhere are what
+ * `opCeiling` smooths over.
+ */
+const OP_SECTOR: readonly number[] = [
+  4.0, 6.7, 6.6, 6.6, 0.6, 4.4, 4.4, 0.6, 0.2, -0.2, 4.0, 6.6, 2.2, 6.6, 6.6, 6.6, 6.6, 6.6, 6.6,
+  6.6, 6.6, 4.0, 6.6, 6.6,
+];
+/**
+ * The 16 measured light standards as `[dx, dz, top, height]` offsets from the
+ * bowl centre — two roof-edge rows converging on home plate, two tall poles on
+ * the water side, and the low block behind first base.
+ */
+const OP_MASTS: readonly (readonly [number, number, number, number])[] = [
+  [-7.8, -10.9, 9.7, 6],
+  [-6.1, -12.6, 9.7, 6],
+  [-4.1, -14.6, 9.7, 6],
+  [-2.4, -16.3, 9.7, 6],
+  [0.6, -18.5, 9.7, 6],
+  [2.5, -19.9, 9.7, 6],
+  [4.9, -21.6, 9.7, 6],
+  [6.8, -22.9, 9.7, 6],
+  [33.5, -6.5, 8.5, 8.6],
+  [34.4, 5.7, 8.5, 8.6],
+  [1.4, 22.9, 9.7, 6],
+  [-0.5, 21.5, 9.7, 6],
+  [-2.9, 19.8, 9.7, 6],
+  [-5.3, 18.1, 9.7, 6],
+  [-7.1, 16.7, 9.7, 6],
+  [-18.7, 8.7, 3.0, 3.9],
+];
+
+/** Smoothed sector ceiling at a bin index (the raw walk drops single bins). */
+function opBin(i: number): number {
+  const n = OP_SECTOR.length;
+  const at = (k: number): number => OP_SECTOR[((k % n) + n) % n] ?? 6.6;
+  return at(i - 1) * 0.25 + at(i) * 0.5 + at(i + 1) * 0.25;
+}
+
+/** Grandstand ceiling at a compass bearing, floored so the horseshoe holds. */
+function opCeiling(deg: number): number {
+  const t = deg / 15;
+  const i = Math.floor(t);
+  return Math.max(4.4, THREE.MathUtils.lerp(opBin(i), opBin(i + 1), t - i));
+}
+
+/**
+ * Walk an ELLIPSE by compass bearing (the bowl is 1.16:1, so a circle puts the
+ * stands 6u out of place on the long axis). `yaw` is the true elliptical
+ * tangent, not the circular one.
+ */
+function opRing(
+  count: number,
+  a: number,
+  b: number,
+  deg0: number,
+  sweep: number,
+  cb: (x: number, z: number, yaw: number, deg: number) => void,
+): void {
+  for (let i = 0; i < count; i++) {
+    const deg = deg0 + (sweep * (i + 0.5)) / count;
+    const r = THREE.MathUtils.degToRad(deg);
+    const sn = Math.sin(r);
+    const cs = Math.cos(r);
+    cb(sn * a, -cs * b, -Math.atan2(b * sn, a * cs), deg);
+  }
+}
+
 function oraclePark(ctx: LandmarkCtx): THREE.Group {
   const g = new THREE.Group();
-  const R = 19;
-  const foot = lowestUnder(ctx, 24, 24);
-  g.add(cyl(26, 27, 0.4 - foot, 24, MAT.concrete, 0, (0.4 + foot) / 2 - 0.2, 0)); // footing
-  // Playing surface: turf disc, dirt infield, backstop.
-  const turf = cyl(15.5, 15.5, 0.6, 24, MAT.field, 0, 0.3, 0);
-  turf.scale.set(1.15, 1, 1);
+  const foot = lowestUnder(ctx, OP_PARCEL_A, OP_PARCEL_B);
+  // Parcel apron: the OSM way, plazas included.
+  const apron = cyl(OP_PARCEL_A, OP_PARCEL_A + 1, 0.5 - foot, 28, MAT.concrete, 0, foot / 2, 0);
+  apron.scale.set(1, 1, OP_PARCEL_B / OP_PARCEL_A);
+  g.add(apron);
+  // Playing surface: turf, then the dirt infield out at home plate.
+  const turf = cyl(19, 19, 0.6, 26, MAT.field, OP_FIELD_X, 0.3, OP_FIELD_Z);
+  turf.scale.set(1, 1, 16.5 / 19);
   g.add(turf);
-  g.add(cyl(5.5, 5.5, 0.7, 14, MAT.rock, -4, 0.4, 6));
-  // Raked seating decks around 265°, open to the bay on the east.
-  arc(22, R, 200, 265, (x, z, yaw) => {
-    const deck = box(6.1, 9, 8.5, MAT.concrete, x, 4, z, yaw);
+  g.add(cyl(6, 6, 0.7, 14, MAT.rock, -15.8, 0.4, 2.2));
+
+  const closed = 360 - (OP_OPEN_TO - OP_OPEN_FROM);
+  // Raked seating decks, ceiling from the measured sector profile.
+  opRing(26, OP_BOWL_A * 0.88, OP_BOWL_B * 0.88, OP_OPEN_TO, closed, (x, z, yaw, deg) => {
+    const h = opCeiling(deg);
+    const deck = box(5.6, h, 9, MAT.concrete, x, h / 2 - 0.3, z, yaw);
     deck.rotation.order = "YXZ";
     deck.rotation.x = -0.34;
     g.add(deck);
   });
-  // Brick outer facade + the arcade wall along the water.
-  arc(22, R + 4.4, 200, 265, (x, z, yaw) => {
-    g.add(box(6.9, 12, 2, MAT.brick, x, 6, z, yaw));
+  // Brick outer facade on the bowl rim.
+  opRing(26, OP_BOWL_A, OP_BOWL_B, OP_OPEN_TO, closed, (x, z, yaw, deg) => {
+    const h = opCeiling(deg) + 1.4;
+    g.add(box(6.2, h, 2, MAT.brick, x, h / 2, z, yaw));
   });
-  arc(7, R + 2, 105, 92, (x, z, yaw) => {
-    g.add(box(6.4, 7, 1.6, MAT.brick, x, 3.5, z, yaw)); // right-field wall
-    g.add(box(6.4, 0.5, 2.6, MAT.concrete, x, 7.2, z, yaw)); // promenade coping
+  // The gap: the right-field arcade wall and its promenade, low enough that
+  // the bowl reads as open onto the water.
+  opRing(11, OP_BOWL_A, OP_BOWL_B, OP_OPEN_FROM, OP_OPEN_TO - OP_OPEN_FROM, (x, z, yaw) => {
+    g.add(box(6.2, 3.8, 1.8, MAT.brick, x, 1.9, z, yaw));
+    g.add(box(6.2, 0.5, 2.8, MAT.concrete, x, 4.0, z, yaw));
   });
-  // Scoreboard over the left-field stands.
-  g.add(box(15, 7, 1.4, MAT.slate, 6, 16, -R - 4));
-  g.add(box(13.5, 5.4, 0.4, MAT.lamp, 6, 16, -R - 4.9));
-  // Light masts.
-  arc(4, R + 3, 210, 250, (x, z, yaw) => {
-    g.add(box(1.2, 22, 1.2, MAT.slate, x, 11, z));
-    g.add(box(7, 2.2, 1, MAT.slate, x, 22.5, z, yaw));
-    g.add(box(6.4, 1.4, 0.5, MAT.lamp, x, 22.5, z - 0.5, yaw));
-  });
+  // Scoreboard on the stands opposite the gap, lit face turned in on the field.
+  {
+    const r = THREE.MathUtils.degToRad((OP_OPEN_FROM + OP_OPEN_TO) / 2 + 180);
+    const nx = Math.sin(r);
+    const nz = -Math.cos(r);
+    const sx = nx * (OP_BOWL_A + 1.5);
+    const sz = nz * (OP_BOWL_B + 1.5);
+    const yaw = -Math.atan2(OP_BOWL_B * Math.sin(r), OP_BOWL_A * Math.cos(r));
+    g.add(box(16, 6.5, 1.4, MAT.slate, sx, 11, sz, yaw));
+    g.add(box(14.5, 5, 0.4, MAT.lamp, sx - nx * 0.9, 11, sz - nz * 0.9, yaw));
+  }
+  // Light standards: pole, bank, and the bank's lit face aimed at the field.
+  const beacons: Beacon[] = [];
+  for (const [mx, mz, top, mh] of OP_MASTS) {
+    const fx = OP_FIELD_X - mx;
+    const fz = OP_FIELD_Z - mz;
+    const fl = Math.hypot(fx, fz) || 1;
+    const dx = fx / fl;
+    const dz = fz / fl;
+    const yaw = Math.atan2(-dx, -dz);
+    g.add(box(0.9, mh, 0.9, MAT.slate, mx, top - mh / 2, mz));
+    g.add(box(4.4, 1.4, 0.8, MAT.slate, mx, top + 0.6, mz, yaw));
+    g.add(box(4.0, 0.9, 0.3, MAT.lamp, mx + dx * 0.5, top + 0.6, mz + dz * 0.5, yaw));
+    const [wx, wy, wz] = ctx.worldPoint(mx + dx * 0.5, top + 0.6, mz + dz * 0.5);
+    beacons.push({ x: wx, y: wy, z: wz, color: 0xfff2d2, size: 4.6 });
+  }
+  registerBeacons("oraclepark", beacons);
   return g;
 }
 
@@ -841,7 +1080,7 @@ const DEFS = {
   pyramid: { build: pyramid, seat: "ground", scale: KIT_SCALE },
   salesforce: { build: salesforce, seat: "ground", scale: KIT_SCALE },
   coittower: { build: coitTower, seat: "ground", scale: KIT_SCALE },
-  ferrybuilding: { build: ferryBuilding, seat: "ground", scale: KIT_SCALE },
+  ferrybuilding: { build: ferryBuilding, seat: "ground", scale: 1 },
   paintedladies: { build: paintedLadies, seat: "ground", scale: KIT_SCALE },
   sutro: { build: sutroTower, seat: "ground", scale: KIT_SCALE },
   dragongate: { build: dragonGate, seat: "ground", scale: KIT_SCALE },
@@ -869,7 +1108,10 @@ type LandmarkKind = keyof typeof DEFS;
 // `clearHalf` is the same reservation WITHOUT the collision boxes: an
 // ELEVATED structure (the Bay Bridge approach viaduct) must keep procedural
 // towers out of its deck while leaving the streets underneath drivable.
-// A landmark with none of the three is pure scenery: it reserves nothing and
+// `clearOffset` moves that rect off the monument's origin, which a corridor
+// running to ONE side needs — centred on the origin, a diagonal viaduct's
+// axis-aligned box reserves four times the city it actually covers.
+// A landmark with none of them is pure scenery: it reserves nothing and
 // collides with nothing.
 type Landmark = {
   readonly kind: LandmarkKind;
@@ -880,25 +1122,29 @@ type Landmark = {
   readonly clearR?: number;
   readonly protHalf?: readonly [number, number];
   readonly clearHalf?: readonly [number, number];
+  readonly clearOffset?: readonly [number, number];
 };
 
 // (The Golden Gate is no longer a landmark prop — it's the DRIVABLE bridge
 // built by world/golden-gate.ts.)
 const LANDMARKS: readonly Landmark[] = [
-  // The crossing lands ON the Embarcadero seawall (shoreU(0.205) ≈ 0.797)
-  // and runs east off the map. Only the anchorage is protected — the deck is
-  // 13u up, over open water.
+  // The measured Rincon Hill anchorage on the Embarcadero seawall. rotDeg 49.5
+  // puts the crossing on its true 40.5° bearing (rotation.y maps local +X to
+  // (cos r, −sin r), so bearing = 90 − rotDeg). Only the anchorage is
+  // protected — everything east of it is deck, 13u up over open water.
   {
     kind: "baybridge",
     name: "the Bay Bridge",
-    u: 0.7986,
-    v: 0.205,
-    rotDeg: 6,
-    protHalf: [22, 15],
+    u: 0.7954,
+    v: 0.2127,
+    rotDeg: 49.5,
+    protHalf: [20, 20],
     // The approach viaduct's corridor: reserved so nothing grows through the
-    // deck, drivable so the Embarcadero still runs under it. Symmetric about
-    // the anchorage — the eastern half falls on water and reserves nothing.
-    clearHalf: [58, 13],
+    // deck, drivable so the Embarcadero still runs under it. It runs to ONE
+    // side now (62u back into SoMa on bearing 220.5°), so the rect is offset
+    // instead of straddling the anchorage.
+    clearHalf: [30, 32],
+    clearOffset: [-20, 24],
   },
   {
     kind: "pyramid",
@@ -928,14 +1174,17 @@ const LANDMARKS: readonly Landmark[] = [
     clearR: 6,
     protHalf: [6, 6],
   },
+  // ON the new shore edge. The measured centroid is 22u further out (u 0.7625
+  // / v 0.1464) but reads 92% wet against our land test, so the placement
+  // stays; only the massing was corrected.
   {
     kind: "ferrybuilding",
     name: "the Ferry Building",
     u: 0.756,
     v: 0.15,
     rotDeg: 270,
-    protHalf: [5.7, 21.2],
-  }, // ON the new shore edge
+    protHalf: [5.5, 23.5],
+  },
   {
     kind: "paintedladies",
     name: "the Painted Ladies",
@@ -1041,14 +1290,16 @@ const LANDMARKS: readonly Landmark[] = [
     clearR: 14,
     protHalf: [17, 16],
   },
+  // The measured centroid. DEPENDS ON the China Basin water polygon replacing
+  // the old box — until it lands, this site is inside the flooded rect.
   {
     kind: "oraclepark",
     name: "Oracle Park",
-    u: 0.775,
-    v: 0.274,
-    rotDeg: 20,
+    u: 0.7838,
+    v: 0.3115,
+    rotDeg: 0,
     clearR: 14,
-    protHalf: [26, 26],
+    protHalf: [33, 29],
   },
   // Pure set dressing: no reservation, no collision — the crooked block's
   // roadway belongs to the street network, not to a monument.
@@ -1184,7 +1435,10 @@ export function landmarkProtection(
   for (const lm of LANDMARKS) {
     if (!lm.protHalf && !lm.clearHalf) continue;
     const [x, z] = resolvePosition(lm, network);
-    if (lm.clearHalf) protect(x, z, lm.clearHalf[0], lm.clearHalf[1], false);
+    if (lm.clearHalf) {
+      const off = lm.clearOffset ?? [0, 0];
+      protect(x + off[0], z + off[1], lm.clearHalf[0], lm.clearHalf[1], false);
+    }
     if (lm.protHalf) protect(x, z, lm.protHalf[0], lm.protHalf[1], true);
   }
 
@@ -1232,6 +1486,10 @@ export function buildLandmarks(
         const [wx, wz] = worldOf(lx, lz);
         const hit = network.nearest(wx, wz, ROAD_TILE * 1.6);
         return hit !== null && hit.dist < hit.edge.half + margin;
+      },
+      worldPoint: (lx, ly, lz) => {
+        const [wx, wz] = worldOf(lx, lz);
+        return [wx, y + ly * s, wz];
       },
     };
     const node = packLandmark(def.build(ctx));

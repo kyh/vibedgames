@@ -33,17 +33,22 @@ import { WORLD_H, WORLD_W } from "../shared/constants";
 
 // --- Height grading -------------------------------------------------------
 // Haze is full strength below HAZE_BASE and e-folds away over HAZE_SCALE above
-// it: Nob Hill's crest (~43u) keeps about half, Twin Peaks (~106u) almost none.
+// it: Nob Hill's crest (~43u) keeps about a third, Twin Peaks (~110u) a tenth.
+// The scale was 34 and the amount 0.86 until the vista pass — from the Twin
+// Peaks summit that still left ~0.30 of linear fog on downtown at 1400u, which
+// tone-maps to a white ghost. Both knobs are gated on ALTITUDE (the camera's
+// and the fragment's), so tightening them cannot touch the chase-cam grade:
+// at y < HAZE_BASE both terms are 1 and the base fog passes through untouched.
 const HAZE_BASE = 18;
-const HAZE_SCALE = 34;
+const HAZE_SCALE = 26;
 // Never let the attenuation go all the way to zero — a razor-sharp 1.5km
 // ridgeline reads as a cardboard cut-out.
-const HAZE_AMOUNT = 0.86;
+const HAZE_AMOUNT = 0.95;
 
 // --- Marine layer ---------------------------------------------------------
 const MARINE_TOP = 40; // world height the bank thins out at
 const MARINE_SOFT = 20; // vertical softness of that top edge
-const MARINE_STRENGTH = 0.58; // most fog the bank can add over the base grade
+const MARINE_STRENGTH = 0.38; // most fog the bank can add over the base grade
 const MARINE_NEAR = 30; // it never fogs the car's own bumper
 const MARINE_FAR = 420;
 
@@ -64,8 +69,10 @@ const BAY_RZ = 260;
 const WEST_FULL_X = toX(0.1);
 const WEST_NONE_X = toX(0.32);
 // The Sunset gets the tail of the bank, not the heart of it — the Gate is the
-// star, and burying half the map in white costs more than it buys.
-const WEST_WEIGHT = 0.55;
+// star, and burying half the map in white costs more than it buys. At 0.55 the
+// western half of the city was gone from every Twin Peaks vista; 0.30 keeps the
+// bank readable as weather without erasing what it sits on.
+const WEST_WEIGHT = 0.3;
 
 const f = (n: number): string => n.toFixed(2);
 
@@ -151,9 +158,11 @@ export function installAerialFog(): void {
 	float marineFog = marine * ${f(MARINE_STRENGTH)}
 		* smoothstep( ${f(MARINE_NEAR)}, ${f(MARINE_FAR)}, vFogDepth );
 	// Karl is whiter than the ambient haze, but only as bright as the hour
-	// allows — scaled by the day's fog color so night stays night.
+	// allows — scaled by the day's fog color so night stays night. The floor
+	// used to be 0.22, which at midnight (fogColor peaks near 0.1 in linear)
+	// left the bank glowing three times brighter than the sky behind it.
 	float lit = max( fogColor.r, max( fogColor.g, fogColor.b ) );
-	vec3 marineColor = vec3( 0.93, 0.95, 0.97 ) * ( 0.22 + 0.78 * lit );
+	vec3 marineColor = vec3( 0.93, 0.95, 0.97 ) * ( 0.05 + 0.95 * lit );
 	vec3 hazeColor = mix( fogColor, marineColor, marine * 0.85 );
 
 	fogFactor = clamp( fogFactor + marineFog * ( 1.0 - fogFactor ), 0.0, 1.0 );

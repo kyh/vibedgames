@@ -39,6 +39,13 @@ type Stop = {
   readonly hemiGround: THREE.Color;
   readonly hemiInt: number;
   readonly ambInt: number;
+  // Ambient TINT. White by day (an omnidirectional fill has no colour of its
+  // own under the sun), cool blue after dark: a white fill preserves every
+  // albedo's saturation exactly, which is why the parks and street trees used
+  // to sit at full daylight green at midnight. Moonlight is the complement of
+  // that green, so tinting the fill desaturates the foliage instead of
+  // dimming the whole city to compensate.
+  readonly ambColor: THREE.Color;
   readonly fog: THREE.Color;
   readonly fogNear: number;
   readonly fogFar: number;
@@ -58,6 +65,7 @@ function stop(
   hemiGround: number,
   hemiInt: number,
   ambInt: number,
+  ambColor: number,
   fog: number,
   fogNear: number,
   fogFar: number,
@@ -75,6 +83,7 @@ function stop(
     hemiGround: new THREE.Color(hemiGround),
     hemiInt,
     ambInt,
+    ambColor: new THREE.Color(ambColor),
     fog: new THREE.Color(fog),
     fogNear,
     fogFar,
@@ -89,19 +98,28 @@ const STOPS: readonly Stop[] = [
   // Day stops (Mario-Kart pass 2026-07-10): brighter exposure, big blue-sky
   // hemisphere fill + warm ground bounce so shadow sides glow instead of
   // going grey. Sun eased down to keep the white sidewalks from clipping.
-  //    p     sunEl sunAz  lightDir       color     int   hemiSky   hemiGnd   hInt  amb   fog      near far  env   lamp  exp
-  stop(0.00,  35,   115,   dir(35, 115),  0xfff6e0, 1.75, 0xa9dcff, 0x6b6852, 0.52, 0.13, 0xbfdcf2, 360, 800, 0.32, 0,    0.72),
-  stop(0.25,  50,   150,   dir(50, 150),  0xfff2d8, 1.85, 0xa9dcff, 0x6b6852, 0.52, 0.13, 0xbfdcf2, 360, 800, 0.32, 0,    0.72),
-  stop(0.40,  12,   235,   dir(12, 235),  0xffc27a, 1.7,  0xffd9b0, 0x655c44, 0.42, 0.12, 0xe3c19b, 330, 760, 0.26, 0.25, 0.74),
-  stop(0.47,   2,   248,   dir(4, 248),   0xff9350, 1.25, 0xff9d70, 0x3e3a44, 0.36, 0.10, 0xcf9077, 300, 700, 0.18, 0.7,  0.72),
+  //    p     sunEl sunAz  lightDir       color     int   hemiSky   hemiGnd   hInt  amb   ambColor  fog      near far  env   lamp  exp
+  stop(0.00,  35,   115,   dir(35, 115),  0xfff6e0, 1.75, 0xa9dcff, 0x6b6852, 0.52, 0.13, 0xffffff, 0xbfdcf2, 360, 800, 0.32, 0,    0.72),
+  stop(0.25,  50,   150,   dir(50, 150),  0xfff2d8, 1.85, 0xa9dcff, 0x6b6852, 0.52, 0.13, 0xffffff, 0xbfdcf2, 360, 800, 0.32, 0,    0.72),
+  stop(0.40,  12,   235,   dir(12, 235),  0xffc27a, 1.7,  0xffd9b0, 0x655c44, 0.42, 0.12, 0xffffff, 0xe3c19b, 330, 760, 0.26, 0.25, 0.74),
+  stop(0.47,   2,   248,   dir(4, 248),   0xff9350, 1.25, 0xff9d70, 0x3e3a44, 0.36, 0.11, 0xe0dcf0, 0xcf9077, 300, 700, 0.18, 0.7,  0.72),
   // Night floors are tuned for PHONES: a desktop panel at full brightness can
   // read a 0.3-fill scene, a dim phone outdoors cannot. Moonlight carries the
-  // shape of the city; streetlight glow carries the color.
-  stop(0.53,  -3,   255,   MOON,          0x7d8fc0, 0.35, 0x5a6f9e, 0x2a2d38, 0.30, 0.18, 0x55688c, 300, 740, 0.14, 1,    0.66),
-  stop(0.62, -30,   270,   MOON,          0x8aa0d0, 0.55, 0x3d5178, 0x20242e, 0.32, 0.22, 0x2c3a57, 280, 700, 0.14, 1,    0.66),
-  stop(0.80, -30,    60,   MOON,          0x8aa0d0, 0.55, 0x3d5178, 0x20242e, 0.32, 0.22, 0x2c3a57, 280, 700, 0.14, 1,    0.66),
-  stop(0.88,  -3,    95,   MOON,          0xc087a0, 0.38, 0x7a6f95, 0x2a2d38, 0.30, 0.18, 0x6d6787, 300, 760, 0.14, 1,    0.66),
-  stop(0.94,   4,   105,   dir(6, 105),   0xffb27a, 1.3,  0xffc9a0, 0x4a443c, 0.28, 0.10, 0xdbb090, 360, 860, 0.20, 0.5,  0.66),
+  // shape of the city; streetlight glow carries the color. The night ambient
+  // intensities look large next to the daylight ones only because the tint
+  // they multiply is dark — they hold the same LUMINANCE the white fill had.
+  //
+  // Every night tint has RED at or above GREEN. That is the whole trick behind
+  // the desaturated parks: a plain blue moonlight (0x8aa0d0 and friends) still
+  // carries more green than red, so it AMPLIFIES a green albedo and the
+  // foliage stays as vivid at midnight as it is at noon — only darker. Sitting
+  // the fills on the green's complement instead pulls the grass and the trees
+  // toward a cool neutral while the hue of the scene stays night-blue.
+  stop(0.53,  -3,   255,   MOON,          0x8d92c0, 0.35, 0x6e6398, 0x2a2d38, 0.30, 0.50, 0xc8b0c4, 0x55688c, 300, 740, 0.14, 1,    0.66),
+  stop(0.62, -30,   270,   MOON,          0x9b9ed6, 0.52, 0x5b4a80, 0x20242e, 0.32, 0.58, 0xc2a3bd, 0x2c3a57, 280, 700, 0.14, 1,    0.66),
+  stop(0.80, -30,    60,   MOON,          0x9b9ed6, 0.52, 0x5b4a80, 0x20242e, 0.32, 0.58, 0xc2a3bd, 0x2c3a57, 280, 700, 0.14, 1,    0.66),
+  stop(0.88,  -3,    95,   MOON,          0xc087a0, 0.38, 0x84719a, 0x2a2d38, 0.30, 0.50, 0xc9aabf, 0x6d6787, 300, 760, 0.14, 1,    0.66),
+  stop(0.94,   4,   105,   dir(6, 105),   0xffb27a, 1.3,  0xffc9a0, 0x4a443c, 0.28, 0.10, 0xffffff, 0xdbb090, 360, 860, 0.20, 0.5,  0.66),
 ];
 
 // SF wall-clock hour (fractional, 0..24) right now. Intl handles DST; some
@@ -287,6 +305,7 @@ export class DayNight {
     hemi.groundColor.lerpColors(a.hemiGround, b.hemiGround, t);
     hemi.intensity = THREE.MathUtils.lerp(a.hemiInt, b.hemiInt, t);
     ambient.intensity = THREE.MathUtils.lerp(a.ambInt, b.ambInt, t);
+    ambient.color.lerpColors(a.ambColor, b.ambColor, t);
 
     fog.color.copy(this.scrColor.lerpColors(a.fog, b.fog, t));
     fog.near = THREE.MathUtils.lerp(a.fogNear, b.fogNear, t);

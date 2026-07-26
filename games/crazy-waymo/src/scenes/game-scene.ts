@@ -572,7 +572,12 @@ vec3 ocGerstner(vec2 p, float t) {
             // Gerstner rather than summed sines: the normal steepens sharply
             // at crests and flattens across troughs, so highlights collect
             // in thin bright lines instead of soft interference blobs.
-            normal = normalize(normal + vec3(-g.x, 0.0, -g.z) * (0.28 / max(1.0 - g.y, 0.35)));
+            // Flatten the swell only where one pixel already spans 2-14u —
+            // out there the steepened normal is pure specular banding. Inside
+            // ~300u this term is 1 and the crest lines are untouched.
+            float ocPxN = fwidth(vOceanPos.x) + fwidth(vOceanPos.z);
+            float ocFlat = 1.0 - smoothstep(2.0, 14.0, ocPxN);
+            normal = normalize(normal + vec3(-g.x, 0.0, -g.z) * (0.28 * ocFlat / max(1.0 - g.y, 0.35)));
           }`,
         )
         .replace(
@@ -622,6 +627,13 @@ vec3 ocGerstner(vec2 p, float t) {
             // Sun glints: HASH twinkles — sparse random cells that flicker in
             // and out. (The old sine-product crossings landed on a visible
             // regular lattice: the "grid of white dots" read.)
+            // Pixel footprint in world units. Past ~one glint cell per pixel
+            // the 2.38u lattice stops reading as sparkle and starts reading as
+            // a regular dot grid across the mid-distance bay — the moire was
+            // this term, not the Gerstner normals (their 40-150u wavelengths
+            // cannot alias).
+            float ocPx = fwidth(wp.x) + fwidth(wp.y);
+            float ocSharp = 1.0 - smoothstep(0.5, 1.35, ocPx * 0.42);
             vec2 gcell = floor(wp * 0.42);
             float seed = ocHash(gcell);
             float tw = fract(seed * 7.13 + t * (0.10 + seed * 0.14));
@@ -635,7 +647,7 @@ vec3 ocGerstner(vec2 p, float t) {
             float crest = smoothstep(0.15, 0.60, ocGerstner(wp, t).y);
             glint *= 0.35 + 0.65 * crest;
             diffuseColor.rgb *= 1.0 + crest * 0.05;
-            diffuseColor.rgb += vec3(glint * 3.2);
+            diffuseColor.rgb += vec3(glint * 3.2 * ocSharp);
             diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.93, 0.97, 0.98), clamp(foam, 0.0, 0.9));
           }`,
         );

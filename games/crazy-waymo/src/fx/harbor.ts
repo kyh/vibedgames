@@ -210,8 +210,23 @@ const WAKE_STEP = 3; // world units between samples
 const WAKE_SAMPLES = 22; // per vessel
 const WAKE_LIFT = 0.06; // over the ocean plane
 const WAKE_SPREAD = 3.4; // how much wider the ribbon gets by end of life
-const WAKE_ALPHA = 0.5;
+const WAKE_ALPHA = 0.52;
 const WAKE_RANGE = 900; // past the fog there is nothing to see
+// A ribbon two vertices wide is a flat-alpha polygon: over dark navy it reads
+// as a white geometric wedge with a drawn edge. Four vertices per sample give
+// the strip a soft shoulder — the outer pair sits at full width with alpha 0,
+// the inner pair at WAKE_CORE with the sample's alpha — so the foam dissolves
+// sideways into the water instead of ending on a line.
+const WAKE_CORE = 0.42;
+const WAKE_SIDES = 4; // vertices per sample
+const WAKE_QUADS = WAKE_SIDES - 1; // quads per segment
+// Per-sample width jitter (±): a wake whose edges are exactly parallel is the
+// other half of the "geometric" read.
+const WAKE_JITTER = 0.24;
+// Foam is froth, not paint: a touch off pure white by day, and at night lit by
+// nothing but the moon and the boat's own lamps.
+const WAKE_DAY: readonly [number, number, number] = [0.95, 0.98, 1];
+const WAKE_NIGHT: readonly [number, number, number] = [0.3, 0.36, 0.46];
 
 type WakeSample = {
   x: number;
@@ -221,6 +236,9 @@ type WakeSample = {
   pz: number;
   half: number;
   age: number;
+  /** Per-side width jitter, 1 ± WAKE_JITTER. */
+  jl: number;
+  jr: number;
 };
 
 /**
@@ -238,12 +256,13 @@ class Wakes {
   private readonly colAttr: THREE.BufferAttribute;
   private readonly indices: Uint16Array;
   private readonly idxAttr: THREE.BufferAttribute;
+  private readonly rgb: [number, number, number] = [...WAKE_DAY];
 
   constructor(count: number) {
     this.trails = Array.from({ length: count }, () => []);
     this.heads = Array.from({ length: count }, () => ({ x: 0, z: 0 }));
-    const maxVerts = count * WAKE_SAMPLES * 2;
-    const maxTris = count * (WAKE_SAMPLES - 1) * 2;
+    const maxVerts = count * WAKE_SAMPLES * WAKE_SIDES;
+    const maxTris = count * (WAKE_SAMPLES - 1) * WAKE_QUADS * 2;
     this.positions = new Float32Array(maxVerts * 3);
     this.colors = new Float32Array(maxVerts * 4);
     this.indices = new Uint16Array(maxTris * 3);
@@ -284,8 +303,18 @@ class Wakes {
     if (trail.length > 0 && Math.hypot(x - head.x, z - head.z) < WAKE_STEP) return;
     head.x = x;
     head.z = z;
-    trail.push({ x, z, px: -dirZ, pz: dirX, half, age: 0 });
+    const jitter = (): number => 1 + (Math.random() * 2 - 1) * WAKE_JITTER;
+    trail.push({ x, z, px: -dirZ, pz: dirX, half, age: 0, jl: jitter(), jr: jitter() });
     if (trail.length > WAKE_SAMPLES) trail.shift();
+  }
+
+  /** Night ramp (0 day .. 1 night) — foam is only as bright as its light. */
+  setNight(f: number): void {
+    for (let c = 0; c < 3; c++) {
+      const day = WAKE_DAY[c] ?? 1;
+      const night = WAKE_NIGHT[c] ?? 1;
+      this.rgb[c] = day + (night - day) * f;
+    }
   }
 
   update(dt: number): void {
@@ -303,36 +332,48 @@ class Wakes {
       }
       if (cut > 0) trail.splice(0, cut);
       const base = v / 3;
+      const [cr, cg, cb] = this.rgb;
       for (let i = 0; i < trail.length; i++) {
         const s = trail[i];
         if (!s) continue;
         const k = s.age / WAKE_LIFE;
         const w = s.half * (1 + WAKE_SPREAD * k);
-        // Newest sample is the churn at the stern: brightest, then it fades
-        // with a soft head so the ribbon does not start with a hard edge.
-        const a = (1 - k) ** 1.5 * WAKE_ALPHA * Math.min(1, i / 1.5 + 0.35);
-        for (const side of [-1, 1] as const) {
-          this.positions[v] = s.x + s.px * w * side;
+        // Cubic tail so the oldest samples are gone well before they expire (a
+        // linear fade still leaves a visible cut where they drop), and a
+        // half-second birth ramp on the newest ones. The ribbon has to fade in
+        // at BOTH ends: a sample at full alpha the instant it is pushed ends
+        // the strip on a hard line across the water right behind the stern,
+        // which is most of what read as "geometric". Ramping on AGE (not on the
+        // sample index) keeps that head steady while samples come and go.
+        const a = (1 - k) ** 3 * WAKE_ALPHA * Math.min(1, s.age / 0.5);
+        // Outer pair transparent, inner pair carries the foam: the strip has a
+        // gradient across its width, and the jitter keeps the two outer rails
+        // from tracing a pair of straight lines.
+        const offs = [-s.jl, -WAKE_CORE * s.jl, WAKE_CORE * s.jr, s.jr] as const;
+        for (let e = 0; e < WAKE_SIDES; e++) {
+          const off = (offs[e] ?? 0) * w;
+          this.positions[v] = s.x + s.px * off;
           this.positions[v + 1] = WATER_Y + WAKE_LIFT;
-          this.positions[v + 2] = s.z + s.pz * w * side;
+          this.positions[v + 2] = s.z + s.pz * off;
           v += 3;
-        }
-        const ci = (v / 3 - 2) * 4;
-        for (let c = 0; c < 2; c++) {
-          this.colors[ci + c * 4] = 1;
-          this.colors[ci + c * 4 + 1] = 1;
-          this.colors[ci + c * 4 + 2] = 1;
-          this.colors[ci + c * 4 + 3] = a;
+          const ci = (v / 3 - 1) * 4;
+          this.colors[ci] = cr ?? 1;
+          this.colors[ci + 1] = cg ?? 1;
+          this.colors[ci + 2] = cb ?? 1;
+          this.colors[ci + 3] = e === 0 || e === WAKE_SIDES - 1 ? 0 : a;
         }
         if (i > 0) {
-          const q = base + i * 2;
-          this.indices[idx] = q - 2;
-          this.indices[idx + 1] = q - 1;
-          this.indices[idx + 2] = q;
-          this.indices[idx + 3] = q - 1;
-          this.indices[idx + 4] = q + 1;
-          this.indices[idx + 5] = q;
-          idx += 6;
+          const q = base + i * WAKE_SIDES;
+          for (let e = 0; e < WAKE_QUADS; e++) {
+            const p0 = q - WAKE_SIDES + e;
+            this.indices[idx] = p0;
+            this.indices[idx + 1] = p0 + 1;
+            this.indices[idx + 2] = q + e;
+            this.indices[idx + 3] = p0 + 1;
+            this.indices[idx + 4] = q + e + 1;
+            this.indices[idx + 5] = q + e;
+            idx += 6;
+          }
         }
       }
     }
@@ -402,6 +443,7 @@ export class Harbor {
   setIntensity(night: number): void {
     this.intensity.value = night;
     this.navLights.mesh.visible = night > 0.01;
+    this.wakes.setNight(night);
   }
 
   update(dt: number, camX: number, camZ: number): void {
