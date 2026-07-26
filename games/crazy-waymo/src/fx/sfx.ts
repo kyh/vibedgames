@@ -72,6 +72,47 @@ interface SamplePlayOptions {
   pan?: number;
 }
 
+// ── Ambient bed ─────────────────────────────────────────────────────────────
+
+/** Where the driver is, as far as the ambient layer cares. */
+export type AmbienceEnv = {
+  /** 0 down in the street canyons .. 1 out on an exposed hilltop. */
+  readonly exposure: number;
+  /** 0 inland .. 1 right at the waterfront. */
+  readonly shore: number;
+  /** 0 day .. 1 night (the day-night lamp factor). */
+  readonly night: number;
+  /** Stereo direction of the Golden Gate from the car, −1..1. */
+  readonly gatePan: number;
+};
+
+const AMBIENT_EVENTS = ["foghorn", "gulls", "siren", "bell"] as const;
+type AmbientEvent = (typeof AMBIENT_EVENTS)[number];
+
+/** Seconds between rolls per event: [minimum, random span]. */
+const AMBIENT_GAPS: Record<AmbientEvent, readonly [number, number]> = {
+  foghorn: [26, 45],
+  gulls: [6, 13],
+  siren: [45, 95],
+  bell: [34, 70],
+};
+
+/** Foghorn spectrum: a low fundamental with a fifth and an octave over it. */
+const FOGHORN_PARTIALS: readonly (readonly [number, number])[] = [
+  [74, 1],
+  [111, 0.42],
+  [148, 0.22],
+];
+
+/** Bell partials as ratios of the strike tone — deliberately inharmonic. */
+const BELL_PARTIALS: readonly (readonly [number, number])[] = [
+  [1, 1],
+  [2.71, 0.5],
+  [5.13, 0.22],
+];
+
+const AMBIENT_LEVEL = 0.6;
+
 /**
  * Lazy sample bank. `load()` kicks off fetch+decode for every file without
  * blocking; `play()` returns false while a buffer is missing or failed so the
@@ -155,6 +196,20 @@ export class Sfx {
   private boostLoopGain: GainNode | null = null;
   private boostLoopOn = false;
 
+  // Ambient city bed (see setAmbience).
+  private ambientBus: GainNode | null = null;
+  private windBodyGain: GainNode | null = null;
+  private windWhistleGain: GainNode | null = null;
+  private surfGain: GainNode | null = null;
+  private ambientTimer: number | null = null;
+  private ambience: AmbienceEnv = { exposure: 0, shore: 0, night: 0, gatePan: 0 };
+  private ambientDue: Record<AmbientEvent, number> = {
+    foghorn: 12,
+    gulls: 5,
+    siren: 30,
+    bell: 20,
+  };
+
   // Music scheduler (lookahead pattern: interval books notes ~100ms ahead).
   private musicOn = false;
   private musicTimer: number | null = null;
@@ -174,6 +229,7 @@ export class Sfx {
     if (this.ctx) {
       if (this.ctx.state === "suspended") void this.ctx.resume();
       this.startMusicScheduler();
+      this.startAmbienceScheduler();
       return;
     }
     const Ctor = window.AudioContext;
@@ -275,10 +331,24 @@ export class Sfx {
     this.boostLoopGain = boostLoop.gain;
     this.boostLoopFilter = boostLoop.filter;
 
+    // Ambient bed: its own sub-bus so the whole layer sits under the mix at
+    // one level, and mute (which pulls `master`) still kills it.
+    const ambientBus = ctx.createGain();
+    ambientBus.gain.value = AMBIENT_LEVEL;
+    ambientBus.connect(master);
+    this.ambientBus = ambientBus;
+    // Wind: a lowpassed body plus a narrow whistle that only opens on exposed
+    // ground. Surf/harbour wash is the same trick an octave lower.
+    this.windBodyGain = this.makeNoiseLoop(ctx, ambientBus, "lowpass", 460, 0.7).gain;
+    this.windWhistleGain = this.makeNoiseLoop(ctx, ambientBus, "bandpass", 1500, 4).gain;
+    this.surfGain = this.makeNoiseLoop(ctx, ambientBus, "lowpass", 240, 0.6).gain;
+    this.setAmbience(this.ambience);
+
     // Kick off (non-blocking) sample fetches; one-shots upgrade as they land.
     this.samples.load(ctx);
 
     this.startMusicScheduler();
+    this.startAmbienceScheduler();
   }
 
   /** Play a one-shot sample into the master bus; false → caller falls back. */
@@ -422,6 +492,215 @@ export class Sfx {
     } else {
       g.cancelScheduledValues(t);
       g.setTargetAtTime(0, t, 0.06);
+    }
+  }
+
+  // ── Ambient city bed ────────────────────────────────────────────────────
+  //
+  // A quiet layer under everything: wind that picks up on the hills, gulls near
+  // the water, the Gate foghorn, a distant siren, a cable-car bell a few blocks
+  // over. All of it hangs off `ambientBus → master`, so M mutes it with the
+  // rest and the mix has one knob. Nothing here is sampled; the one-shots are
+  // scheduled by a 1Hz countdown rather than a dense scheduler because the
+  // longest gap between events is over a minute.
+
+  /** Push the driver's surroundings; the bed re-balances toward them. */
+  setAmbience(env: AmbienceEnv): void {
+    this.ambience = env;
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    // Hilltops are exposed: the body of the wind swells and the whistle in it
+    // opens up. Down in the street canyons it is nearly gone.
+    const gust = env.exposure * env.exposure;
+    this.windBodyGain?.gain.setTargetAtTime(0.012 + gust * 0.075, t, 1.2);
+    this.windWhistleGain?.gain.setTargetAtTime(gust * 0.02, t, 1.5);
+    // Surf/harbour wash only near the water, and it never fights the engine.
+    this.surfGain?.gain.setTargetAtTime(env.shore * 0.05, t, 1.5);
+  }
+
+  private startAmbienceScheduler(): void {
+    if (this.ambientTimer !== null) return;
+    this.ambientTimer = window.setInterval(() => this.tickAmbience(), 1000);
+  }
+
+  private tickAmbience(): void {
+    if (!this.ctx || this.muted) return;
+    const env = this.ambience;
+    for (const key of AMBIENT_EVENTS) {
+      const due = this.ambientDue[key] - 1;
+      if (due > 0) {
+        this.ambientDue[key] = due;
+        continue;
+      }
+      this.ambientDue[key] = this.rollAmbientDelay(key);
+      this.fireAmbient(key, env);
+    }
+  }
+
+  private rollAmbientDelay(key: AmbientEvent): number {
+    const [min, span] = AMBIENT_GAPS[key];
+    return min + Math.random() * span;
+  }
+
+  private fireAmbient(key: AmbientEvent, env: AmbienceEnv): void {
+    const spread = Math.random() * 2 - 1;
+    switch (key) {
+      case "foghorn":
+        // Audible city-wide (that is the point of a foghorn) but it swells
+        // when you are out by the water, and it comes from the Gate.
+        if (Math.random() > 0.4 + env.shore * 0.5) return;
+        this.foghorn(env.gatePan, 0.035 + env.shore * 0.05);
+        break;
+      case "gulls":
+        if (env.shore < 0.15 || env.night > 0.6) return;
+        this.gullCries(spread, 0.05 * env.shore);
+        break;
+      case "siren":
+        this.distantSiren(spread, 0.02 + env.night * 0.012);
+        break;
+      case "bell":
+        this.cableCarBell(spread, 0.03 * (1 - 0.5 * env.night));
+        break;
+    }
+  }
+
+  /** Two-tone Gate blast, in the pair the real horns sound. */
+  private foghorn(pan: number, vol: number): void {
+    const ctx = this.ctx;
+    const bus = this.ambientBus;
+    if (!ctx || !bus) return;
+    const blast = (at: number, level: number): void => {
+      const p = ctx.createStereoPanner();
+      p.pan.value = Math.max(-1, Math.min(1, pan));
+      const lp = ctx.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.frequency.value = 320;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, at);
+      g.gain.exponentialRampToValueAtTime(Math.max(0.0002, level), at + 0.45);
+      g.gain.setValueAtTime(Math.max(0.0002, level), at + 1.5);
+      g.gain.exponentialRampToValueAtTime(0.0001, at + 2.6);
+      lp.connect(g);
+      g.connect(p);
+      p.connect(bus);
+      for (const [f, mix] of FOGHORN_PARTIALS) {
+        const o = ctx.createOscillator();
+        o.type = "sine";
+        o.frequency.value = f;
+        const og = ctx.createGain();
+        og.gain.value = mix;
+        o.connect(og);
+        og.connect(lp);
+        o.start(at);
+        o.stop(at + 2.8);
+      }
+    };
+    const t = ctx.currentTime;
+    blast(t, vol);
+    blast(t + 3.4, vol * 0.85);
+  }
+
+  /** A few descending squawks from one direction. */
+  private gullCries(pan: number, vol: number): void {
+    const ctx = this.ctx;
+    const bus = this.ambientBus;
+    if (!ctx || !bus) return;
+    const n = 2 + Math.floor(Math.random() * 3);
+    let at = ctx.currentTime;
+    for (let i = 0; i < n; i++) {
+      const top = 1000 + Math.random() * 500;
+      const o = ctx.createOscillator();
+      o.type = "sawtooth";
+      o.frequency.setValueAtTime(top, at);
+      o.frequency.exponentialRampToValueAtTime(top * 0.55, at + 0.2);
+      const bp = ctx.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.frequency.value = top;
+      bp.Q.value = 3.5;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, at);
+      g.gain.exponentialRampToValueAtTime(Math.max(0.0002, vol), at + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.0001, at + 0.22);
+      const p = ctx.createStereoPanner();
+      p.pan.value = Math.max(-1, Math.min(1, pan + (Math.random() - 0.5) * 0.3));
+      o.connect(bp);
+      bp.connect(g);
+      g.connect(p);
+      p.connect(bus);
+      o.start(at);
+      o.stop(at + 0.26);
+      at += 0.22 + Math.random() * 0.2;
+    }
+  }
+
+  /** A wail a long way off: lowpassed hard, so it reads as distance. */
+  private distantSiren(pan: number, vol: number): void {
+    const ctx = this.ctx;
+    const bus = this.ambientBus;
+    if (!ctx || !bus) return;
+    const t = ctx.currentTime;
+    const dur = 7;
+    const o = ctx.createOscillator();
+    o.type = "square";
+    const lfo = ctx.createOscillator();
+    lfo.type = "triangle";
+    lfo.frequency.value = 0.75;
+    const depth = ctx.createGain();
+    depth.gain.value = 150;
+    o.frequency.value = 700;
+    lfo.connect(depth);
+    depth.connect(o.frequency);
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 780; // buildings in the way
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0002, vol), t + 1.6);
+    g.gain.setValueAtTime(Math.max(0.0002, vol), t + dur - 2.4);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    const p = ctx.createStereoPanner();
+    p.pan.value = Math.max(-1, Math.min(1, pan));
+    o.connect(lp);
+    lp.connect(g);
+    g.connect(p);
+    p.connect(bus);
+    o.start(t);
+    lfo.start(t);
+    o.stop(t + dur + 0.05);
+    lfo.stop(t + dur + 0.05);
+  }
+
+  /** Cable-car gong: inharmonic partials, quick strike, long-ish shimmer. */
+  private cableCarBell(pan: number, vol: number): void {
+    const ctx = this.ctx;
+    const bus = this.ambientBus;
+    if (!ctx || !bus) return;
+    const dings = 2 + Math.floor(Math.random() * 2);
+    const p = ctx.createStereoPanner();
+    p.pan.value = Math.max(-1, Math.min(1, pan));
+    const hp = ctx.createBiquadFilter();
+    hp.type = "highpass";
+    hp.frequency.value = 600;
+    hp.connect(p);
+    p.connect(bus);
+    let at = ctx.currentTime;
+    for (let d = 0; d < dings; d++) {
+      const root = 1140 + Math.random() * 90;
+      for (const [ratio, mix] of BELL_PARTIALS) {
+        const o = ctx.createOscillator();
+        o.type = "sine";
+        o.frequency.value = root * ratio;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.0001, at);
+        g.gain.exponentialRampToValueAtTime(Math.max(0.0002, vol * mix), at + 0.005);
+        g.gain.exponentialRampToValueAtTime(0.0001, at + 0.9 / ratio);
+        o.connect(g);
+        g.connect(hp);
+        o.start(at);
+        o.stop(at + 1.0);
+      }
+      at += 0.26 + Math.random() * 0.06;
     }
   }
 

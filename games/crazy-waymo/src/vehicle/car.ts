@@ -4,7 +4,7 @@ import type { ModelCache } from "../assets/loader";
 import { modelUrl, PLAYER_CAR } from "../assets/manifest";
 import type { RaycastVehicle } from "./raycast-vehicle";
 import { radialGlowTexture } from "../fx/lamp-glow";
-import { CAR, ROAD_Y } from "../shared/constants";
+import { CAR, ROAD_Y, WORLD_HALF_X, WORLD_HALF_Z } from "../shared/constants";
 import type { Solid } from "../world/city";
 import type { SolidIndex } from "../world/solid-index";
 import { slopeQuaternion } from "../world/terrain";
@@ -33,6 +33,11 @@ const COLLIDE_RADIUS = 1.05;
 const WHEEL_RADIUS = 0.35;
 const UP = new THREE.Vector3(0, 1, 0);
 const X_AXIS = new THREE.Vector3(1, 0, 0);
+// Out-of-world rescue lands this far inside the map-border walls (world/city.ts
+// builds them at WORLD_HALF) — past them the ground is drawn but not collided.
+const RESCUE_INSET = 8;
+const clampInsideMap = (v: number, half: number): number =>
+  Math.min(half - RESCUE_INSET, Math.max(-(half - RESCUE_INSET), v));
 
 // The Waymo self-driving sensor suite grafted onto the white crossover: the
 // signature rooftop lidar dome, side mirror pods, and front bumper sensors.
@@ -715,10 +720,15 @@ export class Car {
     const sq = this.squash;
     this.body.scale.set(1 + 0.12 * sq, 1 - 0.26 * sq, 1 + 0.12 * sq);
 
-    // Fell through the world / off the map — bounce back to the last spot.
+    // Fell through the world / off the map — drop back in over solid ground.
+    // The rescue must MOVE the car: the map is drawn wider than its collider,
+    // so re-seating at the same x/z (where the fall started) just drops it
+    // through the same hole, forever. Inside the map-border walls there is
+    // always a heightfield underneath.
     if (t.y < -20 && this.surface) {
-      const gy = this.surface.heightAt(t.x, t.z) + 1.4;
-      veh.teleport(t.x, gy, t.z, this.heading);
+      const x = clampInsideMap(t.x, WORLD_HALF_X);
+      const z = clampInsideMap(t.z, WORLD_HALF_Z);
+      veh.teleport(x, this.surface.heightAt(x, z) + 1.4, z, this.heading);
     }
   }
 

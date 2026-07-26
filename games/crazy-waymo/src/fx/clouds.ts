@@ -21,6 +21,10 @@ const FOG_COUNT = 26;
 const FOG_DISSOLVE_U = 0.55;
 const FOG_SPAWN_MIN_U = -0.25; // off-shore, over the open Pacific
 const FOG_SPAWN_MAX_U = 0.1;
+// Share of sheets that pour through the Golden Gate, and the map fraction
+// (v north→south) of the strait they ride in on.
+const GATE_SHARE = 0.4;
+const GATE_V = 0.045;
 // Reduced quality (mobile tiers): giant near-white sheets are pure overdraw —
 // cap their width so a single sheet can't repaint the whole screen.
 const FOG_WIDTH_CAP = 380;
@@ -240,8 +244,16 @@ export class SkyClouds {
       ? FOG_SPAWN_MIN_U + Math.random() * (FOG_DISSOLVE_U - FOG_SPAWN_MIN_U)
       : FOG_SPAWN_MIN_U + Math.random() * (FOG_SPAWN_MAX_U - FOG_SPAWN_MIN_U);
     const x = (u - 0.5) * WORLD_W;
-    const z = (Math.random() * 1.3 - 0.65) * WORLD_H;
-    const y = 26 + Math.random() * 46; // hugs the hills, tops of Sutro/Twin Peaks
+    // Karl does not arrive on a broad front: most of him funnels through the
+    // Golden Gate. Two sheets in five ride the strait (the north edge of the
+    // map), the rest spread down the open coast.
+    const gate = Math.random() < GATE_SHARE;
+    const v = gate ? GATE_V + (Math.random() - 0.5) * 0.12 : Math.random() * 1.3 - 0.65 + 0.5;
+    const z = (v - 0.5) * WORLD_H;
+    // Sheet centres stay under the shader's marine lid (render/aerial-fog.ts
+    // MARINE_TOP) so cresting a hill lifts you clear of the billboards at the
+    // same moment it lifts you clear of the fog volume.
+    const y = gate ? 16 + Math.random() * 16 : 24 + Math.random() * 34;
     this.fog.centers.set([x, y, z], i * 3);
     const w = 320 + Math.random() * 320;
     this.fogWidth[i] = w;

@@ -147,34 +147,134 @@ const MAT_ROAD_BASE = new THREE.MeshStandardMaterial({
   vertexColors: true,
   roughness: 1,
 });
-// Asphalt aggregate: two octaves of hash speckle in world space, ±5%
-// luminance — big paved areas read as surface instead of flat fill. Runtime
-// shader on the shared material, so it covers live AND baked worlds (no
-// rebake needed) and costs zero extra geometry. Exported so the freeway deck
-// reads as the SAME asphalt (color + grain) — ramp mouths merge seamlessly.
+/**
+ * True on phones (coarse primary pointer), where fill rate — not draw calls —
+ * is the budget. The surface shaders below compile a reduced variant there.
+ * Guarded for the gen worker and the node test harness, which have no
+ * `window`; in practice it only ever runs inside `onBeforeCompile`, which is
+ * main-thread-only (the worker never renders).
+ */
+export function lowDetailSurfaces(): boolean {
+  return typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
+}
+
+// Asphalt surface shader — runtime only, on the SHARED base material, so it
+// covers live AND baked worlds (no rebake) and costs zero extra geometry.
+// Exported so the freeway deck reads as the SAME asphalt — ramp mouths merge
+// seamlessly.
+//
+// The material also carries the sidewalk and the curb (one collapsed draw
+// call, colors in a vertex attribute), so everything past the aggregate
+// speckle is gated on the asphalt's blue cast: asphalt is the only base color
+// with b > r (0x555b68 vs the cream walk/curb).
+//
+// On top of the speckle, all in world space so the pattern is deterministic
+// and seamless across chunk boundaries:
+//   - resurfacing patches, whole rectangles a few percent off in value;
+//   - utility-trench scars, the same rectangles at a high aspect ratio;
+//   - a very-low-frequency warm/cool drift, so districts don't share one mix;
+//   - scored pale concrete on grades past ~15%, SF's steep-block paving,
+//     with grooves transverse to the fall line.
+// All of it stays inside ±10% of the base color — this is a flat-shaded game,
+// the texture is meant to be felt, not read.
 export function applyAsphaltSpeckle(mat: THREE.MeshStandardMaterial): void {
   mat.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nvarying vec3 vRoadPos;")
+      .replace(
+        "#include <common>",
+        "#include <common>\nvarying vec3 vRoadPos;\nvarying vec3 vRoadNrm;",
+      )
       .replace(
         "#include <begin_vertex>",
-        "#include <begin_vertex>\nvRoadPos = (modelMatrix * vec4(transformed, 1.0)).xyz;",
+        `#include <begin_vertex>
+vRoadPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
+// World normal of the DRAPE (conformToTerrain writes the engineered street
+// profile's normal here), for the grade branch. Length-guarded: a geometry
+// that ever shipped without normals would otherwise normalize a zero vector.
+vec3 roadN = mat3(modelMatrix) * objectNormal;
+float roadNL = length(roadN);
+vRoadNrm = roadNL > 1e-4 ? roadN / roadNL : vec3(0.0, 1.0, 0.0);`,
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
         "#include <common>",
         `#include <common>
+${lowDetailSurfaces() ? "" : "#define ROAD_SURFACE_FULL 1"}
 varying vec3 vRoadPos;
-float roadHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }`,
+varying vec3 vRoadNrm;
+float roadHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float roadNoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = p - i;
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(
+    mix(roadHash(i), roadHash(i + vec2(1.0, 0.0)), u.x),
+    mix(roadHash(i + vec2(0.0, 1.0)), roadHash(i + vec2(1.0, 1.0)), u.x),
+    u.y);
+}
+// One random axis-aligned rectangle per \`cell\`-sized world cell, kept wholly
+// inside its cell so no patch ever reads as tiled. Returns (coverage, tone):
+// coverage is antialiased off the world-space derivative — NOT off the edge
+// distance, which jumps at cell borders and would draw the grid — so patches
+// dissolve at distance instead of shimmering. Tone reuses the accept hash, so
+// some patches come out darker and some lighter for free.
+vec2 roadPatch(vec2 wp, vec2 dwp, float cell, vec2 hmin, vec2 hvar, float density, float seed) {
+  vec2 c = floor(wp / cell);
+  float pick = roadHash(c + seed);
+  if (pick > density) return vec2(0.0);
+  vec2 f = wp / cell - c;
+  if (roadHash(c + seed + 41.7) > 0.5) f = f.yx; // half the cuts run crossways
+  vec2 h = hmin + hvar * vec2(roadHash(c + seed + 3.7), roadHash(c + seed + 9.1));
+  vec2 ctr = h + (1.0 - 2.0 * h) * vec2(roadHash(c + seed + 17.3), roadHash(c + seed + 23.9));
+  vec2 d = abs(f - ctr) - h;
+  float aa = max(dwp.x, dwp.y) / cell + 1e-5;
+  return vec2(1.0 - smoothstep(-aa, aa, max(d.x, d.y)), pick / density * 2.0 - 1.0);
+}`,
       )
       .replace(
         "#include <color_fragment>",
         `#include <color_fragment>
 {
   vec2 wp = vRoadPos.xz;
+  // Grooves run transverse to the fall line, which on a hill street IS
+  // transverse to travel — the horizontal normal gives the axis for free.
+  vec2 nxz = vRoadNrm.xz;
+  float nl = length(nxz);
+  float phase = dot(wp, nxz / max(nl, 1e-4)) * 1.15;
+  // Derivatives stay in UNIFORM control flow: a quad straddling the asphalt/
+  // sidewalk seam of a merged mesh takes both sides of the gate below, and
+  // fwidth() inside a divergent branch is undefined.
+  vec2 dwp = fwidth(wp);
+  float dphase = fwidth(phase);
   float speck = roadHash(floor(wp * 1.7));
   float coarse = roadHash(floor(wp * 0.21));
   diffuseColor.rgb *= 1.0 + (speck - 0.5) * 0.05 + (coarse - 0.5) * 0.045;
+  // Asphalt is the only base color with a blue cast; walk/curb are cream.
+  float asph = smoothstep(0.0, 0.03, diffuseColor.b - diffuseColor.r);
+  if (asph > 0.01) {
+    vec2 slab = roadPatch(wp, dwp, 26.0, vec2(0.13), vec2(0.17), 0.34, 0.0);
+    float wear = slab.x * slab.y * 0.055;
+    #ifdef ROAD_SURFACE_FULL
+      vec2 cut = roadPatch(wp, dwp, 47.0, vec2(0.40, 0.022), vec2(0.06, 0.018), 0.26, 71.3);
+      wear += cut.x * (cut.y * 0.045 - 0.035); // fresh cuts read darker than the mix
+      // District drift: ~300u wavelength warm/cool, so the Sunset and SoMa
+      // are not laid in the same batch of asphalt.
+      float drift = roadNoise(wp * 0.0032) - 0.5;
+      diffuseColor.rgb *= 1.0 + asph * drift * vec3(0.07, 0.01, -0.07);
+    #endif
+    diffuseColor.rgb *= 1.0 + wear * asph;
+    // Steep blocks are scored concrete, not asphalt (Filbert, 22nd, Jones).
+    float steep = smoothstep(0.15, 0.28, nl / max(vRoadNrm.y, 0.05)) * asph;
+    if (steep > 0.01) {
+      float groove = (0.5 - 0.5 * cos(phase * 6.2831853))
+        * (1.0 - smoothstep(0.35, 0.9, dphase)); // drop the pattern once undersampled
+      vec3 conc = vec3(0.30, 0.29, 0.26);
+      #ifdef ROAD_SURFACE_FULL
+        conc *= 0.88 + 0.24 * roadNoise(wp * 0.35); // slab-to-slab value variation
+      #endif
+      diffuseColor.rgb = mix(diffuseColor.rgb, conc * (1.0 - groove * 0.15), steep * 0.7);
+    }
+  }
 }`,
       );
   };

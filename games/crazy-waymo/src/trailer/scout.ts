@@ -24,8 +24,10 @@ import { SF_FREEWAYS } from "../world/sf-freeways";
 export type ScoutCtx = {
   readonly plan: CityPlan;
   readonly network: RoadNetwork;
-  /** Drive-surface (or raw terrain) height — grades tolerate the ~0.35u
-   *  street-depression difference between the two. */
+  /** Drive-surface (or raw terrain) height. Every grade/flatness test here
+   *  tolerates the difference between the two, but `FreewayRun.deckTopAt`
+   *  does NOT: it mirrors world/freeways.ts, which profiles the deck from RAW
+   *  terrain. Hand this raw terrain to make that field exact. */
   readonly heightAt: (x: number, z: number) => number;
 };
 
@@ -33,6 +35,39 @@ export const worldX = (gx: number): number => (gx + 0.5) * ROAD_TILE - WORLD_HAL
 export const worldZ = (gz: number): number => (gz + 0.5) * ROAD_TILE - WORLD_HALF_Z;
 export const gridX = (x: number): number => Math.floor((x + WORLD_HALF_X) / ROAD_TILE);
 export const gridZ = (z: number): number => Math.floor((z + WORLD_HALF_Z) / ROAD_TILE);
+
+// ---------------------------------------------------------------------------
+// Play area — the map is DRAWN wider than it is playable, and staging a shot
+// out there drops the car through the world.
+//
+// Four extents disagree. The rendered ground mesh reaches |x| 1713 / |z| 1404
+// and the Rapier ground heightfield stops at 1681 / 1378, but the plan cells,
+// districtAt and the terrain field cache all stop at WORLD_HALF (1586 / 1300)
+// — and `heightAt` does not fail past the cache, it clamps its index and keeps
+// returning the edge sample. The baked road network runs several hundred units
+// past WORLD_HALF to the north, so that tail reads as flat drivable asphalt at
+// a fake constant height over open bay, with no collider under it.
+//
+// WORLD_HALF is the gate rather than the collider extent: past it every query
+// a scout makes is fiction anyway, and it leaves ~95u/78u of collider slack
+// for a shot that overruns its mark.
+
+/** Margin from the map edge that any staged point must keep — roughly one
+ *  scene's worth of overrun (a take drives ~40u/s for a couple of seconds). */
+export const STAGE_MARGIN = 60;
+
+export function inPlayArea(x: number, z: number, margin = STAGE_MARGIN): boolean {
+  return Math.abs(x) <= WORLD_HALF_X - margin && Math.abs(z) <= WORLD_HALF_Z - margin;
+}
+
+/** EVERY vertex must be inside: a take can stage anywhere along the edge it
+ *  picked, so one vertex in the void disqualifies the whole edge. */
+export function edgeInPlayArea(e: NetEdge, margin = STAGE_MARGIN): boolean {
+  for (let i = 0; i + 1 < e.pts.length; i += 2) {
+    if (!inPlayArea(e.pts[i] ?? 0, e.pts[i + 1] ?? 0, margin)) return false;
+  }
+  return true;
+}
 
 const districtAtWorld = (x: number, z: number): DistrictChar =>
   districtAt(gridX(x), gridZ(z)).character;
@@ -68,6 +103,7 @@ export function scoutArterial(ctx: ScoutCtx, exclude?: NetEdge): RunSpot | null 
   let best: RunSpot | null = null;
   let bestScore = 0;
   for (const e of ctx.network.edges) {
+    if (!edgeInPlayArea(e)) continue;
     if (e === exclude) continue;
     if (e.len < 150 || e.half < 4.6) continue;
     if (straightness(e) < 0.965) continue;
@@ -111,6 +147,7 @@ export function scoutCrests(ctx: ScoutCtx, max = 6): CrestSpot[] {
   const RUN = 21; // grade measured over this approach/exit distance
   const found: CrestSpot[] = [];
   for (const e of ctx.network.edges) {
+    if (!edgeInPlayArea(e)) continue;
     if (e.len < 70 || straightness(e) < 0.9) continue;
     for (let s = RUN + 6; s <= e.len - RUN - 24; s += 3) {
       const here = ctx.network.sample(e, s);
@@ -166,6 +203,7 @@ export function scoutVista(ctx: ScoutCtx): VistaSpot | null {
   let best: VistaSpot | null = null;
   let bestScore = 0;
   for (const e of ctx.network.edges) {
+    if (!edgeInPlayArea(e)) continue;
     if (e.len < 90 || straightness(e) < 0.93) continue;
     for (const dir of [1, -1] as const) {
       const s0 = dir > 0 ? 8 : e.len - 8;
@@ -232,6 +270,7 @@ export function scoutShore(ctx: ScoutCtx): ShoreSpot | null {
   let best: ShoreSpot | null = null;
   let bestKey = -Infinity;
   for (const e of ctx.network.edges) {
+    if (!edgeInPlayArea(e)) continue;
     if (e.len < 90 || straightness(e) < 0.9) continue;
     const mid = ctx.network.sample(e, e.len / 2);
     if (districtAtWorld(mid.x, mid.z) !== "wharf") continue;
@@ -279,14 +318,19 @@ export function scoutSignalJunctions(ctx: ScoutCtx, max = 10): JunctionSpot[] {
   const net = ctx.network;
   const out: { spot: JunctionSpot; q: number; dense: boolean }[] = [];
   for (let node = 0; node < net.nodes.length; node++) {
-    if (junctionControl(net, node) !== "signal") continue;
     const pos = net.nodes[node];
-    if (!pos) continue;
+    if (!pos || !inPlayArea(pos[0], pos[1])) continue;
+    if (junctionControl(net, node) !== "signal") continue;
     if (controlArms(net, node).length < 4) continue;
     const approaches: Approach[] = [];
     for (const id of net.nodeEdges[node] ?? []) {
       const e = net.edges[id];
-      if (!e || e.len < 30) continue;
+      // The ARM needs the guard too, not just the node it hangs off: a take
+      // queues cross-traffic up to `run` (90u) back along it while the node
+      // gate only keeps 60u. No signalled junction in this bake sits within
+      // 230u of the margin, so this drops nothing today — it stops the node
+      // guard from resting on that coincidence. Same rule scoutCorners uses.
+      if (!e || !edgeInPlayArea(e) || e.len < 30) continue;
       const ends: (1 | -1)[] = [];
       if (e.b === node) ends.push(1);
       if (e.a === node) ends.push(-1);
@@ -367,11 +411,13 @@ export function scoutCorners(ctx: ScoutCtx, max = 5): CornerSpot[] {
     const pos = net.nodes[node];
     const ids = net.nodeEdges[node];
     if (!pos || !ids || ids.length < 2 || ids.length > 4) continue;
+    if (!inPlayArea(pos[0], pos[1])) continue;
     if (!CORNER_OK.has(districtAtWorld(pos[0], pos[1]))) continue;
     const arms: Approach[] = [];
     for (const id of ids) {
       const e = net.edges[id];
-      if (!e || e.len < 46 || e.half < 4.0 || straightness(e) < 0.93) continue;
+      if (!e || !edgeInPlayArea(e)) continue;
+      if (e.len < 46 || e.half < 4.0 || straightness(e) < 0.93) continue;
       const ends: (1 | -1)[] = [];
       if (e.b === node) ends.push(1);
       if (e.a === node) ends.push(-1);
@@ -449,67 +495,292 @@ export function scoutGoldenGate(ctx: ScoutCtx): GateSpot | null {
 }
 
 // ---------------------------------------------------------------------------
-// Freeway mainline run (elevated deck, drivable trimesh). Deck top sits at
-// terrain + 6.5 (clearance) + 0.9 (slab) before slew smoothing; we take the
-// max over a window so the estimate can only land ON or slightly above the
-// slab, never under it — and prefer flat ground where slew is a no-op.
+// Freeway mainline run (elevated deck, drivable trimesh).
+//
+// The deck profile and the barrier rules below MIRROR world/freeways.ts. That
+// module owns the geometry but builds it with THREE and never exports its
+// lines, and scout.ts stays headless — so the parts a staged shot depends on
+// are reproduced here. Keep the FW_* constants in sync with it: drift shows up
+// as the trailer staging the car inside a wall.
+
+const FW_STEP = 6; // freeways.ts STEP — centreline resample pitch
+const FW_CLEAR = 7.4; // CLEAR + DECK_T — deck TOP above local terrain
+const FW_SLEW = 0.3; // STEP * MAX_GRADE — upward-only profile slew per sample
+const FW_RAIL_INSET = 0.5; // barrier inner face, inboard of the deck edge
+const FW_MERGE_GROW = 1.0; // otherDeckAt() grow that suppresses a barrier
+const FW_MERGE_DY = 1.5; // ...and the height window it suppresses within
+const FW_GROUND_RUN = 96; // GROUND_RUN — hanging ends glide down to street grade
+const FW_CELL = 24; // sample-hash bucket (freeways.ts CELL)
+
+// Staging gates on top of the mirrored geometry.
+const FW_MIN_RUN = 150; // shortest usable clean stretch
+const FW_MIN_FREE = 9; // barrier-free lateral corridor the car needs
+const FW_FREE_CAP = 12; // corridor probe range — anything wider is "open"
+const FW_MAX_TURN = (3 * Math.PI) / 180; // heading change per sample
+const FW_SELF_GAP = 4; // samples apart before two points count as "doubled back"
 
 export type FreewayRun = {
   /** Resampled centreline points in travel order, ~6u pitch. */
   readonly pts: readonly (readonly [number, number])[];
   readonly deckYAt: (x: number, z: number) => number;
+  /** Deck top — the surface the wheels rest on, profiled the way freeways.ts
+   *  profiles it (local ground + clearance, then the slew) rather than
+   *  `deckYAt`'s ground max over a 60u disc. `deckYAt` reads high on anything
+   *  but dead-flat ground, so a chassis staged from it drops onto the deck ON
+   *  CAMERA — physics does not advance under a cut.
+   *
+   *  NOT exact against the trimesh, because `ScoutCtx.heightAt` is normally
+   *  the DRIVE surface while freeways.ts reads raw terrain: measured along the
+   *  mainlines those disagree by −0.67u (street depression) to +2.24u (street
+   *  terrace). The upward slew swallows most of it — the current pick reads
+   *  0.216u LOW at its staging sample — but budget ±0.3u, and note LOW is the
+   *  awkward direction (a chassis seated from it starts compressed). Passing
+   *  raw terrain as `ScoutCtx.heightAt` removes the residual entirely.
+   *
+   *  A resting chassis belongs at `deckTopAt(x, z) + 0.68` (ride height); mind
+   *  that TrailerStage.placeCar adds its own +1.4 to the y it is handed. */
+  readonly deckTopAt: (x: number, z: number) => number;
 };
 
-export function scoutFreeway(ctx: ScoutCtx): FreewayRun | null {
-  const STEP = 6;
-  const CLEAR = 7.4; // deck TOP above terrain (freeways.ts CLEAR + DECK_T)
-  let best: { pts: [number, number][]; score: number } | null = null;
+type Ribbon = {
+  readonly half: number;
+  readonly pts: readonly (readonly [number, number])[];
+  readonly ys: readonly number[]; // deck TOP per sample
+};
+
+type DeckSample = { x: number; z: number; y: number; half: number; line: number };
+/** A barrier's inner face — the lateral edge of drivable deck. */
+type Wall = { x: number; z: number; y: number };
+
+const cellKey = (cell: number, x: number, z: number): string =>
+  `${Math.floor(x / cell)},${Math.floor(z / cell)}`;
+
+function pushCell<T>(map: Map<string, T[]>, key: string, v: T): void {
+  const arr = map.get(key);
+  if (arr) arr.push(v);
+  else map.set(key, [v]);
+}
+
+/** Every entry in the 3×3 bucket neighbourhood around (x, z). */
+function* nearCells<T>(map: Map<string, T[]>, cell: number, x: number, z: number): Generator<T> {
+  const bx = Math.floor(x / cell);
+  const bz = Math.floor(z / cell);
+  for (let ix = bx - 1; ix <= bx + 1; ix++) {
+    for (let iz = bz - 1; iz <= bz + 1; iz++) {
+      for (const v of map.get(`${ix},${iz}`) ?? []) yield v;
+    }
+  }
+}
+
+/** freeways.ts resample(), including its "keep the final source point" tail —
+ *  sample indices have to line up with the deck it builds. */
+function resampleFreeway(p: readonly number[]): [number, number][] {
+  const src: [number, number][] = [];
+  for (let i = 0; i + 1 < p.length; i += 2) src.push([p[i] ?? 0, p[i + 1] ?? 0]);
+  if (src.length < 2) return [];
+  const pts: [number, number][] = [src[0] ?? [0, 0]];
+  let carry = 0;
+  for (let i = 1; i < src.length; i++) {
+    const [ax, az] = src[i - 1] ?? [0, 0];
+    const [bx, bz] = src[i] ?? [0, 0];
+    const seg = Math.hypot(bx - ax, bz - az);
+    let t = FW_STEP - carry;
+    while (t <= seg) {
+      pts.push([ax + ((bx - ax) * t) / seg, az + ((bz - az) * t) / seg]);
+      t += FW_STEP;
+    }
+    carry = (carry + seg) % FW_STEP;
+  }
+  const last = src[src.length - 1];
+  const tail = pts[pts.length - 1];
+  if (last && tail && Math.hypot(last[0] - tail[0], last[1] - tail[1]) > FW_STEP * 0.4) {
+    pts.push([last[0], last[1]]);
+  }
+  return pts;
+}
+
+/** Unit lateral (left of travel) at a sample, matching the rails freeways.ts
+ *  lays out from the same central-difference tangent. */
+function lateralAt(r: Ribbon, i: number): readonly [number, number] {
+  const [px, pz] = r.pts[Math.max(0, i - 1)] ?? [0, 0];
+  const [qx, qz] = r.pts[Math.min(r.pts.length - 1, i + 1)] ?? [0, 0];
+  const tl = Math.hypot(qx - px, qz - pz) || 1;
+  return [-(qz - pz) / tl, (qx - px) / tl];
+}
+
+/** Mainline deck profile: ground + clearance, then freeways.ts' upward-only
+ *  slew limit run both ways (the deck glides over dips rather than following
+ *  them). Its dead-end GROUNDING is deliberately NOT modelled — the last
+ *  FW_GROUND_RUN of every polyline is excluded from staging instead, which is
+ *  strictly more conservative. The one residual is that freeways.ts reads RAW
+ *  terrain here and ctx.heightAt is usually the drive surface — see
+ *  FreewayRun.deckTopAt. */
+function buildRibbons(ctx: ScoutCtx): Ribbon[] {
+  const out: Ribbon[] = [];
   for (const f of SF_FREEWAYS) {
-    // Resample the polyline.
-    const src: [number, number][] = [];
-    for (let i = 0; i + 1 < f.p.length; i += 2) src.push([f.p[i] ?? 0, f.p[i + 1] ?? 0]);
-    if (src.length < 2) continue;
-    const pts: [number, number][] = [src[0] ?? [0, 0]];
-    let carry = 0;
-    for (let i = 1; i < src.length; i++) {
-      const a = src[i - 1] ?? [0, 0];
-      const b = src[i] ?? [0, 0];
-      const seg = Math.hypot(b[0] - a[0], b[1] - a[1]);
-      let t = STEP - carry;
-      while (t <= seg) {
-        pts.push([a[0] + ((b[0] - a[0]) * t) / seg, a[1] + ((b[1] - a[1]) * t) / seg]);
-        t += STEP;
+    const pts = resampleFreeway(f.p);
+    if (pts.length < 2) continue;
+    const ys = pts.map(([x, z]) => ctx.heightAt(x, z) + FW_CLEAR);
+    for (let i = 1; i < ys.length; i++) ys[i] = Math.max(ys[i] ?? 0, (ys[i - 1] ?? 0) - FW_SLEW);
+    for (let i = ys.length - 2; i >= 0; i--) {
+      ys[i] = Math.max(ys[i] ?? 0, (ys[i + 1] ?? 0) - FW_SLEW);
+    }
+    out.push({ half: f.half, pts, ys });
+  }
+  return out;
+}
+
+/** Barrier inner faces that actually get built, hashed for lateral probing.
+ *  freeways.ts suppresses a rail wherever ANOTHER ribbon's deck covers it at
+ *  the same height — that is how the two carriageways of one freeway fuse into
+ *  a single wide surface. `li === self` is skipped there, so a polyline that
+ *  doubles back on ITSELF keeps both walls, ~0.7u apart, standing on the deck
+ *  the trailer would otherwise stage on. */
+function buildWalls(ribbons: readonly Ribbon[]): Map<string, Wall[]> {
+  const decks = new Map<string, DeckSample[]>();
+  ribbons.forEach((r, line) => {
+    for (let i = 0; i < r.pts.length; i++) {
+      const [x, z] = r.pts[i] ?? [0, 0];
+      pushCell(decks, cellKey(FW_CELL, x, z), { x, z, y: r.ys[i] ?? 0, half: r.half, line });
+    }
+  });
+  const covered = (x: number, z: number, y: number, self: number): boolean => {
+    for (const d of nearCells(decks, FW_CELL, x, z)) {
+      if (d.line === self) continue;
+      if (Math.abs(d.y - y) > FW_MERGE_DY) continue;
+      if (Math.hypot(d.x - x, d.z - z) < d.half + FW_MERGE_GROW) return true;
+    }
+    return false;
+  };
+  const walls = new Map<string, Wall[]>();
+  ribbons.forEach((r, line) => {
+    for (let i = 0; i < r.pts.length; i++) {
+      const [x, z] = r.pts[i] ?? [0, 0];
+      const y = r.ys[i] ?? 0;
+      const [lx, lz] = lateralAt(r, i);
+      for (const side of [1, -1] as const) {
+        if (covered(x + lx * r.half * side, z + lz * r.half * side, y, line)) continue;
+        const o = (r.half - FW_RAIL_INSET) * side;
+        const wx = x + lx * o;
+        const wz = z + lz * o;
+        pushCell(walls, cellKey(FW_CELL, wx, wz), { x: wx, z: wz, y });
       }
-      carry = (carry + seg) % STEP;
     }
-    const len = (pts.length - 1) * STEP;
-    if (len < 320) continue; // need a long clean central window
-    // Central 260u window, well clear of grounded dead-ends.
-    const i0 = Math.floor(pts.length / 2 - 130 / STEP);
-    const i1 = Math.floor(pts.length / 2 + 130 / STEP);
-    const win = pts.slice(Math.max(0, i0), Math.min(pts.length, i1));
-    if (win.length < 30) continue;
-    // Flat ground below → deck slew is a no-op → teleport height is exact.
-    let hMin = Infinity;
-    let hMax = -Infinity;
-    for (const [x, z] of win) {
-      const h = ctx.heightAt(x, z);
-      hMin = Math.min(hMin, h);
-      hMax = Math.max(hMax, h);
+  });
+  return walls;
+}
+
+/** Barrier-free width across the deck at one sample. Walls are sampled every
+ *  FW_STEP along their own ribbon, so whatever the crossing angle at least one
+ *  sample of a wall spanning this cross-section lands within half a step of
+ *  it. */
+function freeWidth(
+  walls: Map<string, Wall[]>,
+  x: number,
+  z: number,
+  y: number,
+  lx: number,
+  lz: number,
+): number {
+  let left = FW_FREE_CAP;
+  let right = FW_FREE_CAP;
+  for (const w of nearCells(walls, FW_CELL, x, z)) {
+    if (Math.abs(w.y - y) > FW_MERGE_DY) continue; // a rail at another grade is not in the way
+    const dx = w.x - x;
+    const dz = w.z - z;
+    if (Math.abs(dx * lz - dz * lx) > FW_STEP / 2) continue; // not at this cross-section
+    const lat = dx * lx + dz * lz;
+    if (lat >= 0) left = Math.min(left, lat);
+    else right = Math.min(right, -lat);
+  }
+  return left + right;
+}
+
+/** Which samples of a ribbon a car can be staged on: inside the play area,
+ *  clear of the grounded ends, straight, not doubled back on itself, and with
+ *  a free corridor to weave in. */
+function markStageable(r: Ribbon, walls: Map<string, Wall[]>): boolean[] {
+  const n = r.pts.length;
+  const selfGap = 2 * r.half + 4;
+  const ok: boolean[] = [];
+  for (let i = 0; i < n; i++) {
+    const [x, z] = r.pts[i] ?? [0, 0];
+    ok.push(false);
+    if (!inPlayArea(x, z)) continue;
+    if (Math.min(i, n - 1 - i) * FW_STEP < FW_GROUND_RUN) continue;
+    const [ax, az] = r.pts[i - 1] ?? [0, 0];
+    const [bx, bz] = r.pts[i + 1] ?? [0, 0];
+    let turn = Math.atan2(bx - x, bz - z) - Math.atan2(x - ax, z - az);
+    turn = Math.abs(((turn + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+    if (turn > FW_MAX_TURN) continue;
+    let doubled = false;
+    for (let j = 0; j < n && !doubled; j++) {
+      if (Math.abs(j - i) < FW_SELF_GAP) continue;
+      const [qx, qz] = r.pts[j] ?? [0, 0];
+      doubled = Math.hypot(qx - x, qz - z) < selfGap;
     }
-    const flatness = hMax - hMin;
-    if (flatness > 2.5) continue;
-    // Prefer the run pointing INTO dense skyline.
-    const tail = win[win.length - 1] ?? [0, 0];
-    const head = win[0] ?? [0, 0];
-    const tailDense = DENSE.has(districtAtWorld(tail[0], tail[1]));
-    const headDense = DENSE.has(districtAtWorld(head[0], head[1]));
-    const ordered = tailDense || !headDense ? win : [...win].reverse();
-    const score = len - flatness * 40 + (tailDense || headDense ? 500 : 0);
-    if (!best || score > best.score) best = { pts: ordered, score };
+    if (doubled) continue;
+    const [lx, lz] = lateralAt(r, i);
+    if (freeWidth(walls, x, z, r.ys[i] ?? 0, lx, lz) < FW_MIN_FREE) continue;
+    ok[i] = true;
+  }
+  return ok;
+}
+
+type RunCandidate = { pts: [number, number][]; tops: number[]; score: number };
+
+/** Score one contiguous stageable stretch, oriented for the camera, or reject
+ *  it as unusable. */
+function evalRun(ctx: ScoutCtx, r: Ribbon, i: number, j: number): RunCandidate | null {
+  const runLen = (j - i) * FW_STEP;
+  if (runLen < FW_MIN_RUN) return null;
+  const pts: [number, number][] = [];
+  const tops: number[] = [];
+  let hMin = Infinity;
+  let hMax = -Infinity;
+  for (let k = i; k <= j; k++) {
+    const [x, z] = r.pts[k] ?? [0, 0];
+    pts.push([x, z]);
+    tops.push(r.ys[k] ?? 0);
+    const h = ctx.heightAt(x, z);
+    hMin = Math.min(hMin, h);
+    hMax = Math.max(hMax, h);
+  }
+  // Flat ground below is no longer an accuracy crutch — deckTopAt models the
+  // slew exactly now. It stays a FRAMING gate: a deck riding 10u of relief
+  // porpoises the low chase cam through the whole cut.
+  const flatness = hMax - hMin;
+  if (flatness > 2.5) return null;
+  // Prefer the run pointing INTO dense skyline.
+  const head = pts[0] ?? [0, 0];
+  const tail = pts[pts.length - 1] ?? [0, 0];
+  const tailDense = DENSE.has(districtAtWorld(tail[0], tail[1]));
+  const headDense = DENSE.has(districtAtWorld(head[0], head[1]));
+  if (!tailDense && headDense) {
+    pts.reverse();
+    tops.reverse();
+  }
+  return { pts, tops, score: runLen - flatness * 40 + (tailDense || headDense ? 500 : 0) };
+}
+
+export function scoutFreeway(ctx: ScoutCtx): FreewayRun | null {
+  const ribbons = buildRibbons(ctx);
+  const walls = buildWalls(ribbons);
+  let best: RunCandidate | null = null;
+  for (const r of ribbons) {
+    const ok = markStageable(r, walls);
+    for (let i = 0; i < ok.length; i++) {
+      if (!ok[i]) continue;
+      let j = i;
+      while (j + 1 < ok.length && ok[j + 1]) j++;
+      const cand = evalRun(ctx, r, i, j);
+      if (cand && (!best || cand.score > best.score)) best = cand;
+      i = j;
+    }
   }
   if (!best) return null;
   const pts = best.pts;
+  const tops = best.tops;
   const deckYAt = (x: number, z: number): number => {
     let h = -Infinity;
     for (const [px, pz] of pts) {
@@ -517,9 +788,33 @@ export function scoutFreeway(ctx: ScoutCtx): FreewayRun | null {
       h = Math.max(h, ctx.heightAt(px, pz));
     }
     if (h === -Infinity) h = ctx.heightAt(x, z);
-    return h + CLEAR;
+    return h + FW_CLEAR;
   };
-  return { pts, deckYAt };
+  const deckTopAt = (x: number, z: number): number => {
+    // Nearest point on the run's centreline, profile interpolated along it.
+    let bestD2 = Infinity;
+    let y = tops[0] ?? 0;
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const [ax, az] = pts[i] ?? [0, 0];
+      const [bx, bz] = pts[i + 1] ?? [0, 0];
+      const dx = bx - ax;
+      const dz = bz - az;
+      const t = Math.max(
+        0,
+        Math.min(1, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz || 1)),
+      );
+      const ex = ax + dx * t - x;
+      const ez = az + dz * t - z;
+      const d2 = ex * ex + ez * ez;
+      if (d2 < bestD2) {
+        bestD2 = d2;
+        const y0 = tops[i] ?? 0;
+        y = y0 + ((tops[i + 1] ?? 0) - y0) * t;
+      }
+    }
+    return y;
+  };
+  return { pts, deckYAt, deckTopAt };
 }
 
 // ---------------------------------------------------------------------------

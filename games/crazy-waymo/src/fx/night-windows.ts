@@ -22,10 +22,14 @@ const WIN_W = 0.62;
 const WIN_H = 0.85;
 const FACE_OFFSET = 0.09; // out from the wall so the quad never z-fights
 const LIT_CHANCE = 0.45;
-// Fade with the night fog (fogFar ~700 at night) so far windows never read
-// as floating dots past the fog line.
-const FADE_NEAR = 430;
-const FADE_FAR = 680;
+// Fade out BEFORE the facades they are painted on disappear. The near tier of
+// city geometry culls at city.ts DETAIL_DISTANCE (360u); past that only tall
+// buildings survive, as blank box imposters. The old 430–680 band therefore
+// drew lit window grids over featureless boxes — and, past the imposters, over
+// nothing at all. Finish inside the detail cull instead.
+const DETAIL_CULL = 360;
+const FADE_NEAR = 240;
+const FADE_FAR = DETAIL_CULL;
 
 // Warm sodium-ish interior palette with the occasional cool TV-blue room.
 const WARM = new THREE.Color(0xffd9a0);

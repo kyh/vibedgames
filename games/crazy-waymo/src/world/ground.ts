@@ -12,7 +12,7 @@ import { type DrapeField } from "./conform";
 import { CUSTOM_MAP, type FloorKind, loadLocalOverrides } from "./custom-map";
 import type { CityPlan } from "./grid";
 import type { RoadNetwork } from "./network";
-import { SIDEWALK_W, walkFor } from "./roads";
+import { lowDetailSurfaces, SIDEWALK_W, walkFor } from "./roads";
 import { districtAt, greenHillWeightAt, seawallShore } from "./sf-map";
 import type { Terrain } from "./terrain";
 import { landuseGreenAt, landuseSandAt } from "./sf-landuse";
@@ -39,12 +39,22 @@ function meadowPatch(x: number, z: number): number {
 const gridX = (x: number): number => Math.floor((x + WORLD_HALF_X) / ROAD_TILE);
 const gridZ = (z: number): number => Math.floor((z + WORLD_HALF_Z) / ROAD_TILE);
 
-// Grass mottle: a runtime shader pass on the ground material (covers live AND
-// baked worlds — vertex colors stay untouched). Grassy pixels (green-dominant
-// vertex color) get three octaves of world-space variation — fine grain, a
-// smooth mid-scale value noise, and broad olive patches — so lawns and hills
-// read as turf instead of flat green fill. Concrete/sand (r≈g≥b) are
-// untouched by the grassiness gate.
+// Ground grain: a runtime shader pass on the ground material (covers live AND
+// baked worlds — vertex colors stay untouched). Three octaves of world-space
+// variation — fine grain, a smooth mid-scale value noise, and broad patches —
+// so the terrain reads as ground instead of flat fill.
+//
+// The octaves are applied to EVERY hue. Green-dominance now only selects the
+// TREATMENT on top: turf gets the olive/blue-green patch drift it always had,
+// hard ground gets aggregate grit and a warm/cool district shift, and sand
+// (warm, r >> b) gets wind ripples. The old code gated the whole pass on
+// green-dominance, which left every concrete and sand pixel in the city
+// perfectly flat AND would have zeroed the noise on any future non-green
+// palette (golden hills), so the gate was structurally trapping the ground in
+// green rather than describing it.
+//
+// Kept exact for green ground: at grass = 1 the amplitude, the drift and the
+// skipped hard-surface branch reproduce the previous output bit for bit.
 export function applyGrassMottle(mat: THREE.MeshStandardMaterial): void {
   mat.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
@@ -57,6 +67,7 @@ export function applyGrassMottle(mat: THREE.MeshStandardMaterial): void {
       .replace(
         "#include <common>",
         `#include <common>
+${lowDetailSurfaces() ? "" : "#define GROUND_GRAIN_FULL 1"}
 varying vec3 vGroundPos;
 float grHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float grNoise(vec2 p) {
@@ -73,18 +84,45 @@ float grNoise(vec2 p) {
         "#include <color_fragment>",
         `#include <color_fragment>
 {
+  vec2 wp = vGroundPos.xz;
   float grass = smoothstep(0.02, 0.12, diffuseColor.g - max(diffuseColor.r, diffuseColor.b));
-  if (grass > 0.01) {
-    vec2 wp = vGroundPos.xz;
-    float fine = grHash(floor(wp * 2.1));
+  float fine = grHash(floor(wp * 2.1));
+  float broad = grNoise(wp * 0.045);
+  // Sand-ripple phase and its screen-space rate live OUTSIDE the branches:
+  // fwidth() in divergent control flow is undefined, and the grass/hard gate
+  // below splits quads wherever turf meets a beach or a plaza.
+  float rphase = dot(wp, vec2(1.28, 0.79)) + broad * 7.0; // broad noise curves the bands
+  float rfade = 1.0 - smoothstep(0.9, 2.2, fwidth(rphase));
+  #ifdef GROUND_GRAIN_FULL
     float mid = grNoise(wp * 0.16);
-    float broad = grNoise(wp * 0.045);
-    float lum = 1.0 + ((fine - 0.5) * 0.05 + (mid - 0.5) * 0.12 + (broad - 0.5) * 0.14) * grass;
-    diffuseColor.rgb *= lum;
+  #else
+    // Phones keep the mid octave only where it does the most work — turf.
+    float mid = 0.5;
+    if (grass > 0.01) mid = grNoise(wp * 0.16);
+  #endif
+  // Hard ground still gets most of the amplitude; max() (not mix) is what
+  // keeps green ground identical to before.
+  float amp = max(grass, 0.55);
+  diffuseColor.rgb *= 1.0 + ((fine - 0.5) * 0.05 + (mid - 0.5) * 0.12 + (broad - 0.5) * 0.14) * amp;
+  if (grass > 0.01) {
     // Broad patches drift warm (olive) or cool (blue-green) — turf, not paint.
     float drift = (broad - 0.5) * 0.7 * grass;
     diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.08, 1.0, 0.78), clamp(drift, 0.0, 1.0));
     diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.88, 1.0, 1.05), clamp(-drift, 0.0, 1.0));
+  }
+  float hard = 1.0 - grass;
+  if (hard > 0.01) {
+    // Aggregate: concrete's chips and sand's tooth, an octave finer than the
+    // meadow grain.
+    float grit = grHash(floor(wp * 3.3)) - 0.5;
+    // Sand only — the one hue test left, and it asks for WARMTH rather than
+    // the absence of green, so a straw hill (r - b ~ 0.25) stays out of it.
+    float sand = smoothstep(0.30, 0.40, diffuseColor.r - diffuseColor.b);
+    float ripple = sin(rphase) * sand * rfade;
+    vec3 grain = vec3(1.0 + hard * (grit * 0.05 + ripple * 0.035));
+    // Concrete picks up the same warm/cool district drift the asphalt has.
+    grain += (broad - 0.5) * hard * (1.0 - sand) * vec3(0.05, 0.015, -0.05);
+    diffuseColor.rgb *= grain;
   }
 }`,
       );

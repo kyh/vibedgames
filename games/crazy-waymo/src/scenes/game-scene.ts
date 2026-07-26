@@ -6,8 +6,10 @@ import { Sky } from "three/addons/objects/Sky.js";
 import { ModelCache } from "../assets/loader";
 import { bannerControls } from "../controls";
 import type { AmbientLife } from "../fx/ambient-life";
+import { type Beacon, BeaconLights, collectBeacons } from "../fx/beacon-lights";
 import { ChaseCamera } from "../fx/camera-rig";
 import { SkyClouds } from "../fx/clouds";
+import { Harbor } from "../fx/harbor";
 import type { SmashCones } from "../fx/cones";
 import type { Debris } from "../fx/debris";
 import type { LampGlow } from "../fx/lamp-glow";
@@ -18,6 +20,7 @@ import { SignalLights } from "../fx/signal-lights";
 import type { SkidMarks } from "../fx/skids";
 import { SpeedLines } from "../fx/speedlines";
 import { VehicleFxRig } from "../fx/vehicle-fx";
+import { VehicleLights } from "../fx/vehicle-lights";
 import { Shockwaves } from "../fx/trails";
 import type { DriftTrails } from "../fx/trails";
 import {
@@ -34,7 +37,9 @@ import { InputState } from "../input/keyboard";
 import { NetSession } from "../net/session";
 import { readTransform, type RemoteCars } from "../net/remote-cars";
 import type { PhysicsWorld } from "../physics/physics-world";
+import { installAerialFog } from "../render/aerial-fog";
 import { DayNight } from "../render/day-night";
+import { FarTerrain } from "../render/far-terrain";
 import { FULL_QUALITY, isCoarsePointer, type QualityFeatures } from "../render/quality";
 import {
   CAMERA,
@@ -48,9 +53,12 @@ import {
   NET_TICK_HZ,
   OFFLINE_FALLBACK_MS,
   WORLD_H,
+  WORLD_HALF_X,
+  WORLD_HALF_Z,
   WORLD_W,
 } from "../shared/constants";
 import type { GameMode } from "../shared/types";
+import { STAGE_MARGIN } from "../trailer/scout";
 import { GaragePreview } from "../ui/garage-preview";
 import { Hud } from "../ui/hud";
 import type { Minimap, MinimapMarker } from "../ui/minimap";
@@ -64,6 +72,10 @@ import type { SolidIndex } from "../world/solid-index";
 import { loadWorld, type WorldCoreSystems, type WorldSpawn } from "./world-loader";
 
 const HALF_PI = Math.PI / 2;
+
+/** One axis of the trailer staging clamp — see TrailerStage.placeCar. */
+const clampToPlayArea = (v: number, half: number): number =>
+  Math.min(half - STAGE_MARGIN, Math.max(-(half - STAGE_MARGIN), v));
 
 // Shore texture for the ocean shader: landFactor (the same pure mask the
 // terrain samples) baked over the map + margin. R8 bilinear — the fragment
@@ -86,6 +98,32 @@ function buildShoreTexture(): THREE.DataTexture {
   tex.needsUpdate = true;
   return tex;
 }
+// --- Ambient bed inputs (see updateAmbience) ---
+const AMBIENCE_HZ = 4;
+/** Ring of offsets the shore probe samples the land mask at, in world units. */
+const SHORE_PROBES: readonly { x: number; z: number }[] = Array.from({ length: 8 }, (_, i) => {
+  const a = (i / 8) * Math.PI * 2;
+  return { x: Math.sin(a) * 110, z: Math.cos(a) * 110 };
+});
+/** Middle of the strait — where the foghorn lives. */
+const GATE_POS = new THREE.Vector3((0.27 - 0.5) * WORLD_W, 30, (0.02 - 0.5) * WORLD_H);
+
+// Parked cars are dark at night, which is correct and also dead. Every Nth one
+// gets a dim amber marker lamp — enough to dot the kerb line without turning
+// the street into fairy lights.
+const PARKED_MARKER_STRIDE = 5;
+const PARKED_MARKER_CAP = 420;
+function parkedMarkers(city: CityModel): readonly Beacon[] {
+  const out: Beacon[] = [];
+  const specs = city.parkedCarSpecs;
+  for (let i = 0; i < specs.length && out.length < PARKED_MARKER_CAP; i += PARKED_MARKER_STRIDE) {
+    const s = specs[i];
+    if (!s) continue;
+    out.push({ x: s.x, y: city.heightAt(s.x, s.z) + 0.65, z: s.z, color: 0xffb347, size: 0.85 });
+  }
+  return out;
+}
+
 // Initial sun direction — the DayNight cycle takes over from the first frame.
 const SUN_DIR = new THREE.Vector3().setFromSphericalCoords(
   1,
@@ -182,6 +220,10 @@ export type TrailerStage = {
   /** Stage `n` parked cars as a curbside row from (x0, z0) along (tx, tz) —
    *  the traffic-chaos plow toy (natural curb rows never exceed ~3 cars). */
   stageParkedRow(x0: number, z0: number, tx: number, tz: number, n: number, spacing: number): void;
+  /** Build + unmute the audio graph. Driven by the trailer's first-gesture
+   *  hook: the trailer rolls unattended, so a context created at staging time
+   *  would stay suspended by the browser. */
+  unlockAudio(): void;
 };
 
 export class GameScene {
@@ -234,6 +276,7 @@ export class GameScene {
     () => this.skids,
   );
   private shocks = new Shockwaves();
+  private harbor = new Harbor();
   private oceanTime = { value: 0 };
   private dayNight: DayNight;
   private lampGlow: LampGlow | null = null;
@@ -242,6 +285,9 @@ export class GameScene {
   private parked: ParkedCars | null = null;
   private minimap: Minimap | null = null;
   private ambient: AmbientLife | null = null;
+  private beacons: BeaconLights | null = null;
+  private vehicleLights = new VehicleLights();
+  private farTerrain = new FarTerrain();
   private sceneFog: THREE.Fog;
 
   private sun = new THREE.DirectionalLight(0xfff2d8, 2.0);
@@ -257,6 +303,9 @@ export class GameScene {
   private readonly mmMarkers: MinimapMarker[] = [];
   // Scratch for the shadow-texel snap (no per-frame allocation).
   private scrSnapDir = new THREE.Vector3();
+  private scrRight = new THREE.Vector3();
+  private scrToGate = new THREE.Vector3();
+  private ambienceAcc = 0;
   private scrSnapRight = new THREE.Vector3();
   private scrSnapUp = new THREE.Vector3();
   private scrSnapAnchor = new THREE.Vector3();
@@ -389,6 +438,11 @@ export class GameScene {
       if (this.mode.kind === "title") this.toTitle();
     });
 
+    // Aerial-perspective fog. Swaps three's fog shader chunks, so it has to
+    // land before the first program compiles — and every material below, plus
+    // everything the world loader builds, picks it up for free.
+    installAerialFog();
+
     // Atmospheric sky + sun.
     const sky = new Sky();
     sky.scale.setScalar(12000);
@@ -405,8 +459,14 @@ export class GameScene {
     setU("mieDirectionalG", 0.85);
     const sunU = su.sunPosition;
     if (sunU && sunU.value instanceof THREE.Vector3) sunU.value.copy(SUN_DIR);
+    // The dome paints first so the far-terrain silhouette (renderOrder -1, no
+    // depth test) can sit on top of it and still be overpainted by every real
+    // mesh in the default opaque bucket.
+    sky.renderOrder = -2;
     this.scene.add(sky);
     this.sky = sky;
+    this.scene.add(this.farTerrain.mesh);
+    this.scene.add(this.vehicleLights.group);
 
     // Draw-distance fog: the map is far larger than the view, so haze the
     // horizon well inside the camera far plane (2000). Doubles as the visual cue
@@ -454,6 +514,10 @@ export class GameScene {
     const oceanTime = this.oceanTime;
     const shoreTex = buildShoreTexture();
     const spanX = (WORLD_W * SHORE_SPAN).toFixed(1);
+    // Ocean Beach surf weight: full at the west shore (u 0.09), gone by the
+    // middle of the Sunset (u 0.28).
+    const surfFull = ((0.09 - 0.5) * WORLD_W).toFixed(1);
+    const surfNone = ((0.28 - 0.5) * WORLD_W).toFixed(1);
     const spanZ = (WORLD_H * SHORE_SPAN).toFixed(1);
     oceanMat.onBeforeCompile = (shader) => {
       shader.uniforms.uOceanTime = oceanTime;
@@ -541,6 +605,20 @@ vec3 ocGerstner(vec2 p, float t) {
             float lap = 0.5 + 0.5 * sin(t * 1.7 + (wp.x + wp.y) * 0.16 + s * 30.0);
             float foam = smoothstep(0.26, 0.38, s) * (0.30 + 0.45 * lap);
             foam += smoothstep(0.36, 0.42, s) * 0.9;
+            // OCEAN BEACH SURF. The Pacific side gets breakers the bay never
+            // does: three swell lines whose phase marches up the shore
+            // gradient, so they travel inshore and pile up at the waterline.
+            // Weighted west of the peninsula only — the bay stays glassy,
+            // which is also what SF actually looks like.
+            float ocean = 1.0 - smoothstep(${surfFull}, ${surfNone}, wp.x);
+            // The whole Ocean Beach shore gradient is only ~45u wide, so the
+            // set has to live in almost all of it to read at all.
+            float march = fract(s * 4.0 - t * 0.11);
+            float crestLine = smoothstep(0.55, 0.93, march) * (1.0 - smoothstep(0.93, 1.0, march));
+            float inSurf = smoothstep(0.03, 0.14, s) * (1.0 - smoothstep(0.33, 0.42, s));
+            foam += crestLine * inSurf * ocean * 1.6;
+            // Whitewater: the shore break itself never goes back to open blue.
+            foam += smoothstep(0.20, 0.40, s) * ocean * 0.55;
             // Sun glints: HASH twinkles — sparse random cells that flicker in
             // and out. (The old sine-product crossings landed on a visible
             // regular lattice: the "grid of white dots" read.)
@@ -571,6 +649,8 @@ vec3 ocGerstner(vec2 p, float t) {
     this.scene.add(this.speedLines.object3D);
     this.scene.add(this.clouds.group);
     this.scene.add(this.shocks.group);
+    // The bay's traffic rides the ocean plane, so it goes in with it.
+    this.scene.add(this.harbor.group);
 
     // Day-night cycle owns every light-related knob from the first frame.
     this.dayNight = new DayNight({
@@ -780,7 +860,24 @@ vec3 ocGerstner(vec2 p, float t) {
     this.spawn = loaded.spawn;
     this.skinId = loaded.skinId;
     this.car = loaded.car;
+    // loadWorld resolves at the PLAYABLE gate; furniture, the ambient flock and
+    // the waterfront builders all land behind `ready`, so the two systems that
+    // read their output wait for it.
     this.ready = loaded.ready;
+    void loaded.ready.then(() => this.attachNightAndLife(loaded.city));
+  }
+
+  private attachNightAndLife(city: CityModel): void {
+    // Eye-level birds hang off the streetlight anchors the furniture pass
+    // produced — gulls on the heads near the water, pigeons on the pavement
+    // around the rest.
+    this.ambient?.populatePerches(city.lampHeads);
+    // Waterfront night lights: whatever the pier/bridge/landmark builders
+    // registered while the world was being built (fx/beacon-lights.ts), plus a
+    // scatter of parked cars that left a marker lamp on.
+    const beacons = new BeaconLights([...collectBeacons(), ...parkedMarkers(city)]);
+    this.beacons = beacons;
+    this.scene.add(beacons.group);
   }
 
   // Impatient players see live status on the CTA they already tapped.
@@ -813,6 +910,10 @@ vec3 ocGerstner(vec2 p, float t) {
   }
 
   private toTitle(): void {
+    // TRAILER: the landing screen is a full-screen title page and the world is
+    // already on screen behind it. Stay in `loading` until beginTrailer() flips
+    // straight to `playing` — a trailer is gameplay, never a menu.
+    if (this.trailerMode) return;
     this.mode = { kind: "title" };
     setTouchPlaying(false);
     this.minimap?.setVisible(false);
@@ -1040,9 +1141,12 @@ vec3 ocGerstner(vec2 p, float t) {
     if (this.mode.kind === "title") this.start();
   }
 
+  /** M. Session-only in trailer mode: the trailer now solicits a keypress to
+   *  unlock audio, and that key landing on M must not rewrite the player's
+   *  saved sound preference for the real game. */
   private toggleMute(): void {
     this.sfx.setMuted(!this.sfx.muted);
-    storageSet(SOUND_KEY, this.sfx.muted ? "0" : "1");
+    if (!this.trailerMode) storageSet(SOUND_KEY, this.sfx.muted ? "0" : "1");
   }
 
   private start(): void {
@@ -1279,7 +1383,8 @@ vec3 ocGerstner(vec2 p, float t) {
     this.bubbles.update(dt);
     this.hud.update(dt);
     this.fx.update(dt);
-    this.ambient?.update(dt, this.dayNight.lamp, this.sceneFog);
+    const chase = this.car?.position ?? this.rig.camera.position;
+    this.ambient?.update(dt, this.dayNight.lamp, this.sceneFog, chase.x, chase.z);
     this.skids?.update(dt);
     this.trails?.update(dt);
     this.shocks.update(dt);
@@ -1296,8 +1401,19 @@ vec3 ocGerstner(vec2 p, float t) {
     this.lampGlow?.setIntensity(night);
     this.nightWindows?.setIntensity(night);
     this.lampGlow?.updateNear(this.rig.camera.position.x, this.rig.camera.position.z, dt);
+    this.beacons?.setIntensity(night);
+    this.beacons?.update(dt);
+    this.harbor.setIntensity(night);
+    this.harbor.update(dt, this.rig.camera.position.x, this.rig.camera.position.z);
+    this.vehicleLights.setIntensity(night);
+    if (this.traffic) {
+      const cam = this.rig.camera.position;
+      this.vehicleLights.update(this.traffic.cars, cam.x, cam.z);
+    }
+    this.farTerrain.update(this.sceneFog.color, night);
     this.clouds.setNight(night);
     this.car?.setHeadlights(night);
+    this.updateAmbience(dt, night);
     this.debris?.update(dt);
     this.cones?.update(dt);
 
@@ -1729,6 +1845,31 @@ vec3 ocGerstner(vec2 p, float t) {
     }
   }
 
+  // Feed the ambient bed (fx/sfx.ts) the driver's surroundings: altitude for
+  // the wind, nearby open water for the gulls, and which ear the Golden Gate
+  // foghorn should come from. Cheap, but there is no reason to run it at
+  // frame rate — every value it sets is smoothed on the audio side.
+  private updateAmbience(dt: number, night: number): void {
+    this.ambienceAcc += dt;
+    if (this.ambienceAcc < 1 / AMBIENCE_HZ) return;
+    this.ambienceAcc = 0;
+    const p = this.car?.position ?? this.rig.camera.position;
+    let water = 0;
+    for (const probe of SHORE_PROBES) {
+      const u = (p.x + probe.x) / WORLD_W + 0.5;
+      const v = (p.z + probe.z) / WORLD_H + 0.5;
+      water = Math.max(water, 1 - THREE.MathUtils.clamp(landFactor(u, v), 0, 1));
+    }
+    const right = this.scrRight.setFromMatrixColumn(this.rig.camera.matrixWorld, 0);
+    const toGate = this.scrToGate.subVectors(GATE_POS, this.rig.camera.position).normalize();
+    this.sfx.setAmbience({
+      exposure: THREE.MathUtils.clamp((p.y - 14) / 70, 0, 1),
+      shore: water,
+      night,
+      gatePan: THREE.MathUtils.clamp(toGate.dot(right) * 1.3, -1, 1),
+    });
+  }
+
   // Which ear should hear an event at this world position?
   private panFor(pos: THREE.Vector3): number {
     const cam = this.rig.camera;
@@ -1917,8 +2058,9 @@ vec3 ocGerstner(vec2 p, float t) {
   private trailerStage: TrailerStage | null = null;
 
   /** TRAILER: flip the loaded scene straight into gameplay — no banner, no
-   *  countdown, audio unmuted for capture — and hand the director its staging
-   *  facade. Only functional in ?trailer=1 boots after `ready`; idempotent. */
+   *  countdown — and hand the director its staging facade. Only functional in
+   *  ?trailer=1 boots after `ready`; idempotent. Audio stays silent until the
+   *  director calls stage.unlockAudio() (there is no start gate to unlock it). */
   beginTrailer(): TrailerStage | null {
     if (this.trailerStage) return this.trailerStage;
     if (!this.trailerMode || !this.loadDone) return null;
@@ -1928,11 +2070,6 @@ vec3 ocGerstner(vec2 p, float t) {
     const traffic = this.traffic;
     const cones = this.cones;
     if (!car || !city || !fares || !traffic || !cones) return null;
-    // Audio: beginTrailer is reached from the shell's click gate, so the
-    // context is unlocked. Unmute for the session only (no persistence).
-    this.sfx.ensure();
-    this.sfx.setMuted(false);
-    this.sfx.startMusic();
     this.hud.hideBanner();
     this.hud.setLanding(false);
     this.minimap?.setVisible(false);
@@ -1956,11 +2093,21 @@ vec3 ocGerstner(vec2 p, float t) {
       state: this.state,
       camera: this.rig.camera,
       placeCar: (x, z, yaw, speed, y) => {
-        car.reset(x, z, yaw);
+        // Every scout gates its marks on the play area, so a mark outside it is
+        // a staging bug — and an expensive one: past the map edge the ground
+        // collider runs out from under drawn-but-fake asphalt and the car
+        // free-falls for the rest of the trailer. Clamp (a wrong-looking shot
+        // still rolls) and shout, rather than lose the take to the void.
+        const sx = clampToPlayArea(x, WORLD_HALF_X);
+        const sz = clampToPlayArea(z, WORLD_HALF_Z);
+        if (sx !== x || sz !== z) {
+          console.error(`trailer: staged (${x.toFixed(0)}, ${z.toFixed(0)}) outside the play area`);
+        }
+        car.reset(sx, sz, yaw);
         const veh = car.physicsVehicle;
         if (veh) {
           if (y !== undefined) {
-            veh.teleport(x, y + 1.4, z, yaw);
+            veh.teleport(sx, y + 1.4, sz, yaw);
             car.position.y = y;
           }
           veh.chassis.setLinvel({ x: Math.sin(yaw) * speed, y: 0, z: Math.cos(yaw) * speed }, true);
@@ -1988,6 +2135,12 @@ vec3 ocGerstner(vec2 p, float t) {
       restoreParked: () => this.parked?.restore(),
       stageParkedRow: (x0, z0, tx, tz, n, spacing) =>
         this.parked?.stageRow(x0, z0, tx, tz, n, spacing),
+      // Unmuted for the session only — the M-key preference is untouched.
+      unlockAudio: () => {
+        this.sfx.ensure();
+        this.sfx.setMuted(false);
+        this.sfx.startMusic();
+      },
     };
     return this.trailerStage;
   }

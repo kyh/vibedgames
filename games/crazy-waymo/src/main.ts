@@ -14,6 +14,9 @@ if (!container) throw new Error("missing #game container");
 function showFatal(message: string): void {
   const loading = document.getElementById("loading");
   if (loading) {
+    // Trailer boots keep the veil hidden from the first paint (see index.html)
+    // — a dead context still has to be reported, so force it back on screen.
+    loading.style.display = "flex";
     loading.innerHTML = `<div class="lt">CRAZY WAYMO</div><div class="ls" style="opacity:1;color:#ff8a8a">${message}</div>`;
   }
 }
@@ -41,8 +44,9 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.62;
 container.appendChild(renderer.domElement);
 
-// Trailer mode (?trailer=1): forces an offline solo session at construction;
-// the director itself is a lazy chunk loaded below — zero cost normally.
+// Trailer mode (?trailer=1): forces an offline solo session at construction
+// and skips the landing screen; the director itself is a lazy chunk loaded
+// below — zero cost normally.
 const trailerMode = new URLSearchParams(window.location.search).has("trailer");
 const game = new GameScene(window.innerWidth / window.innerHeight, trailerMode);
 game.applyEnvironment(renderer);

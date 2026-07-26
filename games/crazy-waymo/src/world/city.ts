@@ -302,10 +302,155 @@ type Chunk = { cx: number; cz: number; radius: number; dist: number; group: THRE
 const NEAR_ALWAYS = 170; // chunks this close are always on (off-screen shadow casters)
 const DETAIL_DISTANCE = 360; // trees/cars/props cull here; buildings at DRAW_DISTANCE
 const BIG_SILHOUETTE_H = 13; // world-space HEIGHT that counts as skyline
+// Two imposter tiers. The skyline alone left the middle distance EMPTY: the
+// row-house fabric is 60% of the city's buildings and none of it is 13u tall,
+// so past the detail ring downtown floated over bare ground. Ordinary
+// buildings get an imposter too, but only one chunk ring further out than the
+// detail tier — past MID_IMPOSTER_DISTANCE the night fog has swallowed them
+// and 20k extra boxes would be paying for nothing.
+const MID_SILHOUETTE_H = 5; // ordinary buildings that still read at distance
+const MID_IMPOSTER_DISTANCE = 620;
 const SCRATCH_SCALE = new THREE.Vector3();
 const STREAM_MAT = new THREE.Matrix4();
 const STREAM_FRUSTUM = new THREE.Frustum();
 const STREAM_SPHERE = new THREE.Sphere();
+
+// Only BUILDINGS get the mid tier — a box imposter for a tree is a cube in a
+// field, and trees/props are exactly the 5-9u band the gate would otherwise
+// sweep up. Matched on the asset CATEGORY, not a list of pools, so a pool
+// added to the manifest can't silently lose its imposters.
+const BUILDINGS_PREFIX = modelUrl("buildings", "").slice(0, -".glb".length);
+
+// --- Imposter albedo -------------------------------------------------------
+// A box has no atlas, so it needs the AVERAGE of what the model showed. The
+// per-instance tint can't be that average on its own: kit tints are near-white
+// MULTIPLIERS over the atlas (measured mean saturation 0.20, luminance 0.85),
+// so feeding one to a white box painted downtown-from-the-Sunset as a field of
+// white cubes. Sample the model's own atlas instead, area-weighted — a facade
+// quad and a doorframe quad have the same vertex count and wildly different
+// screen area — then multiply the tint back in as the district shading it is.
+const IMPOSTER_FALLBACK = new THREE.Color(0x97a1ae); // no atlas, no material colour: SF blue-grey
+const ATLAS_SAMPLE = 128; // readback resolution; kit colormaps are small palettes
+const IMPOSTER_COLOR = new THREE.Color();
+const ATLAS_TEXEL = new THREE.Color();
+const ALBEDO_A = new THREE.Vector3();
+const ALBEDO_B = new THREE.Vector3();
+const ALBEDO_C = new THREE.Vector3();
+
+type AtlasPixels = { data: Uint8ClampedArray; w: number; h: number };
+const atlasPixelCache = new Map<string, AtlasPixels | null>();
+const meanAlbedoCache = new Map<string, THREE.Color | null>();
+
+function drawableImage(img: unknown): ImageBitmap | HTMLImageElement | HTMLCanvasElement | null {
+  if (typeof ImageBitmap !== "undefined" && img instanceof ImageBitmap) return img;
+  if (typeof HTMLImageElement !== "undefined" && img instanceof HTMLImageElement) return img;
+  if (typeof HTMLCanvasElement !== "undefined" && img instanceof HTMLCanvasElement) return img;
+  return null;
+}
+
+// Atlas texels, once per texture (the loader already dedupes kit colormaps
+// down to one canonical texture, so this is a handful of readbacks).
+function atlasPixels(tex: THREE.Texture): AtlasPixels | null {
+  const cached = atlasPixelCache.get(tex.uuid);
+  if (cached !== undefined) return cached;
+  let out: AtlasPixels | null = null;
+  const img = drawableImage(tex.image);
+  if (img) {
+    try {
+      const w = Math.max(1, Math.min(ATLAS_SAMPLE, img.width));
+      const h = Math.max(1, Math.min(ATLAS_SAMPLE, img.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      if (ctx) {
+        ctx.imageSmoothingEnabled = false; // palettes must not blur across swatches
+        ctx.drawImage(img, 0, 0, w, h);
+        out = { data: ctx.getImageData(0, 0, w, h).data, w, h };
+      }
+    } catch {
+      // tainted or undrawable image — the caller falls back
+    }
+  }
+  atlasPixelCache.set(tex.uuid, out);
+  return out;
+}
+
+// Area-weighted mean of a geometry's atlas texels, in the working (linear)
+// colour space so it averages the way the renderer does. Cached per geometry:
+// one pass over a few hundred kit models, not per instance.
+function meanAlbedo(geo: THREE.BufferGeometry, tex: THREE.Texture): THREE.Color | null {
+  const cacheKey = `${geo.uuid}|${tex.uuid}`;
+  const cached = meanAlbedoCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+  let out: THREE.Color | null = null;
+  const px = atlasPixels(tex);
+  const pos = geo.getAttribute("position");
+  const uv = geo.getAttribute("uv");
+  if (px && pos && uv) {
+    const idx = geo.index;
+    const count = idx ? idx.count : pos.count;
+    let wSum = 0;
+    let r = 0;
+    let g = 0;
+    let b = 0;
+    for (let t = 0; t + 2 < count; t += 3) {
+      const i0 = idx ? idx.getX(t) : t;
+      const i1 = idx ? idx.getX(t + 1) : t + 1;
+      const i2 = idx ? idx.getX(t + 2) : t + 2;
+      ALBEDO_A.fromBufferAttribute(pos, i0);
+      ALBEDO_B.fromBufferAttribute(pos, i1).sub(ALBEDO_A);
+      ALBEDO_C.fromBufferAttribute(pos, i2).sub(ALBEDO_A);
+      const area = ALBEDO_B.cross(ALBEDO_C).length() * 0.5;
+      if (area <= 0) continue;
+      // Centroid UV through the texture transform (kit GLBs carry
+      // KHR_texture_transform), wrapped into the atlas.
+      const su = ((uv.getX(i0) + uv.getX(i1) + uv.getX(i2)) / 3) * tex.repeat.x + tex.offset.x;
+      const sv = ((uv.getY(i0) + uv.getY(i1) + uv.getY(i2)) / 3) * tex.repeat.y + tex.offset.y;
+      const fu = su - Math.floor(su);
+      const fv0 = sv - Math.floor(sv);
+      const fv = tex.flipY ? 1 - fv0 : fv0;
+      const col = Math.min(px.w - 1, Math.floor(fu * px.w));
+      const row = Math.min(px.h - 1, Math.floor(fv * px.h));
+      const o = (row * px.w + col) * 4;
+      ATLAS_TEXEL.setRGB(
+        (px.data[o] ?? 0) / 255,
+        (px.data[o + 1] ?? 0) / 255,
+        (px.data[o + 2] ?? 0) / 255,
+        tex.colorSpace,
+      );
+      wSum += area;
+      r += ATLAS_TEXEL.r * area;
+      g += ATLAS_TEXEL.g * area;
+      b += ATLAS_TEXEL.b * area;
+    }
+    if (wSum > 0) out = new THREE.Color().setRGB(r / wSum, g / wSum, b / wSum);
+  }
+  meanAlbedoCache.set(cacheKey, out);
+  return out;
+}
+
+// What the model averages to on screen: atlas mean (or the flat material
+// colour) × the material colour × the per-instance district tint.
+function imposterColorInto(
+  out: THREE.Color,
+  geo: THREE.BufferGeometry,
+  mat: THREE.Material,
+  tint: THREE.Color | undefined,
+): THREE.Color {
+  if (mat instanceof THREE.MeshStandardMaterial) {
+    const albedo = mat.map ? meanAlbedo(geo, mat.map) : null;
+    // Unmapped geometry (plinths, prisms) IS its material colour; a mapped
+    // material whose atlas can't be read falls through to the blue-grey.
+    if (albedo) out.copy(albedo).multiply(mat.color);
+    else if (mat.map) out.copy(IMPOSTER_FALLBACK);
+    else out.copy(mat.color);
+  } else {
+    out.copy(IMPOSTER_FALLBACK);
+  }
+  if (tint) out.multiply(tint);
+  return out;
+}
 
 // A robotaxi garage: the depot building plus the drive-in pad in front where
 // the skin-swap UI opens. Spots are derived deterministically from the plan,
@@ -453,9 +598,14 @@ export class CityModel {
   // (trees, parked cars, props) only needs DETAIL_DISTANCE — the far city
   // stays a skyline instead of 36k full-detail instances.
   private chunkInstancesNear = new Map<number, [number, number][]>();
+  // Imposters share ONE BatchedMesh (one draw call) but flip on two different
+  // bands: skyline instances to the fog line, the mid-tier fabric one chunk
+  // ring less.
   private imposterInstances = new Map<number, number[]>();
+  private imposterMidInstances = new Map<number, number[]>();
   private imposterMesh: THREE.BatchedMesh | null = null;
   private imposterVisible: Uint8Array | null = null;
+  private imposterMidVisible: Uint8Array | null = null;
   // City-rest cache: everything phases 2+3 produce, in serializable form.
   restCapture: CityRestPayload | null = null;
   private capturedMerged: MergedChunkRec[] = [];
@@ -1844,6 +1994,8 @@ export class CityModel {
     const tBatch = performance.now();
     type ImposterSpec = {
       key: number;
+      mid: boolean; // mid tier = ordinary building, drops out one ring sooner
+      mat: THREE.Material;
       item: { geo: THREE.BufferGeometry; matrix: THREE.Matrix4; tint?: THREE.Color };
     };
     const imposters: ImposterSpec[] = [];
@@ -1970,6 +2122,12 @@ export class CityModel {
         // keep the far tier; row-houses and low-rises cull with the detail set.
         const big = worldH >= BIG_SILHOUETTE_H;
         if (big) anyBig = true;
+        // …and the fabric UNDER the skyline: an ordinary building, tall enough
+        // to still be a few pixels out there, gets the shorter-range mid tier.
+        const mid =
+          !big &&
+          worldH >= MID_SILHOUETTE_H &&
+          (item?.src?.url.startsWith(BUILDINGS_PREFIX) ?? false);
         // LOD: tall buildings render the FULL model only within
         // DETAIL_DISTANCE; beyond that a tinted box imposter carries the
         // skyline to the fog line (fog hides the swap).
@@ -1977,8 +2135,8 @@ export class CityModel {
         const list = map.get(key);
         if (list) list.push([bIndex, iid]);
         else map.set(key, [[bIndex, iid]]);
-        if (big && item) {
-          imposters.push({ key, item });
+        if ((big || mid) && item) {
+          imposters.push({ key, mid, mat: bucket.material, item });
         }
       }
       // Small-prop shadows don't read at chase-cam scale; skip their pass.
@@ -1991,14 +2149,21 @@ export class CityModel {
       const imp = new THREE.BatchedMesh(imposters.length, 24, 36, boxMat);
       imp.castShadow = false;
       imp.frustumCulled = false;
+      // Both OFF, unlike the model batches: the imposter tier is already
+      // frustum-culled per CHUNK by updateStreaming (visImp requires the chunk
+      // sphere to be in view) and opaque boxes gain nothing from a depth sort.
+      // With neither on, BatchedMesh.onBeforeRender early-returns unless a
+      // chunk actually flipped — so the mid tier's ~20k instances cost one
+      // list rebuild per transition instead of a per-frame sphere test each.
+      imp.perObjectFrustumCulled = false;
+      imp.sortObjects = false;
       const gid = imp.addGeometry(boxGeo);
       const m4 = new THREE.Matrix4();
       const box = new THREE.Box3();
       const sizeV = new THREE.Vector3();
       const ctrV = new THREE.Vector3();
-      const defaultTint = new THREE.Color(0x97a1ae);
       let impN = 0;
-      for (const { key, item } of imposters) {
+      for (const { key, mid, mat, item } of imposters) {
         if (impN++ % 1024 === 0) await this.breathe();
         if (!item.geo.boundingBox) item.geo.computeBoundingBox();
         if (!item.geo.boundingBox) continue;
@@ -2011,16 +2176,19 @@ export class CityModel {
         m4.premultiply(item.matrix);
         const iid = imp.addInstance(gid);
         imp.setMatrixAt(iid, m4);
-        imp.setColorAt(iid, item.tint ?? defaultTint);
+        imp.setColorAt(iid, imposterColorInto(IMPOSTER_COLOR, item.geo, mat, item.tint));
         imp.setVisibleAt(iid, false);
-        const list = this.imposterInstances.get(key);
+        const tier = mid ? this.imposterMidInstances : this.imposterInstances;
+        const list = tier.get(key);
         if (list) list.push(iid);
-        else this.imposterInstances.set(key, [iid]);
+        else tier.set(key, [iid]);
       }
       imp.computeBoundingSphere();
       this.group.add(imp);
       this.imposterMesh = imp;
-      console.log(`[city] imposters ${imposters.length}`);
+      let midN = 0;
+      for (const spec of imposters) if (spec.mid) midN++;
+      console.log(`[city] imposters ${imposters.length} (mid ${midN})`);
     }
     if (untagged.size > 0) {
       console.log("[city] untagged batch items:", JSON.stringify([...untagged.entries()]));
@@ -2099,11 +2267,18 @@ export class CityModel {
       // Imposters live in the far band only: full models take over up close.
       if (this.imposterMesh) {
         if (!this.imposterVisible) this.imposterVisible = new Uint8Array(total).fill(0);
+        if (!this.imposterMidVisible) this.imposterMidVisible = new Uint8Array(total).fill(0);
         const visImp: 0 | 1 = visFar === 1 && visNear === 0 ? 1 : 0;
         if (this.imposterVisible[key] !== visImp) {
           this.imposterVisible[key] = visImp;
           const list = this.imposterInstances.get(key);
           if (list) for (const iid of list) this.imposterMesh.setVisibleAt(iid, visImp === 1);
+        }
+        const visMid: 0 | 1 = visImp === 1 && dist - pad < MID_IMPOSTER_DISTANCE ? 1 : 0;
+        if (this.imposterMidVisible[key] !== visMid) {
+          this.imposterMidVisible[key] = visMid;
+          const list = this.imposterMidInstances.get(key);
+          if (list) for (const iid of list) this.imposterMesh.setVisibleAt(iid, visMid === 1);
         }
       }
     }

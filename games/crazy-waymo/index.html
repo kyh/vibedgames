@@ -499,6 +499,24 @@
       }
 
       /* Loading */
+      /* A trailer capture (?trailer=1) is pure gameplay, and this veil is a
+         full-screen title page — it must never open the shot. The class is set
+         by the inline script below, so the rule applies from the very first
+         style resolution; hiding it from main.ts is seconds too late. */
+      html.trailer #loading {
+        display: none;
+      }
+      /* Hiding the veil leaves the live scene — HUD, whatever pose the car
+         booted into — on screen for the second or so between world-load and
+         the director's first staged frame. The trailer shell's own black plate
+         does not exist until runTrailer() runs, so this one covers the gap and
+         startTrailer() drops it. Sits just under the shell's z-index. */
+      #trailer-plate {
+        position: fixed;
+        inset: 0;
+        background: #000;
+        z-index: 2147479999;
+      }
       #loading {
         position: fixed;
         inset: 0;
@@ -812,6 +830,18 @@
         display: none;
       }
     </style>
+    <script>
+      // Trailer mode, decided before the first paint. A presence check only —
+      // nothing from src/trailer/ is pulled into the normal-play bundle.
+      if (new URLSearchParams(location.search).has("trailer")) {
+        document.documentElement.classList.add("trailer");
+        document.addEventListener("DOMContentLoaded", () => {
+          const plate = document.createElement("div");
+          plate.id = "trailer-plate";
+          document.body.appendChild(plate);
+        });
+      }
+    </script>
   </head>
   <body>
     <div id="game"></div>
