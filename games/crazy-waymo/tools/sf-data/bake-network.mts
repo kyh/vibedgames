@@ -13,21 +13,18 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 
-import {
-  GRID_X,
-  GRID_Z,
-  onLandUV,
-  onLandXZ,
-  projU,
-  projV,
-  rdp,
-  ROAD_TILE,
-  WORLD_H,
-  WORLD_W,
-} from "./lib.mjs";
+import { GRID_X, GRID_Z, projU, projV, rdp, ROAD_TILE, WORLD_H, WORLD_W } from "./lib.mjs";
 import { parkCell } from "../../src/world/park-clear.ts";
 import { landuseGreenAt } from "../../src/world/sf-landuse.ts";
-import { districtAt, makeTerrain } from "../../src/world/sf-map.ts";
+import { districtAt, landFactor, makeTerrain } from "../../src/world/sf-map.ts";
+
+// The land mask comes from the RUNTIME module, not from lib.mjs's plain-node
+// twin: the grid mask and the vector network are both clipped here, and the
+// runtime grid re-derives land from the same function, so the coastline cannot
+// be a source of grid↔vector drift. (lib.mjs still carries a copy for the
+// .mjs-only extractors — see the note there.)
+const onLandUV = (u: number, v: number): boolean => landFactor(u, v) > 0.5;
+const onLandXZ = (x: number, z: number): boolean => onLandUV(x / WORLD_W + 0.5, z / WORLD_H + 0.5);
 
 // One generation stamp, written into BOTH emitted files: proves the shipped
 // mask and the shipped network came from the same bake run (test asserts it).

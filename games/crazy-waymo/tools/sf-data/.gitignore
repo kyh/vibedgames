@@ -6,3 +6,5 @@ sf-streets.raw.json
 sf-piers.raw.json
 # Untruncated OSM tag dump — regenerate with ./fetch-osm-tags.sh
 sf-osm-tags.raw.json
+# Widened landuse OSM dump (~14 MB) — regenerate with ./fetch-landuse.sh
+sf-landuse.raw.json

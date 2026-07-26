@@ -1,8 +1,7 @@
 // Shared helpers for the sf-data bake tools (bake-network.mts, bake-piers.mjs,
-// extract-footprints.mjs). ONE copy of the projection + land mask + polyline
-// math — the per-script copies drifted and the land mask in particular must
-// match src/world/sf-map.ts exactly (that file keeps the RUNTIME copy; change
-// them together).
+// extract-footprints.mjs): ONE copy of the projection and the polyline math,
+// which the per-script copies used to drift on. The land mask below is the
+// exception — see the note above landFactor.
 
 export const GRID_X = 244;
 export const GRID_Z = 200;
@@ -18,7 +17,12 @@ const V_M = -9.6095,
 export const projU = (lon) => U_M * lon + U_B;
 export const projV = (lat) => V_M * lat + V_B;
 
-// --- landFactor — keep in sync with src/world/sf-map.ts ---
+// --- landFactor: a PLAIN-NODE TWIN of src/world/sf-map.ts's ----------------
+// sf-map.ts is the single source of truth, and bake-network.mts (vite-node, so
+// it can import TS) uses it directly — nothing that emits the GEN_ID-stamped
+// street pair reads the copy below. This copy exists only for the .mjs-only
+// tools that plain `node` runs and that cannot import TS: bake-piers.mjs and
+// the extract-*-obj.mjs miners. Change both together.
 export function smooth(x, a, b) {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);
@@ -50,15 +54,59 @@ function shoreCut(u, v) {
   const su = a[1] + (b[1] - a[1]) * t;
   return 1 - smooth(u, su - 0.004, su + 0.008);
 }
+// Mission Creek's true outline (see sf-map.ts MISSION_CREEK) and the feather,
+// in world units, that a 20u-wide channel needs.
+const RING_FEATHER = 5;
+const MISSION_CREEK = [
+  [0.7804, 0.3358],
+  [0.7328, 0.3918],
+  [0.7313, 0.393],
+  [0.7297, 0.3884],
+  [0.7396, 0.3754],
+  [0.7809, 0.327],
+  [0.868, 0.3255],
+  [0.868, 0.3375],
+];
+const YERBA_BUENA = { u: 0.938, v: -0.005, ru: 95, rv: 190 };
+function ringFactor(u, v, ring) {
+  const px = u * WORLD_W;
+  const pz = v * WORLD_H;
+  let best = Infinity;
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const ax = ring[i][0] * WORLD_W,
+      az = ring[i][1] * WORLD_H;
+    const cx = ring[j][0] * WORLD_W,
+      cz = ring[j][1] * WORLD_H;
+    if (az > pz !== cz > pz && px < ((cx - ax) * (pz - az)) / (cz - az) + ax) inside = !inside;
+    const dx = cx - ax,
+      dz = cz - az;
+    const t = Math.max(
+      0,
+      Math.min(1, ((px - ax) * dx + (pz - az) * dz) / (dx * dx + dz * dz || 1)),
+    );
+    const d = Math.hypot(px - (ax + t * dx), pz - (az + t * dz));
+    if (d < best) best = d;
+  }
+  return 1 - smooth(inside ? -best : best, -RING_FEATHER, RING_FEATHER);
+}
+function isle(u, v, c) {
+  return (
+    1 - smooth(Math.hypot(((u - c.u) * WORLD_W) / c.ru, ((v - c.v) * WORLD_H) / c.rv), 0.72, 1)
+  );
+}
 export function landFactor(u, v) {
   let land = Math.min(smooth(u, 0.025, 0.06), 1 - smooth(u, 0.78, 0.85), smooth(v, 0.025, 0.07));
   land = Math.min(land, smooth(lineSide(u, v, 0.03, 0.26, 0.25, 0.03), -0.015, 0.02));
   land = Math.min(land, shoreCut(u, v));
   land = Math.max(land, box(u, v, 0.82, 0.99, 0.7, 0.84));
   land = Math.max(land, box(u, v, 0.82, 0.98, 0.87, 0.97));
-  land = Math.min(land, 1 - box(u, v, 0.71, 0.8, 0.29, 0.35));
+  land = Math.min(land, 1 - ringFactor(u, v, MISSION_CREEK));
   land = Math.min(land, 1 - box(u, v, 0.71, 0.82, 0.57, 0.63));
   land = Math.min(land, 1 - box(u, v, 0.08, 0.18, 0.72, 0.86));
+  land = Math.max(land, isle(u, v, YERBA_BUENA));
+  // Marin headlands (the Golden Gate has to DELIVER somewhere).
+  land = Math.max(land, box(u, v, 0.17, 0.36, -0.2, 0.016));
   return land;
 }
 export const onLandUV = (u, v) => landFactor(u, v) > 0.5;

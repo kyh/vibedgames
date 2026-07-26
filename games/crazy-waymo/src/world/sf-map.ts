@@ -1,6 +1,13 @@
 import { GRID_X, GRID_Z, WORLD_H, WORLD_W } from "../shared/constants";
 import { type Hill, type LandFactor, Terrain } from "./terrain";
 
+// THE land mask lives here. tools/sf-data/bake-network.mts imports `landFactor`
+// from this file, so the vector street network, the rasterized street mask and
+// the runtime grid are clipped by ONE implementation — the grid/vector drift
+// this repo keeps re-learning cannot come from the coastline any more.
+// (tools/sf-data/lib.mjs keeps a plain-node twin for the .mjs-only extractors,
+// which never emit the GEN_ID-stamped pair; change them together.)
+
 // San Francisco, traced from real geography (DataSF / lat-lon), normalized
 // north-up: u = 0 west (Ocean Beach) → 1 east (Bay); v = 0 north (Golden Gate)
 // → 1 south (county line). Source: the sf-trace research workflow.
@@ -54,12 +61,116 @@ function shoreCut(u: number, v: number): number {
   return su === null ? 1 : 1 - smooth(u, su - 0.004, su + 0.008);
 }
 
-// True near the engineered NE waterfront: the Embarcadero is a hard SEAWALL —
-// ground.ts paints a concrete apron there instead of the beach every natural
-// coast gets.
+// South of the Embarcadero's last traced station the bay shore is still
+// ENGINEERED, all the way to the county line: Mission Bay's channel walls,
+// Dogpatch's quays, the Islais Creek bulkhead, Bayview's rubble revetment,
+// the Hunters Point drydocks, Candlestick's riprap. None of it is beach.
+const SEAWALL_SOUTH_V = 0.2634;
+// East of this the only water at those latitudes is the bay and its two
+// creeks; Ocean Beach (u ≈ 0.05) and Lake Merced (u 0.08-0.18) stay natural.
+const SEAWALL_EAST_U = 0.6;
+
+// True on engineered waterfront: ground.ts paints a concrete/riprap apron
+// there instead of the beach every NATURAL coast gets. Ocean Beach's ~16u of
+// dry sand is correct and must keep it; the industrial east shore was getting
+// up to 32u of sand where the real shore is bulkhead.
 export function seawallShore(u: number, v: number): boolean {
   const su = shoreU(v);
-  return su !== null && Math.abs(u - su) < 0.02;
+  if (su !== null) return Math.abs(u - su) < 0.02;
+  return v > SEAWALL_SOUTH_V && u > SEAWALL_EAST_U;
+}
+
+// --- Traced water/land rings ------------------------------------------------
+type UVRing = readonly (readonly [number, number])[];
+type UVBounds = {
+  readonly uMin: number;
+  readonly uMax: number;
+  readonly vMin: number;
+  readonly vMax: number;
+};
+
+// Shoreline feather for traced rings, in WORLD units — not uv. Mission Creek
+// is ~20u wide, and a uv feather wide enough for the open coast (box() uses
+// 0.02 = 63u) would close the channel completely.
+const RING_FEATHER = 5;
+
+function ringBounds(ring: UVRing): UVBounds {
+  let uMin = Infinity;
+  let uMax = -Infinity;
+  let vMin = Infinity;
+  let vMax = -Infinity;
+  for (const [u, v] of ring) {
+    uMin = Math.min(uMin, u);
+    uMax = Math.max(uMax, u);
+    vMin = Math.min(vMin, v);
+    vMax = Math.max(vMax, v);
+  }
+  const pad = RING_FEATHER / Math.min(WORLD_W, WORLD_H);
+  return { uMin: uMin - pad, uMax: uMax + pad, vMin: vMin - pad, vMax: vMax + pad };
+}
+
+// 1 well inside the ring, 0 well outside, feathered across the bank. The bbox
+// reject keeps it free everywhere else — landFactor runs over millions of
+// terrain samples.
+function ringFactor(u: number, v: number, ring: UVRing, b: UVBounds): number {
+  if (u < b.uMin || u > b.uMax || v < b.vMin || v > b.vMax) return 0;
+  const px = u * WORLD_W;
+  const pz = v * WORLD_H;
+  let best = Infinity;
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const a = ring[i];
+    const c = ring[j];
+    if (!a || !c) continue;
+    const ax = a[0] * WORLD_W;
+    const az = a[1] * WORLD_H;
+    const cx = c[0] * WORLD_W;
+    const cz = c[1] * WORLD_H;
+    if (az > pz !== cz > pz && px < ((cx - ax) * (pz - az)) / (cz - az) + ax) inside = !inside;
+    const dx = cx - ax;
+    const dz = cz - az;
+    const t = Math.max(
+      0,
+      Math.min(1, ((px - ax) * dx + (pz - az) * dz) / (dx * dx + dz * dz || 1)),
+    );
+    const d = Math.hypot(px - (ax + t * dx), pz - (az + t * dz));
+    if (d < best) best = d;
+  }
+  return 1 - smooth(inside ? -best : best, -RING_FEATHER, RING_FEATHER);
+}
+
+// MISSION CREEK / CHINA BASIN — the real 70 m tidal channel. The 4-number box
+// that stood in for it (u 0.71-0.8 × v 0.29-0.35) is a measured correctness
+// bug: against the licensed model's water polygon it flooded 246 dry cells,
+// missed 317 wet ones, and culled 268 real building footprints — Oracle Park's
+// entire block among them. This is that polygon (same calibration as the street
+// bake), RDP-simplified at 4u, with the mouth carried east past the shore so
+// the channel opens INTO the bay instead of ponding behind it.
+const MISSION_CREEK: UVRing = [
+  [0.7804, 0.3358], // mouth, south bank
+  [0.7328, 0.3918], // head at 7th & Channel
+  [0.7313, 0.393],
+  [0.7297, 0.3884],
+  [0.7396, 0.3754], // north bank
+  [0.7809, 0.327],
+  [0.868, 0.3255], // carried out into the bay
+  [0.868, 0.3375],
+];
+const MISSION_CREEK_BOUNDS = ringBounds(MISSION_CREEK);
+
+// YERBA BUENA ISLAND (+ Treasure Island, which is landfill welded to its north
+// shore). One landmass on the Bay Bridge's TRUE 40.5° line — the bridge's west
+// crossing lands here at u 0.934 / v 0.015. Only Yerba Buena's southern two
+// thirds are on-map: the isthmus and all of Treasure Island sit north of v = 0,
+// so the ellipse is elongated northward and runs off the border rather than
+// showing a shore just outside it.
+const YERBA_BUENA = { u: 0.938, v: -0.005, ru: 95, rv: 190 } as const;
+
+// Radial landmass, in world units so islands stay round on the rectangular map.
+function isle(u: number, v: number, c: { u: number; v: number; ru: number; rv: number }): number {
+  const du = ((u - c.u) * WORLD_W) / c.ru;
+  const dv = ((v - c.v) * WORLD_H) / c.rv;
+  return 1 - smooth(Math.hypot(du, dv), 0.72, 1);
 }
 
 // Peninsula coastline: Pacific (W), Golden Gate (N), Bay (E); land to the south.
@@ -77,9 +188,12 @@ export const landFactor: LandFactor = (u, v) => {
   land = Math.max(land, box(u, v, 0.82, 0.99, 0.7, 0.84)); // Hunters Point
   land = Math.max(land, box(u, v, 0.82, 0.98, 0.87, 0.97)); // Candlestick Point
   // Water inlets bitten into the land.
-  land = Math.min(land, 1 - box(u, v, 0.71, 0.8, 0.29, 0.35)); // China Basin / Mission Bay
+  land = Math.min(land, 1 - ringFactor(u, v, MISSION_CREEK, MISSION_CREEK_BOUNDS));
   land = Math.min(land, 1 - box(u, v, 0.71, 0.82, 0.57, 0.63)); // Islais Creek
   land = Math.min(land, 1 - box(u, v, 0.08, 0.18, 0.72, 0.86)); // Lake Merced (inland)
+  // Yerba Buena / Treasure Island: its own landmass out in the bay, so it goes
+  // on with max() after every peninsula cut (same rule as Marin below).
+  land = Math.max(land, isle(u, v, YERBA_BUENA));
   // Marin headlands: a strip of far-shore land inside the north edge so the
   // Golden Gate DELIVERS somewhere — Battery Ridge, the overlook turnaround.
   // Applied after every peninsula cut (max: it is its own landmass).
@@ -117,6 +231,28 @@ const SF_HILLS_M: ReadonlyArray<{ u: number; v: number; m: number; r: number; gr
   { u: 0.602, v: 0.091, m: 90, r: 0.045 }, // Russian Hill
   { u: 0.683, v: 0.082, m: 84, r: 0.035 }, // Telegraph Hill
   { u: 0.778, v: 0.234, m: 33, r: 0.035 }, // Rincon Hill
+  // The south and west used to be a pancake: no Bayview ridge, no McLaren
+  // knolls, and — the reason the Sunset read as flat suburb — no Golden Gate
+  // Heights. Elevations are the real summits; radii are the real footprints
+  // (r · 2886 · 4.446 ≈ metres), EXCEPT where a summit stands on an existing
+  // hill's flank. Hill Gaussians SUM, so a spur has to be entered at its
+  // PROMINENCE, not its sea-level height: Tank Hill's 198 m on top of the
+  // Twin Peaks flank already there would put it at 600 m.
+  { u: 0.26, v: 0.533, m: 203, r: 0.055, green: true }, // Grand View / Golden Gate Heights
+  { u: 0.202, v: 0.16, m: 122, r: 0.038, green: true }, // Rob Hill (the Presidio's high point)
+  { u: 0.252, v: 0.398, m: 131, r: 0.034, green: true }, // Strawberry Hill (Stow Lake)
+  { u: 0.423, v: 0.494, m: 45, r: 0.032, green: true }, // Tank Hill (prominence over Twin Peaks)
+  { u: 0.518, v: 0.686, m: 91, r: 0.028, green: true }, // Billy Goat Hill
+  { u: 0.624, v: 0.859, m: 150, r: 0.05, green: true }, // McLaren Park, west knoll
+  { u: 0.66, v: 0.874, m: 120, r: 0.04, green: true }, // McLaren Park, east knoll
+  { u: 0.768, v: 0.907, m: 134, r: 0.042, green: true }, // Bayview Hill
+  { u: 0.843, v: 0.78, m: 65, r: 0.032 }, // Hunters Point ridge (shipyard, stays urban)
+  { u: 0.938, v: 0.012, m: 103, r: 0.03, green: true }, // Yerba Buena Island (eucalyptus)
+  // The Daly City rim. Crests sit just off-map south (v > 1) for the same
+  // reason Battery Ridge's do: inside the border the ground slopes UP to the
+  // edge, so the wall reads as the ridge behind Guadalupe Canyon.
+  { u: 0.3, v: 1.008, m: 150, r: 0.06 },
+  { u: 0.47, v: 1.008, m: 170, r: 0.065 },
   // Battery Ridge (Marin headlands): five overlapping summits form one ridge
   // across the bridge's landing strip. Crests sit just off-map north (v < 0)
   // so inside the border the ground always slopes UP toward the edge — the
@@ -230,6 +366,18 @@ const NEIGHBORHOODS: readonly Box[] = [
     vMin: 0,
     vMax: 0.026,
   },
+  // Yerba Buena Island. NOT character "park" for the same reason Battery Ridge
+  // is not: the park-tile machinery would move onto a wooded island the player
+  // only ever sees from the bridge deck.
+  {
+    name: "Yerba Buena Island",
+    character: "residential",
+    color: 0x8a9a72,
+    uMin: 0.905,
+    uMax: 0.975,
+    vMin: 0,
+    vMax: 0.06,
+  },
   // Real SF green spaces (traced): the 4× map has room for the small parks.
   {
     name: "Dolores Park",
@@ -339,6 +487,10 @@ const NEIGHBORHOODS: readonly Box[] = [
     vMin: 0.07,
     vMax: 0.33,
   },
+  // Chinatown sits NORTH of Union Square. It used to be entered as the whole
+  // 0.15-0.225 band, which fully contained the Union Square box below it, and
+  // districtAt is first-inside-wins — so Union Square (and its
+  // PACKED_COMMERCIAL frontage rule) was dead code.
   {
     name: "Chinatown",
     character: "commercial",
@@ -346,7 +498,7 @@ const NEIGHBORHOODS: readonly Box[] = [
     uMin: 0.645,
     uMax: 0.7,
     vMin: 0.15,
-    vMax: 0.225,
+    vMax: 0.19,
   },
   {
     name: "Nob Hill",
@@ -479,9 +631,9 @@ const NEIGHBORHOODS: readonly Box[] = [
     name: "Union Square",
     character: "commercial",
     color: 0xc98a3c,
-    uMin: 0.66,
+    uMin: 0.645,
     uMax: 0.7,
-    vMin: 0.15,
+    vMin: 0.19,
     vMax: 0.225,
   },
   {

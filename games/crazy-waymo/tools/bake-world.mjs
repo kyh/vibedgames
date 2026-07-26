@@ -11,7 +11,7 @@
 // a rebake without a rev bump means either the bump was forgotten (bug) or
 // nothing changed (pointless).
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -95,9 +95,37 @@ try {
   const page = await browser.newPage({ acceptDownloads: true });
   page.on("console", (msg) => {
     const t = msg.text();
-    if (t.startsWith("[bake]") || t.startsWith("[world-bin]") || t.startsWith("[gen-worker]")) {
+    // [city] is in the filter because the ONE way this bake fails silently is a
+    // skipped rest capture: an untagged batch item or an untagged texture clears
+    // restComplete, `city.restCapture` stays null, no rest.bin is ever packed
+    // and the driver simply waits out its 30-minute cap with world.bin in hand.
+    // The reason is printed on a [city] line, so print [city] lines.
+    if (
+      t.startsWith("[bake]") ||
+      t.startsWith("[world-bin]") ||
+      t.startsWith("[gen-worker]") ||
+      t.startsWith("[city]")
+    ) {
       console.log(`  page: ${t}`);
     }
+  });
+
+  // Fail FAST on a skipped rest capture instead of waiting out the cap: without
+  // a rest capture the page can never produce rest.bin, so there is nothing to
+  // wait for. The message names the pass to fix.
+  const restSkipped = new Promise((_, reject) => {
+    page.on("console", (msg) => {
+      const t = msg.text();
+      if (t.startsWith("[city] rest capture skipped")) {
+        reject(
+          new Error(
+            `${t} — the city could not serialize every batch item, so no rest.bin ` +
+              `exists to bake. See the "[city] untagged batch items" / "untagged ` +
+              `texture" line above for which material.`,
+          ),
+        );
+      }
+    });
   });
 
   const downloads = new Map();
@@ -118,6 +146,7 @@ try {
   console.log("[bake] generating world (cold build — takes ~30-60s)…");
   await Promise.race([
     gotBoth,
+    restSkipped,
     new Promise((_, reject) =>
       setTimeout(() => reject(new Error("bake downloads did not arrive in 30 minutes")), 1_800_000),
     ),
@@ -126,8 +155,13 @@ try {
   console.log(`[bake] saved ${saved.length} artifacts`);
 
   // Install + split (split-world-bin reads public/world/{rest,world}.bin).
-  for (const name of ["rest.bin", "rest.bin.0", "rest.bin.1", "rest.parts", "world.bin"]) {
-    rmSync(path.join(worldDir, name), { force: true });
+  // Clear EVERY existing part, not a hardcoded two: the split count tracks the
+  // world's size, so a shrinking world would otherwise leave an orphan
+  // rest.bin.N behind that rest.parts no longer counts and nothing ever loads.
+  for (const name of readdirSync(worldDir)) {
+    if (/^(world\.bin|rest\.bin(\.\d+)?|rest\.parts)$/.test(name)) {
+      rmSync(path.join(worldDir, name), { force: true });
+    }
   }
   for (const target of saved) renameSync(target, path.join(worldDir, path.basename(target)));
   execFileSync("node", [path.join(root, "tools/split-world-bin.mjs")], {

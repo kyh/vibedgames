@@ -5,8 +5,15 @@
 //   node tools/sf-data/extract-transit-obj.mjs <path-to-obj> [out.json]
 //
 // Sibling of extract-footprints.mjs and shares its verified model->world
-// calibration (see CAL below). ANALYSIS/TOOLING ONLY: this writes a JSON
-// report, never a .ts module — a later pass turns the JSON into game data.
+// calibration (see CAL below). TWO outputs: the full JSON analysis report at
+// [out.json], and the shipped game module src/world/sf-transit.ts (see EMIT at
+// the bottom) — the render-ready subset, stamped with the NETWORK_GEN_ID of the
+// sf-network.ts it was resolved against.
+//
+// RE-RUN THIS AFTER EVERY `pnpm bake:map`. The emitted coverage is a list of
+// INDICES into SF_EDGES, and a map bake renumbers them; `pnpm test` asserts the
+// stamp so stale indices fail the suite instead of painting track through
+// buildings.
 //
 // HOW THE OBJ STORES ROUTES
 // -------------------------
@@ -45,8 +52,9 @@
 // game's own baked street centrelines (src/world/sf-network.ts) so rails land
 // on our asphalt. Before/after distance distributions are printed.
 
+import { spawnSync } from "node:child_process";
 import { createReadStream, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, resolve } from "node:path";
 import { createInterface } from "node:readline";
 
 import { plLen, projU, projV, rdp, WORLD_H, WORLD_W } from "./lib.mjs";
@@ -86,6 +94,22 @@ const STROKE_TURN = Math.cos((65 * Math.PI) / 180); // stroke continuation limit
 const XSEC_MAX = 40.0; // world units; how far apart two named streets may be
 //                        and still be called an intersection (Powell dies into
 //                        Market across Hallidie Plaza at 23.5u)
+
+// Alignments the model draws AT GRADE that are underground in reality. Painting
+// them puts phantom rails down the city's main street: of the light_rail
+// corridor, 2342u of 2973u runs in the Market Street subway, and railway adds
+// 2812u of the same tunnel plus 387u of the Stockton Tunnel (a ROAD tunnel the
+// OBJ tagged as railway). Surface Market IS carried — by the F-line, which
+// comes through as `tram`, so the filter is per-mode and never touches a mode
+// that is a surface mode by definition.
+const UNDERGROUND_STREETS = new Set(["Market Street", "Stockton Tunnel"]);
+const UNDERGROUND_MODES = new Set(["light_rail", "railway"]);
+
+// Modes that reach src/world/sf-transit.ts as track geometry. `bus` leaves no
+// physical trace on the roadway (71 relations mostly redraw the same streets),
+// so it ships as a service-density weight only; `monorail` is declared in the
+// OBJ with zero faces.
+const EMITTED_MODES = ["cable", "tram", "light_rail", "trolleybus", "railway"];
 
 // ---------------------------------------------------------------------------
 // Group classification
@@ -177,11 +201,30 @@ const r2 = (n) => Math.round(n * 100) / 100;
 const uOf = (x) => x / WORLD_W + 0.5;
 const vOf = (z) => z / WORLD_H + 0.5;
 
+/**
+ * Format an emitted module in place, so `pnpm format` cannot go red just because
+ * someone re-ran a bake. Best effort: a missing binary is a warning, not a
+ * failed extract — the data is already written by then.
+ */
+function oxfmt(path) {
+  const bin = resolve(new URL("../../../../node_modules/.bin/oxfmt", import.meta.url).pathname);
+  const r = spawnSync(bin, ["--write", path], { stdio: "ignore" });
+  if (r.status !== 0)
+    console.log(`  (could not run oxfmt on ${path} — format it before committing)`);
+}
+
 // ---------------------------------------------------------------------------
 // The game's own baked street network — snap target
 // ---------------------------------------------------------------------------
 function loadGameNetwork() {
   const src = readFileSync(new URL("../../src/world/sf-network.ts", import.meta.url), "utf8");
+  // The stamp travels with the coverage: edge indices only mean anything for
+  // the exact bake that produced them.
+  const stamp = /NETWORK_GEN_ID = "([^"]+)"/.exec(src);
+  if (!stamp) {
+    console.error("sf-network.ts carries no NETWORK_GEN_ID — cannot stamp the emitted module");
+    process.exit(1);
+  }
   const idx = makeSegIndex(24);
   const edgeLen = [];
   for (const m of src.matchAll(/p: \[([-\d.,\s]+)\]/g)) {
@@ -194,7 +237,7 @@ function loadGameNetwork() {
     }
     edgeLen.push(L);
   }
-  return { idx, edgeLen, edges: edgeLen.length };
+  return { idx, edgeLen, edges: edgeLen.length, genId: stamp[1] };
 }
 
 // ---------------------------------------------------------------------------
@@ -490,13 +533,21 @@ function buildGraph(recs) {
  * pair, and a second merge at MERGE_W finishes the job for the stretches that
  * have no asphalt under them.
  *
+ * Also tallies, per covered game edge, which named OSM street the snap points
+ * landed on. That per-EDGE vote (not the per-stroke label) is what lets the
+ * emitted coverage be grouped into corridors and the underground alignments be
+ * filtered out — a stroke label is one vote for a whole run of edges.
+ *
  * @returns {{pos:number[][], adj:Map<number,Set<number>>, preD:number[],
- *            snapped:number, points:number, merged:number}}
+ *            snapped:number, points:number, merged:number,
+ *            coveredEdges:Set<number>, edgeVotes:Map<number,Map<string,number>>}}
  */
-function consolidate(g, net) {
+function consolidate(g, net, streets) {
   const preD = [];
   const placed = [];
   const coveredEdges = new Set();
+  /** game edge index -> street name -> snap-point count ("" = unnamed) */
+  const edgeVotes = new Map();
   let snapped = 0;
   for (const [mx, mz] of g.pos) {
     const [x, z] = toWorld(mx, mz);
@@ -505,6 +556,11 @@ function consolidate(g, net) {
     if (hit && hit.d <= SNAP_MAX) {
       placed.push([hit.x, hit.z]);
       coveredEdges.add(hit.payload);
+      const nameHit = streets.idx.nearest(hit.x, hit.z, NAME_MAX);
+      let votes = edgeVotes.get(hit.payload);
+      if (!votes) edgeVotes.set(hit.payload, (votes = new Map()));
+      const nm = nameHit ? nameHit.payload : "";
+      votes.set(nm, (votes.get(nm) ?? 0) + 1);
       snapped++;
     } else {
       placed.push([x, z]);
@@ -560,9 +616,69 @@ function consolidate(g, net) {
     preD,
     snapped,
     coveredEdges,
+    edgeVotes,
     points: placed.length,
     merged: placed.length - pos.length,
   };
+}
+
+/**
+ * Group covered game edges into named CORRIDORS. Each edge is assigned to the
+ * street that won its snap-point vote (ties broken lexicographically so the
+ * output is deterministic), so the corridors PARTITION the coverage — their
+ * union is the flat edge list and no edge is counted twice.
+ *
+ * @returns {{street:string, lengthU:number, edges:number[]}[]} longest first
+ */
+function buildCorridors(edgeVotes, net) {
+  const byStreet = new Map();
+  for (const [edge, votes] of edgeVotes) {
+    let street = "";
+    let best = -1;
+    for (const [name, n] of [...votes].toSorted((a, b) => (a[0] < b[0] ? -1 : 1))) {
+      if (n > best) {
+        best = n;
+        street = name;
+      }
+    }
+    let list = byStreet.get(street);
+    if (!list) byStreet.set(street, (list = []));
+    list.push(edge);
+  }
+  const out = [];
+  for (const [street, edges] of byStreet) {
+    edges.sort((a, b) => a - b);
+    out.push({
+      street,
+      lengthU: r1(edges.reduce((s, e) => s + net.edgeLen[e], 0)),
+      edges,
+    });
+  }
+  out.sort((a, b) => b.lengthU - a.lengthU || (a.street < b.street ? -1 : 1));
+  return out;
+}
+
+/**
+ * Per-relation service density: how many of the OBJ's route objects cover each
+ * game edge. Snapped straight off the ribbon VERTICES (no centreline recovery)
+ * because a relative weight does not need sub-metre alignment — and each object
+ * is one route direction/variant, so the count is a density, not a route count.
+ * @returns {Map<number, number>}
+ */
+function edgeLoad(recs, net) {
+  const load = new Map();
+  for (const rec of recs) {
+    const ids = new Set();
+    for (const f of rec.quads) for (const id of f) ids.add(id);
+    const edges = new Set();
+    for (const id of ids) {
+      const [x, z] = toWorld(vx[id], vz[id]);
+      const hit = net.idx.nearest(x, z, SNAP_MAX);
+      if (hit) edges.add(hit.payload);
+    }
+    for (const e of edges) load.set(e, (load.get(e) ?? 0) + 1);
+  }
+  return load;
 }
 
 /** Connected-component sizes, largest first. */
@@ -798,8 +914,12 @@ function main() {
 
   const routes = [];
   const kindStats = {};
-  /** kind -> indices into SF_EDGES that carry it (render-ready). */
+  /** kind -> indices into SF_EDGES that carry it (raw, including underground). */
   const coverage = {};
+  /** kind -> named corridors partitioning the SURFACE coverage, longest first. */
+  const corridors = {};
+  /** game edge index -> number of OBJ bus route objects covering it. */
+  let busLoad = new Map();
 
   for (const [kind, k] of [...byKind].sort()) {
     if (k.live.length === 0 && k.susp.length === 0) continue;
@@ -853,7 +973,7 @@ function main() {
     const gm = keep.length === k.live.length && gLive ? gLive : buildGraph(keep);
 
     // Model graph -> snapped, direction-deduped WORLD graph.
-    const g = consolidate(gm, net);
+    const g = consolidate(gm, net, streets);
     const preD = g.preD;
     const comps = components(g.adj);
     console.log(
@@ -989,6 +1109,34 @@ function main() {
       gameEdgeLengthU: r1(covLen),
     };
     coverage[kind] = [...g.coveredEdges].sort((a, b) => a - b);
+
+    // Corridors, then the underground cut for the two modes the OBJ draws at
+    // grade but reality buries.
+    const all = buildCorridors(g.edgeVotes, net);
+    const filt = UNDERGROUND_MODES.has(kind)
+      ? all.filter((c) => !UNDERGROUND_STREETS.has(c.street))
+      : all;
+    if (filt.length !== all.length) {
+      const cut = all.filter((c) => UNDERGROUND_STREETS.has(c.street));
+      console.log(
+        `  UNDERGROUND cut: ${cut.map((c) => `${c.street} ${c.edges.length}e/${c.lengthU}u`).join(" · ")} -> ${filt.reduce((s, c) => s + c.edges.length, 0)} surface edges remain`,
+      );
+    }
+    corridors[kind] = filt;
+    kindStats[kind].surfaceCorridors = filt.length;
+    kindStats[kind].surfaceEdges = filt.reduce((s, c) => s + c.edges.length, 0);
+
+    if (kind === "bus") {
+      // Restricted to the centreline-derived coverage so "which edges have bus
+      // service" has ONE definition. The ribbon-vertex pass reaches a few more
+      // edges by snapping off the ribbon's shoulder; those are not corridor.
+      const raw = edgeLoad([...k.live, ...k.susp], net);
+      for (const e of g.coveredEdges) busLoad.set(e, raw.get(e) ?? 1);
+      const loads = [...busLoad.values()];
+      console.log(
+        `  bus service density over ${busLoad.size} edges: p50 ${pct(loads, 0.5)} · p90 ${pct(loads, 0.9)} · max ${Math.max(...loads)} route objects`,
+      );
+    }
 
     // Bus is emitted as a corridor network only; individual relations are not
     // separable and there are far too many to render.
@@ -1127,7 +1275,10 @@ function main() {
     extent,
     routes,
     namedLines: named,
+    network: { genId: net.genId, edges: net.edges },
     gameEdgeCoverage: coverage,
+    gameEdgeCorridors: corridors,
+    busEdgeLoad: [...busLoad].toSorted((a, b) => a[0] - b[0]),
     stats: {
       objects: groups.size,
       emptyObjects: emptyGroups,
@@ -1140,5 +1291,167 @@ function main() {
   writeFileSync(outPath, JSON.stringify(payload));
   console.log(
     `\nwrote ${outPath} — ${routes.length} corridor polylines, ${named.filter((n) => n.ok).length}/${named.length} named lines recovered`,
+  );
+
+  emitTransitModule(net, corridors, named, busLoad, extent);
+}
+
+// ---------------------------------------------------------------------------
+// EMIT src/world/sf-transit.ts — the shipped subset
+// ---------------------------------------------------------------------------
+// Deliberately NOT the JSON: no extracted polylines for the corridors (we draw
+// the game's own rails along the edges the coverage names, so the extracted
+// geometry is calibration input, not render input), no bus geometry, no stats.
+// What ships is per-mode edge coverage grouped into named corridors, the four
+// recovered named lines as drivable polylines, and a bus service-density table.
+const lineBlock = (n) =>
+  `  {\n` +
+  `    name: ${JSON.stringify(n.name)},\n` +
+  `    mode: ${JSON.stringify(n.kind)},\n` +
+  `    lengthU: ${n.lengthU},\n` +
+  `    p: ${JSON.stringify(n.pts.flat())},\n` +
+  `  },`;
+
+function emitTransitModule(net, corridors, named, busLoad, extent) {
+  const modes = EMITTED_MODES.filter((m) => (corridors[m] ?? []).length > 0);
+  // Muni Metro is excluded even if a future run recovers it: its only end-to-end
+  // path is the Market subway, and a drivable route in a tunnel we do not model
+  // is worse than no route.
+  const lines = named.filter((n) => n.ok && n.kind !== "light_rail");
+
+  const modeBlock = (m) =>
+    `  ${m}: [\n` +
+    corridors[m]
+      .map(
+        (c) =>
+          `    { street: ${JSON.stringify(c.street)}, lengthU: ${c.lengthU}, edges: ${JSON.stringify(c.edges)} },`,
+      )
+      .join("\n") +
+    `\n  ],`;
+
+  const busRows = [...busLoad]
+    .toSorted((a, b) => a[0] - b[0])
+    .map(([e, n]) => `[${e}, ${n}],`)
+    .join(" ");
+
+  const totals = modes
+    .map((m) => `${m} ${corridors[m].reduce((s, c) => s + c.edges.length, 0)}`)
+    .join(", ");
+
+  const src = `// AUTO-GENERATED by tools/sf-data/extract-transit-obj.mjs — do not edit by hand.
+// Real SF rail and trolley-wire transit, recovered from a licensed downtown
+// model and resolved onto OUR OWN street network. Every corridor here is a list
+// of INDICES INTO SF_EDGES (src/world/sf-network.ts), never traced geometry:
+// draw the game's own rails along those edges and the alignment is exact by
+// construction — track cannot land beside the asphalt because it IS the
+// asphalt's edge. Edges covered: ${totals}.
+//
+// DOWNTOWN ONLY. TRANSIT_EXTENT is the u/v box the source model covers; the
+// Sunset, the Richmond and the whole south of the map carry no transit at all.
+// A renderer must not treat an empty corridor list as "no transit here".
+//
+// light_rail and railway are SURFACE-FILTERED at extract time: the model draws
+// the Market Street subway and the Stockton Tunnel at grade. Surface Market is
+// still carried — by the F-line, which comes through as \`tram\`.
+
+/**
+ * The street-network bake these edge indices belong to (NETWORK_GEN_ID of the
+ * sf-network.ts this file was extracted against). \`pnpm test\` asserts equality:
+ * a \`pnpm bake:map\` renumbers SF_EDGES, so drift has to fail the suite rather
+ * than quietly paint track through buildings. Re-run the extractor to fix it.
+ */
+export const TRANSIT_GEN_ID = ${JSON.stringify(net.genId)};
+
+/** SF_EDGES length at extraction time — every index below is < this. */
+export const TRANSIT_EDGE_COUNT = ${net.edges};
+
+/** Every mode with track in this file. Iterate this, never a literal list. */
+export const TRANSIT_MODES = [${modes.map((m) => JSON.stringify(m)).join(", ")}] as const;
+
+export type TransitMode = (typeof TRANSIT_MODES)[number];
+
+/** One named street's worth of one mode's track, as game street edges. */
+export type TransitCorridor = {
+  /** OSM street name, "" when no named way ran within 10u of the track. */
+  readonly street: string;
+  /** Length of OUR asphalt carrying it, world units. */
+  readonly lengthU: number;
+  /** Ascending indices into SF_EDGES. */
+  readonly edges: readonly number[];
+};
+
+/**
+ * Per mode, the corridors that carry it, longest first. The corridors PARTITION
+ * the mode's coverage — every edge appears in exactly one of them — so "paint
+ * everything" is a flat concat and "paint the top-5 corridors" is a slice.
+ * Take the slice for trolleybus: all of it is 11% of the network and reads as
+ * clutter.
+ */
+export const SF_TRANSIT: Readonly<Record<TransitMode, readonly TransitCorridor[]>> = {
+${modes.map(modeBlock).join("\n")}
+};
+
+/** Flat edge list for a mode, ascending — the "paint all of it" case. */
+export function transitEdges(mode: TransitMode): readonly number[] {
+  return SF_TRANSIT[mode].flatMap((c) => c.edges);
+}
+
+/** A revenue line end to end: a route a vehicle can actually drive. */
+export type TransitLine = {
+  readonly name: string;
+  readonly mode: TransitMode;
+  /** Polyline length, world units (x4.446 for metres). */
+  readonly lengthU: number;
+  /** Flat [x0,z0, x1,z1, ...], world units, 0.1-quantized, snapped to our own
+   *  centrelines. First and last point are the terminals (turntables, for the
+   *  three cable lines). */
+  readonly p: readonly number[];
+};
+
+/**
+ * The named lines, recovered end to end by shortest path between real terminal
+ * intersections. Lengths are within 0.1 km of the real system. The Muni Metro
+ * is absent on purpose: its only end-to-end path is the Market subway.
+ */
+export const SF_TRANSIT_LINES: readonly TransitLine[] = [
+${lines.map(lineBlock).join("\n")}
+];
+
+/**
+ * Relative bus service density: [SF_EDGES index, number of route objects].
+ * Buses leave no physical trace on a roadway, so this is NOT geometry — use it
+ * to weight traffic spawning, shelter placement and dressing density. A route
+ * object is one direction/variant of one relation, so the number is a density,
+ * not a route count.
+ */
+export const SF_BUS_LOAD: readonly (readonly [edge: number, routeObjects: number])[] = [
+  ${busRows}
+];
+
+let busIndex: Map<number, number> | null = null;
+
+/** Bus service density on a street edge; 0 where no route runs. */
+export function busLoadAt(edge: number): number {
+  if (busIndex === null) busIndex = new Map(SF_BUS_LOAD);
+  return busIndex.get(edge) ?? 0;
+}
+
+/**
+ * Map fractions (u = x/WORLD_W + 0.5, v = z/WORLD_H + 0.5) the source model
+ * actually covers. Outside this box "no corridor" means "not surveyed", not
+ * "no transit".
+ */
+export const TRANSIT_EXTENT = {
+  u0: ${extent.uFull[0]},
+  u1: ${extent.uFull[1]},
+  v0: ${extent.vFull[0]},
+  v1: ${extent.vFull[1]},
+} as const;
+`;
+  const out = new URL("../../src/world/sf-transit.ts", import.meta.url);
+  writeFileSync(out, src);
+  oxfmt(out.pathname);
+  console.log(
+    `wrote src/world/sf-transit.ts — ${modes.length} modes / ${modes.reduce((s, m) => s + corridors[m].length, 0)} corridors, ${lines.length} named lines, ${busLoad.size} bus-weighted edges, ${(src.length / 1024).toFixed(1)} KB, stamp ${net.genId}`,
   );
 }

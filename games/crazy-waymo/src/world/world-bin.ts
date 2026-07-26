@@ -11,7 +11,13 @@ import type { CityGenPayload } from "./gen-worker";
 // READ side of the world-bin split: deserialize/unpack live here (main
 // bundle); the pack side in ./world-bin-pack.ts must mirror it exactly.
 
-export const WORLD_REV = 59; // bump when generation code changes → rebake (59 = wave-1 map polish: re-aimed Bay Bridge + relocated Oracle Park reservation rects, Golden Gate parapet lamp fixtures, DRAW_DISTANCE 900)
+// Bump when generation code changes → rebake. 60 = wave-2 map polish: the true
+// Mission Creek coastline + 12 new hills + island (land mask, terrain, street
+// network, ground classes all re-baked), the lot-line building fabric (stepped
+// hill lots, party walls, tower massing), the Mediterranean ground palette off
+// the single land-class resolver, and the real transit/paint pass (cable slots,
+// Muni red, crosswalks, stencils, across-road uv).
+export const WORLD_REV = 60;
 
 export type Typed = Float32Array | Uint16Array | Uint32Array | Int8Array | Uint8Array | Int32Array;
 export type BufRef = { $buf: number; $type: "f32" | "u16" | "u32" | "i8" | "u8" | "i32" };

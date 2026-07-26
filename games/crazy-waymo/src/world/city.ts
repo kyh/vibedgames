@@ -32,11 +32,10 @@ import { type DrapeField, toFloat32Attributes } from "./conform";
 import { activeMapProps } from "./map-file";
 import { buildFurniture, type LampHead, type ParkedSpec } from "./furniture";
 import { buildGoldenGate, goldenGateBeacons, goldenGatePlan } from "./golden-gate";
-import { RoadNetwork } from "./network";
+import { type NetEdge, RoadNetwork } from "./network";
 import { type CityPlan, generateCity } from "./grid";
 import { CUSTOM_MAP, editorMode, loadLocalOverrides } from "./custom-map";
 import {
-  isParkCell,
   applyGrassMottle,
   makeGroundColorAt,
   makeGroundOffset,
@@ -44,25 +43,36 @@ import {
   makeTerracedDrapeField,
   parkCellHeight,
 } from "./ground";
-import { landuseGreenAt, landuseSandAt } from "./sf-landuse";
+import { landuseSandAt } from "./sf-landuse";
+import {
+  type LandClassAt,
+  isParkLand,
+  makeLandClassAt,
+  wheelSurface,
+  type WheelSurface,
+} from "./land-class";
 import { buildGridNetwork } from "./grid-network";
 import {
   bakeConstantColor,
+  buildJunctionMap,
   buildRoads,
+  type JunctionMap,
   ROAD_MATERIALS,
   roadCollapseTarget,
   roadPartsToMeshes,
+  walkFor,
 } from "./roads";
 import type { CityGenPayload } from "./gen-worker";
 import { buildFreeways, nearFreeway } from "./freeways";
 import { buildPiers } from "./piers";
 import { buildLandmarks, landmarkProtection } from "./landmarks";
 import { SF_FOOTPRINTS } from "./sf-footprints";
+import { frontEdgeOf, type LotRhythm, lotRhythmFor, parcelAt } from "./sf-adjacency";
 import { prismSpec } from "./sf-prisms";
 import {
+  type District,
   type DistrictChar,
   districtAt,
-  greenHillWeightAt,
   isLandCell,
   makeTerrain,
   paletteFor,
@@ -82,19 +92,122 @@ export type RoadCell = { readonly gx: number; readonly gz: number };
 const HALF_PI = Math.PI / 2;
 
 // Building front faces +Z in the native model; this offset rotates it to face
-// the street. Tune if entrances point the wrong way.
+// the street. Tune if entrances point the wrong way. Because the model's Z
+// faces the kerb, its X runs ALONG the street: X is the lot frontage and Z is
+// the lot depth, and the two scale independently (see fitLotScale).
 const HALF_PI_CITY = Math.PI / 2;
 const BUILDING_FRONT_OFFSET = Math.PI;
-// Hillside foundations: concrete plinth under buildings on a grade.
 // Commercial districts whose real fabric is wall-to-wall mid-rise — frontage
 // rows pack shoulder-to-shoulder here instead of the gapped commercial step.
 const PACKED_COMMERCIAL = new Set(["Chinatown", "North Beach", "Union Square"]);
 
+// Hillside foundations: concrete plinth under buildings on a grade, with a
+// tuck-under garage cut into its downhill face (the single most-repeated hill
+// element in SF, and in this map).
 const PLINTH_GEO = new THREE.BoxGeometry(1, 1, 1);
 const PLINTH_MAT = new THREE.MeshStandardMaterial({ color: 0xb3aca0, roughness: 1 });
+// One extra material, so the door reads as an opening rather than as paint.
+// The stair and the jamb reuse PLINTH_MAT — same batch, no extra draw call.
+const GARAGE_DOOR_MAT = new THREE.MeshStandardMaterial({ color: 0x5c6165, roughness: 0.85 });
+const PLINTH_GARAGE_MIN = 1.7; // below this the door is shorter than a car
 // The mid-rise KayKit blocks (aspect ~0.8-1.2); c/d/g/h are 3-story towers
 // that would loom over a suburban row.
 const KK_BUILDINGS_MID = KK_BUILDINGS.filter((k) => /[abef]$/.test(k));
+// The only three flat-topped suburban models. Butting 18 gables shoulder to
+// shoulder reads as a sawtooth, so attached rows are biased onto these plus
+// the flat commercial blocks — the continuous cornice line IS the SF row read.
+const SUBURBAN_FLAT_TOP = BUILDINGS_SUBURBAN.filter((k) => /[brs]$/.test(k));
+
+// --- Lot rhythm ---------------------------------------------------------
+// SF_LOT_RHYTHM (sf-adjacency.ts) is measured in REAL world units: the
+// citywide median lot is 3.15u = 14 m of frontage, a Castro lot 2.37u = 10.5 m.
+// This map's fabric is an arcade exaggeration of that — a shipped "row house"
+// is ~6.5u/29 m wide and ~5.5u/24 m tall, about four times a real one — and
+// walking true lot widths would take the frontage models from ~37k to ~108k
+// (measured over the 281,000u of walkable frontage), at 700-5,200 tris each.
+// So the measured band drives the RHYTHM, not the absolute size: every width is
+// a measured draw times LOT_EXAGGERATION. The ratios that read survive (a SoMa
+// or Embarcadero lot is 2.6x a Castro lot) at the scale the world is modelled
+// in, and the two halves of the city stay consistent because the band comes
+// from lotRhythmFor() for EVERY district — measured for 27, donor-borrowed for
+// the 25 the source model never covered, one code path, no seam.
+const LOT_EXAGGERATION = 2.1;
+const LOT_MIN = 3.4; // narrower than this and the kit model reads as a shed
+const LOT_MAX = 12.5; // wider and one model is a stretched billboard: split it
+// Facade to kerb: the sidewalk plus a stoop. Was a flat 2.4u regardless of
+// street class, which left ~1.1u of bare ground past a minor street's 1.3u walk
+// and pushed facade-to-facade to 11.2u (~50 m) against SF's ~25 m.
+const FACADE_MARGIN = 0.45;
+/**
+ * Distance from a street's CENTRELINE to the front wall of its frontage row.
+ * furniture.ts hangs awnings, murals, fire escapes and shutters on that plane
+ * without being able to see the buildings, so this is the one definition of it —
+ * import it there rather than restating the arithmetic (its `FRONT_PLANE = 2.4`
+ * predates per-class sidewalks and now floats those props off every minor
+ * street's wall).
+ */
+export function facadeOffset(half: number): number {
+  return half + walkFor(half) + FACADE_MARGIN;
+}
+// Row houses are narrow AND DEEP; shops are boxy. Depth is scaled on Z only,
+// so it never touches the frontage — the old uniform scale made a narrow lot
+// a shallow one too.
+const LOT_DEPTH_DEEP = 1.85;
+const LOT_DEPTH_SHALLOW = 1.15;
+// Rear slack worth another row rather than a yard.
+const BACK_ROW_MIN = 6;
+// Height is a storey count, not a multiple of the frontage. Tuned so the median
+// of each character lands on the height the old footprint-normalized scale
+// produced (residential ~5.5u, downtown ~12u) — narrowing the lots must not
+// squash the skyline with them.
+const FABRIC_STOREY = 1.85;
+// Hillsides: how far up its own fall a building is seated, and the most of it
+// the grade is allowed to bury. SF cuts in and stilts out; it does not stop
+// building at a 5u fall, which is what the old `drop > 5` tree fallback did to
+// 55-75% of the near-summit lots.
+const STEP_INTO_SLOPE = 0.62;
+const STEP_BURY_MAX = 1.6;
+// Fall one mass can absorb: ~2.6u of plinth (one garage storey) plus ~1.6u of
+// cut. More than that and the building is SPLIT into stepped sections.
+const FALL_PER_STEP = 4.2;
+/**
+ * Per SECTION, after stepping: a genuine cliff face, left green. Exported
+ * because furniture.ts's `steepLot` has to skip lot dressing on exactly the
+ * lots this pass refuses to build — it was still using the OLD pre-stepping
+ * delete threshold (5u), so every hillside lot the stepper now builds stood
+ * with no fence, path or yard.
+ */
+export const STEEP_CLIFF = 6.5;
+// The real-footprint pass sinks a prism's walls to its lowest ring vertex
+// instead of stepping it, so it tolerates more fall than a kit section can.
+const PRISM_CLIFF = 9;
+// Above this a building stops being one flat prism, measured on the source
+// model: the flat-prism share is 54.9% through the 9-20u band, 21.7% at 20-40u
+// and 0% above 40u, with the median plan tapering 1.00 -> 0.72 -> 0.57 up the
+// height. Anything over this gets a podium + inset shaft + crown instead.
+const TOWER_MIN_H = 14;
+const TOWER_PODIUM = 0.22; // podium share of the height
+const TOWER_INSET = 0.78; // shaft plan against the lot line
+// tintNode lerps the model's own (white) base colour toward the palette and the
+// batcher MULTIPLIES the result over the atlas, so the amount is really
+// "distance from white" — at the shipped amounts a pale palette moved the
+// atlas by nothing (measured mean saturation 0.076, nothing above 0.35). The
+// atlases were recoloured to near-neutral in wave 0 precisely so the tint could
+// bite; this is the gain that lets it, clamped so 1.0 = the palette colour
+// itself. Note three.js lerps in LINEAR space, which washes a pastel further
+// than sRGB arithmetic suggests.
+const TINT_GAIN = 1.7;
+// One dominant facade colour and one roof family per BLOCK, not per building:
+// rng.pick is uniform, which gave every district the same average colour and no
+// block any identity. ~2 tiles is an SF block face.
+const BLOCK_SPAN = 26;
+function blockHash(x: number, z: number): number {
+  const bx = Math.floor((x + WORLD_HALF_X) / BLOCK_SPAN);
+  const bz = Math.floor((z + WORLD_HALF_Z) / BLOCK_SPAN);
+  let h = Math.imul(bx, 374761393) + Math.imul(bz, 668265263);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return (h ^ (h >>> 16)) >>> 0;
+}
 
 function dirToYaw(d: Dir): number {
   // Yaw that points "toward" the given grid direction (about +Y).
@@ -110,6 +223,327 @@ function dirToYaw(d: Dir): number {
     default:
       return 0;
   }
+}
+
+// Grid cell of a world position. The City methods delegate here so the fabric
+// planner (module scope, no instance) and the class cannot drift.
+const gridXOf = (x: number): number => Math.floor((x + WORLD_HALF_X) / ROAD_TILE);
+const gridZOf = (z: number): number => Math.floor((z + WORLD_HALF_Z) / ROAD_TILE);
+
+// --- Occupancy: rotated RECTANGLES, and a row can never reject itself.
+// Buildings are boxes, and the circle this used to keep made a 6u-wide lot claim
+// a 3u radius in every direction — two lots meant to share a party wall passed
+// the test by a hair and failed the instant either one shrank, and on the real-
+// footprint pass one circle per placed segment deleted ~10k parcels whose only
+// sin was standing next to their neighbour, which is what a party wall IS.
+// A `row` token exempts intentional neighbours: every lot of one frontage walk
+// (and every segment of one parcel) shares a token, and its own walk already
+// guarantees they do not overlap.
+type OccBox = {
+  readonly x: number;
+  readonly z: number;
+  readonly hw: number;
+  readonly hd: number;
+  readonly cos: number;
+  readonly sin: number;
+  readonly row: number;
+};
+const OCC = 26;
+const OCC_COLS = Math.ceil(WORLD_W / OCC) + 4;
+const OCC_SLOP = 0.4; // touching walls must pass; only a real overlap counts
+const occBox = (
+  x: number,
+  z: number,
+  hw: number,
+  hd: number,
+  yaw: number,
+  row: number,
+): OccBox => ({ x, z, hw, hd, cos: Math.cos(yaw), sin: Math.sin(yaw), row });
+// A box lands in every bucket its AABB touches — inserting only at the centre
+// loses a 30u parcel on a 26u lattice.
+function occSpan(b: OccBox, visit: (key: number) => void): void {
+  const rx = Math.abs(b.cos * b.hw) + Math.abs(b.sin * b.hd);
+  const rz = Math.abs(b.sin * b.hw) + Math.abs(b.cos * b.hd);
+  const x0 = Math.floor((b.x - rx + WORLD_HALF_X) / OCC);
+  const x1 = Math.floor((b.x + rx + WORLD_HALF_X) / OCC);
+  const z0 = Math.floor((b.z - rz + WORLD_HALF_Z) / OCC);
+  const z1 = Math.floor((b.z + rz + WORLD_HALF_Z) / OCC);
+  for (let ix = x0; ix <= x1; ix++) {
+    for (let iz = z0; iz <= z1; iz++) visit(ix + OCC_COLS * iz);
+  }
+}
+/** Separating-axis overlap of two rectangles, each shrunk by OCC_SLOP. */
+function boxesOverlap(a: OccBox, b: OccBox): boolean {
+  const dx = b.x - a.x;
+  const dz = b.z - a.z;
+  const ahw = Math.max(a.hw - OCC_SLOP, 0.05);
+  const ahd = Math.max(a.hd - OCC_SLOP, 0.05);
+  const bhw = Math.max(b.hw - OCC_SLOP, 0.05);
+  const bhd = Math.max(b.hd - OCC_SLOP, 0.05);
+  const ca = Math.abs(a.cos * b.cos + a.sin * b.sin);
+  const sa = Math.abs(a.cos * b.sin - a.sin * b.cos);
+  if (Math.abs(dx * a.cos + dz * a.sin) > ahw + bhw * ca + bhd * sa) return false;
+  if (Math.abs(-dx * a.sin + dz * a.cos) > ahd + bhw * sa + bhd * ca) return false;
+  if (Math.abs(dx * b.cos + dz * b.sin) > bhw + ahw * ca + ahd * sa) return false;
+  if (Math.abs(-dx * b.sin + dz * b.cos) > bhd + ahw * sa + ahd * ca) return false;
+  return true;
+}
+
+// Park lots go green, so no fabric pass can ever be handed one: narrowing the
+// type is what deletes the dead "park" arms of poolFor/storeysFor instead of
+// leaving unreachable branches behind.
+type FabricChar = Exclude<DistrictChar, "park">;
+
+function fabricCharAt(x: number, z: number): FabricChar | null {
+  const gx = gridXOf(x);
+  const gz = gridZOf(z);
+  if (!isLandCell(gx, gz)) return null;
+  const c = districtAt(gx, gz).character;
+  return c === "park" ? null : c;
+}
+
+/**
+ * One lot on a street frontage — the unit one kit model is fitted to. Both
+ * front-face corners ride along so a consumer (and tools/test-world.mts)
+ * measures the walls the walk actually produced rather than reconstructing
+ * them from trigonometry.
+ */
+export type FabricLot = {
+  readonly x: number;
+  readonly z: number;
+  readonly yaw: number;
+  /** Frontage along the street: scales the model's X only. */
+  readonly width: number;
+  /** Depth away from the street: scales the model's Z only. */
+  readonly depth: number;
+  readonly character: FabricChar;
+  /**
+   * Buildable depth still free BEHIND this lot, on this lot's half of the
+   * block. A wide block is two rows deep with rear yards; a narrow one is one
+   * row that already reaches the middle. Without this the interior of every
+   * wide block came out as bare ground.
+   */
+  readonly rear: number;
+  /** Wall-to-wall with the previous lot in this row — a party wall, no gap. */
+  readonly attached: boolean;
+  /** Lots of one run share a facade line and a dominant colour. */
+  readonly run: number;
+  readonly x0: number;
+  readonly z0: number;
+  readonly x1: number;
+  readonly z1: number;
+};
+
+// A measured quartile band, sampled with its tails and lifted to the map's
+// arcade scale. A lot wider than one model can carry is SPLIT (a 6.2u SoMa lot
+// becomes two fused models, never one stretched 3:1).
+function lotWidth(rng: Rng, band: LotRhythm): number {
+  const r = rng.range(0, 1);
+  const raw =
+    (r < 0.2
+      ? rng.range(band.p25 * 0.72, band.p25)
+      : r < 0.5
+        ? rng.range(band.p25, band.p50)
+        : r < 0.8
+          ? rng.range(band.p50, band.p75)
+          : rng.range(band.p75, band.p75 * 1.35)) * LOT_EXAGGERATION;
+  const parts = Math.max(1, Math.ceil(raw / LOT_MAX));
+  return Math.max(LOT_MIN, raw / parts);
+}
+
+// A slice of a lot, k of n, along its frontage (`axis` 0) or its depth
+// (`axis` 1). Slices keep the parent's facing and setback, so a stepped
+// building still butts its neighbours and still faces the same kerb.
+function sliceLot(lot: FabricLot, axis: 0 | 1, k: number, n: number): FabricLot {
+  const t0 = k / n;
+  const t1 = (k + 1) / n;
+  if (axis === 0) {
+    const x0 = lot.x0 + (lot.x1 - lot.x0) * t0;
+    const z0 = lot.z0 + (lot.z1 - lot.z0) * t0;
+    const x1 = lot.x0 + (lot.x1 - lot.x0) * t1;
+    const z1 = lot.z0 + (lot.z1 - lot.z0) * t1;
+    const shift = (t0 + t1) / 2 - 0.5;
+    return {
+      ...lot,
+      width: lot.width / n,
+      x: lot.x + (lot.x1 - lot.x0) * shift,
+      z: lot.z + (lot.z1 - lot.z0) * shift,
+      attached: true,
+      x0,
+      z0,
+      x1,
+      z1,
+    };
+  }
+  // Depth: k = 0 is the street-most slice. The normal points at the kerb.
+  const nx = (lot.x0 + lot.x1) / 2 - lot.x;
+  const nz = (lot.z0 + lot.z1) / 2 - lot.z;
+  const nl = Math.max(Math.hypot(nx, nz), 0.001);
+  const depth = lot.depth / n;
+  const back = (0.5 - (t0 + t1) / 2) * lot.depth;
+  const x = lot.x + (nx / nl) * back;
+  const z = lot.z + (nz / nl) * back;
+  return {
+    ...lot,
+    depth,
+    x,
+    z,
+    attached: true,
+    x0: lot.x0 - (nx / nl) * (t0 * lot.depth),
+    z0: lot.z0 - (nz / nl) * (t0 * lot.depth),
+    x1: lot.x1 - (nx / nl) * (t0 * lot.depth),
+    z1: lot.z1 - (nz / nl) * (t0 * lot.depth),
+  };
+}
+
+/**
+ * Walk one side of one street edge as a LOT LINE: roll a width, place the lot
+ * centred at s + w/2, advance s by exactly w. The previous walk re-rolled the
+ * width every iteration but advanced by the PREVIOUS roll, so consecutive lots
+ * gapped (or overlapped) by half the difference of two draws — up to 1.3u of
+ * daylight between walls that were meant to be attached, which is what made the
+ * dense districts read as gapped suburbia.
+ *
+ * Every narrowing happens HERE, so the width the walk advances by is the width
+ * that gets built. placeBuilding is handed a finished lot and may only accept or
+ * reject it; it can no longer shrink a building after the line has moved on.
+ * Lots of one run share ONE facade line, which is also what makes their walls
+ * meet exactly on a curve: neighbours read the same offset polyline, so the far
+ * corner of one lot IS the near corner of the next.
+ */
+export function planFabricRow(
+  network: RoadNetwork,
+  junctions: JunctionMap,
+  edge: NetEdge,
+  side: 1 | -1,
+  rng: Rng,
+): readonly FabricLot[] {
+  const lots: FabricLot[] = [];
+  // Corner buildings are real — the cross-street clearance below is the guard,
+  // so row trims stay small even at wide junctions.
+  const trimA = Math.min(network.nodeTrim(edge.a) * 0.6 + 1.5, edge.len * 0.4);
+  const trimB = Math.min(network.nodeTrim(edge.b) * 0.6 + 1.5, edge.len * 0.4);
+  const end = edge.len - trimB;
+  if (end - trimA < 5) return lots;
+  const frontOff = facadeOffset(edge.half);
+  const face = (s: number, off: number): { readonly x: number; readonly z: number } => {
+    const smp = network.sample(edge, s);
+    return { x: smp.x - smp.tz * off * side, z: smp.z + smp.tx * off * side };
+  };
+  // Clear of every OTHER street; our own edge is cleared by frontOff itself.
+  // The JUNCTION PATCH has to be tested separately: it is the drawn asphalt at
+  // an intersection and it is wider than any of its arms, so a nearest-edge
+  // distance cannot see it and corner lots stood on the apron.
+  const clear = (p: { readonly x: number; readonly z: number }): boolean => {
+    if (junctions.near(p.x, p.z, 0.3)) return false;
+    const hit = network.nearest(p.x, p.z, ROAD_TILE * 1.6);
+    return hit === null || hit.dist >= hit.edge.half + 0.4;
+  };
+  let s = trimA + rng.range(0, 2);
+  let run = 0;
+  let attached = false;
+  while (s < end) {
+    run++;
+    const head = network.sample(edge, s);
+    const district = districtAt(gridXOf(head.x), gridZOf(head.z));
+    const band = lotRhythmFor(district.name);
+    const packed = PACKED_COMMERCIAL.has(district.name);
+    const dense =
+      district.character === "residential" || district.character === "victorian" || packed;
+    // One depth (hence one facade line) per run, drawn from the run's own band.
+    const depthRun = lotWidth(rng, band) * (dense ? LOT_DEPTH_DEEP : LOT_DEPTH_SHALLOW);
+    const runLen = Math.max(1, Math.round(band.runSize * rng.range(0.7, 1.5)));
+    for (let k = 0; k < runLen && s < end; k++) {
+      const p0 = face(s, frontOff);
+      if (!clear(p0)) {
+        // Still inside a junction apron — step past it, don't build a sliver.
+        s += LOT_MIN;
+        attached = false;
+        continue;
+      }
+      let w = Math.min(lotWidth(rng, band), end - s);
+      // Narrow until the FAR wall clears the cross street it is walking into.
+      for (let i = 0; i < 3 && w >= LOT_MIN; i++) {
+        if (clear(face(s + w, frontOff))) break;
+        w *= 0.62;
+      }
+      if (w < LOT_MIN) {
+        s += LOT_MIN;
+        attached = false;
+        continue;
+      }
+      // How deep the block is: facade line to the facade line of the row facing
+      // the other way. Both rows fill toward each other and their rear property
+      // lines meet in the MIDDLE, so HALF of that is this row's to build on.
+      // Testing only "is the back wall on a street" is not enough — a deep row
+      // then crosses a narrow block and the row on the far kerb is rejected
+      // wholesale by its occupancy, leaving one side built and the other bare.
+      const probe = face(s + w * 0.5, frontOff + depthRun);
+      const far = network.nearest(probe.x, probe.z, ROAD_TILE * 2.4);
+      const halfBlock =
+        far === null || far.edge.id === edge.id
+          ? ROAD_TILE * 1.2
+          : (depthRun + far.dist - facadeOffset(far.edge.half)) / 2;
+      let depth = Math.max(w * 0.9, Math.min(depthRun, halfBlock));
+      // Backstop for cross streets the midpoint rule cannot see.
+      for (let i = 0; i < 2 && depth > w * 0.9; i++) {
+        if (clear(face(s, frontOff + depth)) && clear(face(s + w, frontOff + depth))) break;
+        depth *= 0.72;
+      }
+      // At a convex kink the facade line is longer than the centreline it is
+      // offset from, so an arclength step of w can span a chord well past it
+      // (measured: up to 19u for a 12.5u step). Pull the step back rather than
+      // stretch one model across the corner.
+      let p1 = face(s + w, frontOff);
+      for (let i = 0; i < 3; i++) {
+        const chord = Math.hypot(p1.x - p0.x, p1.z - p0.z);
+        if (chord <= LOT_MAX || w <= LOT_MIN) break;
+        w = Math.max(LOT_MIN, w * (LOT_MAX / chord));
+        p1 = face(s + w, frontOff);
+      }
+      const b0 = face(s, frontOff + depth);
+      const b1 = face(s + w, frontOff + depth);
+      const x = (p0.x + p1.x + b0.x + b1.x) / 4;
+      const z = (p0.z + p1.z + b0.z + b1.z) / 4;
+      const character = fabricCharAt(x, z);
+      s += w;
+      if (character === null) {
+        attached = false;
+        continue;
+      }
+      // The chord between the shared corners, not the arclength: on a curve the
+      // chord is what the two walls actually have in common.
+      const ex = p1.x - p0.x;
+      const ez = p1.z - p0.z;
+      const width = Math.hypot(ex, ez);
+      if (width < LOT_MIN) {
+        attached = false;
+        continue;
+      }
+      lots.push({
+        x,
+        z,
+        yaw: Math.atan2((ex / width) * side, (ez / width) * side) + HALF_PI_CITY,
+        width,
+        depth,
+        rear: Math.max(0, halfBlock - depth),
+        character,
+        attached,
+        run,
+        x0: p0.x,
+        z0: p0.z,
+        x1: p1.x,
+        z1: p1.z,
+      });
+      attached = true;
+    }
+    // The break between runs — an alley or a driveway on a dense row, a side
+    // yard on a detached one. This IS the vacancy: the old walk holed every
+    // ~25th slot at random, which on a dense row is a missing tooth.
+    s += dense ? rng.range(0.9, 2.2) : rng.range(2.4, 5.0);
+    attached = false;
+  }
+  return lots;
 }
 
 // A streamed tile of static city geometry: its own merged meshes under one
@@ -564,6 +998,19 @@ export class CityModel {
     }
     return this.groundOffsetCache;
   }
+  // Resolved ground class (world/land-class.ts): the ONE rule the ground paint
+  // and the wheel-surface FX both read, so the tyres can never report concrete
+  // on a beach the painter drew as sand. Cached per PLAN — a live street edit
+  // replaces the plan and the resolver reads its street/frontage fabric.
+  private landClassCache: LandClassAt | null = null;
+  private landClassPlan: CityPlan | null = null;
+  private get landClassAt(): LandClassAt {
+    if (!this.landClassCache || this.landClassPlan !== this.plan) {
+      this.landClassCache = makeLandClassAt(this.plan, this.terrain);
+      this.landClassPlan = this.plan;
+    }
+    return this.landClassCache;
+  }
   // Height of the surface a prop stands on (road drape inside the paved
   // corridor, ground mesh as tessellated outside it) — see makeStandingSurface.
   private standCache: ((x: number, z: number) => number) | null = null;
@@ -629,9 +1076,20 @@ export class CityModel {
     const srcMat =
       (mesh.userData.srcMat as { url: string; idx: number } | undefined) ??
       (mat.map ? this.cache.srcOfMaterial(mat) : null);
-    const serializable = !mat.map || srcMat !== null;
-    if (mat.map && !srcMat) {
-      // Textured material with no source ref can't survive serialization.
+    // A mapped material normally cannot survive serialization — its texture is
+    // not in the payload and only a model URL can bring one back. The ROAD
+    // materials are the exception: the rebuild re-resolves them from the live
+    // table by the colour the capture serialized (roadCollapseTarget), so the
+    // paint-stencil atlas — generated in code, zero payload — comes back for
+    // free. Without this exception the stencil chunks counted as unserializable,
+    // which cleared restComplete and threw away the ENTIRE rest capture: the
+    // bake then emitted world.bin only and sat waiting for a rest.bin that was
+    // never packed.
+    const restorable =
+      srcMat !== null ||
+      roadCollapseTarget(mat.color.getHex(), mat.polygonOffset, mat.vertexColors) !== null;
+    const serializable = !mat.map || restorable;
+    if (mat.map && !restorable) {
       this.restComplete = false;
       if (!this.restSkipLogged.has(mat.uuid)) {
         this.restSkipLogged.add(mat.uuid);
@@ -802,7 +1260,7 @@ export class CityModel {
     return hit !== null && hit.dist < hit.edge.half + margin;
   }
 
-  private poolFor(c: DistrictChar): readonly string[] {
+  private poolFor(c: FabricChar): readonly string[] {
     switch (c) {
       case "downtown":
       case "highrise":
@@ -816,31 +1274,123 @@ export class CityModel {
         return BUILDINGS_INDUSTRIAL;
       case "victorian":
       case "residential":
-      case "park":
         // Occasional KayKit mid-rise = the SF corner store/apartment block.
         return this.rng.chance(0.12) ? KK_BUILDINGS_MID : BUILDINGS_SUBURBAN;
     }
   }
 
-  private heightScaleFor(c: DistrictChar): number {
+  // Pool for a lot that BUTTS its neighbours. 18 of the 21 suburban models are
+  // gabled, and a butted gable row is a sawtooth; the flat three plus the
+  // commercial blocks give the continuous cornice an attached row needs. The
+  // roof family is chosen per BLOCK so a row agrees with itself instead of
+  // alternating gable/flat/gable.
+  private fabricPool(c: FabricChar, lot: FabricLot): readonly string[] {
+    if (!lot.attached) return this.poolFor(c);
+    switch (c) {
+      case "residential":
+      case "victorian":
+        return blockHash(lot.x, lot.z) % 4 === 0 ? BUILDINGS_SUBURBAN : SUBURBAN_FLAT_TOP;
+      case "downtown":
+      case "highrise":
+      case "commercial":
+      case "wharf":
+      case "industrial":
+        return this.poolFor(c); // already flat-topped blocks
+    }
+  }
+
+  private storeysFor(c: FabricChar): number {
     switch (c) {
       case "highrise":
-        return 1.6;
+        return 7 + this.rng.int(4);
       case "downtown":
-        return 1.3;
+        return 6 + this.rng.int(3);
       case "commercial":
-        return 1.05;
+        return 4 + this.rng.int(3);
       case "industrial":
-        return 1.0;
-      case "park":
-        return 1.0;
+        return 2 + this.rng.int(3);
       case "victorian":
-        return 0.9;
+        return 3 + this.rng.int(2);
       case "residential":
-        return 0.85;
+        return this.rng.chance(0.75) ? 3 : 4;
       case "wharf":
-        return 0.8;
+        return 2 + this.rng.int(2);
     }
+  }
+
+  // The facade colour: one dominant per block, two or three accents around it.
+  private blockColorAt(x: number, z: number, district: District): number {
+    const pal = paletteFor(district);
+    const h = blockHash(x, z);
+    const dominant = pal[h % pal.length];
+    if (dominant === undefined) return 0xffffff;
+    if (pal.length < 2 || this.rng.chance(0.66)) return dominant;
+    return pal[(h + 1 + this.rng.int(pal.length - 1)) % pal.length] ?? dominant;
+  }
+
+  // Tuck-under garage on the DOWNHILL face of a hillside plinth: a dark door
+  // under a header band, and a stoop back up to the raised entry. Skipped when
+  // the street face is the uphill one — then the garage is round the back,
+  // where nobody driving past can see it.
+  private garageFronts = 0;
+  private addGarageFront(
+    collect: (obj: THREE.Object3D) => void,
+    lot: FabricLot,
+    seatY: number,
+    plinthH: number,
+  ): void {
+    const fx = (lot.x0 + lot.x1) / 2;
+    const fz = (lot.z0 + lot.z1) / 2;
+    const faceY = this.terrain.heightAt(fx, fz);
+    if (faceY > seatY - 1.4) return; // the front is level or uphill
+    const nx = (fx - lot.x) / Math.max(Math.hypot(fx - lot.x, fz - lot.z), 0.001);
+    const nz = (fz - lot.z) / Math.max(Math.hypot(fx - lot.x, fz - lot.z), 0.001);
+    const doorW = Math.min(4.2, lot.width * 0.44);
+    const doorH = Math.min(plinthH - 0.5, 3.0);
+    if (doorH < 1.2) return;
+    const skin = 0.14; // proud of the plinth face so it can't z-fight it
+    const door = new THREE.Mesh(PLINTH_GEO, GARAGE_DOOR_MAT);
+    door.scale.set(doorW, doorH, 0.5);
+    door.rotation.y = lot.yaw;
+    door.position.set(
+      lot.x + nx * (lot.depth / 2 + skin),
+      faceY + doorH / 2,
+      lot.z + nz * (lot.depth / 2 + skin),
+    );
+    door.updateMatrixWorld(true);
+    collect(door);
+    const head = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
+    head.scale.set(doorW + 0.7, 0.42, 0.62);
+    head.rotation.y = lot.yaw;
+    head.position.set(
+      lot.x + nx * (lot.depth / 2 + skin + 0.06),
+      faceY + doorH + 0.2,
+      lot.z + nz * (lot.depth / 2 + skin + 0.06),
+    );
+    head.updateMatrixWorld(true);
+    collect(head);
+    // Stoop: three steps beside the door, ground to the raised entry. A single
+    // tilted slab was cheaper by two boxes and read as a plank leaning on the
+    // wall — steps are what makes the raised entry legible.
+    const rise = seatY - faceY;
+    const sideX = -nz * (doorW / 2 + 1.2);
+    const sideZ = nx * (doorW / 2 + 1.2);
+    const treads = 3;
+    for (let i = 0; i < treads; i++) {
+      const stepH = (rise * (i + 1)) / treads;
+      const out = 1.5 - (i * 1.5) / treads; // the bottom step reaches furthest
+      const step = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
+      step.scale.set(1.9, stepH, out + 0.35);
+      step.rotation.y = lot.yaw;
+      step.position.set(
+        lot.x + nx * (lot.depth / 2 + (out + 0.35) / 2) + sideX,
+        faceY + stepH / 2 - 0.1,
+        lot.z + nz * (lot.depth / 2 + (out + 0.35) / 2) + sideZ,
+      );
+      step.updateMatrixWorld(true);
+      collect(step);
+    }
+    this.garageFronts++;
   }
 
   // District-tinted material clones, cached so tinted buildings still merge.
@@ -1028,125 +1578,165 @@ export class CityModel {
       });
     }
 
-    // Street-aligned placement pose: frontage rows compute these inline
-    // (facade parallel to the real street at a consistent setback).
-    type AvenuePose = { x: number; z: number; yaw: number };
-
-    // One building on a lot cell: pool/palette by district, seated on the
-    // hill's high corner with a plinth, solid footprint. `footprint` is the
-    // target size as a fraction of the tile; frontage rows run larger than
-    // block-interior infill. Avenue-frontage lots pass a pose (rotated to the
-    // spine + setback). Returns false when the grade is too steep (the lot
-    // goes green instead).
-    // Coarse occupancy hash: one entry per placed building (circle approx).
-    const placedHash = new Map<string, { x: number; z: number; r: number }[]>();
-    const OCC = 26;
-    const occKey = (x: number, z: number): string =>
-      `${Math.floor(x / OCC)},${Math.floor(z / OCC)}`;
-    const occupied = (x: number, z: number, r: number): boolean => {
-      const bx = Math.floor(x / OCC);
-      const bz = Math.floor(z / OCC);
-      for (let ix = bx - 1; ix <= bx + 1; ix++) {
-        for (let iz = bz - 1; iz <= bz + 1; iz++) {
-          for (const o of placedHash.get(`${ix},${iz}`) ?? []) {
-            if (Math.hypot(o.x - x, o.z - z) < o.r + r) return true;
+    const placedHash = new Map<number, OccBox[]>();
+    let occRow = 0;
+    const occupiedBy = (b: OccBox): boolean => {
+      let hit = false;
+      occSpan(b, (key) => {
+        if (hit) return;
+        for (const o of placedHash.get(key) ?? []) {
+          if (o.row === b.row) continue; // same walk — an intentional neighbour
+          if (boxesOverlap(o, b)) {
+            hit = true;
+            return;
           }
         }
-      }
-      return false;
+      });
+      return hit;
     };
-    const occupy = (x: number, z: number, r: number): void => {
-      const k = occKey(x, z);
-      const arr = placedHash.get(k) ?? [];
-      arr.push({ x, z, r });
-      placedHash.set(k, arr);
+    const occupy = (b: OccBox): void => {
+      occSpan(b, (key) => {
+        const arr = placedHash.get(key);
+        if (arr) arr.push(b);
+        else placedHash.set(key, [b]);
+      });
     };
 
-    const placeBuilding = (
-      gx: number,
-      gz: number,
-      faceDir: Dir,
-      footprintFracIn: number,
-      dressing: boolean, // rooftop towers + curbside trees (frontage only)
-      pose: AvenuePose | null = null,
-    ): boolean => {
-      const district = districtAt(gx, gz);
-      const wx = pose ? pose.x : this.worldX(gx);
-      const wz = pose ? pose.z : this.worldZ(gz);
-      // A building whose footprint TOUCHES vector asphalt walls off the
-      // street (diagonal spines and the dense hill grid cut across grid
-      // lots). All-or-nothing rejection here sent whole small blocks green
-      // (Chinatown's 1-2 cell lot islands are boxed in by road on most
-      // sides) — so tight lots now SHRINK to what fits instead.
-      if (this.onAsphalt(wx, wz, 1)) return false;
-      if (nearFreeway(wx, wz, 1.5)) return false; // no lots inside the viaduct ROW
+    // A block-INTERIOR lot on a grid cell, facing the same street its frontage
+    // neighbour does. The shrink lives here rather than inside placeBuilding
+    // because the caller has to know the width it got: this is the cell-based
+    // twin of planFabricRow, and like it, it hands back a finished lot.
+    const fitCellLot = (gx: number, gz: number, faceDir: Dir, frac: number): FabricLot | null => {
+      const wx = this.worldX(gx);
+      const wz = this.worldZ(gz);
+      const character = fabricCharAt(wx, wz);
+      if (character === null) return null;
+      if (this.onAsphalt(wx, wz, 1)) return null;
+      const yaw = dirToYaw(faceDir);
+      const cos = Math.cos(yaw);
+      const sin = Math.sin(yaw);
       const cornersClear = (f: number): boolean => {
-        const sbh = ROAD_TILE * f * 0.46;
+        const h = ROAD_TILE * f * 0.46;
         return !(
-          this.onAsphalt(wx - sbh, wz - sbh, 0.4) ||
-          this.onAsphalt(wx + sbh, wz - sbh, 0.4) ||
-          this.onAsphalt(wx - sbh, wz + sbh, 0.4) ||
-          this.onAsphalt(wx + sbh, wz + sbh, 0.4)
+          this.onAsphalt(wx - h, wz - h, 0.4) ||
+          this.onAsphalt(wx + h, wz - h, 0.4) ||
+          this.onAsphalt(wx - h, wz + h, 0.4) ||
+          this.onAsphalt(wx + h, wz + h, 0.4)
         );
       };
-      let footprintFrac = footprintFracIn;
-      if (!cornersClear(footprintFrac)) {
+      let fit = frac;
+      if (!cornersClear(fit)) {
         const near = this.network.nearest(wx, wz, ROAD_TILE * 1.6);
-        footprintFrac = near
-          ? Math.min(footprintFrac, ((near.dist - near.edge.half - 0.5) * 2) / ROAD_TILE)
-          : footprintFrac * 0.75;
+        fit = near
+          ? Math.min(fit, ((near.dist - near.edge.half - 0.5) * 2) / ROAD_TILE)
+          : fit * 0.75;
         // Corner lots see a second street the nearest-edge shrink can't: one
         // more step down before giving the lot to grass.
-        if (ROAD_TILE * footprintFrac < 3.0 || !cornersClear(footprintFrac)) {
-          footprintFrac *= 0.78;
-          if (ROAD_TILE * footprintFrac < 3.0 || !cornersClear(footprintFrac)) return false;
+        if (ROAD_TILE * fit < LOT_MIN || !cornersClear(fit)) {
+          fit *= 0.78;
+          if (ROAD_TILE * fit < LOT_MIN || !cornersClear(fit)) return null;
         }
       }
-      if (occupied(wx, wz, ROAD_TILE * footprintFrac * 0.45)) return false;
-      const key = this.rng.pick(this.poolFor(district.character));
+      const width = ROAD_TILE * fit;
+      // Interior lots read from the side, so they stay near-square: the deep
+      // plan belongs to the street row whose flanks its neighbours hide.
+      const depth = width * LOT_DEPTH_SHALLOW;
+      return {
+        x: wx,
+        z: wz,
+        yaw,
+        width,
+        depth,
+        rear: 0, // an interior cell IS the block interior; nothing behind it
+        character,
+        attached: false,
+        run: 0,
+        x0: wx - (width / 2) * cos - (depth / 2) * sin,
+        z0: wz - (width / 2) * sin + (depth / 2) * cos,
+        x1: wx + (width / 2) * cos - (depth / 2) * sin,
+        z1: wz + (width / 2) * sin + (depth / 2) * cos,
+      };
+    };
+
+    // Why a planned lot did not get built — the fabric pass is the biggest
+    // consumer of gen time and has no other visibility into its own losses.
+    const rejects = { freeway: 0, occupied: 0, cliff: 0, reserved: 0 };
+
+    // One building on one finished lot. The lot's width, depth, facing and
+    // setback are decided by the caller (planFabricRow for frontage rows,
+    // fitCellLot for block-interior infill) and are FINAL here: this used to
+    // narrow the building itself, after the walk had already stepped by the
+    // un-narrowed width, which put the gap somewhere no caller could see.
+    // Returns the lot it built, or null when the lot is unbuildable.
+    const placeOne = (
+      lot: FabricLot,
+      row: number,
+      dressing: boolean, // rooftop towers + curbside trees (frontage only)
+    ): FabricLot | null => {
+      const wx = lot.x;
+      const wz = lot.z;
+      const district = districtAt(gridXOf(wx), gridZOf(wz));
+      if (nearFreeway(wx, wz, 1.5)) {
+        rejects.freeway++;
+        return null; // no lots inside the viaduct ROW
+      }
+      const halfW = lot.width / 2;
+      const halfD = lot.depth / 2;
+      const cos = Math.cos(lot.yaw);
+      const sin = Math.sin(lot.yaw);
+      if (occupiedBy(occBox(wx, wz, halfW, halfD, lot.yaw, row))) {
+        rejects.occupied++;
+        return null;
+      }
+      // Attached rows want a continuous cornice, not 18 gables in a sawtooth.
+      const key = this.rng.pick(this.fabricPool(lot.character, lot));
       const url = modelUrl("buildings", key);
       const bounds = this.cache.bounds(url);
-      const footprint = Math.max(bounds.size.x, bounds.size.z, 0.001);
-      const targetFootprint = ROAD_TILE * footprintFrac;
-      const scale = targetFootprint / footprint;
       const node = this.cache.instance(url);
-      // Victorians go narrow and tall — the SF row-house silhouette.
-      const vict = district.character === "victorian";
-      const sxz = scale * (vict ? 0.75 : 1);
-      let sy = scale * this.heightScaleFor(district.character) * (vict ? 1.4 : 1);
-      // Footprint-normalized scaling pancakes the wide-low models (suburban
-      // ranches are aspect ~0.5 vs ~1.1 neighbours): floor the world HEIGHT so
-      // a row reads as consistent SF two-story fabric, capped so stretched
-      // roofs stay plausible.
-      const minH = ROAD_TILE * (vict ? 0.5 : 0.42);
-      const worldH = bounds.size.y * sy;
-      if (worldH < minH) sy *= Math.min(minH / Math.max(worldH, 0.001), 1.7);
-      node.scale.set(sxz, sy, sxz);
-      node.rotation.y = (pose ? pose.yaw : dirToYaw(faceDir)) + BUILDING_FRONT_OFFSET;
-      // Buildings stay vertical. Seat at the HIGHEST corner so the hill never
-      // cuts through walls; a concrete plinth fills the downhill gap (stilted
-      // SF hillside foundations). Extreme grades get greenery instead.
-      const fh = targetFootprint / 2;
+      // Frontage on X, depth on Z, height on its own storey count: the old
+      // single `sxz` tied depth to frontage, so a narrow row house was also a
+      // shallow one — the opposite of what SF row houses are.
+      const storeys = this.storeysFor(lot.character);
+      const worldH = FABRIC_STOREY * storeys;
+      // Tall enough to stop being one box: podium at the lot line, shaft inset,
+      // crown at the measured taper. One prism the whole way up is what makes a
+      // kit skyscraper read as an extruded rectangle.
+      const tall = worldH >= TOWER_MIN_H;
+      const podiumH = tall ? worldH * TOWER_PODIUM : 0;
+      const inset = tall ? TOWER_INSET : 1;
+      node.scale.set(
+        (lot.width * inset) / Math.max(bounds.size.x, 0.001),
+        (worldH - podiumH) / Math.max(bounds.size.y, 0.001),
+        (lot.depth * inset) / Math.max(bounds.size.z, 0.001),
+      );
+      node.rotation.y = lot.yaw + BUILDING_FRONT_OFFSET;
+      // Buildings stay vertical. SF cuts the uphill wall INTO the grade and
+      // stilts the downhill side on a garage plinth; seating every lot at its
+      // high corner (the old rule) floated whole hillside rows on a plinth as
+      // tall as the fall, and anything past a 5u fall was deleted outright and
+      // replaced with three trees — 55-75% of the near-summit lots, on the hills
+      // San Francisco is famous for building on.
       const corners = [
         this.terrain.heightAt(wx, wz),
-        this.terrain.heightAt(wx - fh, wz - fh),
-        this.terrain.heightAt(wx + fh, wz - fh),
-        this.terrain.heightAt(wx - fh, wz + fh),
-        this.terrain.heightAt(wx + fh, wz + fh),
+        this.terrain.heightAt(wx - halfW * cos - halfD * sin, wz - halfW * sin + halfD * cos),
+        this.terrain.heightAt(wx + halfW * cos - halfD * sin, wz + halfW * sin + halfD * cos),
+        this.terrain.heightAt(wx - halfW * cos + halfD * sin, wz - halfW * sin - halfD * cos),
+        this.terrain.heightAt(wx + halfW * cos + halfD * sin, wz + halfW * sin - halfD * cos),
       ];
       const loY = Math.min(...corners);
-      let seatY = Math.max(...corners);
+      let hiY = Math.max(...corners);
       // Park/landuse-green cells carry a flat terrace TILE seated at the
       // cell's highest corner — a house seated on the raw field there gets
       // buried by its own lawn. Seat on the terrace instead.
-      const cgx = this.gridX(wx);
-      const cgz = this.gridZ(wz);
-      if (isParkCell(cgx, cgz)) {
-        seatY = Math.max(seatY, parkCellHeight(this.terrain, cgx, cgz));
+      const cgx = gridXOf(wx);
+      const cgz = gridZOf(wz);
+      if (isParkLand(cgx, cgz)) {
+        hiY = Math.max(hiY, parkCellHeight(this.terrain, cgx, cgz));
       }
-      const drop = seatY - loY;
-      if (drop > 5) {
-        // Too steep to build — real SF leaves these faces green.
+      const fall = hiY - loY;
+      if (fall > STEEP_CLIFF) {
+        rejects.cliff++;
+        // A genuine cliff face — real SF leaves these green.
         for (let i = 0; i < 3; i++) {
           const steepTreeUrl = modelUrl("props", this.rng.chance(0.5) ? TREE_LARGE : TREE_SMALL);
           const stb = this.cache.bounds(steepTreeUrl);
@@ -1161,39 +1751,63 @@ export class CityModel {
           steepTree.rotation.y = this.rng.range(0, Math.PI * 2);
           collect(steepTree);
         }
-        return false;
+        return null;
       }
-      if (drop > 0.7) {
+      // Step INTO the slope: the uphill wall is cut in, the downhill one rides
+      // a plinth that is now only part of the fall instead of all of it.
+      const seatY = fall > 1.0 ? Math.max(loY + fall * STEP_INTO_SLOPE, hiY - STEP_BURY_MAX) : hiY;
+      const plinthH = seatY - loY + 0.8;
+      if (fall > 0.7) {
         const plinth = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
-        const ph = drop + 0.8;
-        plinth.scale.set(targetFootprint * 0.98, ph, targetFootprint * 0.98);
-        if (pose) plinth.rotation.y = pose.yaw; // follow the rotated building
-        plinth.position.set(wx, seatY - 0.1 - ph / 2, wz);
+        plinth.scale.set(lot.width * 0.98, plinthH, lot.depth * 0.98);
+        plinth.rotation.y = lot.yaw;
+        plinth.position.set(wx, seatY - 0.1 - plinthH / 2, wz);
         plinth.updateMatrixWorld(true);
         collect(plinth);
+        // The plinth's downhill face is the most-repeated hill element in the
+        // map; give it the tuck-under garage SF actually builds there.
+        if (plinthH >= PLINTH_GARAGE_MIN) this.addGarageFront(collect, lot, seatY, plinthH);
       }
-      node.position.set(wx, seatY - 0.15, wz);
+      node.position.set(wx, seatY - 0.15 + podiumH, wz);
       // KayKit blocks ship with authored storefront colors — a light kiss of
       // district tint keeps rows cohesive without muddying them.
       const tintAmt = key.startsWith("kk-building")
-        ? tintAmountFor(district) * 0.25
-        : tintAmountFor(district);
-      this.tintNode(node, this.rng.pick(paletteFor(district)), tintAmt);
+        ? tintAmountFor(district) * 0.25 * TINT_GAIN
+        : Math.min(1, tintAmountFor(district) * TINT_GAIN);
+      const bodyColor = this.blockColorAt(wx, wz, district);
+      this.tintNode(node, bodyColor, tintAmt);
       collect(node);
+      if (tall) {
+        const podium = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
+        podium.scale.set(lot.width, podiumH + 0.3, lot.depth);
+        podium.rotation.y = lot.yaw;
+        podium.position.set(wx, seatY + podiumH / 2 - 0.3, wz);
+        podium.updateMatrixWorld(true);
+        this.tintNode(podium, bodyColor, tintAmt * 0.7);
+        collect(podium);
+        const taper = worldH >= 40 ? 0.57 : 0.72;
+        const crownH = Math.min(2.4, worldH * 0.07);
+        const crown = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
+        crown.scale.set(lot.width * inset * taper, crownH, lot.depth * inset * taper);
+        crown.rotation.y = lot.yaw;
+        crown.position.set(wx, seatY + worldH + crownH / 2 - 0.4, wz);
+        crown.updateMatrixWorld(true);
+        this.tintNode(crown, bodyColor, tintAmt * 0.8);
+        collect(crown);
+      }
 
       // Solid footprint (a touch smaller than the visual so curbs are
-      // forgiving); avenue buildings carry their rotation as an OBB.
-      const half = (targetFootprint / 2) * 0.96;
+      // forgiving), carried as an OBB so rotated rows collide truthfully.
       this.solids.push({
-        minX: wx - half,
-        maxX: wx + half,
-        minZ: wz - half,
-        maxZ: wz + half,
-        ...(pose ? { yaw: pose.yaw } : {}),
+        minX: wx - halfW * 0.96,
+        maxX: wx + halfW * 0.96,
+        minZ: wz - halfD * 0.96,
+        maxZ: wz + halfD * 0.96,
+        yaw: lot.yaw,
       });
-      occupy(wx, wz, targetFootprint * 0.38);
+      occupy(occBox(wx, wz, halfW, halfD, lot.yaw, row));
 
-      if (!dressing) return true;
+      if (!dressing) return lot;
 
       // Rooftop watertower — the classic city-builder silhouette — on some
       // mid-rise commercial roofs.
@@ -1217,17 +1831,22 @@ export class CityModel {
         collect(tower);
       }
 
-      // Occasional curbside tree, nudged toward the street.
+      // Occasional curbside tree, in front of the facade. The old version
+      // stepped along DIR_DELTA[faceDir], which every frontage row passed as
+      // north — so half of them planted their street tree in the back yard.
       if (this.rng.chance(0.3)) {
-        const [dx, dz] = DIR_DELTA[faceDir];
+        const fx = (lot.x0 + lot.x1) / 2 - wx;
+        const fz = (lot.z0 + lot.z1) / 2 - wz;
+        const fl = Math.max(Math.hypot(fx, fz), 0.001);
         const large = this.rng.chance(0.5);
         const treeUrl = modelUrl("props", large ? TREE_LARGE : TREE_SMALL);
         const tb = this.cache.bounds(treeUrl);
         const ts = (ROAD_TILE * 0.32) / Math.max(tb.size.y, 0.001);
         const tree = this.cache.instance(treeUrl);
         tree.scale.setScalar(ts);
-        const tx = wx + dx * ROAD_TILE * 0.46 + this.rng.range(-1, 1);
-        const tz = wz + dz * ROAD_TILE * 0.46 + this.rng.range(-1, 1);
+        const reach = fl + 1.1;
+        const tx = wx + (fx / fl) * reach + this.rng.range(-0.8, 0.8);
+        const tz = wz + (fz / fl) * reach + this.rng.range(-0.8, 0.8);
         if (!this.onAsphalt(tx, tz, 0.6)) {
           tree.position.set(tx, this.standAt(tx, tz), tz);
           tree.rotation.y = this.rng.range(0, Math.PI * 2);
@@ -1235,7 +1854,47 @@ export class CityModel {
           if (large) treeSolid(tx, tz);
         }
       }
-      return true;
+      return lot;
+    };
+
+    // One lot, STEPPED into its slope if it has to be. A single box can only
+    // absorb about FALL_PER_STEP of fall — beyond that it is either floating on
+    // a plinth as tall as a tower (which is what a 9u "hillside foundation"
+    // looked like) or buried to its eaves. SF splits the building instead, into
+    // sections that each take part of the drop, which is what the stepped rows
+    // on Nob Hill and Potrero are. Only a genuine cliff is left green.
+    const placeBuilding = (lot: FabricLot, row: number, dressing: boolean): FabricLot | null => {
+      const halfW = lot.width / 2;
+      const halfD = lot.depth / 2;
+      const cos = Math.cos(lot.yaw);
+      const sin = Math.sin(lot.yaw);
+      // Corner heights, in the lot's own frame: (±width, ±depth).
+      const h = (a: number, b: number): number =>
+        this.terrain.heightAt(
+          lot.x + a * halfW * cos - b * halfD * sin,
+          lot.z + a * halfW * sin + b * halfD * cos,
+        );
+      const hmm = h(-1, -1);
+      const hpm = h(1, -1);
+      const hmp = h(-1, 1);
+      const hpp = h(1, 1);
+      const fall = Math.max(hmm, hpm, hmp, hpp) - Math.min(hmm, hpm, hmp, hpp);
+      if (fall <= FALL_PER_STEP) return placeOne(lot, row, dressing);
+      const steps = Math.min(3, Math.ceil(fall / FALL_PER_STEP));
+      // Step along whichever axis the ground actually falls down.
+      const alongWidth = Math.abs(hpm + hpp - hmm - hmp);
+      const alongDepth = Math.abs(hmp + hpp - hmm - hpm);
+      const axis: 0 | 1 = alongWidth >= alongDepth ? 0 : 1;
+      // A slice thinner than this is a wall, not a building.
+      if ((axis === 0 ? lot.width : lot.depth) / steps < 2.6) {
+        return placeOne(lot, row, dressing);
+      }
+      let first: FabricLot | null = null;
+      for (let k = 0; k < steps; k++) {
+        const built = placeOne(sliceLot(lot, axis, k, steps), row, k === 0 && dressing);
+        if (first === null) first = built;
+      }
+      return first;
     };
 
     // --- Buildings (district-driven pool, palette tint, height) ---
@@ -1256,9 +1915,13 @@ export class CityModel {
       {
         let placed = 0;
         let roadSkip = 0;
-        let walkP = 0;
-        for (const flat of SF_FOOTPRINTS) {
-          if (++walkP % 500 === 0) await this.breathe();
+        let stackSkip = 0;
+        let parkSkip = 0;
+        let towers = 0;
+        for (let pid = 0; pid < SF_FOOTPRINTS.length; pid++) {
+          if (pid % 500 === 0) await this.breathe();
+          const flat = SF_FOOTPRINTS[pid];
+          if (flat === undefined) continue;
           const spec = prismSpec(flat);
           if (!spec) continue;
           const { cx, cz, h: bh, rel } = spec;
@@ -1266,7 +1929,27 @@ export class CityModel {
           const bgz = this.gridZ(cz);
           if (!isLandCell(bgx, bgz)) continue;
           if (lm.reserved.has(`${bgx},${bgz}`)) continue; // landmark parcel
-          if (occupied(cx, cz, 3.2)) continue;
+          // A parcel whose centroid falls inside another one is a height-band
+          // or building-part DUPLICATE of it (2,570 of them, measured in
+          // sf-adjacency.ts). Extruding both is what made downtown grey mush,
+          // and it is exactly what the old blanket 3.2u occupancy circle was
+          // really suppressing — at the cost of ~10k parcels whose only sin was
+          // standing next to their neighbour, which is what a party wall IS.
+          const parcel = parcelAt(pid);
+          if (parcel !== null && parcel.stacked) {
+            stackSkip++;
+            continue;
+          }
+          // Both fabric passes now agree on park LAND rather than on park
+          // NAMES: the frontage walk skips park-character districts, and this
+          // one used to skip nothing at all, so ~330 real parcels landed inside
+          // Dolores Park and the Panhandle. A real parcel in a park-named
+          // district box is real (it is the block across the street); a parcel
+          // standing on an actual park tile is not.
+          if (isParkLand(bgx, bgz)) {
+            parkSkip++;
+            continue;
+          }
           // Real parcels + real streets agree to calibration error (~5u);
           // only a parcel genuinely IN a lane gets skipped — nudging one
           // building of a wall-to-wall row just makes it collide with the
@@ -1295,36 +1978,53 @@ export class CityModel {
           }
           // Seat at the highest ring vertex; sink the walls to the lowest so
           // hillside parcels never show open air under the low side.
-          let seatY = this.terrain.heightAt(cx, cz);
-          let loY = seatY;
+          let hiY = this.terrain.heightAt(cx, cz);
+          let loY = hiY;
           for (let i = 0; i < rel.length; i += 2) {
             const y = this.terrain.heightAt(cx + (rel[i] ?? 0), cz + (rel[i + 1] ?? 0));
-            if (y > seatY) seatY = y;
+            if (y > hiY) hiY = y;
             if (y < loY) loY = y;
           }
-          if (isParkCell(bgx, bgz)) {
-            seatY = Math.max(seatY, parkCellHeight(this.terrain, bgx, bgz));
-          }
+          const fall = hiY - loY;
+          if (fall > PRISM_CLIFF) continue; // cliff-steep — leave the face green
+          // Same rule as the kit fabric: cut into the uphill grade instead of
+          // floating the whole parcel at its high corner.
+          const seatY =
+            fall > 1.0 ? Math.max(loY + fall * STEP_INTO_SLOPE, hiY - STEP_BURY_MAX) : hiY;
           const drop = seatY - loY;
-          if (drop > 9) continue; // cliff-steep — leave the face green
 
           // KIT MODELS fitted to the real parcel: bare extruded prisms read
           // as colored blocks, not buildings. Fit the footprint's OBB; long
           // parcels get a ROW of models (real blocks are several buildings,
           // and one model stretched 5:1 is worse than none).
+          // The along-axis is the parcel's FRONTAGE — its longest edge that is
+          // not a party wall (sf-adjacency.ts). The plain longest edge often IS
+          // a party wall on an attached parcel, which turned the model (and its
+          // entrance) to face the neighbour it shares that wall with.
+          const nPts = rel.length / 2;
+          const front = frontEdgeOf(pid);
           let obbLen = 0;
           let ex = 1;
           let ez = 0;
-          const nPts = rel.length / 2;
-          for (let i = 0; i < nPts; i++) {
+          const ringEdge = (i: number): { dx: number; dz: number; len: number } => {
             const j = (i + 1) % nPts;
             const dx = (rel[j * 2] ?? 0) - (rel[i * 2] ?? 0);
             const dz = (rel[j * 2 + 1] ?? 0) - (rel[i * 2 + 1] ?? 0);
-            const len = Math.hypot(dx, dz);
-            if (len > obbLen) {
-              obbLen = len;
-              ex = dx / len;
-              ez = dz / len;
+            return { dx, dz, len: Math.hypot(dx, dz) };
+          };
+          const frontEdge = front === null ? null : ringEdge(front);
+          if (frontEdge !== null && frontEdge.len > 0.001) {
+            obbLen = frontEdge.len;
+            ex = frontEdge.dx / frontEdge.len;
+            ez = frontEdge.dz / frontEdge.len;
+          } else {
+            for (let i = 0; i < nPts; i++) {
+              const e = ringEdge(i);
+              if (e.len > obbLen) {
+                obbLen = e.len;
+                ex = e.dx / e.len;
+                ez = e.dz / e.len;
+              }
             }
           }
           let minA = Infinity;
@@ -1345,6 +2045,16 @@ export class CityModel {
           const lenB = maxB - minB;
           if (lenA < 2.6 || lenB < 2.6) continue; // sliver — nothing fits
           const yaw = Math.atan2(-ez, ex);
+          // The parcel's own rectangle against everything already standing.
+          // The old test was a 3.2u circle on the centroid against a 5u circle
+          // per placed segment, which rejected any parcel within ~8u of a
+          // neighbour — i.e. every attached parcel in the city.
+          const midA = (minA + maxA) / 2;
+          const midB = (minB + maxB) / 2;
+          const obbX = cx + midA * ex - midB * ez;
+          const obbZ = cz + midA * ez + midB * ex;
+          const parcelRow = ++occRow;
+          if (occupiedBy(occBox(obbX, obbZ, lenA / 2, lenB / 2, yaw, parcelRow))) continue;
           const bhV = Math.max(bh, 4.0); // below this the kit models squash into pancakes
           const pool =
             bhV > 28 ? BUILDINGS_SKYSCRAPER : bhV > 9 ? BUILDINGS_COMMERCIAL : BUILDINGS_SUBURBAN;
@@ -1355,6 +2065,12 @@ export class CityModel {
           const TARGET = 9;
           const segA = bhV > 28 ? 1 : Math.min(6, Math.max(1, Math.round(lenA / TARGET)));
           const segB = bhV > 28 ? 1 : Math.min(3, Math.max(1, Math.round(lenB / TARGET)));
+          // Podium + shaft + crown. The podium is emitted ONCE for the whole
+          // parcel and the shafts are inset about their own centres, so a long
+          // tall block reads as shafts standing on a shared podium rather than
+          // as a row of wedding cakes. Only a single-mass parcel gets a crown.
+          const tall = bhV >= TOWER_MIN_H;
+          const single = segA * segB === 1;
           const segLen = lenA / segA;
           const segWid = lenB / segB;
           let placedSeg = 0;
@@ -1392,13 +2108,36 @@ export class CityModel {
             const url = modelUrl("buildings", key);
             const bounds = this.cache.bounds(url);
             const node = this.cache.instance(url);
-            const sy = bhV / Math.max(bounds.size.y, 0.001);
+            // A tower is a PODIUM + SHAFT + CROWN, not one prism: measured on
+            // the source model, the flat-prism share collapses from 99.5% at
+            // 1-2u to 21.7% at 20-40u and 0% above 40u, with the median plan
+            // tapering 1.00 -> 0.72 -> 0.57 up the height. The shaft is inset
+            // about the parcel centre and the podium keeps the full lot line,
+            // which is what gives the street a continuous wall under a tower.
+            const podiumH = tall ? bhV * 0.22 : 0;
+            const shaftInset = tall ? 0.78 : 1;
+            const bodyBase = seatY + podiumH;
             node.scale.set(
-              fw / Math.max(bounds.size.x, 0.001),
-              sy,
-              fd / Math.max(bounds.size.z, 0.001),
+              (fw * shaftInset) / Math.max(bounds.size.x, 0.001),
+              (bhV - podiumH) / Math.max(bounds.size.y, 0.001),
+              (fd * shaftInset) / Math.max(bounds.size.z, 0.001),
             );
             node.rotation.y = yaw + BUILDING_FRONT_OFFSET;
+            const bodyColor = this.blockColorAt(px, pz, district);
+            const bodyTint = Math.min(1, tintAmountFor(district) * TINT_GAIN);
+            if (tall && single) {
+              // Crown: the mechanical box every SF tower wears, at the measured
+              // taper for its band.
+              const crownTaper = bhV >= 40 ? 0.57 : 0.72;
+              const crownH = Math.min(2.4, bhV * 0.07);
+              const crown = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
+              crown.scale.set(fw * shaftInset * crownTaper, crownH, fd * shaftInset * crownTaper);
+              crown.rotation.y = yaw;
+              crown.position.set(px, seatY + bhV + crownH / 2 - 0.3, pz);
+              crown.updateMatrixWorld(true);
+              this.tintNode(crown, bodyColor, bodyTint * 0.8);
+              collect(crown);
+            }
             if (drop > 0.7) {
               const plinth = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
               const ph = drop + 0.8;
@@ -1408,13 +2147,30 @@ export class CityModel {
               plinth.updateMatrixWorld(true);
               collect(plinth);
             }
-            node.position.set(px, seatY - 0.15, pz);
-            this.tintNode(node, this.rng.pick(paletteFor(district)), tintAmountFor(district));
+            node.position.set(px, bodyBase - 0.15, pz);
+            this.tintNode(node, bodyColor, bodyTint);
             collect(node);
-            occupy(px, pz, Math.max(fw, fd) * 0.55);
+            occupy(occBox(px, pz, fw / 2, fd / 2, yaw, parcelRow));
             placedSeg++;
           }
           if (placedSeg === 0) continue; // nothing fit — no solids either
+          if (tall) {
+            // One podium for the parcel: the continuous wall a tower needs at
+            // street level, under whichever shafts fitted above it.
+            towers++;
+            const podiumH = bhV * 0.22;
+            const podium = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
+            podium.scale.set(lenA * 0.96, podiumH, lenB * 0.96);
+            podium.rotation.y = yaw;
+            podium.position.set(obbX, seatY + podiumH / 2 - 0.15, obbZ);
+            podium.updateMatrixWorld(true);
+            this.tintNode(
+              podium,
+              this.blockColorAt(obbX, obbZ, district),
+              Math.min(1, tintAmountFor(district) * TINT_GAIN) * 0.7,
+            );
+            collect(podium);
+          }
 
           // Collision: rectangles get one OBB; complex outlines get one thin
           // OBB per wall segment (an AABB over an L-shape or a diagonal row
@@ -1470,87 +2226,89 @@ export class CityModel {
           // whose corners didn't fit, leaving voids in the blocks.
           placed++;
         }
-        console.log(`[city] real footprints placed: ${placed} (${roadSkip} skipped on asphalt)`);
+        console.log(
+          `[city] real footprints placed: ${placed} (${roadSkip} on asphalt, ` +
+            `${stackSkip} stacked duplicates, ${parkSkip} on park land, ${towers} towers)`,
+        );
       }
 
-      // --- FRONTAGE ROWS along the network edges: buildings walk each street
-      // with a consistent setback, facing the kerb — rows follow diagonals and
-      // curves exactly, which cell-based lots never could. ---
+      // --- FRONTAGE ROWS along the network edges: a LOT-LINE walk down each
+      // street (planFabricRow), facing the kerb at one setback per run — rows
+      // follow diagonals and curves exactly, which cell-based lots never could.
+      // The walk owns every width decision; this loop only rejects lots that
+      // stand on something else (a landmark, another building). ---
+      const junctions = buildJunctionMap(this.network);
       let walkN = 0;
+      let lotsPlanned = 0;
+      let lotsBuilt = 0;
       for (const edge of this.network.edges) {
         if (++walkN % 40 === 0) await this.breathe();
-        // Corner buildings are real — the cross-street clearance check below
-        // is the guard, so row trims stay small even at wide junctions.
-        const trimA = Math.min(this.network.nodeTrim(edge.a) * 0.6 + 1.5, edge.len * 0.4);
-        const trimB = Math.min(this.network.nodeTrim(edge.b) * 0.6 + 1.5, edge.len * 0.4);
-        if (edge.len - trimA - trimB < 5) continue;
         for (const side of [1, -1] as const) {
-          let s = trimA + this.rng.range(0, 4);
-          while (s < edge.len - trimB) {
-            const smp = this.network.sample(edge, s);
-            const gx = this.gridX(smp.x);
-            const gz = this.gridZ(smp.z);
-            const district = districtAt(gx, gz);
-            // Chinatown/North Beach/Union Square are "commercial" for pool +
-            // palette, but their real fabric is wall-to-wall — the gapped
-            // commercial spacing read as sparse suburbs there.
-            const packed = PACKED_COMMERCIAL.has(district.name);
-            const dense =
-              district.character === "residential" || district.character === "victorian" || packed;
-            const frac =
-              district.character === "downtown" || district.character === "highrise"
-                ? this.rng.range(0.7, 0.82)
-                : packed
-                  ? this.rng.range(0.6, 0.72) // mid-rise blocks, no gaps
-                  : dense
-                    ? this.rng.range(0.46, 0.56) // row-houses, shoulder to shoulder
-                    : this.rng.range(0.58, 0.7);
-            const footprint = ROAD_TILE * frac;
-            // Dense districts: models stack shoulder-to-shoulder (attached SF
-            // rows) — a hair of overlap guarantees no light gap between walls.
-            const step = dense
-              ? footprint * this.rng.range(0.97, 1.0)
-              : footprint + this.rng.range(0.6, 1.8);
-            const off = edge.half + 1.7 + footprint / 2 + 0.7;
-            const px = smp.x - smp.tz * off * side;
-            const pz = smp.z + smp.tx * off * side;
-            s += step;
-            if (district.character === "park") continue;
-            if (!isLandCell(this.gridX(px), this.gridZ(pz))) continue;
-            if (lm.reserved.has(`${this.gridX(px)},${this.gridZ(pz)}`)) continue;
-            if (occupied(px, pz, footprint * 0.42)) continue;
-            // Clearance vs OTHER streets (corners, parallel edges): tight
-            // downtown blocks fit a SMALLER building rather than none.
-            let useFrac = frac;
-            const near = this.network.nearest(px, pz, ROAD_TILE * 1.6);
-            if (near && near.dist < near.edge.half + footprint / 2 - 0.4) {
-              const maxFoot = (near.dist - near.edge.half + 0.4) * 2;
-              if (maxFoot < 3.2) continue;
-              useFrac = Math.min(frac, maxFoot / ROAD_TILE);
+          const row = ++occRow;
+          const lots = planFabricRow(this.network, junctions, edge, side, this.rng);
+          lotsPlanned += lots.length;
+          for (const lot of lots) {
+            if (lm.reserved.has(`${gridXOf(lot.x)},${gridZOf(lot.z)}`)) {
+              rejects.reserved++;
+              continue;
             }
-            if (this.rng.chance(0.04)) continue; // rare vacancy
-            const yaw = Math.atan2(smp.tx * side, smp.tz * side) + HALF_PI_CITY;
-            const cardinal = Math.abs(Math.sin(2 * yaw)) < 0.18;
-            placeBuilding(gx, gz, 0, useFrac, cardinal, { x: px, z: pz, yaw });
-            // Back row: real SF blocks are packed two-deep, no green gap.
-            if (this.rng.chance(0.8)) {
-              const off2 = off + footprint + this.rng.range(0.8, 1.8);
-              const bx2 = smp.x - smp.tz * off2 * side;
-              const bz2 = smp.z + smp.tx * off2 * side;
-              if (
-                isLandCell(this.gridX(bx2), this.gridZ(bz2)) &&
-                districtAt(this.gridX(bx2), this.gridZ(bz2)).character !== "park" &&
-                !occupied(bx2, bz2, footprint * 0.52)
-              ) {
-                const near2 = this.network.nearest(bx2, bz2, ROAD_TILE * 1.6);
-                if (!near2 || near2.dist >= near2.edge.half + footprint / 2 - 0.4) {
-                  placeBuilding(gx, gz, 0, frac * 0.94, false, { x: bx2, z: bz2, yaw });
-                }
-              }
+            const cardinal = Math.abs(Math.sin(2 * lot.yaw)) < 0.18;
+            if (placeBuilding(lot, row, cardinal) === null) continue;
+            lotsBuilt++;
+            // BACK ROWS fill this lot's half of the block behind it. A narrow
+            // block's front row already reaches the middle and gets none; a wide
+            // one gets a second (rarely third) row with a rear yard between, the
+            // way SF blocks actually are. The old walk rolled an unconditional
+            // 80% back-row chance at a fixed depth instead, which both missed
+            // wide-block interiors and needed the occupancy test loose enough to
+            // let party walls through.
+            const nx = (lot.x0 + lot.x1) / 2 - lot.x;
+            const nz = (lot.z0 + lot.z1) / 2 - lot.z;
+            const nl = Math.max(Math.hypot(nx, nz), 0.001);
+            let behind = lot.depth / 2; // offset from the lot centre, backwards
+            let rear = lot.rear;
+            for (let r = 0; r < 2 && rear > BACK_ROW_MIN; r++) {
+              const yard = this.rng.range(1.4, 3.0);
+              const depth = Math.min(lot.depth, rear - yard);
+              if (depth < lot.width * 0.7) break;
+              behind += yard + depth / 2;
+              rear -= yard + depth;
+              const width = lot.width * this.rng.range(0.86, 0.96);
+              const bx = lot.x - (nx / nl) * behind;
+              const bz = lot.z - (nz / nl) * behind;
+              const character = fabricCharAt(bx, bz);
+              if (character === null) break;
+              // Front face of a back lot: still toward the same street.
+              const fx = bx + (nx / nl) * (depth / 2);
+              const fz = bz + (nz / nl) * (depth / 2);
+              const back: FabricLot = {
+                ...lot,
+                x: bx,
+                z: bz,
+                character,
+                attached: false,
+                width,
+                depth,
+                rear,
+                x0: fx + (nz / nl) * (width / 2),
+                z0: fz - (nx / nl) * (width / 2),
+                x1: fx - (nz / nl) * (width / 2),
+                z1: fz + (nx / nl) * (width / 2),
+              };
+              // Its own occupancy token: a back row must not be exempted from
+              // the front row it stands behind, nor from the lot beside it.
+              placeBuilding(back, ++occRow, false);
+              behind += depth / 2;
             }
           }
         }
       }
+      console.log(
+        `[city] frontage lots: ${lotsBuilt} built of ${lotsPlanned} planned ` +
+          `(${rejects.occupied} occupied, ${rejects.reserved} reserved, ` +
+          `${rejects.cliff} cliff, ${rejects.freeway} freeway), ` +
+          `${this.garageFronts} hill garages`,
+      );
 
       // --- Green block interiors: real SF blocks are packed back-to-back, so
       // the row directly behind a frontage gets infill houses (slightly smaller,
@@ -1572,7 +2330,8 @@ export class CityModel {
               }
             }
             if (face !== null && this.rng.chance(0.6)) {
-              if (placeBuilding(g.gx, g.gz, face, this.rng.range(0.6, 0.74), false)) continue;
+              const lot = fitCellLot(g.gx, g.gz, face, this.rng.range(0.6, 0.74));
+              if (lot !== null && placeBuilding(lot, ++occRow, false) !== null) continue;
             }
           }
         }
@@ -1868,7 +2627,7 @@ export class CityModel {
     } else {
       ground = this.terrain.buildMesh(
         groundMat,
-        makeGroundColorAt(this.plan, this.terrain),
+        makeGroundColorAt(this.plan, this.terrain, this.landClassAt),
         this.groundOffset(),
       );
     }
@@ -2309,18 +3068,12 @@ export class CityModel {
     return this.plan.cells[gx]?.[gz] === "road";
   }
 
-  // What the wheels are running on — drives the off-road kick-up FX. Cheap
-  // cell lookups only; called once per frame from the playing update.
-  surfaceKindAt(x: number, z: number): "road" | "grass" | "sand" | "concrete" {
-    const gx = this.gridX(x);
-    const gz = this.gridZ(z);
-    if (gx < 0 || gz < 0 || gx >= GRID_X || gz >= GRID_Z) return "concrete";
-    if (this.plan.cells[gx]?.[gz] === "road") return "road";
-    // Mirror the ground-color grading (ground.ts): sand wins over green.
-    if (landuseSandAt(gx, gz)) return "sand";
-    if (landuseGreenAt(gx, gz) || districtAt(gx, gz).character === "park") return "grass";
-    if (greenHillWeightAt(x / WORLD_W + 0.5, z / WORLD_H + 0.5) > 0.4) return "grass";
-    return "concrete";
+  // What the wheels are running on — drives the off-road kick-up FX. ONE rule
+  // with the ground paint (world/land-class.ts): this used to be a second,
+  // drifting copy of the grading, which is how the tyres came to report
+  // concrete on Ocean Beach.
+  surfaceKindAt(x: number, z: number): WheelSurface {
+    return wheelSurface(this.landClassAt(x, z));
   }
 
   // --- Drive surface (world/surface.ts): decks + park terraces + depressed

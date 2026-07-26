@@ -17,6 +17,23 @@ export type Hill = {
 // Land mask: 1 = solid inland, 0 = open water; smooth across the shoreline.
 export type LandFactor = (u: number, v: number) => number;
 
+/**
+ * The three things a flank can be graded by, sampled together because they all
+ * come from one pair of central differences. `height` is metres-free world
+ * units above sea level (negative offshore); `slope` is rise/run, so 0.3 is a
+ * 30% grade and SF's steep streets sit near 0.5 after the map's ~2× vertical
+ * exaggeration; `aspect` is the compass bearing the flank FACES (downhill),
+ * radians clockwise from north (-Z), and is 0 wherever slope is ~0 because a
+ * flat cell has no aspect. Sampled off the analytic field, not the drawn ground
+ * mesh: banding wants the smooth shape, not the ~9u lattice's facets.
+ */
+export type Flank = { height: number; slope: number; aspect: number };
+
+/** Reusable Flank for per-vertex loops (the ground painter runs ~100k times). */
+export function makeFlank(): Flank {
+  return { height: 0, slope: 0, aspect: 0 };
+}
+
 const SHORE_DROP = 5; // how far the ground dips below sea level past the coast
 const MARGIN = 24; // cached field extends past the map edge (camera, shoreline)
 // World units between cached height samples. The field is bilinearly
@@ -146,6 +163,19 @@ export class Terrain {
 
   landAt(x: number, z: number): number {
     return this.land(worldToU(x), worldToV(z));
+  }
+
+  // Height + grade + facing in one sample (see the Flank docs). The ground
+  // painter bands hill flanks with this instead of re-deriving the field.
+  flankInto(out: Flank, x: number, z: number): Flank {
+    const e = NORMAL_EPS;
+    const gx = (this.heightAt(x + e, z) - this.heightAt(x - e, z)) / (2 * e);
+    const gz = (this.heightAt(x, z + e) - this.heightAt(x, z - e)) / (2 * e);
+    out.height = this.heightAt(x, z);
+    out.slope = Math.hypot(gx, gz);
+    // Downhill is -gradient; bearing 0 is -Z (north), turning clockwise.
+    out.aspect = out.slope < 1e-4 ? 0 : Math.atan2(-gx, gz);
+    return out;
   }
 
   /**

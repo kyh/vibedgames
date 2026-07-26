@@ -18,15 +18,16 @@
 // extractor VERIFIES that against the shipped file and refuses to emit if the
 // two ever drift apart.
 //
-// Output (JSON, see EMIT below): per parcel its world ring, height, district,
-// the neighbour parcels it is attached to and WHICH RING EDGE each party wall
-// is; plus block-face RUNS (chains of attached parcels along one frontage)
-// with per-parcel lot widths.
-//
-// ANALYSIS ONLY — this writes JSON, never a .ts module. A later phase turns
-// the JSON into a generated data module.
+// TWO outputs. The JSON report at <out.json>: per parcel its world ring,
+// height, district, the neighbour parcels it is attached to and WHICH RING EDGE
+// each party wall is; plus block-face RUNS (chains of attached parcels along one
+// frontage) with per-parcel lot widths. And the shipped game module
+// src/world/sf-adjacency.ts (see EMIT at the bottom) — the render-ready subset,
+// with everything the runtime can derive from SF_FOOTPRINTS left out.
 
+import { spawnSync } from "node:child_process";
 import { createReadStream, readFileSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { createInterface } from "node:readline";
 
 import { GRID_X, GRID_Z, rdp, ringArea, WORLD_H, WORLD_W } from "./lib.mjs";
@@ -913,4 +914,307 @@ function main() {
   writeFileSync(outPath, JSON.stringify(out));
   console.log("");
   console.log(`wrote ${outPath}`);
+
+  emitAdjacencyModule(out);
+}
+
+// ---------------------------------------------------------------------------
+// EMIT src/world/sf-adjacency.ts — the shipped subset
+// ---------------------------------------------------------------------------
+// What the fabric pass consumes, and nothing else. Left OUT on purpose:
+//   - the rings and heights (they ARE SF_FOOTPRINTS; re-shipping them would be
+//     a second copy that can disagree with the first),
+//   - the per-parcel district (districtAt(sf-map.ts) is the rule the extractor
+//     used, so the runtime can just call it),
+//   - the front-edge index (derivable from the ring + the party walls; shipping
+//     it would let it contradict them),
+//   - runs[] (4.4 MB of graph for information the walk consumes as five numbers
+//     per district — the district table below IS that information).
+
+/**
+ * Donor substitutions for uncovered districts, overriding the nearest-box pick.
+ * Not guesses: the measured donor sends BOTH Bayview and Hunters Point to
+ * Dogpatch, whose median lot is 7.56u because its parcels are warehouses, while
+ * both are small-lot residential. The Sunset and the Richmond are the most
+ * uniformly row-housed parts of the city (~1.9-2.1u lots) and the nearest-box
+ * pick sends them Cole Valley 2.57u / Pacific Heights 2.79u, ~30% too wide.
+ * Potrero Hill (p25 1.97 / p50 2.31) is the narrowest MEASURED band we have, so
+ * all four borrow it. Still too wide for the two avenues districts, and its run
+ * size of 3 is short of their real 6-8 faces — the honest fix there is real
+ * parcel data, not a different donor.
+ */
+const DONOR_OVERRIDE = {
+  Bayview: "Potrero Hill",
+  "Hunters Point": "Potrero Hill",
+  "the Sunset": "Potrero Hill",
+  "the Richmond": "Potrero Hill",
+};
+
+/** Fixed-width base 36, loud rather than truncating if a field outgrows it. */
+const b36 = (n, w) => {
+  const s = n.toString(36);
+  if (s.length > w) throw new Error(`${n} does not fit in ${w} base-36 chars`);
+  return s.padStart(w, "0");
+};
+
+/** A district only has a rhythm if some of its parcels actually sat in a run. */
+const usableRhythm = (s) =>
+  s !== undefined && Number.isFinite(s.lotWidth.p50) && s.lotWidth.p50 > 0;
+
+function emitAdjacencyModule(out) {
+  const N = out.parcels.length;
+
+  // --- per-parcel record stream ---
+  // head 1 char: (neighbour count) | 8 stacked | 16 bbox-fallback  (max 6|8|16)
+  // then per neighbour: id 3 · wall-edge count 1 · each wall edge 2
+  // Records run in parcel-id order with NO id field: an unattached parcel is a
+  // single "0", so the id is the record's ordinal and a gap can never desync.
+  let stream = "";
+  let nbTotal = 0;
+  let wallTotal = 0;
+  for (const p of out.parcels) {
+    if (p.nb.length > 7) throw new Error(`parcel ${p.id} has ${p.nb.length} neighbours (max 7)`);
+    stream += b36(p.nb.length | (p.s ? 8 : 0) | (p.bbox ? 16 : 0), 1);
+    for (const n of p.nb) {
+      stream += b36(n.q, 3) + b36(n.e.length, 1);
+      for (const e of n.e) stream += b36(e, 2);
+      nbTotal++;
+      wallTotal += n.e.length;
+    }
+  }
+  const ROW = 240;
+  const rows = [];
+  for (let i = 0; i < stream.length; i += ROW) rows.push(stream.slice(i, i + ROW));
+
+  // --- per-district lot rhythm, measured districts + resolved donors ---
+  const measured = out.stats.byDistrict;
+  // A district can hold parcels and still have NO measured rhythm: none of them
+  // sits in a run (Yerba Buena Island's 27 are all detached). Emitting its
+  // percentiles would put a 0u lot width in the table, and a frontage walk that
+  // steps by 0 does not advance — so such a district is dropped and resolves to
+  // LOT_RHYTHM_GLOBAL instead.
+  const rhythm = [];
+  const unmeasured = [];
+  for (const [name, s] of Object.entries(measured)) {
+    if (!usableRhythm(s)) {
+      unmeasured.push(`${name} (${s.n} parcels, none in a run)`);
+      continue;
+    }
+    rhythm.push([name, s.lotWidth.p25, s.lotWidth.p50, s.lotWidth.p75, s.medRunSize, ""]);
+  }
+  for (const name of out.stats.districtsWithNoParcels) {
+    const donor = DONOR_OVERRIDE[name] ?? out.stats.donorForUncovered[name];
+    const s = donor === undefined ? undefined : measured[donor];
+    if (!usableRhythm(s)) {
+      unmeasured.push(`${name} (no usable donor)`);
+      continue;
+    }
+    rhythm.push([name, s.lotWidth.p25, s.lotWidth.p50, s.lotWidth.p75, s.medRunSize, donor]);
+  }
+  if (unmeasured.length > 0) {
+    console.log(`  districts left to the global band: ${unmeasured.join(", ")}`);
+  }
+  rhythm.sort((a, b) => (a[0] < b[0] ? -1 : 1));
+  const gw = out.stats.lotWidth;
+  const nMeasured = rhythm.filter(([, , , , , from]) => from === "").length;
+  const nBorrowed = rhythm.length - nMeasured;
+  const span = out.meta.span;
+
+  const attached = out.parcels.filter((p) => p.nb.length > 0).length;
+  const src = `// AUTO-GENERATED by tools/sf-data/extract-adjacency-obj.mjs — do not edit by hand.
+// PARTY WALLS and LOT RHYTHM for the real downtown fabric. Parcel ids are
+// indices into SF_FOOTPRINTS (src/world/sf-footprints.ts) — byte-identical by
+// construction, and the extractor refuses to emit if they ever drift. A map
+// bake does NOT invalidate this file: bake-network.mts never touches the
+// footprints.
+//
+// The party walls are not fitted. In the source model every building carries its
+// own vertices, so a shared wall survives as two EXACTLY coincident antiparallel
+// ring edges (separation spike at <=0.001u on a flat background). ${out.stats.pairs} attached
+// pairs over ${attached} of ${N} parcels, 0 asymmetric records.
+//
+// DOWNTOWN ONLY: measured parcels cover u ${span.uMin.toFixed(3)}-${span.uMax.toFixed(3)}, v ${span.vMin.toFixed(3)}-${span.vMax.toFixed(3)}, so only
+// ${nMeasured} districts have a measured lot rhythm. The other ${nBorrowed} in SF_LOT_RHYTHM carry a
+// \`from\` field naming the district they borrowed their band from; a name in
+// neither set resolves to LOT_RHYTHM_GLOBAL. Two of those borrows (the Sunset,
+// the Richmond) are known to still be ~20% too wide — see the extractor's
+// DONOR_OVERRIDE.
+import { SF_FOOTPRINTS } from "./sf-footprints";
+
+/** Parcels covered — equal to SF_FOOTPRINTS.length by construction. */
+export const SF_ADJACENCY_PARCELS = ${N};
+
+/** One party wall: the parcel across it, and which of OUR ring edges it is. */
+export type PartyWall = {
+  /** Attached neighbour, an index into SF_FOOTPRINTS. */
+  readonly neighbour: number;
+  /** Ring edge indices that ARE the shared wall; edge e spans ring vertex e -> e+1. */
+  readonly edges: readonly number[];
+};
+
+export type Parcel = {
+  /** Every attached neighbour, with the wall each one shares. */
+  readonly walls: readonly PartyWall[];
+  /**
+   * Union of every party-wall edge: the BLIND faces. No windows, no cornice
+   * return, no setback, no plinth chamfer on these — that is the whole point of
+   * this file, and it removes geometry rather than adding it.
+   */
+  readonly blind: ReadonlySet<number>;
+  /**
+   * The centroid falls inside another parcel — a height-band or building-part
+   * duplicate (${out.stats.stackedParcels} of them). Do not extrude as its own lot; they are the
+   * double-extruded grey mush downtown.
+   */
+  readonly stacked: boolean;
+  /**
+   * The ring is a bbox rectangle because the roof loop was unrecoverable
+   * (${out.stats.bboxFallbackRings.n} of them). Such a ring can never be coincident with anything, so
+   * \`walls\` is empty for reasons of geometry, not of fact — treat as massing.
+   */
+  readonly bboxFallback: boolean;
+};
+
+// One record per parcel in id order, base 36, no separators:
+//   head  1 char: (neighbour count) | 8 stacked | 16 bboxFallback
+//   then per neighbour: 3 chars id · 1 char wall-edge count · 2 chars per edge
+// ${nbTotal} neighbour records / ${wallTotal} wall edges over ${N} parcels.
+const ROWS: readonly string[] = [
+${rows.map((r) => `  "${r}",`).join("\n")}
+];
+
+const STREAM = ROWS.join("");
+
+const at36 = (i: number, w: number): number => Number.parseInt(STREAM.slice(i, i + w), 36);
+
+/** Record start offset + head byte per parcel, built once on first query. */
+type Offsets = { readonly off: Int32Array; readonly head: Uint8Array };
+let offsets: Offsets | null = null;
+
+function ensureOffsets(): Offsets {
+  const built = offsets;
+  if (built !== null) return built;
+  const off = new Int32Array(SF_ADJACENCY_PARCELS);
+  const head = new Uint8Array(SF_ADJACENCY_PARCELS);
+  let i = 0;
+  for (let id = 0; id < SF_ADJACENCY_PARCELS; id++) {
+    off[id] = i;
+    const h = at36(i, 1);
+    head[id] = h;
+    i += 1;
+    for (let k = 0; k < (h & 7); k++) i += 4 + at36(i + 3, 1) * 2;
+  }
+  const fresh: Offsets = { off, head };
+  offsets = fresh;
+  return fresh;
+}
+
+/**
+ * Party walls and flags for one parcel, or null when the id is out of range.
+ * Decoded on demand — the fabric pass touches each parcel once or twice, so
+ * caching 21k records would cost more memory than the decode costs time.
+ */
+export function parcelAt(id: number): Parcel | null {
+  if (!Number.isInteger(id) || id < 0 || id >= SF_ADJACENCY_PARCELS) return null;
+  const { off, head } = ensureOffsets();
+  const h = head[id] ?? 0;
+  let i = (off[id] ?? 0) + 1;
+  const walls: PartyWall[] = [];
+  const blind = new Set<number>();
+  for (let k = 0; k < (h & 7); k++) {
+    const neighbour = at36(i, 3);
+    const count = at36(i + 3, 1);
+    i += 4;
+    const edges: number[] = [];
+    for (let e = 0; e < count; e++) {
+      const edge = at36(i, 2);
+      i += 2;
+      edges.push(edge);
+      blind.add(edge);
+    }
+    walls.push({ neighbour, edges });
+  }
+  return { walls, blind, stacked: (h & 8) !== 0, bboxFallback: (h & 16) !== 0 };
+}
+
+/**
+ * The longest ring edge that is NOT a party wall: the frontage, i.e. where the
+ * entry, awning or bay belongs. Derived from the ring rather than shipped, so it
+ * can never contradict \`blind\`. Null when the parcel has no ring or every edge
+ * is a wall.
+ */
+export function frontEdgeOf(id: number): number | null {
+  const ring = SF_FOOTPRINTS[id];
+  if (ring === undefined) return null;
+  const blind = parcelAt(id)?.blind;
+  const n = (ring.length - 1) / 2;
+  let best: number | null = null;
+  let bestLen = 0;
+  for (let e = 0; e < n; e++) {
+    if (blind?.has(e) === true) continue;
+    const j = (e + 1) % n;
+    const x0 = ring[1 + e * 2];
+    const z0 = ring[2 + e * 2];
+    const x1 = ring[1 + j * 2];
+    const z1 = ring[2 + j * 2];
+    if (x0 === undefined || z0 === undefined || x1 === undefined || z1 === undefined) continue;
+    const len = Math.hypot(x1 - x0, z1 - z0);
+    if (len > bestLen) {
+      bestLen = len;
+      best = e;
+    }
+  }
+  return best;
+}
+
+/**
+ * Lot rhythm for one district, in WORLD UNITS (not fractions of ROAD_TILE).
+ * The frontage walk should step by a width drawn from this band and lay
+ * \`runSize\` lots shoulder to shoulder before inserting a break — that row,
+ * break, row cadence is the San Francisco read, and a random per-lot pitch is
+ * what makes dense districts look like gapped suburbia.
+ */
+export type LotRhythm = {
+  readonly p25: number;
+  readonly p50: number;
+  readonly p75: number;
+  /** Median parcels per uninterrupted run. */
+  readonly runSize: number;
+  /** "" when measured in this district, else the district the band came from. */
+  readonly from: string;
+};
+
+export const SF_LOT_RHYTHM: Readonly<Record<string, LotRhythm>> = {
+${rhythm
+  .map(
+    ([name, p25, p50, p75, runSize, from]) =>
+      `  ${JSON.stringify(name)}: { p25: ${p25}, p50: ${p50}, p75: ${p75}, runSize: ${runSize}, from: ${JSON.stringify(from)} },`,
+  )
+  .join("\n")}
+};
+
+/** City-wide band, for a district name the table does not know. */
+export const LOT_RHYTHM_GLOBAL: LotRhythm = {
+  p25: ${gw.p25},
+  p50: ${gw.p50},
+  p75: ${gw.p75},
+  runSize: 2,
+  from: "citywide",
+};
+
+export function lotRhythmFor(district: string): LotRhythm {
+  return SF_LOT_RHYTHM[district] ?? LOT_RHYTHM_GLOBAL;
+}
+`;
+  const path = new URL("../../src/world/sf-adjacency.ts", import.meta.url);
+  writeFileSync(path, src);
+  // Format in place so `pnpm format` cannot go red just because someone re-ran
+  // the extract. Best effort: a missing binary is a warning, not a failure.
+  const bin = resolve(new URL("../../../../node_modules/.bin/oxfmt", import.meta.url).pathname);
+  if (spawnSync(bin, ["--write", path.pathname], { stdio: "ignore" }).status !== 0) {
+    console.log("  (could not run oxfmt on sf-adjacency.ts — format it before committing)");
+  }
+  console.log(
+    `wrote src/world/sf-adjacency.ts — ${attached}/${N} attached parcels, ${nbTotal} wall records, ${rhythm.length} districts, ${(src.length / 1024).toFixed(1)} KB`,
+  );
 }

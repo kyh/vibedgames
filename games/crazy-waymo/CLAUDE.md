@@ -12,6 +12,9 @@ pnpm test           # world-gen invariant harness (~5s, headless, no browser)
 pnpm bake:world     # regenerate + install public/world/*.bin (headless chromium)
 pnpm bake:world -- 5193   # same, but attach to an already-running dev server
 pnpm bake:map       # re-bake the OSM vector network + street mask (only after tools/sf-data changes)
+                    # → then ALWAYS re-run tools/sf-data/extract-transit-obj.mjs: SF_TRANSIT
+                    #   stores indices INTO SF_EDGES, so a re-numbered network invalidates
+                    #   every corridor. `pnpm test` fails on the stamp mismatch if you forget.
 pnpm lint:streets   # street-mask sanity report
 pnpm typecheck
 ```
@@ -73,6 +76,28 @@ bake-network.mts`) from the same park-cleared polylines — car-free-park
   paint run into the junction). A circular approximation over-clips along the
   arms, which is what left most of the 20–40u SF blocks with no centre line.
   `pnpm test` asserts the resulting coverage.
+- **One ground rule: `world/land-class.ts`.** What a cell IS (park/built/shore/
+  hill flank/OSM class) is resolved there and nowhere else; `ground.ts` only
+  decides what each class LOOKS like, `park-clear.parkCell` and
+  `land-class.isParkLand` are its two park questions, and `city.surfaceKindAt`
+  is `wheelSurface(landClassAt(...))` so the tyres cannot report concrete on
+  ground the painter drew as sand. Adding a fifth private copy of "is this
+  park/green" is how the paint, the props, the terraces and the FX drifted apart
+  in the first place. `pnpm test` asserts no vegetation lands on a built cell.
+- **Road decal materials are identified by COLOUR on the bin round-trip.**
+  `city.roadCollapseTarget` recognises a road material by the colour the capture
+  serialized, so every decal material in `roads.ts DECAL_MATS` must keep a
+  UNIQUE colour (`MAT_GLYPH` is pure `0xffffff` precisely so it cannot be
+  mistaken for `MAT_WHITE`'s `0xf4f7f4`). Tinting one, or adding a second
+  stencil material at the same colour, brings it back on the wrong material and
+  it renders as solid blocks.
+- **`world-bin-pack` keeps a uv channel only when it is non-zero.** Roads carry
+  no texture (`srcMat` is null) but two real uv channels — the asphalt's
+  across-road lateral coordinate and the paint stencils' atlas window. The pack
+  used to gate uv on `srcMat`, which stripped both on the baked path: the
+  surface shader reads `v = 0` as its documented opt-out (no gutter grime, no
+  wheel paths) and every stencil landed in the atlas's transparent padding and
+  was deleted by `alphaTest`. Gate on the data, never on the material.
 - **Two load paths, and only some builders run on both.** `buildLandmarks`,
   `buildFreeways` and `buildPiers` are rebuilt live on the cold-gen path AND
   the baked-rest path. `buildGoldenGate` runs on cold gen ONLY — its meshes go
