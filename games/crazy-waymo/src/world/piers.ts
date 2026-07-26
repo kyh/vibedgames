@@ -760,13 +760,17 @@ const FLOAT_TOP = 0.16;
 const FLOAT_BOT = -0.55;
 
 /** The dock fingers themselves: shallow boxes RIDING the water, not over it. */
-function dockFloats(port: ChunkedPort): void {
+function dockFloats(port: ChunkedPort, isWater: (x: number, z: number) => boolean): void {
   for (const dock of SF_DOCKS) {
     for (let i = 0; i + 3 < dock.length; i += 2) {
       const ax = dock[i] ?? 0;
       const az = dock[i + 1] ?? 0;
       const bx = dock[i + 2] ?? 0;
       const bz = dock[i + 3] ?? 0;
+      // A float riding at the waterline on dry ground is a plank in a car
+      // park. Same test the moorings use, for the same OSM-vs-new-coastline
+      // reason.
+      if (!isWater((ax + bx) / 2, (az + bz) / 2)) continue;
       const len = Math.hypot(bx - ax, bz - az) || 1;
       const nx = (-(bz - az) / len) * 0.8;
       const nz = ((bx - ax) / len) * 0.8;
@@ -899,9 +903,13 @@ export function buildPiers(terrain: Terrain): THREE.Group {
     }
   }
 
-  dockFloats(port);
+  // The waterline test the whole harbour shares: the same −0.9 threshold
+  // `riprap` marches to, so floats, moorings and rock armour all agree on
+  // where the water is.
+  const isWater = (x: number, z: number): boolean => terrain.heightAt(x, z) < -0.9;
+  dockFloats(port, isWater);
   riprap(port, terrain, nearPier);
-  const moorings = planMoorings(0x1a7b);
+  const moorings = planMoorings(0x1a7b, isWater);
   for (const l of addMoorings((x, z) => port.at(x, z), moorings)) {
     beacons.push({ x: l.x, y: l.y, z: l.z, color: l.color, size: l.size });
   }

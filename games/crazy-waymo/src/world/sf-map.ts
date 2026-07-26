@@ -317,25 +317,55 @@ export type District = {
 // so streets read as a mixed row, not a monotone block. SF pastels for the
 // residential west, saturated victorians for the Mission/Haight, cool glass
 // and stone downtown.
+//
+// EACH PALETTE IS A KEY, NOT A COLOUR WHEEL (grading pass 2026-07-26). The
+// victorian set used to be [crimson, purple, teal, pink, mustard, cornflower]:
+// six fully saturated hues spanning the entire wheel, at equal chroma and
+// near-equal value, drawn per building with no relationship to the neighbour.
+// At street level any one house looked fine; at any oblique the Mission, the
+// Haight, Alamo Square and Noe Valley all dissolved into the same visual
+// static, and none of them was distinguishable from the others. That is a
+// palette failing on BOTH criteria at once — "limited palette with clear
+// relationships, not everything at once", and district identity through colour.
+//
+// Each list is now built the way a Mario Kart street is: ONE dominant hue
+// family, ONE complementary accent, and a VALUE RAMP through it (light plaster,
+// mid body colour, deep trim) so buildings separate from each other by value
+// rather than by hue. The families are also chosen to be different FROM EACH
+// OTHER, which is the part that makes crossing a district line read as a key
+// change: victorian is warm red-to-plum, residential is cool cream-to-sea,
+// commercial is ochre-to-rust, industrial is oxide-to-slate.
 const PALETTES: Record<DistrictChar, readonly number[]> = {
-  downtown: [0xbfc4c9, 0xa8b2ba, 0xcfc9bd, 0x9aa7b2, 0xd8d2c4],
-  highrise: [0x9fb2c4, 0x8ea3b8, 0xb8c4cf, 0xa2afb8, 0xc4cdd6],
-  commercial: [0xd8b48a, 0xc9917a, 0xb5384a, 0xd89a5c, 0xe0c9a0, 0x8fae9e],
-  wharf: [0xd6cfc0, 0x9fb4bf, 0xc9b68f, 0xb5384a, 0xdde2e4],
-  residential: [0xf2e3d5, 0xf6c8d4, 0xcfe3dd, 0xf2e0b0, 0xdfd7ea, 0xe8d0b8],
-  victorian: [0xe0564b, 0x8e4fa8, 0x2f9e8f, 0xf6c8d4, 0xe8b458, 0x6f8fc9],
-  industrial: [0xa8623e, 0x8f7a5f, 0xb08968, 0x7f8a8f, 0xa89078],
+  // Stone and glass. Kept nearly as-is; downtown's job is to be the neutral
+  // everything else is colourful against.
+  downtown: [0xbfc4c9, 0xa2adb6, 0xd0cabd, 0x8b98a4, 0xdbd5c6],
+  highrise: [0x9fb2c4, 0x8399b0, 0xbcc8d2, 0x6f8598, 0xc9d2da],
+  // Ochre → rust, with one sage accent to stop the row going monochrome.
+  commercial: [0xe0c193, 0xcf9a6c, 0xb2603c, 0x8e3f36, 0xf0dcbb, 0x8fae9e],
+  // Salt-bleached boards: warm greys and a single signal red.
+  wharf: [0xdcd6c7, 0xb6b0a1, 0x94a3ad, 0xb5384a, 0xe8ece9],
+  // Cool cream → sea, the Sunset/Richmond stucco read.
+  residential: [0xf4e8db, 0xe4dcc9, 0xcfe0dc, 0xafc6c8, 0xdfd7ea, 0xf6c8d4],
+  // Warm red → plum, ramped light-to-deep, with ONE gold accent. Same family
+  // top to bottom, so a Mission block reads as a painted terrace rather than a
+  // paint chart.
+  victorian: [0xf3d9c4, 0xe89a76, 0xd25c4f, 0xa33f52, 0x6f3f5e, 0xe8b458],
+  // Oxide → slate.
+  industrial: [0xa8623e, 0x8a6a4c, 0xb08968, 0x6f7c84, 0x9a8f7c],
   park: [0xe8e0cc, 0xd8cfb8, 0xcfc4a8],
 };
 
 // Tint strength per character — victorians get bold paint, glass stays subtle.
+// Victorian came down from 0.62: with the palette now ramped by value instead
+// of scattered by hue, the same 0.62 pushed the deep end almost to flat colour
+// and cost the kit models their own shading.
 const TINT_AMOUNT: Record<DistrictChar, number> = {
   downtown: 0.28,
   highrise: 0.22,
   commercial: 0.5,
   wharf: 0.42,
   residential: 0.55,
-  victorian: 0.62,
+  victorian: 0.54,
   industrial: 0.4,
   park: 0.35,
 };

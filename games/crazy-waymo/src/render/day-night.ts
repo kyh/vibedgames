@@ -1,6 +1,9 @@
 import * as THREE from "three";
 import type { Sky } from "three/addons/objects/Sky.js";
 
+import { setGradeNight } from "./grade";
+import { NightSky } from "./night-sky";
+
 // Keyframed day-night lighting driven by REAL San Francisco time: the game
 // clock IS the SF clock (America/Los_Angeles) — play at SF midnight and the
 // city is night-lit, play at 7pm and you get the sunset. One phase value in
@@ -52,7 +55,36 @@ type Stop = {
   readonly env: number;
   readonly lamp: number; // streetlights/headlights 0 off .. 1 full
   readonly exposure: number;
+  // Sky dome scattering: [turbidity, rayleigh, mieCoefficient, mieDirectionalG].
+  // These belong to the cycle, not to scene construction — how much air the sun
+  // is shining through is exactly what the hour is. See the presets below.
+  readonly sky: readonly [number, number, number, number];
 };
+
+// Sky dome scattering presets, referenced by name from the stop table so the
+// numbers stay readable there.
+//
+// The dome was built once at scene construction with turbidity 2.5 / rayleigh
+// 1.1 / mie 0.003 and never touched again. Measured against three alternatives
+// at noon, golden hour and street level, LOWERING the scattering is what the
+// frame wanted in every one of them: at rayleigh 0.5 the noon sky went from
+// L218 saturation 14 to L184 saturation 30 with the blown-highlight share
+// falling 7% -> 1%, and the hero vista from L214/17 to L175/35 at 9% -> 5%.
+// (Raising rayleigh, the intuitive move for "deeper blue", does the opposite:
+// three's Sky scales TOTAL scattering with it, so the dome just gets brighter
+// and clips.) Golden hour keeps more turbidity — that haze IS the hour.
+//
+// The fourth number is mieDirectionalG, the forward-scattering anisotropy, and
+// it is the one that decides whether you can drive INTO the sun. At the 0.85 the
+// dome was built with, the low golden-hour sun projects a tight, near-white
+// halo: looking WSW down the strait at 17:00 the Golden Gate — the map's single
+// most recognisable landmark, 250u away — was completely invisible, 43% of the
+// frame above 92% luminance. Loosening g spreads the same energy over a much
+// wider arc, which reads as glare you can see through instead of a hole.
+const SKY_DAY: readonly [number, number, number, number] = [2.0, 0.5, 0.0018, 0.8];
+const SKY_GOLDEN: readonly [number, number, number, number] = [2.2, 0.62, 0.001, 0.62];
+const SKY_SUNSET: readonly [number, number, number, number] = [3.0, 0.85, 0.0016, 0.68];
+const SKY_NIGHT: readonly [number, number, number, number] = [2.0, 0.5, 0.002, 0.8];
 
 function stop(
   p: number,
@@ -72,6 +104,7 @@ function stop(
   env: number,
   lamp: number,
   exposure: number,
+  sky: readonly [number, number, number, number],
 ): Stop {
   return {
     p,
@@ -90,19 +123,34 @@ function stop(
     env,
     lamp,
     exposure,
+    sky,
   };
 }
 
+// AERIAL PERSPECTIVE, NOT BLEACH (grading pass 2026-07-26). The fog color used
+// to be 0xbfdcf2 — luminance 0.86, barely a hue. Anything past the fog-near
+// plane therefore lost its VALUE before it lost its detail, and the hero vistas
+// measured a city band BRIGHTER than the sky above it (sky L84 / city L93 from
+// the bay): the three-band read inverted, and no landmark survived. Distance
+// now tints toward a SATURATED mid-value sky blue instead, so a far building
+// goes blue-and-darker — it keeps its silhouette against a sky that stays the
+// brightest thing in frame.
+//
+// The near plane also moved out (360 → ~470): at 600u the old grade was already
+// 58% fog, which is two blocks downtown. The far plane deliberately stops just
+// short of shared/constants DRAW_DISTANCE (900) — buildings are culled there, so
+// pushing fogFar past it would trade a bleached city for a city with a visible
+// edge. Fog color is the lever that mattered; range is only the assist.
 // prettier-ignore
 const STOPS: readonly Stop[] = [
   // Day stops (Mario-Kart pass 2026-07-10): brighter exposure, big blue-sky
   // hemisphere fill + warm ground bounce so shadow sides glow instead of
   // going grey. Sun eased down to keep the white sidewalks from clipping.
   //    p     sunEl sunAz  lightDir       color     int   hemiSky   hemiGnd   hInt  amb   ambColor  fog      near far  env   lamp  exp
-  stop(0.00,  35,   115,   dir(35, 115),  0xfff6e0, 1.75, 0xa9dcff, 0x6b6852, 0.52, 0.13, 0xffffff, 0xbfdcf2, 360, 800, 0.32, 0,    0.72),
-  stop(0.25,  50,   150,   dir(50, 150),  0xfff2d8, 1.85, 0xa9dcff, 0x6b6852, 0.52, 0.13, 0xffffff, 0xbfdcf2, 360, 800, 0.32, 0,    0.72),
-  stop(0.40,  12,   235,   dir(12, 235),  0xffc27a, 1.7,  0xffd9b0, 0x655c44, 0.42, 0.12, 0xffffff, 0xe3c19b, 330, 760, 0.26, 0.25, 0.74),
-  stop(0.47,   2,   248,   dir(4, 248),   0xff9350, 1.25, 0xff9d70, 0x3e3a44, 0.36, 0.11, 0xe0dcf0, 0xcf9077, 300, 700, 0.18, 0.7,  0.72),
+  stop(0.00,  35,   115,   dir(35, 115),  0xfff6e0, 1.75, 0xa9dcff, 0x6b6852, 0.52, 0.13, 0xffffff, 0x86b4e2, 460, 960, 0.32, 0,    0.72, SKY_DAY),
+  stop(0.25,  50,   150,   dir(50, 150),  0xfff2d8, 1.85, 0xa9dcff, 0x6b6852, 0.52, 0.13, 0xffffff, 0x7fb2e4, 480, 980, 0.32, 0,    0.72, SKY_DAY),
+  stop(0.40,  12,   235,   dir(12, 235),  0xffc27a, 1.7,  0xffd9b0, 0x655c44, 0.42, 0.12, 0xffffff, 0xbf9a83, 430, 940, 0.26, 0.25, 0.68, SKY_GOLDEN),
+  stop(0.47,   2,   248,   dir(4, 248),   0xff9350, 1.25, 0xff9d70, 0x3e3a44, 0.36, 0.11, 0xe0dcf0, 0xac7160, 400, 900, 0.18, 0.7,  0.68, SKY_SUNSET),
   // Night floors are tuned for PHONES: a desktop panel at full brightness can
   // read a 0.3-fill scene, a dim phone outdoors cannot. Moonlight carries the
   // shape of the city; streetlight glow carries the color. The night ambient
@@ -115,11 +163,18 @@ const STOPS: readonly Stop[] = [
   // foliage stays as vivid at midnight as it is at noon — only darker. Sitting
   // the fills on the green's complement instead pulls the grass and the trees
   // toward a cool neutral while the hue of the scene stays night-blue.
-  stop(0.53,  -3,   255,   MOON,          0x8d92c0, 0.35, 0x6e6398, 0x2a2d38, 0.30, 0.50, 0xc8b0c4, 0x55688c, 300, 740, 0.14, 1,    0.66),
-  stop(0.62, -30,   270,   MOON,          0x9b9ed6, 0.52, 0x5b4a80, 0x20242e, 0.32, 0.58, 0xc2a3bd, 0x2c3a57, 280, 700, 0.14, 1,    0.66),
-  stop(0.80, -30,    60,   MOON,          0x9b9ed6, 0.52, 0x5b4a80, 0x20242e, 0.32, 0.58, 0xc2a3bd, 0x2c3a57, 280, 700, 0.14, 1,    0.66),
-  stop(0.88,  -3,    95,   MOON,          0xc087a0, 0.38, 0x84719a, 0x2a2d38, 0.30, 0.50, 0xc9aabf, 0x6d6787, 300, 760, 0.14, 1,    0.66),
-  stop(0.94,   4,   105,   dir(6, 105),   0xffb27a, 1.3,  0xffc9a0, 0x4a443c, 0.28, 0.10, 0xffffff, 0xdbb090, 360, 860, 0.20, 0.5,  0.66),
+  //
+  // The omnidirectional fills came DOWN ~15% in the 2026-07-26 pass and the
+  // night fog went deeper. Measured from the bay, the night ground band read
+  // L40 against a sky of L20 — the largest area of the frame was also its
+  // brightest, which is the value order upside down. Lamps and lit windows now
+  // carry proportionally more of the night, which is the brief ("warm pools
+  // against cool shadow") rather than a uniform blue wash.
+  stop(0.53,  -3,   255,   MOON,          0x8d92c0, 0.35, 0x6e6398, 0x2a2d38, 0.26, 0.43, 0xc8b0c4, 0x3d4c70, 380, 900, 0.05, 1,    0.66, SKY_NIGHT),
+  stop(0.62, -30,   270,   MOON,          0x9b9ed6, 0.52, 0x5b4a80, 0x20242e, 0.27, 0.49, 0xc2a3bd, 0x1d2742, 360, 880, 0.05, 1,    0.66, SKY_NIGHT),
+  stop(0.80, -30,    60,   MOON,          0x9b9ed6, 0.52, 0x5b4a80, 0x20242e, 0.27, 0.49, 0xc2a3bd, 0x1d2742, 360, 880, 0.05, 1,    0.66, SKY_NIGHT),
+  stop(0.88,  -3,    95,   MOON,          0xc087a0, 0.38, 0x84719a, 0x2a2d38, 0.26, 0.43, 0xc9aabf, 0x554f70, 380, 920, 0.05, 1,    0.66, SKY_NIGHT),
+  stop(0.94,   4,   105,   dir(6, 105),   0xffb27a, 1.3,  0xffc9a0, 0x4a443c, 0.28, 0.10, 0xffffff, 0xba8f7a, 450, 980, 0.20, 0.5,  0.66, SKY_SUNSET),
 ];
 
 // SF wall-clock hour (fractional, 0..24) right now. Intl handles DST; some
@@ -203,6 +258,7 @@ export class DayNight {
   // Mobile tiers: a baked cube texture stands in for the live Sky dome
   // (owned by game-scene, which re-bakes as the phase drifts).
   private baked: THREE.Texture | null = null;
+  private nightSky = new NightSky();
   // Scratch (update runs every frame — no allocation).
   private scrSun = new THREE.Vector3();
   private scrLight = new THREE.Vector3();
@@ -260,10 +316,20 @@ export class DayNight {
 
     const { sky, sun, hemi, ambient, fog, scene } = this.refs;
 
-    // Sky sun (below-horizon values give the Sky shader real twilight).
+    // Sky sun (below-horizon values give the Sky shader real twilight) and the
+    // dome's own scattering for this hour.
     this.scrSun.lerpVectors(a.sunDir, b.sunDir, t).normalize();
-    const sunU = sky.material.uniforms.sunPosition;
+    const skyU = sky.material.uniforms;
+    const sunU = skyU.sunPosition;
     if (sunU && sunU.value instanceof THREE.Vector3) sunU.value.copy(this.scrSun);
+    const turb = skyU.turbidity;
+    const rayl = skyU.rayleigh;
+    const mieC = skyU.mieCoefficient;
+    const mieG = skyU.mieDirectionalG;
+    if (turb) turb.value = THREE.MathUtils.lerp(a.sky[0], b.sky[0], t);
+    if (rayl) rayl.value = THREE.MathUtils.lerp(a.sky[1], b.sky[1], t);
+    if (mieC) mieC.value = THREE.MathUtils.lerp(a.sky[2], b.sky[2], t);
+    if (mieG) mieG.value = THREE.MathUtils.lerp(a.sky[3], b.sky[3], t);
 
     // Shadow light: direction, color, intensity. Shadows FADE via
     // shadow.intensity instead of toggling castShadow — flipping castShadow
@@ -313,12 +379,15 @@ export class DayNight {
 
     // Night sky: the physical Sky shader is plain BLACK once the sun sets —
     // the horizon used to read as a hole in the world. Below the horizon,
-    // swap to a flat navy derived from the fog color: the fog line then
-    // blends seamlessly into the dome instead of ending at a black wall.
+    // swap to the night dome (render/night-sky.ts): a zenith-darkening gradient
+    // and a star field painted onto the CALLER's fog color, so the fog line
+    // still meets it seamlessly while the upper half of the frame stops being
+    // one dead value. Falls back to that flat navy where there is no canvas.
     const nightAmt = THREE.MathUtils.smoothstep(-this.scrSun.y, 0.02, 0.12);
     if (nightAmt >= 1) {
       sky.visible = false;
-      scene.background = this.scrBg.copy(fog.color).multiplyScalar(0.72);
+      scene.background =
+        this.nightSky.texture(fog.color) ?? this.scrBg.copy(fog.color).multiplyScalar(0.72);
     } else if (this.baked) {
       sky.visible = false;
       scene.background = this.baked;
@@ -332,5 +401,8 @@ export class DayNight {
       this.renderer.toneMappingExposure = THREE.MathUtils.lerp(a.exposure, b.exposure, t);
     }
     this.lamp = THREE.MathUtils.lerp(a.lamp, b.lamp, t);
+    // The post grade needs the cycle too, and has no per-frame call site of its
+    // own — see render/grade.ts for why this is a signal and not a parameter.
+    setGradeNight(this.lamp);
   }
 }

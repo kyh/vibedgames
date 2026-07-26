@@ -17,7 +17,25 @@ import type { CityGenPayload } from "./gen-worker";
 // hill lots, party walls, tower massing), the Mediterranean ground palette off
 // the single land-class resolver, and the real transit/paint pass (cable slots,
 // Muni red, crosswalks, stencils, across-road uv).
-export const WORLD_REV = 60;
+// 61 = wave-3 polish: the Golden Gate's SECOND tower + orange deck truss, the
+// Bay Bridge anchorage opened into a portal over the Embarcadero, the Dragon
+// Gate straddling its street, an authored Painted Ladies terrace, Oracle Park
+// and Fort Point re-sited, one rainbow crosswalk instead of a district of
+// them, calmer Muni red, and moorings/floats that require water under them.
+// The wave-3 range also carries the value/colour grade: ground.ts COVER_COLOR
+// dropped ~18% in value so the ground is the BOTTOM band instead of the
+// second-brightest (it is the largest area in most frames, and silhouettes were
+// dying against it), and sf-map.ts PALETTES were rebuilt as one hue family plus
+// a value ramp per district instead of a six-hue wheel per district. Both are
+// VERTEX/TINT output — a bin baked before them ships the old colours.
+// 65 = landmark reservation boxes are clamped off the DRAWN asphalt as well as
+// off road cells (the Bay Bridge anchorage's box reached 7u into the
+// Embarcadero on cells the raster called lot), plus the Sutro Tower lattice
+// and the Bay Bridge anchorage's portal/relief.
+// 66 = final-gate rebake. No generation change of its own: rev 65's bins were
+// installed BEFORE the last edits to landmarks.ts landed, so the shipped world
+// was not provably the shipped source. Rebaked so it is.
+export const WORLD_REV = 66;
 
 export type Typed = Float32Array | Uint16Array | Uint32Array | Int8Array | Uint8Array | Int32Array;
 export type BufRef = { $buf: number; $type: "f32" | "u16" | "u32" | "i8" | "u8" | "i32" };

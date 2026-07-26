@@ -15,8 +15,19 @@ import { WORLD_H, WORLD_HALF_X, WORLD_W } from "../shared/constants";
 // tilt with the chase camera. The soft blob texture is generated on a canvas
 // at boot — no asset fetch.
 
-const HIGH_COUNT = 22;
+// 22 cumulus were scattered over 1.6 x 1.4 map widths of sky — about one cloud
+// per two million square units — and painted pure white against a pale noon
+// sky, so at noon the entire upper half of every frame was a featureless
+// gradient with nothing in it. MK8 never ships an empty sky. The count is up,
+// the spread is tighter (see the constructor) and the puffs are shaded.
+const HIGH_COUNT = 46;
 const FOG_COUNT = 26;
+// Vertical shading on a cumulus: the flat-lit top vs the sky-fill underside.
+// Without it a billboard is one flat alpha blob no matter how good the texture,
+// which is the other half of why they read as absent rather than as clouds.
+const HIGH_BASE_SHADE = 0.7; // underside multiplier
+const HIGH_SHADE_LO = 0.1; // quad v where the shading starts
+const HIGH_SHADE_HI = 0.72; // ...and where it reaches full daylight
 // Karl dissolves past this map fraction (u west→east); respawns over the ocean.
 const FOG_DISSOLVE_U = 0.55;
 const FOG_SPAWN_MIN_U = -0.25; // off-shore, over the open Pacific
@@ -63,7 +74,7 @@ const VERT = `
 // skipping the blend write for them saves real ROP bandwidth on tile GPUs.
 // `floorFade` gives the low marine sheets a soft world-space underside (see
 // FLOOR_Y); the high cumulus sit 190u up and skip the extra work entirely.
-function frag(discardLow: boolean, floorFade: boolean): string {
+function frag(discardLow: boolean, floorFade: boolean, shade: boolean): string {
   return `
   uniform sampler2D uMap;
   uniform vec3 uColor;
@@ -75,7 +86,14 @@ function frag(discardLow: boolean, floorFade: boolean): string {
     float a = texture2D(uMap, vUv).a * vAlpha;
     ${floorFade ? `a *= smoothstep(${FLOOR_Y.toFixed(1)}, ${FLOOR_TOP.toFixed(1)}, vWorldY);` : ""}
     ${discardLow ? "if (a < 0.004) discard;" : ""}
-    gl_FragColor = vec4(uColor * uDim, a);
+    vec3 rgb = uColor * uDim;
+    ${
+      shade
+        ? `rgb *= mix(${HIGH_BASE_SHADE.toFixed(2)}, 1.0,
+        smoothstep(${HIGH_SHADE_LO.toFixed(2)}, ${HIGH_SHADE_HI.toFixed(2)}, vUv.y));`
+        : ""
+    }
+    gl_FragColor = vec4(rgb, a);
   }
 `;
 }
@@ -143,6 +161,8 @@ type LayerOpts = {
   renderOrder: number;
   discardLow: boolean;
   floorFade: boolean;
+  /** Vertical top-lit / underside-shaded ramp (cumulus only). */
+  shade: boolean;
 };
 
 class CloudLayer {
@@ -187,7 +207,7 @@ class CloudLayer {
         uDim: { value: 1 },
       },
       vertexShader: VERT,
-      fragmentShader: frag(opts.discardLow, opts.floorFade),
+      fragmentShader: frag(opts.discardLow, opts.floorFade, opts.shade),
       transparent: true,
       depthWrite: false,
     });
@@ -249,6 +269,7 @@ export class SkyClouds {
       renderOrder: 4,
       discardLow,
       floorFade: false,
+      shade: true,
     });
     this.fog = new CloudLayer({
       count: FOG_COUNT,
@@ -259,18 +280,25 @@ export class SkyClouds {
       renderOrder: 5,
       discardLow,
       floorFade: true,
+      // Karl is a flat sheet lit from every side at once; a top-lit ramp on it
+      // reads as a gradient error, not as volume.
+      shade: false,
     });
     this.group.add(this.high.mesh);
     this.group.add(this.fog.mesh);
 
     this.highSpeed = new Float32Array(HIGH_COUNT);
     for (let i = 0; i < HIGH_COUNT; i++) {
-      const x = (Math.random() * 1.6 - 0.8) * WORLD_W;
-      const z = (Math.random() * 1.4 - 0.7) * WORLD_H;
-      const y = 190 + Math.random() * 130;
+      const x = (Math.random() * 1.5 - 0.75) * WORLD_W;
+      const z = (Math.random() * 1.3 - 0.65) * WORLD_H;
+      const y = 175 + Math.random() * 150;
       this.high.centers.set([x, y, z], i * 3);
-      const w = 190 + Math.random() * 240;
-      this.high.sizes.set([w, w * (0.3 + Math.random() * 0.12)], i * 2);
+      // Squared roll: mostly modest puffs with a few big anvils, which is what
+      // gives a cumulus field its sense of scale (one uniform size reads as
+      // wallpaper).
+      const r = Math.random();
+      const w = 150 + r * r * 420;
+      this.high.sizes.set([w, w * (0.3 + Math.random() * 0.14)], i * 2);
       this.high.alphas[i] = 0.78 + Math.random() * 0.22;
       this.highSpeed[i] = 3.5 + Math.random() * 3;
     }
@@ -302,14 +330,20 @@ export class SkyClouds {
     // out of the water: a sheet reaching below the ocean plane is depth-cut by
     // it, and no amount of alpha fading hides a cut that straight. The
     // FLOOR_Y fade in the shader is the second line of defence.
-    const y = gate ? 26 + Math.random() * 14 : 34 + Math.random() * 26;
+    // GATE sheets ride OVER the bridge, not through it. A 600u-wide near-white
+    // sheet centred at deck height crossing the strait erased the Golden Gate
+    // completely — a landmark the player steers by, gone at random for as long
+    // as the sheet took to pass. Sitting them above the deck with roughly half
+    // the opacity gives the real thing instead: Karl pouring over the roadway
+    // with the tower tops standing out of it.
+    const y = gate ? 38 + Math.random() * 14 : 34 + Math.random() * 26;
     this.fog.centers.set([x, y, z], i * 3);
     const w = 320 + Math.random() * 320;
     this.fogWidth[i] = w;
-    const h = gate ? 26 + Math.random() * 20 : 42 + Math.random() * 46;
+    const h = gate ? 22 + Math.random() * 16 : 42 + Math.random() * 46;
     this.fog.sizes.set([this.level === 2 ? w : Math.min(w, FOG_WIDTH_CAP), h], i * 2);
     this.fog.sizeAttr.needsUpdate = true;
-    this.fogBase[i] = 0.24 + Math.random() * 0.18;
+    this.fogBase[i] = gate ? 0.13 + Math.random() * 0.09 : 0.24 + Math.random() * 0.18;
     this.fog.alphas[i] = 0; // fades in
     this.fogSpeed[i] = 5 + Math.random() * 4;
   }

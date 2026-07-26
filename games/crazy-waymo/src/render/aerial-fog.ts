@@ -42,13 +42,22 @@ import { WORLD_H, WORLD_W } from "../shared/constants";
 const HAZE_BASE = 18;
 const HAZE_SCALE = 26;
 // Never let the attenuation go all the way to zero — a razor-sharp 1.5km
-// ridgeline reads as a cardboard cut-out.
-const HAZE_AMOUNT = 0.95;
+// ridgeline reads as a cardboard cut-out. 0.95 left a 5% floor, which is close
+// enough to nothing that every elevated view had NO depth cue at all: the far
+// city sat at the same value and the same chroma as the near city and the
+// vistas read flat. Now that the fog color is a saturated blue rather than a
+// near-white (see day-night.ts), a 18% floor TINTS the distance instead of
+// ghosting it, which is the aerial perspective those views were missing.
+const HAZE_AMOUNT = 0.82;
 
 // --- Marine layer ---------------------------------------------------------
 const MARINE_TOP = 40; // world height the bank thins out at
 const MARINE_SOFT = 20; // vertical softness of that top edge
-const MARINE_STRENGTH = 0.38; // most fog the bank can add over the base grade
+// Most fog the bank can add over the base grade. Down from 0.38: with the rim
+// now feathered across the whole radius the bank covers more ground, and the
+// north-west was measuring L249/255 at saturation 0.02 through it at golden
+// hour — total information loss on the axis the Gate is driven on.
+const MARINE_STRENGTH = 0.28;
 const MARINE_NEAR = 30; // it never fogs the car's own bumper
 const MARINE_FAR = 420;
 
@@ -122,16 +131,24 @@ export function installAerialFog(): void {
 		uniform float fogFar;
 	#endif
 
-	// 1 inside an ellipse, 0 outside, smooth across the rim.
+	// 1 inside an ellipse, 0 outside, smooth across the rim. The rim used to
+	// start at 0.55, which over open water — where the bank has no geometry to
+	// sit on and nothing to break up its shape — drew a legible ELLIPSE edge
+	// across the bay in the money shot. Starting the falloff near the centre
+	// spreads it over the whole radius: weather, not a stencil.
 	float sfEllipse( vec2 p, vec2 c, vec2 r ) {
-		return 1.0 - smoothstep( 0.55, 1.0, length( ( p - c ) / r ) );
+		return 1.0 - smoothstep( 0.15, 1.05, length( ( p - c ) / r ) );
 	}
 
 	// How much marine layer sits at this world point: a vertical slab capped at
 	// MARINE_TOP, intersected with the Gate / bay / western-shore footprint.
 	float sfMarine( vec3 w ) {
 		float lid = 1.0 - smoothstep( ${f(MARINE_TOP - MARINE_SOFT)}, ${f(MARINE_TOP)}, w.y );
-		float gate = sfEllipse( w.xz, vec2( ${f(GATE_X)}, ${f(GATE_Z)} ), vec2( ${f(GATE_RX)}, ${f(GATE_RZ)} ) );
+		// The Gate ellipse is capped BELOW the others: the strait is the one place
+		// the bank sits directly between the camera and a landmark you are meant
+		// to steer by, and at full strength (plus a low sun straight down it at
+		// golden hour) the bridge simply was not there from 250u.
+		float gate = sfEllipse( w.xz, vec2( ${f(GATE_X)}, ${f(GATE_Z)} ), vec2( ${f(GATE_RX)}, ${f(GATE_RZ)} ) ) * 0.72;
 		float bay = sfEllipse( w.xz, vec2( ${f(BAY_X)}, ${f(BAY_Z)} ), vec2( ${f(BAY_RX)}, ${f(BAY_RZ)} ) );
 		float west = ( 1.0 - smoothstep( ${f(WEST_FULL_X)}, ${f(WEST_NONE_X)}, w.x ) ) * ${f(WEST_WEIGHT)};
 		return lid * max( max( gate, bay ), west );
@@ -157,12 +174,17 @@ export function installAerialFog(): void {
 	float marine = sfMarine( vFogWorld );
 	float marineFog = marine * ${f(MARINE_STRENGTH)}
 		* smoothstep( ${f(MARINE_NEAR)}, ${f(MARINE_FAR)}, vFogDepth );
-	// Karl is whiter than the ambient haze, but only as bright as the hour
-	// allows — scaled by the day's fog color so night stays night. The floor
-	// used to be 0.22, which at midnight (fogColor peaks near 0.1 in linear)
-	// left the bank glowing three times brighter than the sky behind it.
-	float lit = max( fogColor.r, max( fogColor.g, fogColor.b ) );
-	vec3 marineColor = vec3( 0.93, 0.95, 0.97 ) * ( 0.05 + 0.95 * lit );
+	// Karl is whiter than the ambient haze, but he is never a SEPARATE light
+	// source: he is the fog, desaturated and lifted by however much daylight
+	// there is to lift him. Deriving the tint from the fog's own LUMINANCE is
+	// what makes that true at both ends. The old form keyed off the fog's
+	// brightest CHANNEL and floored at 0.05, so at midnight — when the night fog
+	// is a dark blue whose blue channel still reads ~0.1 — the bank resolved to
+	// a neutral three times brighter than the fog in red, and painted a
+	// razor-edged DAYLIGHT band across the bay under a navy sky. At lum -> 0 the
+	// lift now goes to 0 with it and the bank simply disappears into the night.
+	float lum = dot( fogColor, vec3( 0.2126, 0.7152, 0.0722 ) );
+	vec3 marineColor = mix( fogColor, vec3( lum ), 0.8 ) * ( 1.0 + 0.26 * lum );
 	vec3 hazeColor = mix( fogColor, marineColor, marine * 0.85 );
 
 	fogFactor = clamp( fogFactor + marineFog * ( 1.0 - fogFactor ), 0.0, 1.0 );

@@ -154,6 +154,9 @@ export function facadeOffset(half: number): number {
 // a shallow one too.
 const LOT_DEPTH_DEEP = 1.85;
 const LOT_DEPTH_SHALLOW = 1.15;
+// Shallower than this and the kit model is a billboard, so a lot that cannot
+// pull its back wall off the street behind is not built at all.
+const LOT_DEPTH_MIN = 2.6;
 // Rear slack worth another row rather than a yard.
 const BACK_ROW_MIN = 6;
 // Height is a storey count, not a multiple of the frontage. Tuned so the median
@@ -229,6 +232,26 @@ function dirToYaw(d: Dir): number {
 // planner (module scope, no instance) and the class cannot drift.
 const gridXOf = (x: number): number => Math.floor((x + WORLD_HALF_X) / ROAD_TILE);
 const gridZOf = (z: number): number => Math.floor((z + WORLD_HALF_Z) / ROAD_TILE);
+
+/**
+ * Probe offsets over a rectangle in its OWN frame (±1 = the wall, 0 = the
+ * middle): four corners, four wall midpoints, the centre. Testing the two
+ * FRONT corners is what every placement pass here used to do, and it is blind
+ * to the two failures that put 2,000 masses in the roadway: a lot deep enough
+ * to cross its block and reach the street behind, and a long parcel lying
+ * ALONG a street between its own corners.
+ */
+const BOX_PROBES: readonly (readonly [number, number])[] = [
+  [-1, -1],
+  [1, -1],
+  [1, 1],
+  [-1, 1],
+  [0, -1],
+  [0, 1],
+  [-1, 0],
+  [1, 0],
+  [0, 0],
+];
 
 // --- Occupancy: rotated RECTANGLES, and a row can never reject itself.
 // Buildings are boxes, and the circle this used to keep made a 6u-wide lot claim
@@ -472,6 +495,18 @@ export function planFabricRow(
         attached = false;
         continue;
       }
+      // At a convex kink the facade line is longer than the centreline it is
+      // offset from, so an arclength step of w can span a chord well past it
+      // (measured: up to 19u for a 12.5u step). Pull the step back rather than
+      // stretch one model across the corner. This runs BEFORE the depth rule
+      // so every test below sees the width the walk will actually advance by.
+      let p1 = face(s + w, frontOff);
+      for (let i = 0; i < 3; i++) {
+        const chord = Math.hypot(p1.x - p0.x, p1.z - p0.z);
+        if (chord <= LOT_MAX || w <= LOT_MIN) break;
+        w = Math.max(LOT_MIN, w * (LOT_MAX / chord));
+        p1 = face(s + w, frontOff);
+      }
       // How deep the block is: facade line to the facade line of the row facing
       // the other way. Both rows fill toward each other and their rear property
       // lines meet in the MIDDLE, so HALF of that is this row's to build on.
@@ -485,29 +520,29 @@ export function planFabricRow(
           ? ROAD_TILE * 1.2
           : (depthRun + far.dist - facadeOffset(far.edge.half)) / 2;
       let depth = Math.max(w * 0.9, Math.min(depthRun, halfBlock));
-      // Backstop for cross streets the midpoint rule cannot see.
-      for (let i = 0; i < 2 && depth > w * 0.9; i++) {
+      // Backstop for cross streets the midpoint rule cannot see. The old loop
+      // guarded on `depth > w * 0.9` — which is the value depth STARTS at
+      // whenever the block is narrow, so on exactly the blocks that needed it
+      // the backstop never ran one iteration and the rear wall went into the
+      // street behind. The floor is now the shallowest lot worth building.
+      // (Whether the rectangle actually clears is settled once, for every
+      // caller, in placeOne's roadway gate: shrink the depth or refuse.)
+      for (let i = 0; i < 3 && depth > LOT_DEPTH_MIN; i++) {
         if (clear(face(s, frontOff + depth)) && clear(face(s + w, frontOff + depth))) break;
-        depth *= 0.72;
-      }
-      // At a convex kink the facade line is longer than the centreline it is
-      // offset from, so an arclength step of w can span a chord well past it
-      // (measured: up to 19u for a 12.5u step). Pull the step back rather than
-      // stretch one model across the corner.
-      let p1 = face(s + w, frontOff);
-      for (let i = 0; i < 3; i++) {
-        const chord = Math.hypot(p1.x - p0.x, p1.z - p0.z);
-        if (chord <= LOT_MAX || w <= LOT_MIN) break;
-        w = Math.max(LOT_MIN, w * (LOT_MAX / chord));
-        p1 = face(s + w, frontOff);
+        depth = Math.max(LOT_DEPTH_MIN, depth * 0.72);
       }
       const b0 = face(s, frontOff + depth);
       const b1 = face(s + w, frontOff + depth);
       const x = (p0.x + p1.x + b0.x + b1.x) / 4;
       const z = (p0.z + p1.z + b0.z + b1.z) / 4;
       const character = fabricCharAt(x, z);
+      // FOLD-BACK. Past the radius of curvature of a convex kink the offset
+      // facade line self-intersects: the two back corners swap order and the
+      // lot's rectangle turns inside out across its own neighbours. No depth
+      // fixes that — the lot is degenerate, so it is not planned at all.
+      const folded = (b1.x - b0.x) * (p1.x - p0.x) + (b1.z - b0.z) * (p1.z - p0.z) <= 0;
       s += w;
-      if (character === null) {
+      if (character === null || folded) {
         attached = false;
         continue;
       }
@@ -558,6 +593,15 @@ type MatRec = {
   polygonOffsetUnits: number;
   transparent: boolean;
   opacity: number;
+  /**
+   * UNLIT (MeshBasicMaterial). The capture used to understand exactly one
+   * material class, so the first builder to reach for an unlit one — the
+   * Golden Gate's tower lamps, which must survive the night grade — cleared
+   * `restComplete` and the world stopped baking for everybody. Optional so
+   * older rest payloads deserialize unchanged.
+   */
+  unlit?: boolean;
+  toneMapped?: boolean;
 };
 export type MergedChunkRec = {
   cx: number;
@@ -603,29 +647,75 @@ type ChunkMeshGroup = {
   readonly dist: number;
 };
 
-function materialFactory(): (m: MatRec) => THREE.MeshStandardMaterial {
+type BakedMaterial = THREE.MeshStandardMaterial | THREE.MeshBasicMaterial;
+
+function materialFactory(): (m: MatRec) => BakedMaterial {
   // Material descriptors are the cache key. Omitting any field makes old rest
   // payloads alias materials that render differently.
-  const mats = new Map<string, THREE.MeshStandardMaterial>();
-  return (m: MatRec): THREE.MeshStandardMaterial => {
+  const mats = new Map<string, BakedMaterial>();
+  return (m: MatRec): BakedMaterial => {
     const k = JSON.stringify(m);
     let mat = mats.get(k);
     if (!mat) {
-      mat = new THREE.MeshStandardMaterial({
-        color: m.color,
-        roughness: m.roughness,
-        metalness: m.metalness,
-        vertexColors: m.vertexColors,
-        polygonOffset: m.polygonOffset,
-        polygonOffsetFactor: m.polygonOffsetFactor,
-        polygonOffsetUnits: m.polygonOffsetUnits,
-        transparent: m.transparent,
-        opacity: m.opacity,
-      });
+      mat = m.unlit
+        ? new THREE.MeshBasicMaterial({
+            color: m.color,
+            vertexColors: m.vertexColors,
+            polygonOffset: m.polygonOffset,
+            polygonOffsetFactor: m.polygonOffsetFactor,
+            polygonOffsetUnits: m.polygonOffsetUnits,
+            transparent: m.transparent,
+            opacity: m.opacity,
+            toneMapped: m.toneMapped ?? true,
+          })
+        : new THREE.MeshStandardMaterial({
+            color: m.color,
+            roughness: m.roughness,
+            metalness: m.metalness,
+            vertexColors: m.vertexColors,
+            polygonOffset: m.polygonOffset,
+            polygonOffsetFactor: m.polygonOffsetFactor,
+            polygonOffsetUnits: m.polygonOffsetUnits,
+            transparent: m.transparent,
+            opacity: m.opacity,
+          });
       mats.set(k, mat);
     }
     return mat;
   };
+}
+
+/** The MatRec for a material the capture understands, or null. */
+function matRecOf(mat: THREE.Material): MatRec | null {
+  if (mat instanceof THREE.MeshStandardMaterial) {
+    return {
+      color: mat.color.getHex(),
+      roughness: mat.roughness,
+      metalness: mat.metalness,
+      vertexColors: mat.vertexColors,
+      polygonOffset: mat.polygonOffset,
+      polygonOffsetFactor: mat.polygonOffsetFactor,
+      polygonOffsetUnits: mat.polygonOffsetUnits,
+      transparent: mat.transparent,
+      opacity: mat.opacity,
+    };
+  }
+  if (mat instanceof THREE.MeshBasicMaterial) {
+    return {
+      color: mat.color.getHex(),
+      roughness: 1,
+      metalness: 0,
+      vertexColors: mat.vertexColors,
+      polygonOffset: mat.polygonOffset,
+      polygonOffsetFactor: mat.polygonOffsetFactor,
+      polygonOffsetUnits: mat.polygonOffsetUnits,
+      transparent: mat.transparent,
+      opacity: mat.opacity,
+      unlit: true,
+      toneMapped: mat.toneMapped,
+    };
+  }
+  return null;
 }
 
 function geometryFromMergedChunk(rec: MergedChunkRec): THREE.BufferGeometry {
@@ -642,7 +732,7 @@ function geometryFromMergedChunk(rec: MergedChunkRec): THREE.BufferGeometry {
 async function buildMergedChunkGroups(options: {
   readonly records: readonly MergedChunkRec[];
   readonly cache: ModelCache;
-  readonly materialFor: (m: MatRec) => THREE.MeshStandardMaterial;
+  readonly materialFor: (m: MatRec) => BakedMaterial;
   readonly runtimeMaterials?: ReadonlyMap<MergedChunkRec, THREE.Material>;
   readonly breathe?: () => Promise<void>;
   readonly onRecord?: (done: number, total: number) => void;
@@ -1260,6 +1350,80 @@ export class CityModel {
     return hit !== null && hit.dist < hit.edge.half + margin;
   }
 
+  /**
+   * Pull each side of a rectangle in until no side lies on drawn asphalt, and
+   * hand back the rectangle that survived (or null when nothing usable does).
+   *
+   * The real-footprint pass tests a parcel's ring VERTICES, which says nothing
+   * about the rectangle it then lays over them: a 50x39u wharf parcel whose
+   * corners all clear the kerb still put a blank concrete podium — and an
+   * invisible collision wall — across the street that crosses it. Sides are
+   * sampled rather than corners for the same reason BOX_PROBES exists: a long
+   * parcel lies ALONG the street it swallows.
+   *
+   * `ex/ez` is the unit +A axis; +B is its left normal (-ez, ex), which is the
+   * basis `rotation.y = atan2(-ez, ex)` produces — the same one the collision
+   * OBB is read back with.
+   */
+  private fitRectOffAsphalt(
+    cx: number,
+    cz: number,
+    ex: number,
+    ez: number,
+    halfA: number,
+    halfB: number,
+    margin: number,
+    minSide: number,
+  ): { cx: number; cz: number; halfA: number; halfB: number } | null {
+    const at = (a: number, b: number): boolean =>
+      this.onAsphalt(cx + a * ex - b * ez, cz + a * ez + b * ex, margin);
+    // Side (a === value, b spanning b0..b1) or (b === value, a spanning a0..a1).
+    const sideHit = (axis: 0 | 1, value: number, from: number, to: number): boolean => {
+      for (let i = 0; i <= 4; i++) {
+        const t = from + ((to - from) * i) / 4;
+        if (axis === 0 ? at(value, t) : at(t, value)) return true;
+      }
+      return false;
+    };
+    let a0 = -halfA;
+    let a1 = halfA;
+    let b0 = -halfB;
+    let b1 = halfB;
+    const STEP = 1.0;
+    for (let iter = 0; iter < 10; iter++) {
+      let moved = false;
+      if (sideHit(0, a0, b0, b1)) {
+        a0 += STEP;
+        moved = true;
+      }
+      if (sideHit(0, a1, b0, b1)) {
+        a1 -= STEP;
+        moved = true;
+      }
+      if (sideHit(1, b0, a0, a1)) {
+        b0 += STEP;
+        moved = true;
+      }
+      if (sideHit(1, b1, a0, a1)) {
+        b1 -= STEP;
+        moved = true;
+      }
+      if (!moved) break;
+      if (a1 - a0 < minSide || b1 - b0 < minSide) return null;
+    }
+    if (a1 - a0 < minSide || b1 - b0 < minSide) return null;
+    if (sideHit(0, a0, b0, b1) || sideHit(0, a1, b0, b1)) return null;
+    if (sideHit(1, b0, a0, a1) || sideHit(1, b1, a0, a1)) return null;
+    const ma = (a0 + a1) / 2;
+    const mb = (b0 + b1) / 2;
+    return {
+      cx: cx + ma * ex - mb * ez,
+      cz: cz + ma * ez + mb * ex,
+      halfA: (a1 - a0) / 2,
+      halfB: (b1 - b0) / 2,
+    };
+  }
+
   private poolFor(c: FabricChar): readonly string[] {
     switch (c) {
       case "downtown":
@@ -1288,8 +1452,19 @@ export class CityModel {
     if (!lot.attached) return this.poolFor(c);
     switch (c) {
       case "residential":
-      case "victorian":
-        return blockHash(lot.x, lot.z) % 4 === 0 ? BUILDINGS_SUBURBAN : SUBURBAN_FLAT_TOP;
+      case "victorian": {
+        const h = blockHash(lot.x, lot.z);
+        if (h % 4 !== 0) return SUBURBAN_FLAT_TOP;
+        // The gabled quarter still wants ONE ridge per block, not eighteen.
+        // Handing a whole 18-model pool to `rng.pick` re-rolls the roof for
+        // every house, so even the "one roof family per block" blocks came out
+        // as a sawtooth of five different ridge heights. A two-model window
+        // keeps the variety between blocks and the repeat within one.
+        const i = h % BUILDINGS_SUBURBAN.length;
+        return BUILDINGS_SUBURBAN.filter(
+          (_, k) => k === i || k === (i + 1) % BUILDINGS_SUBURBAN.length,
+        );
+      }
       case "downtown":
       case "highrise":
       case "commercial":
@@ -1453,6 +1628,8 @@ export class CityModel {
 
   private phase2!: () => Promise<void>;
   private phase3!: () => Promise<void>;
+  /** Front faces the frontage walk actually built — see the stamp in phase1. */
+  private facadeAt: (x: number, z: number) => boolean = () => false;
   // Yield to the event loop so the title screen stays interactive while the
   // city finishes building behind it.
   private lastBreathe = 0;
@@ -1546,11 +1723,34 @@ export class CityModel {
     for (const [cgx, cgz] of loadLocalOverrides().clear ?? []) {
       reservedAll.add(`${cgx},${cgz}`);
     }
-    // Garages claim their two cells before anything else builds there.
+    // The Golden Gate corridor. buildGoldenGate runs LAST (phase 3), so its
+    // deck does not exist yet when the vegetation and furniture passes seat
+    // props — and the deck is not network asphalt, so `onAsphalt` cannot see it
+    // either. The result was a kit conifer planted on the deck centreline at
+    // the bridge axis, straddling both lanes. Reserving the corridor up front
+    // is the only place that knowledge can live for every later pass.
+    {
+      const gg = goldenGatePlan({
+        plan: this.plan,
+        terrain: this.terrain,
+        worldX: (g) => this.worldX(g),
+        worldZ: (g) => this.worldZ(g),
+      });
+      if (gg) {
+        const gx0 = gridXOf(gg.ax - gg.half - ROAD_TILE * 0.5);
+        const gx1 = gridXOf(gg.ax + gg.half + ROAD_TILE * 0.5);
+        const gz0 = gridZOf(Math.min(gg.northEndZ, gg.shoreZ));
+        const gz1 = gridZOf(Math.max(gg.northEndZ, gg.shoreZ));
+        for (let gx = gx0; gx <= gx1; gx++) {
+          for (let gz = gz0; gz <= gz1; gz++) reservedAll.add(`${gx},${gz}`);
+        }
+      }
+    }
+    // Garages claim their own cell AND their drive-in pad before anything else
+    // builds (or dresses) there.
     for (const g of this.garages) {
-      const ggx = Math.floor((g.x + WORLD_HALF_X) / ROAD_TILE);
-      const ggz = Math.floor((g.z + WORLD_HALF_Z) / ROAD_TILE);
-      reservedAll.add(`${ggx},${ggz}`);
+      reservedAll.add(`${gridXOf(g.x)},${gridZOf(g.z)}`);
+      reservedAll.add(`${gridXOf(g.padX)},${gridZOf(g.padZ)}`);
     }
     const lm = { ...lmBase, reserved: reservedAll };
     // Landmark monuments have visuals but are NOT batch items (built as
@@ -1558,25 +1758,6 @@ export class CityModel {
     // vouch for them — tag the reason instead of relying on batched
     // neighbours to cover them by coincidence.
     for (const s of lm.solids) this.solids.push({ ...s, unseen: "landmark (unbatched monument)" });
-    // The depot buildings themselves (orange roller-door warehouse).
-    for (const g of this.garages) {
-      const url = modelUrl("buildings", GARAGE_MODEL);
-      const node = this.cache.instance(url);
-      const b = this.cache.bounds(url);
-      const sc = (ROAD_TILE * 0.78) / Math.max(b.size.x, b.size.z, 0.001); // house-sized
-      node.scale.setScalar(sc);
-      node.rotation.y = g.yaw;
-      node.position.set(g.x, this.standAt(g.x, g.z), g.z);
-      node.updateMatrixWorld(true);
-      collect(node);
-      const half = ROAD_TILE * 0.42;
-      this.solids.push({
-        minX: g.x - half,
-        maxX: g.x + half,
-        minZ: g.z - half,
-        maxZ: g.z + half,
-      });
-    }
 
     const placedHash = new Map<number, OccBox[]>();
     let occRow = 0;
@@ -1601,6 +1782,31 @@ export class CityModel {
         else placedHash.set(key, [b]);
       });
     };
+
+    // The depot buildings themselves (orange roller-door warehouse). A depot is
+    // ~10u across — WIDER than the one cell its reservation covers — so it also
+    // has to CLAIM its footprint: reserving the centre cell alone let the
+    // frontage walk stand a row house inside the depot (7 pairs, 100% of the
+    // smaller box, and the depot renders as an unlit black mass through it).
+    for (const g of this.garages) {
+      const url = modelUrl("buildings", GARAGE_MODEL);
+      const node = this.cache.instance(url);
+      const b = this.cache.bounds(url);
+      const sc = (ROAD_TILE * 0.78) / Math.max(b.size.x, b.size.z, 0.001); // house-sized
+      node.scale.setScalar(sc);
+      node.rotation.y = g.yaw;
+      node.position.set(g.x, this.standAt(g.x, g.z), g.z);
+      node.updateMatrixWorld(true);
+      collect(node);
+      const half = ROAD_TILE * 0.42;
+      this.solids.push({
+        minX: g.x - half,
+        maxX: g.x + half,
+        minZ: g.z - half,
+        maxZ: g.z + half,
+      });
+      occupy(occBox(g.x, g.z, half + 0.6, half + 0.6, 0, ++occRow));
+    }
 
     // A block-INTERIOR lot on a grid cell, facing the same street its frontage
     // neighbour does. The shrink lives here rather than inside placeBuilding
@@ -1660,7 +1866,80 @@ export class CityModel {
 
     // Why a planned lot did not get built — the fabric pass is the biggest
     // consumer of gen time and has no other visibility into its own losses.
-    const rejects = { freeway: 0, occupied: 0, cliff: 0, reserved: 0 };
+    const rejects = { freeway: 0, occupied: 0, cliff: 0, reserved: 0, road: 0 };
+
+    // WHERE A WALL ACTUALLY GOT BUILT. furniture.ts hangs awnings, shutters,
+    // fire escapes and murals on `facadeOffset(edge.half)` — a plane it can
+    // compute but not verify, because it never sees the buildings. Every alley
+    // between runs, every lot the cliff/occupancy/roadway gates refuse and
+    // every block the real-footprint pass owns instead left that plane empty,
+    // and the props hung there anyway. Stamping the front face of each built
+    // lot into a coarse lattice is the cheapest honest answer.
+    const FACADE_CELL = 2.5;
+    const FACADE_STRIDE = 4096;
+    const facadeCells = new Set<number>();
+    const facadeKey = (x: number, z: number): number =>
+      Math.floor((x + WORLD_HALF_X) / FACADE_CELL) * FACADE_STRIDE +
+      Math.floor((z + WORLD_HALF_Z) / FACADE_CELL);
+    const stampFacade = (lot: FabricLot): void => {
+      const steps = Math.max(2, Math.ceil((lot.width * 2) / FACADE_CELL));
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        facadeCells.add(
+          facadeKey(lot.x0 + (lot.x1 - lot.x0) * t, lot.z0 + (lot.z1 - lot.z0) * t),
+        );
+      }
+    };
+    this.facadeAt = (x: number, z: number): boolean => facadeCells.has(facadeKey(x, z));
+
+    /**
+     * Walk BOX_PROBES over a lot's own rectangle in world space. The frame is
+     * taken from the lot's front-face corners rather than from `yaw`, so a
+     * sliced or back-row lot cannot drift out of phase with the trigonometry
+     * that built it, and `centreZ`/`halfD` are parameters so a caller can ask
+     * about a rectangle SHALLOWER than the planned one (pulling the back wall
+     * in) without inventing a second lot.
+     */
+    const lotProbes = (
+      lot: FabricLot,
+      cx: number,
+      cz: number,
+      halfD: number,
+      visit: (x: number, z: number) => boolean,
+    ): boolean => {
+      const ex = lot.x1 - lot.x0;
+      const ez = lot.z1 - lot.z0;
+      const el = Math.max(Math.hypot(ex, ez), 0.001);
+      const ax = ex / el;
+      const az = ez / el;
+      const fx = (lot.x0 + lot.x1) / 2 - lot.x;
+      const fz = (lot.z0 + lot.z1) / 2 - lot.z;
+      const fl = Math.max(Math.hypot(fx, fz), 0.001);
+      const bx = fx / fl;
+      const bz = fz / fl;
+      const halfW = lot.width / 2;
+      for (const [a, b] of BOX_PROBES) {
+        const px = cx + ax * a * halfW + bx * b * halfD;
+        const pz = cz + az * a * halfW + bz * b * halfD;
+        if (visit(px, pz)) return true;
+      }
+      return false;
+    };
+    /** Does any part of this rectangle stand on the DRAWN asphalt? */
+    const lotOnAsphalt = (
+      lot: FabricLot,
+      cx: number,
+      cz: number,
+      halfD: number,
+    ): boolean => lotProbes(lot, cx, cz, halfD, (x, z) => this.onAsphalt(x, z, 0.3));
+    /**
+     * Does any part of this rectangle stand in a reserved (landmark / garage /
+     * editor-cleared) cell? The passes used to ask about the lot's CENTRE cell
+     * only, which is how six kit houses came to stand on the Murphy Windmill's
+     * and the Ferry Building's own lawns: a 12u cell is smaller than a lot.
+     */
+    const lotReserved = (lot: FabricLot, cx: number, cz: number, halfD: number): boolean =>
+      lotProbes(lot, cx, cz, halfD, (x, z) => lm.reserved.has(`${gridXOf(x)},${gridZOf(z)}`));
 
     // One building on one finished lot. The lot's width, depth, facing and
     // setback are decided by the caller (planFabricRow for frontage rows,
@@ -1673,15 +1952,57 @@ export class CityModel {
       row: number,
       dressing: boolean, // rooftop towers + curbside trees (frontage only)
     ): FabricLot | null => {
-      const wx = lot.x;
-      const wz = lot.z;
+      let wx = lot.x;
+      let wz = lot.z;
       const district = districtAt(gridXOf(wx), gridZOf(wz));
       if (nearFreeway(wx, wz, 1.5)) {
         rejects.freeway++;
         return null; // no lots inside the viaduct ROW
       }
       const halfW = lot.width / 2;
-      const halfD = lot.depth / 2;
+      let halfD = lot.depth / 2;
+      // THE ROADWAY GATE, and the only one that sees every caller. Each planner
+      // clears the streets IT knows about — planFabricRow its own kerb and the
+      // cross streets its walk passes, fitCellLot its cell's four corners — and
+      // none of them can see a back row pushed across the block, a hillside
+      // slice swung round on its yaw, or the second street a corner lot backs
+      // onto. Measured before this existed: 1,537 kit masses reaching >0.5u
+      // past a kerb, 277 of them >3u — a car's width into a travel lane.
+      //
+      // The frontage is the street WALL and never moves; the depth does, so the
+      // fix is to pull the back wall in until the rectangle clears, and to
+      // refuse the lot only when there is nothing left to pull.
+      {
+        const fmx = (lot.x0 + lot.x1) / 2;
+        const fmz = (lot.z0 + lot.z1) / 2;
+        const nx = fmx - lot.x;
+        const nz = fmz - lot.z;
+        const nl = Math.max(Math.hypot(nx, nz), 0.001);
+        let ok = !lotOnAsphalt(lot, wx, wz, halfD);
+        for (let i = 0; i < 3 && !ok; i++) {
+          const d = halfD * 2 * 0.72;
+          if (d < LOT_DEPTH_MIN) break;
+          halfD = d / 2;
+          wx = fmx - (nx / nl) * halfD;
+          wz = fmz - (nz / nl) * halfD;
+          ok = !lotOnAsphalt(lot, wx, wz, halfD);
+        }
+        if (!ok) {
+          rejects.road++;
+          return null;
+        }
+      }
+      // A landmark parcel is a FOOTPRINT question, not a centre-cell one.
+      if (lotReserved(lot, wx, wz, halfD)) {
+        rejects.reserved++;
+        return null;
+      }
+      const depth = halfD * 2;
+      // The lot AS SEATED: same frontage and facing, the depth the roadway gate
+      // left it. Everything downstream that needs a plan (the tuck-under
+      // garage, the caller's back-row walk) must read this one, not the plan
+      // the walk handed in, or the dressing hangs off a wall that moved.
+      const seated: FabricLot = { ...lot, x: wx, z: wz, depth };
       const cos = Math.cos(lot.yaw);
       const sin = Math.sin(lot.yaw);
       if (occupiedBy(occBox(wx, wz, halfW, halfD, lot.yaw, row))) {
@@ -1707,7 +2028,7 @@ export class CityModel {
       node.scale.set(
         (lot.width * inset) / Math.max(bounds.size.x, 0.001),
         (worldH - podiumH) / Math.max(bounds.size.y, 0.001),
-        (lot.depth * inset) / Math.max(bounds.size.z, 0.001),
+        (depth * inset) / Math.max(bounds.size.z, 0.001),
       );
       node.rotation.y = lot.yaw + BUILDING_FRONT_OFFSET;
       // Buildings stay vertical. SF cuts the uphill wall INTO the grade and
@@ -1759,14 +2080,14 @@ export class CityModel {
       const plinthH = seatY - loY + 0.8;
       if (fall > 0.7) {
         const plinth = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
-        plinth.scale.set(lot.width * 0.98, plinthH, lot.depth * 0.98);
+        plinth.scale.set(lot.width * 0.98, plinthH, depth * 0.98);
         plinth.rotation.y = lot.yaw;
         plinth.position.set(wx, seatY - 0.1 - plinthH / 2, wz);
         plinth.updateMatrixWorld(true);
         collect(plinth);
         // The plinth's downhill face is the most-repeated hill element in the
         // map; give it the tuck-under garage SF actually builds there.
-        if (plinthH >= PLINTH_GARAGE_MIN) this.addGarageFront(collect, lot, seatY, plinthH);
+        if (plinthH >= PLINTH_GARAGE_MIN) this.addGarageFront(collect, seated, seatY, plinthH);
       }
       node.position.set(wx, seatY - 0.15 + podiumH, wz);
       // KayKit blocks ship with authored storefront colors — a light kiss of
@@ -1779,7 +2100,7 @@ export class CityModel {
       collect(node);
       if (tall) {
         const podium = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
-        podium.scale.set(lot.width, podiumH + 0.3, lot.depth);
+        podium.scale.set(lot.width, podiumH + 0.3, depth);
         podium.rotation.y = lot.yaw;
         podium.position.set(wx, seatY + podiumH / 2 - 0.3, wz);
         podium.updateMatrixWorld(true);
@@ -1788,7 +2109,7 @@ export class CityModel {
         const taper = worldH >= 40 ? 0.57 : 0.72;
         const crownH = Math.min(2.4, worldH * 0.07);
         const crown = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
-        crown.scale.set(lot.width * inset * taper, crownH, lot.depth * inset * taper);
+        crown.scale.set(lot.width * inset * taper, crownH, depth * inset * taper);
         crown.rotation.y = lot.yaw;
         crown.position.set(wx, seatY + worldH + crownH / 2 - 0.4, wz);
         crown.updateMatrixWorld(true);
@@ -1807,7 +2128,7 @@ export class CityModel {
       });
       occupy(occBox(wx, wz, halfW, halfD, lot.yaw, row));
 
-      if (!dressing) return lot;
+      if (!dressing) return seated;
 
       // Rooftop watertower — the classic city-builder silhouette — on some
       // mid-rise commercial roofs.
@@ -1854,7 +2175,7 @@ export class CityModel {
           if (large) treeSolid(tx, tz);
         }
       }
-      return lot;
+      return seated;
     };
 
     // One lot, STEPPED into its slope if it has to be. A single box can only
@@ -1928,7 +2249,16 @@ export class CityModel {
           const bgx = this.gridX(cx);
           const bgz = this.gridZ(cz);
           if (!isLandCell(bgx, bgz)) continue;
-          if (lm.reserved.has(`${bgx},${bgz}`)) continue; // landmark parcel
+          // Landmark parcel, asked of the whole RING and not just the centroid
+          // cell: a 12u cell is smaller than a parcel, so a centroid one cell
+          // outside still laid its footprint on the Ferry Building's apron.
+          let onReserved = lm.reserved.has(`${bgx},${bgz}`);
+          for (let i = 0; i < rel.length && !onReserved; i += 2) {
+            const rx = cx + (rel[i] ?? 0);
+            const rz = cz + (rel[i + 1] ?? 0);
+            if (lm.reserved.has(`${gridXOf(rx)},${gridZOf(rz)}`)) onReserved = true;
+          }
+          if (onReserved) continue;
           // A parcel whose centroid falls inside another one is a height-band
           // or building-part DUPLICATE of it (2,570 of them, measured in
           // sf-adjacency.ts). Extruding both is what made downtown grey mush,
@@ -2082,19 +2412,16 @@ export class CityModel {
             const px = cx + a0 * ex - bb0 * ez;
             const pz = cz + a0 * ez + bb0 * ex;
             // The OBB covers more than an L-shaped ring: every segment
-            // re-checks its own corners against the streets (and shrinks
-            // once before giving up).
+            // re-checks itself against the streets (and shrinks once before
+            // giving up). Corners are not enough — a tower parcel is ONE
+            // segment up to 50u long, so it can lie along the street it
+            // swallows with both its corners on clear ground.
             let fw = segLen * 0.94;
             let fd = segWid * 0.92;
             const cornersClear = (): boolean => {
-              for (const [sa, sb] of [
-                [-fw / 2, -fd / 2],
-                [fw / 2, -fd / 2],
-                [fw / 2, fd / 2],
-                [-fw / 2, fd / 2],
-              ] as const) {
-                const qx = px + sa * ex - sb * ez;
-                const qz = pz + sa * ez + sb * ex;
+              for (const [sa, sb] of BOX_PROBES) {
+                const qx = px + ((sa * fw) / 2) * ex - ((sb * fd) / 2) * ez;
+                const qz = pz + ((sa * fw) / 2) * ez + ((sb * fd) / 2) * ex;
                 if (this.onAsphalt(qx, qz, 0.2)) return false;
               }
               return true;
@@ -2156,20 +2483,35 @@ export class CityModel {
           if (placedSeg === 0) continue; // nothing fit — no solids either
           if (tall) {
             // One podium for the parcel: the continuous wall a tower needs at
-            // street level, under whichever shafts fitted above it.
-            towers++;
-            const podiumH = bhV * 0.22;
-            const podium = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
-            podium.scale.set(lenA * 0.96, podiumH, lenB * 0.96);
-            podium.rotation.y = yaw;
-            podium.position.set(obbX, seatY + podiumH / 2 - 0.15, obbZ);
-            podium.updateMatrixWorld(true);
-            this.tintNode(
-              podium,
-              this.blockColorAt(obbX, obbZ, district),
-              Math.min(1, tintAmountFor(district) * TINT_GAIN) * 0.7,
+            // street level, under whichever shafts fitted above it. The SHAFTS
+            // re-test their own corners; the podium keeps the whole lot line
+            // and so is the one piece that can lie across a street — measured
+            // as a 50x39u blank slab over the Embarcadero. Pull its sides in.
+            const fit = this.fitRectOffAsphalt(
+              obbX,
+              obbZ,
+              ex,
+              ez,
+              (lenA * 0.96) / 2,
+              (lenB * 0.96) / 2,
+              0.2,
+              2.4,
             );
-            collect(podium);
+            if (fit) {
+              towers++;
+              const podiumH = bhV * 0.22;
+              const podium = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
+              podium.scale.set(fit.halfA * 2, podiumH, fit.halfB * 2);
+              podium.rotation.y = yaw;
+              podium.position.set(fit.cx, seatY + podiumH / 2 - 0.15, fit.cz);
+              podium.updateMatrixWorld(true);
+              this.tintNode(
+                podium,
+                this.blockColorAt(fit.cx, fit.cz, district),
+                Math.min(1, tintAmountFor(district) * TINT_GAIN) * 0.7,
+              );
+              collect(podium);
+            }
           }
 
           // Collision: rectangles get one OBB; complex outlines get one thin
@@ -2198,17 +2540,34 @@ export class CityModel {
             const bz = cz + (rel[3] ?? 0);
             const dxx = cx + (rel[4] ?? 0);
             const dzz = cz + (rel[5] ?? 0);
-            const lenA = Math.hypot(bx - ax, bz - az);
-            const lenB = Math.hypot(dxx - bx, dzz - bz);
-            const ex = (bx - ax) / (lenA || 1);
-            const ez = (bz - az) / (lenA || 1);
-            this.solids.push({
-              minX: cx - (lenA / 2) * 0.96,
-              maxX: cx + (lenA / 2) * 0.96,
-              minZ: cz - (lenB / 2) * 0.96,
-              maxZ: cz + (lenB / 2) * 0.96,
-              yaw: Math.atan2(-ez, ex),
-            });
+            const rectA = Math.hypot(bx - ax, bz - az);
+            const rectB = Math.hypot(dxx - bx, dzz - bz);
+            const rex = (bx - ax) / (rectA || 1);
+            const rez = (bz - az) / (rectA || 1);
+            // Only the ring VERTICES were ever tested against the streets, and
+            // one box over the whole rectangle is the biggest single collider
+            // this pass emits — a 50x39u wharf parcel laid an invisible wall
+            // across the road that crosses it. Fit it off the asphalt (and
+            // emit nothing at all rather than a wall in the lane).
+            const fit = this.fitRectOffAsphalt(
+              cx,
+              cz,
+              rex,
+              rez,
+              (rectA / 2) * 0.96,
+              (rectB / 2) * 0.96,
+              0.2,
+              2.2,
+            );
+            if (fit) {
+              this.solids.push({
+                minX: fit.cx - fit.halfA,
+                maxX: fit.cx + fit.halfA,
+                minZ: fit.cz - fit.halfB,
+                maxZ: fit.cz + fit.halfB,
+                yaw: Math.atan2(-rez, rex),
+              });
+            }
           } else {
             for (let i = 0; i < n; i++) {
               const j = (i + 1) % n;
@@ -2255,6 +2614,7 @@ export class CityModel {
             const cardinal = Math.abs(Math.sin(2 * lot.yaw)) < 0.18;
             if (placeBuilding(lot, row, cardinal) === null) continue;
             lotsBuilt++;
+            stampFacade(lot); // this lot's front face is a wall furniture may dress
             // BACK ROWS fill this lot's half of the block behind it. A narrow
             // block's front row already reaches the middle and gets none; a wide
             // one gets a second (rarely third) row with a rear yard between, the
@@ -2306,7 +2666,7 @@ export class CityModel {
       console.log(
         `[city] frontage lots: ${lotsBuilt} built of ${lotsPlanned} planned ` +
           `(${rejects.occupied} occupied, ${rejects.reserved} reserved, ` +
-          `${rejects.cliff} cliff, ${rejects.freeway} freeway), ` +
+          `${rejects.cliff} cliff, ${rejects.freeway} freeway, ${rejects.road} roadway), ` +
           `${this.garageFronts} hill garages`,
       );
 
@@ -2351,6 +2711,7 @@ export class CityModel {
         cache: this.cache,
         rng: this.rng,
         reserved: lm.reserved,
+        facadeAt: (x, z) => this.facadeAt(x, z),
         worldX: (g) => this.worldX(g),
         worldZ: (g) => this.worldZ(g),
       });
@@ -2383,6 +2744,14 @@ export class CityModel {
       const seawallMat = new THREE.MeshStandardMaterial({ color: 0x9aa2a6, roughness: 1 });
       const bermMat = new THREE.MeshStandardMaterial({ color: 0xcbb98d, roughness: 1 });
       const lipGeo = new THREE.BoxGeometry(1, 1, 1);
+      // A landmark that reaches the water owns its own shore — the Bay Bridge
+      // anchorage, Fort Point's apron, the ballpark's bowl edge are all already
+      // standing on those cells. A generic full-cell box stacked inside the
+      // parcel is a squatter the landmark audit counts, and the player can only
+      // meet it as an invisible wall past the visible one, so the shore pass
+      // defers there. Twelve cells across three landmarks; measured, the drawn
+      // asphalt stops at least 1u short of every one of them, so no drivable
+      // approach loses a barrier it was relying on.
       for (let gx = 0; gx < GRID_X; gx++) {
         for (let gz = 0; gz < GRID_Z; gz++) {
           if (this.plan.cells[gx]?.[gz] !== "water") continue;
@@ -2402,10 +2771,22 @@ export class CityModel {
             // OSM sand cells AND natural shore-gradient beaches (ground.ts
             // paints sand where landAt < ~0.45) get the low berm; only truly
             // urban hard shores keep the concrete seawall.
+            // Where a waterfront street is drawn OVER the cell boundary the lip
+            // is not a shore edge, it is a tan bar lying across the lane (24 of
+            // them, up to 7u in). The blocker behind it is fitted off the
+            // asphalt for the same reason, so dropping the visual here keeps
+            // the pair honest: no wall you can see, none you can hit.
+            if (this.onAsphalt(ex, ez, -0.6)) continue;
             const beach = landuseSandAt(gx + dx, gz + dz) || this.terrain.landAt(ex, ez) < 0.45;
             const h = beach ? 0.8 : 1.0;
             const th = beach ? 1.6 : 0.6;
-            const groundY = this.terrain.heightAt(
+            // NOTHING SITS ON THE RAW HEIGHT FIELD (CLAUDE.md). These two kinds
+            // were the last holdouts: 1,340 of 3,086 concrete lips and 330 of
+            // 1,061 sand berms sat >0.35u off their own baseline, and the berm
+            // tracked `terrain.heightAt` MORE tightly than the surface that is
+            // drawn — the wrong-surface signature in one number. Seat both
+            // through makeStandingSurface like every other static prop.
+            const groundY = this.standAt(
               wx + dx * ROAD_TILE * 0.62,
               wz + dz * ROAD_TILE * 0.62,
             );
@@ -2417,8 +2798,21 @@ export class CityModel {
             collect(lip);
           }
           if (!coastal) continue;
+          if (lm.reserved.has(waterKey)) continue;
+          // The blocker is a full CELL, but a waterfront street's asphalt is
+          // drawn over part of that cell — 52 of these reached up to 7u into a
+          // travel lane as an invisible wall six units past the lip you can
+          // see. Fit it back to the water it is there to keep you out of.
           const half = ROAD_TILE * 0.46;
-          this.solids.push({ minX: wx - half, maxX: wx + half, minZ: wz - half, maxZ: wz + half });
+          const fit = this.fitRectOffAsphalt(wx, wz, 1, 0, half, half, 0.2, 2.0);
+          if (fit) {
+            this.solids.push({
+              minX: fit.cx - fit.halfA,
+              maxX: fit.cx + fit.halfA,
+              minZ: fit.cz - fit.halfB,
+              maxZ: fit.cz + fit.halfB,
+            });
+          }
         }
       }
 
@@ -2670,7 +3064,7 @@ export class CityModel {
       this.chunks.push({ cx: g.cx, cz: g.cz, radius: cullRadius, dist: g.dist, group: g.group });
     }
     // Model batches from source tags (or the raw-geo table).
-    const rawBuilt: { geo: THREE.BufferGeometry; mat: THREE.MeshStandardMaterial }[] = [];
+    const rawBuilt: { geo: THREE.BufferGeometry; mat: BakedMaterial }[] = [];
     for (const rg of rest.rawGeos) {
       const geo = new THREE.BufferGeometry();
       geo.setAttribute("position", new THREE.BufferAttribute(rg.position, 3));
@@ -2828,9 +3222,12 @@ export class CityModel {
           });
         } else {
           const mat = bucket.material;
-          if (mat instanceof THREE.MeshStandardMaterial && !mat.map) {
-            // Shared generated geometry (plinths, seawall, lake…): serialize
-            // once into the raw-geo table, reference by index.
+          const textured = mat instanceof THREE.MeshStandardMaterial && mat.map !== null;
+          const rec = textured ? null : matRecOf(mat);
+          if (rec !== null) {
+            // Shared generated geometry (plinths, seawall, lake, the bridge's
+            // unlit tower lamps…): serialize once into the raw-geo table,
+            // reference by index.
             let rawId = this.rawGeoIds.get(item.geo.uuid);
             if (rawId === undefined) {
               const pos2 = item.geo.getAttribute("position");
@@ -2843,17 +3240,7 @@ export class CityModel {
                 normal: nor2 ? (nor2.array as Float32Array) : null,
                 uv: uv2 ? (uv2.array as Float32Array) : null,
                 index: item.geo.index ? (item.geo.index.array as Uint16Array | Uint32Array) : null,
-                mat: {
-                  color: mat.color.getHex(),
-                  roughness: mat.roughness,
-                  metalness: mat.metalness,
-                  vertexColors: mat.vertexColors,
-                  polygonOffset: mat.polygonOffset,
-                  polygonOffsetFactor: mat.polygonOffsetFactor,
-                  polygonOffsetUnits: mat.polygonOffsetUnits,
-                  transparent: mat.transparent,
-                  opacity: mat.opacity,
-                },
+                mat: rec,
               });
             }
             restItems.push({

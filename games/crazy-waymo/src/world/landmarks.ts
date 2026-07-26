@@ -2,7 +2,6 @@ import * as THREE from "three";
 
 import { type Beacon, registerBeacons } from "../fx/beacon-lights";
 import type { ModelCache } from "../assets/loader";
-import { BUILDINGS_SUBURBAN, modelUrl } from "../assets/manifest";
 import {
   GRID_X,
   GRID_Z,
@@ -15,7 +14,7 @@ import {
 import { Rng } from "../shared/rng";
 import type { Solid } from "./city";
 import type { CityPlan } from "./grid";
-import { arc, box, cyl, dome, MAT, mesh, packLandmark, strut } from "./landmark-geo";
+import { arc, box, cyl, dome, facet, MAT, mesh, packLandmark, strut } from "./landmark-geo";
 import type { RoadNetwork } from "./network";
 import type { Terrain } from "./terrain";
 
@@ -69,6 +68,32 @@ export type LandmarkCtx = {
  * corner shows daylight underneath — every ground-seated builder sinks a
  * footing to this depth instead.
  */
+/**
+ * Landmark night beacons, collected per build and published in one registry
+ * entry (see fx/beacon-lights.ts — runtime only, no bake).
+ *
+ * The audit's night pass found every monument except the two bridges going
+ * completely dark: City Hall was LESS legible than the office block beside it,
+ * Alcatraz's lighthouse did not burn, and Coit and the Pyramid vanished. A
+ * landmark that only works in daylight is not a beacon.
+ */
+let landmarkBeacons: Beacon[] = [];
+
+function beaconAt(
+  ctx: LandmarkCtx,
+  lx: number,
+  ly: number,
+  lz: number,
+  color: number,
+  size: number,
+  blinkS?: number,
+): void {
+  const [x, y, z] = ctx.worldPoint(lx, ly, lz);
+  landmarkBeacons.push(
+    blinkS === undefined ? { x, y, z, color, size } : { x, y, z, color, size, blinkS },
+  );
+}
+
 function lowestUnder(ctx: LandmarkCtx, halfX: number, halfZ: number, x = 0, z = 0): number {
   let lo = 0;
   for (const dx of [-halfX, 0, halfX]) {
@@ -89,15 +114,39 @@ type LandmarkDef = {
 // --- The historic set (authored against KIT_SCALE) -----------------------
 
 // Transamerica Pyramid — slender white 4-sided pyramid with shoulder wings.
-function pyramid(): THREE.Group {
+//
+// Two things stop it reading. (1) three averages a cone's vertex normals AROUND
+// the ring, so a 4-segment `ConeGeometry` shades as a smooth horn with no
+// visible arrises — the audit called it "a near-circular-section white cone".
+// `facet` flat-shades it, and the four faces come back. (2) At noon a pale
+// shaft against a pale sky is invisible, so the base carries the real
+// building's dark banded podium: a value anchor the eye can find the spire on.
+function pyramid(ctx: LandmarkCtx): THREE.Group {
   const g = new THREE.Group();
   const H = 36; // real 260 m at world scale
-  const cone = mesh(new THREE.ConeGeometry(4.4, H, 4), MAT.white, 0, H / 2, 0);
+  const cone = mesh(facet(new THREE.ConeGeometry(4.4, H, 4)), MAT.white, 0, H / 2, 0);
   cone.rotation.y = Math.PI / 4;
   g.add(cone);
   g.add(box(1.4, 14, 3, MAT.white, -3.2, 7, 0));
   g.add(box(1.4, 14, 3, MAT.white, 3.2, 7, 0));
+  // Dark podium and the setback band above it.
+  g.add(box(9.6, 3.4, 9.6, MAT.slate, 0, 1.7, 0, Math.PI / 4));
+  g.add(box(8.4, 0.5, 8.4, MAT.steel, 0, 3.6, 0, Math.PI / 4));
+  // Floor bands up the slope: a 36u blank taper is exactly the featureless
+  // prism the podium alone does not solve, and the bands also give the tower a
+  // sense of storeys (hence of size) from the street.
+  for (let i = 1; i <= 7; i++) {
+    const y = (H * i) / 8;
+    const r = 4.4 * (1 - y / H) * 1.04;
+    const band = cyl(r * 0.94, r, 0.4, 4, MAT.steel, 0, y, 0);
+    band.rotation.y = Math.PI / 4;
+    g.add(band);
+  }
   g.add(cyl(0.18, 0.18, 7, 8, MAT.white, 0, H + 3, 0));
+  // Aviation light on the spire — the tallest thing downtown must be findable
+  // after dark, and nothing on it emitted before.
+  g.add(box(0.7, 0.7, 0.7, MAT.lamp, 0, H + 6.6, 0));
+  beaconAt(ctx, 0, H + 6.6, 0, 0xff5a48, 3.2, 2.4);
   return g;
 }
 
@@ -115,7 +164,7 @@ function salesforce(): THREE.Group {
 // Coit Tower — fluted white column on the Telegraph Hill summit (its (u,v)
 // IS the hill's, so it crowns the crest). Deliberately ~1.8× real height:
 // a true-scale 64 m column disappears behind North Beach's rooftops.
-function coitTower(): THREE.Group {
+function coitTower(ctx: LandmarkCtx): THREE.Group {
   const g = new THREE.Group();
   const H = 16;
   g.add(cyl(3.4, 3.7, 1.3, 16, MAT.cream, 0, 0.5, 0)); // plinth: no floating on the crest
@@ -131,6 +180,11 @@ function coitTower(): THREE.Group {
     g.add(box(1.1, 1.7, 0.5, MAT.slate, x, H + 1.1, z, yaw));
   });
   g.add(cyl(1.4, 2.2, 2, 16, MAT.white, 0, H + 3, 0));
+  // Floodlit crown: Coit is the north-east's one navigation beacon and it went
+  // fully dark at night.
+  g.add(cyl(1.5, 1.5, 0.5, 12, MAT.lamp, 0, H + 4.1, 0));
+  beaconAt(ctx, 0, H + 4.1, 0, 0xffe0a8, 6.5);
+  beaconAt(ctx, 0, H + 1, 0, 0xffd9a0, 5);
   return g;
 }
 
@@ -176,13 +230,35 @@ function ferryBuilding(ctx: LandmarkCtx): THREE.Group {
   ] as const) {
     g.add(box(cz === 0 ? 0.3 : 2.0, 2.0, cz === 0 ? 2.0 : 0.3, MAT.steel, cx, shaft + 1.1, cz));
   }
+  // THE CLOCK. Four faces on the stage, which is the single feature that makes
+  // this building the Ferry Building rather than a long shed with a turret —
+  // and it was not there. Pale dial, dark bezel, gold hands.
+  const clockR = (D + 0.7) / 2 + 0.18;
+  for (let f = 0; f < 4; f++) {
+    // Each face is authored FLAT in local XY (dial plane = XY, thickness Z),
+    // then the whole sub-group is yawed onto its elevation. Rotating the
+    // primitives one by one is how clock hands end up pointing into a wall.
+    const face = new THREE.Group();
+    face.add(cyl(2.05, 2.05, 0.24, 16, MAT.slate, 0, 0, 0).rotateX(Math.PI / 2));
+    face.add(cyl(1.72, 1.72, 0.3, 16, MAT.white, 0, 0, 0.04).rotateX(Math.PI / 2));
+    face.add(box(0.16, 1.4, 0.34, MAT.gold, 0, 0.6, 0.1)); // minute hand, straight up
+    face.add(box(0.9, 0.16, 0.34, MAT.gold, 0.38, 0, 0.1)); // hour hand, at three
+    const yaw = (f * Math.PI) / 2;
+    face.position.set(Math.sin(yaw) * clockR, shaft + 1.1, Math.cos(yaw) * clockR);
+    face.rotation.y = yaw;
+    g.add(face);
+  }
   g.add(mesh(new THREE.ConeGeometry(D * 0.72, 1.6, 4), MAT.slate, 0, shaft + 3.0, 0));
+  // The clock stage burns at night — a lit dial over the Embarcadero is the
+  // waterfront's own beacon.
+  beaconAt(ctx, 0, shaft + 1.1, 0, 0xffe9bc, 8);
+  beaconAt(ctx, 0, shaft + 3.4, 0, 0xffd9a0, 4);
   return g;
 }
 
 // Sutro Tower — the three-pronged antenna visible from all of SF; the map's
 // central orientation weenie on the saddle between Twin Peaks and Mt Sutro.
-function sutroTower(): THREE.Group {
+function sutroTower(ctx: LandmarkCtx): THREE.Group {
   const g = new THREE.Group();
   const H = 26; // legs
   const lean = 0.1;
@@ -197,48 +273,136 @@ function sutroTower(): THREE.Group {
     // Antenna prongs rise from the waist, white above.
     g.add(cyl(0.16, 0.22, 14, 6, MAT.white, Math.cos(a) * 2.2, H + 6.5, Math.sin(a) * 2.2));
   }
+  // Lattice bracing between the legs. Three bare cylinders read from the road
+  // beneath as ONE giant red pipe — the audit's word — because there is
+  // nothing at leg-to-leg scale to say "tower". Horizontal rings plus X-braces
+  // give it the openwork the real mast is entirely made of.
+  const legAt = (i: number, y: number): THREE.Vector3 => {
+    const a = (i / 3) * Math.PI * 2;
+    const r = 3.4 + (y / H) * lean * 3.4;
+    return new THREE.Vector3(Math.cos(a) * r, y, Math.sin(a) * r);
+  };
+  for (let lvl = 0; lvl < 5; lvl++) {
+    const y0 = 2 + (lvl * (H - 4)) / 5;
+    const y1 = 2 + ((lvl + 1) * (H - 4)) / 5;
+    for (let i = 0; i < 3; i++) {
+      const j = (i + 1) % 3;
+      g.add(strut(legAt(i, y0), legAt(j, y0), 0.14, MAT.orange, 5));
+      g.add(strut(legAt(i, y0), legAt(j, y1), 0.11, MAT.orange, 5));
+      g.add(strut(legAt(j, y0), legAt(i, y1), 0.11, MAT.orange, 5));
+    }
+  }
   // Waist platforms.
   g.add(cyl(2.9, 2.9, 0.7, 8, MAT.orange, 0, H * 0.62, 0));
   g.add(cyl(2.4, 2.4, 0.7, 8, MAT.orange, 0, H, 0));
   // Crossbar joining the prong tips.
   g.add(cyl(0.14, 0.14, 5.4, 6, MAT.white, 0, H + 13, 0));
-  return g;
-}
-
-// Chinatown Dragon Gate — pillars + tiered pagoda roofs over the road.
-function dragonGate(): THREE.Group {
-  const g = new THREE.Group();
-  for (const sx of [-4.6, 4.6]) {
-    g.add(cyl(0.55, 0.65, 5.6, 10, MAT.gateRed, sx, 2.8, 0));
+  // Red aviation lights on the prong tips — the real tower's night read, and
+  // the only thing that finds it once the haze takes the orange.
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2;
+    beaconAt(ctx, Math.cos(a) * 2.2, H + 13.5, Math.sin(a) * 2.2, 0xff4436, 3.2, 2.2);
   }
-  // Main span roof (three stacked tiers, green tile).
-  g.add(box(11.4, 0.5, 2.2, MAT.gateRed, 0, 5.8, 0));
-  g.add(box(10, 0.9, 2.8, MAT.gateGreen, 0, 6.5, 0));
-  g.add(box(6.5, 0.8, 2.4, MAT.gateGreen, 0, 7.6, 0));
-  g.add(box(3.2, 0.9, 2.0, MAT.gateGreen, 0, 8.6, 0));
-  g.add(mesh(new THREE.SphereGeometry(0.5, 8, 6), MAT.gateRed, 0, 9.4, 0));
   return g;
 }
 
-function paintedLadies(ctx: LandmarkCtx): THREE.Group {
+// Chinatown Dragon Gate — pillars + tiered pagoda roofs OVER the road.
+//
+// A gate spans a street; it does not stand in one. Authored on the local +X
+// axis and then yawed onto the real street it straddles, with the pillars
+// pushed just past the kerb so the car drives THROUGH the gate instead of
+// into a red column planted on the centreline.
+function dragonGate(ctx: LandmarkCtx): THREE.Group {
   const g = new THREE.Group();
-  const colors = [0xf6c8d4, 0x9ec6e0, 0xf2e0a0, 0xb8dcc0, 0xe8b48a, 0xd8c0e0];
+  const [ox, oz] = ctx.origin;
+  const hit = ctx.network?.nearest(ox, oz, ROAD_TILE * 2) ?? null;
+  // Local +X must run ACROSS the street: that is the road's NORMAL, and the
+  // group is only scaled/translated (rotDeg 0), so local axes are world axes.
+  const yaw = hit ? Math.atan2(-hit.tx, -hit.tz) : 0;
+  const span = ((hit ? hit.edge.half : 5) + 1.9) / KIT_SCALE;
+  const gate = new THREE.Group();
+  // The gate straddles the ROADWAY, so it is centred on the nearest point on
+  // the street centreline — NOT on the landmark's traced (u, v). The traced
+  // point sits ~7u off the centreline here, and spanning ±(half + gap) from it
+  // planted one pillar exactly where the car drives.
+  if (hit) gate.position.set((hit.x - ox) / KIT_SCALE, 0, (hit.z - oz) / KIT_SCALE);
+  for (const sx of [-span, span]) {
+    gate.add(cyl(0.45, 0.62, 5.6, 10, MAT.gateRed, sx, 2.8, 0));
+    gate.add(box(1.8, 0.8, 1.8, MAT.rock, sx, 0.4, 0)); // pillar base
+  }
+  const W = span * 2 + 2.2;
+  // Main span roof (three stacked tiers, green tile).
+  gate.add(box(W, 0.5, 2.2, MAT.gateRed, 0, 5.8, 0));
+  gate.add(box(W - 1.4, 0.9, 2.8, MAT.gateGreen, 0, 6.5, 0));
+  gate.add(box(W * 0.57, 0.8, 2.4, MAT.gateGreen, 0, 7.6, 0));
+  gate.add(box(W * 0.28, 0.9, 2.0, MAT.gateGreen, 0, 8.6, 0));
+  gate.add(mesh(new THREE.SphereGeometry(0.5, 8, 6), MAT.gateRed, 0, 9.4, 0));
+  gate.rotation.y = yaw;
+  g.add(gate);
+  return g;
+}
+
+// The Painted Ladies — Postcard Row: SIX ATTACHED Italianate Victorians with
+// a shared eaves line, matching bay windows and stoops down to the pavement.
+//
+// This used to be `BUILDINGS_SUBURBAN[i % n]` scaled to 5.5 at a pitch of 6.4
+// — detached tract houses with a ~0.9u daylight gap between every "Lady" and
+// an independent random height each, i.e. the most photographed row in San
+// Francisco rendered as a cul-de-sac. It is authored now, out of the landmark
+// palette, because the whole point of the row is that it is ONE terrace: the
+// bays line up, the cornice is level, and there is no gap.
+// Authored in WORLD units (`scale: 1`), matched to the neighbouring fabric so
+// the terrace reads as the best block on the street rather than as a monument
+// dropped on it.
+const PL_BAY = 8.2; // frontage per house — attached, so pitch == width
+const PL_DEPTH = 9.4;
+const PL_H = 12.2; // three storeys to a cornice that is LEVEL across the row
+/**
+ * The six body colours. Module-level and packable (see `packLandmark`'s extra
+ * set) so the whole terrace still collapses to one mesh per colour: six warm
+ * and cool pastels held at ONE value, which is what makes the row read as a
+ * terrace with six voices instead of as confetti.
+ */
+const PL_BODY: readonly THREE.MeshStandardMaterial[] = [
+  0xe0c99a, 0xb9cfdd, 0xe6bfa6, 0xc6d2ae, 0xdcb9c6, 0xb6bcd2,
+].map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.85 }));
+
+function paintedLadies(): THREE.Group {
+  const g = new THREE.Group();
+  // Trim is SHARED across the row — white joinery over a dark base — because
+  // that is what ties six different colours into one building.
   for (let i = 0; i < 6; i++) {
-    const url = modelUrl("buildings", BUILDINGS_SUBURBAN[i % BUILDINGS_SUBURBAN.length] ?? "");
-    const bounds = ctx.cache.bounds(url);
-    const scale = 5.5 / Math.max(bounds.size.x, bounds.size.z, 0.001);
-    const node = ctx.cache.instance(url);
-    node.scale.set(scale, scale * (1.3 + ctx.rng.range(0, 0.25)), scale);
-    node.position.set((i - 2.5) * 6.4, 0, 0);
-    const tint = colors[i] ?? 0xffffff;
-    node.traverse((c) => {
-      if (c instanceof THREE.Mesh && c.material instanceof THREE.MeshStandardMaterial) {
-        const m = c.material.clone();
-        m.color.lerp(new THREE.Color(tint), 0.7);
-        c.material = m;
-      }
-    });
-    g.add(node);
+    const cx = (i - 2.5) * PL_BAY;
+    const wall = PL_BODY[i] ?? MAT.cream;
+    // Body. Full frontage width, so neighbours share a party wall: no daylight
+    // between Ladies, which is the defect this rebuild exists to close.
+    g.add(box(PL_BAY, PL_H, PL_DEPTH, wall, cx, PL_H / 2, 0));
+    // The bay window — the element that makes a house Victorian rather than a
+    // box. Two storeys of framed glass projecting past the facade.
+    for (const sy of [4.2, 8.2]) {
+      g.add(box(4.6, 3.0, 2.2, MAT.cream, cx, sy, PL_DEPTH / 2 + 0.8));
+      g.add(box(3.8, 2.1, 2.4, MAT.glass, cx, sy, PL_DEPTH / 2 + 0.95));
+    }
+    // Storey band, cornice and the gabled parapet, all at the same height in
+    // every bay: a shared roofline is the difference between a row and six
+    // separate houses.
+    g.add(box(PL_BAY, 0.45, PL_DEPTH + 1.0, MAT.cream, cx, 6.2, 0));
+    g.add(box(PL_BAY + 0.3, 0.95, PL_DEPTH + 1.5, MAT.cream, cx, PL_H + 0.5, 0));
+    g.add(
+      mesh(
+        facet(new THREE.ConeGeometry(PL_BAY * 0.66, 2.6, 4)),
+        MAT.slate,
+        cx,
+        PL_H + 2.3,
+        0,
+      ).rotateY(Math.PI / 4),
+    );
+    // Stoop: the long straight stair every Lady has, down to the pavement,
+    // with a dark front door at its head.
+    g.add(box(2.4, 2.0, 4.0, MAT.cream, cx - 1.7, 1.0, PL_DEPTH / 2 + 2.4));
+    g.add(box(1.8, 3.4, 0.5, MAT.slate, cx - 1.7, 3.7, PL_DEPTH / 2 + 0.25));
+    // Ground-floor garage bay beside the stoop (the real row's ground storey).
+    g.add(box(3.0, 2.6, 0.5, MAT.slate, cx + 2.1, 1.9, PL_DEPTH / 2 + 0.25));
   }
   return g;
 }
@@ -413,9 +577,75 @@ function bayBridge(ctx: LandmarkCtx): THREE.Group {
   // --- SF landfall: the anchorage block on the seawall, plus the approach
   // viaduct running back west over the Embarcadero, so the crossing reads as
   // arriving FROM the city instead of starting in mid-air. ---
-  const anchH = BAY_ANCHOR_TOP + 10;
-  g.add(box(26, anchH, 26, MAT.concrete, BAY_ANCHOR_W, BAY_ANCHOR_TOP - anchH / 2, 0));
+  // The anchorage is a MASS ON LEGS, not a solid block to the ground. A 26u
+  // cube dropped on the Rincon Hill landfall stood squarely across the
+  // Embarcadero — you could not drive past the bridge, and teleporting to the
+  // lane centreline put the car inside it. The real crossing straddles the
+  // waterfront street; so does this one now. The block above head height is
+  // unchanged; below it only the footings that clear the asphalt are emitted,
+  // which opens a portal wherever the street actually runs.
+  const PORTAL_Y = D; // the block's soffit — deck height, so the street runs clear
+  g.add(
+    box(
+      26,
+      BAY_ANCHOR_TOP + 10 - PORTAL_Y,
+      26,
+      MAT.concrete,
+      BAY_ANCHOR_W,
+      (BAY_ANCHOR_TOP + PORTAL_Y) / 2,
+      0,
+    ),
+  );
   g.add(box(20, 4, 20, MAT.concrete, BAY_ANCHOR_W, BAY_ANCHOR_TOP + 1, 0)); // stepped crown
+  // Relief on the block's faces. 26 × 21u of unbroken concrete right beside a
+  // street is the biggest blank surface on the waterfront; recessed panels and
+  // a cornice band give the mass a scale without changing its silhouette.
+  for (let i = -1; i <= 1; i++) {
+    for (const sz of [-13.3, 13.3]) {
+      g.add(
+        box(
+          6.4,
+          BAY_ANCHOR_TOP + 6 - PORTAL_Y,
+          0.8,
+          MAT.steel,
+          BAY_ANCHOR_W + i * 8,
+          (BAY_ANCHOR_TOP + PORTAL_Y) / 2,
+          sz,
+        ),
+      );
+    }
+    for (const sx of [-13.3, 13.3]) {
+      g.add(
+        box(
+          0.8,
+          BAY_ANCHOR_TOP + 6 - PORTAL_Y,
+          6.4,
+          MAT.steel,
+          BAY_ANCHOR_W + sx,
+          (BAY_ANCHOR_TOP + PORTAL_Y) / 2,
+          i * 8,
+        ),
+      );
+    }
+  }
+  g.add(box(27, 1.1, 27, MAT.steel, BAY_ANCHOR_W, BAY_ANCHOR_TOP + 9, 0)); // cornice band
+  // The footing grid is pulled INSIDE the block's own footprint (±7 of a ±13
+  // block): the outer ring is the part that reaches toward the waterfront
+  // street, and the block above already oversails it, so a real anchorage
+  // reads correctly while the kerbside stays open.
+  for (let fx = -7; fx <= 7; fx += 7) {
+    for (let fz = -7; fz <= 7; fz += 7) {
+      const px = BAY_ANCHOR_W + fx;
+      // 8u of clearance beyond the kerb: the footing must not just miss the
+      // painted lane, it must leave a corridor wide enough that the CHASE
+      // CAMERA does not end up inside it either — at 5u the car drove past
+      // fine and the camera spent the whole pass buried in concrete.
+      if (ctx.onAsphalt(px, fz, 8)) continue;
+      const gy = ctx.groundAt(px, fz);
+      if (gy >= PORTAL_Y - 1) continue;
+      g.add(box(6, PORTAL_Y - gy, 6, MAT.concrete, px, (gy + PORTAL_Y) / 2, fz));
+    }
+  }
   for (const sz of [-BAY_CABLE_Z, BAY_CABLE_Z]) {
     g.add(box(7, 4, 4, MAT.steel, BAY_ANCHOR_W + 11, BAY_ANCHOR_TOP + 1, sz)); // cable saddle
   }
@@ -470,7 +700,7 @@ function bayBridge(ctx: LandmarkCtx): THREE.Group {
 // Alcatraz: the rock (cliff skirt + plateau), the cellhouse block, the water
 // tower, and the lighthouse with a beacon that burns after dark. True scale —
 // the real island is ~500 m long, which is 110u here.
-function alcatraz(): THREE.Group {
+function alcatraz(ctx: LandmarkCtx): THREE.Group {
   const g = new THREE.Group();
   // Cliff skirt: a squat cone stretched east-west, so the island has real
   // faces instead of the old floating pancake.
@@ -532,7 +762,13 @@ function alcatraz(): THREE.Group {
   for (const lz of [-13, -3]) {
     g.add(cyl(0.2, 0.26, 5, 6, MAT.steel, 36, 13.5, lz));
     g.add(box(0.7, 0.7, 0.7, MAT.lamp, 36, 16.3, lz));
+    beaconAt(ctx, 36, 16.3, lz, 0xffd9a0, 3.4);
   }
+  // THE lighthouse. An island in the middle of the bay that emits nothing
+  // after dark is not a landmark — it is a hole in the water.
+  beaconAt(ctx, 26, 32.2, 2, 0xfff4d6, 9, 3.4);
+  // A wash on the cellhouse so the silhouette survives the night too.
+  beaconAt(ctx, -3, 25.4, 0, 0xbfd0e0, 7);
   return g;
 }
 
@@ -549,6 +785,27 @@ function cityHall(ctx: LandmarkCtx): THREE.Group {
   g.add(box(9, 15, 22, MAT.cream, -14, 7.5, 0)); // end pavilions
   g.add(box(9, 15, 22, MAT.cream, 14, 7.5, 0));
   g.add(box(36, 1.3, 22, MAT.slate, 0, 15.2, 0)); // cornice
+
+  // FENESTRATION. The block carried zero detail on any elevation — 37 × 28 ×
+  // 20u of blank cream, the largest untextured surface in the region and the
+  // whole of the view at chase-cam height. Two storeys of recessed windows
+  // with pilasters between them on all four elevations is the minimum that
+  // makes it read as a building rather than a placeholder.
+  for (let i = 0; i < 13; i++) {
+    const wx = -15 + i * 2.5;
+    for (const sy of [4.4, 8.4, 12.2]) {
+      g.add(box(1.5, 2.4, 0.5, MAT.slate, wx, sy, 10.1));
+      g.add(box(1.5, 2.4, 0.5, MAT.slate, wx, sy, -10.1));
+    }
+    if (i % 2 === 0) g.add(box(0.6, 12, 0.7, MAT.cream, wx + 1.25, 6.6, 10.2));
+  }
+  for (let i = 0; i < 7; i++) {
+    const wz = -9 + i * 3;
+    for (const sy of [4.4, 8.4, 12.2]) {
+      g.add(box(0.5, 2.4, 1.6, MAT.slate, -18.6, sy, wz));
+      g.add(box(0.5, 2.4, 1.6, MAT.slate, 18.6, sy, wz));
+    }
+  }
 
   // South portico: it must PROJECT past the block face (z 10) or the columns
   // read as pilasters scratched into a plain wall.
@@ -580,6 +837,16 @@ function cityHall(ctx: LandmarkCtx): THREE.Group {
   g.add(cyl(1.7, 2, 3.6, 10, MAT.cream, 0, 34.4, 0));
   g.add(dome(1.8, 1.6, MAT.gold, 0, 36.2, 0, 10));
   g.add(cyl(0.12, 0.12, 3, 6, MAT.gold, 0, 39, 0));
+
+  // Civic floodlighting. The tallest dome in Civic Center rendered DARKER than
+  // the office blocks around it after dark; a ring of uplights on the drum and
+  // a lantern glow put it back at the top of the night value order.
+  arc(6, 8, 0, 360, (x, z) => {
+    g.add(box(0.7, 0.4, 0.7, MAT.lamp, x, 24.2, z));
+    beaconAt(ctx, x, 25.4, z, 0xffe9bc, 7);
+  });
+  beaconAt(ctx, 0, 37, 0, 0xfff0cc, 5, 4.5);
+  for (const sx of [-13, 13]) beaconAt(ctx, sx, 16, 11, 0xffdda8, 6);
   return g;
 }
 
@@ -601,15 +868,42 @@ function palaceOfFineArts(ctx: LandmarkCtx): THREE.Group {
   g.add(dome(7.4, 6.4, MAT.cream, 0, 15.2, 0, 18));
   g.add(cyl(1.1, 1.4, 2.4, 8, MAT.cream, 0, 22.6, 0));
 
+  // The lagoon. The reflection IS the picture everybody has of this building;
+  // without it the rotunda stands on a khaki apron and only half the landmark
+  // is there. A shallow water disc east of the rotunda with a stone rim.
+  {
+    const lagY = lowestUnder(ctx, 15, 10, 2, 20);
+    const rim = cyl(15, 15, 1.2, 28, MAT.rock, 2, lagY + 0.1, 20);
+    rim.scale.set(1.5, 1, 0.72);
+    g.add(rim);
+    const water = cyl(13.4, 13.4, 1.2, 28, MAT.lagoon, 2, lagY + 0.34, 20);
+    water.scale.set(1.5, 1, 0.72);
+    g.add(water);
+  }
+
   // The two colonnade arcs sweeping away from the rotunda, each capped by a
   // pergola beam running column to column.
+  //
+  // Every piece is tested against the drawn asphalt first. The arcs sweep out
+  // to r = 26 and the Marina boulevard clips the north one — the audit found
+  // 102 column vertices inside a live travel lane, one of them effectively on
+  // the centreline with a lane arrow painted beside its base. A colonnade is
+  // set dressing; where the street won, the street wins.
   for (const deg0 of [46, 226]) {
     arc(9, 26, deg0, 88, (x, z, yaw) => {
+      if (ctx.onAsphalt(x, z, 2.2)) return;
       g.add(cyl(0.85, 1, 8.6, 8, MAT.cream, x, 4.3, z));
       g.add(box(2.6, 1.1, 2.6, MAT.cream, x, 9.2, z, yaw)); // capital
       g.add(box(5.4, 0.9, 1.4, MAT.cream, x, 10.1, z, yaw)); // pergola beam
     });
   }
+  // Uplights at the peristyle feet, which is how the real rotunda reads after
+  // dark and what makes the new lagoon carry a reflection.
+  arc(6, 11, 0, 360, (x, z) => {
+    g.add(box(0.6, 0.35, 0.6, MAT.lamp, x, 1.4, z));
+    beaconAt(ctx, x, 2.4, z, 0xffdca6, 8);
+  });
+  beaconAt(ctx, 0, 18, 0, 0xffe6c0, 6);
   return g;
 }
 
@@ -624,8 +918,17 @@ function twinPeaks(ctx: LandmarkCtx): THREE.Group {
   // The terrace top rides just under the crest and its cylinder skirt sinks
   // into the hill uphill / shows a retaining face downhill.
   const top = ctx.groundAt(0, 0) + 0.5;
+  // Retaining drum in concrete, but the TERRACE is warm stone with a red-tile
+  // compass inlay. A flat mid-grey disc with a grey parapet was the whole
+  // destination for the map's signature climb and read as an unfinished car
+  // park; the deck the player parks on has to be worth arriving at.
   g.add(cyl(R, R + 1.4, 12, 24, MAT.concrete, 0, top - 6, 0));
-  g.add(cyl(R - 0.6, R - 0.6, 0.5, 24, MAT.rock, 0, top + 0.2, 0)); // paving
+  g.add(cyl(R - 0.6, R - 0.6, 0.5, 24, MAT.cream, 0, top + 0.2, 0)); // paving
+  g.add(cyl(4.6, 4.6, 0.56, 24, MAT.brick, 0, top + 0.26, 0)); // compass inlay
+  g.add(cyl(1.5, 1.5, 0.62, 16, MAT.gold, 0, top + 0.3, 0));
+  for (let i = 0; i < 4; i++) {
+    g.add(box(0.5, 0.62, 8.6, MAT.cream, 0, top + 0.28, 0, (i * Math.PI) / 4));
+  }
 
   // Parapet: 20 blocks around the rim, a 70° gap facing south for the entry.
   arc(20, R - 0.5, 215, 290, (x, z, yaw) => {
@@ -643,7 +946,15 @@ function twinPeaks(ctx: LandmarkCtx): THREE.Group {
     const pz = -Math.cos(a) * (R - 1.6);
     g.add(cyl(0.16, 0.22, 5, 6, MAT.steel, px, top + 2.5, pz));
     g.add(box(0.6, 0.6, 0.6, MAT.lamp, px, top + 5.2, pz));
+    beaconAt(ctx, px, top + 5.2, pz, 0xffd9a0, 3.6, undefined);
   }
+  // Guard rail across the SOUTH entry gap — the one stretch of rim the parapet
+  // deliberately leaves open — so the terrace is enclosed without walling off
+  // the approach.
+  arc(6, R - 0.2, 150, 60, (x, z, yaw) => {
+    g.add(cyl(0.1, 0.12, 1.1, 5, MAT.steel, x, top + 0.75, z));
+    g.add(box(2.6, 0.12, 0.12, MAT.steel, x, top + 1.25, z, yaw));
+  });
   // Summit marker.
   g.add(box(2.6, 1.3, 0.7, MAT.rock, 0, top + 0.85, R - 3.4));
   return g;
@@ -664,6 +975,22 @@ function deYoung(ctx: LandmarkCtx): THREE.Group {
   g.add(box(16, 6, 12, MAT.copper, -22, 3, 5));
   g.add(box(36, 0.7, 20, MAT.slate, 0, 8.3, 0));
   g.add(box(20, 4, 1, MAT.glass, 0, 4.6, 9.3)); // entrance glazing
+  // The DIMPLED, PERFORATED copper skin is the de Young's entire identity, and
+  // the block was shipping as a flat brown prism with no surface treatment
+  // whatsoever — the audit could not tell it was a museum. Horizontal seams
+  // plus a punched window rhythm give the cladding a scale to read at.
+  for (const sy of [1.9, 4.0, 6.1]) {
+    for (const sz of [-9.1, 9.1]) g.add(box(34.2, 0.34, 0.5, MAT.slate, 0, sy, sz));
+    for (const sx of [-17.1, 17.1]) g.add(box(0.5, 0.34, 18.2, MAT.slate, sx, sy, 0));
+  }
+  for (let i = 0; i < 11; i++) {
+    const wx = -15 + i * 3;
+    g.add(box(1.5, 1.3, 0.5, MAT.glass, wx, 5.2, 9.15));
+    g.add(box(1.5, 1.3, 0.5, MAT.glass, wx, 5.2, -9.15));
+  }
+  // Sculpture-garden lighting; the museum was a black cutout after dark.
+  for (const sx of [-14, 0, 14]) beaconAt(ctx, sx, 2.2, 11.5, 0xffdca6, 5.4);
+  beaconAt(ctx, 21.4, 31.5, -3, 0xd9e4ee, 6);
   // The tower stands on its own footing at the museum's east end (a stack
   // starting at deck height would float off the block's corner).
   g.add(box(9.4, 8, 9.4, MAT.copper, 20, 4, -1));
@@ -733,6 +1060,10 @@ function conservatory(ctx: LandmarkCtx): THREE.Group {
   g.add(mesh(new THREE.ConeGeometry(1.6, 2.2, 8), MAT.white, 0, 16, 0));
   // Entry portico.
   g.add(box(6, 4.4, 3, MAT.white, 0, 3.4, 7.4));
+  // A glasshouse lit from inside — the cheapest, most legible night read any
+  // of the park landmarks can have.
+  beaconAt(ctx, 0, 7, 0, 0xd8f0e0, 9);
+  for (const sx of [-10.5, 10.5]) beaconAt(ctx, sx, 4, 0, 0xd8f0e0, 6);
   return g;
 }
 
@@ -770,6 +1101,11 @@ function windmill(ctx: LandmarkCtx): THREE.Group {
     }
   }
   g.add(cyl(1.1, 1.1, 1.6, 8, MAT.slate, 0, hubY, 4.6).rotateX(Math.PI / 2));
+  // Warm cap lantern: the windmills went completely black at night, and out at
+  // the ocean end of the park they are the only thing to steer by.
+  g.add(box(0.6, 0.6, 0.6, MAT.lamp, 0, H + 3.4, 0));
+  beaconAt(ctx, 0, H + 3.4, 0, 0xffdca6, 6, 5);
+  beaconAt(ctx, 0, H * 0.5, 0, 0xffd0a0, 6);
   return g;
 }
 
@@ -804,6 +1140,8 @@ function cliffHouse(ctx: LandmarkCtx): THREE.Group {
   g.add(box(6, 4, 6, MAT.white, 5, 19.8, 0));
   g.add(cyl(0.5, 0.5, 3, 6, MAT.steel, -6, 19.5, 4));
   g.add(box(0.5, 0.5, 0.5, MAT.lamp, -6, 21.2, 4));
+  beaconAt(ctx, -6, 21.2, 4, 0xfff0cc, 6, 4);
+  beaconAt(ctx, 0, 15, -6, 0xffdca6, 6);
 
   // Sutro Baths: rectangular basins outlined by broken concrete walls on the
   // shelf north of the bluff, each seated on the terrain it stands on.
@@ -819,6 +1157,10 @@ function cliffHouse(ctx: LandmarkCtx): THREE.Group {
     g.add(box(bw, 1.8, 0.7, MAT.concrete, bx, y, bz + bd / 2));
     g.add(box(0.7, 1.8, bd, MAT.concrete, bx - bw / 2, y, bz));
     g.add(box(0.7, 1.8, bd, MAT.concrete, bx + bw / 2, y, bz));
+    // The basins are FLOODED — they are tidal pools, not foundations. Empty
+    // rectangles lying on a lawn is exactly why the ruin read as a building
+    // site rather than as Sutro Baths.
+    g.add(box(bw - 0.9, 1.2, bd - 0.9, MAT.lagoon, bx, y - 0.1, bz));
   }
   // Snapped columns and a stair down from the bluff.
   for (let i = 0; i < 6; i++) {
@@ -865,6 +1207,7 @@ function fortPoint(ctx: LandmarkCtx): THREE.Group {
   // Harbour light on the seaward parapet.
   g.add(cyl(1.1, 1.4, 5, 8, MAT.white, OUT - 3, 2.4 + H + 3, -OUT + 3));
   g.add(cyl(1, 1, 1.4, 8, MAT.lamp, OUT - 3, 2.4 + H + 6.2, -OUT + 3));
+  beaconAt(ctx, OUT - 3, 2.4 + H + 6.2, -OUT + 3, 0xfff0cc, 6, 3.8);
   return g;
 }
 
@@ -1041,33 +1384,64 @@ function lombard(ctx: LandmarkCtx): THREE.Group {
   const hit = ctx.network?.nearest(ox, oz, ROAD_TILE * 2) ?? null;
   const tx = hit ? hit.tx : 1;
   const tz = hit ? hit.tz : 0;
-  const off = (hit ? hit.edge.half : 5) + 2.6; // bed centres flank the roadway
+  const off = (hit ? hit.edge.half : 5) + 3.2; // bed centres flank the roadway
+  const yaw = Math.atan2(-tz, tx);
+  /** Landmark-local point at (along-street, across-street). */
+  const at = (s: number, lat: number): readonly [number, number] => [
+    tx * s - tz * lat,
+    tz * s + tx * lat,
+  ];
+  // The block is dressed on BOTH flanks at EVERY station. It used to alternate
+  // sides — one bed every 5.8u, half of them dropped by the asphalt guard —
+  // so what survived was a handful of red-and-green crates scattered over an
+  // otherwise bare block, and a driver had no way to know a landmark was
+  // there. Continuous planting either side of the roadway, with the hairpin
+  // wall zig-zagging between the beds, is the read.
   for (let i = 0; i < BEDS; i++) {
     const s = -RUN / 2 + (RUN * (i + 0.5)) / BEDS;
-    const side = i % 2 === 0 ? -1 : 1;
-    // Local frame: tangent (tx,tz) along the street, normal (-tz,tx) across.
-    const x = tx * s - tz * off * side;
-    const z = tz * s + tx * off * side;
-    if (ctx.onAsphalt(x, z, 0.8)) continue;
-    const y = ctx.groundAt(x, z);
-    // rotation.y maps local +X to (cos, -sin) in (x, z) — this aims it along the tangent.
-    const yaw = Math.atan2(-tz, tx);
-    g.add(box(6, 1.7, 4, MAT.brick, x, y + 0.85, z, yaw)); // retaining planter
-    g.add(box(5.2, 1.6, 3.2, MAT.hedge, x, y + 2.45, z, yaw));
-    // The switchback kerb: a brick wall angling back across to the next bed.
-    const sMid = s + RUN / BEDS / 2;
-    const mx = tx * sMid - tz * off * side * 0.45;
-    const mz = tz * sMid + tx * off * side * 0.45;
-    if (ctx.onAsphalt(mx, mz, 0.8)) continue;
-    g.add(box(1.1, 1.5, 7, MAT.brick, mx, ctx.groundAt(mx, mz) + 0.75, mz, yaw + side * 0.6));
+    for (const side of [-1, 1] as const) {
+      const [x, z] = at(s, off * side);
+      if (ctx.onAsphalt(x, z, 0.8)) continue;
+      const y = ctx.groundAt(x, z);
+      // rotation.y maps local +X to (cos, -sin) in (x, z) — aims it along the tangent.
+      g.add(box(5.4, 1.7, 4.4, MAT.brick, x, y + 0.85, z, yaw)); // retaining planter
+      g.add(box(4.8, 1.5, 3.8, MAT.hedge, x, y + 2.4, z, yaw));
+      // Every other bed carries a bloom of colour — the block is famous for
+      // the hydrangeas as much as for the bends.
+      if (i % 2 === 0) {
+        g.add(box(3.4, 0.5, 2.6, MAT.gateRed, x, y + 3.2, z, yaw));
+      }
+      // Switchback kerb: a brick wall angling in toward the roadway, flipping
+      // its lean every bed. That alternation IS the crooked read.
+      const [mx, mz] = at(s + RUN / BEDS / 2, off * side * 0.62);
+      if (ctx.onAsphalt(mx, mz, 0.8)) continue;
+      g.add(
+        box(
+          1.2,
+          1.6,
+          6.4,
+          MAT.brick,
+          mx,
+          ctx.groundAt(mx, mz) + 0.8,
+          mz,
+          yaw + side * (i % 2 === 0 ? 0.7 : -0.7),
+        ),
+      );
+    }
   }
-  // Kerb walls closing the block at both ends.
+  // Kerb walls closing the block at both ends — on the FLANKS. Sitting them on
+  // the tangent put them at lateral offset 0, i.e. on the centreline, so the
+  // asphalt guard dropped both of them every single build.
   for (const end of [-1, 1] as const) {
-    const s = (end * RUN) / 2 + end * 3;
-    const x = tx * s;
-    const z = tz * s;
-    if (ctx.onAsphalt(x, z, 0.8)) continue;
-    g.add(box(1.6, 2.4, 13, MAT.brick, x, ctx.groundAt(x, z) + 1.2, z, Math.atan2(-tz, tx)));
+    for (const side of [-1, 1] as const) {
+      const [x, z] = at((end * RUN) / 2 + end * 3, off * side);
+      if (ctx.onAsphalt(x, z, 0.8)) continue;
+      g.add(box(2.6, 2.6, 8, MAT.brick, x, ctx.groundAt(x, z) + 1.3, z, yaw));
+      // Lamp on the block's corners, so it is findable at night as well.
+      g.add(cyl(0.14, 0.2, 4.4, 6, MAT.steel, x, ctx.groundAt(x, z) + 4.8, z));
+      g.add(box(0.55, 0.55, 0.55, MAT.lamp, x, ctx.groundAt(x, z) + 7.2, z));
+      beaconAt(ctx, x, ctx.groundAt(x, z) + 7.2, z, 0xffd9a0, 3.4);
+    }
   }
   return g;
 }
@@ -1081,7 +1455,7 @@ const DEFS = {
   salesforce: { build: salesforce, seat: "ground", scale: KIT_SCALE },
   coittower: { build: coitTower, seat: "ground", scale: KIT_SCALE },
   ferrybuilding: { build: ferryBuilding, seat: "ground", scale: 1 },
-  paintedladies: { build: paintedLadies, seat: "ground", scale: KIT_SCALE },
+  paintedladies: { build: paintedLadies, seat: "ground", scale: 1 },
   sutro: { build: sutroTower, seat: "ground", scale: KIT_SCALE },
   dragongate: { build: dragonGate, seat: "ground", scale: KIT_SCALE },
   baybridge: { build: bayBridge, seat: "sea", scale: 1 },
@@ -1185,13 +1559,16 @@ const LANDMARKS: readonly Landmark[] = [
     rotDeg: 270,
     protHalf: [5.5, 23.5],
   },
+  // rotDeg 270 turns the FRONTAGE toward Alamo Square (the parkGreen column
+  // below is one cell WEST): the whole point of Postcard Row is the view from
+  // the park, and at 90° every visitor got the blank rear elevation.
   {
     kind: "paintedladies",
     name: "the Painted Ladies",
     u: 0.513,
     v: 0.33,
-    rotDeg: 90,
-    protHalf: [4, 20],
+    rotDeg: 270,
+    protHalf: [9, 26],
   },
   {
     kind: "sutro",
@@ -1232,7 +1609,9 @@ const LANDMARKS: readonly Landmark[] = [
     v: 0.56,
     rotDeg: 0,
     clearR: 14,
-    protHalf: [15, 15],
+    // The terrace itself is R = 13, so a 15u half-extent left the outer ring of
+    // paving unreserved and park vegetation grew up through the deck.
+    protHalf: [17, 17],
   },
   // The park set sits toward the drives at the park's edges — dead centre
   // they are skyline only, never something you pull up in front of.
@@ -1281,24 +1660,33 @@ const LANDMARKS: readonly Landmark[] = [
     clearR: 12,
     protHalf: [20, 34],
   },
+  // Fort Point is only Fort Point because it sits DIRECTLY UNDER the Golden
+  // Gate's south end — that is the whole postcard. It stood at u 0.243, ~90u
+  // west of the bridge axis (the ramp anchor solves to u ≈ 0.285), where the
+  // bridge is not even in the same view. Moved onto the bridge's own shoulder,
+  // just east of the deck so the span passes overhead instead of beside it.
   {
     kind: "fortpoint",
     name: "Fort Point",
-    u: 0.243,
-    v: 0.056,
+    u: 0.2755,
+    v: 0.0475,
     rotDeg: 0,
     clearR: 14,
     protHalf: [17, 16],
   },
   // The measured centroid. DEPENDS ON the China Basin water polygon replacing
   // the old box — until it lands, this site is inside the flooded rect.
+  // `clearR` must be the park's OWN footprint, not a token nudge: at 14 the
+  // resolve pass was satisfied while 19u of a 33 × 29u ballpark still lay over
+  // the roadway, so the car spawned inside the plinth and the chase view was a
+  // blank 8u retaining wall.
   {
     kind: "oraclepark",
     name: "Oracle Park",
     u: 0.7838,
     v: 0.3115,
     rotDeg: 0,
-    clearR: 14,
+    clearR: 31,
     protHalf: [33, 29],
   },
   // Pure set dressing: no reservation, no collision — the crooked block's
@@ -1407,6 +1795,28 @@ export function landmarkProtection(
   // furniture there), but emit collision boxes ONLY on lot cells, clamped to
   // each cell — a monument must never wall off a road or strand a fare.
   // `solid: false` reserves without walling (see `clearHalf`).
+  // Vector asphalt runs THROUGH lot cells at diagonals and across wide
+  // junctions, so "the cell is not a road cell" is not enough to prove a
+  // collision box is out of the roadway — the Bay Bridge anchorage's
+  // reservation reached 7u into the Embarcadero on cells the raster called
+  // lot. Every emitted box is tested against the drawn centreline as well.
+  const inRoadway = (minX: number, maxX: number, minZ: number, maxZ: number): boolean => {
+    if (!network) return false;
+    const cx = (minX + maxX) / 2;
+    const cz = (minZ + maxZ) / 2;
+    for (const [px, pz] of [
+      [cx, cz],
+      [minX, minZ],
+      [maxX, minZ],
+      [minX, maxZ],
+      [maxX, maxZ],
+    ] as const) {
+      const hit = network.nearest(px, pz, ROAD_TILE * 1.6);
+      if (hit && hit.dist < hit.edge.half + 0.4) return true;
+    }
+    return false;
+  };
+
   const protect = (x: number, z: number, halfX: number, halfZ: number, solid: boolean): void => {
     const minX = x - halfX;
     const maxX = x + halfX;
@@ -1422,12 +1832,12 @@ export function landmarkProtection(
         if (!solid || plan.cells[gx]?.[gz] !== "lot") continue;
         const cMinX = gx * ROAD_TILE - WORLD_HALF_X;
         const cMinZ = gz * ROAD_TILE - WORLD_HALF_Z;
-        solids.push({
-          minX: Math.max(minX, cMinX),
-          maxX: Math.min(maxX, cMinX + ROAD_TILE),
-          minZ: Math.max(minZ, cMinZ),
-          maxZ: Math.min(maxZ, cMinZ + ROAD_TILE),
-        });
+        const bx0 = Math.max(minX, cMinX);
+        const bx1 = Math.min(maxX, cMinX + ROAD_TILE);
+        const bz0 = Math.max(minZ, cMinZ);
+        const bz1 = Math.min(maxZ, cMinZ + ROAD_TILE);
+        if (inRoadway(bx0, bx1, bz0, bz1)) continue;
+        solids.push({ minX: bx0, maxX: bx1, minZ: bz0, maxZ: bz1 });
       }
     }
   };
@@ -1459,6 +1869,7 @@ export function buildLandmarks(
 ): THREE.Group {
   const root = new THREE.Group();
   const rng = new Rng(4242);
+  landmarkBeacons = [];
   for (const lm of LANDMARKS) {
     const def = DEFS[lm.kind];
     const [x, z] = resolvePosition(lm, network);
@@ -1492,11 +1903,12 @@ export function buildLandmarks(
         return [wx, y + ly * s, wz];
       },
     };
-    const node = packLandmark(def.build(ctx));
+    const node = packLandmark(def.build(ctx), PL_BODY);
     node.position.set(x, y, z);
     node.rotation.y = rot;
     node.scale.multiplyScalar(s);
     root.add(node);
   }
+  registerBeacons("landmarks", landmarkBeacons);
   return root;
 }

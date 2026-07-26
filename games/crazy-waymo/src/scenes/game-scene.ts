@@ -1737,8 +1737,13 @@ vec3 ocGerstner(vec2 p, float t) {
       this.hud.announceMinor(this.touchUi ? "TAP BOOST!" : "SHIFT — BOOST!", "#ffd147");
     }
 
-    // Announce the SF neighborhood as the taxi crosses into it.
-    const dist = districtAt(city.gridX(car.position.x), city.gridZ(car.position.z));
+    // Announce the SF neighborhood as the taxi crosses into it. Under freecam
+    // (DEV inspection, trailer shots) the taxi is parked somewhere else
+    // entirely, so sample where the FRAME is — same rule the shadow follow
+    // below already uses. Four separate QA passes filed screenshots labelled
+    // with the taxi's district instead of the one in shot.
+    const eye = this.freecam ? this.rig.camera.position : car.position;
+    const dist = districtAt(city.gridX(eye.x), city.gridZ(eye.z));
     if (dist.name !== this.lastDistrict) {
       this.lastDistrict = dist.name;
       this.hud.setArea(dist.name);

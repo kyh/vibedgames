@@ -759,7 +759,17 @@ function isWharf(x: number, z: number): boolean {
  * rather than bow-in: the finger spacing in SF_DOCKS is not known to this
  * module, and a perpendicular berth would reach into the neighbouring finger.
  */
-export function planMoorings(seed: number): readonly Mooring[] {
+export function planMoorings(
+  seed: number,
+  /**
+   * True where the berth would actually float. SF_DOCKS is OSM dock geometry,
+   * and after the coastline rework a chunk of the China Basin fingers falls on
+   * what the game now DRAWS as land — so this used to berth roughly a dozen
+   * masted sailboats on the dry Mission Bay apron, up to 150u inland, among
+   * the street trees. A mooring with no water under it is not a mooring.
+   */
+  isWater: (x: number, z: number) => boolean = () => true,
+): readonly Mooring[] {
   const rng = new Rng(seed);
   const out: Mooring[] = [];
   for (const dock of SF_DOCKS) {
@@ -794,6 +804,7 @@ export function planMoorings(seed: number): readonly Mooring[] {
         // 2.6u off the float: the finger's own half-width plus a fender gap.
         const px = ax + dx * t - dz * side * BERTH_OFFSET;
         const pz = az + dz * t + dx * side * BERTH_OFFSET;
+        if (!isWater(px, pz)) continue;
         const kind: VesselKind = isWharf(px, pz)
           ? rng.chance(0.78)
             ? "fishing"

@@ -10,16 +10,22 @@ import { STREET_SURFACE_MAX } from "../world/roads";
 // with camera distance (far lamps otherwise read as noise floating over the
 // fog), and depth-test so buildings occlude them.
 
-const HALO_SIZE = 2.6; // world units, quad edge
-const POOL_SIZE = 8;
+// The two layers were the wrong way round. Measured downtown at midnight, the
+// pavement pools were invisible on asphalt (POOL_ALPHA 0.2 over a 8u quad reads
+// as nothing) while the head halos rendered as fat opaque yellow spheres larger
+// than the pier sheds they stood on. "Warm pools against cool shadow" is the
+// whole night brief, and the pool is the half that carries it: the pool got
+// bigger and much stronger, the halo smaller and softer.
+const HALO_SIZE = 1.9; // world units, quad edge
+const POOL_SIZE = 15;
 // The pool spans asphalt AND the curb/sidewalk the lamp stands on, so it has
 // to clear the tallest draped street layer (roads.ts STREET_SURFACE_MAX) the
 // same way fares.ts GROUND_RING_LIFT and skids.ts SKID_LIFT do. Sitting below
 // it, the quads are depth-rejected by the kerb and each pool reads as a
 // crescent that stops dead at a straight line along the sidewalk.
 const POOL_LIFT = STREET_SURFACE_MAX + 0.02;
-const HALO_ALPHA = 0.5;
-const POOL_ALPHA = 0.2;
+const HALO_ALPHA = 0.34;
+const POOL_ALPHA = 0.55;
 const FADE_NEAR = 380; // camera distance where lamps start to fade
 const FADE_FAR = 650;
 

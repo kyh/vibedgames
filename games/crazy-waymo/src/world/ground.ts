@@ -20,34 +20,48 @@ import type { Terrain } from "./terrain";
 // peninsula into a golf course. Greens here are muted and olive-leaning: park
 // turf is irrigated and darker than grass reads in a cartoon, canopy is nearly
 // black-green, and anything unirrigated goes gold.
+//
+// GROUND IS THE BOTTOM BAND (value pass 2026-07-26). The target is ground <
+// buildings < sky, and every hard cover here used to break it: `plaza` sat at
+// luminance 0.72 and `sand` at 0.82, against a pastel building fabric averaging
+// ~0.6. Ground is also the LARGEST area in almost every frame, so when it is
+// also the brightest thing after the sky, silhouettes die against it and the
+// aerials read as one flat sheet. Measured from Pacific Heights at noon: kerb
+// aprons L133, building walls L108, road L105 — the walls and the road were
+// three luma apart and the aprons were second only to the sky.
+//
+// Hard covers therefore came down ~18% in value (the greens moved much less —
+// they were already the darkest band and are what the districts read by). This
+// changes VERTEX OUTPUT: it is baked, and needs a WORLD_REV bump plus
+// `pnpm bake:world`.
 const COVER_COLOR: Readonly<Record<GroundCover, THREE.Color>> = {
-  pavement: new THREE.Color(0xa8a597),
-  yard: new THREE.Color(0xa39d88),
-  rearYard: new THREE.Color(0x8f8a78),
-  plaza: new THREE.Color(0xbcb7a8),
-  parking: new THREE.Color(0x8f8d86),
-  court: new THREE.Color(0x86847e),
-  industrial: new THREE.Color(0xa79a80),
-  railyard: new THREE.Color(0x8d8478),
-  quay: new THREE.Color(0xb2ac9d),
-  path: new THREE.Color(0xc0ab84),
-  lawn: new THREE.Color(0x7f9c55),
-  meadow: new THREE.Color(0x9aa662),
-  grove: new THREE.Color(0x62784a),
-  conifer: new THREE.Color(0x475a41),
-  woodland: new THREE.Color(0x5c7247),
-  grassland: new THREE.Color(0xc8b87a),
-  cemetery: new THREE.Color(0x94a06a),
-  rock: new THREE.Color(0x9d9284),
-  sand: new THREE.Color(0xe2d0a2),
-  dune: new THREE.Color(0xcfc08c),
-  water: new THREE.Color(0x37596a),
+  pavement: new THREE.Color(0x8b887c),
+  yard: new THREE.Color(0x86816f),
+  rearYard: new THREE.Color(0x757161),
+  plaza: new THREE.Color(0x9b968a),
+  parking: new THREE.Color(0x77756f),
+  court: new THREE.Color(0x6e6d68),
+  industrial: new THREE.Color(0x8a806a),
+  railyard: new THREE.Color(0x736c62),
+  quay: new THREE.Color(0x938e82),
+  path: new THREE.Color(0xa2916f),
+  lawn: new THREE.Color(0x718d4b),
+  meadow: new THREE.Color(0x8a9556),
+  grove: new THREE.Color(0x586c43),
+  conifer: new THREE.Color(0x3f513a),
+  woodland: new THREE.Color(0x52663f),
+  grassland: new THREE.Color(0xb0a26a),
+  cemetery: new THREE.Color(0x849060),
+  rock: new THREE.Color(0x847b70),
+  sand: new THREE.Color(0xc7b78e),
+  dune: new THREE.Color(0xb5a87b),
+  water: new THREE.Color(0x2f4d5c),
 };
 
-const WET_SAND = new THREE.Color(0xc2ab7d); // darker band right at the waterline
-const TURF_SUN = new THREE.Color(0xb0bf72); // sunlit two-tone partner for turf
-const STRAW_PALE = new THREE.Color(0xd9cd97); // bleached crest of a dry flank
-const STRAW_DAMP = new THREE.Color(0xa8a86a); // the gullies that stay green
+const WET_SAND = new THREE.Color(0xa9946b); // darker band right at the waterline
+const TURF_SUN = new THREE.Color(0x9caa66); // sunlit two-tone partner for turf
+const STRAW_PALE = new THREE.Color(0xc2b586); // bleached crest of a dry flank
+const STRAW_DAMP = new THREE.Color(0x94955e); // the gullies that stay green
 
 // Editor "Floor" paint. Hand-painted cells win outright — no shore, no flank,
 // no patches — so what the editor shows is what ships.

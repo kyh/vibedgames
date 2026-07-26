@@ -38,6 +38,21 @@ import {
 } from "../src/world/sf-transit.ts";
 import { deserializeWorldBin, unpackWorld, WORLD_REV } from "../src/world/world-bin.ts";
 import { packWorld, serializeWorldBin } from "../src/world/world-bin-pack.ts";
+import {
+  asphaltDepth,
+  buildAuditWorld,
+  classifySolids,
+  landmarkReport,
+  loadBakedRest,
+  gradeReport,
+  overlapReport,
+  propInstances,
+  propsInRoadway,
+  roadIntrusions,
+  seatReport,
+  solidObb,
+  uv,
+} from "./geometry-audit.mts";
 
 let pass = 0;
 let fail = 0;
@@ -519,6 +534,165 @@ console.log(`  (plan + network in ${Math.round(performance.now() - t0)}ms)`);
     "sand is loose underfoot wherever it is painted",
     sandUnderfoot >= beach,
     `${sandUnderfoot} sand-underfoot vs ${beach} beach cells`,
+  );
+}
+
+// --- 13. GEOMETRY OF THE SHIPPED WORLD (tools/geometry-audit.mts). Everything
+// above reasons about the PLAN; this block audits the artifacts players load —
+// every collision box and every batched instance in public/world/rest.bin —
+// against the streets and the surfaces that actually get drawn. It answers, by
+// measurement rather than by screenshot, the four questions that keep coming
+// back: does anything stand in a lane, does anything interpenetrate a
+// neighbour, does anything float over its surface, is any landmark parcel
+// squatted on.
+//
+// The counts are RATCHETS, not targets. Each one is the measured state of the
+// shipped bins plus a few percent of headroom; lower it as fixes land and never
+// raise it to make a change pass. The roadway/prop/seat/squatter numbers came
+// down an order of magnitude in rev 63, when every placement pass got a real
+// footprint test (city.ts placeOne's roadway gate, fitRectOffAsphalt, the
+// footprint-wide reservation test) instead of a two-corner one. `AUDIT_REPORT=1 pnpm vite-node tools/geometry-audit.mts`
+// prints the full listing with u/v for every offender.
+{
+  const { rev, rest } = await loadBakedRest();
+  // A stale rest.bin means everything below audits a world nobody loads (and
+  // that players are getting a different city from the one this suite checks).
+  check("baked rest.bin is at the code's world rev", rev === WORLD_REV, `bin ${rev}`);
+
+  const auditWorld = buildAuditWorld();
+  const props = propInstances(rest);
+  const cls = classifySolids(rest.solids, auditWorld, props);
+  const EMPTY_SOLID = { minX: 0, maxX: 0, minZ: 0, maxZ: 0 };
+  const massIdx: number[] = [];
+  const furnIdx: number[] = [];
+  for (let i = 0; i < rest.solids.length; i++) {
+    const c = cls[i];
+    if (c === "map-border") continue;
+    if (c === "tree" || c === "furniture") furnIdx.push(i);
+    else massIdx.push(i);
+  }
+  const massBoxes = massIdx.map((i) => solidObb(rest.solids[i] ?? EMPTY_SOLID));
+
+  // Attached buildings are the POINT of the lot-line fabric (real party-wall
+  // data), so touching, and even a full party-wall band of overlap, is correct:
+  // 11.4k of the 19k neighbour pairs interpenetrate at all and the depth
+  // histogram peaks at 0.5-1u, which is exactly a shared wall. What is not
+  // correct is one mass eating a MEANINGFUL share of another's plan, so the
+  // gate is area-based (28% of the smaller box — comfortably past the widest
+  // party-wall band measured, 20%) plus the unambiguous case of one box's
+  // centre inside another.
+  const ov = overlapReport(massBoxes, { areaShare: 0.28, minArea: 2 });
+  check(
+    "solid interpenetration stays at its ratchet",
+    ov.defects.length <= 1100,
+    `${ov.defects.length} defects of ${ov.touching} touching pairs` +
+      (ov.defects[0] ? `, worst ${uv(ov.defects[0].x, ov.defects[0].z)}` : ""),
+  );
+
+  // Buildings in the road: corners AND edge midpoints against the drawn
+  // asphalt. >0.5u past the kerb line is "in the road" rather than "on the
+  // kerb" (the placement passes clear the kerb by 0.2-0.6u); >3u is a car's
+  // width into a travel lane, which is the class that actually blocks driving.
+  const inRoad = roadIntrusions(massBoxes, network, 0.5);
+  const deep = inRoad.filter((r) => r.depth > 3);
+  check(
+    "masses in the roadway stay at their ratchet",
+    inRoad.length <= 400 && deep.length <= 20,
+    `${inRoad.length} past the kerb, ${deep.length} over 3u deep` +
+      (deep[0] ? `, worst ${deep[0].depth.toFixed(1)}u @ ${uv(deep[0].x, deep[0].z)}` : ""),
+  );
+  // The landmark reservation boxes are INVISIBLE (the monument is the visual),
+  // so one standing in a lane is a wall out of nowhere — the worst kind.
+  const invisibleInRoad = inRoad.filter((r) => cls[massIdx[r.index] ?? 0] === "landmark");
+  check(
+    "invisible landmark boxes in the roadway stay at their ratchet",
+    invisibleInRoad.length <= 24,
+    `${invisibleInRoad.length}` +
+      (invisibleInRoad[0]
+        ? ` worst ${invisibleInRoad[0].depth.toFixed(1)}u @ ${uv(invisibleInRoad[0].x, invisibleInRoad[0].z)}`
+        : ""),
+  );
+
+  // Street furniture, trees and parked cars. Roadworks props (cones, barriers,
+  // lights, the work vehicle behind the chicane) are ON the asphalt by design —
+  // furniture.ts opts them in explicitly — so they are excluded by name.
+  // Parked cars sit 1.05u inside the asphalt by design (off = half − 1.05);
+  // past ~2.5u a car has drifted out of the parking strip into a lane.
+  const furnInRoad = roadIntrusions(
+    furnIdx.map((i) => solidObb(rest.solids[i] ?? EMPTY_SOLID)),
+    network,
+    0.5,
+  );
+  const inLane = propsInRoadway(props, network, auditWorld.standAt, 0.5);
+  const propsDeep = inLane.filter((p) => p.depth > 2.5).length;
+  let carsInLane = 0;
+  let carWorst = 0;
+  for (const c of rest.parkedCars) {
+    const d = asphaltDepth(network, c.x, c.z);
+    if (d > 2.5) carsInLane++;
+    if (d > carWorst) carWorst = d;
+  }
+  check(
+    "kerb props and parked cars stay out of the lanes at their ratchet",
+    furnInRoad.length <= 12 && inLane.length <= 20 && propsDeep <= 6 && carsInLane <= 12,
+    `${furnInRoad.length} furniture solids, ${inLane.length} ground-level instances past ` +
+      `the kerb (${propsDeep} over 2.5u), ${carsInLane} parked cars out of the strip ` +
+      `(worst ${carWorst.toFixed(1)}u)`,
+  );
+
+  // Seat heights. Nothing in this world sits on the raw height field (see
+  // CLAUDE.md): props seat through ground.ts makeStandingSurface. The measure
+  // is per KIND against its own baseline — a model's origin is not its feet —
+  // and only fixed-scale ground props qualify (a mass cuts into its own grade
+  // and a plinth fills what is left, by design).
+  const seat = seatReport(props, auditWorld.standAt, auditWorld.terrainAt, {
+    floatGap: 0.35,
+    buryDepth: 0.6,
+    minCount: 40,
+    groundSpread: 0.3,
+  });
+  const wrongSurface = seat.groups.filter((g) => g.wrongSurface);
+  check(
+    "seated props stay on the drawn surface at their ratchet",
+    seat.floating <= 2250 && seat.buried <= 400 && wrongSurface.length === 0,
+    `${seat.floating} floating, ${seat.buried} buried, ` +
+      `${wrongSurface.length} kinds tracking the raw field` +
+      (wrongSurface[0] ? ` (${wrongSurface[0].url})` : ""),
+  );
+
+  // Landmark parcels. Wave 0 shipped a skyscraper inside Oracle Park's bowl
+  // because the reservations had not been re-baked; this asks the shipped
+  // artifacts directly, for all 20 landmarks.
+  const lm = landmarkReport(props, rest.solids, network, plan);
+  const bowlSquatters = lm.intruders.filter((i) => i.landmark === "Oracle Park");
+  check(
+    "no procedural mass stands inside Oracle Park",
+    bowlSquatters.length === 0,
+    `${lm.reservedCells} reserved cells across ${lm.landmarks.length} landmarks`,
+  );
+  // What survives is the shore blocker on the ONE reserved water cell a street
+  // still runs up to: a landmark owns its own shore (city.ts defers there), but
+  // a drivable approach keeps its barrier whoever owns the parcel.
+  check(
+    "landmark-parcel squatters stay at their ratchet",
+    lm.intruders.length <= 2,
+    `${lm.intruders.length} intruders` +
+      (lm.intruders[0]
+        ? `, e.g. ${lm.intruders[0].landmark}: ${lm.intruders[0].what} @ ${uv(lm.intruders[0].x, lm.intruders[0].z)}`
+        : ""),
+  );
+
+  // Street grade, measured on the DRAPE that is drawn (not the raw field):
+  // ground.ts's MAX_RAMP_GRADE = 0.42 is what the terrace pass aims for, but
+  // its delta is capped at 2.4u so a genuine SF hill still comes through
+  // steeper. The gate is that new hills cannot make the map less driveable
+  // than rev 60 measured it: 169 edges over the target, worst 75.6%.
+  const grade = gradeReport(network, auditWorld.drapeAt, 0.42);
+  check(
+    "no street is steeper than the map already is",
+    grade.worstChord < 0.78 && grade.overChord <= 180,
+    `worst ${(grade.worstChord * 100).toFixed(1)}% @ ${grade.worstChordAt}, ` +
+      `${grade.overChord} edges over 42%`,
   );
 }
 

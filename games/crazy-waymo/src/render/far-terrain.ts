@@ -26,6 +26,18 @@ const SHELL = 1300; // radius the compressed silhouette is drawn at
 const SEGMENTS = 192; // ring resolution
 const BASE_Y = -90; // curtain foot, well under the horizon line
 const SEA_FLOOR = -8; // profile floor where there is only open ocean
+// Soft crest. The band cannot use alpha — it is opaque on purpose so it draws
+// in the opaque bucket ahead of the city (a transparent one would sort AFTER
+// every building and paint over the world). So the softness is GEOMETRY: one
+// extra strip above each crest whose colour runs from the ridge to pure fog.
+// Without it a 1.5–3.6 km ridgeline ends on a razor line against the sky and
+// the whole belt reads as a cardboard cut-out.
+const FRINGE = 0.16; // strip height as a fraction of the crest's height above sea
+const FRINGE_MIN = 6; // ...but never thinner than this in world units
+// Relief. One flat fill per band is the other half of the cardboard read, so
+// each vertex gets a value multiplier from a low-frequency bearing wave (broad
+// flanks catching or losing the light) plus a lift toward the crest.
+const RELIEF = 0.2;
 
 /** A summit in bearing space: 0 = north (-Z), 90 = east (+X). */
 type Ridge = {
@@ -43,21 +55,34 @@ type Band = {
 };
 
 // Ordered far → near; the emitter relies on it for painter order.
+//
+// Haze came DOWN across all three bands in the 2026-07-26 grading pass. At 0.74
+// the far band was 74–92% fog colour, so at golden hour — when the fog is sand —
+// the entire horizon arc resolved to one flat sand fill at the same hue as the
+// mid-distance building tan, and the city and its backdrop merged. The bands
+// keep enough of their own blue now to sit BEHIND the city rather than in it.
 const BANDS: readonly Band[] = [
   {
     radius: 3600,
-    haze: 0.74,
-    color: 0x93a7bf,
+    haze: 0.5,
+    color: 0x8fa5c2,
+    // Broad Gaussians alone give a band ONE smooth dome per ridge, which from
+    // the city reads as a sand-coloured hill-shaped cut-out. Narrow secondary
+    // summits riding on the broad ones break the outline into a range.
     ridges: [
       { bearing: 76, width: 9, height: 300 }, // Mount Diablo
       { bearing: 96, width: 34, height: 200 }, // Berkeley / Oakland hills
+      { bearing: 86, width: 6, height: 232 }, // ...and its northern shoulder
+      { bearing: 108, width: 7, height: 218 }, // ...and its southern one
       { bearing: 132, width: 26, height: 170 }, // inner coast range, south-east
+      { bearing: 122, width: 5, height: 196 },
+      { bearing: 145, width: 8, height: 188 },
     ],
   },
   {
     radius: 2600,
-    haze: 0.54,
-    color: 0x7f95af,
+    haze: 0.42,
+    color: 0x778fae,
     ridges: [
       { bearing: 344, width: 11, height: 260 }, // Mount Tamalpais
       { bearing: 357, width: 20, height: 165 }, // Marin ridge
@@ -69,8 +94,8 @@ const BANDS: readonly Band[] = [
   },
   {
     radius: 1850,
-    haze: 0.32,
-    color: 0x6f849e,
+    haze: 0.24,
+    color: 0x647a99,
     ridges: [
       { bearing: 322, width: 13, height: 110 }, // Marin headlands, west of the Gate
       { bearing: 12, width: 7, height: 78 }, // Angel Island
@@ -96,6 +121,8 @@ const VERT = /* glsl */ `
   attribute float aTop;
   attribute float aHaze;
   attribute vec3 aTint;
+  attribute float aFringe;
+  attribute float aRelief;
   uniform float uShell;
   uniform vec3 uFog;
   uniform float uNight;
@@ -107,8 +134,16 @@ const VERT = /* glsl */ `
     gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
     // Aerial perspective within the band: the foot sits deeper in the haze
     // than the crest, which is what sells one ridge standing behind another.
-    float toFog = clamp(aHaze + (1.0 - aHaze) * (1.0 - aTop) * 0.7, 0.0, 1.0);
-    vColor = mix(aTint * (1.0 - 0.72 * uNight), uFog, toFog);
+    float toFog = clamp(aHaze + (1.0 - aHaze) * (1.0 - aTop) * 0.55, 0.0, 1.0);
+    // ...and the fringe strip above the crest runs the rest of the way to pure
+    // fog, which is the soft top edge (see FRINGE).
+    toFog = mix(toFog, 1.0, aFringe);
+    // At night the belt has to converge on the fog rather than merely dim: the
+    // night fog is now genuinely dark, so a band that only scaled its own tint
+    // down stayed BRIGHTER than the sky it stood against and drew a pale
+    // horizontal seam right across the bay in every night vista.
+    toFog = mix(toFog, 1.0, uNight * 0.55);
+    vColor = mix(aTint * aRelief * (1.0 - 0.86 * uNight), uFog, toFog);
   }
 `;
 
@@ -125,15 +160,30 @@ export class FarTerrain {
   private uNight = { value: 0 };
 
   constructor() {
-    const quads = BANDS.length * SEGMENTS;
+    // Two quads per segment now: the ridge body, then the fringe strip above it.
+    const quads = BANDS.length * SEGMENTS * 2;
     const positions = new Float32Array(quads * 4 * 3);
     const tops = new Float32Array(quads * 4);
     const hazes = new Float32Array(quads * 4);
     const tints = new Float32Array(quads * 4 * 3);
+    const fringes = new Float32Array(quads * 4);
+    const reliefs = new Float32Array(quads * 4);
     const indices = new Uint16Array(quads * 6);
     const tint = new THREE.Color();
     let v = 0; // vertex cursor
     let f = 0; // index cursor
+
+    // Value multiplier for a vertex: the local ridge SLOPE lights one flank and
+    // shades the other (a symmetric fill would keep the band flat no matter how
+    // varied its outline), plus a slow bearing wave for broad shoulders, both
+    // faded out toward the foot where the haze owns the colour anyway.
+    const reliefAt = (ridges: readonly Ridge[], bearing: number, top: number): number => {
+      const d = 1.5;
+      const slope = (profileAt(ridges, bearing + d) - profileAt(ridges, bearing - d)) / (2 * d);
+      const lit = Math.max(-1, Math.min(1, slope / 12));
+      const wave = Math.sin(bearing * 0.19 + 1.7) * 0.5 + Math.sin(bearing * 0.061) * 0.5;
+      return 1 + RELIEF * (lit * 0.7 + wave * 0.3) * (0.3 + 0.7 * top);
+    };
 
     for (const band of BANDS) {
       tint.setHex(band.color);
@@ -149,15 +199,39 @@ export class FarTerrain {
         const z1 = -Math.cos(a1) * band.radius;
         const h0 = profileAt(band.ridges, b0);
         const h1 = profileAt(band.ridges, b1);
-        const base = v;
-        // 0,1 = feet; 2,3 = crest.
-        positions.set([x0, BASE_Y, z0, x1, BASE_Y, z1, x1, h1, z1, x0, h0, z0], v * 3);
-        tops.set([0, 0, 1, 1], v);
-        hazes.set([band.haze, band.haze, band.haze, band.haze], v);
-        for (let k = 0; k < 4; k++) tints.set([tint.r, tint.g, tint.b], (v + k) * 3);
-        v += 4;
-        indices.set([base, base + 1, base + 2, base, base + 2, base + 3], f);
-        f += 6;
+        const r0 = reliefAt(band.ridges, b0, 1);
+        const r1 = reliefAt(band.ridges, b1, 1);
+        const fringe0 = Math.max(FRINGE_MIN, (h0 - SEA_FLOOR) * FRINGE);
+        const fringe1 = Math.max(FRINGE_MIN, (h1 - SEA_FLOOR) * FRINGE);
+
+        const quad = (
+          ys: readonly [number, number, number, number],
+          top: readonly [number, number, number, number],
+          fr: readonly [number, number, number, number],
+          rel: readonly [number, number, number, number],
+        ): void => {
+          const base = v;
+          // 0,1 = lower edge (b0, b1); 2,3 = upper edge (b1, b0).
+          positions.set([x0, ys[0], z0, x1, ys[1], z1, x1, ys[2], z1, x0, ys[3], z0], v * 3);
+          tops.set(top, v);
+          fringes.set(fr, v);
+          reliefs.set(rel, v);
+          hazes.set([band.haze, band.haze, band.haze, band.haze], v);
+          for (let k = 0; k < 4; k++) tints.set([tint.r, tint.g, tint.b], (v + k) * 3);
+          v += 4;
+          indices.set([base, base + 1, base + 2, base, base + 2, base + 3], f);
+          f += 6;
+        };
+
+        // Body: feet on the ground shell up to the crest.
+        quad(
+          [BASE_Y, BASE_Y, h1, h0],
+          [0, 0, 1, 1],
+          [0, 0, 0, 0],
+          [reliefAt(band.ridges, b0, 0), reliefAt(band.ridges, b1, 0), r1, r0],
+        );
+        // Fringe: crest up into the sky, dissolving to pure fog.
+        quad([h0, h1, h1 + fringe1, h0 + fringe0], [1, 1, 1, 1], [0, 0, 1, 1], [r0, r1, r1, r0]);
       }
     }
 
@@ -166,6 +240,8 @@ export class FarTerrain {
     geo.setAttribute("aTop", new THREE.BufferAttribute(tops, 1));
     geo.setAttribute("aHaze", new THREE.BufferAttribute(hazes, 1));
     geo.setAttribute("aTint", new THREE.BufferAttribute(tints, 3));
+    geo.setAttribute("aFringe", new THREE.BufferAttribute(fringes, 1));
+    geo.setAttribute("aRelief", new THREE.BufferAttribute(reliefs, 1));
     geo.setIndex(new THREE.BufferAttribute(indices, 1));
 
     const mat = new THREE.ShaderMaterial({

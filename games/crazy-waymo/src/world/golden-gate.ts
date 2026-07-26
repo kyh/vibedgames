@@ -29,6 +29,11 @@ const APPROACH_U_MAX = 0.35;
 
 const ORANGE = new THREE.MeshStandardMaterial({ color: 0xc0362c, roughness: 0.6 });
 const RAIL_ORANGE = new THREE.MeshStandardMaterial({ color: 0xa93227, roughness: 0.7 });
+// Tower marker lights are light SOURCES, not lit surfaces: unlit and
+// untonemapped, like the traffic signals, so they survive the night grade. The
+// beacon sprites give the halo; these give the tower its own dotted structure
+// after dark, which is what stopped it reading as a black stick over a lit deck.
+const TOWER_LAMP = new THREE.MeshBasicMaterial({ color: 0xffd9a0, toneMapped: false });
 
 // Deterministic 0..1 jitter (world gen must not consume Math.random).
 const jit = (i: number, k: number): number => {
@@ -77,7 +82,10 @@ export type GoldenGatePlan = {
   readonly northEndZ: number;
   readonly railMinZ: number;
   readonly railMaxZ: number;
+  /** North (Marin) tower. */
   readonly towerZ: number;
+  /** South (Presidio) tower — the pair is what makes the bridge readable. */
+  readonly towerZ2: number;
   readonly topY: number;
 };
 
@@ -140,6 +148,16 @@ export function goldenGatePlan(ctx: GoldenGatePlanCtx): GoldenGatePlan | null {
   // With a Marin landfall the tower stands in the water just off the headland
   // (where the real north tower lives); the fallback keeps it near the border.
   const towerZ = landfallZ !== null ? Math.min(landfallZ + 18, rampTopZ - 10) : -WORLD_HALF_Z + 14;
+  // The SOUTH tower. A suspension bridge with one portal is a gantry: the
+  // shape everybody recognises is TWO towers with the main span slung between
+  // them, and the audit's vertex scan proved we were shipping one. It stands
+  // in the water off the Presidio shore (where the real south tower is), one
+  // seventh of the way out so the MAIN SPAN is the long one, and it is kept at
+  // least 30u off the north tower so the pair never degenerates into a portal.
+  const towerZ2 = Math.min(
+    rampTopZ - 8,
+    Math.max(towerZ + 30, rampTopZ - (rampTopZ - towerZ) * 0.14),
+  );
 
   return {
     ax,
@@ -159,6 +177,7 @@ export function goldenGatePlan(ctx: GoldenGatePlanCtx): GoldenGatePlan | null {
     railMinZ: landfallZ !== null ? landfallZ - 1 : endZ,
     railMaxZ: shoreZ - 1,
     towerZ,
+    towerZ2,
     topY: deckY + TOWER_H,
   };
 }
@@ -188,15 +207,24 @@ function lampStations(plan: GoldenGatePlan): { x: number; y: number; z: number }
  */
 export function goldenGateBeacons(plan: GoldenGatePlan): readonly Beacon[] {
   const beacons: Beacon[] = [];
-  for (const sx of [-(plan.half + 2.2), plan.half + 2.2]) {
-    beacons.push({
-      x: plan.ax + sx,
-      y: plan.topY + 1.2,
-      z: plan.towerZ,
-      color: 0xff4436,
-      size: 3.4,
-      blinkS: 2.6,
-    });
+  for (const tz of [plan.towerZ, plan.towerZ2]) {
+    for (const sx of [-(plan.half + 2.2), plan.half + 2.2]) {
+      beacons.push({
+        x: plan.ax + sx,
+        y: plan.topY + 1.2,
+        z: tz,
+        color: 0xff4436,
+        size: 3.4,
+        blinkS: 2.6,
+      });
+      // Tower floodlighting. The audit's night pass found the deck string lit
+      // and the towers matte black above it, so the bridge read as a dotted
+      // line with a dark stick on it. A warm wash at each portal beam gives
+      // the pair their own silhouette after dark.
+      for (const wy of [plan.deckY + 9, plan.deckY + 18]) {
+        beacons.push({ x: plan.ax + sx, y: wy, z: tz, color: 0xffb066, size: 5.2 });
+      }
+    }
   }
   for (const st of lampStations(plan)) {
     beacons.push({
@@ -250,6 +278,7 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
     railMinZ,
     railMaxZ,
     towerZ,
+    towerZ2,
     topY,
   } = plan;
 
@@ -398,24 +427,70 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
     objects.push(mesh(headGeo, RAIL_ORANGE, st.x, st.y + LAMP_H, st.z));
   }
 
-  // Tower: legs OUTSIDE the drivable width, portal beams the car passes under.
-  for (const sx of [-(half + 2.2), half + 2.2]) {
-    objects.push(
-      mesh(
-        new THREE.BoxGeometry(2, TOWER_H + deckY + 2, 2),
-        ORANGE,
-        ax + sx,
-        (topY + 1) / 2 - 1,
-        towerZ,
-      ),
-    );
-  }
-  for (const by of [deckY + 8.5, deckY + 17, topY - 1.5]) {
-    objects.push(mesh(new THREE.BoxGeometry(DECK_W + 6.4, 1.4, 1.4), ORANGE, ax, by, towerZ));
+  // Orange deck truss. The deck itself is a grey kit board, so from the side
+  // the crossing read as a city-asphalt causeway with a red gantry over it —
+  // international orange has to be on the SPAN, not only on the tower. A stiff
+  // girder under each parapet, plus floorbeams, gives it the colour and the
+  // depth the silhouette needs.
+  {
+    const spanLen = railMaxZ - railMinZ;
+    const girder = new THREE.BoxGeometry(0.9, 1.5, spanLen);
+    for (const sx of [-(half + RAIL_T / 2), half + RAIL_T / 2]) {
+      objects.push(mesh(girder, ORANGE, ax + sx, deckY - 1.1, (railMinZ + railMaxZ) / 2));
+    }
+    const beam = new THREE.BoxGeometry(DECK_W + RAIL_T * 2, 0.5, 0.5);
+    const beams = Math.max(2, Math.round(spanLen / 7));
+    for (let i = 0; i < beams; i++) {
+      const bz = railMaxZ - (spanLen * (i + 0.5)) / beams;
+      if (bz > rampTopZ) continue; // the ramp is on the ground; no truss there
+      objects.push(mesh(beam, ORANGE, ax, deckY - 1.7, bz));
+    }
   }
 
-  // Main cables: catenary from the shore anchorage over the tower top, plus
-  // suspenders down to the deck.
+  // Towers: BOTH of them (south in the strait off the Presidio, north off the
+  // Marin headland) — one portal is a football goal, two is the Golden Gate.
+  // Legs stay outside the drivable width, taper as they rise, and carry the
+  // stepped portal bracing that is the bridge's other signature.
+  for (const tz of [towerZ2, towerZ]) {
+    for (const sx of [-(half + 2.2), half + 2.2]) {
+      // Three stacked sections, each a touch narrower — a straight prism
+      // shades as a flat ladder from any angle.
+      const secs = [
+        [deckY - 8, deckY + 6, 2.4],
+        [deckY + 6, deckY + 17, 2.05],
+        [deckY + 17, topY + 1, 1.7],
+      ] as const;
+      for (const [y0, y1, w] of secs) {
+        objects.push(
+          mesh(new THREE.BoxGeometry(w, y1 - y0, w), ORANGE, ax + sx, (y0 + y1) / 2, tz),
+        );
+      }
+      objects.push(mesh(new THREE.BoxGeometry(3.1, 1.1, 3.1), ORANGE, ax + sx, topY + 1.2, tz));
+      // Marker lights up the leg.
+      const markerGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+      for (let i = 0; i < 5; i++) {
+        const my = deckY + 3 + (i * (TOWER_H - 4)) / 4;
+        objects.push(mesh(markerGeo, TOWER_LAMP, ax + sx + Math.sign(sx) * 1.2, my, tz));
+      }
+    }
+    // Portal bracing: the beams step INWARD going up, which is what gives the
+    // real towers their tapered-window read.
+    for (const [by, inset] of [
+      [deckY + 6.5, 0],
+      [deckY + 13, 0.8],
+      [deckY + 20, 1.6],
+      [topY - 1.5, 2.4],
+    ] as const) {
+      objects.push(
+        mesh(new THREE.BoxGeometry(DECK_W + 6.4 - inset * 2, 1.4, 1.4), ORANGE, ax, by, tz),
+      );
+    }
+  }
+
+  // Main cables: shore anchorage → south tower → the slung main span → north
+  // tower → the Marin anchorage, with suspenders down to the deck. The sag is
+  // authored between the tower saddles, so the main span hangs the way the
+  // real one does instead of running flat from a single peak.
   for (const sx of [-(half + 2.2), half + 2.2]) {
     // North cable end: buried into the Battery Ridge hillside (a real
     // anchorage) when the bridge lands; run off-map on the fallback.
@@ -427,19 +502,22 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
             northEndZ - 14,
           )
         : new THREE.Vector3(ax + sx, topY - 6, -WORLD_HALF_Z - 8);
+    const midZ = (towerZ2 + towerZ) / 2;
     const pts = [
       new THREE.Vector3(ax + sx, shoreH + 1.5, shoreZ + 2),
-      new THREE.Vector3(ax + sx, deckY + 5, (rampTopZ + towerZ) / 2),
+      new THREE.Vector3(ax + sx, deckY + 3.5, (shoreZ + towerZ2) / 2),
+      new THREE.Vector3(ax + sx, topY - 0.5, towerZ2),
+      new THREE.Vector3(ax + sx, deckY + 2.6, midZ),
       new THREE.Vector3(ax + sx, topY - 0.5, towerZ),
       cableEnd,
     ];
     const curve = new THREE.CatmullRomCurve3(pts);
-    const cable = new THREE.Mesh(new THREE.TubeGeometry(curve, 40, 0.22, 6), ORANGE);
+    const cable = new THREE.Mesh(new THREE.TubeGeometry(curve, 72, 0.28, 6), ORANGE);
     cable.castShadow = true;
     cable.updateMatrixWorld(true);
     objects.push(cable);
-    for (let i = 1; i <= 8; i++) {
-      const t = i / 9;
+    for (let i = 1; i <= 20; i++) {
+      const t = i / 21;
       const p = curve.getPoint(t);
       if (p.z < railMinZ || p.z > railMaxZ) continue;
       const h = p.y - (deckY + 1);

@@ -79,6 +79,15 @@ export type FurnitureCtx = {
   readonly cache: ModelCache;
   readonly rng: Rng;
   readonly reserved: ReadonlySet<string>; // "gx,gz" cells to leave alone (landmarks)
+  /**
+   * Did the frontage walk actually build a WALL on the facade plane here?
+   * This module can COMPUTE the plane (facadeOffset) but has no view of the
+   * buildings, so awnings, shutters, fire escapes and murals used to hang in
+   * mid-air over every alley between runs, every lot a placement gate refused
+   * and every block the real-footprint pass owns instead. city.ts stamps the
+   * front face of each lot it builds; this is the question.
+   */
+  readonly facadeAt: (x: number, z: number) => boolean;
   readonly worldX: (gx: number) => number;
   readonly worldZ: (gz: number) => number;
 };
@@ -739,8 +748,19 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
     await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
     lastYield = performance.now();
   };
-  const { plan, network, terrain, roadDrape, groundOffset, cache, rng, reserved, worldX, worldZ } =
-    ctx;
+  const {
+    plan,
+    network,
+    terrain,
+    roadDrape,
+    groundOffset,
+    cache,
+    rng,
+    reserved,
+    facadeAt,
+    worldX,
+    worldZ,
+  } = ctx;
   const objects: THREE.Object3D[] = [];
   const solids: Solid[] = [];
   const openWaterCells = new Set<string>();
@@ -1133,6 +1153,12 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       const off = (edge.half - 1.05) * side;
       const px = smp.x - smp.tz * off;
       const pz = smp.z + smp.tx * off;
+      // 1.05u inside THIS edge's kerb is the parking strip — but where a WIDER
+      // street crosses, that same point is out in ITS travel lane, which is how
+      // 31 cars came to be parked mid-junction (worst 6.8u deep). Park only
+      // where no other edge claims the spot as roadway.
+      const owner = network.nearest(px, pz, ROAD_TILE * 1.4);
+      if (owner && owner.edge.id !== edge.id && owner.dist < owner.edge.half - 1.05) continue;
       // Nose along the travel direction of this kerb's lane.
       const yaw = Math.atan2(smp.tx, smp.tz) + (side > 0 ? 0 : Math.PI) + rng.range(-0.04, 0.04);
       parkedCars.push({ x: px, z: pz, yaw, model: rng.pick(TRAFFIC_CARS) });
@@ -1440,7 +1466,19 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
           const mid = side * (2.2 + runLen / 2);
           const px = along === "x" ? wx + mid : wx + dx * edgeOff;
           const pz = along === "x" ? wz + dz * edgeOff : wz + mid;
-          if (onAsphalt(px, pz, 1)) continue;
+          // A 4.3u run tested on its MIDPOINT alone put both ends of six of
+          // these walls in the asphalt of a street the park corner meets at an
+          // angle; the collision box is the whole run, so test the whole run.
+          const halfRun = runLen / 2;
+          const ax = along === "x" ? halfRun : 0;
+          const az = along === "x" ? 0 : halfRun;
+          if (
+            onAsphalt(px, pz, 1) ||
+            onAsphalt(px - ax, pz - az, 1) ||
+            onAsphalt(px + ax, pz + az, 1)
+          ) {
+            continue;
+          }
           const wall = cache.instance(wallUrl);
           wall.scale.set(wallH, wallH, wallRun);
           wall.rotation.y = along === "x" ? HALF_PI : 0;
@@ -2670,11 +2708,21 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
         // actually faces us was built off that one instead.
         const near = network.nearest(p.x, p.z, ROAD_TILE * 1.6);
         if (!near || near.edge.id !== edge.id) return;
+        // …and only when a wall was actually BUILT here. The plane is where a
+        // frontage lot's front face WOULD be; alleys between runs, refused
+        // lots and blocks the real-footprint pass owns have no wall on it, and
+        // a 9u awning panel hanging over open pavement is the loudest
+        // "generated" tell on the whole map.
+        if (!facadeAt(p.x, p.z)) return;
         const y = surfaceAt(p.x, p.z);
         // local +Z points at the street: the props are authored that way.
         const yaw = facingRoad(p);
         const shopfront = char === "commercial" || char === "wharf";
-        if (shopfront && awnings < AWNING_CAP && rng.chance(0.5)) {
+        // Denser than the old 0.5 because the facadeAt gate above now throws
+        // away every sample with no wall behind it: at 0.5 the surviving
+        // shopfronts came out sparser than the un-gated version LOOKED, which
+        // trades one wrong read (props in mid-air) for another (bare walls).
+        if (shopfront && awnings < AWNING_CAP && rng.chance(0.72)) {
           placeKit(
             awningParts,
             p.x,

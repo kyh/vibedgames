@@ -22,14 +22,33 @@ const WIN_W = 0.62;
 const WIN_H = 0.85;
 const FACE_OFFSET = 0.09; // out from the wall so the quad never z-fights
 const LIT_CHANCE = 0.45;
-// Fade out BEFORE the facades they are painted on disappear. The near tier of
-// city geometry culls at city.ts DETAIL_DISTANCE (360u); past that only tall
-// buildings survive, as blank box imposters. The old 430–680 band therefore
-// drew lit window grids over featureless boxes — and, past the imposters, over
-// nothing at all. Finish inside the detail cull instead.
-const DETAIL_CULL = 360;
-const FADE_NEAR = 240;
-const FADE_FAR = DETAIL_CULL;
+// Fade out BEFORE the facade a window is painted on disappears — but the
+// distance that happens at is PER BUILDING, and pinning every window to the
+// shortest of those was costing the game its best image. city.ts culls in three
+// tiers: everything at DETAIL_DISTANCE 360, ordinary buildings (MID_SILHOUETTE_H
+// 5u) as box imposters to MID_IMPOSTER_DISTANCE 620, skyline buildings
+// (BIG_SILHOUETTE_H 13u) as imposters all the way to DRAW_DISTANCE 900. One
+// global 240–360 fade meant that from Twin Peaks or the bay — SF at night, the
+// single most recognisable image this game could own — the city below was an
+// unlit black mass with a handful of pinpricks, while the towers it was drawn on
+// were still standing there.
+//
+// An imposter box shares the real building's footprint, so a lit window sits on
+// it correctly; each window just has to know which tier its own building is in.
+// Values sit inside each cull so the windows are gone before the box is.
+const TIER_DETAIL = 360;
+const TIER_MID = 590;
+const TIER_TALL = 860;
+const MID_SILHOUETTE_H = 5;
+const BIG_SILHOUETTE_H = 13;
+const FADE_RATIO = 0.66; // fade starts at this fraction of a window's own far
+
+/** How far a window painted on a building this tall stays lit. */
+function fadeFarFor(height: number): number {
+  if (height >= BIG_SILHOUETTE_H) return TIER_TALL;
+  if (height >= MID_SILHOUETTE_H) return TIER_MID;
+  return TIER_DETAIL;
+}
 
 // Warm sodium-ish interior palette with the occasional cool TV-blue room.
 const WARM = new THREE.Color(0xffd9a0);
@@ -66,27 +85,30 @@ export class NightWindows {
 
     const positions: number[] = [];
     const colors: number[] = [];
+    const fars: number[] = [];
     const scratch = new THREE.Color();
-    emitDetected(detected, rng, chance, positions, colors, scratch);
+    emitDetected(detected, rng, chance, positions, colors, fars, scratch);
     for (const b of instances) {
-      emitBuilding(b, rng, chance, positions, colors, scratch);
+      emitBuilding(b, rng, chance, positions, colors, fars, scratch);
     }
 
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
     geo.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+    geo.setAttribute("aFar", new THREE.Float32BufferAttribute(fars, 1));
     geo.computeBoundingSphere();
 
     const mat = new THREE.ShaderMaterial({
       uniforms: { uNight: this.uNight },
       vertexShader: /* glsl */ `
         attribute vec3 color;
+        attribute float aFar;
         varying vec3 vColor;
         varying float vFade;
         void main() {
           vColor = color;
           float d = distance(position, cameraPosition);
-          vFade = 1.0 - smoothstep(${FADE_NEAR.toFixed(1)}, ${FADE_FAR.toFixed(1)}, d);
+          vFade = 1.0 - smoothstep(aFar * ${FADE_RATIO.toFixed(2)}, aFar, d);
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }
       `,
@@ -397,10 +419,26 @@ function emitDetected(
   chance: number,
   positions: number[],
   colors: number[],
+  fars: number[],
   scratch: THREE.Color,
 ): void {
   for (const inst of det.instances) {
     M4.fromArray(inst.m);
+    // Cull tier for this building: detected panes carry no bbox, but the
+    // vertical span of the glass is a good proxy for how tall the thing is —
+    // and it is the same question ("does its imposter survive out there?").
+    let loY = Infinity;
+    let hiY = -Infinity;
+    for (const p of inst.panes) {
+      const y = p.cy;
+      if (y - p.h / 2 < loY) loY = y - p.h / 2;
+      if (y + p.h / 2 > hiY) hiY = y + p.h / 2;
+    }
+    // Panes are in MODEL space; the instance matrix carries the kit's scale, so
+    // the span has to go through its Y basis vector before it means metres.
+    const m = inst.m;
+    const sy = Math.hypot(m[4] ?? 0, m[5] ?? 1, m[6] ?? 0);
+    const far = fadeFarFor(hiY > loY ? (hiY - loY) * sy + SILL_START : 0);
     for (const p of inst.panes) {
       if (!rng.chance(chance)) continue;
       // Inset 8% so the glow sits inside the frame.
@@ -427,7 +465,10 @@ function emitDetected(
       positions.push(c0.x, c0.y, c0.z, c2.x, c2.y, c2.z, c3.x, c3.y, c3.z);
       scratch.copy(rng.chance(0.14) ? COOL : rng.chance(0.5) ? WARM : WARM2);
       scratch.multiplyScalar(0.55 + rng.range(0, 0.5));
-      for (let v = 0; v < 6; v++) colors.push(scratch.r, scratch.g, scratch.b);
+      for (let v = 0; v < 6; v++) {
+        colors.push(scratch.r, scratch.g, scratch.b);
+        fars.push(far);
+      }
     }
   }
 }
@@ -544,10 +585,12 @@ function emitBuilding(
   chance: number,
   positions: number[],
   colors: number[],
+  fars: number[],
   scratch: THREE.Color,
 ): void {
   const g = gridFor(b);
   if (g.floors === 0) return;
+  const far = fadeFarFor(b.height);
   const sin = Math.sin(b.yaw);
   const cos = Math.cos(b.yaw);
   // Four faces in the building's LOCAL frame: (normal, tangent, half-extents).
@@ -587,7 +630,10 @@ function emitBuilding(
         positions.push(ax, y0, az, bx, y0, bz, bx, y1, bz, ax, y0, az, bx, y1, bz, ax, y1, az);
         scratch.copy(rng.chance(0.14) ? COOL : rng.chance(0.5) ? WARM : WARM2);
         scratch.multiplyScalar(0.55 + rng.range(0, 0.5));
-        for (let v = 0; v < 6; v++) colors.push(scratch.r, scratch.g, scratch.b);
+        for (let v = 0; v < 6; v++) {
+          colors.push(scratch.r, scratch.g, scratch.b);
+          fars.push(far);
+        }
       }
     }
   }

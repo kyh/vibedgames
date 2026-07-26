@@ -12,7 +12,12 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 /** The whole landmark palette. Anything drawn with one of these is packable. */
 export const MAT = {
   orange: new THREE.MeshStandardMaterial({ color: 0xc0362c, roughness: 0.6 }),
-  white: new THREE.MeshStandardMaterial({ color: 0xeceff2, roughness: 0.7 }),
+  // Landmark white is NOT paper white. At 0xeceff2 it measured within a few
+  // points of the noon sky, so the Pyramid, Coit and the Cliff House had no
+  // silhouette from any distance — the one thing a beacon may not lack. This
+  // is a warm off-white that still reads as "white building" up close and
+  // holds a value edge against the sky band.
+  white: new THREE.MeshStandardMaterial({ color: 0xd8dae0, roughness: 0.7 }),
   cream: new THREE.MeshStandardMaterial({ color: 0xe6dcc4, roughness: 0.75 }),
   glass: new THREE.MeshStandardMaterial({ color: 0xbfd4dd, roughness: 0.25, metalness: 0.5 }),
   // Deeper glass for the big towers — the pale `glass` + distance fog read as
@@ -35,6 +40,8 @@ export const MAT = {
   hedge: new THREE.MeshStandardMaterial({ color: 0x3f6d3a, roughness: 1 }),
   concrete: new THREE.MeshStandardMaterial({ color: 0xb2b1a8, roughness: 1 }),
   slate: new THREE.MeshStandardMaterial({ color: 0x51565c, roughness: 0.9 }),
+  /** Still ornamental water — the Palace lagoon, the flooded Sutro basins. */
+  lagoon: new THREE.MeshStandardMaterial({ color: 0x2f6d86, roughness: 0.15, metalness: 0.2 }),
   /** Ballpark turf. */
   field: new THREE.MeshStandardMaterial({ color: 0x4f8f45, roughness: 1 }),
   // Lamps are light SOURCES: unlit + untonemapped, like the traffic signals,
@@ -72,6 +79,23 @@ export function box(
   const m = mesh(new THREE.BoxGeometry(w, h, d), mat, x, y, z);
   m.rotation.y = yaw;
   return m;
+}
+
+/**
+ * Flat-shade a primitive in place.
+ *
+ * three's cone/cylinder builders average their vertex normals AROUND the ring,
+ * which is right for a 24-sided pipe and wrong for everything the landmark kit
+ * uses them for: a 4-sided `ConeGeometry` is a PYRAMID, and smooth ring normals
+ * shade it as a rounded horn with no visible edges. That is exactly why the
+ * Transamerica read as "a smooth white cone" instead of the city's most
+ * recognisable four-faced silhouette. Anything whose faces are meant to be seen
+ * as faces goes through here.
+ */
+export function facet(geo: THREE.BufferGeometry): THREE.BufferGeometry {
+  const flat = geo.index === null ? geo : geo.toNonIndexed();
+  flat.computeVertexNormals();
+  return flat;
 }
 
 /** Upright cylinder / truncated cone, seated by its CENTRE like every other
@@ -152,15 +176,21 @@ export function arc(
  * alone. Call it BEFORE the group is positioned in the world so the merge
  * happens around the monument's own origin and it still frustum-culls as one
  * compact object.
+ *
+ * `extra` admits a monument's own SHARED materials (one per Painted Lady, say)
+ * into the pack. They still cost one draw call each — the rule is that a
+ * material must be reused across the monument to earn its keep, not that only
+ * `MAT` may be used.
  */
-export function packLandmark(src: THREE.Group): THREE.Group {
+export function packLandmark(src: THREE.Group, extra?: Iterable<THREE.Material>): THREE.Group {
+  const packable = extra ? new Set<THREE.Material>([...PACKABLE, ...extra]) : PACKABLE;
   src.updateMatrixWorld(true);
   const buckets = new Map<THREE.Material, THREE.BufferGeometry[]>();
   const packed: THREE.Mesh[] = [];
   src.traverse((o) => {
     if (!(o instanceof THREE.Mesh)) return;
     const mat = o.material;
-    if (Array.isArray(mat) || !PACKABLE.has(mat)) return;
+    if (Array.isArray(mat) || !packable.has(mat)) return;
     const geo = o.geometry.clone().applyMatrix4(o.matrixWorld);
     const list = buckets.get(mat);
     if (list) list.push(geo);

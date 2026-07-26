@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import polygonClipping from "polygon-clipping";
 
-import { GRID_X, GRID_Z, ROAD_TILE, ROAD_Y, WORLD_HALF_X, WORLD_HALF_Z } from "../shared/constants";
+import { ROAD_TILE, ROAD_Y, WORLD_H, WORLD_W } from "../shared/constants";
 import {
   conformToTerrain,
   DRAPE_MAX_ERROR,
@@ -12,7 +12,6 @@ import {
 } from "./conform";
 import { junctionControl } from "./junction-control";
 import type { NetEdge, RoadNetwork } from "./network";
-import { districtAt } from "./sf-map";
 import { busLoadAt, SF_TRANSIT } from "./sf-transit";
 
 // PLANAR-MAP street geometry. Every edge sweep and junction patch is built as
@@ -60,7 +59,7 @@ const LINE_LIFT = ASPHALT_LIFT + MARKING_MAX_ERROR + DRAPE_MAX_ERROR + 0.03;
 // drawn KERB, and this is only the fallback for the vertices that graze off it.
 const KERB_PAINT_LIFT = CURB_LIFT + MARKING_MAX_ERROR + DRAPE_MAX_ERROR + 0.03;
 const LINE_W = 0.24;
-const MUNI_LANE_W = 2.0; // red transit lane, kerb to white bound
+const MUNI_LANE_W = 1.5; // red transit lane, kerb to white bound
 const EDGE_INSET = 0.5;
 const DASH_LEN = 2.2;
 const DASH_GAP = 2.6;
@@ -132,12 +131,20 @@ function paintMat(color: number): THREE.MeshStandardMaterial {
     polygonOffsetUnits: -4,
   });
 }
-const MAT_MUNI_RED = paintMat(0xc04a38);
+// Muni red is a MATTE PAINTED LANE, not a light source. At 0xc04a38 two 2u
+// bands per street made red the loudest colour in an otherwise pastel scene
+// and, at night, the brightest thing in a deep-navy frame. This is the same
+// hue held down in value and chroma so it still reads as "transit lane" while
+// letting the road keep the eye.
+const MAT_MUNI_RED = paintMat(0x9c4234);
 ROAD_MATERIALS.muni = MAT_MUNI_RED;
 const MAT_BIKE_GREEN = paintMat(0x27824f);
 ROAD_MATERIALS.bike = MAT_BIKE_GREEN;
 const MAT_MANHOLE = paintMat(0x434956);
 ROAD_MATERIALS.manhole = MAT_MANHOLE;
+// Castro & 18th, the ONE rainbow corner (traced (u, v) 0.4995 / 0.4865).
+const CASTRO_18TH_X = (0.4995 - 0.5) * WORLD_W;
+const CASTRO_18TH_Z = (0.4865 - 0.5) * WORLD_H;
 const RAINBOW_HEX = [0xe64236, 0xf08c2e, 0xf2ce3a, 0x3fae52, 0x3567d6, 0x8a4bc9] as const;
 const MAT_RAINBOW = RAINBOW_HEX.map((c, i) => {
   const m = paintMat(c);
@@ -1793,6 +1800,27 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
     }
   }
 
+  // The rainbow crosswalk is ONE intersection — Castro at 18th — not a
+  // district. Painting every junction inside the 300 × 286u Castro box in
+  // rainbow bands (which is what `districtAt(...) === "the Castro"` did) both
+  // destroyed the landmark by repetition and filled the district with confetti
+  // that competes with the driving line. Resolve the single nearest junction
+  // to the real corner once, and paint that.
+  const rainbowNode = (() => {
+    let best = -1;
+    let bestD = 55 * 55;
+    for (let n = 0; n < network.nodes.length; n++) {
+      const node = network.nodes[n];
+      const arms = nodeArms[n];
+      if (!node || !arms || arms.length < 3 || arms.length > 5) continue;
+      const d = (node[0] - CASTRO_18TH_X) ** 2 + (node[1] - CASTRO_18TH_Z) ** 2;
+      if (d >= bestD) continue;
+      bestD = d;
+      best = n;
+    }
+    return best;
+  })();
+
   let crosswalkArms = 0;
   // --- Junction patches + crosswalks + dead-end caps ---
   for (let n = 0; n < network.nodes.length; n++) {
@@ -1834,10 +1862,8 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
     const control = junctionControl(network, n);
     if (arms.length >= 3 && arms.length <= 5) {
       const zebra = control === "signal";
-      // The Castro paints its crosswalks rainbow — so do we.
-      const gxN = Math.min(GRID_X - 1, Math.max(0, Math.floor((nx + WORLD_HALF_X) / ROAD_TILE)));
-      const gzN = Math.min(GRID_Z - 1, Math.max(0, Math.floor((nz + WORLD_HALF_Z) / ROAD_TILE)));
-      const rainbow = districtAt(gxN, gzN).name === "the Castro";
+      // Castro at 18th paints its crosswalks rainbow — so do we, THERE.
+      const rainbow = n === rainbowNode;
       for (let ai = 0; ai < arms.length; ai++) {
         const a = arms[ai];
         if (!a) continue;
@@ -1856,7 +1882,10 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
         // section spills it past the strip into the next node's patch. The
         // transverse pair only reaches 2.5u, which is what the 913 short arms
         // have.
-        const ladder = zebra && gap >= Math.PI / 3 && a.sec >= CROSSWALK_ROOM;
+        // The rainbow corner earns its ladder whatever its control warrant is:
+        // it is the landmark, and a two-line transverse crossing cannot carry
+        // six colours.
+        const ladder = (zebra || rainbow) && gap >= Math.PI / 3 && a.sec >= CROSSWALK_ROOM;
         if (!ladder && (gap < 0.87 || a.sec < 2.9)) continue;
         const ox = -a.tz;
         const oz = a.tx;

@@ -124,6 +124,23 @@ Recipe: poll `__taxi.game.isReady`, call `game.handleStartPress()` (private in T
 keydowns do NOT start the game; Enter opens chat), wait ~4s (countdown swoop
 owns the camera), then drive via dispatched KeyboardEvents on `window`.
 
+**Dispatch `key`, not `code`.** `InputState` (`input/keyboard.ts`) reads
+`e.key.toLowerCase()`, so throttle is
+`new KeyboardEvent("keydown", { key: "w" })`. The obvious-looking
+`{ code: "KeyW" }` is silently ignored and the car never moves — which looks
+EXACTLY like a blocked street. Two agents filed false "hard drive-blocker"
+findings from it. Second trap on the same road: holding throttle with no
+steering leaves the roadway within ~40u on any curved street, so "travelled
+then stopped" is usually the car in a lot against a wall, not a blocker —
+screenshot the end of every drive before you believe it.
+
+**Run your own dev server when other agents are editing.** The
+`full-reload-sim` plugin (`vite.config.ts`) turns every save under
+`src/{world,vehicle,physics,scenes,game,fx,render,net}/` into a page reload,
+which resets the game mid-screenshot-run. A one-file config that spreads the
+repo's and sets `server: { port: <yours>, hmr: false }` is the fix; your own
+edits still land on the fresh `goto` each run does.
+
 **HMR footgun**: editing world/vehicle modules while a tab is open spawns a
 second GameScene in-page; `__taxi` then points at an instance whose physics
 world isn't stepped — the car sits at speed 0 and looks broken. Hard-reload
