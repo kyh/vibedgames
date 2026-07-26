@@ -12,6 +12,9 @@ pnpm test           # world-gen invariant harness (~5s, headless, no browser)
 pnpm bake:world     # regenerate + install public/world/*.bin (headless chromium)
 pnpm bake:world -- 5193   # same, but attach to an already-running dev server
 pnpm bake:map       # re-bake the OSM vector network + street mask (only after tools/sf-data changes)
+                    # → it writes sf-network/sf-streets/sf-freeways UNFORMATTED. Run
+                    #   node_modules/.bin/oxfmt --write on those three NEXT (never the repo-root
+                    #   `pnpm format:fix`, which rewrites every package).
                     # → then ALWAYS re-run tools/sf-data/extract-transit-obj.mjs: SF_TRANSIT
                     #   stores indices INTO SF_EDGES, so a re-numbered network invalidates
                     #   every corridor. `pnpm test` fails on the stamp mismatch if you forget.
@@ -140,6 +143,17 @@ screenshot the end of every drive before you believe it.
 which resets the game mid-screenshot-run. A one-file config that spreads the
 repo's and sets `server: { port: <yours>, hmr: false }` is the fix; your own
 edits still land on the fresh `goto` each run does.
+
+**Baked VERTEX output is invisible in a dev tab until you rebake.** Material
+colours that go through `roads.ts bakeConstantColor` (sidewalk, kerb, every
+road decal) and anything else written into a vertex attribute at generation
+time are already IN `public/world/*.bin`; edit the constant and your own tab
+still loads the old value, silently, because the bin's rev still matches. To
+SEE such a change before the rebake, force the cold-gen path — a one-file vite
+config that spreads the repo's and adds a middleware 404ing `/world/world.bin`
+and `/world/rest.bin*` makes `world-fetch` return null and the world generates
+live from source. Any before/after screenshot of a baked-vertex change that
+skips this is a photograph of the old world.
 
 **HMR footgun**: editing world/vehicle modules while a tab is open spawns a
 second GameScene in-page; `__taxi` then points at an instance whose physics

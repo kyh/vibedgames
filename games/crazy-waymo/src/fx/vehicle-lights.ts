@@ -23,8 +23,13 @@ export type LitVehicle = {
   readonly wrecked: boolean;
 };
 
-const CAR_BUDGET = 80; // cars lit per frame, nearest first
-const GLOW_RANGE = 240; // beyond this a car's lights are a sub-pixel smudge
+const CAR_BUDGET = 110; // cars lit per frame, nearest first
+// Traffic is the only MOVING light the city has, and from Twin Peaks or the bay
+// a string of them crawling down an avenue is what makes the place read as
+// inhabited rather than as a lit model. 240u cut that off inside one district;
+// the lamps around them already fade at 650 (fx/lamp-glow.ts), so matching that
+// costs one more sort and no extra draw call.
+const GLOW_RANGE = 420;
 
 // Local offsets, in the car's own frame: +Z is forward (the same convention
 // world/terrain.ts slopeQuaternion and the traffic mover use).
@@ -33,18 +38,23 @@ const HEAD_FWD = 1.6;
 const HEAD_UP = 0.55;
 const TAIL_FWD = -1.7;
 const TAIL_UP = 0.62;
-const POOL_FWD = 4.6; // where the beam lands on the road
-const HEAD_SIZE = 1.5;
-const TAIL_SIZE = 0.75;
-const POOL_SIZE = 7;
+const POOL_FWD = 5.2; // where the beam lands on the road
+const HEAD_SIZE = 1.4;
+const TAIL_SIZE = 0.8;
+const POOL_SIZE = 9;
 const POOL_LIFT = 0.09; // over the asphalt, under the kerb paint
 
 const HEAD_COLOR = new THREE.Color(0xfff1cf);
 const TAIL_COLOR = new THREE.Color(0xff3a22);
 const POOL_COLOR = new THREE.Color(0xffdca6);
 
-const HALO_ALPHA = 0.55;
-const POOL_ALPHA = 0.2;
+const HALO_ALPHA = 0.6;
+const POOL_ALPHA = 0.3;
+// See fx/lamp-glow.ts: additive layers need HDR colour, not more alpha, to
+// clear the night bloom cut. Head lamps run hotter than their own road pool —
+// looking INTO oncoming traffic is the shot this is for.
+const HALO_GAIN = 3.2;
+const POOL_GAIN = 1.7;
 
 const FORWARD = new THREE.Vector3(0, 0, 1);
 const SIDES: readonly number[] = [-1, 1];
@@ -66,6 +76,7 @@ export class VehicleLights {
       capacity: CAR_BUDGET * 4,
       kind: "halo",
       alpha: HALO_ALPHA,
+      gain: HALO_GAIN,
       intensity: this.intensity,
       time: this.time,
     });
@@ -73,6 +84,7 @@ export class VehicleLights {
       capacity: CAR_BUDGET,
       kind: "pool",
       alpha: POOL_ALPHA,
+      gain: POOL_GAIN,
       intensity: this.intensity,
       time: this.time,
     });

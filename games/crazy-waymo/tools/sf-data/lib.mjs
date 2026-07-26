@@ -35,6 +35,15 @@ function box(u, v, uMin, uMax, vMin, vMax) {
 function lineSide(u, v, ax, ay, bx, by) {
   return (bx - ax) * (v - ay) - (by - ay) * (u - ax);
 }
+function stationAt(S, x) {
+  if (x <= S[0][0] || x >= S[S.length - 1][0]) return null;
+  let i = 1;
+  while (i < S.length - 1 && S[i][0] < x) i++;
+  const a = S[i - 1];
+  const b = S[i];
+  const t = (x - a[0]) / (b[0] - a[0] || 1);
+  return a[1] + (b[1] - a[1]) * t;
+}
 const EMBARCADERO_SHORE = [
   [0.021, 0.6596], // Pier 39
   [0.0415, 0.7146], // Pier 35
@@ -44,15 +53,42 @@ const EMBARCADERO_SHORE = [
   [0.2634, 0.8114], // South Beach / Mission Rock
 ];
 function shoreCut(u, v) {
-  const S = EMBARCADERO_SHORE;
-  if (v <= S[0][0] || v >= S[S.length - 1][0]) return 1;
-  let i = 1;
-  while (i < S.length - 1 && S[i][0] < v) i++;
-  const a = S[i - 1];
-  const b = S[i];
-  const t = (v - a[0]) / (b[0] - a[0] || 1);
-  const su = a[1] + (b[1] - a[1]) * t;
-  return 1 - smooth(u, su - 0.004, su + 0.008);
+  const su = stationAt(EMBARCADERO_SHORE, v);
+  return su === null ? 1 : 1 - smooth(u, su - 0.004, su + 0.008);
+}
+// The Golden Gate strait's south shore and the Marin coast (see sf-map.ts
+// GATE_SHORE / MARIN_COAST for why the strait's water comes out of the
+// Presidio's north edge rather than out of the Marin strip).
+const NORTH_SHORE_V = 0.0475;
+const NORTH_SHORE_FEATHER = 0.0225;
+const GATE_SHORE = [
+  [0.155, 0.124],
+  [0.2, 0.116],
+  [0.25, 0.104],
+  [0.3, 0.0995],
+  [0.34, 0.1015],
+  [0.38, 0.0965],
+  [0.41, 0.077],
+  [0.43, 0.058],
+  [0.445, NORTH_SHORE_V],
+];
+const MARIN_FEATHER = 0.005;
+const MARIN_COAST = [
+  [0.085, -0.006],
+  [0.13, 0.004],
+  [0.18, 0.0135],
+  [0.21, 0.0135],
+  [0.24, 0.0075], // Kirby Cove
+  [0.265, 0.017],
+  [0.285, 0.0215], // Lime Point
+  [0.325, 0.0205],
+  [0.355, 0.012],
+  [0.385, -0.004],
+  [0.42, -0.028],
+];
+function marinLand(u, v) {
+  const cv = stationAt(MARIN_COAST, u);
+  return cv === null ? 0 : 1 - smooth(v, cv - MARIN_FEATHER, cv + MARIN_FEATHER);
 }
 // Mission Creek's true outline (see sf-map.ts MISSION_CREEK) and the feather,
 // in world units, that a 20u-wide channel needs.
@@ -96,7 +132,12 @@ function isle(u, v, c) {
   );
 }
 export function landFactor(u, v) {
-  let land = Math.min(smooth(u, 0.025, 0.06), 1 - smooth(u, 0.78, 0.85), smooth(v, 0.025, 0.07));
+  const ns = stationAt(GATE_SHORE, u) ?? NORTH_SHORE_V;
+  let land = Math.min(
+    smooth(u, 0.025, 0.06),
+    1 - smooth(u, 0.78, 0.85),
+    smooth(v, ns - NORTH_SHORE_FEATHER, ns + NORTH_SHORE_FEATHER),
+  );
   land = Math.min(land, smooth(lineSide(u, v, 0.03, 0.26, 0.25, 0.03), -0.015, 0.02));
   land = Math.min(land, shoreCut(u, v));
   land = Math.max(land, box(u, v, 0.82, 0.99, 0.7, 0.84));
@@ -106,7 +147,7 @@ export function landFactor(u, v) {
   land = Math.min(land, 1 - box(u, v, 0.08, 0.18, 0.72, 0.86));
   land = Math.max(land, isle(u, v, YERBA_BUENA));
   // Marin headlands (the Golden Gate has to DELIVER somewhere).
-  land = Math.max(land, box(u, v, 0.17, 0.36, -0.2, 0.016));
+  land = Math.max(land, marinLand(u, v));
   return land;
 }
 export const onLandUV = (u, v) => landFactor(u, v) > 0.5;

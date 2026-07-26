@@ -584,7 +584,7 @@ console.log(`  (plan + network in ${Math.round(performance.now() - t0)}ms)`);
   const ov = overlapReport(massBoxes, { areaShare: 0.28, minArea: 2 });
   check(
     "solid interpenetration stays at its ratchet",
-    ov.defects.length <= 1100,
+    ov.defects.length <= 1080,
     `${ov.defects.length} defects of ${ov.touching} touching pairs` +
       (ov.defects[0] ? `, worst ${uv(ov.defects[0].x, ov.defects[0].z)}` : ""),
   );
@@ -597,7 +597,7 @@ console.log(`  (plan + network in ${Math.round(performance.now() - t0)}ms)`);
   const deep = inRoad.filter((r) => r.depth > 3);
   check(
     "masses in the roadway stay at their ratchet",
-    inRoad.length <= 400 && deep.length <= 20,
+    inRoad.length <= 340 && deep.length <= 8,
     `${inRoad.length} past the kerb, ${deep.length} over 3u deep` +
       (deep[0] ? `, worst ${deep[0].depth.toFixed(1)}u @ ${uv(deep[0].x, deep[0].z)}` : ""),
   );
@@ -652,9 +652,24 @@ console.log(`  (plan + network in ${Math.round(performance.now() - t0)}ms)`);
     groundSpread: 0.3,
   });
   const wrongSurface = seat.groups.filter((g) => g.wrongSurface);
+  // Rev 70 halved this: the park gate pillars sampled ONE surface height for a
+  // pair standing 4.4u apart, the park walls seated on the LOWEST point under
+  // a 4.3u run (which sank 80 of them under the lawn), the tile skirt's height
+  // was a function of the terrain rather than a fixed size, and four unrelated
+  // props shared one BoxGeometry — and the rest capture keys raw geometry by
+  // identity, so all four were measured against one meaningless baseline.
+  // Rev 72 took the shore lip too (it sampled the surface 1.6u INLAND of a lip
+  // it draws on the cell boundary; on a bluff those differ by up to 6.8u):
+  // 1045 floating -> 745. What is left is almost entirely kk-tree-b and
+  // kk-trafficlight, whose GLBs carry the authoring offset in the mesh NODE,
+  // so the matrix the bake serializes is up to 1.7u from the trunk the prop
+  // actually stands on — their seat spread is 0.00 once that is taken back
+  // out, i.e. they are planted and this number is the MEASURE being wrong.
+  // Fixing that is a src/assets/loader.ts change, and it is worth doing before
+  // anyone spends more effort driving this count down.
   check(
     "seated props stay on the drawn surface at their ratchet",
-    seat.floating <= 2250 && seat.buried <= 400 && wrongSurface.length === 0,
+    seat.floating <= 820 && seat.buried <= 285 && wrongSurface.length === 0,
     `${seat.floating} floating, ${seat.buried} buried, ` +
       `${wrongSurface.length} kinds tracking the raw field` +
       (wrongSurface[0] ? ` (${wrongSurface[0].url})` : ""),

@@ -68,7 +68,12 @@ import type { CityModel, Garage } from "../world/city";
 import { HECKLES, SpeechBubbles } from "../fx/speech-bubbles";
 import { ROBOTAXI_SKINS, skinById } from "../vehicle/car";
 import { districtAt, landFactor } from "../world/sf-map";
-import type { SolidIndex } from "../world/solid-index";
+import {
+  CeilingIndex,
+  deckCeilings,
+  harvestCeilingSpans,
+  type SolidIndex,
+} from "../world/solid-index";
 import { loadWorld, type WorldCoreSystems, type WorldSpawn } from "./world-loader";
 
 const HALF_PI = Math.PI / 2;
@@ -873,10 +878,41 @@ vec3 ocGerstner(vec2 p, float t) {
     this.skinId = loaded.skinId;
     this.car = loaded.car;
     // loadWorld resolves at the PLAYABLE gate; furniture, the ambient flock and
-    // the waterfront builders all land behind `ready`, so the two systems that
-    // read their output wait for it.
+    // the waterfront builders all land behind `ready`, so the systems that read
+    // their output wait for it.
     this.ready = loaded.ready;
-    void loaded.ready.then(() => this.attachNightAndLife(loaded.city));
+    void loaded.ready.then(() => this.onWorldReady(loaded.city));
+  }
+
+  /** Everything that needs the FINISHED world, not just a playable one. */
+  private onWorldReady(city: CityModel): void {
+    this.attachNightAndLife(city);
+    void this.buildCeilingIndex(city);
+  }
+
+  /**
+   * Overhead structure for the chase rig (world/solid-index.ts). Two sources,
+   * because neither alone is complete: the SurfaceDecks are authoritative and
+   * present on both load paths but only cover what the car can DRIVE on, and
+   * the geometry walk catches everything else that got drawn — the Bay Bridge
+   * approach, the freeway viaducts, pier bulkheads — none of which declares
+   * anything a 2-D solids index can see.
+   *
+   * Deliberately off the load path and time-sliced: until it lands the camera
+   * simply runs uncapped, which is exactly today's behaviour.
+   */
+  private async buildCeilingIndex(city: CityModel): Promise<void> {
+    const t0 = performance.now();
+    const spans = await harvestCeilingSpans(
+      city.group,
+      city.terrain,
+      city.network,
+      () => new Promise<void>((resolve) => setTimeout(resolve, 0)),
+    );
+    spans.push(...deckCeilings(city.getDecks()));
+    const index = new CeilingIndex(spans);
+    this.rig.setCeilings(index);
+    console.log(`[city] ceilings ${index.size} spans in ${Math.round(performance.now() - t0)}ms`);
   }
 
   private attachNightAndLife(city: CityModel): void {

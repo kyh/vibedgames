@@ -367,42 +367,141 @@ const PL_BODY: readonly THREE.MeshStandardMaterial[] = [
   0xe0c99a, 0xb9cfdd, 0xe6bfa6, 0xc6d2ae, 0xdcb9c6, 0xb6bcd2,
 ].map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.85 }));
 
+/** Storey lines. Level across the row — that is what makes it a terrace. */
+const PL_S1 = 4.2; // top of the ground (garage/entry) storey
+const PL_S2 = 8.2; // top of the first floor
+const PL_FRONT = PL_DEPTH / 2; // the street elevation
+
+/**
+ * One Lady's street elevation. Attached on both sides, so everything that
+ * distinguishes her from her neighbour has to happen ON the facade: an angled
+ * two-storey bay over the garage, sash windows over the entry, a stoop with a
+ * pedimented door, a bracketed cornice, and her own roof form.
+ *
+ * The row used to be a flat slab in six pastel bands under one continuous dark
+ * hip — no openings of any kind — so the most photographed houses in San
+ * Francisco read worse than the kit tract houses across the street.
+ */
+function paintedLady(g: THREE.Group, i: number): void {
+  const cx = (i - 2.5) * PL_BAY;
+  const wall = PL_BODY[i] ?? MAT.cream;
+  // Joinery alternates between the two neutral trims. Six voices out of the
+  // shared palette — a per-house trim material would be six more draw calls
+  // on a monument that is already six body colours.
+  const trim = i % 2 === 0 ? MAT.cream : MAT.white;
+  const bayX = cx + 1.4; // the bay sits over the garage
+  const entryX = cx - 2.4; // the stoop, door and sash windows
+
+  g.add(box(PL_BAY, PL_H, PL_DEPTH, wall, cx, PL_H / 2, 0));
+  g.add(box(PL_BAY, 0.6, PL_DEPTH + 0.4, MAT.slate, cx, 0.3, 0)); // basement course
+
+  // Ground storey: garage bay in a moulded surround.
+  g.add(box(3.6, 3.1, 0.3, trim, bayX, 1.75, PL_FRONT + 0.14));
+  g.add(box(3.0, 2.5, 0.35, MAT.slate, bayX, 1.6, PL_FRONT + 0.26));
+
+  // Stoop: the long straight stair down to the pavement. Six treads, newels at
+  // the foot, and the door at its head — 3u of projection, which keeps it
+  // inside the row's reserved footprint.
+  for (let s = 0; s < 6; s++) {
+    g.add(box(2.3, 0.46, 0.55, trim, entryX, 0.23 + s * 0.42, PL_FRONT + 3.05 - s * 0.5));
+  }
+  g.add(box(2.4, 0.5, 1.2, trim, entryX, 2.75, PL_FRONT + 0.8));
+  for (const sx of [-1.15, 1.15]) {
+    g.add(box(0.42, 1.1, 0.42, trim, entryX + sx, 3.25, PL_FRONT + 2.85));
+  }
+  // Door: recessed dark leaf in a pilastered surround under a pediment.
+  g.add(box(2.4, 3.6, 0.32, trim, entryX, 4.3, PL_FRONT + 0.16));
+  g.add(box(1.3, 2.5, 0.36, MAT.slate, entryX, 3.85, PL_FRONT + 0.3));
+  for (const sx of [-0.95, 0.95]) {
+    g.add(box(0.28, 2.9, 0.34, trim, entryX + sx, 4.15, PL_FRONT + 0.36));
+  }
+  g.add(box(2.7, 0.42, 0.62, trim, entryX, 5.85, PL_FRONT + 0.4));
+
+  // The angled two-storey bay — the single element that makes a house
+  // Victorian rather than a box. Front pane plus two canted cheeks.
+  for (const sy of [PL_S1 + 2.1, PL_S2 + 2.1]) {
+    g.add(box(2.7, 3.3, 1.8, wall, bayX, sy, PL_FRONT + 0.9));
+    g.add(box(2.05, 2.3, 0.22, MAT.glass, bayX, sy, PL_FRONT + 1.75));
+    for (const s of [-1, 1] as const) {
+      g.add(box(1.5, 3.3, 0.4, wall, bayX + s * 1.78, sy, PL_FRONT + 0.46, -s * 0.72));
+      g.add(box(1.0, 2.3, 0.2, MAT.glass, bayX + s * 1.86, sy, PL_FRONT + 0.55, -s * 0.72));
+    }
+    g.add(box(4.0, 0.42, 2.2, trim, bayX, sy + 1.86, PL_FRONT + 0.8)); // bay cornice
+    g.add(box(3.8, 0.36, 2.1, trim, bayX, sy - 1.78, PL_FRONT + 0.8)); // bay apron
+  }
+
+  // Sash windows over the entry, one per upper storey, with sill and lintel.
+  for (const sy of [PL_S1 + 2.1, PL_S2 + 2.1]) {
+    g.add(box(1.85, 2.9, 0.28, trim, entryX, sy, PL_FRONT + 0.14));
+    g.add(box(1.2, 2.15, 0.22, MAT.glass, entryX, sy, PL_FRONT + 0.28));
+    g.add(box(2.1, 0.24, 0.5, trim, entryX, sy - 1.6, PL_FRONT + 0.3));
+    g.add(box(2.1, 0.26, 0.42, trim, entryX, sy + 1.58, PL_FRONT + 0.28));
+  }
+
+  // Storey bands and the party-wall pilaster: level lines across the whole row,
+  // vertical joints between the colours. Both are what hold six different
+  // facades together as ONE terrace.
+  for (const by of [PL_S1, PL_S2]) {
+    g.add(box(PL_BAY, 0.34, PL_DEPTH + 0.7, trim, cx, by, 0));
+  }
+  for (const s of [-1, 1] as const) {
+    g.add(box(0.5, PL_H, 0.55, trim, cx + (s * PL_BAY) / 2, PL_H / 2, PL_FRONT + 0.2));
+  }
+
+  // Cornice on brackets. The bracket row is the detail that reads first at
+  // 60u and the last thing that survives at 300u.
+  g.add(box(PL_BAY + 0.35, 0.85, PL_DEPTH + 1.3, trim, cx, PL_H + 0.45, 0));
+  for (let d = 0; d < 11; d++) {
+    g.add(box(0.34, 0.7, 0.5, trim, cx - 3.5 + d * 0.7, PL_H - 0.35, PL_FRONT + 0.62));
+  }
+
+  // Roof: two forms alternating, each set back inside the party walls so the
+  // row keeps six separate crowns instead of one continuous dark hip.
+  if (i % 2 === 0) {
+    // False-front gable: a triangular prism, ridge running front to back.
+    const gable = mesh(
+      facet(new THREE.CylinderGeometry(4.35, 4.35, 6.2, 3)),
+      MAT.slate,
+      cx,
+      0,
+      -0.6,
+    );
+    gable.rotation.x = -Math.PI / 2;
+    gable.scale.set(1, 0.42, 1);
+    gable.position.y = PL_H + 1.8;
+    g.add(gable);
+  } else {
+    // Mansard: a squat truncated pyramid with a flat deck on top.
+    g.add(
+      mesh(facet(new THREE.ConeGeometry(5.05, 2.3, 4)), MAT.slate, cx, PL_H + 2.0, -0.4).rotateY(
+        Math.PI / 4,
+      ),
+    );
+    g.add(box(3.0, 0.4, 3.0, MAT.slate, cx, PL_H + 3.1, -0.4));
+  }
+}
+
 function paintedLadies(): THREE.Group {
   const g = new THREE.Group();
-  // Trim is SHARED across the row — white joinery over a dark base — because
-  // that is what ties six different colours into one building.
-  for (let i = 0; i < 6; i++) {
-    const cx = (i - 2.5) * PL_BAY;
-    const wall = PL_BODY[i] ?? MAT.cream;
-    // Body. Full frontage width, so neighbours share a party wall: no daylight
-    // between Ladies, which is the defect this rebuild exists to close.
-    g.add(box(PL_BAY, PL_H, PL_DEPTH, wall, cx, PL_H / 2, 0));
-    // The bay window — the element that makes a house Victorian rather than a
-    // box. Two storeys of framed glass projecting past the facade.
-    for (const sy of [4.2, 8.2]) {
-      g.add(box(4.6, 3.0, 2.2, MAT.cream, cx, sy, PL_DEPTH / 2 + 0.8));
-      g.add(box(3.8, 2.1, 2.4, MAT.glass, cx, sy, PL_DEPTH / 2 + 0.95));
+  for (let i = 0; i < 6; i++) paintedLady(g, i);
+  // Party-wall chimneys, one on every division INCLUDING the two ends: seven
+  // brick stacks breaking the roofline is how a real terrace reads from the
+  // park, and the row had none.
+  for (let i = 0; i <= 6; i++) {
+    const px = (i - 3) * PL_BAY;
+    g.add(box(1.0, 3.0, 1.5, MAT.brick, px, PL_H + 2.2, -1.4));
+    g.add(box(1.3, 0.35, 1.8, MAT.slate, px, PL_H + 3.8, -1.4));
+  }
+  // The two end elevations face down the cross streets, so they get windows
+  // too — a blank 12 × 9u gable wall is what the kit houses look like.
+  for (const s of [-1, 1] as const) {
+    const ex = s * 3 * PL_BAY;
+    for (const wy of [PL_S1 + 2.1, PL_S2 + 2.1]) {
+      for (const wz of [-2.8, 0.6]) {
+        g.add(box(0.26, 2.6, 1.5, MAT.cream, ex + s * 0.12, wy, wz));
+        g.add(box(0.2, 1.9, 1.0, MAT.glass, ex + s * 0.22, wy, wz));
+      }
     }
-    // Storey band, cornice and the gabled parapet, all at the same height in
-    // every bay: a shared roofline is the difference between a row and six
-    // separate houses.
-    g.add(box(PL_BAY, 0.45, PL_DEPTH + 1.0, MAT.cream, cx, 6.2, 0));
-    g.add(box(PL_BAY + 0.3, 0.95, PL_DEPTH + 1.5, MAT.cream, cx, PL_H + 0.5, 0));
-    g.add(
-      mesh(
-        facet(new THREE.ConeGeometry(PL_BAY * 0.66, 2.6, 4)),
-        MAT.slate,
-        cx,
-        PL_H + 2.3,
-        0,
-      ).rotateY(Math.PI / 4),
-    );
-    // Stoop: the long straight stair every Lady has, down to the pavement,
-    // with a dark front door at its head.
-    g.add(box(2.4, 2.0, 4.0, MAT.cream, cx - 1.7, 1.0, PL_DEPTH / 2 + 2.4));
-    g.add(box(1.8, 3.4, 0.5, MAT.slate, cx - 1.7, 3.7, PL_DEPTH / 2 + 0.25));
-    // Ground-floor garage bay beside the stoop (the real row's ground storey).
-    g.add(box(3.0, 2.6, 0.5, MAT.slate, cx + 2.1, 1.9, PL_DEPTH / 2 + 0.25));
   }
   return g;
 }
@@ -434,7 +533,10 @@ const BAY_DECK_Y = 13; // ~58 m of shipping clearance
 const BAY_TOWER_H = 21;
 const BAY_HALF_W = 3; // measured roadway 4.7u, plus truss and walkways
 const BAY_CABLE_Z = 4.2; // cable planes = tower leg centres (base ≈ measured 12.9u)
-const BAY_APPROACH = -62; // west end of the descending city approach
+const BAY_APPROACH = -62; // furthest west the city approach may reach
+// Below this much daylight under the slab the corridor is fill, not a viaduct
+// (a truck is ~2.6u), so the deck stops and an abutment takes over.
+const BAY_ABUTMENT_CLEAR = 4.6;
 const BAY_RAMP_TOP = -14; // where the approach reaches deck height
 const BAY_ANCHOR_W = 8;
 const BAY_TOWER_1 = 65;
@@ -461,15 +563,68 @@ const BAY_CABLE_SADDLES: readonly (readonly [number, number, number])[] = [
   [BAY_YERBA - 10, BAY_ANCHOR_TOP - 1, 0],
 ];
 
-/** Deck slab + parapets + the light string, from x0 to x1 at height y. */
-function bayDeck(g: THREE.Group, x0: number, x1: number, y: number, lamps: THREE.Vector3[]): void {
+/**
+ * Vertical room an overhead structure has to leave over drawn asphalt: the car
+ * plus the 6.8u the chase camera rides above it, plus a margin. Below this the
+ * camera ends up INSIDE the bridge — and the avoidClip march cannot save it,
+ * because the crossing emits no Solid for the march to find.
+ */
+const BAY_HEADROOM = 9;
+
+/**
+ * True when a structure whose soffit is at `soffit` clears the ground under
+ * the corridor at chainage `x` by the headroom rule. Only asks where the
+ * corridor is actually over drawn asphalt — over water or a back lot a low
+ * truss is free.
+ */
+function bayClears(ctx: LandmarkCtx, x: number, soffit: number): boolean {
+  for (const lz of [-BAY_HALF_W, 0, BAY_HALF_W]) {
+    if (!ctx.onAsphalt(x, lz, 1.5)) continue;
+    if (soffit - ctx.groundAt(x, lz) < BAY_HEADROOM) return false;
+  }
+  return true;
+}
+
+/**
+ * Deck slab + parapets + the light string, from x0 to x1 at height y.
+ *
+ * The crossing is a DOUBLE deck, and over the Embarcadero the lower one ran
+ * 4.7u under the roadway — 5.2u over the street, which put the chase camera
+ * inside it every time the player drove the waterfront. The low half of the
+ * structure is therefore emitted per bay and dropped where the bay is over
+ * drawn asphalt without the headroom, leaving a portal whose soffit is the
+ * deck slab itself. That is what a real elevated crossing does at a street.
+ */
+function bayDeck(
+  g: THREE.Group,
+  ctx: LandmarkCtx,
+  x0: number,
+  x1: number,
+  y: number,
+  lamps: THREE.Vector3[],
+): void {
   const len = x1 - x0;
   const cx = (x0 + x1) / 2;
   g.add(box(len, 1.1, BAY_HALF_W * 2, MAT.steel, cx, y - 0.55, 0)); // upper deck
-  g.add(box(len, 1.0, BAY_HALF_W * 2 - 0.6, MAT.steel, cx, y - 4.2, 0)); // lower deck
   for (const sz of [-BAY_HALF_W, BAY_HALF_W]) {
-    g.add(box(len, 3.4, 0.5, MAT.steel, cx, y - 2.4, sz)); // side truss
     g.add(box(len, 0.9, 0.35, MAT.steel, cx, y + 0.45, sz)); // parapet
+  }
+  const bays = Math.max(1, Math.round(len / 6));
+  const bayLen = len / bays;
+  for (let i = 0; i < bays; i++) {
+    const bx = x0 + bayLen * (i + 0.5);
+    if (bayClears(ctx, bx, y - 4.7)) {
+      g.add(box(bayLen, 1.0, BAY_HALF_W * 2 - 0.6, MAT.steel, bx, y - 4.2, 0)); // lower deck
+      for (const sz of [-BAY_HALF_W, BAY_HALF_W]) {
+        g.add(box(bayLen, 3.4, 0.5, MAT.steel, bx, y - 2.4, sz)); // side truss
+      }
+      continue;
+    }
+    // Portal bay: the truss collapses into a fascia flush with the slab, so
+    // nothing at all hangs below the deck over the street.
+    for (const sz of [-BAY_HALF_W, BAY_HALF_W]) {
+      g.add(box(bayLen, 1.1, 0.5, MAT.steel, bx, y - 0.55, sz));
+    }
   }
   // Deck lighting: warm boxes on the parapet, one every ~15u. They are the
   // only thing that keeps the crossing legible after dark; each also publishes
@@ -520,47 +675,65 @@ function bayCablePoints(z: number): THREE.Vector3[] {
 }
 
 /**
- * The western approach: a pitched viaduct dropping off the anchorage deck to
- * the measured 2.4u touchdown on the city grid, instead of the old flat run
- * that ended 13u up in mid-air. Piers hunt sideways for ground clear of the
- * roadway before giving up — the real viaduct straddles the streets it
- * crosses, it does not stand in them.
+ * The western approach: the viaduct that carries the deck off the anchorage
+ * back into the city, ON PIERS that hunt sideways for ground clear of the
+ * roadway — the real viaduct straddles the streets it crosses, it does not
+ * stand in them — and ending at an abutment where Rincon Hill rises to meet it.
+ *
+ * It used to be a PITCHED ramp running the full 48u back to BAY_APPROACH, and
+ * that is geometrically impossible here: the hill stands 12.5u at the west end
+ * against a 13u deck, so the last 25u of "approach" was a slab lying 0.4u
+ * UNDER to 1.9u over live streets, plus a pier cross-head 1.2u lower still.
+ * Measured on the drawn drape, 41 m² of Rincon Hill roadway had bridge
+ * structure inside a car's height of the asphalt. The deck therefore stays
+ * FLAT at deck height and simply stops where it can no longer fly.
  */
 function bayApproach(g: THREE.Group, ctx: LandmarkCtx): void {
   const D = BAY_DECK_Y;
-  const x0 = BAY_APPROACH;
   const x1 = BAY_RAMP_TOP;
-  // Clamped at the deck: Rincon Hill already stands ~12u here, so on this
-  // terrain the "ramp" is mostly a short touchdown, never an uphill run.
-  const y0 = THREE.MathUtils.clamp(ctx.groundAt(x0, 0) + 1.4, 2.4, D);
-  const segs = 7;
-  for (let i = 0; i < segs; i++) {
-    const sx0 = x0 + ((x1 - x0) * i) / segs;
-    const sx1 = x0 + ((x1 - x0) * (i + 1)) / segs;
-    const sy0 = y0 + ((D - y0) * i) / segs;
-    const sy1 = y0 + ((D - y0) * (i + 1)) / segs;
-    const len = Math.hypot(sx1 - sx0, sy1 - sy0);
-    const pitch = Math.atan2(sy1 - sy0, sx1 - sx0);
-    const mx = (sx0 + sx1) / 2;
-    const my = (sy0 + sy1) / 2;
-    const slab = box(len, 1.1, BAY_HALF_W * 2, MAT.steel, mx, my - 0.55, 0);
-    slab.rotation.z = pitch;
-    g.add(slab);
-    for (const sz of [-BAY_HALF_W, BAY_HALF_W]) {
-      const rail = box(len, 0.9, 0.35, MAT.steel, mx, my + 0.45, sz);
-      rail.rotation.z = pitch;
-      g.add(rail);
-    }
+  const soffit = D - 1.1;
+  // Walk west from the crossing and stop at the first station the deck no
+  // longer clears the ground: that is the abutment, and west of it the
+  // crossing comes out of the hill, which is what it does in the real city.
+  // Abutment: the masonry the deck's west end lands on. Whether or not the
+  // viaduct survives the clearance test, the deck must END on something — the
+  // pitched ramp existed because a bare deck end 13u up in mid-air is worse
+  // than anything else on the crossing.
+  const abutment = (x: number): void => {
+    const gy = ctx.groundAt(x - 3, 0);
+    const h = Math.max(2.4, soffit - gy + 2.4);
+    g.add(box(9, h, BAY_HALF_W * 2 + 4, MAT.concrete, x - 3.5, soffit - h / 2, 0));
+  };
+  let x0 = x1;
+  for (let px = x1; px >= BAY_APPROACH; px -= 2) {
+    let ground = -Infinity;
+    for (const lz of [-BAY_HALF_W, 0, BAY_HALF_W]) ground = Math.max(ground, ctx.groundAt(px, lz));
+    if (soffit - ground < BAY_ABUTMENT_CLEAR) break;
+    x0 = px;
   }
-  for (let px = x0 + 8; px < BAY_ANCHOR_W - 12; px += 9) {
+  if (x1 - x0 < 10) {
+    // Nothing left to fly — the hill IS the approach, so the deck lands here.
+    abutment(x1);
+    return;
+  }
+  const slabLen = x1 - x0;
+  g.add(box(slabLen, 1.1, BAY_HALF_W * 2, MAT.steel, (x0 + x1) / 2, soffit + 0.55, 0));
+  for (const sz of [-BAY_HALF_W, BAY_HALF_W]) {
+    g.add(box(slabLen, 0.9, 0.35, MAT.steel, (x0 + x1) / 2, D + 0.45, sz));
+  }
+  abutment(x0);
+  for (let px = x0 + 7; px < BAY_ANCHOR_W - 12; px += 9) {
     const pz = [0, -8, 8].find((z) => !ctx.onAsphalt(px, z, 1.6));
     if (pz === undefined) continue;
-    const deckY = px < x1 ? y0 + ((D - y0) * (px - x0)) / (x1 - x0) : D;
     const gy = ctx.groundAt(px, pz);
-    const h = deckY - 1.1 - gy;
+    const h = soffit - gy;
     if (h < 2) continue;
     g.add(box(5, h, 5, MAT.concrete, px, gy + h / 2, pz));
-    g.add(box(7, 1.6, BAY_HALF_W * 2 + 2, MAT.concrete, px, deckY - 1.5, pz * 0.35));
+    // Pier cap FLUSH with the deck: a cross-head hung below the soffit is the
+    // lowest thing over the roadway and it took 1.2u off an already tight
+    // clearance for nothing. The cap now lives inside the slab's own depth, so
+    // the deck soffit is the whole of what passes overhead.
+    g.add(box(7, 1.1, BAY_HALF_W * 2 + 2, MAT.concrete, px, soffit + 0.55, pz * 0.35));
   }
 }
 
@@ -584,28 +757,27 @@ function bayBridge(ctx: LandmarkCtx): THREE.Group {
   // waterfront street; so does this one now. The block above head height is
   // unchanged; below it only the footings that clear the asphalt are emitted,
   // which opens a portal wherever the street actually runs.
-  const PORTAL_Y = D; // the block's soffit — deck height, so the street runs clear
-  g.add(
-    box(
-      26,
-      BAY_ANCHOR_TOP + 10 - PORTAL_Y,
-      26,
-      MAT.concrete,
-      BAY_ANCHOR_W,
-      (BAY_ANCHOR_TOP + PORTAL_Y) / 2,
-      0,
-    ),
-  );
+  // The block's soffit — deck height, so the street runs clear underneath.
+  // It did NOT: the block was authored `BAY_ANCHOR_TOP + 10 - PORTAL_Y` tall
+  // about the midpoint of PORTAL_Y..BAY_ANCHOR_TOP, i.e. 21u of block hung on
+  // an 11u centre, so the real soffit came out at 8.0 — five units below the
+  // portal this comment promises, and the thing the chase camera was actually
+  // burying itself in over the Embarcadero. Height is now the portal band.
+  const PORTAL_Y = D;
+  const PORTAL_H = BAY_ANCHOR_TOP - PORTAL_Y;
+  g.add(box(26, PORTAL_H, 26, MAT.concrete, BAY_ANCHOR_W, (BAY_ANCHOR_TOP + PORTAL_Y) / 2, 0));
   g.add(box(20, 4, 20, MAT.concrete, BAY_ANCHOR_W, BAY_ANCHOR_TOP + 1, 0)); // stepped crown
-  // Relief on the block's faces. 26 × 21u of unbroken concrete right beside a
+  // Relief on the block's faces. 26 × 11u of unbroken concrete right beside a
   // street is the biggest blank surface on the waterfront; recessed panels and
-  // a cornice band give the mass a scale without changing its silhouette.
+  // a cornice band give the mass a scale without changing its silhouette. The
+  // panels carried the same overhang bug as the block and hung 3u below the
+  // portal; they are the portal band now too.
   for (let i = -1; i <= 1; i++) {
     for (const sz of [-13.3, 13.3]) {
       g.add(
         box(
           6.4,
-          BAY_ANCHOR_TOP + 6 - PORTAL_Y,
+          PORTAL_H,
           0.8,
           MAT.steel,
           BAY_ANCHOR_W + i * 8,
@@ -618,7 +790,7 @@ function bayBridge(ctx: LandmarkCtx): THREE.Group {
       g.add(
         box(
           0.8,
-          BAY_ANCHOR_TOP + 6 - PORTAL_Y,
+          PORTAL_H,
           6.4,
           MAT.steel,
           BAY_ANCHOR_W + sx,
@@ -628,7 +800,11 @@ function bayBridge(ctx: LandmarkCtx): THREE.Group {
       );
     }
   }
-  g.add(box(27, 1.1, 27, MAT.steel, BAY_ANCHOR_W, BAY_ANCHOR_TOP + 9, 0)); // cornice band
+  // Cornice band, ON the block's top course. It used to sit at
+  // BAY_ANCHOR_TOP + 9 — a 27u slab floating in mid-air four units clear of a
+  // block whose real top was 29; with the block corrected to its portal band
+  // the float would have been six.
+  g.add(box(27, 1.1, 27, MAT.steel, BAY_ANCHOR_W, BAY_ANCHOR_TOP - 0.55, 0));
   // The footing grid is pulled INSIDE the block's own footprint (±7 of a ±13
   // block): the outer ring is the part that reaches toward the waterfront
   // street, and the block above already oversails it, so a real anchorage
@@ -650,10 +826,10 @@ function bayBridge(ctx: LandmarkCtx): THREE.Group {
     g.add(box(7, 4, 4, MAT.steel, BAY_ANCHOR_W + 11, BAY_ANCHOR_TOP + 1, sz)); // cable saddle
   }
   bayApproach(g, ctx);
-  bayDeck(g, BAY_RAMP_TOP, BAY_ANCHOR_W, D, lamps);
+  bayDeck(g, ctx, BAY_RAMP_TOP, BAY_ANCHOR_W, D, lamps);
 
   // --- Western crossing: four towers, hinged on the centre anchorage ---
-  bayDeck(g, BAY_ANCHOR_W, BAY_YERBA, D, lamps);
+  bayDeck(g, ctx, BAY_ANCHOR_W, BAY_YERBA, D, lamps);
   for (const tx of [BAY_TOWER_1, BAY_TOWER_2, BAY_TOWER_3, BAY_TOWER_4]) bayTower(g, tx);
   // Centre anchorage: the block the four main cables actually pull against.
   g.add(box(18, D + 27, 22, MAT.concrete, BAY_ANCHOR_MID, D + 15 - (D + 27) / 2, 0));
@@ -676,7 +852,7 @@ function bayBridge(ctx: LandmarkCtx): THREE.Group {
   g.add(rock);
   g.add(box(20, 12, 16, MAT.rock, BAY_YERBA, 12, 0)); // tunnel headland
   g.add(box(6, 9, BAY_HALF_W * 2 + 2, MAT.concrete, BAY_YERBA, D + 1.5, 0)); // tunnel portal
-  bayDeck(g, BAY_YERBA, BAY_EAST_END, D, lamps);
+  bayDeck(g, ctx, BAY_YERBA, BAY_EAST_END, D, lamps);
 
   // --- Night lights: the deck string plus a red aviation beacon on each
   // tower top (fx/beacon-lights.ts; runtime registry, no bake). ---
@@ -1661,15 +1837,18 @@ const LANDMARKS: readonly Landmark[] = [
     protHalf: [20, 34],
   },
   // Fort Point is only Fort Point because it sits DIRECTLY UNDER the Golden
-  // Gate's south end — that is the whole postcard. It stood at u 0.243, ~90u
-  // west of the bridge axis (the ramp anchor solves to u ≈ 0.285), where the
-  // bridge is not even in the same view. Moved onto the bridge's own shoulder,
-  // just east of the deck so the span passes overhead instead of beside it.
+  // Gate's south end, ON THE SHORE — that is the whole postcard. It was sited
+  // on the OLD Presidio coast (v 0.0475); widening the strait moved the
+  // waterline ~200u south and left the fort standing out in open water, a
+  // brick Alcatraz under the span. v 0.107 is the new shore (the waterline is
+  // v 0.1013 on this column), so the north face meets the water like the real
+  // fort, and u 0.335 puts it 23u west of the deck axis (u 0.3422) — the span
+  // passes overhead instead of beside it.
   {
     kind: "fortpoint",
     name: "Fort Point",
-    u: 0.2755,
-    v: 0.0475,
+    u: 0.335,
+    v: 0.107,
     rotDeg: 0,
     clearR: 14,
     protHalf: [17, 16],
@@ -1837,6 +2016,14 @@ export function landmarkProtection(
         const bz0 = Math.max(minZ, cMinZ);
         const bz1 = Math.min(maxZ, cMinZ + ROAD_TILE);
         if (inRoadway(bx0, bx1, bz0, bz1)) continue;
+        // NOT a degenerate-box guard, deliberately. The one entry the
+        // "invisible landmark box in the roadway" ratchet reports was read as
+        // a zero-DEPTH clamp artifact; it is not — measured over all 127
+        // reservation boxes it is 11.2 × 13.0u at u0.5141 v0.3375 (the Alamo
+        // Square block), a whole cell of a real reservation whose edge lands
+        // 1.6u inside the drawn asphalt, and the thinnest box the clamp ever
+        // produces is 0.2u. Fixing that entry means moving the reservation,
+        // not filtering the output.
         solids.push({ minX: bx0, maxX: bx1, minZ: bz0, maxZ: bz1 });
       }
     }
@@ -1852,11 +2039,17 @@ export function landmarkProtection(
     if (lm.protHalf) protect(x, z, lm.protHalf[0], lm.protHalf[1], true);
   }
 
-  // Alamo Square green faces the Painted Ladies one column west.
+  // Alamo Square green faces the Painted Ladies. It is a whole BLOCK in the
+  // real city and was one cell column here, so the postcard view — the row
+  // seen across the park, which is the only reason the row is famous — was
+  // taken by a kit house standing 15u off the terrace's front door. Two
+  // columns × five rows is the real square at this cell size.
   {
     const gx = gxOf(0.513);
     const gz = gzOf(0.33);
-    for (let dz = -2; dz <= 2; dz++) parkGreen.add(cellKey(gx - 1, gz + dz));
+    for (let dx = 1; dx <= 2; dx++) {
+      for (let dz = -2; dz <= 2; dz++) parkGreen.add(cellKey(gx - dx, gz + dz));
+    }
   }
 
   return { reserved, parkGreen, solids };

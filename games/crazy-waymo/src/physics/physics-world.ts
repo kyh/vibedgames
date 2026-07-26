@@ -31,8 +31,12 @@ const STATIC_HALF_HEIGHT = 6; // buildings/walls modeled as tall boxes
 // entire mobile frame budget went to an idle broadphase). Everything that can
 // bounce off a building (punted traffic, cones, wrecks) lives within ~80u of
 // the taxi (traffic stops feeding kinematic targets at BODY_FAR), so only the
-// boxes near the player need to be physical. The taxi itself never touches
-// these boxes — its arcade collision tests city solids directly.
+// boxes near the player need to be physical. NB: this comment used to claim
+// "the taxi itself never touches these boxes — its arcade collision tests city
+// solids directly", and that is backwards. `car.update` returns at its first
+// line into `updatePhysicsControls` whenever a RaycastVehicle is attached —
+// i.e. always, in the shipped game — so the arcade `resolveCollisions` is dead
+// code and these boxes are the ONLY thing the taxi collides with.
 const SOLID_STREAM_IN = 160; // boxes closer than this become colliders
 const SOLID_STREAM_OUT = 200; // resident boxes farther than this are removed
 const SOLID_RESTREAM_DIST = 24; // re-scan after the taxi moves this far
@@ -124,6 +128,14 @@ export class PhysicsWorld {
       if (Math.abs(cx) > WORLD_HALF_X + 30 || Math.abs(cz) > WORLD_HALF_Z + 30) continue;
       const hx = Math.max(0.1, (s.maxX - s.minX) / 2);
       const hz = Math.max(0.1, (s.maxZ - s.minZ) / 2);
+      // Ground-anchored, ALWAYS — which is wrong for anything standing on a
+      // drivable deck rather than on the terrain (see the Golden Gate's rails
+      // in world/golden-gate.ts: over water this puts the box on the seabed,
+      // 6u below the carriageway). Anchoring such a box to the deck instead
+      // was measured and is worse — Rapier then ejects the chassis out of the
+      // box's bottom face, because a SurfaceDeck is not a collider and nothing
+      // resists the push. Fixing that means giving the decks colliders or
+      // clamping the chassis to the drive surface after the step.
       const base = terrain.heightAt(cx, cz);
       // Height-capped solids (maxY — construction barriers etc) get a box of
       // their REAL height: the default tall box walled off any drivable deck

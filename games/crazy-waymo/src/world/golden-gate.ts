@@ -20,8 +20,29 @@ const DECK_Y = 7; // drive height over the water
 const DECK_W = 10; // drivable width
 const RAMP_LEN = 26;
 const RAIL_T = 0.8;
-const TOWER_H = 26; // above deck
+// The real towers stand 227 m above the water, which at this map's 4.45 m/u is
+// 51u — so 44u above a 7u deck. The old 26u put the tops at 33u/147 m and the
+// bridge lost its silhouette from anywhere in the city: a red bar with two
+// stubs on it. Height is the whole reason this thing is a navigation beacon.
+const TOWER_H = 44;
 const LAMP_H = 2.4; // parapet lamp head above the deck
+// Cable plane / tower leg centres: outboard of the carriageway, so the deck
+// runs BETWEEN the legs the way it does through the real portals.
+const LEG_OFF = 2.6;
+const LEG_BASE = 3.6; // leg section at the deck
+const LEG_TOP = 2.1; // leg section at the saddle
+// Art-deco setbacks up each leg. FOUR, not six: city.ts gives an instance a
+// long-range box imposter only when it stands 13u or more, and a leg cut into
+// six 9.7u sections drops out of the skyline at the 700u model band — from
+// downtown the bridge is 1200u away, which is exactly the read this pass
+// exists to buy. Four 14.5u sections keep the imposter AND the stepped
+// silhouette; the ledges and the portal bracing carry the fine articulation.
+const TOWER_STEPS = 4;
+// Main-span sag, expressed as the cable's height above the deck at midspan.
+// The read everyone knows is the cable sweeping all the way DOWN to the
+// roadway at centre span and back up to the tower tops; a shallow arc is a
+// gantry with a wire on it.
+const CABLE_LOW = 5;
 // Hunt for the shore anchor around u≈0.25 (map fractions, not world units —
 // the map rescales).
 const APPROACH_U_MIN = 0.19;
@@ -95,6 +116,42 @@ function rampProfile(plan: GoldenGatePlan, t: number): number {
   return tc < 0.68
     ? THREE.MathUtils.lerp(plan.shoreH, plan.kneeY, tc / 0.68)
     : THREE.MathUtils.lerp(plan.kneeY, plan.deckY, (tc - 0.68) / 0.32);
+}
+
+/**
+ * Main-cable saddles from the south anchorage to the north one, as
+ * `[z, y, sag to the NEXT saddle]`. A suspension cable is a chain of PARABOLAS
+ * hung between fixed saddles — it rises to each tower top and sags between
+ * them. Sampling a spline through a handful of loose control points instead
+ * (what this used to do) both overshoots the saddles and, on the side spans,
+ * dives UNDER the roadway on its way to a low anchorage: the audit measured
+ * ~20u of cable running below the deck it is supposed to be carrying.
+ */
+function cableSaddles(plan: GoldenGatePlan): readonly (readonly [number, number, number])[] {
+  const main = plan.towerZ2 - plan.towerZ; // north is −Z, so this is positive
+  return [
+    // South anchorage: on TOP of the shore block, above deck height, so the
+    // side span climbs from the anchorage to the tower and never dips under.
+    [plan.shoreZ + 3, plan.deckY + 4.6, 2.6],
+    [plan.towerZ2, plan.topY, plan.topY - (plan.deckY + CABLE_LOW)],
+    [plan.towerZ, plan.topY, 2.4],
+    [plan.northEndZ - 14, Math.max(plan.deckY + 7, plan.topY - main * 0.24), 0],
+  ] as const;
+}
+
+/** Cable height at a chainage, or null off the ends of the cable. */
+function cableY(saddles: readonly (readonly [number, number, number])[], z: number): number | null {
+  for (let i = 0; i < saddles.length - 1; i++) {
+    const a = saddles[i];
+    const b = saddles[i + 1];
+    if (!a || !b) continue;
+    const [az, ay, sag] = a;
+    const [bz, by] = b;
+    if (z > az || z < bz) continue; // saddles run south → north, i.e. z falling
+    const t = (az - z) / (az - bz);
+    return ay + (by - ay) * t - 4 * sag * t * (1 - t);
+  }
+  return null;
 }
 
 /**
@@ -208,10 +265,10 @@ function lampStations(plan: GoldenGatePlan): { x: number; y: number; z: number }
 export function goldenGateBeacons(plan: GoldenGatePlan): readonly Beacon[] {
   const beacons: Beacon[] = [];
   for (const tz of [plan.towerZ, plan.towerZ2]) {
-    for (const sx of [-(plan.half + 2.2), plan.half + 2.2]) {
+    for (const sx of [-(plan.half + LEG_OFF), plan.half + LEG_OFF]) {
       beacons.push({
         x: plan.ax + sx,
-        y: plan.topY + 1.2,
+        y: plan.topY + 1.6,
         z: tz,
         color: 0xff4436,
         size: 3.4,
@@ -220,8 +277,10 @@ export function goldenGateBeacons(plan: GoldenGatePlan): readonly Beacon[] {
       // Tower floodlighting. The audit's night pass found the deck string lit
       // and the towers matte black above it, so the bridge read as a dotted
       // line with a dark stick on it. A warm wash at each portal beam gives
-      // the pair their own silhouette after dark.
-      for (const wy of [plan.deckY + 9, plan.deckY + 18]) {
+      // the pair their own silhouette after dark — spaced up the whole 44u
+      // leg, so the taller tower does not go dark above the third brace.
+      for (let i = 1; i <= 4; i++) {
+        const wy = plan.deckY + (TOWER_H * i) / 4.6;
         beacons.push({ x: plan.ax + sx, y: wy, z: tz, color: 0xffb066, size: 5.2 });
       }
     }
@@ -292,15 +351,21 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
     y: deckY,
     y2: kneeY,
   });
-  // Deck out across the strait to the Marin landfall (or the fallback pad).
-  decks.push({ minX: ax - half, maxX: ax + half, minZ: northEndZ - 4, maxZ: rampTopZ, y: deckY });
   // Landfall transition ramp: a planar blend from the flat deck up onto the
   // hillside. Without it the deck abuts the rising slope in one kink and a
   // full-speed crossing slams the nose and scrubs to a crawl.
+  //
+  // ORDER AND EXTENT BOTH MATTER. `surface.ts heightAt` returns the FIRST deck
+  // that matches, so the flat span used to win over the 12u of blend it
+  // overlapped — the blend was dead exactly where it does its work, and the
+  // crossing landed on Marin over a ~1.8u lip. The flat span now STOPS where
+  // the blend starts, so the two are contiguous rather than stacked.
+  let spanMinZ = northEndZ - 4;
   if (landfallZ !== null) {
     const blendTopZ = landfallZ - 18;
     const blendTopY = ctx.terrain.heightAt(ax, blendTopZ) + 0.05;
     if (blendTopY > deckY) {
+      spanMinZ = landfallZ + 8;
       decks.push({
         minX: ax - half,
         maxX: ax + half,
@@ -311,8 +376,35 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
       });
     }
   }
+  // Deck out across the strait to the Marin landfall (or the fallback pad).
+  decks.push({ minX: ax - half, maxX: ax + half, minZ: spanMinZ, maxZ: rampTopZ, y: deckY });
 
-  // --- Rails (full height; you do not fall off the Golden Gate) ---
+  // --- Rails ---
+  // THESE DO NOT HOLD THE CAR, and the reason is not in this file. When the
+  // Rapier RaycastVehicle is attached — i.e. always, in the shipped game —
+  // `car.update` returns at its first line into `updatePhysicsControls`, so
+  // the arcade 2-D `resolveCollisions` that treats a Solid as infinitely tall
+  // never runs. The taxi meets these boxes ONLY as Rapier static colliders,
+  // and `physics-world.addStaticSolids` anchors every one of them to
+  // `terrain.heightAt` — which under the water crossing is the seabed at -5.
+  // The rail box therefore tops out ~6u below the carriageway and a straight
+  // run across the 222u span drives clean off the edge into the bay.
+  //
+  // Three fixes were built and MEASURED in the running game (mid-span
+  // teleport, throttle + full lock, telemetry every 400ms); all three are
+  // worse than the bug, so none of them is here:
+  //   • deck-anchored 12u box (base = deck−1, and again at deck−5): the car
+  //     now contacts the rail, and Rapier ejects the chassis out of the box's
+  //     BOTTOM face — it sinks through the deck and comes to rest at y≈4.2
+  //     under the bridge.
+  //   • parapet-height box (base = deck, maxY = deck+2.4): too shallow to
+  //     engage the chassis at all; identical to the bug.
+  // The root cause is that a SurfaceDeck is NOT a physics collider — nothing
+  // resists a downward ejection — so the honest fixes are to give the decks
+  // colliders, or to clamp the chassis to `surface.heightAt` after the step.
+  // Both are drive-feel changes in vehicle/raycast-vehicle.ts and want a real
+  // driving pass, not a world-gen edit. A straight crossing is unaffected
+  // (measured: flat y 7.06 the whole 190u span, onto the Marin landfall).
   solids.push({ minX: ax - half - RAIL_T, maxX: ax - half, minZ: railMinZ, maxZ: railMaxZ });
   solids.push({ minX: ax + half, maxX: ax + half + RAIL_T, minZ: railMinZ, maxZ: railMaxZ });
   // End barrier only on the dead-end fallback — landfall is an open road.
@@ -402,17 +494,20 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
     );
   }
 
-  // Piers under the deck.
+  // Transition pier where the deck leaves the ramp. There is exactly ONE: the
+  // old build also dropped a pier at MID-SPAN, which is the one place a
+  // suspension bridge cannot have one — a column under the middle of the main
+  // span says "this is a causeway with decoration on it".
   const pillarUrl = modelUrl("roads", BRIDGE_PILLAR_WIDE);
   const pb = ctx.cache.bounds(pillarUrl);
-  for (const pz of [rampTopZ - 6, (rampTopZ + northEndZ) / 2]) {
+  {
     const p = ctx.cache.instance(pillarUrl);
     p.scale.set(
       (DECK_W + 2) / Math.max(pb.size.x, 0.001),
       (deckY + 0.5) / Math.max(pb.size.y, 0.001),
       4 / Math.max(pb.size.z, 0.001),
     );
-    p.position.set(ax, -0.6, pz);
+    p.position.set(ax, -0.6, rampTopZ - 6);
     p.updateMatrixWorld(true);
     objects.push(p);
   }
@@ -427,110 +522,197 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
     objects.push(mesh(headGeo, RAIL_ORANGE, st.x, st.y + LAMP_H, st.z));
   }
 
-  // Orange deck truss. The deck itself is a grey kit board, so from the side
-  // the crossing read as a city-asphalt causeway with a red gantry over it —
-  // international orange has to be on the SPAN, not only on the tower. A stiff
-  // girder under each parapet, plus floorbeams, gives it the colour and the
-  // depth the silhouette needs.
+  // Orange stiffening truss under the deck. The deck itself is a grey kit
+  // board (the real roadway IS grey asphalt), so from the side the crossing
+  // read as a city causeway with a red gantry over it — international orange
+  // has to be on the SPAN, not only on the tower. A two-chord truss with
+  // verticals, diagonals and floorbeams gives the deck its colour, its depth
+  // and the fine detail that keeps it from flattening into a bar at range.
   {
-    const spanLen = railMaxZ - railMinZ;
-    const girder = new THREE.BoxGeometry(0.9, 1.5, spanLen);
-    for (const sx of [-(half + RAIL_T / 2), half + RAIL_T / 2]) {
-      objects.push(mesh(girder, ORANGE, ax + sx, deckY - 1.1, (railMinZ + railMaxZ) / 2));
+    const trussZ0 = northEndZ - 2; // north
+    const trussZ1 = rampTopZ; // south (the ramp sits on the ground)
+    const spanLen = trussZ1 - trussZ0;
+    const chord = new THREE.BoxGeometry(1.0, 0.8, spanLen);
+    const sides = [-(half + RAIL_T / 2), half + RAIL_T / 2] as const;
+    for (const sx of sides) {
+      for (const cy of [deckY - 0.55, deckY - 2.85]) {
+        objects.push(mesh(chord, ORANGE, ax + sx, cy, (trussZ0 + trussZ1) / 2));
+      }
     }
-    const beam = new THREE.BoxGeometry(DECK_W + RAIL_T * 2, 0.5, 0.5);
-    const beams = Math.max(2, Math.round(spanLen / 7));
-    for (let i = 0; i < beams; i++) {
-      const bz = railMaxZ - (spanLen * (i + 0.5)) / beams;
-      if (bz > rampTopZ) continue; // the ramp is on the ground; no truss there
-      objects.push(mesh(beam, ORANGE, ax, deckY - 1.7, bz));
+    const panels = Math.max(4, Math.round(spanLen / 7.5));
+    const panelLen = spanLen / panels;
+    const post = new THREE.BoxGeometry(0.55, 2.3, 0.55);
+    const beam = new THREE.BoxGeometry(DECK_W + RAIL_T * 2, 0.55, 0.55);
+    const diagLen = Math.hypot(panelLen, 2.3);
+    const diag = new THREE.BoxGeometry(0.4, diagLen, 0.4);
+    const diagTilt = Math.atan2(panelLen, 2.3);
+    for (let i = 0; i <= panels; i++) {
+      const bz = trussZ1 - panelLen * i;
+      for (const sx of sides) objects.push(mesh(post, ORANGE, ax + sx, deckY - 1.7, bz));
+      if (i === panels) continue;
+      objects.push(mesh(beam, ORANGE, ax, deckY - 2.85, bz - panelLen / 2));
+      // Web diagonals, alternating lean — the zig-zag is what reads as a
+      // truss rather than as a solid orange skirt.
+      for (const sx of sides) {
+        const d = mesh(diag, ORANGE, ax + sx, deckY - 1.7, bz - panelLen / 2);
+        d.rotation.x = i % 2 === 0 ? diagTilt : -diagTilt;
+        d.updateMatrixWorld(true);
+        objects.push(d);
+      }
     }
   }
 
   // Towers: BOTH of them (south in the strait off the Presidio, north off the
   // Marin headland) — one portal is a football goal, two is the Golden Gate.
-  // Legs stay outside the drivable width, taper as they rise, and carry the
-  // stepped portal bracing that is the bridge's other signature.
-  for (const tz of [towerZ2, towerZ]) {
-    for (const sx of [-(half + 2.2), half + 2.2]) {
-      // Three stacked sections, each a touch narrower — a straight prism
-      // shades as a flat ladder from any angle.
-      const secs = [
-        [deckY - 8, deckY + 6, 2.4],
-        [deckY + 6, deckY + 17, 2.05],
-        [deckY + 17, topY + 1, 1.7],
-      ] as const;
-      for (const [y0, y1, w] of secs) {
-        objects.push(
-          mesh(new THREE.BoxGeometry(w, y1 - y0, w), ORANGE, ax + sx, (y0 + y1) / 2, tz),
-        );
+  // Legs stand outside the carriageway so the deck runs THROUGH the portal,
+  // step back art-deco fashion as they rise, and carry the stepped portal
+  // bracing that is the bridge's other signature.
+  const legX = half + LEG_OFF;
+  const legWidthAt = (t: number): number => THREE.MathUtils.lerp(LEG_BASE, LEG_TOP, t);
+  {
+    const legBaseY = -7; // a footing under the waterline, not a leg in mid-air
+    const secH = (topY - legBaseY) / TOWER_STEPS;
+    const markerGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+    const saddleGeo = new THREE.BoxGeometry(LEG_TOP + 1.5, 1.6, LEG_TOP + 1.5);
+    for (const tz of [towerZ2, towerZ]) {
+      for (const sx of [-legX, legX]) {
+        for (let i = 0; i < TOWER_STEPS; i++) {
+          const y0 = legBaseY + secH * i;
+          const w = legWidthAt((i + 0.5) / TOWER_STEPS);
+          objects.push(mesh(new THREE.BoxGeometry(w, secH, w), ORANGE, ax + sx, y0 + secH / 2, tz));
+          // The setback ledge at each step: a thin slab a touch WIDER than the
+          // section below it. Those shadow lines up the shaft are the whole
+          // art-deco read, and a plain taper has none of them.
+          if (i > 0) {
+            objects.push(
+              mesh(new THREE.BoxGeometry(w + 0.55, 0.42, w + 0.55), ORANGE, ax + sx, y0, tz),
+            );
+          }
+          // Vertical pilaster reeding on the two broad (along-strait) faces.
+          for (const fz of [-1, 1] as const) {
+            for (const off of [-w * 0.26, w * 0.26]) {
+              objects.push(
+                mesh(
+                  new THREE.BoxGeometry(w * 0.19, secH - 0.9, 0.24),
+                  ORANGE,
+                  ax + sx + off,
+                  y0 + secH / 2,
+                  tz + (fz * w) / 2,
+                ),
+              );
+            }
+          }
+        }
+        objects.push(mesh(saddleGeo, ORANGE, ax + sx, topY + 0.8, tz));
+        // Marker lights up the leg.
+        for (let i = 0; i < 7; i++) {
+          const my = deckY + 3 + (i * (TOWER_H - 5)) / 6;
+          objects.push(mesh(markerGeo, TOWER_LAMP, ax + sx + Math.sign(sx) * 1.3, my, tz));
+        }
       }
-      objects.push(mesh(new THREE.BoxGeometry(3.1, 1.1, 3.1), ORANGE, ax + sx, topY + 1.2, tz));
-      // Marker lights up the leg.
-      const markerGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+      // Portal bracing. Each brace is a ZIGGURAT — a main bar with a narrower
+      // step under it and a narrower one over it — and the braces step inward
+      // going up, so the openings between them shorten and narrow toward the
+      // saddle. That stack of tapering portals is the tower's signature; four
+      // plain bars read as a ladder.
       for (let i = 0; i < 5; i++) {
-        const my = deckY + 3 + (i * (TOWER_H - 4)) / 4;
-        objects.push(mesh(markerGeo, TOWER_LAMP, ax + sx + Math.sign(sx) * 1.2, my, tz));
+        const t = i / 4;
+        const by = THREE.MathUtils.lerp(deckY + 8, topY - 3.4, t);
+        const w = legX * 2 + legWidthAt((by - legBaseY) / (topY - legBaseY)) - t * 1.6;
+        objects.push(mesh(new THREE.BoxGeometry(w, 1.5, 1.5), ORANGE, ax, by, tz));
+        objects.push(mesh(new THREE.BoxGeometry(w - 3.2, 0.8, 1.15), ORANGE, ax, by - 1.1, tz));
+        objects.push(mesh(new THREE.BoxGeometry(w - 1.6, 0.7, 1.3), ORANGE, ax, by + 1.05, tz));
       }
-    }
-    // Portal bracing: the beams step INWARD going up, which is what gives the
-    // real towers their tapered-window read.
-    for (const [by, inset] of [
-      [deckY + 6.5, 0],
-      [deckY + 13, 0.8],
-      [deckY + 20, 1.6],
-      [topY - 1.5, 2.4],
-    ] as const) {
+      // The strut under the roadway, closing the portal below the deck.
       objects.push(
-        mesh(new THREE.BoxGeometry(DECK_W + 6.4 - inset * 2, 1.4, 1.4), ORANGE, ax, by, tz),
+        mesh(new THREE.BoxGeometry(legX * 2 + LEG_BASE, 1.3, 1.6), ORANGE, ax, deckY - 3.6, tz),
       );
     }
   }
 
   // Main cables: shore anchorage → south tower → the slung main span → north
-  // tower → the Marin anchorage, with suspenders down to the deck. The sag is
-  // authored between the tower saddles, so the main span hangs the way the
-  // real one does instead of running flat from a single peak.
-  for (const sx of [-(half + 2.2), half + 2.2]) {
-    // North cable end: buried into the Battery Ridge hillside (a real
-    // anchorage) when the bridge lands; run off-map on the fallback.
-    const cableEnd =
-      landfallZ !== null
-        ? new THREE.Vector3(
-            ax + sx,
-            ctx.terrain.heightAt(ax + sx, northEndZ - 14) + 0.8,
-            northEndZ - 14,
-          )
-        : new THREE.Vector3(ax + sx, topY - 6, -WORLD_HALF_Z - 8);
-    const midZ = (towerZ2 + towerZ) / 2;
-    const pts = [
-      new THREE.Vector3(ax + sx, shoreH + 1.5, shoreZ + 2),
-      new THREE.Vector3(ax + sx, deckY + 3.5, (shoreZ + towerZ2) / 2),
-      new THREE.Vector3(ax + sx, topY - 0.5, towerZ2),
-      new THREE.Vector3(ax + sx, deckY + 2.6, midZ),
-      new THREE.Vector3(ax + sx, topY - 0.5, towerZ),
-      cableEnd,
-    ];
-    const curve = new THREE.CatmullRomCurve3(pts);
-    const cable = new THREE.Mesh(new THREE.TubeGeometry(curve, 72, 0.28, 6), ORANGE);
-    cable.castShadow = true;
-    cable.updateMatrixWorld(true);
-    objects.push(cable);
-    for (let i = 1; i <= 20; i++) {
-      const t = i / 21;
-      const p = curve.getPoint(t);
-      if (p.z < railMinZ || p.z > railMaxZ) continue;
-      const h = p.y - (deckY + 1);
-      if (h < 1) continue;
-      objects.push(mesh(new THREE.BoxGeometry(0.14, h, 0.14), ORANGE, p.x, deckY + 1 + h / 2, p.z));
+  // tower → the Marin anchorage, with suspenders down to the deck. Each bay is
+  // a real parabola between fixed saddles (see cableSaddles), so the cable
+  // rises to BOTH tower tops and sags to just above the roadway at midspan —
+  // the shape the whole silhouette lives on.
+  const saddles = cableSaddles(plan);
+  const cableZ0 = saddles[0]?.[0] ?? shoreZ;
+  const cableZ1 = saddles[saddles.length - 1]?.[0] ?? northEndZ;
+  const ropeGeo = new THREE.BoxGeometry(0.2, 1, 0.2);
+  // The cable is a CHAIN of short straight links, not one long tube, and every
+  // link is a separately positioned instance. Two reasons, both learned the
+  // hard way on this bridge:
+  //  1. The batch streamer files an instance by its MATRIX position. A tube
+  //     whose vertices carry world coordinates has an identity matrix, so the
+  //     old cable was filed at (0, 0, 0) — a chunk out at Twin Peaks — and
+  //     streamed in only when the player stood there. The bridge shipped with
+  //     suspender ropes hanging off nothing.
+  //  2. Anything 13u tall or more earns a box IMPOSTER past the detail ring.
+  //     One 243 × 40u cable's imposter is a 243 × 40u slab, and the bridge
+  //     read from the Marina as a solid red billboard over the strait.
+  // Short links solve both: each is filed on the bridge's own chunk, and each
+  // one's imposter is the link.
+  const linkGeo = new THREE.BoxGeometry(0.5, 1, 0.5);
+  for (const sx of [-legX, legX]) {
+    const pts: THREE.Vector3[] = [];
+    const steps = Math.max(24, Math.round((cableZ0 - cableZ1) / 2.5));
+    for (let i = 0; i <= steps; i++) {
+      const cz = cableZ0 - ((cableZ0 - cableZ1) * i) / steps;
+      const cy = cableY(saddles, cz);
+      if (cy !== null) pts.push(new THREE.Vector3(ax + sx, cy, cz));
+    }
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const a = pts[i];
+      const b = pts[i + 1];
+      if (!a || !b) continue;
+      const dy = b.y - a.y;
+      const dz = b.z - a.z;
+      const len = Math.hypot(dy, dz);
+      if (len < 0.001) continue;
+      const link = mesh(linkGeo, ORANGE, a.x, (a.y + b.y) / 2, (a.z + b.z) / 2);
+      link.scale.y = len + 0.12; // overlap, so the chain has no daylight in it
+      link.rotation.x = Math.atan2(dz, dy);
+      link.updateMatrixWorld(true);
+      objects.push(link);
+    }
+    // Suspender ropes at a ~5u pitch (the real ones are 15 m apart). The old
+    // build hung 20 of them across the whole crossing, which reads as a row of
+    // detached sticks rather than as a curtain under a cable.
+    const ropes = Math.round((cableZ0 - cableZ1) / 5);
+    for (let i = 1; i < ropes; i++) {
+      const rz = cableZ0 - ((cableZ0 - cableZ1) * i) / ropes;
+      if (rz > railMaxZ || rz < railMinZ) continue;
+      const cy = cableY(saddles, rz);
+      if (cy === null) continue;
+      const h = cy - (deckY + 0.9);
+      if (h < 0.8) continue;
+      const rope = mesh(ropeGeo, ORANGE, ax + sx, deckY + 0.9 + h / 2, rz);
+      rope.scale.y = h;
+      rope.updateMatrixWorld(true);
+      objects.push(rope);
     }
   }
 
-  // Anchorage blocks flanking the ramp entry.
-  for (const sx of [-(half + 1.6), half + 1.6]) {
-    objects.push(
-      mesh(new THREE.BoxGeometry(2.6, 3.2, 4.5), ORANGE, ax + sx, shoreH + 1.2, shoreZ - 3),
-    );
+  // South anchorage: the block the two main cables actually pull against,
+  // flanking the ramp entry and rising to the cable's saddle height. It used
+  // to be a 3.2u lump with the cable passing well above it.
+  {
+    const anchorTop = deckY + 5.2;
+    const anchorZ = shoreZ + 1;
+    for (const sx of [-legX, legX]) {
+      objects.push(
+        mesh(
+          new THREE.BoxGeometry(4.6, anchorTop - shoreH + 2, 8),
+          ORANGE,
+          ax + sx,
+          (anchorTop + shoreH - 2) / 2,
+          anchorZ,
+        ),
+      );
+      objects.push(
+        mesh(new THREE.BoxGeometry(5.4, 0.9, 8.8), ORANGE, ax + sx, anchorTop + 0.2, anchorZ),
+      );
+    }
   }
 
   // --- Battery Ridge Overlook: a parapet-ringed turnaround on the Marin

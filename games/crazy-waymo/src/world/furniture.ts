@@ -135,9 +135,25 @@ const KK_TINT_AMT = 0.15;
 const HYDRANT_CAP = 340;
 const SEATING_CAP = 280; // benches + trash cans combined
 const VICTORIAN_LAMP_HEIGHT = 4.2;
+const PARK_SKIRT_DEPTH = 1.6; // stone skirt under a flat park tile
 
 // Shared static geometry/materials at module scope so merged batches stay few.
 const UNIT_BOX = new THREE.BoxGeometry(1, 1, 1);
+// …but a shared box is also how three unrelated props become ONE prop.
+// `city.ts`'s rest capture keys procedural geometry by object IDENTITY
+// (`rawGeoIds` is a map on `geo.uuid`), so every kind that reuses UNIT_BOX
+// lands in a single serialized "kind" — and every measurement that reasons per
+// kind (tools/geometry-audit.mts's seat baseline, which is a MEDIAN over the
+// kind) then compares a 0.2u-thick park skirt against a 2.4u gate pillar and
+// calls both of them wrong — 1,074 phantom "floating" props from four kinds
+// sharing one box. Each is its own prop, so each gets its own box: identical
+// geometry, distinct identity, one extra 24-vertex record each in the bake and
+// no extra draw call (a BatchedMesh holds many geometries per material). A new
+// kind of box gets a new constant here rather than reaching for UNIT_BOX.
+const PARK_SKIRT_BOX = new THREE.BoxGeometry(1, 1, 1);
+const WALL_FOOTING_BOX = new THREE.BoxGeometry(1, 1, 1);
+const GATE_POST_BOX = new THREE.BoxGeometry(1, 1, 1);
+const BLADE_PLATE_BOX = new THREE.BoxGeometry(1, 1, 1);
 // Stop signs are procedural (no kit model has one): an octagonal face on a
 // pole. Flat-edge-up octagon, caps facing ±Z after the X-rotation.
 const STOP_FACE = new THREE.CylinderGeometry(0.42, 0.42, 0.05, 8)
@@ -819,6 +835,23 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
     node.updateMatrixWorld(true);
     objects.push(node);
   };
+  // WHERE A MODEL STANDS vs WHERE ITS INSTANCE MATRIX SAYS IT IS. Every kit
+  // model this module seats is authored feet-at-origin — measured, all of
+  // props/ and parks/: the horizontal centroid of each model's lowest slab of
+  // geometry is within 2cm of its own origin — so seating the node on (x, z)
+  // does put the trunk, the pole base or the bench legs on (x, z).
+  //
+  // What is NOT at (x, z) is the MESH NODE inside the GLB. kk-tree-b's mesh
+  // node carries the authoring offset (0.387, 0.542, −0.065) and its vertices
+  // carry the opposite, so the tree stands right while the mesh's world matrix
+  // — the only thing the bake serializes per instance, and therefore the only
+  // position any offline audit can see — sits ~1.7u away from the trunk once
+  // the tree is fitted to a 5.6u crown. Nothing to correct HERE — shifting the
+  // node would move the tree off the spot it is meant to stand on. The fix is
+  // to bake that node transform into the geometry in assets/loader.ts, the one
+  // place that runs on BOTH load paths (the baked path resolves each instance
+  // back out of the GLB by url + mesh index, so a fix applied at generation
+  // time would move every tree on a cache hit and nowhere else).
   // Grid-cell placement math and the vector asphalt disagree along diagonal
   // spines and wide junction aprons (~21% of edge length by design) — every
   // ground-seated prop must check the ACTUAL asphalt or it ends up standing
@@ -1483,18 +1516,33 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
           wall.scale.set(wallH, wallH, wallRun);
           wall.rotation.y = along === "x" ? HALF_PI : 0;
           // A rigid run seated on its MIDPOINT leaves an end in the air on any
-          // slope; seat it on the lowest of the two ends and midpoint instead,
-          // so the wall buries into the hill rather than floating off it.
+          // slope — but seating it on the LOWEST of its ends, which is what
+          // this did, sank 80 of them out of sight: a 4.3u run down a park
+          // flank falls further than the wall is tall (1.1u), so the whole
+          // piece ends up under the lawn. Seat on the midpoint, which is where
+          // the run visually is and the only sample that tracks the surface
+          // drawn beneath it, and give the downhill end something to stand on.
           const endA = along === "x" ? [px - runLen / 2, pz] : [px, pz - runLen / 2];
           const endB = along === "x" ? [px + runLen / 2, pz] : [px, pz + runLen / 2];
-          const wallY = Math.min(
-            surfaceAt(px, pz),
+          const wallY = surfaceAt(px, pz);
+          const lowY = Math.min(
+            wallY,
             surfaceAt(endA[0] ?? px, endA[1] ?? pz),
             surfaceAt(endB[0] ?? px, endB[1] ?? pz),
           );
           wall.position.set(px, wallY, pz);
           wall.updateMatrixWorld(true);
           objects.push(wall);
+          // Stone footing under the fall. Flat ground needs none, so most park
+          // walls in the city emit nothing here.
+          if (wallY - lowY > 0.15) {
+            const drop = wallY - lowY + 0.25;
+            const footing = new THREE.Mesh(WALL_FOOTING_BOX, SEAWALL_MAT);
+            footing.scale.set(along === "x" ? runLen : 0.72, drop, along === "x" ? 0.72 : runLen);
+            footing.position.set(px, wallY + 0.1 - drop / 2, pz);
+            footing.updateMatrixWorld(true);
+            objects.push(footing);
+          }
           // Matching low solid so the wall is real (enter via the gate).
           const t = 0.5;
           solids.push(
@@ -1517,18 +1565,17 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
         }
         // Gate posts flanking the 4.4u entry gap. Two simple stone pillars —
         // taller than the wall — read as a park entrance without the KayKit
-        // arch's orientation ambiguity.
-        const gy = surfaceAt(
-          along === "x" ? wx : wx + dx * edgeOff,
-          along === "x" ? wz + dz * edgeOff : wz,
-        );
+        // arch's orientation ambiguity. Each post samples the surface under
+        // ITSELF: one sample at the gap's centre served both, and the pair
+        // stands 4.4u apart, so on any park flank one pillar floated by the
+        // fall across the gate.
         for (const side of [-2.2, 2.2] as const) {
           const px = along === "x" ? wx + side : wx + dx * edgeOff;
           const pz = along === "x" ? wz + dz * edgeOff : wz + side;
           if (onAsphalt(px, pz, 1)) continue;
-          const post = new THREE.Mesh(UNIT_BOX, SEAWALL_MAT);
+          const post = new THREE.Mesh(GATE_POST_BOX, SEAWALL_MAT);
           post.scale.set(0.9, 2.4, 0.9);
-          post.position.set(px, gy + 1.2, pz);
+          post.position.set(px, surfaceAt(px, pz) + 1.2, pz);
           post.updateMatrixWorld(true);
           objects.push(post);
         }
@@ -1544,8 +1591,22 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
         // parks flow over hills with no terraces at all.
         const seatY = parkCellHeight(terrain, gx, gz);
         const spread = seatY - 0.05 - parkCellFloor(terrain, gx, gz);
+        // …but a cell's OWN corners do not know it is perched on a lip. A
+        // park's edge above a bank is flat in itself and the tile there hangs
+        // over the fall on its skirt, which is how Buena Vista got a green
+        // slab on a pedestal. A tile is only honest where its skirt still
+        // reaches whatever is drawn just outside the cell, so ask that
+        // directly — the two constants are one rule.
+        let lip = 0;
+        for (let a = 0; a < 8; a++) {
+          const th = (a / 8) * Math.PI * 2;
+          const drop =
+            seatY -
+            surfaceAt(wx + Math.cos(th) * ROAD_TILE * 0.62, wz + Math.sin(th) * ROAD_TILE * 0.62);
+          if (drop > lip) lip = drop;
+        }
         const roll = rng.range(0, 1);
-        if (spread <= 0.8) {
+        if (spread <= 0.8 && lip <= PARK_SKIRT_DEPTH) {
           const path = isPathCell(gx, gz) ? pathTileFor(pathMask(gx, gz)) : null;
           const name =
             path?.name ??
@@ -1565,12 +1626,21 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
           node.position.set(wx, seatY, wz);
           node.updateMatrixWorld(true);
           objects.push(node);
-          // slim skirt so the flush tile never shows a sliver of daylight
-          const plinth = new THREE.Mesh(UNIT_BOX, SEAWALL_MAT);
-          plinth.scale.set(ROAD_TILE * 1.02, spread + 0.5, ROAD_TILE * 1.02);
-          plinth.position.set(wx, seatY - (spread + 0.5) / 2, wz);
-          plinth.updateMatrixWorld(true);
-          objects.push(plinth);
+          // Skirt so the flush tile never shows a sliver of daylight under its
+          // edge. Depth is CONSTANT and generous rather than fitted to this
+          // cell's own fall: the gap to hide is the drop to whatever is drawn
+          // just OUTSIDE the tile — the neighbouring terrace, the lawn below a
+          // bank — which the cell's own corner spread does not measure, and a
+          // 0.2u skirt on a flat cell beside a lower one left exactly the
+          // sliver it exists to prevent. Buried depth costs nothing; it is
+          // also what makes this a fixed-scale prop rather than one whose
+          // height is a function of the terrain, so a seat audit can hold it
+          // to a real baseline.
+          const skirt = new THREE.Mesh(PARK_SKIRT_BOX, SEAWALL_MAT);
+          skirt.scale.set(ROAD_TILE * 1.02, PARK_SKIRT_DEPTH, ROAD_TILE * 1.02);
+          skirt.position.set(wx, seatY - PARK_SKIRT_DEPTH / 2, wz);
+          skirt.updateMatrixWorld(true);
+          objects.push(skirt);
           if (name === "park-base-decorated-trees") {
             solids.push({
               minX: wx - 0.6,
@@ -2607,8 +2677,11 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
         pole.position.set(px, y + poleH / 2, pz);
         pole.updateMatrixWorld(true);
         objects.push(pole);
-        // Blades stack, each square to its own street: the top one reads along
-        // this arm, the second across it.
+        // Blades CROSS at one height, each square to its own street — the way
+        // a real SF mast carries them, and the way the pair stays one prop.
+        // Stacking the second 0.78u lower made every two-street junction ship
+        // the same sign geometry at two different heights, which is a kind
+        // whose own baseline calls half its instances misplaced.
         for (let i = 0; i < Math.min(2, labels.length); i++) {
           const text = labels[i];
           if (text === undefined) continue;
@@ -2617,8 +2690,8 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
           const scale = 1.9;
           const w = labelWidth(text) * scale;
           const yaw = Math.atan2(a.tx, a.tz) + (i === 0 ? 0 : HALF_PI);
-          const by = y + poleH - 0.28 - i * 0.78;
-          const plate = new THREE.Mesh(UNIT_BOX, BLADE_MAT);
+          const by = y + poleH - 0.28;
+          const plate = new THREE.Mesh(BLADE_PLATE_BOX, BLADE_MAT);
           plate.scale.set(w + 0.5, GLYPH_H * scale + 0.28, 0.07);
           plate.rotation.y = yaw;
           plate.position.set(px, by, pz);

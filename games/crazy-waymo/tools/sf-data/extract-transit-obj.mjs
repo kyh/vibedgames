@@ -227,7 +227,14 @@ function loadGameNetwork() {
   }
   const idx = makeSegIndex(24);
   const edgeLen = [];
-  for (const m of src.matchAll(/p: \[([-\d.,\s]+)\]/g)) {
+  // `p:\s*\[` — NOT `p: [`. bake-network.mts emits sf-network.ts UNFORMATTED
+  // (oxfmt runs afterwards, by hand or by `pnpm format:fix`), and against the
+  // unformatted file the spaced pattern matched NOTHING: every corridor
+  // silently resolved to "no game edge within 150u" and this script wrote a
+  // real-looking sf-transit.ts with 0 modes and 0 corridors. The guard below
+  // is the backstop — a parse that finds no edges is a broken parse, never an
+  // empty network.
+  for (const m of src.matchAll(/p:\s*\[([-\d.,\s]+)\]/g)) {
     const nums = m[1].split(",").map(Number);
     const e = edgeLen.length;
     let L = 0;
@@ -236,6 +243,10 @@ function loadGameNetwork() {
       L += Math.hypot(nums[i] - nums[i - 2], nums[i + 1] - nums[i - 1]);
     }
     edgeLen.push(L);
+  }
+  if (edgeLen.length === 0) {
+    console.error("sf-network.ts parsed to 0 edges — the SF_EDGES shape changed, fix the regex");
+    process.exit(1);
   }
   return { idx, edgeLen, edges: edgeLen.length, genId: stamp[1] };
 }

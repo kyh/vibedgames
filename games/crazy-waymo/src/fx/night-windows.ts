@@ -2,6 +2,13 @@ import * as THREE from "three";
 
 import type { ModelCache } from "../assets/loader";
 import type { BatchItemRec } from "../world/city";
+import {
+  BIG_SILHOUETTE_H,
+  DETAIL_DISTANCE,
+  IMPOSTER_DISTANCE,
+  MID_IMPOSTER_DISTANCE,
+  MID_SILHOUETTE_H,
+} from "../world/city";
 import { Rng } from "../shared/rng";
 
 // Emissive night windows: the classic trick that makes a night city read
@@ -21,39 +28,144 @@ const SILL_START = 2.0; // first storey sill height above the building base
 const WIN_W = 0.62;
 const WIN_H = 0.85;
 const FACE_OFFSET = 0.09; // out from the wall so the quad never z-fights
-const LIT_CHANCE = 0.45;
 // Fade out BEFORE the facade a window is painted on disappears — but the
 // distance that happens at is PER BUILDING, and pinning every window to the
 // shortest of those was costing the game its best image. city.ts culls in three
-// tiers: everything at DETAIL_DISTANCE 360, ordinary buildings (MID_SILHOUETTE_H
-// 5u) as box imposters to MID_IMPOSTER_DISTANCE 620, skyline buildings
-// (BIG_SILHOUETTE_H 13u) as imposters all the way to DRAW_DISTANCE 900. One
-// global 240–360 fade meant that from Twin Peaks or the bay — SF at night, the
-// single most recognisable image this game could own — the city below was an
-// unlit black mass with a handful of pinpricks, while the towers it was drawn on
-// were still standing there.
+// tiers: full models to DETAIL_DISTANCE, ordinary buildings (MID_SILHOUETTE_H)
+// as box imposters to MID_IMPOSTER_DISTANCE, skyline buildings
+// (BIG_SILHOUETTE_H) as imposters all the way to IMPOSTER_DISTANCE. One global
+// 240–360 fade meant that from Twin Peaks or the bay — SF at night, the single
+// most recognisable image this game could own — the city below was an unlit
+// black mass with a handful of pinpricks, while the towers it was drawn on were
+// still standing there.
 //
 // An imposter box shares the real building's footprint, so a lit window sits on
 // it correctly; each window just has to know which tier its own building is in.
-// Values sit inside each cull so the windows are gone before the box is.
-const TIER_DETAIL = 360;
-const TIER_MID = 590;
-const TIER_TALL = 860;
-const MID_SILHOUETTE_H = 5;
-const BIG_SILHOUETTE_H = 13;
+//
+// THE TIERS ARE IMPORTED, NOT COPIED. They used to be four private numbers here
+// (360/590/860 against culls of 360/620/900), and when the streaming pass moved
+// the real bands to 440/1100/1400 this file silently kept fading windows out at
+// half the distance the box they sit on survives to. A window fades at
+// FADE_END of its own building's cull, so the two can never drift again.
+const FADE_END = 0.95; // windows are gone this far into their own building's cull
 const FADE_RATIO = 0.66; // fade starts at this fraction of a window's own far
 
 /** How far a window painted on a building this tall stays lit. */
 function fadeFarFor(height: number): number {
-  if (height >= BIG_SILHOUETTE_H) return TIER_TALL;
-  if (height >= MID_SILHOUETTE_H) return TIER_MID;
-  return TIER_DETAIL;
+  if (height >= BIG_SILHOUETTE_H) return IMPOSTER_DISTANCE * FADE_END;
+  if (height >= MID_SILHOUETTE_H) return MID_IMPOSTER_DISTANCE * FADE_END;
+  return DETAIL_DISTANCE;
 }
 
-// Warm sodium-ish interior palette with the occasional cool TV-blue room.
+// LIGHT IS CLUMPY, AND A UNIFORM SPRINKLE IS WHY THE CITY READ AS A BLACK MASS.
+// The old pass lit a flat ~13% of every candidate pane everywhere, which from
+// the bay is 31k pixels of noise spread so thin that no BUILDING reads as lit —
+// only a faint speckle over a dark mass. Real cities clump: an office tower
+// with the cleaners in runs 70% lit, the block next to it is dark, and the
+// ground floor is the brightest thing on the street because that is where the
+// shops are.
+//
+// So each building draws an OCCUPANCY from its own position hash and spends its
+// share of the budget at that rate. The city-wide total is unchanged (the
+// normalisation below still lands on `budget`); it is redistributed into
+// buildings you can pick out at 600 metres.
+// Bimodal on purpose: most blocks read as dark mass, and the ones that are on
+// are ON. A gentler curve spends the same budget as an even speckle over the
+// whole city, which is exactly the "black mass with a dusting of pinpricks" the
+// gate measured from the bay.
+const OCC_DARK = 0.06; // ceiling for the ~three quarters that are asleep
+const OCC_LIT = 0.95;
+const OCC_SPLIT = 0.68; // hash below this = a dark building
+const MAX_P = 0.92; // no building is ever fully lit
+
+// THE GROUND FLOOR IS A SEPARATE BUDGET, NOT A WEIGHT. Shop fronts, lobbies and
+// bar windows are the entire near read — at 10 metres on a low residential
+// street they are the only light the block owns — and they do not care whether
+// the flats upstairs are home. Bundling them into the occupancy weight made
+// them inherit a dark building's near-zero probability, so the streets the
+// player actually drives stayed unlit while the towers behind them glowed.
+//
+// A THIRD of buildings get a shop front, not all of them: a lit ground floor is
+// what says "this corner is a bar and that one is a garage", and a city where
+// every ground floor is on is a strip light, not a street. The split is by
+// share of the total quad budget so the two reads (near street / distant
+// skyline) can be tuned against each other without either starving.
+const COMMERCIAL_SHARE = 0.44;
+const SHOP_BUDGET_SHARE = 0.4;
+// ONE ROW, in metres. The band has to be a real height and a tight one: a
+// fraction of the building's glass span makes a tower's "ground floor" ten
+// storeys tall, and a loose 4.5m band swallowed 226k of the city's 244k panes
+// (most kit fabric is two storeys), which starved the flat rate down to 5% and
+// left the streets as dark as before.
+const SHOP_BAND = 2.2;
+const SHOP_MAX_P = 0.75;
+
+// Interior palette, by district and by what the building IS. Tungsten and
+// sodium for the residential fabric, cool fluorescent for the office towers,
+// the occasional TV-blue room, and a saturated shop-front warm for the ground
+// floor. The temperature is not decoration: a night skyline reads as depth
+// because the warm and the cool separate, and one colour of window is a
+// streetlight-orange fog.
+const TUNGSTEN = new THREE.Color(0xffb469);
 const WARM = new THREE.Color(0xffd9a0);
 const WARM2 = new THREE.Color(0xfff0c8);
-const COOL = new THREE.Color(0xbfd8ff);
+const OFFICE = new THREE.Color(0xdcebff);
+const COOL = new THREE.Color(0x9cc4ff);
+const SHOPFRONT = new THREE.Color(0xffbe6a);
+// Emissive gain. Pre-tonemap linear, these land between ~0.8 and ~1.9, which
+// clears the night bloom threshold (render/post.ts NIGHT_BLOOM_THRESHOLD 0.62)
+// and the grade's source mask (0.30) — so a lit window blooms and keeps its
+// chroma while the city around it desaturates. The old 0.55..1.05 sat under
+// both and rendered as a flat pale decal.
+const GAIN_MIN = 0.8;
+const GAIN_SPAN = 1.1;
+const SHOP_GAIN = 1.35; // shop fronts are the brightest thing on the street
+
+/** Deterministic 0..1 hash of a 2-D key. Used for per-building character. */
+function hash2(x: number, z: number): number {
+  const s = Math.sin(x * 127.1 + z * 311.7) * 43758.5453;
+  return s - Math.floor(s);
+}
+
+/** How much of this building is awake, 0..1. See the OCC_* note above. */
+function occupancyAt(x: number, z: number): number {
+  const h = hash2(Math.round(x * 0.37), Math.round(z * 0.37));
+  if (h < OCC_SPLIT) return OCC_DARK * (h / OCC_SPLIT);
+  return 0.4 + (OCC_LIT - 0.4) * ((h - OCC_SPLIT) / (1 - OCC_SPLIT));
+}
+
+/** 0 = warm residential district .. 1 = cool commercial district, ~240u cells. */
+function districtCool(x: number, z: number): number {
+  return hash2(Math.floor(x / 240), Math.floor(z / 240));
+}
+
+/** Does this address have a lit ground floor tonight? Salted off occupancy. */
+function hasShopfront(x: number, z: number): boolean {
+  return hash2(Math.round(x * 0.41) + 91.7, Math.round(z * 0.41) - 57.3) < COMMERCIAL_SHARE;
+}
+
+/**
+ * One window's colour. `office` blends district character with the building's
+ * own height (towers are offices wherever they stand); `shop` overrides both.
+ */
+function windowColor(
+  out: THREE.Color,
+  rng: Rng,
+  office: number,
+  shop: boolean,
+  gainScale: number,
+): void {
+  if (shop) {
+    out.copy(SHOPFRONT);
+  } else if (rng.chance(0.1 + 0.14 * office)) {
+    out.copy(COOL); // a television, or one late fluorescent bay
+  } else if (rng.chance(office)) {
+    out.copy(OFFICE);
+  } else {
+    out.copy(rng.chance(0.55) ? TUNGSTEN : rng.chance(0.5) ? WARM : WARM2);
+  }
+  out.multiplyScalar((GAIN_MIN + rng.range(0, GAIN_SPAN)) * gainScale);
+}
 
 type Instance = {
   cx: number;
@@ -63,6 +175,12 @@ type Instance = {
   hz: number;
   height: number;
   yaw: number;
+  /** 0..1 share of this building's windows that are lit tonight. */
+  occ: number;
+  /** 0..1 chance any given window uses office-white rather than tungsten. */
+  office: number;
+  /** Storeys lit as shop front (0 = no ground-floor business here). */
+  shopFloors: number;
 };
 
 export class NightWindows {
@@ -77,19 +195,32 @@ export class NightWindows {
     const detected = collectDetected(items, cache);
     const instances = collectBuildings(detected.fallbackItems, cache);
 
-    // Candidate census first: the lit chance is scaled so the whole city
-    // lands under `budget` quads regardless of how dense the bake is.
-    let candidates = detected.candidates;
-    for (const b of instances) candidates += candidateCount(b);
-    const chance = LIT_CHANCE * Math.min(1, budget / Math.max(1, candidates * LIT_CHANCE));
+    // Census first, in DEMAND rather than in candidates: an upper-storey pane
+    // asks for its building's occupancy, a ground-floor one asks flat, and the
+    // two scales below buy exactly `budget` of the pair. Scaling one flat
+    // chance instead is what spread the light evenly over the whole city and
+    // left no building lit and no street lit either.
+    const census = { shop: detected.census.shop, upper: detected.census.upper };
+    for (const b of instances) {
+      const d = buildingDemand(b);
+      census.shop += d.shop;
+      census.upper += d.upper;
+    }
+    const scale = {
+      shop: Math.min(SHOP_MAX_P, (budget * SHOP_BUDGET_SHARE) / Math.max(1, census.shop)),
+      upper: Math.min(
+        MAX_P / OCC_LIT,
+        (budget * (1 - SHOP_BUDGET_SHARE)) / Math.max(1, census.upper),
+      ),
+    };
 
     const positions: number[] = [];
     const colors: number[] = [];
     const fars: number[] = [];
     const scratch = new THREE.Color();
-    emitDetected(detected, rng, chance, positions, colors, fars, scratch);
+    emitDetected(detected, rng, scale, positions, colors, fars, scratch);
     for (const b of instances) {
-      emitBuilding(b, rng, chance, positions, colors, fars, scratch);
+      emitBuilding(b, rng, scale, positions, colors, fars, scratch);
     }
 
     const geo = new THREE.BufferGeometry();
@@ -136,8 +267,10 @@ export class NightWindows {
     this.mesh.visible = false;
     this.mesh.renderOrder = 2; // after the city, with the other glow passes
     console.log(
-      `[windows] ${positions.length / 18} lit windows on ${instances.length} buildings` +
-        ` (candidates ${candidates}, chance ${chance.toFixed(3)})`,
+      `[windows] ${positions.length / 18} lit windows on ${detected.instances.length}` +
+        ` glazed + ${instances.length} procedural buildings (budget ${budget};` +
+        ` shop ${Math.round(census.shop)} cand @ p${scale.shop.toFixed(2)},` +
+        ` upper ${Math.round(census.upper)} demand @ x${scale.upper.toFixed(2)})`,
     );
   }
 
@@ -167,11 +300,34 @@ type Pane = {
   h: number;
 };
 
-type DetectedInstance = { m: Float32Array; panes: readonly Pane[] };
+type DetectedInstance = {
+  m: Float32Array;
+  panes: readonly Pane[];
+  /** 0..1 share of this building's glass that is lit tonight. */
+  occ: number;
+  /** 0..1 chance a window here is office-white rather than tungsten. */
+  office: number;
+  /**
+   * Model-space Y below which a pane counts as a shop front. -Infinity when
+   * this address has no ground-floor business at all.
+   */
+  shopY: number;
+  /** How far windows on this building stay lit (its imposter cull tier). */
+  far: number;
+};
+/**
+ * What the city is asking the budget for: ground-floor panes counted flat,
+ * upper-storey panes weighted by their building's occupancy.
+ */
+type Census = { shop: number; upper: number };
+
+/** The two probabilities the census resolves to. See the constructor. */
+type LitScale = { readonly shop: number; readonly upper: number };
+
 type Detected = {
   instances: DetectedInstance[];
   fallbackItems: BatchItemRec[];
-  candidates: number;
+  census: Census;
 };
 
 const imageDataCache = new Map<string, ImageData | null>();
@@ -381,15 +537,19 @@ function detectPanes(url: string, idx: number, cache: ModelCache): readonly Pane
 function collectDetected(items: readonly BatchItemRec[], cache: ModelCache): Detected {
   const instances: DetectedInstance[] = [];
   const fallbackItems: BatchItemRec[] = [];
-  let candidates = 0;
+  const census: Census = { shop: 0, upper: 0 };
   // A model falls back only when NO mesh of its url has panes.
   const urlHasPanes = new Map<string, boolean>();
   for (const it of items) {
     if (it.url === null || !it.url.includes("/buildings/")) continue;
     const panes = detectPanes(it.url, it.idx, cache);
     if (panes.length > 0) {
-      instances.push({ m: it.m, panes });
-      candidates += panes.length;
+      const inst = describeDetected(it.m, panes);
+      instances.push(inst);
+      for (const p of panes) {
+        if (p.cy <= inst.shopY) census.shop += 1;
+        else census.upper += inst.occ;
+      }
       urlHasPanes.set(it.url, true);
     } else if (!urlHasPanes.has(it.url)) {
       urlHasPanes.set(it.url, false);
@@ -399,7 +559,53 @@ function collectDetected(items: readonly BatchItemRec[], cache: ModelCache): Det
     if (it.url === null || !it.url.includes("/buildings/")) continue;
     if (!urlHasPanes.get(it.url)) fallbackItems.push(it);
   }
-  return { instances, fallbackItems, candidates };
+  return { instances, fallbackItems, census };
+}
+
+/**
+ * Everything about a glazed building that is the same for all of its panes:
+ * where it stands (occupancy + district temperature), how tall its glass runs
+ * (cull tier, and where the shop-front band ends), all derived once.
+ *
+ * The vertical span of the glass is the only height signal a detected building
+ * has — panes carry no bbox — and it answers both questions the emitter asks:
+ * which imposter tier survives out there, and where the ground floor stops.
+ * The instance matrix carries the kit's scale, so the span goes through its Y
+ * basis vector before it means metres.
+ */
+function describeDetected(m: Float32Array, panes: readonly Pane[]): DetectedInstance {
+  let loY = Infinity;
+  let hiY = -Infinity;
+  for (const p of panes) {
+    if (p.cy - p.h / 2 < loY) loY = p.cy - p.h / 2;
+    if (p.cy + p.h / 2 > hiY) hiY = p.cy + p.h / 2;
+  }
+  const span = hiY > loY ? hiY - loY : 0;
+  const sy = Math.hypot(m[4] ?? 0, m[5] ?? 1, m[6] ?? 0);
+  const height = span * sy + SILL_START;
+  const x = m[12] ?? 0;
+  const z = m[14] ?? 0;
+  return {
+    m,
+    panes,
+    occ: occupancyAt(x, z),
+    office: officeBiasFor(height, districtCool(x, z)),
+    // SHOP_BAND is metres, so it goes through the kit's scale to reach model
+    // space — a fraction of the span instead would make a tower's "ground
+    // floor" ten storeys tall and a cottage's half its facade.
+    shopY: hasShopfront(x, z) ? loY + Math.min(span, SHOP_BAND / Math.max(0.01, sy)) : -Infinity,
+    far: fadeFarFor(height),
+  };
+}
+
+/**
+ * Office-white vs tungsten. Height dominates — anything over ~4 storeys is
+ * commercial wherever it stands — with the district hash breaking the tie for
+ * the low fabric so the Sunset stays warm and SoMa doesn't.
+ */
+function officeBiasFor(height: number, cool: number): number {
+  const tall = THREE.MathUtils.smoothstep(height, 12, 34);
+  return Math.min(0.95, tall * 0.75 + cool * 0.3);
 }
 
 const M4 = new THREE.Matrix4();
@@ -416,7 +622,7 @@ const NORMAL = new THREE.Vector3();
 function emitDetected(
   det: Detected,
   rng: Rng,
-  chance: number,
+  scale: LitScale,
   positions: number[],
   colors: number[],
   fars: number[],
@@ -424,26 +630,16 @@ function emitDetected(
 ): void {
   for (const inst of det.instances) {
     M4.fromArray(inst.m);
-    // Cull tier for this building: detected panes carry no bbox, but the
-    // vertical span of the glass is a good proxy for how tall the thing is —
-    // and it is the same question ("does its imposter survive out there?").
-    let loY = Infinity;
-    let hiY = -Infinity;
+    const far = inst.far;
+    const upperP = Math.min(MAX_P, inst.occ * scale.upper);
     for (const p of inst.panes) {
-      const y = p.cy;
-      if (y - p.h / 2 < loY) loY = y - p.h / 2;
-      if (y + p.h / 2 > hiY) hiY = y + p.h / 2;
-    }
-    // Panes are in MODEL space; the instance matrix carries the kit's scale, so
-    // the span has to go through its Y basis vector before it means metres.
-    const m = inst.m;
-    const sy = Math.hypot(m[4] ?? 0, m[5] ?? 1, m[6] ?? 0);
-    const far = fadeFarFor(hiY > loY ? (hiY - loY) * sy + SILL_START : 0);
-    for (const p of inst.panes) {
-      if (!rng.chance(chance)) continue;
-      // Inset 8% so the glow sits inside the frame.
-      const hw = (p.w / 2) * 0.92;
-      const hh = (p.h / 2) * 0.92;
+      const shop = p.cy <= inst.shopY;
+      if (!rng.chance(shop ? scale.shop : upperP)) continue;
+      // Inset 8% so the glow sits inside the frame; shop fronts fill their
+      // glass instead — a lobby window is lit corner to corner.
+      const inset = shop ? 1.0 : 0.92;
+      const hw = (p.w / 2) * inset;
+      const hh = (p.h / 2) * inset;
       const c0 = CORNERS[0];
       const c1 = CORNERS[1];
       const c2 = CORNERS[2];
@@ -463,8 +659,7 @@ function emitDetected(
       c3.add(NORMAL);
       positions.push(c0.x, c0.y, c0.z, c1.x, c1.y, c1.z, c2.x, c2.y, c2.z);
       positions.push(c0.x, c0.y, c0.z, c2.x, c2.y, c2.z, c3.x, c3.y, c3.z);
-      scratch.copy(rng.chance(0.14) ? COOL : rng.chance(0.5) ? WARM : WARM2);
-      scratch.multiplyScalar(0.55 + rng.range(0, 0.5));
+      windowColor(scratch, rng, inst.office, shop, shop ? SHOP_GAIN : 1);
       for (let v = 0; v < 6; v++) {
         colors.push(scratch.r, scratch.g, scratch.b);
         fars.push(far);
@@ -552,15 +747,20 @@ function collectBuildings(items: readonly BatchItemRec[], cache: ModelCache): In
     if (height < MIN_HEIGHT || hx > 40 || hz > 40 || hx < 1 || hz < 1) continue;
     const lcx = (a.minX + a.maxX) / 2;
     const lcz = (a.minZ + a.maxZ) / 2;
+    // Yaw-local centre back to world (inverse of the rotation above).
+    const cx = lcx * a.cos + lcz * a.sin;
+    const cz = -lcx * a.sin + lcz * a.cos;
     out.push({
-      // Yaw-local centre back to world (inverse of the rotation above).
-      cx: lcx * a.cos + lcz * a.sin,
-      cz: -lcx * a.sin + lcz * a.cos,
+      cx,
+      cz,
       baseY: a.minY,
       hx,
       hz,
       height,
       yaw: a.yaw,
+      occ: occupancyAt(cx, cz),
+      office: officeBiasFor(height, districtCool(cx, cz)),
+      shopFloors: hasShopfront(cx, cz) ? SHOP_FLOORS : 0,
     });
   }
   return out;
@@ -574,15 +774,26 @@ function gridFor(b: Instance): { floors: number; colsX: number; colsZ: number } 
   };
 }
 
-function candidateCount(b: Instance): number {
+/** This building's share of the two budgets — the fallback twin of the census. */
+function buildingDemand(b: Instance): Census {
   const g = gridFor(b);
-  return g.floors * (g.colsX + g.colsZ) * 2;
+  const cols = (g.colsX + g.colsZ) * 2;
+  const shopFloors = Math.min(g.floors, b.shopFloors);
+  return {
+    shop: cols * shopFloors,
+    upper: b.occ * cols * (g.floors - shopFloors),
+  };
 }
+
+// Storeys the procedural grid treats as shop front. Its floors are explicit
+// (unlike the detected panes' metric band), so the ground floor is just floor 0
+// — one lit band at street level, which is the whole near read.
+const SHOP_FLOORS = 1;
 
 function emitBuilding(
   b: Instance,
   rng: Rng,
-  chance: number,
+  scale: LitScale,
   positions: number[],
   colors: number[],
   fars: number[],
@@ -608,8 +819,10 @@ function emitBuilding(
     const span = (f.cols - 1) * COL_STEP;
     for (let fl = 0; fl < g.floors; fl++) {
       const y = b.baseY + SILL_START + fl * FLOOR_STEP;
+      const shop = fl < b.shopFloors;
+      const p = shop ? scale.shop : Math.min(MAX_P, b.occ * scale.upper);
       for (let c = 0; c < f.cols; c++) {
-        if (!rng.chance(chance)) continue;
+        if (!rng.chance(p)) continue;
         const along = -span / 2 + c * COL_STEP;
         // Local-frame window centre, pushed out of the wall.
         const lx = f.nx * (f.nx !== 0 ? b.hx + FACE_OFFSET : 0) + tx * along;
@@ -619,17 +832,19 @@ function emitBuilding(
         const wz = b.cz - lx * sin + lz * cos;
         const wtx = tx * cos + tz * sin;
         const wtz = -tx * sin + tz * cos;
-        const hw = WIN_W / 2;
+        // Shop fronts are wider and shorter than the flats above them — that
+        // proportion alone is what makes the ground floor read as commercial
+        // from a car rather than as one more row of the same window.
+        const hw = (shop ? WIN_W * 1.75 : WIN_W) / 2;
         // Two triangles, CCW facing outward (backface-culled from inside).
         const ax = wx + wtx * hw;
         const az = wz + wtz * hw;
         const bx = wx - wtx * hw;
         const bz = wz - wtz * hw;
         const y0 = y;
-        const y1 = y + WIN_H;
+        const y1 = y + (shop ? WIN_H * 1.25 : WIN_H);
         positions.push(ax, y0, az, bx, y0, bz, bx, y1, bz, ax, y0, az, bx, y1, bz, ax, y1, az);
-        scratch.copy(rng.chance(0.14) ? COOL : rng.chance(0.5) ? WARM : WARM2);
-        scratch.multiplyScalar(0.55 + rng.range(0, 0.5));
+        windowColor(scratch, rng, b.office, shop, shop ? SHOP_GAIN : 1);
         for (let v = 0; v < 6; v++) {
           colors.push(scratch.r, scratch.g, scratch.b);
           fars.push(far);

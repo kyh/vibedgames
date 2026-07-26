@@ -77,18 +77,33 @@ const CROSSWALK_ROOM = 4.5; // swept section an arm needs to carry a crosswalk +
 export const ROAD_MATERIALS: Record<string, THREE.Material> = {};
 
 // Streets v4 palette (2026-07-10, Mario-Kart pass): mid-grey blue asphalt
-// instead of near-black — big paved areas must read as surface, not void —
-// warm cream sidewalks, bright curb lip.
+// instead of near-black — big paved areas must read as surface, not void — over
+// warm concrete walks with a paler kerb lip (values re-graded 2026-07-26, see
+// MAT_SIDEWALK).
 const MAT_ASPHALT = new THREE.MeshStandardMaterial({ color: 0x555b68, roughness: 1 });
 ROAD_MATERIALS.asphalt = MAT_ASPHALT;
-const MAT_SIDEWALK = new THREE.MeshStandardMaterial({ color: 0xd2ccb9, roughness: 1 });
+// PAVEMENT IS GROUND, AND GROUND IS THE BOTTOM BAND (value pass 2026-07-26).
+// The 2026-07-26 palette pass pulled ground.ts's COVER_COLOR down ~18% and left
+// these two where they were, which inverted the three-band read: kerb aprons
+// measured L133 against building walls at L108, so the kerb+walk ribbon was the
+// brightest large surface in every aerial and Twin Peaks read as a WHITE STREET
+// GRID with dark confetti in the cells rather than as a city. Both came down
+// ~22% — the walk from 0xd2ccb9, the kerb from 0xf1eee2 — to land alongside
+// ground.ts's `plaza` 0x9b968a and `quay` 0x938e82: pavement and hardstand are
+// the same material family and should not have been two bands apart. The walk-to-kerb RATIO is
+// unchanged (1.17), so the lip still reads as a highlight line.
+//
+// This is baked vertex output (bakeConstantColor): it needs a WORLD_REV bump
+// plus `pnpm bake:world`, and the values must stay unique per base material —
+// roadCollapseTarget identifies a captured road material by its colour.
+const MAT_SIDEWALK = new THREE.MeshStandardMaterial({ color: 0x9a9586, roughness: 1 });
 ROAD_MATERIALS.walk = MAT_SIDEWALK;
 // The kerb is its OWN element, not a lighter sidewalk: the two values used to
 // sit 7% apart (0xe8e4d8 over 0xd9d3c2) and merged into one cream band, so the
-// lip that separates walk from roadway read as nothing. Now it is a bright,
-// cool concrete edge — a highlight line around every block — over a warmer,
-// slightly darker walk. Kerb COLOUR ZONES paint over it (see kerbZone).
-const MAT_CURB = new THREE.MeshStandardMaterial({ color: 0xf1eee2, roughness: 1 });
+// lip that separates walk from roadway read as nothing. Now it is a brighter,
+// cooler concrete edge — a highlight line around every block — over a warmer,
+// darker walk. Kerb COLOUR ZONES paint over it (see kerbZone).
+const MAT_CURB = new THREE.MeshStandardMaterial({ color: 0xb3b0a6, roughness: 1 });
 ROAD_MATERIALS.curb = MAT_CURB;
 // Markings are decals: polygon-offset wins the depth test against the
 // asphalt even where the two drapes sample the terrain differently — no
@@ -525,22 +540,35 @@ float roadNoise(vec2 p) {
     u.y);
 }
 // One random axis-aligned rectangle per \`cell\`-sized world cell, kept wholly
-// inside its cell so no patch ever reads as tiled. Returns (coverage, tone):
-// coverage is antialiased off the world-space derivative — NOT off the edge
-// distance, which jumps at cell borders and would draw the grid — so patches
-// dissolve at distance instead of shimmering. Tone reuses the accept hash, so
-// some patches come out darker and some lighter for free.
-vec2 roadPatch(vec2 wp, vec2 dwp, float cell, vec2 hmin, vec2 hvar, float density, float seed) {
+// inside its cell so no patch ever reads as tiled. Returns (coverage, tone,
+// seam): coverage is antialiased off the world-space derivative — NOT off the
+// edge distance, which jumps at cell borders and would draw the grid — so
+// patches dissolve at distance instead of shimmering. Tone reuses the accept
+// hash, so some patches come out darker and some lighter for free.
+//
+// SEAM is what makes a patch read as a PATCH. Coverage alone is a rectangle a
+// few percent off in value, and at chase-cam range — where one patch fills a
+// third of the screen and its edge is off-frame — a few percent over a large
+// soft area is indistinguishable from dirt. Every real resurfacing cut is
+// edged in sealant, and that line is the whole read. It is a fixed-width WORLD
+// line, so it widens to a pixel up close and fades out once a pixel is wider
+// than the line, exactly like the ground's parcel seams.
+vec3 roadPatch(vec2 wp, vec2 dwp, float cell, vec2 hmin, vec2 hvar, float density, float seed) {
   vec2 c = floor(wp / cell);
   float pick = roadHash(c + seed);
-  if (pick > density) return vec2(0.0);
+  if (pick > density) return vec3(0.0);
   vec2 f = wp / cell - c;
   if (roadHash(c + seed + 41.7) > 0.5) f = f.yx; // half the cuts run crossways
   vec2 h = hmin + hvar * vec2(roadHash(c + seed + 3.7), roadHash(c + seed + 9.1));
   vec2 ctr = h + (1.0 - 2.0 * h) * vec2(roadHash(c + seed + 17.3), roadHash(c + seed + 23.9));
   vec2 d = abs(f - ctr) - h;
-  float aa = max(dwp.x, dwp.y) / cell + 1e-5;
-  return vec2(1.0 - smoothstep(-aa, aa, max(d.x, d.y)), pick / density * 2.0 - 1.0);
+  float sd = max(d.x, d.y);
+  float px = max(dwp.x, dwp.y);
+  float aa = px / cell + 1e-5;
+  float seamW = 0.17 / cell; // ~0.17 world units of sealant, in cell units
+  float seam = (1.0 - smoothstep(0.0, seamW + aa, abs(sd)))
+    * (1.0 - smoothstep(0.45, 1.4, px));
+  return vec3(1.0 - smoothstep(-aa, aa, sd), pick / density * 2.0 - 1.0, seam);
 }`,
       )
       .replace(
@@ -560,18 +588,27 @@ float roadPolish = 0.0;
   // sidewalk seam of a merged mesh takes both sides of the gate below, and
   // fwidth() inside a divergent branch is undefined.
   vec2 dwp = fwidth(wp);
+  float px = max(dwp.x, dwp.y);
   float dphase = fwidth(phase);
   float speck = roadHash(floor(wp * 1.7));
-  float coarse = roadHash(floor(wp * 0.21));
-  diffuseColor.rgb *= 1.0 + (speck - 0.5) * 0.05 + (coarse - 0.5) * 0.045;
+  // The mid octave used to be roadHash(floor(wp * 0.21)) — hard-edged 4.8u
+  // squares at ±4.5%. From the air that averages to nothing; from the chase cam
+  // a 4.8u square is a third of the screen, so the roadway read as SOFT DIRTY
+  // BLOBS rather than as pavement. The structure a driver actually sees belongs
+  // to the patches and their seams below (which have edges), so this octave
+  // drops to a fine, smooth aggregate mottle and gets out of the way.
+  float coarse = roadNoise(wp * 0.9);
+  diffuseColor.rgb *= 1.0 + (speck - 0.5) * 0.05 + (coarse - 0.5) * 0.035;
   // Asphalt is the only base color with a blue cast; walk/curb are cream.
   float asph = smoothstep(0.0, 0.03, diffuseColor.b - diffuseColor.r);
   if (asph > 0.01) {
-    vec2 slab = roadPatch(wp, dwp, 26.0, vec2(0.13), vec2(0.17), 0.34, 0.0);
-    float wear = slab.x * slab.y * 0.055;
+    // 14u cells, not 26u: at chase-cam range a 26u cell put at most one patch
+    // edge on screen, so the tone offset read as a grade across the whole road.
+    vec3 slab = roadPatch(wp, dwp, 14.0, vec2(0.14), vec2(0.18), 0.38, 0.0);
+    float wear = slab.x * slab.y * 0.09 - slab.z * 0.16;
     #ifdef ROAD_SURFACE_FULL
-      vec2 cut = roadPatch(wp, dwp, 47.0, vec2(0.40, 0.022), vec2(0.06, 0.018), 0.26, 71.3);
-      wear += cut.x * (cut.y * 0.045 - 0.035); // fresh cuts read darker than the mix
+      vec3 cut = roadPatch(wp, dwp, 47.0, vec2(0.40, 0.022), vec2(0.06, 0.018), 0.26, 71.3);
+      wear += cut.x * (cut.y * 0.045 - 0.035) - cut.z * 0.09; // fresh cuts read darker
       // District drift: ~300u wavelength warm/cool, so the Sunset and SoMa
       // are not laid in the same batch of asphalt.
       float drift = roadNoise(wp * 0.0032) - 0.5;
@@ -615,6 +652,42 @@ float roadPolish = 0.0;
       #endif
       diffuseColor.rgb = mix(diffuseColor.rgb, conc * (1.0 - groove * 0.15), steep * 0.7);
     }
+  }
+  // --- CONCRETE: the walk and the kerb, which ride this same material with
+  // their colours in a vertex attribute. Until now the only thing that touched
+  // them was the aggregate speckle above, so the second-largest surface in the
+  // city — a continuous ribbon around every block in San Francisco — was a flat
+  // fill. Same vocabulary as the asphalt: panels instead of resurfacing
+  // patches, scoring joints instead of wheel paths, one slow value drift so two
+  // adjacent blocks were not poured on the same day.
+  float cream = smoothstep(0.0, 0.03, diffuseColor.r - diffuseColor.b) * (1.0 - asph);
+  if (cream > 0.01) {
+    // The kerb is a single cast lip: no panels, no joints, and it has to stay
+    // the brightest line in the street section or the walk/roadway edge stops
+    // reading. It is paler than the walk in the LINEAR colours the shader sees
+    // (0.43 vs 0.30 luma — sRGB 0xb3b0a6 over 0x9a9586), which is the only
+    // separation available on a merged mesh. Re-derive this window if either
+    // palette value moves.
+    float lip = smoothstep(0.34, 0.42, dot(diffuseColor.rgb, vec3(0.30, 0.59, 0.11)));
+    float walk = cream * (1.0 - lip);
+    // Pour-to-pour drift, ~85u — block scale, so a corner is where the value
+    // changes rather than mid-block.
+    diffuseColor.rgb *= 1.0 + cream * (roadNoise(wp * 0.012) - 0.5) * 0.10;
+    // Scoring joints. SF scores its walks at roughly 1.5u in this world's
+    // scale; the grid is world-aligned rather than kerb-aligned because the
+    // walk carries no lateral coordinate (halfW = 0 is its documented opt-out),
+    // and at this amplitude the misalignment on a diagonal street reads as
+    // texture. Faded out by pixel size well before it could moire from the air.
+    vec2 jf = abs(fract(wp / 1.55) - 0.5);
+    float jd = (0.5 - max(jf.x, jf.y)) * 1.55; // world distance to the nearest score
+    float joint = (1.0 - smoothstep(0.0, 0.05 + px, jd)) * (1.0 - smoothstep(0.10, 0.5, px));
+    diffuseColor.rgb *= 1.0 - joint * walk * 0.20;
+    #ifdef ROAD_SURFACE_FULL
+      // Replaced panels: the same machinery as the roadway's patches at a
+      // pavement's scale, so a walk has run-length instead of one value.
+      vec3 panel = roadPatch(wp, dwp, 9.0, vec2(0.16), vec2(0.16), 0.35, 137.9);
+      diffuseColor.rgb *= 1.0 + walk * (panel.x * panel.y * 0.07 - panel.z * 0.12);
+    #endif
   }
 }`,
       )

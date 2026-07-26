@@ -149,8 +149,13 @@ const STOPS: readonly Stop[] = [
   //    p     sunEl sunAz  lightDir       color     int   hemiSky   hemiGnd   hInt  amb   ambColor  fog      near far  env   lamp  exp
   stop(0.00,  35,   115,   dir(35, 115),  0xfff6e0, 1.75, 0xa9dcff, 0x6b6852, 0.52, 0.13, 0xffffff, 0x86b4e2, 460, 960, 0.32, 0,    0.72, SKY_DAY),
   stop(0.25,  50,   150,   dir(50, 150),  0xfff2d8, 1.85, 0xa9dcff, 0x6b6852, 0.52, 0.13, 0xffffff, 0x7fb2e4, 480, 980, 0.32, 0,    0.72, SKY_DAY),
-  stop(0.40,  12,   235,   dir(12, 235),  0xffc27a, 1.7,  0xffd9b0, 0x655c44, 0.42, 0.12, 0xffffff, 0xbf9a83, 430, 940, 0.26, 0.25, 0.68, SKY_GOLDEN),
-  stop(0.47,   2,   248,   dir(4, 248),   0xff9350, 1.25, 0xff9d70, 0x3e3a44, 0.36, 0.11, 0xe0dcf0, 0xac7160, 400, 900, 0.18, 0.7,  0.68, SKY_SUNSET),
+  // Golden hour is DAYLIGHT: sun still 12° up, blue sky, full-strength key.
+  // The lamp factor used to open at 0.25 here, which lit the player's night
+  // rig (a 70-candela spot plus two head sprites) under a noon-blue sky — the
+  // single loudest thing in the most flattering frame the game has. Lamps now
+  // wait for the sun to reach the horizon.
+  stop(0.40,  12,   235,   dir(12, 235),  0xffc27a, 1.7,  0xffd9b0, 0x655c44, 0.42, 0.12, 0xffffff, 0xbf9a83, 430, 940, 0.26, 0,    0.68, SKY_GOLDEN),
+  stop(0.47,   2,   248,   dir(4, 248),   0xff9350, 1.25, 0xff9d70, 0x3e3a44, 0.36, 0.11, 0xe0dcf0, 0xac7160, 400, 900, 0.18, 0.62, 0.68, SKY_SUNSET),
   // Night floors are tuned for PHONES: a desktop panel at full brightness can
   // read a 0.3-fill scene, a dim phone outdoors cannot. Moonlight carries the
   // shape of the city; streetlight glow carries the color. The night ambient
@@ -164,17 +169,29 @@ const STOPS: readonly Stop[] = [
   // the fills on the green's complement instead pulls the grass and the trees
   // toward a cool neutral while the hue of the scene stays night-blue.
   //
-  // The omnidirectional fills came DOWN ~15% in the 2026-07-26 pass and the
-  // night fog went deeper. Measured from the bay, the night ground band read
-  // L40 against a sky of L20 — the largest area of the frame was also its
-  // brightest, which is the value order upside down. Lamps and lit windows now
-  // carry proportionally more of the night, which is the brief ("warm pools
-  // against cool shadow") rather than a uniform blue wash.
-  stop(0.53,  -3,   255,   MOON,          0x8d92c0, 0.35, 0x6e6398, 0x2a2d38, 0.26, 0.43, 0xc8b0c4, 0x3d4c70, 380, 900, 0.05, 1,    0.66, SKY_NIGHT),
-  stop(0.62, -30,   270,   MOON,          0x9b9ed6, 0.52, 0x5b4a80, 0x20242e, 0.27, 0.49, 0xc2a3bd, 0x1d2742, 360, 880, 0.05, 1,    0.66, SKY_NIGHT),
-  stop(0.80, -30,    60,   MOON,          0x9b9ed6, 0.52, 0x5b4a80, 0x20242e, 0.27, 0.49, 0xc2a3bd, 0x1d2742, 360, 880, 0.05, 1,    0.66, SKY_NIGHT),
-  stop(0.88,  -3,    95,   MOON,          0xc087a0, 0.38, 0x84719a, 0x2a2d38, 0.26, 0.43, 0xc9aabf, 0x554f70, 380, 920, 0.05, 1,    0.66, SKY_NIGHT),
-  stop(0.94,   4,   105,   dir(6, 105),   0xffb27a, 1.3,  0xffc9a0, 0x4a443c, 0.28, 0.10, 0xffffff, 0xba8f7a, 450, 980, 0.20, 0.5,  0.66, SKY_SUNSET),
+  // THE NIGHT FILLS ARE NOT A DIMMER, THEY ARE THE VALUE ORDER. Measured at
+  // 1280x720 before this pass: a SoMa chase frame read sky L15 / facade band
+  // L17 / ground band L23, and a Mission one sky L33 / L43 / L44. The largest
+  // surfaces in the frame were also its brightest and nothing above them was —
+  // the inversion the gate called out. A white kit facade is albedo ~0.85, so
+  // an omnidirectional fill of 0.49 hands it 0.4 linear all by itself, which is
+  // a LIT wall no matter what colour you tint it.
+  //
+  // The fills are therefore roughly halved: the unlit side of the city now
+  // lands under the night sky, and what you see at 10 metres has to be a
+  // SOURCE — a lit window, a lamp pool, a headlight, a shop front. Those got
+  // brighter in the same pass (fx/night-windows.ts, fx/lamp-glow.ts) and the
+  // bloom threshold now ramps down after dark (render/post.ts), so the frame
+  // keeps its total energy; it just moved from diffuse to emissive.
+  //
+  // Every night tint still keeps RED at or above GREEN (see above) and the
+  // moon stays the only directional — halving it costs shape, so it falls less
+  // than the fills do.
+  stop(0.53,  -3,   255,   MOON,          0x8d92c0, 0.28, 0x6e6398, 0x2a2d38, 0.17, 0.27, 0xc8b0c4, 0x35446a, 380, 900, 0.05, 1,    0.66, SKY_NIGHT),
+  stop(0.62, -30,   270,   MOON,          0x9b9ed6, 0.32, 0x5b4a80, 0x20242e, 0.18, 0.30, 0xc2a3bd, 0x1f2c52, 360, 880, 0.05, 1,    0.66, SKY_NIGHT),
+  stop(0.80, -30,    60,   MOON,          0x9b9ed6, 0.32, 0x5b4a80, 0x20242e, 0.18, 0.30, 0xc2a3bd, 0x1f2c52, 360, 880, 0.05, 1,    0.66, SKY_NIGHT),
+  stop(0.88,  -3,    95,   MOON,          0xc087a0, 0.30, 0x84719a, 0x2a2d38, 0.17, 0.27, 0xc9aabf, 0x4a4668, 380, 920, 0.05, 1,    0.66, SKY_NIGHT),
+  stop(0.94,   4,   105,   dir(6, 105),   0xffb27a, 1.3,  0xffc9a0, 0x4a443c, 0.28, 0.10, 0xffffff, 0xba8f7a, 450, 980, 0.20, 0.45, 0.66, SKY_SUNSET),
 ];
 
 // SF wall-clock hour (fractional, 0..24) right now. Intl handles DST; some

@@ -35,7 +35,48 @@ import type { CityGenPayload } from "./gen-worker";
 // 66 = final-gate rebake. No generation change of its own: rev 65's bins were
 // installed BEFORE the last edits to landmarks.ts landed, so the shipped world
 // was not provably the shipped source. Rebaked so it is.
-export const WORLD_REV = 66;
+// 69 = the Golden Gate strait (67/68 were bake iterations of the same change).
+// landFactor pulls the Presidio's north shore south across the strait's whole
+// mouth — ~70u of water became ~222u — so both bridge towers stand IN the water
+// with a real main span between them; the Marin coast is a traced line instead
+// of a box; the headland behind it carries its real summits; and terrain.ts's
+// cached field now covers the whole drawn ground skirt (an off-map crest used
+// to render as a plateau). Land mask, street network, terrain and every seated
+// prop moved.
+// 71 = the landmark silhouette pass (70 was a bake iteration of it). The
+// Golden Gate's towers go to their real 51u above the water on art-deco
+// stepped legs with ziggurat portal bracing; its main cable becomes a true
+// parabola between saddles and is finally VISIBLE at all (it was one
+// world-space tube, so the batch streamer filed it at the map centre and
+// streamed it in only at Twin Peaks — and once fixed, ONE 243 × 40u instance
+// earns a box imposter of the same size, which read from the Marina as a solid
+// red billboard over the strait, hence a chain of short links and 14.5u leg
+// sections that stay above the 13u imposter threshold); it gains a suspender
+// curtain at a 5u pitch and an orange stiffening truss. Fort Point moves onto
+// the widened strait's new shore. The Painted Ladies get fenestration, roofs
+// and stoops, and Alamo Square becomes a real block. The Bay Bridge
+// anchorage's soffit is corrected from 8.0 to the 13.0 its own comment
+// claimed, its cornice lands on the block instead of floating 4u over it, and
+// the western approach stops where it can no longer fly. Baked meshes,
+// landmark reservations and the procedural placement that follows them all
+// moved.
+// 73 = the wave-4 integration bake (72 was a bake iteration of it). It is the
+// FIRST bin that contains every source edit of this wave at once — 71 was
+// baked while the ground/kerb re-grade, the furniture seating fixes and the
+// LOD pass were still in flight, so the shipped world was not provably the
+// shipped source. It also carries two repairs of its own:
+//   • The Golden Gate's landfall blend deck is pushed BEFORE the flat span and
+//     the span is trimmed to meet it. `surface.ts heightAt` returns the first
+//     matching deck, so the flat one used to win over the 12u it overlapped
+//     and the blend was dead exactly where it does its work (a ~1.8u lip at
+//     the Marin landfall).
+//   • Shore lips seat on their own footprint (0.52 tiles, inside the lip's own
+//     thickness) instead of 1.6u inland of it, with a bounded skirt down to
+//     the boundary — on a bluff shore the two references differ by up to 6.8u
+//     and ~300 caps hung in the air at the inland height.
+// Measured effect on the shipped world: seated props floating 1045 -> 745,
+// everything else within its ratchet.
+export const WORLD_REV = 73;
 
 export type Typed = Float32Array | Uint16Array | Uint32Array | Int8Array | Uint8Array | Int32Array;
 export type BufRef = { $buf: number; $type: "f32" | "u16" | "u32" | "i8" | "u8" | "i32" };

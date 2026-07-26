@@ -51,11 +51,17 @@ export function collectBeacons(): readonly Beacon[] {
 }
 
 const HALO_ALPHA = 0.62;
-const POOL_ALPHA = 0.26;
+const POOL_ALPHA = 0.32;
 const POOL_SCALE = 3.2; // pool diameter relative to the halo
 const POOL_LIFT = 0.06; // clear of the deck it is drawn on
 const FADE_NEAR = 420;
 const FADE_FAR = 760;
+// HDR gain on every beacon colour. Additive layers write colour*alpha, so an
+// ordinary 0..1 colour tops out below the night bloom cut (render/post.ts) and
+// a navigation light renders as a flat dot with no bleed. See fx/lamp-glow.ts,
+// where the same change is spelled out at length.
+const HALO_GAIN = 3.0;
+const POOL_GAIN = 1.8;
 
 /** Billboard halo at the lamp, or a flat pool of light on the ground under it. */
 export type GlowKind = "halo" | "pool";
@@ -117,6 +123,13 @@ export type GlowLayerOpts = {
   readonly capacity: number;
   readonly kind: GlowKind;
   readonly alpha: number;
+  /**
+   * Multiplies every pushed colour into HDR so the core blooms. Omit and the
+   * layer takes its kind's house gain — a point source is a point source
+   * whoever is drawing it, and a caller that never thought about bloom should
+   * get the same night as the rest of the city rather than a flat decal.
+   */
+  readonly gain?: number;
   /** Shared 0..1 night ramp; the layer never owns it. */
   readonly intensity: { value: number };
   /** Shared seconds counter, for blinking lamps. */
@@ -137,10 +150,12 @@ export class GlowLayer {
   private readonly attrs: readonly THREE.InstancedBufferAttribute[];
   private readonly geo: THREE.InstancedBufferGeometry;
   private readonly capacity: number;
+  private readonly gain: number;
   private cursor = 0;
 
   constructor(opts: GlowLayerOpts) {
     this.capacity = opts.capacity;
+    this.gain = opts.gain ?? (opts.kind === "halo" ? HALO_GAIN : POOL_GAIN);
     this.centers = new Float32Array(opts.capacity * 3);
     this.colors = new Float32Array(opts.capacity * 3);
     this.pulses = new Float32Array(opts.capacity * 2);
@@ -173,6 +188,12 @@ export class GlowLayer {
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
+      // Pools are flat quads drawn on decks and roads that slope under them;
+      // a depth-space bias is what keeps the uphill half from being rejected
+      // (fx/lamp-glow.ts POOL_LIFT carries the long version).
+      polygonOffset: opts.kind === "pool",
+      polygonOffsetFactor: -4,
+      polygonOffsetUnits: -8,
     });
     this.mesh = new THREE.Mesh(geo, mat);
     this.mesh.frustumCulled = false; // instances move independently of the mesh
@@ -191,9 +212,9 @@ export class GlowLayer {
     this.centers[i * 3] = x;
     this.centers[i * 3 + 1] = y;
     this.centers[i * 3 + 2] = z;
-    this.colors[i * 3] = color.r;
-    this.colors[i * 3 + 1] = color.g;
-    this.colors[i * 3 + 2] = color.b;
+    this.colors[i * 3] = color.r * this.gain;
+    this.colors[i * 3 + 1] = color.g * this.gain;
+    this.colors[i * 3 + 2] = color.b * this.gain;
     this.pulses[i * 2] = size;
     this.pulses[i * 2 + 1] = blinkRate;
   }
@@ -221,6 +242,7 @@ export class BeaconLights {
       capacity: beacons.length,
       kind: "halo",
       alpha: HALO_ALPHA,
+      gain: HALO_GAIN,
       intensity: this.intensity,
       time: this.time,
     });
@@ -237,6 +259,7 @@ export class BeaconLights {
         capacity: pooled,
         kind: "pool",
         alpha: POOL_ALPHA,
+        gain: POOL_GAIN,
         intensity: this.intensity,
         time: this.time,
       });

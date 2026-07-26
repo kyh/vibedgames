@@ -29,12 +29,30 @@ function lineSide(u: number, v: number, ax: number, ay: number, bx: number, by: 
   return (bx - ax) * (v - ay) - (by - ay) * (u - ax);
 }
 
+// A traced coast is a list of [along, across] stations: linear between them,
+// null off either end (the caller decides what "off the traced run" means).
+// Shared by all three coastlines below so a station list can never be walked
+// two slightly different ways.
+type Stations = readonly (readonly [number, number])[];
+function stationAt(S: Stations, x: number): number | null {
+  const first = S[0];
+  const last = S[S.length - 1];
+  if (!first || !last || x <= first[0] || x >= last[0]) return null;
+  let i = 1;
+  while (i < S.length - 1 && (S[i]?.[0] ?? 1) < x) i++;
+  const a = S[i - 1];
+  const b = S[i];
+  if (!a || !b) return null;
+  const t = (x - a[0]) / (b[0] - a[0] || 1);
+  return a[1] + (b[1] - a[1]) * t;
+}
+
 // Real NE shoreline (Embarcadero), projected from lat/lon through the same
 // calibration as the street bake. The old straight u≈0.80 east shore held
 // land up to ~1.5 km past the real seawall — downtown met a fictional meadow
 // instead of the bay, and no pier placement could ever read as SF's docks.
 // [v, shore u] north→south; east of the interpolated line is water.
-const EMBARCADERO_SHORE: readonly (readonly [number, number])[] = [
+const EMBARCADERO_SHORE: Stations = [
   [0.021, 0.6596], // Pier 39
   [0.0415, 0.7146], // Pier 35
   [0.0838, 0.7458], // Pier 23
@@ -43,22 +61,83 @@ const EMBARCADERO_SHORE: readonly (readonly [number, number])[] = [
   [0.2634, 0.8114], // South Beach / Mission Rock
 ];
 function shoreU(v: number): number | null {
-  const S = EMBARCADERO_SHORE;
-  const first = S[0];
-  const last = S[S.length - 1];
-  if (!first || !last || v <= first[0] || v >= last[0]) return null;
-  let i = 1;
-  while (i < S.length - 1 && (S[i]?.[0] ?? 1) < v) i++;
-  const a = S[i - 1];
-  const b = S[i];
-  if (!a || !b) return null;
-  const t = (v - a[0]) / (b[0] - a[0] || 1);
-  return a[1] + (b[1] - a[1]) * t;
+  return stationAt(EMBARCADERO_SHORE, v);
 }
 
 function shoreCut(u: number, v: number): number {
   const su = shoreU(v);
   return su === null ? 1 : 1 - smooth(u, su - 0.004, su + 0.008);
+}
+
+// --- The Golden Gate ------------------------------------------------------
+//
+// THE STRAIT IS A LANDMARK, NOT A CHANNEL. Away from it the north coast is one
+// latitude — the Marina seawall at v ≈ 0.0475, which is where the whole north
+// edge used to sit. That left ~70u (310 m) of water between the Presidio and
+// the Marin strip, so BOTH of the bridge's towers stood on dry shore, the main
+// cable had nothing to sag across, and the crossing read as a red gantry over a
+// river. The real strait is ~1,600 m ≈ 360u here, and it does not fit: the
+// calibration puts Lime Point at v = -0.13 (348u off the top of the map) and
+// the drivable Marin landing plus the Battery Ridge overlook need every metre
+// of the strip that IS on-map.
+//
+// So the water comes out of the Presidio's flat, empty north edge instead. The
+// shore is pulled south across the strait's whole mouth — under 1% of the
+// street network lives there, the ground is a featureless 0.3u plain, and the
+// coast it leaves behind (a cove opening east toward the Palace of Fine Arts,
+// merging west into the Lands End diagonal) is the shape the strait mouth
+// actually has. [u, shore v] west→east; north of the interpolated line is water.
+const NORTH_SHORE_V = 0.0475;
+const NORTH_SHORE_FEATHER = 0.0225;
+const GATE_SHORE: Stations = [
+  [0.155, 0.124], // merges into the Lands End diagonal
+  [0.2, 0.116],
+  [0.25, 0.104],
+  [0.3, 0.0995], // the bridge column — the anchor solves to u ≈ 0.30
+  [0.34, 0.1015],
+  [0.38, 0.0965],
+  [0.41, 0.077],
+  [0.43, 0.058],
+  // Back onto the Marina seawall WEST of the Palace of Fine Arts (u 0.46,
+  // reaching u 0.4505): the cove must not lap at a landmark's plinth.
+  [0.445, NORTH_SHORE_V],
+];
+function northShoreV(u: number): number {
+  return stationAt(GATE_SHORE, u) ?? NORTH_SHORE_V;
+}
+
+// MARIN HEADLANDS. A far-shore landmass inside the north edge so the Golden
+// Gate DELIVERS somewhere — Battery Ridge, the overlook turnaround. It used to
+// be one box whose south edge ran dead straight at v = 0.0205; it is now a
+// traced coast that juts south at Lime Point (the north tower stands off that
+// point) and falls away east into the bay and west toward Point Bonita, and it
+// runs wide enough in u that the headland summits behind it have land to stand
+// on. The feather is TIGHT — a headland meets the water at a bluff, and the
+// bridge's landfall solve wants the deck-height contour within a few units of
+// the waterline so the north tower ends up IN the strait.
+// [u, coast v] west→east; north of the interpolated line is land.
+const MARIN_FEATHER = 0.005;
+const MARIN_COAST: Stations = [
+  [0.085, -0.006], // west shoulder, already off-map
+  [0.13, 0.004],
+  [0.18, 0.0135],
+  [0.21, 0.0135],
+  // Kirby Cove. Also load-bearing: the US-101 mainline north of the Gate
+  // (sf-freeways) is clipped at the coast, and with the coast out here it used
+  // to end in mid-air over the strait — an elevated road stopping at the
+  // waterline, 330u west of a bridge it never reaches. Cut behind its last
+  // vertex and the whole Marin mainline falls off the map instead.
+  [0.24, 0.0075],
+  [0.265, 0.017],
+  [0.285, 0.0215], // Lime Point
+  [0.325, 0.0205],
+  [0.355, 0.012],
+  [0.385, -0.004],
+  [0.42, -0.028], // the Sausalito shore, off-map
+];
+function marinLand(u: number, v: number): number {
+  const cv = stationAt(MARIN_COAST, u);
+  return cv === null ? 0 : 1 - smooth(v, cv - MARIN_FEATHER, cv + MARIN_FEATHER);
 }
 
 // South of the Embarcadero's last traced station the bay shore is still
@@ -175,10 +254,11 @@ function isle(u: number, v: number, c: { u: number; v: number; ru: number; rv: n
 
 // Peninsula coastline: Pacific (W), Golden Gate (N), Bay (E); land to the south.
 export const landFactor: LandFactor = (u, v) => {
+  const ns = northShoreV(u);
   let land = Math.min(
     smooth(u, 0.025, 0.06), // Pacific / Ocean Beach (west)
     1 - smooth(u, 0.78, 0.85), // Bay shore (east) ~u0.80
-    smooth(v, 0.025, 0.07), // Golden Gate (north)
+    smooth(v, ns - NORTH_SHORE_FEATHER, ns + NORTH_SHORE_FEATHER), // north coast
   );
   // Lands End: the NW corner is ocean (coast bends Lands End→Golden Gate Bridge).
   land = Math.min(land, smooth(lineSide(u, v, 0.03, 0.26, 0.25, 0.03), -0.015, 0.02));
@@ -194,10 +274,9 @@ export const landFactor: LandFactor = (u, v) => {
   // Yerba Buena / Treasure Island: its own landmass out in the bay, so it goes
   // on with max() after every peninsula cut (same rule as Marin below).
   land = Math.max(land, isle(u, v, YERBA_BUENA));
-  // Marin headlands: a strip of far-shore land inside the north edge so the
-  // Golden Gate DELIVERS somewhere — Battery Ridge, the overlook turnaround.
-  // Applied after every peninsula cut (max: it is its own landmass).
-  land = Math.max(land, box(u, v, 0.17, 0.36, -0.2, 0.016));
+  // Marin headlands (see MARIN_COAST). Applied after every peninsula cut
+  // (max: it is its own landmass).
+  land = Math.max(land, marinLand(u, v));
   return land;
 };
 
@@ -253,16 +332,49 @@ const SF_HILLS_M: ReadonlyArray<{ u: number; v: number; m: number; r: number; gr
   // edge, so the wall reads as the ridge behind Guadalupe Canyon.
   { u: 0.3, v: 1.008, m: 150, r: 0.06 },
   { u: 0.47, v: 1.008, m: 170, r: 0.065 },
-  // Battery Ridge (Marin headlands): five overlapping summits form one ridge
-  // across the bridge's landing strip. Crests sit just off-map north (v < 0)
-  // so inside the border the ground always slopes UP toward the edge — the
-  // border wall reads as ridge, not invisible wall. Kept low enough (~12-15u)
-  // that the grass climb from the bridge deck (y≈7) to the overlook drives.
-  { u: 0.195, v: -0.006, m: 30, r: 0.026, green: true },
-  { u: 0.235, v: -0.002, m: 38, r: 0.03, green: true },
-  { u: 0.27, v: -0.005, m: 36, r: 0.03, green: true },
-  { u: 0.305, v: -0.002, m: 39, r: 0.03, green: true },
-  { u: 0.34, v: -0.007, m: 29, r: 0.026, green: true },
+  // Battery Ridge (Marin headlands), FOREGROUND: the bluff the bridge lands
+  // on. Crests sit just off-map north (v < 0) so inside the border the ground
+  // always slopes UP toward the edge — the border wall reads as ridge, not
+  // invisible wall. Two things are load-bearing here. (1) The ridge is a
+  // SADDLE at the bridge column (u ≈ 0.30) and knobs either side of it, so the
+  // grass climb from the deck (y ≈ 7) to the overlook stays ~24% and the
+  // headland stops reading as one extruded shelf. (2) It has to carry ~6.5u of
+  // ground AT THE WATERLINE: golden-gate.ts lands the deck on the first
+  // deck-height contour it finds, so a low shore puts the landfall — and with
+  // it the north tower — inland, which is exactly how both towers ended up on
+  // dry land.
+  { u: 0.135, v: 0.0, m: 46, r: 0.024, green: true }, // west shoulder
+  { u: 0.19, v: -0.004, m: 74, r: 0.028, green: true },
+  { u: 0.245, v: -0.001, m: 62, r: 0.026, green: true }, // Battery Spencer knob
+  { u: 0.3, v: -0.002, m: 52, r: 0.028, green: true }, // the landing saddle
+  // Lime Point knob — the one the bridge actually lands beside, so its height
+  // is SOLVED, not chosen: the shore drop puts the full hill sum on at the
+  // waterline (hills scale with the land factor), which makes every headland
+  // coast a bluff whose height IS that sum. At m 80 the bluff stood 13.5u out
+  // of the water and the deck arrived at 7 — a 6.5u wall across the carriageway
+  // measured on the drive surface. At m 56 the bluff tops out at deck height
+  // and the deck runs onto it flush, then climbs ~25% to the overlook.
+  { u: 0.35, v: -0.005, m: 56, r: 0.028, green: true },
+  { u: 0.395, v: -0.012, m: 55, r: 0.026, green: true }, // falls into the bay
+  // Battery Ridge, BACKDROP. The gate audit's words were "Marin behind it is a
+  // flat olive plateau" — the bridge had a shelf behind it, not a landmass, so
+  // it read as a gantry over a river. These are the real headland summits at
+  // their real elevations, crested far enough north (~90u past the border) that
+  // their tails add ~12u at the wall and nothing at the landing, and inside the
+  // ground mesh's 1.08× overscan so they are actually DRAWN (terrain.ts MARGIN
+  // covers the whole drawn skirt for the same reason).
+  { u: 0.245, v: -0.0345, m: 280, r: 0.03, green: true }, // Hawk Hill
+  { u: 0.165, v: -0.03, m: 300, r: 0.028, green: true }, // Wolf Ridge
+  // Slacker Ridge. Set WEST of the bridge column and further out than the
+  // other two: at u 0.335 / v -0.0295 its tail added ~10u at the border wall
+  // on the landing column, which took the grass climb off the deck to 45% and
+  // tilted the overlook terrace 53%. A backdrop summit has to stay OUT of the
+  // one corridor on this headland that gets driven.
+  { u: 0.32, v: -0.032, m: 250, r: 0.024, green: true },
+  // …and its two end shoulders, which exist to stop the headland running out
+  // as a flat sea-level shelf at the corners of the drawn ground.
+  { u: 0.115, v: -0.032, m: 150, r: 0.024, green: true }, // Point Bonita
+  { u: 0.385, v: -0.035, m: 140, r: 0.023, green: true }, // Fort Baker ridge
 ];
 export const SF_HILLS: readonly Hill[] = SF_HILLS_M.map((h) => ({
   u: h.u,
@@ -391,10 +503,10 @@ const NEIGHBORHOODS: readonly Box[] = [
     name: "Battery Ridge Overlook",
     character: "residential",
     color: 0x93a06b,
-    uMin: 0.16,
-    uMax: 0.37,
+    uMin: 0.08,
+    uMax: 0.42,
     vMin: 0,
-    vMax: 0.026,
+    vMax: 0.03,
   },
   // Yerba Buena Island. NOT character "park" for the same reason Battery Ridge
   // is not: the park-tile machinery would move onto a wooded island the player

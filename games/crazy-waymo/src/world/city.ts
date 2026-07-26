@@ -14,6 +14,7 @@ import {
   GARAGE_MODEL,
 } from "../assets/manifest";
 import { registerBeacons } from "../fx/beacon-lights";
+import { liveQuality } from "../render/quality";
 import {
   CHUNK,
   CITY_SEED,
@@ -824,17 +825,44 @@ type BatchBucket = {
 type Chunk = { cx: number; cz: number; radius: number; dist: number; group: THREE.Object3D };
 
 // Batched-instance streaming scratch (per-frame, allocation-free).
-const NEAR_ALWAYS = 170; // chunks this close are always on (off-screen shadow casters)
-const DETAIL_DISTANCE = 360; // trees/cars/props cull here; buildings at DRAW_DISTANCE
-const BIG_SILHOUETTE_H = 13; // world-space HEIGHT that counts as skyline
+const NEAR_ALWAYS = 170; // cells this close are always on (off-screen shadow casters)
+// Full-model band for props and the building fabric; past it a building is its
+// box imposter and an unimpostered prop is gone. 440 rather than the 360 this
+// constant said for years because the streaming grid below finally made the
+// number REAL — and at a true 360 the model→box swap became legible in the
+// hilltop vistas (mid-distance blocks flattening as you crest the hill).
+export const DETAIL_DISTANCE = 440;
+export const BIG_SILHOUETTE_H = 13; // world-space HEIGHT that counts as skyline
+// Batched instances stream on their OWN grid, deliberately much finer than the
+// 320u CHUNK the merged road/ground tiles use. A cell is only ever visible as
+// a whole, so a coarse one has to be padded by its half-diagonal before it can
+// be culled: at CHUNK the nominal 360u detail band was really an ~840u one,
+// and the measured cost was brutal — 2.3M of Twin Peaks' 3.3M model triangles
+// came from instances FARTHER than the distance the constant advertised.
+// 80u cells cost 1.3k sphere tests a frame (vs 100k if this were per-instance,
+// measured at 0.1ms median / 0.2ms p95 while driving) and put the band back
+// where it says it is.
+const STREAM_CELL = 80;
+const STREAM_PAD = STREAM_CELL * 0.71 + ROAD_TILE * 2; // half-diagonal + roof/tree overhang
 // Two imposter tiers. The skyline alone left the middle distance EMPTY: the
 // row-house fabric is 60% of the city's buildings and none of it is 13u tall,
 // so past the detail ring downtown floated over bare ground. Ordinary
-// buildings get an imposter too, but only one chunk ring further out than the
-// detail tier — past MID_IMPOSTER_DISTANCE the night fog has swallowed them
-// and 20k extra boxes would be paying for nothing.
-const MID_SILHOUETTE_H = 5; // ordinary buildings that still read at distance
-const MID_IMPOSTER_DISTANCE = 620;
+// buildings get an imposter too, dropping out one band sooner than the
+// skyline's.
+export const MID_SILHOUETTE_H = 5; // ordinary buildings that still read at distance
+// Unimpostered instances big enough to be missed when they vanish (trees are
+// the whole reason this band exists — see buildBatchesFrom).
+const TALL_NO_IMPOSTER_H = 6;
+const TALL_DETAIL_DISTANCE = 700;
+// The imposter bands keep the REACH the coarse chunk grid used to hand them by
+// accident (~1.1k units for the fabric, ~1.4k for the skyline). This is not
+// slack: downtown is 1.4km from the Twin Peaks summit and the aerial fog thins
+// to a tenth at that altitude, so culling boxes honestly at DRAW_DISTANCE
+// would delete the skyline from every hilltop vista. A box is 12 triangles —
+// reach is nearly free here, which is exactly why the MODEL band is the one
+// that had to get shorter.
+export const MID_IMPOSTER_DISTANCE = 1100;
+export const IMPOSTER_DISTANCE = 1400;
 const SCRATCH_SCALE = new THREE.Vector3();
 const STREAM_MAT = new THREE.Matrix4();
 const STREAM_FRUSTUM = new THREE.Frustum();
@@ -863,8 +891,16 @@ const ALBEDO_B = new THREE.Vector3();
 const ALBEDO_C = new THREE.Vector3();
 
 type AtlasPixels = { data: Uint8ClampedArray; w: number; h: number };
+// A model averages to three colours, not one: the whole thing, its ROOFS
+// (up-facing triangles) and its WALLS. One number cannot serve both reads — an
+// aerial sees mostly roof, a chase cam sees mostly wall, and a kit house has
+// ~4× more wall area than roof, so a pure area mean paints the fabric in wall
+// colour and the hilltop vistas went grey-brown where the models were a field
+// of terracotta and slate. The box carries the split as vertex colour.
+type AlbedoParts = { all: THREE.Color; roof: THREE.Color; wall: THREE.Color };
 const atlasPixelCache = new Map<string, AtlasPixels | null>();
-const meanAlbedoCache = new Map<string, THREE.Color | null>();
+const meanAlbedoCache = new Map<string, AlbedoParts | null>();
+const ALBEDO_N = new THREE.Vector3();
 
 function drawableImage(img: unknown): ImageBitmap | HTMLImageElement | HTMLCanvasElement | null {
   if (typeof ImageBitmap !== "undefined" && img instanceof ImageBitmap) return img;
@@ -904,11 +940,11 @@ function atlasPixels(tex: THREE.Texture): AtlasPixels | null {
 // Area-weighted mean of a geometry's atlas texels, in the working (linear)
 // colour space so it averages the way the renderer does. Cached per geometry:
 // one pass over a few hundred kit models, not per instance.
-function meanAlbedo(geo: THREE.BufferGeometry, tex: THREE.Texture): THREE.Color | null {
+function meanAlbedo(geo: THREE.BufferGeometry, tex: THREE.Texture): AlbedoParts | null {
   const cacheKey = `${geo.uuid}|${tex.uuid}`;
   const cached = meanAlbedoCache.get(cacheKey);
   if (cached !== undefined) return cached;
-  let out: THREE.Color | null = null;
+  let out: AlbedoParts | null = null;
   const px = atlasPixels(tex);
   const pos = geo.getAttribute("position");
   const uv = geo.getAttribute("uv");
@@ -919,6 +955,14 @@ function meanAlbedo(geo: THREE.BufferGeometry, tex: THREE.Texture): THREE.Color 
     let r = 0;
     let g = 0;
     let b = 0;
+    let roofSum = 0;
+    let rr = 0;
+    let rg = 0;
+    let rb = 0;
+    let wallSum = 0;
+    let wr = 0;
+    let wg = 0;
+    let wb = 0;
     for (let t = 0; t + 2 < count; t += 3) {
       const i0 = idx ? idx.getX(t) : t;
       const i1 = idx ? idx.getX(t + 1) : t + 1;
@@ -926,8 +970,13 @@ function meanAlbedo(geo: THREE.BufferGeometry, tex: THREE.Texture): THREE.Color 
       ALBEDO_A.fromBufferAttribute(pos, i0);
       ALBEDO_B.fromBufferAttribute(pos, i1).sub(ALBEDO_A);
       ALBEDO_C.fromBufferAttribute(pos, i2).sub(ALBEDO_A);
-      const area = ALBEDO_B.cross(ALBEDO_C).length() * 0.5;
+      ALBEDO_N.copy(ALBEDO_B).cross(ALBEDO_C);
+      const area = ALBEDO_N.length() * 0.5;
       if (area <= 0) continue;
+      // Face orientation from the same cross product the area came from: >0.5
+      // is a roof plane (a 45° pitch still counts), <-0.5 is the underside,
+      // everything between is wall.
+      const up = ALBEDO_N.y / (area * 2);
       // Centroid UV through the texture transform (kit GLBs carry
       // KHR_texture_transform), wrapped into the atlas.
       const su = ((uv.getX(i0) + uv.getX(i1) + uv.getX(i2)) / 3) * tex.repeat.x + tex.offset.x;
@@ -948,8 +997,32 @@ function meanAlbedo(geo: THREE.BufferGeometry, tex: THREE.Texture): THREE.Color 
       r += ATLAS_TEXEL.r * area;
       g += ATLAS_TEXEL.g * area;
       b += ATLAS_TEXEL.b * area;
+      if (up > 0.5) {
+        roofSum += area;
+        rr += ATLAS_TEXEL.r * area;
+        rg += ATLAS_TEXEL.g * area;
+        rb += ATLAS_TEXEL.b * area;
+      } else if (up > -0.5) {
+        wallSum += area;
+        wr += ATLAS_TEXEL.r * area;
+        wg += ATLAS_TEXEL.g * area;
+        wb += ATLAS_TEXEL.b * area;
+      }
     }
-    if (wSum > 0) out = new THREE.Color().setRGB(r / wSum, g / wSum, b / wSum);
+    if (wSum > 0) {
+      const all = new THREE.Color().setRGB(r / wSum, g / wSum, b / wSum);
+      out = {
+        all,
+        roof:
+          roofSum > 0
+            ? new THREE.Color().setRGB(rr / roofSum, rg / roofSum, rb / roofSum)
+            : all.clone(),
+        wall:
+          wallSum > 0
+            ? new THREE.Color().setRGB(wr / wallSum, wg / wallSum, wb / wallSum)
+            : all.clone(),
+      };
+    }
   }
   meanAlbedoCache.set(cacheKey, out);
   return out;
@@ -967,7 +1040,7 @@ function imposterColorInto(
     const albedo = mat.map ? meanAlbedo(geo, mat.map) : null;
     // Unmapped geometry (plinths, prisms) IS its material colour; a mapped
     // material whose atlas can't be read falls through to the blue-grey.
-    if (albedo) out.copy(albedo).multiply(mat.color);
+    if (albedo) out.copy(albedo.all).multiply(mat.color);
     else if (mat.map) out.copy(IMPOSTER_FALLBACK);
     else out.copy(mat.color);
   } else {
@@ -975,6 +1048,51 @@ function imposterColorInto(
   }
   if (tint) out.multiply(tint);
   return out;
+}
+
+// One imposter box per SOURCE MODEL, vertex-coloured with that model's own
+// roof-to-wall value split (the per-instance colour still carries the mean, so
+// the two multiply). Without it every box is one flat value and a city of them
+// reads as poured concrete from any hilltop; with it a terracotta roof over a
+// pale wall survives the swap, which is what makes the LOD boundary stop
+// announcing itself. Ratios are clamped: an atlas swatch can be near-black and
+// a raw ratio would then paint a hole.
+const IMPOSTER_RATIO_MIN = 0.55;
+const IMPOSTER_RATIO_MAX = 1.7;
+const imposterBoxCache = new Map<string, THREE.BufferGeometry>();
+
+function ratioInto(out: THREE.Color, part: THREE.Color, all: THREE.Color): THREE.Color {
+  const clamp = (p: number, a: number): number =>
+    a <= 0.0001 ? 1 : Math.min(IMPOSTER_RATIO_MAX, Math.max(IMPOSTER_RATIO_MIN, p / a));
+  return out.setRGB(clamp(part.r, all.r), clamp(part.g, all.g), clamp(part.b, all.b));
+}
+
+function imposterBox(geo: THREE.BufferGeometry, mat: THREE.Material): THREE.BufferGeometry {
+  const map = mat instanceof THREE.MeshStandardMaterial ? mat.map : null;
+  const albedo = map ? meanAlbedo(geo, map) : null;
+  const key = albedo ? `${geo.uuid}|${map?.uuid ?? ""}` : "flat";
+  const cached = imposterBoxCache.get(key);
+  if (cached) return cached;
+  const box = new THREE.BoxGeometry(1, 1, 1);
+  box.translate(0, 0.5, 0); // origin at the base, like buildings
+  const pos = box.getAttribute("position");
+  const nor = box.getAttribute("normal");
+  const colors = new Float32Array(pos.count * 3);
+  const roof = new THREE.Color(1, 1, 1);
+  const wall = new THREE.Color(1, 1, 1);
+  if (albedo) {
+    ratioInto(roof, albedo.roof, albedo.all);
+    ratioInto(wall, albedo.wall, albedo.all);
+  }
+  for (let i = 0; i < pos.count; i++) {
+    const c = nor.getY(i) > 0.5 ? roof : wall;
+    colors[i * 3] = c.r;
+    colors[i * 3 + 1] = c.g;
+    colors[i * 3 + 2] = c.b;
+  }
+  box.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  imposterBoxCache.set(key, box);
+  return box;
 }
 
 // A robotaxi garage: the depot building plus the drive-in pad in front where
@@ -1136,6 +1254,9 @@ export class CityModel {
   // (trees, parked cars, props) only needs DETAIL_DISTANCE — the far city
   // stays a skyline instead of 36k full-detail instances.
   private chunkInstancesNear = new Map<number, [number, number][]>();
+  // …and the instances that have no imposter to degrade into (see the `tall`
+  // band in buildBatchesFrom): same flip mechanism, longer distance.
+  private chunkInstancesTall = new Map<number, [number, number][]>();
   // Imposters share ONE BatchedMesh (one draw call) but flip on two different
   // bands: skyline instances to the fog line, the mid-tier fabric one chunk
   // ring less.
@@ -1256,6 +1377,7 @@ export class CityModel {
     }
   }
   private chunkVisibleNear: Uint8Array | null = null;
+  private chunkVisibleTall: Uint8Array | null = null;
 
   private restPayload: CityRestPayload | null = null;
   private lateRoadFallback: (() => void) | null = null;
@@ -1885,9 +2007,7 @@ export class CityModel {
       const steps = Math.max(2, Math.ceil((lot.width * 2) / FACADE_CELL));
       for (let i = 0; i <= steps; i++) {
         const t = i / steps;
-        facadeCells.add(
-          facadeKey(lot.x0 + (lot.x1 - lot.x0) * t, lot.z0 + (lot.z1 - lot.z0) * t),
-        );
+        facadeCells.add(facadeKey(lot.x0 + (lot.x1 - lot.x0) * t, lot.z0 + (lot.z1 - lot.z0) * t));
       }
     };
     this.facadeAt = (x: number, z: number): boolean => facadeCells.has(facadeKey(x, z));
@@ -1926,12 +2046,8 @@ export class CityModel {
       return false;
     };
     /** Does any part of this rectangle stand on the DRAWN asphalt? */
-    const lotOnAsphalt = (
-      lot: FabricLot,
-      cx: number,
-      cz: number,
-      halfD: number,
-    ): boolean => lotProbes(lot, cx, cz, halfD, (x, z) => this.onAsphalt(x, z, 0.3));
+    const lotOnAsphalt = (lot: FabricLot, cx: number, cz: number, halfD: number): boolean =>
+      lotProbes(lot, cx, cz, halfD, (x, z) => this.onAsphalt(x, z, 0.3));
     /**
      * Does any part of this rectangle stand in a reserved (landmark / garage /
      * editor-cleared) cell? The passes used to ask about the lot's CENTRE cell
@@ -2786,14 +2902,22 @@ export class CityModel {
             // tracked `terrain.heightAt` MORE tightly than the surface that is
             // drawn — the wrong-surface signature in one number. Seat both
             // through makeStandingSurface like every other static prop.
-            const groundY = this.standAt(
-              wx + dx * ROAD_TILE * 0.62,
-              wz + dz * ROAD_TILE * 0.62,
-            );
+            // …and seat it on ITS OWN footprint. The reference used to be
+            // 0.62 tiles out — 1.6u INLAND of a lip that is drawn at the cell
+            // boundary and is only ~1u thick. On a bluff shore the two differ
+            // by up to 6.8u, so 300 of these hung in the air at the inland
+            // height above the edge they cap. 0.52 tiles is inside the lip's
+            // own thickness; the skirt then reaches DOWN to the boundary
+            // itself so a cap on a bluff still meets the shore instead of
+            // hovering over it (bounded — this is a kerb, not a cliff face).
+            const groundY = this.standAt(wx + dx * ROAD_TILE * 0.52, wz + dz * ROAD_TILE * 0.52);
+            const topY = groundY + 0.15 + h / 2;
+            const botY = Math.max(this.standAt(ex, ez), groundY - 3) + 0.15 - h / 2;
+            const hh = Math.max(h, topY - botY);
             const lip = new THREE.Mesh(lipGeo, beach ? bermMat : seawallMat);
-            if (dx !== 0) lip.scale.set(th, h, ROAD_TILE);
-            else lip.scale.set(ROAD_TILE, h, th);
-            lip.position.set(ex, groundY + 0.15, ez);
+            if (dx !== 0) lip.scale.set(th, hh, ROAD_TILE);
+            else lip.scale.set(ROAD_TILE, hh, th);
+            lip.position.set(ex, topY - hh / 2, ez);
             lip.updateMatrixWorld(true);
             collect(lip);
           }
@@ -2958,7 +3082,7 @@ export class CityModel {
       }
 
       console.log(`[city] merges ${Math.round(performance.now() - tMerge)}ms`);
-      await this.buildBatchesFrom(batchBuckets, nx, nz);
+      await this.buildBatchesFrom(batchBuckets);
 
       // --- Iconic landmarks (procedural; kept separate — always visible) ---
       this.group.add(buildLandmarks(this.terrain, this.cache, this.network));
@@ -3046,8 +3170,6 @@ export class CityModel {
     rest: CityRestPayload,
     onProgress?: (f: number) => void,
   ): Promise<void> {
-    const nx = Math.ceil(WORLD_W / CHUNK);
-    const nz = Math.ceil(WORLD_H / CHUNK);
     const cullRadius = CHUNK * 0.71 + ROAD_TILE * 2;
     const matFor = materialFactory();
     const groups = await buildMergedChunkGroups({
@@ -3119,7 +3241,7 @@ export class CityModel {
       });
     }
     console.log(`[city] rest items ok ${okN} dropSrc ${dropSrc} dropRaw ${dropRaw}`);
-    await this.buildBatchesFrom(buckets, nx, nz, (f) => onProgress?.(0.55 + f * 0.4));
+    await this.buildBatchesFrom(buckets, (f) => onProgress?.(0.55 + f * 0.4));
     // Game data.
     this.solids.length = 0;
     for (const so of rest.solids) this.solids.push(so);
@@ -3153,10 +3275,12 @@ export class CityModel {
   // rebuild (from serialized records).
   private async buildBatchesFrom(
     batchBuckets: Map<string, BatchBucket>,
-    nx: number,
-    nz: number,
     onProgress?: (f: number) => void,
   ): Promise<void> {
+    // Instances stream on the fine STREAM_CELL grid, not the merge CHUNK grid
+    // the caller used for road tiles — see STREAM_CELL.
+    const nx = Math.ceil(WORLD_W / STREAM_CELL);
+    const nz = Math.ceil(WORLD_H / STREAM_CELL);
     // Global batches (models). Each instance is assigned to a spatial chunk;
     // updateStreaming() flips whole chunks of instances on visibility
     // transitions, so per-frame cost is ~chunk count, not instance count.
@@ -3262,8 +3386,8 @@ export class CityModel {
         }
         if (item.tint) batched.setColorAt(iid, item.tint);
         pos.setFromMatrixPosition(item.matrix);
-        const ccx = Math.min(nx - 1, Math.max(0, Math.floor((pos.x + WORLD_HALF_X) / CHUNK)));
-        const ccz = Math.min(nz - 1, Math.max(0, Math.floor((pos.z + WORLD_HALF_Z) / CHUNK)));
+        const ccx = Math.min(nx - 1, Math.max(0, Math.floor((pos.x + WORLD_HALF_X) / STREAM_CELL)));
+        const ccz = Math.min(nz - 1, Math.max(0, Math.floor((pos.z + WORLD_HALF_Z) / STREAM_CELL)));
         chunkIds[iid] = ccz * nx + ccx;
       }
       batched.computeBoundingSphere();
@@ -3294,7 +3418,17 @@ export class CityModel {
         // LOD: tall buildings render the FULL model only within
         // DETAIL_DISTANCE; beyond that a tinted box imposter carries the
         // skyline to the fog line (fog hides the swap).
-        const map = this.chunkInstancesNear;
+        //
+        // An instance with NO imposter behind it can't use that band: it does
+        // not degrade at the boundary, it VANISHES. The park canopies are the
+        // case that shows — a tree gets no box (a green cube in a field reads
+        // worse than no tree), so at the model band every hilltop vista popped
+        // its mid-distance parks flat. Tall unimpostered instances (trees,
+        // water towers, cranes) hold their models to the longer band instead;
+        // small ones (cones, hydrants, benches) are gone from the read by then
+        // anyway and stay on the short one.
+        const tall = !big && !mid && worldH >= TALL_NO_IMPOSTER_H;
+        const map = tall ? this.chunkInstancesTall : this.chunkInstancesNear;
         const list = map.get(key);
         if (list) list.push([bIndex, iid]);
         else map.set(key, [[bIndex, iid]]);
@@ -3306,10 +3440,19 @@ export class CityModel {
       if (!anyBig) batched.castShadow = false;
     }
     if (imposters.length > 0) {
-      const boxGeo = new THREE.BoxGeometry(1, 1, 1);
-      boxGeo.translate(0, 0.5, 0); // origin at the base, like buildings
-      const boxMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95 });
-      const imp = new THREE.BatchedMesh(imposters.length, 24, 36, boxMat);
+      // One box per distinct source model (see imposterBox) — a few dozen, so
+      // the reserved buffer stays tiny next to the instance count.
+      const boxes = new Map<THREE.BufferGeometry, THREE.BufferGeometry>();
+      for (const { mat, item } of imposters) {
+        if (!boxes.has(item.geo)) boxes.set(item.geo, imposterBox(item.geo, mat));
+      }
+      const boxMat = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        roughness: 0.95,
+        vertexColors: true, // roof/wall split; the instance colour is the mean
+      });
+      const boxN = new Set(boxes.values()).size;
+      const imp = new THREE.BatchedMesh(imposters.length, 24 * boxN, 36 * boxN, boxMat);
       imp.castShadow = false;
       imp.frustumCulled = false;
       // Both OFF, unlike the model batches: the imposter tier is already
@@ -3320,7 +3463,7 @@ export class CityModel {
       // list rebuild per transition instead of a per-frame sphere test each.
       imp.perObjectFrustumCulled = false;
       imp.sortObjects = false;
-      const gid = imp.addGeometry(boxGeo);
+      const gids = new Map<THREE.BufferGeometry, number>();
       const m4 = new THREE.Matrix4();
       const box = new THREE.Box3();
       const sizeV = new THREE.Vector3();
@@ -3333,10 +3476,27 @@ export class CityModel {
         box.copy(item.geo.boundingBox);
         box.getSize(sizeV);
         box.getCenter(ctrV);
-        // unit box (base-origin) -> local bbox -> world
-        m4.makeScale(Math.max(sizeV.x, 0.1), Math.max(sizeV.y, 0.1), Math.max(sizeV.z, 0.1));
+        // The bounding box of a pitched-roof house is FATTER than the house:
+        // full ridge height across the whole footprint, eaves included. Left
+        // raw, the fabric imposters merged into slabs and closed the street
+        // gaps the models leave open. The skyline keeps its box exactly (a
+        // flat-topped tower IS its bounds).
+        const shrinkXZ = mid ? 0.94 : 1;
+        const shrinkY = mid ? 0.93 : 1;
+        m4.makeScale(
+          Math.max(sizeV.x * shrinkXZ, 0.1),
+          Math.max(sizeV.y * shrinkY, 0.1),
+          Math.max(sizeV.z * shrinkXZ, 0.1),
+        );
         m4.setPosition(ctrV.x, box.min.y, ctrV.z);
         m4.premultiply(item.matrix);
+        const boxGeo = boxes.get(item.geo);
+        if (!boxGeo) continue;
+        let gid = gids.get(boxGeo);
+        if (gid === undefined) {
+          gid = imp.addGeometry(boxGeo);
+          gids.set(boxGeo, gid);
+        }
         const iid = imp.addInstance(gid);
         imp.setMatrixAt(iid, m4);
         imp.setColorAt(iid, imposterColorInto(IMPOSTER_COLOR, item.geo, mat, item.tint));
@@ -3368,6 +3528,7 @@ export class CityModel {
     this.batchChunkGrid = { nx, nz };
     this.chunkVisible = null;
     this.chunkVisibleNear = null;
+    this.chunkVisibleTall = null;
     console.log(`[city] batches ${Math.round(performance.now() - tBatch)}ms`);
   }
 
@@ -3401,22 +3562,34 @@ export class CityModel {
     const total = nx * nz;
     if (!this.chunkVisible) this.chunkVisible = new Uint8Array(total).fill(1);
     if (!this.chunkVisibleNear) this.chunkVisibleNear = new Uint8Array(total).fill(1);
+    if (!this.chunkVisibleTall) this.chunkVisibleTall = new Uint8Array(total).fill(1);
     STREAM_MAT.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     STREAM_FRUSTUM.setFromProjectionMatrix(STREAM_MAT);
-    const pad = CHUNK * 0.71 + ROAD_TILE * 2;
+    const pad = STREAM_PAD;
+    // Mobile tiers buy frame time by walking the full-model band in (desktop
+    // and phone tier 0 both run detailScale 1, i.e. the distances below).
+    const scale = liveQuality().detailScale;
+    const detail = DETAIL_DISTANCE * scale;
+    const tallDetail = TALL_DETAIL_DISTANCE * scale;
     for (let key = 0; key < total; key++) {
-      const cx = ((key % nx) + 0.5) * CHUNK - WORLD_HALF_X;
-      const cz = (Math.floor(key / nx) + 0.5) * CHUNK - WORLD_HALF_Z;
+      const cx = ((key % nx) + 0.5) * STREAM_CELL - WORLD_HALF_X;
+      const cz = (Math.floor(key / nx) + 0.5) * STREAM_CELL - WORLD_HALF_Z;
       const dist = Math.hypot(camX - cx, camZ - cz);
       let inFrustum = false;
-      if (dist - pad < DRAW_DISTANCE) {
+      if (dist - pad < IMPOSTER_DISTANCE) {
         STREAM_SPHERE.center.set(cx, 14, cz);
         STREAM_SPHERE.radius = pad + 30; // tall roofs/trees overhang the tile
         inFrustum = STREAM_FRUSTUM.intersectsSphere(STREAM_SPHERE);
       }
       const near = dist < NEAR_ALWAYS;
-      const visFar: 0 | 1 = showAll || near || (inFrustum && dist - pad < DRAW_DISTANCE) ? 1 : 0;
-      const visNear: 0 | 1 = showAll || near || (inFrustum && dist - pad < DETAIL_DISTANCE) ? 1 : 0;
+      const visFar: 0 | 1 =
+        showAll || near || (inFrustum && dist - pad < IMPOSTER_DISTANCE) ? 1 : 0;
+      // The model band tests the cell CENTRE, unpadded, while the imposter band
+      // below keeps its half-diagonal pad: dropping a far cell too early leaves
+      // a hole in the skyline, but swapping a near cell to its box too early
+      // leaves nothing — the imposter tier is exactly `visFar && !visNear`, so
+      // whatever this boundary decides, the two tiers stay complementary.
+      const visNear: 0 | 1 = showAll || near || (inFrustum && dist < detail) ? 1 : 0;
       // visFar has no instance list of its own (every batch instance lives in
       // the near tier; the far band renders imposters only) — it's tracked
       // purely to drive the imposter flips below.
@@ -3426,6 +3599,13 @@ export class CityModel {
         const list = this.chunkInstancesNear.get(key);
         if (list)
           for (const [b, iid] of list) this.batches[b]?.mesh.setVisibleAt(iid, visNear === 1);
+      }
+      const visTall: 0 | 1 = showAll || near || (inFrustum && dist < tallDetail) ? 1 : 0;
+      if (this.chunkVisibleTall[key] !== visTall) {
+        this.chunkVisibleTall[key] = visTall;
+        const list = this.chunkInstancesTall.get(key);
+        if (list)
+          for (const [b, iid] of list) this.batches[b]?.mesh.setVisibleAt(iid, visTall === 1);
       }
       // Imposters live in the far band only: full models take over up close.
       if (this.imposterMesh) {

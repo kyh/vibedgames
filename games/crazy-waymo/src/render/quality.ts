@@ -26,6 +26,12 @@ export type QualityFeatures = {
   // Bake the Sky dome to a small cube texture instead of shading it per frame.
   readonly skyBake: boolean;
   readonly clouds: CloudQuality;
+  // Fraction of the city's full-model band (city.ts DETAIL_DISTANCE) this tier
+  // renders as MODELS; past it the box imposters take over. The one knob here
+  // that cuts TRIANGLES instead of fill — and the one the mobile ladder was
+  // missing entirely, which is how a phone at the floor tier still submitted
+  // every triangle a desktop did.
+  readonly detailScale: number;
 };
 
 export const FULL_QUALITY: QualityFeatures = {
@@ -33,4 +39,21 @@ export const FULL_QUALITY: QualityFeatures = {
   shadowCast: true,
   skyBake: false,
   clouds: 2,
+  detailScale: 1,
 };
+
+// The live tier, published by the perf governor. The city streamer needs the
+// geometry budget every frame from inside updateStreaming, which nothing hands
+// a QualityFeatures — main.ts routes the tier to the SCENE (materials, sky,
+// clouds), and the scene owns none of the world's LOD. Rather than thread a
+// second parameter through the whole call chain, the contract module that
+// already defines the tier shape also holds the current one.
+let live: QualityFeatures = FULL_QUALITY;
+
+export function setLiveQuality(q: QualityFeatures): void {
+  live = q;
+}
+
+export function liveQuality(): QualityFeatures {
+  return live;
+}

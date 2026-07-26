@@ -35,7 +35,14 @@ export function makeFlank(): Flank {
 }
 
 const SHORE_DROP = 5; // how far the ground dips below sea level past the coast
-const MARGIN = 24; // cached field extends past the map edge (camera, shoreline)
+// The cached field has to cover the WHOLE DRAWN GROUND, which overscans the map
+// by 1.08× (GROUND_SPAN below) — 4% of 3172u / 2600u past each edge. At the old
+// 24u every sample in the outer ~100u ring clamped to the border value, so the
+// drawn skirt was a flat extrusion of the map's rim and any landform crested
+// off-map (the Marin headland summits behind the Golden Gate; the Daly City
+// rim) rendered as a plateau instead of a peak. This is why nothing could be
+// put BEHIND a border.
+const MARGIN = 132;
 // World units between cached height samples. The field is bilinearly
 // interpolated and the hills are broad Gaussians, so a 2u grid is visually
 // indistinguishable from 1u while quartering the cache (O(area) on the big map).
