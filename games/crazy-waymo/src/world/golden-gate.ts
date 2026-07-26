@@ -31,6 +31,9 @@ const LAMP_H = 2.4; // parapet lamp head above the deck
 const LEG_OFF = 2.6;
 const LEG_BASE = 3.6; // leg section at the deck
 const LEG_TOP = 2.1; // leg section at the saddle
+const LEG_BASE_Y = -7; // a footing under the waterline, not a leg in mid-air
+/** Leg section width at t, 0 = footing, 1 = saddle. */
+const legWidthAt = (t: number): number => THREE.MathUtils.lerp(LEG_BASE, LEG_TOP, t);
 // Art-deco setbacks up each leg. FOUR, not six: city.ts gives an instance a
 // long-range box imposter only when it stands 13u or more, and a leg cut into
 // six 9.7u sections drops out of the skyline at the 700u model band — from
@@ -110,6 +113,22 @@ export type GoldenGatePlan = {
   readonly topY: number;
 };
 
+// The plan the world last solved, published for RUNTIME-ONLY consumers.
+//
+// `buildGoldenGate` runs on a cold generation only — the meshes live in
+// rest.bin — so nothing on the normal load path can ask the builder anything.
+// What BOTH paths do call is `goldenGatePlan` (city.ts lightGoldenGate), so the
+// solve itself is the seam: it records its answer here and the long-range
+// silhouette (render/far-terrain.ts) picks it up on its next frame. Publishing
+// from inside the gen-only builder instead would give the far read to exactly
+// one of the two load paths — i.e. to nobody who plays the shipped game.
+let solvedPlan: GoldenGatePlan | null = null;
+
+/** The bridge as the running world placed it, or null before the world loads. */
+export function goldenGateSolvedPlan(): GoldenGatePlan | null {
+  return solvedPlan;
+}
+
 /** Height along the two-stage ramp, t = 0 at the shore, 1 at the deck. */
 function rampProfile(plan: GoldenGatePlan, t: number): number {
   const tc = THREE.MathUtils.clamp(t, 0, 1);
@@ -174,7 +193,10 @@ export function goldenGatePlan(ctx: GoldenGatePlanCtx): GoldenGatePlan | null {
       break; // first road in this column is the northernmost
     }
   }
-  if (!anchor) return null;
+  if (!anchor) {
+    solvedPlan = null;
+    return null;
+  }
 
   const ax = ctx.worldX(anchor.gx);
   const shoreZ = ctx.worldZ(anchor.gz);
@@ -216,7 +238,7 @@ export function goldenGatePlan(ctx: GoldenGatePlanCtx): GoldenGatePlan | null {
     Math.max(towerZ + 30, rampTopZ - (rampTopZ - towerZ) * 0.14),
   );
 
-  return {
+  solvedPlan = {
     ax,
     anchorGx: anchor.gx,
     anchorGz: anchor.gz,
@@ -237,6 +259,7 @@ export function goldenGatePlan(ctx: GoldenGatePlanCtx): GoldenGatePlan | null {
     towerZ2,
     topY: deckY + TOWER_H,
   };
+  return solvedPlan;
 }
 
 // Parapet lamp stations, one entry per post: both sides of the deck, spaced
@@ -296,6 +319,143 @@ export function goldenGateBeacons(plan: GoldenGatePlan): readonly Beacon[] {
     });
   }
   return beacons;
+}
+
+/** One member of the long-range silhouette: a segment with a half-thickness. */
+export type SilhouetteBar = {
+  readonly a: THREE.Vector3;
+  readonly b: THREE.Vector3;
+  readonly halfA: number;
+  readonly halfB: number;
+  /**
+   * Share of the minimum SCREEN width this member holds at range (1 = a tower
+   * leg). Not every member is worth the same number of pixels: give the deck
+   * chords a tower's floor and the two of them fuse into a slab three times the
+   * truss's real depth, and the crossing reads as a luggage handle. The tower
+   * carries the silhouette, so it holds the most.
+   */
+  readonly minScale: number;
+};
+
+// How much thinner the stand-in is than the member it stands for. The whole
+// hand-off rests on this: a bar that lives strictly INSIDE the real geometry is
+// covered by it exactly, so the silhouette can be drawn at EVERY distance and
+// still be invisible until the LOD has thrown the real member away. Nothing
+// switches on, so nothing can pop.
+const SIL_INSET = 0.8;
+
+/**
+ * The bridge reduced to ~70 bars — both towers, their portal bracing, the deck
+ * truss chords and the two main cables — for the long-range silhouette that
+ * render/far-terrain.ts draws. Data only: no meshes, no model cache, so the
+ * baked load path (where `buildGoldenGate` never runs) can build it too.
+ *
+ * Why it exists: past DETAIL_DISTANCE the city keeps a box imposter only for
+ * instances 13u or taller, which on this bridge is the four tower legs and
+ * nothing else. The cables, the truss, the deck and the bracing are all gone by
+ * 440u — measured at 700u the crossing is four orange sticks with no form, at
+ * 1200u a grey smudge, at 2000u nothing. A landmark you steer by cannot be the
+ * one thing that disappears from the far half of the map.
+ */
+export function goldenGateSilhouette(plan: GoldenGatePlan): readonly SilhouetteBar[] {
+  const bars: SilhouetteBar[] = [];
+  const add = (
+    a: THREE.Vector3,
+    b: THREE.Vector3,
+    minScale: number,
+    halfA: number,
+    halfB = halfA,
+  ): void => {
+    bars.push({ a, b, halfA: halfA * SIL_INSET, halfB: halfB * SIL_INSET, minScale });
+  };
+  const legX = plan.half + LEG_OFF;
+  const legHalf = (y: number): number =>
+    legWidthAt(THREE.MathUtils.clamp((y - LEG_BASE_Y) / (plan.topY - LEG_BASE_Y), 0, 1)) / 2;
+
+  // Two bars per leg, so the art-deco taper survives the reduction: one
+  // straight column from footing to saddle would read fatter at the top than
+  // the tower it stands in, and poke out of it at close range.
+  const kneeY = plan.deckY + (plan.topY - plan.deckY) * 0.45;
+  for (const tz of [plan.towerZ, plan.towerZ2]) {
+    for (const sx of [-legX, legX]) {
+      const x = plan.ax + sx;
+      add(
+        new THREE.Vector3(x, 0, tz),
+        new THREE.Vector3(x, kneeY, tz),
+        1,
+        legHalf(0),
+        legHalf(kneeY),
+      );
+      add(
+        new THREE.Vector3(x, kneeY, tz),
+        // Stops SHORT of the saddle top: the ribbon runs on past its endpoint
+        // by its own half-width to close the joints, and at close range that
+        // overshoot was the one part of the stand-in visible over the real
+        // tower — a brighter cap on each saddle, ~170 pixels at 300u.
+        new THREE.Vector3(x, plan.topY + 0.4, tz),
+        1,
+        legHalf(kneeY),
+        legHalf(plan.topY),
+      );
+    }
+    // Portal bracing: the rungs between the legs. Invisible broadside (the legs
+    // hide them) and the whole difference between a tower and two sticks when
+    // the crossing is seen end-on, which is exactly how it looks from the city.
+    for (let i = 0; i < 3; i++) {
+      const by = THREE.MathUtils.lerp(plan.deckY + 8, plan.topY - 3.4, i / 2);
+      add(
+        new THREE.Vector3(plan.ax - legX, by, tz),
+        new THREE.Vector3(plan.ax + legX, by, tz),
+        0.5,
+        0.75,
+      );
+    }
+  }
+
+  // Deck: the two truss chords, which are the orange the deck reads as. They
+  // thicken into one band at range, which is the correct far read — the truss
+  // web between them is below a pixel long before that. Both ends are pulled in
+  // by more than the ribbon's own end-cap, for the same reason the legs stop
+  // under the saddle.
+  const trussZ0 = plan.northEndZ - 1.4;
+  const trussZ1 = plan.rampTopZ - 0.6;
+  for (const sx of [-(plan.half + RAIL_T / 2), plan.half + RAIL_T / 2]) {
+    for (const cy of [plan.deckY - 0.55, plan.deckY - 2.85]) {
+      add(
+        new THREE.Vector3(plan.ax + sx, cy, trussZ0),
+        new THREE.Vector3(plan.ax + sx, cy, trussZ1),
+        0.42,
+        0.4,
+      );
+    }
+  }
+
+  // Main cables, sampled off the same saddles the built cable hangs from. The
+  // sag is the read everyone recognises; a straight line between tower tops
+  // would be a gantry.
+  const saddles = cableSaddles(plan);
+  const z0 = saddles[0]?.[0] ?? plan.shoreZ;
+  const z1 = saddles[saddles.length - 1]?.[0] ?? plan.northEndZ;
+  // 40 steps, not 26, and a thinner bar than the cable it stands in. A chord
+  // across a sagging cable lies ABOVE the arc — coarsely sampled, the stand-in
+  // rose ~0.1u out of the top of the real cable and drew a brighter red edge
+  // along the whole curve at 300u. Deviation falls as 1/steps².
+  const steps = 40;
+  for (const sx of [-legX, legX]) {
+    let prev: THREE.Vector3 | null = null;
+    for (let i = 0; i <= steps; i++) {
+      const cz = z0 - ((z0 - z1) * i) / steps;
+      const cy = cableY(saddles, cz);
+      if (cy === null) {
+        prev = null;
+        continue;
+      }
+      const p = new THREE.Vector3(plan.ax + sx, cy, cz);
+      if (prev) add(prev, p, 0.5, 0.14);
+      prev = p;
+    }
+  }
+  return bars;
 }
 
 function mesh(
@@ -568,9 +728,8 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
   // step back art-deco fashion as they rise, and carry the stepped portal
   // bracing that is the bridge's other signature.
   const legX = half + LEG_OFF;
-  const legWidthAt = (t: number): number => THREE.MathUtils.lerp(LEG_BASE, LEG_TOP, t);
   {
-    const legBaseY = -7; // a footing under the waterline, not a leg in mid-air
+    const legBaseY = LEG_BASE_Y;
     const secH = (topY - legBaseY) / TOWER_STEPS;
     const markerGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
     const saddleGeo = new THREE.BoxGeometry(LEG_TOP + 1.5, 1.6, LEG_TOP + 1.5);

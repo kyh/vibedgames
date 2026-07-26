@@ -14,7 +14,7 @@ import {
 import { Rng } from "../shared/rng";
 import type { Solid } from "./city";
 import type { CityPlan } from "./grid";
-import { arc, box, cyl, dome, facet, MAT, mesh, packLandmark, strut } from "./landmark-geo";
+import { arc, box, cyl, dome, facet, MAT, mesh, packLandmark, paint, strut } from "./landmark-geo";
 import type { RoadNetwork } from "./network";
 import type { Terrain } from "./terrain";
 
@@ -349,159 +349,295 @@ function dragonGate(ctx: LandmarkCtx): THREE.Group {
 // — detached tract houses with a ~0.9u daylight gap between every "Lady" and
 // an independent random height each, i.e. the most photographed row in San
 // Francisco rendered as a cul-de-sac. It is authored now, out of the landmark
-// palette, because the whole point of the row is that it is ONE terrace: the
-// bays line up, the cornice is level, and there is no gap.
+// palette plus its own one paint material, because the whole point of the row
+// is that it is ONE terrace: the bays line up, the cornice is level, and there
+// is no gap.
 // Authored in WORLD units (`scale: 1`), matched to the neighbouring fabric so
 // the terrace reads as the best block on the street rather than as a monument
 // dropped on it.
 const PL_BAY = 8.2; // frontage per house — attached, so pitch == width
 const PL_DEPTH = 9.4;
 const PL_H = 12.2; // three storeys to a cornice that is LEVEL across the row
+
 /**
- * The six body colours. Module-level and packable (see `packLandmark`'s extra
- * set) so the whole terrace still collapses to one mesh per colour: six warm
- * and cool pastels held at ONE value, which is what makes the row read as a
- * terrace with six voices instead of as confetti.
+ * The terrace's ONE painted-timber material. Every body colour, every picked-out
+ * moulding and every accent on all six houses is a VERTEX colour on it, so the
+ * whole row still collapses to a single draw call (see `landmark-geo.paint`).
+ *
+ * That is what buys the detail below. "Painted lady" means trim picked out FROM
+ * the body colour, so the row needs three tints per house; as materials that is
+ * eighteen draw calls, and the six body materials this replaces already cost
+ * six. One material carrying eighteen colours is strictly cheaper than the six
+ * flat pastel slabs it replaces.
  */
-const PL_BODY: readonly THREE.MeshStandardMaterial[] = [
-  0xe0c99a, 0xb9cfdd, 0xe6bfa6, 0xc6d2ae, 0xdcb9c6, 0xb6bcd2,
-].map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.85 }));
+const PL_PAINT = new THREE.MeshStandardMaterial({
+  color: 0xffffff,
+  roughness: 0.85,
+  vertexColors: true,
+});
+/** Admitted into `packLandmark`'s pack set — see `buildLandmarks`. */
+const PL_MATS: readonly THREE.Material[] = [PL_PAINT];
+
+/**
+ * Six houses, three tints each: the body, the light trim every moulding and
+ * sash frame is picked out in, and a saturated accent for the doors, the garage
+ * leaves, the bay aprons and the dentil course.
+ *
+ * The VALUE structure is identical house to house — bodies all mid, trims all
+ * high, accents all low — and only the hue rotates. That is what keeps six
+ * voices reading as one terrace instead of as confetti, and it is also what
+ * holds the row inside the city's three-band separation (ground < buildings <
+ * sky) now that it has darks in it at all.
+ */
+type LadyPaint = { readonly body: number; readonly trim: number; readonly accent: number };
+const PL_FALLBACK: LadyPaint = { body: 0xe0c99a, trim: 0xf4ecd8, accent: 0x8e6f40 };
+const PL_PALETTE: readonly LadyPaint[] = [
+  { body: 0xe0c99a, trim: 0xf6efdb, accent: 0x8e6f40 }, // ochre
+  { body: 0xb9cfdd, trim: 0xeef5f8, accent: 0x466274 }, // harbour blue
+  { body: 0xe6bfa6, trim: 0xf9ebe0, accent: 0x9b5638 }, // terracotta
+  { body: 0xc6d2ae, trim: 0xf0f4e4, accent: 0x5b7040 }, // sage
+  { body: 0xdcb9c6, trim: 0xf8e8ee, accent: 0x8c4a63 }, // rose
+  { body: 0xb6bcd2, trim: 0xecedf7, accent: 0x4c5478 }, // lavender
+];
 
 /** Storey lines. Level across the row — that is what makes it a terrace. */
 const PL_S1 = 4.2; // top of the ground (garage/entry) storey
 const PL_S2 = 8.2; // top of the first floor
 const PL_FRONT = PL_DEPTH / 2; // the street elevation
+const PL_REAR = -PL_DEPTH / 2; // the elevation that faces the roadway
+const PL_REAR_FACE = PL_REAR - 1; // face of the squared-off rear projection
+/** Top of the cornice — every roof form starts here, level across the row. */
+const PL_EAVES = PL_H + 0.875;
+
+/** A painted-timber box on the terrace's one shared material. */
+function pl(
+  color: number,
+  w: number,
+  h: number,
+  d: number,
+  x: number,
+  y: number,
+  z: number,
+  yaw = 0,
+): THREE.Mesh {
+  return paint(box(w, h, d, PL_PAINT, x, y, z, yaw), color);
+}
 
 /**
- * One Lady's street elevation. Attached on both sides, so everything that
+ * A sash opening: a trim-coloured architrave slab against the wall, the pane
+ * proud of it, and the two bars that make it read as a SASH rather than a hole.
+ * `out` is the outward normal along z (+1 street side, −1 rear), so one helper
+ * serves both elevations.
+ */
+function sash(
+  g: THREE.Group,
+  p: LadyPaint,
+  x: number,
+  y: number,
+  z: number,
+  w: number,
+  h: number,
+  out: 1 | -1,
+): void {
+  g.add(pl(p.trim, w + 0.55, h + 0.55, 0.26, x, y, z + out * 0.13));
+  g.add(box(w, h, 0.2, MAT.glass, x, y, z + out * 0.29));
+  g.add(pl(p.trim, 0.15, h, 0.24, x, y, z + out * 0.37));
+  g.add(pl(p.trim, w, 0.15, 0.24, x, y + h * 0.16, z + out * 0.37));
+}
+
+/**
+ * One Lady, both elevations. Attached on both sides, so everything that
  * distinguishes her from her neighbour has to happen ON the facade: an angled
  * two-storey bay over the garage, sash windows over the entry, a stoop with a
- * pedimented door, a bracketed cornice, and her own roof form.
+ * pedimented door, a dentilled cornice, her own roof form and her own three
+ * paint tints.
  *
- * The row used to be a flat slab in six pastel bands under one continuous dark
- * hip — no openings of any kind — so the most photographed houses in San
- * Francisco read worse than the kit tract houses across the street.
+ * BOTH elevations, because the front alone was not enough. The audit that called
+ * this row "one slab, six pastel bands, zero windows" photographed the REAR: the
+ * postcard front looks across Alamo Square, which is grass, so the only side a
+ * car ever passes is the back, and the back was a blank 8 × 12u panel per house.
+ * A landmark whose good side faces the one direction the player cannot drive is
+ * a landmark nobody sees.
  */
-function paintedLady(g: THREE.Group, i: number): void {
+function paintedLady(g: THREE.Group, i: number, base: number): void {
   const cx = (i - 2.5) * PL_BAY;
-  const wall = PL_BODY[i] ?? MAT.cream;
-  // Joinery alternates between the two neutral trims. Six voices out of the
-  // shared palette — a per-house trim material would be six more draw calls
-  // on a monument that is already six body colours.
-  const trim = i % 2 === 0 ? MAT.cream : MAT.white;
+  const p = PL_PALETTE[i] ?? PL_FALLBACK;
   const bayX = cx + 1.4; // the bay sits over the garage
   const entryX = cx - 2.4; // the stoop, door and sash windows
 
-  g.add(box(PL_BAY, PL_H, PL_DEPTH, wall, cx, PL_H / 2, 0));
-  g.add(box(PL_BAY, 0.6, PL_DEPTH + 0.4, MAT.slate, cx, 0.3, 0)); // basement course
+  g.add(pl(p.body, PL_BAY, PL_H, PL_DEPTH, cx, PL_H / 2, 0));
+  // Basement course, carried down to the lowest ground under the row: the
+  // terrace seats on the height at its own centre and Alamo Square is a hill,
+  // so a course of fixed depth shows daylight at the downhill end.
+  g.add(box(PL_BAY, 0.7 - base, PL_DEPTH + 0.4, MAT.slate, cx, (0.7 + base) / 2, 0));
 
-  // Ground storey: garage bay in a moulded surround.
-  g.add(box(3.6, 3.1, 0.3, trim, bayX, 1.75, PL_FRONT + 0.14));
-  g.add(box(3.0, 2.5, 0.35, MAT.slate, bayX, 1.6, PL_FRONT + 0.26));
+  // Ground storey: garage bay in a moulded surround, its leaf picked out in the
+  // house's accent and scored with panel lines. It used to be a flat slate
+  // rectangle, i.e. a black hole punched in the pastel — the darkest thing on
+  // the frontage and the least legible.
+  g.add(pl(p.trim, 3.9, 3.35, 0.3, bayX, 1.85, PL_FRONT + 0.14));
+  g.add(pl(p.accent, 3.2, 2.7, 0.34, bayX, 1.7, PL_FRONT + 0.26));
+  for (let d = 0; d < 3; d++) {
+    g.add(pl(p.trim, 2.9, 0.14, 0.4, bayX, 0.85 + d * 0.82, PL_FRONT + 0.3));
+  }
 
-  // Stoop: the long straight stair down to the pavement. Six treads, newels at
-  // the foot, and the door at its head — 3u of projection, which keeps it
-  // inside the row's reserved footprint.
+  // Stoop: the long straight stair down to the pavement. Treads, newels at the
+  // foot, and the door at its head — 3u of projection, which keeps it inside
+  // the row's reserved footprint.
   for (let s = 0; s < 6; s++) {
-    g.add(box(2.3, 0.46, 0.55, trim, entryX, 0.23 + s * 0.42, PL_FRONT + 3.05 - s * 0.5));
+    g.add(pl(p.trim, 2.3, 0.46, 0.55, entryX, 0.23 + s * 0.42, PL_FRONT + 3.05 - s * 0.5));
   }
-  g.add(box(2.4, 0.5, 1.2, trim, entryX, 2.75, PL_FRONT + 0.8));
+  g.add(pl(p.trim, 2.4, 0.5, 1.2, entryX, 2.75, PL_FRONT + 0.8));
   for (const sx of [-1.15, 1.15]) {
-    g.add(box(0.42, 1.1, 0.42, trim, entryX + sx, 3.25, PL_FRONT + 2.85));
+    g.add(pl(p.trim, 0.42, 1.1, 0.42, entryX + sx, 3.25, PL_FRONT + 2.85));
   }
-  // Door: recessed dark leaf in a pilastered surround under a pediment.
-  g.add(box(2.4, 3.6, 0.32, trim, entryX, 4.3, PL_FRONT + 0.16));
-  g.add(box(1.3, 2.5, 0.36, MAT.slate, entryX, 3.85, PL_FRONT + 0.3));
+  // Door: the leaf in the house's accent (a coloured front door is the loudest
+  // note a painted lady has), in a pilastered surround under a pediment.
+  g.add(pl(p.trim, 2.4, 3.6, 0.32, entryX, 4.3, PL_FRONT + 0.16));
+  g.add(pl(p.accent, 1.3, 2.5, 0.36, entryX, 3.85, PL_FRONT + 0.3));
+  g.add(pl(p.trim, 1.4, 0.14, 0.4, entryX, 4.35, PL_FRONT + 0.34));
   for (const sx of [-0.95, 0.95]) {
-    g.add(box(0.28, 2.9, 0.34, trim, entryX + sx, 4.15, PL_FRONT + 0.36));
+    g.add(pl(p.trim, 0.28, 2.9, 0.34, entryX + sx, 4.15, PL_FRONT + 0.36));
   }
-  g.add(box(2.7, 0.42, 0.62, trim, entryX, 5.85, PL_FRONT + 0.4));
+  g.add(pl(p.trim, 2.7, 0.42, 0.62, entryX, 5.85, PL_FRONT + 0.4));
 
   // The angled two-storey bay — the single element that makes a house
-  // Victorian rather than a box. Front pane plus two canted cheeks.
+  // Victorian rather than a box. Front sash plus two canted cheeks, on an
+  // accent apron so the projection casts a read even head-on into flat light.
   for (const sy of [PL_S1 + 2.1, PL_S2 + 2.1]) {
-    g.add(box(2.7, 3.3, 1.8, wall, bayX, sy, PL_FRONT + 0.9));
-    g.add(box(2.05, 2.3, 0.22, MAT.glass, bayX, sy, PL_FRONT + 1.75));
+    g.add(pl(p.body, 2.7, 3.3, 1.8, bayX, sy, PL_FRONT + 0.9));
+    sash(g, p, bayX, sy, PL_FRONT + 1.8, 2.0, 2.25, 1);
     for (const s of [-1, 1] as const) {
-      g.add(box(1.5, 3.3, 0.4, wall, bayX + s * 1.78, sy, PL_FRONT + 0.46, -s * 0.72));
-      g.add(box(1.0, 2.3, 0.2, MAT.glass, bayX + s * 1.86, sy, PL_FRONT + 0.55, -s * 0.72));
+      // The cheek's glazed face is its −Z side, so the architrave and the pane
+      // step OUT along (s·0.66, 0.75) — the same axis the pane already used,
+      // just far enough to clear the 0.2u half-depth instead of sinking into it.
+      g.add(pl(p.body, 1.5, 3.3, 0.4, bayX + s * 1.78, sy, PL_FRONT + 0.46, -s * 0.72));
+      g.add(pl(p.trim, 1.35, 2.75, 0.22, bayX + s * 1.88, sy, PL_FRONT + 0.575, -s * 0.72));
+      g.add(box(1.0, 2.25, 0.2, MAT.glass, bayX + s * 1.935, sy, PL_FRONT + 0.637, -s * 0.72));
     }
-    g.add(box(4.0, 0.42, 2.2, trim, bayX, sy + 1.86, PL_FRONT + 0.8)); // bay cornice
-    g.add(box(3.8, 0.36, 2.1, trim, bayX, sy - 1.78, PL_FRONT + 0.8)); // bay apron
+    g.add(pl(p.trim, 4.0, 0.42, 2.2, bayX, sy + 1.86, PL_FRONT + 0.8)); // bay cornice
+    g.add(pl(p.accent, 3.8, 0.36, 2.1, bayX, sy - 1.78, PL_FRONT + 0.8)); // bay apron
   }
 
   // Sash windows over the entry, one per upper storey, with sill and lintel.
   for (const sy of [PL_S1 + 2.1, PL_S2 + 2.1]) {
-    g.add(box(1.85, 2.9, 0.28, trim, entryX, sy, PL_FRONT + 0.14));
-    g.add(box(1.2, 2.15, 0.22, MAT.glass, entryX, sy, PL_FRONT + 0.28));
-    g.add(box(2.1, 0.24, 0.5, trim, entryX, sy - 1.6, PL_FRONT + 0.3));
-    g.add(box(2.1, 0.26, 0.42, trim, entryX, sy + 1.58, PL_FRONT + 0.28));
+    sash(g, p, entryX, sy, PL_FRONT, 1.25, 2.2, 1);
+    g.add(pl(p.trim, 2.1, 0.24, 0.5, entryX, sy - 1.5, PL_FRONT + 0.3));
+    g.add(pl(p.accent, 2.1, 0.26, 0.42, entryX, sy + 1.5, PL_FRONT + 0.28));
   }
 
   // Storey bands and the party-wall pilaster: level lines across the whole row,
   // vertical joints between the colours. Both are what hold six different
-  // facades together as ONE terrace.
+  // facades together as ONE terrace — the bands wrap the flanks and the rear,
+  // so the tie survives from every side.
   for (const by of [PL_S1, PL_S2]) {
-    g.add(box(PL_BAY, 0.34, PL_DEPTH + 0.7, trim, cx, by, 0));
+    g.add(pl(p.trim, PL_BAY, 0.34, PL_DEPTH + 0.7, cx, by, 0));
   }
   for (const s of [-1, 1] as const) {
-    g.add(box(0.5, PL_H, 0.55, trim, cx + (s * PL_BAY) / 2, PL_H / 2, PL_FRONT + 0.2));
+    g.add(pl(p.trim, 0.5, PL_H, 0.55, cx + (s * PL_BAY) / 2, PL_H / 2, PL_FRONT + 0.2));
+    g.add(
+      pl(p.trim, 0.44, PL_H - 1.2, 0.5, cx + (s * PL_BAY) / 2, (PL_H - 1.2) / 2, PL_REAR - 0.2),
+    );
   }
 
-  // Cornice on brackets. The bracket row is the detail that reads first at
-  // 60u and the last thing that survives at 300u.
-  g.add(box(PL_BAY + 0.35, 0.85, PL_DEPTH + 1.3, trim, cx, PL_H + 0.45, 0));
+  // Cornice on an accent dentil course, and a plain eaves band at the back.
+  // The bracket row is the detail that reads first at 60u and the last thing
+  // that survives at 300u. The cornice used to be a TRIM-COLOURED box the full
+  // 10.7u depth of the plan — a pale lid that turned the whole terrace into a
+  // flat white slab from any elevated camera, which is every camera a driving
+  // game has. It is a band at the front now; the roof above it is dark.
+  g.add(pl(p.trim, PL_BAY + 0.35, 0.85, 2.4, cx, PL_H + 0.45, PL_FRONT - 0.3));
+  g.add(pl(p.trim, PL_BAY, 0.5, 1.2, cx, PL_H + 0.25, PL_REAR + 0.2));
   for (let d = 0; d < 11; d++) {
-    g.add(box(0.34, 0.7, 0.5, trim, cx - 3.5 + d * 0.7, PL_H - 0.35, PL_FRONT + 0.62));
+    g.add(pl(p.accent, 0.34, 0.7, 0.5, cx - 3.5 + d * 0.7, PL_H - 0.35, PL_FRONT + 0.62));
   }
 
-  // Roof: two forms alternating, each set back inside the party walls so the
-  // row keeps six separate crowns instead of one continuous dark hip.
+  // Roof: a dark deck over the plan, then one of two crowns per house, each set
+  // back inside the party walls so the row keeps six separate silhouettes
+  // instead of one continuous hip.
+  g.add(box(PL_BAY, 0.9, PL_DEPTH + 0.2, MAT.slate, cx, PL_H + 0.35, -0.5));
   if (i % 2 === 0) {
-    // False-front gable: a triangular prism, ridge running front to back.
-    const gable = mesh(
-      facet(new THREE.CylinderGeometry(4.35, 4.35, 6.2, 3)),
+    // False-front gable: a thin triangular pediment standing on the cornice,
+    // facing the street. `scale.z` squashes the triangle's HEIGHT (local +Z
+    // becomes world up after the −90° x-rotation) and `scale.y` its depth.
+    const ped = mesh(
+      facet(new THREE.CylinderGeometry(3.5, 3.5, 2.4, 3)),
       MAT.slate,
       cx,
-      0,
-      -0.6,
+      PL_EAVES + 1.09,
+      PL_FRONT - 0.3,
     );
-    gable.rotation.x = -Math.PI / 2;
-    gable.scale.set(1, 0.42, 1);
-    gable.position.y = PL_H + 1.8;
-    g.add(gable);
+    ped.rotation.x = -Math.PI / 2;
+    ped.scale.set(1, 1, 0.62);
+    g.add(ped);
+    // Attic light in the tympanum: without it the pediment is a dark triangle.
+    g.add(pl(p.trim, 1.25, 0.95, 0.3, cx, PL_EAVES + 1.0, PL_FRONT + 0.85));
+    g.add(box(0.85, 0.6, 0.24, MAT.glass, cx, PL_EAVES + 1.0, PL_FRONT + 1.0));
   } else {
-    // Mansard: a squat truncated pyramid with a flat deck on top.
+    // Mansard: a TRUNCATED pyramid (a cone is a spike, and the old flat deck
+    // floated 2u above its apex) with a flat deck and a front dormer.
     g.add(
-      mesh(facet(new THREE.ConeGeometry(5.05, 2.3, 4)), MAT.slate, cx, PL_H + 2.0, -0.4).rotateY(
-        Math.PI / 4,
-      ),
+      mesh(
+        facet(new THREE.CylinderGeometry(1.6, 3.9, 2.4, 4)),
+        MAT.slate,
+        cx,
+        PL_EAVES + 1.2,
+        -0.5,
+      ).rotateY(Math.PI / 4),
     );
-    g.add(box(3.0, 0.4, 3.0, MAT.slate, cx, PL_H + 3.1, -0.4));
+    g.add(box(2.2, 0.4, 2.2, MAT.slate, cx, PL_EAVES + 2.5, -0.5));
+    g.add(pl(p.trim, 1.9, 1.7, 1.1, cx, PL_EAVES + 1.1, PL_FRONT - 1.5));
+    g.add(box(1.25, 1.05, 0.24, MAT.glass, cx, PL_EAVES + 1.1, PL_FRONT - 0.9));
+    g.add(box(2.2, 0.3, 1.4, MAT.slate, cx, PL_EAVES + 2.0, PL_FRONT - 1.5));
+  }
+
+  // --- The rear elevation ------------------------------------------------
+  // This is the side the PLAYER sees. The postcard front looks across Alamo
+  // Square, which is grass, so the only roadway a car can drive is behind the
+  // row — and the rear was a blank 8 × 12u panel per house. Six of them in a
+  // line is the "one slab in six pastel bands with zero windows" the audit
+  // photographed. A Victorian rear is PLAIN, not blank: a squared-off rear
+  // projection, plain sashes in the same storey rhythm as the front, and a
+  // back stair. No bays and no brackets — those stay the front's alone.
+  g.add(pl(p.body, 4.6, PL_H - 1.1, 1.0, cx - 0.8, (PL_H - 1.1) / 2, PL_REAR - 0.5));
+  g.add(pl(p.trim, 4.8, 0.3, 1.2, cx - 0.8, PL_H - 1.1, PL_REAR - 0.5));
+  for (const sy of [PL_S1 + 2.1, PL_S2 + 2.1]) {
+    sash(g, p, cx - 0.8, sy, PL_REAR_FACE, 1.1, 2.1, -1);
+    sash(g, p, cx + 2.9, sy, PL_REAR, 1.0, 1.9, -1);
+  }
+  sash(g, p, cx + 2.9, 1.9, PL_REAR, 1.0, 1.9, -1);
+  // Back door onto a landing, with the two steps down to the pavement.
+  g.add(pl(p.trim, 1.9, 3.0, 0.28, cx - 0.8, 1.75, PL_REAR_FACE - 0.14));
+  g.add(pl(p.accent, 1.15, 2.4, 0.3, cx - 0.8, 1.55, PL_REAR_FACE - 0.28));
+  for (let s = 0; s < 2; s++) {
+    g.add(pl(p.trim, 2.2, 0.34, 0.7, cx - 0.8, 0.17 + s * 0.32, PL_REAR_FACE - 0.85 + s * 0.34));
   }
 }
 
-function paintedLadies(): THREE.Group {
+function paintedLadies(ctx: LandmarkCtx): THREE.Group {
   const g = new THREE.Group();
-  for (let i = 0; i < 6; i++) paintedLady(g, i);
+  const base = lowestUnder(ctx, 3 * PL_BAY, PL_DEPTH / 2);
+  for (let i = 0; i < 6; i++) paintedLady(g, i, base);
   // Party-wall chimneys, one on every division INCLUDING the two ends: seven
   // brick stacks breaking the roofline is how a real terrace reads from the
   // park, and the row had none.
   for (let i = 0; i <= 6; i++) {
     const px = (i - 3) * PL_BAY;
-    g.add(box(1.0, 3.0, 1.5, MAT.brick, px, PL_H + 2.2, -1.4));
-    g.add(box(1.3, 0.35, 1.8, MAT.slate, px, PL_H + 3.8, -1.4));
+    g.add(box(1.0, 3.2, 1.5, MAT.brick, px, PL_EAVES + 1.6, -1.4));
+    g.add(box(1.3, 0.35, 1.8, MAT.slate, px, PL_EAVES + 3.35, -1.4));
   }
   // The two end elevations face down the cross streets, so they get windows
-  // too — a blank 12 × 9u gable wall is what the kit houses look like.
+  // too — a blank 12 × 9u gable wall is what the kit houses look like. Yawed a
+  // quarter turn so the shared `sash` helper's z-normal points along ±X.
   for (const s of [-1, 1] as const) {
-    const ex = s * 3 * PL_BAY;
-    for (const wy of [PL_S1 + 2.1, PL_S2 + 2.1]) {
-      for (const wz of [-2.8, 0.6]) {
-        g.add(box(0.26, 2.6, 1.5, MAT.cream, ex + s * 0.12, wy, wz));
-        g.add(box(0.2, 1.9, 1.0, MAT.glass, ex + s * 0.22, wy, wz));
-      }
+    const end = s < 0 ? PL_PALETTE[0] : PL_PALETTE[5];
+    const p = end ?? PL_FALLBACK;
+    const flank = new THREE.Group();
+    flank.rotation.y = (s * Math.PI) / 2;
+    for (const wy of [1.9, PL_S1 + 2.1, PL_S2 + 2.1]) {
+      for (const wz of [-2.8, 0.6]) sash(flank, p, -s * wz, wy, 3 * PL_BAY, 1.0, 1.9, 1);
     }
+    g.add(flank);
   }
   return g;
 }
@@ -2096,7 +2232,7 @@ export function buildLandmarks(
         return [wx, y + ly * s, wz];
       },
     };
-    const node = packLandmark(def.build(ctx), PL_BODY);
+    const node = packLandmark(def.build(ctx), PL_MATS);
     node.position.set(x, y, z);
     node.rotation.y = rot;
     node.scale.multiplyScalar(s);

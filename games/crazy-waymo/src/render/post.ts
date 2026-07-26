@@ -114,7 +114,20 @@ const GradeShader = {
 // makes them. `UnrealBloomPass.render` copies both fields into its uniforms
 // every frame, so writing the fields is the supported way to animate them.
 const DAY_BLOOM_STRENGTH = 0.22;
-const DAY_BLOOM_THRESHOLD = 3.0;
+// THE DAY CUT MUST CLEAR THE HORIZON, NOT JUST THE LIT SKY. Preetham's dome
+// saturates at grazing angles — measured pre-tonemap, the bottom ~8° of sky
+// sits at luminance 5.4 in EVERY azimuth at noon, well over the old 3.0 — so
+// the whole horizon ring was being harvested and blurred back over the far
+// city. That is the "milky mid-ground" in the Twin Peaks vista: with the cut
+// moved above the band, that frame's >=88%-luminance share falls 11.3% -> 8.3%
+// and its mean saturation RISES (16.2 -> 17.7), because what the veil was doing
+// was washing chroma out of everything behind it.
+//
+// 6.5 clears the band with margin and still sits far under the sun disc
+// (day-night.ts SUN_DISC_RADIANCE, 400), which is the one thing that should
+// flare by day. Nothing else is lost: the additive FX (trails, boost rings,
+// sparks) peak near 1-2 over a lit road, so they never crossed 3.0 either.
+const DAY_BLOOM_THRESHOLD = 6.5;
 // The night cut sits just under the dimmest thing that should glow — the lamp
 // pools, authored to ~0.9 at their core (fx/lamp-glow.ts POOL_GAIN) — and no
 // lower. Below ~0.7 it starts catching LIT SURFACES too, and the one surface
@@ -138,16 +151,18 @@ export class PostPipeline {
     });
     this.composer = new EffectComposer(renderer, target);
     this.composer.addPass(new RenderPass(scene, camera));
-    // Threshold sits in PRE-tonemap linear HDR: the daylight horizon sky is
-    // ~2+ there, so keep the cut high and the strength gentle — bloom should
-    // kiss the emissives (lamps, windows, trails, sun glare), not flood the
-    // frame. The vignette/vibrance grade does the daytime "pop", not bloom.
+    // Threshold sits in PRE-tonemap linear HDR, so every number here is a
+    // radiance, not a pixel value: keep the cut high and the strength gentle —
+    // bloom should kiss the emissives (lamps, windows, trails, sun glare), not
+    // flood the frame. The vignette/vibrance grade does the daytime "pop".
     //
-    // 2.2 was under the daylight horizon, not over it: driving west into a
-    // golden-hour sun put 30–32% of the frame above 92% luminance and the road
-    // itself disappeared. 3.0 clears the lit sky and still catches lamps, lit
-    // windows, trails and the sun disc, which sit well above it; strength comes
-    // up a notch so those emissives lose nothing to the higher cut.
+    // The cut has been chased upward twice by the same class of bug, and both
+    // times the frame it ruined was a driver looking west into the sun: 2.2 put
+    // 30-32% of the frame over 92% luminance, and 3.0 — which does clear the
+    // LIT sky — still sat under the horizon ring and under a sun disc three
+    // orders of magnitude over it. See DAY_BLOOM_THRESHOLD for what 6.5 clears
+    // and day-night.ts SUN_DISC_RADIANCE for the disc that made the cut
+    // unwinnable at any value.
     this.bloom = new UnrealBloomPass(size, DAY_BLOOM_STRENGTH, 0.3, DAY_BLOOM_THRESHOLD);
     this.composer.addPass(this.bloom);
     this.grade = new ShaderPass(GradeShader);
@@ -164,7 +179,15 @@ export class PostPipeline {
     const night = gradeNight();
     const u = this.grade.uniforms.uNight;
     if (u) u.value = night;
-    this.bloom.threshold = DAY_BLOOM_THRESHOLD + (NIGHT_BLOOM_THRESHOLD - DAY_BLOOM_THRESHOLD) * night;
+    // The cut falls on sqrt(night), not on night. `night` IS the lamp factor,
+    // so at dusk it is still only ~0.6 when every streetlight in the city is
+    // already burning — and a linearly-interpolated cut is 3.0 there, above the
+    // 3.4 lamp halo it exists to catch. The day end of that lerp used to be
+    // 3.0, so the error was small; at 6.5 it would leave dusk with no glow at
+    // all. Square-rooting drops the cut early, in step with the lamps, and both
+    // ends of the ramp are unchanged.
+    this.bloom.threshold =
+      DAY_BLOOM_THRESHOLD + (NIGHT_BLOOM_THRESHOLD - DAY_BLOOM_THRESHOLD) * Math.sqrt(night);
     this.bloom.strength = DAY_BLOOM_STRENGTH + (NIGHT_BLOOM_STRENGTH - DAY_BLOOM_STRENGTH) * night;
     this.composer.render();
   }

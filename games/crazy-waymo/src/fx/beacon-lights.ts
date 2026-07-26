@@ -31,6 +31,22 @@ export type Beacon = {
   readonly blinkS?: number;
   /** Deck/pavement height under the lamp — adds a flat pool of light there. */
   readonly groundY?: number;
+  /**
+   * Pool diameter, when POOL_SCALE x `size` is the wrong shape for this lamp.
+   * A pier lantern is a fat glow over a small patch of deck; a STREET
+   * luminaire is the opposite — a small hot head 5 metres up over a pool wide
+   * enough to cross the roadway. Tying the two together is what made the
+   * first pass of mast luminaires read as floating blobs with no light under
+   * them.
+   */
+  readonly poolSize?: number;
+  /**
+   * Extra HDR gain on this lamp's POOL only. The layer's house gain is tuned
+   * for a lantern on a dark deck; asphalt under a street luminaire is the
+   * brightest thing in a night street and has to clear the bloom cut the way
+   * fx/lamp-glow.ts POOL_GAIN does.
+   */
+  readonly poolBoost?: number;
 };
 
 const registry = new Map<string, readonly Beacon[]>();
@@ -266,8 +282,15 @@ export class BeaconLights {
       pool.begin();
       for (const b of beacons) {
         if (b.groundY === undefined) continue;
-        const c = col.setHex(b.color);
-        pool.push(b.x, b.groundY + POOL_LIFT, b.z, c, b.size * POOL_SCALE, blinkRate(b.blinkS));
+        const c = col.setHex(b.color).multiplyScalar(b.poolBoost ?? 1);
+        pool.push(
+          b.x,
+          b.groundY + POOL_LIFT,
+          b.z,
+          c,
+          b.poolSize ?? b.size * POOL_SCALE,
+          blinkRate(b.blinkS),
+        );
       }
       pool.commit();
       this.group.add(pool.mesh);

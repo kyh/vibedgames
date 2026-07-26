@@ -39,8 +39,12 @@ import { WORLD_H, WORLD_W } from "../shared/constants";
 // tone-maps to a white ghost. Both knobs are gated on ALTITUDE (the camera's
 // and the fragment's), so tightening them cannot touch the chase-cam grade:
 // at y < HAZE_BASE both terms are 1 and the base fog passes through untouched.
-const HAZE_BASE = 18;
-const HAZE_SCALE = 26;
+// Exported because the long-range landmark silhouette (render/far-terrain.ts)
+// is drawn by a shader of its own and has to age into the distance on exactly
+// this curve — a stand-in graded on a second set of numbers announces itself
+// the moment the real geometry hands over.
+export const HAZE_BASE = 18;
+export const HAZE_SCALE = 26;
 // Never let the attenuation go all the way to zero — a razor-sharp 1.5km
 // ridgeline reads as a cardboard cut-out. 0.95 left a 5% floor, which is close
 // enough to nothing that every elevated view had NO depth cue at all: the far
@@ -48,7 +52,7 @@ const HAZE_SCALE = 26;
 // vistas read flat. Now that the fog color is a saturated blue rather than a
 // near-white (see day-night.ts), a 18% floor TINTS the distance instead of
 // ghosting it, which is the aerial perspective those views were missing.
-const HAZE_AMOUNT = 0.82;
+export const HAZE_AMOUNT = 0.82;
 
 // --- Marine layer ---------------------------------------------------------
 const MARINE_TOP = 40; // world height the bank thins out at

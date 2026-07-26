@@ -923,6 +923,14 @@ vec3 ocGerstner(vec2 p, float t) {
     // Waterfront night lights: whatever the pier/bridge/landmark builders
     // registered while the world was being built (fx/beacon-lights.ts), plus a
     // scatter of parked cars that left a marker lamp on.
+    //
+    // THIS DRAIN IS ONE-SHOT, AND IT IS ORDERED AFTER `NightWindows`. The
+    // registry hands over its whole list once and clears; NightWindows is
+    // constructed at world-loader's PLAYABLE gate and registers downtown's mast
+    // luminaires from there (fx/night-windows.ts, source "night-street"). Move
+    // this call ahead of that construction — or move NightWindows into the
+    // streamed tail — and the Financial District silently ships with no street
+    // light at all, which is exactly the defect those luminaires exist to fix.
     const beacons = new BeaconLights([...collectBeacons(), ...parkedMarkers(city)]);
     this.beacons = beacons;
     this.scene.add(beacons.group);

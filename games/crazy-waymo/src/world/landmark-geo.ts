@@ -82,6 +82,30 @@ export function box(
 }
 
 /**
+ * Paint every vertex of a freshly built mesh one flat colour.
+ *
+ * A monument that wants MANY colours in one visual language — six painted
+ * Victorians, each with its own body, trim and accent — otherwise needs one
+ * material per colour, and every one of those is a permanent draw call (see
+ * `packLandmark`). A single `vertexColors` material carries all of them and
+ * still merges to ONE call, because the hue rides on the geometry instead of
+ * the material. Only ever call this on a geometry the mesh owns outright: the
+ * attribute is written in place, so a shared `BufferGeometry` would come back
+ * wearing the last colour anyone asked for.
+ *
+ * The material must be `vertexColors: true` with `color` left white — three
+ * MULTIPLIES the two, so a tinted material would darken every vertex colour.
+ */
+export function paint(m: THREE.Mesh, color: number): THREE.Mesh {
+  const pos = m.geometry.getAttribute("position");
+  const c = new THREE.Color(color);
+  const rgb = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) c.toArray(rgb, i * 3);
+  m.geometry.setAttribute("color", new THREE.BufferAttribute(rgb, 3));
+  return m;
+}
+
+/**
  * Flat-shade a primitive in place.
  *
  * three's cone/cylinder builders average their vertex normals AROUND the ring,
@@ -177,10 +201,10 @@ export function arc(
  * happens around the monument's own origin and it still frustum-culls as one
  * compact object.
  *
- * `extra` admits a monument's own SHARED materials (one per Painted Lady, say)
- * into the pack. They still cost one draw call each — the rule is that a
- * material must be reused across the monument to earn its keep, not that only
- * `MAT` may be used.
+ * `extra` admits a monument's own SHARED materials (the Painted Ladies' one
+ * `vertexColors` paint material, say) into the pack. They still cost one draw
+ * call each — the rule is that a material must be reused across the monument to
+ * earn its keep, not that only `MAT` may be used.
  */
 export function packLandmark(src: THREE.Group, extra?: Iterable<THREE.Material>): THREE.Group {
   const packable = extra ? new Set<THREE.Material>([...PACKABLE, ...extra]) : PACKABLE;

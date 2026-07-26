@@ -86,6 +86,57 @@ const SKY_GOLDEN: readonly [number, number, number, number] = [2.2, 0.62, 0.001,
 const SKY_SUNSET: readonly [number, number, number, number] = [3.0, 0.85, 0.0016, 0.68];
 const SKY_NIGHT: readonly [number, number, number, number] = [2.0, 0.5, 0.002, 0.8];
 
+// THE SUN DISC IS AN ENERGY BOMB, and it was the whole of the into-sun
+// blowout. three's Sky paints the disc at `sunE * 19000 * Fex * 0.04` while the
+// sky 0.6° off it sits at 1.4 (golden hour) — measured pre-tonemap linear, the
+// space the post chain works in. The disc is therefore ~85,000 at golden hour
+// and ~322,000 at noon: a 60,000:1 contrast step, and above the 65,504 ceiling
+// of the composer's HalfFloat target, so at noon it is literally +Inf.
+//
+// On its own that would be harmless — ACES clips a 5 and a 300,000 to the same
+// white pixel. What is NOT harmless is that the bloom pass then blurs it: with
+// the day cut at 3.0 the pyramid gets ~85,000 of headroom energy from a
+// half-degree disc and smears it over a third of the screen. Measured, chase
+// cam, golden hour, driving into the sun: 37.3% of the frame over 88%
+// luminance with bloom on, 3.0% with bloom off (same camera, same world) — and
+// the road under the veil went from an asphalt-black 0.11 to a milky 0.38. The
+// sky gradient was never the defect; the flare from the disc was.
+//
+// So the disc gets scaled into the range everything else lives in. It still
+// ACES-clips to a white-hot dot (anything over ~8 does) and it still sits well
+// over the day bloom cut (render/post.ts, 6.5), so it keeps a real flare —
+// just a bounded one. Measured across the same three golden-hour cameras, the
+// blown share goes 2.8% at radiance 8 (no flare at all, and the hour stops
+// reading), 4.5% at 400, 6.6% at 2000 — where the veil starts eating the
+// facades beside the sun again. 400 is that curve's knee.
+//
+// The gain is derived per frame from the CURRENT `sunE` rather than fixed, so
+// the disc holds one radiance from dawn to dusk instead of quadrupling at
+// noon; per-pixel Fex still reddens and dims it near the horizon, which is the
+// part that should change with the hour.
+const SUN_DISC_RADIANCE = 400;
+// three's Sky.js applies `showSunDisc` as a plain multiplier on the disc term,
+// so a fractional value is the supported way to scale it. These two constants
+// mirror the shader's own: the disc term is `vSunE * 19000 * Fex * 0.04`, and
+// `vSunE` comes from its vertex-stage `sunIntensity(dot(sunDir, up))`.
+const SUN_DISC_TERM = 19000 * 0.04;
+const SUN_CUTOFF_ANGLE = 1.6110731556870734;
+const SUN_STEEPNESS = 1.5;
+const SUN_EE = 1000;
+
+// Sky.js `sunIntensity`, given the sine of the sun's elevation. Zero once the
+// sun is below the shader's cutoff — which is also where we want no disc at
+// all, so the divide below is never near zero.
+function sunIntensity(elevSin: number): number {
+  const z = THREE.MathUtils.clamp(elevSin, -1, 1);
+  return SUN_EE * Math.max(0, 1 - Math.exp(-(SUN_CUTOFF_ANGLE - Math.acos(z)) / SUN_STEEPNESS));
+}
+
+function sunDiscGain(elevSin: number): number {
+  const e = sunIntensity(elevSin);
+  return e > 1 ? Math.min(1, SUN_DISC_RADIANCE / (e * SUN_DISC_TERM)) : 0;
+}
+
 function stop(
   p: number,
   sunElev: number,
@@ -347,6 +398,8 @@ export class DayNight {
     if (rayl) rayl.value = THREE.MathUtils.lerp(a.sky[1], b.sky[1], t);
     if (mieC) mieC.value = THREE.MathUtils.lerp(a.sky[2], b.sky[2], t);
     if (mieG) mieG.value = THREE.MathUtils.lerp(a.sky[3], b.sky[3], t);
+    const disc = skyU.showSunDisc;
+    if (disc) disc.value = sunDiscGain(this.scrSun.y);
 
     // Shadow light: direction, color, intensity. Shadows FADE via
     // shadow.intensity instead of toggling castShadow — flipping castShadow
