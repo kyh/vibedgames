@@ -113,7 +113,10 @@ bake-network.mts`) from the same park-cleared polylines — car-free-park
 ## Verifying in a browser (headless)
 
 Dev-only hooks on `window.__taxi`: `game`, `probe()` (pos/speed/state),
-`teleport(u, v)` (map fractions, 0-1), `lookFrom(x,y,z, tx,ty,tz)` (freecam),
+`teleport(u, v)` (map fractions, 0-1 — snaps to the road CENTRELINE via
+`network.nearest`, NOT a road cell centre: a cell can be ~18u off its
+centreline at wide junctions, which used to drop the car inside buildings and
+made every agent's headless spot-check unreliable), `lookFrom(x,y,z, tx,ty,tz)` (freecam),
 `setPhase(p)` (0.25 noon, 0.4 golden hour, 0.47 sunset, 0.7 night — pins the day-night cycle),
 `setFreecam(on)`, `pick(nx, ny)` (raycast debug).
 

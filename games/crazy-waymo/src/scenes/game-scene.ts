@@ -1255,45 +1255,29 @@ vec3 ocGerstner(vec2 p, float t) {
     return { x: city.worldX(mid.gx), z: city.worldZ(mid.gz), yaw: 0, gx: mid.gx, gz: mid.gz };
   }
 
-  // DEV-only: drop the taxi at the road cell nearest to normalized map coords
-  // (u,v) — snapped onto a road, yaw aligned to an open road direction nearest
-  // the requested one, so scripted drives don't start nose-first into a lot.
+  // DEV-only: drop the taxi on the road CENTRELINE nearest to normalized map
+  // coords (u,v), yaw aligned to the edge tangent (whichever direction is
+  // closer to the requested one) so scripted drives start in a lane. Snapping
+  // to a road *cell* centre used to land the car inside a building: a cell is
+  // up to ~18u from its centreline at wide junctions (a by-design baseline
+  // `pnpm test` asserts), which is wider than a lot.
   debugTeleport(u: number, v: number, yaw: number): void {
     const car = this.car;
     const city = this.city;
     if (!car || !city) return;
     const x = (u - 0.5) * WORLD_W;
     const z = (v - 0.5) * WORLD_H;
-    let best: { gx: number; gz: number } | null = null;
-    let bd = Infinity;
-    for (const rc of city.roadCells) {
-      const cx = city.worldX(rc.gx);
-      const cz = city.worldZ(rc.gz);
-      const d = (cx - x) * (cx - x) + (cz - z) * (cz - z);
-      if (d < bd) {
-        bd = d;
-        best = rc;
-      }
+    // Widening search: most calls hit on the first ring; the last ring covers
+    // the water and the park interiors, where the nearest street is far.
+    let hit = null;
+    for (const r of [60, 240, 1200, 6000]) {
+      hit = city.network.nearest(x, z, r);
+      if (hit) break;
     }
-    if (!best) return;
-    const isRoad = (gx: number, gz: number): boolean => city.plan.cells[gx]?.[gz] === "road";
-    const options: { yaw: number; open: boolean }[] = [
-      { yaw: 0, open: isRoad(best.gx, best.gz + 1) },
-      { yaw: Math.PI, open: isRoad(best.gx, best.gz - 1) },
-      { yaw: HALF_PI, open: isRoad(best.gx + 1, best.gz) },
-      { yaw: -HALF_PI, open: isRoad(best.gx - 1, best.gz) },
-    ];
-    let bestYaw = yaw;
-    let bestDiff = Infinity;
-    for (const o of options) {
-      if (!o.open) continue;
-      const diff = Math.abs(((o.yaw - yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
-      if (diff < bestDiff) {
-        bestDiff = diff;
-        bestYaw = o.yaw;
-      }
-    }
-    car.reset(city.worldX(best.gx), city.worldZ(best.gz), bestYaw);
+    if (!hit) return;
+    const along = Math.atan2(hit.tx, hit.tz);
+    const flip = Math.abs(((along - yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI) > HALF_PI;
+    car.reset(hit.x, hit.z, flip ? along + Math.PI : along);
     this.rig.snapTo(car);
   }
 
