@@ -2,6 +2,7 @@ import * as THREE from "three";
 
 import { setGradeNight } from "./grade";
 import { NightSky } from "./night-sky";
+import { nightFillScale } from "./quality";
 import type { Sky } from "./sky";
 
 // Keyframed day-night lighting driven by REAL San Francisco time: the game
@@ -420,6 +421,17 @@ export class DayNight {
     const disc = skyU.showSunDisc;
     if (disc) disc.value = sunDiscGain(this.scrSun.y);
 
+    // How far past the horizon the sun is, 0..1 — the "after dark" term. It
+    // swaps in the night sky dome (below) and scales the night fill (see
+    // NIGHT IS NOT A DIMMER, further down). Deliberately NOT the lamp factor:
+    // lamps come on at sunset, while a fill cut applied to a sunset would take
+    // the hour's own light with it.
+    const nightAmt = THREE.MathUtils.smoothstep(-this.scrSun.y, 0.02, 0.12);
+    // Device-class night fill (render/quality.ts). 1 by day at every hour and
+    // on every phone, so this multiplication is an identity everywhere except
+    // a desktop after dark.
+    const fill = 1 + (nightFillScale() - 1) * nightAmt;
+
     // Shadow light: direction, color, intensity. Shadows FADE via
     // shadow.intensity instead of toggling castShadow — flipping castShadow
     // at runtime (with shadowMap.autoUpdate managed manually) rebinds a stale
@@ -459,7 +471,27 @@ export class DayNight {
     hemi.color.lerpColors(a.hemiSky, b.hemiSky, t);
     hemi.groundColor.lerpColors(a.hemiGround, b.hemiGround, t);
     hemi.intensity = THREE.MathUtils.lerp(a.hemiInt, b.hemiInt, t);
-    ambient.intensity = THREE.MathUtils.lerp(a.ambInt, b.ambInt, t);
+    // NIGHT IS NOT A DIMMER, PART TWO: the fill that survived the halving is
+    // still what paints a near wall. Measured through per-camera stencils
+    // (kit facades vs sky) on a FiDi chase frame at 1280x720: facade median
+    // 8.24 against a sky median of 4.71 — 1.75:1 the wrong way round, while
+    // the Richmond control reads 0.60:1. Zeroing the AmbientLight takes that
+    // 8.24 to 2.75; zeroing the environment takes it to 5.10; zeroing the
+    // hemisphere takes it to 7.84 and the moon moves it not at all. So the
+    // omnidirectional pair is the whole defect, and the environment half is
+    // literally a dimmed day — the env cube is a DAYLIGHT sky (game-scene
+    // applyEnvironment: #7fb2e0 zenith, #dde6ea horizon) still shining at
+    // midnight. Both get the same multiplier; the hemisphere keeps its full
+    // value because it is worth 0.4 of the 8.24 and it is the only fill that
+    // carries an up/down gradient at all.
+    //
+    // At quality.ts's desktop 0.45 the same frame reads 3.53 against 4.31 —
+    // 0.82:1, the inversion — Market goes 0.88:1 -> 0.39:1, and the two
+    // residential controls that were already right only get righter (Richmond
+    // 0.60 -> 0.20, Sunset 1.00 -> 0.45). The moon still carries the shape:
+    // what the cut takes away is the part of a wall that no light source in
+    // the frame accounts for.
+    ambient.intensity = THREE.MathUtils.lerp(a.ambInt, b.ambInt, t) * fill;
     ambient.color.lerpColors(a.ambColor, b.ambColor, t);
 
     fog.color.copy(this.scrColor.lerpColors(a.fog, b.fog, t));
@@ -472,7 +504,6 @@ export class DayNight {
     // and a star field painted onto the CALLER's fog color, so the fog line
     // still meets it seamlessly while the upper half of the frame stops being
     // one dead value. Falls back to that flat navy where there is no canvas.
-    const nightAmt = THREE.MathUtils.smoothstep(-this.scrSun.y, 0.02, 0.12);
     if (nightAmt >= 1) {
       sky.visible = false;
       scene.background =
@@ -485,7 +516,7 @@ export class DayNight {
       scene.background = null;
     }
 
-    scene.environmentIntensity = THREE.MathUtils.lerp(a.env, b.env, t);
+    scene.environmentIntensity = THREE.MathUtils.lerp(a.env, b.env, t) * fill;
     if (this.renderer) {
       this.renderer.toneMappingExposure = THREE.MathUtils.lerp(a.exposure, b.exposure, t);
     }

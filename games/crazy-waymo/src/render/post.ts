@@ -127,6 +127,24 @@ const DAY_BLOOM_STRENGTH = 0.22;
 // (day-night.ts SUN_DISC_RADIANCE, 400), which is the one thing that should
 // flare by day. Nothing else is lost: the additive FX (trails, boost rings,
 // sparks) peak near 1-2 over a lit road, so they never crossed 3.0 either.
+//
+// AND THERE IS NO CUT THAT GIVES THEM ONE — but not because a lower cut costs
+// anything. That was asserted from an analytic re-integration of the rolled-off
+// dome (noon peaks 2.76 in the aureole, 1.9 along the horizon; golden 1.92) and
+// the gate measured it instead: with the cut FORCED to 3.0 and then 2.5 at four
+// cameras, the >=88%-luminance share moves by at most +0.8pp (Ocean Beach
+// golden 9.68 -> 10.49, i.e. the sun's own glitter path) and by under 0.05pp at
+// Twin Peaks noon, skyline-from-bay noon and a Nob Hill golden chase — and the
+// same-camera pairs are indistinguishable. The veil does NOT come back at 2.5.
+//
+// The real reason is the arithmetic on the other side: the additive FX peak
+// near 1-2, so a cut at 2.5 cannot bloom them either. To glow a drift trail you
+// would need ~1.0, under the entire lit sky — THAT is where the veil lives. So
+// 6.5 -> 3.0 is close to free and close to pointless; the FX glow and the clean
+// horizon really are the same knob, just further apart than 3.0.
+//
+// If daytime FX glow is ever wanted, it is a second additive pass keyed off the
+// FX layer, not a move of this constant.
 const DAY_BLOOM_THRESHOLD = 6.5;
 // The night cut sits just under the dimmest thing that should glow — the lamp
 // pools, authored to ~0.9 at their core (fx/lamp-glow.ts POOL_GAIN) — and no
@@ -135,6 +153,25 @@ const DAY_BLOOM_THRESHOLD = 6.5;
 // 70-candela spot) turns into a frame-filling white blob.
 const NIGHT_BLOOM_STRENGTH = 0.5;
 const NIGHT_BLOOM_THRESHOLD = 0.85;
+// THE NIGHT SPILL HAS NO SHAPE KNOB — four experiments, all measured on a FiDi
+// and a Market chase frame at midnight, kit-facade mean through a per-camera
+// stencil. Bloom does lift the facades it is supposed to be lighting: turning
+// it off takes that mean 4.91 -> 3.80, a 29% wash. But
+//   - `radius` 0.3 -> 0 moves it 4.91 -> 4.91 (the composite's mip weights),
+//   - hand-zeroing the two widest mips (bloomFactors [1,.7,.3,.05,0]) 4.91 ->
+//     4.76 — the wash is in mip1/mip2, not in the frame-scale blurs,
+//   - `strength` 0.5 -> 0.4 takes facade AND sky down together (ratio 0.89 ->
+//     0.86), i.e. it dims the lamps rather than tightening them,
+//   - running the grade BEFORE the bloom (so the pass harvests dipped facades
+//     and the grade's own source mask) makes it WORSE, 4.91 -> 5.62: the
+//     vibrance and split tone land on the source first and the bloom then adds
+//     on top of a lifted frame.
+// So the residual halo is the SOURCE's own billboard skirt, not the pyramid:
+// it is authored in fx/lamp-glow.ts and fx/night-windows.ts, and downtown it
+// is the beacon layer's house gain (fx/beacon-lights.ts). Shrinking the two
+// constants this side owns (MAST_HALO 1.5 -> 1.0, HALO_GAIN 3.4 -> 2.6) moved
+// the facade mean 1.4% and the blown share 0.07pp and is invisible in a
+// same-camera pair — do not spend those constants on it.
 
 export class PostPipeline {
   private composer: EffectComposer;
