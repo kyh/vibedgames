@@ -1,11 +1,6 @@
 import type * as THREE from "three";
 
-import {
-  FULL_QUALITY,
-  isCoarsePointer,
-  type QualityFeatures,
-  setLiveQuality,
-} from "./quality";
+import { FULL_QUALITY, isCoarsePointer, type QualityFeatures, setLiveQuality } from "./quality";
 
 // Adaptive quality: keeps the game at target frame rate by stepping render
 // resolution (and, at the floor tier, shadow resolution) instead of letting it
