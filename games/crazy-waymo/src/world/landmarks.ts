@@ -15,6 +15,7 @@ import { Rng } from "../shared/rng";
 import type { Solid } from "./city";
 import type { CityPlan } from "./grid";
 import { arc, box, cyl, dome, facet, MAT, mesh, packLandmark, paint, strut } from "./landmark-geo";
+import { MASONRY, seatMasonry } from "./masonry";
 import type { RoadNetwork } from "./network";
 import type { Terrain } from "./terrain";
 
@@ -375,8 +376,10 @@ const PL_PAINT = new THREE.MeshStandardMaterial({
   roughness: 0.85,
   vertexColors: true,
 });
-/** Admitted into `packLandmark`'s pack set — see `buildLandmarks`. */
-const PL_MATS: readonly THREE.Material[] = [PL_PAINT];
+/** Admitted into `packLandmark`'s pack set — see `buildLandmarks`. The six
+ *  masonry tones are shared across every monument that stands on stone, so
+ *  they earn their place the same way `PL_PAINT` does. */
+const PL_MATS: readonly THREE.Material[] = [PL_PAINT, ...Object.values(MASONRY)];
 
 /**
  * Six houses, three tints each: the body, the light trim every moulding and
@@ -835,10 +838,27 @@ function bayApproach(g: THREE.Group, ctx: LandmarkCtx): void {
   // viaduct survives the clearance test, the deck must END on something — the
   // pitched ramp existed because a bare deck end 13u up in mid-air is worse
   // than anything else on the crossing.
+  //
+  // It is MASONRY, not a concrete box. This block is the "Embarcadero slab"
+  // the last two audits both filed: an untextured mass standing across the
+  // waterfront street, which 12 of 16 centre-grid raycasts land on from the
+  // chase camera. Same coursing, cornice and staining as the anchorages it
+  // belongs to (world/masonry.ts) — the whole crossing is one material.
   const abutment = (x: number): void => {
     const gy = ctx.groundAt(x - 3, 0);
     const h = Math.max(2.4, soffit - gy + 2.4);
-    g.add(box(9, h, BAY_HALF_W * 2 + 4, MAT.concrete, x - 3.5, soffit - h / 2, 0));
+    g.add(
+      seatMasonry({
+        w: 9,
+        d: BAY_HALF_W * 2 + 4,
+        h,
+        x: x - 3.5,
+        y: soffit - h,
+        z: 0,
+        seed: x,
+        batter: 0.05,
+      }),
+    );
   };
   let x0 = x1;
   for (let px = x1; px >= BAY_APPROACH; px -= 2) {
@@ -901,46 +921,39 @@ function bayBridge(ctx: LandmarkCtx): THREE.Group {
   // burying itself in over the Embarcadero. Height is now the portal band.
   const PORTAL_Y = D;
   const PORTAL_H = BAY_ANCHOR_TOP - PORTAL_Y;
-  g.add(box(26, PORTAL_H, 26, MAT.concrete, BAY_ANCHOR_W, (BAY_ANCHOR_TOP + PORTAL_Y) / 2, 0));
-  g.add(box(20, 4, 20, MAT.concrete, BAY_ANCHOR_W, BAY_ANCHOR_TOP + 1, 0)); // stepped crown
-  // Relief on the block's faces. 26 × 11u of unbroken concrete right beside a
-  // street is the biggest blank surface on the waterfront; recessed panels and
-  // a cornice band give the mass a scale without changing its silhouette. The
-  // panels carried the same overhang bug as the block and hung 3u below the
-  // portal; they are the portal band now too.
-  for (let i = -1; i <= 1; i++) {
-    for (const sz of [-13.3, 13.3]) {
-      g.add(
-        box(
-          6.4,
-          PORTAL_H,
-          0.8,
-          MAT.steel,
-          BAY_ANCHOR_W + i * 8,
-          (BAY_ANCHOR_TOP + PORTAL_Y) / 2,
-          sz,
-        ),
-      );
-    }
-    for (const sx of [-13.3, 13.3]) {
-      g.add(
-        box(
-          0.8,
-          PORTAL_H,
-          6.4,
-          MAT.steel,
-          BAY_ANCHOR_W + sx,
-          (BAY_ANCHOR_TOP + PORTAL_Y) / 2,
-          i * 8,
-        ),
-      );
-    }
-  }
-  // Cornice band, ON the block's top course. It used to sit at
-  // BAY_ANCHOR_TOP + 9 — a 27u slab floating in mid-air four units clear of a
-  // block whose real top was 29; with the block corrected to its portal band
-  // the float would have been six.
-  g.add(box(27, 1.1, 27, MAT.steel, BAY_ANCHOR_W, BAY_ANCHOR_TOP - 0.55, 0));
+  // 26 × 11u of unbroken concrete right beside a street was the biggest blank
+  // surface on the waterfront. It used to be given a scale by APPLIED relief —
+  // steel pilaster strips down the faces and a steel cornice band — which is a
+  // second material stuck onto a flat mass rather than the mass having a
+  // surface. It is now coursed masonry with its own cornice profile
+  // (world/masonry.ts), the same stone the Golden Gate's anchorages are cut
+  // from, so the two crossings really are built out of one vocabulary instead
+  // of only claiming to be. The applied strips and the band go with it — the
+  // coursing and the cornice do their job.
+  g.add(
+    seatMasonry({
+      w: 26,
+      d: 26,
+      h: PORTAL_H,
+      x: BAY_ANCHOR_W,
+      y: PORTAL_Y,
+      z: 0,
+      seed: 11,
+      batter: 0.04,
+    }),
+  );
+  // Stepped crown.
+  g.add(
+    seatMasonry({
+      w: 20,
+      d: 20,
+      h: 4,
+      x: BAY_ANCHOR_W,
+      y: BAY_ANCHOR_TOP - 1,
+      z: 0,
+      seed: 23,
+    }),
+  );
   // The footing grid is pulled INSIDE the block's own footprint (±7 of a ±13
   // block): the outer ring is the part that reaches toward the waterfront
   // street, and the block above already oversails it, so a real anchorage
@@ -984,17 +997,22 @@ function bayBridge(ctx: LandmarkCtx): THREE.Group {
     ] as const;
     let base = D - 12;
     for (const t of tiers) {
-      g.add(box(t.w, t.top - base, t.d, MAT.concrete, BAY_ANCHOR_MID, (t.top + base) / 2, 0));
-      g.add(box(t.w + 0.9, 0.9, t.d + 0.9, MAT.steel, BAY_ANCHOR_MID, t.top - 0.45, 0));
+      // Sized to the old steel setback band, which `masonryBlock` reproduces as
+      // the outermost course of its own cornice — same silhouette, and the
+      // applied band and the applied panels are both gone: a stone mass gets
+      // its scale from being CUT, not from strips glued to it.
+      g.add(
+        seatMasonry({
+          w: t.w + 0.9,
+          d: t.d + 0.9,
+          h: t.top - base,
+          x: BAY_ANCHOR_MID,
+          y: base,
+          z: 0,
+          seed: t.w,
+        }),
+      );
       base = t.top;
-    }
-    // Recessed panels on the top tier's four faces, the same relief the SF
-    // anchorage carries, so the tallest course has a scale to read against.
-    for (const off of [-6, 0, 6]) {
-      g.add(box(4.4, 9, 0.7, MAT.steel, BAY_ANCHOR_MID + off, D + 9, 11.3));
-      g.add(box(4.4, 9, 0.7, MAT.steel, BAY_ANCHOR_MID + off, D + 9, -11.3));
-      g.add(box(0.7, 9, 4.4, MAT.steel, BAY_ANCHOR_MID + 9.3, D + 9, off));
-      g.add(box(0.7, 9, 4.4, MAT.steel, BAY_ANCHOR_MID - 9.3, D + 9, off));
     }
   }
 

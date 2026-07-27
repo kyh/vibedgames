@@ -4,6 +4,7 @@ import type { ModelCache } from "../assets/loader";
 import { BRIDGE_PILLAR_WIDE, modelUrl, PARK_TREES, ROAD_BRIDGE } from "../assets/manifest";
 import type { Beacon } from "../fx/beacon-lights";
 import { GRID_X, GRID_Z, WORLD_HALF_Z, WORLD_W } from "../shared/constants";
+import { seatMasonry } from "./masonry";
 import type { CityPlan } from "./grid";
 import type { Solid, SurfaceDeck } from "./city";
 import type { Terrain } from "./terrain";
@@ -72,18 +73,22 @@ const APPROACH_U_MAX = 0.35;
 
 const ORANGE = new THREE.MeshStandardMaterial({ color: 0xc0362c, roughness: 0.6 });
 const RAIL_ORANGE = new THREE.MeshStandardMaterial({ color: 0xa93227, roughness: 0.7 });
-// Anchorage and abutment masonry, in the shore's OWN grey — the same 0x9aa2a6
-// the seawall lip (city.ts) and the Battery Ridge parapet below are drawn in.
-// The anchorages used to be International Orange, which made them the one
-// place in the world where a flat untextured mass of the accent colour stood
-// at arm's length: paint on a counterweight is not a material the rest of the
-// game speaks. Orange stays on the STRUCTURE — the towers, the cables, the
-// truss — and the only orange left down here is the saddle plate the cable
-// actually lands on.
-const STONE = new THREE.MeshStandardMaterial({ color: 0x9aa2a6, roughness: 1 });
-// The shadow band at each setback. Without it three grey tiers with nothing
-// between them read as one grey slab from more than about 40u.
-const STONE_BAND = new THREE.MeshStandardMaterial({ color: 0x7d868b, roughness: 1 });
+// Anchorage and abutment masonry: `masonry.ts seatMasonry`, in the shore's own
+// grey family (one step off the seawall lip's — the two may LOOK the same and
+// must never BE the same descriptor; masonry.ts MASONRY says why).
+//
+// The anchorages used to be International Orange, which made them the one place
+// in the world where a flat untextured mass of the accent colour stood at arm's
+// length. Wave 6 fixed the COLOUR and left them flat, which is the same defect
+// wearing grey: two stacked prisms filling a quarter of the frame with no
+// joint, no scale cue and mathematically sharp arrises, in a world where every
+// other near surface carries a kit atlas or a procedural pass. They are now
+// coursed ashlar with recessed bed joints, chamfered arrises, a cornice profile
+// at each setback and drip staining under it — see masonry.ts for why that has
+// to be geometry here and cannot be a shader.
+//
+// Orange stays on the STRUCTURE — the towers, the cables, the truss — and the
+// only orange left down here is the saddle plate the cable actually lands on.
 // Tower marker lights are light SOURCES, not lit surfaces: unlit and
 // untonemapped, like the traffic signals, so they survive the night grade. The
 // beacon sprites give the halo; these give the tower its own dotted structure
@@ -967,11 +972,22 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
       // nothing when the crossing is seen end-on; a pier gives the structure a
       // foot, and it is the same masonry the cables are pulling against at
       // either end, so the crossing keeps ONE vocabulary from shore to shore.
+      //
+      // The mass starts just under the (opaque) waterline rather than at the
+      // old -8.4: everything below that was coursing nobody can see.
       const fenderW = legX * 2 + LEG_BASE + 2.4;
       const fenderD = LEG_BASE * LEG_DEPTH + 5.4;
-      objects.push(mesh(new THREE.BoxGeometry(fenderW, 10, fenderD), STONE, ax, -3.4, tz));
       objects.push(
-        mesh(new THREE.BoxGeometry(fenderW + 0.7, 0.5, fenderD + 0.7), STONE_BAND, ax, 1.4, tz),
+        seatMasonry({
+          w: fenderW + 0.7,
+          d: fenderD + 0.7,
+          h: 4.4,
+          x: ax,
+          y: -2.8,
+          z: tz,
+          seed: tz,
+          batter: 0.1,
+        }),
       );
     }
   }
@@ -1088,23 +1104,25 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
       let base = footY - 6;
       for (const t of tiers) {
         const off = out * (t.w / 2 - INNER);
+        // Sized to the OLD setback band, not to the old shaft: `masonryBlock`
+        // measures w/d to the outermost face, which is the cornice, so passing
+        // the band's footprint reproduces the silhouette the corridor clearance
+        // was measured against to the millimetre and leaves the shaft itself
+        // fractionally further from the chase camera than before.
+        //
+        // No batter: the inner face — the one the carriageway runs past — has
+        // to stay on a single plane, and the three tiers already carry the
+        // abutment's taper between them.
         objects.push(
-          mesh(
-            new THREE.BoxGeometry(t.w, t.top - base, t.d),
-            STONE,
-            cx + off,
-            (t.top + base) / 2,
-            anchorZ,
-          ),
-        );
-        objects.push(
-          mesh(
-            new THREE.BoxGeometry(t.w + 0.4, 0.46, t.d + 0.4),
-            STONE_BAND,
-            cx + off,
-            t.top - 0.23,
-            anchorZ,
-          ),
+          seatMasonry({
+            w: t.w + 0.4,
+            d: t.d + 0.4,
+            h: t.top - base,
+            x: cx + off,
+            y: base,
+            z: anchorZ,
+            seed: sx + t.d,
+          }),
         );
         base = t.top;
       }
@@ -1138,9 +1156,17 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
     }
     for (const sx of [-legX, legX]) {
       const cx = ax + sx;
-      objects.push(mesh(new THREE.BoxGeometry(5.6, 9, 7.6), STONE, cx, landY - 0.55 - 4.5, landZ));
       objects.push(
-        mesh(new THREE.BoxGeometry(6.1, 0.46, 8.1), STONE_BAND, cx, landY - 0.78, landZ),
+        seatMasonry({
+          w: 6.1,
+          d: 8.1,
+          h: 9,
+          x: cx,
+          y: landY - 0.55 - 9,
+          z: landZ,
+          seed: sx * 3 + landZ,
+          batter: 0.08,
+        }),
       );
       objects.push(mesh(new THREE.BoxGeometry(3.0, 1.0, 4.2), ORANGE, cx, landY, landZ));
     }
@@ -1153,7 +1179,6 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
   // its visual in one breath (the seawall rule), and every seated tree
   // carries its own trunk solid — nothing here can become an invisible wall.
   if (landfallZ !== null) {
-    const STONE = new THREE.MeshStandardMaterial({ color: 0x9aa2a6, roughness: 1 });
     const ox = ax;
     const oz = -WORLD_HALF_Z + 20;
     const R = 16;
@@ -1165,13 +1190,23 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
       const px = ox + R * Math.sin(a);
       const pz = oz - R * Math.cos(a);
       const py = ctx.terrain.heightAt(px, pz);
-      const wall = new THREE.Mesh(new THREE.BoxGeometry(wallLen, 1.05, 0.66), STONE);
-      wall.position.set(px, py + 0.38, pz);
-      wall.rotation.y = -a; // long axis along the arc tangent
-      wall.castShadow = true;
-      wall.receiveShadow = true;
-      wall.updateMatrixWorld(true);
-      objects.push(wall);
+      // Same masonry as the anchorages, at a garden wall's scale: two courses
+      // and a coping. The overlook is the one place a player parks and gets
+      // OUT of the shot the bridge is famous for, so the wall they park against
+      // has to be the same material the abutment is.
+      objects.push(
+        seatMasonry({
+          w: wallLen,
+          d: 0.66,
+          h: 1.05,
+          x: px,
+          y: py - 0.15,
+          z: pz,
+          yaw: -a, // long axis along the arc tangent
+          seed: i * 17 + 3,
+          courseH: 0.42,
+        }),
+      );
       solids.push({
         minX: px - wallLen / 2,
         maxX: px + wallLen / 2,

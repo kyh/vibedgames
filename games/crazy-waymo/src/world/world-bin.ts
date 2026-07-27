@@ -100,7 +100,24 @@ import type { CityGenPayload } from "./gen-worker";
 // quarter of the network stood above 24u, worst 58.3u (25x the car). Now each
 // sample's rise is capped by its own ceiling and an over-steep pair settles by
 // LOWERING the high side. Deck geometry, pillars and physics all move.
-export const WORLD_REV = 75;
+// 76: the Golden Gate's masonry becomes MASONRY (world/masonry.ts) — coursed
+// ashlar with recessed bed joints, chamfered arrises, a cornice profile at each
+// setback and drip staining under it, in place of flat prisms with a band on
+// top. Both anchorages, both tower fenders and the Battery Ridge parapet.
+// It has to be GEOMETRY and it has to be a rebake: buildGoldenGate is cold-gen
+// only, its meshes ship in rest.bin, and the baked path rebuilds a material
+// from the serialized MatRec — so a shader on the shared stone material reaches
+// nobody who plays the shipped game (measured; see masonry.ts). The outer
+// silhouette of every mass is unchanged: each block is sized to the setback
+// band it replaces, so the anchorage corridor clearance the chase camera was
+// measured against does not move.
+// 77: the masonry `face` tone moves 0x9aa2a6 -> 0x9ba3a7. 76 shipped it at the
+// seawall lip's EXACT descriptor, and the baked material factory dedupes by
+// descriptor, so one material object ended up on two BatchedMeshes with
+// different batch state and the anchorage's face stones drew pure BLACK from
+// the standard chase framing. The colour lives in the bin's MatRec, so the
+// separation only reaches players through a rebake. Nothing else moves.
+export const WORLD_REV = 77;
 
 export type Typed = Float32Array | Uint16Array | Uint32Array | Int8Array | Uint8Array | Int32Array;
 export type BufRef = { $buf: number; $type: "f32" | "u16" | "u32" | "i8" | "u8" | "i32" };

@@ -2,6 +2,7 @@ import * as THREE from "three";
 
 import { WORLD_HALF_X, WORLD_HALF_Z } from "../shared/constants";
 import type { RoadNetwork } from "./network";
+import { WEATHER } from "./masonry";
 import { applyAsphaltSpeckle, lowDetailSurfaces } from "./roads";
 import { SF_FREEWAY_RAMPS, SF_FREEWAYS } from "./sf-freeways";
 import type { Terrain } from "./terrain";
@@ -241,11 +242,12 @@ float conLine(float d, float w, float px) {
   float grit = conHash(floor(fc * 2.4)) - 0.5;
   float mottle = conNoise(fc * 0.55) - 0.5;
   float pour = conNoise(fc * 0.042 + 13.0) - 0.5;
-  diffuseColor.rgb *= 1.0 + grit * 0.055 + mottle * 0.04 + pour * 0.10;
+  diffuseColor.rgb *= 1.0 + grit * ${WEATHER.grainValue.toFixed(3)} + mottle * 0.04 + pour * 0.10;
 
   // FORM-BOARD SEAMS. Cast concrete carries the lines of the boards it was
   // poured against — horizontal, and on vertical faces only.
-  diffuseColor.rgb *= 1.0 - conLine(abs(fract(wp.y / 0.62) - 0.5) * 0.62, 0.03, pxy) * vert * 0.14;
+  diffuseColor.rgb *= 1.0 - conLine(abs(fract(wp.y / 0.62) - 0.5) * 0.62, 0.03, pxy)
+    * vert * ${WEATHER.jointValue.toFixed(3)};
 
   // A lift joint every deck span, on the DECK members only: it means "one span
   // ended here", which is true of a fascia and a barrier and meaningless on a
@@ -260,13 +262,40 @@ float conLine(float d, float w, float px) {
   // face a driver is under more than any other — reading as one flat plane.
   // It also takes a little bounce off the bright ground it spans, without
   // which the value cut above turns it into a hole in the frame.
+  //
+  // The ribs run ONE WAY, and a single direction of line is what still left
+  // this face reading flat from a chase camera: a real box-girder underside is
+  // a grid, ribs along the span crossed by a diaphragm at every floorbeam. The
+  // transverse member is the second family, at the deck's own 7.5u bay pitch,
+  // and it is what gives the soffit a scale a driver can read as they pass
+  // under it.
   float soffit = step(0.5, kind) * (1.0 - step(1.5, kind)) * (1.0 - vert);
   if (soffit > 0.01) {
     float rib = conLine(abs(fract(coord / 1.7) - 0.5) * 1.7, 0.07, px);
-    diffuseColor.rgb *= 1.0 + soffit * (0.10 - rib * 0.22);
+    float diaph = conLine(abs(fract(along / 7.5) - 0.5) * 7.5, 0.16, px);
+    float shutter = conHash(floor(vec2(coord / 1.7, along / 7.5))) - 0.5;
+    diffuseColor.rgb *= 1.0 + soffit
+      * (0.10 - rib * 0.30 - diaph * 0.14 + shutter * 0.05);
   }
 
   #ifdef CONCRETE_FULL
+    // AGGREGATE. The 0.42u \`grit\` cells above are a blotch, not a grain: from a
+    // chase camera one of them is 170 pixels. This is the octave that actually
+    // reads as a cast surface at arm's length, and it fades out completely by
+    // the time a pixel is half its size, so it can never alias into noise on a
+    // colonnade three blocks away — the same rule every fixed-width feature in
+    // this world follows.
+    diffuseColor.rgb *= 1.0 + (conHash(floor(fc * 22.0)) - 0.5)
+      * ${(WEATHER.grainValue * 1.5).toFixed(3)} * (1.0 - smoothstep(0.012, 0.05, px));
+
+    // LIFT JOINTS ON THE COLUMNS. A pier is poured in lifts like everything
+    // else, and the horizontal line where one pour met the next is the cheapest
+    // scale cue a bare 1.9u shaft can carry. Deck members already get their
+    // per-span joint above; this is the same fact about the substructure.
+    float sub = step(3.5, kind);
+    diffuseColor.rgb *= 1.0 - conLine(abs(fract(wp.y / 2.9) - 0.5) * 2.9, 0.055, pxy)
+      * vert * sub * ${(WEATHER.jointValue * 0.8).toFixed(3)};
+
     // DRIP STAINING. Every hard edge above sheds water down the face below it.
     // Lanes hashed along the face, decaying over the first few metres under the
     // member's top edge — which is where the streaks actually are.
@@ -275,8 +304,8 @@ float conLine(float d, float w, float px) {
     float across = fract(along / 0.5);
     float streak = conHash(vec2(lane, 7.3 + kind))
       * (1.0 - smoothstep(0.12, 0.5, abs(across - 0.5)));
-    float run = exp(-drop / 3.2) * (1.0 - smoothstep(0.25, 0.9, px));
-    diffuseColor.rgb *= 1.0 - vert * streak * run * 0.20;
+    float run = exp(-drop / ${WEATHER.dripRun.toFixed(1)}) * (1.0 - smoothstep(0.25, 0.9, px));
+    diffuseColor.rgb *= 1.0 - vert * streak * run * ${WEATHER.dripValue.toFixed(3)};
     // The continuous darker band right under the drip line, where the water
     // collects before it runs.
     diffuseColor.rgb *= 1.0 - vert * exp(-drop / 0.7) * 0.07;
