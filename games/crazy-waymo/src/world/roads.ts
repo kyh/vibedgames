@@ -638,7 +638,10 @@ float roadPolish = 0.0;
         // out once a pixel spans a big fraction of their width.
         track *= 1.0 - smoothstep(0.15, 0.5, max(dwp.x, dwp.y) / halfW);
         roadPolish = track * asph * (1.0 - gutter);
-        diffuseColor.rgb *= 1.0 + roadPolish * 0.035;
+        // A raking sun turned the sheen into hard streaks, and at a junction
+        // the lateral coordinate has no single meaning (see LATERAL_REACH) so
+        // the ribbons wandered and crossed. Kept as a hint of lane wear only.
+        diffuseColor.rgb *= 1.0 + roadPolish * 0.012;
       #endif
     }
     // Steep blocks are scored concrete, not asphalt (Filbert, 22nd, Jones).
@@ -695,7 +698,7 @@ float roadPolish = 0.0;
         "#include <roughnessmap_fragment>",
         `#include <roughnessmap_fragment>
 // Burnished wheel paths are the one part of the roadway with any sheen.
-roughnessFactor *= 1.0 - roadPolish * 0.4;`,
+roughnessFactor *= 1.0 - roadPolish * 0.10;`,
       );
   };
 }
