@@ -841,9 +841,13 @@ vec3 ocGerstner(vec2 p, float t) {
       cache: this.cache,
       sceneFog: this.sceneFog,
       lampGlowBudget: this.mobileUi ? LAMP_GLOW_BUDGET : null,
-      setLoading: (progress) => {
+      setLoading: (progress, label) => {
         this.mode = { kind: "loading", progress };
-        this.hud.setLoading(progress);
+        this.hud.setLoading(progress, label);
+      },
+      glideLoading: (progress, seconds, label) => {
+        this.mode = { kind: "loading", progress };
+        this.hud.glideLoading(progress, seconds, label);
       },
       hideLoading: () => this.hud.hideLoading(),
       showTitle: () => this.toTitle(),

@@ -4,6 +4,22 @@ function el(id: string): HTMLElement {
   return node;
 }
 
+function sub(selector: string): HTMLElement {
+  const node = document.querySelector(selector);
+  if (!(node instanceof HTMLElement)) throw new Error(`missing ${selector}`);
+  return node;
+}
+
+/** The pre-bundle bar creep, published by the inline script in index.html. */
+type BootBar = { stop(): void; at(): number };
+
+function boot(): BootBar | null {
+  const w: unknown = (globalThis as { __bootBar?: unknown }).__bootBar;
+  if (typeof w !== "object" || w === null) return null;
+  const c = w as Partial<BootBar>;
+  return typeof c.stop === "function" && typeof c.at === "function" ? (c as BootBar) : null;
+}
+
 /** One keycap group: the keys that do it, and what they do. */
 export type ControlHint = { readonly keys: readonly string[]; readonly label: string };
 
@@ -57,6 +73,9 @@ export class Hud {
   private flashEl = el("flash");
   private loading = el("loading");
   private barFill = el("bar-fill");
+  private loadSub = sub("#loading .ls");
+  private loadFrac = 0;
+  private loadLabel = "";
   private reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   // Score rolls up toward the real value — dollars should count, not teleport.
   private scoreShown = 0;
@@ -390,8 +409,35 @@ export class Hud {
     this.flashEl.animate([{ opacity: a }, { opacity: 0 }], { duration: 220, easing: "ease-out" });
   }
 
-  setLoading(frac: number): void {
-    this.barFill.style.width = `${Math.round(frac * 100)}%`;
+  /** `label` names the stage under the bar. The bar never goes BACKWARDS: the
+   *  inline boot creep in index.html owns 0-14% before the bundle even parses,
+   *  and a stage that reports a lower fraction than it has already reached
+   *  would read as a stall or a bug. */
+  setLoading(frac: number, label?: string): void {
+    boot()?.stop();
+    this.loadFrac = Math.max(this.loadFrac, frac);
+    this.barFill.style.transition = "transform 0.2s";
+    this.barFill.style.transform = `scaleX(${this.loadFrac.toFixed(4)})`;
+    if (label !== undefined && label !== this.loadLabel) {
+      this.loadLabel = label;
+      this.loadSub.textContent = label;
+    }
+  }
+
+  /** Glide the bar toward `frac` over `seconds` using a CSS transition, so the
+   *  motion lives on the compositor. A timer cannot cover the world decode —
+   *  it blocks the main thread, `setInterval` stops firing, and the bar sat
+   *  frozen for ~5s mid-load. CSS keeps moving through the block. */
+  glideLoading(frac: number, seconds: number, label?: string): void {
+    boot()?.stop();
+    if (label !== undefined && label !== this.loadLabel) {
+      this.loadLabel = label;
+      this.loadSub.textContent = label;
+    }
+    if (frac <= this.loadFrac) return;
+    this.loadFrac = frac;
+    this.barFill.style.transition = `transform ${seconds}s linear`;
+    this.barFill.style.transform = `scaleX(${frac.toFixed(4)})`;
   }
   hideLoading(): void {
     this.loading.animate([{ opacity: 1 }, { opacity: 0 }], {

@@ -545,9 +545,14 @@
       }
       #bar-fill {
         height: 100%;
-        width: 0%;
+        width: 100%;
         background: #ffd147;
-        transition: width 0.2s;
+        /* scaleX, not width: a width transition is layout and therefore stops
+           dead whenever the main thread blocks (the world decode does, for
+           seconds). A transform runs on the compositor and keeps moving. */
+        transform: scaleX(0);
+        transform-origin: left center;
+        transition: transform 0.2s;
       }
       #loading .ls {
         font-size: 12px;
@@ -1057,9 +1062,36 @@
     <div id="loading">
       <div class="lt">CRAZY WAYMO</div>
       <div id="bar"><div id="bar-fill"></div></div>
-      <div class="ls">REVVING ENGINES…</div>
+      <div class="ls">Warming up…</div>
     </div>
 
+    <script>
+      // The module bundle is megabytes; on a cold mobile load nothing in it
+      // runs for seconds, so the bar cannot move and the game reads as hung.
+      // Creep to BOOT_CEIL on a timer from HTML parse — the one point that is
+      // already executing — and hand over the moment the app calls setLoading.
+      (function () {
+        var fill = document.getElementById("bar-fill");
+        var sub = document.querySelector("#loading .ls");
+        if (!fill) return;
+        var p = 0;
+        var CEIL = 14;
+        var t = setInterval(function () {
+          // Ease toward the ceiling so it decelerates instead of parking.
+          p += (CEIL - p) * 0.08;
+          fill.style.transform = "scaleX(" + (p / 100).toFixed(4) + ")";
+          if (sub && p > 7) sub.textContent = "Loading game…";
+        }, 120);
+        window.__bootBar = {
+          stop: function () {
+            clearInterval(t);
+          },
+          at: function () {
+            return p / 100;
+          },
+        };
+      })();
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

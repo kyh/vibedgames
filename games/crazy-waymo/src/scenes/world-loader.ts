@@ -71,7 +71,9 @@ type WorldLoaderDeps = {
   readonly cache: ModelCache;
   readonly sceneFog: THREE.Fog;
   readonly lampGlowBudget: LampGlowBudget | null;
-  readonly setLoading: (progress: number) => void;
+  readonly setLoading: (progress: number, label?: string) => void;
+  /** CSS-driven glide for stages that block the main thread. */
+  readonly glideLoading: (progress: number, seconds: number, label?: string) => void;
   readonly hideLoading: () => void;
   readonly showTitle: () => void;
   readonly setStage: (label: string) => void;
@@ -182,23 +184,30 @@ export async function loadWorld(deps: WorldLoaderDeps): Promise<WorldLoadResult>
   // (player car + everything buildPhase1 touches); the other ~7MB of GLBs
   // stream behind the title, and finishLoad waits for them before the late
   // city build (rebuildRest resolves building/prop refs from the cache).
+  // Stage budget. The old split gave 0-70% to the ~200KB early model set and
+  // left 70-84% for the city, so on a cold mobile load the bar sat at nothing
+  // through the bundle, snapped to 70 when five small GLBs resolved together,
+  // then crawled — motion in inverse proportion to the work. These track how
+  // long each stage actually takes on a throttled first visit.
+  const MODELS_TO = 0.34;
+  const WORLD_TO = 0.82;
   await deps.cache.preload(earlyModelUrls(), (frac) => {
-    deps.setLoading(frac * 0.7);
+    deps.setLoading(0.14 + frac * (MODELS_TO - 0.14), "Loading models…");
   });
   const latePreload = deps.cache.preload(lateModelUrls(), () => {});
-  // The worker may still be generating — keep the bar honest but ALIVE
-  // (a frozen bar reads as a hang; this crawls 70 -> 84% while waiting).
-  let waitFrac = 0.7;
-  const crawl = setInterval(() => {
-    waitFrac = Math.min(0.84, waitFrac + 0.01);
-    deps.setLoading(waitFrac);
-  }, 400);
+  // This stage decodes the world on the main thread, so a setInterval crawl
+  // stops firing exactly when it is needed and the bar freezes. Hand the
+  // motion to CSS instead — it survives the block.
+  deps.glideLoading(
+    WORLD_TO,
+    14,
+    skipBaked ? "Generating San Francisco…" : "Downloading San Francisco…",
+  );
   const payload = await genPromise;
   console.log(`[city] worker payload: ${payload ? "yes" : "fallback to main-thread gen"}`);
-  clearInterval(crawl);
   const city = new CityModel(deps.cache, payload);
   await city.initEarly((frac) => {
-    deps.setLoading(frac);
+    deps.setLoading(WORLD_TO + frac * (1 - WORLD_TO), "Laying out streets…");
   });
   deps.scene.add(city.group);
 
