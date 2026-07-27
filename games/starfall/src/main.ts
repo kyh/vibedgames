@@ -5,8 +5,8 @@ import { GameScene } from "./scenes/game-scene";
 import { reseed } from "./shared/rng";
 
 // Presence-check inline — importing isTrailerMode from trailer-shell here
-// would hoist the whole shell (gate/cards/CSS) into the main chunk, since the
-// lazy director chunk imports the same module.
+// would hoist the whole shell (letterbox/cut CSS) into the main chunk, since
+// the lazy director chunk imports the same module.
 const bootParams = new URLSearchParams(location.search);
 const trailerMode = bootParams.has("trailer");
 

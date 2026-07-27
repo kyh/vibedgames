@@ -551,6 +551,13 @@ export class GameScene extends Phaser.Scene {
       this.updateHud();
     }
 
+    // ?trailer=1: the shell's black lead-in only exists once the lazily-imported
+    // director has landed, so the boot room above — and the room-label banner it
+    // fires — would paint for a frame or two first. Hold the scene's own fade
+    // plate (depth 100, over the HUD) until the first shot stages; trailerStage
+    // clears it. Nothing else touches fadeRect on this path.
+    if (params.has("trailer")) this.fadeRect.setAlpha(1);
+
     sfx.unlock();
     this.input.keyboard?.once("keydown", () => sfx.unlock());
     this.input.once("pointerdown", () => sfx.unlock());
@@ -2661,7 +2668,7 @@ export class GameScene extends Phaser.Scene {
     this.banner.setAlpha(0);
     this.fadeRect.setAlpha(0);
     this.updateHud();
-    // Hold the sim until the shell reveals the shot (dip/card is still black).
+    // Hold the sim until the shell reveals the shot (the cut plate is still black).
     this.freeze = 9999;
   }
 

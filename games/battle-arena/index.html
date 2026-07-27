@@ -82,7 +82,23 @@
         letter-spacing: 2px;
         opacity: 0.6;
       }
+      /* A trailer capture is pure gameplay, and #loading is a full-screen title
+         page (wordmark + bar + "ENTERING THE ARENA…") that holds for the whole
+         model load. The shell's lead-in black only exists once the trailer
+         chunk lands, so the veil is suppressed here instead — see the parse-time
+         guard below. showFatal() re-shows it so a dead boot still reports. */
+      html.trailer #loading {
+        display: none;
+      }
     </style>
+    <script>
+      // Classic inline script: runs during parsing, so #loading never gets a
+      // painted frame. A module (src/main.ts) is deferred and loses that race.
+      // Presence-check only — no trailer code enters the normal play chunk.
+      if (new URLSearchParams(window.location.search).has("trailer")) {
+        document.documentElement.classList.add("trailer");
+      }
+    </script>
   </head>
   <body>
     <div id="game"></div>

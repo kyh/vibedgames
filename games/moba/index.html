@@ -17,6 +17,17 @@
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Lilita+One&display=swap"
     />
+    <!--
+      A trailer capture (?trailer=1) is pure gameplay, and the loading veil is a
+      full-screen title page. Flag it here — inline and synchronous, so the veil
+      is display:none from the first style resolution and never paints a frame.
+      A module script (main.ts) is too late: it runs after first paint, which
+      leaks ~250ms of wordmark into the top of the shot.
+    -->
+    <script>
+      if (new URLSearchParams(location.search).has("trailer"))
+        document.documentElement.classList.add("trailer");
+    </script>
     <style>
       * {
         box-sizing: border-box;
@@ -64,6 +75,9 @@
       #veil.hidden {
         opacity: 0;
         pointer-events: none;
+      }
+      html.trailer #veil {
+        display: none;
       }
       #veil h1 {
         margin: 0;

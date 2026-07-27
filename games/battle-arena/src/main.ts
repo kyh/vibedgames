@@ -293,6 +293,10 @@ async function main(): Promise<void> {
 
 void main().catch((e) => {
   console.error(e);
-  if (loadingEl)
+  if (loadingEl) {
+    // Trailer mode hides the veil via html.trailer; an inline display beats that
+    // rule, so a failed boot still surfaces instead of dying to a black frame.
+    loadingEl.style.display = "flex";
     loadingEl.innerHTML = `<div style="color:#ff6a6a;font:14px monospace;padding:20px;text-align:center">Failed to load:<br>${e instanceof Error ? e.message : String(e)}</div>`;
+  }
 });

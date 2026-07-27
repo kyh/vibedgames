@@ -26,7 +26,7 @@ import { dealDamage, updateStructureGating } from "../sim/combat";
 import { recomputeHeroStats } from "../sim/herokit";
 import { createWorld, issueOrder, spawnCreepAt, spawnHero, step } from "../sim/world";
 import type { Unit, World } from "../sim/types";
-import { isMuted, resumeAudio, setMutedTransient, sfx } from "../render/audio";
+import { resumeAudio, setMutedTransient, sfx } from "../render/audio";
 import { FONT } from "../render/font";
 import { WorldView } from "../render/view";
 import { runTrailer } from "./trailer-shell";
@@ -71,10 +71,11 @@ class TrailerStage extends Phaser.Scene {
   private camMove: CamMove | null = null;
   private camFollow: CamFollow = { kind: "none" };
   private overlay: Phaser.GameObjects.GameObject[] = [];
-  /** Frozen between a scene's setup() and its first run() tick. The shell masks
-   *  the stage after setup (title card 1400ms + 170ms fade, or a dip-to-black),
-   *  and any sim/camera time spent under that mask plays the staged action out
-   *  behind black and burns the camera glides set in setup. */
+  /** Frozen between a scene's setup() and its first run() tick. The stage stays
+   *  black across setup and the dip-to-black cut, and any sim/camera time spent
+   *  under it plays the staged action out behind black and burns the camera
+   *  glides set in setup. setup() itself blocks for a while (installWorld +
+   *  pump), so the first Phaser tick after it carries an outsized delta. */
   hold = false;
 
   constructor() {
@@ -89,15 +90,17 @@ class TrailerStage extends Phaser.Scene {
     cam.roundPixels = true;
     cam.setBackgroundColor("#0a0e16");
 
-    // an ambient world behind the start gate / countdown (no combat)
+    // an ambient world behind the shell's lead-in black (no combat)
     this.installWorld(7);
     this.cut(WORLD.width / 2, WORLD.height / 2, this.zMap());
 
-    const veil = document.getElementById("veil");
-    if (veil) {
-      veil.classList.add("hidden");
-      setTimeout(() => veil.remove(), 400);
-    }
+    // The trailer rolls with no user gesture, so the browser keeps the
+    // AudioContext suspended and anything scheduled before it resumes is either
+    // dropped or piles up to fire at once. Hard-mute the session (a muted SFX
+    // synthesises nothing at all) and unmute from the shell's onGesture.
+    // Transient on purpose: toggleMute would persist the flip into the player's
+    // saved preference for NORMAL play off the back of one trailer view.
+    setMutedTransient(true);
 
     runTrailer(buildConfig(this));
   }
@@ -263,8 +266,8 @@ class TrailerStage extends Phaser.Scene {
   override update(_t: number, deltaMs: number): void {
     if (!this.world) return;
     const dt = Math.min(0.05, deltaMs / 1000);
-    // While held (masked by the shell) the sim and camera rig freeze, but the
-    // view keeps syncing so the card lifts onto a live, fully-drawn frame.
+    // While held (black) the sim and camera rig freeze, but the view keeps
+    // syncing so the cut lifts onto a live, fully-drawn frame.
     if (!this.hold) {
       this.acc += dt;
       let steps = 0;
@@ -285,16 +288,6 @@ class TrailerStage extends Phaser.Scene {
 }
 
 // ---- staging helpers -------------------------------------------------------------
-
-/** Sound is opt-in in normal play; a trailer wants its SFX. The click gate is the
- *  unlock gesture — this runs in every setup so replays stay audible too.
- *  Transient on purpose: toggleMute would persist "1" to localStorage and flip
- *  the player's saved preference for NORMAL play off the back of one trailer
- *  view. This unmute lives and dies with the session. */
-function ensureAudio(): void {
-  if (isMuted()) setMutedTransient(false);
-  resumeAudio();
-}
 
 type HeroOpts = {
   level?: number;
@@ -398,7 +391,6 @@ function scene(
   stage: TrailerStage,
   id: string,
   duration: number,
-  card: { title: string; sub?: string } | undefined,
   build: (s: TrailerStage) => SceneScript,
 ): TrailerScene {
   let cues: Cue[] = [];
@@ -407,18 +399,16 @@ function scene(
   return {
     id,
     duration,
-    card,
     setup: (): void => {
-      ensureAudio();
-      // build() constructs a fresh cue array per invocation, so replays
-      // (&loop=1 / the end-card Replay button) start with unfired cues.
+      // build() constructs a fresh cue array per invocation, so &loop=1 replays
+      // start with unfired cues.
       const r = build(stage);
       cues = r.cues ?? [];
       frame = r.frame;
       done = r.done;
-      // Freeze until run()'s first tick: the shell keeps the stage masked
-      // after setup, and unheld sim time would play the staging out behind
-      // the card and consume glides before the shot is visible.
+      // Freeze until run()'s first tick: the shell keeps the stage black across
+      // setup and the cut, and unheld sim time would play the staging out
+      // behind that black and consume glides before the shot is visible.
       stage.hold = true;
     },
     run: (t, dt): void => {
@@ -446,7 +436,7 @@ function scene(
 function buildConfig(stage: TrailerStage): TrailerConfig {
   const scenes: TrailerScene[] = [
     // ---- 1 · COLD OPEN — a 2v2 dive under a radiant tower; the dive gets punished.
-    scene(stage, "cold-open-skirmish", 4000, undefined, (s) => {
+    scene(stage, "cold-open-skirmish", 4000, (s) => {
       const w = s.installWorld(11);
       // defenders (our side, screen-left) vs divers (screen-right), under r-top-t1
       const dusk = heroAt(w, "duskblade", "radiant", "co-dusk", 1620, 640, { level: 9 });
@@ -486,7 +476,7 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
     }),
 
     // ---- 2 · MAP REVEAL — pull back from lane level to the whole two-island war.
-    scene(stage, "map-reveal", 2500, undefined, (s) => {
+    scene(stage, "map-reveal", 2500, (s) => {
       const w = s.installWorld(12);
       const wave: CreepKind[] = ["melee", "melee", "melee", "melee", "ranged", "ranged"];
       creepPack(w, "radiant", "top", wave, 1100, 580, 40);
@@ -503,7 +493,7 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
 
     // ---- 3 · SIGNATURE SOLO — Boomtinker's full Q-W-E-R string on a jungle camp,
     //          reticle pinned to the gnoll (the beat's "mouse reticle visible").
-    scene(stage, "signature-solo", 3000, undefined, (s) => {
+    scene(stage, "signature-solo", 3000, (s) => {
       const w = s.installWorld(13);
       openCamp(w, "camp-lb"); // large camp: gnoll + two skulls at (1216, 2016)
       const solo = heroAt(w, "boomtinker", "radiant", "solo", 1100, 2080);
@@ -534,7 +524,7 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
 
     // ---- 4-9 · ROSTER CUTDOWN — six heroes, six signatures, six backdrops.
     // roster-1: Ironvow — Shield Bash stun on the top-bridge planks.
-    scene(stage, "roster-1", 1200, { title: "CHOOSE YOUR ANCIENT" }, (s) => {
+    scene(stage, "roster-1", 1200, (s) => {
       const w = s.installWorld(21);
       const iron = heroAt(w, "ironvow", "radiant", "r1", 1975, 565);
       const [victim] = creepPack(w, "dire", "top", ["melee"], 2105, 565, 0);
@@ -545,7 +535,7 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
       s.glide(2048, 548, s.zb(1.33), 1200, easeOut);
       return {
         // the attack order fires at t=0 (not in setup) so the whole exchange —
-        // wind-up, Shield Bash, hit — plays ON camera, not behind the card.
+        // wind-up, Shield Bash, hit — reads from the first visible frame.
         cues: [
           {
             at: 0,
@@ -560,7 +550,7 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
     }),
 
     // roster-2: Brewkeeper — Hex Bottle bursts over creeps at the fountain plaza.
-    scene(stage, "roster-2", 1200, undefined, (s) => {
+    scene(stage, "roster-2", 1200, (s) => {
       const w = s.installWorld(22);
       const brew = heroAt(w, "brewkeeper", "radiant", "r2", 640, 1690);
       creepPack(w, "dire", "top", ["melee", "melee", "melee"], 880, 1700, 50);
@@ -574,7 +564,7 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
     }),
 
     // roster-3: Duskblade — Death Waltz crit execution in the dark south jungle.
-    scene(stage, "roster-3", 1200, undefined, (s) => {
+    scene(stage, "roster-3", 1200, (s) => {
       const w = s.installWorld(23);
       const dusk = heroAt(w, "duskblade", "radiant", "r3", 980, 1920);
       const vic = heroAt(w, "stormcaller", "dire", "r3v", 1140, 1920, {
@@ -596,7 +586,7 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
     }),
 
     // roster-4: Stormcaller — Piercing Shot skewers a creep line on the high ground.
-    scene(stage, "roster-4", 1200, undefined, (s) => {
+    scene(stage, "roster-4", 1200, (s) => {
       const w = s.installWorld(24);
       const storm = heroAt(w, "stormcaller", "radiant", "r4", 830, 940);
       creepPack(w, "dire", "top", ["ranged", "ranged", "ranged"], 1105, 940, 0).forEach((c, i) => {
@@ -613,7 +603,7 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
     }),
 
     // roster-5: Boomtinker — dynamite arcs into a charging camp by the gold mine.
-    scene(stage, "roster-5", 1200, undefined, (s) => {
+    scene(stage, "roster-5", 1200, (s) => {
       const w = s.installWorld(25);
       openCamp(w, "camp-rb");
       const boom = heroAt(w, "boomtinker", "radiant", "r5", 2650, 2050);
@@ -629,8 +619,8 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
     }),
 
     // roster-6: Emberhex — Conflagration erupts over a pack in the Roshan pit.
-    // The set's biggest shot; its blast cuts straight into the TWO LANES card.
-    scene(stage, "roster-6", 1200, undefined, (s) => {
+    // The set's biggest shot; its blast cuts straight into the lane push.
+    scene(stage, "roster-6", 1200, (s) => {
       const w = s.installWorld(26);
       const ember = heroAt(w, "emberhex", "radiant", "r6", 1880, 1504);
       creepPack(w, "dire", "top", ["melee", "melee", "melee", "melee", "siege"], 2150, 1500, 46);
@@ -646,7 +636,7 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
 
     // ---- 10 · LANE PUSH — wave clash → Stormcaller dives in, storm melts the wave,
     //           and the tier-1 tower comes down in the full destruction barrage.
-    scene(stage, "lane-push", 4000, { title: "TWO LANES. ONE WAR." }, (s) => {
+    scene(stage, "lane-push", 4000, (s) => {
       const w = s.installWorld(31);
       const tower = w.units.get("d-top-t1");
       if (tower) tower.hp = tower.maxHp * 0.3; // siege in progress: tower already burning
@@ -688,7 +678,7 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
     // ---- 11 · ELEVATION AMBUSH — Duskblade waits on the highland, drops down the
     //           ramp, blinks the last gap, and deletes the passer-by. Real terrain:
     //           the descent is the map's actual ramp + elevation lift.
-    scene(stage, "elevation-ambush", 3000, undefined, (s) => {
+    scene(stage, "elevation-ambush", 3000, (s) => {
       const w = s.installWorld(32);
       const dusk = heroAt(w, "duskblade", "radiant", "amb", 1400, 1300);
       const vic = heroAt(w, "emberhex", "dire", "ambv", 1330, 1425, { level: 9, hpFrac: 0.5 });
@@ -716,7 +706,7 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
     // ---- 12 · FIREBALL TRACK — the camera rides Emberhex's fireball from the cast,
     //           across the water, into a marching wave. Lead is computed live from
     //           the pack's real position so the blast always centers the crowd.
-    scene(stage, "fireball-track", 2500, undefined, (s) => {
+    scene(stage, "fireball-track", 2500, (s) => {
       const w = s.installWorld(33);
       const ember = heroAt(w, "emberhex", "radiant", "fb", 1560, 2496);
       const pack = creepPack(
@@ -762,7 +752,7 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
     // ---- 13 · FULL TEAMFIGHT — 3v3 max-rank bots plus creeps collide on the centre
     //           island: every ultimate in the game overlaps in one crowd. The staged
     //           low-HP Brewkeeper falls early (the trailer's honest death).
-    scene(stage, "full-teamfight", 5000, undefined, (s) => {
+    scene(stage, "full-teamfight", 5000, (s) => {
       const w = s.installWorld(34);
       const iron = heroAt(w, "ironvow", "radiant", "tf-iron", 1870, 1500, { bot: true, slot: 0 });
       heroAt(w, "duskblade", "radiant", "tf-dusk", 1850, 1420, { bot: true, slot: 1 });
@@ -835,7 +825,7 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
 
     // ---- 14 · ULT PAYOFF — one quiet beat, then Boomtinker's megabomb: screen
     //           flash, whip zoom-in, slam, kill. The single loudest hit, isolated.
-    scene(stage, "ult-payoff", 2200, undefined, (s) => {
+    scene(stage, "ult-payoff", 2200, (s) => {
       const w = s.installWorld(35);
       const boom = heroAt(w, "boomtinker", "radiant", "ult", 2500, 1250);
       const mark = heroAt(w, "duskblade", "dire", "ult-mark", 3080, 1250, {
@@ -872,7 +862,7 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
 
     // ---- 15 · VICTORY — the final blow on the Dire Ancient among the rubble of its
     //           base towers, then the game's own VICTORY ribbon over the hero line.
-    scene(stage, "victory", 2500, undefined, (s) => {
+    scene(stage, "victory", 2500, (s) => {
       const w = s.installWorld(36);
       // the base already fell off-screen: rubble + open gate to the Ancient
       retireStructure(w, "d-base-1");
@@ -901,11 +891,10 @@ function buildConfig(stage: TrailerStage): TrailerConfig {
   ];
 
   return {
-    title: "ANCIENTS OF ELDERMOOR",
-    url: "moba.vibedgames.com",
-    tagline: "Keyboard-first action MOBA",
-    accent: "#ffe14a",
-    fontFamily: FONT,
+    onGesture: (): void => {
+      setMutedTransient(false);
+      resumeAudio();
+    },
     scenes,
   };
 }

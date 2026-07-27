@@ -647,14 +647,11 @@ function plotCam(gs: GameScene): void {
 function sceneTill(game: Phaser.Game): TrailerScene {
   let gs: GameScene | null = null;
   let script: FarmScript | null = null;
-  let alive = false;
   return {
     id: "verb-till",
     duration: 2500,
-    card: { title: "SOW" },
     setup: async () => {
       gs = await freshFarm(game);
-      alive = true;
       stageSkills({});
       gs.day = 1;
       gs.timeMin = 480;
@@ -673,17 +670,11 @@ function sceneTill(game: Phaser.Game): TrailerScene {
         { kind: "walk", at: { tx: 15, ty: 9 } },
         { kind: "act", at: { tx: 15, ty: 10 } }, // plant
       ]);
-      // The card holds ~1400ms after setup resolves, with the game loop live
-      // beneath it — start the walk-in late so the reveal catches mid-stride
-      // (an immediate trailerMove would overshoot the plot under the card).
-      const g = gs;
-      void wait(1150).then(() => {
-        if (alive) g.trailerMove = { x: 1, y: 0, run: false };
-      });
+      gs.trailerMove = { x: 1, y: 0, run: false };
+      await wait(250); // pre-roll under the cut: the reveal catches mid-stride
     },
     run: (_t, dt) => script?.tick(dt / 1000),
     teardown: () => {
-      alive = false;
       if (gs) gs.trailerMove = null;
     },
   };
@@ -696,7 +687,6 @@ function sceneWater(game: Phaser.Game): TrailerScene {
   return {
     id: "verb-water",
     duration: 2500,
-    caption: "TEND",
     setup: async () => {
       gs = await freshFarm(game);
       stageSkills({});
@@ -734,7 +724,6 @@ function sceneGrow(game: Phaser.Game): TrailerScene {
   return {
     id: "verb-grow",
     duration: 2500,
-    caption: "GROW",
     setup: async () => {
       gs = await freshFarm(game);
       stageSkills({ farming: 4 });
@@ -796,7 +785,6 @@ function sceneSeasons(game: Phaser.Game): TrailerScene {
   return {
     id: "seasons-timelapse",
     duration: 6000,
-    card: { title: "A YEAR IN THE VALLEY" },
     setup: async () => {
       gs = await freshFarm(game);
       stageSkills({});
@@ -844,7 +832,6 @@ function sceneMine(game: Phaser.Game): TrailerScene {
   return {
     id: "mine-combat",
     duration: 4000,
-    card: { title: "BENEATH THE VALLEY" },
     setup: async () => {
       mine = await freshMine(game, 6);
       stageSkills({ combat: 4, mining: 3 });
@@ -853,14 +840,16 @@ function sceneMine(game: Phaser.Game): TrailerScene {
       selectTool((it) => it.kind === "tool" && it.tool === "sword");
       const c = findArena(mine);
       mine.player.setPosition(c.tx * TILE + 8, c.ty * TILE + 8);
-      // ~5.5 tiles out: inside the 110px aggro radius even after the open-tile
-      // ring shifts a spawn, far enough that the pack converges under the card
-      // and arrives at sword's reach right as the reveal lands
+      // Staged at sword's reach (1.5-2.5 tiles, 23-36px) so the reveal opens on
+      // a pack already closing and the first swing lands immediately. Inside the
+      // 110px aggro radius even after findOpenNearMine nudges a spawn onto an
+      // open tile, outside the 13px contact-damage ring, and four distinct tiles
+      // so no two spawns can collide.
       const offsets = [
-        { dx: -5, dy: -1 },
-        { dx: 5, dy: -2 },
-        { dx: -4, dy: 3 },
-        { dx: 5, dy: 3 },
+        { dx: -1, dy: -1 },
+        { dx: 2, dy: -1 },
+        { dx: -1, dy: 2 },
+        { dx: 2, dy: 1 },
       ];
       const m = mine;
       m.trailerStageEnemies(
@@ -1115,20 +1104,18 @@ function sceneFullFarm(game: Phaser.Game): TrailerScene {
 export function startTrailer(game: Phaser.Game): void {
   enableTrailerStaging();
   disableSaves();
-  document.getElementById("veil")?.classList.add("hidden");
-  // The shell's click gate is the audio-unlocking user gesture; resume the
-  // procedural audio context inside it so music + SFX play from scene one.
-  Sound.muted = false;
-  window.addEventListener("pointerdown", () => Sound.resume(), { capture: true });
+  Sound.muted = true; // ignore any saved preference; onGesture owns the unmute
 
   runTrailer({
-    title: "FARM",
-    url: "farm.vibedgames.com",
-    tagline: "Your little life awaits",
-    accent: "#ffd34d",
-    fontFamily: "ui-monospace, monospace",
     vignette: false, // keep the pixel art clean edge-to-edge
     cutMs: 320, // gentler dips — the calm is the message
+    // The trailer rolls with no user gesture, so the audio context would stay
+    // suspended: stay muted (Sound skips scheduling entirely) until a real
+    // click/keypress lands, then resume and unmute from that beat on.
+    onGesture: () => {
+      Sound.resume();
+      Sound.muted = false;
+    },
     scenes: [
       sceneColdOpen(game),
       sceneDawn(game),

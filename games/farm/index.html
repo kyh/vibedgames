@@ -98,6 +98,17 @@
       <div class="sub">Loading the farm…</div>
       <div class="spinner"></div>
     </div>
+    <script>
+      // A trailer capture is pure gameplay, and this veil is a full-screen
+      // title page ("Farm" / "Loading the farm…"): drop it in trailer mode.
+      // Must be a classic inline script — /src/main.ts is a module, so it is
+      // deferred until after parsing and the browser paints the veil for a
+      // beat before it runs, leaking the wordmark into the opening shot. The
+      // trailer shell's lead-in black covers boot from here on. Presence-check
+      // only, so nothing trailer-related loads during normal play.
+      if (new URLSearchParams(location.search).has("trailer"))
+        document.getElementById("veil")?.remove();
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
