@@ -13,12 +13,12 @@ pnpm --filter @repo/moba test        # headless sim smoke (17 checks)
 
 ## Routes
 
-| URL               | What                                                                                    |
-| ----------------- | --------------------------------------------------------------------------------------- |
-| `/`               | the game                                                                                |
-| `/?trailer=1`     | scripted gameplay trailer (`&autostart=1` skips the gate, `&loop=1` replays, Esc exits) |
-| `/?viewer=1`      | character showcase — pick any hero/creep/neutral, demo anims + abilities at a dummy     |
-| `/?gallery=units` | asset gallery pages: `units`, `terrain`, `fx`, `map` (bare `?gallery` = units)          |
+| URL               | What                                                                                         |
+| ----------------- | -------------------------------------------------------------------------------------------- |
+| `/`               | the game                                                                                     |
+| `/?trailer=1`     | scripted gameplay trailer — rolls on its own (`&loop=1` replays, Esc exits, click for sound) |
+| `/?viewer=1`      | character showcase — pick any hero/creep/neutral, demo anims + abilities at a dummy          |
+| `/?gallery=units` | asset gallery pages: `units`, `terrain`, `fx`, `map` (bare `?gallery` = units)               |
 
 ## Options
 

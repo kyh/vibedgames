@@ -2,7 +2,7 @@ import * as THREE from "three";
 
 import { CAMERA, CAR } from "../shared/constants";
 import type { Car } from "../vehicle/car";
-import type { SolidIndex } from "../world/solid-index";
+import type { CeilingIndex, SolidIndex } from "../world/solid-index";
 
 function lerpAngle(a: number, b: number, t: number): number {
   let d = ((b - a + Math.PI) % (Math.PI * 2)) - Math.PI;
@@ -17,6 +17,12 @@ export class ChaseCamera {
   private shake = 0;
   private shakeT = 0; // summed-sine phase (framerate-independent shake)
   private shakeOff = new THREE.Vector3();
+  // Overhead structure the clip march found this frame (world y of the lowest
+  // soffit over the car), and the eased cap the camera is actually held under.
+  // Null index = the harvest has not landed yet; the rig runs uncapped.
+  private ceilings: CeilingIndex | null = null;
+  private ceilY = Infinity;
+  private ceilCap = Infinity;
   // Per-frame scratch — update() runs hot, never allocate in it.
   private scrFwd = new THREE.Vector2();
   private scrPerp = new THREE.Vector2();
@@ -40,16 +46,41 @@ export class ChaseCamera {
     this.shake = Math.min(1, this.shake + amount);
   }
 
+  /** Overhead structure to keep the camera under; arrives once the world has. */
+  setCeilings(ceilings: CeilingIndex): void {
+    this.ceilings = ceilings;
+  }
+
   snapTo(car: Car): void {
     this.camYaw = car.heading;
     const fwd = new THREE.Vector2(Math.sin(this.camYaw), Math.cos(this.camYaw));
-    this.camera.position.set(
-      car.position.x - fwd.x * CAMERA.distance,
-      car.position.y + CAMERA.height,
-      car.position.z - fwd.y * CAMERA.distance,
-    );
+    const x = car.position.x - fwd.x * CAMERA.distance;
+    const z = car.position.z - fwd.y * CAMERA.distance;
+    // Snapping is a cut, so the cap lands at its target instead of easing in —
+    // otherwise a respawn under a viaduct starts the run inside the deck.
+    const soffit = this.ceilingOver(x, z, car.position.y);
+    this.ceilY = soffit;
+    this.ceilCap = this.capFor(soffit, car.position.y, car.position.y + CAMERA.height);
+    this.camera.position.set(x, Math.min(car.position.y + CAMERA.height, this.ceilCap), z);
     this.look.set(car.position.x, car.position.y + CAMERA.lookHeight, car.position.z);
     this.camera.lookAt(this.look);
+  }
+
+  /** Lowest soffit over (x, z) that the car is genuinely underneath. */
+  private ceilingOver(x: number, z: number, carY: number): number {
+    if (!this.ceilings) return Infinity;
+    return this.ceilings.ceilingAt(x, z, carY + CAMERA.ceilingProbe);
+  }
+
+  /**
+   * World y the camera may not exceed. Under open sky it parks just above
+   * wherever the camera already is, so the ease has a short constant distance
+   * to travel in both directions instead of chasing infinity.
+   */
+  private capFor(soffit: number, carY: number, camY: number): number {
+    const open = camY + CAMERA.ceilingRelease;
+    if (soffit === Infinity) return open;
+    return Math.min(open, Math.max(carY + CAMERA.ceilingFloor, soffit - CAMERA.ceilingClear));
   }
 
   update(dt: number, car: Car, solids: SolidIndex): void {
@@ -104,6 +135,15 @@ export class ChaseCamera {
     );
     this.camera.position.add(this.shakeOff);
 
+    // Overhead clamp, applied to the FINAL position rather than to `desired`:
+    // posLerp is a ~0.2s follow, far too slow to get out of a soffit the car
+    // has already passed under. The ease lives in the cap itself instead.
+    const cap = this.capFor(this.ceilY, car.position.y, this.camera.position.y);
+    if (!Number.isFinite(this.ceilCap)) this.ceilCap = cap; // first frame of a fresh rig
+    const rate = cap < this.ceilCap ? CAMERA.ceilingDuckRate : CAMERA.ceilingRiseRate;
+    this.ceilCap += (cap - this.ceilCap) * Math.min(1, rate * dt);
+    if (this.camera.position.y > this.ceilCap) this.camera.position.y = this.ceilCap;
+
     this.camera.lookAt(this.look);
 
     // Roll AFTER lookAt (which re-levels the camera): drift tilts the horizon,
@@ -123,12 +163,17 @@ export class ChaseCamera {
 
   // March from the car to the desired camera spot; if the line crosses a
   // building footprint, pull the camera in so it never buries into a facade.
+  // The same march reads the ceiling index — one walk, two answers, and taking
+  // the MINIMUM soffit over the whole segment is what buys the transition: the
+  // car enters a viaduct's shadow ~0.4s before the camera trailing it does, so
+  // the duck is always finished by the time the camera arrives.
   private avoidClip(carPos: THREE.Vector3, desired: THREE.Vector3, solids: SolidIndex): void {
     const dx = desired.x - carPos.x;
     const dy = desired.y - carPos.y;
     const dz = desired.z - carPos.z;
     const steps = 12;
     let t = 1;
+    let soffit = this.ceilingOver(carPos.x, carPos.z, carPos.y);
     for (let i = 1; i <= steps; i++) {
       const f = i / steps;
       const px = carPos.x + dx * f;
@@ -137,7 +182,10 @@ export class ChaseCamera {
         t = Math.max(0.28, (i - 1) / steps);
         break;
       }
+      const c = this.ceilingOver(px, pz, carPos.y);
+      if (c < soffit) soffit = c;
     }
+    this.ceilY = soffit;
     desired.set(
       carPos.x + dx * t,
       Math.max(CAMERA.minHeight, carPos.y + dy * t),

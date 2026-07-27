@@ -10,6 +10,7 @@
     "bake:map": "vite-node tools/sf-data/bake-network.mts",
     "bake:world": "node tools/bake-world.mjs",
     "lint:streets": "vite-node tools/street-lint.ts",
+    "recolor:atlas": "node tools/recolor-building-atlas.mjs",
     "test": "vite-node tools/test-world.mts",
     "test:e2e": "playwright test",
     "preview": "vite preview",

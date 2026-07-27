@@ -12,10 +12,10 @@ pnpm --filter @repo/starfall build
 
 ## Routes
 
-| URL           | What                                                                                                                   |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `/`           | the game (auto-connects to the shared arena)                                                                           |
-| `/?trailer=1` | scripted gameplay trailer (`&autostart=1` skips the gate, `&loop=1` replays, Esc exits; fully offline with fake peers) |
+| URL           | What                                                                                                                                      |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `/`           | the game (auto-connects to the shared arena)                                                                                              |
+| `/?trailer=1` | scripted gameplay trailer, rolls on its own (`&loop=1` replays, Esc exits, click anywhere to enable audio; fully offline with fake peers) |
 
 ## Options
 

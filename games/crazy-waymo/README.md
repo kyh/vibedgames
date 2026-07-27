@@ -16,13 +16,13 @@ World tooling (see [CLAUDE.md](./CLAUDE.md) for when each is required): `pnpm ba
 
 ## Routes
 
-| URL           | What                                                                                    |
-| ------------- | --------------------------------------------------------------------------------------- |
-| `/`           | the game                                                                                |
-| `/?trailer=1` | scripted gameplay trailer (`&autostart=1` skips the gate, `&loop=1` replays, Esc exits) |
-| `/?editor=1`  | map editor — place props, paint floors, add/remove street cells, export JSON            |
-| `/?tune=1`    | live vehicle tuning panel                                                               |
-| `/?bake=1`    | world bake — downloads `world.bin`/`rest.bin` by hand (prefer `pnpm bake:world`)        |
+| URL           | What                                                                                  |
+| ------------- | ------------------------------------------------------------------------------------- |
+| `/`           | the game                                                                              |
+| `/?trailer=1` | scripted gameplay trailer — autoplays, click for audio (`&loop=1` replays, Esc exits) |
+| `/?editor=1`  | map editor — place props, paint floors, add/remove street cells, export JSON          |
+| `/?tune=1`    | live vehicle tuning panel                                                             |
+| `/?bake=1`    | world bake — downloads `world.bin`/`rest.bin` by hand (prefer `pnpm bake:world`)      |
 
 ## Options
 

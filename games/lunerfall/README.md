@@ -13,11 +13,11 @@ pnpm --filter @repo/lunerfall test        # 78-check headless sim harness (tools
 
 ## Routes
 
-| URL           | What                                                                                        |
-| ------------- | ------------------------------------------------------------------------------------------- |
-| `/`           | the game (hero-select hub → run)                                                            |
-| `/?trailer=1` | scripted gameplay trailer (`&autostart=1` skips the gate, `&loop=1` replays, Esc exits)     |
-| `/?viewer=1`  | character/animation viewer with live hitbox overlay (`&char=<name>` deep-links a character) |
+| URL           | What                                                                                                 |
+| ------------- | ---------------------------------------------------------------------------------------------------- |
+| `/`           | the game (hero-select hub → run)                                                                     |
+| `/?trailer=1` | scripted gameplay trailer, rolls on its own (click anywhere for audio, `&loop=1` replays, Esc exits) |
+| `/?viewer=1`  | character/animation viewer with live hitbox overlay (`&char=<name>` deep-links a character)          |
 
 ## Options
 

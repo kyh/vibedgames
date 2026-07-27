@@ -12,6 +12,12 @@ pnpm test           # world-gen invariant harness (~5s, headless, no browser)
 pnpm bake:world     # regenerate + install public/world/*.bin (headless chromium)
 pnpm bake:world -- 5193   # same, but attach to an already-running dev server
 pnpm bake:map       # re-bake the OSM vector network + street mask (only after tools/sf-data changes)
+                    # → it writes sf-network/sf-streets/sf-freeways UNFORMATTED. Run
+                    #   node_modules/.bin/oxfmt --write on those three NEXT (never the repo-root
+                    #   `pnpm format:fix`, which rewrites every package).
+                    # → then ALWAYS re-run tools/sf-data/extract-transit-obj.mjs: SF_TRANSIT
+                    #   stores indices INTO SF_EDGES, so a re-numbered network invalidates
+                    #   every corridor. `pnpm test` fails on the stamp mismatch if you forget.
 pnpm lint:streets   # street-mask sanity report
 pnpm typecheck
 ```
@@ -73,6 +79,35 @@ bake-network.mts`) from the same park-cleared polylines — car-free-park
   paint run into the junction). A circular approximation over-clips along the
   arms, which is what left most of the 20–40u SF blocks with no centre line.
   `pnpm test` asserts the resulting coverage.
+- **One ground rule: `world/land-class.ts`.** What a cell IS (park/built/shore/
+  hill flank/OSM class) is resolved there and nowhere else; `ground.ts` only
+  decides what each class LOOKS like, `park-clear.parkCell` and
+  `land-class.isParkLand` are its two park questions, and `city.surfaceKindAt`
+  is `wheelSurface(landClassAt(...))` so the tyres cannot report concrete on
+  ground the painter drew as sand. Adding a fifth private copy of "is this
+  park/green" is how the paint, the props, the terraces and the FX drifted apart
+  in the first place. `pnpm test` asserts no vegetation lands on a built cell.
+- **Road decal materials are identified by COLOUR on the bin round-trip.**
+  `city.roadCollapseTarget` recognises a road material by the colour the capture
+  serialized, so every decal material in `roads.ts DECAL_MATS` must keep a
+  UNIQUE colour (`MAT_GLYPH` is pure `0xffffff` precisely so it cannot be
+  mistaken for `MAT_WHITE`'s `0xf4f7f4`). Tinting one, or adding a second
+  stencil material at the same colour, brings it back on the wrong material and
+  it renders as solid blocks.
+- **`world-bin-pack` keeps a uv channel only when it is non-zero.** Roads carry
+  no texture (`srcMat` is null) but two real uv channels — the asphalt's
+  across-road lateral coordinate and the paint stencils' atlas window. The pack
+  used to gate uv on `srcMat`, which stripped both on the baked path: the
+  surface shader reads `v = 0` as its documented opt-out (no gutter grime, no
+  wheel paths) and every stencil landed in the atlas's transparent padding and
+  was deleted by `alphaTest`. Gate on the data, never on the material.
+- **Two load paths, and only some builders run on both.** `buildLandmarks`,
+  `buildFreeways` and `buildPiers` are rebuilt live on the cold-gen path AND
+  the baked-rest path. `buildGoldenGate` runs on cold gen ONLY — its meshes go
+  into `rest.bin` — so anything runtime-only it wants to publish (night
+  beacons) has to come from `goldenGatePlan` + `goldenGateBeacons`, which
+  `city.ts lightGoldenGate()` calls next to `buildLandmarks` on both paths.
+  Registering beacons inside a gen-only builder lights the world for nobody.
 - **god objects**: `world/city.ts` (placement + render batching + rest
   capture) and `scenes/game-scene.ts` (loop + modes + loading). Extract seams
   opportunistically (surface.ts and fx/vehicle-fx.ts are the pattern), don't
@@ -81,13 +116,44 @@ bake-network.mts`) from the same park-cleared polylines — car-free-park
 ## Verifying in a browser (headless)
 
 Dev-only hooks on `window.__taxi`: `game`, `probe()` (pos/speed/state),
-`teleport(u, v)` (map fractions, 0-1), `lookFrom(x,y,z, tx,ty,tz)` (freecam),
+`teleport(u, v)` (map fractions, 0-1 — snaps to the road CENTRELINE via
+`network.nearest`, NOT a road cell centre: a cell can be ~18u off its
+centreline at wide junctions, which used to drop the car inside buildings and
+made every agent's headless spot-check unreliable), `lookFrom(x,y,z, tx,ty,tz)` (freecam),
 `setPhase(p)` (0.25 noon, 0.4 golden hour, 0.47 sunset, 0.7 night — pins the day-night cycle),
 `setFreecam(on)`, `pick(nx, ny)` (raycast debug).
 
 Recipe: poll `__taxi.game.isReady`, call `game.handleStartPress()` (private in TS but reachable from page JS; synthetic
 keydowns do NOT start the game; Enter opens chat), wait ~4s (countdown swoop
 owns the camera), then drive via dispatched KeyboardEvents on `window`.
+
+**Dispatch `key`, not `code`.** `InputState` (`input/keyboard.ts`) reads
+`e.key.toLowerCase()`, so throttle is
+`new KeyboardEvent("keydown", { key: "w" })`. The obvious-looking
+`{ code: "KeyW" }` is silently ignored and the car never moves — which looks
+EXACTLY like a blocked street. Two agents filed false "hard drive-blocker"
+findings from it. Second trap on the same road: holding throttle with no
+steering leaves the roadway within ~40u on any curved street, so "travelled
+then stopped" is usually the car in a lot against a wall, not a blocker —
+screenshot the end of every drive before you believe it.
+
+**Run your own dev server when other agents are editing.** The
+`full-reload-sim` plugin (`vite.config.ts`) turns every save under
+`src/{world,vehicle,physics,scenes,game,fx,render,net}/` into a page reload,
+which resets the game mid-screenshot-run. A one-file config that spreads the
+repo's and sets `server: { port: <yours>, hmr: false }` is the fix; your own
+edits still land on the fresh `goto` each run does.
+
+**Baked VERTEX output is invisible in a dev tab until you rebake.** Material
+colours that go through `roads.ts bakeConstantColor` (sidewalk, kerb, every
+road decal) and anything else written into a vertex attribute at generation
+time are already IN `public/world/*.bin`; edit the constant and your own tab
+still loads the old value, silently, because the bin's rev still matches. To
+SEE such a change before the rebake, force the cold-gen path — a one-file vite
+config that spreads the repo's and adds a middleware 404ing `/world/world.bin`
+and `/world/rest.bin*` makes `world-fetch` return null and the world generates
+live from source. Any before/after screenshot of a baked-vertex change that
+skips this is a photograph of the old world.
 
 **HMR footgun**: editing world/vehicle modules while a tab is open spawns a
 second GameScene in-page; `__taxi` then points at an instance whose physics

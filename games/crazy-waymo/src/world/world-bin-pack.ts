@@ -99,6 +99,13 @@ function qNor(a: Float32Array): Int8Array {
   return q;
 }
 
+/** An all-zero uv channel carries no information — drop it rather than pay
+ *  2 bytes per vertex for it. */
+function allZero(a: Float32Array): boolean {
+  for (let i = 0; i < a.length; i++) if (a[i] !== 0) return false;
+  return true;
+}
+
 function qUv(a: Float32Array): QUv {
   let minU = Infinity,
     minV = Infinity,
@@ -220,8 +227,15 @@ export function packRest(rest: CityRestPayload): unknown {
       dist: r.dist,
       pos: qPos(r.position),
       nor: r.normal ? qNor(r.normal) : null,
-      // uv only matters on textured (srcMat) records — dead weight elsewhere
-      uv: r.srcMat && r.uv ? qUv(r.uv) : null,
+      // uv used to be kept only on textured (srcMat) records. That silently
+      // stripped the ROADS' two untextured uv channels on the baked path — the
+      // asphalt's across-road lateral coordinate (no gutter grime, no wheel
+      // paths, because the shader reads v=0 as its documented opt-out) and the
+      // paint stencils' atlas window (every glyph lands in the transparent
+      // padding and alphaTest deletes it). Gate on the data instead: a record
+      // that filled its uv in gets to keep it, and the ~90% of road records
+      // that left it zeroed still cost nothing.
+      uv: r.uv && !allZero(r.uv) ? qUv(r.uv) : null,
       col: r.color ? qCol(r.color) : null,
       index: packIndex(r.index, r.position.length / 3),
       mat: r.mat,

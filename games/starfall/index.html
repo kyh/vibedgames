@@ -460,6 +460,19 @@
       <div id="start-controls"></div>
       <div id="start-go"></div>
     </div>
+    <script>
+      // A trailer capture is pure gameplay, and this is a full-screen title
+      // page (STARFALL wordmark, controls card, "press any key to start"):
+      // drop it in trailer mode. Must be a classic inline script — /src/main.ts
+      // is a module, so it is deferred until after parsing and the browser
+      // paints the title for a beat before the lazy trailer director can
+      // dismiss it, leaking the wordmark into the opening shot. The director
+      // force-starts the run, and the trailer shell's lead-in black covers boot
+      // from here on. Presence-check only, so nothing trailer-related loads
+      // during normal play.
+      if (new URLSearchParams(location.search).has("trailer"))
+        document.getElementById("start")?.remove();
+    </script>
     <div id="overlay">
       <div id="destroyed">DESTROYED</div>
       <div id="cause"></div>

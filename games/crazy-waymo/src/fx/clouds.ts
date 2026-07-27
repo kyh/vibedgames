@@ -15,15 +15,38 @@ import { WORLD_H, WORLD_HALF_X, WORLD_W } from "../shared/constants";
 // tilt with the chase camera. The soft blob texture is generated on a canvas
 // at boot — no asset fetch.
 
-const HIGH_COUNT = 22;
+// 22 cumulus were scattered over 1.6 x 1.4 map widths of sky — about one cloud
+// per two million square units — and painted pure white against a pale noon
+// sky, so at noon the entire upper half of every frame was a featureless
+// gradient with nothing in it. MK8 never ships an empty sky. The count is up,
+// the spread is tighter (see the constructor) and the puffs are shaded.
+const HIGH_COUNT = 46;
 const FOG_COUNT = 26;
+// Vertical shading on a cumulus: the flat-lit top vs the sky-fill underside.
+// Without it a billboard is one flat alpha blob no matter how good the texture,
+// which is the other half of why they read as absent rather than as clouds.
+const HIGH_BASE_SHADE = 0.7; // underside multiplier
+const HIGH_SHADE_LO = 0.1; // quad v where the shading starts
+const HIGH_SHADE_HI = 0.72; // ...and where it reaches full daylight
 // Karl dissolves past this map fraction (u west→east); respawns over the ocean.
 const FOG_DISSOLVE_U = 0.55;
 const FOG_SPAWN_MIN_U = -0.25; // off-shore, over the open Pacific
 const FOG_SPAWN_MAX_U = 0.1;
+// Share of sheets that pour through the Golden Gate, and the map fraction
+// (v north→south) of the strait they ride in on.
+const GATE_SHARE = 0.4;
+const GATE_V = 0.045;
 // Reduced quality (mobile tiers): giant near-white sheets are pure overdraw —
 // cap their width so a single sheet can't repaint the whole screen.
 const FOG_WIDTH_CAP = 380;
+// Marine sheets hang low enough to reach the water, and a billboard that
+// crosses the ocean plane is depth-cut by it in a dead-straight line along the
+// horizon — the "hard-edged grey mass" read. Fade every sheet out below
+// FLOOR_TOP and to nothing by FLOOR_Y so it dissolves into the bay instead of
+// ending at a razor edge, and so grazing a hillside or a bridge tower thins the
+// sheet rather than slicing it.
+const FLOOR_Y = 4;
+const FLOOR_TOP = 30;
 
 const VERT = `
   attribute vec3 aCenter;
@@ -32,6 +55,7 @@ const VERT = `
   attribute float aSeed;
   varying vec2 vUv;
   varying float vAlpha;
+  varying float vWorldY;
   void main() {
     vUv = uv;
     vAlpha = aAlpha;
@@ -42,23 +66,34 @@ const VERT = `
     float s = sin(yaw);
     vec3 local = vec3(position.x * aSize.x, position.y * aSize.y, 0.0);
     vec3 world = aCenter + vec3(local.x * c + local.z * s, local.y, -local.x * s + local.z * c);
+    vWorldY = world.y;
     gl_Position = projectionMatrix * viewMatrix * vec4(world, 1.0);
   }
 `;
 // `discardLow` (mobile): most of each quad is fully transparent texels —
 // skipping the blend write for them saves real ROP bandwidth on tile GPUs.
-// Desktop keeps the exact original shader.
-function frag(discardLow: boolean): string {
+// `floorFade` gives the low marine sheets a soft world-space underside (see
+// FLOOR_Y); the high cumulus sit 190u up and skip the extra work entirely.
+function frag(discardLow: boolean, floorFade: boolean, shade: boolean): string {
   return `
   uniform sampler2D uMap;
   uniform vec3 uColor;
   uniform float uDim;
   varying vec2 vUv;
   varying float vAlpha;
+  varying float vWorldY;
   void main() {
-    float a = texture2D(uMap, vUv).a;
-    ${discardLow ? "if (a * vAlpha < 0.004) discard;" : ""}
-    gl_FragColor = vec4(uColor * uDim, a * vAlpha);
+    float a = texture2D(uMap, vUv).a * vAlpha;
+    ${floorFade ? `a *= smoothstep(${FLOOR_Y.toFixed(1)}, ${FLOOR_TOP.toFixed(1)}, vWorldY);` : ""}
+    ${discardLow ? "if (a < 0.004) discard;" : ""}
+    vec3 rgb = uColor * uDim;
+    ${
+      shade
+        ? `rgb *= mix(${HIGH_BASE_SHADE.toFixed(2)}, 1.0,
+        smoothstep(${HIGH_SHADE_LO.toFixed(2)}, ${HIGH_SHADE_HI.toFixed(2)}, vUv.y));`
+        : ""
+    }
+    gl_FragColor = vec4(rgb, a);
   }
 `;
 }
@@ -116,10 +151,18 @@ function cloudTexture(lobes: number, squash: number, dense = false): THREE.Canva
 
 type LayerOpts = {
   count: number;
+  /** Daylight tint. */
   color: number;
+  /** Tint at full night — clouds keep the sky's hue instead of going grey. */
+  nightColor: number;
+  /** How much of the daylight brightness survives full night (0..1). */
+  nightDim: number;
   tex: THREE.CanvasTexture;
   renderOrder: number;
   discardLow: boolean;
+  floorFade: boolean;
+  /** Vertical top-lit / underside-shaded ramp (cumulus only). */
+  shade: boolean;
 };
 
 class CloudLayer {
@@ -156,18 +199,23 @@ class CloudLayer {
     this.sizes = sizes;
     this.seeds = seeds;
 
+    const color = new THREE.Color(opts.color);
     const mat = new THREE.ShaderMaterial({
       uniforms: {
         uMap: { value: opts.tex },
-        uColor: { value: new THREE.Color(opts.color) },
+        uColor: { value: color },
         uDim: { value: 1 },
       },
       vertexShader: VERT,
-      fragmentShader: frag(opts.discardLow),
+      fragmentShader: frag(opts.discardLow, opts.floorFade, opts.shade),
       transparent: true,
       depthWrite: false,
     });
     this.dimUniform = mat.uniforms.uDim ?? { value: 1 };
+    this.tint = color;
+    this.dayColor = new THREE.Color(opts.color);
+    this.nightColor = new THREE.Color(opts.nightColor);
+    this.nightDim = opts.nightDim;
     this.mesh = new THREE.Mesh(geo, mat);
     this.mesh.frustumCulled = false; // instances span the map; cull is pointless
     this.mesh.renderOrder = opts.renderOrder;
@@ -176,6 +224,16 @@ class CloudLayer {
   readonly sizes: Float32Array;
   readonly seeds: Float32Array;
   dimUniform: { value: number } = { value: 1 };
+  private tint: THREE.Color;
+  private dayColor: THREE.Color;
+  private nightColor: THREE.Color;
+  private nightDim: number;
+
+  /** `f` = 0 broad daylight .. 1 full night. */
+  setNight(f: number): void {
+    this.dimUniform.value = 1 - (1 - this.nightDim) * f;
+    this.tint.lerpColors(this.dayColor, this.nightColor, f);
+  }
 
   markDirty(): void {
     this.centerAttr.needsUpdate = true;
@@ -197,31 +255,50 @@ export class SkyClouds {
   private fogActive = FOG_COUNT;
 
   constructor(discardLow = false) {
+    // Night tints are the moonlit sky's own blues, NOT grey: a white cloud
+    // merely dimmed still reads as a paper cutout against a near-black sky
+    // because its hue never leaves the daylight neutral. The dim floors are
+    // deliberately deep — at SF midnight the only thing lighting a cloud is
+    // the moon and the city's own glow bouncing off its underside.
     this.high = new CloudLayer({
       count: HIGH_COUNT,
       color: 0xffffff,
+      nightColor: 0x4a5a86,
+      nightDim: 0.85,
       tex: cloudTexture(5, 0.9, true),
       renderOrder: 4,
       discardLow,
+      floorFade: false,
+      shade: true,
     });
     this.fog = new CloudLayer({
       count: FOG_COUNT,
       color: 0xe8f1f7,
+      nightColor: 0x4a5578,
+      nightDim: 0.7,
       tex: cloudTexture(3, 0.45),
       renderOrder: 5,
       discardLow,
+      floorFade: true,
+      // Karl is a flat sheet lit from every side at once; a top-lit ramp on it
+      // reads as a gradient error, not as volume.
+      shade: false,
     });
     this.group.add(this.high.mesh);
     this.group.add(this.fog.mesh);
 
     this.highSpeed = new Float32Array(HIGH_COUNT);
     for (let i = 0; i < HIGH_COUNT; i++) {
-      const x = (Math.random() * 1.6 - 0.8) * WORLD_W;
-      const z = (Math.random() * 1.4 - 0.7) * WORLD_H;
-      const y = 190 + Math.random() * 130;
+      const x = (Math.random() * 1.5 - 0.75) * WORLD_W;
+      const z = (Math.random() * 1.3 - 0.65) * WORLD_H;
+      const y = 175 + Math.random() * 150;
       this.high.centers.set([x, y, z], i * 3);
-      const w = 190 + Math.random() * 240;
-      this.high.sizes.set([w, w * (0.3 + Math.random() * 0.12)], i * 2);
+      // Squared roll: mostly modest puffs with a few big anvils, which is what
+      // gives a cumulus field its sense of scale (one uniform size reads as
+      // wallpaper).
+      const r = Math.random();
+      const w = 150 + r * r * 420;
+      this.high.sizes.set([w, w * (0.3 + Math.random() * 0.14)], i * 2);
       this.high.alphas[i] = 0.78 + Math.random() * 0.22;
       this.highSpeed[i] = 3.5 + Math.random() * 3;
     }
@@ -240,17 +317,33 @@ export class SkyClouds {
       ? FOG_SPAWN_MIN_U + Math.random() * (FOG_DISSOLVE_U - FOG_SPAWN_MIN_U)
       : FOG_SPAWN_MIN_U + Math.random() * (FOG_SPAWN_MAX_U - FOG_SPAWN_MIN_U);
     const x = (u - 0.5) * WORLD_W;
-    const z = (Math.random() * 1.3 - 0.65) * WORLD_H;
-    const y = 26 + Math.random() * 46; // hugs the hills, tops of Sutro/Twin Peaks
+    // Karl does not arrive on a broad front: most of him funnels through the
+    // Golden Gate. Two sheets in five ride the strait (the north edge of the
+    // map), the rest spread down the open coast.
+    const gate = Math.random() < GATE_SHARE;
+    const v = gate ? GATE_V + (Math.random() - 0.5) * 0.12 : Math.random() * 1.3 - 0.65 + 0.5;
+    const z = (v - 0.5) * WORLD_H;
+    // Sheet centres stay under the shader's marine lid (render/aerial-fog.ts
+    // MARINE_TOP) so cresting a hill lifts you clear of the billboards at the
+    // same moment it lifts you clear of the fog volume. The GATE sheets sit
+    // lower still, but their half-height is capped to keep the quad's underside
+    // out of the water: a sheet reaching below the ocean plane is depth-cut by
+    // it, and no amount of alpha fading hides a cut that straight. The
+    // FLOOR_Y fade in the shader is the second line of defence.
+    // GATE sheets ride OVER the bridge, not through it. A 600u-wide near-white
+    // sheet centred at deck height crossing the strait erased the Golden Gate
+    // completely — a landmark the player steers by, gone at random for as long
+    // as the sheet took to pass. Sitting them above the deck with roughly half
+    // the opacity gives the real thing instead: Karl pouring over the roadway
+    // with the tower tops standing out of it.
+    const y = gate ? 38 + Math.random() * 14 : 34 + Math.random() * 26;
     this.fog.centers.set([x, y, z], i * 3);
     const w = 320 + Math.random() * 320;
     this.fogWidth[i] = w;
-    this.fog.sizes.set(
-      [this.level === 2 ? w : Math.min(w, FOG_WIDTH_CAP), 42 + Math.random() * 46],
-      i * 2,
-    );
+    const h = gate ? 22 + Math.random() * 16 : 42 + Math.random() * 46;
+    this.fog.sizes.set([this.level === 2 ? w : Math.min(w, FOG_WIDTH_CAP), h], i * 2);
     this.fog.sizeAttr.needsUpdate = true;
-    this.fogBase[i] = 0.24 + Math.random() * 0.18;
+    this.fogBase[i] = gate ? 0.13 + Math.random() * 0.09 : 0.24 + Math.random() * 0.18;
     this.fog.alphas[i] = 0; // fades in
     this.fogSpeed[i] = 5 + Math.random() * 4;
   }
@@ -280,11 +373,12 @@ export class SkyClouds {
     this.fog.markDirty();
   }
 
-  // Night factor (0 day .. 1 night): white clouds over a night sky must dim
-  // toward moonlit gray or they read as paper cutouts.
+  // Night factor (0 day .. 1 night): a white cloud over a near-black sky is a
+  // paper cutout no matter how far you dim it, so each layer crossfades to its
+  // own moonlit BLUE as well — see the tints on the layers above.
   setNight(f: number): void {
-    this.high.dimUniform.value = 1 - 0.62 * f;
-    this.fog.dimUniform.value = 1 - 0.5 * f;
+    this.high.setNight(f);
+    this.fog.setNight(f);
   }
 
   update(dt: number): void {

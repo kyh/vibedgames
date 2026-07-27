@@ -16,7 +16,7 @@ pnpm --filter @repo/battle-arena test       # 60-check headless sim harness (too
 | URL           | What                                                                                    |
 | ------------- | --------------------------------------------------------------------------------------- |
 | `/`           | the game (3D champion-select lobby, then match)                                         |
-| `/?trailer=1` | scripted gameplay trailer (`&autostart=1` skips the gate, `&loop=1` replays, Esc exits) |
+| `/?trailer=1` | scripted gameplay trailer, rolls itself (`&loop=1` replays, click for audio, Esc exits) |
 | `/?editor=1`  | map editor (draft saved to localStorage, used by offline matches as the TEST loop)      |
 | `/?viewer=1`  | character & animation viewer                                                            |
 

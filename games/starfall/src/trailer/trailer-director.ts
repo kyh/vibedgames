@@ -1,7 +1,7 @@
 // trailer-director.ts — STARFALL trailer mode (?trailer=1).
 //
-// The shell (trailer-shell.ts) owns the letterbox/cards/cuts; this file owns
-// the game: it installs the staging overrides (GameScene.trailerStage()),
+// The shell (trailer-shell.ts) owns the letterbox and the dip-to-black cuts;
+// this file owns the game: it installs the staging overrides (trailerStage()),
 // forces the offline solo session, and choreographs the 12-scene escalation
 // arc from the beat sheet. Every scene's setup() fully re-stages the world —
 // no scene depends on RNG luck, the network, or a previous scene's state.
@@ -110,17 +110,13 @@ function direct(scene: GameScene): void {
   // Straight into the offline solo arena — no start overlay, no attract mode.
   api.forceStart();
 
-  // The shell's click gate is the audio gesture: unmute for this session only
-  // (direct field write — toggleMute would persist the choice) and build the
-  // AudioContext inside the gesture so SFX play from scene 1.
-  window.addEventListener(
-    "pointerdown",
-    () => {
-      sfx.muted = false;
-      sfx.unlock();
-    },
-    { capture: true, once: true },
-  );
+  // Audio: unmute for this session only (direct field write — toggleMute would
+  // persist the choice). Safe before any gesture because it builds nothing:
+  // with no AudioContext yet, play() no-ops, and whichever path finally calls
+  // unlock() then builds the graph at full gain instead of silently at zero.
+  // The context itself is created in runTrailer's onGesture below — the trailer
+  // rolls without a gesture, so an eager context would just sit suspended.
+  sfx.muted = false;
 
   // ---- HUD policy -----------------------------------------------------------------
   // Everything hidden by default; scenes restore only what sells the shot
@@ -426,30 +422,31 @@ function direct(scene: GameScene): void {
   };
 
   // -- 3. weapon-a — CHAIN REACTOR: cyan lightning web through a converging
-  // pack. Card masks the stage; the pack pre-rolls toward the ship during it.
-  // Camera: near-fixed hold (brake drift), action right of center.
+  // pack. Camera: near-fixed hold (the ship opens at a standstill), action
+  // right of center.
   const weaponA: TrailerScene = {
     id: "weapon-a",
     duration: 1500,
-    card: { title: "LEVEL UP OR DIE" },
     setup: () => {
       stage();
       cam.setZoom(0.95);
       const a = anchor(-400, 250);
       const rnd = mulberry(3);
       api.setLevel(3);
-      api.setPlayerPose({ x: a.x, y: a.y, angle: 0, vx: 70, vy: 0 });
+      api.setPlayerPose({ x: a.x, y: a.y, angle: 0, vx: 0, vy: 0 });
       api.grantWeapon("CHAIN REACTOR");
-      // Distances budget the 1400ms card: drones close ~100px, wasps ~340px
-      // while masked, so the reveal lands with the pack just entering range.
+      // Placed where the approach had already closed to: the lead drones sit
+      // just outside the 440px fire gate in run() (the arc's cast range is
+      // 460) so the first trigger is a full web, and the wasps — 3.4x drone
+      // speed — have already folded in among them, not trailing the far group.
       for (let i = 0; i < 6; i++) {
-        api.spawnEnemy("drone", a.x + 590 + rnd() * 110, a.y - 170 + rnd() * 340, a);
+        api.spawnEnemy("drone", a.x + 475 + rnd() * 110, a.y - 170 + rnd() * 340, a);
       }
       for (let i = 0; i < 3; i++) {
-        api.spawnEnemy("wasp", a.x + 880 + rnd() * 100, a.y - 150 + rnd() * 300, a);
+        api.spawnEnemy("wasp", a.x + 525 + rnd() * 100, a.y - 150 + rnd() * 300, a);
       }
       for (let i = 0; i < 4; i++) {
-        api.spawnEnemy("drone", a.x + 820 + rnd() * 80, a.y - 120 + rnd() * 240, a);
+        api.spawnEnemy("drone", a.x + 705 + rnd() * 80, a.y - 120 + rnd() * 240, a);
       }
     },
     run: () => {
@@ -633,8 +630,6 @@ function direct(scene: GameScene): void {
   const beaconEvent: TrailerScene = {
     id: "beacon-event",
     duration: 4500,
-    card: { title: "HOLD THE BEACON" },
-    caption: "32-PLAYER ONLINE",
     setup: () => {
       stage();
       const b = anchor(0, -250);
@@ -646,7 +641,7 @@ function direct(scene: GameScene): void {
       api.setLevel(3);
       // Me inside the zone (sole occupant → controller: motes stream my way).
       api.setPlayerPose({ x: b.x - 40, y: b.y + 150, angle: -Math.PI / 2, vx: -40, vy: 0 });
-      api.spawnBeacon(b.x, b.y, 2, 40); // arm flash lands ~600ms after reveal
+      api.spawnBeacon(b.x, b.y, 0.6, 40); // charge tail, arm flash ~600ms in
       installPeers();
       for (let i = 0; i < 5; i++) {
         const ang = Math.PI / 2 + (TAU * i) / 5;
@@ -661,11 +656,12 @@ function direct(scene: GameScene): void {
         });
       }
       const rnd = mulberry(8);
-      // Wave distances budget the card: at reveal the first drones are just
-      // crossing the wingmates' fire lanes, wasps arcing in behind them.
-      spawnRing(rnd, ["drone"], 8, b, 620, 780, b);
-      spawnRing(rnd, ["drone"], 4, b, 880, 950, b);
-      spawnRing(rnd, ["wasp"], 6, b, 1150, 1400, b);
+      // Radii are where the inbound wave had already closed to: the first
+      // drones open just crossing the wingmates' 505px ring, wasps (which eat
+      // ground 3.4x faster) arcing in right behind the second drone group.
+      spawnRing(rnd, ["drone"], 8, b, 520, 680, b);
+      spawnRing(rnd, ["drone"], 4, b, 780, 850, b);
+      spawnRing(rnd, ["wasp"], 6, b, 815, 1065, b);
     },
     run: (t, dt) => {
       updateCrew(t, dt, true);
@@ -856,7 +852,7 @@ function direct(scene: GameScene): void {
 
   // -- 12. survivors — RELEASE. Calm after the storm: the squad regrouped
   // around a fresh beacon, gold motes to the holder, orbs drifting in, the
-  // sector tally ticking up. Slow push-in, then the end card.
+  // sector tally ticking up. Slow push-in, then the final cut.
   const survivors: TrailerScene = {
     id: "survivors",
     duration: 2500,
@@ -918,14 +914,13 @@ function direct(scene: GameScene): void {
   };
 
   runTrailer({
-    title: "STARFALL",
-    url: "starfall.vibedgames.com",
-    accent: "#ffd166", // beacon gold
-    tagline: "32-player arena shooter",
-    fontFamily: "Inter, system-ui, -apple-system, sans-serif",
     // The game draws its own screen vignette (energy-barrier) — stacking the
     // shell's would double-darken the neon edges.
     vignette: false,
+    // First real click/keypress, whenever it lands: build the audio graph so
+    // the rest of the trailer has SFX (nothing plays before it — the context
+    // would be born suspended).
+    onGesture: () => sfx.unlock(),
     scenes: [
       calmOpen,
       levelUp,

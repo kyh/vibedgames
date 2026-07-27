@@ -1,35 +1,97 @@
 import * as THREE from "three";
 
-import {
-  GRID_X,
-  GRID_Z,
-  ROAD_TILE,
-  WORLD_HALF_X,
-  WORLD_HALF_Z,
-  WORLD_W,
-} from "../shared/constants";
+import { GRID_X, GRID_Z, ROAD_TILE, WORLD_HALF_X, WORLD_HALF_Z } from "../shared/constants";
 import { type DrapeField } from "./conform";
 import { CUSTOM_MAP, type FloorKind, loadLocalOverrides } from "./custom-map";
 import type { CityPlan } from "./grid";
+import { dominantCover, type GroundCover, type LandClassAt, makeLandClassAt } from "./land-class";
 import type { RoadNetwork } from "./network";
-import { SIDEWALK_W, walkFor } from "./roads";
-import { districtAt, greenHillWeightAt, seawallShore } from "./sf-map";
+import { lowDetailSurfaces, SIDEWALK_W, walkFor } from "./roads";
 import type { Terrain } from "./terrain";
-import { landuseGreenAt, landuseSandAt } from "./sf-landuse";
 
 // Ground shading + street-depression callbacks, extracted so the gen worker
 // and the main thread run EXACTLY the same code (a fork here would paint two
-// different cities).
+// different cities). WHAT the ground is lives in land-class.ts — this file only
+// decides what each ground class LOOKS like.
 
-const CONCRETE = new THREE.Color(0xa6a496);
-const SAND = new THREE.Color(0xe4d2a2);
-const WET_SAND = new THREE.Color(0xc2ab7d); // darker band right at the waterline
-const PARK = new THREE.Color(0x5fb163); // near the KayKit tile green, one notch punchier
-const MEADOW = new THREE.Color(0x86c46a); // sunlit two-tone partner to PARK
-const FOREST = new THREE.Color(0x4c9b57); // green-hill cover (Sutro/Twin Peaks/…)
+// The Mediterranean palette. San Francisco's built ground is warm grey concrete
+// and its wild hills are STRAW eight months a year — the kart-greens this table
+// replaced (PARK 0x5fb163, MEADOW 0x86c46a, FOREST 0x4c9b57) turned half the
+// peninsula into a golf course. Greens here are muted and olive-leaning: park
+// turf is irrigated and darker than grass reads in a cartoon, canopy is nearly
+// black-green, and anything unirrigated goes gold.
+//
+// GROUND IS THE BOTTOM BAND (value pass 2026-07-26). The target is ground <
+// buildings < sky, and every hard cover here used to break it: `plaza` sat at
+// luminance 0.72 and `sand` at 0.82, against a pastel building fabric averaging
+// ~0.6. Ground is also the LARGEST area in almost every frame, so when it is
+// also the brightest thing after the sky, silhouettes die against it and the
+// aerials read as one flat sheet. Measured from Pacific Heights at noon: kerb
+// aprons L133, building walls L108, road L105 — the walls and the road were
+// three luma apart and the aprons were second only to the sky.
+//
+// Hard covers therefore came down ~18% in value (the greens moved much less —
+// they were already the darkest band and are what the districts read by). This
+// changes VERTEX OUTPUT: it is baked, and needs a WORLD_REV bump plus
+// `pnpm bake:world`.
+const COVER_COLOR: Readonly<Record<GroundCover, THREE.Color>> = {
+  pavement: new THREE.Color(0x8b887c),
+  yard: new THREE.Color(0x86816f),
+  rearYard: new THREE.Color(0x757161),
+  plaza: new THREE.Color(0x9b968a),
+  parking: new THREE.Color(0x77756f),
+  court: new THREE.Color(0x6e6d68),
+  industrial: new THREE.Color(0x8a806a),
+  railyard: new THREE.Color(0x736c62),
+  quay: new THREE.Color(0x938e82),
+  path: new THREE.Color(0xa2916f),
+  lawn: new THREE.Color(0x718d4b),
+  meadow: new THREE.Color(0x8a9556),
+  grove: new THREE.Color(0x586c43),
+  conifer: new THREE.Color(0x3f513a),
+  woodland: new THREE.Color(0x52663f),
+  grassland: new THREE.Color(0xb0a26a),
+  cemetery: new THREE.Color(0x849060),
+  rock: new THREE.Color(0x847b70),
+  sand: new THREE.Color(0xc7b78e),
+  dune: new THREE.Color(0xb5a87b),
+  water: new THREE.Color(0x2f4d5c),
+};
 
-// Low-frequency organic patches (~40–90u) so grass reads as rolling two-tone
-// meadow instead of one flat green — the Mario Kart grass trick.
+const WET_SAND = new THREE.Color(0xa9946b); // darker band right at the waterline
+const TURF_SUN = new THREE.Color(0x9caa66); // sunlit two-tone partner for turf
+const STRAW_PALE = new THREE.Color(0xc2b586); // bleached crest of a dry flank
+const STRAW_DAMP = new THREE.Color(0x94955e); // the gullies that stay green
+
+// Editor "Floor" paint. Hand-painted cells win outright — no shore, no flank,
+// no patches — so what the editor shows is what ships.
+const PAINTED_FLOOR: Readonly<Record<FloorKind, THREE.Color>> = {
+  plaza: COVER_COLOR.plaza,
+  grass: COVER_COLOR.lawn,
+  sand: COVER_COLOR.sand,
+};
+
+// How a cover varies across a patch: irrigated turf drifts toward sunlit
+// yellow-green, dry ground between bleached crest and damp gully.
+function patchTreatment(cover: GroundCover): "turf" | "dry" | "none" {
+  switch (cover) {
+    case "lawn":
+    case "meadow":
+    case "grove":
+    case "conifer":
+    case "woodland":
+    case "cemetery":
+      return "turf";
+    case "grassland":
+    case "dune":
+      return "dry";
+    default:
+      return "none";
+  }
+}
+
+// Low-frequency organic patches (~40–90u) so ground reads as rolling two-tone
+// cover instead of one flat fill — the Mario Kart grass trick.
 function meadowPatch(x: number, z: number): number {
   const a = Math.sin(x * 0.043 + Math.sin(z * 0.051) * 1.9);
   const b = Math.sin(z * 0.037 + Math.sin(x * 0.029) * 1.6);
@@ -39,25 +101,73 @@ function meadowPatch(x: number, z: number): number {
 const gridX = (x: number): number => Math.floor((x + WORLD_HALF_X) / ROAD_TILE);
 const gridZ = (z: number): number => Math.floor((z + WORLD_HALF_Z) / ROAD_TILE);
 
-// Grass mottle: a runtime shader pass on the ground material (covers live AND
-// baked worlds — vertex colors stay untouched). Grassy pixels (green-dominant
-// vertex color) get three octaves of world-space variation — fine grain, a
-// smooth mid-scale value noise, and broad olive patches — so lawns and hills
-// read as turf instead of flat green fill. Concrete/sand (r≈g≥b) are
-// untouched by the grassiness gate.
+// Ground grain: a runtime shader pass on the ground material (covers live AND
+// baked worlds — vertex colors stay untouched). Octaves of world-space
+// variation — fine grain, a smooth mid-scale value noise, broad patches, and
+// the PARCEL FIELD below — so the terrain reads as ground instead of flat fill.
+//
+// The octaves are applied to EVERY hue. Green-dominance now only selects the
+// TREATMENT on top: turf gets the olive/blue-green patch drift it always had,
+// hard ground gets aggregate grit and a warm/cool district shift, and sand
+// (warm, r >> b) gets wind ripples. The old code gated the whole pass on
+// green-dominance, which left every concrete and sand pixel in the city
+// perfectly flat AND would have zeroed the noise on any future non-green
+// palette (golden hills), so the gate was structurally trapping the ground in
+// green rather than describing it.
+//
+// THE PARCEL FIELD (2026-07-26) is what the noise octaves could not do. Noise
+// has no RUN-LENGTH: three smooth octaves over a 30u gap between two houses
+// average out to one tan value at any distance past a few metres, which is
+// exactly what every aerial showed. Ground in a city is not noise, it is a
+// mosaic of OWNED PATCHES — lot, yard, hardstand, apron — each a flat value
+// with a hard edge against its neighbour. `grCells` is that mosaic: one value
+// per cell plus the seam where two cells meet, over a lookup point warped by
+// `grWarp` so the mosaic is roughly rectilinear (which lots are) without being
+// a visible lattice (which they are not).
+//
+// It runs at THREE scales because each viewing range only resolves one of them:
+// block (~50u, value only) is all that survives an aerial, parcel (~10u) is the
+// low oblique, slab (~4u) is the windscreen. Both seam scales fade out with
+// pixel size, so nothing that would alias into a dark grid ever reaches an
+// aerial.
+//
+// The dominance test is RELATIVE (green over local brightness), not the
+// absolute difference it started as. Vertex colours reach the shader in linear
+// space, where a dark canopy green (conifer, g − r ≈ 0.04 linear) falls below
+// any absolute threshold that an open lawn (≈ 0.12) passes — the Presidio's
+// whole canopy was dropping out of the turf branch purely for being dark.
+//
+// Sand's ripple gate is the one hue test left and it asks for WARMTH. Measured
+// in linear: dry sand r − b ≈ 0.42, wet sand ≈ 0.33, straw ≈ 0.39. Straw and
+// wet sand are NOT separable on that axis at any threshold, so the straw hills
+// do pick up a faint (3.5%, ~4u) ripple — it reads as wind in dry grass, and
+// rfade kills it well before the hills are seen at distance. Sand also opts
+// OUT of the parcel field for the same reason it opts out of the district
+// drift: a beach has no lot lines.
 export function applyGrassMottle(mat: THREE.MeshStandardMaterial): void {
   mat.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nvarying vec3 vGroundPos;")
+      .replace(
+        "#include <common>",
+        "#include <common>\nvarying vec3 vGroundPos;\nvarying vec3 vGroundNrm;",
+      )
       .replace(
         "#include <begin_vertex>",
-        "#include <begin_vertex>\nvGroundPos = (modelMatrix * vec4(transformed, 1.0)).xyz;",
+        `#include <begin_vertex>
+vGroundPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
+// World normal of the ground mesh, for the flank shading below. Length-guarded
+// so a geometry that ever shipped without normals cannot normalize a zero.
+vec3 gNrm = mat3(modelMatrix) * objectNormal;
+float gNrmL = length(gNrm);
+vGroundNrm = gNrmL > 1e-4 ? gNrm / gNrmL : vec3(0.0, 1.0, 0.0);`,
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
         "#include <common>",
         `#include <common>
+${lowDetailSurfaces() ? "" : "#define GROUND_GRAIN_FULL 1"}
 varying vec3 vGroundPos;
+varying vec3 vGroundNrm;
 float grHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float grNoise(vec2 p) {
   vec2 i = floor(p);
@@ -67,35 +177,140 @@ float grNoise(vec2 p) {
     mix(grHash(i), grHash(i + vec2(1.0, 0.0)), u.x),
     mix(grHash(i + vec2(0.0, 1.0)), grHash(i + vec2(1.0, 1.0)), u.x),
     u.y);
+}
+// Warp for the parcel mosaic below: two octaves, computed ONCE and shared by
+// every scale that reads it. The long octave (~48u) shears whole blocks; the
+// short one (~13u) is what stops the mosaic being a lattice — it distorts each
+// cell differently from its neighbour, so the field keeps the straight runs
+// that make ground read as parcelled without ever reading as tiling.
+vec2 grWarp(vec2 wp, float amt) {
+  return wp
+    + amt * (vec2(grNoise(wp * 0.021), grNoise(wp * 0.019 + 37.0)) - 0.5)
+    + amt * 0.5 * (vec2(grNoise(wp * 0.075 + 5.0), grNoise(wp * 0.081 + 11.0)) - 0.5);
+}
+// The parcel mosaic. Returns (value in [-0.5, 0.5] for this cell, seam coverage
+// in [0, 1] at the boundary with its neighbours). Rows slide by a per-row hash
+// — a running bond, the way lots actually meet along a block face — so even the
+// unwarped low-detail variant never lines up into a checkerboard.
+//
+// \`px\` is the world size of a pixel. The seam is a fixed-width WORLD line, so
+// it has to be widened to a pixel up close and faded out once a pixel is wider
+// than the line is, or it aliases into a dark grid from the air. \`seamW\` = 0
+// asks for the value only — what the block scale wants, since blocks are
+// separated by streets and a line between them would sit on nothing.
+vec2 grCells(vec2 w, float px, vec2 cell, float seamW, float seed) {
+  vec2 g = w / cell;
+  float row = floor(g.y);
+  g.x += grHash(vec2(row, seed + 3.0)) * 2.7;
+  vec2 c = vec2(floor(g.x), row);
+  vec2 f = g - c;
+  float seam = 0.0;
+  if (seamW > 0.0) {
+    vec2 ed = min(f, 1.0 - f) * cell; // world units to this cell's edges
+    seam = (1.0 - smoothstep(0.0, seamW + px, min(ed.x, ed.y)))
+      * (1.0 - smoothstep(seamW * 2.0, seamW * 7.0, px));
+  }
+  return vec2(grHash(c + seed) - 0.5, seam);
 }`,
       )
       .replace(
         "#include <color_fragment>",
         `#include <color_fragment>
 {
-  float grass = smoothstep(0.02, 0.12, diffuseColor.g - max(diffuseColor.r, diffuseColor.b));
-  if (grass > 0.01) {
-    vec2 wp = vGroundPos.xz;
-    float fine = grHash(floor(wp * 2.1));
+  vec2 wp = vGroundPos.xz;
+  // Derivatives stay in UNIFORM control flow: the grass/hard gate below splits
+  // quads wherever turf meets a beach or a plaza, and fwidth() inside a
+  // divergent branch is undefined.
+  vec2 dwp = fwidth(wp);
+  float px = max(dwp.x, dwp.y);
+  float grass = smoothstep(0.05, 0.25,
+    (diffuseColor.g - max(diffuseColor.r, diffuseColor.b)) / (diffuseColor.g + 0.05));
+  float fine = grHash(floor(wp * 2.1));
+  float broad = grNoise(wp * 0.045);
+  // Sand-ripple phase and its screen-space rate live outside the branches for
+  // the same reason dwp does.
+  float rphase = dot(wp, vec2(1.28, 0.79)) + broad * 7.0; // broad noise curves the bands
+  float rfade = 1.0 - smoothstep(0.9, 2.2, fwidth(rphase));
+  // THREE SCALES, because each range only sees one of them. From 250u a parcel
+  // is two pixels wide and averages away — which is why the noise octaves alone
+  // left every aerial as one flat tan sheet — so the BLOCK scale carries the
+  // read there. Lot carries the low oblique, slab carries the windscreen.
+  #ifdef GROUND_GRAIN_FULL
     float mid = grNoise(wp * 0.16);
-    float broad = grNoise(wp * 0.045);
-    float lum = 1.0 + ((fine - 0.5) * 0.05 + (mid - 0.5) * 0.12 + (broad - 0.5) * 0.14) * grass;
-    diffuseColor.rgb *= lum;
+    vec2 wq = grWarp(wp, 7.0);
+    vec2 blk = grCells(wq, px, vec2(55.0, 47.0), 0.0, 173.0);
+    vec2 lot = grCells(wq, px, vec2(8.0, 12.5), 0.32, 0.0);
+    vec2 slab = grCells(wq, px, vec2(4.2), 0.11, 61.0);
+    // A worn track: the thin ridge of a slow noise, so it wanders ACROSS the
+    // parcel mosaic the way a shortcut does instead of following it.
+    float trackN = grNoise(wp * 0.021 + 91.0);
+    float track = (1.0 - smoothstep(0.0, 0.055, abs(trackN - 0.5)))
+      * (1.0 - smoothstep(0.7, 1.8, px));
+  #else
+    // Phones keep the mid octave only where it does the most work — turf — and
+    // take the parcel field unwarped (four noise fetches saved on the largest
+    // fill in the frame). The running bond keeps it off a checkerboard even so.
+    float mid = 0.5;
+    if (grass > 0.01) mid = grNoise(wp * 0.16);
+    vec2 blk = grCells(wp, px, vec2(55.0, 47.0), 0.0, 173.0);
+    vec2 lot = grCells(wp, px, vec2(8.0, 12.5), 0.32, 0.0);
+    vec2 slab = vec2(0.0);
+    float track = 0.0;
+  #endif
+  // Hard ground still gets most of the octave amplitude; max() (not mix) is
+  // what keeps green ground identical to before.
+  float amp = max(grass, 0.55);
+  diffuseColor.rgb *= 1.0 + ((fine - 0.5) * 0.05 + (mid - 0.5) * 0.12 + (broad - 0.5) * 0.14) * amp;
+  // Unlit flank shading. The tessellated ground's normal is smooth over ~9u, so
+  // this is a broad form term rather than an edge: it keeps a hill reading as a
+  // hill on the side the sun is not on, which is most of Twin Peaks most of the
+  // day and every rooftop-height frame at dusk.
+  diffuseColor.rgb *= 1.0 - smoothstep(0.03, 0.5, 1.0 - clamp(vGroundNrm.y, 0.0, 1.0)) * 0.09;
+  if (grass > 0.01) {
     // Broad patches drift warm (olive) or cool (blue-green) — turf, not paint.
     float drift = (broad - 0.5) * 0.7 * grass;
     diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.08, 1.0, 0.78), clamp(drift, 0.0, 1.0));
     diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.88, 1.0, 1.05), clamp(-drift, 0.0, 1.0));
+    // Desire paths: turf worn through to the dirt under it.
+    diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.20, 1.02, 0.70),
+      track * grass * 0.45);
+  }
+  float hard = 1.0 - grass;
+  if (hard > 0.01) {
+    // Aggregate: concrete's chips and sand's tooth, an octave finer than the
+    // meadow grain.
+    float grit = grHash(floor(wp * 3.3)) - 0.5;
+    // Sand only — the one hue test left, and it asks for WARMTH rather than
+    // the absence of green, so a straw hill (r - b ~ 0.25) stays out of it.
+    float sand = smoothstep(0.30, 0.40, diffuseColor.r - diffuseColor.b);
+    float ripple = sin(rphase) * sand * rfade;
+    // The parcel mosaic is BUILT ground only: beaches and dunes keep the
+    // ripples and skip the lot lines.
+    float built = hard * (1.0 - sand);
+    float parcel = blk.x * 0.17 + lot.x * 0.13 - lot.y * 0.09
+      + slab.x * 0.035 - slab.y * 0.035;
+    vec3 grain = vec3(1.0 + hard * (grit * 0.05 + ripple * 0.035) + built * parcel);
+    // Concrete picks up the same warm/cool district drift the asphalt has.
+    grain += (broad - 0.5) * built * vec3(0.05, 0.015, -0.05);
+    // A track over hard ground is COMPACTED, not worn away: darker, not paler.
+    grain *= 1.0 - built * track * 0.11;
+    diffuseColor.rgb *= grain;
   }
 }`,
       );
   };
 }
 
+/**
+ * The ground painter. `landClassAt` defaults to a resolver built for this world;
+ * a caller that already has one (city.ts's wheel FX needs the same rule) can
+ * pass it in so the ~600 KB of fabric/wildness fields are built once.
+ */
 export function makeGroundColorAt(
   plan: CityPlan,
   terrain: Terrain,
+  landClassAt: LandClassAt = makeLandClassAt(plan, terrain),
 ): (x: number, z: number, into: THREE.Color) => void {
-  const greenSet = new Set(plan.greenCells.map((g) => `${g.gx},${g.gz}`));
   // Painted floors (editor "Floor" mode): baked + this browser's local edits.
   const floorAt = new Map<string, FloorKind>();
   const local = loadLocalOverrides();
@@ -103,66 +318,49 @@ export function makeGroundColorAt(
     floorAt.set(`${fgx},${fgz}`, kind);
   }
   return (x, z, into) => {
-    into.copy(CONCRETE);
     const gx = Math.min(GRID_X - 1, Math.max(0, gridX(x)));
     const gz = Math.min(GRID_Z - 1, Math.max(0, gridZ(z)));
-    let green = 0; // how grassy this point ended up (drives the meadow patches)
-    if (landuseGreenAt(gx, gz) || districtAt(gx, gz).character === "park") {
-      green = 0.8; // real OSM green space
-      into.lerp(PARK, green);
-    } else if (greenSet.has(`${gx},${gz}`)) {
-      green = 0.3; // interior lots: subtle, not lawn-prairie
-      into.lerp(PARK, green);
-    }
-    // Forested hills (Sutro, Twin Peaks, Davidson…): bare concrete flanks with
-    // street-mask channels read as smears from across the map — grass them.
-    const forest = greenHillWeightAt(x / WORLD_W + 0.5, z / (WORLD_HALF_Z * 2) + 0.5);
-    if (forest > 0.01) {
-      into.lerp(FOREST, forest * 0.9);
-      green = Math.max(green, forest);
-    }
-    if (landuseSandAt(gx, gz)) {
-      into.lerp(SAND, 0.85);
-      green *= 0.15;
-    }
     const painted = floorAt.get(`${gx},${gz}`);
-    if (painted === "plaza") {
-      into.copy(CONCRETE).lerp(new THREE.Color(0xffffff), 0.12);
-      green = 0;
-    } else if (painted === "grass") {
-      into.copy(PARK);
-      green = 1;
-    } else if (painted === "sand") {
-      into.copy(SAND);
-      green = 0;
+    if (painted !== undefined) {
+      into.copy(PAINTED_FLOOR[painted]);
+      return;
     }
-    if (green > 0.05) into.lerp(MEADOW, meadowPatch(x, z) * 0.45 * green);
-    // Every NATURAL coast gets a real beach: a dry-sand apron blending
-    // inland, then a darker wet-sand band right at the waterline (the Mario
-    // Kart shore read — the water shader laps its foam against this band).
-    // The Embarcadero is the exception: an engineered seawall, so downtown
-    // meets the bay on a concrete apron, not sand.
-    const land = terrain.landAt(x, z);
-    const shore = 1 - THREE.MathUtils.smoothstep(land, 0.3, 0.6);
-    if (shore > 0) {
-      const u = x / WORLD_W + 0.5;
-      if (seawallShore(u, z / (WORLD_HALF_Z * 2) + 0.5)) {
-        into.lerp(CONCRETE, shore * 0.85);
-      } else {
-        into.lerp(SAND, u < 0.12 ? shore : shore * 0.8); // Ocean Beach reads strongest
-        const wet = 1 - THREE.MathUtils.smoothstep(land, 0.28, 0.4);
-        if (wet > 0) into.lerp(WET_SAND, wet * 0.7);
-      }
+    const land = landClassAt(x, z);
+    // `cover` fades into `under` so soft terms — a hill flank thinning out at
+    // the tree line, a beach apron running inland — feather into the ground
+    // they sit on instead of ending on a line.
+    into.copy(COVER_COLOR[land.under]);
+    if (land.cover !== land.under) into.lerp(COVER_COLOR[land.cover], land.strength);
+    // The darker wet-sand band right at the waterline: the Mario Kart shore
+    // read, and the water shader laps its foam against exactly this band.
+    if (land.shore.kind === "beach" && land.shore.wet > 0) {
+      into.lerp(WET_SAND, land.shore.wet * 0.7);
+    }
+    const patch = meadowPatch(x, z);
+    switch (patchTreatment(dominantCover(land))) {
+      case "turf":
+        into.lerp(TURF_SUN, patch * 0.32);
+        break;
+      case "dry":
+        // Straw is never uniform: bleached where the sun sits on the crest,
+        // still green down the gullies. This is the read that makes a golden
+        // hill look like a hill and not a flat gold decal.
+        into.lerp(STRAW_PALE, patch * 0.34);
+        into.lerp(STRAW_DAMP, (1 - patch) * 0.26);
+        break;
+      case "none":
+        break;
     }
   };
 }
 
 // Park cells are TILE territory: the ground flattens each park cell to one
-// terraced height (sampled at the cell centre) so KayKit park tiles seat on
-// it exactly — the "grid for tiles, curves for roads" rule.
-export function isParkCell(gx: number, gz: number): boolean {
-  return landuseGreenAt(gx, gz) || districtAt(gx, gz).character === "park";
-}
+// terraced height (sampled at the cell centre) so KayKit park tiles seat on it
+// exactly — the "grid for tiles, curves for roads" rule. That question is
+// `isParkLand` in land-class.ts (park land of ANY kind, the Presidio included,
+// as opposed to park-clear's car-free `parkCell`), and this module no longer
+// keeps a second copy of it: `parkCellHeight` below is the only park-specific
+// thing the ground itself owns.
 
 export function parkCellHeight(terrain: Terrain, gx: number, gz: number): number {
   // Seat at the HIGHEST corner. No quantization: tiles only go on flat

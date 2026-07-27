@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import polygonClipping from "polygon-clipping";
 
-import { GRID_X, GRID_Z, ROAD_TILE, ROAD_Y, WORLD_HALF_X, WORLD_HALF_Z } from "../shared/constants";
+import { ROAD_TILE, ROAD_Y, WORLD_H, WORLD_W } from "../shared/constants";
 import {
   conformToTerrain,
   DRAPE_MAX_ERROR,
@@ -12,7 +12,7 @@ import {
 } from "./conform";
 import { junctionControl } from "./junction-control";
 import type { NetEdge, RoadNetwork } from "./network";
-import { districtAt } from "./sf-map";
+import { busLoadAt, SF_TRANSIT } from "./sf-transit";
 
 // PLANAR-MAP street geometry. Every edge sweep and junction patch is built as
 // a 2D POLYGON, and the drawable surfaces are boolean combinations:
@@ -55,7 +55,11 @@ export const STREET_SURFACE_MAX = CURB_LIFT + DRAPE_MAX_ERROR;
 const MARKING_MAX_ERROR = DRAPE_MAX_ERROR;
 const PAINT_SEAT = 0.03;
 const LINE_LIFT = ASPHALT_LIFT + MARKING_MAX_ERROR + DRAPE_MAX_ERROR + 0.03;
+// Same idea one layer up, for the kerb colour zones: they are seated on the
+// drawn KERB, and this is only the fallback for the vertices that graze off it.
+const KERB_PAINT_LIFT = CURB_LIFT + MARKING_MAX_ERROR + DRAPE_MAX_ERROR + 0.03;
 const LINE_W = 0.24;
+const MUNI_LANE_W = 1.5; // red transit lane, kerb to white bound
 const EDGE_INSET = 0.5;
 const DASH_LEN = 2.2;
 const DASH_GAP = 2.6;
@@ -73,13 +77,33 @@ const CROSSWALK_ROOM = 4.5; // swept section an arm needs to carry a crosswalk +
 export const ROAD_MATERIALS: Record<string, THREE.Material> = {};
 
 // Streets v4 palette (2026-07-10, Mario-Kart pass): mid-grey blue asphalt
-// instead of near-black — big paved areas must read as surface, not void —
-// warm cream sidewalks, bright curb lip.
+// instead of near-black — big paved areas must read as surface, not void — over
+// warm concrete walks with a paler kerb lip (values re-graded 2026-07-26, see
+// MAT_SIDEWALK).
 const MAT_ASPHALT = new THREE.MeshStandardMaterial({ color: 0x555b68, roughness: 1 });
 ROAD_MATERIALS.asphalt = MAT_ASPHALT;
-const MAT_SIDEWALK = new THREE.MeshStandardMaterial({ color: 0xd9d3c2, roughness: 1 });
+// PAVEMENT IS GROUND, AND GROUND IS THE BOTTOM BAND (value pass 2026-07-26).
+// The 2026-07-26 palette pass pulled ground.ts's COVER_COLOR down ~18% and left
+// these two where they were, which inverted the three-band read: kerb aprons
+// measured L133 against building walls at L108, so the kerb+walk ribbon was the
+// brightest large surface in every aerial and Twin Peaks read as a WHITE STREET
+// GRID with dark confetti in the cells rather than as a city. Both came down
+// ~22% — the walk from 0xd2ccb9, the kerb from 0xf1eee2 — to land alongside
+// ground.ts's `plaza` 0x9b968a and `quay` 0x938e82: pavement and hardstand are
+// the same material family and should not have been two bands apart. The walk-to-kerb RATIO is
+// unchanged (1.17), so the lip still reads as a highlight line.
+//
+// This is baked vertex output (bakeConstantColor): it needs a WORLD_REV bump
+// plus `pnpm bake:world`, and the values must stay unique per base material —
+// roadCollapseTarget identifies a captured road material by its colour.
+const MAT_SIDEWALK = new THREE.MeshStandardMaterial({ color: 0x9a9586, roughness: 1 });
 ROAD_MATERIALS.walk = MAT_SIDEWALK;
-const MAT_CURB = new THREE.MeshStandardMaterial({ color: 0xe8e4d8, roughness: 1 });
+// The kerb is its OWN element, not a lighter sidewalk: the two values used to
+// sit 7% apart (0xe8e4d8 over 0xd9d3c2) and merged into one cream band, so the
+// lip that separates walk from roadway read as nothing. Now it is a brighter,
+// cooler concrete edge — a highlight line around every block — over a warmer,
+// darker walk. Kerb COLOUR ZONES paint over it (see kerbZone).
+const MAT_CURB = new THREE.MeshStandardMaterial({ color: 0xb3b0a6, roughness: 1 });
 ROAD_MATERIALS.curb = MAT_CURB;
 // Markings are decals: polygon-offset wins the depth test against the
 // asphalt even where the two drapes sample the terrain differently — no
@@ -122,18 +146,315 @@ function paintMat(color: number): THREE.MeshStandardMaterial {
     polygonOffsetUnits: -4,
   });
 }
-const MAT_MUNI_RED = paintMat(0xc04a38);
+// Muni red is a MATTE PAINTED LANE, not a light source. At 0xc04a38 two 2u
+// bands per street made red the loudest colour in an otherwise pastel scene
+// and, at night, the brightest thing in a deep-navy frame. This is the same
+// hue held down in value and chroma so it still reads as "transit lane" while
+// letting the road keep the eye.
+const MAT_MUNI_RED = paintMat(0x9c4234);
 ROAD_MATERIALS.muni = MAT_MUNI_RED;
 const MAT_BIKE_GREEN = paintMat(0x27824f);
 ROAD_MATERIALS.bike = MAT_BIKE_GREEN;
 const MAT_MANHOLE = paintMat(0x434956);
 ROAD_MATERIALS.manhole = MAT_MANHOLE;
+// Castro & 18th, the ONE rainbow corner (traced (u, v) 0.4995 / 0.4865).
+const CASTRO_18TH_X = (0.4995 - 0.5) * WORLD_W;
+const CASTRO_18TH_Z = (0.4865 - 0.5) * WORLD_H;
 const RAINBOW_HEX = [0xe64236, 0xf08c2e, 0xf2ce3a, 0x3fae52, 0x3567d6, 0x8a4bc9] as const;
 const MAT_RAINBOW = RAINBOW_HEX.map((c, i) => {
   const m = paintMat(c);
   ROAD_MATERIALS[`rb${i}`] = m;
   return m;
 });
+// Embedded track: a polished railhead and, for the cable lines, the slot.
+const MAT_RAIL = paintMat(0x9aa0a8);
+ROAD_MATERIALS.rail = MAT_RAIL;
+const MAT_RAIL_SLOT = paintMat(0x1c1e22);
+ROAD_MATERIALS.slot = MAT_RAIL_SLOT;
+// Kerb colour zones. SF paints the kerb itself and the colour is the rule:
+// red = no stopping (every bus stop), yellow = commercial loading, green =
+// short-term parking, white = passenger pick-up (that one reuses MAT_WHITE).
+const MAT_KERB_RED = paintMat(0xb43a2e);
+ROAD_MATERIALS.kerbred = MAT_KERB_RED;
+const MAT_KERB_YELLOW = paintMat(0xe0a92c);
+ROAD_MATERIALS.kerbyellow = MAT_KERB_YELLOW;
+const MAT_KERB_GREEN = paintMat(0x3aa05c);
+ROAD_MATERIALS.kerbgreen = MAT_KERB_GREEN;
+
+// --- Road STENCILS: one alpha atlas, one material ---
+// stripGeo/discGeo/flatGeo/multiPolyGeo can only paint shapes, so the parts of
+// a real roadway that are LETTERS AND SYMBOLS — the transit diamond, BUS ONLY,
+// the bike stencil, lane arrows — had no primitive at all. They get one here.
+//
+// The atlas is rasterized from coverage PREDICATES at module load: no canvas,
+// no fetch, no asset, so it behaves identically in the gen worker, the node
+// test harness and the browser, and it adds ZERO bake payload (it is code).
+// The cost is one extra material — a `map` cannot collapse into MAT_ROAD_MARK
+// — i.e. one more draw call per chunk that carries a stencil.
+const GLYPH_TILE = 64;
+const GLYPH_GRID = 4; // 4x4 tiles = one 256x256 RGBA texture (256KB)
+const GLYPH_PAD = 7; // transparent margin per tile, so mips can't bleed neighbours
+const GLYPH_INNER = GLYPH_TILE - GLYPH_PAD * 2;
+
+/**
+ * Ink coverage of one glyph over its tile. (x, y) are in [0, 1] over the tile's
+ * padded inner box, and +y points ALONG the direction of travel — so y = 1 is
+ * the top of a letter as the approaching driver reads it.
+ */
+type GlyphInk = (x: number, y: number) => boolean;
+
+const inkUnion = (...parts: readonly GlyphInk[]): GlyphInk => {
+  return (x, y) => {
+    for (const p of parts) if (p(x, y)) return true;
+    return false;
+  };
+};
+const inkRect =
+  (x0: number, y0: number, x1: number, y1: number): GlyphInk =>
+  (x, y) =>
+    x >= x0 && x <= x1 && y >= y0 && y <= y1;
+const halfPlane = (
+  px: number,
+  py: number,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+): number => (x1 - x0) * (py - y0) - (y1 - y0) * (px - x0);
+/** Filled triangle, by half-plane sign tests (all three the same way round). */
+const inkTri = (
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  cx: number,
+  cy: number,
+): GlyphInk => {
+  return (x, y) => {
+    const s0 = halfPlane(x, y, ax, ay, bx, by);
+    const s1 = halfPlane(x, y, bx, by, cx, cy);
+    const s2 = halfPlane(x, y, cx, cy, ax, ay);
+    return (s0 >= 0 && s1 >= 0 && s2 >= 0) || (s0 <= 0 && s1 <= 0 && s2 <= 0);
+  };
+};
+function segDist(px: number, py: number, x0: number, y0: number, x1: number, y1: number): number {
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const l2 = dx * dx + dy * dy;
+  const t = l2 > 0 ? Math.max(0, Math.min(1, ((px - x0) * dx + (py - y0) * dy) / l2)) : 0;
+  return Math.hypot(px - (x0 + dx * t), py - (y0 + dy * t));
+}
+/** Stroked polyline set of half-thickness `w` — the letterforms. */
+const inkStrokes = (
+  w: number,
+  segs: readonly (readonly [number, number, number, number])[],
+): GlyphInk => {
+  return (x, y) => {
+    for (const [x0, y0, x1, y1] of segs) if (segDist(x, y, x0, y0, x1, y1) <= w) return true;
+    return false;
+  };
+};
+/** Elliptical ring, for the one letterform strokes can't fake (O). */
+const inkRing =
+  (cx: number, cy: number, rx: number, ry: number, w: number): GlyphInk =>
+  (x, y) => {
+    const d = Math.hypot((x - cx) / rx, (y - cy) / ry);
+    return d <= 1 && d >= 1 - w;
+  };
+
+// Road stencils are tall and condensed: a letter occupies this box inside its
+// tile and gets stretched again by the quad it is emitted onto.
+const LX = 0.2; // letter left
+const LR = 0.8; // letter right
+const LT = 0.94; // letter top
+const LB = 0.06; // letter bottom
+const LM = (LT + LB) / 2;
+const LW = 0.085; // stroke half-thickness
+
+// Tile order IS the atlas layout — appending is safe, reordering renumbers it.
+const GLYPH_ORDER = [
+  "diamond",
+  "bike",
+  "arrowUp",
+  "arrowLeft",
+  "arrowRight",
+  "B",
+  "U",
+  "S",
+  "O",
+  "N",
+  "L",
+  "Y",
+] as const;
+type GlyphName = (typeof GLYPH_ORDER)[number];
+
+const GLYPH_INK: Record<GlyphName, GlyphInk> = {
+  // The transit-lane diamond: an outline, never a solid.
+  diamond: (x, y) => {
+    const d = Math.abs(x - 0.5) / 0.44 + Math.abs(y - 0.5) / 0.48;
+    return d <= 1 && d >= 0.62;
+  },
+  // Bicycle as the driver looks down on it: wheels in line with the lane, front
+  // wheel AHEAD, bars across. A side elevation needs the bike's vertical axis to
+  // run ACROSS the road, which reads as a smear of frame tubes from a moving car.
+  bike: inkUnion(
+    inkRing(0.5, 0.79, 0.15, 0.19, 0.34), // front wheel
+    inkRing(0.5, 0.21, 0.15, 0.19, 0.34), // rear wheel
+    inkStrokes(0.045, [
+      [0.5, 0.2, 0.5, 0.8], // spine
+      [0.14, 0.7, 0.86, 0.7], // handlebar
+      [0.33, 0.36, 0.67, 0.36], // saddle
+    ]),
+  ),
+  arrowUp: inkUnion(inkRect(0.4, 0.04, 0.6, 0.62), inkTri(0.16, 0.58, 0.84, 0.58, 0.5, 0.98)),
+  arrowLeft: inkUnion(
+    inkRect(0.44, 0.04, 0.64, 0.74),
+    inkRect(0.2, 0.58, 0.64, 0.78),
+    inkTri(0.26, 0.94, 0.26, 0.44, 0.02, 0.69),
+  ),
+  arrowRight: inkUnion(
+    inkRect(0.36, 0.04, 0.56, 0.74),
+    inkRect(0.36, 0.58, 0.8, 0.78),
+    inkTri(0.74, 0.94, 0.74, 0.44, 0.98, 0.69),
+  ),
+  B: inkStrokes(LW, [
+    [LX, LB, LX, LT],
+    [LX, LT, LR - 0.08, LT],
+    [LR - 0.08, LT, LR, LT - 0.14],
+    [LR, LT - 0.14, LR - 0.08, LM + 0.04],
+    [LR - 0.08, LM + 0.04, LX, LM],
+    [LX, LM, LR - 0.06, LM],
+    [LR - 0.06, LM, LR, LM - 0.16],
+    [LR, LM - 0.16, LR - 0.06, LB],
+    [LR - 0.06, LB, LX, LB],
+  ]),
+  U: inkStrokes(LW, [
+    [LX, LT, LX, LB + 0.12],
+    [LX, LB + 0.12, LX + 0.14, LB],
+    [LX + 0.14, LB, LR - 0.14, LB],
+    [LR - 0.14, LB, LR, LB + 0.12],
+    [LR, LB + 0.12, LR, LT],
+  ]),
+  S: inkStrokes(LW, [
+    [LR, LT - 0.1, LX + 0.12, LT],
+    [LX + 0.12, LT, LX, LT - 0.18],
+    [LX, LT - 0.18, LX + 0.08, LM + 0.06],
+    [LX + 0.08, LM + 0.06, LR - 0.08, LM - 0.06],
+    [LR - 0.08, LM - 0.06, LR, LB + 0.18],
+    [LR, LB + 0.18, LR - 0.12, LB],
+    [LR - 0.12, LB, LX, LB + 0.1],
+  ]),
+  O: inkRing(0.5, LM, (LR - LX) / 2, (LT - LB) / 2, 0.34),
+  N: inkStrokes(LW, [
+    [LX, LB, LX, LT],
+    [LX, LT, LR, LB],
+    [LR, LB, LR, LT],
+  ]),
+  L: inkStrokes(LW, [
+    [LX, LT, LX, LB],
+    [LX, LB, LR, LB],
+  ]),
+  Y: inkStrokes(LW, [
+    [LX, LT, 0.5, LM - 0.02],
+    [LR, LT, 0.5, LM - 0.02],
+    [0.5, LM + 0.04, 0.5, LB],
+  ]),
+};
+
+/**
+ * Per glyph, its [u0, v0, u1, v1] window into the atlas — the tile's inner box,
+ * so bilinear filtering and mips sample padding rather than the next glyph.
+ */
+const GLYPH_UV: Record<GlyphName, readonly [number, number, number, number]> = (() => {
+  const size = GLYPH_TILE * GLYPH_GRID;
+  const out: Record<string, readonly [number, number, number, number]> = {};
+  for (let i = 0; i < GLYPH_ORDER.length; i++) {
+    const name = GLYPH_ORDER[i];
+    if (name === undefined) continue;
+    const tx = (i % GLYPH_GRID) * GLYPH_TILE + GLYPH_PAD;
+    const ty = Math.floor(i / GLYPH_GRID) * GLYPH_TILE + GLYPH_PAD;
+    out[name] = [tx / size, ty / size, (tx + GLYPH_INNER) / size, (ty + GLYPH_INNER) / size];
+  }
+  // Every GLYPH_ORDER entry was just written; the fallback keeps the type total
+  // without a cast if a future edit ever desynchronizes the two.
+  const full: Record<GlyphName, readonly [number, number, number, number]> = {
+    diamond: out.diamond ?? [0, 0, 1, 1],
+    bike: out.bike ?? [0, 0, 1, 1],
+    arrowUp: out.arrowUp ?? [0, 0, 1, 1],
+    arrowLeft: out.arrowLeft ?? [0, 0, 1, 1],
+    arrowRight: out.arrowRight ?? [0, 0, 1, 1],
+    B: out.B ?? [0, 0, 1, 1],
+    U: out.U ?? [0, 0, 1, 1],
+    S: out.S ?? [0, 0, 1, 1],
+    O: out.O ?? [0, 0, 1, 1],
+    N: out.N ?? [0, 0, 1, 1],
+    L: out.L ?? [0, 0, 1, 1],
+    Y: out.Y ?? [0, 0, 1, 1],
+  };
+  return full;
+})();
+
+/**
+ * The atlas. White RGB with the coverage in alpha, 3x3 supersampled; row 0 of
+ * the data is v = 0, and the ink is authored with +y up, so atlas v increases
+ * toward the top of a letter (see GlyphInk).
+ */
+function buildGlyphAtlas(): THREE.DataTexture {
+  const size = GLYPH_TILE * GLYPH_GRID;
+  const data = new Uint8Array(size * size * 4);
+  const SS = 3;
+  for (let g = 0; g < GLYPH_ORDER.length; g++) {
+    const name = GLYPH_ORDER[g];
+    if (name === undefined) continue;
+    const ink = GLYPH_INK[name];
+    const tx = (g % GLYPH_GRID) * GLYPH_TILE + GLYPH_PAD;
+    const ty = Math.floor(g / GLYPH_GRID) * GLYPH_TILE + GLYPH_PAD;
+    for (let py = 0; py < GLYPH_INNER; py++) {
+      for (let px = 0; px < GLYPH_INNER; px++) {
+        let hits = 0;
+        for (let sy = 0; sy < SS; sy++) {
+          for (let sx = 0; sx < SS; sx++) {
+            const gx = (px + (sx + 0.5) / SS) / GLYPH_INNER;
+            const gy = (py + (sy + 0.5) / SS) / GLYPH_INNER;
+            if (ink(gx, gy)) hits++;
+          }
+        }
+        const i = ((ty + py) * size + tx + px) * 4;
+        data[i] = 255;
+        data[i + 1] = 255;
+        data[i + 2] = 255;
+        data[i + 3] = Math.round((hits / (SS * SS)) * 255);
+      }
+    }
+  }
+  const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.generateMipmaps = true;
+  tex.anisotropy = 4;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+// PURE white, unlike MAT_WHITE's 0xf4f7f4, and that is load-bearing: the
+// rest.bin round-trip identifies a road material by the colour it serialized
+// (roadCollapseTarget), so the stencil material must not share a colour with
+// the flat paint or captured chunks would come back on the wrong one.
+const MAT_GLYPH = new THREE.MeshStandardMaterial({
+  color: 0xffffff,
+  map: buildGlyphAtlas(),
+  alphaTest: 0.45,
+  roughness: 0.9,
+  polygonOffset: true,
+  polygonOffsetFactor: -2,
+  polygonOffsetUnits: -4,
+});
+ROAD_MATERIALS.glyph = MAT_GLYPH;
+
+// The only two words SF paints on a transit lane.
+const WORD_BUS: readonly GlyphName[] = ["B", "U", "S"];
+const WORD_ONLY: readonly GlyphName[] = ["O", "N", "L", "Y"];
 
 // --- Collapsed render materials ---
 // The six flat colors above stay as the stable WIRE keys (worker payloads,
@@ -147,35 +468,237 @@ const MAT_ROAD_BASE = new THREE.MeshStandardMaterial({
   vertexColors: true,
   roughness: 1,
 });
-// Asphalt aggregate: two octaves of hash speckle in world space, ±5%
-// luminance — big paved areas read as surface instead of flat fill. Runtime
-// shader on the shared material, so it covers live AND baked worlds (no
-// rebake needed) and costs zero extra geometry. Exported so the freeway deck
-// reads as the SAME asphalt (color + grain) — ramp mouths merge seamlessly.
+/**
+ * True on phones (coarse primary pointer), where fill rate — not draw calls —
+ * is the budget. The surface shaders below compile a reduced variant there.
+ * Guarded for the gen worker and the node test harness, which have no
+ * `window`; in practice it only ever runs inside `onBeforeCompile`, which is
+ * main-thread-only (the worker never renders).
+ */
+export function lowDetailSurfaces(): boolean {
+  return typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
+}
+
+// Asphalt surface shader — runtime only, on the SHARED base material, so it
+// covers live AND baked worlds (no rebake) and costs zero extra geometry.
+// Exported so the freeway deck reads as the SAME asphalt — ramp mouths merge
+// seamlessly.
+//
+// The material also carries the sidewalk and the curb (one collapsed draw
+// call, colors in a vertex attribute), so everything past the aggregate
+// speckle is gated on the asphalt's blue cast: asphalt is the only base color
+// with b > r (0x555b68 vs the cream walk/curb).
+//
+// On top of the speckle, all in world space so the pattern is deterministic
+// and seamless across chunk boundaries:
+//   - resurfacing patches, whole rectangles a few percent off in value;
+//   - utility-trench scars, the same rectangles at a high aspect ratio;
+//   - a very-low-frequency warm/cool drift, so districts don't share one mix;
+//   - scored pale concrete on grades past ~15%, SF's steep-block paving,
+//     with grooves transverse to the fall line.
+// All of it stays inside ±10% of the base color — this is a flat-shaded game,
+// the texture is meant to be felt, not read.
 export function applyAsphaltSpeckle(mat: THREE.MeshStandardMaterial): void {
   mat.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nvarying vec3 vRoadPos;")
+      .replace(
+        "#include <common>",
+        "#include <common>\nvarying vec3 vRoadPos;\nvarying vec3 vRoadNrm;\nvarying vec2 vRoadUv;",
+      )
       .replace(
         "#include <begin_vertex>",
-        "#include <begin_vertex>\nvRoadPos = (modelMatrix * vec4(transformed, 1.0)).xyz;",
+        `#include <begin_vertex>
+vRoadPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
+// THE ACROSS-ROAD COORDINATE (writeLateralUv): x = signed lateral offset over
+// the roadway's half-width, y = that half-width in world units. \`uv\` is
+// declared unconditionally by three's vertex prefix, and a geometry without the
+// attribute reads (0, 0) — which is exactly the "no lateral data" opt-out.
+vRoadUv = uv;
+// World normal of the DRAPE (conformToTerrain writes the engineered street
+// profile's normal here), for the grade branch. Length-guarded: a geometry
+// that ever shipped without normals would otherwise normalize a zero vector.
+vec3 roadN = mat3(modelMatrix) * objectNormal;
+float roadNL = length(roadN);
+vRoadNrm = roadNL > 1e-4 ? roadN / roadNL : vec3(0.0, 1.0, 0.0);`,
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
         "#include <common>",
         `#include <common>
+${lowDetailSurfaces() ? "" : "#define ROAD_SURFACE_FULL 1"}
 varying vec3 vRoadPos;
-float roadHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }`,
+varying vec3 vRoadNrm;
+varying vec2 vRoadUv;
+float roadHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float roadNoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = p - i;
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(
+    mix(roadHash(i), roadHash(i + vec2(1.0, 0.0)), u.x),
+    mix(roadHash(i + vec2(0.0, 1.0)), roadHash(i + vec2(1.0, 1.0)), u.x),
+    u.y);
+}
+// One random axis-aligned rectangle per \`cell\`-sized world cell, kept wholly
+// inside its cell so no patch ever reads as tiled. Returns (coverage, tone,
+// seam): coverage is antialiased off the world-space derivative — NOT off the
+// edge distance, which jumps at cell borders and would draw the grid — so
+// patches dissolve at distance instead of shimmering. Tone reuses the accept
+// hash, so some patches come out darker and some lighter for free.
+//
+// SEAM is what makes a patch read as a PATCH. Coverage alone is a rectangle a
+// few percent off in value, and at chase-cam range — where one patch fills a
+// third of the screen and its edge is off-frame — a few percent over a large
+// soft area is indistinguishable from dirt. Every real resurfacing cut is
+// edged in sealant, and that line is the whole read. It is a fixed-width WORLD
+// line, so it widens to a pixel up close and fades out once a pixel is wider
+// than the line, exactly like the ground's parcel seams.
+vec3 roadPatch(vec2 wp, vec2 dwp, float cell, vec2 hmin, vec2 hvar, float density, float seed) {
+  vec2 c = floor(wp / cell);
+  float pick = roadHash(c + seed);
+  if (pick > density) return vec3(0.0);
+  vec2 f = wp / cell - c;
+  if (roadHash(c + seed + 41.7) > 0.5) f = f.yx; // half the cuts run crossways
+  vec2 h = hmin + hvar * vec2(roadHash(c + seed + 3.7), roadHash(c + seed + 9.1));
+  vec2 ctr = h + (1.0 - 2.0 * h) * vec2(roadHash(c + seed + 17.3), roadHash(c + seed + 23.9));
+  vec2 d = abs(f - ctr) - h;
+  float sd = max(d.x, d.y);
+  float px = max(dwp.x, dwp.y);
+  float aa = px / cell + 1e-5;
+  float seamW = 0.17 / cell; // ~0.17 world units of sealant, in cell units
+  float seam = (1.0 - smoothstep(0.0, seamW + aa, abs(sd)))
+    * (1.0 - smoothstep(0.45, 1.4, px));
+  return vec3(1.0 - smoothstep(-aa, aa, sd), pick / density * 2.0 - 1.0, seam);
+}`,
       )
       .replace(
         "#include <color_fragment>",
         `#include <color_fragment>
+// Wheel-path polish is consumed by the roughness below, so it has to live at
+// function scope rather than inside the block.
+float roadPolish = 0.0;
 {
   vec2 wp = vRoadPos.xz;
+  // Grooves run transverse to the fall line, which on a hill street IS
+  // transverse to travel — the horizontal normal gives the axis for free.
+  vec2 nxz = vRoadNrm.xz;
+  float nl = length(nxz);
+  float phase = dot(wp, nxz / max(nl, 1e-4)) * 1.15;
+  // Derivatives stay in UNIFORM control flow: a quad straddling the asphalt/
+  // sidewalk seam of a merged mesh takes both sides of the gate below, and
+  // fwidth() inside a divergent branch is undefined.
+  vec2 dwp = fwidth(wp);
+  float px = max(dwp.x, dwp.y);
+  float dphase = fwidth(phase);
   float speck = roadHash(floor(wp * 1.7));
-  float coarse = roadHash(floor(wp * 0.21));
-  diffuseColor.rgb *= 1.0 + (speck - 0.5) * 0.05 + (coarse - 0.5) * 0.045;
+  // The mid octave used to be roadHash(floor(wp * 0.21)) — hard-edged 4.8u
+  // squares at ±4.5%. From the air that averages to nothing; from the chase cam
+  // a 4.8u square is a third of the screen, so the roadway read as SOFT DIRTY
+  // BLOBS rather than as pavement. The structure a driver actually sees belongs
+  // to the patches and their seams below (which have edges), so this octave
+  // drops to a fine, smooth aggregate mottle and gets out of the way.
+  float coarse = roadNoise(wp * 0.9);
+  diffuseColor.rgb *= 1.0 + (speck - 0.5) * 0.05 + (coarse - 0.5) * 0.035;
+  // Asphalt is the only base color with a blue cast; walk/curb are cream.
+  float asph = smoothstep(0.0, 0.03, diffuseColor.b - diffuseColor.r);
+  if (asph > 0.01) {
+    // 14u cells, not 26u: at chase-cam range a 26u cell put at most one patch
+    // edge on screen, so the tone offset read as a grade across the whole road.
+    vec3 slab = roadPatch(wp, dwp, 14.0, vec2(0.14), vec2(0.18), 0.38, 0.0);
+    float wear = slab.x * slab.y * 0.09 - slab.z * 0.16;
+    #ifdef ROAD_SURFACE_FULL
+      vec3 cut = roadPatch(wp, dwp, 47.0, vec2(0.40, 0.022), vec2(0.06, 0.018), 0.26, 71.3);
+      wear += cut.x * (cut.y * 0.045 - 0.035) - cut.z * 0.09; // fresh cuts read darker
+      // District drift: ~300u wavelength warm/cool, so the Sunset and SoMa
+      // are not laid in the same batch of asphalt.
+      float drift = roadNoise(wp * 0.0032) - 0.5;
+      diffuseColor.rgb *= 1.0 + asph * drift * vec3(0.07, 0.01, -0.07);
+    #endif
+    diffuseColor.rgb *= 1.0 + wear * asph;
+    // --- Across-road structure. Needs the lateral coordinate, which only the
+    // street asphalt carries (halfW = 0 on the sidewalk and the freeway deck,
+    // both of which share this material and must opt out).
+    float halfW = vRoadUv.y;
+    if (halfW > 0.5) {
+      float lat = abs(vRoadUv.x) * halfW; // world units out from the centreline
+      // The gutter is never driven: it collects grime and every block drains
+      // through it, so the last ~0.9u before the kerb goes darker and duller.
+      // Cheap, and the single biggest read of the two — phones keep it.
+      float gutter = smoothstep(halfW - 0.95, halfW - 0.15, lat) * asph;
+      diffuseColor.rgb *= 1.0 - gutter * 0.15;
+      #ifdef ROAD_SURFACE_FULL
+        // Polished wheel paths: each direction's lane sits centred at half the
+        // roadway and runs its tyres ~0.5u either side of that, so four ribbons
+        // of asphalt are permanently burnished — paler, and much smoother, which
+        // is what actually sells them once a light rakes across the street.
+        float w0 = (lat - halfW * 0.5 - 0.5) / 0.36;
+        float w1 = (lat - halfW * 0.5 + 0.5) / 0.36;
+        float track = exp(-w0 * w0) + exp(-w1 * w1);
+        // Undersampled at distance the ribbons would alias into moire; fade them
+        // out once a pixel spans a big fraction of their width.
+        track *= 1.0 - smoothstep(0.15, 0.5, max(dwp.x, dwp.y) / halfW);
+        roadPolish = track * asph * (1.0 - gutter);
+        // A raking sun turned the sheen into hard streaks, and at a junction
+        // the lateral coordinate has no single meaning (see LATERAL_REACH) so
+        // the ribbons wandered and crossed. Kept as a hint of lane wear only.
+        diffuseColor.rgb *= 1.0 + roadPolish * 0.012;
+      #endif
+    }
+    // Steep blocks are scored concrete, not asphalt (Filbert, 22nd, Jones).
+    float steep = smoothstep(0.15, 0.28, nl / max(vRoadNrm.y, 0.05)) * asph;
+    if (steep > 0.01) {
+      float groove = (0.5 - 0.5 * cos(phase * 6.2831853))
+        * (1.0 - smoothstep(0.35, 0.9, dphase)); // drop the pattern once undersampled
+      vec3 conc = vec3(0.30, 0.29, 0.26);
+      #ifdef ROAD_SURFACE_FULL
+        conc *= 0.88 + 0.24 * roadNoise(wp * 0.35); // slab-to-slab value variation
+      #endif
+      diffuseColor.rgb = mix(diffuseColor.rgb, conc * (1.0 - groove * 0.15), steep * 0.7);
+    }
+  }
+  // --- CONCRETE: the walk and the kerb, which ride this same material with
+  // their colours in a vertex attribute. Until now the only thing that touched
+  // them was the aggregate speckle above, so the second-largest surface in the
+  // city — a continuous ribbon around every block in San Francisco — was a flat
+  // fill. Same vocabulary as the asphalt: panels instead of resurfacing
+  // patches, scoring joints instead of wheel paths, one slow value drift so two
+  // adjacent blocks were not poured on the same day.
+  float cream = smoothstep(0.0, 0.03, diffuseColor.r - diffuseColor.b) * (1.0 - asph);
+  if (cream > 0.01) {
+    // The kerb is a single cast lip: no panels, no joints, and it has to stay
+    // the brightest line in the street section or the walk/roadway edge stops
+    // reading. It is paler than the walk in the LINEAR colours the shader sees
+    // (0.43 vs 0.30 luma — sRGB 0xb3b0a6 over 0x9a9586), which is the only
+    // separation available on a merged mesh. Re-derive this window if either
+    // palette value moves.
+    float lip = smoothstep(0.34, 0.42, dot(diffuseColor.rgb, vec3(0.30, 0.59, 0.11)));
+    float walk = cream * (1.0 - lip);
+    // Pour-to-pour drift, ~85u — block scale, so a corner is where the value
+    // changes rather than mid-block.
+    diffuseColor.rgb *= 1.0 + cream * (roadNoise(wp * 0.012) - 0.5) * 0.10;
+    // Scoring joints. SF scores its walks at roughly 1.5u in this world's
+    // scale; the grid is world-aligned rather than kerb-aligned because the
+    // walk carries no lateral coordinate (halfW = 0 is its documented opt-out),
+    // and at this amplitude the misalignment on a diagonal street reads as
+    // texture. Faded out by pixel size well before it could moire from the air.
+    vec2 jf = abs(fract(wp / 1.55) - 0.5);
+    float jd = (0.5 - max(jf.x, jf.y)) * 1.55; // world distance to the nearest score
+    float joint = (1.0 - smoothstep(0.0, 0.05 + px, jd)) * (1.0 - smoothstep(0.10, 0.5, px));
+    diffuseColor.rgb *= 1.0 - joint * walk * 0.20;
+    #ifdef ROAD_SURFACE_FULL
+      // Replaced panels: the same machinery as the roadway's patches at a
+      // pavement's scale, so a walk has run-length instead of one value.
+      vec3 panel = roadPatch(wp, dwp, 9.0, vec2(0.16), vec2(0.16), 0.35, 137.9);
+      diffuseColor.rgb *= 1.0 + walk * (panel.x * panel.y * 0.07 - panel.z * 0.12);
+    #endif
+  }
 }`,
+      )
+      .replace(
+        "#include <roughnessmap_fragment>",
+        `#include <roughnessmap_fragment>
+// Burnished wheel paths are the one part of the roadway with any sheen.
+roughnessFactor *= 1.0 - roadPolish * 0.10;`,
       );
   };
 }
@@ -204,7 +727,18 @@ const COLLAPSE_BY_KEY: Record<string, CollapseTarget> = {
   muni: { mat: MAT_ROAD_MARK, color: MAT_MUNI_RED.color },
   bike: { mat: MAT_ROAD_MARK, color: MAT_BIKE_GREEN.color },
   manhole: { mat: MAT_ROAD_MARK, color: MAT_MANHOLE.color },
+  rail: { mat: MAT_ROAD_MARK, color: MAT_RAIL.color },
+  slot: { mat: MAT_ROAD_MARK, color: MAT_RAIL_SLOT.color },
+  kerbred: { mat: MAT_ROAD_MARK, color: MAT_KERB_RED.color },
+  kerbyellow: { mat: MAT_ROAD_MARK, color: MAT_KERB_YELLOW.color },
+  kerbgreen: { mat: MAT_ROAD_MARK, color: MAT_KERB_GREEN.color },
+  glyph: { mat: MAT_GLYPH, color: MAT_GLYPH.color },
 };
+
+// Decal materials: polygon-offset overlays that win the depth test against the
+// asphalt. The capture round-trip matches on this flag plus the colour, so the
+// set has to name every one of them (MAT_GLYPH is a decal too).
+const DECAL_MATS: ReadonlySet<THREE.Material> = new Set([MAT_ROAD_MARK, MAT_GLYPH]);
 for (let i = 0; i < MAT_RAINBOW.length; i++) {
   const m = MAT_RAINBOW[i];
   if (m) COLLAPSE_BY_KEY[`rb${i}`] = { mat: MAT_ROAD_MARK, color: m.color };
@@ -231,8 +765,7 @@ export function roadCollapseTarget(
     return null;
   }
   for (const t of Object.values(COLLAPSE_BY_KEY)) {
-    const isMark = t.mat === MAT_ROAD_MARK;
-    if (isMark === polygonOffset && t.color.getHex() === colorHex) return t;
+    if (DECAL_MATS.has(t.mat) === polygonOffset && t.color.getHex() === colorHex) return t;
   }
   return null;
 }
@@ -250,7 +783,18 @@ export function bakeConstantColor(geo: THREE.BufferGeometry, color: THREE.Color)
   geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
 }
 
-type Part = { geo: THREE.BufferGeometry; mat: THREE.Material; lift: number; maxError?: number };
+// Which drawn surface a decal is re-seated onto (see seatOnSurface). Paint on
+// the roadway rides the asphalt; a kerb colour zone rides the kerb, which is
+// drawn 0.11u higher — seating it on the asphalt would bury it.
+type PaintSeat = "asphalt" | "curb";
+
+type Part = {
+  geo: THREE.BufferGeometry;
+  mat: THREE.Material;
+  lift: number;
+  maxError?: number;
+  seat?: PaintSeat;
+};
 
 export type RoadPartBuffers = {
   matKey: string;
@@ -405,6 +949,62 @@ function flatGeo(pos: number[]): THREE.BufferGeometry {
   geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(pos), 3));
   geo.setAttribute("normal", new THREE.BufferAttribute(nor, 3));
   geo.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+  return geo;
+}
+
+/**
+ * One stencil quad: `name`'s atlas tile mapped onto a `w` x `l` patch centred at
+ * (cx, cz), reading correctly for a driver travelling along the unit (tx, tz) —
+ * the glyph's top points that way. `right` below is the driver's right hand,
+ * matching the sign convention of every lateral offset in this file (a marking
+ * at offset `o` sits at (x - tz*o, z + tx*o)).
+ */
+function glyphGeo(
+  name: GlyphName,
+  cx: number,
+  cz: number,
+  tx: number,
+  tz: number,
+  w: number,
+  l: number,
+): THREE.BufferGeometry {
+  const rx = -tz;
+  const rz = tx;
+  const hw = w / 2;
+  const hl = l / 2;
+  const px = (sl: number, sa: number): number => cx + rx * sl * hw + tx * sa * hl;
+  const pz = (sl: number, sa: number): number => cz + rz * sl * hw + tz * sa * hl;
+  // (right, tangent) is left-handed in XZ, so this corner order — and not the
+  // obvious one — is the up-facing winding (see the crosswalk quads).
+  const pos = [
+    px(-1, -1),
+    0,
+    pz(-1, -1),
+    px(1, -1),
+    0,
+    pz(1, -1),
+    px(1, 1),
+    0,
+    pz(1, 1),
+    px(-1, -1),
+    0,
+    pz(-1, -1),
+    px(1, 1),
+    0,
+    pz(1, 1),
+    px(-1, 1),
+    0,
+    pz(-1, 1),
+  ];
+  const [u0, v0, u1, v1] = GLYPH_UV[name];
+  const geo = flatGeo(pos);
+  geo.setAttribute(
+    "uv",
+    new THREE.BufferAttribute(
+      new Float32Array([u0, v0, u1, v0, u1, v1, u0, v0, u1, v1, u0, v1]),
+      2,
+    ),
+  );
   return geo;
 }
 
@@ -642,6 +1242,95 @@ function multiPolyGeo(mp: MultiPoly): THREE.BufferGeometry {
   return flatGeo(pos);
 }
 
+// --- Real SF transit, drawn as OUR OWN street furniture ---
+// sf-transit.ts resolves the city's real rail and trolley corridors onto lists
+// of indices into SF_EDGES. Nothing here renders the extracted polylines: the
+// rails below are swept from the game's own NetEdge, at the game's own
+// centreline, so track cannot land beside the asphalt — it IS the asphalt's
+// centreline — and no epsilon fitting is involved.
+
+/** The track embedded in a street, at most one kind per street. */
+type RailKind = "cable" | "tram" | "railway";
+
+// The `railway` corridor list is dominated by the Market Street subway, which
+// the extractor resolved onto every cross street the tunnel happens to pass
+// under; none of that has a surface trace and drawing it would lay rails across
+// half of downtown. These are the corridors that DO surface: the Embarcadero's
+// belt track, the T-Third on 3rd/Illinois, and the Caltrain approach and its
+// at-grade crossings into the 4th & King yard.
+const SURFACE_RAILWAY_STREETS: ReadonlySet<string> = new Set([
+  "The Embarcadero",
+  "King Street",
+  "Townsend Street",
+  "3rd Street",
+  "Illinois Street",
+  "7th Street",
+  "16th Street",
+]);
+
+// A corridor shorter than this is RESOLUTION BLEED, not track. Track that
+// crosses an intersection is briefly nearest to the CROSS street, so the
+// extractor credits that street one 13-36u edge — which would draw a one-block
+// stub of cable track down Broadway, Post, Union, Sansome and 25 others. The
+// real network survives the cut intact: California / Powell / Mason / Hyde /
+// Jackson / Washington / Taylor / Columbus, 2,406u, against a true one-way route
+// length of ~8.8 km = 1,980u for the three lines.
+const MIN_CORRIDOR_U = 80;
+
+/**
+ * SF_EDGES index → embedded track. Cable wins over tram wins over railway: the
+ * source model tags the cable lines as tram as well, the modes genuinely share
+ * streets (Powell, Market, the Embarcadero), and one asphalt can only carry one
+ * gauge — so the most distinctive read takes it.
+ * light_rail is absent on purpose: 2,342u of its 2,572u is the Market subway.
+ */
+function transitRailKinds(edgeCount: number): Map<number, RailKind> {
+  const out = new Map<number, RailKind>();
+  const claim = (kind: RailKind, edges: Iterable<number>): void => {
+    for (const e of edges) {
+      if (e >= 0 && e < edgeCount && !out.has(e)) out.set(e, kind);
+    }
+  };
+  for (const c of SF_TRANSIT.cable) {
+    if (c.lengthU >= MIN_CORRIDOR_U) claim("cable", c.edges);
+  }
+  for (const c of SF_TRANSIT.tram) {
+    if (c.lengthU >= MIN_CORRIDOR_U) claim("tram", c.edges);
+  }
+  for (const c of SF_TRANSIT.railway) {
+    if (SURFACE_RAILWAY_STREETS.has(c.street)) claim("railway", c.edges);
+  }
+  return out;
+}
+
+// Real gauge is 1.067m (cable) / 1.435m (standard), i.e. 0.24u / 0.32u at our
+// ~4.45m per unit — sub-pixel from a moving car. The read matters more than the
+// measurement, so the gauge below is deliberately exaggerated.
+const CABLE_GAUGE = 0.25; // rail centre to track centre
+const RAILWAY_GAUGE = 0.34;
+const RAILHEAD_W = 0.1;
+const CABLE_SLOT_HALF = 0.05; // the black slot IS the cable-car icon
+
+/**
+ * Trolleybus corridors are what a red transit lane actually follows. All 584 of
+ * them is 21,538u — 11% of the roadway, which reads as rust, not as special —
+ * so take corridors longest-first until the budget is spent. `SF_TRANSIT`
+ * partitions each mode's coverage into corridors sorted by length, so this is
+ * just a prefix.
+ */
+const MUNI_RED_BUDGET_U = 5300;
+
+function muniRedEdges(): Set<number> {
+  const out = new Set<number>();
+  let len = 0;
+  for (const c of SF_TRANSIT.trolleybus) {
+    if (len >= MUNI_RED_BUDGET_U) break;
+    for (const e of c.edges) out.add(e);
+    len += c.lengthU;
+  }
+  return out;
+}
+
 /** patchRing's corner-fan cap, in nodeTrim units. */
 const PATCH_FACTOR = 1.55;
 
@@ -743,6 +1432,55 @@ export function buildJunctionMap(network: RoadNetwork): JunctionMap {
   };
 }
 
+// How far off the network a piece of asphalt can be and still be given a lateral
+// coordinate, and how far PAST its own roadway edge a vertex may sit before its
+// answer stops meaning anything. Junction patches and aprons reach well past
+// both: out there the nearest edge is often the CROSSING street, so a clamped
+// ±1 would hand the shader a lateral frame that flips mid-triangle — which drew
+// wheel paths that wandered and crossed over every junction. Such a vertex
+// publishes the documented opt-out (v = 0) instead, and interpolation against
+// its neighbours fades the effect out across the apron on its own.
+const LATERAL_REACH = 24;
+const LATERAL_SLOP = 0.8;
+
+/**
+ * THE ACROSS-ROAD COORDINATE, written into the drawn asphalt's `uv` AFTER it is
+ * draped. Without it a fragment shader knows where a road pixel is in the world
+ * but not where it is across the road, which is what wheel paths, gutters, lane
+ * shading and wear all key off — `flatGeo` allocated the attribute and left it
+ * zero-filled.
+ *
+ *   u = signed lateral offset / half-width  (-1 = left kerb, 0 = centreline,
+ *       +1 = right kerb; sign matches every other offset in this file)
+ *   v = that half-width in world units, so a shader can turn u back into a
+ *       distance and size a gutter in metres instead of in percentages.
+ *
+ * Written post-drape, per WELDED vertex, from the vertex's own position — which
+ * keeps it exact (no interpolation across a block-spanning triangle), keeps
+ * identical positions on identical values (so it cannot un-weld anything) and
+ * costs one nearest-edge query per unique asphalt vertex.
+ *
+ * v = 0 is the documented opt-out: the sidewalk, the kerb and the freeway deck
+ * share this material and never get lateral data, so the shader must gate on it.
+ */
+function writeLateralUv(geo: THREE.BufferGeometry, network: RoadNetwork): void {
+  const pos = geo.getAttribute("position");
+  const uv = geo.getAttribute("uv");
+  if (!(uv instanceof THREE.BufferAttribute)) return;
+  const arr = uv.array;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const z = pos.getZ(i);
+    const hit = network.nearest(x, z, LATERAL_REACH);
+    if (!hit) continue;
+    const lat = (x - hit.x) * -hit.tz + (z - hit.z) * hit.tx;
+    if (Math.abs(lat) > hit.edge.half + LATERAL_SLOP) continue;
+    arr[i * 2] = Math.max(-1, Math.min(1, lat / hit.edge.half));
+    arr[i * 2 + 1] = hit.edge.half;
+  }
+  uv.needsUpdate = true;
+}
+
 export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadPartBuffers[] {
   const asphaltPolys: Poly[] = [];
   const curbPolys: Poly[] = [];
@@ -752,6 +1490,8 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
   const junctions = buildJunctionMap(network);
   const nodeArms = junctions.arms;
   const nearJunction = junctions.near;
+  const railKinds = transitRailKinds(network.edges.length);
+  const redEdges = muniRedEdges();
 
   // --- Edge sweeps as polygons + markings ---
   for (const edge of network.edges) {
@@ -797,6 +1537,7 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
     const h2 = (h01 * 7.13) % 1;
     const h3 = (h01 * 13.71) % 1;
     const h4 = (h01 * 23.31) % 1;
+    const h5 = (h01 * 31.77) % 1;
 
     // Junction-clipped line runs: a full-rail strip radiates straight
     // through merged junction blobs (short edges barely trim, and
@@ -843,40 +1584,116 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
       }
     };
 
-    // Edge lines: always on boulevards (yellow); most minors carry white
-    // ones, but a third of the grid runs bare-shouldered (real residentials).
-    const hasEdgeLines = major || h01 < 0.65;
-    if (hasEdgeLines) {
-      const edgeMat = major ? MAT_YELLOW : MAT_WHITE;
-      emitLine(eo, edgeMat);
-      emitLine(-eo, edgeMat);
+    // A stencil at arclength `s` (in the paint range), lateral `off`, read by a
+    // driver travelling `dir` (+1 = the edge's own direction). Junction-clipped
+    // like everything else — a diamond half-swallowed by a crossing reads as a
+    // mistake.
+    const pushGlyph = (
+      name: GlyphName,
+      s: number,
+      off: number,
+      dir: -1 | 1,
+      w: number,
+      l: number,
+    ): void => {
+      const smp = network.sample(edge, paintA + s);
+      const gx = smp.x - smp.tz * off;
+      const gz = smp.z + smp.tx * off;
+      if (nearJunction(gx, gz, 2)) return;
+      markingParts.push({
+        geo: glyphGeo(name, gx, gz, smp.tx * dir, smp.tz * dir, w, l),
+        mat: MAT_GLYPH,
+        lift: LINE_LIFT,
+      });
+    };
+    // Road text advances ALONG the direction of travel, so the driver arrives
+    // at the first letter first.
+    const pushWord = (
+      word: readonly GlyphName[],
+      s0: number,
+      off: number,
+      dir: -1 | 1,
+      pitch: number,
+    ): void => {
+      for (let i = 0; i < word.length; i++) {
+        const g = word[i];
+        if (g === undefined) continue;
+        pushGlyph(g, s0 + dir * i * pitch, off, dir, 1.4, 2.6);
+      }
+    };
+
+    // --- Muni red transit lanes ---
+    // The gate WAS `h >= 5.5`, i.e. "any wide road": that painted both outer
+    // edges of 333 OSM primaries, 16,854u — Great Highway, Sloat, Skyline, JFK
+    // Drive and Oak, none of which has ever carried a bus lane. The real
+    // trolleybus corridors decide it now (sf-transit.ts), and the band moved
+    // into the GUTTER: at `eo - LINE_W/2 - 0.3` it sat 0.92u short of the kerb,
+    // out in the parking lane, with nothing between it and moving traffic.
+    const muniRed = redEdges.has(edge.id) && h >= 4.4;
+    const busOut = h - 0.12;
+    const busIn = busOut - MUNI_LANE_W;
+
+    // Edge lines: boulevards only, and WHITE. A red lane needs no edge line —
+    // its own white bound is the marking, and a yellow line under the red was
+    // the inverted convention twice over.
+    if (major && !muniRed) {
+      emitLine(eo, MAT_WHITE);
+      emitLine(-eo, MAT_WHITE);
     }
 
-    if (secLen >= 6) {
+    // Embedded track owns the centre of the street; a double yellow through a
+    // cable slot is paint soup.
+    const railKind = railKinds.get(edge.id);
+    if (secLen >= 6 && railKind === undefined) {
       if (major) {
         // Centre-of-roadway paint may run INTO a junction's open asphalt
         // (negative margin) — only EDGE lines must not slice across a merged
         // blob. Dense corridors (Market) otherwise read bald between nodes.
         emitDashes(-h * 0.33, MAT_WHITE, CENTRE_CLIP);
         emitDashes(h * 0.33, MAT_WHITE, CENTRE_CLIP);
-        // Divided-boulevard look on some corridors: double-yellow centre.
-        if (h2 < 0.45) {
-          emitLine(0.28, MAT_YELLOW, CENTRE_CLIP);
-          emitLine(-0.28, MAT_YELLOW, CENTRE_CLIP);
-        }
+        // Double yellow down every boulevard. US convention: yellow is the line
+        // between OPPOSING directions, white is lanes and edges — so a divided
+        // boulevard is not a per-corridor style choice, it is the rule.
+        emitLine(0.28, MAT_YELLOW, CENTRE_CLIP);
+        emitLine(-0.28, MAT_YELLOW, CENTRE_CLIP);
       } else {
-        // Minor-grid centre-line variety.
-        if (h2 < 0.3) {
+        // Minor-grid variety, all of it US-legal: yellow divides opposing
+        // directions, or the street carries no centre line at all (a third of
+        // the grid — real residentials).
+        if (h2 < 0.34) {
           emitDashes(0, MAT_DASH); // classic yellow dash
-        } else if (h2 < 0.5) {
+        } else if (h2 < 0.56) {
           emitLine(0, MAT_YELLOW); // solid yellow
-        } else if (h2 < 0.62) {
+        } else if (h2 < 0.68) {
           emitLine(0.26, MAT_YELLOW); // double yellow
           emitLine(-0.26, MAT_YELLOW);
-        } else if (h2 < 0.8) {
-          emitDashes(0, MAT_WHITE); // white dash
         }
-        // else: bare street — no centre line at all.
+      }
+    }
+
+    // --- Embedded track, swept from OUR centreline ---
+    // Not junction-clipped: real track runs straight through the crossing
+    // (Powell & California is the postcard) and the junction patch has already
+    // paved what it crosses. It also spans the FULL edge, not the trimmed
+    // section, so consecutive edges of a line meet instead of dotting.
+    if (railKind !== undefined) {
+      const track = railFor(edge, 0, edge.len);
+      if (track) {
+        const gauge = railKind === "railway" ? RAILWAY_GAUGE : CABLE_GAUGE;
+        for (const side of [-1, 1] as const) {
+          markingParts.push({
+            geo: stripGeo(track, side * gauge - RAILHEAD_W / 2, side * gauge + RAILHEAD_W / 2),
+            mat: MAT_RAIL,
+            lift: LINE_LIFT,
+          });
+        }
+        if (railKind === "cable") {
+          markingParts.push({
+            geo: stripGeo(track, -CABLE_SLOT_HALF, CABLE_SLOT_HALF),
+            mat: MAT_RAIL_SLOT,
+            lift: LINE_LIFT,
+          });
+        }
       }
     }
 
@@ -894,6 +1711,7 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
       endMargin: number,
       mat: THREE.Material,
       junctionMargin = 4.5,
+      seat: PaintSeat = "asphalt",
     ): void => {
       const o0 = Math.min(side * bandIn, side * bandOut);
       const o1 = Math.max(side * bandIn, side * bandOut);
@@ -906,7 +1724,14 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
           const e = Math.min(s + segLen, b);
           if (e - s < Math.min(segLen, 1.6)) continue;
           const r = railFor(edge, paintA + s, paintA + e);
-          if (r) markingParts.push({ geo: stripGeo(r, o0, o1), mat, lift: LINE_LIFT });
+          if (r) {
+            markingParts.push({
+              geo: stripGeo(r, o0, o1),
+              mat,
+              lift: seat === "curb" ? KERB_PAINT_LIFT : LINE_LIFT,
+              seat,
+            });
+          }
         }
       };
       const steps = Math.max(1, Math.ceil((hi - lo) / 2));
@@ -924,17 +1749,27 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
       }
     };
 
-    // Muni red transit lanes: ONLY the widest corridor class (Market/Van
-    // Ness/Geary scale) — red everywhere reads rusty instead of special.
-    // A thin curb-hugging lane, CONTINUOUS between crosswalks: real transit
-    // lanes are one unbroken strip, and the old 14u segmentation read as
-    // random red slabs dropped on the kerb.
-    if (h >= 5.5) {
-      // primary corridors only
-      const laneOut = eo - LINE_W / 2 - 0.3;
-      const laneIn = laneOut - 1.9;
-      paintBand(-1, laneIn, laneOut, Infinity, 0, 3, MAT_MUNI_RED, 2.4);
-      paintBand(1, laneIn, laneOut, Infinity, 0, 3, MAT_MUNI_RED, 2.4);
+    // The red lane itself: CONTINUOUS between crosswalks (a real transit lane
+    // is one unbroken strip), bounded on the traffic side by the white line the
+    // band never had, and stencilled with the diamond and BUS ONLY. Right-hand
+    // traffic, so the lane on the +lateral side is driven along the edge's own
+    // direction and the other one against it.
+    if (muniRed) {
+      paintBand(-1, busIn, busOut, Infinity, 0, 3, MAT_MUNI_RED, 2.4);
+      paintBand(1, busIn, busOut, Infinity, 0, 3, MAT_MUNI_RED, 2.4);
+      emitLine(busIn, MAT_WHITE);
+      emitLine(-busIn, MAT_WHITE);
+      const lat = (busIn + busOut) / 2;
+      for (const side of [-1, 1] as const) {
+        for (let s = 12; s < paintLen - 8; s += 30) {
+          pushGlyph("diamond", s, side * lat, side, 1.5, 2.4);
+        }
+        if (paintLen >= 40) {
+          const mid = paintLen / 2;
+          pushWord(WORD_BUS, mid - side * 8, side * lat, side, 2.0);
+          pushWord(WORD_ONLY, mid + side * 1.5, side * lat, side, 2.0);
+        }
+      }
     }
 
     // Green bike lanes: a sparse subset of the minor grid — SF's bike-network
@@ -944,33 +1779,88 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
     // instead of running a lane the length of a street. Narrow + dark so they
     // read as PAINT (the old wide bright band read as grass medians), and
     // never stacked on solid/double-yellow streets — that was paint soup.
-    const solidCentre = h2 >= 0.3 && h2 < 0.62;
+    const solidCentre = h2 >= 0.34 && h2 < 0.68;
     const bikeLane = !major && secLen > 8 && h4 < 0.12 && !solidCentre;
     if (bikeLane) {
       paintBand(-1, h - 1.75, h - 0.95, 4.5, 2.2, 3, MAT_BIKE_GREEN);
       paintBand(1, h - 1.75, h - 0.95, 4.5, 2.2, 3, MAT_BIKE_GREEN);
+      for (const side of [-1, 1] as const) {
+        for (let s = 8; s < paintLen - 6; s += 15) {
+          pushGlyph("bike", s, side * (h - 1.35), side, 1.3, 2.2);
+        }
+      }
     }
 
-    // Parking-bay ticks: short white separators inside the kerb lane — the
-    // street reads as marked parking from above. Only on lined streets with
-    // no bike lane claiming the same kerb strip.
-    if (!major && h >= 3.6 && hasEdgeLines && !bikeLane && h3 < 0.45) {
+    // Parking bays on the residential grid. The marker is a T — a tick out from
+    // the kerb with a short bar along it at the traffic end — not the plain
+    // lateral bar this used to draw, and it is now what tells a residential
+    // street where its kerb is: minor streets carry no edge line at all (real
+    // ones don't; the parked cars are the edge).
+    if (!major && h >= 3.6 && !bikeLane && !muniRed && h3 < 0.5) {
+      const tOut = h - 0.45; // kerb end of the stem
+      const tIn = h - 1.9; // traffic end, where the crossbar sits
       for (let s = 5; s < paintLen - 5; s += 7) {
         const smp = network.sample(edge, paintA + s);
         if (nearJunction(smp.x, smp.z, 4)) continue;
-        const tickRail = railFor(edge, paintA + s, paintA + s + 0.62);
-        if (!tickRail) continue;
+        const stem = railFor(edge, paintA + s, paintA + s + 0.62);
+        const bar = railFor(edge, paintA + s - 0.55, paintA + s + 1.15);
+        if (!stem || !bar) continue;
         for (const side of [-1, 1] as const) {
           // stripGeo winds by off order (see paintBand) — keep off0 < off1.
-          const o0 = Math.min(side * (h - 2.0), side * (h - 0.55));
-          const o1 = Math.max(side * (h - 2.0), side * (h - 0.55));
           markingParts.push({
-            geo: stripGeo(tickRail, o0, o1),
+            geo: stripGeo(
+              stem,
+              Math.min(side * tIn, side * tOut),
+              Math.max(side * tIn, side * tOut),
+            ),
+            mat: MAT_WHITE,
+            lift: LINE_LIFT,
+          });
+          markingParts.push({
+            geo: stripGeo(
+              bar,
+              Math.min(side * tIn, side * (tIn + 0.3)),
+              Math.max(side * tIn, side * (tIn + 0.3)),
+            ),
             mat: MAT_WHITE,
             lift: LINE_LIFT,
           });
         }
       }
+    }
+
+    // --- Kerb colour zones ---
+    // In SF the kerb itself is a signal and the colour is the rule. Red is the
+    // one that isn't decoration: it follows the REAL bus network (sf-transit's
+    // per-edge service density), one near-side stop per direction, so the paint
+    // agrees with where the shelters and the routes are. The other three are
+    // keyed on the street LINE, so a commercial street keeps its character
+    // block to block instead of flickering per edge.
+    const kerbZone = (side: -1 | 1, s0: number, s1: number, mat: THREE.Material): void => {
+      if (s0 < 0 || s1 > paintLen || s1 - s0 < 1.5) return;
+      const mid = network.sample(edge, paintA + (s0 + s1) / 2);
+      const lat = side * (h + CURB_W / 2);
+      if (nearJunction(mid.x - mid.tz * lat, mid.z + mid.tx * lat, 0.6)) return;
+      const r = railFor(edge, paintA + s0, paintA + s1);
+      if (!r) return;
+      const a = side * (h + 0.05);
+      const b = side * (h + CURB_W - 0.05);
+      markingParts.push({
+        geo: stripGeo(r, Math.min(a, b), Math.max(a, b)),
+        mat,
+        lift: KERB_PAINT_LIFT,
+        seat: "curb",
+      });
+    };
+    if (busLoadAt(edge.id) > 0 && paintLen > 18) {
+      kerbZone(1, paintLen - 10.5, paintLen - 3, MAT_KERB_RED);
+      kerbZone(-1, 3, 10.5, MAT_KERB_RED);
+    }
+    const zoneMat =
+      h5 < 0.14 ? MAT_KERB_YELLOW : h5 < 0.22 ? MAT_WHITE : h5 < 0.32 ? MAT_KERB_GREEN : null;
+    if (zoneMat && paintLen > 20) {
+      kerbZone(1, paintLen / 2 - 4.5, paintLen / 2 + 4.5, zoneMat);
+      if (h4 > 0.5) kerbZone(-1, paintLen / 2 - 3, paintLen / 2 + 3, zoneMat);
     }
 
     // Manhole covers: sparse dark discs, alternating lanes on the minor grid.
@@ -985,6 +1875,27 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
       }
     }
   }
+
+  // The rainbow crosswalk is ONE intersection — Castro at 18th — not a
+  // district. Painting every junction inside the 300 × 286u Castro box in
+  // rainbow bands (which is what `districtAt(...) === "the Castro"` did) both
+  // destroyed the landmark by repetition and filled the district with confetti
+  // that competes with the driving line. Resolve the single nearest junction
+  // to the real corner once, and paint that.
+  const rainbowNode = (() => {
+    let best = -1;
+    let bestD = 55 * 55;
+    for (let n = 0; n < network.nodes.length; n++) {
+      const node = network.nodes[n];
+      const arms = nodeArms[n];
+      if (!node || !arms || arms.length < 3 || arms.length > 5) continue;
+      const d = (node[0] - CASTRO_18TH_X) ** 2 + (node[1] - CASTRO_18TH_Z) ** 2;
+      if (d >= bestD) continue;
+      bestD = d;
+      best = n;
+    }
+    return best;
+  })();
 
   let crosswalkArms = 0;
   // --- Junction patches + crosswalks + dead-end caps ---
@@ -1019,18 +1930,19 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
     // per node: gating the whole junction on its trim left the widest ones —
     // the ones whose approaches already lose the most paint — as featureless
     // asphalt lakes where several painted streets appear to just stop.
+    // A crossing is not conditional on a signal. Gating the paint on
+    // junctionControl left 1,138 of SF's 2,748 intersections — 41% — with no
+    // crosswalk at all, because the minor grid's all-way-stop warrant is a coin
+    // flip and the loser got nothing. An uncontrolled junction still has marked
+    // crossings; what it does NOT have is a stop bar, which is the real split.
     const control = junctionControl(network, n);
-    if (arms.length >= 3 && arms.length <= 4 && control !== "none") {
+    if (arms.length >= 3 && arms.length <= 5) {
       const zebra = control === "signal";
-      // The Castro paints its crosswalks rainbow — so do we.
-      const gxN = Math.min(GRID_X - 1, Math.max(0, Math.floor((nx + WORLD_HALF_X) / ROAD_TILE)));
-      const gzN = Math.min(GRID_Z - 1, Math.max(0, Math.floor((nz + WORLD_HALF_Z) / ROAD_TILE)));
-      const rainbow = districtAt(gxN, gzN).name === "the Castro";
+      // Castro at 18th paints its crosswalks rainbow — so do we, THERE.
+      const rainbow = n === rainbowNode;
       for (let ai = 0; ai < arms.length; ai++) {
         const a = arms[ai];
         if (!a) continue;
-        // 45° neighbours leave no room — zebra quads would overlap. Only
-        // paint arms with >= 60° of clearance on both sides.
         const prev = arms[(ai + arms.length - 1) % arms.length];
         const next = arms[(ai + 1) % arms.length];
         const gapTo = (o: Arm | undefined): number => {
@@ -1038,10 +1950,19 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
           const g = Math.abs(a.angle - o.angle) % (Math.PI * 2);
           return Math.min(g, Math.PI * 2 - g);
         };
-        if (Math.min(gapTo(prev), gapTo(next)) < Math.PI / 3) continue;
-        // The band spans [0.9, outer + 1.0] outward — a shorter swept section
-        // would spill it past the strip into the next node's patch.
-        if (a.sec < CROSSWALK_ROOM) continue;
+        // 45° neighbours leave no room — a zebra ladder's quads would overlap.
+        // The two thin transverse lines need much less, so they hold the
+        // shallow-angle arms (1,326 of them) the ladder has to skip.
+        const gap = Math.min(gapTo(prev), gapTo(next));
+        // The zebra band spans [0.9, outer + 1.0] outward; a shorter swept
+        // section spills it past the strip into the next node's patch. The
+        // transverse pair only reaches 2.5u, which is what the 913 short arms
+        // have.
+        // The rainbow corner earns its ladder whatever its control warrant is:
+        // it is the landmark, and a two-line transverse crossing cannot carry
+        // six colours.
+        const ladder = (zebra || rainbow) && gap >= Math.PI / 3 && a.sec >= CROSSWALK_ROOM;
+        if (!ladder && (gap < 0.87 || a.sec < 2.9)) continue;
         const ox = -a.tz;
         const oz = a.tx;
         const quad = (out: number[], d0: number, d1: number, l0: number, l1: number): void => {
@@ -1091,13 +2012,14 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
         };
         // Chunky zebra (stripes run with the road, laid across the width).
         const inner = 0.9;
-        const outer = inner + (zebra ? 2.6 : 1.6);
+        const outer = inner + (ladder ? 2.6 : 1.6);
         const usable = a.half - 0.8;
         const count = Math.max(4, Math.floor(usable / 0.95));
         crosswalkArms++;
-        if (!zebra) {
-          // Transverse crosswalk (all-way stops): two thin lines across the
-          // roadway instead of the full zebra ladder.
+        if (!ladder) {
+          // Transverse crosswalk: two thin lines across the roadway instead of
+          // the full ladder. This is what an all-way stop gets, what an
+          // uncontrolled crossing gets, and what a shallow or short arm gets.
           const lines: number[] = [];
           quad(lines, inner, inner + 0.3, -usable, usable);
           quad(lines, outer - 0.3, outer, -usable, usable);
@@ -1125,10 +2047,13 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
           markingParts.push({ geo: flatGeo(stripes), mat: MAT_WHITE, lift: LINE_LIFT });
         }
         // Stop bar just past the crosswalk: solid on boulevards, dashed on
-        // streets (the KayKit look).
-        const bar: number[] = [];
+        // streets (the KayKit look). An UNCONTROLLED crossing has nothing to
+        // stop for and gets none — that, not the crosswalk, is what a signal or
+        // a stop sign actually adds to the paint.
         const b0 = outer + 0.5;
         const b1 = b0 + 0.5;
+        if (control === "none" || a.sec < b1 + 0.6) continue;
+        const bar: number[] = [];
         if (a.half > 4.7) {
           quad(bar, b0, b1, -usable, usable);
         } else {
@@ -1139,6 +2064,49 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
           }
         }
         markingParts.push({ geo: flatGeo(bar), mat: MAT_WHITE, lift: LINE_LIFT });
+
+        // --- Lane arrows on signalized boulevard approaches ---
+        // The APPROACH is the half of the roadway on this arm that drives TOWARD
+        // the node: those drivers travel -t, so their lanes sit at negative
+        // lateral offsets and their right hand points along (a.tz, -a.tx). An
+        // arrow only claims a turn the junction can actually make, which is a
+        // question the arm list already answers.
+        if (!zebra || a.half <= 4.7 || a.sec < b1 + 8) continue;
+        const dirX = -a.tx;
+        const dirZ = -a.tz;
+        let canRight = false;
+        let canLeft = false;
+        for (const o of arms) {
+          if (!o || o === a) continue;
+          if (o.tx * a.tz + o.tz * -a.tx > 0.6) canRight = true;
+          if (o.tx * -a.tz + o.tz * a.tx > 0.6) canLeft = true;
+        }
+        const lanes = Math.max(1, Math.min(3, Math.floor(a.half / 2.4)));
+        const at = b1 + 3.6; // behind the stop bar, from the driver's side of it
+        for (let li = 0; li < lanes; li++) {
+          // Lane 0 is the kerb lane, lane `lanes-1` the one against the centre.
+          const frac = (li + 0.5) / lanes;
+          const lat = -a.half * (1 - frac * 0.86) - 0.2;
+          const glyph: GlyphName =
+            li === 0 && canRight
+              ? "arrowRight"
+              : li === lanes - 1 && lanes > 1 && canLeft
+                ? "arrowLeft"
+                : "arrowUp";
+          markingParts.push({
+            geo: glyphGeo(
+              glyph,
+              a.px + a.tx * at + ox * lat,
+              a.pz + a.tz * at + oz * lat,
+              dirX,
+              dirZ,
+              1.7,
+              3.2,
+            ),
+            mat: MAT_GLYPH,
+            lift: LINE_LIFT,
+          });
+        }
       }
     }
   }
@@ -1174,9 +2142,16 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
   };
 
   let asphaltSurface: SurfaceSampler | null = null;
+  let curbSurface: SurfaceSampler | null = null;
   for (const p of surfaceParts) {
     const draped = conformToTerrain(p.geo, terrain, p.lift, p.maxError);
-    if (p.mat === MAT_ASPHALT) asphaltSurface = surfaceSampler(draped);
+    if (p.mat === MAT_ASPHALT) {
+      asphaltSurface = surfaceSampler(draped);
+      const tUv = performance.now();
+      writeLateralUv(draped, network);
+      console.log(`[roads] lateral uv in ${Math.round(performance.now() - tUv)}ms`);
+    }
+    if (p.mat === MAT_CURB) curbSurface = surfaceSampler(draped);
     publish(p.mat, draped);
   }
   // Paint is SEATED on the asphalt that was just draped, not draped on its own
@@ -1184,10 +2159,18 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
   // cut corners a 0.24u line's don't, and the terrace field steps between
   // them), which is why the lift had grown to 0.30u above the asphalt —
   // higher than the kerb lip, so every marking parallaxed off the road.
+  // Kerb colour zones ride the KERB by the same argument: it is drawn 0.11u
+  // above the asphalt, so seating them on the roadway would bury them under it.
   const tPaint = performance.now();
   for (const p of markingParts) {
     const draped = conformToTerrain(p.geo, terrain, 0, MARKING_MAX_ERROR);
-    seatOnSurface(draped, asphaltSurface, PAINT_SEAT, LINE_LIFT);
+    const onCurb = p.seat === "curb";
+    seatOnSurface(
+      draped,
+      onCurb ? curbSurface : asphaltSurface,
+      PAINT_SEAT,
+      onCurb ? KERB_PAINT_LIFT : LINE_LIFT,
+    );
     publish(p.mat, draped);
   }
   console.log(`[roads] paint seated in ${Math.round(performance.now() - tPaint)}ms`);
@@ -1202,9 +2185,11 @@ export function roadPartsToMeshes(parts: readonly RoadPartBuffers[]): THREE.Mesh
     geo.setAttribute("normal", new THREE.BufferAttribute(p.normal, 3));
     if (p.uv) geo.setAttribute("uv", new THREE.BufferAttribute(p.uv, 2));
     if (p.index) geo.setIndex(new THREE.BufferAttribute(p.index, 1));
-    // Legacy wire key → one of the two collapsed vertex-colored materials.
+    // Legacy wire key → one of the collapsed materials. The stencil material
+    // carries its colour as a uniform (it needs the atlas in `map`), so it is
+    // the one target that must NOT be handed a vertex-colour attribute.
     const target = COLLAPSE_BY_KEY[p.matKey] ?? BASE_TARGET;
-    bakeConstantColor(geo, target.color);
+    if (target.mat.vertexColors) bakeConstantColor(geo, target.color);
     out.push(new THREE.Mesh(geo, target.mat));
   }
   return out;

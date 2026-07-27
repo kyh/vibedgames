@@ -13,8 +13,8 @@
 //   - Every scene's setup() fully re-stages: park everyone, clear transient
 //     world state, place the actors, pre-roll a few sim ticks so the first
 //     visible frame is mid-motion. The sim HOLDS between a scene's setup and
-//     its first run() frame (mirrors GameScene's intro hold), so title cards
-//     and dip-to-black cuts never eat choreography time.
+//     its first run() frame (mirrors GameScene's intro hold), so the shell's
+//     dip-to-black cuts never eat choreography time.
 //   - Unused champions park at their spawn bases and skeletons at their camps:
 //     they double as living set dressing in wide shots.
 //   - The camera is View.cinematic() — an explicit pose per frame that keeps
@@ -73,8 +73,6 @@ class Cues {
 type SceneSpec = {
   id: string;
   duration: number;
-  card?: { title: string; sub?: string };
-  caption?: string;
   setup: () => void;
   run?: (t: number) => void;
   teardown?: () => void;
@@ -108,6 +106,7 @@ class Director {
   private readonly camPos = new THREE.Vector3(0, 26, 34);
   private readonly camLook = new THREE.Vector3(0, 2, 0);
   private camFov = 52;
+  private musicLevel: 0 | 1 | 2 | 3 = 0; // re-applied when the gesture unlocks audio
 
   constructor(
     private readonly view: View,
@@ -131,13 +130,12 @@ class Director {
     view.refreshShadows();
     this.fx = new Fx(view.scene, view);
     this.worldView.fx = this.fx;
-    // a trailer wants sound; the shell's click gate is the unlock gesture.
-    // Ephemeral: setMuted would persist localStorage["ba-muted"]="0" and
-    // permanently unmute normal gameplay on this machine.
-    this.fx.audio.setMutedEphemeral(false);
+    // Audio stays muted until the shell reports a real gesture (see onGesture);
+    // nothing here touches the AudioContext, which Audio itself only creates on
+    // that same first click/keypress.
 
-    // champions — max level (R unlocked, real stat growth); level-up beams fire
-    // once here, safely masked behind the shell's start gate
+    // champions — max level (R unlocked, real stat growth); the level-up bursts
+    // this queues are dropped below, before Fx ever renders them
     this.knight = this.addHero("knight", 0);
     this.ranger = this.addHero("ranger", 1);
     this.mage = this.addHero("mage", 2);
@@ -168,6 +166,20 @@ class Director {
     }
     this.golem = this.addCreep("frostgolem", lair.x, lair.y);
     this.parkAll();
+
+    // Boot transients — the six level-up bursts above, plus the first-frame
+    // Spawn_Air / Skeletons_Awaken_Floor drop-in (and its dust) every UnitView
+    // fires when it is created — used to burn off unseen while the old click
+    // gate waited for a click. The shell's 600ms lead-in is shorter than a
+    // 1.3s Spawn_Air, so retire them HERE instead: the constructor presents no
+    // frame, so this is invisible, and only the RENDER stack moves — no step(),
+    // so the sim clock and its seeded RNG stream are untouched.
+    w.fx.length = 0; // the level-ups: dropped before Fx ever sees them
+    this.worldView.sync(w, 0); // builds the views → fires their spawn clips
+    for (let i = 0; i < 30; i++) {
+      this.fx.update(w, 0.1);
+      this.worldView.sync(w, 0.1); // 3s of clip time > the 2.5s one-shot ceiling
+    }
   }
 
   // ── troupe management ──────────────────────────────────────────────────────
@@ -289,7 +301,10 @@ class Director {
     this.fx.localOwnerId = u.ownerId;
   }
 
+  /** Music intensity for the scene. Held as state too: the track only exists
+   *  once a gesture unlocks audio, so a late unlock re-applies the last level. */
   private music(level: 0 | 1 | 2 | 3): void {
+    this.musicLevel = level;
     this.fx.audio.music?.setIntensity(level);
   }
 
@@ -347,7 +362,7 @@ class Director {
     return best;
   }
 
-  /** Wrap a scene spec: hold the sim through the card/cut, release on run. */
+  /** Wrap a scene spec: hold the sim through the dip-to-black, release on run. */
   private scene(spec: SceneSpec): TrailerScene {
     const out: TrailerScene = {
       id: spec.id,
@@ -361,8 +376,6 @@ class Director {
         spec.run?.(t);
       },
     };
-    if (spec.card) out.card = spec.card;
-    if (spec.caption !== undefined) out.caption = spec.caption;
     if (spec.teardown) out.teardown = spec.teardown;
     return out;
   }
@@ -375,7 +388,7 @@ class Director {
       timer.update(t);
       const frameDt = Math.min(timer.getDelta(), 1 / 30);
       if (this.holding) {
-        this.acc = 0; // frozen mid-card: no real-time gap unwinds on release
+        this.acc = 0; // frozen while black: no real-time gap unwinds on release
       } else {
         this.acc += frameDt;
         let n = 0;
@@ -402,11 +415,14 @@ class Director {
     });
 
     runTrailer({
-      title: "BATTLE ARENA",
-      url: "battle-arena.vibedgames.com",
-      tagline: "Online PvP action-RPG",
-      accent: "#ffd24a",
-      fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace",
+      // No start gate any more, so the trailer opens silent: unmute on the
+      // viewer's first real click/keypress (Audio creates + resumes its context
+      // on that same gesture). Ephemeral — setMuted would persist
+      // localStorage["ba-muted"]="0" and unmute normal gameplay for good.
+      onGesture: () => {
+        this.fx.audio.setMutedEphemeral(false);
+        this.fx.audio.music?.setIntensity(this.musicLevel);
+      },
       scenes: [
         this.sceneColdOpen(),
         this.sceneSignature(),
@@ -531,7 +547,6 @@ class Director {
     return this.scene({
       id: "roster-1",
       duration: 1200,
-      card: { title: "SIX CHAMPIONS" },
       setup: () => {
         cues.reset();
         this.restage();
@@ -697,7 +712,7 @@ class Director {
         this.setCam(5.0, 1.5, 27.6, 0.2, 7.0, 9.0, 58);
       },
       run: (t) => {
-        // impact ~730ms: obliteration on the dais steps → hard cut to the card
+        // impact ~730ms: obliteration on the dais steps → hard cut out
         const k = ramp(t, 0, 1200);
         this.camPos.set(lerp(5.0, 4.0, k), lerp(1.5, 1.7, k), lerp(27.6, 26.2, k));
       },
@@ -710,7 +725,6 @@ class Director {
     return this.scene({
       id: "combo-string",
       duration: 4500,
-      card: { title: "EVERY HIT LANDS", sub: "CONTACT-FRAME COMBAT" },
       setup: () => {
         cues.reset();
         this.restage();
@@ -824,7 +838,6 @@ class Director {
     return this.scene({
       id: "golem-boss",
       duration: 6000,
-      card: { title: "THE HALL AWAITS" },
       setup: () => {
         cues.reset();
         dodgedAt = -1;
@@ -962,7 +975,6 @@ class Director {
     return this.scene({
       id: "pvp-clash",
       duration: 3000,
-      caption: "ONLINE PVP",
       setup: () => {
         cues.reset();
         this.restage();
@@ -1044,7 +1056,7 @@ class Director {
         this.camFov = 47;
       },
       teardown: () => {
-        this.holding = true; // freeze the world under the end card
+        this.holding = true; // freeze the world under the closing black / loop gap
       },
     });
   }

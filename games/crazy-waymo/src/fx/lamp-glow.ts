@@ -10,16 +10,38 @@ import { STREET_SURFACE_MAX } from "../world/roads";
 // with camera distance (far lamps otherwise read as noise floating over the
 // fog), and depth-test so buildings occlude them.
 
-const HALO_SIZE = 2.6; // world units, quad edge
-const POOL_SIZE = 8;
+// The two layers were the wrong way round. Measured downtown at midnight, the
+// pavement pools were invisible on asphalt (POOL_ALPHA 0.2 over a 8u quad reads
+// as nothing) while the head halos rendered as fat opaque yellow spheres larger
+// than the pier sheds they stood on. "Warm pools against cool shadow" is the
+// whole night brief, and the pool is the half that carries it: the pool got
+// bigger and much stronger, the halo smaller and softer.
+const HALO_SIZE = 1.7; // world units, quad edge
+const POOL_SIZE = 17;
 // The pool spans asphalt AND the curb/sidewalk the lamp stands on, so it has
 // to clear the tallest draped street layer (roads.ts STREET_SURFACE_MAX) the
 // same way fares.ts GROUND_RING_LIFT and skids.ts SKID_LIFT do. Sitting below
 // it, the quads are depth-rejected by the kerb and each pool reads as a
 // crescent that stops dead at a straight line along the sidewalk.
-const POOL_LIFT = STREET_SURFACE_MAX + 0.02;
+//
+// The lift alone was not enough, and it never could be: the pool is a FLAT quad
+// 8.5u in radius drawn on a city with 42% streets. On any real SF grade the
+// uphill half of every pool sat inside the road and was depth-rejected — the
+// measured symptom was a 6x alpha boost changing nothing in a SoMa frame with
+// 18 lamps inside 150u, while lifting the same quads 1.5u lit them all. The
+// depth-space bias is the fix that scales with the slope; the world lift only
+// has to cover the curb now, so it can stay small enough to keep the pool
+// visually welded to the pavement at chase-camera height.
+const POOL_LIFT = STREET_SURFACE_MAX + 0.06;
 const HALO_ALPHA = 0.5;
-const POOL_ALPHA = 0.2;
+const POOL_ALPHA = 0.62;
+// Emissive gain on the lamp colour. Pre-tonemap linear, additive layers write
+// colour*alpha, so a plain 0..1 colour can never break the bloom threshold no
+// matter how opaque it is — a lamp pool topped out around 0.44 against a night
+// cut of 0.62 (render/post.ts) and every source in the city rendered as a flat
+// decal with no bleed. HDR colour is what makes a lamp a LIGHT.
+const HALO_GAIN = 3.4;
+const POOL_GAIN = 2.1;
 const FADE_NEAR = 380; // camera distance where lamps start to fade
 const FADE_FAR = 650;
 
@@ -33,8 +55,8 @@ export type LampHead = {
   readonly ground: number;
 };
 
-// Soft radial gradient blob, generated at boot — no asset fetch.
-export function radialGlowTexture(): THREE.CanvasTexture {
+/** Soft radial gradient blob, generated at boot — no asset fetch. */
+function gradientTexture(stops: readonly (readonly [number, number])[]): THREE.CanvasTexture {
   const size = 128;
   const canvas = document.createElement("canvas");
   canvas.width = size;
@@ -42,15 +64,37 @@ export function radialGlowTexture(): THREE.CanvasTexture {
   const ctx = canvas.getContext("2d");
   if (ctx) {
     const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-    g.addColorStop(0, "rgba(255,255,255,1)");
-    g.addColorStop(0.35, "rgba(255,255,255,0.5)");
-    g.addColorStop(1, "rgba(255,255,255,0)");
+    for (const [at, a] of stops) g.addColorStop(at, `rgba(255,255,255,${a})`);
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, size, size);
   }
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.NoColorSpace;
   return tex;
+}
+
+// The lamp-head halo and every other point source in the game (beacons,
+// headlights, the player's own rig): a bright core with a wide soft skirt.
+export function radialGlowTexture(): THREE.CanvasTexture {
+  return gradientTexture([
+    [0, 1],
+    [0.35, 0.5],
+    [1, 0],
+  ]);
+}
+
+// The pavement pool wants the opposite shape: a small hot centre directly under
+// the lamp and a long, fast-decaying tail, i.e. roughly inverse-square. The
+// halo's broad 0.5-at-35% skirt spread across a 17u quad reads as a uniform
+// warm haze on the asphalt — a fog, not a light with a source above it.
+function poolGlowTexture(): THREE.CanvasTexture {
+  return gradientTexture([
+    [0, 1],
+    [0.12, 0.86],
+    [0.32, 0.34],
+    [0.62, 0.09],
+    [1, 0],
+  ]);
 }
 
 const HALO_VERT = `
@@ -96,14 +140,21 @@ const FRAG = `
 
 type Layer = { mesh: THREE.Mesh; geo: THREE.InstancedBufferGeometry };
 
+type LayerSpec = {
+  readonly vert: string;
+  readonly tex: THREE.CanvasTexture;
+  readonly color: number;
+  readonly gain: number;
+  readonly size: number;
+  readonly alpha: number;
+  /** Ground-hugging layers bias their depth to survive the street's slope. */
+  readonly ground: boolean;
+};
+
 function buildLayer(
   attr: THREE.InstancedBufferAttribute,
   count: number,
-  vert: string,
-  tex: THREE.CanvasTexture,
-  color: number,
-  size: number,
-  alpha: number,
+  spec: LayerSpec,
   intensity: { value: number },
 ): Layer {
   const quad = new THREE.PlaneGeometry(1, 1);
@@ -115,17 +166,20 @@ function buildLayer(
   geo.instanceCount = count;
   const mat = new THREE.ShaderMaterial({
     uniforms: {
-      uMap: { value: tex },
-      uColor: { value: new THREE.Color(color) },
-      uSize: { value: size },
-      uAlpha: { value: alpha },
+      uMap: { value: spec.tex },
+      uColor: { value: new THREE.Color(spec.color).multiplyScalar(spec.gain) },
+      uSize: { value: spec.size },
+      uAlpha: { value: spec.alpha },
       uIntensity: intensity,
     },
-    vertexShader: vert,
+    vertexShader: spec.vert,
     fragmentShader: FRAG,
     transparent: true,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
+    polygonOffset: spec.ground,
+    polygonOffsetFactor: -4,
+    polygonOffsetUnits: -8,
   });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.frustumCulled = false; // instances span the whole map
@@ -183,21 +237,29 @@ export class LampGlow {
     const halo = buildLayer(
       haloAttr,
       n,
-      HALO_VERT,
-      tex,
-      0xffcf8a,
-      HALO_SIZE,
-      HALO_ALPHA,
+      {
+        vert: HALO_VERT,
+        tex,
+        color: 0xffcf8a,
+        gain: HALO_GAIN,
+        size: HALO_SIZE,
+        alpha: HALO_ALPHA,
+        ground: false,
+      },
       this.intensity,
     );
     const pool = buildLayer(
       poolAttr,
       n,
-      POOL_VERT,
-      tex,
-      0xffc57a,
-      poolSize,
-      POOL_ALPHA,
+      {
+        vert: POOL_VERT,
+        tex: poolGlowTexture(),
+        color: 0xffb865,
+        gain: POOL_GAIN,
+        size: poolSize,
+        alpha: POOL_ALPHA,
+        ground: true,
+      },
       this.intensity,
     );
     this.group.add(halo.mesh);

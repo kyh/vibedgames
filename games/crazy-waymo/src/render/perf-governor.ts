@@ -1,6 +1,6 @@
 import type * as THREE from "three";
 
-import { FULL_QUALITY, isCoarsePointer, type QualityFeatures } from "./quality";
+import { FULL_QUALITY, isCoarsePointer, type QualityFeatures, setLiveQuality } from "./quality";
 
 // Adaptive quality: keeps the game at target frame rate by stepping render
 // resolution (and, at the floor tier, shadow resolution) instead of letting it
@@ -45,6 +45,7 @@ export class PerfGovernor {
   private upgradeCost = UPGRADE_WINDOWS;
   private sinceUpgrade = Infinity; // seconds since the last tier-up
   private shadowClock = 0; // frames since the last cadenced shadow render
+  private pinned: number | null = null; // DEV: tier held by a measurement run
 
   constructor(
     private renderer: THREE.WebGLRenderer,
@@ -62,6 +63,13 @@ export class PerfGovernor {
     if (isCoarsePointer()) {
       // Phone ladder: tier 0 is still the full desktop look (an iPad Pro can
       // earn it), everything below trades per-fragment work for frame rate.
+      //
+      // …and, from this pass, per-VERTEX work: `detailScale` walks the city's
+      // full-model band in from 360u so the fabric turns into its box imposter
+      // sooner. Below tier 1 a phone is not resolving a row house's roof pitch
+      // at 250u anyway, and geometry was the one budget the ladder never
+      // touched (measured: the floor tier submitted 1.69M triangles against
+      // tier 0's 1.87M — a 10% cut for four steps of quality).
       this.tiers = [
         { ratio: ratios[0], shadow: SHADOW_FULL, ...FULL_QUALITY },
         {
@@ -71,6 +79,7 @@ export class PerfGovernor {
           shadowCast: true,
           skyBake: true,
           clouds: 1,
+          detailScale: 0.9,
         },
         {
           ratio: ratios[2],
@@ -79,6 +88,7 @@ export class PerfGovernor {
           shadowCast: true,
           skyBake: true,
           clouds: 1,
+          detailScale: 0.78,
         },
         {
           ratio: ratios[3],
@@ -87,6 +97,7 @@ export class PerfGovernor {
           shadowCast: true,
           skyBake: true,
           clouds: 1,
+          detailScale: 0.66,
         },
         {
           ratio: ratios[4],
@@ -95,6 +106,7 @@ export class PerfGovernor {
           shadowCast: false, // floor: no shadow pass, no receiver sampling
           skyBake: true,
           clouds: 0,
+          detailScale: 0.55,
         },
       ];
       // Boot LOW: the median-window logic needs ~10s to converge, and a phone
@@ -110,18 +122,34 @@ export class PerfGovernor {
         Object.assign({ ratio, shadow: i >= 3 ? SHADOW_LOW : SHADOW_FULL }, FULL_QUALITY),
       );
     }
+    if (import.meta.env.DEV) installPerfDebug(this);
   }
 
   get currentTier(): number {
     return this.tier;
   }
 
+  get tierCount(): number {
+    return this.tiers.length;
+  }
+
   get features(): QualityFeatures {
     return this.tiers[this.tier] ?? FULL_QUALITY;
   }
 
+  // DEV/headless only: pin a tier so a measurement run can walk the whole
+  // ladder. Without this the mobile tiers are unreachable from a scripted
+  // browser — the median-window logic owns the tier and moves it mid-capture,
+  // and no perf claim about "tier 3 on a phone" could ever be verified.
+  // `null` hands control back to the governor. See installPerfDebug below.
+  pinTier(tier: number | null): void {
+    this.pinned = tier;
+    if (tier !== null) this.apply(Math.min(this.tiers.length - 1, Math.max(0, tier)));
+  }
+
   // Feed the RAW frame delta (seconds) every frame, before render.
   update(dt: number): void {
+    if (this.pinned !== null) return;
     const ms = dt * 1000;
     if (ms > SPIKE_MS) return;
     this.sinceUpgrade += dt;
@@ -196,6 +224,37 @@ export class PerfGovernor {
       // materials keep sampling the (now disposed) map otherwise.
       this.renderer.shadowMap.needsUpdate = true;
     }
+    // Publish BEFORE the scene hook: the city streamer reads the live tier on
+    // its next updateStreaming, which can happen inside onApply's frame.
+    setLiveQuality(t);
     this.onApply(t);
   }
+}
+
+// DEV-only handle, same gate and same spirit as main.ts's `__renderer` /
+// `__waymo`: a headless perf run needs to WALK the tier ladder, and the tier
+// lives in a private field of an instance main.ts never publishes. Stripped
+// from production builds by the `import.meta.env.DEV` branch at the call site.
+declare global {
+  interface Window {
+    __perf?: {
+      tier(): number;
+      tierCount(): number;
+      pin(tier: number | null): void;
+      detail(scale: number): void;
+    };
+  }
+}
+
+function installPerfDebug(governor: PerfGovernor): void {
+  window.__perf = {
+    tier: () => governor.currentTier,
+    tierCount: () => governor.tierCount,
+    pin: (tier) => governor.pinTier(tier),
+    // Override the tier's model band live. A/B-ing a draw-distance change by
+    // reloading is worthless on a shared machine — the other tab's load moves
+    // the frame rate more than the change does; this measures both sides
+    // back-to-back in one session.
+    detail: (detailScale) => setLiveQuality({ ...governor.features, detailScale }),
+  };
 }

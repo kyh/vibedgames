@@ -33,7 +33,17 @@ export const WORLD_HALF_Z = WORLD_H / 2;
 export const CHUNK = 320;
 // ~12M tris/frame at 1900 (the whole city fit inside the fog) — SF haze pulls
 // in instead: full fog by ~1250, chunks released just past it.
-export const DRAW_DISTANCE = 760; // fog far ~900: beyond it is invisible anyway
+//
+// 900, not 760, and NOT the 1100 that was asked for. 760 released merged chunks
+// INSIDE the daylight fog far plane (800), which is the one thing the rule above
+// forbids. Measured from the Twin Peaks summit at noon (the worst vista in the
+// game): 760 = 176 draws / 4.54M tris, 900 = 203 / 4.64M, 1100 = 212 / 4.64M.
+// So 900 buys the invariant back for +27 draws and +2% triangles, and the extra
+// 200u costs another 9 draws for geometry that is not distinguishable from its
+// own imposter through the haze — A/B'd at 800-900u and the crops are identical.
+// Past ~1100 the imposter tiers already carry the skyline; this is not the knob
+// that makes the distance read, the fog grade is (render/aerial-fog.ts).
+export const DRAW_DISTANCE = 900; // fog far 800 by day, 700 at night
 
 // --- Car (arcade handling) ---
 // Turn radius R = speed / (turnRate·authority). A road tile is ROAD_TILE (13u)
@@ -98,6 +108,38 @@ export const CAMERA = {
   yawLerp: 3.2, // how fast the camera swings behind the heading
   driftSwing: 0.6, // max camera yaw bias toward the slide (radians)
   minHeight: 2.0, // never let collision pull the camera below this
+  // --- Overhead clamp (world/solid-index.ts CeilingIndex) ---
+  // The rig rides `height` up, which is taller than the clearance under the
+  // Bay Bridge approach (6.1u) and the freeway viaducts, so without a ceiling
+  // term the camera parks inside the soffit and the screen fills with grey.
+  ceilingProbe: 1.6, // a slab must clear the car's roof by this to count as ceiling, not floor
+  ceilingClear: 0.9, // ride this far under the soffit (near plane is 0.3)
+  ceilingFloor: 1.4, // never duck closer to the car than this, however low the deck
+  ceilingRelease: 3.0, // how far above the camera the cap parks under open sky
+  // Asymmetric. The duck has ~0.43s of runway — the car crosses under a deck
+  // that far ahead of the camera trailing 13u behind it — so 12 spends ~0.2s
+  // easing down and still finishes before the camera arrives. 22 was inside
+  // the runway too but landed the whole 1.3u drop in four frames, which reads
+  // as a cut. The rise is slower still: floating back up is not urgent.
+  ceilingDuckRate: 12,
+  ceilingRiseRate: 2.6,
+} as const;
+
+// --- What counts as overhead structure (world/solid-index.ts harvest) ---
+// Four tests that together mean "a slab the player drives under". Loosening
+// any of them lets house eaves and awnings in, and the camera then ducks on an
+// open street; tightening them lets a real viaduct through unclamped.
+export const CEILING = {
+  flatTol: 0.6, // max vertical extent of a triangle still read as a slab face
+  minArea: 8, // u² in plan — structure, not trim
+  minClear: 5.0, // soffit must stand this far over the terrain under it
+  roadMargin: 4, // ...and this far inside the drawn roadway's half-width
+  deckThickness: 0.8, // SurfaceDeck drive height → its underside
+  // Yield on a TIME budget, not a mesh count: one merged chunk carries 88k
+  // triangles (~7ms) while a lamp carries twelve, so "every N meshes" is a
+  // dropped frame either way.
+  harvestSliceMs: 4,
+  harvestCheckTris: 4096, // triangles between budget checks
 } as const;
 
 // --- Fares / scoring / timer ---

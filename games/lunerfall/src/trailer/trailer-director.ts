@@ -4,7 +4,7 @@
 // enemy is a live EnemyBody, every swing goes through PlayerBody's combo
 // machine, versus runs the real VersusMatch, the co-op revive is the real
 // last-stand sim with a second local Player. The shell (trailer-shell.ts)
-// owns letterbox/cards/cuts; this file owns what the camera sees.
+// owns the letterbox and the cuts; this file owns what the camera sees.
 //
 // Choreography model: each beat's build() restages the world via the
 // GameScene trailer hooks, hands back a per-frame input script (closed-loop —
@@ -20,7 +20,7 @@ import { RELICS } from "../data/relics";
 import { GameScene, type TrailerInputs } from "../scenes/game-scene";
 import { ensureGlow } from "../sys/fx";
 import type { InputState } from "../sys/input";
-import { runTrailer, type TrailerCard, type TrailerScene } from "./trailer-shell";
+import { runTrailer, type TrailerScene } from "./trailer-shell";
 
 // Feet-row y for the standard 21-row rooms and the one-row-taller boss arena.
 const FLOOR_Y = 304;
@@ -84,30 +84,19 @@ type SceneBits = {
 type Beat = {
   id: string;
   duration: number;
-  card?: TrailerCard;
-  caption?: string;
   build: (gs: GameScene) => SceneBits;
 };
 
-function toScene(gs: GameScene, beat: Beat, index: number): TrailerScene {
+function toScene(gs: GameScene, beat: Beat): TrailerScene {
   let bits: SceneBits = {};
   let revealed = false;
   const clock = { t: -1 };
   return {
     id: beat.id,
     duration: beat.duration,
-    card: beat.card,
-    caption: beat.caption,
     setup: () => {
       clock.t = -1;
       revealed = false;
-      if (index === 0) {
-        // First staging happens after the click gate — a real gesture exists,
-        // so let the synth run (initTrailer muted it to avoid the stale-tone
-        // pile-up a suspended AudioContext dumps on resume).
-        if (sfx.muted) sfx.toggleMute();
-        sfx.unlock();
-      }
       bits = beat.build(gs);
       const script = bits.script;
       gs.trailerSetInput(script ? () => script(clock.t) : null);
@@ -119,7 +108,7 @@ function toScene(gs: GameScene, beat: Beat, index: number): TrailerScene {
       clock.t = t;
       if (!revealed) {
         revealed = true;
-        gs.trailerFreeze(0); // motion resumes under the card/cut fade-out
+        gs.trailerFreeze(0); // motion resumes under the cut fade-out
         bits.onReveal?.();
       }
       bits.during?.(t);
@@ -236,7 +225,6 @@ function stageMontage(
 const biome1: Beat = {
   id: "biome-1",
   duration: 1100,
-  card: { title: "FIVE REALMS" },
   build: (gs) => {
     stageMontage(gs, 1, 103, 120, [
       ["warrior", 175],
@@ -375,7 +363,6 @@ const biome5: Beat = {
 const relicSpike: Beat = {
   id: "relic-spike",
   duration: 3500,
-  card: { title: "23 RELICS", sub: "STACK. SYNERGIZE." },
   build: (gs) => {
     const keep = new Set(["fury", "edge", "keen"]);
     gs.trailerStage({
@@ -486,10 +473,9 @@ function forceBoss(gs: GameScene, state: "idle" | "wave" | "jump" | "charge" | "
 const bossTease1: Beat = {
   id: "boss-tease-1",
   duration: 1300,
-  card: { title: "FIVE LORDS" },
   build: (gs) => {
     stageBoss(gs, 1, 110, 300);
-    forceBoss(gs, "idle"); // skip the intro pose: it walks at the hero under the card
+    forceBoss(gs, "idle"); // skip the intro pose: it walks at the hero, eating the shot
     const press = presser();
     const cue = presser();
     return {
@@ -629,14 +615,12 @@ const bossTease5: Beat = {
   },
 };
 
-// 15 · TOGETHER OR NOT AT ALL — real last stand: Mooni goes down under the
+// 15 · CO-OP LAST STAND — the real last-stand sim: Mooni goes down under the
 // ambush, Axion fights through, revives inside the ring while a straggler
 // hammers his ward, and Mooni answers with a heal. Shared hearts on.
 const coopRevive: Beat = {
   id: "coop-revive",
   duration: 4000,
-  card: { title: "TOGETHER OR NOT AT ALL" },
-  caption: "ONLINE CO-OP",
   build: (gs) => {
     gs.trailerStage({
       hero: "axion",
@@ -695,7 +679,6 @@ const coopRevive: Beat = {
 const versusDuel: Beat = {
   id: "versus-duel",
   duration: 3000,
-  caption: "ONLINE VERSUS",
   build: (gs) => {
     gs.trailerStage({
       hero: "axion",
@@ -909,7 +892,7 @@ const moonrise: Beat = {
         gs.cameras.main.setScroll(scrollX - t * 0.004, scrollY);
       },
       cleanup: () => {
-        // Final beat: the shell runs teardown BEFORE the 400ms end-card fade,
+        // Final beat: the shell runs teardown BEFORE its 400ms fade to black,
         // so an immediate destroy pops the moon off a fully-visible frame.
         // Delay past the fade; it must still happen — the halo (scrollFactor
         // 0.1, depth -37) survives buildRoom's teardownRoom and would haunt
@@ -948,23 +931,23 @@ const BEATS: Beat[] = [
 
 // ── entry ─────────────────────────────────────────────────────────────────────
 export function initTrailer(game: Phaser.Game): void {
-  // Mute the synth until the click gate: tones scheduled against a suspended
-  // AudioContext pile up and blat all at once when the first gesture resumes
-  // it. Scene 1's setup unmutes (a real gesture exists by then).
+  // The trailer rolls with no user gesture, so mute the synth up front: while
+  // muted sfx never even builds an AudioContext, which is the point — tones
+  // scheduled against a suspended context pile up and blat all at once when a
+  // later gesture resumes it. onGesture below unmutes if the viewer clicks.
   if (!sfx.muted) sfx.toggleMute();
   const poll = window.setInterval(() => {
     const scene = game.scene.getScene("game");
     if (!(scene instanceof GameScene) || !game.scene.isActive("game")) return;
     window.clearInterval(poll);
-    scene.trailerFreeze(9999); // hold the boot room still behind the gate
+    scene.trailerFreeze(9999); // hold the boot room still through the lead-in black
     runTrailer({
-      title: "LUNERFALL",
-      url: "lunerfall.vibedgames.com",
-      tagline: "Co-op roguelite — one more descent",
-      accent: "#34e5c8",
-      fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace",
       vignette: false, // keeps the pixel art crisp edge to edge
-      scenes: BEATS.map((b, i) => toScene(scene, b, i)),
+      onGesture: () => {
+        if (sfx.muted) sfx.toggleMute();
+        sfx.unlock();
+      },
+      scenes: BEATS.map((b) => toScene(scene, b)),
     });
   }, 80);
 }

@@ -2,7 +2,8 @@ import * as THREE from "three";
 
 import { WORLD_HALF_X, WORLD_HALF_Z } from "../shared/constants";
 import type { RoadNetwork } from "./network";
-import { applyAsphaltSpeckle } from "./roads";
+import { WEATHER } from "./masonry";
+import { applyAsphaltSpeckle, lowDetailSurfaces } from "./roads";
 import { SF_FREEWAY_RAMPS, SF_FREEWAYS } from "./sf-freeways";
 import type { Terrain } from "./terrain";
 
@@ -21,8 +22,20 @@ import type { Terrain } from "./terrain";
 
 const STEP = 6; // resample pitch along the centerline
 const CLEAR = 6.5; // deck soffit clearance above local terrain
+// Ceiling on that clearance. The slew limiter below is a max-plus dilation: it
+// is the MINIMAL profile that clears the ground at a bounded grade, so given a
+// floor and a grade there is no freedom left — the only way down is to cap it.
+// Without a cap a summit's influence spreads H/maxD samples in BOTH directions
+// (a 60u hill held the deck up for 5.3km each side), and because SF's terrain
+// carries ~2x vertical exaggeration (HILL_SCALE) while MAX_GRADE was a real-
+// world 5%, a quarter of the network stood on pillars over 24u — up to 55.8u,
+// 25x the car's height, above ground that was 2.8u high.
+const MAX_CLEAR = 13; // ~2x design, ~6x car height; past this it reads as a tower
 const DECK_T = 0.9; // slab thickness
-const MAX_GRADE = 0.05; // per-unit climb limit for the smoothed mainline deck
+// Exaggerated terrain wants an exaggerated grade to come back down from it.
+// The streets already reach 75%, so a 12% freeway is well inside the game's
+// own vocabulary and keeps the descent inside a block instead of a kilometre.
+const MAX_GRADE = 0.12; // per-unit climb limit for the smoothed mainline deck
 const PILLAR_EVERY = 4; // one pillar per N samples (24u)
 const PILLAR_CLEAR = 0.4; // footing must miss street asphalt by this much
 const PIER_CAP_T = 0.55; // crossbeam depth under the soffit
@@ -64,13 +77,51 @@ const GANTRY_BEAM_Y1 = 5.4;
 const GANTRY_BOARD_Y0 = 3.55;
 const GANTRY_BOARD_HALF_W = 2.1;
 
+// Which member of the viaduct a concrete vertex belongs to, and what its
+// surface coordinate means. Both ride in the `uv` attribute the way roads.ts
+// carries its across-road coordinate — uv.x = the coordinate below, uv.y = the
+// member. A geometry without the attribute reads (0, 0), which is the
+// documented "no data" opt-out (kind 0 takes the generic treatment).
+//
+//   CON_SOFFIT   deck underside      uv.x = world units OUT from the centreline
+//   CON_FASCIA   deck side edge      uv.x = world units BELOW the deck top
+//   CON_BARRIER  wall on the deck    uv.x = world units BELOW the cap
+//   CON_SUB      pillar / cap / gantry   uv.x = world units BELOW the member top
+//
+// uv.x is a drip-run everywhere except the soffit, which has no top edge to
+// run from and wants its across-deck coordinate instead (girder ribs).
+const CON_SOFFIT = 1;
+const CON_FASCIA = 2;
+const CON_BARRIER = 3;
+const CON_SUB = 4;
+
+// The viaduct concrete. Two things about it are load-bearing.
+//
+// VALUE. It used to be 0xb6b0a4 — linear luminance 0.44, the same band as the
+// building fabric and inside a stone's throw of the sky at 0.50. A viaduct is
+// the largest untextured mass in the frame wherever one runs, and this map runs
+// one on ~50u columns straight across the Sunset, so at that value the
+// colonnade was the loudest object on that skyline: measured on the Sunset
+// vista its columns read 0.15 linear against a city fabric of 0.02-0.05. It now
+// sits at 0.30 — with the walk and the pavement, which is where a weathered
+// cast-concrete albedo actually belongs — so it takes its place in the value
+// ordering (asphalt < ground < walk/viaduct < buildings < sky) instead of
+// out-ranking the whole district it crosses.
+//
+// SURFACE. See applyConcreteWeathering: the same procedural vocabulary
+// ground.ts and roads.ts established — no textures, everything derived from
+// world position, every fixed-width feature faded out by pixel size.
+//
 // DoubleSide: barrier/pillar quads are hand-wound; guaranteeing outward
-// normals everywhere isn't worth the culling win on this little geometry.
+// normals everywhere isn't worth the culling win on this little geometry. The
+// shader therefore never trusts the SIGN of the normal (pushBox's faces all
+// point inward) — only `abs`, plus the member id above.
 const MAT_CONCRETE = new THREE.MeshStandardMaterial({
-  color: 0xb6b0a4,
+  color: 0x97948b,
   roughness: 1,
   side: THREE.DoubleSide,
 });
+applyConcreteWeathering(MAT_CONCRETE);
 // Deck asphalt matches the street asphalt exactly (same color + aggregate
 // speckle) so ramp mouths merge into the roadway with no material seam.
 const MAT_DECK = new THREE.MeshStandardMaterial({ color: 0x555b68, roughness: 1 });
@@ -92,6 +143,184 @@ const MAT_PAINT_YELLOW = new THREE.MeshStandardMaterial({
 // Highway-sign green (the classic guide-sign color, matte).
 const MAT_SIGN = new THREE.MeshStandardMaterial({ color: 0x25714a, roughness: 0.85 });
 
+// Weathered cast concrete — a runtime shader pass on the shared viaduct
+// material, so it covers the live AND the baked world path (freeway meshes are
+// rebuilt on both) and costs no extra geometry. Everything derives from world
+// position and the face normal, in the same flat-shaded value-only language
+// ground.ts and roads.ts speak: the texture is meant to be FELT, not read, and
+// every fixed-width feature fades out with pixel size so a colonnade seen from
+// three blocks away never aliases into a moire ladder.
+//
+// A wall and a soffit share ONE FACE COORDINATE: horizontal faces use world
+// (x, z), vertical faces use (distance along the face, world y). One
+// parameterisation means the grain, the drift and the joints are written once
+// and land correctly on a fascia, a soffit and a column alike.
+//
+// What it draws, in order of how much work each does:
+//   - form-board seams, horizontal, ~0.62u apart — the single most
+//     recognisable thing about a bridge pier at arm's length;
+//   - drip staining running down from every member's top edge, which is the
+//     whole reason old concrete reads as old;
+//   - a lift joint per deck span, so a viaduct reads as a run of spans rather
+//     than one extruded ribbon;
+//   - girder ribs on the soffit, which is the face a driver spends most of
+//     their time under and was previously one flat plane over a third of the
+//     windscreen;
+//   - aggregate grain and a slow pour-to-pour drift, so no two bays are the
+//     same grey.
+function applyConcreteWeathering(mat: THREE.MeshStandardMaterial): void {
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        "#include <common>",
+        "#include <common>\nvarying vec3 vConPos;\nvarying vec3 vConNrm;\nvarying vec2 vConUv;",
+      )
+      .replace(
+        "#include <begin_vertex>",
+        `#include <begin_vertex>
+vConPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
+// Member id + surface coordinate (see CON_* above). \`uv\` is declared
+// unconditionally by three's vertex prefix, and a geometry without the
+// attribute reads (0, 0) — the documented "no data" opt-out.
+vConUv = uv;
+// Length-guarded so a geometry that ever shipped without normals cannot
+// normalize a zero vector. The SIGN is meaningless here (hand-wound quads);
+// only the axis is used.
+vec3 conN = mat3(modelMatrix) * objectNormal;
+float conNL = length(conN);
+vConNrm = conNL > 1e-4 ? conN / conNL : vec3(0.0, 1.0, 0.0);`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+${lowDetailSurfaces() ? "" : "#define CONCRETE_FULL 1"}
+varying vec3 vConPos;
+varying vec3 vConNrm;
+varying vec2 vConUv;
+float conHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float conNoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = p - i;
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(
+    mix(conHash(i), conHash(i + vec2(1.0, 0.0)), u.x),
+    mix(conHash(i + vec2(0.0, 1.0)), conHash(i + vec2(1.0, 1.0)), u.x),
+    u.y);
+}
+// A fixed-WORLD-width dark line at \`d\` world units from its centre: widened to
+// a pixel up close, faded out once a pixel is wider than the line. Same rule
+// the ground's parcel seams and the roadway's sealant cuts follow, and the
+// reason none of this aliases from the air.
+float conLine(float d, float w, float px) {
+  return (1.0 - smoothstep(0.0, w + px, d)) * (1.0 - smoothstep(w * 3.0, w * 14.0, px));
+}`,
+      )
+      .replace(
+        "#include <color_fragment>",
+        `#include <color_fragment>
+{
+  vec3 wp = vConPos;
+  float kind = vConUv.y;
+  float coord = vConUv.x;
+  // Horizontal tangent of the face. A horizontal face has none and falls back
+  // to the x axis, which is all its (x, z) parameterisation needs.
+  vec2 tang = vec2(-vConNrm.z, vConNrm.x);
+  float tl = length(tang);
+  tang = tl > 1e-4 ? tang / tl : vec2(1.0, 0.0);
+  float along = dot(wp.xz, tang);
+  float vert = 1.0 - smoothstep(0.35, 0.75, abs(vConNrm.y));
+  vec2 fc = mix(wp.xz, vec2(along, wp.y), vert);
+  // Derivatives stay in UNIFORM control flow — the member gates below are not.
+  vec2 dfc = fwidth(fc);
+  float px = max(dfc.x, dfc.y);
+  float pxy = fwidth(wp.y);
+
+  // Aggregate, a smooth mottle, and the slow pour-to-pour drift: concrete
+  // poured on two different days is never the same grey, and the span is the
+  // unit that was poured.
+  float grit = conHash(floor(fc * 2.4)) - 0.5;
+  float mottle = conNoise(fc * 0.55) - 0.5;
+  float pour = conNoise(fc * 0.042 + 13.0) - 0.5;
+  diffuseColor.rgb *= 1.0 + grit * ${WEATHER.grainValue.toFixed(3)} + mottle * 0.04 + pour * 0.10;
+
+  // FORM-BOARD SEAMS. Cast concrete carries the lines of the boards it was
+  // poured against — horizontal, and on vertical faces only.
+  diffuseColor.rgb *= 1.0 - conLine(abs(fract(wp.y / 0.62) - 0.5) * 0.62, 0.03, pxy)
+    * vert * ${WEATHER.jointValue.toFixed(3)};
+
+  // A lift joint every deck span, on the DECK members only: it means "one span
+  // ended here", which is true of a fascia and a barrier and meaningless on a
+  // 1.9u column, where the same line lands at an arbitrary spot and reads as a
+  // crack splitting the pier.
+  float deckMember = step(1.5, kind) * (1.0 - step(3.5, kind));
+  float span = conLine(abs(fract(along / 24.0) - 0.5) * 24.0, 0.06, px);
+  diffuseColor.rgb *= 1.0 - span * vert * deckMember * 0.15;
+
+  // THE SOFFIT. Its uv.x is the across-deck coordinate, not a drip run: box
+  // girders leave longitudinal ribs, which is what stops the underside — the
+  // face a driver is under more than any other — reading as one flat plane.
+  // It also takes a little bounce off the bright ground it spans, without
+  // which the value cut above turns it into a hole in the frame.
+  //
+  // The ribs run ONE WAY, and a single direction of line is what still left
+  // this face reading flat from a chase camera: a real box-girder underside is
+  // a grid, ribs along the span crossed by a diaphragm at every floorbeam. The
+  // transverse member is the second family, at the deck's own 7.5u bay pitch,
+  // and it is what gives the soffit a scale a driver can read as they pass
+  // under it.
+  float soffit = step(0.5, kind) * (1.0 - step(1.5, kind)) * (1.0 - vert);
+  if (soffit > 0.01) {
+    float rib = conLine(abs(fract(coord / 1.7) - 0.5) * 1.7, 0.07, px);
+    float diaph = conLine(abs(fract(along / 7.5) - 0.5) * 7.5, 0.16, px);
+    float shutter = conHash(floor(vec2(coord / 1.7, along / 7.5))) - 0.5;
+    diffuseColor.rgb *= 1.0 + soffit
+      * (0.10 - rib * 0.30 - diaph * 0.14 + shutter * 0.05);
+  }
+
+  #ifdef CONCRETE_FULL
+    // AGGREGATE. The 0.42u \`grit\` cells above are a blotch, not a grain: from a
+    // chase camera one of them is 170 pixels. This is the octave that actually
+    // reads as a cast surface at arm's length, and it fades out completely by
+    // the time a pixel is half its size, so it can never alias into noise on a
+    // colonnade three blocks away — the same rule every fixed-width feature in
+    // this world follows.
+    diffuseColor.rgb *= 1.0 + (conHash(floor(fc * 22.0)) - 0.5)
+      * ${(WEATHER.grainValue * 1.5).toFixed(3)} * (1.0 - smoothstep(0.012, 0.05, px));
+
+    // LIFT JOINTS ON THE COLUMNS. A pier is poured in lifts like everything
+    // else, and the horizontal line where one pour met the next is the cheapest
+    // scale cue a bare 1.9u shaft can carry. Deck members already get their
+    // per-span joint above; this is the same fact about the substructure.
+    float sub = step(3.5, kind);
+    diffuseColor.rgb *= 1.0 - conLine(abs(fract(wp.y / 2.9) - 0.5) * 2.9, 0.055, pxy)
+      * vert * sub * ${(WEATHER.jointValue * 0.8).toFixed(3)};
+
+    // DRIP STAINING. Every hard edge above sheds water down the face below it.
+    // Lanes hashed along the face, decaying over the first few metres under the
+    // member's top edge — which is where the streaks actually are.
+    float drop = max(coord, 0.0) * (1.0 - soffit);
+    float lane = floor(along / 0.5);
+    float across = fract(along / 0.5);
+    float streak = conHash(vec2(lane, 7.3 + kind))
+      * (1.0 - smoothstep(0.12, 0.5, abs(across - 0.5)));
+    float run = exp(-drop / ${WEATHER.dripRun.toFixed(1)}) * (1.0 - smoothstep(0.25, 0.9, px));
+    diffuseColor.rgb *= 1.0 - vert * streak * run * ${WEATHER.dripValue.toFixed(3)};
+    // The continuous darker band right under the drip line, where the water
+    // collects before it runs.
+    diffuseColor.rgb *= 1.0 - vert * exp(-drop / 0.7) * 0.07;
+    // Board-to-board value steps: every plank left its own tone. The runs are
+    // LONG (~9u) on purpose — at a few metres the vertical breaks landed close
+    // enough to the 0.62u seams to read as courses of ashlar, which is a
+    // different material entirely.
+    float plank = conHash(vec2(floor(wp.y / 0.62), floor(along / 9.0)));
+    diffuseColor.rgb *= 1.0 + vert * (plank - 0.5) * 0.04 * (1.0 - smoothstep(0.2, 0.8, px));
+  #endif
+}`,
+      );
+  };
+}
+
 type Line = {
   readonly half: number;
   readonly pts: readonly (readonly [number, number])[]; // resampled
@@ -106,6 +335,19 @@ type Line = {
 /** Placed pillar footprint (centre + half-extent) — see the placement search. */
 export type PillarSpot = { readonly x: number; readonly z: number; readonly half: number };
 
+/**
+ * Where a concrete quad's `uv` values come from. `uv.y` is always `kind`;
+ * `uv.x` is `topY - vertexY` (the drip run under the member's top edge) unless
+ * `s` overrides it with an explicit per-corner value, which the soffit uses to
+ * carry its across-deck coordinate instead.
+ */
+type ConFace = {
+  readonly uv: number[];
+  readonly kind: number;
+  readonly topY: number;
+  readonly s?: readonly [number, number, number, number];
+};
+
 type FreewayBuild = {
   readonly lines: readonly Line[];
   readonly pillars: readonly PillarSpot[];
@@ -113,6 +355,7 @@ type FreewayBuild = {
   readonly deckNor: number[];
   readonly bodyPos: number[];
   readonly bodyNor: number[];
+  readonly bodyUv: number[];
   readonly whitePos: number[];
   readonly yellowPos: number[];
   readonly signPos: number[];
@@ -185,15 +428,55 @@ function buildData(terrain: Terrain, network?: RoadNetwork): FreewayBuild {
   if (cachedBuild) return cachedBuild;
 
   // --- Mainlines: terrain + clearance with an upward-only slew limit both
-  // directions, so the profile glides over dips instead of rollercoastering.
+  // directions, so the profile glides over dips instead of rollercoastering —
+  // but each sample's rise is capped by its OWN ceiling, so a hill lifts the
+  // deck over itself without carrying the next kilometre of valley with it.
+  // Relaxing the neighbour term through `min(ceil, …)` is what bounds the
+  // dilation; the floor term is never relaxed, so the deck still always clears
+  // the ground and the profile stays the minimum that does. Iterated because
+  // one capped pass no longer propagates a summit to its full reach; it is
+  // monotone increasing and bounded, so it converges (2-4 rounds in practice).
   const mains: Line[] = [];
   for (const f of SF_FREEWAYS) {
     const pts = resample(f.p);
     if (pts.length < 2) continue;
-    const ys = pts.map(([x, z]) => terrain.heightAt(x, z) + CLEAR + DECK_T);
+    const ground = pts.map(([x, z]) => terrain.heightAt(x, z));
+    const ys = ground.map((h) => h + CLEAR + DECK_T);
+    const ceil = ground.map((h) => h + MAX_CLEAR + DECK_T);
     const maxD = STEP * MAX_GRADE;
-    for (let i = 1; i < ys.length; i++) ys[i] = Math.max(ys[i] ?? 0, (ys[i - 1] ?? 0) - maxD);
-    for (let i = ys.length - 2; i >= 0; i--) ys[i] = Math.max(ys[i] ?? 0, (ys[i + 1] ?? 0) - maxD);
+    for (let pass = 0; pass < 8; pass++) {
+      let moved = false;
+      const relax = (i: number, from: number): void => {
+        const want = Math.min(ceil[i] ?? 0, from - maxD);
+        if (want > (ys[i] ?? 0) + 1e-4) {
+          ys[i] = want;
+          moved = true;
+        }
+      };
+      for (let i = 1; i < ys.length; i++) relax(i, ys[i - 1] ?? 0);
+      for (let i = ys.length - 2; i >= 0; i--) relax(i, ys[i + 1] ?? 0);
+      if (!moved) break;
+    }
+    // Capping the rise buys short pillars at the cost of a steeper deck, and
+    // unchecked that is the worse defect: it took the steepest in-map grade
+    // from 43% to 165%, i.e. a wall. Settle it by LOWERING the high side of
+    // any over-steep pair toward its neighbour rather than lifting the low
+    // side back up — height is what we just paid for. The floor still wins,
+    // so where the ground itself steps (a cliff, an island shore) the grade
+    // stays steep and honestly reports terrain rather than hiding it.
+    for (let pass = 0; pass < 24; pass++) {
+      let moved = false;
+      const settle = (i: number, from: number): void => {
+        const want = Math.max((ground[i] ?? 0) + CLEAR + DECK_T, from + maxD);
+        if (want < (ys[i] ?? 0) - 1e-4) {
+          ys[i] = want;
+          moved = true;
+        }
+      };
+      for (let i = 1; i < ys.length; i++) settle(i, ys[i - 1] ?? 0);
+      for (let i = ys.length - 2; i >= 0; i--) settle(i, ys[i + 1] ?? 0);
+      if (!moved) break;
+    }
     const cum = cumOf(pts);
     const total = cum[cum.length - 1] ?? 0;
 
@@ -353,6 +636,7 @@ function buildData(terrain: Terrain, network?: RoadNetwork): FreewayBuild {
   const deckNor: number[] = [];
   const bodyPos: number[] = [];
   const bodyNor: number[] = [];
+  const bodyUv: number[] = [];
   const whitePos: number[] = [];
   const yellowPos: number[] = [];
   const signPos: number[] = [];
@@ -375,18 +659,23 @@ function buildData(terrain: Terrain, network?: RoadNetwork): FreewayBuild {
     pz2: number,
     halfT: number,
     halfP: number,
+    uv?: number[],
   ): void => {
     const c = (st: number, sp: number, y: number): number[] => [
       cx + tx * halfT * st + px2 * halfP * sp,
       y,
       cz + tz * halfT * st + pz2 * halfP * sp,
     ];
-    pushQuad(pos, nor, c(-1, -1, y1), c(1, -1, y1), c(1, 1, y1), c(-1, 1, y1)); // top
-    pushQuad(pos, nor, c(-1, -1, y0), c(-1, 1, y0), c(1, 1, y0), c(1, -1, y0)); // bottom
-    pushQuad(pos, nor, c(-1, -1, y0), c(1, -1, y0), c(1, -1, y1), c(-1, -1, y1));
-    pushQuad(pos, nor, c(-1, 1, y0), c(-1, 1, y1), c(1, 1, y1), c(1, 1, y0));
-    pushQuad(pos, nor, c(-1, -1, y0), c(-1, -1, y1), c(-1, 1, y1), c(-1, 1, y0));
-    pushQuad(pos, nor, c(1, -1, y0), c(1, 1, y0), c(1, 1, y1), c(1, -1, y1));
+    // Every box in the viaduct is a substructure member (pillar, pier cap,
+    // gantry frame) and hangs from its own lid, so one face descriptor covers
+    // all six quads.
+    const face: ConFace | undefined = uv ? { uv, kind: CON_SUB, topY: y1 } : undefined;
+    pushQuad(pos, nor, c(-1, -1, y1), c(1, -1, y1), c(1, 1, y1), c(-1, 1, y1), face); // top
+    pushQuad(pos, nor, c(-1, -1, y0), c(-1, 1, y0), c(1, 1, y0), c(1, -1, y0), face); // bottom
+    pushQuad(pos, nor, c(-1, -1, y0), c(1, -1, y0), c(1, -1, y1), c(-1, -1, y1), face);
+    pushQuad(pos, nor, c(-1, 1, y0), c(-1, 1, y1), c(1, 1, y1), c(1, 1, y0), face);
+    pushQuad(pos, nor, c(-1, -1, y0), c(-1, -1, y1), c(-1, 1, y1), c(-1, 1, y0), face);
+    pushQuad(pos, nor, c(1, -1, y0), c(1, 1, y0), c(1, 1, y1), c(1, -1, y1), face);
   };
 
   // Where two ribbons meet at grade (ramp merging into its mainline, ramps
@@ -473,10 +762,20 @@ function buildData(terrain: Terrain, network?: RoadNetwork): FreewayBuild {
       // Deck top (asphalt look) — also the physics ride surface.
       pushQuad(deckPos, deckNor, a.l, b.l, b.r, a.r);
       pushQuad(physPos, null, a.l, b.l, b.r, a.r);
-      // Soffit + fasciae (concrete).
-      pushQuad(bodyPos, bodyNor, drop(a.r), drop(b.r), drop(b.l), drop(a.l));
-      pushQuad(bodyPos, bodyNor, a.r, b.r, drop(b.r), drop(a.r));
-      pushQuad(bodyPos, bodyNor, drop(a.l), drop(b.l), b.l, a.l);
+      // Soffit + fasciae (concrete). The soffit's uv carries the across-deck
+      // coordinate (its corners run r, r, l, l, i.e. +w to -w), the fasciae
+      // carry their drip run below the deck top.
+      const deckTop = Math.max(a.l[1] ?? 0, b.l[1] ?? 0);
+      const soffitFace: ConFace = {
+        uv: bodyUv,
+        kind: CON_SOFFIT,
+        topY: deckTop,
+        s: [w, w, -w, -w],
+      };
+      const fasciaFace: ConFace = { uv: bodyUv, kind: CON_FASCIA, topY: deckTop };
+      pushQuad(bodyPos, bodyNor, drop(a.r), drop(b.r), drop(b.l), drop(a.l), soffitFace);
+      pushQuad(bodyPos, bodyNor, a.r, b.r, drop(b.r), drop(a.r), fasciaFace);
+      pushQuad(bodyPos, bodyNor, drop(a.l), drop(b.l), b.l, a.l, fasciaFace);
 
       const segS = line.cum[i] ?? Infinity;
       const nearOpen =
@@ -573,6 +872,8 @@ function buildData(terrain: Terrain, network?: RoadNetwork): FreewayBuild {
         }
         const q0 = railIn(i, side);
         const q1 = railIn(i + 1, side);
+        const capY = Math.max(p0[1] ?? 0, p1[1] ?? 0) + barrierH;
+        const railFace: ConFace = { uv: bodyUv, kind: CON_BARRIER, topY: capY };
         pushQuad(
           bodyPos,
           bodyNor,
@@ -580,9 +881,10 @@ function buildData(terrain: Terrain, network?: RoadNetwork): FreewayBuild {
           lift(q1, barrierH),
           lift(p1, barrierH),
           lift(p0, barrierH),
+          railFace,
         ); // cap
-        pushQuad(bodyPos, bodyNor, p0, p1, lift(p1, barrierH), lift(p0, barrierH)); // outer face
-        pushQuad(bodyPos, bodyNor, lift(q0, barrierH), lift(q1, barrierH), q1, q0); // inner face
+        pushQuad(bodyPos, bodyNor, p0, p1, lift(p1, barrierH), lift(p0, barrierH), railFace); // outer face
+        pushQuad(bodyPos, bodyNor, lift(q0, barrierH), lift(q1, barrierH), q1, q0, railFace); // inner face
         // Rails are PHYSICAL wherever falling off would strand the car:
         // every mainline, and any ramp section riding clear of the ground
         // (the old visual-only ramp rails were the "drove off the side of
@@ -637,6 +939,7 @@ function buildData(terrain: Terrain, network?: RoadNetwork): FreewayBuild {
             rl.pz,
             0.2,
             0.2,
+            bodyUv,
           );
         }
         pushBox(
@@ -652,6 +955,7 @@ function buildData(terrain: Terrain, network?: RoadNetwork): FreewayBuild {
           rl.pz,
           0.14,
           span + 0.2,
+          bodyUv,
         );
         // Guide board over the chosen travel side, facing its oncoming flow.
         pushBox(
@@ -718,7 +1022,7 @@ function buildData(terrain: Terrain, network?: RoadNetwork): FreewayBuild {
       // and the column must stop at the soffit — the generic 12u solid boxes
       // walled off the very deck they hold up.
       pillars.push({ x, z, half: pillarH });
-      pushBox(bodyPos, bodyNor, x, z, botY, topY, tx, tz, rl.px, rl.pz, pillarH, pillarH);
+      pushBox(bodyPos, bodyNor, x, z, botY, topY, tx, tz, rl.px, rl.pz, pillarH, pillarH, bodyUv);
       pushBox(physPos, null, x, z, botY, topY, tx, tz, rl.px, rl.pz, pillarH, pillarH);
       pushBox(
         bodyPos,
@@ -733,6 +1037,7 @@ function buildData(terrain: Terrain, network?: RoadNetwork): FreewayBuild {
         rl.pz,
         pillarH * 0.85,
         w * 0.9,
+        bodyUv,
       );
       // NO solid: the arcade solid-index is height-blind (a pillar box is an
       // invisible wall ON the deck it holds up). The trimesh walls above
@@ -747,6 +1052,7 @@ function buildData(terrain: Terrain, network?: RoadNetwork): FreewayBuild {
     deckNor,
     bodyPos,
     bodyNor,
+    bodyUv,
     whitePos,
     yellowPos,
     signPos,
@@ -824,6 +1130,7 @@ function pushQuad(
   b: readonly number[],
   c: readonly number[],
   d: readonly number[],
+  face?: ConFace,
 ): void {
   const ux = (b[0] ?? 0) - (a[0] ?? 0);
   const uy = (b[1] ?? 0) - (a[1] ?? 0);
@@ -838,19 +1145,26 @@ function pushQuad(
   nx /= nl;
   ny /= nl;
   nz /= nl;
-  const put = (p: readonly number[]): void => {
+  const put = (p: readonly number[], corner: 0 | 1 | 2 | 3): void => {
     pos.push(p[0] ?? 0, p[1] ?? 0, p[2] ?? 0);
     if (nor) nor.push(nx, ny, nz);
+    if (face) face.uv.push(face.s?.[corner] ?? face.topY - (p[1] ?? 0), face.kind);
   };
-  put(a);
-  put(b);
-  put(c);
-  put(a);
-  put(c);
-  put(d);
+  put(a, 0);
+  put(b, 1);
+  put(c, 2);
+  put(a, 0);
+  put(c, 2);
+  put(d, 3);
 }
 
-function geoFrom(pos: number[], nor: number[] | null): THREE.BufferGeometry {
+/**
+ * `uv` carries the concrete shader's member channel (see CON_* above) when one
+ * is supplied; every other mesh keeps the zero-filled attribute, which is that
+ * shader's documented "no data" opt-out and what three's uv-transform chunks
+ * expect to exist.
+ */
+function geoFrom(pos: number[], nor: number[] | null, uv?: number[]): THREE.BufferGeometry {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(pos), 3));
   if (nor) {
@@ -860,7 +1174,9 @@ function geoFrom(pos: number[], nor: number[] | null): THREE.BufferGeometry {
     for (let i = 1; i < up.length; i += 3) up[i] = 1;
     geo.setAttribute("normal", new THREE.BufferAttribute(up, 3));
   }
-  geo.setAttribute("uv", new THREE.BufferAttribute(new Float32Array((pos.length / 3) * 2), 2));
+  const n = (pos.length / 3) * 2;
+  const src = uv && uv.length === n ? new Float32Array(uv) : new Float32Array(n);
+  geo.setAttribute("uv", new THREE.BufferAttribute(src, 2));
   return geo;
 }
 
@@ -868,7 +1184,12 @@ export function buildFreeways(terrain: Terrain, network?: RoadNetwork): THREE.Gr
   const data = buildData(terrain, network);
   const group = new THREE.Group();
   const deckMesh = new THREE.Mesh(geoFrom(data.deckPos, data.deckNor), MAT_DECK);
-  const bodyMesh = new THREE.Mesh(geoFrom(data.bodyPos, data.bodyNor), MAT_CONCRETE);
+  const bodyMesh = new THREE.Mesh(geoFrom(data.bodyPos, data.bodyNor, data.bodyUv), MAT_CONCRETE);
+  // Named so `__taxi.pick` reports them and a headless QA pass can mask the
+  // viaduct out of a frame by object identity rather than by material colour
+  // (which is exactly what a value pass changes).
+  deckMesh.name = "freeway-deck";
+  bodyMesh.name = "freeway-concrete";
   deckMesh.receiveShadow = true;
   bodyMesh.castShadow = true;
   bodyMesh.receiveShadow = true;
