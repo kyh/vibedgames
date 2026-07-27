@@ -21,8 +21,20 @@ import type { Terrain } from "./terrain";
 
 const STEP = 6; // resample pitch along the centerline
 const CLEAR = 6.5; // deck soffit clearance above local terrain
+// Ceiling on that clearance. The slew limiter below is a max-plus dilation: it
+// is the MINIMAL profile that clears the ground at a bounded grade, so given a
+// floor and a grade there is no freedom left — the only way down is to cap it.
+// Without a cap a summit's influence spreads H/maxD samples in BOTH directions
+// (a 60u hill held the deck up for 5.3km each side), and because SF's terrain
+// carries ~2x vertical exaggeration (HILL_SCALE) while MAX_GRADE was a real-
+// world 5%, a quarter of the network stood on pillars over 24u — up to 55.8u,
+// 25x the car's height, above ground that was 2.8u high.
+const MAX_CLEAR = 13; // ~2x design, ~6x car height; past this it reads as a tower
 const DECK_T = 0.9; // slab thickness
-const MAX_GRADE = 0.05; // per-unit climb limit for the smoothed mainline deck
+// Exaggerated terrain wants an exaggerated grade to come back down from it.
+// The streets already reach 75%, so a 12% freeway is well inside the game's
+// own vocabulary and keeps the descent inside a block instead of a kilometre.
+const MAX_GRADE = 0.12; // per-unit climb limit for the smoothed mainline deck
 const PILLAR_EVERY = 4; // one pillar per N samples (24u)
 const PILLAR_CLEAR = 0.4; // footing must miss street asphalt by this much
 const PIER_CAP_T = 0.55; // crossbeam depth under the soffit
@@ -387,15 +399,55 @@ function buildData(terrain: Terrain, network?: RoadNetwork): FreewayBuild {
   if (cachedBuild) return cachedBuild;
 
   // --- Mainlines: terrain + clearance with an upward-only slew limit both
-  // directions, so the profile glides over dips instead of rollercoastering.
+  // directions, so the profile glides over dips instead of rollercoastering —
+  // but each sample's rise is capped by its OWN ceiling, so a hill lifts the
+  // deck over itself without carrying the next kilometre of valley with it.
+  // Relaxing the neighbour term through `min(ceil, …)` is what bounds the
+  // dilation; the floor term is never relaxed, so the deck still always clears
+  // the ground and the profile stays the minimum that does. Iterated because
+  // one capped pass no longer propagates a summit to its full reach; it is
+  // monotone increasing and bounded, so it converges (2-4 rounds in practice).
   const mains: Line[] = [];
   for (const f of SF_FREEWAYS) {
     const pts = resample(f.p);
     if (pts.length < 2) continue;
-    const ys = pts.map(([x, z]) => terrain.heightAt(x, z) + CLEAR + DECK_T);
+    const ground = pts.map(([x, z]) => terrain.heightAt(x, z));
+    const ys = ground.map((h) => h + CLEAR + DECK_T);
+    const ceil = ground.map((h) => h + MAX_CLEAR + DECK_T);
     const maxD = STEP * MAX_GRADE;
-    for (let i = 1; i < ys.length; i++) ys[i] = Math.max(ys[i] ?? 0, (ys[i - 1] ?? 0) - maxD);
-    for (let i = ys.length - 2; i >= 0; i--) ys[i] = Math.max(ys[i] ?? 0, (ys[i + 1] ?? 0) - maxD);
+    for (let pass = 0; pass < 8; pass++) {
+      let moved = false;
+      const relax = (i: number, from: number): void => {
+        const want = Math.min(ceil[i] ?? 0, from - maxD);
+        if (want > (ys[i] ?? 0) + 1e-4) {
+          ys[i] = want;
+          moved = true;
+        }
+      };
+      for (let i = 1; i < ys.length; i++) relax(i, ys[i - 1] ?? 0);
+      for (let i = ys.length - 2; i >= 0; i--) relax(i, ys[i + 1] ?? 0);
+      if (!moved) break;
+    }
+    // Capping the rise buys short pillars at the cost of a steeper deck, and
+    // unchecked that is the worse defect: it took the steepest in-map grade
+    // from 43% to 165%, i.e. a wall. Settle it by LOWERING the high side of
+    // any over-steep pair toward its neighbour rather than lifting the low
+    // side back up — height is what we just paid for. The floor still wins,
+    // so where the ground itself steps (a cliff, an island shore) the grade
+    // stays steep and honestly reports terrain rather than hiding it.
+    for (let pass = 0; pass < 24; pass++) {
+      let moved = false;
+      const settle = (i: number, from: number): void => {
+        const want = Math.max((ground[i] ?? 0) + CLEAR + DECK_T, from + maxD);
+        if (want < (ys[i] ?? 0) - 1e-4) {
+          ys[i] = want;
+          moved = true;
+        }
+      };
+      for (let i = 1; i < ys.length; i++) settle(i, ys[i - 1] ?? 0);
+      for (let i = ys.length - 2; i >= 0; i--) settle(i, ys[i + 1] ?? 0);
+      if (!moved) break;
+    }
     const cum = cumOf(pts);
     const total = cum[cum.length - 1] ?? 0;
 

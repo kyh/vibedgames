@@ -95,7 +95,12 @@ import type { CityGenPayload } from "./gen-worker";
 // Everything else this wave touched is runtime (sky, far terrain, freeway
 // concrete, LOD banding) or is rebuilt live on both load paths (landmarks), so
 // the bins' non-Gate contents are byte-identical in intent to 73.
-export const WORLD_REV = 74;
+// 75: freeway deck profile capped. The slew limiter was an unbounded max-plus
+// dilation, so a summit held the deck up for kilometres either side — a
+// quarter of the network stood above 24u, worst 58.3u (25x the car). Now each
+// sample's rise is capped by its own ceiling and an over-steep pair settles by
+// LOWERING the high side. Deck geometry, pillars and physics all move.
+export const WORLD_REV = 75;
 
 export type Typed = Float32Array | Uint16Array | Uint32Array | Int8Array | Uint8Array | Int32Array;
 export type BufRef = { $buf: number; $type: "f32" | "u16" | "u32" | "i8" | "u8" | "i32" };
