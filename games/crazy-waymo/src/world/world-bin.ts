@@ -76,7 +76,26 @@ import type { CityGenPayload } from "./gen-worker";
 //     and ~300 caps hung in the air at the inland height.
 // Measured effect on the shipped world: seated props floating 1045 -> 745,
 // everything else within its ratchet.
-export const WORLD_REV = 73;
+// 74 = the wave-5 integration bake. Only ONE builder in this wave writes to the
+// bins — `buildGoldenGate`, which is cold-gen only (see CLAUDE.md, "Two load
+// paths") — so this rev exists for the crossing and nothing else:
+//   • The anchorages are STONE in three stepped tiers with a banded setback at
+//     each, and the only International Orange left on them is the saddle plate
+//     the cable actually bears on. A 14u prism of flat accent paint at arm's
+//     length was the last place the world had two material vocabularies.
+//   • The towers are deep along the strait (LEG_DEPTH), capped with a cap plate
+//     + saddle housing + crown, and their portal braces bunch toward the top.
+//     End-on — which is how the crossing is seen from most of the city — a
+//     square-legged tower with evenly spaced rungs is a fire escape.
+//   • The deck truss walks down the ramp and dies into the anchorage instead of
+//     stopping 26u out over open water.
+//   • The tower fender: one stone mass across both legs at the waterline, so
+//     the structure has a foot and the crossing keeps one masonry vocabulary
+//     from shore to shore.
+// Everything else this wave touched is runtime (sky, far terrain, freeway
+// concrete, LOD banding) or is rebuilt live on both load paths (landmarks), so
+// the bins' non-Gate contents are byte-identical in intent to 73.
+export const WORLD_REV = 74;
 
 export type Typed = Float32Array | Uint16Array | Uint32Array | Int8Array | Uint8Array | Int32Array;
 export type BufRef = { $buf: number; $type: "f32" | "u16" | "u32" | "i8" | "u8" | "i32" };

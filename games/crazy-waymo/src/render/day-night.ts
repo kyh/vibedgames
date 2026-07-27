@@ -1,8 +1,8 @@
 import * as THREE from "three";
-import type { Sky } from "three/addons/objects/Sky.js";
 
 import { setGradeNight } from "./grade";
 import { NightSky } from "./night-sky";
+import type { Sky } from "./sky";
 
 // Keyframed day-night lighting driven by REAL San Francisco time: the game
 // clock IS the SF clock (America/Los_Angeles) — play at SF midnight and the
@@ -55,11 +55,14 @@ type Stop = {
   readonly env: number;
   readonly lamp: number; // streetlights/headlights 0 off .. 1 full
   readonly exposure: number;
-  // Sky dome scattering: [turbidity, rayleigh, mieCoefficient, mieDirectionalG].
+  // Sky dome scattering:
+  // [turbidity, rayleigh, mieCoefficient, mieDirectionalG, horizonRolloff].
   // These belong to the cycle, not to scene construction — how much air the sun
   // is shining through is exactly what the hour is. See the presets below.
-  readonly sky: readonly [number, number, number, number];
+  readonly sky: SkyPreset;
 };
+
+type SkyPreset = readonly [number, number, number, number, number];
 
 // Sky dome scattering presets, referenced by name from the stop table so the
 // numbers stay readable there.
@@ -81,10 +84,24 @@ type Stop = {
 // most recognisable landmark, 250u away — was completely invisible, 43% of the
 // frame above 92% luminance. Loosening g spreads the same energy over a much
 // wider arc, which reads as glare you can see through instead of a hole.
-const SKY_DAY: readonly [number, number, number, number] = [2.0, 0.5, 0.0018, 0.8];
-const SKY_GOLDEN: readonly [number, number, number, number] = [2.2, 0.62, 0.001, 0.62];
-const SKY_SUNSET: readonly [number, number, number, number] = [3.0, 0.85, 0.0016, 0.68];
-const SKY_NIGHT: readonly [number, number, number, number] = [2.0, 0.5, 0.002, 0.8];
+//
+// The fifth number is the GRAZING-ANGLE ROLLOFF (render/sky.ts, the one patch
+// on the vendored Preetham dome): the optical depth of the missing boundary-
+// layer extinction at the horizon, in nepers. It is on the cycle rather than
+// fixed because the defect it fixes and the thing it endangers move in
+// opposite directions with the sun. By day the whole horizon RING is blown at
+// every azimuth and wants the full cut; at sunset the only bright sky left in
+// the frame IS the low glow within a few degrees of the setting sun, and the
+// same cut would take the hour with it. Modelled over the hemisphere (mean
+// sRGB grey out of 100 in the bottom 8 degrees / the share of it at or over
+// 88): noon 93.2/86.6% -> 84.2/30.8% at 1.7, golden 79.4/28.5% -> 66.5/8.8%
+// at 1.2, sunset 38.2/0.5% -> 32.4/0.0% at 0.55 — sunset was never blown, so
+// it only gives up the clipping that was washing out its own oranges (2°
+// elevation, into the sun, goes from a cream (234,226,191) to (223,212,165)).
+const SKY_DAY: SkyPreset = [2.0, 0.5, 0.0018, 0.8, 1.7];
+const SKY_GOLDEN: SkyPreset = [2.2, 0.62, 0.001, 0.62, 1.2];
+const SKY_SUNSET: SkyPreset = [3.0, 0.85, 0.0016, 0.68, 0.55];
+const SKY_NIGHT: SkyPreset = [2.0, 0.5, 0.002, 0.8, 0.55];
 
 // THE SUN DISC IS AN ENERGY BOMB, and it was the whole of the into-sun
 // blowout. three's Sky paints the disc at `sunE * 19000 * Fex * 0.04` while the
@@ -155,7 +172,7 @@ function stop(
   env: number,
   lamp: number,
   exposure: number,
-  sky: readonly [number, number, number, number],
+  sky: SkyPreset,
 ): Stop {
   return {
     p,
@@ -398,6 +415,8 @@ export class DayNight {
     if (rayl) rayl.value = THREE.MathUtils.lerp(a.sky[1], b.sky[1], t);
     if (mieC) mieC.value = THREE.MathUtils.lerp(a.sky[2], b.sky[2], t);
     if (mieG) mieG.value = THREE.MathUtils.lerp(a.sky[3], b.sky[3], t);
+    const roll = skyU.horizonRolloff;
+    if (roll) roll.value = THREE.MathUtils.lerp(a.sky[4], b.sky[4], t);
     const disc = skyU.showSunDisc;
     if (disc) disc.value = sunDiscGain(this.scrSun.y);
 

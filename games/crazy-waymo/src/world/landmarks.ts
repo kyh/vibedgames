@@ -968,7 +968,35 @@ function bayBridge(ctx: LandmarkCtx): THREE.Group {
   bayDeck(g, ctx, BAY_ANCHOR_W, BAY_YERBA, D, lamps);
   for (const tx of [BAY_TOWER_1, BAY_TOWER_2, BAY_TOWER_3, BAY_TOWER_4]) bayTower(g, tx);
   // Centre anchorage: the block the four main cables actually pull against.
-  g.add(box(18, D + 27, 22, MAT.concrete, BAY_ANCHOR_MID, D + 15 - (D + 27) / 2, 0));
+  //
+  // Stepped, like the SF landfall block above it and like the Golden Gate's
+  // anchorages (world/golden-gate.ts) — one 18 × 40u prism of unbroken
+  // concrete standing in open water was the biggest untextured mass left on
+  // the crossing, and the two bridges have to be built out of the same
+  // masonry vocabulary or the city has two grammars for the same object. The
+  // tiers step IN as they rise and a steel cornice marks every setback, which
+  // is the whole difference between a mass and a slab at any range.
+  {
+    const tiers = [
+      { w: 24, d: 28, top: D - 6 },
+      { w: 21, d: 25, top: D + 4 },
+      { w: 18, d: 22, top: D + 15 },
+    ] as const;
+    let base = D - 12;
+    for (const t of tiers) {
+      g.add(box(t.w, t.top - base, t.d, MAT.concrete, BAY_ANCHOR_MID, (t.top + base) / 2, 0));
+      g.add(box(t.w + 0.9, 0.9, t.d + 0.9, MAT.steel, BAY_ANCHOR_MID, t.top - 0.45, 0));
+      base = t.top;
+    }
+    // Recessed panels on the top tier's four faces, the same relief the SF
+    // anchorage carries, so the tallest course has a scale to read against.
+    for (const off of [-6, 0, 6]) {
+      g.add(box(4.4, 9, 0.7, MAT.steel, BAY_ANCHOR_MID + off, D + 9, 11.3));
+      g.add(box(4.4, 9, 0.7, MAT.steel, BAY_ANCHOR_MID + off, D + 9, -11.3));
+      g.add(box(0.7, 9, 4.4, MAT.steel, BAY_ANCHOR_MID + 9.3, D + 9, off));
+      g.add(box(0.7, 9, 4.4, MAT.steel, BAY_ANCHOR_MID - 9.3, D + 9, off));
+    }
+  }
 
   for (const sz of [-BAY_CABLE_Z, BAY_CABLE_Z]) {
     const curve = new THREE.CatmullRomCurve3(bayCablePoints(sz));

@@ -32,6 +32,7 @@ import { type Dir, DIR_DELTA, E, N, S, W } from "../shared/types";
 import { type DrapeField, toFloat32Attributes } from "./conform";
 import { activeMapProps } from "./map-file";
 import { buildFurniture, type LampHead, type ParkedSpec } from "./furniture";
+import type { GoldenGatePlan } from "./golden-gate";
 import { buildGoldenGate, goldenGateBeacons, goldenGatePlan } from "./golden-gate";
 import { type NetEdge, RoadNetwork } from "./network";
 import { type CityPlan, generateCity } from "./grid";
@@ -863,6 +864,68 @@ const TALL_DETAIL_DISTANCE = 700;
 // that had to get shorter.
 export const MID_IMPOSTER_DISTANCE = 1100;
 export const IMPOSTER_DISTANCE = 1400;
+// --- Landmarks: the LOD unit is the STRUCTURE, not the member ---------------
+//
+// Every gate above asks how tall ONE instance is, which is the right question
+// for a building — a tower IS its own silhouette — and the wrong one for
+// anything assembled out of parts. The Golden Gate is 350u of bridge built from
+// deck plates 11.6u long, truss chords 13u, railings 0.6u thick and hangers
+// 0.2u across: measured, not one member except the tower segments clears
+// BIG_SILHOUETTE_H, so past the model band the entire crossing culled to four
+// boxed legs — at 350u the FAR half of the bridge was already gone — and the
+// long-range stand-in (render/landmark-silhouette.ts) was left doing all of the
+// bridge's work from 440u out. A diagram over the strait instead of a bridge.
+//
+// So the gate for these is the footprint the STRUCTURE projects: a volume, a
+// hold distance derived from its span, and every member inside it held to that
+// distance. Two consequences worth stating:
+//
+//  - No imposters. A box per member is meaningless when the members ARE the
+//    form (and a per-chunk imposter flip complementary to a DIFFERENT model
+//    band would double-draw), so a landmark member trades its box for reach.
+//  - The volume has to be derivable on BOTH load paths. It is: the placement
+//    solve (goldenGatePlan) is geometry-free and both paths already run it for
+//    the night beacons — see lightGoldenGate. Nothing new goes in the bins,
+//    which is also why this cannot be a flag on the batch item.
+export const LANDMARK_HOLD_DISTANCE = IMPOSTER_DISTANCE;
+// Members under this are sub-metre detail — bolts, deck lamps, tower rungs —
+// and are a fraction of a pixel out where the band ends. They stay on the
+// ordinary near band; the form does not need them.
+//
+// One metre, because that IS the pixel: at LANDMARK_HOLD_DISTANCE a 1u member
+// subtends 1/1400 rad, which a 55°-fov 720p frame resolves as half a pixel.
+// Measured on the Gate at this value: 780 members over 4 stream cells, and
+// render/landmark-silhouette.ts is written on the assumption that this gate is
+// live ("city.ts now holds the WHOLE structure to LANDMARK_HOLD_DISTANCE
+// instead") — its ribbons are INSET inside the members they stand for, so the
+// two compose rather than double-draw.
+const LANDMARK_MEMBER_MIN = 1;
+// A structure earns the long band by SPAN: hold = span / this, capped at
+// LANDMARK_HOLD_DISTANCE. 1/44 rad is the angular size DETAIL_DISTANCE already
+// implies for the ~10u building fabric, so the rule is the same rule, asked of
+// the whole assembly. (The Gate's 350u span asks for 15km and takes the cap —
+// as it should: it is meant to be visible from everywhere.)
+const LANDMARK_SPAN_RATIO = 44;
+// A landmark's footprint in the XZ plane, plus the band its members hold. Y is
+// deliberately absent: a structure owns its whole column (the Gate's towers
+// stand 50u over its deck), and nothing else is in the strait.
+type LandmarkVolume = {
+  readonly minX: number;
+  readonly maxX: number;
+  readonly minZ: number;
+  readonly maxZ: number;
+  readonly hold: number;
+};
+
+/** The band a point holds its real geometry to, or 0 outside every landmark. */
+function landmarkHoldAt(volumes: readonly LandmarkVolume[], p: THREE.Vector3): number {
+  let hold = 0;
+  for (const v of volumes) {
+    if (p.x < v.minX || p.x > v.maxX || p.z < v.minZ || p.z > v.maxZ) continue;
+    if (v.hold > hold) hold = v.hold;
+  }
+  return hold;
+}
 const SCRATCH_SCALE = new THREE.Vector3();
 const STREAM_MAT = new THREE.Matrix4();
 const STREAM_FRUSTUM = new THREE.Frustum();
@@ -1257,6 +1320,12 @@ export class CityModel {
   // …and the instances that have no imposter to degrade into (see the `tall`
   // band in buildBatchesFrom): same flip mechanism, longer distance.
   private chunkInstancesTall = new Map<number, [number, number][]>();
+  // …and the members of a LANDMARK, which hold their real geometry to their
+  // structure's own band (see LANDMARK_HOLD_DISTANCE). Per-cell rather than
+  // global because the band is a property of the volume the cell falls in.
+  private chunkInstancesLandmark = new Map<number, [number, number][]>();
+  private chunkVisibleLandmark: Uint8Array | null = null;
+  private chunkLandmarkHold: Float32Array | null = null;
   // Imposters share ONE BatchedMesh (one draw call) but flip on two different
   // bands: skyline instances to the fog line, the mid-tier fabric one chunk
   // ring less.
@@ -3261,13 +3330,44 @@ export class CityModel {
   // bridge would be dark on every load that hits the bins, i.e. all of them.
   // Re-solving the placement is a grid scan plus arithmetic; both paths call it.
   private lightGoldenGate(): void {
-    const gg = goldenGatePlan({
+    const gg = this.goldenGate();
+    if (gg) registerBeacons("golden-gate", goldenGateBeacons(gg));
+  }
+
+  private goldenGate(): GoldenGatePlan | null {
+    return goldenGatePlan({
       plan: this.plan,
       terrain: this.terrain,
       worldX: (g) => this.worldX(g),
       worldZ: (g) => this.worldZ(g),
     });
-    if (gg) registerBeacons("golden-gate", goldenGateBeacons(gg));
+  }
+
+  // The landmark footprints the batch classifier gates on (see
+  // LANDMARK_HOLD_DISTANCE). One entry today; the shape is the registry so the
+  // next assembled structure that goes through batching declares a volume
+  // instead of growing a second special case.
+  private landmarkVolumes(): readonly LandmarkVolume[] {
+    const gg = this.goldenGate();
+    if (!gg) return [];
+    // The bridge runs north along Z at a fixed X. Its widest members are the
+    // anchorage and the tower crossbeams, not the deck, so the half-width is
+    // padded well past `half`; the ends take the ramp's whole approach so the
+    // ramp and the deck cannot split across two bands and pop against each
+    // other. Nothing else stands in the strait, so a loose box costs nothing.
+    const pad = gg.half + 26;
+    const minZ = Math.min(gg.northEndZ, gg.shoreZ, gg.endZ) - 30;
+    const maxZ = Math.max(gg.northEndZ, gg.shoreZ, gg.endZ) + 30;
+    const span = Math.max(maxZ - minZ, pad * 2);
+    return [
+      {
+        minX: gg.ax - pad,
+        maxX: gg.ax + pad,
+        minZ,
+        maxZ,
+        hold: Math.min(LANDMARK_HOLD_DISTANCE, span * LANDMARK_SPAN_RATIO),
+      },
+    ];
   }
 
   // Build BatchedMeshes (+ box imposters + chunk instance maps) from filled
@@ -3293,6 +3393,10 @@ export class CityModel {
       item: { geo: THREE.BufferGeometry; matrix: THREE.Matrix4; tint?: THREE.Color };
     };
     const imposters: ImposterSpec[] = [];
+    // Landmark footprints, solved once per build (both load paths — see
+    // LANDMARK_HOLD_DISTANCE), plus the band each touched stream cell inherits.
+    const volumes = this.landmarkVolumes();
+    const landmarkKeys = new Map<number, number>();
     const restItems = this.restItems;
     restItems.length = 0;
     const untagged = new Map<string, number>();
@@ -3399,19 +3503,34 @@ export class CityModel {
         const key = chunkIds[iid] ?? 0;
         const item = bucket.items[iid];
         let worldH = 3;
+        let extent = 3;
         if (item) {
           if (!item.geo.boundingBox) item.geo.computeBoundingBox();
           const sc = SCRATCH_SCALE.setFromMatrixScale(item.matrix);
           const bb = item.geo.boundingBox;
           worldH = bb ? (bb.max.y - bb.min.y) * sc.y : 3;
+          // The member's own footprint — its largest world-space dimension, so
+          // a 200u cable counts as 200u and not as the 0.8u it is thick.
+          extent = bb
+            ? Math.max((bb.max.x - bb.min.x) * sc.x, worldH, (bb.max.z - bb.min.z) * sc.z)
+            : 3;
         }
+        // A member of a landmark holds the STRUCTURE's band, not its own.
+        const hold =
+          item && extent >= LANDMARK_MEMBER_MIN
+            ? landmarkHoldAt(volumes, pos.setFromMatrixPosition(item.matrix))
+            : 0;
+        const landmark = hold > 0;
         // Skyline = TALL: only buildings that read above the fog at distance
         // keep the far tier; row-houses and low-rises cull with the detail set.
-        const big = worldH >= BIG_SILHOUETTE_H;
-        if (big) anyBig = true;
+        const big = !landmark && worldH >= BIG_SILHOUETTE_H;
+        // The bridge towers used to reach this bar on their own and carried the
+        // bucket's shadow pass with them; the landmark band has to keep it.
+        if (big || landmark) anyBig = true;
         // …and the fabric UNDER the skyline: an ordinary building, tall enough
         // to still be a few pixels out there, gets the shorter-range mid tier.
         const mid =
+          !landmark &&
           !big &&
           worldH >= MID_SILHOUETTE_H &&
           (item?.src?.url.startsWith(BUILDINGS_PREFIX) ?? false);
@@ -3427,11 +3546,16 @@ export class CityModel {
         // water towers, cranes) hold their models to the longer band instead;
         // small ones (cones, hydrants, benches) are gone from the read by then
         // anyway and stay on the short one.
-        const tall = !big && !mid && worldH >= TALL_NO_IMPOSTER_H;
-        const map = tall ? this.chunkInstancesTall : this.chunkInstancesNear;
+        const tall = !landmark && !big && !mid && worldH >= TALL_NO_IMPOSTER_H;
+        const map = landmark
+          ? this.chunkInstancesLandmark
+          : tall
+            ? this.chunkInstancesTall
+            : this.chunkInstancesNear;
         const list = map.get(key);
         if (list) list.push([bIndex, iid]);
         else map.set(key, [[bIndex, iid]]);
+        if (landmark) landmarkKeys.set(key, Math.max(landmarkKeys.get(key) ?? 0, hold));
         if ((big || mid) && item) {
           imposters.push({ key, mid, mat: bucket.material, item });
         }
@@ -3529,6 +3653,19 @@ export class CityModel {
     this.chunkVisible = null;
     this.chunkVisibleNear = null;
     this.chunkVisibleTall = null;
+    this.chunkVisibleLandmark = null;
+    // Per-cell landmark band, zero everywhere else — a cell with no landmark
+    // member can never flip, so the tier costs nothing outside the structure.
+    if (landmarkKeys.size > 0) {
+      const holds = new Float32Array(nx * nz);
+      for (const [key, hold] of landmarkKeys) if (key < holds.length) holds[key] = hold;
+      this.chunkLandmarkHold = holds;
+      console.log(
+        `[city] landmark tier: ${[...this.chunkInstancesLandmark.values()].reduce((n, l) => n + l.length, 0)} members over ${landmarkKeys.size} cells, hold ${Math.round(Math.max(...landmarkKeys.values()))}u`,
+      );
+    } else {
+      this.chunkLandmarkHold = null;
+    }
     console.log(`[city] batches ${Math.round(performance.now() - tBatch)}ms`);
   }
 
@@ -3563,6 +3700,7 @@ export class CityModel {
     if (!this.chunkVisible) this.chunkVisible = new Uint8Array(total).fill(1);
     if (!this.chunkVisibleNear) this.chunkVisibleNear = new Uint8Array(total).fill(1);
     if (!this.chunkVisibleTall) this.chunkVisibleTall = new Uint8Array(total).fill(1);
+    if (!this.chunkVisibleLandmark) this.chunkVisibleLandmark = new Uint8Array(total).fill(1);
     STREAM_MAT.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     STREAM_FRUSTUM.setFromProjectionMatrix(STREAM_MAT);
     const pad = STREAM_PAD;
@@ -3599,6 +3737,20 @@ export class CityModel {
         const list = this.chunkInstancesNear.get(key);
         if (list)
           for (const [b, iid] of list) this.batches[b]?.mesh.setVisibleAt(iid, visNear === 1);
+      }
+      // A landmark's members hold their own structure's band. It reaches past
+      // the model tiers on purpose, so the frustum test above has to have run
+      // for it — which it has: LANDMARK_HOLD_DISTANCE never exceeds the
+      // IMPOSTER_DISTANCE guard that gates `inFrustum`.
+      const lmHold = (this.chunkLandmarkHold?.[key] ?? 0) * scale;
+      if (lmHold > 0 && this.chunkVisibleLandmark) {
+        const visLm: 0 | 1 = showAll || near || (inFrustum && dist < lmHold) ? 1 : 0;
+        if (this.chunkVisibleLandmark[key] !== visLm) {
+          this.chunkVisibleLandmark[key] = visLm;
+          const list = this.chunkInstancesLandmark.get(key);
+          if (list)
+            for (const [b, iid] of list) this.batches[b]?.mesh.setVisibleAt(iid, visLm === 1);
+        }
       }
       const visTall: 0 | 1 = showAll || near || (inFrustum && dist < tallDetail) ? 1 : 0;
       if (this.chunkVisibleTall[key] !== visTall) {

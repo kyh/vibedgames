@@ -29,11 +29,30 @@ const LAMP_H = 2.4; // parapet lamp head above the deck
 // Cable plane / tower leg centres: outboard of the carriageway, so the deck
 // runs BETWEEN the legs the way it does through the real portals.
 const LEG_OFF = 2.6;
-const LEG_BASE = 3.6; // leg section at the deck
-const LEG_TOP = 2.1; // leg section at the saddle
+// Leg section across the strait. Widened from 3.6/2.1: the legs stand 15.2u
+// apart (the carriageway has to pass between them) and at 3.6u each the
+// openings were five to seven times the member holding them, which is the
+// proportion of a LADDER. The prototype's portal is about 2.7 openings wide
+// per leg and that is the number this is chasing — it is the single thing
+// that decides whether the end-on read is a tower or a fire escape.
+const LEG_BASE = 4.4; // leg section at the deck
+const LEG_TOP = 2.8; // leg section at the saddle
 const LEG_BASE_Y = -7; // a footing under the waterline, not a leg in mid-air
+// Leg section ALONG the strait, as a multiple of its across-strait width. The
+// legs used to be square, and square is why the tower read as a ladder from
+// every end-on bearing — two thin uprights 15u apart with rungs between them
+// and nothing behind them. The prototype's shafts are half again as deep as
+// they are wide for exactly this reason: end-on is how the crossing is seen
+// from most of the city, and end-on a square leg has no tower in it.
+const LEG_DEPTH = 1.55;
 /** Leg section width at t, 0 = footing, 1 = saddle. */
 const legWidthAt = (t: number): number => THREE.MathUtils.lerp(LEG_BASE, LEG_TOP, t);
+/**
+ * Height of portal brace `i` of `n`, as a fraction of the run from the lowest
+ * brace to the saddle. Openings SHORTEN going up — that stack of tapering
+ * portals is the tower's signature, and evenly spaced rungs are a fire escape.
+ */
+const braceLift = (t: number): number => 1 - Math.pow(1 - t, 1.45);
 // Art-deco setbacks up each leg. FOUR, not six: city.ts gives an instance a
 // long-range box imposter only when it stands 13u or more, and a leg cut into
 // six 9.7u sections drops out of the skyline at the 700u model band — from
@@ -53,6 +72,18 @@ const APPROACH_U_MAX = 0.35;
 
 const ORANGE = new THREE.MeshStandardMaterial({ color: 0xc0362c, roughness: 0.6 });
 const RAIL_ORANGE = new THREE.MeshStandardMaterial({ color: 0xa93227, roughness: 0.7 });
+// Anchorage and abutment masonry, in the shore's OWN grey — the same 0x9aa2a6
+// the seawall lip (city.ts) and the Battery Ridge parapet below are drawn in.
+// The anchorages used to be International Orange, which made them the one
+// place in the world where a flat untextured mass of the accent colour stood
+// at arm's length: paint on a counterweight is not a material the rest of the
+// game speaks. Orange stays on the STRUCTURE — the towers, the cables, the
+// truss — and the only orange left down here is the saddle plate the cable
+// actually lands on.
+const STONE = new THREE.MeshStandardMaterial({ color: 0x9aa2a6, roughness: 1 });
+// The shadow band at each setback. Without it three grey tiers with nothing
+// between them read as one grey slab from more than about 40u.
+const STONE_BAND = new THREE.MeshStandardMaterial({ color: 0x7d868b, roughness: 1 });
 // Tower marker lights are light SOURCES, not lit surfaces: unlit and
 // untonemapped, like the traffic signals, so they survive the night grade. The
 // beacon sprites give the halo; these give the tower its own dotted structure
@@ -137,6 +168,26 @@ function rampProfile(plan: GoldenGatePlan, t: number): number {
     : THREE.MathUtils.lerp(plan.kneeY, plan.deckY, (tc - 0.68) / 0.32);
 }
 
+/** Where a main cable dies into the ground, per end. The anchorage BLOCKS are
+ *  built from the same two points the cable is hung from, so a strand can
+ *  never terminate in open air next to the mass it is meant to pull against. */
+type AnchorPoint = { readonly z: number; readonly y: number };
+
+/** South (Presidio) anchorage: on TOP of the shore block, above deck height,
+ *  so the side span climbs from it to the tower and never dips under. */
+function southAnchor(plan: GoldenGatePlan): AnchorPoint {
+  return { z: plan.shoreZ + 3, y: plan.deckY + 4.6 };
+}
+
+/** North (Marin) anchorage, cut into the headland behind the landfall. */
+function northAnchor(plan: GoldenGatePlan): AnchorPoint {
+  const main = plan.towerZ2 - plan.towerZ; // north is −Z, so this is positive
+  return {
+    z: plan.northEndZ - 14,
+    y: Math.max(plan.deckY + 7, plan.topY - main * 0.24),
+  };
+}
+
 /**
  * Main-cable saddles from the south anchorage to the north one, as
  * `[z, y, sag to the NEXT saddle]`. A suspension cable is a chain of PARABOLAS
@@ -147,14 +198,13 @@ function rampProfile(plan: GoldenGatePlan, t: number): number {
  * ~20u of cable running below the deck it is supposed to be carrying.
  */
 function cableSaddles(plan: GoldenGatePlan): readonly (readonly [number, number, number])[] {
-  const main = plan.towerZ2 - plan.towerZ; // north is −Z, so this is positive
+  const s = southAnchor(plan);
+  const n = northAnchor(plan);
   return [
-    // South anchorage: on TOP of the shore block, above deck height, so the
-    // side span climbs from the anchorage to the tower and never dips under.
-    [plan.shoreZ + 3, plan.deckY + 4.6, 2.6],
+    [s.z, s.y, 2.6],
     [plan.towerZ2, plan.topY, plan.topY - (plan.deckY + CABLE_LOW)],
     [plan.towerZ, plan.topY, 2.4],
-    [plan.northEndZ - 14, Math.max(plan.deckY + 7, plan.topY - main * 0.24), 0],
+    [n.z, n.y, 0],
   ] as const;
 }
 
@@ -397,36 +447,89 @@ export function goldenGateSilhouette(plan: GoldenGatePlan): readonly SilhouetteB
         legHalf(kneeY),
         legHalf(plan.topY),
       );
+      // The saddle, twice: one bar across the strait and one along it, so the
+      // head survives EVERY bearing (a single bar collapses to a dot on the
+      // axis it runs down). Without them the stand-in had no top at all — past
+      // the detail band the far tower read as a splayed fan of overlapping
+      // ribbons with the cables leaving from nothing, which is the one thing a
+      // suspension tower must never look like.
+      const capY = plan.topY + 1.1;
+      const capX = (LEG_TOP + 2.1) / 2;
+      const capZ = (LEG_TOP * LEG_DEPTH + 2.1) / 2;
+      add(new THREE.Vector3(x - capX, capY, tz), new THREE.Vector3(x + capX, capY, tz), 0.8, 0.72);
+      add(new THREE.Vector3(x, capY, tz - capZ), new THREE.Vector3(x, capY, tz + capZ), 0.8, 0.72);
     }
     // Portal bracing: the rungs between the legs. Invisible broadside (the legs
     // hide them) and the whole difference between a tower and two sticks when
     // the crossing is seen end-on, which is exactly how it looks from the city.
-    for (let i = 0; i < 3; i++) {
-      const by = THREE.MathUtils.lerp(plan.deckY + 8, plan.topY - 3.4, i / 2);
+    // Three of the built five, at the built heights — a stand-in that puts its
+    // rungs somewhere else draws a second, offset ladder over the real one
+    // through the whole hand-off band.
+    for (const i of [0, 2, 4] as const) {
+      const by = THREE.MathUtils.lerp(plan.deckY + 8, plan.topY - 3.4, braceLift(i / 4));
       add(
         new THREE.Vector3(plan.ax - legX, by, tz),
         new THREE.Vector3(plan.ax + legX, by, tz),
-        0.5,
+        0.55,
         0.75,
       );
     }
+    // ...and the crown that closes the tower at the cap plates.
+    add(
+      new THREE.Vector3(plan.ax - legX, plan.topY + 0.35, tz),
+      new THREE.Vector3(plan.ax + legX, plan.topY + 0.35, tz),
+      0.6,
+      0.42,
+    );
   }
 
   // Deck: the two truss chords, which are the orange the deck reads as. They
   // thicken into one band at range, which is the correct far read — the truss
-  // web between them is below a pixel long before that. Both ends are pulled in
-  // by more than the ribbon's own end-cap, for the same reason the legs stop
-  // under the saddle.
+  // web between them is below a pixel long before that.
+  //
+  // The chords carry a SMALLER share of the screen floor than they used to
+  // (0.42). Two of them thickened to a tower's floor fused into a band twice
+  // the truss's real depth, and a 12u-deep orange slab slung between two
+  // towers is the "hard-edged bar over a soft world" read at 700u. The tower is
+  // the beacon; the deck only has to be a line under it.
   const trussZ0 = plan.northEndZ - 1.4;
-  const trussZ1 = plan.rampTopZ - 0.6;
-  for (const sx of [-(plan.half + RAIL_T / 2), plan.half + RAIL_T / 2]) {
-    for (const cy of [plan.deckY - 0.55, plan.deckY - 2.85]) {
+  const trussZ1 = plan.rampTopZ;
+  const chordSides = [-(plan.half + RAIL_T / 2), plan.half + RAIL_T / 2] as const;
+  const chordDrops = [0.55, 2.85] as const;
+  for (const sx of chordSides) {
+    for (const drop of chordDrops) {
       add(
-        new THREE.Vector3(plan.ax + sx, cy, trussZ0),
-        new THREE.Vector3(plan.ax + sx, cy, trussZ1),
-        0.42,
+        new THREE.Vector3(plan.ax + sx, plan.deckY - drop, trussZ0),
+        new THREE.Vector3(plan.ax + sx, plan.deckY - drop, trussZ1),
+        0.3,
         0.4,
       );
+    }
+  }
+  // ...and down the ramp to the anchorage. The flat chord used to stop at the
+  // top of the ramp, 26u out over open water, so at every range past the detail
+  // band the deck ended in mid-air short of the shore while the cable carried
+  // on to a block it was not attached to. The stand-in now lands where the
+  // built truss lands.
+  {
+    const rampEndZ = plan.shoreZ - 2.2;
+    const steps = 4;
+    for (const sx of chordSides) {
+      for (const drop of chordDrops) {
+        for (let i = 0; i < steps; i++) {
+          const z0 = THREE.MathUtils.lerp(trussZ1, rampEndZ, i / steps);
+          const z1 = THREE.MathUtils.lerp(trussZ1, rampEndZ, (i + 1) / steps);
+          const y0 = rampProfile(plan, (plan.shoreZ - z0) / plan.rampLen) - drop * (1 - i / steps);
+          const y1 =
+            rampProfile(plan, (plan.shoreZ - z1) / plan.rampLen) - drop * (1 - (i + 1) / steps);
+          add(
+            new THREE.Vector3(plan.ax + sx, y0, z0),
+            new THREE.Vector3(plan.ax + sx, y1, z1),
+            0.3,
+            0.4,
+          );
+        }
+      }
     }
   }
 
@@ -451,7 +554,12 @@ export function goldenGateSilhouette(plan: GoldenGatePlan): readonly SilhouetteB
         continue;
       }
       const p = new THREE.Vector3(plan.ax + sx, cy, cz);
-      if (prev) add(prev, p, 0.5, 0.14);
+      // The cable holds LESS of the screen floor than the deck chords (it was
+      // holding more). A 0.5u strand thickened to the same width as a 3.8u
+      // truss is what turned the two towers' catenaries into the fan the far
+      // tower was reading as: the cables competed with the structure instead of
+      // hanging off it.
+      if (prev) add(prev, p, 0.28, 0.14);
       prev = p;
     }
   }
@@ -720,6 +828,38 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
         objects.push(d);
       }
     }
+
+    // ...and it does not stop in mid-air. The chords used to end at the top of
+    // the ramp — six units SOUTH of the pier that carries them — so the truss
+    // cantilevered off into open water above a grey ramp that visibly did not
+    // belong to it. Now it walks down the ramp on a shrinking depth and dies
+    // into the anchorage's north face, which is what the roadway actually does:
+    // the truss ENDS where the bridge becomes ground.
+    const rampEndZ = shoreZ - 2.2; // the anchorage's north face
+    const rampPanels = 7;
+    for (let i = 0; i < rampPanels; i++) {
+      const f0 = i / rampPanels;
+      const f1 = (i + 1) / rampPanels;
+      const z0 = THREE.MathUtils.lerp(trussZ1, rampEndZ, f0);
+      const z1 = THREE.MathUtils.lerp(trussZ1, rampEndZ, f1);
+      const y0 = rampProfile(plan, (shoreZ - z0) / rampLen) - 0.55;
+      const y1 = rampProfile(plan, (shoreZ - z1) / rampLen) - 0.55;
+      const run = z1 - z0;
+      const pitch = Math.atan2(y1 - y0, run);
+      const len = Math.hypot(run, y1 - y0);
+      const depth = THREE.MathUtils.lerp(2.3, 0.4, (f0 + f1) / 2);
+      const chord = new THREE.BoxGeometry(1.0, 0.8, len + 0.3);
+      const web = new THREE.BoxGeometry(0.5, depth, 0.5);
+      for (const sx of sides) {
+        for (const drop of [0, -depth]) {
+          const c = mesh(chord, ORANGE, ax + sx, (y0 + y1) / 2 + drop, (z0 + z1) / 2);
+          c.rotation.x = -pitch;
+          c.updateMatrixWorld(true);
+          objects.push(c);
+        }
+        objects.push(mesh(web, ORANGE, ax + sx, y0 - depth / 2, z0));
+      }
+    }
   }
 
   // Towers: BOTH of them (south in the strait off the Presidio, north off the
@@ -732,19 +872,27 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
     const legBaseY = LEG_BASE_Y;
     const secH = (topY - legBaseY) / TOWER_STEPS;
     const markerGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
-    const saddleGeo = new THREE.BoxGeometry(LEG_TOP + 1.5, 1.6, LEG_TOP + 1.5);
+    // The head. A single 3.6u cube used to be the whole saddle, which is why
+    // the tower had no top: at any range past the deck the crossing read as
+    // two bare uprights with a fan of cables leaving from nothing. A cap plate
+    // (the ledge the portal ends on) plus the housing the cable sits in gives
+    // it a silhouette from every bearing, and both are deep along the strait
+    // like the leg under them.
+    const capGeo = new THREE.BoxGeometry(LEG_TOP + 2.1, 0.7, LEG_TOP * LEG_DEPTH + 2.1);
+    const saddleGeo = new THREE.BoxGeometry(LEG_TOP + 0.9, 1.5, LEG_TOP * LEG_DEPTH + 0.9);
     for (const tz of [towerZ2, towerZ]) {
       for (const sx of [-legX, legX]) {
         for (let i = 0; i < TOWER_STEPS; i++) {
           const y0 = legBaseY + secH * i;
           const w = legWidthAt((i + 0.5) / TOWER_STEPS);
-          objects.push(mesh(new THREE.BoxGeometry(w, secH, w), ORANGE, ax + sx, y0 + secH / 2, tz));
+          const d = w * LEG_DEPTH;
+          objects.push(mesh(new THREE.BoxGeometry(w, secH, d), ORANGE, ax + sx, y0 + secH / 2, tz));
           // The setback ledge at each step: a thin slab a touch WIDER than the
           // section below it. Those shadow lines up the shaft are the whole
           // art-deco read, and a plain taper has none of them.
           if (i > 0) {
             objects.push(
-              mesh(new THREE.BoxGeometry(w + 0.55, 0.42, w + 0.55), ORANGE, ax + sx, y0, tz),
+              mesh(new THREE.BoxGeometry(w + 0.55, 0.42, d + 0.55), ORANGE, ax + sx, y0, tz),
             );
           }
           // Vertical pilaster reeding on the two broad (along-strait) faces.
@@ -756,13 +904,28 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
                   ORANGE,
                   ax + sx + off,
                   y0 + secH / 2,
-                  tz + (fz * w) / 2,
+                  tz + (fz * d) / 2,
                 ),
               );
             }
           }
+          // ...and the same reeding on the two NARROW (across-strait) faces, so
+          // the end-on read gets the vertical articulation the broadside one
+          // has always had.
+          for (const fx of [-1, 1] as const) {
+            objects.push(
+              mesh(
+                new THREE.BoxGeometry(0.24, secH - 0.9, d * 0.22),
+                ORANGE,
+                ax + sx + (fx * w) / 2,
+                y0 + secH / 2,
+                tz,
+              ),
+            );
+          }
         }
-        objects.push(mesh(saddleGeo, ORANGE, ax + sx, topY + 0.8, tz));
+        objects.push(mesh(capGeo, ORANGE, ax + sx, topY + 0.35, tz));
+        objects.push(mesh(saddleGeo, ORANGE, ax + sx, topY + 1.45, tz));
         // Marker lights up the leg.
         for (let i = 0; i < 7; i++) {
           const my = deckY + 3 + (i * (TOWER_H - 5)) / 6;
@@ -771,20 +934,44 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
       }
       // Portal bracing. Each brace is a ZIGGURAT — a main bar with a narrower
       // step under it and a narrower one over it — and the braces step inward
-      // going up, so the openings between them shorten and narrow toward the
-      // saddle. That stack of tapering portals is the tower's signature; four
-      // plain bars read as a ladder.
+      // AND bunch together going up, so the openings between them shorten and
+      // narrow toward the saddle (see braceLift). That stack of tapering
+      // portals is the tower's signature; five evenly spaced bars are a ladder.
       for (let i = 0; i < 5; i++) {
-        const t = i / 4;
+        const t = braceLift(i / 4);
         const by = THREE.MathUtils.lerp(deckY + 8, topY - 3.4, t);
         const w = legX * 2 + legWidthAt((by - legBaseY) / (topY - legBaseY)) - t * 1.6;
-        objects.push(mesh(new THREE.BoxGeometry(w, 1.5, 1.5), ORANGE, ax, by, tz));
-        objects.push(mesh(new THREE.BoxGeometry(w - 3.2, 0.8, 1.15), ORANGE, ax, by - 1.1, tz));
-        objects.push(mesh(new THREE.BoxGeometry(w - 1.6, 0.7, 1.3), ORANGE, ax, by + 1.05, tz));
+        objects.push(mesh(new THREE.BoxGeometry(w, 1.5, 1.9), ORANGE, ax, by, tz));
+        objects.push(mesh(new THREE.BoxGeometry(w - 3.2, 0.8, 1.45), ORANGE, ax, by - 1.1, tz));
+        objects.push(mesh(new THREE.BoxGeometry(w - 1.6, 0.7, 1.6), ORANGE, ax, by + 1.05, tz));
       }
+      // The crown, level with the cap plates: it closes the tower at the top so
+      // the two legs read as ONE structure carrying a saddle rather than as a
+      // pair of sticks the cables happen to cross.
+      objects.push(
+        mesh(
+          new THREE.BoxGeometry(legX * 2 + LEG_TOP - 0.4, 0.85, LEG_TOP * LEG_DEPTH + 0.4),
+          ORANGE,
+          ax,
+          topY + 0.35,
+          tz,
+        ),
+      );
       // The strut under the roadway, closing the portal below the deck.
       objects.push(
-        mesh(new THREE.BoxGeometry(legX * 2 + LEG_BASE, 1.3, 1.6), ORANGE, ax, deckY - 3.6, tz),
+        mesh(new THREE.BoxGeometry(legX * 2 + LEG_BASE, 1.3, 2.1), ORANGE, ax, deckY - 3.6, tz),
+      );
+      // The fender the tower stands on: one stone mass across both legs at the
+      // waterline, in the anchorages' grey. Two legs entering the sea on their
+      // own footings is what left the tower reading as a ladder standing on
+      // nothing when the crossing is seen end-on; a pier gives the structure a
+      // foot, and it is the same masonry the cables are pulling against at
+      // either end, so the crossing keeps ONE vocabulary from shore to shore.
+      const fenderW = legX * 2 + LEG_BASE + 2.4;
+      const fenderD = LEG_BASE * LEG_DEPTH + 5.4;
+      objects.push(mesh(new THREE.BoxGeometry(fenderW, 10, fenderD), STONE, ax, -3.4, tz));
+      objects.push(
+        mesh(new THREE.BoxGeometry(fenderW + 0.7, 0.5, fenderD + 0.7), STONE_BAND, ax, 1.4, tz),
       );
     }
   }
@@ -852,25 +1039,110 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
     }
   }
 
-  // South anchorage: the block the two main cables actually pull against,
-  // flanking the ramp entry and rising to the cable's saddle height. It used
-  // to be a 3.2u lump with the cable passing well above it.
+  // South anchorage: the mass the two main cables actually pull against.
+  //
+  // It is STONE, in three stepped tiers, and the only International Orange on
+  // it is the saddle plate the cable lands on. This is the one part of the
+  // crossing a player can park next to, and a 14u prism of flat accent paint
+  // was the single place the world's material vocabulary broke — nothing else
+  // in the game is an untextured mass of the accent colour at arm's length.
+  // The tiers batter on the OUTBOARD face and on both ends while the inner
+  // face — the one the carriageway runs past — stays on a single plane, and
+  // each setback carries a darker band: three grey steps with nothing between
+  // them fuse into one grey slab past ~40u.
+  //
+  // IT LIVES INSIDE THE OLD BLOCK'S CORRIDOR. The shore road runs between the
+  // two anchorages and the CHASE CAMERA rides through that gap 10.8u off the
+  // bridge centreline (measured, at the teleport the approach snaps to). A
+  // base tier sized for the monument rather than for the corridor puts the
+  // camera 3u off a blank grey wall on every approach — the same failure the
+  // Marina viaduct column is up for. The battered face stops at 10.0u, a
+  // tenth of a unit past where the block it replaces already stood.
   {
-    const anchorTop = deckY + 5.2;
-    const anchorZ = shoreZ + 1;
+    const { z: saddleZ, y: saddleY } = southAnchor(plan);
+    const PLATE_H = 1.1;
+    const INNER = 2.6; // inner (carriageway) face, as a half-width about cx
+    const anchorZ = saddleZ - 1.4;
+    const tiers = [
+      { w: 4.8, d: 9.6, top: saddleY - 6.2 },
+      { w: 4.4, d: 8.4, top: saddleY - 3.0 },
+      { w: 4.0, d: 7.2, top: saddleY - PLATE_H / 2 },
+    ] as const;
     for (const sx of [-legX, legX]) {
+      const cx = ax + sx;
+      const out = Math.sign(sx);
+      // Seat the foot under the LOWEST ground the block covers. The shore road
+      // is a depression and the beach falls away north of it, so a single
+      // centre sample left the old block hanging over its own downhill corner.
+      let footY = shoreH;
+      for (const dx of [-2.5, 0, 2.5]) {
+        for (const dz of [-4.8, 0, 4.8]) {
+          footY = Math.min(footY, ctx.terrain.heightAt(cx + dx, anchorZ + dz));
+        }
+      }
+      // ...and then some. `terrain.heightAt` is the RAW field; the shore road
+      // in front of the block is a 3u depression drawn on the drape and the
+      // beach behind it falls off the lattice, so a foot set at the sampled
+      // minimum still hung visibly in the air over the roadway. Stone below
+      // ground costs nothing.
+      let base = footY - 6;
+      for (const t of tiers) {
+        const off = out * (t.w / 2 - INNER);
+        objects.push(
+          mesh(
+            new THREE.BoxGeometry(t.w, t.top - base, t.d),
+            STONE,
+            cx + off,
+            (t.top + base) / 2,
+            anchorZ,
+          ),
+        );
+        objects.push(
+          mesh(
+            new THREE.BoxGeometry(t.w + 0.4, 0.46, t.d + 0.4),
+            STONE_BAND,
+            cx + off,
+            t.top - 0.23,
+            anchorZ,
+          ),
+        );
+        base = t.top;
+      }
+      // The saddle plate — the cable's bearing, and the one orange face down
+      // here. `southAnchor` is where `cableSaddles` starts the main cable, so
+      // the strand leaves the middle of the plate instead of floating over it.
       objects.push(
-        mesh(
-          new THREE.BoxGeometry(4.6, anchorTop - shoreH + 2, 8),
-          ORANGE,
-          ax + sx,
-          (anchorTop + shoreH - 2) / 2,
-          anchorZ,
-        ),
+        mesh(new THREE.BoxGeometry(3.2, PLATE_H, 4.4), ORANGE, cx - out * 0.6, saddleY, saddleZ),
       );
+    }
+  }
+
+  // North anchorage: the plinth the side-span cable dies into on the Marin
+  // side. It is placed where the strand actually MEETS the headland rather
+  // than at the plan's saddle chainage — the hill rises under the cable, so a
+  // block at the nominal point would be buried whole and the visible end of
+  // the cable would still be a strand vanishing into grass.
+  {
+    const { z: nz, y: ny } = northAnchor(plan);
+    const saddleSet = cableSaddles(plan);
+    let landZ = nz;
+    let landY = ny;
+    for (let z = towerZ - 4; z >= nz; z -= 1) {
+      const cy = cableY(saddleSet, z);
+      if (cy === null) continue;
+      if (cy <= ctx.terrain.heightAt(ax, z) + 1.2) {
+        landZ = z;
+        landY = cy;
+        break;
+      }
+    }
+    for (const sx of [-legX, legX]) {
+      const cx = ax + sx;
+      objects.push(mesh(new THREE.BoxGeometry(5.6, 9, 7.6), STONE, cx, landY - 0.55 - 4.5, landZ));
       objects.push(
-        mesh(new THREE.BoxGeometry(5.4, 0.9, 8.8), ORANGE, ax + sx, anchorTop + 0.2, anchorZ),
+        mesh(new THREE.BoxGeometry(6.1, 0.46, 8.1), STONE_BAND, cx, landY - 0.78, landZ),
       );
+      objects.push(mesh(new THREE.BoxGeometry(3.0, 1.0, 4.2), ORANGE, cx, landY, landZ));
     }
   }
 

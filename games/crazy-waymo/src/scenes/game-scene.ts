@@ -1,7 +1,6 @@
 import * as THREE from "three";
 import { notifyGameStarted, watchControlContext } from "@repo/embed";
 import type { PlayerMap } from "@vibedgames/multiplayer";
-import { Sky } from "three/addons/objects/Sky.js";
 
 import { ModelCache } from "../assets/loader";
 import { bannerControls } from "../controls";
@@ -40,7 +39,9 @@ import type { PhysicsWorld } from "../physics/physics-world";
 import { installAerialFog } from "../render/aerial-fog";
 import { DayNight } from "../render/day-night";
 import { FarTerrain } from "../render/far-terrain";
+import { LandmarkSilhouettes } from "../render/landmark-silhouette";
 import { FULL_QUALITY, isCoarsePointer, type QualityFeatures } from "../render/quality";
+import { Sky } from "../render/sky";
 import {
   CAMERA,
   CAR,
@@ -293,6 +294,7 @@ export class GameScene {
   private beacons: BeaconLights | null = null;
   private vehicleLights = new VehicleLights();
   private farTerrain = new FarTerrain();
+  private landmarkSilhouettes = new LandmarkSilhouettes();
   private sceneFog: THREE.Fog;
 
   private sun = new THREE.DirectionalLight(0xfff2d8, 2.0);
@@ -471,6 +473,11 @@ export class GameScene {
     this.scene.add(sky);
     this.sky = sky;
     this.scene.add(this.farTerrain.mesh);
+    // Landmark stand-ins are ordinary opaque geometry (depth-TESTED, so the
+    // world in front of them occludes them) — not part of the horizon curtain,
+    // which is why they get their own scene object rather than riding along as
+    // a child of it.
+    this.scene.add(this.landmarkSilhouettes.object);
     this.scene.add(this.vehicleLights.group);
 
     // Draw-distance fog: the map is far larger than the view, so haze the
@@ -1451,6 +1458,10 @@ vec3 ocGerstner(vec2 p, float t) {
       this.vehicleLights.update(this.traffic.cars, cam.x, cam.z);
     }
     this.farTerrain.update(this.sceneFog.color, night);
+    // The fog is a parameter: the stand-in has to age on the same aerial
+    // perspective curve as the geometry it stands in for, and the day-night
+    // grade owns fogNear/fogFar.
+    this.landmarkSilhouettes.update(this.sceneFog.color, night, this.sceneFog);
     this.clouds.setNight(night);
     this.car?.setHeadlights(night);
     this.updateAmbience(dt, night);
