@@ -8,7 +8,7 @@
 pnpm dev:battle-arena                       # http://localhost:5194
 pnpm --filter @repo/battle-arena typecheck
 pnpm --filter @repo/battle-arena build
-pnpm --filter @repo/battle-arena test       # 60-check headless sim harness (tools/verify-timing.mts)
+pnpm --filter @repo/battle-arena test       # headless sim harness (tools/verify-timing.mts)
 ```
 
 ## Routes

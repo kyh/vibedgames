@@ -8,7 +8,7 @@
 pnpm dev:crazy-waymo                        # http://localhost:5193
 pnpm --filter @repo/crazy-waymo typecheck
 pnpm --filter @repo/crazy-waymo build
-pnpm --filter @repo/crazy-waymo test        # world-gen invariant harness (11 checks, headless)
+pnpm --filter @repo/crazy-waymo test        # headless world-gen invariant harness (tools/test-world.mts)
 pnpm --filter @repo/crazy-waymo test:e2e    # playwright smoke suite (needs a browser)
 ```
 

@@ -8,7 +8,7 @@ TowerFall-feel roguelite dungeon crawl — Phaser, pixel art, five heroes with d
 pnpm dev:lunerfall                        # http://localhost:5192
 pnpm --filter @repo/lunerfall typecheck
 pnpm --filter @repo/lunerfall build
-pnpm --filter @repo/lunerfall test        # 78-check headless sim harness (tools/sim.mts)
+pnpm --filter @repo/lunerfall test        # headless sim harness (tools/sim.mts)
 ```
 
 ## Routes
