@@ -20,6 +20,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@repo/ui/components/tooltip";
+import { useIsMobile } from "@repo/ui/hooks/use-mobile";
 
 import { authClient } from "@/auth/client";
 
@@ -49,12 +50,14 @@ function RailLink({
   icon: Icon,
   hovered,
   onHover,
+  tooltipSide,
 }: {
   to: string;
   label: string;
   icon: typeof Gamepad2Icon;
   hovered: string | null;
   onHover: (to: string) => void;
+  tooltipSide: "top" | "right";
 }) {
   const matchRoute = useMatchRoute();
   const isActive = matchRoute({ to, fuzzy: true }) !== false;
@@ -69,7 +72,7 @@ function RailLink({
             aria-label={label}
             onMouseEnter={() => onHover(to)}
             onFocus={() => onHover(to)}
-            className={`relative rounded-full p-2 outline-none transition-colors duration-100 ${
+            className={`relative rounded-full p-3.5 outline-none transition-colors duration-100 md:p-2 ${
               showDisc ? "text-foreground" : "text-muted-foreground"
             }`}
           />
@@ -84,7 +87,7 @@ function RailLink({
         )}
         <Icon className="relative size-4" />
       </TooltipTrigger>
-      <TooltipContent side="right">{label}</TooltipContent>
+      <TooltipContent side={tooltipSide}>{label}</TooltipContent>
     </Tooltip>
   );
 }
@@ -103,14 +106,20 @@ const initials = (user: ShellUser): string => {
  * full-height gutter cells — logo top-left, rail viewport-centered on the
  * logo's axis, avatar top-right — so the document scrolls normally and the
  * chrome stays pinned without `position: fixed`. Below `sm` the content
- * spans the full grid and the rail floats over it, as before. Deliberately
- * no page-entrance animation: loading states are the skeletons' job. Do NOT
+ * spans the full grid. Below `md` the rail becomes a bottom-centered dock:
+ * it drops out of the gutter flow into `position: fixed`, turns horizontal,
+ * and grows to 44px touch targets — so it must clear the main content's
+ * bottom padding and the iOS home-bar safe area. That `md` boundary is the
+ * same one `useIsMobile` uses, which is what keeps the tooltip side (`top`
+ * docked, `right` railed) in step with the layout. Deliberately no
+ * page-entrance animation: loading states are the skeletons' job. Do NOT
  * wrap any of this in FadeInBlur (its lingering inline `filter` would break
  * the rail's backdrop-blur).
  */
 export function AccountShell({ user, children }: { user: ShellUser; children: React.ReactNode }) {
   const navigate = useNavigate();
   const [hoveredRail, setHoveredRail] = useState<string | null>(null);
+  const isMobile = useIsMobile();
 
   const signOut = async () => {
     await authClient.signOut();
@@ -127,14 +136,14 @@ export function AccountShell({ user, children }: { user: ShellUser; children: Re
             </Link>
           </div>
 
-          <div className="pointer-events-auto sticky top-1/2 -translate-y-1/2">
+          <div className="pointer-events-auto fixed bottom-[calc(1rem+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 md:sticky md:bottom-auto md:left-auto md:top-1/2 md:translate-x-0 md:-translate-y-1/2">
             <nav
               aria-label="Account"
               onMouseLeave={() => setHoveredRail(null)}
               onBlur={(e) => {
                 if (!e.currentTarget.contains(e.relatedTarget)) setHoveredRail(null);
               }}
-              className="bg-input/40 flex w-11 flex-col items-center gap-1 rounded-full p-1.5 shadow-[0_8px_24px_rgb(0_0_0/0.4),0_2px_6px_rgb(0_0_0/0.3)] backdrop-blur-sm"
+              className="bg-input/40 flex items-center gap-1 rounded-full p-1.5 shadow-[0_8px_24px_rgb(0_0_0/0.4),0_2px_6px_rgb(0_0_0/0.3)] backdrop-blur-sm md:w-11 md:flex-col"
             >
               {railItems
                 .filter((item) => !item.adminOnly || user.isAdmin)
@@ -146,6 +155,7 @@ export function AccountShell({ user, children }: { user: ShellUser; children: Re
                     icon={item.icon}
                     hovered={hoveredRail}
                     onHover={setHoveredRail}
+                    tooltipSide={isMobile ? "top" : "right"}
                   />
                 ))}
             </nav>
@@ -177,7 +187,7 @@ export function AccountShell({ user, children }: { user: ShellUser; children: Re
           </div>
         </div>
 
-        <main className="col-span-full row-start-1 px-2 pt-28 pb-16 sm:col-span-1 sm:col-start-2 sm:px-4">
+        <main className="col-span-full row-start-1 px-2 pt-28 pb-[calc(6rem+env(safe-area-inset-bottom))] sm:col-span-1 sm:col-start-2 sm:px-4 md:pb-16">
           <div className="mx-auto max-w-3xl space-y-16">{children}</div>
         </main>
       </div>
