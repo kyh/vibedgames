@@ -41,6 +41,7 @@ import {
   ASTEROID_CULL_MARGIN,
   ASTEROID_DROP_CHANCE,
   ASTEROID_MAX_RADIUS,
+  ASTEROID_MIN_RADIUS,
   ASTEROID_ROT_SPEED,
   ASTEROID_SEED_COUNT,
   asteroidCap,
@@ -399,6 +400,10 @@ type ShipObjs = {
   trail: Phaser.GameObjects.Particles.ParticleEmitter | null;
   /** Trail currently configured as the NITRO flame. */
   nitroTrail: boolean;
+  /** Trail particle scale currently loaded into the emitter config. Only the
+   *  trailer's hull-glow damping ever moves it off TRAIL_PARTICLE_SCALE, and
+   *  it is tracked so the per-frame reconfigure is skipped when it has not. */
+  trailScale: number;
   /** Last seen base shieldHp — a decrease between snapshots = hit flash.
    *  Base shield only: overHp zeroes on overshield expiry/replacement with
    *  no damage, so a combined total would phantom-flash. */
@@ -540,6 +545,9 @@ const CAMERA_MIN_ZOOM = 0.9;
  *  weight at zoom 1, where 1px vector strokes read whisper-thin on 720p. */
 const STROKE_BASE = 1.25;
 const STROKE_MAX = 1.7;
+/** Authored thruster-puff size (see GameScene.hullGlow for the one thing that
+ *  ever scales it down). */
+const TRAIL_PARTICLE_SCALE = 0.5;
 
 function emptyShared(): SharedState {
   // Every resettable field MUST be present — patches shallow-merge, so an
@@ -1912,6 +1920,9 @@ export class GameScene extends Phaser.Scene {
     const playOpts: PlayOpts = { gain: sound.gain * gainScale };
     if (sound.rate !== undefined) playOpts.rate = sound.rate;
     sfx.play(sound.name, playOpts);
+    // Every burst below sits ON the pilot's nose, so all of it damps together
+    // in trailer mode (1 everywhere else — see hullGlow).
+    const glow = this.hullGlow();
     // OVERDRIVE: muzzle flashes gain a gold outer spark.
     if (this.boosts.has("overdrive")) {
       this.fx.sparks(nose.x, nose.y, 2, 0xfacc15, {
@@ -1919,14 +1930,18 @@ export class GameScene extends Phaser.Scene {
         speedMax: 320,
         lifeMin: 100,
         lifeMax: 180,
-        scale: 0.5,
+        scale: 0.5 * glow,
       });
     }
     const aimDeg = this.shipAngle / DEG;
     switch (w.sfx) {
       case "mine":
         // Drop, not a shot: tiny puff, no kick.
-        this.fx.sparks(nose.x, nose.y, 2, w.tint, { lifeMin: 100, lifeMax: 160, scale: 0.4 });
+        this.fx.sparks(nose.x, nose.y, 2, w.tint, {
+          lifeMin: 100,
+          lifeMax: 160,
+          scale: 0.4 * glow,
+        });
         break;
       case "nova":
         // The expanding ring IS the effect; no muzzle, no kick.
@@ -1940,7 +1955,7 @@ export class GameScene extends Phaser.Scene {
           speedMax: 450,
           lifeMin: 120,
           lifeMax: 200,
-          scale: 0.5,
+          scale: 0.5 * glow,
         });
         this.muzzleFlashes.push({
           x: nose.x,
@@ -1968,7 +1983,7 @@ export class GameScene extends Phaser.Scene {
           speedMax: 400,
           lifeMin: 120,
           lifeMax: 200,
-          scale: 0.5,
+          scale: 0.5 * glow,
         });
         this.muzzleFlashes.push({
           x: nose.x,
@@ -2001,7 +2016,7 @@ export class GameScene extends Phaser.Scene {
           lifeMax: 160,
           speedMin: 100,
           speedMax: 250,
-          scale: 0.5,
+          scale: 0.5 * glow,
         });
         this.muzzleFlashes.push({
           x: nose.x,
@@ -2023,7 +2038,7 @@ export class GameScene extends Phaser.Scene {
           speedMax: 400,
           lifeMin: 100,
           lifeMax: 180,
-          scale: 0.5,
+          scale: 0.5 * glow,
         });
         this.muzzleFlashes.push({
           x: nose.x,
@@ -2839,6 +2854,9 @@ export class GameScene extends Phaser.Scene {
       angleMax: ang / DEG + 22.5,
       lifeMin: 150,
       lifeMax: 250,
+      // Hull-local, and the reel's crowd shots take one of these every few
+      // frames — the single biggest contributor to the white splat.
+      scale: 0.6 * this.hullGlow(),
     });
     // Hits sound lower as you get closer to death (§A.5).
     const fraction = Math.max(0, Math.min(1, this.shieldHp / SHIELD_MAX));
@@ -2901,6 +2919,11 @@ export class GameScene extends Phaser.Scene {
     this.shieldHp -= rest;
     this.lastDamageAt = now;
     this.regenActive = false;
+    // Trailer: the hit is real — drain, arcs, flash, sfx — but a staged scene
+    // with no death beat cannot lose its pilot. Enemy shots skip contact
+    // i-frames and several resolve inside one sim step, so a between-frames
+    // top-up always races them; the guarantee has to live at the kill itself.
+    if (this.shieldHp <= 0 && this.trailer?.deathless === true) this.shieldHp = 1;
     if (this.shieldHp <= 0) {
       this.die(now, killerId, cause);
       return "dead";
@@ -5176,7 +5199,7 @@ export class GameScene extends Phaser.Scene {
       frequency: 25,
       lifespan: 300,
       speed: { min: 0, max: 20 },
-      scale: { start: 0.5, end: 0 },
+      scale: { start: TRAIL_PARTICLE_SCALE, end: 0 },
       alpha: { start: 0.7, end: 0 },
       tint,
       blendMode: Phaser.BlendModes.ADD,
@@ -5184,6 +5207,36 @@ export class GameScene extends Phaser.Scene {
     });
     e.setDepth(9);
     return e;
+  }
+
+  /**
+   * TRAILER ONLY: how much of its authored size the pilot's own additive glow
+   * keeps at this shot's zoom.
+   *
+   * The hull is a 1px vector stroke ~16 world px across; the glow around it —
+   * thruster puffs, muzzle sparks, the shield-impact burst — is the 32px soft
+   * "spark" dot on ADD. Both are world-space, so both scale with the camera,
+   * but only one of them GROWS: a stroked outline gains no ink when it is
+   * magnified, while a soft additive dot gains area (and therefore saturates)
+   * as the square of the zoom. At the reel's 1.9-2.5 zooms that inverted the
+   * shot — measured on the last capture, the player read as a formless white
+   * splat in calm-open, elite-behaviours, chain-reactor and pvp-duel while the
+   * ENEMIES, which are pure stroke, read cleanly. The hero was the least
+   * legible object in its own tight shots.
+   *
+   * So inside ?trailer=1 the glow is pinned to the SCREEN size it has at zoom
+   * 1 (the framing the game itself ships) and the hull is the only thing the
+   * tightening magnifies. Clamped at 1 so it can only ever damp — a shot below
+   * zoom 1 would be wider than normal play, which the framing contract forbids
+   * anyway. Outside trailer mode this is a constant 1 and every call site is
+   * unchanged arithmetic.
+   */
+  private hullGlow(): number {
+    if (!this.trailer) return 1;
+    // Quantised: three scenes lerp their zoom, and the trail's scale lives in
+    // the emitter CONFIG — re-parsing it every frame to chase a continuous
+    // ramp buys nothing the eye can see.
+    return Math.min(1, Math.round(20 / this.cameras.main.zoom) / 20);
   }
 
   private syncShips(now: number, dt: number): void {
@@ -5216,6 +5269,7 @@ export class GameScene extends Phaser.Scene {
           seenState: false,
           trail,
           nitroTrail: false,
+          trailScale: TRAIL_PARTICLE_SCALE,
           lastShieldHp: SHIELD_MAX,
           flashUntil: 0,
           regenUntil: 0,
@@ -5224,7 +5278,10 @@ export class GameScene extends Phaser.Scene {
       }
       if (id === myId) {
         this.ensureShipLevel(rec, this.level);
-        this.configureTrail(rec, this.boosts.has("nitro"), throttled);
+        // Only the PILOT's glow is damped: the reel's tight shots need the
+        // contrast between a hull that grew and a glow that did not, and the
+        // enemies (pure stroke) never had the problem in the first place.
+        this.configureTrail(rec, this.boosts.has("nitro"), throttled, this.hullGlow());
         rec.gfx.setPosition(this.shipX, this.shipY).setRotation(this.shipAngle);
         rec.gfx.setVisible(this.spawned && this.alive);
         const phased = now < this.phasedUntil;
@@ -5358,13 +5415,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   /** Trail = thruster puffs, or the NITRO flame (others must see it). */
-  private configureTrail(rec: ShipObjs, nitro: boolean, throttled: boolean): void {
+  private configureTrail(rec: ShipObjs, nitro: boolean, throttled: boolean, glow = 1): void {
     if (!rec.trail) return;
-    if (rec.nitroTrail !== nitro) {
+    const scale = TRAIL_PARTICLE_SCALE * glow;
+    if (rec.nitroTrail !== nitro || rec.trailScale !== scale) {
       rec.nitroTrail = nitro;
+      rec.trailScale = scale;
       rec.trail.updateConfig({
         lifespan: nitro ? 450 : 300,
         tint: nitro ? BOOSTER_SPECS.nitro.tint : rec.tint,
+        scale: { start: scale, end: 0 },
       });
     }
     const freq = nitro ? (throttled ? 24 : 12) : throttled ? 50 : 25;
@@ -5511,7 +5571,9 @@ export class GameScene extends Phaser.Scene {
     strokeRegularPolygon(g, x, y, 3, 3, orbitAngle);
   }
 
-  /** RAILGUN charge: nose glow scales 0→6px with the windup fraction. */
+  /** RAILGUN charge: nose glow scales 0→6px with the windup fraction. It is a
+   *  filled disc rather than a stroke, so it damps with the rest of the pilot's
+   *  glow in trailer mode (hullGlow() is 1 everywhere else). */
   private drawWindupGlow(x: number, y: number, angle: number, frac: number, tint: number): void {
     if (frac <= 0.02) return;
     const g = this.haloGfx;
@@ -5519,7 +5581,7 @@ export class GameScene extends Phaser.Scene {
     g.fillCircle(
       x + Math.cos(angle) * (SHIP_RADIUS + 2),
       y + Math.sin(angle) * (SHIP_RADIUS + 2),
-      6 * frac,
+      6 * frac * this.hullGlow(),
     );
   }
 
@@ -6681,7 +6743,13 @@ export class GameScene extends Phaser.Scene {
    *  paths gameplay uses — spawn factories, hostDamageEnemy, gainXp, die —
    *  so staged shots are real gameplay. */
   trailerStage(): TrailerStageApi {
-    const staging: TrailerStaging = { steer: null, fire: false, camPos: null, peers: null };
+    const staging: TrailerStaging = {
+      steer: null,
+      fire: false,
+      deathless: true,
+      camPos: null,
+      peers: null,
+    };
     this.trailer = staging;
     return {
       staging,
@@ -6738,6 +6806,17 @@ export class GameScene extends Phaser.Scene {
         this.kickX = 0;
         this.kickY = 0;
       },
+      clearAsteroids: (): void => {
+        // Silent: the display sweep in syncAsteroids bursts any rock whose
+        // state vanished, and 14 of those would play on the next reveal.
+        this.world.asteroids = [];
+        for (const [, rec] of this.asteroidObjs) {
+          this.tweens.killTweensOf(rec.gfx);
+          rec.gfx.destroy();
+        }
+        this.asteroidObjs.clear();
+        this.dirty.asteroids = true;
+      },
       setPlayerPose: (pose): void => {
         this.spawned = true;
         this.alive = true;
@@ -6749,6 +6828,26 @@ export class GameScene extends Phaser.Scene {
         if (pose.angle !== undefined) this.shipAngle = pose.angle;
         this.shipVX = pose.vx ?? 0;
         this.shipVY = pose.vy ?? 0;
+        // Rocks deliberately survive clearWorld() (they are the arena's only
+        // ambience), which means one staged for an earlier shot can be sitting
+        // exactly where a later shot puts the ship — and asteroidContactDamage
+        // then opens the scene by taking most of the shield. Clear the landing
+        // zone. Silently: the display sweep bursts any asteroid whose state
+        // vanished, and that burst would play on the reveal.
+        for (let i = this.world.asteroids.length - 1; i >= 0; i--) {
+          const a = this.world.asteroids[i];
+          if (!a) continue;
+          const clear = a.radius + 70;
+          if (dist2(a.x, a.y, pose.x, pose.y) > clear * clear) continue;
+          this.world.asteroids.splice(i, 1);
+          const rec = this.asteroidObjs.get(a.id);
+          if (rec) {
+            this.tweens.killTweensOf(rec.gfx);
+            rec.gfx.destroy();
+            this.asteroidObjs.delete(a.id);
+          }
+          this.dirty.asteroids = true;
+        }
         this.cameras.main.centerOn(pose.x, pose.y);
       },
       setLevel: (level, xpIntoLevel = 0): void => {
@@ -6758,6 +6857,9 @@ export class GameScene extends Phaser.Scene {
         this.weaponUntil = 0;
         this.applyBaseLoadout(simNow());
       },
+      setXp: (xpIntoLevel): void => {
+        this.xp = Math.max(0, xpIntoLevel);
+      },
       grantWeapon: (name): void => {
         const weapon = WEAPONS_SPECIAL.find((w) => w.name === name);
         if (!weapon) return;
@@ -6765,6 +6867,11 @@ export class GameScene extends Phaser.Scene {
         this.weapon = scaleWeaponForLevel(weapon, this.level);
         this.weaponUntil = simNow() + SPECIAL_WEAPON_DURATION_MS;
         this.windupAcc = 0;
+        // A staged swap starts its cadence now. Left alone, the outgoing
+        // weapon's residual cooldown carries over, so a mid-shot swap to a
+        // fast weapon can sit silent for most of a second — long enough to
+        // push the beat it was granted for past the cut.
+        this.shootCooldown = 0;
       },
       grantBooster: (kind): void => {
         if (kind === "repair") {
@@ -6773,6 +6880,13 @@ export class GameScene extends Phaser.Scene {
         } else {
           this.boosts.set(kind, simNow() + BOOSTER_SPECS[kind].durationMs);
         }
+      },
+      grantShieldMod: (kind): void => {
+        const now = simNow();
+        this.shieldMod = kind;
+        this.shieldModUntil = now + SHIELD_MOD_DURATION_MS;
+        this.overHp = kind === "overshield" ? OVERSHIELD_BONUS : 0;
+        this.phaseReadyAt = 0; // blink armed from frame one
       },
       grantXp: (amount): void => this.gainXp(amount, simNow()),
       setShieldHp: (hp): void => {
@@ -6803,6 +6917,43 @@ export class GameScene extends Phaser.Scene {
         if (e) e.hp = Math.max(1, hp);
       },
       damageEnemy: (id, amount): void => this.hostDamageEnemy(id, amount, 0, 0),
+      killEnemy: (id): void => {
+        const idx = this.world.enemies.findIndex((en) => en.id === id);
+        if (idx !== -1) this.hostKillEnemy(idx);
+      },
+      spawnItem: (cls, name, x, y): void => {
+        let drop: ItemDrop | null = null;
+        if (cls === "weapon") {
+          const i = WEAPONS_SPECIAL.findIndex((w) => w.name === name);
+          if (i !== -1) drop = { kind: "weapon", weaponIdx: i };
+        } else if (cls === "shield") {
+          const i = SHIELD_MOD_KINDS.findIndex((k) => k === name);
+          if (i !== -1) drop = { kind: "shield", shieldIdx: i };
+        } else {
+          const i = BOOSTER_KINDS.findIndex((k) => k === name);
+          if (i !== -1) drop = { kind: "booster", boosterIdx: i };
+        }
+        if (!drop) return;
+        const item = spawnItemState(x, y, drop);
+        // Park it: the factory's 30 px/s scatter is drawn from the seeded
+        // gameplay RNG, and over a ~0.7s approach it walks the crystal clear
+        // of the 15px pickup radius the shot was composed around.
+        item.vx = 0;
+        item.vy = 0;
+        this.world.items.push(item);
+        this.dirty.items = true;
+      },
+      spawnAsteroid: (x, y, radius): void => {
+        const a = spawnOpeningAsteroid(x, y);
+        a.radius = Phaser.Math.Clamp(radius, ASTEROID_MIN_RADIUS, ASTEROID_MAX_RADIUS);
+        // Same reason as spawnItem, plus one more: rocks survive clearWorld(),
+        // so a drifting staged rock wanders into later shots it was never
+        // composed for.
+        a.vx = 0;
+        a.vy = 0;
+        this.world.asteroids.push(a);
+        this.dirty.asteroids = true;
+      },
       spawnBeacon: (x, y, chargeS, activeS): void =>
         this.hostSpawnBeacon(x, y, simNow(), chargeS, activeS),
       spawnShards: (count, x, y): void => this.hostSpawnShards(x, y, count),
@@ -6816,6 +6967,7 @@ export class GameScene extends Phaser.Scene {
         alive: this.alive,
         level: this.level,
         shieldHp: this.shieldHp,
+        weapon: this.weapon.name,
       }),
       worldSize: () => ({ w: this.world.playW, h: this.world.playH }),
     };

@@ -9,7 +9,7 @@ import { castAbility } from "../src/sim/abilities.ts";
 import { dealDamage } from "../src/sim/combat.ts";
 import { effectiveAttackSpeed } from "../src/sim/stats.ts";
 import type { Unit } from "../src/sim/types.ts";
-import { createWorld, spawnHero, step } from "../src/sim/world.ts";
+import { createWorld, spawnCreepAt, spawnHero, step } from "../src/sim/world.ts";
 
 // Hunter's Mark bonus for `u` vs `target` — mirrors combat.attackSpeedVsTarget's
 // exact, target-scoped id match.
@@ -96,6 +96,15 @@ function check(name: string, cond: boolean, extra = ""): void {
     "mark bonus applied exactly once (no double-count)",
     Math.abs(asVsMarked - expected) < 1e-6,
     `got=${asVsMarked} expected=${expected}`,
+  );
+  // heroes only: anything aiming this at a creep (bot logic, the trailer director)
+  // gets a silent no-op, not a cast
+  const creep = spawnCreepAt(w, "dire", "top", "melee", storm.x + 60, storm.y);
+  stormHero.abilities.W.readyAt = 0;
+  storm.mp = storm.maxMp;
+  check(
+    "Hunter's Mark refuses a creep target",
+    !castAbility(w, storm, { key: "W", targetId: creep.id }),
   );
 }
 

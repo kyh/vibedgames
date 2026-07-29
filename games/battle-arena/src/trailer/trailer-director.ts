@@ -5,11 +5,12 @@
 // FX pipeline, every kill pays real bounty/loot.
 //
 // Staging model:
-//   - One persistent World, seeded, with coins/deliveries/camp-respawns/match
-//     end suppressed. A fixed troupe (all six champions at max level + a pool
-//     of skeletons + the Frost Golem) is spawned ONCE at boot so per-scene
-//     restaging is a teleport, never a spawn — no Spawn_Air / Awaken clips
-//     leak into shots.
+//   - One persistent World, seeded, with camp-respawns/match end suppressed
+//     (coins are pushed explicitly per scene, so their landing spot can be
+//     framed at authoring time — the sim's own throw picks it from the RNG).
+//     A fixed troupe (all six champions at max level + a pool of skeletons +
+//     the Frost Golem) is spawned ONCE at boot so per-scene restaging is a
+//     teleport, never a spawn — no Spawn_Air / Awaken clips leak into shots.
 //   - Every scene's setup() fully re-stages: park everyone, clear transient
 //     world state, place the actors, pre-roll a few sim ticks so the first
 //     visible frame is mid-motion. The sim HOLDS between a scene's setup and
@@ -18,17 +19,34 @@
 //   - Unused champions park at their spawn bases and skeletons at their camps:
 //     they double as living set dressing in wide shots.
 //   - The camera is View.cinematic() — an explicit pose per frame that keeps
-//     every juice channel (trauma shake, kick, FOV punch, flash) alive.
+//     every juice channel (trauma shake, kick, FOV punch, flash) alive. ONE
+//     scene (players-eye) instead drives View.follow(), the real gameplay
+//     chase camera, so the reel answers "what does this look like on my
+//     screen" in the game's own framing.
+//
+// Framing rules this file follows (they are why the camera numbers look the
+// way they do), each one earned by a shot that failed without it:
+//   1. Never put the lens on the caster→target axis behind the caster: you get
+//      the back of a helmet, the target occluding the hero, and the cast VFX
+//      column (fx.beam fires AT the caster) swallowing the subject. Shoot the
+//      engagement in PROFILE, from a third position.
+//   2. Camera height ABOVE look height. The scene has no skybox worth showing
+//      (a near-black gradient dome), so a level lens spends a quarter of the
+//      frame on dead pixels; tilting down fills it with arena instead.
+//   3. Aim the view bearing at the two-story perimeter or the throne, never at
+//      open plaza — bright VFX need a dark backdrop or they clip to white.
+//   4. Cut on the beat: a shot ends on its impact, not on the walk away.
 //
 // Dead outside ?trailer=1: main.ts lazy-imports this module in its own chunk.
 import * as THREE from "three";
 import { CHAMP_BY_ID } from "../data/champions";
 import { SIM_DT, XP_CURVE } from "../data/config";
-import { CAMPS, SPAWNS } from "../data/map";
+import { BOSS_POS, CAMPS, SPAWNS } from "../data/map";
 import { castAbility } from "../sim/abilities";
 import { grantXp } from "../sim/economy";
+import { groundHeight } from "../sim/elevation";
 import { clamp, lerp, norm } from "../sim/math";
-import { recomputeStats } from "../sim/stats";
+import { breakStealth, recomputeStats } from "../sim/stats";
 import { ALL_ABILITY_KEYS, nextId, type AbilityKey, type Unit, type World } from "../sim/types";
 import {
   createWorld,
@@ -37,6 +55,7 @@ import {
   spawnHero,
   step,
   syncAbilityRanks,
+  tryJump,
 } from "../sim/world";
 import { Environment } from "../render/environment";
 import { Fx } from "../render/fx";
@@ -46,8 +65,9 @@ import { WorldView } from "../render/world-view";
 import { runTrailer, type TrailerScene } from "./trailer-shell";
 
 const SEED = 0xba771e; // deterministic sim; only camera shake stays random
-const FAR_RESPAWN = 1e15; // pins dead troupe creeps so cleanup never deletes them
+const FAR_RESPAWN = 1e15; // pins the dead troupe so cleanup/respawn never takes them
 const CAMP_NEVER = 1e8; // finite ≠ POPULATED sentinel → camps never repopulate
+const COIN_FLIGHT_MS = 900; // WorldView interpolates a thrown coin over exactly this
 
 const clamp01 = (t: number): number => clamp(t, 0, 1);
 const easeInOut = (t: number): number => {
@@ -73,6 +93,19 @@ class Cues {
 type SceneSpec = {
   id: string;
   duration: number;
+  /**
+   * Milliseconds of RENDER-side FX to age off inside setup(), used where a
+   * cast's own flash stands on the caster (mage:R's beam, the ranger's launch
+   * bloom) and would swallow the subject on the reveal frame.
+   *
+   * NOT the shell's `hold`, which buys the same thing with WALL CLOCK and
+   * charges it to the wrong shot: the shell holds AFTER the cut, so the capture
+   * measures that black inside the PREVIOUS scene's span — roster-3's 320ms
+   * landed in roster-1's tail (1.03s of picture out of 1.33s) and roster-6's
+   * 350ms in roster-5's (1.24s out of 1.64s), both ending on a 100%-black
+   * frame. Burning under setup() costs no time at all.
+   */
+  burn?: number;
   setup: () => void;
   run?: (t: number) => void;
   teardown?: () => void;
@@ -106,6 +139,7 @@ class Director {
   private readonly camPos = new THREE.Vector3(0, 26, 34);
   private readonly camLook = new THREE.Vector3(0, 2, 0);
   private camFov = 52;
+  private camMode: "cinematic" | "follow" = "cinematic";
   private musicLevel: 0 | 1 | 2 | 3 = 0; // re-applied when the gesture unlocks audio
 
   constructor(
@@ -114,7 +148,10 @@ class Director {
   ) {
     const w = createWorld(SEED);
     this.world = w;
-    // suppress everything on a timer that could wander into a staged shot
+    // suppress everything on a timer that could wander into a staged shot.
+    // Coins are the exception: scenes push them explicitly (see sceneHallReveal)
+    // because throwCoin() draws its landing point from the seeded RNG, which
+    // can't be framed at authoring time.
     w.nextCoinAt = Number.MAX_SAFE_INTEGER;
     w.nextDeliveryAt = Number.MAX_SAFE_INTEGER;
     w.killGoal = Number.MAX_SAFE_INTEGER;
@@ -268,9 +305,13 @@ class Director {
     w.coins = [];
     w.deliveries = [];
     w.fx.length = 0;
+    // damage numbers live on their own real-time clock, so without this the
+    // previous scene's numbers are still arcing over the new scene's first
+    // frames — consecutive cuts read as jump-cuts inside one continuous shot
+    this.fx.clearNumbers();
     // revive broken destructible props (mirrors the sim's own prop-respawn
     // block): their natural respawn is 50s of SIM time away, but scenes only
-    // accumulate ~37s between visits — without this, every replay/loop/jump
+    // accumulate ~36s between visits — without this, every replay/loop/jump
     // plays the destruction scene against an already-emptied cellar
     for (const u of w.units.values()) {
       if (u.kind === "prop" && !u.alive) {
@@ -283,11 +324,16 @@ class Director {
     this.parkAll();
   }
 
-  /** Dead troupe creeps must linger as (fully dissolved) corpses instead of
-   *  being culled — a later scene revives them via place(). Runs post-step. */
+  /** Dead troupe members must linger as corpses instead of being culled or
+   *  respawning mid-shot — a later scene revives them via place(). Heroes are
+   *  included so the FFA scrum can hold on a champion's death dissolve (the
+   *  cold-ghost corpse) instead of watching them pop back to life. Post-step. */
   private pinDeadTroupe(): void {
     for (const c of this.creeps) {
       if (!c.alive && c.respawnAt < FAR_RESPAWN) c.respawnAt = FAR_RESPAWN;
+    }
+    for (const h of this.heroes) {
+      if (!h.alive && h.respawnAt < FAR_RESPAWN) h.respawnAt = FAR_RESPAWN;
     }
   }
 
@@ -308,6 +354,32 @@ class Director {
     this.fx.audio.music?.setIntensity(level);
   }
 
+  /** Per-scene exposure stop. The chain is UnrealBloom(0.6 @ 0.82) → ACES at
+   *  exposure 1.0; the loudest ults stack three additive cores on near-white
+   *  flagstone and clip the subject out of their own money shot. Stopping down
+   *  is the one lens control that changes nothing about the gameplay render.
+   *  Reset to 1 by the scene wrapper, so a scene only ever sets it. */
+  private expose(stops: number): void {
+    this.view.renderer.toneMappingExposure = stops;
+  }
+
+  /** Per-scene FLASH stop — the lens control expose() is not.
+   *
+   *  expose() scales the whole frame, which is the wrong instrument when the
+   *  thing clipping stands ON the subject: the level-up beam and Oblivion Slam
+   *  are full-height additive columns, so the blown pixels and the champion are
+   *  the same pixels and no stop separates them (loot-pop was still 10% of the
+   *  frame clipped at 0.78). This scales the additive FX themselves plus the
+   *  bloom that smears them — the picture behind keeps its exposure, only the
+   *  flash gets quieter, and the subject comes back out of its own payoff.
+   *
+   *  Reset to 1 by the scene wrapper, so a scene only ever sets it. Applies from
+   *  the next spawn on, so call it in setup(), before the cast fires. */
+  private damp(gain: number): void {
+    this.fx.setFlashGain(gain);
+    this.view.bloomScale = gain;
+  }
+
   /** Scripted cast through the REAL ability pipeline. Cooldowns are staging
    *  state, so they're cleared first — the cast itself is authentic. */
   private cast(u: Unit, key: AbilityKey, px: number, py: number): void {
@@ -321,6 +393,37 @@ class Director {
   private aimAt(u: Unit, at: { x: number; y: number }, mx = 0, my = 0, attack = false): void {
     const d = norm(at.x - u.x, at.y - u.y);
     setHeroInput(u, mx, my, d.x, d.y, attack);
+  }
+
+  /** Push a real Over Boss coin on a framed arc. WorldView plays the boss's
+   *  `Throw` clip for any coin still in flight, races a gold landing telegraph
+   *  down with it, and tickCoins does the first-to-touch claim — all the same
+   *  code the 12s cadence drives, minus its unframeable random landing spot. */
+  private throwCoin(tx: number, ty: number, gold: number): void {
+    const w = this.world;
+    w.coins.push({
+      id: nextId(w, "coin"),
+      x: tx,
+      y: ty,
+      fromX: BOSS_POS.x,
+      fromY: BOSS_POS.y,
+      gold,
+      landAt: w.now + COIN_FLIGHT_MS,
+      expireAt: w.now + 600000,
+    });
+    w.fx.push({ t: "coinThrow", x: BOSS_POS.x, y: BOSS_POS.y, tx, ty });
+  }
+
+  /** Age the RENDER stack `ms` forward with the sim frozen — what a shell
+   *  `hold` does, minus the wall clock. Only Fx + WorldView move (no step()),
+   *  so the sim clock and its seeded RNG stream are untouched; the constructor
+   *  runs the identical trick to retire the boot spawn clips. */
+  private burnFx(ms: number): void {
+    const dt = 1 / 60;
+    for (let i = Math.round(ms / 1000 / dt); i > 0; i--) {
+      this.fx.update(this.world, dt);
+      this.worldView.sync(this.world, dt * this.fx.scaleNow());
+    }
   }
 
   /** Advance the sim n fixed ticks inside setup() (screen is black) so the
@@ -369,7 +472,15 @@ class Director {
       duration: spec.duration,
       setup: () => {
         this.holding = true;
+        this.camMode = "cinematic"; // opt-in per scene; everything else is authored
+        this.expose(1);
+        this.damp(1);
         spec.setup();
+        if (spec.burn !== undefined) this.burnFx(spec.burn);
+        // Warm pass under the black: builds/compiles whatever this staging
+        // newly needs so the hitch doesn't land on the frame the cut reveals.
+        this.fx.update(this.world, 0);
+        this.worldView.sync(this.world, 0);
       },
       run: (t) => {
         this.holding = false;
@@ -410,7 +521,21 @@ class Director {
       if (focus) this.environment.setLocalPos(focus.x, focus.y);
       this.environment.update(this.world.gameTime);
       this.view.tickAura(this.world.gameTime);
-      this.view.cinematic(this.camPos, this.camLook, rdt, this.camFov);
+      if (this.camMode === "follow" && focus) {
+        // the real gameplay chase cam, driven by the same arguments GameScene
+        // passes — pitch 0 is the neutral look
+        this.view.follow(
+          focus.x,
+          focus.y,
+          focus.aimX,
+          focus.aimY,
+          0,
+          rdt,
+          groundHeight(focus.x, focus.y),
+        );
+      } else {
+        this.view.cinematic(this.camPos, this.camLook, rdt, this.camFov);
+      }
       this.view.render();
     });
 
@@ -425,19 +550,18 @@ class Director {
       },
       scenes: [
         this.sceneColdOpen(),
+        this.sceneHallReveal(),
         this.sceneSignature(),
+        this.scenePlayersEye(),
         this.sceneRosterRogue(),
-        this.sceneRosterKnight(),
         this.sceneRosterRanger(),
-        this.sceneRosterBlackKnight(),
         this.sceneRosterWitch(),
         this.sceneRosterMage(),
-        this.sceneCombo(),
         this.sceneDestruction(),
         this.sceneLootPop(),
         this.sceneGolemBoss(),
         this.sceneFrenzy(),
-        this.scenePvp(),
+        this.sceneFourWay(),
         this.sceneHeroPose(),
       ],
     });
@@ -448,12 +572,22 @@ class Director {
     const cues = new Cues();
     return this.scene({
       id: "cold-open-clash",
-      duration: 4000,
+      // the flanker's chain (chop → slice → 2H SPIN) is 2.1s of real swing
+      // intervals and the kill resolves at ~2700; anything shorter plays the
+      // whirl, the kill-confirm hit-stop and the bone scatter under the black
+      duration: 3000,
       setup: () => {
         cues.reset();
         this.restage();
         this.focus(this.knight);
         this.music(1);
+        // The opening cleave's impact flash sat at 5.1% clipped over the right
+        // third. Damped rather than stopped down: the reel's first frame has to
+        // keep its full contrast between torchlight and the dark perimeter.
+        // Taken further than the number alone asks for because that flash is a
+        // ~100ms transient — a single still of it ranges over three points run
+        // to run, so the frame needs headroom, not a value that just clears.
+        this.damp(0.5);
         this.place(this.knight, 20, -6, Math.atan2(1.4, -3.1));
         const [w1, w2, w3] = this.warriors;
         if (w1) {
@@ -466,8 +600,10 @@ class Director {
         }
         if (w3) {
           this.place(w3, 21.3, -10.1, Math.PI / 2); // flanker — outside the Q cone
-          // dies exactly on the 3rd-swing SPIN: chop+slice+spin (85+85+214)
-          // clears 300 + ~17 regen even at the -12% damage-variance floor
+          // calibrated so he dies exactly on the 3rd swing, the 2H SPIN (2.5×
+          // damage): 89 + 95 leaves him standing, the spin takes the rest. Any
+          // change to this number changes WHICH swing is the payoff, and the
+          // scene's duration is cut to that swing's contact frame.
           w3.hp = 300;
         }
         // pre-roll: skeletons lunging at the braced knight — motion from frame
@@ -476,82 +612,208 @@ class Director {
         // him clean through his own Q kill site.
         this.aimAt(this.knight, { x: 16.5, y: -5.5 });
         this.preRoll(8);
-        this.setCam(26.5, 1.45, -10.5, 16.9, 1.15, -5.0);
+        // PROFILE of the engagement from its north-east flank: the knight faces
+        // WNW into the pack, so a lens behind him (the old pose) framed his back
+        // with a skeleton in front of it. Perpendicular puts the pack on the left
+        // third, the knight on the right, and the flanker duel beyond him — and
+        // 2.9u of height over a 1.05u look drops the horizon into the top
+        // quarter, where the two-story perimeter fills it instead of black sky.
+        this.setCam(20.9, 2.55, -0.2, 18.4, 1.25, -5.6, 50);
       },
       run: (t) => {
-        // heavy cleave lands on its measured contact frame (~250ms ≈ frame 15):
-        // double kill, bones scatter, triple hit-stop
-        cues.at(t >= 0, "q", () => this.cast(this.knight, "Q", 16.5, -5.5));
+        // heavy cleave on its measured contact frame (~250ms after the cast):
+        // lands at ~570ms, a fifth into the cut — double kill, bones scatter
+        cues.at(t >= 320, "q", () => this.cast(this.knight, "Q", 16.5, -5.5));
         const w3 = this.warriors[2];
-        if (t >= 550 && w3 && w3.alive) {
-          // pivot onto the flanker: chop → slice → SPIN finisher (contact
-          // ~2.6s). Aim-only — w3's own AI has already chased into melee
-          // (it stops at ~1.76u), so the knight stays planted and every
-          // swing connects instead of whiffing mid-sprint.
+        // pivot on the frame the cleave's two kills resolve (600ms), not after:
+        // the swing chain that follows is 2.1s long and the shot has to end on
+        // its last contact, not on the windup
+        if (t >= 600 && w3 && w3.alive) {
+          // pivot onto the flanker: chop → slice → SPIN. Aim-only — w3's own AI
+          // has already chased into melee (it stops at ~1.76u), so the knight
+          // stays planted and every swing connects instead of whiffing mid-sprint.
           this.aimAt(this.knight, w3, 0, 0, true);
-        } else if (t >= 550) {
-          // kill confirmed — walk onto the dropped weapon-bit (loot button)
-          const loot = this.world.coins.find(
-            (c) => (c.x - this.knight.x) ** 2 + (c.y - this.knight.y) ** 2 < 64,
-          );
-          if (loot) {
-            const d = norm(loot.x - this.knight.x, loot.y - this.knight.y);
-            setHeroInput(this.knight, d.x * 0.55, d.y * 0.55, d.x, d.y, false);
-          } else {
-            setHeroInput(this.knight, 0, 0, this.knight.aimX, this.knight.aimY, false);
-          }
+        } else if (t >= 600) {
+          setHeroInput(this.knight, 0, 0, this.knight.aimX, this.knight.aimY, false);
         }
-        // low dramatic dolly; the look pans to the flanker duel after the
-        // double-kill (w3 fights at ~1.76u SE of the planted knight, so the
-        // pan targets that spot — not w3's staged home)
-        const kp = ramp(t, 0, 4000);
-        const kl = ramp(t, 500, 1400);
-        this.camPos.set(lerp(26.5, 25.2, kp), lerp(1.45, 1.8, kp), lerp(-10.5, -8.6, kp));
-        this.camLook.set(lerp(16.9, 20.6, kl), lerp(1.15, 1.05, kl), lerp(-5.0, -7.6, kl));
-        this.camFov = 52;
+        // slow lateral truck toward the flanker side; the look leads the pivot
+        const kp = ramp(t, 0, 3000);
+        const kl = ramp(t, 500, 1300);
+        this.camPos.set(lerp(20.9, 22.4, kp), lerp(2.55, 2.35, kp), lerp(-0.2, -2.2, kp));
+        this.camLook.set(lerp(18.4, 20.2, kl), lerp(1.25, 1.15, kl), lerp(-5.6, -7.6, kl));
+        this.camFov = 50;
       },
     });
   }
 
-  // ── scene 2: SIGNATURE — Aurelius' Oblivion Slam, fully readable ───────────
+  // ── scene 2: HALL REVEAL — the Sunken Court, and what it is worth ──────────
+  // The one shot that says WHERE all of this happens: a boom down through the
+  // god-ray shafts onto the hexagonal two-story hall, with the Over Boss hurling
+  // his 300g coin into the mid-field and all six champions converging inward on
+  // it. Objective, geography and roster in a single frame.
+  private sceneHallReveal(): TrailerScene {
+    const cues = new Cues();
+    // On Vesper's lane (her base bearing is exactly 210°), dead centre of frame,
+    // and one radial unit CLEAR of the stair run: at r = 13.04 the landing point
+    // sat inside the south-west ramp wedge at h ≈ 0.72, and WorldView flies a
+    // coin at a flat 0.5 + arc but parks it at terrainHeight + 0.6 — so it sank
+    // into the steps and snapped up 0.8u on the landing frame. See sceneHeroPose.
+    const COIN = { x: -12.38, y: -7.15 };
+    return this.scene({
+      id: "hall-reveal",
+      duration: 3400,
+      setup: () => {
+        cues.reset();
+        this.restage();
+        this.focus(this.rogue); // she is the one who reaches the coin
+        this.music(1);
+        // every champion mid-lane, already running: base→centre at radius 27
+        for (const h of this.heroes) {
+          const sp = SPAWNS[h.slot % SPAWNS.length];
+          if (!sp) continue;
+          const a = Math.atan2(sp.y, sp.x);
+          this.place(h, Math.cos(a) * 27, Math.sin(a) * 27, a + Math.PI);
+        }
+        this.preRoll(6);
+        this.setCam(33, 19, 27, 2, 4.5, 2, 56);
+      },
+      run: (t) => {
+        // the boss winds up and throws — the coin flies its real 900ms arc with
+        // the gold telegraph sweep racing it to the floor
+        cues.at(t >= 150, "coin", () => this.throwCoin(COIN.x, COIN.y, 300));
+        // six champions converge on the contested centre. Off-diagonal headings
+        // meet the plateau cliff and get slid toward the nearest stair, which is
+        // the map's central idea playing out on its own.
+        for (const h of this.heroes) {
+          const d = norm(-h.x, -h.y);
+          setHeroInput(h, d.x, d.y, d.x, d.y, false);
+        }
+        // boom + dolly down through the shafts toward the throne
+        const k = ramp(t, 0, 3400);
+        this.camPos.set(lerp(33, 14.5, k), lerp(19, 6.2, k), lerp(27, 13.5, k));
+        this.camLook.set(lerp(2, 0.5, k), lerp(4.5, 3.2, k), lerp(2, 0.5, k));
+        this.camFov = lerp(56, 50, k);
+      },
+    });
+  }
+
+  // ── scene 3: SIGNATURE — Aurelius' Oblivion Slam, fully readable ───────────
   private sceneSignature(): TrailerScene {
     const cues = new Cues();
     return this.scene({
       id: "signature-clean",
-      duration: 3000,
+      duration: 2200,
       setup: () => {
         cues.reset();
         this.restage();
         this.focus(this.bk);
         this.music(1);
+        // Oblivion Slam's gold column stands on him too — same shape of problem
+        // as loot-pop, same split: damp the column, hand the stop back.
+        this.expose(0.88);
+        this.damp(0.5);
         this.place(this.bk, -16, -14, Math.atan2(2.2, 2.8));
         const w = this.warriors[0];
         if (w) this.place(w, -13.2, -11.8, Math.atan2(-2.2, -2.8)); // dies to the slam
         this.preRoll(6); // skeleton already closing in
-        this.setCam(-10.6, 1.15, -10.2, -15.6, 1.5, -13.6);
+        // profile from his left, well INSIDE the partition run at (-30,-6): the
+        // old pose sat behind him on the slam axis (back of helmet, bloom core
+        // dead centre). 2.7u of height over a 1.4u look keeps the horizon high.
+        this.setCam(-20.2, 2.7, -8.7, -15.4, 1.4, -13.2, 48);
       },
       run: (t) => {
         // windup (wings + rising gold) → contact ~830ms → shockwave + kill
-        cues.at(t >= 350, "r", () => this.cast(this.bk, "R", this.bk.x, this.bk.y));
-        const k = ramp(t, 0, 3000);
-        this.camPos.set(lerp(-10.6, -11.9, k), lerp(1.15, 1.05, k), lerp(-10.2, -11.2, k));
-        this.camLook.set(-15.6, 1.5, -13.6);
-        this.camFov = 52;
+        cues.at(t >= 300, "r", () => this.cast(this.bk, "R", this.bk.x, this.bk.y));
+        // lateral arc around him rather than a dolly: the subject travels across
+        // frame instead of sitting locked at centre
+        const k = ramp(t, 0, 2200);
+        const az = lerp(2.238, 1.885, k); // 128° → 108° around his mark
+        this.camPos.set(-16 + Math.cos(az) * 6.8, lerp(2.7, 2.3, k), -14 + Math.sin(az) * 6.8);
+        this.camLook.set(-15.5, 1.4, -13.3);
+        this.camFov = 48;
       },
     });
   }
 
-  // ── scenes 3-8: ROSTER CUTDOWN — one signature per champion, escalating ────
+  // ── scene 4: THE PLAYER'S EYE — the real chase camera, no cuts, no lens ────
+  // Every other shot is an authored pose. This one is View.follow(): the FPS-
+  // framed action-RPG camera the player actually has, out of a base gate,
+  // through a hop, into a swing. It is the only answer to "what does this look
+  // like on my screen".
+  private scenePlayersEye(): TrailerScene {
+    const cues = new Cues();
+    return this.scene({
+      id: "players-eye",
+      duration: 2800,
+      setup: () => {
+        cues.reset();
+        this.restage();
+        this.focus(this.knight);
+        this.music(2);
+        // start ON his own base pad: fountain, shop, banner and torch are the
+        // first thing in frame, and the chase cam has room behind him
+        this.place(this.knight, 38, 22, Math.atan2(-22, -38));
+        const [w1, w2] = this.warriors;
+        if (w1) {
+          this.place(w1, 27.0, 14.6, Math.atan2(7.4, 11));
+          w1.hp = 70; // the first contact frame kills — the kill-confirm freeze,
+          // gold ring and FOV punch all land inside the chase-cam framing
+        }
+        if (w2) this.place(w2, 29.2, 17.0, Math.atan2(5, 8.8));
+        this.preRoll(3);
+        this.camMode = "follow";
+        // snap the follow focus (its translation lerp is dt-based, so one call
+        // at dt=1 places it) — otherwise the camera glides in from the last pose
+        this.view.follow(
+          this.knight.x,
+          this.knight.y,
+          this.knight.aimX,
+          this.knight.aimY,
+          0,
+          1,
+          groundHeight(this.knight.x, this.knight.y),
+        );
+      },
+      run: (t) => {
+        const k = this.knight;
+        // the plain evasive hop — 880ms arc, takeoff/float/land with the squash
+        cues.at(t >= 620, "hop", () => tryJump(this.world, k));
+        const target = this.nearestAlive(this.warriors, k);
+        if (t < 1700 || !target) {
+          // sprint the lane while the LOOK swings ~35° off the run heading and
+          // back: 1:1 mouse-look with no rotational smoothing is the read
+          const inward = norm(-k.x, -k.y);
+          const swing = Math.sin(clamp01((t - 800) / 700) * Math.PI) * -0.6;
+          const a = Math.atan2(inward.y, inward.x) + swing;
+          setHeroInput(k, inward.x, inward.y, Math.cos(a), Math.sin(a), false);
+        } else {
+          const gap = Math.hypot(target.x - k.x, target.y - k.y);
+          const d = norm(target.x - k.x, target.y - k.y);
+          const close = gap > 2.6;
+          setHeroInput(k, close ? d.x : 0, close ? d.y : 0, d.x, d.y, true);
+        }
+      },
+    });
+  }
+
+  // ── scenes 5-8: ROSTER CUTDOWN — one signature per champion, escalating ────
+  // Four cuts, not six: Garran and Aurelius already headline their own scenes,
+  // and a sixth repeat of "hero at X, pack at X+4, one AoE, pack wipes" is a
+  // metronome. Lengths and shot sizes alternate deliberately.
   private sceneRosterRogue(): TrailerScene {
     const cues = new Cues();
     return this.scene({
       id: "roster-1",
-      duration: 1200,
+      duration: 950,
       setup: () => {
         cues.reset();
         this.restage();
         this.focus(this.rogue);
         this.music(2);
+        // the poison-lunge execute detonates on the lens at fov 44, and its core
+        // was taking the rogue's whole upper body with it (3.7% of the frame
+        // clipped, no hood, no daggers) — damp the burst, keep the throw
+        this.damp(0.5);
         this.place(this.rogue, 26, 8, Math.atan2(1.4, -3.4));
         const m = this.minions[0];
         if (m) {
@@ -559,39 +821,17 @@ class Director {
           m.hp = 150; // poison lunge executes it
         }
         this.preRoll(4);
-        this.setCam(29.8, 1.5, 7.8, 22.6, 1.0, 9.4);
+        // lens PAST the victim so the lunge comes AT the camera (the old pose
+        // sat behind her and the whole cut was a green hood). CLOSE: ~5u throw
+        // at fov 44 so she fills the frame, with the partition run behind as a
+        // dark backdrop for the twin dagger trails.
+        this.setCam(17.7, 2.2, 8.6, 22.0, 1.05, 9.3, 44);
       },
       run: (t) => {
-        // lunge INTO depth — dash away from camera, cut lands mid-frame
-        cues.at(t >= 60, "q", () => this.cast(this.rogue, "Q", 22.6, 9.4));
-        const k = ramp(t, 200, 700);
-        this.camLook.set(lerp(22.6, 21.4, k), lerp(1.0, 0.9, k), lerp(9.4, 9.9, k));
-      },
-    });
-  }
-
-  private sceneRosterKnight(): TrailerScene {
-    const cues = new Cues();
-    return this.scene({
-      id: "roster-2",
-      duration: 1200,
-      setup: () => {
-        cues.reset();
-        this.restage();
-        this.focus(this.knight);
-        this.place(this.knight, -8, 25, 0);
-        const [w1, w2] = this.warriors;
-        if (w1) this.place(w1, -4.6, 25.8, Math.PI);
-        if (w2) this.place(w2, -5.0, 24.1, Math.PI);
-        this.preRoll(5);
-        this.setCam(-6.4, 1.9, 31.2, -6.4, 1.2, 24.8);
-      },
-      run: (t) => {
-        // side-tracked cleave: both skeletons stunned mid-lunge
-        cues.at(t >= 80, "q", () => this.cast(this.knight, "Q", -4.8, 25.0));
-        const k = ramp(t, 0, 1200);
-        this.camPos.set(lerp(-6.4, -4.8, k), 1.9, 31.2);
-        this.camLook.set(lerp(-6.4, -5.2, k), 1.2, 24.8);
+        // lunge OUT of depth — she dashes toward the lens, cut lands mid-frame
+        cues.at(t >= 0, "q", () => this.cast(this.rogue, "Q", 22.6, 9.4));
+        const k = ramp(t, 150, 700);
+        this.camLook.set(lerp(22.0, 22.9, k), lerp(1.05, 1.15, k), lerp(9.3, 9.0, k));
       },
     });
   }
@@ -600,59 +840,48 @@ class Director {
     const cues = new Cues();
     return this.scene({
       id: "roster-3",
-      duration: 1200,
+      duration: 950,
+      // Tempest Volley detonates a 4u additive flash at the moment of the cast;
+      // no exposure stop survives it, so the LAUNCH ages off under the black and
+      // the cut opens on the apex — spinning, untouchable, arrows already leaving.
+      burn: 320,
       setup: () => {
         cues.reset();
         this.restage();
         this.focus(this.ranger);
-        this.place(this.ranger, 0, -26, Math.PI / 2);
+        // Even after the burn the arrow impacts hazed the bottom half to white
+        // and left her a pale speck at 4.2% clipped — the worst frame in the cut
+        // once loot-pop was fixed. Damping the impacts is what buys the dark
+        // sky and the perimeter wall back, so the stop comes up with it.
+        this.expose(0.92);
+        this.damp(0.45);
+        // staged out at radius 38 and shot OUTWARD: pale arrows over pale
+        // flagstone were invisible, so the two-story perimeter has to be the
+        // backdrop. Camera below the look height tips the wall into frame.
+        this.place(this.ranger, 0, -38, Math.PI / 2);
         const ring = [
-          { x: 3.2, y: -24.8 },
-          { x: -0.6, y: -22.6 },
-          { x: -3.2, y: -27.2 },
-          { x: 1.2, y: -29.2 },
+          { x: 3.2, y: -36.8 },
+          { x: -0.6, y: -34.6 },
+          { x: -3.2, y: -39.2 },
+          { x: 1.2, y: -41.2 },
         ];
         this.minions.forEach((m, i) => {
           const p = ring[i];
           if (!p) return;
-          this.place(m, p.x, p.y, Math.atan2(-26 - p.y, -p.x));
+          this.place(m, p.x, p.y, Math.atan2(-38 - p.y, -p.x));
           m.hp = 100; // the ring volley clears all four
         });
         this.preRoll(6); // the ring is closing in
-        this.setCam(0, 9.5, -34.5, 0, 0.7, -25.4, 54);
+        // surrounded → Tempest Volley: spring up, hang untouchable, 360° ring
+        this.cast(this.ranger, "JUMP", 0, -32);
+        this.preRoll(9); // 300ms: past the launch flash, into the hang
+        // stood off ~10u with the look ABOVE the lens: she springs to 2.8u and
+        // fires from the apex, so a tighter/lower pose cropped her out the top
+        this.setCam(-6.4, 2.2, -30.6, 1.2, 3.2, -37.0, 50);
       },
       run: (t) => {
-        // surrounded → Tempest Volley: spring up, 360° arrow ring, quad kill
-        cues.at(t >= 60, "jump", () => this.cast(this.ranger, "JUMP", 0, -20));
-        const k = ramp(t, 0, 1200);
-        this.camPos.set(0, lerp(9.5, 10.3, k), -34.5);
-      },
-    });
-  }
-
-  private sceneRosterBlackKnight(): TrailerScene {
-    const cues = new Cues();
-    return this.scene({
-      id: "roster-4",
-      duration: 1200,
-      setup: () => {
-        cues.reset();
-        this.restage();
-        this.focus(this.bk);
-        this.place(this.bk, -26, -10, 0);
-        const [w1, w2] = this.warriors;
-        const m = this.minions[0];
-        if (w1) this.place(w1, -21.6, -9.2, Math.PI);
-        if (w2) this.place(w2, -22.3, -11.0, Math.PI);
-        if (m) this.place(m, -20.9, -10.4, Math.PI); // the smite executes it
-        this.preRoll(5);
-        this.setCam(-31.2, 0.85, -13.8, -22.3, 2.7, -10.0, 56);
-      },
-      run: (t) => {
-        // heaven answers: pillar of light + stun on the pack
-        cues.at(t >= 60, "w", () => this.cast(this.bk, "W", -21.6, -10.2));
-        const k = ramp(t, 0, 1200);
-        this.camPos.set(lerp(-31.2, -30.4, k), lerp(0.85, 0.95, k), lerp(-13.8, -13.2, k));
+        const k = ramp(t, 0, 950);
+        this.camPos.set(lerp(-6.4, -5.4, k), lerp(2.2, 2.5, k), lerp(-30.6, -31.8, k));
       },
     });
   }
@@ -666,23 +895,30 @@ class Director {
         cues.reset();
         this.restage();
         this.focus(this.witch);
-        this.place(this.witch, 14, -22, Math.atan2(1.4, 3.0));
+        // Grand Hex detonates its seal as one additive core on pale flagstone
+        // and the 37% frame sat at 5.2% clipped, with the pack lost inside it.
+        // A light damp is enough here — there is no column, just the one core.
+        this.damp(0.75);
+        // whole staging pulled 2.5u toward the centre, off the shrine-statue
+        // axis that was cropping the left edge and bisecting the pack with a post
+        this.place(this.witch, 12.4, -20.2, Math.atan2(0.8, 3.3));
         const pack = [
-          { u: this.warriors[0], x: 16.9, y: -19.4 },
-          { u: this.minions[0], x: 18.4, y: -20.9 },
-          { u: this.minions[1], x: 17.0, y: -22.6 },
+          { u: this.warriors[0], x: 15.2, y: -17.9 },
+          { u: this.minions[0], x: 16.6, y: -19.2 },
+          { u: this.minions[1], x: 15.4, y: -21.0 },
         ];
         for (const p of pack) {
-          if (p.u) this.place(p.u, p.x, p.y, Math.atan2(-22 - p.y, 14 - p.x));
+          if (p.u) this.place(p.u, p.x, p.y, Math.atan2(-20.2 - p.y, 12.4 - p.x));
         }
         this.preRoll(5);
-        this.setCam(10.2, 3.5, -27.0, 16.6, 1.0, -20.6);
+        // yawed ~35° off her back so the pack is in clear profile when it pops
+        this.setCam(8.4, 3.2, -24.4, 15.0, 1.2, -19.6);
       },
       run: (t) => {
         // Grand Hex: the seal snaps shut — the whole pack becomes mushrooms
-        cues.at(t >= 60, "r", () => this.cast(this.witch, "R", 17.0, -20.8));
+        cues.at(t >= 60, "r", () => this.cast(this.witch, "R", 15.4, -19.2));
         const k = ramp(t, 550, 1050); // drop to mushroom eye-level as they pop
-        this.camPos.set(lerp(10.2, 11.4, k), lerp(3.5, 1.55, k), lerp(-27.0, -25.4, k));
+        this.camPos.set(lerp(8.4, 10.0, k), lerp(3.2, 1.6, k), lerp(-24.4, -23.0, k));
       },
     });
   }
@@ -690,11 +926,17 @@ class Director {
   private sceneRosterMage(): TrailerScene {
     return this.scene({
       id: "roster-6",
-      duration: 1200,
+      duration: 1400,
+      // mage:R spawns its cast BEAM standing on the caster, which is what
+      // swallowed him for the whole of the old cut. Fx runs on its own clock,
+      // so 350ms of it ages off unseen inside setup() while the sim — and the
+      // meteor telegraph riding on it — stays frozen.
+      burn: 350,
       setup: () => {
         this.restage();
         this.focus(this.mage);
-        this.place(this.mage, 0, 22, -Math.PI / 2);
+        this.expose(0.84); // the impact clips to pure white at 1.0
+        this.place(this.mage, 0, 17, -Math.PI / 2);
         // a pack holding the throne plateau — the meteor takes the high ground
         const pack = [
           { u: this.warriors[0], x: -1.4, y: 8.6 },
@@ -706,98 +948,73 @@ class Director {
           if (p.u) this.place(p.u, p.x, p.y, -Math.PI / 2);
         }
         // pre-cast + pre-roll: the shot OPENS on the red sweep with the comet
-        // already diving (the full 1.2s telegraph doesn't fit a 1.2s cut)
+        // already diving (the full 1.2s telegraph doesn't fit the cut)
         this.cast(this.mage, "R", 0, 9);
         this.preRoll(14);
-        this.setCam(5.0, 1.5, 27.6, 0.2, 7.0, 9.0, 58);
+        // flank: caster on the left third in profile, impact on the right
+        this.setCam(6.6, 2.6, 19.6, 1.0, 2.4, 12.6, 56);
       },
       run: (t) => {
-        // impact ~730ms: obliteration on the dais steps → hard cut out
-        const k = ramp(t, 0, 1200);
-        this.camPos.set(lerp(5.0, 4.0, k), lerp(1.5, 1.7, k), lerp(27.6, 26.2, k));
+        // impact ~730ms: obliteration on the dais steps, then the crater burns
+        const k = ramp(t, 0, 1400);
+        this.camPos.set(lerp(6.6, 5.6, k), lerp(2.6, 2.8, k), lerp(19.6, 18.2, k));
       },
     });
   }
 
-  // ── scene 9: COMBO — contact-frame showcase on the Frost Golem ─────────────
-  private sceneCombo(): TrailerScene {
-    const cues = new Cues();
-    return this.scene({
-      id: "combo-string",
-      duration: 4500,
-      setup: () => {
-        cues.reset();
-        this.restage();
-        this.focus(this.bk);
-        this.music(2);
-        this.place(this.bk, 6, 22, Math.atan2(3.6, 0.4));
-        this.place(this.golem, 6.4, 25.6, Math.atan2(-3.6, -0.4));
-        // golem's counter-swing waits one full interval — it answers BETWEEN
-        // Aurelius' 2nd and 3rd contacts instead of stealing the opening beat
-        this.golem.lastAttackAt = this.world.now;
-        // aim + attack only, ZERO move: the staged 3.62u gap is already inside
-        // melee reach (2.6 range + 1.4 overreach + 1.25 golem radius = 5.25),
-        // and any move intent is full-speed (the sim normalizes it) — Aurelius
-        // would bulldoze the golem and separation() would slide the duel out
-        // of this scene's fixed camera frame
-        this.aimAt(this.bk, this.golem, 0, 0, true);
-        this.preRoll(2);
-        this.setCam(12.6, 2.6, 28.4, 6.2, 1.6, 23.9);
-      },
-      run: (t) => {
-        // three rotation basics (chop/slice/slice-horizontal, contacts ~0.54s,
-        // ~1.41s, ~2.29s) + Q finisher (~3.36s): four readable contact frames
-        if (t < 2200) this.aimAt(this.bk, this.golem, 0, 0, true);
-        else this.aimAt(this.bk, this.golem, 0, 0, false);
-        cues.at(t >= 2950, "q", () => this.cast(this.bk, "Q", this.golem.x, this.golem.y));
-        const k = ramp(t, 0, 4500); // the slow push-in — nothing else moves
-        this.camPos.set(lerp(12.6, 9.2, k), lerp(2.6, 1.75, k), lerp(28.4, 25.2, k));
-        this.camLook.set(6.2, 1.6, 23.9);
-        this.camFov = lerp(52, 49, k);
-      },
-    });
-  }
-
-  // ── scene 10: DESTRUCTION — whirlwind through the Cellar stash ─────────────
+  // ── scene 9: DESTRUCTION — whirlwind through the Cellar keg hoard ──────────
   private sceneDestruction(): TrailerScene {
     const cues = new Cues();
     return this.scene({
       id: "destruction",
-      duration: 3000,
+      duration: 2050, // the hoard is shredded by ~1.8s; anything past that is a lone spin
       setup: () => {
         cues.reset();
         this.restage();
         this.focus(this.knight);
-        this.place(this.knight, -29.5, 0.8, Math.PI);
+        this.music(2);
+        // started 2.5u deeper in: the partition-end barrel breaks immediately
+        // and the Cellar stash is inside whirlwind reach by ~0.6s, so the shot
+        // is chain-detonations end to end instead of a long approach
+        this.place(this.knight, -32.0, 1.4, Math.PI);
         setHeroInput(this.knight, -1, 0.1, -1, 0.1, false); // already at full sprint
         this.preRoll(4);
-        this.setCam(-24.1, 2.05, 7.4, -31.1, 0.95, 0.6);
+        this.setCam(-28.5, 1.75, 5.7, -33.2, 1.0, 1.1);
       },
       run: (t) => {
         cues.at(t >= 120, "r", () => this.cast(this.knight, "R", this.knight.x - 1, this.knight.y));
         // carve a curve through the keg hoard — crates, barrels, chain-pops
-        if (t < 1300) setHeroInput(this.knight, -1, 0.12, -1, 0.12, false);
-        else if (t < 2600) setHeroInput(this.knight, -1, -0.25, -1, -0.25, false);
-        else setHeroInput(this.knight, 0, 0, this.knight.aimX, this.knight.aimY, false);
-        // trucking camera rides alongside the cyclone
+        if (t < 1100) setHeroInput(this.knight, -1, 0.12, -1, 0.12, false);
+        else setHeroInput(this.knight, -1, -0.25, -1, -0.25, false);
+        // tight truck alongside the cyclone: at the old 8.5u throw the salmon
+        // AoE ring was the biggest thing in frame and the hero was 22% of it
         const k = this.knight;
-        this.camPos.set(k.x + 5.4, 2.05, k.y + 6.6);
-        this.camLook.set(k.x - 1.6, 0.95, k.y - 0.2);
+        this.camPos.set(k.x + 3.5, 1.75, k.y + 4.3);
+        this.camLook.set(k.x - 2.4, 1.0, k.y - 0.3); // bias ahead: he rides the left third
         this.camFov = 52;
       },
     });
   }
 
-  // ── scene 11: LOOT POP — kill, weapon-bit drop, dash-scoop, level-up ───────
+  // ── scene 10: LOOT POP — kill, weapon-bit drop, dash-scoop, level-up ───────
   private sceneLootPop(): TrailerScene {
     const cues = new Cues();
     return this.scene({
       id: "loot-pop",
-      duration: 2000,
+      duration: 2400,
       setup: () => {
         cues.reset();
         this.restage();
         this.focus(this.ranger);
+        // The level-up beam is a full-height additive column and the lens stands
+        // where it plays biggest, so it clipped 19.8% of the frame to pure white
+        // and erased the archer inside her own payoff. Stopping down took it to
+        // 10% and no further — the beam and the archer are the same pixels, so
+        // no lens setting separates them. damp() quiets the column instead,
+        // which is what lets the stop come back up: the floor, the perimeter and
+        // the coins keep their contrast and she stays visible through the beam.
+        this.expose(0.88);
+        this.damp(0.5);
         // one level below cap so the pickup's XP visibly levels her up
         this.ranger.level = 11;
         this.ranger.xp = (XP_CURVE[11] ?? 4000) - 200; // kill XP (+60) must not tip it early
@@ -811,61 +1028,80 @@ class Director {
           sm.hp = 40; // one arrow finishes it → weapon-bit drop
         }
         this.preRoll(3);
-        this.setCam(26.6, 1.25, -17.8, 19.0, 0.9, -12.0);
+        // lens BEYOND the loot, so the draw, the roll and the pickup all come
+        // toward camera and the level-up beam plays at its biggest. Bearing
+        // runs at the slot-5 base, so its banner/fountain/torch back the shot.
+        this.setCam(15.6, 2.6, -8.4, 21.4, 1.0, -12.6);
       },
       run: (t) => {
         const sm = this.casters[0];
-        if (t < 350 && sm && sm.alive) this.aimAt(this.ranger, sm, 0, 0, true);
-        else if (t < 800) {
+        if (t < 520 && sm && sm.alive) this.aimAt(this.ranger, sm, 0, 0, true);
+        else if (t < 780) {
           setHeroInput(this.ranger, 0, 0, this.ranger.aimX, this.ranger.aimY, false);
         }
-        cues.at(t >= 800, "dash", () => {
+        cues.at(t >= 780, "dash", () => {
           const c = this.world.coins[0];
           if (c) this.cast(this.ranger, "DASH", c.x, c.y);
         });
-        // pickup fountain ~1.0s → level-up beam right on its heels
-        cues.at(t >= 1150, "lvl", () => grantXp(this.world, this.ranger, 400));
-        const k = ramp(t, 700, 1200);
-        this.camLook.set(lerp(19.0, 19.3, k), lerp(0.9, 0.65, k), lerp(-12.0, -12.2, k));
+        // pickup fountain ~1.0s → level-up beam right on its heels, with 1.1s
+        // of runway left so the column isn't eaten by the dip to black
+        cues.at(t >= 1250, "lvl", () => grantXp(this.world, this.ranger, 400));
+        // track her live position through the payoff: the roll used to carry
+        // her out of a fixed look and the beam played off-frame
+        if (t >= 700) {
+          const k = ramp(t, 700, 1200);
+          this.camLook.set(
+            lerp(21.4, this.ranger.x, k),
+            lerp(1.0, 1.15, k),
+            lerp(-12.6, this.ranger.y, k),
+          );
+        }
       },
     });
   }
 
-  // ── scene 12: BOSS — wide hall reveal → slam → dodge-through → execute ─────
+  // ── scene 11: ELITE — trade blows with the Frost Golem, dodge, execute ─────
   private sceneGolemBoss(): TrailerScene {
     const cues = new Cues();
     let dodgedAt = -1;
+    /** Where the elite falls — the drop lands on it and she stands on the drop,
+     *  so it is the only stable anchor the closing card can be built from (her
+     *  own live position keeps moving until the claim). */
+    let mark: { x: number; y: number } | null = null;
     return this.scene({
       id: "golem-boss",
-      duration: 6000,
+      duration: 4400,
       setup: () => {
         cues.reset();
         dodgedAt = -1;
+        mark = null;
         this.restage();
         this.focus(this.rogue);
         this.music(3);
-        this.place(this.golem, 16, 8, Math.atan2(4.5, 5.5));
+        // staged out in the north-east quadrant so the two-story arcade fills
+        // the upper half — and clear of slot-0's fountain guard radius
+        this.place(this.golem, 28, 22, Math.atan2(4.5, 5.5));
         this.golem.hp = 620; // wounded elite — the execute scales off missing HP
         this.golem.swingCount = 1; // its next swing is the big two-handed SLAM
-        this.place(this.rogue, 21.5, 12.5, Math.atan2(-4.5, -5.5));
+        this.place(this.rogue, 32, 26, Math.atan2(-4.5, -5.5));
         this.preRoll(6); // the stalk is already on
-        this.setCam(34, 24, 34, 6, 2, 4, 50);
+        // MID, not aerial: the old 44u reveal made the boss 10% of frame height
+        this.setCam(17.5, 7.5, 11.5, 28.5, 2.6, 22.5, 55);
       },
       run: (t) => {
         const g = this.golem;
         const r = this.rogue;
-        // phase 1 (wide): rogue gives ground, golem stalks. Move intent is
-        // NORMALIZED to full speed (6.5 vs his 4.4 u/s) and skeleton AI drops
-        // any target >14u from camp home — radial flight would break the leash
-        // before he ever swings. So she back-strafes diagonally, and only while
-        // he's within arm's reach: the pair circles near his staged home (kept
-        // in the phase-2 dive frame), he closes, and at ~1.4s she stands her
-        // ground so the SLAM starts ~1.6s and its contact lands ~2.2s — right
-        // as the camera dives in, with the dodge cue reading his REAL windup.
+        // phase 1: rogue gives ground, golem stalks. Move intent is NORMALIZED
+        // to full speed (6.5 vs his 4.4 u/s) and skeleton AI drops any target
+        // >14u from camp home — radial flight would break the leash before he
+        // ever swings. So she back-strafes diagonally, and only while he's
+        // within arm's reach: the pair circles near his staged home, he closes,
+        // and at ~1.2s she stands her ground so the SLAM starts ~1.4s and its
+        // contact lands ~2.0s, right as the camera dives in.
         if (dodgedAt < 0) {
           const away = norm(r.x - g.x, r.y - g.y);
           const gap = Math.hypot(r.x - g.x, r.y - g.y);
-          if (t < 1400 && gap < 5.2) {
+          if (t < 1200 && gap < 5.2) {
             setHeroInput(r, away.x - away.y, away.y + away.x, -away.x, -away.y, false);
           } else {
             this.aimAt(r, g, 0, 0, false);
@@ -876,7 +1112,7 @@ class Director {
         const pending = g.pendingAttack;
         const dodgeNow =
           dodgedAt < 0 &&
-          ((pending !== null && this.world.now >= pending.resolveAt - 220) || t >= 3400);
+          ((pending !== null && this.world.now >= pending.resolveAt - 220) || t >= 2600);
         cues.at(dodgeNow, "dodge", () => {
           dodgedAt = t;
           this.cast(r, "DASH", g.x + (g.x - r.x), g.y + (g.y - r.y)); // through him
@@ -886,174 +1122,374 @@ class Director {
           this.aimAt(r, g, 0, 0, false);
           this.cast(r, "R", g.x, g.y);
         });
-        // aftermath: walk onto the elite's weapon-bit drop
+        if (mark === null && !g.alive) mark = { x: g.x, y: g.y };
+        // The closing card's lens: 5.4u SOUTH-SOUTH-EAST of where the elite
+        // fell. The only tall prop in this quadrant is the rune-shrine column
+        // at (26.7, 26.7); from this bearing it is 0.63 half-widths off centre
+        // (a background edge, and never on the lens→victor segment), and the
+        // victor lands at ~44% of frame height. The old settle rode her LIVE
+        // position, which put that column 0.46u INSIDE the segment — dead
+        // centre of the trailer's boss-kill payoff frame, occluding the only
+        // character in it.
+        const m = mark ?? g;
+        const lensX = m.x + 2.8;
+        const lensY = m.y - 4.6;
+        // aftermath: walk onto the elite's weapon-bit drop, then HOLD the mark.
+        // Without the else-branch the last pre-claim intent stays latched (the
+        // sim keeps the previous move vector) and she strolls ~5u out of the
+        // shot on stale input — which is what carried her behind the column.
         if (dodgedAt >= 0 && t >= dodgedAt + 1300) {
           const c = this.world.coins[0];
           if (c) {
             const d = norm(c.x - r.x, c.y - r.y);
             setHeroInput(r, d.x * 0.5, d.y * 0.5, d.x, d.y, false);
+          } else {
+            const toLens = norm(lensX - r.x, lensY - r.y);
+            setHeroInput(r, 0, 0, toLens.x, toLens.y, false);
           }
         }
-        // camera: quiet high wide (sells the two-story hall) → violent close
-        const kA = ramp(t, 0, 1900); // slow drift while wide
-        const kB = ramp(t, 1900, 3000); // dive down into the duel
-        const kC = ramp(t, 4400, 6000); // settle back on the kill
-        const px = lerp(lerp(34, 31.5, kA), 26, kB);
-        const ph = lerp(lerp(24, 22, kA), 2.3, kB);
-        const py = lerp(lerp(34, 31.5, kA), 17.6, kB);
-        this.camPos.set(lerp(px, 27, kC), lerp(ph, 2.7, kC), lerp(py, 18.8, kC));
-        const lx = lerp(lerp(6, 9, kA), 17.5, kB);
-        const lh = lerp(lerp(2, 1.8, kA), 1.5, kB);
-        const ly = lerp(lerp(4, 6, kA), 9.3, kB);
-        this.camLook.set(lerp(lx, 16, kC), lerp(lh, 1.2, kC), lerp(ly, 8, kC));
-        this.camFov = 50;
+        // camera: quiet mid wide → violent close → settle onto the kill mark,
+        // landing the last 600ms locked on the victor standing over the wreck
+        const kA = ramp(t, 0, 1400);
+        const kB = ramp(t, 1400, 2400);
+        const kC = ramp(t, 3000, 3800);
+        const px = lerp(lerp(17.5, 19.2, kA), 24, kB);
+        const ph = lerp(lerp(7.5, 6.6, kA), 2.6, kB);
+        const py = lerp(lerp(11.5, 13.2, kA), 16.5, kB);
+        this.camPos.set(lerp(px, lensX, kC), lerp(ph, 2.3, kC), lerp(py, lensY, kC));
+        const lx = lerp(28.5, 29.5, kB);
+        const lh = lerp(lerp(2.6, 2.3, kA), 1.5, kB);
+        const ly = 22.5;
+        this.camLook.set(lerp(lx, r.x, kC), lerp(lh, 1.15, kC), lerp(ly, r.y, kC));
+        this.camFov = lerp(lerp(55, 50, kB), 46, kC);
       },
     });
   }
 
-  // ── scene 13: CLIMAX — V-yx vs the mixed horde, full kit chained ───────────
+  // ── scene 12: CLIMAX (PvE) — V-yx vs the mixed horde, full kit chained ─────
   private sceneFrenzy(): TrailerScene {
     const cues = new Cues();
+    /** Exactly the skeletons THIS scene staged. Cue targeting must never run
+     *  over the whole troupe: the unused pool is parked at its camps 40u away,
+     *  and a nearestAlive() across all of them aimed the finale fireball at a
+     *  skeleton standing off-screen at the north camp once the horde was down. */
+    const horde: Unit[] = [];
+    const BLINK_MS = 2600;
+    const JUMP_MS = 3300;
+    /** Orbit centre. The blink teleports 9u in one frame; reading the mage's
+     *  live position every frame translated the camera with him and read as an
+     *  unintended jump cut, so the anchor eases across the teleport instead. */
+    const anchor = new THREE.Vector2();
+    const preBlink = new THREE.Vector2();
     return this.scene({
       id: "arena-frenzy",
-      duration: 5000,
+      duration: 4400,
       setup: () => {
         cues.reset();
         this.restage();
         this.focus(this.mage);
         this.music(3);
+        // six casts stacking additive cores clipped to white; 0.78 was the
+        // furthest the stop could go before the horde went to mud, and the
+        // climax was still a white core with numbers on it. Damp the cores and
+        // KEEP the stop — this scene's peak is a ~150ms transient, so a single
+        // still of it measures anywhere between 0% and 3% clipped on identical
+        // builds, and handing exposure back on that evidence is guessing.
+        this.expose(0.78);
+        this.damp(0.55);
         this.place(this.mage, -4, -18, -Math.PI / 2);
-        const horde = [
+        anchor.set(-4, -18);
+        preBlink.set(-4, -18);
+        // no Frost Golem in the horde: he dies as the elite one scene earlier,
+        // and a second skeleton mage puts the ranged creep attack on screen.
+        // TEN bodies, not seven: a max-level V-yx clears seven in 3.3s, which
+        // left the last quarter of the trailer's climax with nothing alive in
+        // it. The outer three sit past the opening AoEs but inside skeleton
+        // aggro (11u), so they arrive as a second rank under their own AI.
+        const staging = [
           { u: this.warriors[0], x: -7.5, y: -24.5 },
           { u: this.warriors[1], x: -1.0, y: -25.5 },
           { u: this.warriors[2], x: -4.5, y: -26.5 },
           { u: this.minions[0], x: -9.5, y: -22.5 },
           { u: this.minions[1], x: 1.5, y: -23.0 },
           { u: this.casters[0], x: -10.0, y: -26.0 },
-          { u: this.golem, x: -4.0, y: -28.6 },
+          { u: this.casters[1], x: -1.5, y: -28.6 },
+          { u: this.warriors[3], x: -12.5, y: -22.0 },
+          { u: this.minions[2], x: 3.5, y: -26.0 },
+          { u: this.minions[3], x: -6.5, y: -28.5 },
         ];
-        for (const h of horde) {
-          if (h.u) this.place(h.u, h.x, h.y, Math.atan2(-18 - h.y, -4 - h.x));
+        horde.length = 0;
+        for (const h of staging) {
+          if (!h.u) continue;
+          this.place(h.u, h.x, h.y, Math.atan2(-18 - h.y, -4 - h.x));
+          horde.push(h.u);
         }
         this.preRoll(12); // the horde is already surging in
-        this.setCam(1.5, 3.4, -11.5, -4.5, 1.4, -21.3, 56);
+        this.setCam(1.5, 3.2, -12.0, -4.5, 1.5, -19.5, 52);
       },
       run: (t) => {
         const m = this.mage;
         // kite-strafe, always facing the nearest threat; a warrior WILL land a
         // hit around ~2s — the honest beat before the aerial escape
-        const target = this.nearestAlive([...this.warriors, ...this.minions, this.golem], m);
+        const target = this.nearestAlive(horde, m);
         const sway = Math.sin(t * 0.003) * 0.35;
         if (target) {
           const d = norm(target.x - m.x, target.y - m.y);
           setHeroInput(m, -d.y * sway, d.x * sway, d.x, d.y, false);
         }
+        // cues staggered so no two AoEs bloom on the same frame
         cues.at(t >= 100, "e", () => this.cast(m, "E", -4, -23.5));
         cues.at(t >= 800, "q1", () => {
           const at = this.nearestAlive(this.warriors, m);
           this.cast(m, "Q", at ? at.x : -4.5, at ? at.y : -24);
         });
-        cues.at(t >= 1500, "w", () => this.cast(m, "W", -3, -22));
-        cues.at(t >= 2400, "jump", () => this.cast(m, "JUMP", m.x, m.y - 4)); // ember ring
-        // blink stays lateral so the finale plays inside the orbiting frame
-        cues.at(t >= 3400, "blink", () => this.cast(m, "DASH", m.x - 5, m.y + 7.5));
-        cues.at(t >= 3800, "q2", () => this.cast(m, "Q", this.golem.x, this.golem.y));
-        // constant orbital sweep — the energy never sits still; the look eases
-        // toward the blink-out so the eye rides the last fireball back in
-        const az = Math.PI / 3 + (Math.PI / 2) * (t / 5000);
-        this.camPos.set(-4.5 + Math.cos(az) * 11, 3.4, -21 + Math.sin(az) * 11);
-        const kl = ramp(t, 3300, 4100);
-        this.camLook.set(lerp(-4.5, -7, kl), lerp(1.4, 1.5, kl), lerp(-21.3, -16.5, kl));
-        this.camFov = 56;
+        cues.at(t >= 1800, "w", () => this.cast(m, "W", -3, -22));
+        // blink out of the scrum — 8u sideways, NOT away: skeleton AI drops any
+        // target more than 14u from its camp home, so a retreat straight back
+        // would send the survivors home and end the fight. Lateral keeps them
+        // chasing, and they close on him again over the next 700ms.
+        cues.at(t >= BLINK_MS, "blink", () => this.cast(m, "DASH", m.x - 8, m.y + 1.5));
+        // …then rise out of their reach and detonate the wheel of fire
+        cues.at(t >= JUMP_MS, "jump", () => this.cast(m, "JUMP", m.x, m.y - 4));
+        // and a last fireball, thrown down from the hover onto whoever is still
+        // coming. Positional fallback so an empty field still gets the cast.
+        cues.at(t >= 3900, "q2", () => {
+          const at = this.nearestAlive(horde, m);
+          this.cast(m, "Q", at ? at.x : m.x, at ? at.y : m.y - 6);
+        });
+        // orbit HIM, not the horde: a fixed 11u orbit around the pack left the
+        // featured champion at ~60px and lost him entirely on the blink. The
+        // look is offset along the camera's own right vector, so he holds a
+        // third of frame instead of sitting locked at centre.
+        const az = Math.PI / 3 + (Math.PI / 2) * (t / 4400);
+        // Emberburst pins him at hop height for 880ms — the look has to rise
+        // with him or the aerial beat crops his hat off the top of the frame
+        const air = clamp01((t - JUMP_MS + 50) / 260) * (1 - clamp01((t - JUMP_MS - 820) / 260));
+        // 450ms of ease turns the 8u teleport into a whip-pan that keeps him in
+        // frame the whole way, instead of a one-frame camera cut. Before the
+        // blink preBlink tracks him, so the anchor IS his live position; the
+        // frame the cue fires it is already frozen one tick behind the teleport.
+        if (t < BLINK_MS) preBlink.set(m.x, m.y);
+        const kBlink = ramp(t, BLINK_MS, BLINK_MS + 450);
+        anchor.set(lerp(preBlink.x, m.x, kBlink), lerp(preBlink.y, m.y, kBlink));
+        // the LENS climbs with the look, not just the look: holding it at 3.0
+        // while the aerial beat lifts the target to 3.9 tilted the camera up and
+        // spent the top half of the climax's last second on black sky
+        this.camPos.set(
+          anchor.x + Math.cos(az) * 7.6,
+          3.0 + air * 2.1,
+          anchor.y + Math.sin(az) * 7.6,
+        );
+        this.camLook.set(
+          anchor.x + Math.cos(az + Math.PI / 2) * 1.2,
+          1.9 + air * 2.0,
+          anchor.y + Math.sin(az + Math.PI / 2) * 1.2,
+        );
+        this.camFov = 52;
       },
     });
   }
 
-  // ── scene 14: ONLINE PVP — Grimelda vs Sylva, dodge → hex → punish ─────────
-  private scenePvp(): TrailerScene {
+  // ── scene 13: FOUR-WAY — the FFA the whole game is, on the stairs ──────────
+  // Four champions, mutually hostile, contesting the one climb onto the throne
+  // plateau: arrows up the ramp, a blink into a Frost Nova, the holder stepping
+  // to the lip to bring Oblivion Slam down on the climber a storey below him,
+  // and an Execute out of Smoke that ends on a hero corpse dissolving.
+  // Objectives, elevation, the defensive slot and the losing side — the four
+  // things fourteen PvE shots never say.
+  //
+  // The elevation is read as HEIGHT, not as a fall. Knockback in this sim is a
+  // 260ms decaying impulse (combat.ts applyKnockback → world.ts moveUnit), so
+  // the slam's "knockback 8" integrates to 8 × 0.26²/2 ≈ 0.27u of travel — it
+  // staggers a body, it cannot throw one off a 2u lip. So the staging puts the
+  // difference on screen statically instead: Aurelius on the plateau top at
+  // h = 2.0, Sylva held mid-ramp at h ≈ 0.7, and the hammer coming down the step.
+  private sceneFourWay(): TrailerScene {
     const cues = new Cues();
     return this.scene({
-      id: "pvp-clash",
-      duration: 3000,
+      id: "four-way",
+      duration: 4300,
       setup: () => {
         cues.reset();
         this.restage();
-        this.focus(this.witch);
+        this.focus(this.bk); // holder of the high ground until the kill
         this.music(3);
-        this.place(this.witch, -29, -2.5, Math.atan2(5, 7.5));
-        this.place(this.ranger, -21.5, 2.5, Math.atan2(-5, -7.5));
-        this.preRoll(6);
-        this.setCam(-20.3, 2.0, -7.5, -25.2, 1.15, 0.2, 50);
+        // Oblivion Slam's contact frame stacks a white core on pale flagstone
+        // and takes the champion swinging it with it; 0.86 still clipped
+        this.expose(0.8);
+        // NE stair: plateau edge r=11, ramp band 11→14.2 on the 45° centreline
+        this.place(this.bk, 6.36, 6.36, Math.PI / 4); // top of the run, facing out
+        this.place(this.ranger, 12.37, 12.37, (5 * Math.PI) / 4); // foot of the run
+        this.place(this.mage, 7.0, 17.0, -Math.PI / 4);
+        this.place(this.rogue, 12.6, 16.4, (5 * Math.PI) / 4);
+        this.preRoll(4);
+        // stood off 9.6u from the stair mouth: at 7u the four of them spanned
+        // more than the frame and Aurelius — the one swinging the hammer — was
+        // clipped by the right edge for the whole shot
+        this.setCam(16.13, 2.6, 2.66, 9.4, 2.0, 9.6, 50);
       },
       run: (t) => {
-        const wv = this.witch;
+        const a = this.bk;
         const rv = this.ranger;
-        // both circle — a live duel, not a lineup
-        const dw = norm(rv.x - wv.x, rv.y - wv.y);
-        if (t < 780) setHeroInput(wv, -dw.y * 0.35, dw.x * 0.35, dw.x, dw.y, false);
-        const dr = norm(wv.x - rv.x, wv.y - rv.y);
-        setHeroInput(rv, dr.y * 0.3, -dr.x * 0.3, dr.x, dr.y, false);
-        // trade: Sylva's Multishot fan…
-        cues.at(t >= 250, "volley", () => this.cast(rv, "Q", wv.x, wv.y));
-        // …Grimelda broom-surges through it on i-frames…
-        cues.at(t >= 780, "dodge", () =>
-          this.cast(wv, "DASH", wv.x + dw.x * 6 + dw.y * 6, wv.y + dw.y * 6 - dw.x * 6),
-        );
-        if (t >= 900 && t < 1250) {
-          const d2 = norm(rv.x - wv.x, rv.y - wv.y);
-          setHeroInput(wv, d2.x * 0.6, d2.y * 0.6, d2.x, d2.y, false);
+        const mg = this.mage;
+        const vp = this.rogue;
+
+        // Sylva opens: a Multishot fan up the ramp, then she starts the climb.
+        // 700ms of intent walks her onto the stair and stops her at r≈13.1 —
+        // h ≈ 0.7, a storey and a third below the lip, still inside the slam's
+        // 5.5u radius and inside Execute's reach. Longer and she tops out level
+        // with him, which is exactly the height difference the shot is for.
+        cues.at(t >= 0, "volley", () => this.cast(rv, "Q", a.x, a.y));
+        if (t < 700) this.aimAt(rv, a, -0.707, -0.707, false);
+        else if (t < 2500) this.aimAt(rv, a, 0, 0, false);
+
+        // Aurelius answers with the defensive slot — Iron Bastion's armor + mend
+        cues.at(t >= 350, "bastion", () => this.cast(a, "E", a.x, a.y));
+        // …then walks to the edge of his own plateau to swing down at her. 300ms
+        // of outward intent along the stair centreline (45° IS a stair gap, so
+        // the cliff lets him through) puts him at r ≈ 10.4, on the lip.
+        const stepOut = t >= 1600 && t < 1900;
+        if (t < 2400) this.aimAt(a, rv, stepOut ? 0.707 : 0, stepOut ? 0.707 : 0, false);
+
+        // V-yx blinks in off the plaza and rings them both in ice: the nova's
+        // spike ring holds for a full second, which is why the crane slows here
+        cues.at(t >= 900, "blink", () => this.cast(mg, "DASH", 11.5, 12.5));
+        cues.at(t >= 1400, "nova", () => this.cast(mg, "W", rv.x, rv.y));
+        if (t >= 1000) this.aimAt(mg, rv, 0, 0, false);
+
+        // Vesper goes to ground — Smoke drops her out of sight for the ambush
+        cues.at(t >= 1900, "smoke", () => this.cast(vp, "E", vp.x, vp.y));
+
+        // top up Sylva a beat before the slam: 640 damage would otherwise finish
+        // her outright and the execute would have nothing to land on
+        cues.at(t >= 2400, "brace", () => {
+          rv.hp = rv.maxHp;
+        });
+        // …and the hammer comes down off the lip: 640 damage, a 1.2s stun and a
+        // stagger — enough that she is still standing where she was, held
+        cues.at(t >= 2500, "slam", () => this.cast(a, "R", a.x, a.y));
+
+        // Vesper closes down the ramp on the stunned climber and blink-strikes
+        // her out of stealth
+        if (t >= 2600 && t < 3100) {
+          const d = norm(rv.x - vp.x, rv.y - vp.y);
+          setHeroInput(vp, d.x, d.y, d.x, d.y, false);
         }
-        // …and punishes: Grand Hex (mushroom!) into a hex bolt on the helpless hop
-        cues.at(t >= 1250, "hex", () => this.cast(wv, "R", rv.x, rv.y));
-        cues.at(t >= 1800, "bolt", () => this.cast(wv, "Q", rv.x, rv.y));
-        if (t >= 1250) this.aimAt(wv, rv, 0, 0, false);
-        const k = ramp(t, 0, 3000);
-        this.camPos.set(lerp(-20.3, -21.0, k), lerp(2.0, 1.95, k), lerp(-7.5, -6.4, k));
-        this.camLook.set(-25.2, 1.15, 0.2);
+        cues.at(t >= 3050, "focus", () => this.focus(vp)); // kill-confirm is hers
+        cues.at(t >= 3100, "execute", () => {
+          rv.hp = 60; // wounded: "lethal to the wounded" is the ability's whole text
+          setHeroInput(vp, 0, 0, vp.aimX, vp.aimY, false);
+          this.aimAt(vp, rv, 0, 0, false);
+          this.cast(vp, "R", rv.x, rv.y);
+        });
+        // the sim only breaks stealth on a BASIC swing (combat.ts), so after an
+        // ability kill Vesper stays faded out — and the victor being invisible
+        // is the one thing the closing beat cannot afford. Same real call the
+        // swing path makes, just on the ability that actually landed.
+        cues.at(t >= 3350, "reveal", () => breakStealth(vp));
+
+        // crane: a 42° arc that slows across the nova hold, then settles low on
+        // the body. It sweeps OUTWARD (away from the plateau) — swinging the
+        // other way put the lens inside the 11u plateau, where the cliff and the
+        // throne aura band filled the frame instead of the fight.
+        const p = 0.34 * ramp(t, 0, 1400) + 0.14 * ramp(t, 1400, 2400) + 0.52 * ramp(t, 2400, 4300);
+        const az = lerp(-0.904, -0.175, p); // -51.8° → -10° around the stair mouth
+        const rad = lerp(9.6, 10.4, p);
+        const kC = ramp(t, 3200, 4300);
+        // the settle holds the VICTOR and the body in one frame — parking on the
+        // corpse alone put the stair block between it and the lens
+        const sx = (vp.x + rv.x) / 2;
+        const sy = (vp.y + rv.y) / 2;
+        this.camPos.set(
+          lerp(10.2 + Math.cos(az) * rad, sx + 5.4, kC),
+          // high enough to look OVER the stair block, which was cutting the
+          // victor off at the shoulders on the trailer's last real beat
+          lerp(lerp(2.6, 4.4, ramp(t, 600, 2000)) - 1.4 * ramp(t, 2400, 4300), 5.3, kC),
+          lerp(10.2 + Math.sin(az) * rad, sy - 6.4, kC),
+        );
+        this.camLook.set(
+          lerp(lerp(9.4, 11.2, p), sx, kC),
+          lerp(lerp(2.0, 1.7, p), 1.5, kC),
+          lerp(lerp(9.6, 11.4, p), sy, kC),
+        );
         this.camFov = 50;
       },
     });
   }
 
-  // ── scene 15: RELEASE — the victor amid loot, hall towering behind ─────────
+  // ── scene 14: RELEASE — the victor holds the high ground, and is paid ──────
+  // Staged on the SOUTH-EAST stair (four-way took the north-east one, and two
+  // consecutive shots on the same flight of steps read as one shot): Aurelius
+  // holds the plateau lip, the Over Boss pays out at the foot of the run, and
+  // he walks the 2u down the ramp into camera to claim it.
   private sceneHeroPose(): TrailerScene {
+    const cues = new Cues();
+    // On the stair centreline (7π/4): the lip at r ≈ 10.4, the coin at r = 14.8
+    // — one radial unit CLEAR of the ramp foot (PLATEAU_R + STAIR_RUN = 14.2).
+    // That last unit matters: WorldView flies a coin at a flat 0.5 + arc and
+    // then parks it at terrainHeight + 0.6, so a coin that lands on raised
+    // ground sinks into the stone on approach and snaps up on the landing frame
+    // (2.1u of pop on the plateau top). Landing on the flat plaza, the flight
+    // baseline and the ground agree and the arc resolves where it points.
+    const LIP = { x: 7.35, y: -7.35 };
+    const COIN = { x: 10.47, y: -10.47 };
+    const ORBIT = { x: 8.9, y: -8.9 }; // between the two, so neither end drifts
     return this.scene({
       id: "hero-pose",
-      duration: 2500,
+      // 2400 spent every frame of the shot travelling: the claim resolves at
+      // ~1.6s and the old cut then had 800ms of orbit left, so the last image
+      // of the trailer was a champion mid-stride with the stair block filling
+      // the left half. 3000 buys a 1.2s held card after the payout.
+      duration: 3000,
       setup: () => {
+        cues.reset();
         this.restage();
-        this.focus(this.knight);
+        this.focus(this.bk);
         this.music(1);
-        this.place(this.knight, 7, 3, 0.35); // planted 2H idle on the plateau edge
-        // the spoils: weapon-bit pickups glinting around his feet
-        for (let i = 0; i < 6; i++) {
-          const a = 0.6 + i * 1.07;
-          const r = 1.9 + (i % 3) * 0.7;
-          this.world.coins.push({
-            id: nextId(this.world, "loot"),
-            x: 7 + Math.cos(a) * r,
-            y: 3 + Math.sin(a) * r,
-            fromX: 7,
-            fromY: 3,
-            gold: 20,
-            landAt: this.world.now,
-            expireAt: this.world.now + 600000,
-            loot: true,
-          });
-        }
-        this.setCam(13.8, 2.7, -0.5, 7, 3.35, 3, 47);
+        this.place(this.bk, LIP.x, LIP.y, -Math.PI / 4); // planted on the lip he just took
+        // the closing beat is the game's own objective, not dressed props: the
+        // Over Boss hurls his coin from the throne, it lands at the foot of his
+        // stair, and he comes down and claims it
+        this.throwCoin(COIN.x, COIN.y, 300);
+        this.setCam(6.83, 4.35, -14.96, LIP.x, 3.25, LIP.y, 45);
       },
       run: (t) => {
-        // slow low orbit rising past his shoulder — torchlight, throne, hall
-        const k = t / 2500;
-        const az = lerp(-0.55, 0.6, k);
+        // the coin lands ~900ms; he turns and walks down onto it (claim ~1.5s)
+        if (t >= 950) {
+          const c = this.world.coins[0];
+          if (c) this.aimAt(this.bk, c, c.x - this.bk.x, c.y - this.bk.y, false);
+          else setHeroInput(this.bk, 0, 0, this.bk.aimX, this.bk.aimY, false);
+        }
+        cues.at(t >= 2050, "stop", () => {
+          setHeroInput(this.bk, 0, 0, this.bk.aimX, this.bk.aimY, false);
+        });
+        // Two moves in one lens. The ARC (0→1900) carries the descent past his
+        // shoulder — torchlight, throne, hall — and lands square on the stair
+        // centreline at -π/4, which is exactly his walking heading, so the
+        // orbit finishes with him coming INTO the lens. The SETTLE (1500→2450)
+        // then re-centres him and closes to 4.3u: the lateral look offset that
+        // made the arc feel like a move (and shoved him 52% right of centre,
+        // with the stair run filling the vacated left half) rolls out to zero,
+        // and the orbit anchor slides from the mid-point mark onto him.
+        // Both heights ride the ground he is on: he drops 2u down the ramp, and
+        // a fixed lens would tilt down onto the top of his helmet.
+        const k = ramp(t, 0, 1900);
+        const kS = ramp(t, 1500, 2450);
+        const az = lerp(-1.9, -Math.PI / 4, k);
+        const gh = groundHeight(this.bk.x, this.bk.y);
+        const rad = lerp(6.4, 4.3, kS);
+        const lat = lerp(1.8, 0, kS);
         this.camPos.set(
-          7 + Math.cos(az) * 6.8,
-          lerp(2.7, 4.1, easeInOut(k)),
-          3 + Math.sin(az) * 6.8,
+          lerp(ORBIT.x, this.bk.x, kS) + Math.cos(az) * rad,
+          gh + lerp(2.35, 1.95, kS),
+          lerp(ORBIT.y, this.bk.y, kS) + Math.sin(az) * rad,
         );
-        this.camLook.set(7, 3.35, 3);
-        this.camFov = 47;
+        this.camLook.set(
+          this.bk.x + Math.cos(az + Math.PI / 2) * lat,
+          gh + lerp(1.25, 1.0, kS),
+          this.bk.y + Math.sin(az + Math.PI / 2) * lat,
+        );
+        this.camFov = 45;
       },
       teardown: () => {
         this.holding = true; // freeze the world under the closing black / loop gap

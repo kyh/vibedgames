@@ -10,6 +10,13 @@ import type { GameScene } from "../scenes/game-scene";
 type State = "idle" | "casting" | "waiting" | "bite" | "reeling" | "done";
 
 const BAR_H = 150;
+/** The reel panel drawReel lays out, in screen pixels at zoom 1. */
+const PANEL_W = 56;
+const PANEL_H = BAR_H + 24;
+/** Trailer-only meter presentation (see `unzoom`): big enough to read at a
+ *  glance, small enough that the world — not the HUD — owns the frame. */
+const TRAILER_METER_SCALE = 2.2;
+const TRAILER_METER_MARGIN = 96;
 
 // Self-contained fishing minigame. Owns its bobber (world) and reel bar (screen).
 export class Fishing {
@@ -210,6 +217,7 @@ export class Fishing {
         .setDepth(DEPTH.night + 11)
         .setScale(1.6);
     this.fishIcon.setPosition(bx + 10, by + this.fishPos);
+    this.unzoom(g, this.fishIcon, bx, by);
     // no button prompts in trailer captures — the meter alone tells the story
     if (!this.hint && !this.trailerAuto)
       this.hint = this.scene.add
@@ -221,6 +229,46 @@ export class Fishing {
         .setScrollFactor(0)
         .setDepth(DEPTH.night + 11)
         .setOrigin(0.5, 0);
+  }
+
+  /**
+   * Trailer framing only. The reel meter is screen-anchored (scrollFactor 0),
+   * but a zoomed camera still scales it AND pushes it out from screen centre,
+   * so above ~3.3x the panel walks off the right edge — which is why the
+   * fishing beat was pinned to the widest framing in the trailer while every
+   * other shot tightened. Undo the camera zoom for these two objects and park
+   * the meter in a fixed screen box, so the shot can frame the angler instead.
+   *
+   * Local point p renders at `z * (P + p*s - half) + half`; solving that for
+   * `screen(p) = T + (p - p0) * S` gives `s = S/z` and the placement below.
+   * Dead in normal play (trailerAuto is a trailer-only flag).
+   */
+  private unzoom(
+    g: Phaser.GameObjects.Graphics,
+    icon: Phaser.GameObjects.Image,
+    bx: number,
+    by: number,
+  ): void {
+    if (!this.trailerAuto) return;
+    const cam = this.scene.cameras.main;
+    const z = cam.zoom;
+    const S = TRAILER_METER_SCALE;
+    // the panel's top-left in the layout space drawReel computes in, and the
+    // screen box it should occupy: right-hand margin, vertically centred
+    const p0 = { x: bx - 16, y: by - 12 };
+    const t = {
+      x: cam.width - TRAILER_METER_MARGIN - PANEL_W * S,
+      y: (cam.height - PANEL_H * S) / 2,
+    };
+    const proj = (v: number, tv: number, p0v: number, half: number): number =>
+      (tv + (v - p0v) * S - half) / z + half;
+    g.setScale(S / z);
+    g.setPosition(proj(0, t.x, p0.x, cam.width / 2), proj(0, t.y, p0.y, cam.height / 2));
+    icon.setScale((1.6 * S) / z);
+    icon.setPosition(
+      proj(bx + 10, t.x, p0.x, cam.width / 2),
+      proj(by + this.fishPos, t.y, p0.y, cam.height / 2),
+    );
   }
 
   private land(): void {

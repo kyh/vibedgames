@@ -503,9 +503,13 @@ export class Environment {
     Q_ROT.setFromAxisAngle(tiltAxis, (16 * Math.PI) / 180);
     const cones: THREE.BufferGeometry[] = [];
     for (const [x, y] of spots) {
-      const g = new THREE.CylinderGeometry(0.5, 2.0, 11, 10, 1, true);
+      // the cone's open BOTTOM rim must fall below the floor: at height 11
+      // centred on 5.6 it landed at y≈0.1, and a hard elliptical rim sitting on
+      // the flagstone reads as a solid teal triangle standing in the room
+      // rather than light falling from a window. Same top, 2u buried.
+      const g = new THREE.CylinderGeometry(0.5, 2.0, 13, 10, 1, true);
       g.applyQuaternion(Q_ROT);
-      g.translate(x, 5.6, y);
+      g.translate(x, 4.6, y);
       cones.push(g);
     }
     const merged = mergeGeometries(cones);

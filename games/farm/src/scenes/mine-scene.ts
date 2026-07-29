@@ -62,6 +62,13 @@ export class MineScene extends Phaser.Scene {
   private acting = false;
   /** Trailer-mode scripted movement — read like a stick when real input is silent. */
   trailerMove: { x: number; y: number; run: boolean } | null = null;
+  /** Trailer-mode camera zoom override (null = the normal viewport-derived play
+   *  zoom). Survives descend()'s restart so a staged floor keeps its framing. */
+  trailerZoom: number | null = null;
+  /** Trailer-mode input lockout. Owned by the scene rather than set from
+   *  outside because descend() restarts it, and Phaser's InputPlugin.start()
+   *  re-enables input — a stray click would then swing the sword on camera. */
+  trailerNoInput = false;
   private invulnUntil = 0;
   private knock = { x: 0, y: 0 };
 
@@ -109,18 +116,23 @@ export class MineScene extends Phaser.Scene {
 
     const cam = this.cameras.main;
     cam.setBounds(0, 0, MW * TILE, MH * TILE);
-    cam.setZoom(zoomForWidth(this.scale.width));
+    cam.setZoom(this.baseZoom());
     cam.startFollow(this.player, true, 0.14, 0.14);
     cam.setRoundPixels(true);
     cam.fadeIn(400, 0, 0, 0);
     if (this.onResizeHandler) this.scale.off("resize", this.onResizeHandler);
-    this.onResizeHandler = (gs: Phaser.Structs.Size) => cam.setZoom(zoomForWidth(gs.width));
+    this.onResizeHandler = () => cam.setZoom(this.baseZoom());
     this.scale.on("resize", this.onResizeHandler);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       if (this.onResizeHandler) this.scale.off("resize", this.onResizeHandler);
     });
 
     this.setupInput();
+    if (this.trailerNoInput) {
+      this.input.enabled = false;
+      const kbd = this.input.keyboard;
+      if (kbd) kbd.enabled = false;
+    }
     // Prime the pad so an A still held from entering the mine doesn't read as
     // a fresh press (and swing) on this scene's first frame.
     this.pad.update();
@@ -129,6 +141,13 @@ export class MineScene extends Phaser.Scene {
 
     floatText(this, this.player.x, this.player.y - 24, `Mine — Floor ${this.depth}`, "#cdd6e0");
     if (import.meta.env.DEV) window.__mine = this;
+  }
+
+  /** The zoom every camera move returns to. Read (never re-derived from the
+   *  viewport) by the hit-punch, so a staged trailer zoom isn't stomped on the
+   *  first landed swing. */
+  private baseZoom(): number {
+    return this.trailerZoom ?? zoomForWidth(this.scale.width);
   }
 
   // ---------------------------------------------------------------- generation
@@ -240,6 +259,27 @@ export class MineScene extends Phaser.Scene {
     return best;
   }
 
+  /** Replace whatever sits on a tile with one ore/stone node (real node path),
+   *  so a scripted pickaxe beat can put its subject where the camera is.
+   *  Floor tiles only: wall art is baked into a container at build time, so
+   *  clearing the collision bit here would leave the block drawn with a crystal
+   *  on top of it and the wall quietly walkable. Returns false if refused. */
+  trailerStageNode(tx: number, ty: number, kind: "stone" | OreId, hp: number): boolean {
+    if (this.isWall(tx, ty)) return false;
+    const existing = this.nodeAt(tx, ty);
+    if (existing) {
+      existing.spr.destroy();
+      this.nodes = this.nodes.filter((n) => n !== existing);
+    }
+    this.addNode({ tx, ty, hp, kind });
+    return true;
+  }
+
+  /** The floor's descent ladder, for scripted choreography. */
+  trailerLadderDown(): { tx: number; ty: number } {
+    return { tx: this.ladderDown.tx, ty: this.ladderDown.ty };
+  }
+
   /** True when a tile is inside the floor and blocked by neither wall nor node. */
   isOpenTile(tx: number, ty: number): boolean {
     return !this.isWall(tx, ty) && this.nodeAt(tx, ty) === undefined;
@@ -297,16 +337,17 @@ export class MineScene extends Phaser.Scene {
       })
       .setOrigin(0.5, 1)
       .setDepth(DEPTH.crop);
-    // node sprites
-    for (const seed of seeds) {
-      const key = seed.kind === "stone" ? "obj-rock" : `obj-ore-${seed.kind}`;
-      const spr = this.add
-        .sprite(seed.tx * TILE + 8, (seed.ty + 1) * TILE + 1, key)
-        .setOrigin(0.5, 1);
-      spr.setDepth(DEPTH.entityBase + (seed.ty + 1) * TILE);
-      this.nodes.push({ ...seed, spr });
-    }
+    for (const seed of seeds) this.addNode(seed);
     for (const e of this.enemies) e.spr.setDepth(DEPTH.entityBase + e.spr.y);
+  }
+
+  private addNode(seed: NodeSeed): void {
+    const key = seed.kind === "stone" ? "obj-rock" : `obj-ore-${seed.kind}`;
+    const spr = this.add
+      .sprite(seed.tx * TILE + 8, (seed.ty + 1) * TILE + 1, key)
+      .setOrigin(0.5, 1);
+    spr.setDepth(DEPTH.entityBase + (seed.ty + 1) * TILE);
+    this.nodes.push({ ...seed, spr });
   }
 
   // ---------------------------------------------------------------- input
@@ -507,9 +548,9 @@ export class MineScene extends Phaser.Scene {
       }
       if (hitAny) {
         shake(this, 0.006, 90);
-        const base = zoomForWidth(this.scale.width);
+        const base = this.baseZoom();
         this.cameras.main.zoomTo(base * 1.015, 60, "Linear", false);
-        this.time.delayedCall(70, () => this.cameras.main.setZoom(zoomForWidth(this.scale.width)));
+        this.time.delayedCall(70, () => this.cameras.main.setZoom(this.baseZoom()));
       }
     });
     this.player.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
@@ -713,7 +754,8 @@ export class MineScene extends Phaser.Scene {
     }
   }
 
-  private descend(): void {
+  /** Public: the trailer director drives the staged descent through this path. */
+  descend(): void {
     if (this.transitioning) return;
     this.transitioning = true;
     this.persist();

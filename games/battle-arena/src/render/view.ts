@@ -197,6 +197,8 @@ export class View {
   private readonly introScratch = new THREE.Vector3();
   readonly throneAura: THREE.Mesh;
   private throneColumn: THREE.Mesh | null = null;
+  /** TRAILER-ONLY bloom scale, read only by cinematic(). 1 = the game's bloom. */
+  bloomScale = 1;
   // post-processing
   private composer: EffectComposer | null = null;
   private bloom: UnrealBloomPass | null = null;
@@ -262,6 +264,12 @@ export class View {
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
     this.sun.shadow.camera.near = 1;
+    // 80 covers the whole hall: the ortho shadow camera measures depth ALONG the
+    // light axis from (18,34,12), so the deepest floor point — the ground disc's
+    // far rim at r = HEX_R + 6, opposite the light — projects to ~77, and the
+    // far-plane cut would fall at a horizontal 74u, past the disc entirely.
+    // Widening this is not free: `bias` below is a normalized-depth offset, so
+    // its world-space size scales with (far − near) and peter-panning grows with it.
     this.sun.shadow.camera.far = 80;
     this.sun.shadow.radius = 4; // soft penumbra (PCFSoft)
     const sc = this.sun.shadow.camera;
@@ -547,7 +555,10 @@ export class View {
   cinematic(pos: THREE.Vector3, look: THREE.Vector3, dt: number, fovBase = CAM.fov): void {
     this.shake = Math.max(0, this.shake - dt * 1.6);
     this.shakeT += dt * 31;
-    if (this.bloom) this.bloom.strength = 0.6 + this.shake * 0.5;
+    // Bloom is the other half of a flash blowout: it smears the clipped core out
+    // into a halo several times its size. Scaled HERE and nowhere else, so the
+    // knob is unreachable from follow() — the one gameplay camera path.
+    if (this.bloom) this.bloom.strength = (0.6 + this.shake * 0.5) * this.bloomScale;
     this.flashAmt *= Math.max(0, 1 - 9 * dt);
     this.vigPunch *= Math.max(0, 1 - 5 * dt);
     const vig = this.grade?.uniforms["uVignette"];

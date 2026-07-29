@@ -11,6 +11,7 @@ import { BASE_H, BASE_W, COLORS, TILE } from "../config";
 import { type EnemyName, ENEMY_NAMES, HERO_NAMES, type HeroName } from "../data/animations";
 import { type Affix, AFFIXES, rollAffix } from "../data/affixes";
 import { type BiomePalette, biomePalette, enemyPool } from "../data/biomes";
+import { bossKind } from "../data/bosses";
 import { ENEMIES } from "../data/enemies";
 import { type HeroDef, HEROES } from "../data/heroes";
 import { bankRun, loadMeta, recordBestScore, runBonuses } from "../data/meta";
@@ -37,7 +38,7 @@ import {
   type NetVersus,
   type Snapshot,
 } from "../net/snapshot";
-import { buildParallax } from "../parallax";
+import { buildParallax, FG_TREE_NAME } from "../parallax";
 import { drawRoom } from "../room";
 import {
   ambientEmbers,
@@ -305,6 +306,13 @@ export class GameScene extends Phaser.Scene {
   // methods at the bottom of this class, so all of it is dead code otherwise.
   private trailerActive = false;
   private trailerIn: (() => TrailerInputs) | null = null;
+  // Authored (unzoomed) position of every screen-pinned object, so trailerZoom
+  // can re-derive the counter-transform from scratch on each shot.
+  private trailerPinBase = new WeakMap<Phaser.GameObjects.GameObject, { x: number; y: number }>();
+  // Scale every pinned object currently sits at (1/zoom). Anything that animates
+  // a pinned object's scale has to multiply through this, or the tween's
+  // absolute target silently undoes the counter-transform. 1 in normal play.
+  private trailerPinScale = 1;
 
   private demo = false;
   private demoT = 0;
@@ -898,7 +906,11 @@ export class GameScene extends Phaser.Scene {
         m.bought = true;
         this.gold -= m.relic.price;
         this.applyRelic(m.relic);
+        // The buy is the whole point of a shrine room: ring it in the relic's
+        // own rarity colour so the moment of purchase reads, not just its text.
+        impactRing(this, m.x, m.y - 16, RARITY_COLOR[m.relic.rarity], 24);
         popText(this, m.x, m.y - 30, m.relic.name, "#e83fa0");
+        popText(this, m.x, m.y - 12, `⬡ -${m.relic.price}`, "#ffd15c");
         this.tweens.add({
           targets: m.g,
           alpha: 0,
@@ -1756,7 +1768,14 @@ export class GameScene extends Phaser.Scene {
   }
 
   private spawnHazard(x: number, y: number, vx: number, dmg: number) {
-    const spr = this.add.sprite(x, y, "fx:flame-wave").setScale(0.9).setDepth(41);
+    // Tint the wave with the boss that threw it: the untinted sheet is magenta
+    // flame, which read as "fire" in every arena — Rimewarden's frost barrage
+    // included — and vanished against Emberdeep's own red walls.
+    const spr = this.add
+      .sprite(x, y, "fx:flame-wave")
+      .setScale(0.9)
+      .setDepth(41)
+      .setTint(bossKind(this.run.biome).tint);
     spr.play("fx:flame-wave");
     spr.setFlipX(vx < 0);
     this.hazards.push({ spr, x, y, vx, life: 2.6, dmg, hitPlayer: false });
@@ -1983,8 +2002,12 @@ export class GameScene extends Phaser.Scene {
       const col = this.combo >= 8 ? "#ff5a5a" : this.combo >= 5 ? "#ff9a3c" : "#ffd15c";
       this.comboText.setText(`COMBO x${this.combo}`).setColor(col).setAlpha(1);
       this.tweens.killTweensOf(this.comboText);
-      this.comboText.setScale(1.35);
-      this.tweens.add({ targets: this.comboText, scale: 1, duration: 200, ease: "Back.easeOut" });
+      // Pop RELATIVE to whatever scale the counter is pinned at: under a trailer
+      // zoom the HUD is counter-scaled to 1/z, and an absolute "back to 1" here
+      // would leave the streak counter rendering at z× everything else.
+      const pin = this.trailerPinScale;
+      this.comboText.setScale(1.35 * pin);
+      this.tweens.add({ targets: this.comboText, scale: pin, duration: 200, ease: "Back.easeOut" });
     }
     this.updateHud();
   }
@@ -2199,24 +2222,29 @@ export class GameScene extends Phaser.Scene {
     const seq = this.vsSeq(att);
     const dir = Math.sign(vic.body.x - att.body.x) || att.body.facing;
     const ab = att.body.attackBox();
+    // Burn the swing id only when the hit actually LANDS. Marking it on mere
+    // overlap spent the swing on a target that was still in hurt i-frames, so
+    // when those lapsed a few steps later — while the very same hitbox was
+    // still live — the blade passed straight through. A landed hit grants 0.9s
+    // of i-frames, far longer than any active window, so this cannot double-hit.
     if (
       ab &&
       att.body.swingId !== seq.swing &&
       !vic.body.dead &&
-      rectsOverlap(ab, vic.body.hurtBox())
+      rectsOverlap(ab, vic.body.hurtBox()) &&
+      this.hurtVersus(vic, ab.dmg, dir)
     ) {
       seq.swing = att.body.swingId;
-      this.hurtVersus(vic, ab.dmg, dir);
     }
     const sb = att.body.specialBox();
     if (
       sb &&
       att.body.specialId !== seq.special &&
       !vic.body.dead &&
-      rectsOverlap(sb, vic.body.hurtBox())
+      rectsOverlap(sb, vic.body.hurtBox()) &&
+      this.hurtVersus(vic, sb.dmg, dir)
     ) {
       seq.special = att.body.specialId;
-      this.hurtVersus(vic, sb.dmg, dir);
     }
     if (att.body.pendingShot) {
       const s = att.body.pendingShot;
@@ -2247,10 +2275,11 @@ export class GameScene extends Phaser.Scene {
 
   // Versus damage: lands on the victim's OWN hearts (no shared pool, no last
   // stand); dash/hurt i-frames still gate it. A fatal hit ends the round.
-  private hurtVersus(vic: Player, dmg: number, dir: number) {
+  // Returns whether the hit actually connected (see the swing-id guard above).
+  private hurtVersus(vic: Player, dmg: number, dir: number): boolean {
     const vs = this.vs;
-    if (!vs || vs.phase !== "fighting") return;
-    if (!vic.body.applyHurt(dir)) return;
+    if (!vs || vs.phase !== "fighting") return false;
+    if (!vic.body.applyHurt(dir)) return false;
     this.freeze = Math.max(this.freeze, 0.06);
     hitSpark(this, vic.x, vic.y - 11, COLORS.magenta, 8);
     sfx.hit();
@@ -2258,6 +2287,7 @@ export class GameScene extends Phaser.Scene {
     const ended = vs.damage(this.vsSide(vic), dmg);
     this.updateHud();
     if (ended) this.vsRoundOver(vic);
+    return true;
   }
 
   // The fatal hit: drop the loser where they stand and bank the round.
@@ -2650,6 +2680,16 @@ export class GameScene extends Phaser.Scene {
         this.doors = [];
       }
     }
+    if (o.fgTrees === false) {
+      // The nearest parallax layer draws IN FRONT of the actors (depth 40): in a
+      // 240-px-wide framing one trunk can swallow the whole fight. Combat shots
+      // drop it; scenic ones keep it for the depth cue.
+      this.parallax = this.parallax.filter((t) => {
+        if (t.name !== FG_TREE_NAME) return true;
+        t.destroy();
+        return false;
+      });
+    }
     if (o.playerAt) this.player.enterRoom(this.grid, o.playerAt.x, o.playerAt.y);
     if (o.player2At) this.remote?.enterRoom(this.grid, o.player2At.x, o.player2At.y);
 
@@ -2670,6 +2710,42 @@ export class GameScene extends Phaser.Scene {
     this.updateHud();
     // Hold the sim until the shell reveals the shot (the cut plate is still black).
     this.freeze = 9999;
+  }
+
+  /** Trailer-only lens: an INTEGER world zoom (1 = the play camera, 2 = twice
+   * the subject size). Phaser scales screen-pinned (scrollFactor 0) objects
+   * about the camera midpoint along with the world, so a raw setZoom would
+   * double the HUD and shove the corner-anchored parts off-frame. Counter-
+   * transform the pinned set instead — hearts/info/banner/combo/boss bar and
+   * the sky/fog/fade plates land pixel-for-pixel where they were authored,
+   * while the world gets the lens. Integer steps only: a fractional zoom
+   * shimmers pixel art. */
+  trailerZoom(z: number): void {
+    this.cameras.main.setZoom(z);
+    this.trailerPinScale = 1 / z;
+    const cx = BASE_W / 2;
+    const cy = BASE_H / 2;
+    const pinned: (Phaser.GameObjects.Rectangle | Phaser.GameObjects.Text | undefined)[] = [
+      ...this.skyBands,
+      this.fogRect,
+      this.fadeRect,
+      this.heartsText,
+      this.infoText,
+      this.banner,
+      this.comboText,
+      this.bossHpBg,
+      this.bossHp,
+    ];
+    for (const o of pinned) {
+      if (!o) continue;
+      let base = this.trailerPinBase.get(o);
+      if (!base) {
+        base = { x: o.x, y: o.y };
+        this.trailerPinBase.set(o, base);
+      }
+      o.setPosition((base.x - cx) / z + cx, (base.y - cy) / z + cy);
+      o.setScale(1 / z);
+    }
   }
 
   /** Spawn one enemy into the live fight (real Enemy + biome HP scaling; the
@@ -2764,6 +2840,9 @@ export type TrailerStageOpts = {
   /** Destroy the room's exit doors after build — for still/scenic shots where
    * an active gate's pulsing glow + label would sit in frame. */
   hideDoors?: boolean;
+  /** Draw the in-front parallax tree layer (default true). false for combat
+   * shots, where a foreground trunk otherwise occludes the fight. */
+  fgTrees?: boolean;
   playerAt?: { x: number; y: number };
   player2At?: { x: number; y: number };
   hud?: TrailerHudOpts;

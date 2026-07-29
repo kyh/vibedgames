@@ -1,24 +1,27 @@
 // trailer-director.ts — LUNERFALL trailer mode (?trailer=1).
 //
-// Stages the full ~45s gameplay trailer through the game's REAL systems: every
+// Stages the full ~37s gameplay trailer through the game's REAL systems: every
 // enemy is a live EnemyBody, every swing goes through PlayerBody's combo
 // machine, versus runs the real VersusMatch, the co-op revive is the real
-// last-stand sim with a second local Player. The shell (trailer-shell.ts)
-// owns the letterbox and the cuts; this file owns what the camera sees.
+// last-stand sim with a second local Player, and the closing DESCEND comes from
+// the room's own checkClear. The shell (trailer-shell.ts) owns the letterbox and
+// the cuts; this file owns what the camera sees.
 //
 // Choreography model: each beat's build() restages the world via the
 // GameScene trailer hooks, hands back a per-frame input script (closed-loop —
 // it steers off live positions, so frame-rate drift can't strand a shot), and
 // optionally pre-rolls the sim while the screen is still black so the first
 // visible frame is already mid-action.
+//
+// Cast rule: one hero per beat, and no two neighbouring beats share a biome
+// palette — five kits and five worlds are the game's headline content, and a
+// montage that never changes its fighter or its colour reads as one level.
 
 import Phaser from "phaser";
 
 import { sfx } from "../audio/sfx";
-import { BASE_W } from "../config";
 import { RELICS } from "../data/relics";
 import { GameScene, type TrailerInputs } from "../scenes/game-scene";
-import { ensureGlow } from "../sys/fx";
 import type { InputState } from "../sys/input";
 import { runTrailer, type TrailerScene } from "./trailer-shell";
 
@@ -52,16 +55,68 @@ function presser(): Press {
   };
 }
 
+// Re-arming press for verbs a beat repeats (the combo chain): fires at most
+// once per `everyMs`, and only while the condition holds. Swings run 0.64-1.68s
+// but a queued press cancels the tail at 50%, so ~220ms keeps the chain fed
+// without spamming the 0.12s input buffer.
+function repeater(everyMs: number): (t: number, cond: boolean) => boolean {
+  let last = -1e9;
+  return (t, cond) => {
+    if (!cond || t - last < everyMs) return false;
+    last = t;
+    return true;
+  };
+}
+
+// Jump when a grounded approach stops making ground. The versus arena's centre
+// riser is a head-height slab, so a duelist who walks into it runs on the spot
+// forever; a player hops it without thinking. Re-arms every `everyMs` so a hop
+// that lands short tries again.
+function stallJumper(everyMs = 500): (t: number, x: number, closing: boolean) => boolean {
+  let lastX = Number.NaN;
+  let movingSince = 0;
+  let lastJump = -1e9;
+  return (t, x, closing) => {
+    const moved = Math.abs(x - lastX) > 0.5;
+    lastX = x;
+    if (moved || !closing) movingSince = t;
+    if (t - movingSince < 120 || t - lastJump < everyMs) return false;
+    lastJump = t;
+    return true;
+  };
+}
+
+/** Signed distance to the nearest live enemy (+ = to the hero's right). */
+function foeDx(gs: GameScene): number {
+  const w = gs.trailerWorld();
+  let best = Infinity;
+  for (const e of w.enemies) {
+    if (e.body.dead) continue;
+    const dx = e.body.x - w.p1.x;
+    if (Math.abs(dx) < Math.abs(best)) best = dx;
+  }
+  return best;
+}
+
 // ── camera vocabulary ─────────────────────────────────────────────────────────
-// Follow with a lead offset (viewer sees where the action is going), or a
-// locked wide frame. No zoom anywhere: fractional zoom shimmers pixel art.
-function followCam(gs: GameScene, offX = 0, offY = 0): void {
+// Two integer lenses (fractional zoom shimmers pixel art). WIDE is the play
+// camera itself — the room is the subject. MEDIUM doubles subject scale, which
+// is what a 22px-tall body needs to read at all in a 16:9 export; the HUD is
+// counter-transformed by trailerZoom so it stays 1:1 either way.
+const WIDE = 1;
+const MED = 2;
+
+// Offsets are authored in SCREEN px and divided by the lens, so a lead reads as
+// the same fraction of frame at any zoom.
+function followCam(gs: GameScene, offX = 0, offY = 0, zoom = MED): void {
+  gs.trailerZoom(zoom);
   const cam = gs.cameras.main;
   cam.startFollow(gs.trailerWorld().p1.sprite, true, 0.22, 0.24);
-  cam.setFollowOffset(offX, offY);
-  cam.setDeadzone(36, 28);
+  cam.setFollowOffset(offX / zoom, offY / zoom);
+  cam.setDeadzone(36 / zoom, 28 / zoom);
 }
-function lockCam(gs: GameScene, x: number, y: number): void {
+function lockCam(gs: GameScene, x: number, y: number, zoom = MED): void {
+  gs.trailerZoom(zoom);
   const cam = gs.cameras.main;
   cam.stopFollow();
   cam.centerOn(x, y);
@@ -123,11 +178,12 @@ function toScene(gs: GameScene, beat: Beat): TrailerScene {
 
 // ── the beats ─────────────────────────────────────────────────────────────────
 
-// 1 · COLD OPEN — Axion already sprinting, dash through a pair, five chained
-// kills, combo counter climbing. Combo HUD only.
+// 1 · COLD OPEN — Axion already sprinting through a warrior line, dash into it
+// and chain kills until the streak counter goes red. Closed-loop swings (fire
+// when a body is inside reach) so every press connects instead of cutting air.
 const coldOpen: Beat = {
   id: "cold-open-combo",
-  duration: 3000,
+  duration: 2400,
   build: (gs) => {
     gs.trailerStage({
       hero: "axion",
@@ -136,11 +192,14 @@ const coldOpen: Beat = {
       seed: 101,
       noEnemies: true,
       mods: { dmg: 2 },
-      playerAt: { x: 90, y: FLOOR_Y },
-      hud: { combo: true },
+      playerAt: { x: 120, y: FLOOR_Y },
+      hud: { combo: true, hearts: true },
+      fgTrees: false,
     });
-    for (const x of [195, 260, 310, 370, 430, 485]) gs.trailerSpawnEnemy("warrior", x, FLOOR_Y);
+    for (const x of [196, 250, 300, 352, 404, 452, 498, 544])
+      gs.trailerSpawnEnemy("warrior", x, FLOOR_Y);
     const press = presser();
+    const swing = repeater(220);
     return {
       ticks: 18,
       camera: () => followCam(gs, -46, 6),
@@ -148,153 +207,68 @@ const coldOpen: Beat = {
         solo(
           inp({
             right: true,
-            dashPressed: press("d1", t >= 110) || press("d2", t >= 1350),
-            attackPressed:
-              press("a1", t >= 260) ||
-              press("a2", t >= 660) ||
-              press("a3", t >= 1060) ||
-              press("a4", t >= 1480) ||
-              press("a5", t >= 1880) ||
-              press("a6", t >= 2280),
-            jumpPressed: press("j", t >= 2700),
-            jumpHeld: t >= 2700,
+            dashPressed: press("d1", t >= 110) || press("d2", t >= 1300),
+            attackPressed: swing(t, Math.abs(foeDx(gs)) < 30),
           }),
         ),
     };
   },
 };
 
-// 2 · MOVEMENT TECH — Riven, no combat: run → jump → up-dash onto the step →
-// jump → air-dash to the one-way → blink → dash — one unbroken left-to-right
-// flow across the start room's parallax.
-const movementTech: Beat = {
-  id: "movement-tech",
-  duration: 2500,
-  build: (gs) => {
-    gs.trailerStage({
-      hero: "riven",
-      room: "start",
-      biome: 1,
-      seed: 102,
-      noEnemies: true,
-      playerAt: { x: 48, y: FLOOR_Y },
-    });
-    const press = presser();
-    return {
-      ticks: 16,
-      camera: () => followCam(gs, -60, 8),
-      script: () => {
-        const x = gs.trailerWorld().p1.x;
-        return solo(
-          inp({
-            right: true,
-            up: x >= 104 && x <= 160, // aims the air-dash up-right onto the step
-            jumpHeld: true,
-            jumpPressed: press("j1", x >= 96) || press("j2", x >= 262) || press("j3", x >= 604),
-            dashPressed: press("d1", x >= 120) || press("d2", x >= 540),
-            specialPressed: press("blink", x >= 426),
-          }),
-        );
-      },
-    };
-  },
-};
-
-// 3-7 · FIVE REALMS — one shot per biome palette, each mid-action against that
-// biome's own roster, escalating enemy counts. Reaper carries the montage.
-function stageMontage(
+// 2-4 · THREE REALMS, THREE KITS — one biome palette and one hero per shot, all
+// on the same follow-cam grammar so the constant framing reads as a roster.
+type Spawn = readonly [name: "warrior" | "spearman" | "archer" | "bomber", x: number];
+function stageRealm(
   gs: GameScene,
+  hero: "axion" | "reaper" | "riven" | "mooni" | "salamander",
   biome: number,
   seed: number,
   playerX: number,
-  spawns: readonly (readonly [name: "warrior" | "spearman" | "archer" | "bomber", x: number])[],
+  spawns: readonly Spawn[],
+  hud: { banner?: boolean } = {},
 ): void {
   gs.trailerStage({
-    hero: "reaper",
+    hero,
     room: "combat",
     biome,
     seed,
     noEnemies: true,
     mods: { dmg: 2.5 },
     playerAt: { x: playerX, y: FLOOR_Y },
+    hud,
+    fgTrees: false,
   });
   for (const [name, x] of spawns) gs.trailerSpawnEnemy(name, x, FLOOR_Y);
 }
 
-// b1 Moonwood: one wide sweep, two kills.
-const biome1: Beat = {
-  id: "biome-1",
-  duration: 1100,
+// Emberdeep · SALAMANDER — the flame wave pierces the bomber line and their own
+// fuses finish the job: three chained blasts, one press.
+const realmEmber: Beat = {
+  id: "realm-ember",
+  duration: 1350,
   build: (gs) => {
-    stageMontage(gs, 1, 103, 120, [
-      ["warrior", 175],
-      ["warrior", 192],
+    stageRealm(gs, "salamander", 2, 104, 316, [
+      ["bomber", 380],
+      ["bomber", 404],
+      ["bomber", 428],
     ]);
     const press = presser();
     return {
-      ticks: 20,
-      camera: () => followCam(gs, -44, 6),
-      script: (t) =>
-        solo(
-          inp({
-            right: true,
-            attackPressed: press("a", t >= 60),
-            jumpPressed: press("j", t >= 700),
-            jumpHeld: t >= 700,
-          }),
-        ),
-    };
-  },
-};
-
-// b2 Emberdeep: bomber rush — one kill detonates the line, back-dash out of
-// the chain blasts, cut on the third explosion.
-const biome2: Beat = {
-  id: "biome-2",
-  duration: 1100,
-  build: (gs) => {
-    stageMontage(gs, 2, 104, 380, [
-      ["bomber", 440],
-      ["bomber", 462],
-      ["bomber", 484],
-    ]);
-    const press = presser();
-    return {
-      ticks: 20,
-      script: (t) =>
-        solo(
-          inp({
-            left: t >= 480 && t < 780,
-            attackPressed: press("a", t >= 200),
-            dashPressed: press("d", t >= 500),
-          }),
-        ),
-    };
-  },
-};
-
-// b3 Frostvault (reversed flow): arrows already in the air, dash THROUGH the
-// volley right-to-left, cut down the nearest archer mid-retreat.
-const biome3: Beat = {
-  id: "biome-3",
-  duration: 1100,
-  build: (gs) => {
-    stageMontage(gs, 3, 105, 640, [
-      ["archer", 470],
-      ["archer", 440],
-      ["archer", 410],
-    ]);
-    const press = presser();
-    return {
-      ticks: 25,
-      camera: () => followCam(gs, 50, 4),
+      ticks: 16,
+      camera: () => followCam(gs, -30, 4),
       script: (t) => {
-        const x = gs.trailerWorld().p1.x;
+        // The cast ROOTS the body, and each blast adds hit-stop, so the wave
+        // outlives its 0.5s on the wall clock — every earlier attempt to move
+        // during it was swallowed. Steer off specialActive, not off a timer.
+        const casting = gs.trailerWorld().p1.body.specialActive;
         return solo(
           inp({
-            left: t < 0 ? x > 562 : t >= 380 && x > 436,
-            dashPressed: press("d", t >= 250),
-            attackPressed: press("a", t >= 640),
+            // Stride into the wreckage once the cast lets go — but not before
+            // it: a step forward on frame one walks him into his own chain
+            // reaction's blast radius.
+            right: t >= 300 && !casting,
+            specialPressed: press("wave", t >= 60),
+            dashPressed: press("d", t >= 200 && !casting),
           }),
         );
       },
@@ -302,96 +276,119 @@ const biome3: Beat = {
   },
 };
 
-// b4 Venomhollow: four spearmen cross-charge, reaper leaps the intersection.
-const biome4: Beat = {
-  id: "biome-4",
-  duration: 1100,
+// Frostvault · RIVEN — the descent banner the game itself fires, then a blink
+// through the archers' volley into the fastest combo in the game.
+const realmFrost: Beat = {
+  id: "realm-frost",
+  duration: 1500,
   build: (gs) => {
-    stageMontage(gs, 4, 106, 320, [
-      ["spearman", 210],
-      ["spearman", 240],
-      ["spearman", 410],
-      ["spearman", 440],
-    ]);
+    stageRealm(
+      gs,
+      "riven",
+      3,
+      105,
+      612,
+      [
+        ["archer", 500],
+        ["archer", 444],
+        ["archer", 388],
+      ],
+      { banner: true },
+    );
     const press = presser();
+    const swing = repeater(220);
     return {
-      ticks: 22,
-      camera: () => lockCam(gs, 330, 260),
-      script: (t) =>
-        solo(
+      // ~1s of pre-roll: the archers' aggro + 0.46s draw has to complete before
+      // the reveal or the "volley" is three bystanders standing still.
+      ticks: 62,
+      camera: () => followCam(gs, 50, 4),
+      onReveal: () => gs.trailerBanner("▼  FROSTVAULT  ▼", 900),
+      script: (t) => {
+        const dx = foeDx(gs);
+        return solo(
           inp({
-            jumpPressed: press("j", t >= 520),
-            jumpHeld: t >= 520 && t < 900,
+            left: t < 0 ? true : t >= 120 && dx < -34,
+            dashPressed: press("d", t >= 100),
+            specialPressed: press("blink", t >= 420),
+            attackPressed: swing(t, t >= 400 && Math.abs(dx) < 30),
           }),
-        ),
+        );
+      },
     };
   },
 };
 
-// b5 Voidsanctum: five-strong mixed swarm converging — slash, reaping spin,
-// bomber blast at the frame edge. The montage's arena-filling closer.
-const biome5: Beat = {
-  id: "biome-5",
-  duration: 1100,
+// Voidsanctum · REAPER — the reaping spin opens on a five-strong mixed swarm
+// while every one of them is still alive, then the scythe cleans up.
+const realmVoid: Beat = {
+  id: "realm-void",
+  duration: 1400,
   build: (gs) => {
-    stageMontage(gs, 5, 107, 350, [
+    stageRealm(gs, "reaper", 5, 107, 350, [
+      ["spearman", 268],
       ["warrior", 300],
-      ["spearman", 275],
-      ["warrior", 415],
-      ["archer", 520],
-      ["bomber", 462],
+      ["warrior", 398],
+      ["bomber", 426],
+      ["archer", 458],
     ]);
     const press = presser();
+    const swing = repeater(240);
     return {
-      ticks: 24,
+      ticks: 20,
+      camera: () => followCam(gs, -18, 4),
       script: (t) =>
         solo(
           inp({
-            right: t >= 0 && t < 140,
-            attackPressed: press("a1", t >= 150) || press("a2", t >= 700),
-            specialPressed: press("spin", t >= 450),
+            specialPressed: press("spin", t >= 120),
+            attackPressed: swing(t, t >= 620 && Math.abs(foeDx(gs)) < 34),
           }),
         ),
     };
   },
 };
 
-// 8 · 23 RELICS — the merchant shrine, deterministic offers (everything else
-// pre-owned), three real purchases in one run past the pedestals, then the
-// power spike lands on screen: the warrior that tanked a punch pre-buy dies to
-// one flame wave post-buy, and the wave keeps going through the pack.
+// 5 · 23 RELICS — the merchant shrine with deterministic offers (everything
+// else pre-owned): three real purchases on one run past the pedestals, gold
+// visibly draining on the HUD, then the build lands — the flame wave shears a
+// pack that the same hero could not one-shot a second earlier, and the lifesteal
+// he just bought puts hearts back on the row.
 const relicSpike: Beat = {
   id: "relic-spike",
-  duration: 3500,
+  duration: 2400,
   build: (gs) => {
-    const keep = new Set(["fury", "edge", "keen"]);
+    const keep = new Set(["fury", "edge", "sanguine"]);
     gs.trailerStage({
       hero: "salamander",
       room: "merchant",
       biome: 4,
       seed: 108,
+      depth: 4,
       mods: { dmg: 1 },
-      gold: 100,
+      hearts: 2,
+      gold: 120,
       ownedRelics: RELICS.filter((r) => !keep.has(r.id)).map((r) => r.id),
-      playerAt: { x: 64, y: FLOOR_Y },
+      // Left of the first pedestal (they sit at 0.3/0.5/0.7 × 480 = 144/240/336)
+      // with no pre-roll, so all THREE purchases land on camera. Starting at 118
+      // with a run-up put buy #1 behind the cut.
+      playerAt: { x: 104, y: FLOOR_Y },
+      hud: { hearts: true, info: true },
+      hideDoors: true,
+      fgTrees: false,
     });
-    gs.trailerSpawnEnemy("warrior", 430, FLOOR_Y);
-    gs.trailerSpawnEnemy("spearman", 600, FLOOR_Y);
-    gs.trailerSpawnEnemy("warrior", 630, FLOOR_Y);
-    gs.trailerSpawnEnemy("bomber", 655, FLOOR_Y);
-    gs.trailerSpawnEnemy("spearman", 680, FLOOR_Y);
+    for (const x of [392, 420, 450, 480, 512]) gs.trailerSpawnEnemy("warrior", x, FLOOR_Y);
     const press = presser();
+    const swing = repeater(240);
     return {
-      ticks: 14,
       camera: () => followCam(gs, -42, 4),
       script: (t) => {
         const x = gs.trailerWorld().p1.x;
         return solo(
           inp({
-            right: x < 356,
-            specialPressed: press("wave", t >= 1350),
-            attackPressed:
-              press("p1", t >= 1750) || press("p2", t >= 2450) || press("p3", t >= 2950),
+            right: x < 352,
+            // Past the third pedestal, not on a blind timer: the wave is the
+            // payoff for the build the run past them just bought.
+            specialPressed: press("wave", x >= 344),
+            attackPressed: swing(t, t >= 1400 && Math.abs(foeDx(gs)) < 32),
           }),
         );
       },
@@ -399,44 +396,102 @@ const relicSpike: Beat = {
   },
 };
 
-// 9 · ELITE CRITS — three affix-tinted elites (armored/swift/brutal), a crit
-// build spraying CRIT pops, one honest hit taken, blink-out through the tank.
+// 6 · THE RUN — the wide breather, and the only shot whose subject is the room:
+// a CACHE with its free relic on the dais and BOTH lit torii gates in frame with
+// their labels, under the game's own "pick a path" banner. This is the roguelite
+// structure the rest of the cut takes for granted.
+const pathCache: Beat = {
+  id: "path-cache",
+  duration: 1400,
+  build: (gs) => {
+    gs.trailerStage({
+      hero: "mooni",
+      room: "treasure",
+      biome: 2,
+      seed: 121,
+      depth: 3,
+      hearts: 3,
+      gold: 46,
+      score: 640,
+      // On the dais, a stride left of the orb: the cache sits 4 rows above the
+      // floor, and a shot this short has no time for the climb.
+      playerAt: { x: 302, y: 240 },
+      hud: { hearts: true, info: true, banner: true },
+    });
+    return {
+      ticks: 6,
+      // Safe rooms are 44 cols; this framing holds the left gate (x 136), the
+      // cache orb (344) and the right gate (568) in one 480px view. y is 200,
+      // not the room's middle: a 21-row room is barely taller than the view, so
+      // the camera's own bounds clamp scrollY to 66 whatever we ask for, and a
+      // number that survives the clamp is the only honest one to write here.
+      camera: () => lockCam(gs, 352, 200, WIDE),
+      onReveal: () => gs.trailerBanner("CACHE — pick a path", 1000),
+      // Walk through the orb, off the dais, then hold: the visible band ends at
+      // world x 592 and a subject that strolls out of a LOCKED frame leaves the
+      // last half-second of the shot empty.
+      script: (t) => solo(inp({ right: t >= 0 && gs.trailerWorld().p1.x < 520 })),
+    };
+  },
+};
+
+// 7 · ELITE ROOM — every enemy in the room rolls an affix, so the frame is
+// wall-to-wall tint-coded threat (blue-grey armored, yellow swift, red brutal),
+// and a crit build answers with gold CRIT pops. Hearts on: the hit he takes here
+// is meant to cost something.
 const eliteCrits: Beat = {
   id: "elite-crits",
-  duration: 3000,
+  duration: 2300,
   build: (gs) => {
     gs.trailerStage({
       hero: "riven",
-      room: "combat",
+      room: "elite",
       biome: 3,
       seed: 109,
+      depth: 5,
       noEnemies: true,
-      mods: { dmg: 3, crit: 0.55, critMult: 2 },
-      playerAt: { x: 140, y: FLOOR_Y },
+      // dmg 4, not 2: armored elites carry dmgTakenMult 0.45 on 4 HP, so at 2 a
+      // full 2.6s of Riven's fastest combo killed ONE of them. At 4 a plain hit
+      // is 2 and a crit one-shots — which is the crit build the beat advertises.
+      // (Kept at 4 kills in ~1.3s, so the shot no longer outlives its own room.)
+      mods: { dmg: 4, crit: 0.55, critMult: 2 },
+      hearts: 4,
+      playerAt: { x: 330, y: FLOOR_Y },
+      hud: { hearts: true, banner: true },
+      fgTrees: false,
     });
-    // Brutal warrior close enough that swing 1 CONNECTS on-screen — at 215
-    // the first ~0.7s of the cut was Riven running at a distant target.
-    gs.trailerSpawnEnemy("warrior", 192, FLOOR_Y, "brutal");
-    gs.trailerSpawnEnemy("spearman", 330, FLOOR_Y, "swift");
-    gs.trailerSpawnEnemy("warrior", 60, FLOOR_Y, "armored");
+    // All four are melee: spearmen are `charger` behaviour and a charge is
+    // 200px of straight line, so an affixed spearman leaves a 240px frame and
+    // takes its tint with it. Warriors close and hold, which is what "the whole
+    // room is elite" needs to look like.
+    for (const [name, x, affix] of [
+      ["warrior", 252, "armored"],
+      ["warrior", 288, "swift"],
+      ["warrior", 372, "brutal"],
+      ["warrior", 408, "armored"],
+    ] as const)
+      gs.trailerSpawnEnemy(name, x, FLOOR_Y, affix);
     const press = presser();
+    const swing = repeater(220);
     return {
-      // 40 pre-roll ticks (~0.65s): the elites' aggro walk is already in
-      // motion on frame one, so the shot opens mid-brawl, not at a standoff.
-      ticks: 40,
+      // 26 pre-roll ticks (~0.43s): the elites' aggro walk is already in motion
+      // on frame one, so the shot opens mid-brawl rather than at a standoff —
+      // but not so long that the first kill happens behind the cut.
+      ticks: 26,
+      camera: () => followCam(gs, -24, 4),
+      onReveal: () => gs.trailerBanner("ELITE", 900),
       script: (t) => {
-        const x = gs.trailerWorld().p1.x;
+        const dx = foeDx(gs);
         return solo(
           inp({
-            right: t < 1000 && x < 178,
-            left: t >= 2100 && x > 150,
-            attackPressed:
-              press("a1", t >= 60) ||
-              press("a2", t >= 420) ||
-              press("a3", t >= 800) ||
-              press("a4", t >= 1450) ||
-              press("a5", t >= 1850),
-            specialPressed: press("blink", t >= 2100 && x <= 238),
+            right: dx > 26,
+            left: dx < -26,
+            // t >= 0: a swing during the pre-roll spends the shot's first kill
+            // behind the cut, and at this damage every clean hit is a kill.
+            attackPressed: swing(t, t >= 0 && Math.abs(dx) < 30),
+            // Blink as what it is — a gap-closer — rather than on a timer that
+            // teleported him away from the last elite standing.
+            specialPressed: press("blink", t >= 900 && Math.abs(dx) > 56),
           }),
         );
       },
@@ -444,109 +499,41 @@ const eliteCrits: Beat = {
   },
 };
 
-// 10-14 · FIVE LORDS — each biome boss gets one menacing beat, escalating:
-// punch telegraph → triple wave fan → dash-through barrage → charge whip-by →
-// phase-two leap-slam. Boss name banner + HP bar on; Axion runs the gauntlet.
-function stageBoss(gs: GameScene, biome: number, seed: number, playerX: number): void {
-  gs.trailerStage({
-    hero: "axion",
-    room: "boss",
-    biome,
-    seed,
-    mods: { dmg: 3 },
-    playerAt: { x: playerX, y: BOSS_FLOOR_Y },
-    hud: { banner: true, bossBar: true },
-  });
-}
-function bossBannerOnReveal(gs: GameScene): () => void {
-  return () => {
-    const boss = gs.trailerWorld().boss;
-    if (boss) gs.trailerBanner(boss.body.kind.banner, 1250);
-  };
-}
-function forceBoss(gs: GameScene, state: "idle" | "wave" | "jump" | "charge" | "punch"): void {
-  const boss = gs.trailerWorld().boss;
-  if (boss && !boss.body.dead) boss.body.forceState(state);
-}
-
-// Lord 1 — Salamander stalks in, punch telegraph, hero back-dashes the swing.
-const bossTease1: Beat = {
-  id: "boss-tease-1",
-  duration: 1300,
+// 8 · MOVEMENT TECH — the traversal kit with no combat in it: wall slide down
+// the arena wall, wall-kick out of it, run out, air-dash away. Doors hidden —
+// an active gate outshouts the hero in this room.
+const movementTech: Beat = {
+  id: "movement-tech",
+  duration: 1800,
   build: (gs) => {
-    stageBoss(gs, 1, 110, 300);
-    forceBoss(gs, "idle"); // skip the intro pose: it walks at the hero, eating the shot
+    gs.trailerStage({
+      // Mooni for the light sprite: Moonwood's mid-grey wall swallows the dark
+      // heroes, and this is the one beat with no hit flash to find them by.
+      hero: "mooni",
+      room: "start",
+      biome: 1,
+      seed: 102,
+      noEnemies: true,
+      // Staged airborne against the left wall so the shot OPENS on the slide.
+      playerAt: { x: 26, y: 236 },
+      hideDoors: true,
+      fgTrees: false,
+    });
     const press = presser();
-    const cue = presser();
     return {
-      ticks: 12,
-      camera: () => followCam(gs, -30, 0),
-      onReveal: bossBannerOnReveal(gs),
-      during: (t) => {
-        if (cue("punch", t >= 150)) forceBoss(gs, "punch");
-      },
-      script: (t) =>
-        solo(
-          inp({
-            right: t < 80,
-            left: t >= 330 && t < 540,
-            dashPressed: press("d", t >= 340),
-          }),
-        ),
-    };
-  },
-};
-
-// Lord 2 — Cinderking's triple flame fan; hero leaps the low wave. Locked wide.
-const bossTease2: Beat = {
-  id: "boss-tease-2",
-  duration: 1300,
-  build: (gs) => {
-    stageBoss(gs, 2, 111, 300);
-    forceBoss(gs, "idle");
-    const press = presser();
-    const cue = presser();
-    return {
-      ticks: 8,
-      camera: () => lockCam(gs, 354, 300),
-      onReveal: bossBannerOnReveal(gs),
-      during: (t) => {
-        if (cue("wave", t >= 40)) forceBoss(gs, "wave");
-      },
-      script: (t) =>
-        solo(
-          inp({
-            jumpPressed: press("j", t >= 830),
-            jumpHeld: t >= 830 && t < 1150,
-          }),
-        ),
-    };
-  },
-};
-
-// Lord 3 — Rimewarden's fast double barrage from the left; hero dashes THROUGH
-// the waves (reversed screen direction for the montage's mid-beat).
-const bossTease3: Beat = {
-  id: "boss-tease-3",
-  duration: 1300,
-  build: (gs) => {
-    stageBoss(gs, 3, 112, 552);
-    forceBoss(gs, "idle");
-    const press = presser();
-    const cue = presser();
-    return {
-      ticks: 8,
-      camera: () => followCam(gs, 40, 0),
-      onReveal: bossBannerOnReveal(gs),
-      during: (t) => {
-        if (cue("wave", t >= 40)) forceBoss(gs, "wave");
-      },
+      ticks: 10,
+      camera: () => followCam(gs, -70, 8),
       script: (t) => {
-        const x = gs.trailerWorld().p1.x;
+        const b = gs.trailerWorld().p1.body;
         return solo(
           inp({
-            left: t < 60 || (t >= 660 && x > 480),
-            dashPressed: press("d", t >= 700),
+            left: t < 240, // hold into the wall: that's what sustains the slide
+            right: t >= 260,
+            jumpHeld: (t >= 240 && t < 560) || (t >= 900 && t < 1160),
+            jumpPressed:
+              press("wallkick", t >= 240 && b.wallDir !== 0) ||
+              press("hop", t >= 900 && b.grounded),
+            dashPressed: press("dash", t >= 1400),
           }),
         );
       },
@@ -554,97 +541,98 @@ const bossTease3: Beat = {
   },
 };
 
-// Lord 4 — Blightmaw's arena charge whips through a fixed wide frame; hero
-// jumps it and drifts clear.
-const bossTease4: Beat = {
-  id: "boss-tease-4",
-  duration: 1300,
+// 9 · STOMP CHAIN — the TowerFall verb: no attack button at all, just fall on
+// their heads. Each landing does 2, bounces 300 up, and carries into the next.
+const stompChain: Beat = {
+  id: "stomp-chain",
+  duration: 1500,
   build: (gs) => {
-    stageBoss(gs, 4, 113, 236);
-    forceBoss(gs, "idle");
-    const press = presser();
-    const cue = presser();
+    gs.trailerStage({
+      hero: "axion",
+      room: "start",
+      biome: 2,
+      seed: 122,
+      noEnemies: true,
+      mods: { dmg: 2 },
+      // The hand-authored room, in the open span between its left step (solid
+      // out to x 256) and its right ledge (starts at 496): a proc-gen room puts
+      // platforms at bounce height and the chain lands on tiles instead of
+      // heads. Dropped clear of the step and just short of the first head, so
+      // the opening stomp lands ON camera rather than during the pre-roll.
+      playerAt: { x: 266, y: FLOOR_Y - 62 },
+      hud: { combo: true },
+      hideDoors: true,
+      fgTrees: false,
+    });
+    for (const x of [296, 380, 464]) gs.trailerSpawnEnemy("warrior", x, FLOOR_Y);
+    const rehop = repeater(320);
     return {
-      ticks: 8,
-      camera: () => lockCam(gs, 330, 300),
-      onReveal: bossBannerOnReveal(gs),
-      during: (t) => {
-        if (cue("charge", t >= 90)) forceBoss(gs, "charge");
+      ticks: 4,
+      camera: () => {
+        followCam(gs, -34, -30);
+        // Tall deadzone: the chain arcs 40px a hop, and a tight vertical follow
+        // pumps the frame up and down with it and drops the floor out of shot.
+        gs.cameras.main.setDeadzone(18, 44);
       },
-      script: (t) =>
-        solo(
+      // Air-steer onto the next head instead of holding right blindly: a stomp
+      // bounce carries ~130px while the heads sit ~85px apart and walk toward
+      // you, so an open-loop run overshoots head 3 and the chain dies at x2.
+      // Asymmetric deadband because air momentum lags the input: stop pushing
+      // while the head is still 14px out, then brake with `left` once inside 4,
+      // or the last few frames of accel carry him past the 15px stomp window.
+      script: (t) => {
+        const dx = foeDx(gs);
+        const grounded = gs.trailerWorld().p1.body.grounded;
+        return solo(
           inp({
-            jumpPressed: press("j", t >= 540),
-            jumpHeld: t >= 540 && t < 900,
-            left: t >= 560,
+            right: dx > 14,
+            left: dx < 4,
+            jumpHeld: true,
+            // A bounce that lands short would otherwise end the chain on the
+            // floor; hop back onto the next head instead.
+            jumpPressed: rehop(t, grounded && Math.abs(dx) < 90),
           }),
-        ),
+        );
+      },
     };
   },
 };
 
-// Lord 5 — Void Sovereign, phase two, leap-slam right at the hero; escape dash,
-// blast fills the frame. Biggest of the five, straight into the co-op beat.
-const bossTease5: Beat = {
-  id: "boss-tease-5",
-  duration: 1300,
-  build: (gs) => {
-    stageBoss(gs, 5, 114, 330);
-    const boss = gs.trailerWorld().boss;
-    if (boss) {
-      boss.body.phase = 2;
-      boss.body.forceState("idle");
-    }
-    const press = presser();
-    const cue = presser();
-    return {
-      ticks: 8,
-      camera: () => followCam(gs, 50, -4),
-      onReveal: bossBannerOnReveal(gs),
-      during: (t) => {
-        if (cue("jump", t >= 60)) forceBoss(gs, "jump");
-      },
-      script: (t) =>
-        solo(
-          inp({
-            left: t >= 360 && t < 700,
-            dashPressed: press("d", t >= 380),
-          }),
-        ),
-    };
-  },
-};
-
-// 15 · CO-OP LAST STAND — the real last-stand sim: Mooni goes down under the
-// ambush, Axion fights through, revives inside the ring while a straggler
-// hammers his ward, and Mooni answers with a heal. Shared hearts on.
+// 10 · CO-OP LAST STAND — the real last-stand sim: Mooni is already down when
+// the shot opens (the pre-roll eats the walk-up), Axion fights through the
+// ambush, holds the ring to fill the revive bar, and Mooni answers with a heal.
+// Shared hearts on: one row, two players.
 const coopRevive: Beat = {
   id: "coop-revive",
-  duration: 4000,
+  duration: 3200,
   build: (gs) => {
     gs.trailerStage({
       hero: "axion",
       hero2: "mooni",
       room: "start",
-      biome: 2,
+      biome: 3,
       seed: 115,
       noEnemies: true,
       mods: { dmg: 2 },
       hearts: 1,
-      playerAt: { x: 200, y: FLOOR_Y },
-      player2At: { x: 555, y: FLOOR_Y },
+      // 40px closer than the ambush needs: the whole down → clear → hold →
+      // REVIVED → +HP chain has to fit, and every 100px of approach is 0.4s the
+      // payoff doesn't get.
+      playerAt: { x: 510, y: FLOOR_Y },
+      player2At: { x: 620, y: FLOOR_Y },
       hud: { hearts: true, banner: true },
       // Start rooms are auto-cleared, so the exit door renders as an ACTIVE
       // pink FIGHT gate mid-frame — hide it, the revive is the subject.
       hideDoors: true,
     });
-    gs.trailerSpawnEnemy("warrior", 610, FLOOR_Y);
-    gs.trailerSpawnEnemy("warrior", 632, FLOOR_Y);
-    gs.trailerSpawnEnemy("warrior", 665, FLOOR_Y);
+    for (const x of [578, 662, 706]) gs.trailerSpawnEnemy("warrior", x, FLOOR_Y);
     const press = presser();
     const cue = presser();
+    const swing = repeater(260);
     return {
-      ticks: 24,
+      // ~1.6s of pre-roll: the ambush, the fatal hit and the down have all
+      // already happened when the cut opens, instead of a lone hero walking.
+      ticks: 95,
       camera: () => followCam(gs, -40, 0),
       during: () => {
         // Arm 100% ward the moment the down actually lands (closed-loop, not a
@@ -656,16 +644,25 @@ const coopRevive: Beat = {
       },
       script: (t) => {
         const w = gs.trailerWorld();
+        const down = w.p2;
+        const target = down ? down.x : w.p1.x;
+        const dx = target - w.p1.x;
         const p1 = inp({
-          right: t >= 250 && w.p1.x < 536,
-          dashPressed: press("d", t >= 700),
-          attackPressed: press("a1", t >= 1900) || press("a2", t >= 2300) || press("a3", t >= 3100),
+          // Close on the downed ally, then hold the overlap: the revive meter
+          // only fills while the rescuer is inside the ring.
+          right: t < 0 ? false : dx > 12,
+          left: t >= 0 && dx < -12,
+          dashPressed: press("d", t >= 120),
+          attackPressed: swing(t, t >= 300 && Math.abs(foeDx(gs)) < 30),
         });
-        const p2Downed = w.p2 !== null && w.p2.body.downed;
+        const p2Downed = down !== null && down.body.downed;
         const p2 = inp({
-          right: t >= 0 && t < 120,
-          attackPressed: press("b1", t >= 40), // brave whiff into the ambush
-          specialPressed: press("heal", t >= 3400 && !p2Downed),
+          attackPressed: press("b1", t < 0), // brave whiff into the ambush
+          // Armed off the revive EDGE, not a clock: she is down from frame one,
+          // so !downed first goes true on the frame she gets up, whenever the
+          // fight in front of her actually ends. A fixed 2600ms fired after the
+          // revive on a fast run and never on a slow one.
+          specialPressed: press("heal", t >= 0 && !p2Downed),
         });
         return { p1, p2 };
       },
@@ -673,12 +670,15 @@ const coopRevive: Beat = {
   },
 };
 
-// 16 · ONLINE VERSUS — mirrored duel staged mid-match (2-2, hearts worn down),
-// stomp + finisher take the round: score pips flash 3. Both fighters are
-// local bodies through the real VersusMatch machine.
+// 11 · ONLINE VERSUS — mirrored duel staged mid-match (2-2, hearts worn down):
+// the host vaults the centre riser into the guest's half, stomp + finisher take
+// the round. Both fighters are local bodies through the real VersusMatch
+// machine. The arena floor is cut into four pens by the two side ledges and the
+// riser (all head-height above a standing body), so crossing it is a jump —
+// hence the stall-jumper below rather than a straight walk.
 const versusDuel: Beat = {
   id: "versus-duel",
-  duration: 3000,
+  duration: 2600,
   build: (gs) => {
     gs.trailerStage({
       hero: "axion",
@@ -689,8 +689,15 @@ const versusDuel: Beat = {
       hud: { hearts: true, info: true, banner: true },
     });
     const press = presser();
+    const hop = stallJumper();
+    const swing = repeater(300);
     return {
-      camera: () => lockCam(gs, 256, 136),
+      // The duelists spawn 144px apart; 30 ticks of approach opens the shot on
+      // an exchange rather than a standing start.
+      ticks: 30,
+      // The duel stage is only 17 rows: centre LOW or the camera's own bounds
+      // clamp leaves both fighters standing under the bottom edge.
+      camera: () => lockCam(gs, 256, 205),
       script: (t) => {
         const w = gs.trailerWorld();
         const p2 = w.p2;
@@ -698,21 +705,24 @@ const versusDuel: Beat = {
         const dx = p2.x - w.p1.x;
         const adx = Math.abs(dx);
         const host = inp({
-          right: dx > 34,
-          left: dx < -34,
-          jumpPressed: press("stomp", t > 480 && adx < 70),
-          jumpHeld: t > 480 && t < 950,
-          attackPressed:
-            press("a1", t > 1250 && adx < 46) ||
-            press("a2", t > 1700 && adx < 46) ||
-            press("a3", t > 2150 && adx < 46),
+          right: dx > 26,
+          left: dx < -26,
+          // The riser splits the arena floor into pens: walking at the opponent
+          // only ever reaches its face, so the approach itself has to clear it.
+          jumpPressed: hop(t, w.p1.x, adx > 26) || press("stomp", t > 320 && adx < 60),
+          jumpHeld: true, // holding is what makes a hop a full jump, not a stub
+          // Swing when the opponent is actually hittable, not on a schedule: a
+          // landed hit grants 0.9s of i-frames and a swing runs ~0.8s, so a
+          // fixed cadence spends most of its presses on an invulnerable target.
+          // Two clean hits take the round (the duel is staged at 2 hearts).
+          attackPressed: swing(t, t > 600 && adx < 40 && p2.body.iframes <= 0),
         });
         const guest = inp({
-          right: -dx > 44,
-          left: -dx < -44,
-          jumpPressed: press("hop", t > 1000 && adx < 90),
-          jumpHeld: t > 1000 && t < 1250,
-          attackPressed: press("b1", t > 750 && adx < 52) || press("b2", t > 1900 && adx < 52),
+          right: -dx > 40,
+          left: -dx < -40,
+          jumpPressed: press("hop", t > 700 && adx < 90),
+          jumpHeld: t > 700 && t < 950,
+          attackPressed: press("b1", t > 520 && adx < 52) || press("b2", t > 1550 && adx < 52),
         });
         return { p1: host, p2: guest };
       },
@@ -720,50 +730,49 @@ const versusDuel: Beat = {
   },
 };
 
-// 17 · ROGUELITE HONESTY, part 1 — overwhelmed and killed on screen. The death
-// banner shows the shard yield: dying pays. Cut on the crumple.
+// 12 · ROGUELITE HONESTY, part 1 — overwhelmed and killed on screen, early
+// enough that the death banner (score + the shards the run banks) holds. The
+// hero is deliberately under-powered here: this room wins.
 const deathForge: Beat = {
   id: "death-forge",
-  duration: 1400,
+  // Death lands ~0.85s in and `state = "dead"` stops the sim dead — the room
+  // behind the banner is a freeze-frame from that moment on, so the shot holds
+  // the yield just long enough to read and cuts before the stillness registers.
+  duration: 1450,
   build: (gs) => {
     gs.trailerStage({
-      hero: "axion",
+      hero: "salamander",
       room: "elite",
       biome: 4,
       seed: 117,
       depth: 6,
       noEnemies: true,
-      mods: { dmg: 2 },
+      mods: { dmg: 0.3 },
       hearts: 1,
       gold: 37,
       score: 1480,
-      playerAt: { x: 260, y: FLOOR_Y },
-      hud: { banner: true },
+      playerAt: { x: 350, y: FLOOR_Y },
+      hud: { banner: true, hearts: true },
+      fgTrees: false,
     });
-    gs.trailerSpawnEnemy("warrior", 336, FLOOR_Y);
-    gs.trailerSpawnEnemy("warrior", 372, FLOOR_Y);
-    gs.trailerSpawnEnemy("bomber", 180, FLOOR_Y); // the killer, fuse-flashing behind
-    const press = presser();
+    gs.trailerSpawnEnemy("warrior", 318, FLOOR_Y, "brutal");
+    gs.trailerSpawnEnemy("warrior", 386, FLOOR_Y, "brutal");
+    gs.trailerSpawnEnemy("spearman", 300, FLOOR_Y, "swift");
+    const swing = repeater(240);
     return {
-      ticks: 12,
-      script: (t) =>
-        solo(
-          inp({
-            right: t >= 0 && t < 150,
-            attackPressed: press("a1", t >= 150) || press("a2", t >= 550),
-          }),
-        ),
+      ticks: 10,
+      camera: () => followCam(gs, 0, 0),
+      script: (t) => solo(inp({ attackPressed: swing(t, Math.abs(foeDx(gs)) < 30) })),
     };
   },
 };
 
-// 17b · ROGUELITE HONESTY, part 2 — instant new-run drop-in: fresh hero, depth
-// 1, first kill of the next descent already landing. Run info HUD on so the
-// reset reads. (The beat sheet's 0.8s Moon Forge panel flash is substituted —
-// see the deviation note in the delivery report.)
+// 12b · ROGUELITE HONESTY, part 2 — instant new-run drop-in: fresh hero, depth
+// 1, the first kill of the next descent already landing. Run info HUD on so the
+// reset reads (MOONWOOD 1 · DEPTH 1 · everything back to zero).
 const deathRebirth: Beat = {
   id: "death-rebirth",
-  duration: 1100,
+  duration: 1200,
   build: (gs) => {
     gs.trailerStage({
       hero: "mooni",
@@ -774,23 +783,128 @@ const deathRebirth: Beat = {
       noEnemies: true,
       mods: { dmg: 2 },
       playerAt: { x: 48, y: FLOOR_Y },
-      hud: { info: true },
+      hud: { info: true, hearts: true },
+      hideDoors: true,
     });
-    gs.trailerSpawnEnemy("warrior", 330, FLOOR_Y);
+    // Two, spaced a dash apart: one warrior at 196 died inside the first 100ms
+    // and left 1.1s of a lone hero jogging through an empty room.
+    gs.trailerSpawnEnemy("warrior", 244, FLOOR_Y);
+    gs.trailerSpawnEnemy("warrior", 430, FLOOR_Y);
     const press = presser();
+    const swing = repeater(240);
     return {
-      ticks: 14,
+      // ~0.4s of run-up: enough that the hero is at speed on the reveal, short
+      // enough that the first kill still lands on camera.
+      ticks: 24,
       camera: () => followCam(gs, -56, 6),
-      script: () => {
-        const w = gs.trailerWorld();
-        const x = w.p1.x;
-        const foe = w.enemies[0];
-        const near = foe !== undefined && !foe.body.dead && Math.abs(foe.body.x - x) < 44;
-        return solo(
+      script: (t) =>
+        solo(
           inp({
             right: true,
-            attackPressed: press("a", near),
-            dashPressed: press("d", x >= 400),
+            attackPressed: swing(t, Math.abs(foeDx(gs)) < 30),
+            dashPressed: press("d", t >= 700),
+          }),
+        ),
+    };
+  },
+};
+
+// 13-15 · THE LORDS — three of the five biome bosses, one per attack pattern
+// and one per camera grammar: Cinderking's flame fan (locked wide), Rimewarden's
+// phase flip (follow, the fight's only structural beat), Blightmaw's arena
+// charge. Axion runs the gauntlet; the fifth Lord is saved for the climax.
+function stageBoss(gs: GameScene, biome: number, seed: number, playerX: number, hearts = 4): void {
+  gs.trailerStage({
+    hero: "axion",
+    room: "boss",
+    biome,
+    seed,
+    mods: { dmg: 3 },
+    hearts,
+    playerAt: { x: playerX, y: BOSS_FLOOR_Y },
+    hud: { banner: true, bossBar: true, hearts: true },
+    fgTrees: false,
+  });
+}
+function bossBannerOnReveal(gs: GameScene): () => void {
+  // 600ms, not the full shot: the name is context, the Lord is the subject.
+  return () => {
+    const boss = gs.trailerWorld().boss;
+    if (boss) gs.trailerBanner(boss.body.kind.banner, 600);
+  };
+}
+function forceBoss(gs: GameScene, state: "idle" | "wave" | "jump" | "charge" | "punch"): void {
+  const boss = gs.trailerWorld().boss;
+  if (boss && !boss.body.dead) boss.body.forceState(state);
+}
+
+// Lord 2 — Cinderking's triple flame fan at staggered heights; hero leaps the
+// low wave. Locked wide so the whole fan travels through frame.
+const bossFan: Beat = {
+  id: "boss-fan",
+  duration: 1500,
+  build: (gs) => {
+    stageBoss(gs, 2, 111, 262);
+    forceBoss(gs, "idle"); // skip the intro pose: it walks at the hero, eating the shot
+    const press = presser();
+    const cue = presser();
+    return {
+      ticks: 8,
+      camera: () => lockCam(gs, 340, 300),
+      onReveal: bossBannerOnReveal(gs),
+      during: (t) => {
+        if (cue("wave", t >= 40)) forceBoss(gs, "wave");
+      },
+      script: (t) =>
+        solo(
+          // The fan emits 0.5s into the wind-up and crosses the 146px gap in
+          // ~0.8s, so the leap is timed to the waves, not to the cast.
+          inp({
+            jumpPressed: press("j", t >= 900),
+            jumpHeld: t >= 900 && t < 1220,
+          }),
+        ),
+    };
+  },
+};
+
+// Lord 3 — RIMEWARDEN, the phase flip: two hits cross 50% HP, the Lord white-
+// flashes into its 0.6s invulnerable phase state, and its archers materialise
+// under the game's own REINFORCEMENTS banner before the barrage resumes.
+const bossPhase: Beat = {
+  id: "boss-phase",
+  duration: 2400,
+  build: (gs) => {
+    stageBoss(gs, 3, 112, 360);
+    const boss = gs.trailerWorld().boss;
+    if (boss) {
+      // maxHp 70: five over the halfway mark, so the SECOND scripted swing
+      // trips the phase through the real takeHit path.
+      boss.body.hp = Math.floor(boss.body.maxHp / 2) + 5;
+      boss.body.forceState("idle");
+    }
+    const cue = presser();
+    const swing = repeater(320);
+    return {
+      ticks: 10,
+      camera: () => followCam(gs, -30, 0),
+      onReveal: bossBannerOnReveal(gs),
+      during: (t) => {
+        const b = gs.trailerWorld().boss;
+        // Once the adds are in, let the Lord open on them: a fan across its own
+        // reinforcements is the picture the beat exists for.
+        if (b && cue("fan", t >= 1700 && b.body.state === "idle")) forceBoss(gs, "wave");
+      },
+      script: (t) => {
+        const w = gs.trailerWorld();
+        const b = w.boss;
+        if (!b) return solo(inp());
+        const dx = b.body.x - w.p1.x;
+        return solo(
+          inp({
+            right: dx > 34,
+            left: dx < -34 || (t >= 1900 && t < 2150),
+            attackPressed: swing(t, t < 1500 && Math.abs(dx) < 46),
           }),
         );
       },
@@ -798,109 +912,97 @@ const deathRebirth: Beat = {
   },
 };
 
-// 18 · CLIMAX — Void Sovereign at a sliver of HP, phase two. Survive the slam,
-// close in, chain into the super-smash finisher: hitstop, 420ms shake, gold
-// burst, VOID SOVEREIGN SLAIN.
+// Lord 4 — Blightmaw's 300px/s arena charge, ghost-trailed so the lunge reads
+// as a lunge; hero jumps it and drifts out into open frame.
+const bossCharge: Beat = {
+  id: "boss-charge",
+  duration: 1500,
+  build: (gs) => {
+    stageBoss(gs, 4, 113, 236);
+    forceBoss(gs, "idle");
+    const press = presser();
+    const cue = presser();
+    return {
+      ticks: 8,
+      camera: () => followCam(gs, 30, -8),
+      onReveal: bossBannerOnReveal(gs),
+      during: (t) => {
+        if (cue("charge", t >= 90)) forceBoss(gs, "charge");
+        if (cue("charge2", t >= 900)) forceBoss(gs, "charge");
+      },
+      script: (t) => {
+        const w = gs.trailerWorld();
+        const b = w.boss;
+        if (!b) return solo(inp());
+        const adx = Math.abs(b.body.x - w.p1.x);
+        // Jump the lunge when it's actually arriving (closed-loop): the wind-up
+        // is 0.4s and the body-check is only live for the 0.42s after it.
+        const incoming = b.body.state === "charge" && b.body.stateT > 0.32 && adx < 70;
+        return solo(
+          inp({
+            jumpPressed: press("j1", incoming) || press("j2", t >= 1150 && incoming),
+            jumpHeld: t >= 300,
+            right: t >= 700,
+          }),
+        );
+      },
+    };
+  },
+};
+
+// 16 · CLIMAX — VOID SOVEREIGN at a sliver of HP in phase two. Survive the
+// leap-slam, close in, chain into the super-smash: hitstop, 420ms shake, gold
+// burst, "VOID SOVEREIGN SLAIN". Then the room's own checkClear lights the exit
+// and calls DESCEND — the loop closes on the frame the trailer ends on.
 const bossKill: Beat = {
   id: "boss-kill",
-  duration: 4000,
+  duration: 4350,
   build: (gs) => {
     stageBoss(gs, 5, 119, 300);
     const boss = gs.trailerWorld().boss;
     if (boss) {
-      boss.body.hp = 7; // the finishing-blow shot: bar shows a sliver
+      boss.body.hp = 6; // maxHp 120 — the bar opens on a sliver
       boss.body.phase = 2;
       boss.body.forceState("idle");
     }
     const press = presser();
     const cue = presser();
+    const ground = repeater(400);
+    const swing = repeater(300);
     return {
       ticks: 8,
       camera: () => followCam(gs, -36, -6),
       onReveal: bossBannerOnReveal(gs),
       during: (t) => {
         if (cue("slam", t >= 80)) forceBoss(gs, "jump");
+        // Keep the Lord grounded after its opening slam. Left to its own phase-2
+        // rhythm it leaps every 0.5s and the hero never gets inside smash range,
+        // which is how the old cut reached its climax without landing a hit.
+        const b = gs.trailerWorld().boss;
+        if (b && !b.body.dead && ground(t, t >= 900 && b.body.state === "jump"))
+          forceBoss(gs, "idle");
       },
       script: (t) => {
         const w = gs.trailerWorld();
         const b = w.boss;
-        if (!b || b.body.dead) return solo(inp()); // stand over the kill
+        // Kill landed: walk on toward the exit. The room's checkClear needs the
+        // 0.9s death hold before it lights the gate and calls DESCEND, but the
+        // hero starts moving as soon as the explosion's shake decays — waiting
+        // for the banner left a full second of a man standing in an empty arena.
+        if (!b || b.body.dead) return solo(inp({ right: t >= 2350 }));
         const dx = b.body.x - w.p1.x;
         const adx = Math.abs(dx);
         return solo(
           inp({
-            // Escape the opening slam, then hunt the boss down.
-            left: (t >= 380 && t < 650) || (t >= 1100 && dx < -34),
-            right: t >= 1100 && dx > 34,
-            dashPressed:
-              press("d1", t >= 400) || press("dodge", b.body.state === "charge" && adx < 90),
-            attackPressed:
-              press("a1", t >= 1900 && adx < 52) ||
-              press("a2", t >= 2300 && adx < 52) ||
-              press("a3", t >= 3400 && adx < 52),
-            specialPressed: press("smash", t >= 2800 && adx < 50),
+            // Back out of the slam's landing ring, then hunt it down. (Hearts
+            // stay at 4: this retreat is early enough that the slam misses.)
+            left: (t >= 620 && t < 820) || (t >= 1000 && dx < -34),
+            right: t >= 1000 && dx > 34,
+            dashPressed: press("d1", t >= 640),
+            attackPressed: swing(t, t >= 1100 && adx < 50),
+            specialPressed: press("smash", t >= 1700 && adx < 46),
           }),
         );
-      },
-    };
-  },
-};
-
-// 19 · RELEASE — hero on the high ledge, still, facing the moon over the
-// four-layer forest. The only manufactured prop in the trailer: a moon built
-// from the game's own glow texture, deepest parallax layer.
-const moonrise: Beat = {
-  id: "moonrise",
-  duration: 2000,
-  build: (gs) => {
-    gs.trailerStage({
-      hero: "axion",
-      room: "start",
-      biome: 1,
-      seed: 120,
-      noEnemies: true,
-      // The hero stands on the exit-door ledge; the start room is auto-cleared,
-      // so the gate there would pulse magenta with a FIGHT label mid-frame.
-      hideDoors: true,
-      playerAt: { x: 560, y: 224 },
-    });
-    const scrollX = 560 - BASE_W * 0.66;
-    const scrollY = 66;
-    const sf = 0.1; // deepest layer — drifts least under the slow pan
-    const mx = scrollX * sf + BASE_W * 0.3;
-    const my = scrollY * sf + 62;
-    ensureGlow(gs);
-    const halo = gs.add
-      .image(mx, my, "fx-glow")
-      .setTint(0xcfe0ff)
-      .setAlpha(0.85)
-      .setBlendMode(Phaser.BlendModes.ADD)
-      .setScale(4.6)
-      .setDepth(-37)
-      .setScrollFactor(sf);
-    const core = gs.add.circle(mx, my, 12, 0xe8eefc, 1).setDepth(-37).setScrollFactor(sf);
-    return {
-      ticks: 4,
-      camera: () => {
-        const cam = gs.cameras.main;
-        cam.stopFollow();
-        cam.setScroll(scrollX, scrollY);
-      },
-      script: (t) => solo(inp({ left: t < 0 })), // pre-roll only: face the moon
-      during: (t) => {
-        // Barely-perceptible drift toward the moon; parallax layers breathe.
-        gs.cameras.main.setScroll(scrollX - t * 0.004, scrollY);
-      },
-      cleanup: () => {
-        // Final beat: the shell runs teardown BEFORE its 400ms fade to black,
-        // so an immediate destroy pops the moon off a fully-visible frame.
-        // Delay past the fade; it must still happen — the halo (scrollFactor
-        // 0.1, depth -37) survives buildRoom's teardownRoom and would haunt
-        // every scene of a &loop=1 replay (earliest ~3s later, never a race).
-        gs.time.delayedCall(600, () => {
-          halo.destroy();
-          core.destroy();
-        });
       },
     };
   },
@@ -908,25 +1010,22 @@ const moonrise: Beat = {
 
 const BEATS: Beat[] = [
   coldOpen,
-  movementTech,
-  biome1,
-  biome2,
-  biome3,
-  biome4,
-  biome5,
+  realmEmber,
+  realmFrost,
+  realmVoid,
   relicSpike,
+  pathCache,
   eliteCrits,
-  bossTease1,
-  bossTease2,
-  bossTease3,
-  bossTease4,
-  bossTease5,
+  movementTech,
+  stompChain,
   coopRevive,
   versusDuel,
   deathForge,
   deathRebirth,
+  bossFan,
+  bossPhase,
+  bossCharge,
   bossKill,
-  moonrise,
 ];
 
 // ── entry ─────────────────────────────────────────────────────────────────────

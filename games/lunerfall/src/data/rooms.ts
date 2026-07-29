@@ -121,7 +121,16 @@ export const VERSUS = (): RoomDef =>
     .block(4, 12, 9, 2) // left ledge
     .block(22, 12, 27, 2) // right ledge (mirror)
     .oneway(12, 9, 19) // high centre platform
-    .player(4, 14);
+    // Col 11 (mirror: col 20) is the only band clear of BOTH the side ledges
+    // (cols 4-9 / 22-27) and the centre riser. Spawning under a ledge wedged the
+    // 22px body into its underside — solid at row 13 — and both duelists were
+    // frozen in place for the whole round.
+    //
+    // Note for anyone scripting this arena: every one of those slabs is head
+    // height over a body standing on the floor, so the floor is four pens
+    // (x 22-58 / 166-218 / 294-346 / 454-490) and crossing between them is a
+    // jump, not a walk. sim.mts asserts they stay connected.
+    .player(11, 14);
 
 export const BOSS = (): RoomDef =>
   new RoomDef(50, RH + 1)

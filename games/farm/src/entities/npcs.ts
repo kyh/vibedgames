@@ -79,6 +79,30 @@ export class NpcManager {
     l.shadow.setPosition(x, y + 1);
   }
 
+  /** Trailer staging: show exactly these NPCs and hide the rest. Villagers are
+   *  drawn from the player's own sprite, so an unstaged one standing in shot
+   *  reads as a motionless duplicate of the hero. Dead in normal play. */
+  trailerVisible(ids: NpcId[]): void {
+    for (const l of this.live) {
+      const on = ids.includes(l.id);
+      l.spr.setVisible(on);
+      l.shadow.setVisible(on);
+    }
+  }
+
+  /** Trailer staging: send an NPC walking to a tile through the ordinary wander
+   *  mover — the anchor moves with them, so they settle there instead of
+   *  drifting back. Dead in normal play (NPCs pick their own targets). */
+  trailerWalkTo(id: NpcId, tx: number, ty: number): void {
+    const l = this.live.find((n) => n.id === id);
+    if (!l) return;
+    const x = tx * TILE + 8;
+    const y = ty * TILE + 14;
+    l.home = { x, y };
+    l.target = { x, y };
+    l.rest = 6; // long enough that no wander re-roll interrupts the walk
+  }
+
   /** Trailer staging: a live NPC's feet tile — NPCs wander around their anchor,
    *  so scripted approach/gifting resolves the live position. Dead otherwise. */
   trailerTileOf(id: NpcId): { tx: number; ty: number } | null {

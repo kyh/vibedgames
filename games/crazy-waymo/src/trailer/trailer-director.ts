@@ -18,24 +18,30 @@ import type { TrafficCar } from "../game/traffic";
 import type { CarInput } from "../vehicle/car";
 import type { CityModel, RoadCell } from "../world/city";
 import type { NetEdge } from "../world/network";
-import { districtAt } from "../world/sf-map";
+import { landmarkMarkers } from "../world/landmarks";
+import { districtAt, type DistrictChar } from "../world/sf-map";
 import {
   type Approach,
   type CornerSpot,
   type CrestSpot,
+  type DescentSpot,
   type FreewayRun,
   type GateSpot,
   type JunctionSpot,
+  type NearRun,
+  type RunSpot,
   type ScoutCtx,
-  type ShoreSpot,
   edgeInPlayArea,
+  isWaterAt,
   nearFreeway,
   scoutArterial,
   scoutCorners,
   scoutCrests,
+  scoutDescent,
   scoutFreeway,
   scoutGoldenGate,
-  scoutShore,
+  scoutPlowRun,
+  scoutRunNear,
   scoutSignalJunctions,
 } from "./scout";
 import { runTrailer, type TrailerScene } from "./trailer-shell";
@@ -51,6 +57,38 @@ const NEUTRAL: CarInput = { throttle: 0, brake: 0, steer: 0, boost: false };
  *  pack-race shot can mix them freely — an unknown id would silently fall back
  *  to a Waymo and the pack would read as one car six times. */
 const SKIN_IDS = ["cruise", "zoox", "lyft", "uber", "cybercab", "waymo"] as const;
+
+const HERO_SKIN = "waymo";
+
+/** The pack-race beat is the trailer's only chance to say "the robotaxi is a
+ *  CHOICE" — six liveries bought at garages, not six flavours of traffic.
+ *
+ *  The player stays in the WHITE WAYMO for it. A revision that put the player
+ *  in the Cybercab to make the roster read did the opposite on screen: against
+ *  dark asphalt at 0.44 the dark-gold coupe is chromatically indistinguishable
+ *  from traffic, and the frame-by-frame verification could not identify the
+ *  subject in ANY of the four delivered stills. The trailer spends twelve other
+ *  beats training the viewer on one silhouette — white body, blue lidar band,
+ *  roof dome — and this is the shot where losing it costs the most, because it
+ *  is the only shot with six similar cars in it. The roster still reads: the
+ *  five RIVALS wear everything else, Cybercab included. */
+const RIVAL_SKINS: readonly string[] = SKIN_IDS.filter((id) => id !== HERO_SKIN);
+
+/** Boulevard desirability by district character. A trailer shot on a street
+ *  is also a shot of the neighbourhood it runs through, and the raw
+ *  length × width score kept handing the biggest beats to Dogpatch warehouse
+ *  walls and the China Basin pier apron — the two characters with the least
+ *  San Francisco in them. */
+const DISTRICT_WEIGHT: Partial<Record<DistrictChar, number>> = {
+  downtown: 1.35,
+  highrise: 1.35,
+  commercial: 1.35,
+  victorian: 1.25,
+  residential: 1,
+  park: 0.9,
+  industrial: 0.5,
+  wharf: 0.5,
+};
 
 /** Day phase for the drift beat. Shared, because pickCorners rejects corners
  *  whose exit street stares into the sun — and that test is only meaningful if
@@ -144,16 +182,40 @@ function setDisplay(id: string, show: boolean): void {
   if (el) el.style.display = show ? "" : "none";
 }
 
+/** HUD policy: everything off; only the fare run restores the juicy layer
+ *  (score, dial, fare card, combo/receipt) — nav chrome stays hidden.
+ *
+ *  Module-level because it also has to run BEFORE the first scene stages: the
+ *  game's boot HUD (EARNED 0 / TIME 60 + the loading bar) draws above the
+ *  shell's black cut plate, so it was on screen for the recording's opening
+ *  frames until something hid it. */
+function hideChrome(hud: boolean): void {
+  setDisplay("hud", hud);
+  setDisplay("netinfo", false);
+  setDisplay("touch", false);
+  for (const id of ["minimap", "area", "district", "dest-arrow"]) setDisplay(id, false);
+}
+
 class Director {
   private stage: TrailerStage | null = null;
   private readonly city: CityModel;
   private readonly ctx: ScoutCtx;
 
   // Scouted once — the baked world is deterministic, so these never change.
+  private readonly plow: RunSpot | null;
   private readonly boulevards: { edge: NetEdge; dir: 1 | -1 }[];
   private readonly arterial: { edge: NetEdge; dir: 1 | -1 };
   private readonly crests: CrestSpot[];
-  private readonly shore: ShoreSpot | null;
+  private readonly descent: DescentSpot | null;
+  private readonly ferry: NearRun | null;
+  private readonly bayBridge: NearRun | null;
+  private readonly bayBridgeAt: { x: number; z: number } | null;
+  private readonly summit: NearRun | null;
+  private readonly summitAt: { x: number; z: number } | null;
+  /** The Golden Gate's south landfall. Not a beat of its own — it is what the
+   *  vista crane opens onto, 1238u out, and the only structure that survives
+   *  that range (see sceneVista). */
+  private readonly fortPointAt: { x: number; z: number } | null;
   private readonly freeway: FreewayRun | null;
   private readonly fareCorner: CornerSpot | null;
   private readonly driftCorner: CornerSpot | null;
@@ -169,6 +231,9 @@ class Director {
   private camYaw: number | null = null;
   private shake = 0;
   private step = 0;
+  /** 0..1 camera blend a scene drives itself (step changes are instantaneous;
+   *  a camera that followed one would cut rather than move). */
+  private blend = 0;
   private substituted = false;
   private fakes: FakeCar[] = [];
   private sceneNode = new THREE.Vector2(); // active junction/corner centre
@@ -188,10 +253,33 @@ class Director {
       network: city.network,
       heightAt: (x, z) => city.heightAt(x, z),
     };
-    this.boulevards = this.pickBoulevards(4);
+    // The plow beat has the hardest requirement in the cut (230u of straight,
+    // flat, DRY kerb), so it claims its street first and the general-purpose
+    // boulevards are picked around it.
+    this.plow = scoutPlowRun(this.ctx);
+    this.boulevards = this.pickBoulevards(4, this.plow?.edge);
     this.arterial = scoutArterial(this.ctx) ?? this.boulevard(0);
     this.crests = scoutCrests(this.ctx, 3);
-    this.shore = scoutShore(this.ctx);
+    this.descent = scoutDescent(this.ctx);
+    // Landmark-anchored beats. landmarkMarkers resolves the authored lat/lon
+    // marks against the built network, so these are the monuments' real
+    // positions, not the authoring guesses.
+    const marks = landmarkMarkers(city.network);
+    const markAt = (name: string): { x: number; z: number } | null =>
+      marks.find((m) => m.name === name) ?? null;
+    const runAt = (
+      name: string,
+      opts: { radius: number; minLen: number; minHalf: number },
+    ): NearRun | null => {
+      const m = markAt(name);
+      return m ? scoutRunNear(this.ctx, m.x, m.z, opts) : null;
+    };
+    this.ferry = runAt("the Ferry Building", { radius: 90, minLen: 60, minHalf: 5 });
+    this.bayBridge = runAt("the Bay Bridge", { radius: 60, minLen: 55, minHalf: 5 });
+    this.bayBridgeAt = markAt("the Bay Bridge");
+    this.summit = runAt("the Twin Peaks overlook", { radius: 70, minLen: 45, minHalf: 3 });
+    this.summitAt = markAt("the Twin Peaks overlook");
+    this.fortPointAt = markAt("Fort Point");
     this.freeway = scoutFreeway(this.ctx);
     const corners = this.pickCorners();
     this.fareCorner = corners.fare;
@@ -200,7 +288,11 @@ class Director {
     this.gate = scoutGoldenGate(this.ctx);
     for (const [name, ok] of [
       ["crest", this.crests.length > 0],
-      ["shore", this.shore !== null],
+      ["descent", this.descent !== null],
+      ["plow street", this.plow !== null],
+      ["ferry building", this.ferry !== null],
+      ["bay bridge", this.bayBridge !== null && this.bayBridgeAt !== null],
+      ["twin peaks", this.summit !== null && this.summitAt !== null],
       ["freeway", this.freeway !== null],
       ["corner", this.fareCorner !== null],
       ["junction", this.junctions.length > 0],
@@ -268,18 +360,14 @@ class Director {
     this.camYaw = null;
     this.shake = 0;
     this.step = 0;
+    this.blend = 0;
     this.substituted = false;
     this.fakes = [];
     return st;
   }
 
-  /** HUD policy: everything off; fare-run restores only the juicy layer
-   *  (score, dial, fare card, combo/receipt) — nav chrome stays hidden. */
   private hudVisible(on: boolean): void {
-    setDisplay("hud", on);
-    setDisplay("netinfo", false);
-    setDisplay("touch", false);
-    for (const id of ["minimap", "area", "district", "dest-arrow"]) setDisplay(id, false);
+    hideChrome(on);
   }
 
   /** The pre-roll: applied on the first visible frame (run t≈0) so the reveal
@@ -402,16 +490,23 @@ class Director {
   }
 
   /** Manual low chase — tighter and lower than the game rig, with handheld
-   *  impact shake fed by real collisions (lastWallHit). */
-  /** side: lateral camera offset in units, + = right of travel — used when
-   *  the boost flame would otherwise eclipse the action dead ahead. */
+   *  impact shake fed by real collisions (lastWallHit).
+   *
+   *  `sideLeft`: lateral eye offset in units along (+tz, −tx), which with y up
+   *  is the LEFT of travel — used when the boost flame would otherwise eclipse
+   *  the action dead ahead. The parameter used to be called `side` and
+   *  documented as right-of-travel; it never was, and that inversion is what
+   *  staged the demolition cruisers head-on into the plow line. Sign checked
+   *  against world/roads.ts (its lane normal is (−tz, tx) and it drives the
+   *  +side along the edge's own direction) and game/traffic.ts, which offsets
+   *  every car by that same normal. */
   private chaseCam(
     dist: number,
     height: number,
     ahead: number,
     dts: number,
     fov: number,
-    side = 0,
+    sideLeft = 0,
   ): void {
     const st = this.stage;
     if (!st) return;
@@ -422,8 +517,8 @@ class Director {
         : this.camYaw + wrapAngle(car.heading - this.camYaw) * Math.min(1, 6 * dts);
     const fx = Math.sin(this.camYaw);
     const fz = Math.cos(this.camYaw);
-    const rx = fz;
-    const rz = -fx;
+    const lx = fz; // (+tz, -tx) — left of travel
+    const lz = -fx;
     this.shake = Math.max(0, this.shake - dts * 2.2);
     if (car.lastWallHit > 5) this.shake = Math.min(1, this.shake + 0.45);
     const s = this.shake * this.shake;
@@ -431,13 +526,13 @@ class Director {
     const px =
       car.position.x -
       fx * dist +
-      rx * side +
+      lx * sideLeft +
       (Math.sin(t * 31) + Math.sin(t * 57) * 0.6) * s * 0.5;
     const py = car.position.y + height + (Math.sin(t * 43) + Math.sin(t * 71) * 0.6) * s * 0.35;
     const pz =
       car.position.z -
       fz * dist +
-      rz * side +
+      lz * sideLeft +
       (Math.sin(t * 37) + Math.sin(t * 61) * 0.6) * s * 0.5;
     const minY = this.city.heightAt(px, pz) + 1.4;
     this.cam(
@@ -455,19 +550,24 @@ class Director {
    *  frame: cranes, side rakes, anything that has to hold scenery (water, a
    *  bridge tower, a skyline) in the same frame as the car.
    *
-   *  Offsets are in units: `back`/`up`/`right` place the eye, `aheadOf`/
-   *  `aimUp`/`aimRight` place the look-at, all relative to the car and its
-   *  smoothed heading. `floorY` is an ABSOLUTE minimum eye height — pass the
-   *  deck top on elevated shots, where city.heightAt reports the street 7u
-   *  below and would happily let the eye sink through the roadway. */
+   *  Offsets are in units: `back`/`up`/`left` place the eye, `aheadOf`/
+   *  `aimUp`/`aimLeft` place the look-at, all relative to the car and its
+   *  smoothed heading. `floorY` is an ABSOLUTE minimum eye height, and only
+   *  binds when it exceeds `car.y + up`.
+   *
+   *  The two lateral offsets run along (+tz, −tx) — the LEFT of travel. They
+   *  were named `right`/`aimRight` and every caller's value was tuned by eye
+   *  against the delivered frames, so the numbers were right and the name was
+   *  not; the same inversion in edgePath's docstring is what put the
+   *  demolition cruisers in the player's lane. */
   private trackCam(
     o: {
       back: number;
       up: number;
-      right?: number;
+      left?: number;
       aheadOf: number;
       aimUp?: number;
-      aimRight?: number;
+      aimLeft?: number;
       fov: number;
       floorY?: number;
       lag?: number;
@@ -484,20 +584,20 @@ class Director {
         : this.camYaw + wrapAngle(car.heading - this.camYaw) * Math.min(1, lag * dts);
     const fx = Math.sin(this.camYaw);
     const fz = Math.cos(this.camYaw);
-    const rx = fz;
-    const rz = -fx;
-    const right = o.right ?? 0;
-    const px = car.position.x - fx * o.back + rx * right;
-    const pz = car.position.z - fz * o.back + rz * right;
+    const lx = fz;
+    const lz = -fx;
+    const left = o.left ?? 0;
+    const px = car.position.x - fx * o.back + lx * left;
+    const pz = car.position.z - fz * o.back + lz * left;
     const floor = o.floorY ?? this.city.heightAt(px, pz) + 1.4;
-    const aimRight = o.aimRight ?? 0;
+    const aimLeft = o.aimLeft ?? 0;
     this.cam(
       px,
       Math.max(car.position.y + o.up, floor),
       pz,
-      car.position.x + fx * o.aheadOf + rx * aimRight,
+      car.position.x + fx * o.aheadOf + lx * aimLeft,
       car.position.y + (o.aimUp ?? 1.0),
-      car.position.z + fz * o.aheadOf + rz * aimRight,
+      car.position.z + fz * o.aheadOf + lz * aimLeft,
       o.fov,
     );
   }
@@ -535,17 +635,32 @@ class Director {
    *  one edge in the network that runs 357u PAST the ground collider. The car
    *  free-fell through the world for both shots. Bounds are now non-negotiable:
    *  every vertex of the edge has to be somewhere the physics world exists. */
-  private pickBoulevards(n: number): { edge: NetEdge; dir: 1 | -1 }[] {
+  private pickBoulevards(n: number, exclude?: NetEdge): { edge: NetEdge; dir: 1 | -1 }[] {
     const scored: { edge: NetEdge; score: number; x: number; z: number }[] = [];
     for (const e of this.city.network.edges) {
+      if (e === exclude) continue;
       if (e.len < 150 || e.half < 4.4) continue;
       if (!edgeInPlayArea(e)) continue;
       const a = this.city.network.sample(e, 0);
       const b = this.city.network.sample(e, e.len);
       const straightness = Math.hypot(b.x - a.x, b.z - a.z) / e.len;
       if (straightness < 0.95) continue;
+      // Flat: every consumer of this list is a straight-line speed shot, and a
+      // hidden dip either hides the subject or launches it.
+      let maxGrade = 0;
+      for (let s = 6; s <= e.len; s += 6) {
+        const p = this.city.network.sample(e, s - 6);
+        const q = this.city.network.sample(e, s);
+        maxGrade = Math.max(
+          maxGrade,
+          Math.abs(this.city.heightAt(q.x, q.z) - this.city.heightAt(p.x, p.z)) / 6,
+        );
+      }
+      if (maxGrade > 0.06) continue;
       const mid = this.city.network.sample(e, e.len / 2);
-      scored.push({ edge: e, score: e.len * e.half * straightness, x: mid.x, z: mid.z });
+      const weight =
+        DISTRICT_WEIGHT[districtAt(this.city.gridX(mid.x), this.city.gridZ(mid.z)).character] ?? 1;
+      scored.push({ edge: e, score: e.len * e.half * straightness * weight, x: mid.x, z: mid.z });
     }
     scored.sort((p, q) => q.score - p.score);
     const out: { edge: NetEdge; dir: 1 | -1 }[] = [];
@@ -576,7 +691,28 @@ class Director {
     return Math.abs(hIn - h) < 2.4 && Math.abs(hOut - h) < 2.4;
   }
 
+  /** The same junction taken the OTHER way round: arrive down the exit street,
+   *  leave down the entry street. scoutCorners emits both orientations of every
+   *  corner but then de-duplicates by POSITION, so only one of the pair ever
+   *  survives — and which one is an accident of node order, not a choice. Both
+   *  arms are the same two streets, so `cornerFlat` (which probes the same two
+   *  points, swapped) is unchanged by the flip. */
+  private reverseCorner(c: CornerSpot): CornerSpot {
+    return {
+      node: c.node,
+      x: c.x,
+      z: c.z,
+      inArm: { ...c.outArm, tx: -c.outArm.tx, tz: -c.outArm.tz },
+      outArm: { ...c.inArm, tx: -c.inArm.tx, tz: -c.inArm.tz },
+    };
+  }
+
   private pickCorners(): { fare: CornerSpot | null; drift: CornerSpot | null } {
+    // 8, not 20. scoutCorners de-duplicates within 160u BEFORE applying `max`,
+    // and this bake only yields 8 distinct corners — asking for 20 returned
+    // the identical list (verified headless), so the wider scan bought nothing
+    // and the "top eight are all downtown retail" reasoning it carried was
+    // simply false.
     const corners = scoutCorners(this.ctx, 8);
     // Corners under the elevated freeway stage fine but SHOOT terribly —
     // viaduct pillars and deck cut the fixed cam's sightline to the apex.
@@ -593,17 +729,36 @@ class Director {
     const sunOk = (c: CornerSpot): boolean => -(c.outArm.tx * sun.x + c.outArm.tz * sun.z) < 0.35;
     const isVic = (c: CornerSpot): boolean =>
       districtAt(this.city.gridX(c.x), this.city.gridZ(c.z)).character === "victorian";
+    // What the Victorian preference was actually losing to: the only Victorian
+    // corner in `rest` stares 18 degrees off the sun ONE way round (dot 0.954)
+    // and 72 degrees off it the other (dot 0.300), and scoutCorners had kept
+    // the wrong one. Trying the reversed turn is what makes the preference the
+    // docstring has always claimed real — measured, the drift now lands on the
+    // Victorian block instead of a commercial one.
+    const turns = rest.flatMap((c) => [c, this.reverseCorner(c)]);
     const drift =
-      rest.find((c) => sunOk(c) && isVic(c)) ??
-      rest.find(sunOk) ??
-      rest.find(isVic) ??
+      turns.find((c) => sunOk(c) && isVic(c)) ??
+      turns.find(sunOk) ??
+      turns.find(isVic) ??
       rest[0] ??
       fare;
     return { fare, drift };
   }
 
-  /** Polyline down an edge in travel order; `lateral` > 0 shifts the line
-   *  right-of-travel (a lane line instead of the centreline). */
+  /** Polyline down an edge in travel order. `lateral` offsets it along
+   *  (+tz, −tx), which with y up is the LEFT of travel — so a POSITIVE lateral
+   *  puts the line in the ONCOMING lane, and the right-hand lane a scene
+   *  actually wants is a NEGATIVE one.
+   *
+   *  This docstring said "right-of-travel" for three revisions and both
+   *  measured lane collisions in the cut came from believing it. The ground
+   *  truth is world/roads.ts, which builds its lane normal as (−tz, tx) and
+   *  states that the +side of THAT normal is driven along the edge's own
+   *  direction, and game/traffic.ts, which poses every car at
+   *  `smp − (tanZ, −tanX)·lane` off the same normal. Two consequences worth
+   *  keeping in mind when staging: an ONCOMING car sits at +lane in this
+   *  frame (the same side as a positive `lateral`), and a SAME-DIRECTION one
+   *  at −lane. */
   private edgePath(edge: NetEdge, dir: 1 | -1, extendBy = 0, lateral = 0): Path {
     const pts: Pt[] = [];
     const n = Math.max(2, Math.ceil(edge.len / 5));
@@ -636,34 +791,65 @@ class Director {
    *
    * LIGHT. The game is at its best in the warm half of the cycle — flat noon
    * (0.25-0.35) renders the whole city milky and any heading near the sun
-   * blows to white. So the trailer opens warm (0.42), sits in golden hour for
-   * the verbs (0.465, where the street lamps are already up), drops to night
-   * for the climax, and returns to gold for the closer. Two bands are banned
-   * outright: 0.48-0.52 and 0.89-0.95, where day-night.ts lerps the shadow
-   * direction as a VECTOR from sun to moon and the city casts full-strength
-   * shadows from a light 15 degrees off the visible sun.
+   * blows to white. So the trailer opens warm (0.42), sits in the warm band for
+   * the verbs (0.40-0.44), drops to dusk for the climax, and comes back out
+   * into the light for the last two beats. Two bands are banned outright:
+   * 0.48-0.52 and 0.89-0.95, where day-night.ts lerps the shadow direction as a
+   * VECTOR from sun to moon and the city casts full-strength shadows from a
+   * light 15 degrees off the visible sun.
+   *
+   * The order of the last four is what that costs and buys. Sorting purely by
+   * phase put the two dusk beats and the closer together, and the reel then
+   * spent its final nine seconds in the dark — measured 46 / 29 / 37 mean luma
+   * on the last three shots against a 49 reel mean, with the closer also the
+   * emptiest frame in the cut. The dusk pair is now the climax proper, back to
+   * back, and the vista and the Golden Gate follow it in daylight. The reversal
+   * is deliberate and it earns its keep twice: it ends the trailer on a value
+   * change instead of a third shade of night, and the vista crane opens onto
+   * the Golden Gate silhouette 1238u away, which is the shot that comes next.
    *
    * CONTRAST. Nothing reads as fast when everything is fast. The three boost
    * shots (cold open, demolition, freeway) are spaced so each lands against a
    * slower neighbour, and the fare run deliberately drives at 20-24 u/s.
    *
-   * CAMERA. Every consecutive pair changes grammar: chase, locked-off whip-by,
-   * crane, the game's own rig, locked-off, chase, chase, front-reverse, chase,
-   * locked-off, crane.
+   * CAMERA. Consecutive pairs change grammar: chase, locked-off whip-by,
+   * crane, tracking, locked-off, chase, locked-off, chase, chase, tracking,
+   * locked-off, crane, locked-off. The one repeat (pack race into demolition)
+   * is deliberate — the compositions differ by a 9u lateral swing and the
+   * subjects are opposites (six clean liveries, then a block of cartwheeling
+   * wreckage).
+   *
+   * PLACE. The map is the product. Measured against this bake, the cut visits
+   * a Mission victorian avenue, the Embarcadero at the Ferry Building, Alamo
+   * Square, a second victorian block for the drift, a West Portal grade, a
+   * downtown junction, the Twin Peaks summit, the Bay Bridge anchorage and the
+   * Golden Gate.
+   *
+   * What it does NOT do is spread evenly: five beats (the crest, the pack
+   * race, the plow street, the summit approach and the freeway) resolve to the
+   * western residential belt — the Sunset and Lakeshore — because that is
+   * where this network's long, flat, straight, dry-kerbed runs are, and every
+   * one of those beats has a hard geometric requirement that the dense
+   * districts cannot meet. pickBoulevards weights by district character to
+   * claw back what it can; scoutPlowRun, scoutCrests and scoutFreeway take the
+   * geometry wherever it exists. Closing that gap needs a district-weighted
+   * variant of all three, not a docstring.
    */
   scenes(): TrailerScene[] {
     return [
-      this.sceneColdOpen(), // chase        0.42  speed
-      this.sceneHillAir(), // locked-off    0.42  air
-      this.sceneWaterfront(), // crane      0.38  the city is real
-      this.sceneFareRun(), // game rig      0.465 the loop
-      this.sceneMontageDrift(), // locked   0.465 the drift
-      this.scenePackRace(), // chase        0.465 other players
-      this.sceneTrafficChaos(), // chase    0.44  physics
-      this.sceneMontageSmash(), // reverse  0.44  physics
-      this.sceneFreeway(), // chase         0.66  night city
-      this.sceneNightRun(), // locked-off   0.70  night street
-      this.sceneHeroDrive(), // crane       0.465 release
+      this.sceneColdOpen(), // chase          0.42  speed
+      this.sceneHillAir(), // locked-off      0.42  air
+      this.sceneWaterfront(), // crane        0.40  the city is real
+      this.sceneFareRun(), // tracking        0.43  the loop
+      this.sceneMontageDrift(), // locked-off 0.44  the drift
+      this.sceneHillDescent(), // chase       0.44  the SF grade
+      this.sceneMontageSmash(), // locked-off 0.44  cones
+      this.scenePackRace(), // chase          0.44  other players + liveries
+      this.sceneTrafficChaos(), // chase      0.44  physics
+      this.sceneFreeway(), // tracking        0.47  dusk viaduct
+      this.sceneBayBridgeNight(), // locked   0.47  dusk landmark
+      this.sceneVista(), // crane             0.42  the whole city, from above
+      this.sceneHeroDrive(), // locked-off    0.40  release
     ];
   }
 
@@ -672,10 +858,10 @@ class Director {
   private sceneColdOpen(): TrailerScene {
     return {
       id: "cold-open-weave",
-      // 3200, not 4500. The opening shot is one straight road at one speed;
+      // 3000, not 4500. The opening shot is one straight road at one speed;
       // past ~3s it has said everything it has to say and the trailer is just
       // waiting. Cutting it early is what makes the next cut land.
-      duration: 3200,
+      duration: 3000,
       setup: async () => {
         const { edge } = this.arterial;
         // Glare beats skyline: drive away from the sun (the game rig stares
@@ -688,7 +874,14 @@ class Director {
         // can't be trusted at 40 u/s. Parallel lanes need no dodging at all:
         // the whooshes close at ~55 u/s with a fixed ~4u lateral gap, which
         // reads as threading on camera and cannot end a take.
-        const path = this.edgePath(edge, dir, 120, 2.1);
+        //
+        // NEGATIVE 2.1: `lateral` is left-of-travel (see edgePath), so +2.1
+        // was the oncoming lane. Measured on this bake — the staged oncoming
+        // cars pose at +2.27 (traffic lane = min(half·0.42, 2.4) on a half-5.4
+        // street), which put the trailer's OPENING SHOT 0.17u from four
+        // head-on kinematic bodies closing at ~68 u/s. At −2.1 the gap is the
+        // 4.37u this comment always claimed.
+        const path = this.edgePath(edge, dir, 120, -2.1);
         const start = path.at(12);
         const st = this.base({ phase: 0.42, avoidX: start.x, avoidZ: start.z, avoidR: 3 });
         this.path = path;
@@ -722,7 +915,23 @@ class Director {
         this.followPath(top, lit, dts);
         // The beat calls for a LOW rear chase — the game rig rides too high
         // and opens the trailer on sky wash; the manual chase hugs the car.
-        this.chaseCam(10.5, 2.9, 11, dts, lit ? 62 : 56);
+        //
+        // Two things the first cut of this shot got wrong. The exhaust plume
+        // fires straight down a dead-astern optical axis and stacks
+        // additively, so by the end of the cut the trailer's opening subject
+        // was a white blob with no car in it — hence the 3.6u lateral offset
+        // (chaseCam documents exactly this use) and the longer look-ahead,
+        // which together put the car off-centre with the flame off-axis and
+        // the road carrying the rest of the frame. And the camera never moved:
+        // same distance, same subject scale, four frames out of four. It now
+        // pushes 13u → 8.5u as the boost lights, so the FOV kick lands against
+        // a closing camera instead of a static one.
+        //
+        // The offset goes to the KERB side (−3.6, now that the car rides the
+        // right lane), never the centreline side: at +3.6 the eye sits 0.77u
+        // off the oncoming lane and every whoosh clips the lens.
+        const push = smooth(clamp(t / 3000, 0, 1));
+        this.chaseCam(13 - 4.5 * push, 3.4, 15, dts, lit ? 62 : 56, -3.6);
       },
     };
   }
@@ -733,10 +942,17 @@ class Director {
   private sceneHillAir(): TrailerScene {
     return {
       id: "hill-air",
-      // 2600. The whip-by lands around 65% of the cut; after it the fixed cam
-      // swings downhill to follow, which at this phase points it straight into
-      // the sun and blows the last half-second to white. Cut on the pass.
-      duration: 2600,
+      // 2000, not 2600. At 46 u/s a 44u run-in is nearly a second of empty road
+      // and a house wall before the car is even in shot — a third of the
+      // trailer's second beat with no subject. 30u puts the car in frame from
+      // the reveal, the launch at ~40% and the whip-by at ~70%, and the cut
+      // ends before the following pan swings into the low sun.
+      //
+      // Not shorter than that, and not faster into the crest: a 20u run-in at
+      // 42 u/s launched the car before the suspension had settled onto the
+      // scouted line, it flew off the roadway, landed in a front yard and sat
+      // there at 0 u/s for the back half of the cut.
+      duration: 2000,
       setup: async () => {
         const crest = this.crests[0];
         if (!crest) {
@@ -748,19 +964,29 @@ class Director {
         const path = this.edgePath(crest.edge, crest.dir, 160);
         this.path = path;
         const sC = crest.dir > 0 ? crest.sCrest : crest.edge.len - crest.sCrest;
-        const start = path.at(sC - 44);
+        const start = path.at(sC - 30);
         st.placeCar(start.x, start.z, Math.atan2(start.tx, start.tz), 0);
-        // Camera 38u past the crest, low over the ROADWAY edge (the shoulder
-        // line is lamp-post/tree territory — a trunk 1u from the lens fills
-        // the frame once the car passes and the cam turns downhill). 38u puts
-        // the whip-by at ~65% of the cut: launch silhouette → flight AT the
-        // lens → landing bounce beside it → short tail.
-        const p = path.at(sC + 38);
-        this.sceneNode.set(p.x + p.tz * 2.5, p.z - p.tx * 2.5);
-        this.sceneAux.set(this.city.heightAt(this.sceneNode.x, this.sceneNode.y) + 3.0, 0);
+        // Camera 24u past the crest and 2.4u off the centreline, low over the
+        // ROADWAY (the shoulder line is lamp-post/tree territory — a trunk 1u
+        // from the lens fills the frame once the car passes). Close and on a
+        // long lens: the airborne car used to read 6% of frame width against a
+        // flat tan hillside of nearly the same value, which is the whole beat
+        // rendered as a speck. 24u at 40 degrees is ~2.2x bigger, and the low
+        // eye puts the launch against sky instead of against the cut bank.
+        //
+        // 2.4, not 1.8: this crest edge measures half 3.2, the car is driven
+        // on the CENTRELINE and it arrives ballistic with air steering, so at
+        // 1.8 a landing that drifts 0.9u laterally — nothing, on a beat whose
+        // earlier variant left the roadway entirely — puts the chassis through
+        // the lens. 2.4 is still 0.8u inside the kerb. The eye offset goes
+        // 1.5 -> 1.8 to compensate: the shoulder falls away 0.36u over that
+        // 0.6u, so the eye lands within 0.06u of the height it was shot at.
+        const p = path.at(sC + 24);
+        this.sceneNode.set(p.x + p.tz * 2.4, p.z - p.tx * 2.4);
+        this.sceneAux.set(this.city.heightAt(this.sceneNode.x, this.sceneNode.y) + 1.8, 0);
         this.applyInput({ throttle: 1, boost: true });
         await settle();
-        this.kickSpeed = 32;
+        this.kickSpeed = 36;
       },
       run: (_t, dt) => {
         if (this.runSubstitute(dt)) return;
@@ -776,48 +1002,70 @@ class Director {
           car.x,
           car.y + 1.0,
           car.z,
-          48,
+          40,
         );
       },
     };
   }
 
-  /** 3 — THE CITY IS REAL: the Embarcadero, shot so the bay is unmistakably in
-   *  frame. The pitch for this game is that you are driving actual San
-   *  Francisco, and the previous version of this shot rode 11u over the road
-   *  raking 19u to the side — close enough to the deck that the shorefront
-   *  sheds filled the frame and no water ever appeared. A crane 20u up aiming
-   *  55u out over the water puts the bay and the horizon across the top of the
-   *  frame with the car running the lower third. */
+  /** 3 — THE CITY IS REAL: the Embarcadero at the FERRY BUILDING, running
+   *  SOUTH toward the building with the bay off the left (seaward) shoulder.
+   *
+   *  Compass, measured rather than assumed: the resolved run is
+   *  (748,-1008) -> (787,-943), and north is -Z in this world (the Ferry
+   *  Building mark sits at z -910, the Bay Bridge landfall at z -747, and the
+   *  Ferry Building is north of the bridge), so travel is southbound. An
+   *  earlier version of this comment had it northbound with the bridge astern;
+   *  the bridge is in fact ahead and off to the left, and Coit Tower is behind.
+   *
+   *  This shot's job is the one claim the whole product rests on — that you are
+   *  driving actual San Francisco — and until now it played in China Basin,
+   *  because the scout that chose it filtered on the `wharf` district character
+   *  and the Embarcadero at the Ferry Building classifies as the Financial
+   *  District. It is now anchored on the resolved monument itself (see
+   *  scoutRunNear): closest approach of the run to the mark is 42u, and the
+   *  mark itself is 41u BEYOND the end of the edge, straight down the travel
+   *  direction — which is why the car never reaches it inside the cut and why
+   *  the aim has to be pointed at it rather than away.
+   *
+   *  The other failure was scale: a 30u standoff at 60 degrees rendered the
+   *  Waymo 3% of frame width — indistinguishable from a road marking, four
+   *  identical frames, nothing moving anywhere. The crane now starts close and
+   *  descends while its aim swings out over the water, and three fleet cars are
+   *  staged down the run so the car has something to thread. */
   private sceneWaterfront(): TrailerScene {
     return {
-      id: "waterfront",
-      duration: 2400,
+      id: "embarcadero",
+      duration: 2800,
       setup: async () => {
-        const shore = this.shore;
-        if (!shore) {
-          await this.substituteBoostRun(0.38);
+        const run = this.ferry;
+        if (!run) {
+          await this.substituteBoostRun(0.4);
           return;
         }
-        const path = this.edgePath(shore.edge, shore.dir, 100);
-        // Start 30 in (not 10): the land-side dolly line at the edge mouth
-        // runs through a 4-storey block — deeper in, the strip is low sheds
-        // and the camera clears the rooflines.
-        const start = path.at(30);
+        const path = this.edgePath(run.edge, run.dir, 90);
+        const start = path.at(2);
         // Scatter traffic clear of the run: the teleport otherwise leaves most
         // of the fleet >260u away and the recycler mass-respawns it 78-156u
         // AHEAD on the sparse wharf edges — a random rear-end punt mid-shot.
-        const st = this.base({ phase: 0.38, avoidX: start.x, avoidZ: start.z, avoidR: 10 });
+        const st = this.base({ phase: 0.4, avoidX: start.x, avoidZ: start.z, avoidR: 14 });
         this.path = path;
         st.placeCar(start.x, start.z, Math.atan2(start.tx, start.tz), 0);
-        // Water side expressed RIGHT-of-travel, which is the frame trackCam
-        // works in: left of travel is -right.
-        this.driftSide = shore.waterLeft ? -1 : 1;
+        // Which shoulder the bay is on, measured rather than assumed: the
+        // apron between roadway and open water is ~60u wide here.
+        const mid = path.at(run.edge.len * 0.5);
+        this.driftSide = isWaterAt(mid.x + mid.tz * 60, mid.z - mid.tx * 60) ? 1 : -1;
+        // Three fleet cars down the run, same direction and slower: the shot
+        // gets a verb (a real overtake through real traffic) instead of a
+        // straight line at a constant speed.
+        const cars = this.stagedTraffic(3);
+        const sEdge = (travel: number): number => (run.dir > 0 ? travel : run.edge.len - travel);
+        [22, 44, 64].forEach((s, i) => this.placeTraffic(cars[i], run.edge, sEdge(s), run.dir));
         // Staged at rest: NEUTRAL through the cut, full speed at reveal.
         await settle();
-        this.kickSpeed = 36;
+        this.kickSpeed = 28;
       },
-      run: (_t, dt) => {
+      run: (t, dt) => {
         if (this.runSubstitute(dt)) return;
         this.reveal();
         const st = this.stage;
@@ -827,29 +1075,46 @@ class Director {
         // No boost here. This is the breath between the cold open and the fare
         // run, and the flame washes out the one shot whose job is the view.
         this.followPath(
-          38,
+          30,
           false,
           dts,
           st.traffic.cars.map((c) => c.position),
         );
         const water = this.driftSide;
-        // Framing is a balancing act: rake far enough toward the bay to get
-        // water in shot, but the car leaves frame the moment the aim swings
-        // past the half-FOV. At 34u back a 20u lateral aim offset is only
-        // atan(20/40) = 27 degrees, so with a 60-degree FOV the Waymo sits low
-        // in the near corner and the bay fills the diagonal behind it. (Aiming
-        // 55u out, as the first cut of this shot did, is 74 degrees off-axis —
-        // a gorgeous empty postcard with no car anywhere in it.)
+        // The balancing act: rake toward the bay for water, but the beat is
+        // named after a BUILDING and the building is on the land shoulder.
+        // Both have to be in the same frame, and the previous rake could not
+        // do it: at back 16-20 on a 44-degree lens (horizontal half-angle
+        // ~36 degrees) a 14→20u seaward aim offset put the optical axis 39-51
+        // degrees off travel, and the Ferry Building — 113u ahead and 23u to
+        // the LAND side at t0 — measured 46 degrees, then 55 degrees, off
+        // axis. The shot whose job is a named landmark did not contain it for
+        // the first 60% of its length.
+        //
+        // The aim now STARTS inland (4u, axis dead down the road, the building
+        // near centre) and swings out over the water, so the frame opens from
+        // "the Embarcadero with the Ferry Building at the end of it" onto the
+        // bay. Measured off-axis for the building across the cut: -8, -26,
+        // +5 degrees — inside the frustum throughout — and the car itself sits
+        // between 11 and 15 degrees off axis, so it never leaves frame either.
+        //
+        // The eye has to stay HIGH. Dropped to 6u it framed nothing but the
+        // four-storey block on the land shoulder, and no water appeared at
+        // all; the pier apron here is ~60u wide, so the bay only clears the
+        // shed rooflines from around 12u up. It also comes IN to 4u off the
+        // centreline: at 7u the extra parallax pushed the building a further
+        // 3-6 degrees toward the frame edge for nothing the frame showed.
+        const e = smooth(clamp(t / 2800, 0, 1));
         this.trackCam(
           {
-            back: 30,
-            up: 16,
-            right: -water * 8, // eye inland, over the sidewalk
+            back: 20 - 4 * e,
+            up: 17 - 5 * e,
+            left: -water * 4, // eye inland, over the sidewalk
             aheadOf: 6,
-            aimRight: water * 20,
-            aimUp: 1,
-            fov: 60,
-            lag: 3.2, // slow, so the crane drifts rather than snaps
+            aimLeft: water * (-4 + 12 * e),
+            aimUp: 1.2,
+            fov: 44,
+            lag: 3, // slow, so the crane drifts rather than snaps
           },
           dts,
         );
@@ -857,16 +1122,26 @@ class Director {
     };
   }
 
-  /** 9 — NIGHT CITY: the elevated viaduct at full boost, rival taxis running
+  /** 10 — NIGHT CITY: the elevated viaduct at full boost, rival taxis running
    *  it with you, the lit skyline off to the side.
    *
-   *  Shot at night for two reasons. Every clean, straight, elevated, downtown-
+   *  Shot after sundown for two reasons. Every clean, straight, elevated, downtown-
    *  facing run in this bake points at the sun all day long — the sun sits in
    *  the southern half from dawn to dusk and the viaducts run south-southwest —
    *  so a daylight version is either a white-out or a run pointed away from the
    *  skyline. After dark there is no sun to dodge, the city reads as a field of
    *  lit windows, and the player's headlights are the only real light source in
    *  frame, which suits a boost run down an empty deck.
+   *
+   *  NIGHT, NOT DARKNESS. 0.66 measured 88-90% of every frame crushed at or
+   *  below value 25 and a mean luma of 12/255 — no deck, no rail, no drop, no
+   *  rivals, nothing. It sat between the two sun-at-minus-30 stops, whose fills
+   *  day-night.ts deliberately halves for phone legibility. 0.47 — the sunset
+   *  stop, sun 2 degrees up, lamp factor 0.62 — is where the windows, the
+   *  headlights and the deck lamps are all lit while a twilight sky still gives
+   *  the deck and the drop below it a silhouette. Later than that (0.53 is the
+   *  first stop past the banned 0.48-0.52 shadow handoff) the sky goes with it
+   *  and the drop stops reading at all.
    *
    *  Lane discipline is not optional up here. The car used to be placed on the
    *  scouted CENTRELINE, which on a self-doubling polyline is the inside of a
@@ -886,10 +1161,10 @@ class Director {
       setup: async () => {
         const fw = this.freeway;
         if (!fw) {
-          await this.substituteBoostRun(0.66);
+          await this.substituteBoostRun(0.53);
           return;
         }
-        const st = this.base({ phase: 0.66 });
+        const st = this.base({ phase: 0.47 });
         // Ride the lane, never the centreline: offset every sample right of
         // travel before the Path is built, so followPath's rabbit is already
         // in-lane and the weave swings around that instead of the paint.
@@ -920,18 +1195,24 @@ class Director {
           speed: 22 + i * 3,
         }));
         this.publishFakes(fw);
-        this.applyInput({ throttle: 1, boost: true });
+        // NO BOOST. The twin plume fires dead astern into a lens 15u back and
+        // at this hour it is the brightest thing in frame by an order of
+        // magnitude: measured, it bloomed over the bottom-right quadrant and
+        // was the only part of the player a viewer could find. Throttle alone
+        // holds 38 u/s up here, which is what the deck, the rails and the
+        // rivals need to read anyway — the trailer already boosts in four
+        // other beats.
+        this.applyInput({ throttle: 1 });
         await settle();
         this.kickSpeed = 38;
       },
-      run: (_t, dt) => {
+      run: (t, dt) => {
         if (this.runSubstitute(dt)) return;
         this.reveal();
         const st = this.stage;
         const path = this.path;
         const fw = this.freeway;
         if (!st || !path || !fw) return;
-        this.topUpBoost();
         const dts = Math.min(dt, 50) / 1000;
         for (const f of this.fakes) f.s += f.speed * dts;
         this.publishFakes(fw);
@@ -940,11 +1221,40 @@ class Director {
           return { x: p.x + p.tz * f.lane, z: p.z - p.tx * f.lane };
         });
         this.followPath(40, true, dts, obstacles);
-        // city.heightAt up here is the STREET, 7u below the deck — the usual
-        // chase-cam floor would happily let the eye sink through the roadway.
-        // Pin it to the deck instead.
+        // Raked off the side rather than straight down the lane: shooting
+        // along the deck axis puts the barrier out of frame on both sides, so
+        // "elevated viaduct" rendered identically to a surface street. From 8u
+        // off the car the deck edge, the rail and the drop below all sit in
+        // the near third and the run finally reads as being up in the air.
+        //
+        // NO floorY. city.heightAt up here is the STREET, 7u below the deck,
+        // so the trackCam default floor would let the eye sink through the
+        // roadway — but `up: 10` is measured off the CAR, which is on the
+        // deck, so the eye is 10u above the deck by construction and no floor
+        // can bind. (The previous revision passed `floorY: car.y + 1.6` with a
+        // comment claiming to guard exactly this; `Math.max(car.y + 10, ...)`
+        // meant it was dead code. Keep `up` well above the barrier height and
+        // the guard is not needed; drop it below and the deck-relative floor
+        // has to come back as a real deck-top probe at the CAMERA's position,
+        // not the staging point, whose ramped profile once held the eye 20u
+        // up in a near-top-down.)
+        // A rigid follow rig holds the car at exactly one screen position for
+        // the whole cut (measured: NDC 0.131/−0.442 at all four sample marks),
+        // so the only motion a viewer gets is the deck sliding under it. The
+        // slow swing in and down over the barrier gives the near rail and the
+        // town below real parallax against the car — this beat sits in the
+        // stretch of the reel the frame-by-frame pass called the most static.
+        const e = smooth(clamp(t / 2600, 0, 1));
         this.trackCam(
-          { back: 11, up: 2.9, aheadOf: 12, fov: 62, floorY: this.sceneAux.x + 2.2 },
+          {
+            back: 15,
+            up: 9 - 1.6 * e,
+            left: 13 - 4 * e,
+            aheadOf: 16,
+            aimLeft: -7,
+            aimUp: 2.2,
+            fov: 54,
+          },
           dts,
         );
       },
@@ -952,51 +1262,121 @@ class Director {
     };
   }
 
-  /** 10 — NIGHT STREET: a locked-off low angle, the car sweeping past with its
-   *  headlights doing the lighting. The one shot with no boost, no collision
-   *  and no cargo — pure breath before the closer.
+  /** 11 — NIGHT LANDMARK: the Waymo running the Embarcadero straight at a
+   *  locked-off lens, under the Bay Bridge anchorage, with the crossing itself
+   *  springing out of the stonework and climbing away over the bay behind it.
    *
-   *  Traffic, parked cars and remote taxis carry no lights of their own in this
-   *  engine (only the player has a real SpotLight), so a busy night street is a
-   *  herd of dark blobs. This shot is staged deliberately empty and leans on
-   *  the two things that DO read after dark: the headlight cone raking the
-   *  facades, and the lamp glow the city bakes along every kerb. */
-  private sceneNightRun(): TrailerScene {
+   *  SHOOT DOWN THE ROAD, NOT ACROSS IT. The first version stood 11u off the
+   *  kerb and aimed sideways at the landfall; every delivered frame was the
+   *  underside of the approach viaduct with a 6%-of-frame car under it, mean
+   *  luma 10.2/10.5/10.2/3.6 with 82-98% of pixels crushed, and no span in
+   *  frame at all. The geometry says why, and it is not fixable by nudging: the
+   *  crossing runs out on bearing 40.5 degrees (world/landmarks.ts rotDeg 49.5)
+   *  while this stretch of the Embarcadero runs almost due south, so a camera
+   *  standing beside the road sees the span END-ON behind its own anchorage. A
+   *  broadside camera has to stand out in the bay, and from far enough out to
+   *  fit 600u of deck the car is a speck.
+   *
+   *  The composition that carries both is a camera ON the road axis, 8u off the
+   *  kerb and 10u up — above the pier sheds' roofline, which is the only way the
+   *  towers clear them — looking back NORTH up the Embarcadero with the aim
+   *  raked out over the bay. Photographed at the four sample marks: the car runs
+   *  43u -> 19u down the near lane at 94 -> 213px, the suspension towers, their
+   *  cables and their lit deck sit in the upper third against the twilight band,
+   *  and the anchorage masonry closes the top-left corner.
+   *
+   *  0.47, NOT 0.53. At the night stop this composition measures mean luma 11-12
+   *  with four fifths of every frame crushed below 16 — the crossing is unlit
+   *  structure over black water and the sky behind it is black too. 0.47 keeps
+   *  the lamp factor at 0.62 (deck lamps, kerb pools and the car's own
+   *  headlights all on) and puts a lit horizon behind the towers, which is the
+   *  only thing in this frame that can silhouette them. Measured after the
+   *  change: luma 30.5-31.0, 15.9-21.2% crushed. */
+  private sceneBayBridgeNight(): TrailerScene {
     return {
-      id: "night-street",
-      duration: 1900,
+      id: "bay-bridge-night",
+      duration: 2400,
       setup: async () => {
-        const corner = this.driftCorner ?? this.fareCorner;
-        if (!corner) {
-          await this.substituteBoostRun(0.7);
+        const run = this.bayBridge;
+        const at = this.bayBridgeAt;
+        if (!run || !at) {
+          await this.substituteBoostRun(0.47);
           return;
         }
-        const st = this.base({ phase: 0.7, avoidX: corner.x, avoidZ: corner.z, avoidR: 30 });
-        const inA = corner.inArm;
-        this.sceneNode.set(corner.x, corner.z);
-        this.sceneDir.set(inA.tx, inA.tz);
-        st.placeCar(corner.x - inA.tx * 52, corner.z - inA.tz * 52, Math.atan2(inA.tx, inA.tz), 0);
-        // Locked off low and just off the kerb, looking back up the approach so
-        // the car arrives head-on with its lights in the lens.
-        const px = inA.tz;
-        const pz = -inA.tx;
-        this.sceneAux.set(corner.x - inA.tx * 8 + px * 5.5, corner.z - inA.tz * 8 + pz * 5.5);
+        // TOWARD the anchorage: scoutRunNear's own dir points away from it here
+        // (measured, this bake: the run leaves the landfall heading south down
+        // the Embarcadero), and the car has to drive INTO the frame the
+        // anchorage anchors, not out of the back of it.
+        const dir: 1 | -1 = run.dir > 0 ? -1 : 1;
+        const path = this.edgePath(run.edge, dir, 60);
+        const start = path.at(14);
+        const st = this.base({ phase: 0.47, avoidX: start.x, avoidZ: start.z, avoidR: 26 });
+        this.path = path;
+        st.placeCar(start.x, start.z, Math.atan2(start.tx, start.tz), 0);
+        // The eye sits 61u down the run, 8u off the kerb on the LAND shoulder,
+        // looking back up the roadway. 8u, not 11-30: the shoulders here carry
+        // the anchorage footings on one side and pier sheds on the other, and
+        // two earlier takes from further out were shot entirely into a flat
+        // wall. Inside a kerb's width nothing can occlude.
+        //
+        // LAND SHOULDER, not the bay one, and it is composition rather than
+        // safety. Measured from the bay shoulder: a pier shed sits ~10u off the
+        // lens and its blank flank filled 56% of frame, with the crossing
+        // squeezed into the last few degrees behind it. From the land side the
+        // same sheds are across the street, in the middle distance, where they
+        // read as the waterfront the road runs along — and the crossing clears
+        // their roofline because its towers are 40u tall.
+        const camAt = path.at(61);
+        // Which side the bay is on, measured rather than assumed: 26u out still
+        // lands on seawall and pier apron on BOTH shoulders here (probed), so
+        // the test has to reach past the wharf line before it means anything.
+        // (tz, −tx) is the left of travel; looking back up the run that is also
+        // the RIGHT of frame, which is what makes the rake below readable.
+        const bay: 1 | -1 = isWaterAt(camAt.x + camAt.tz * 70, camAt.z - camAt.tx * 70) ? 1 : -1;
+        const off = -8 * bay;
+        const eye = { x: camAt.x + camAt.tz * off, z: camAt.z - camAt.tx * off };
+        // Fall back to the far shoulder if the preferred one is already wet.
+        const dry = isWaterAt(eye.x, eye.z)
+          ? { x: camAt.x - camAt.tz * off, z: camAt.z + camAt.tx * off }
+          : eye;
+        // Aim up the run and RAKED 24u toward the bay: dead down the roadway
+        // the crossing sits 44-49 degrees off axis against a 42-degree half
+        // angle, i.e. just outside. The rake trades road for span — the car
+        // only reaches 15 degrees the other way, so it has the room. The offset
+        // uses the tangent AT THE CAMERA, not at the aim point: the run bends
+        // through the landfall, and taking the aim's own tangent rotated the
+        // offset up the street instead of across it (measured: it moved the
+        // optical axis 3u the WRONG way).
+        const l = path.at(10);
+        const look = { x: l.x + camAt.tz * 24 * bay, z: l.z - camAt.tx * 24 * bay };
+        this.sceneNode.set(camAt.x, camAt.z);
+        this.sceneAux.set(dry.x, dry.z);
+        this.sceneDir.set(look.x, look.z);
         this.applyInput({ throttle: 1 });
         await settle();
-        this.kickSpeed = 30;
+        // 15 u/s over 2.4s = 36u, which walks the car from 43u out to 19u —
+        // measured 94px to 213px across, ending before it reaches the lens.
+        // Not a boost run: the flame at this hour is a white hole, and the
+        // headlights coming at the camera are the shot's light source.
+        this.kickSpeed = 15;
       },
       run: (_t, dt) => {
         if (this.runSubstitute(dt)) return;
         this.reveal();
         const st = this.stage;
         if (!st) return;
-        const node = this.sceneNode;
-        const pT = this.sceneDir;
-        this.driveAt(node.x + pT.x * 40, node.y + pT.y * 40, 34);
-        const car = st.car.position;
+        this.followPath(15, false, Math.min(dt, 50) / 1000);
         const camX = this.sceneAux.x;
         const camZ = this.sceneAux.y;
-        this.cam(camX, this.city.heightAt(camX, camZ) + 1.5, camZ, car.x, car.y + 1.0, car.z, 50);
+        // Eye height off the ROADWAY, not off the camera's own ground: the
+        // shoulder here steps down to riprap and pier apron.
+        const eyeY = this.city.heightAt(this.sceneNode.x, this.sceneNode.y) + 10;
+        const aimX = this.sceneDir.x;
+        const aimZ = this.sceneDir.y;
+        // Aim 4u over the roadway, not up at the deck: the towers are 40u tall
+        // and 80-250u out, so they fit the upper frame on their own, while the
+        // car is 17-57u out and needs the lower third to itself.
+        this.cam(camX, eyeY, camZ, aimX, this.city.heightAt(aimX, aimZ) + 6, aimZ, 54);
       },
     };
   }
@@ -1026,21 +1406,36 @@ class Director {
     st.setFakePlayers(players);
   }
 
-  /** 6 — the core loop as one continuous gameplay shot: board a staged
+  /** 4 — the core loop as one continuous gameplay shot: board a staged
    *  customer, drift the corner, skid into the drop-off, confetti + receipt.
-   *  Fare HUD on; game chase rig. */
+   *  Fare HUD on.
+   *
+   *  Two fixes the measured frames forced. LIGHT: this is the trailer's
+   *  longest cut and the one that has to sell the loop, and at 0.465 it played
+   *  at effective dusk — mean luma 29-36 of 255 with 48-60% of every frame
+   *  crushed black. That is the exact failure DRIFT_PHASE documents ("at 0.465
+   *  the sun is 2 degrees up and a two-storey street reads as near-night"),
+   *  applied everywhere in this file except here. 0.43 puts the sun ~9 degrees
+   *  up with the key still near full, and the beacons and combo pops read
+   *  against a warm street instead of a black one.
+   *
+   *  CAMERA: it used to hand the shot to the game's own chase rig, which is
+   *  tuned for playing — high, far and unchanging, so the car sat at 4-5% of
+   *  frame width for all 4.8 seconds. The director drives it now: tight and
+   *  low through the pickup and the drift, then widening onto the confetti so
+   *  the payout beat has somewhere to open into. */
   private sceneFareRun(): TrailerScene {
     return {
       id: "fare-run",
-      duration: 4800,
+      duration: 4600,
       setup: async () => {
         const corner = this.fareCorner;
         if (!corner) {
-          await this.substituteBoostRun(0.465);
+          await this.substituteBoostRun(0.43);
           return;
         }
         const st = this.base({
-          phase: 0.465,
+          phase: 0.43,
           hud: true,
           avoidX: corner.x,
           avoidZ: corner.z,
@@ -1061,18 +1456,19 @@ class Director {
           gx: this.city.gridX(corner.x + outA.tx * 40),
           gz: this.city.gridZ(corner.z + outA.tz * 40),
         };
-        st.fares.stageTrailerFare(fromCell, destCell, "medium");
+        // LONG tier, not medium: same staging cost, but the red $$$ beacon and
+        // the 1.5x receipt line are the distinctive end of a scale the trailer
+        // otherwise never shows.
+        st.fares.stageTrailerFare(fromCell, destCell, "long");
         // Mid-run dashboard: a believable bankroll and a live combo chain.
         st.state.score = 2140;
         st.state.combo = 2;
         st.state.comboTimer = 8;
         st.hud.resetScore(2140);
         st.placeCar(corner.x - inA.tx * 44, corner.z - inA.tz * 44, Math.atan2(inA.tx, inA.tz), 0);
-        st.setFreecam(false);
         // Staged at rest: NEUTRAL through the cut, full speed at reveal.
         await settle();
         this.kickSpeed = 20;
-        st.snapCamera();
       },
       run: (t, dt) => {
         if (this.runSubstitute(dt)) return;
@@ -1138,6 +1534,26 @@ class Director {
           // is the reverse gear).
           this.applyInput(car.forwardSpeed > 1 ? { brake: 0.8 } : {});
         }
+        // Tight and low for the pickup, the carry and the drift; widening onto
+        // the drop-off so the confetti burst, the shockwave ring and the
+        // itemised receipt land in an opening frame rather than a static one.
+        // The blend is time-based: `step` jumps, and a camera keyed straight
+        // off it would cut mid-scene instead of pulling out.
+        const dts = Math.min(dt, 50) / 1000;
+        this.blend += ((this.step >= 3 ? 1 : 0) - this.blend) * Math.min(1, 1.6 * dts);
+        const wide = smooth(this.blend);
+        this.trackCam(
+          {
+            back: 9.5 + 4 * wide,
+            up: 3 + 2 * wide,
+            left: 3,
+            aheadOf: 11 - 3 * wide,
+            aimUp: 1.1 + 0.4 * wide,
+            fov: 58 + 4 * wide,
+            lag: 5,
+          },
+          dts,
+        );
       },
       teardown: () => {
         this.hudVisible(false);
@@ -1146,17 +1562,33 @@ class Director {
     };
   }
 
-  /** 6 — OTHER PLAYERS: a pack of rival robotaxis running the same boulevard,
-   *  the player threading up through them from the back.
+  /** 8 — OTHER PLAYERS, AND THE ROSTER: a pack of rival robotaxis running the
+   *  same boulevard, the white Waymo threading up through them from the back.
    *
    *  Legibility is the whole job here — "multiplayer" has to read in three
-   *  seconds with no text. Three things carry it: the pack is SIX DIFFERENT
-   *  liveries (the game ships waymo/cruise/zoox/lyft/uber/cybercab and every
-   *  GLB is preloaded before beginTrailer, so a mixed pack can never
-   *  magenta-box); each carries the roof beacon RemoteCars gives every remote
-   *  player, whose colour is a hash of the id, so the pack is a spread of
-   *  distinct colours; and the player starts BEHIND and overtakes, so the shot
-   *  is about them rather than a convoy driving in formation.
+   *  seconds with no text. Four things carry it: five distinct rival liveries
+   *  (every GLB is preloaded before beginTrailer, so a mixed pack can never
+   *  magenta-box); the roof beacon RemoteCars gives every remote player, whose
+   *  colour is a hash of the id; a player car the viewer can find instantly;
+   *  and an overtake that actually completes on camera.
+   *
+   *  The measured failure was distance. A pack spread 20-70u ahead of a camera
+   *  12.5u back renders six liveries as 40-90px grey blobs and their beacon
+   *  colours as single pixels, and 6-11 u/s of closure over 3.4s cannot clear
+   *  that spread — so the shot promised a pass and delivered a convoy, with an
+   *  ordinary NPC minibus as the largest vehicle in three of four frames. The
+   *  pack now runs 14-42u out, the chase is 10.5u back on a 66-degree lens, and
+   *  avoidR clears the live fleet 45u off the corridor so nothing but rivals is
+   *  in shot.
+   *
+   *  THE FOREGROUND HAS TO STAY EMPTY. The first respread put the tail of the
+   *  pack at s=6 with the player at s=10 on a ±3.0 lane split — a rival 4u
+   *  ahead and 3u across from a lens 8.5u back, which delivered a blurred white
+   *  mass with a blown headlight ellipse eating a sixth of the frame in three
+   *  of four stills, and read as the camera clipping through another car. The
+   *  whole pack now starts AHEAD of the player (nearest 4u further out than the
+   *  camera's own standoff) on a ±4.4 split, so every rival is something the
+   *  Waymo drives up to and past rather than something the lens is inside.
    *
    *  Remote cars are visual-only — no colliders — so the player passes THROUGH
    *  anything it touches. Lanes are laid out so that never has to happen on
@@ -1165,37 +1597,59 @@ class Director {
   private scenePackRace(): TrailerScene {
     return {
       id: "pack-race",
-      duration: 3400,
+      duration: 2600,
       setup: async () => {
         const { edge } = this.boulevard(1);
         const dir = this.awayFromSun(edge, 1, 0.44);
-        const path = this.edgePath(edge, dir, 140, 2.2);
+        // The player runs the CENTRELINE here, not a lane. The pack all sits
+        // right of travel and the camera swings left, so the two need opposite
+        // halves of the street to stay on tarmac: staged 2.2u left of centre
+        // (the previous value) the swing carried the eye over the kerb and the
+        // final frame was half building wall. Safe only because avoidR below
+        // teleports the entire live fleet ~390u clear and the rivals are
+        // remote-player visuals with no colliders — nothing this line could hit
+        // exists in the shot. Pack lanes are relative to this line.
+        const path = this.edgePath(edge, dir, 140);
         const start = path.at(10);
         // base() wipes the per-scene scratch, this.path included — assign after.
         // 0.44, not golden 0.465: this district reads near-night at 0.465 and
-        // the whole point of the shot is telling six liveries apart.
-        const st = this.base({ phase: 0.44, avoidX: start.x, avoidZ: start.z, avoidR: 12 });
+        // the whole point of the shot is telling the liveries apart.
+        // avoidR is in TILES (13u): 30 clears the fleet ~390u off a corridor
+        // the player covers in 140u, so the only vehicles in shot are rivals.
+        // The largest, nearest car in three of four delivered frames used to be
+        // an ordinary NPC minibus, which actively taught the viewer that the
+        // pack was traffic.
+        const st = this.base({ phase: 0.44, avoidX: start.x, avoidZ: start.z, avoidR: 30 });
         this.path = path;
-        this.weaveAmp = 3.0;
+        this.weaveAmp = 2.0;
         st.placeCar(start.x, start.z, Math.atan2(start.tx, start.tz), 0);
-        // Tight and staggered, not strung out. The first cut spread the pack
-        // 26-96u ahead, which put two distant rivals in frame and read as
-        // ordinary traffic; the liveries only sell "other players" if several
-        // are close enough to tell a Cruise from a Zoox from a Lyft. Starting
-        // them 12-67u out with alternating lanes keeps three or four in shot
-        // through the whole overtake. Speeds stay below the player's 42 so the
-        // shot is a pass rather than a convoy.
-        this.fakes = SKIN_IDS.map((_, i) => ({
-          s: 20 + i * 10,
-          lane: i % 2 === 0 ? 3.2 : -3.2,
-          speed: 31 + (i % 3) * 2.5,
+        // The pack starts 12u ahead of the player — 22.5u from a lens that sits
+        // 10.5u back — and every rival holds the RIGHT of travel. That is the
+        // fix for the lower-left smear: chaseCam's swing moves the eye left of
+        // travel, so a lane at +4.4 puts a just-overtaken rival within half a
+        // unit of the eye's own line and a couple of units ahead of it, i.e.
+        // the lens inside another car (measured: it ate the bottom half of the
+        // 88% frame). With the pack all on one side the camera swings AWAY from
+        // it, the player passes on the open left, and a passed rival leaves
+        // frame sideways at ~90 degrees off axis instead of across the lens.
+        // 27-31 u/s, not 36-40. Measured: the player tops out at 38 u/s on
+        // throttle alone (followPath's 46 target is never reached without
+        // boost), so a pack at 36-40 has ±2 u/s of closure and NOTHING is ever
+        // overtaken — the previous cut hid that by starting rivals level with
+        // or behind the player, which is what put one in the lens. At 27-31 the
+        // closure is 7-11 u/s and the first two passes land at ~t1.3s and
+        // ~t2.3s of the 3s cut, both in open frame.
+        this.fakes = RIVAL_SKINS.map((_, i) => ({
+          s: 22 + i * 8,
+          lane: i % 2 === 0 ? -3.6 : -7.2,
+          speed: 27 + (i % 3) * 2,
         }));
         this.publishPack();
         this.applyInput({ throttle: 1 });
         await settle();
-        this.kickSpeed = 34;
+        this.kickSpeed = 38;
       },
-      run: (_t, dt) => {
+      run: (t, dt) => {
         if (this.runSubstitute(dt)) return;
         this.reveal();
         const st = this.stage;
@@ -1206,17 +1660,20 @@ class Director {
         this.publishPack();
         // Weave around the pack the same way the cold open weaves traffic —
         // reactive, so a pack car can never be driven into even though the
-        // player is closing on them at ~10 u/s.
+        // player is closing on them.
         const obstacles = this.fakes.map((f) => {
           const p = path.at(f.s);
           return { x: p.x + p.tz * f.lane, z: p.z - p.tx * f.lane };
         });
-        this.followPath(42, false, dts, obstacles);
-        // Back and up a little from the usual low chase. Remote cars have no
-        // colliders, so an overtake puts the camera THROUGH whichever rival the
-        // player has just cleared; at 9.5u back and 2.6u up one of them filled
-        // half the lens. 12.5/3.3 keeps the pass outside the near plane.
-        this.chaseCam(12.5, 3.3, 14, dts, 60);
+        this.followPath(46, false, dts, obstacles);
+        // Close, and drifting off the axis as the pass develops: a rival seen
+        // from dead astern is a rectangle, one seen from three-quarters is a
+        // Zoox. Remote cars have no colliders, so an overtake can put the
+        // camera THROUGH whichever rival was just cleared — the lateral swing
+        // keeps the pass outside the near plane that the old 9.5u chase kept
+        // clipping.
+        const swing = smooth(clamp(t / 3000, 0, 1));
+        this.chaseCam(10.5, 2.6, 17, dts, 66, 2.5 * swing);
       },
       teardown: () => this.stage?.setFakePlayers(null),
     };
@@ -1247,7 +1704,7 @@ class Director {
           y: this.city.heightAt(x, z),
           z,
           h: Math.atan2(p.tx, p.tz),
-          skin: SKIN_IDS[i % SKIN_IDS.length] ?? "waymo",
+          skin: RIVAL_SKINS[i % RIVAL_SKINS.length] ?? HERO_SKIN,
           msg: "",
           msgAt: 0,
         },
@@ -1256,18 +1713,23 @@ class Director {
     st.setFakePlayers(players);
   }
 
-  /** 7 — PHYSICS: full boost through a curbside row of parked cars, Rapier
+  /** 9 — PHYSICS: full boost through a curbside row of parked cars, Rapier
    *  sending them tumbling. Low manual chase + impact shake.
    *
-   *  This shot has never once been seen. It used to stage on whatever
+   *  THIS SHOT HAS NEVER ONCE BEEN SEEN, for two different reasons, and the
+   *  street it stages on is the fix for both. First it took whatever
    *  `scoutArterial(exclude) ?? this.arterial` produced — and since
-   *  scoutArterial returns null in this bake, both terms collapsed onto the
-   *  same bare longest-edge fallback, which is the one edge in the network that
-   *  runs 357u past the ground collider. The car spawned beyond the physics
-   *  world, fell, got teleported back to the same hole by the out-of-world
-   *  rescue, and fell again, for the whole 3.6s: an empty street with an
-   *  invisible car and a row of parked cars nobody ever hit. It now takes a
-   *  bounds-checked boulevard, and a different one from the cold open. */
+   *  scoutArterial returns null in this bake, both terms collapsed onto a bare
+   *  longest-edge fallback, the one edge in the network that runs 357u past the
+   *  ground collider: the car fell out of the world for the whole take. Then it
+   *  took the third-best boulevard by length x width, which is the China Basin
+   *  shoreline crossing, where "the curb lane, right of travel" is OPEN BAY —
+   *  every staged car seated at the water height and sank, and the beat played
+   *  as an empty intersection with a boost flame in it.
+   *
+   *  It now takes `scoutPlowRun`, whose whole job is to prove there is dry
+   *  kerb — both sides, out to twice the curb offset, for the length of the
+   *  run — before a single car is relocated onto it. */
   private sceneTrafficChaos(): TrailerScene {
     // 14 cars (91u of row) keeps punts landing until ~t2.6s at 44 u/s.
     const ROW_N = 14;
@@ -1280,18 +1742,21 @@ class Director {
       // not on the wreck the carnage makes.
       duration: 2400,
       setup: async () => {
-        const alt = this.boulevard(2);
+        const alt = this.plow ?? this.boulevard(0);
         const dir = this.awayFromSun(alt.edge, alt.dir, 0.44);
         const path0 = this.edgePath(alt.edge, dir, 0);
         // Row start needs 91u of row + 70u run-out before the edge ends.
         const sRow = Math.max(64, Math.min(alt.edge.len - 180, alt.edge.len / 2 - 20));
         const p0 = path0.at(sRow);
-        // Row in the curb lane, right of travel (tz, -tx).
+        // Row against the LEFT kerb — (tz, -tx) is left of travel, not right
+        // (see edgePath). scoutPlowRun proves both kerbs are dry, so the side
+        // is free; what it costs is that the player's plow line then shares
+        // the half of the street ONCOMING traffic uses, which is why the
+        // cruisers below run with `dir`.
         const curb = Math.max(2.6, alt.edge.half - 1.6);
         const x0 = p0.x + p0.tz * curb;
         const z0 = p0.z - p0.tx * curb;
         const st = this.base({ phase: 0.44, avoidX: x0, avoidZ: z0, avoidR: 8 });
-        st.stageParkedRow(x0, z0, p0.tx, p0.tz, ROW_N, ROW_GAP);
         const rowLen = ROW_GAP * (ROW_N - 1);
         // Approach in the STREET lane, merge into the curb lane AT the row:
         // the curb lane between spawn and row start carries natural parked
@@ -1317,6 +1782,28 @@ class Director {
         this.path = new Path(waypoints);
         const s0 = lane(-62, 3.8);
         st.placeCar(s0[0], s0[1], Math.atan2(p0.tx, p0.tz), 0);
+        // Row staged AFTER the player is on its mark: stageRow relocates the
+        // parked cars NEAREST the row start, and the culling sweep that makes
+        // them visible again is keyed off the camera, which placeCar snaps.
+        st.stageParkedRow(x0, z0, p0.tx, p0.tz, ROW_N, ROW_GAP);
+        // Two police cruisers in the far lane — they live at the front of
+        // traffic.cars (POLICE_SHARE takes the first 8%): chaos with witnesses
+        // instead of chaos in a vacuum.
+        //
+        // SAME direction, not oncoming. Measured on this bake: the plow line
+        // sits at +3.4 in the edgePath frame and an oncoming car poses at
+        // +2.4 — 1.0u between two 2u-wide bodies closing at ~56 u/s, i.e. a
+        // guaranteed head-on inside the parked row on every take. With `dir`
+        // the cruisers pose at −2.4, 5.8u clear of the plow line, and the
+        // player never reaches them: it covers ~98u in the cut from −62 while
+        // the nearer cruiser starts at +30 and drives away at 10-22 u/s.
+        // (Placed AHEAD for the same reason the camera can't have them — the
+        // eye rides 5u kerbward of the player at −1.6, 0.8u off their lane.)
+        const sEdge = (travel: number): number => (dir > 0 ? travel : alt.edge.len - travel);
+        const police = st.traffic.cars.slice(0, 2);
+        [sRow + 30, sRow + 72].forEach((s, i) =>
+          this.placeTraffic(police[i], alt.edge, sEdge(s), dir),
+        );
         this.applyInput({ throttle: 1, boost: true });
         await settle();
         this.kickSpeed = 32;
@@ -1329,24 +1816,32 @@ class Director {
         this.reveal();
         const dts = Math.min(dt, 50) / 1000;
         this.followPath(44, true, dts);
-        // Higher than the usual low chase: at 2.3u the boost flame sprite
-        // sits dead-centre and hides the row cars being punted — 5.0u looks
-        // over the flame down onto the carnage. (Both a lateral offset and a
-        // steeper 7.5u pitch were tried: the offset shoves the minY clamp
-        // into cross-sloped sidewalks, the pitch drops the car out of frame.
-        // The near punt ducking behind the flame for a beat is acceptable.)
-        this.chaseCam(13, 5.0, 11, dts, 58);
+        // Off the axis, not above it. Raising the eye to 5.0u to "look over"
+        // the boost flame did not work — the plume is emitted straight down a
+        // dead-astern optical axis and stacks additively, so it grew wider
+        // than the car and by the end of the cut the vehicle was not visible
+        // at all. 5u to the RIGHT of travel (the street side, opposite the
+        // kerb row) takes the exhaust off-axis in one move and puts the row on
+        // the far side of frame, where the punts have room to cartwheel.
+        this.chaseCam(12, 3.6, 14, dts, 58, -5);
       },
     };
   }
 
-  /** 9 — fast cut 1: committed handbrake drift around a Victorian corner,
+  /** 5 — fast cut 1: committed handbrake drift around a Victorian corner,
    *  smoke and skids, mini-turbo pop on release. Fixed low cam on the exit
-   *  street — the car slides around it, toward the lens. */
+   *  street — the car slides around it, toward the lens.
+   *
+   *  1800, not 1500: the mini-turbo release — the button of the whole cut —
+   *  fired at t≈1350 and was clipped by the dip 150ms later.
+   *
+   *  "Victorian" is now measured rather than hoped for — see pickCorners's
+   *  reversed-turn fallback, which is what finally lets the preference beat
+   *  the sun test. */
   private sceneMontageDrift(): TrailerScene {
     return {
       id: "montage-drift",
-      duration: 1500,
+      duration: 1800,
       setup: async () => {
         const corner = this.driftCorner ?? this.fareCorner;
         if (!corner) {
@@ -1363,16 +1858,21 @@ class Director {
         this.driftSide = wrapAngle(hOut - hIn) < 0 ? 1 : -1;
         st.placeCar(corner.x - inA.tx * 26, corner.z - inA.tz * 26, hIn, 0);
         // Camera on the exit street looking back; laterally on the OUTSIDE
-        // of the turn so the drift sweeps across frame. Kept near the kerb
-        // line (2.6u) — further out sits on the corner lot, where podium
-        // walls eat half the frame at street height.
+        // of the turn so the drift sweeps across frame.
+        //
+        // 13u down the arm rather than 20: at 20 the opening frame was a dead
+        // wide — 65px of car and the bottom 45% bare asphalt with the horizon
+        // pinned at exactly mid-height. And 5.0u off the centreline rather than
+        // 2.6: at the kerb line both head lamps stared into the lens and their
+        // halos blew the largest hot patch in the reel over the hero frame, so
+        // the eye moves further to the outside and the lamps rake past it.
         let px = outA.tz;
         let pz = -outA.tx;
         if (px * -inA.tx + pz * -inA.tz > 0) {
           px = -px;
           pz = -pz;
         }
-        this.sceneAux.set(corner.x + outA.tx * 20 + px * 2.6, corner.z + outA.tz * 20 + pz * 2.6);
+        this.sceneAux.set(corner.x + outA.tx * 13 + px * 5, corner.z + outA.tz * 13 + pz * 5);
         // Staged at rest: NEUTRAL through the cut (brake at standstill would
         // reverse); drift input starts the frame the reveal kicks the speed.
         await settle();
@@ -1401,7 +1901,7 @@ class Director {
         if (this.step === 1) {
           // Hold ≥ ~850ms of drift (tier-1 mini-turbo arms at 0.8s) so the
           // release POP is the button of the cut, right before it ends.
-          if ((Math.abs(errExit) < 0.25 && t > 1200) || t > 1350) this.step = 2;
+          if ((Math.abs(errExit) < 0.25 && t > 1250) || t > 1400) this.step = 2;
           else this.drift(this.driftSide);
         }
         if (this.step === 2) {
@@ -1410,17 +1910,205 @@ class Director {
         const p = car.position;
         const camX = this.sceneAux.x;
         const camZ = this.sceneAux.y;
-        this.cam(camX, this.city.heightAt(camX, camZ) + 3.4, camZ, p.x, p.y + 0.9, p.z, 55);
+        // 2.0u eye, not 3.4: lower drops the horizon to the upper third and
+        // crops the dead asphalt out of the bottom of the approach frames.
+        this.cam(camX, this.city.heightAt(camX, camZ) + 2, camZ, p.x, p.y + 0.9, p.z, 55);
       },
     };
   }
 
-  /** 11 — fast cut 3: a cone barricade across a junction, hit at full boost
-   *  — front-reverse camera, cones scatter at the lens. */
+  /** 6 — THE SF GRADE: the roadway falls away under the camera. A steep
+   *  straight descent taken flat out, entered late so the run ENDS on the
+   *  steepening tail (this bake: 17.5% average, a 30% window, West Portal down
+   *  into Miraloma Park).
+   *
+   *  This is the traversal verb that separates the map from a flat arcade city
+   *  and it was missing entirely — every one of the previous eleven shots was
+   *  filmed on level ground or on a single crest. The camera is the whole
+   *  trick: a low chase aims at a point level with the car's own nose, so on a
+   *  falling grade the roadway drops clean out of the bottom of frame at every
+   *  brow and slams back in on the far side.
+   *
+   *  No boost. Gravity supplies the acceleration here, and holding a flame down
+   *  a hill this steep just paints the lower frame orange. */
+  private sceneHillDescent(): TrailerScene {
+    return {
+      id: "hill-descent",
+      duration: 2200,
+      setup: async () => {
+        const d = this.descent;
+        if (!d) {
+          await this.substituteBoostRun(0.44);
+          return;
+        }
+        const path = this.edgePath(d.edge, d.dir, 80);
+        const start = path.at(d.sStart);
+        const st = this.base({ phase: 0.44, avoidX: start.x, avoidZ: start.z, avoidR: 12 });
+        this.path = path;
+        // base() zeroes the rabbit, and project() only searches FORWARD of it —
+        // entering mid-edge without this leaves the rabbit at the hilltop.
+        this.pathS = d.sStart;
+        st.placeCar(start.x, start.z, Math.atan2(start.tx, start.tz), 0);
+        this.applyInput({ throttle: 1 });
+        await settle();
+        this.kickSpeed = 30;
+      },
+      run: (_t, dt) => {
+        if (this.runSubstitute(dt)) return;
+        this.reveal();
+        // Target ABOVE what the hill will give anyway: a lower target makes the
+        // pursuit controller brake on the descent, and braking mid-grade arms
+        // the drift and spins the take.
+        this.followPath(48, false, Math.min(dt, 50) / 1000);
+        this.chaseCam(9.5, 2.3, 17, Math.min(dt, 50) / 1000, 66, 2.6);
+      },
+    };
+  }
+
+  /** 12 — THE VISTA: the Twin Peaks summit road, and the whole city underneath.
+   *
+   *  The map is the most expensive thing in this repo and no shot had ever
+   *  stood anywhere high and looked at it — all eleven were filmed between 1.5u
+   *  and 20u above a roadway, so the viewer never saw more than a block and a
+   *  half of a 14km city. The hills, the height-attenuated aerial haze and the
+   *  far-terrain silhouette bands only pay off from altitude.
+   *
+   *  Staging: the summit road climbs from y81 to y100 over 81u, running due
+   *  NORTH, with the overlook terrace 46u off the eastern shoulder. The car
+   *  drives it slowly while the camera cranes from a tight chase out to a wide,
+   *  high three-quarter — so the shot OPENS rather than being a small subject
+   *  held still.
+   *
+   *  IT LOOKS NORTH, NOT EAST. The first cut craned east, across the car toward
+   *  the overlook, and every delivered frame was roofs: the terrace is the local
+   *  HIGH ground (46u out and ~12u above the roadway), so aiming at it aims into
+   *  the hill, and the beat commissioned as "the city from above" delivered a
+   *  residential hillside with Sutro Tower over it.
+   *
+   *  Downtown cannot answer that, and it is worth writing down why so nobody
+   *  re-tries it: the resolved towers are 1400u out on bearing 41-53, and
+   *  DRAW_DISTANCE is 900 with fog far ~940 — the Financial District is not
+   *  merely hazy from up here, it is culled. What IS renderable at that range is
+   *  the bay itself and the Golden Gate, whose long-range stand-in
+   *  (render/landmark-silhouette.ts) is drawn at EVERY distance by design. Fort
+   *  Point resolves 1238u out on bearing -9, i.e. barely off the run's own
+   *  travel direction, so pointing the crane down the road and letting the aim
+   *  drift to the Gate's side of it puts the bay, the headlands and an orange
+   *  portal on the horizon behind a whole neighbourhood of falling rooftops.
+   *  Which side that is gets measured against the resolved monument, not
+   *  assumed. It also sets up the closer, which is that bridge.
+   *
+   *  THE CRANE RUNS ON ITS OWN CLOCK (2.6s, against the aim's 4.2s). Measured
+   *  on this bake, the ridge between the summit road and the strait hides the
+   *  water until the eye passes ~123u absolute; a single 4.2s ramp only crosses
+   *  that in the last second, so three of the four delivered frames would still
+   *  have been rooftops. Lifting first and swinging after is also the better
+   *  move — rise, then look.
+   *
+   *  Two cautions carried into the staging: do not drive onto the terrace (its
+   *  paving disc and parapet blocks are meshes, and the landmark protection
+   *  reserves those cells), and keep the eye above ~100u or the aerial haze
+   *  washes the ridgelines out. */
+  private sceneVista(): TrailerScene {
+    return {
+      id: "twin-peaks-vista",
+      duration: 4200,
+      setup: async () => {
+        const run = this.summit;
+        const at = this.summitAt;
+        if (!run || !at) {
+          await this.substituteBoostRun(0.44);
+          return;
+        }
+        const path = this.edgePath(run.edge, run.dir, 60);
+        // From the very start of the roadway, not 3u in: the summit edge
+        // measures 80.7u and the run has to END on it. See kickSpeed below.
+        const start = path.at(0);
+        // 0.42, not 0.44: this road climbs the WEST flank, so a later phase
+        // puts the whole vista in the ridge's own shadow with the street lamps
+        // already coming up. 0.42 keeps the key near full and the sky blue.
+        const st = this.base({ phase: 0.42, avoidX: start.x, avoidZ: start.z, avoidR: 24 });
+        this.path = path;
+        st.placeCar(start.x, start.z, Math.atan2(start.tx, start.tz), 0);
+        // Which side of travel the Golden Gate — the one long-range landmark
+        // this altitude can actually deliver — sits on: +1 = LEFT of travel,
+        // which is the sign trackCam's `left`/`aimLeft` already use. Measured
+        // off the resolved Fort Point mark; the summit mark only guards staging
+        // now, because aiming at it aims into the hill (see the docstring).
+        const mid = path.at(run.edge.len * 0.5);
+        const beyond = this.fortPointAt ?? at;
+        this.driftSide = (beyond.x - mid.x) * mid.tz - (beyond.z - mid.z) * mid.tx >= 0 ? 1 : -1;
+        this.applyInput({ throttle: 1 });
+        await settle();
+        // 17, not 19, and from s0 rather than s3. A vista is not a speed beat,
+        // but the arithmetic has to close: the edge is 80.7u, and 3 + 19x4.2
+        // ran the car 2.1u PAST the end of the summit road onto the straight
+        // overrun — with followPath's rabbit (pathS + 7 + 0.28xspeed, ~12u
+        // ahead) off the roadway from t3.6s, so the last 0.6s of the trailer's
+        // vista beat steered at open terrain on the one beat whose staging
+        // notes say do not leave the road. 0 + 17x4.2 = 71.4u ends 9u short of
+        // the end with the rabbit still on the tarmac until t4.05s.
+        this.kickSpeed = 17;
+      },
+      run: (t, dt) => {
+        if (this.runSubstitute(dt)) return;
+        this.reveal();
+        const dts = Math.min(dt, 50) / 1000;
+        this.followPath(17, false, dts);
+        // Two clocks. The crane tops out at 2.6s, the aim keeps opening for the
+        // full 4.2s: the strait does not clear the ridge north of this road
+        // until the eye passes ~123u absolute (measured — at 118 the horizon is
+        // hillside, at 128 it is water with the bridge on it), and a single
+        // 4.2s ramp only crosses that in the last second. Lift first, then look.
+        const lift = smooth(clamp(t / 2600, 0, 1));
+        const e = smooth(clamp(t / 4200, 0, 1));
+        const bay = this.driftSide;
+        // Eye on the bay side of the roadway, aim opening down the run: the
+        // Waymo settles into the lower third while the frame fills with the
+        // neighbourhood falling away, the water band and the Gate on it. Slow
+        // lag so the crane drifts.
+        //
+        // The crane HAS to end high AND far back, and the two are locked. High,
+        // for the ridge above. Far back, because 33u of lift over a 4.5u car
+        // drops it clean out of the bottom of the frame at anything under ~50u
+        // of standoff — at 56 it sits ~84% down, which is the lower third
+        // rather than the edge. (The previous 22u/34u crane cleared neither:
+        // it framed the hillside, the terrace parapet and a row of roofs.)
+        this.trackCam(
+          {
+            back: 11 + 45 * lift,
+            up: 3.2 + 29.8 * lift,
+            left: bay * (3.5 + 5 * e),
+            aheadOf: 9 + 121 * e,
+            // Starts a touch to the far side — the car reads centred under the
+            // tight opening chase — and crosses to the Gate's side as the frame
+            // opens out.
+            aimLeft: bay * (-3 + 23 * e),
+            // Aim BELOW the car by the end, not level with it. The eye finishes
+            // ~33u over the roadway; an aim held at car height tips the optical
+            // axis up into empty sky and pushes the horizon band — the whole
+            // point of the shot — off the top of the frame.
+            aimUp: 1 - 6 * e,
+            fov: 58 - 4 * e,
+            lag: 2.2,
+          },
+          dts,
+        );
+      },
+    };
+  }
+
+  /** 7 — fast cut 2: a cone barricade across a junction, hit at full boost
+   *  — front-reverse camera, cones scatter at the lens.
+   *
+   *  1250, not 1500, and the run-in is 22u instead of 36. At 46 u/s a 36u
+   *  approach is 0.78s — two of four frames were a 50px car driving toward a
+   *  static cone line, the contact landed at 63% and the scatter was over by
+   *  88%. The hit now lands at ~35% and the scatter owns the back half. */
   private sceneMontageSmash(): TrailerScene {
     return {
       id: "montage-smash",
-      duration: 1500,
+      duration: 1250,
       setup: async () => {
         const j =
           this.junctions.find((cand) => cand.approaches.some((a) => a.run >= 30)) ??
@@ -1439,8 +2127,11 @@ class Director {
         this.sceneNode.set(j.x, j.z);
         this.sceneDir.set(pT.x, pT.z);
         st.cones.stageBarricade(j.x - pT.x * 3, j.z - pT.z * 3, pT.z, -pT.x, pT.x, pT.z, 12, 1.1);
-        st.placeCar(j.x - pT.x * 36, j.z - pT.z * 36, Math.atan2(pT.x, pT.z), 0);
-        this.sceneAux.set(j.x + pT.x * 15 + pT.z * 4.0, j.z + pT.z * 15 - pT.x * 4.0);
+        st.placeCar(j.x - pT.x * 22, j.z - pT.z * 22, Math.atan2(pT.x, pT.z), 0);
+        // 9u past the junction, not 15: closer roughly doubles the cones'
+        // on-screen size, and with the eye dropped to +1.05 the horizon lifts
+        // off the exact middle of frame it used to sit on.
+        this.sceneAux.set(j.x + pT.x * 9 + pT.z * 3.0, j.z + pT.z * 9 - pT.x * 3.0);
         this.applyInput({ throttle: 1, boost: true });
         await settle();
         this.kickSpeed = 36;
@@ -1456,58 +2147,114 @@ class Director {
         const car = st.car.position;
         const camX = this.sceneAux.x;
         const camZ = this.sceneAux.y;
-        this.cam(camX, this.city.heightAt(camX, camZ) + 1.7, camZ, car.x, car.y + 0.9, car.z, 55);
+        this.cam(camX, this.city.heightAt(camX, camZ) + 1.05, camZ, car.x, car.y + 0.9, car.z, 44);
       },
     };
   }
 
-  /** 11 — RELEASE: the Waymo crossing the Golden Gate, shot from off the deck
+  /** 13 — RELEASE: the Waymo crossing the Golden Gate, shot from off the deck
    *  and out over the water so the bridge actually reads as a bridge.
    *
-   *  The previous framing sat ON the deck, 2.6u off centreline, because the
-   *  cables hang at x ±7.2 and the portal beams start at deckY+7.8 — anything
-   *  wider shot through red girders. But from inside that safe cylinder the
-   *  only thing in frame is roadway: the towers are a distant red frame, the
-   *  water never appears, and the closing image of the trailer is an empty
-   *  carriageway. The fix is to leave the deck entirely. A camera hung out over
-   *  the bay, level with the roadway and swinging forward as the car passes,
-   *  never touches the lattice and puts tower, span, water and sunset in one
-   *  frame with the car crossing it. */
+   *  The framing before this one sat ON the deck, 2.6u off centreline, because
+   *  the cables hang at x ±7.2 and the portal beams start at deckY+7.8 —
+   *  anything wider shot through red girders. But from inside that safe
+   *  cylinder the only thing in frame is roadway. Moving 24u west fixed that
+   *  and broke three other things, all measured off the delivered frames: the
+   *  camera stared at a mark 24u downstream of a car doing 10 u/s, so the
+   *  trailer's CLOSING SHOT had no subject in it for its first half; the car
+   *  then crossed all the way out of the left of frame before the cut; and a
+   *  tower leg 24u from the lens filled the right 40% of every frame as a flat,
+   *  textureless red slab.
+   *
+   *  Standing off and upstream fixed the slab and won the best-composed frame
+   *  in the reel — the full deck, the catenary, the lamps, the bay — but it
+   *  left the other two criticals standing, and the frames say exactly why.
+   *
+   *  START PAST THE TOWER. With the car placed at the deck lip it spent the
+   *  first half of the cut SOUTH of the south tower, and from a lens 26u west
+   *  the tower's west leg sits between the two: probed at the 12% mark, the ray
+   *  through the car's own screen position hit a mesh 13u short of it, which is
+   *  why the closing shot still opened on a bridge with no Waymo in it. The
+   *  occlusion is geometric, not a timing accident — a camera s units off the
+   *  deck axis and dLeg past the tower has the leg crossing the car's sightline
+   *  at exactly D = s·dLeg/(s−6.9), and for every value that keeps the tower in
+   *  frame that D lands inside the run. Starting the car NORTH of the tower
+   *  puts the tower behind it instead of in front, and nothing can cross.
+   *
+   *  CLOSER, NOT WIDER. 26u of lateral standoff caps the closest approach at
+   *  26u no matter how long the run is, and the delivered car measured smaller
+   *  than the version this replaced. 19u is the tightest offset that still
+   *  clears the ±7.2 cable plane by more than a car's width; with the run cut
+   *  to 28.5u the Waymo works 42u -> 26u, photographed at 116 -> 189px across
+   *  and in frame at all four sample marks (it was 89 -> 162 with nothing at
+   *  all in the first).
+   *
+   *  Locked off, and that matters most: this bridge only composes from abeam,
+   *  so a camera that tracks the car necessarily swings AWAY from the
+   *  composition as the car moves. Holding the frame and letting the Waymo
+   *  drive through it keeps the good angle for the whole shot. The only motion
+   *  is a slow rise, which parallaxes the near cables against the headlands. */
   private sceneHeroDrive(): TrailerScene {
     return {
       id: "hero-drive",
-      duration: 4200,
+      duration: 3000,
       setup: async () => {
         const gate = this.gate;
         if (!gate) {
-          await this.substituteBoostRun(0.44);
+          await this.substituteBoostRun(0.45);
           return;
         }
-        // 0.44, not 0.465. Moving the camera west to keep the sun out of the
-        // lens also took the warmth off the bridge — at 0.465 the span reads
-        // as a dark silhouette. A slightly earlier phase lifts the sun to ~6
-        // degrees and still leaves it behind the camera, so the towers catch
-        // the light instead of blocking it. (0.48-0.52 is off limits: the
-        // shadow direction lerps through the sun-to-moon handoff there and the
-        // city casts full-strength shadows from the wrong place.)
-        const st = this.base({ phase: 0.44, avoidX: gate.x, avoidZ: gate.shoreZ, avoidR: 10 });
-        // North across the deck (north = -Z, heading π). Start just past the
-        // deck lip: the north tower portal sits ~64u out, and at 13 u/s over
-        // 4s the car must END short of it — from -26 the trailing camera
-        // spent the last ~1.1s of the cut inside the red tower lattice.
-        const startZ = gate.rampTopZ - 8;
+        // 0.40, and this is the beat that has to carry the reel's last value
+        // change. The cut climaxes on two night beats; a closer at 0.45 —
+        // two-thirds of the way from the golden-hour stop toward sunset, sun
+        // 5 degrees up, lamp factor already 0.44 — made the trailer's final
+        // NINE seconds one unbroken dark block, and it measured that way: 46 /
+        // 29 / 37 mean luma against a 49 reel mean, with the closer also the
+        // emptiest frame in the cut (64.5% of it within ten levels of the modal
+        // grey — flat dark bay and flat dark sky).
+        //
+        // 0.40 is a STOP, not a blend, and day-night.ts labels it: "Golden hour
+        // is DAYLIGHT: sun still 12 degrees up, blue sky, full-strength key."
+        // Photographed at the same camera across 0.45 / 0.42 / 0.40 / 0.37, it
+        // reads 38.7 / 52.2 / 57.6 / 62.2 luma and 67.5 / 55.9 / 54.3 / 57.0%
+        // empty — 0.40 is where the paint comes back to International Orange,
+        // the bay takes a value and the headlands go green, and it is the last
+        // stop before the light flattens toward noon again.
+        //
+        // What it costs is the parapet lamps (lamp factor is 0 at this stop),
+        // which were the prettiest thing in the old frame. Worth it: the
+        // trailer's job here is to end in the light.
+        //
+        // The geometry is unchanged by the move — the camera stands WEST of the
+        // deck looking south-east, and the sun sits at azimuth 235 (WSW), so it
+        // is behind the lens at every stop in this band and the span is
+        // front-lit rather than raked. (0.48-0.52 stays off limits: the shadow
+        // direction lerps through the sun-to-moon handoff there and the city
+        // casts full-strength shadows from the wrong place.)
+        const st = this.base({ phase: 0.4, avoidX: gate.x, avoidZ: gate.shoreZ, avoidR: 10 });
+        // North across the deck (north = -Z, heading π). Start 46u out, which
+        // is ~16u NORTH of the south tower — measured on this bake, the tower's
+        // portal sits 30.4u past the ramp top. That is the whole occlusion fix:
+        // from here the tower is behind the car for the entire run, so its legs
+        // can never cross the sightline, and the Waymo drives out of the portal
+        // toward the lens instead of arriving from behind it. The extra 6u past
+        // the tower was lamp phasing — the parapet lamps are 51u apart and at
+        // 40u the car sat inside a halo at the 12% mark. The lamps are dark at
+        // 0.40 so that no longer binds, but the margin is free and the shot was
+        // photographed at it.
+        const startZ = gate.rampTopZ - 46;
         st.placeCar(gate.x, startZ, Math.PI, 0);
         this.sceneNode.set(gate.x, gate.deckY);
-        // Where the locked-off camera stares: abeam the span the car crosses.
-        // Distance is set by how big the Waymo needs to read, then the speed is
-        // set to match. At 24u off the deck the visible span at a 50-degree
-        // vertical FOV is ~40u, so the car must cover about that much in 4.2s
-        // to enter at one edge and still be in shot at the cut — 10 u/s. Slow
-        // is right here anyway: this is the release beat, not a speed beat.
-        this.sceneAux.set(startZ - 24, 0);
+        // Camera 42u NORTH of the start looking back down the span, aim fixed
+        // 25u out. The aim splits the run's angular sweep: the car enters ~13
+        // degrees left of the optical axis and leaves ~17 degrees right of it,
+        // against a horizontal half-angle of 37 at this lens, so it is inside
+        // the frame at every sample mark and never near an edge.
+        // x = eye z, y = aim z.
+        this.sceneAux.set(startZ - 42, startZ - 17);
         this.applyInput({ throttle: 1 });
         await settle();
-        this.kickSpeed = 10;
+        this.kickSpeed = 9.5;
       },
       run: (t, dt) => {
         if (this.runSubstitute(dt)) return;
@@ -1517,27 +2264,19 @@ class Director {
         const car = st.car;
         const x = this.sceneNode.x;
         const deckY = this.sceneNode.y;
-        this.driveAt(x, car.position.z - 300, 10);
-        const e = smooth(clamp(t / 4200, 0, 1));
-        // LOCKED OFF, west of the deck, and the car crosses frame.
+        this.driveAt(x, car.position.z - 300, 9.5);
+        const e = smooth(clamp(t / 3000, 0, 1));
+        // Eye above deck level aiming just over it: the tilt drops the roadway
+        // onto the lower third, so the tower, the cables and the sky band get
+        // the top two-thirds instead of an equal split with the bay.
         //
-        // West matters: the sun sits at azimuth ~243 at this phase, so an
-        // east-side camera looks straight into it and the frame blows to white.
-        // From here the sun is behind the lens and rakes the bridge warm.
-        //
-        // Locked off matters more. This bridge only composes from abeam — that
-        // is the one angle where tower, cables, deck and water stack up behind
-        // the car — so a camera that tracks the car necessarily swings AWAY
-        // from the composition as the car moves. Holding the frame and letting
-        // the Waymo drive through it keeps the good angle for the whole shot,
-        // and a crossing subject reads as travel far better than one pinned to
-        // the middle of frame. The only motion is a slow rise, which parallaxes
-        // the near cables against the far headlands.
-        const markZ = this.sceneAux.x;
-        // Eye just under deck level aiming just over it: the tilt drops the
-        // roadway onto the lower third, so the tower, the cables and the sunset
-        // band get the top two-thirds instead of an equal split with the bay.
-        this.cam(x - 24, deckY + 1.5 + e * 2.6, markZ, x, deckY + 2.6, markZ, 50);
+        // 19u off the deck axis, not 26. A locked-off camera can never bring
+        // its subject nearer than its own lateral offset, and at 26 the Waymo
+        // bottomed out at 30u — smaller on screen than the framing this beat
+        // replaced, which was the regression. 19 still clears the ±7.2 cable
+        // plane by 11.8u, so the near suspenders stay thin verticals rather
+        // than bars across the lens.
+        this.cam(x - 19, deckY + 5 + e * 2.4, this.sceneAux.x, x, deckY + 2.4, this.sceneAux.y, 46);
       },
       teardown: () => this.applyInput({}),
     };
@@ -1563,6 +2302,10 @@ class Director {
 }
 
 export function startTrailer(game: GameScene): void {
+  // Before anything stages: the game's boot HUD (EARNED 0 / TIME 60 and the
+  // loading-bar box) draws ABOVE the shell's black cut plate, so it was the
+  // first thing in the recording until the first scene's base() hid it.
+  hideChrome(false);
   const director = new Director(game);
   runTrailer({
     onGesture: () => director.unlockAudio(),

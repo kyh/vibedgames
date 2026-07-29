@@ -45,6 +45,10 @@ const LAYERS: Layer[] = [
   { row: 1, depth: -12, sf: 0.58, step: 150, scale: 1.0, alpha: 0.92, tint: 0xffffff },
 ];
 
+/** Name tag on the in-front layer, so a caller can pick it out of the returned
+ * list (the trailer drops it on combat shots — see GameScene.trailerStage). */
+export const FG_TREE_NAME = "fg-tree";
+
 const FG_LAYER: Layer = {
   row: 0,
   depth: 40,
@@ -113,7 +117,8 @@ export function buildParallax(
       .setDepth(FG_LAYER.depth)
       .setScale(FG_LAYER.scale)
       .setAlpha(0.96)
-      .setTint(mulColor(FG_LAYER.tint, pal.tree));
+      .setTint(mulColor(FG_LAYER.tint, pal.tree))
+      .setName(FG_TREE_NAME);
     if (hash(seed * 8.8) > 0.5) t.setFlipX(true);
     out.push(t);
   }

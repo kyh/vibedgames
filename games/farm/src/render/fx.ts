@@ -3,21 +3,25 @@ import { DEPTH } from "../config";
 
 // Lightweight juice helpers — all built from primitives so they need no art.
 
+/** `size` (world pixels) and `life` (ms) default to every gameplay pop; a caller
+ *  raises them only for a glyph that has to carry a beat on its own. */
 export function floatText(
   scene: Phaser.Scene,
   x: number,
   y: number,
   text: string,
   color = "#fff6d5",
+  size = 11,
+  life = 900,
 ): void {
   const t = scene.add
     .text(x, y, text, {
       fontFamily: "ui-monospace, monospace",
-      fontSize: "11px",
+      fontSize: `${size}px`,
       fontStyle: "bold",
       color,
       stroke: "#3a2a14",
-      strokeThickness: 3,
+      strokeThickness: Math.max(3, Math.round(size / 4)),
     })
     .setOrigin(0.5, 1)
     .setDepth(DEPTH.particles + 10);
@@ -25,7 +29,7 @@ export function floatText(
     targets: t,
     y: y - 22,
     alpha: { from: 1, to: 0 },
-    duration: 900,
+    duration: life,
     ease: "Cubic.easeOut",
     onComplete: () => t.destroy(),
   });

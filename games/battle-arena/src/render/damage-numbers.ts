@@ -185,12 +185,18 @@ export class DamageNumbers {
     // a banner hangs where it was earned and doesn't fly off
     const burst = style === "crit" ? 1.35 : style === "bystander" ? 0.55 : 1;
     const banner = style === "banner";
-    const spread = banner ? 0 : (Math.random() - 0.5) * 1.6;
+    // the scatter has to be a random DIRECTION, not one random magnitude shared
+    // by both axes — a shared value always throws the number along the same 45°
+    // diagonal, so an AoE that damages five bodies at once (all at nearly the
+    // same screen point) piles into a single unreadable glyph blob
+    const spreadAng = Math.random() * Math.PI * 2;
+    const spreadX = banner ? 0 : Math.cos(spreadAng) * 0.9;
+    const spreadZ = banner ? 0 : Math.sin(spreadAng) * 0.9;
     n.x = x + (banner ? 0 : (Math.random() - 0.5) * 0.35);
     n.z = y + (banner ? 0 : (Math.random() - 0.5) * 0.35);
     n.y = 1.5 + (banner ? 0.4 : Math.random() * 0.35);
-    n.vx = (dx * 1.5 + spread) * burst;
-    n.vz = (dy * 1.5 + spread) * burst;
+    n.vx = (dx * 1.5 + spreadX) * burst;
+    n.vz = (dy * 1.5 + spreadZ) * burst;
     n.vy = banner ? 1.1 : (4.6 + Math.random() * 0.9) * burst; // up hard…
     n.grav = banner ? 0.6 : 11; // …and fall back down, except a banner, which hangs
     n.life = 0;
@@ -246,6 +252,19 @@ export class DamageNumbers {
       // the number hard to read for its whole life
       n.el.style.opacity = t > 0.72 ? ((1 - t) / 0.28).toFixed(2) : "1";
     }
+  }
+
+  /** Retire every live number at once. Numbers arc on their own real-time
+   *  clock, so anything that hard-cuts the view (the trailer's scene cuts)
+   *  must clear them or the previous shot's damage keeps floating over the
+   *  next one's first frames. */
+  clear(): void {
+    for (const n of this.pool) {
+      n.live = false;
+      n.el.style.visibility = "hidden";
+    }
+    this.combo = 0;
+    this.comboLastAt = 0;
   }
 
   dispose(): void {

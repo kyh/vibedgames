@@ -12,7 +12,12 @@ export function ensureGlow(scene: Phaser.Scene) {
   const R = 24;
   const g = scene.make.graphics({ x: 0, y: 0 });
   for (let i = R; i > 0; i--) {
-    g.fillStyle(0xffffff, 0.05);
+    // Taper the outer third to nothing: a flat 0.05 per ring left the texture
+    // ~5% opaque at its own 48px border, and every caller scales it up and then
+    // tweens 1.6x further — explosion() alone runs r/18 (3.3x for a boss kill,
+    // 5.3x by the end of the tween), where an additive 5% edge reads as a hard
+    // disc rim around the bloom instead of a falloff.
+    g.fillStyle(0xffffff, 0.05 * Math.min(1, (R - i) / (R * 0.34)));
     g.fillCircle(R, R, i);
   }
   g.generateTexture("fx-glow", R * 2, R * 2);

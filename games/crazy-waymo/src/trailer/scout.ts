@@ -188,107 +188,165 @@ export function scoutCrests(ctx: ScoutCtx, max = 6): CrestSpot[] {
 }
 
 // ---------------------------------------------------------------------------
-// Long downhill with open water ahead — the "plunge toward the bay" vista.
+// The SF grade: a long straight street that falls away hard under the camera.
+//
+// This replaces a `scoutVista` that asked for a downhill with open WATER ahead
+// and, in this bake, answered with a 7% run through Jackson Square — a slope
+// too gentle to drop the horizon out of any frame, which is why nothing ever
+// staged on it. What actually reads on camera is the GRADE, so that is what is
+// gated here; where the street points is left to the shot.
 
-export type VistaSpot = {
+export type DescentSpot = {
   readonly edge: NetEdge;
   readonly dir: 1 | -1;
-  readonly sStart: number; // where the plunge begins
-  readonly grade: number;
-  readonly hasBench: boolean; // a mid-run convexity (natural hop)
+  /** Arclength IN TRAVEL ORDER to enter at — placed so the steep tail of the
+   *  run lands inside a ~2s take rather than after it. */
+  readonly sStart: number;
+  readonly grade: number; // average over the whole run
+  readonly steepest: number; // worst 12u window — the bit that reads
 };
 
-export function scoutVista(ctx: ScoutCtx): VistaSpot | null {
-  const LOOK = 300; // water must be visible this far ahead
-  let best: VistaSpot | null = null;
+/** How much road a descent take actually uses (≈2.2s at 40 u/s, plus slack). */
+const DESCENT_RUN = 100;
+/** Above this, a 12u window is a terrain cliff the drape happens to cross, not
+ *  a street: the car launches off it and the take ends in a barrel roll. */
+const DESCENT_MAX_STEP = 0.4;
+
+export function scoutDescent(ctx: ScoutCtx, minGrade = 0.12): DescentSpot | null {
+  let best: DescentSpot | null = null;
   let bestScore = 0;
   for (const e of ctx.network.edges) {
     if (!edgeInPlayArea(e)) continue;
-    if (e.len < 90 || straightness(e) < 0.93) continue;
-    for (const dir of [1, -1] as const) {
-      const s0 = dir > 0 ? 8 : e.len - 8;
-      const s1 = dir > 0 ? Math.min(e.len - 8, s0 + 80) : Math.max(8, s0 - 80);
-      const a = ctx.network.sample(e, s0);
-      const b = ctx.network.sample(e, s1);
-      const drop = ctx.heightAt(a.x, a.z) - ctx.heightAt(b.x, b.z);
-      const run = Math.abs(s1 - s0);
-      if (run < 70) continue;
-      const grade = drop / run;
-      if (grade < 0.07) continue;
-      const tx = a.tx * dir;
-      const tz = a.tz * dir;
-      if (
-        !waterAt(a.x + tx * LOOK, a.z + tz * LOOK) &&
-        !waterAt(a.x + tx * 1.4 * LOOK, a.z + tz * 1.4 * LOOK)
-      ) {
-        continue;
-      }
-      // Bench: a local convex break mid-run (SF cross-street shelf) → hop.
-      let hasBench = false;
-      for (let t = 15; t <= run - 15; t += 3) {
-        const s = s0 + t * dir;
-        const p = ctx.network.sample(e, s);
-        const pb = ctx.network.sample(e, s - 9 * dir);
-        const pf = ctx.network.sample(e, s + 9 * dir);
-        const conv =
-          ctx.heightAt(p.x, p.z) - (ctx.heightAt(pb.x, pb.z) + ctx.heightAt(pf.x, pf.z)) / 2;
-        if (conv > 0.22) {
-          hasBench = true;
-          break;
-        }
-      }
-      const score = grade * (hasBench ? 1.5 : 1) * Math.min(run, 90);
-      if (score > bestScore) {
-        bestScore = score;
-        best = { edge: e, dir, sStart: s0, grade, hasBench };
-      }
+    if (e.len < 120 || e.half < 4.0 || straightness(e) < 0.93) continue;
+    const a = ctx.network.sample(e, 4);
+    const b = ctx.network.sample(e, e.len - 4);
+    const hA = ctx.heightAt(a.x, a.z);
+    const hB = ctx.heightAt(b.x, b.z);
+    const run = e.len - 8;
+    const grade = Math.abs(hA - hB) / run;
+    if (grade < minGrade) continue;
+    const dir: 1 | -1 = hA > hB ? 1 : -1;
+    // Steepest local window, and a monotonicity check: a street that dips and
+    // climbs back reads as a bump, not as a hill.
+    let steepest = 0;
+    let rises = 0;
+    for (let s = 4 + 12; s <= e.len - 4; s += 12) {
+      const p = ctx.network.sample(e, s - 12);
+      const q = ctx.network.sample(e, s);
+      const d = (ctx.heightAt(q.x, q.z) - ctx.heightAt(p.x, p.z)) * (dir > 0 ? -1 : 1);
+      if (d < -0.3) rises++;
+      steepest = Math.max(steepest, d / 12);
+    }
+    if (rises > 1 || steepest > DESCENT_MAX_STEP) continue;
+    // Enter late enough that the run ENDS at the bottom: SF grades steepen as
+    // they fall, so the last 100u is the part worth filming.
+    const sStart = Math.max(4, e.len - 4 - DESCENT_RUN);
+    const score = grade * run + steepest * 200;
+    if (score > bestScore) {
+      bestScore = score;
+      best = { edge: e, dir, sStart, grade, steepest };
     }
   }
   return best;
 }
 
 // ---------------------------------------------------------------------------
-// Waterfront run — the Embarcadero sweep past the piers.
+// A street near a named monument — the "you are driving actual San Francisco"
+// shots. The scout layer cannot resolve landmark names (world/landmarks.ts
+// pulls in THREE), so the caller passes the resolved position.
+//
+// This replaces a `scoutShore` that looked for a waterfront edge by district
+// character. The Embarcadero at the Ferry Building classifies as the Financial
+// District, so that scout could never find the shot it was written for and put
+// the trailer's "the city is real" beat in China Basin, looking at sheds.
+// Anchoring on the monument instead is exact by construction.
 
-export type ShoreSpot = {
+export type NearRun = {
   readonly edge: NetEdge;
+  /** Travel direction whose FAR end is nearer the anchor — drive toward it. */
   readonly dir: 1 | -1;
-  /** waterLeft: open water lies to the LEFT of travel. */
-  readonly waterLeft: boolean;
+  readonly dist: number; // closest approach of the edge to the anchor
 };
 
-export function scoutShore(ctx: ScoutCtx): ShoreSpot | null {
-  // First water hit scanning laterally 30..140u from the centreline — the
-  // Embarcadero runs a pier apron ~100u wide between roadway and open water,
-  // so a single fixed-distance probe misses it.
-  const waterDist = (x: number, z: number, nx: number, nz: number): number => {
-    for (let d = 30; d <= 140; d += 10) {
-      if (waterAt(x + nx * d, z + nz * d)) return d;
-    }
-    return Infinity;
-  };
-  let best: ShoreSpot | null = null;
-  let bestKey = -Infinity;
+export function scoutRunNear(
+  ctx: ScoutCtx,
+  x: number,
+  z: number,
+  opts: { radius: number; minLen: number; minHalf: number },
+): NearRun | null {
+  let best: NearRun | null = null;
+  let bestScore = -Infinity;
   for (const e of ctx.network.edges) {
     if (!edgeInPlayArea(e)) continue;
-    if (e.len < 90 || straightness(e) < 0.9) continue;
-    const mid = ctx.network.sample(e, e.len / 2);
-    if (districtAtWorld(mid.x, mid.z) !== "wharf") continue;
-    // Water on exactly one side. Left of travel a→b is (-tz, tx).
-    const left = waterDist(mid.x, mid.z, -mid.tz, mid.tx);
-    const right = waterDist(mid.x, mid.z, mid.tz, -mid.tx);
-    if (left === right || (left < Infinity && right < Infinity)) continue;
-    // Prefer NEAR water over sheer length: on a far apron the shorefront
-    // strip hides the sea from any camera that also frames the car — the
-    // sweep only reads "coastal" when the water sits beside the road.
-    const d = Math.min(left, right);
-    const key = (d <= 60 ? 1000 : 0) + e.len - d * 2;
-    if (key > bestKey) {
-      bestKey = key;
-      best = { edge: e, dir: 1, waterLeft: left < right };
+    if (e.len < opts.minLen || e.half < opts.minHalf) continue;
+    if (straightness(e) < 0.93) continue;
+    let dist = Infinity;
+    for (let s = 0; s <= e.len; s += 5) {
+      const p = ctx.network.sample(e, s);
+      dist = Math.min(dist, Math.hypot(p.x - x, p.z - z));
+    }
+    if (dist > opts.radius) continue;
+    const a = ctx.network.sample(e, 0);
+    const b = ctx.network.sample(e, e.len);
+    const dir: 1 | -1 = Math.hypot(b.x - x, b.z - z) <= Math.hypot(a.x - x, a.z - z) ? 1 : -1;
+    // Long and wide enough to drive, but proximity is what puts the monument
+    // in frame — a 250u boulevard 80u away is a worse shot than an 80u one
+    // that runs past the door.
+    const score = e.len * e.half - dist * 12;
+    if (score > bestScore) {
+      bestScore = score;
+      best = { edge: e, dir, dist };
     }
   }
   return best;
+}
+
+// ---------------------------------------------------------------------------
+// Plow street — a long flat straight run whose KERBS are real land.
+//
+// The demolition beat relocates a row of parked cars to the curb offset. Taking
+// the widest boulevard by score put that row on the China Basin shoreline,
+// where "right of travel" is open bay: every car seated at the water height and
+// sank, and the beat played as an empty crossing. Dry kerb, both sides, is a
+// hard requirement — the travel direction is chosen later (sun avoidance).
+
+export function scoutPlowRun(ctx: ScoutCtx, minLen = 230): RunSpot | null {
+  let best: RunSpot | null = null;
+  let bestScore = 0;
+  for (const e of ctx.network.edges) {
+    if (!edgeInPlayArea(e)) continue;
+    if (e.len < minLen || e.half < 4.6 || straightness(e) < 0.95) continue;
+    const curb = Math.max(2.6, e.half - 1.6);
+    let ok = true;
+    for (let s = 0; s <= e.len && ok; s += 6) {
+      const p = ctx.network.sample(e, s);
+      if (s >= 6) {
+        const q = ctx.network.sample(e, s - 6);
+        if (Math.abs(ctx.heightAt(p.x, p.z) - ctx.heightAt(q.x, q.z)) / 6 > 0.05) ok = false;
+      }
+      // A punted car cartwheels off the kerb, so the strip BEYOND it has to be
+      // land too — probe out to twice the curb offset.
+      for (const side of [1, -1] as const) {
+        for (const d of [curb, curb * 2]) {
+          if (waterAt(p.x + p.tz * d * side, p.z - p.tx * d * side)) ok = false;
+        }
+      }
+    }
+    if (!ok) continue;
+    const score = e.len * e.half;
+    if (score > bestScore) {
+      bestScore = score;
+      best = { edge: e, dir: 1 };
+    }
+  }
+  return best;
+}
+
+/** Open water at a world point — the trailer uses it to put a locked-off
+ *  camera on the BAY side of a shoreline street without hard-coding compass
+ *  directions into a scene. */
+export function isWaterAt(x: number, z: number): boolean {
+  return waterAt(x, z);
 }
 
 // ---------------------------------------------------------------------------
@@ -505,7 +563,8 @@ export function scoutGoldenGate(ctx: ScoutCtx): GateSpot | null {
 
 const FW_STEP = 6; // freeways.ts STEP — centreline resample pitch
 const FW_CLEAR = 7.4; // CLEAR + DECK_T — deck TOP above local terrain
-const FW_SLEW = 0.3; // STEP * MAX_GRADE — upward-only profile slew per sample
+const FW_MAX_CLEAR = 13.9; // MAX_CLEAR + DECK_T — ceiling on that clearance
+const FW_SLEW = 0.72; // STEP * MAX_GRADE — profile slew per sample
 const FW_RAIL_INSET = 0.5; // barrier inner face, inboard of the deck edge
 const FW_MERGE_GROW = 1.0; // otherDeckAt() grow that suppresses a barrier
 const FW_MERGE_DY = 1.5; // ...and the height window it suppresses within
@@ -608,22 +667,53 @@ function lateralAt(r: Ribbon, i: number): readonly [number, number] {
   return [-(qz - pz) / tl, (qx - px) / tl];
 }
 
-/** Mainline deck profile: ground + clearance, then freeways.ts' upward-only
- *  slew limit run both ways (the deck glides over dips rather than following
- *  them). Its dead-end GROUNDING is deliberately NOT modelled — the last
- *  FW_GROUND_RUN of every polyline is excluded from staging instead, which is
- *  strictly more conservative. The one residual is that freeways.ts reads RAW
- *  terrain here and ctx.heightAt is usually the drive surface — see
- *  FreewayRun.deckTopAt. */
+/** Mainline deck profile, mirroring freeways.ts buildData: ground + clearance,
+ *  then its two iterated passes — a CAPPED upward slew (the deck glides over
+ *  dips, but each sample's rise is bounded by its own MAX_CLEAR ceiling) and a
+ *  downward settle that lowers over-steep pairs. Its dead-end GROUNDING is
+ *  deliberately NOT modelled — the last FW_GROUND_RUN of every polyline is
+ *  excluded from staging instead, which is strictly more conservative. The one
+ *  residual is that freeways.ts reads RAW terrain here and ctx.heightAt is
+ *  usually the drive surface — see FreewayRun.deckTopAt.
+ *
+ *  The cap and the slew constant are not optional detail. Without the ceiling
+ *  the dilation is unbounded, and a single hilltop dragged the whole ribbon up
+ *  with it: measured on the staged mainline this profile read 36.8 where the
+ *  deck is 7.7, so the trailer spawned its car 29u in the air and dropped it
+ *  through the first second of the shot. FW_SLEW had drifted too (0.3 against
+ *  the current STEP * MAX_GRADE of 0.72). */
 function buildRibbons(ctx: ScoutCtx): Ribbon[] {
   const out: Ribbon[] = [];
   for (const f of SF_FREEWAYS) {
     const pts = resampleFreeway(f.p);
     if (pts.length < 2) continue;
-    const ys = pts.map(([x, z]) => ctx.heightAt(x, z) + FW_CLEAR);
-    for (let i = 1; i < ys.length; i++) ys[i] = Math.max(ys[i] ?? 0, (ys[i - 1] ?? 0) - FW_SLEW);
-    for (let i = ys.length - 2; i >= 0; i--) {
-      ys[i] = Math.max(ys[i] ?? 0, (ys[i + 1] ?? 0) - FW_SLEW);
+    const ground = pts.map(([x, z]) => ctx.heightAt(x, z));
+    const ys = ground.map((h) => h + FW_CLEAR);
+    const ceil = ground.map((h) => h + FW_MAX_CLEAR);
+    const sweep = (step: (i: number, from: number) => void): boolean => {
+      let moved = false;
+      const wrap = (i: number, from: number): void => {
+        const before = ys[i] ?? 0;
+        step(i, from);
+        if (Math.abs((ys[i] ?? 0) - before) > 1e-4) moved = true;
+      };
+      for (let i = 1; i < ys.length; i++) wrap(i, ys[i - 1] ?? 0);
+      for (let i = ys.length - 2; i >= 0; i--) wrap(i, ys[i + 1] ?? 0);
+      return moved;
+    };
+    for (let pass = 0; pass < 8; pass++) {
+      const moved = sweep((i, from) => {
+        const want = Math.min(ceil[i] ?? 0, from - FW_SLEW);
+        if (want > (ys[i] ?? 0) + 1e-4) ys[i] = want;
+      });
+      if (!moved) break;
+    }
+    for (let pass = 0; pass < 24; pass++) {
+      const moved = sweep((i, from) => {
+        const want = Math.max((ground[i] ?? 0) + FW_CLEAR, from + FW_SLEW);
+        if (want < (ys[i] ?? 0) - 1e-4) ys[i] = want;
+      });
+      if (!moved) break;
     }
     out.push({ half: f.half, pts, ys });
   }

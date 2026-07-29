@@ -265,6 +265,7 @@ const NORMAL_CAP = 160;
 export class ParticlePools {
   private readonly add: Pool;
   private readonly normal: Pool;
+  private readonly addMat: THREE.MeshBasicMaterial;
 
   constructor(private scene: THREE.Scene) {
     // ADD pool — energy. instanceColor drives everything; fade = color→black.
@@ -275,6 +276,7 @@ export class ParticlePools {
       transparent: true,
       toneMapped: true,
     });
+    this.addMat = addMat;
     this.add = new Pool(addGeo, addMat, ADD_CAP, true, 11, null);
 
     // NORMAL pool — matter. Per-instance alpha rides an aAlpha attribute that a
@@ -308,6 +310,18 @@ export class ParticlePools {
     // NORMAL under ADD (bright energy composites over smoke — value contrast).
     scene.add(this.normal.mesh);
     scene.add(this.add.mesh);
+  }
+
+  /**
+   * Scale every ADD particle at once (1 = untouched). The ADD material's own
+   * color is a constant white that instanceColor multiplies, so it is the one
+   * place a gain can ride without being clobbered by the next spawn — and under
+   * additive blending a color scale IS an energy scale.
+   *
+   * Written only by Fx.setFlashGain (trailer-only); see the note there.
+   */
+  setAddGain(gain: number): void {
+    this.addMat.color.setScalar(gain);
   }
 
   /** Spawn one particle. Copies `o` immediately — callers may reuse a scratch. */

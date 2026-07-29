@@ -186,6 +186,11 @@ export class Fx {
   // per-frame local-hit accumulation → one hardFreeze application per frame
   private hitsThisFrame = 0;
   private heavyThisFrame = false;
+  /**
+   * TRAILER-ONLY gain on flash-class additive FX — see setFlashGain(). Gameplay
+   * never writes it, so it stays 1 and every read below is an identity multiply.
+   */
+  private flashGain = 1;
 
   constructor(
     private scene: THREE.Scene,
@@ -280,6 +285,29 @@ export class Fx {
     }
 
     this.numbers = new DamageNumbers(view);
+  }
+
+  /**
+   * TRAILER-ONLY: scale the energy that flash-class additive FX put into the
+   * frame (1 = the gameplay look, 0 = gone).
+   *
+   * WHY this exists rather than another exposure stop: the loudest beats stand
+   * a full-height additive column ON the subject (level-up, Oblivion Slam), so
+   * the clipped region and the subject are the same pixels. toneMappingExposure
+   * scales the whole frame, so stopping down far enough to un-clip the column
+   * takes the rest of the shot to mud and the subject is still inside a flat
+   * white cylinder. Damping the column instead un-clips only what was clipping.
+   *
+   * Additive blending composites `src.rgb * src.a`, so scaling the emissive
+   * COLOR of each flash-class material is exactly a linear energy scale — and
+   * color, unlike the per-frame animated opacities, is written once at spawn.
+   *
+   * Applies from the next spawn onward (already-live FX keep the gain they were
+   * born with), which is what a per-scene trailer stop wants.
+   */
+  setFlashGain(gain: number): void {
+    this.flashGain = gain;
+    this.pools.setAddGain(gain);
   }
 
   update(w: World, dt: number): void {
@@ -1787,7 +1815,7 @@ export class Fx {
     f.s0 = size;
     f.grow = tex === "impact-burst" ? 1.5 : 1.15;
     f.mat.map = fxTex(tex);
-    f.mat.color.setHex(color);
+    f.mat.color.setHex(color).multiplyScalar(this.flashGain);
     f.mat.rotation = spin;
     f.mat.opacity = 1;
     f.sprite.position.set(x, y, z);
@@ -2158,7 +2186,7 @@ export class Fx {
     const u = r.mat.uniforms;
     (u["uColor"]!.value as THREE.Color).setHex(color);
     u["uT"]!.value = 0;
-    u["uAlpha"]!.value = opacity;
+    u["uAlpha"]!.value = opacity * this.flashGain;
     u["uSeed"]!.value = Math.random() * 20;
     r.mesh.position.set(x, terrainHeight(x, y) + 0.12 + lift, y);
     r.mesh.scale.setScalar(0.2);
@@ -2192,7 +2220,8 @@ export class Fx {
     b.life = b.maxLife = 0.5;
     b.h = h;
     b.r = r;
-    b.mat.color.setHex(color).multiplyScalar(1.5);
+    // color carries the gain: stepBeams rewrites opacity every frame, color never
+    b.mat.color.setHex(color).multiplyScalar(1.5 * this.flashGain);
     b.mat.opacity = 0.8;
     b.mesh.position.set(x, terrainHeight(x, y) + (h / BEAM_H) * 3.2, y);
     b.mesh.scale.set(r, h / BEAM_H, r);
@@ -2497,6 +2526,12 @@ export class Fx {
     }
     if (amount < 50) return; // bystander chip damage: culled — kill the number wall
     this.numbers.spawn(`${amount}`, x, y, "bystander", this.nowMs, dx, dy);
+  }
+
+  /** Drop every floating number and reset the combo. For a hard cut in the
+   *  view (trailer scene changes); gameplay never needs it. */
+  clearNumbers(): void {
+    this.numbers.clear();
   }
 
   dispose(): void {

@@ -18,7 +18,13 @@ import { genAttempt, genCombatRoom, verifyRoom } from "../src/sys/gen.ts";
 import { BossBody } from "../src/entities/boss-body.ts";
 import { EnemyBody } from "../src/entities/enemy-body.ts";
 import { BLEND_RATE, DEADZONE, Reconciler, SNAP_DIST } from "../src/net/predict.ts";
-import { PlayerBody, rectsOverlap, type BodyInput } from "../src/entities/player-body.ts";
+import {
+  PlayerBody,
+  PLAYER_BODY_H,
+  PLAYER_HALF_W,
+  rectsOverlap,
+  type BodyInput,
+} from "../src/entities/player-body.ts";
 import { COLS, Grid, ROWS } from "../src/sys/grid.ts";
 import { RunManager } from "../src/sys/run.ts";
 
@@ -591,6 +597,45 @@ check(
     "versus arena has no doors or enemies",
     a.doorSlots.length === 0 && a.enemySpawns.length === 0,
   );
+  // Regression: spawning under a side ledge buried the 22px body in its
+  // underside and neither duelist could move for the whole round.
+  const clear = (x: number): boolean =>
+    !a.grid.solidInRect(x - PLAYER_HALF_W, sp.y - PLAYER_BODY_H + 2, x + PLAYER_HALF_W, sp.y - 2);
+  check(
+    "versus spawn boxes are clear of geometry",
+    clear(sp.x) && clear(a.cols * TILE - sp.x),
+    `spawn=(${sp.x},${sp.y})`,
+  );
+  // The stronger regression: clear spawns are not enough. The side ledges and
+  // the centre riser all sit at head height over a standing body, so the arena
+  // floor is a row of pens — a duelist who only walks reaches the riser's face
+  // and stops there for the whole round. Assert the pens are connected, i.e.
+  // that jumping when the approach stalls actually reaches the mirror spawn.
+  {
+    const mirrorX = a.cols * TILE - sp.x;
+    const host = new PlayerBody(a.grid, sp.x, sp.y, HEROES.axion.kit);
+    let lastX = Number.NaN;
+    let movingSince = 0;
+    let lastJump = -1e9;
+    let closest = Infinity;
+    for (let f = 0; f < 180; f++) {
+      const t = (f / 60) * 1000;
+      const dx = mirrorX - host.x;
+      closest = Math.min(closest, Math.abs(dx));
+      const moved = Math.abs(host.x - lastX) > 0.5;
+      lastX = host.x;
+      if (moved || Math.abs(dx) <= 30) movingSince = t;
+      const stalled = t - movingSince > 120 && t - lastJump > 500;
+      if (stalled) lastJump = t;
+      host.buffer(inp({ right: dx > 30, left: dx < -30, jumpHeld: true, jumpPressed: stalled }));
+      host.step(1 / 60);
+    }
+    check(
+      "a duelist can cross the arena to the opposing spawn",
+      closest <= 30,
+      `closest=${closest.toFixed(0)}px of ${Math.abs(mirrorX - sp.x)}px`,
+    );
+  }
 }
 
 // 24. Guest prediction: identical bodies + identical input never diverge (the

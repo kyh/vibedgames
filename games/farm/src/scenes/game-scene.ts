@@ -916,11 +916,15 @@ export class GameScene extends Phaser.Scene {
 
   // ---------------------------------------------------------- click-to-move
 
-  // BFS over walkable cells (8-dir, no corner cutting) from the player's feet.
-  // If the clicked cell is blocked (water, props, buildings) the path leads to
-  // the nearest reachable cell beside it.
-  private startClickMove(tx: number, ty: number, wx: number, wy: number): void {
-    if (this.acting) return;
+  /**
+   * BFS over walkable cells (8-dir, no corner cutting) from the player's feet
+   * to (tx,ty), as pixel waypoints. If the target cell is blocked (water,
+   * props, buildings) the route leads to the nearest reachable cell beside it;
+   * empty when the player is already there or nothing connects.
+   * Drives click-to-move, and the trailer director's scripted approaches — the
+   * yards are split by fences, so a straight-line steer walks into a wall.
+   */
+  pathTo(tx: number, ty: number): { x: number; y: number }[] {
     const W = MAP_W;
     const H = MAP_H;
     const f = this.feetTile();
@@ -970,12 +974,19 @@ export class GameScene extends Phaser.Scene {
         }
       }
     }
-    if (goal < 0 || goal === start) return;
+    if (goal < 0 || goal === start) return [];
     const path: { x: number; y: number }[] = [];
     for (let c = goal; c !== -1 && c !== start; c = parent[c] ?? -1) {
       path.push({ x: (c % W) * TILE + TILE / 2, y: ((c / W) | 0) * TILE + TILE / 2 + 1 });
     }
     path.reverse();
+    return path;
+  }
+
+  private startClickMove(tx: number, ty: number, wx: number, wy: number): void {
+    if (this.acting) return;
+    const path = this.pathTo(tx, ty);
+    if (path.length === 0) return;
     this.clickPath = path;
     this.pathStuck = 0;
     this.showClickMarker(wx, wy);
