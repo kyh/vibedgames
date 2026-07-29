@@ -1,8 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 — 2026-07-29
 
 - **`vg deploy` no longer uploads a source archive by default.** The archive is readable by any logged-in user, so shipping it is a publish — it is now opt-in via `--source`. Deploys that relied on the old default stop being forkable; re-deploy with `--source` to restore it. `--no-source` still parses and is still a no-op against the new default.
+- `vg` bin is now executable — `tsc` emitted `dist/index.js` at 0644 despite the shebang, so a linked/installed `vg` could fail with `permission denied`
+- `tsbuildinfo` moved out of `dist/` to `.cache/` — it shipped inside the 0.3.0 tarball
+- `vg init` docs corrected: it drives `npx skills add`, no longer writes `.claude/skills` directly
+- per-user generation credit system behind `vg generate` / `vg credits`
 
 ## 0.3.0 — 2026-07-09
 
