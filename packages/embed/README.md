@@ -1,7 +1,11 @@
 # @repo/embed
 
 Tiny postMessage bridge between an embedded browser game (iframe) and the page
-that wraps it. Zero dependencies.
+that wraps it. Zero dependencies, internal (not published).
+
+The wrapper is the web app's player chrome
+(`apps/web/src/components/game/game-chrome.tsx`); the game side is wired into
+every example game under [`games/`](../../games).
 
 ## Game side
 
@@ -39,3 +43,15 @@ window.addEventListener("message", (event) => {
 // e.g. from a pause button
 requestGamePause(iframe.contentWindow);
 ```
+
+## Which games can actually freeze
+
+`setPauseHandlers` is opt-in per game because freezing is not always correct:
+
+| Game shape                     | Pause handlers                            |
+| ------------------------------ | ----------------------------------------- |
+| Offline, sim-clock driven      | wire them — the sim really stops          |
+| Wall-clock (`Date.now`) driven | skip — the sim would jump on resume       |
+| Live online session            | skip — the room keeps running without you |
+
+Skipping still shows the PAUSED overlay; only the freeze is declined.

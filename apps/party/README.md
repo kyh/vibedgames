@@ -14,13 +14,35 @@ Clients connect via WebSocket. The server handles:
 - **Player join/leave** — auto-assigns colors, host migration
 - **Shared state** — `state_patch` messages merged server-side, broadcast to all
 - **Player state** — `player_state_patch` per-player, broadcast to others
-- **Events** — `emit` pass-through for custom game events
+- **Events** — `emit` pass-through for custom game events, optionally addressed
+  to (`to`) or excluding (`except`) specific player ids
 - **Reconnection grace** — a dropped (non-1000-close) player's seat is held for
   30s keyed by a client-secret reconnect token; peers see `connected: false`
   until reclaim or expiry. Events fired during the window are NOT buffered or
   replayed — only the seat and its state survive; shared state re-syncs on
   reclaim. Deliberate leaves (`destroy()`, close code 1000) skip the grace
   window entirely.
+- **Host liveness** — clients heartbeat on a rAF interval (so a backgrounded tab
+  stops); a host silent past `HOST_LIVENESS_TIMEOUT_MS` loses the role and the
+  server elects a new one, rather than waiting out the TCP timeout. A separate
+  `ping`/`pong` distinguishes "hidden" from "gone" for eviction.
+- **Capacity + overflow** — a client advertises its cap via `_maxPlayers`
+  (clamped to a hard ceiling of 64). A join over the cap is redirected to a
+  sibling room (`{room}~2`, `~3`, …) and reconnects there; a reconnect reclaim
+  is never bounced.
+- **Structural limits** — messages over `MAX_MESSAGE_BYTES` are rejected, and
+  patches are checked for shape (plain objects, bounded depth, no cycles or
+  functions). Game-specific schemas are the client's job — the server never
+  knows a game's shape.
+
+Every wire extension above is feature-detected via a query-param capability flag
+(`_maxPlayers`, `_reconnectToken`, `_delta`), never a protocol version — an old
+published SDK and a current one coexist in the same room. Keep it that way:
+growth here must stay additive.
+
+The message types themselves live in
+[`@vibedgames/multiplayer`](../../packages/multiplayer) and are imported by the
+server, so client and server can never drift on a constant.
 
 ## HTTP endpoints
 
