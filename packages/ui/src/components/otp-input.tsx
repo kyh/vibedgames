@@ -30,8 +30,8 @@ import { EASE_OUT, SHAKE_KEYFRAMES, SHAKE_TRANSITION } from "@repo/ui/lib/motion
 //     selected, because a selection range maps to a cell range.
 //
 // Verification: pass `verify` (sync or async — hit your API). A full code
-// drives the little state machine: right → the cells cascade green left to
-// right, then `onSuccess` fires; wrong → the row shakes, the characters drop
+// drives the little state machine: right → the row nods once and the cells
+// cascade green left to right, then `onSuccess` fires; wrong → the row shakes, the characters drop
 // out one by one, then the field clears and hands the caret back. `verify`
 // may resolve to a string to hand a server-canonicalized value to
 // `onSuccess` instead of the typed one.
@@ -45,6 +45,12 @@ const DROP_S = 0.24; // wrong code: each character's fall-out
 const STAGGER_S = 0.045; // per-character clear offset
 const FILL_S = 0.055; // per-cell success cascade offset
 const VERIFY_DELAY_MS = 320; // beat so the last character is seen landing
+const CHAR_IN_S = 0.14; // a new character rising into its cell
+// Where the character starts, in px below its resting place. Measured, not
+// guessed: at the cell's 3rem height and 1.125rem type, less than ~16px
+// leaves the glyph floating inside the cell and the rise reads as a twitch.
+const CHAR_IN_Y = 16;
+const BOUNCE_S = 0.65; // success: the row's nod
 
 const OTP_VARS: React.CSSProperties & Record<`--${string}`, string> = {
   "--otp-cell-w": "2.5rem",
@@ -70,25 +76,45 @@ const CELL_TONE: Record<"idle" | "active" | "selected" | VerifyState, string> = 
   success: "border-success/60 bg-success/10 text-success",
 };
 
+/**
+ * A character enters by rising into its cell, which is why the cells clip:
+ * it starts below the floor rather than fading in on the spot. Keyed on the
+ * character in the render below, so every new one plays it — including a
+ * retype of the same digit into the same cell.
+ *
+ * Only `error` diverges: the row shakes first, then the characters drop back
+ * out one by one, which is also how the field clears.
+ */
 const glyphMotion = (state: VerifyState, index: number) =>
-  state === "success"
+  state === "error"
     ? {
-        animate: { scale: [1, 1.15, 1], y: 0, opacity: 1, filter: "blur(0px)" },
-        transition: { duration: 0.3, ease: EASE_OUT, delay: index * FILL_S },
+        animate: { y: "0.5rem", opacity: 0, filter: "blur(2px)" },
+        transition: {
+          duration: DROP_S,
+          ease: "easeOut" as const,
+          delay: SHAKE_TRANSITION.duration + index * STAGGER_S,
+        },
       }
-    : state === "error"
+    : {
+        initial: { y: CHAR_IN_Y, opacity: 0.2 },
+        animate: { y: 0, opacity: 1, filter: "blur(0px)" },
+        transition: { duration: CHAR_IN_S, ease: EASE_OUT },
+      };
+
+/**
+ * Success is one gesture for the whole row — a short vertical nod, the field
+ * agreeing with you — rather than a per-cell pop, which fought the green
+ * tint already cascading left to right underneath it.
+ */
+const rowMotion = (state: VerifyState) =>
+  state === "error"
+    ? { animate: { ...SHAKE_KEYFRAMES, y: 0 }, transition: SHAKE_TRANSITION }
+    : state === "success"
       ? {
-          animate: { y: "0.5rem", opacity: 0, filter: "blur(2px)" },
-          transition: {
-            duration: DROP_S,
-            ease: "easeOut" as const,
-            delay: SHAKE_TRANSITION.duration + index * STAGGER_S,
-          },
+          animate: { x: 0, y: [0, -10, 3, -4, 0] },
+          transition: { duration: BOUNCE_S, times: [0, 0.25, 0.5, 0.72, 1], ease: EASE_OUT },
         }
-      : {
-          animate: { scale: 1, y: 0, opacity: 1, filter: "blur(0px)" },
-          transition: { duration: 0 },
-        };
+      : { animate: { x: 0, y: 0 }, transition: SHAKE_TRANSITION };
 
 function OTPInput({
   length,
@@ -236,15 +262,16 @@ function OTPInput({
       <div
         data-slot="otp-input"
         data-state={state}
+        // Chrome's page translation rewrites the cells' text nodes (wrapping
+        // them in <font>), which crashes React on the next update — and a
+        // one-time code is never meaningful to translate.
+        translate="no"
         className={cn("relative flex flex-col items-center", className)}
         style={OTP_VARS}
       >
-        {/* Wrong code: the row shakes once, as one object. */}
-        <motion.div
-          className="relative flex gap-[var(--otp-gap)]"
-          animate={state === "error" ? SHAKE_KEYFRAMES : { x: 0 }}
-          transition={SHAKE_TRANSITION}
-        >
+        {/* Wrong code shakes the row, a right one nods it — either way it
+            moves as one object, not as N cells. */}
+        <motion.div className="relative flex gap-[var(--otp-gap)]" {...rowMotion(state)}>
           {Array.from({ length }, (_, index) => {
             const char = value[index];
             const active = focused && state === "idle" && collapsed && caretCell === index;
@@ -256,7 +283,10 @@ function OTPInput({
               <div
                 key={index}
                 className={cn(
-                  "flex h-[var(--otp-cell-h)] w-[var(--otp-cell-w)] items-center justify-center rounded-lg border font-mono text-lg font-medium tabular-nums backdrop-blur-sm",
+                  // `overflow-hidden` is what makes the character rise INTO
+                  // the cell — without it the glyph is visible below the
+                  // border on its way up, and drops out through the floor.
+                  "flex h-[var(--otp-cell-h)] w-[var(--otp-cell-w)] items-center justify-center overflow-hidden rounded-lg border font-mono text-lg font-medium tabular-nums backdrop-blur-sm",
                   "transition-[border-color,background-color,color,box-shadow] duration-150",
                   group && index === groupAt && "ml-3",
                   CELL_TONE[tone],
@@ -270,11 +300,7 @@ function OTPInput({
                 aria-hidden="true"
               >
                 {char && (
-                  <motion.span
-                    className="inline-block"
-                    initial={false}
-                    {...glyphMotion(state, index)}
-                  >
+                  <motion.span key={char} className="inline-block" {...glyphMotion(state, index)}>
                     {char}
                   </motion.span>
                 )}

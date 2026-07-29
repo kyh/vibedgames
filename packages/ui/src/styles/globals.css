@@ -193,6 +193,27 @@
   }
 }
 
+/* An autofilled input gets an opaque background and a forced
+   `-webkit-text-fill-color` from the UA at an origin author styles cannot
+   override — on the OTP input that means a solid block with the raw code
+   painted over the cells. Hiding the field outright is the only reliable
+   escape hatch, and it costs nothing: while the state applies the value is
+   complete, so the cells underneath already show it. Two rules, not one
+   selector list: a browser that rejects either selector drops the whole
+   rule (Firefox knows `:autofill` but not `:-webkit-autofill`). */
+[data-slot="otp-input-control"]:autofill {
+  opacity: 0;
+  box-shadow: none;
+  -webkit-box-shadow: none;
+  -webkit-text-fill-color: transparent;
+}
+[data-slot="otp-input-control"]:-webkit-autofill {
+  opacity: 0;
+  box-shadow: none;
+  -webkit-box-shadow: none;
+  -webkit-text-fill-color: transparent;
+}
+
 /* Hard caret blink for the OTP input's painted caret — a step, not a fade,
    to match native carets. */
 @keyframes otp-caret-blink {
