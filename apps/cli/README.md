@@ -71,8 +71,9 @@ Run `vg init` in your project to install the full set of game-building skills
 4. Uploads files to R2 with bounded concurrency
 5. Calls `deploy.finalize` — game goes live at `{slug}.vibedgames.com`
 
-A forkable source archive is uploaded alongside the build (`--no-source` opts
-out); that is what `vg fork <slug>` downloads.
+Passing `--source` also uploads a forkable source archive, which is what
+`vg fork <slug>` downloads. It is off by default: the archive is readable by
+any logged-in user, so shipping it is a publish and should be a deliberate act.
 
 ## Auth
 

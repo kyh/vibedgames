@@ -109,8 +109,8 @@ export const deployment = sqliteTable(
     fileCount: integer("file_count").notNull(),
     totalBytes: integer("total_bytes").notNull(),
     // Optional source archive (tar.gz) for forking, stored OUTSIDE the served
-    // bundle prefix at `sources/{gameId}/{deploymentId}/source.tgz`. Null when
-    // a deploy shipped no source (e.g. `vg deploy --no-source`).
+    // bundle prefix at `sources/{gameId}/{deploymentId}/source.tgz`. Null
+    // unless the deploy opted in (`vg deploy --source`), which is the norm.
     sourceKey: text("source_key"),
     sourceBytes: integer("source_bytes"),
     createdAt: integer("created_at", { mode: "timestamp_ms" })

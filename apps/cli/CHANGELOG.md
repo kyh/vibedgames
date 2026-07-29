@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **`vg deploy` no longer uploads a source archive by default.** The archive is readable by any logged-in user, so shipping it is a publish — it is now opt-in via `--source`. Deploys that relied on the old default stop being forkable; re-deploy with `--source` to restore it. `--no-source` still parses and is still a no-op against the new default.
+
 ## 0.3.0 — 2026-07-09
 
 - `vg factory` — the autonomous game factory as an optional plugin: installs the `@vibedgames/factory-<platform>` binary on first use and passes all args through (full TUI dashboard, claude/codex runners)

@@ -91,11 +91,16 @@ if (!reportSkillRefs(refs, ROOT)) {
 }
 
 const which = spawnSync("sh", ["-c", "command -v vg"], { encoding: "utf8" });
-const vgPath = which.stdout?.trim() || "not on PATH";
+const vgPath = which.stdout?.trim();
 
 console.log();
 console.log("✓ done.");
-console.log(`  vg               → ${vgPath}`);
+// npm's global bin is often not the one on PATH (fnm/nvm shells resolve a
+// per-shell bin dir), so report the invocation that works rather than a bare
+// failure the caller has to debug.
+console.log(
+  `  vg               → ${vgPath || "not on PATH — run it as 'node apps/cli/dist/index.js'"}`,
+);
 console.log(`  skills symlinked → ${linked} into .claude/skills/`);
 console.log();
 console.log(

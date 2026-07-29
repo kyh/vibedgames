@@ -5,9 +5,10 @@ description: "Fork another vibedgames project's source to build on it, and ship 
 
 # Forking vibedgames projects
 
-Every `vg deploy` ships the project **source** alongside the built bundle, and
-that source is **forkable by default** — any logged-in user can pull it down,
-re-slug it, and build on it. This is the remix loop.
+`vg deploy --source` ships the project **source** alongside the built bundle.
+Once shipped, any logged-in user can pull it down, re-slug it, and build on it —
+that is the remix loop. Source upload is **opt-in**: a plain `vg deploy` ships
+the built bundle only.
 
 ## Fork an existing project
 
@@ -31,21 +32,23 @@ cd my-bomberman
 npm install
 npm run dev          # iterate
 npm run build
-vg deploy ./dist     # ships to my-bomberman.vibedgames.com (with source, forkable)
+vg deploy ./dist     # ships to my-bomberman.vibedgames.com (bundle only)
 ```
 
 `vg fork` requires login (`vg login`, or `VG_TOKEN` for headless/agent use).
-If a project shipped without source (`vg deploy --no-source`), fork fails with
-a clear NOT_FOUND — there's nothing to fork.
+Most projects ship no source, and fork fails on those with a clear NOT_FOUND —
+there's nothing to fork.
 
 ## Ship source so others can fork you
 
-Source upload is **on by default** — `vg deploy` packs and uploads it every
-time. Nothing extra to do. To opt out (proprietary / private code):
+Source upload is **off by default**. Opt in per deploy:
 
 ```sh
-vg deploy ./dist --no-source
+vg deploy ./dist --source
 ```
+
+Do this only when the user has asked to make the project forkable. Publishing
+someone's source without them asking is not a default worth guessing at.
 
 ### What's in the source archive
 
@@ -80,5 +83,6 @@ The archive is the **project root** (the directory containing
 See the `deploy` skill for the full deploy flow. The short version:
 
 ```sh
-vg deploy ./dist --slug <slug>   # source uploaded by default → live + forkable
+vg deploy ./dist --slug <slug>            # live, bundle only
+vg deploy ./dist --slug <slug> --source   # live + forkable
 ```

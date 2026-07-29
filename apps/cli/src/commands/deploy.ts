@@ -39,8 +39,8 @@ export const deployCommand = defineCommand({
     source: {
       type: "boolean",
       description:
-        "Upload a forkable source archive alongside the build (use --no-source to skip).",
-      default: true,
+        "Also upload a forkable source archive, letting anyone logged in fork the project.",
+      default: false,
     },
   },
   run: async ({ args }) => {
@@ -130,7 +130,7 @@ export const deployCommand = defineCommand({
     const totalBytes = manifest.reduce((acc, f) => acc + f.size, 0);
     consola.info(`Deploying ${config.slug}: ${manifest.length} files, ${formatBytes(totalBytes)}`);
 
-    // ---- Pack forkable source (default on; --no-source to skip) -------------
+    // ---- Pack forkable source (opt-in: source is a publish, --source) -------
     let sourceArchive: SourceArchive | null = null;
     if (args.source) {
       const root = findProjectRoot(dir);
