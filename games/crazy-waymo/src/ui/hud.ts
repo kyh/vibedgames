@@ -82,9 +82,14 @@ export class Hud {
   private scoreTarget = 0;
   private lastScorePop = 0;
   private lastMphDrawn = -1;
+  // Needle spring: the displayed mph trails the real one with a little mass.
+  private mphTarget = 0;
+  private mphShown = 0;
+  private mphVel = 0;
+  private dialLive = false;
 
-  // `coarseUi` (mobile): skip sub-mph dial redraws — the arc moves less than
-  // a pixel between same-rounded values. Desktop keeps the every-call redraw.
+  // `coarseUi` (mobile): skip sub-mph dial redraws — the needle moves less
+  // than a pixel between same-rounded values. Desktop redraws while moving.
   constructor(private coarseUi = false) {}
 
   update(dt: number): void {
@@ -97,6 +102,25 @@ export class Hud {
           : Math.max(this.scoreTarget, this.scoreShown - step);
       if (this.scoreVal) {
         this.scoreVal.textContent = `$${Math.round(this.scoreShown).toLocaleString("en-US")}`;
+      }
+    }
+    if (this.dialLive) {
+      // Under-damped follower (ratio ~0.58 of critical): a hard throttle or
+      // brake makes the needle overshoot slightly, like a gauge with mass.
+      // Two substeps keep it stable across a clamped 50ms frame.
+      const h = Math.min(dt, 0.05) / 2;
+      for (let i = 0; i < 2; i++) {
+        this.mphVel += (190 * (this.mphTarget - this.mphShown) - 16 * this.mphVel) * h;
+        this.mphShown += this.mphVel * h;
+      }
+      const settled =
+        Math.abs(this.mphVel) < 0.05 && Math.abs(this.mphTarget - this.mphShown) < 0.05;
+      const rounded = Math.round(Math.max(0, this.mphShown));
+      // The coarse throttle keys off the DISPLAYED value, so the spring still
+      // animates on mobile — it only skips sub-mph repaints.
+      if (rounded !== this.lastMphDrawn || (!this.coarseUi && !settled)) {
+        this.lastMphDrawn = rounded;
+        this.drawDial(Math.max(0, this.mphShown));
       }
     }
   }
@@ -159,39 +183,61 @@ export class Hud {
     );
   }
   setSpeed(mph: number): void {
-    const rounded = Math.round(mph);
-    if (this.coarseUi && rounded === this.lastMphDrawn) return;
-    this.lastMphDrawn = rounded;
-    this.drawDial(mph);
+    this.mphTarget = Math.max(0, mph);
+    if (!this.dialLive) {
+      // Seed the follower with the first reading — no full-sweep spawn swing.
+      this.dialLive = true;
+      this.mphShown = this.mphTarget;
+      this.lastMphDrawn = Math.round(this.mphShown);
+      this.drawDial(this.mphShown);
+    }
   }
 
-  // Mini speedo, modern-cluster style: semicircle arc with a short rim
-  // needle; the digits sit in the middle where a hub needle would be.
+  // Analogue gauge, kart-cluster style: dark face in a bevel + gold rim,
+  // 240° sweep, ticks every 10 (majors at 20), needle from the hub. The
+  // digital readout sits in the sweep's bottom gap under the hub.
   private drawDial(mph: number): void {
     const canvas = this.dial;
     if (!(canvas instanceof HTMLCanvasElement)) return;
+    const W = 120;
+    const H = 84;
     if (!this.dialCtx) {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      canvas.width = 88 * dpr;
-      canvas.height = 52 * dpr;
+      canvas.width = W * dpr;
+      canvas.height = H * dpr;
       this.dialCtx = canvas.getContext("2d");
       this.dialCtx?.scale(dpr, dpr);
     }
     const ctx = this.dialCtx;
     if (!ctx) return;
     const DIAL_MAX = 100;
-    const cx = 44;
-    const cy = 46;
-    const r = 38;
-    // Semicircle gauge: left horizon → right horizon over the top.
-    const a0 = Math.PI;
-    const sweep = Math.PI;
+    const cx = 60;
+    const cy = 42;
+    const r = 29;
+    // 240° sweep, symmetric about 12 o'clock, opening at the bottom.
+    const a0 = Math.PI * (5 / 6);
+    const sweep = Math.PI * (4 / 3);
     const frac = Math.max(0, Math.min(1, mph / DIAL_MAX));
-    ctx.clearRect(0, 0, 88, 52);
-    ctx.lineCap = "round";
+    ctx.clearRect(0, 0, W, H);
+    // Face, warm bevel ring, gold rim — matches the .pill plate recipe.
+    ctx.beginPath();
+    ctx.arc(cx, cy, 38, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(20, 16, 12, 0.96)";
+    ctx.fill();
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = "#352a1e";
+    ctx.beginPath();
+    ctx.arc(cx, cy, 35.5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "rgba(255, 209, 71, 0.9)";
+    ctx.beginPath();
+    ctx.arc(cx, cy, 38, 0, Math.PI * 2);
+    ctx.stroke();
     // Track, then the speed arc over it (color shifts toward the redline).
-    ctx.strokeStyle = "rgba(255,255,255,0.18)";
-    ctx.lineWidth = 5;
+    ctx.lineCap = "butt";
+    ctx.lineWidth = 7;
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.14)";
     ctx.beginPath();
     ctx.arc(cx, cy, r, a0, a0 + sweep);
     ctx.stroke();
@@ -201,32 +247,60 @@ export class Hud {
       ctx.arc(cx, cy, r, a0, a0 + sweep * frac);
       ctx.stroke();
     }
-    // Ticks every 20 mph.
-    ctx.strokeStyle = "rgba(255,255,255,0.45)";
-    ctx.lineWidth = 1.5;
-    for (let m = 0; m <= DIAL_MAX; m += 20) {
+    // Ticks inside the track: minors every 10 mph, longer majors every 20.
+    for (let m = 0; m <= DIAL_MAX; m += 10) {
+      const major = m % 20 === 0;
       const a = a0 + sweep * (m / DIAL_MAX);
+      const t1 = major ? 17.5 : 21;
+      ctx.strokeStyle = major ? "rgba(255, 255, 255, 0.7)" : "rgba(255, 255, 255, 0.32)";
+      ctx.lineWidth = major ? 2 : 1.5;
       ctx.beginPath();
-      ctx.moveTo(cx + Math.cos(a) * (r - 7), cy + Math.sin(a) * (r - 7));
-      ctx.lineTo(cx + Math.cos(a) * (r - 3), cy + Math.sin(a) * (r - 3));
+      ctx.moveTo(cx + Math.cos(a) * 24, cy + Math.sin(a) * 24);
+      ctx.lineTo(cx + Math.cos(a) * t1, cy + Math.sin(a) * t1);
       ctx.stroke();
     }
-    // Short rim needle — keeps the centre clear for the digits.
+    // Needle from the hub with a short counterweight tail; dark contour
+    // underneath so it survives crossing the bright arc colors.
     const na = a0 + sweep * frac;
-    ctx.strokeStyle = "#ff5a52";
-    ctx.lineWidth = 2.5;
+    const nx = Math.cos(na);
+    const ny = Math.sin(na);
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "rgba(10, 7, 4, 0.7)";
+    ctx.lineWidth = 5.5;
     ctx.beginPath();
-    ctx.moveTo(cx + Math.cos(na) * (r - 13), cy + Math.sin(na) * (r - 13));
-    ctx.lineTo(cx + Math.cos(na) * (r - 3), cy + Math.sin(na) * (r - 3));
+    ctx.moveTo(cx - nx * 6, cy - ny * 6);
+    ctx.lineTo(cx + nx * 23, cy + ny * 23);
     ctx.stroke();
-    // Digits + unit, centred like a modern cluster.
-    ctx.fillStyle = "#8fd9ff";
+    ctx.strokeStyle = "#ff5a52";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(cx - nx * 6, cy - ny * 6);
+    ctx.lineTo(cx + nx * 23, cy + ny * 23);
+    ctx.stroke();
+    // Hub cap.
+    ctx.beginPath();
+    ctx.arc(cx, cy, 5, 0, Math.PI * 2);
+    ctx.fillStyle = "#241d16";
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#ffd147";
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx, cy, 1.8, 0, Math.PI * 2);
+    ctx.fillStyle = "#ff5a52";
+    ctx.fill();
+    // Digital readout under the hub.
     ctx.textAlign = "center";
+    ctx.lineJoin = "round";
     ctx.font = "800 19px ui-monospace, 'SF Mono', Menlo, monospace";
-    ctx.fillText(String(Math.round(mph)), cx, cy - 4);
-    ctx.fillStyle = "rgba(255,255,255,0.55)";
-    ctx.font = "700 8px ui-monospace, 'SF Mono', Menlo, monospace";
-    ctx.fillText("MPH", cx, cy + 5);
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "rgba(0, 0, 0, 0.75)";
+    ctx.strokeText(String(Math.round(mph)), cx, 69);
+    ctx.fillStyle = "#fff";
+    ctx.fillText(String(Math.round(mph)), cx, 69);
+    ctx.font = "800 8px ui-monospace, 'SF Mono', Menlo, monospace";
+    ctx.fillStyle = "rgba(255, 209, 71, 0.85)";
+    ctx.fillText("MPH", cx, 78);
   }
   setBoost(frac: number): void {
     this.boostFill.style.width = `${Math.round(Math.max(0, Math.min(1, frac)) * 100)}%`;
@@ -320,12 +394,14 @@ export class Hud {
 
   showCountdown(text: string, big: boolean): void {
     this.countdown.textContent = text;
+    // Scale-settle: land past 1, snap back — the digit reads as slammed down.
     this.countdown.animate(
       [
         { opacity: 0, transform: `translate(-50%,-50%) scale(${big ? 1.6 : 1.35})` },
-        { opacity: 1, transform: "translate(-50%,-50%) scale(1)", offset: 0.3 },
-        { opacity: 1, transform: "translate(-50%,-50%) scale(0.95)", offset: 0.8 },
-        { opacity: 0, transform: "translate(-50%,-50%) scale(0.9)" },
+        { opacity: 1, transform: "translate(-50%,-50%) scale(1.06)", offset: 0.28 },
+        { opacity: 1, transform: "translate(-50%,-50%) scale(1)", offset: 0.5 },
+        { opacity: 1, transform: "translate(-50%,-50%) scale(1)", offset: 0.8 },
+        { opacity: 0, transform: "translate(-50%,-50%) scale(0.92)" },
       ],
       { duration: big ? 700 : 480, easing: "ease-out" },
     );

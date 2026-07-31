@@ -1,25 +1,41 @@
 import * as THREE from "three";
+import { N8AOPass } from "n8ao";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
-import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
-import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
+import { SMAAPass } from "three/addons/postprocessing/SMAAPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 
-import { gradeNight } from "./grade";
+import { gradeMotion, gradeNight, gradeWarmth } from "./grade";
 
-// Desktop-only post chain (Mario-Kart pass): threshold bloom so the additive
-// FX (drift trails, boost, lamp glow, lit windows) actually GLOW, plus a
-// gentle vibrance + vignette grade. Mobile stays on the single forward pass —
-// the tile-GPU bandwidth cost isn't worth it (and the governor already fights
-// for frame time there).
+// Desktop-only post chain (kart-racer pass): contact AO so nothing floats,
+// threshold bloom so the additive FX (drift trails, boost, lamp glow, lit
+// windows) actually GLOW, a linear-HDR vibrance/night grade, SMAA, and a
+// final display transform that owns tone mapping (highlight shoulder + ACES)
+// plus the film look — S-curve, teal/warm split tone, saturation with
+// highlight rolloff, speed-scaled chromatic aberration, vignette, grain.
+// Mobile stays on the single forward pass — the tile-GPU bandwidth cost isn't
+// worth it (and the governor already fights for frame time there).
 //
-// Tone mapping moves to the OutputPass automatically: it reads the renderer's
-// toneMapping/exposure every frame, so the day-night exposure ramp keeps
-// working unchanged.
+// Chain: N8AOPass (renders the scene + multiplies AO) → UnrealBloom →
+// WaymoGradeShader (pre-tonemap linear ops) → SMAA (three's pass wants
+// linear input, pre tone map) → FinalGradeShader (tone map + look, writes
+// sRGB to screen).
+//
+// TONE MAPPING NOW LIVES IN FinalGradeShader, not an OutputPass: it reads the
+// renderer's toneMappingExposure every frame, so the day-night exposure ramp
+// keeps working unchanged, and the mobile no-composer path (renderer ACES)
+// stays the fallback reference look.
+//
+// N8AO TRADES MSAA FOR SMAA. N8AOPass renders the scene into its own
+// non-multisampled HalfFloat target (it needs a sampleable depth texture), so
+// the composer's MSAA buffer would never see geometry. SMAA takes over edge
+// AA; thin-geometry crawl (wires, masts) is the thing to watch in pairs.
 
-// The grade runs BEFORE OutputPass, i.e. on pre-tone-map linear HDR. Every
-// operation below is therefore a linear-light one (mixes toward luminance,
-// channel gains) — an sRGB-shaped curve here would fight the tone mapper.
+// The grade runs BEFORE the display transform, i.e. on pre-tone-map linear
+// HDR. Every operation below is therefore a linear-light one (mixes toward
+// luminance, channel gains) — an sRGB-shaped curve here would fight the tone
+// mapper. Display-referred ops (S-curve, split tone, vignette) live in
+// FinalGradeShader instead.
 //
 // NIGHT IS A DIFFERENT PAINTING, NOT A DIMMED DAY. Lights can only ever
 // MULTIPLY an albedo, so no amount of moonlight tinting can take the chroma out
@@ -44,7 +60,6 @@ const GradeShader = {
   uniforms: {
     tDiffuse: { value: null },
     uVibrance: { value: 0.14 },
-    uVignette: { value: 0.18 },
     uNight: { value: 0 },
   },
   vertexShader: /* glsl */ `
@@ -57,7 +72,6 @@ const GradeShader = {
   fragmentShader: /* glsl */ `
     uniform sampler2D tDiffuse;
     uniform float uVibrance;
-    uniform float uVignette;
     uniform float uNight;
     varying vec2 vUv;
     const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
@@ -96,9 +110,165 @@ const GradeShader = {
         float band = smoothstep(0.022, 0.11, nl) * (1.0 - smoothstep(0.40, 1.0, nl));
         c.rgb *= mix(1.0, mix(mix(1.0, 0.60, band), 1.0, src), uNight);
       }
-      vec2 d = vUv - 0.5;
-      c.rgb *= 1.0 - uVignette * smoothstep(0.15, 0.5, dot(d, d));
       gl_FragColor = c;
+    }
+  `,
+};
+
+// The display transform + film look, in one pass (ported from a kart-racer
+// reference grade, adapted to this game's radiances). Order inside:
+//   1. chromatic aberration gather (on linear — the offsets are sub-texel and
+//      capped, so the HDR fringe risk the sun disc poses is bounded by the cap)
+//   2. exposure (renderer.toneMappingExposure, via the day-night ramp)
+//   3. highlight shoulder — a power-law rolloff gated on max(rgb) BEFORE ACES
+//      so a 4x sky and a 20x glint still separate instead of both slamming
+//      into the ACES ceiling; includes highlight desaturation toward luma.
+//      Faded out at night: the night painting's emissive values are measured
+//      against plain ACES and must not soften.
+//   4. ACES fit (bit-for-bit three.js ACESFilmicToneMapping)
+//   5. midtone S-curve — smoothstep-toward-self keeps 0 and 1 pinned so it
+//      adds snap without crushing the shadow detail the AO pass paid for.
+//      Day-only: the night mid-tone dip already owns that range.
+//   6. teal-shadow / warm-highlight split tone. The cool axis is TEAL (G with
+//      B above unity), not blue — pure blue against a warm key reads violet.
+//      Day-weighted, and the warm side leans harder with uWarmth so golden
+//      hour reads gilded rather than merely bright.
+//   7. saturation lift with a highlight rolloff so bloomed glints go white,
+//      not neon.
+//   8. vignette — post-tonemap print-down; amount and inner edge close in
+//      with speed.
+//   9. monochrome grain, midtone-weighted, rolled off in shadows.
+//  10. sRGB encode (this pass writes the canvas — no OutputPass follows).
+const FinalGradeShader = {
+  name: "WaymoFinalGradeShader",
+  uniforms: {
+    tDiffuse: { value: null },
+    uExposure: { value: 0.62 },
+    uNight: { value: 0 },
+    uWarmth: { value: 0 },
+    uContrast: { value: 0.16 },
+    uSaturation: { value: 1.08 },
+    // x amount, y inner-edge radius
+    uVignette: { value: new THREE.Vector2(0.18, 0.3) },
+    uCA: { value: 0.0 },
+    uGrain: { value: 0.009 },
+    uTime: { value: 0 },
+    uAspect: { value: 16 / 9 },
+    uTexel: { value: new THREE.Vector2(1 / 1920, 1 / 1080) },
+  },
+  vertexShader: /* glsl */ `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tDiffuse;
+    uniform float uExposure;
+    uniform float uNight;
+    uniform float uWarmth;
+    uniform float uContrast;
+    uniform float uSaturation;
+    uniform vec2 uVignette;
+    uniform float uCA;
+    uniform float uGrain;
+    uniform float uTime;
+    uniform float uAspect;
+    uniform vec2 uTexel;
+    varying vec2 vUv;
+    const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
+    // Shoulder: knee 0.9, exponent 0.72, desat 0.16 across a 30x span.
+    const vec4 ROLLOFF = vec4(0.90, 0.72, 0.16, 30.0);
+    float hash12(vec2 p) {
+      vec3 q = fract(vec3(p.x, p.y, p.x) * 0.1031);
+      q += dot(q, q.yzx + 33.33);
+      return fract((q.x + q.y) * q.z);
+    }
+    vec3 shoulder(vec3 c) {
+      float m = max(max(c.r, c.g), c.b);
+      float knee = ROLLOFF.x;
+      if (m <= knee) return c;
+      float mc = knee * pow(m / knee, ROLLOFF.y);
+      vec3 scaled = c * (mc / max(m, 1e-5));
+      float desat = smoothstep(knee, knee * ROLLOFF.w, m) * ROLLOFF.z;
+      return mix(scaled, vec3(dot(scaled, LUMA)), desat);
+    }
+    vec3 rrtOdtFit(vec3 v) {
+      vec3 a = v * (v + 0.0245786) - 0.000090537;
+      vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081;
+      return a / b;
+    }
+    // three.js ACESFilmicToneMapping, exposure folded in (the 1/0.6 matches).
+    vec3 acesToneMap(vec3 c) {
+      c *= uExposure / 0.6;
+      c = mat3(0.59719, 0.07600, 0.02840,
+               0.35458, 0.90834, 0.13383,
+               0.04823, 0.01566, 0.83777) * c;
+      c = rrtOdtFit(c);
+      c = mat3( 1.60475, -0.10208, -0.00327,
+               -0.53108,  1.10813, -0.07276,
+               -0.07367, -0.00605,  1.07602) * c;
+      return clamp(c, 0.0, 1.0);
+    }
+    void main() {
+      vec2 fromCentre = vUv - 0.5;
+      // rad: 1.0 at the frame corner at any aspect.
+      vec2 a = vec2(uAspect, 1.0);
+      float rad = length(fromCentre * a) / (0.5 * length(a));
+      // Chromatic aberration: edge-only (middle third bit-exact clean), shape
+      // squared, offset capped in TEXELS — past ~2 texels the fringe
+      // decorrelates specular aliasing into confetti; under 0.05 px it snaps
+      // off and the branch is a single fetch.
+      float caShape = smoothstep(0.34, 1.0, rad);
+      vec2 fringe = fromCentre * (uCA * caShape * caShape);
+      float fringePx = length(fringe / uTexel);
+      vec3 c;
+      if (fringePx < 0.05) {
+        c = texture2D(tDiffuse, vUv).rgb;
+      } else {
+        fringe *= min(fringePx, 2.0) / fringePx;
+        c = vec3(
+          texture2D(tDiffuse, vUv + fringe).r,
+          texture2D(tDiffuse, vUv).g,
+          texture2D(tDiffuse, vUv - fringe).b);
+      }
+      float dayW = 1.0 - uNight;
+      c = mix(c, shoulder(c), dayW);
+      c = acesToneMap(c);
+      // Midtone S-curve, day-weighted.
+      c = mix(c, c * c * (3.0 - 2.0 * c), uContrast * dayW);
+      // Golden hour swims in amber: a whole-frame white-balance lean, not just
+      // a highlight tint — at this game's exposure most of a street frame
+      // lives in the midtones, and warming only the highs left golden hour
+      // reading dusky-blue.
+      c *= mix(vec3(1.0), vec3(1.05, 1.0, 0.93), uWarmth * dayW * 0.65);
+      // Split tone. Teal shadows via a tiny additive lift (multiplies cannot
+      // tint blacks) + a cool multiply — the cool side stands down as warmth
+      // rises so the amber hour isn't fighting its own shadows; warm
+      // highlights lean further and reach deeper into the midtones with
+      // uWarmth.
+      float lum = dot(c, LUMA);
+      float shadowW = (1.0 - smoothstep(0.0, 0.55, lum)) * dayW;
+      float highW = smoothstep(mix(0.40, 0.24, uWarmth), 1.0, lum) * dayW;
+      c += vec3(-0.0009, 0.0025, 0.0030) * shadowW;
+      c *= mix(vec3(1.0), vec3(0.900, 1.010, 1.045), shadowW * (0.70 - 0.38 * uWarmth));
+      vec3 warmTint = mix(vec3(1.115, 1.005, 0.878), vec3(1.16, 1.00, 0.80), uWarmth);
+      c *= mix(vec3(1.0), warmTint, highW * (0.55 + 0.30 * uWarmth));
+      c = max(c, 0.0);
+      // Saturation lift with highlight rolloff, day-weighted (night owns its
+      // own desaturation painting).
+      lum = dot(c, LUMA);
+      float satAmt = 1.0 + (uSaturation - 1.0) * dayW;
+      c = max(mix(vec3(lum), c, satAmt * (1.0 - 0.40 * smoothstep(0.70, 1.0, lum))), 0.0);
+      // Vignette: print-down on the finished image.
+      c *= 1.0 - uVignette.x * smoothstep(uVignette.y, 1.02, rad);
+      // Grain: monochrome, midtone-weighted, shadow-rolled-off.
+      float g = hash12(vUv / uTexel * 1.37 + fract(uTime * 0.37) * 977.0) - 0.5;
+      lum = dot(c, LUMA);
+      c += g * uGrain * (1.15 - 0.75 * lum) * smoothstep(0.015, 0.14, lum);
+      gl_FragColor = vec4(max(c, 0.0), 1.0);
+      #include <colorspace_fragment>
     }
   `,
 };
@@ -173,21 +343,80 @@ const NIGHT_BLOOM_THRESHOLD = 0.85;
 // the facade mean 1.4% and the blown share 0.07pp and is invisible in a
 // same-camera pair — do not spend those constants on it.
 
+// Speed-reactive bloom: the lens brightens with pace, never with the clock.
+// Additive on top of the day/night ramp; the transient ignite term buys the
+// boost-release frame a halo without building a sustained veil.
+const BLOOM_FAST_LIFT = 0.06;
+const BLOOM_KICK_LIFT = 0.14;
+const BLOOM_IGNITE_LIFT = 0.18;
+
+// Chromatic aberration bounds (per-channel uv offset at |fromCentre| = 1).
+const CA_REST = 0.00045;
+const CA_BOOST = 0.0019;
+// Vignette speed language: amount rises, inner edge walks in.
+const VIGNETTE_BASE = 0.18;
+const VIGNETTE_SPEED = 0.12;
+const VIGNETTE_INNER_REST = 0.3;
+const VIGNETTE_INNER_FAST = 0.18;
+
+// N8AO: tight contact AO, cool-tinted, half-res. The radius stays SHORT —
+// large radii produce the flat grey haze that gives cheap AO away; the point
+// is the last metre where a wheel meets asphalt and a plinth meets pavement.
+const AO_RADIUS = 1.6;
+const AO_INTENSITY = 3.5;
+const AO_COLOR = 0x101c2a;
+
+// The speed/boost signal easing (CPU side). `fast` is the eased top-speed
+// ramp; `kick` eases the boost flag with a fast attack and slow release (the
+// lens should not snap back when the boost expires); `ignite` is a
+// leading-edge pulse that exists only while kick RISES — the eye reads
+// onsets, not states, so every lens term may overshoot for a fraction of a
+// second on ignition.
+const FAST_TAU = 0.11;
+const KICK_ATTACK = 0.05;
+const KICK_RELEASE = 0.28;
+const IGNITE_TAU = 0.42;
+const IGNITE_GAIN = 2.1;
+
 export class PostPipeline {
   private composer: EffectComposer;
+  // DEV probes reach in to A/B the AO contribution (debug/dev-hooks.ts).
+  readonly ao: N8AOPass;
   private bloom: UnrealBloomPass;
   private grade: ShaderPass;
+  private finalGrade: ShaderPass;
+  private renderer: THREE.WebGLRenderer;
+  private lastTime = 0;
+  private fast = 0;
+  private kick = 0;
+  private kickSlow = 0;
 
   constructor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera) {
-    // Explicit HDR + MSAA target: bloom needs >8bit to find highlights, and
-    // the composer must not silently drop the context's antialiasing.
+    this.renderer = renderer;
+    // HDR target: bloom needs >8bit to find highlights. MSAA is intentionally
+    // absent — N8AOPass renders the scene into its own half-float target with
+    // a sampleable depth texture; SMAA at the end of the chain is the AA.
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
     const target = new THREE.WebGLRenderTarget(size.x, size.y, {
       type: THREE.HalfFloatType,
-      samples: 4,
     });
     this.composer = new EffectComposer(renderer, target);
-    this.composer.addPass(new RenderPass(scene, camera));
+    const ao = new N8AOPass(scene, camera, size.x, size.y);
+    ao.configuration.aoRadius = AO_RADIUS;
+    ao.configuration.distanceFalloff = 1.0;
+    ao.configuration.intensity = AO_INTENSITY;
+    ao.configuration.color = new THREE.Color(AO_COLOR);
+    ao.configuration.aoSamples = 16;
+    ao.configuration.denoiseSamples = 8;
+    ao.configuration.denoiseRadius = 6;
+    ao.configuration.halfRes = true;
+    ao.configuration.depthAwareUpsampling = true;
+    ao.configuration.screenSpaceRadius = false;
+    // Output must stay linear HDR for the bloom threshold to mean anything.
+    ao.configuration.gammaCorrection = false;
+    ao.configuration.autoDetectTransparency = false;
+    this.ao = ao;
+    this.composer.addPass(ao);
     // Threshold sits in PRE-tonemap linear HDR, so every number here is a
     // radiance, not a pixel value: keep the cut high and the strength gentle —
     // bloom should kiss the emissives (lamps, windows, trails, sun glare), not
@@ -204,18 +433,72 @@ export class PostPipeline {
     this.composer.addPass(this.bloom);
     this.grade = new ShaderPass(GradeShader);
     this.composer.addPass(this.grade);
-    this.composer.addPass(new OutputPass());
+    // SMAA runs on linear values by three's own contract (before tone map).
+    this.composer.addPass(new SMAAPass());
+    this.finalGrade = new ShaderPass(FinalGradeShader);
+    this.composer.addPass(this.finalGrade);
+    this.syncViewportUniforms(size.x, size.y);
+  }
+
+  private syncViewportUniforms(width: number, height: number): void {
+    const u = this.finalGrade.uniforms;
+    const aspect = u.uAspect;
+    if (aspect) aspect.value = width / Math.max(1, height);
+    const texel = u.uTexel;
+    if (texel && texel.value instanceof THREE.Vector2) {
+      texel.value.set(1 / Math.max(1, width), 1 / Math.max(1, height));
+    }
   }
 
   setSize(width: number, height: number, pixelRatio: number): void {
     this.composer.setPixelRatio(pixelRatio);
     this.composer.setSize(width, height);
+    this.syncViewportUniforms(width * pixelRatio, height * pixelRatio);
   }
 
   render(): void {
+    const now = performance.now() / 1000;
+    const dt = this.lastTime > 0 ? Math.min(0.1, now - this.lastTime) : 1 / 60;
+    this.lastTime = now;
+
     const night = gradeNight();
-    const u = this.grade.uniforms.uNight;
-    if (u) u.value = night;
+    const warmth = gradeWarmth();
+    const motion = gradeMotion();
+
+    // Signal easing. `fast` opens above ~62% of boost top speed.
+    const fastTarget = THREE.MathUtils.clamp((motion.speed - 0.62) / 0.38, 0, 1);
+    this.fast += (fastTarget - this.fast) * Math.min(1, dt / FAST_TAU);
+    const kickTarget = motion.boost ? 1 : 0;
+    const kickTau = kickTarget > this.kick ? KICK_ATTACK : KICK_RELEASE;
+    this.kick += (kickTarget - this.kick) * Math.min(1, dt / kickTau);
+    this.kickSlow += (this.kick - this.kickSlow) * Math.min(1, dt / IGNITE_TAU);
+    const ignite = THREE.MathUtils.clamp((this.kick - this.kickSlow) * IGNITE_GAIN, 0, 1);
+    const drive = Math.max(this.fast, this.kick);
+
+    const gu = this.grade.uniforms;
+    const un = gu.uNight;
+    if (un) un.value = night;
+
+    const fu = this.finalGrade.uniforms;
+    const exp = fu.uExposure;
+    if (exp) exp.value = this.renderer.toneMappingExposure;
+    const fn = fu.uNight;
+    if (fn) fn.value = night;
+    const fw = fu.uWarmth;
+    if (fw) fw.value = warmth;
+    const ca = fu.uCA;
+    if (ca) ca.value = CA_REST + (CA_BOOST - CA_REST) * Math.min(1.35, drive + ignite * 0.55);
+    const vig = fu.uVignette;
+    if (vig && vig.value instanceof THREE.Vector2) {
+      vig.value.set(
+        VIGNETTE_BASE + VIGNETTE_SPEED * drive + 0.07 * ignite,
+        VIGNETTE_INNER_REST +
+          (VIGNETTE_INNER_FAST - VIGNETTE_INNER_REST) * Math.min(1, drive + ignite * 0.6),
+      );
+    }
+    const time = fu.uTime;
+    if (time) time.value = now % 600;
+
     // The cut falls on sqrt(night), not on night. `night` IS the lamp factor,
     // so at dusk it is still only ~0.6 when every streetlight in the city is
     // already burning — and a linearly-interpolated cut is 3.0 there, above the
@@ -225,7 +508,12 @@ export class PostPipeline {
     // ends of the ramp are unchanged.
     this.bloom.threshold =
       DAY_BLOOM_THRESHOLD + (NIGHT_BLOOM_THRESHOLD - DAY_BLOOM_THRESHOLD) * Math.sqrt(night);
-    this.bloom.strength = DAY_BLOOM_STRENGTH + (NIGHT_BLOOM_STRENGTH - DAY_BLOOM_STRENGTH) * night;
+    this.bloom.strength =
+      DAY_BLOOM_STRENGTH +
+      (NIGHT_BLOOM_STRENGTH - DAY_BLOOM_STRENGTH) * night +
+      BLOOM_FAST_LIFT * this.fast +
+      BLOOM_KICK_LIFT * this.kick +
+      BLOOM_IGNITE_LIFT * ignite;
     this.composer.render();
   }
 }

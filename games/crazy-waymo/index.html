@@ -45,26 +45,33 @@
         pointer-events: none;
         z-index: 5;
         font-weight: 700;
+        /* Hard contour on every HUD text so it survives a bright sky. */
+        text-shadow: 0 2px 0 rgba(0, 0, 0, 0.55);
       }
+      /* Chunky kart plate: solid warm-dark body, dark bevel ring outside the
+         gold accent border, hard offset drop. No backdrop blur — the solid
+         panel replaces it (and it cost GPU on phones). */
       .pill {
         position: fixed;
-        background: rgba(18, 16, 26, 0.62);
-        border: 2px solid rgba(255, 209, 71, 0.5);
-        border-radius: 12px;
+        background: rgba(24, 20, 16, 0.92);
+        border: 2px solid rgba(255, 209, 71, 0.75);
+        border-radius: 14px;
         padding: 8px 14px;
         letter-spacing: 1px;
-        backdrop-filter: blur(7px);
-        -webkit-backdrop-filter: blur(7px);
-        box-shadow: 0 4px 0 rgba(0, 0, 0, 0.35);
+        box-shadow:
+          0 0 0 2px rgba(16, 11, 7, 0.9),
+          0 5px 0 rgba(0, 0, 0, 0.45);
       }
       .label {
         font-size: 10px;
+        font-weight: 900;
         letter-spacing: 2px;
         opacity: 0.7;
         display: block;
       }
       .value {
         font-size: 22px;
+        font-weight: 800;
         font-variant-numeric: tabular-nums;
       }
 
@@ -193,10 +200,10 @@
         color: #fff;
       }
       #boost-track {
-        width: 84px;
+        width: 100px;
         height: 8px;
         border-radius: 5px;
-        background: rgba(255, 255, 255, 0.16);
+        background: rgba(0, 0, 0, 0.45);
         overflow: hidden;
         margin-top: 4px;
       }
@@ -221,7 +228,7 @@
         }
       }
 
-      /* Mini dash — speedo dial (digits in the middle) + boost, bottom-left */
+      /* Mini dash — analogue speedo gauge + boost, bottom-left */
       #speed {
         left: calc(14px + env(safe-area-inset-left));
         bottom: calc(14px + env(safe-area-inset-bottom));
@@ -230,8 +237,8 @@
       }
       #dash-dial {
         display: block;
-        width: 88px;
-        height: 52px;
+        width: 120px;
+        height: 84px;
         margin: 0 auto;
       }
       #speed #boost-track {
@@ -244,7 +251,7 @@
         right: calc(14px + env(safe-area-inset-right));
         min-width: 150px;
         text-align: right;
-        border-color: rgba(73, 224, 255, 0.55);
+        border-color: rgba(73, 224, 255, 0.8);
         transition:
           opacity 0.2s,
           transform 0.2s;
@@ -364,18 +371,19 @@
         bottom: calc(14px + env(safe-area-inset-bottom));
         width: 148px;
         height: 148px;
-        border-radius: 12px;
-        border: 2px solid rgba(255, 209, 71, 0.5);
-        background: rgba(18, 16, 26, 0.62);
-        box-shadow: 0 4px 0 rgba(0, 0, 0, 0.35);
+        border-radius: 14px;
+        border: 2px solid rgba(255, 209, 71, 0.75);
+        background: rgba(24, 20, 16, 0.92);
+        box-shadow:
+          0 0 0 2px rgba(16, 11, 7, 0.9),
+          0 5px 0 rgba(0, 0, 0, 0.45);
         display: none;
         z-index: 5;
         pointer-events: none;
-        opacity: 0.92;
       }
       /* Touch: the pedals own the bottom-right, so the map stacks directly on
          top of the speedo in the bottom-left column. `bottom` clears the
-         speedo's ~84px box plus a 10px gutter. */
+         speedo's ~114px box plus a 10px gutter. */
       @media (pointer: coarse) {
         #minimap {
           width: 104px;
@@ -383,7 +391,7 @@
           right: auto;
           top: auto;
           left: calc(14px + env(safe-area-inset-left));
-          bottom: calc(108px + env(safe-area-inset-bottom));
+          bottom: calc(138px + env(safe-area-inset-bottom));
         }
       }
       @media (pointer: coarse) and (max-height: 500px) {

@@ -13,6 +13,10 @@ type EmitOpts = {
   // Optional directional term: final velocity = radial term + dir * dirSpeed.
   dir?: { x: number; y: number; z: number };
   dirSpeed?: number;
+  // 0..1 scale on the day bloom gain (sparks pool only). Hot FX — drift
+  // sparks, boost flame, crash bursts — glow at 1; inert debris like sand and
+  // grass flecks opts out at 0, or every off-road run reads as a fire.
+  bloomGain?: number;
 };
 
 // vAlpha = remaining life fraction (1 at birth -> 0 at death).
@@ -23,12 +27,15 @@ const VERT = `
   attribute float aMax;
   attribute float aSize;
   attribute vec3 aColor;
+  attribute float aGain;
   uniform float uScale;
   uniform float uGrow;
   varying float vAlpha;
   varying vec3 vColor;
+  varying float vGain;
   void main() {
     vColor = aColor;
+    vGain = aGain;
     vAlpha = clamp(aLife / max(aMax, 0.0001), 0.0, 1.0);
     float shrinkRamp = mix(0.6, 1.4, vAlpha);
     float growRamp = mix(1.5, 0.7, vAlpha);
@@ -40,7 +47,13 @@ const VERT = `
 `;
 // Color cools toward death (hot core early, dark residue late); alpha is
 // fast-in-slow-out (vAlpha^2 spends most of the life dim, popping at birth).
-const FRAG = `
+// Smoke is LIT: the top of each puff catches uSunTint, the underside sits in
+// uAmbient shade — the vertical gradient across the point sprite is what makes
+// a flat point read as a volume, and it's what lets golden-hour smoke go
+// orange instead of staying flat grey.
+const FRAG_SMOKE = `
+  uniform vec3 uSunTint;
+  uniform vec3 uAmbient;
   varying float vAlpha;
   varying vec3 vColor;
   void main() {
@@ -49,6 +62,34 @@ const FRAG = `
     if (r > 0.25) discard;
     float soft = smoothstep(0.25, 0.0, r);
     vec3 color = mix(vColor * 0.35, vColor, pow(vAlpha, 0.6));
+    float topLit = smoothstep(0.78, 0.18, gl_PointCoord.y);
+    // Ceiling keeps a stack of overlapping lit puffs from blowing out to a
+    // single white-yellow mass under the post S-curve.
+    color *= min(uAmbient + uSunTint * topLit, vec3(1.0));
+    gl_FragColor = vec4(color, vAlpha * vAlpha * soft);
+  }
+`;
+// Sparks: uGain boosts the CENTER of the sprite only (skirt stays at 1x, so a
+// gained spark reads white-hot core + colored halo, not a blob). By day the
+// bloom threshold sits at 6.5 pre-tonemap while spark colors peak ~1 — the
+// gain is what lets a day drift spark cross the cut and glow like the night
+// lamp halos do.
+const FRAG_SPARKS = `
+  uniform float uGain;
+  varying float vAlpha;
+  varying vec3 vColor;
+  varying float vGain;
+  void main() {
+    vec2 d = gl_PointCoord - vec2(0.5);
+    float r = dot(d, d);
+    if (r > 0.25) discard;
+    float soft = smoothstep(0.25, 0.0, r);
+    vec3 color = mix(vColor * 0.35, vColor, pow(vAlpha, 0.6));
+    // Hot core confined to the inner ~35% radius — r is SQUARED distance, so
+    // the earlier 1-4r ramp still covered most of the sprite and every gained
+    // spark rendered as a fat additive splat instead of a pinprick.
+    float core = pow(smoothstep(0.03, 0.0, r), 2.0);
+    color *= 1.0 + (uGain - 1.0) * core * vGain;
     gl_FragColor = vec4(color, vAlpha * vAlpha * soft);
   }
 `;
@@ -60,6 +101,7 @@ class ParticleField {
   private size: Float32Array;
   private life: Float32Array;
   private max: Float32Array;
+  private gain: Float32Array;
   private vel: Float32Array;
   private grav: Float32Array;
   private drag: Float32Array;
@@ -72,12 +114,15 @@ class ParticleField {
     private n: number,
     blending: THREE.Blending,
     grow: boolean,
+    frag: string,
+    extraUniforms: Record<string, THREE.IUniform>,
   ) {
     this.pos = new Float32Array(n * 3);
     this.col = new Float32Array(n * 3);
     this.size = new Float32Array(n);
     this.life = new Float32Array(n);
     this.max = new Float32Array(n);
+    this.gain = new Float32Array(n);
     this.vel = new Float32Array(n * 3);
     this.grav = new Float32Array(n);
     this.drag = new Float32Array(n);
@@ -88,12 +133,13 @@ class ParticleField {
     geo.setAttribute("aSize", new THREE.BufferAttribute(this.size, 1));
     geo.setAttribute("aLife", new THREE.BufferAttribute(this.life, 1));
     geo.setAttribute("aMax", new THREE.BufferAttribute(this.max, 1));
+    geo.setAttribute("aGain", new THREE.BufferAttribute(this.gain, 1));
     geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
 
     this.mat = new THREE.ShaderMaterial({
-      uniforms: { uScale: this.scaleUniform, uGrow: { value: grow ? 1 : 0 } },
+      uniforms: { uScale: this.scaleUniform, uGrow: { value: grow ? 1 : 0 }, ...extraUniforms },
       vertexShader: VERT,
-      fragmentShader: FRAG,
+      fragmentShader: frag,
       transparent: true,
       depthWrite: false,
       blending,
@@ -129,6 +175,7 @@ class ParticleField {
       this.size[i] = o.size * (0.7 + Math.random() * 0.6);
       this.life[i] = o.life;
       this.max[i] = o.life;
+      this.gain[i] = o.bloomGain ?? 1;
       this.grav[i] = o.gravity;
       this.drag[i] = o.drag;
     }
@@ -162,13 +209,25 @@ class ParticleField {
     geo.getAttribute("aSize").needsUpdate = true;
     geo.getAttribute("aLife").needsUpdate = true;
     geo.getAttribute("aMax").needsUpdate = true;
+    geo.getAttribute("aGain").needsUpdate = true;
   }
 }
 
+export type FxSurface = "road" | "grass" | "sand" | "concrete";
+
 // High-level effects used by the game.
 export class Fx {
-  readonly smoke = new ParticleField(420, THREE.NormalBlending, true); // grows over life
-  readonly sparks = new ParticleField(500, THREE.AdditiveBlending, false); // shrinks over life
+  // Defaults approximate noon so the first frames before setLighting look sane.
+  private smokeSun = { value: new THREE.Color(0.78, 0.72, 0.6) };
+  private smokeAmbient = { value: new THREE.Color(0.55, 0.6, 0.65) };
+  private sparkGain = { value: 1 };
+  readonly smoke = new ParticleField(420, THREE.NormalBlending, true, FRAG_SMOKE, {
+    uSunTint: this.smokeSun,
+    uAmbient: this.smokeAmbient,
+  }); // grows over life
+  readonly sparks = new ParticleField(500, THREE.AdditiveBlending, false, FRAG_SPARKS, {
+    uGain: this.sparkGain,
+  }); // shrinks over life
   private tmp = new THREE.Color();
   private tmpDir = { x: 0, y: 0, z: 0 };
 
@@ -181,11 +240,47 @@ export class Fx {
     this.sparks.setScale(px);
   }
 
+  // Per-frame lighting feed from the day-night rig. `day` = 1 - lamp factor.
+  // Sun scale 0.26: a golden key (1.9 int) lands the puff's lit top around
+  // parity with its albedo and the shaded base at ~0.5x — volume without the
+  // stack of puffs clipping toward white (the post S-curve + vibrance sit on
+  // top of whatever leaves here; 0.45 read as a fireball).
+  // Ambient floor 0.12 keeps night smoke readable against the dark ground.
+  // Spark gain tops out at x3.5 — deliberately UNDER the 6.5 day bloom cut.
+  // Cores at ~3.4 ACES-clip to a white-hot center on their own; pushing them
+  // past the cut instead (an earlier x7) fed every 20Hz spark trail into the
+  // bloom pyramid and a plain grind drift read as a chain of fireballs. Only
+  // spots where several sparks overlap now cross the cut, which is a glint,
+  // not a flood. At night the cut is 0.85 and gain MUST return to 1.
+  setLighting(
+    sun: THREE.Color,
+    sunIntensity: number,
+    ambient: THREE.Color,
+    ambientIntensity: number,
+    day: number,
+  ): void {
+    this.smokeSun.value.copy(sun).multiplyScalar(sunIntensity * 0.26);
+    this.smokeAmbient.value.copy(ambient).multiplyScalar(ambientIntensity).addScalar(0.12);
+    this.sparkGain.value = 1 + 2.5 * Math.min(1, Math.max(0, day));
+  }
+
   // Tire smoke while drifting. `charged` is the Mario-Kart mini-turbo tell:
-  // sparks turn cyan and the count jumps 2 -> 5.
-  driftPuff(x: number, z: number, boosting: boolean, charged = false): void {
-    this.tmp.setHSL(0, 0, boosting ? 0.85 : 0.72);
-    this.smoke.emit(x, 0.3, z, {
+  // sparks turn cyan and the count jumps 2 -> 5. Smoke is tinted by the
+  // surface being torn up (same colors as kickup, so the two systems agree):
+  // road keeps grey rubber-smoke, off-road throws that surface's dust.
+  driftPuff(
+    x: number,
+    y: number,
+    z: number,
+    boosting: boolean,
+    charged = false,
+    surface: FxSurface = "road",
+  ): void {
+    if (surface === "grass") this.tmp.setRGB(0.42, 0.36, 0.24);
+    else if (surface === "sand") this.tmp.setRGB(0.66, 0.57, 0.41);
+    else if (surface === "concrete") this.tmp.setRGB(0.8, 0.8, 0.78);
+    else this.tmp.setHSL(0, 0, boosting ? 0.85 : 0.72);
+    this.smoke.emit(x, y + 0.3, z, {
       count: 2,
       color: this.tmp,
       speed: 1.0,
@@ -198,7 +293,7 @@ export class Fx {
     });
     if (boosting || charged) {
       this.tmp.setHSL(charged ? 0.55 : 0.08, 1, 0.6);
-      this.sparks.emit(x, 0.3, z, {
+      this.sparks.emit(x, y + 0.3, z, {
         count: charged ? 5 : 2,
         color: this.tmp,
         speed: 5,
@@ -324,11 +419,13 @@ export class Fx {
   // surface's own color carry the effect; a few bright flecks (torn grass /
   // sand grains) ride on top. The old version was all additive embers — off-
   // road looked like the car was on fire, not tearing up ground.
-  kickup(x: number, z: number, surface: "grass" | "sand", power: number): void {
+  kickup(x: number, y: number, z: number, surface: "grass" | "sand", power: number): void {
     if (surface === "grass")
       this.tmp.setRGB(0.42, 0.36, 0.24); // dry-dirt brown
-    else this.tmp.setRGB(0.82, 0.72, 0.5); // beach tan
-    this.smoke.emit(x, 0.25, z, {
+    // Beach tan, kept well under the old 0.82: the lit-smoke shader and the
+    // post S-curve sit on top now, and a bright tan stack read as fire.
+    else this.tmp.setRGB(0.66, 0.57, 0.41);
+    this.smoke.emit(x, y + 0.25, z, {
       count: 2,
       color: this.tmp,
       speed: power * 0.55,
@@ -341,7 +438,7 @@ export class Fx {
     });
     if (surface === "grass") this.tmp.setHSL(0.29, 0.8, 0.42);
     else this.tmp.setHSL(0.11, 0.7, 0.68);
-    this.sparks.emit(x, 0.3, z, {
+    this.sparks.emit(x, y + 0.3, z, {
       count: 2,
       color: this.tmp,
       speed: power * (0.6 + Math.random() * 0.5),
@@ -351,6 +448,7 @@ export class Fx {
       life: 0.5,
       gravity: 9,
       drag: 1.2,
+      bloomGain: 0,
     });
   }
 
