@@ -68,3 +68,6 @@ local.*
 
 # factory per-game blackboard (apps/factory)
 .vgfactory/
+
+# throwaway test beds for skills (not repo content)
+/sandbox/

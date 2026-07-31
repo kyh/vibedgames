@@ -15,7 +15,7 @@ generate art, add multiplayer, tune feel, ship.
 | [`game-engines`](./game-engines)     | `phaser` · `threejs` · `capacitor-ios`                                                                                                                                   |
 | [`game-features`](./game-features)   | `multiplayer` · `gamepad`                                                                                                                                                |
 | [`generate`](./generate)             | `generate` · `model-catalog` · `model-prompting` · `media-workflow` · `pixel-art` · `character-design` · `cinematography` · `storytelling` · `regenerate-3d`             |
-| [`asset-pipeline`](./asset-pipeline) | `animated-spritesheets` · `aseprite` · `asset-pipeline` · `pixel-snapper`                                                                                                |
+| [`asset-pipeline`](./asset-pipeline) | `animated-spritesheets` · `aseprite` · `asset-pipeline` · `image-to-threejs` · `pixel-snapper`                                                                           |
 | [`tooling`](./tooling)               | `deploy` · `fork` · `playwright` · `skill-creator`                                                                                                                       |
 
 `game-playbook` is the entry point — the build order from a one-line idea to a

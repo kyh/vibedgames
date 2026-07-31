@@ -2,7 +2,7 @@
 
 Generation and integration are separate concerns. **Generate to disk, then load like any other asset.** This reference closes the loop the generate skills stop at: a GLB or a sound effect that's actually loaded, placed, collidable, and triggered by gameplay.
 
-For choosing endpoints and writing prompts, use the generate skills (`model-catalog`, `character-design`, `regenerate-3d`, `media-workflow`). This file is only about getting the output _into the scene_.
+For choosing endpoints and writing prompts, use the generate skills (`model-catalog`, `character-design`, `regenerate-3d`, `media-workflow`). For a hero prop that must **hinge, open, detach, or break** — or that you want as tweakable source code rather than a mesh file — use the `image-to-threejs` skill instead: it rebuilds a reference image as a procedural factory with a pivot/socket rig, and its decision table covers procedural vs Meshy vs kit GLBs. This file is only about getting the output _into the scene_.
 
 ---
 
@@ -117,6 +117,18 @@ If a clip is degenerate, regenerate the asset — don't try to fix the rig in co
 ### Hero vs procedural: don't generate 40 GLBs
 
 Generate **one hero-fidelity asset per key entity** (player, boss, signature prop) and build high-volume repeated detail — crates, rocks, debris, background silhouettes — from primitives and `InstancedMesh` (see `advanced-topics.md`). Forty unique generated GLBs blow the download size, the texture budget, and the draw-call budget at once, and background props read fine as instanced primitives with good materials.
+
+Two more routes at this decision point:
+
+- A signature prop that must **articulate** (open, swing, break apart) is often
+  better as a procedural factory than a mesh: the `image-to-threejs` skill
+  builds one from a reference image with named pivots
+  (`"<Component>__pivot"`) and sockets. Animate those pivots; never re-centre
+  or uniform-scale the returned group — that moves the hinges.
+- Free **asset-kit GLBs** (e.g. Kenney kits) are the fastest fill for generic
+  set dressing. One trap: kit GLBs often reference an external per-kit
+  colormap — embed it via a gltf-transform read→write with `ALL_EXTENSIONS`
+  (preserving `KHR_texture_transform`) or the colors break on load.
 
 ---
 

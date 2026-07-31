@@ -69,3 +69,4 @@ vg generate status fal-ai/hunyuan-3d/v3.1/pro/image-to-3d "$REQ" \
 
 - For text-only generation, see [text-to-3d.md](text-to-3d.md)
 - For complete 3D character experiences (rigged GLB + companion creatures + Three.js scene), see the `regenerate-3d` vertical skill
+- For a prop that must hinge/open/animate, or that you want as editable code, see the `image-to-threejs` skill — it rebuilds the reference image as a procedural Three.js factory with a pivot/socket rig instead of a mesh

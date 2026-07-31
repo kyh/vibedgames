@@ -128,3 +128,6 @@ this.anims.create({
 One labeled pose-board image, one consistent character, recovered into frames.
 Fewer frames than a video clip, but they're the _same_ character across the whole
 animation — which is what a game sprite needs most.
+
+For 3D props built the same generate-one-reference-image way (rigged,
+procedural Three.js instead of frames), see `image-to-threejs`.

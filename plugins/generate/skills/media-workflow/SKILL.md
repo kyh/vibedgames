@@ -52,6 +52,10 @@ straight to the right `model-catalog` reference.
 Each recipe links to `model-catalog` for endpoint defaults rather than listing
 models inline, so the catalog stays the single source of truth.
 
+3D assets have no recipe here — they are routed by `model-catalog`
+(text-to-3d / image-to-3d): rigged characters → `regenerate-3d`; rigged or
+openable props as procedural code → `image-to-threejs`.
+
 ## Custom pipelines
 
 Load these references as needed:

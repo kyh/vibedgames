@@ -52,3 +52,4 @@ Frequently exposed:
 
 - For image-derived 3D, see [image-to-3d.md](image-to-3d.md)
 - For 3D character experiences (rigged GLB + Three.js scene), see the `regenerate-3d` vertical skill
+- For a prop that must hinge/open/animate, or that you want as editable code, see the `image-to-threejs` skill — a procedural Three.js factory with a pivot/socket rig instead of a mesh

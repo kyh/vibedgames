@@ -53,7 +53,7 @@ packages/
   db/          # Drizzle schema + migrations (@repo/db) — source of truth for data model
   multiplayer/ # Shared multiplayer hooks (@vibedgames/multiplayer) — published to npm
   ui/          # Shared UI components (@repo/ui)
-plugins/       # Claude Code plugins (asset-pipeline, game-engines, game-features, generate, tooling)
+plugins/       # Claude Code plugins (asset-pipeline, game-craft, game-engines, game-features, generate, tooling)
                # Each plugin has skills/* — symlinked into .claude/skills/ for dogfooding
 ```
 

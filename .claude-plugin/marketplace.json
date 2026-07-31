@@ -12,7 +12,7 @@
     {
       "name": "asset-pipeline",
       "source": "./plugins/asset-pipeline",
-      "description": "Refine and process 2D game assets: animated spritesheets, Aseprite parsing, sprite-sheet pipelines, and pixel-grid snapping"
+      "description": "Refine and process generated game assets: animated spritesheets, Aseprite parsing, sprite-sheet pipelines, pixel-grid snapping, and image-to-procedural-Three.js props"
     },
     {
       "name": "game-features",

@@ -18,7 +18,9 @@ ship before the craft pass.
 1. **Scaffold.** `vg new <slug> --engine phaser` for 2D, `--engine threejs` for
    3D. (See the `phaser` / `threejs` skills.) The template is a skeleton, not a
    game — you will replace its placeholder scene and logo.
-2. **Generate the art FIRST** (see `pixel-art`). Order matters:
+2. **Generate the art FIRST.** The route depends on the engine you scaffolded:
+
+   **2D (`--engine phaser`)** — see `pixel-art`. Order matters:
    - hero character → directional walk sheets (`walk-down/up/side`, left =
      mirror) → background-remove (Bria) → normalize to exact power-of-two frames.
    - enemies / pickups / projectiles.
@@ -28,6 +30,18 @@ ship before the craft pass.
      fire/explosion (see `pixel-art` Recipe 5).
    - ground/tiles or a parallax/arena backdrop.
      Replace the template's logo/bg — never ship placeholder art.
+
+   **3D (`--engine threejs`)** — meshes and props, not sprite sheets:
+   - hero characters and organic shapes → Meshy via `model-catalog`
+     (text-to-3d / image-to-3d); rigged animated characters → `regenerate-3d`.
+   - hero props that must **hinge, open, detach, or break** (chests, doors,
+     levers) → `image-to-threejs`: a procedural factory with a pivot/socket
+     rig, built from one generated reference image.
+   - loading, normalizing, and placing any of it → the `threejs` skill's
+     `references/generated-assets.md`.
+   - repeated set dressing → primitives/instances or a kit GLB, never a
+     fresh generation per copy.
+
 3. **Core loop with the proven shell** (see `phaser`): full-screen
    `Scale.RESIZE`, a **zoom-aware follow camera** (clamp the centre yourself —
    Phaser's `setBounds` reveals void), directional `applyAnim(dir, moving)`,
