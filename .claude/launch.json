@@ -3,9 +3,21 @@
   "configurations": [
     {
       "name": "web",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["dev:web"],
+      "runtimeExecutable": "/bin/zsh",
+      "runtimeArgs": [
+        "-c",
+        "export PATH=\"$HOME/Library/Application Support/fnm/aliases/default/bin:$PATH\"; exec pnpm dev:web"
+      ],
       "port": 5173
+    },
+    {
+      "name": "crazy-waymo",
+      "runtimeExecutable": "/bin/zsh",
+      "runtimeArgs": [
+        "-c",
+        "export PATH=\"$HOME/Library/Application Support/fnm/aliases/default/bin:$PATH\"; cd games/crazy-waymo && exec node node_modules/vite/bin/vite.js"
+      ],
+      "port": 5193
     }
   ]
 }
