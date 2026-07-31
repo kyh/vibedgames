@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-import { setGradeNight } from "./grade";
+import { setGradeNight, setGradeWarmth } from "./grade";
 import { NightSky } from "./night-sky";
 import { nightFillScale } from "./quality";
 import type { Sky } from "./sky";
@@ -56,6 +56,11 @@ type Stop = {
   readonly env: number;
   readonly lamp: number; // streetlights/headlights 0 off .. 1 full
   readonly exposure: number;
+  // Golden-hour warmth for the post grade (render/grade.ts setGradeWarmth):
+  // 0 = neutral daylight, 1 = full gilded golden/sunset. Deliberately its own
+  // channel — the lamp factor is 0 at golden hour BY DESIGN (lamps wait for
+  // the horizon), so the warm grade cannot piggyback on it.
+  readonly warmth: number;
   // Sky dome scattering:
   // [turbidity, rayleigh, mieCoefficient, mieDirectionalG, horizonRolloff].
   // These belong to the cycle, not to scene construction — how much air the sun
@@ -173,6 +178,7 @@ function stop(
   env: number,
   lamp: number,
   exposure: number,
+  warmth: number,
   sky: SkyPreset,
 ): Stop {
   return {
@@ -192,6 +198,7 @@ function stop(
     env,
     lamp,
     exposure,
+    warmth,
     sky,
   };
 }
@@ -215,16 +222,16 @@ const STOPS: readonly Stop[] = [
   // Day stops (Mario-Kart pass 2026-07-10): brighter exposure, big blue-sky
   // hemisphere fill + warm ground bounce so shadow sides glow instead of
   // going grey. Sun eased down to keep the white sidewalks from clipping.
-  //    p     sunEl sunAz  lightDir       color     int   hemiSky   hemiGnd   hInt  amb   ambColor  fog      near far  env   lamp  exp
-  stop(0.00,  35,   115,   dir(35, 115),  0xfff6e0, 1.75, 0xa9dcff, 0x6b6852, 0.52, 0.13, 0xffffff, 0x86b4e2, 460, 960, 0.32, 0,    0.72, SKY_DAY),
-  stop(0.25,  50,   150,   dir(50, 150),  0xfff2d8, 1.85, 0xa9dcff, 0x6b6852, 0.52, 0.13, 0xffffff, 0x7fb2e4, 480, 980, 0.32, 0,    0.72, SKY_DAY),
+  //    p     sunEl sunAz  lightDir       color     int   hemiSky   hemiGnd   hInt  amb   ambColor  fog      near far  env   lamp  exp   warm
+  stop(0.00,  35,   115,   dir(35, 115),  0xfff6e0, 1.75, 0xa9dcff, 0x6b6852, 0.52, 0.13, 0xffffff, 0x86b4e2, 460, 960, 0.32, 0,    0.72, 0.15, SKY_DAY),
+  stop(0.25,  50,   150,   dir(50, 150),  0xfff2d8, 1.85, 0xa9dcff, 0x6b6852, 0.52, 0.13, 0xffffff, 0x7fb2e4, 480, 980, 0.32, 0,    0.72, 0.05, SKY_DAY),
   // Golden hour is DAYLIGHT: sun still 12° up, blue sky, full-strength key.
   // The lamp factor used to open at 0.25 here, which lit the player's night
   // rig (a 70-candela spot plus two head sprites) under a noon-blue sky — the
   // single loudest thing in the most flattering frame the game has. Lamps now
   // wait for the sun to reach the horizon.
-  stop(0.40,  12,   235,   dir(12, 235),  0xffc27a, 1.7,  0xffd9b0, 0x655c44, 0.42, 0.12, 0xffffff, 0xbf9a83, 430, 940, 0.26, 0,    0.68, SKY_GOLDEN),
-  stop(0.47,   2,   248,   dir(4, 248),   0xff9350, 1.25, 0xff9d70, 0x3e3a44, 0.36, 0.11, 0xe0dcf0, 0xac7160, 400, 900, 0.18, 0.62, 0.68, SKY_SUNSET),
+  stop(0.40,  11,   235,   dir(11, 235),  0xffbe74, 1.9,  0xffd6a6, 0x6b5c40, 0.42, 0.12, 0xfff2e2, 0xc49a80, 430, 940, 0.26, 0,    0.70, 0.85, SKY_GOLDEN),
+  stop(0.47,   2,   248,   dir(4, 248),   0xff9350, 1.25, 0xff9d70, 0x3e3a44, 0.36, 0.11, 0xe0dcf0, 0xac7160, 400, 900, 0.18, 0.62, 0.68, 1.0,  SKY_SUNSET),
   // Night floors are tuned for PHONES: a desktop panel at full brightness can
   // read a 0.3-fill scene, a dim phone outdoors cannot. Moonlight carries the
   // shape of the city; streetlight glow carries the color. The night ambient
@@ -256,11 +263,11 @@ const STOPS: readonly Stop[] = [
   // Every night tint still keeps RED at or above GREEN (see above) and the
   // moon stays the only directional — halving it costs shape, so it falls less
   // than the fills do.
-  stop(0.53,  -3,   255,   MOON,          0x8d92c0, 0.28, 0x6e6398, 0x2a2d38, 0.17, 0.27, 0xc8b0c4, 0x35446a, 380, 900, 0.05, 1,    0.66, SKY_NIGHT),
-  stop(0.62, -30,   270,   MOON,          0x9b9ed6, 0.32, 0x5b4a80, 0x20242e, 0.18, 0.30, 0xc2a3bd, 0x1f2c52, 360, 880, 0.05, 1,    0.66, SKY_NIGHT),
-  stop(0.80, -30,    60,   MOON,          0x9b9ed6, 0.32, 0x5b4a80, 0x20242e, 0.18, 0.30, 0xc2a3bd, 0x1f2c52, 360, 880, 0.05, 1,    0.66, SKY_NIGHT),
-  stop(0.88,  -3,    95,   MOON,          0xc087a0, 0.30, 0x84719a, 0x2a2d38, 0.17, 0.27, 0xc9aabf, 0x4a4668, 380, 920, 0.05, 1,    0.66, SKY_NIGHT),
-  stop(0.94,   4,   105,   dir(6, 105),   0xffb27a, 1.3,  0xffc9a0, 0x4a443c, 0.28, 0.10, 0xffffff, 0xba8f7a, 450, 980, 0.20, 0.45, 0.66, SKY_SUNSET),
+  stop(0.53,  -3,   255,   MOON,          0x8d92c0, 0.28, 0x6e6398, 0x2a2d38, 0.17, 0.27, 0xc8b0c4, 0x35446a, 380, 900, 0.05, 1,    0.66, 0.3,  SKY_NIGHT),
+  stop(0.62, -30,   270,   MOON,          0x9b9ed6, 0.32, 0x5b4a80, 0x20242e, 0.18, 0.30, 0xc2a3bd, 0x1f2c52, 360, 880, 0.05, 1,    0.66, 0,    SKY_NIGHT),
+  stop(0.80, -30,    60,   MOON,          0x9b9ed6, 0.32, 0x5b4a80, 0x20242e, 0.18, 0.30, 0xc2a3bd, 0x1f2c52, 360, 880, 0.05, 1,    0.66, 0,    SKY_NIGHT),
+  stop(0.88,  -3,    95,   MOON,          0xc087a0, 0.30, 0x84719a, 0x2a2d38, 0.17, 0.27, 0xc9aabf, 0x4a4668, 380, 920, 0.05, 1,    0.66, 0.1,  SKY_NIGHT),
+  stop(0.94,   4,   105,   dir(6, 105),   0xffb27a, 1.3,  0xffc9a0, 0x4a443c, 0.28, 0.10, 0xffffff, 0xba8f7a, 450, 980, 0.20, 0.45, 0.66, 0.8,  SKY_SUNSET),
 ];
 
 // SF wall-clock hour (fractional, 0..24) right now. Intl handles DST; some
@@ -522,7 +529,8 @@ export class DayNight {
     }
     this.lamp = THREE.MathUtils.lerp(a.lamp, b.lamp, t);
     // The post grade needs the cycle too, and has no per-frame call site of its
-    // own — see render/grade.ts for why this is a signal and not a parameter.
+    // own — see render/grade.ts for why these are signals and not parameters.
     setGradeNight(this.lamp);
+    setGradeWarmth(THREE.MathUtils.lerp(a.warmth, b.warmth, t));
   }
 }

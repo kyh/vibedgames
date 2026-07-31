@@ -46,7 +46,7 @@ export class VehicleFxRig {
     this.px = -fwdZ; // axle direction (perpendicular to heading)
     this.pz = fwdX;
 
-    if (drifting || car.isBoosting || brakingHard) this.emitSmoke(dt, car);
+    if (drifting || car.isBoosting || brakingHard) this.emitSmoke(dt, car, surface);
     if ((drifting && !car.airborne) || brakingHard) this.stampSkids();
     else this.lastSkid = null; // next streak starts fresh, not joined to this one
     this.emitTrails(car, drifting);
@@ -64,8 +64,9 @@ export class VehicleFxRig {
     if (this.kickAccum < cadence) return;
     this.kickAccum = 0;
     const power = 1.6 + Math.min(2.2, car.speed * 0.05);
-    this.fx.kickup(this.ax + this.px * 0.7, this.az + this.pz * 0.7, surface, power);
-    this.fx.kickup(this.ax - this.px * 0.7, this.az - this.pz * 0.7, surface, power);
+    const y = car.position.y;
+    this.fx.kickup(this.ax + this.px * 0.7, y, this.az + this.pz * 0.7, surface, power);
+    this.fx.kickup(this.ax - this.px * 0.7, y, this.az - this.pz * 0.7, surface, power);
   }
 
   // Rear-wheel light ribbons: drift slides, charged drifts and boost runs each
@@ -93,17 +94,33 @@ export class VehicleFxRig {
     const tier = car.driftTier;
     const hue = tier === 2 ? 0.07 : tier === 1 ? 0.58 : 0.13;
     const power = 2.6 + tier * 1.2;
-    this.fx.burst(this.ax + this.px * 0.8, 0.35, this.az + this.pz * 0.8, hue, 2 + tier, power);
-    this.fx.burst(this.ax - this.px * 0.8, 0.35, this.az - this.pz * 0.8, hue, 2 + tier, power);
+    const y = car.position.y + 0.35;
+    this.fx.burst(this.ax + this.px * 0.8, y, this.az + this.pz * 0.8, hue, 2 + tier, power);
+    this.fx.burst(this.ax - this.px * 0.8, y, this.az - this.pz * 0.8, hue, 2 + tier, power);
   }
 
-  private emitSmoke(dt: number, car: Car): void {
+  private emitSmoke(dt: number, car: Car, surface: "road" | "grass" | "sand" | "concrete"): void {
     this.puffAccum += dt;
     if (this.puffAccum < 0.03) return;
     this.puffAccum = 0;
     const charged = car.driftCharge >= 1 && car.isDrifting;
-    this.fx.driftPuff(this.ax + this.px * 0.7, this.az + this.pz * 0.7, car.isBoosting, charged);
-    this.fx.driftPuff(this.ax - this.px * 0.7, this.az - this.pz * 0.7, car.isBoosting, charged);
+    const y = car.position.y;
+    this.fx.driftPuff(
+      this.ax + this.px * 0.7,
+      y,
+      this.az + this.pz * 0.7,
+      car.isBoosting,
+      charged,
+      surface,
+    );
+    this.fx.driftPuff(
+      this.ax - this.px * 0.7,
+      y,
+      this.az - this.pz * 0.7,
+      car.isBoosting,
+      charged,
+      surface,
+    );
   }
 
   private stampSkids(): void {

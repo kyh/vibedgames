@@ -651,9 +651,12 @@ float roadPolish = 0.0;
         * (1.0 - smoothstep(0.35, 0.9, dphase)); // drop the pattern once undersampled
       vec3 conc = vec3(0.30, 0.29, 0.26);
       #ifdef ROAD_SURFACE_FULL
-        conc *= 0.88 + 0.24 * roadNoise(wp * 0.35); // slab-to-slab value variation
+        // Depths re-tuned for the post S-curve: the original 0.24/0.15 were
+        // authored against the flat vibrance-only grade and read as loud
+        // woodgrain down every steep block once midtone contrast arrived.
+        conc *= 0.93 + 0.14 * roadNoise(wp * 0.35); // slab-to-slab value variation
       #endif
-      diffuseColor.rgb = mix(diffuseColor.rgb, conc * (1.0 - groove * 0.15), steep * 0.7);
+      diffuseColor.rgb = mix(diffuseColor.rgb, conc * (1.0 - groove * 0.08), steep * 0.6);
     }
   }
   // --- CONCRETE: the walk and the kerb, which ride this same material with

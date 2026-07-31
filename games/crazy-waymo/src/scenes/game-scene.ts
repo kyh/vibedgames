@@ -9,6 +9,7 @@ import { type Beacon, BeaconLights, collectBeacons } from "../fx/beacon-lights";
 import { ChaseCamera } from "../fx/camera-rig";
 import { SkyClouds } from "../fx/clouds";
 import { Harbor } from "../fx/harbor";
+import { ImpactStars } from "../fx/impact-stars";
 import type { SmashCones } from "../fx/cones";
 import type { Debris } from "../fx/debris";
 import type { LampGlow } from "../fx/lamp-glow";
@@ -38,6 +39,7 @@ import { readTransform, type RemoteCars } from "../net/remote-cars";
 import type { PhysicsWorld } from "../physics/physics-world";
 import { installAerialFog } from "../render/aerial-fog";
 import { DayNight } from "../render/day-night";
+import { setGradeMotion } from "../render/grade";
 import { FarTerrain } from "../render/far-terrain";
 import { LandmarkSilhouettes } from "../render/landmark-silhouette";
 import { FULL_QUALITY, isCoarsePointer, type QualityFeatures } from "../render/quality";
@@ -282,6 +284,7 @@ export class GameScene {
     () => this.skids,
   );
   private shocks = new Shockwaves();
+  private impactStars = new ImpactStars();
   private harbor = new Harbor();
   private oceanTime = { value: 0 };
   private dayNight: DayNight;
@@ -298,6 +301,7 @@ export class GameScene {
   private sceneFog: THREE.Fog;
 
   private sun = new THREE.DirectionalLight(0xfff2d8, 2.0);
+  private hemi = new THREE.HemisphereLight(0xbfe0ff, 0x4a4a3e, 0.35);
   private sky: Sky;
   // Feature tier pushed by the perf governor; desktop never leaves FULL.
   private quality: QualityFeatures = FULL_QUALITY;
@@ -316,6 +320,7 @@ export class GameScene {
   private scrSnapRight = new THREE.Vector3();
   private scrSnapUp = new THREE.Vector3();
   private scrSnapAnchor = new THREE.Vector3();
+  private shadowExtent = 58; // current shadow ortho half-extent (see updateSun)
   private mode: GameMode = { kind: "loading", progress: 0 };
   ready: Promise<void> = Promise.resolve();
   // What the start CTA shows while the city finishes behind the title.
@@ -487,8 +492,7 @@ export class GameScene {
     this.scene.fog = fog;
     this.sceneFog = fog;
 
-    const hemi = new THREE.HemisphereLight(0xbfe0ff, 0x4a4a3e, 0.35);
-    this.scene.add(hemi);
+    this.scene.add(this.hemi);
     const ambient = new THREE.AmbientLight(0xffffff, 0.08);
     this.scene.add(ambient);
 
@@ -673,6 +677,7 @@ vec3 ocGerstner(vec2 p, float t) {
     this.scene.add(this.speedLines.object3D);
     this.scene.add(this.clouds.group);
     this.scene.add(this.shocks.group);
+    this.scene.add(this.impactStars.group);
     // The bay's traffic rides the ocean plane, so it goes in with it.
     this.scene.add(this.harbor.group);
 
@@ -680,7 +685,7 @@ vec3 ocGerstner(vec2 p, float t) {
     this.dayNight = new DayNight({
       sky: this.sky,
       sun: this.sun,
-      hemi,
+      hemi: this.hemi,
       ambient,
       fog,
       scene: this.scene,
@@ -756,31 +761,62 @@ vec3 ocGerstner(vec2 p, float t) {
   // looked fine). 8-bit source texels cannot overflow anywhere. The
   // day-night cycle keeps modulating intensity via environmentIntensity.
   applyEnvironment(renderer: THREE.WebGLRenderer): void {
-    const face = (top: string, mid: string, bottom: string): HTMLCanvasElement => {
-      const c = document.createElement("canvas");
-      c.width = 16;
-      c.height = 16;
-      const g = c.getContext("2d");
-      if (g) {
-        const grad = g.createLinearGradient(0, 0, 0, 16);
-        grad.addColorStop(0, top);
-        grad.addColorStop(0.55, mid);
-        grad.addColorStop(1, bottom);
-        g.fillStyle = grad;
-        g.fillRect(0, 0, 16, 16);
-      }
-      return c;
-    };
+    const SIZE = 64;
     const SKY_TOP = "#7fb2e0";
     const HORIZON = "#dde6ea";
+    // Warm band hugging the horizon line: gives the clearcoat a sky-to-warm
+    // graduation to reflect instead of a flat two-tone split. Phase-neutral —
+    // this cube shines day and night at scene-driven intensity.
+    const WARM = "#f2ddc4";
     const GROUND = "#55534a";
-    const side = (): HTMLCanvasElement => face(SKY_TOP, HORIZON, GROUND);
+    const face = (paint: (g: CanvasRenderingContext2D) => void): HTMLCanvasElement => {
+      const c = document.createElement("canvas");
+      c.width = SIZE;
+      c.height = SIZE;
+      const g = c.getContext("2d");
+      if (g) paint(g);
+      return c;
+    };
+    const flat = (color: string): HTMLCanvasElement =>
+      face((g) => {
+        g.fillStyle = color;
+        g.fillRect(0, 0, SIZE, SIZE);
+      });
+    const sideGradient = (g: CanvasRenderingContext2D): void => {
+      const grad = g.createLinearGradient(0, 0, 0, SIZE);
+      grad.addColorStop(0, SKY_TOP);
+      grad.addColorStop(0.47, HORIZON);
+      grad.addColorStop(0.56, WARM);
+      grad.addColorStop(0.66, "#9b8d78");
+      grad.addColorStop(1, GROUND);
+      g.fillStyle = grad;
+      g.fillRect(0, 0, SIZE, SIZE);
+    };
+    const side = (): HTMLCanvasElement => face(sideGradient);
+    // The +x face carries a soft brighter lobe (sun-ish side): one side of
+    // the paint reads a highlight sweep as the car turns.
+    const sunSide = (): HTMLCanvasElement =>
+      face((g) => {
+        sideGradient(g);
+        const lobe = g.createRadialGradient(
+          SIZE * 0.5,
+          SIZE * 0.42,
+          0,
+          SIZE * 0.5,
+          SIZE * 0.42,
+          SIZE * 0.55,
+        );
+        lobe.addColorStop(0, "rgba(255, 240, 214, 0.45)");
+        lobe.addColorStop(1, "rgba(255, 240, 214, 0)");
+        g.fillStyle = lobe;
+        g.fillRect(0, 0, SIZE, SIZE);
+      });
     // Face order: +x, -x, +y, -y, +z, -z — sides run zenith→ground.
     const cube = new THREE.CubeTexture([
+      sunSide(),
       side(),
-      side(),
-      face(SKY_TOP, SKY_TOP, SKY_TOP),
-      face(GROUND, GROUND, GROUND),
+      flat(SKY_TOP),
+      flat(GROUND),
       side(),
       side(),
     ]);
@@ -1434,6 +1470,7 @@ vec3 ocGerstner(vec2 p, float t) {
     this.bubbles.update(dt);
     this.hud.update(dt);
     this.fx.update(dt);
+    this.impactStars.update(dt);
     const chase = this.car?.position ?? this.rig.camera.position;
     this.ambient?.update(dt, this.dayNight.lamp, this.sceneFog, chase.x, chase.z);
     this.skids?.update(dt);
@@ -1449,6 +1486,15 @@ vec3 ocGerstner(vec2 p, float t) {
       this.scene.fog.far = 12000;
     }
     const night = this.dayNight.lamp;
+    // Particle lighting rides the day-night rig: smoke catches the live sun/
+    // hemisphere mix, sparks gain toward the day bloom threshold (1 - lamp).
+    this.fx.setLighting(
+      this.sun.color,
+      this.sun.intensity,
+      this.hemi.color,
+      this.hemi.intensity,
+      1 - night,
+    );
     this.lampGlow?.setIntensity(night);
     this.nightWindows?.setIntensity(night);
     this.lampGlow?.updateNear(this.rig.camera.position.x, this.rig.camera.position.z, dt);
@@ -1559,6 +1605,7 @@ vec3 ocGerstner(vec2 p, float t) {
     );
     this.rig.camera.lookAt(car.position.x, car.position.y + 1.0, car.position.z);
     this.speedLines.update(dt, this.rig.camera, 0); // fade out leftover streaks
+    setGradeMotion(0, false); // and drain the post lens the same way
   }
 
   // 3-2-1-GO: the camera swoops from the title orbit into the chase pose while
@@ -1738,6 +1785,7 @@ vec3 ocGerstner(vec2 p, float t) {
       this.rig.addTrauma(0.35 + p * 0.5);
       this.hud.flash("#ffffff", 0.25 + p * 0.3);
       this.fx.burst(car.position.x, 1, car.position.z, 0.07, 10, 6 + p * 8);
+      this.impactStars.burst(car.position.x, car.position.y, car.position.z, p);
       this.sfx.crash(impact);
       this.debris?.burst(
         car.position.x,
@@ -1820,6 +1868,9 @@ vec3 ocGerstner(vec2 p, float t) {
     // under freecam (trailer fixed shots, DEV) feed 0 so leftovers fade out
     // instead of rushing along a static camera's forward axis.
     this.speedLines.update(dt, this.rig.camera, this.freecam ? 0 : car.speed / CAR.boostSpeed);
+    // The post lens (CA / vignette squeeze / bloom lift) reads the same
+    // motion; freecam feeds 0 so staged shots stay clean.
+    setGradeMotion(this.freecam ? 0 : car.speed / CAR.boostSpeed, !this.freecam && car.isBoosting);
     this.hud.setVignette(THREE.MathUtils.clamp((car.speed - 45) / 40, 0, 1) * 0.6);
     this.tickHud(dt, car, fares, true);
   }
@@ -2085,6 +2136,32 @@ vec3 ocGerstner(vec2 p, float t) {
     // Shadows follow the camera in freecam so any inspected spot is lit.
     const raw = this.freecam ? this.rig.camera.position : this.car?.position;
     if (!raw) return;
+    // Long low-sun shadows (desktop only): widen the follow-box as the sun
+    // drops so golden-hour shadows cast across the block instead of clipping
+    // at the box edge — and the same 2048 texels spread wider, which is the
+    // soft penumbra plain PCF cannot otherwise buy. Mobile keeps the fixed
+    // box: the cadenced texel-snap below assumes a constant extent between
+    // re-renders. normalBias scales with texel size or the wider box acnes.
+    if (this.quality.shadowEvery === 1 && !isCoarsePointer()) {
+      const elevY = this.scrSnapDir.copy(this.dayNight.sunOffset).normalize().y;
+      const ext = 58 + 16 * (1 - THREE.MathUtils.smoothstep(elevY, 0.15, 0.45));
+      if (Math.abs(ext - this.shadowExtent) > 0.25) {
+        this.shadowExtent = ext;
+        const sc = this.sun.shadow.camera;
+        sc.left = -ext;
+        sc.right = ext;
+        sc.top = ext;
+        sc.bottom = -ext;
+        sc.updateProjectionMatrix();
+        // The bias pair was tuned at extent 58: normalBias tracks texel size
+        // up, and the negative depth bias backs off with it — at the wider
+        // box the fixed -0.0005 read as contour-band acne down every steep
+        // Sunset street at golden hour.
+        const k = ext / 58;
+        this.sun.shadow.normalBias = 0.04 * k * k;
+        this.sun.shadow.bias = -0.0005 / (k * k);
+      }
+    }
     const anchor = this.scrSnapAnchor.copy(raw);
     // Cadenced shadow updates (mobile low tiers): snap the shadow camera to a
     // shadow-texel grid in light space, or every 2nd/3rd-frame re-render

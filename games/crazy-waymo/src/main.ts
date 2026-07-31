@@ -90,7 +90,7 @@ const governor = new PerfGovernor(renderer, game.sunLight, (features) => {
 
 if (import.meta.env.DEV) {
   void import("./debug/dev-hooks").then(({ installDevHooks }) => installDevHooks(game, governor));
-  Object.assign(window, { __renderer: renderer, __waymo: game });
+  Object.assign(window, { __renderer: renderer, __waymo: game, __post: post });
 }
 
 const timer = new THREE.Timer();

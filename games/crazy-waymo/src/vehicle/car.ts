@@ -48,12 +48,41 @@ const LIDAR_DARK = new THREE.MeshStandardMaterial({
   roughness: 0.5,
   metalness: 0.2,
 });
+// Glossy accents (drum ring + door lenses) so the sensors catch the sun the
+// way the lacquered body does.
 const LIDAR_BLUE = new THREE.MeshStandardMaterial({
   color: 0x2f7de0,
   emissive: 0x1a5fbf,
   emissiveIntensity: 0.4,
-  roughness: 0.4,
+  roughness: 0.2,
 });
+
+// Toy-car lacquer for player-class bodies: physical clearcoat over the kit
+// colormap. The loader dedups MeshStandardMaterial per kit, so this MUST
+// build a fresh material per mesh — mutating the shared one would lacquer
+// every traffic/parked car cut from the same kit.
+const BODY_ROUGHNESS = 0.32;
+const BODY_CLEARCOAT_ROUGHNESS = 0.09;
+function lacquerMaterial(
+  src: THREE.MeshStandardMaterial,
+  tint: THREE.Color | null,
+): THREE.MeshPhysicalMaterial {
+  const m = new THREE.MeshPhysicalMaterial({
+    map: src.map,
+    color: src.color.clone(),
+    roughness: BODY_ROUGHNESS,
+    metalness: 0,
+    clearcoat: 1,
+    clearcoatRoughness: BODY_CLEARCOAT_ROUGHNESS,
+    side: src.side,
+    transparent: src.transparent,
+    opacity: src.opacity,
+    alphaTest: src.alphaTest,
+    vertexColors: src.vertexColors,
+  });
+  if (tint) m.color.multiply(tint).lerp(tint, 0.55);
+  return m;
+}
 
 // --- Robotaxi skins: swap the Waymo for other robotaxis. The Waymo body is a
 // pre-baked recolor GLB; the others repaint a base car in-engine (cloned
@@ -255,13 +284,13 @@ export function buildSkinBody(cache: ModelCache, skin: RobotaxiSkin): THREE.Obje
     wrap.add(inner);
     body = wrap;
   }
-  if (skin.tint !== undefined) {
-    const tint = new THREE.Color(skin.tint);
+  // Kenney-frame bodies (and any in-engine repaint) get the clearcoat; fitted
+  // generated GLBs keep their authored materials unless they're being tinted.
+  const tint = skin.tint !== undefined ? new THREE.Color(skin.tint) : null;
+  if (!skin.fit || tint) {
     body.traverse((c) => {
       if (c instanceof THREE.Mesh && c.material instanceof THREE.MeshStandardMaterial) {
-        const m = c.material.clone();
-        m.color.multiply(tint).lerp(tint, 0.55);
-        c.material = m;
+        c.material = lacquerMaterial(c.material, tint);
       }
     });
   }
@@ -406,7 +435,7 @@ function buildNightRig(): NightRig {
 export class Car {
   readonly object3D: THREE.Group;
   private body: THREE.Object3D;
-  private wheels: { node: THREE.Object3D; front: boolean }[] = [];
+  private wheels: { node: THREE.Object3D; front: boolean; restY: number; phys: number }[] = [];
   readonly position = new THREE.Vector3();
   private velocity = new THREE.Vector2(); // world XZ
   heading = 0; // yaw; forward = (sin, cos)
@@ -473,7 +502,11 @@ export class Car {
     this.wheels.length = 0;
     this.body.traverse((c) => {
       if (c.name.startsWith("wheel")) {
-        this.wheels.push({ node: c, front: c.name.includes("front") });
+        const front = c.name.includes("front");
+        // Physics wheel order is FL, FR, RL, RR (raycast-vehicle corners);
+        // map by node position so left wheels read left suspension.
+        const phys = (front ? 0 : 2) + (c.position.x < 0 ? 0 : 1);
+        this.wheels.push({ node: c, front, restY: c.position.y, phys });
       }
     });
   }
@@ -708,13 +741,22 @@ export class Car {
     this.wasAirborne = airborneNow;
     this.yVel = lv.y;
 
-    // Wheels: spin with speed, fronts steer with the physics steering angle.
+    // Wheels: spin with speed, fronts steer with the physics steering angle,
+    // and each rides its own suspension. Shorter-than-rest (compressed) lifts
+    // the wheel toward the arch: the body origin tracks the chassis, so when
+    // a spring compresses the body drops and the wheel must rise to stay on
+    // the ground. Suspension is world units; wheel nodes live inside the
+    // hero-scaled body.
     const fwdSpeed = this.forwardSpeed;
     this.wheelSpin += (fwdSpeed / WHEEL_RADIUS) * dt;
     const steerAngle = veh.wheelVisual(0).steering;
+    const rest = veh.params.suspensionRestLength;
+    const invScale = 1 / this.object3D.scale.y;
     for (const w of this.wheels) {
       w.node.rotation.x = this.wheelSpin;
       if (w.front) w.node.rotation.y = steerAngle;
+      const travel = rest - veh.wheelVisual(w.phys).suspension;
+      w.node.position.y = w.restY + THREE.MathUtils.clamp(travel, -0.12, 0.2) * invScale;
     }
     this.squash = Math.max(0, this.squash - dt * 5.5);
     const sq = this.squash;
