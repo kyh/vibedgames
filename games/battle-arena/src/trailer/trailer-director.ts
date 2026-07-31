@@ -134,6 +134,9 @@ class Director {
 
   // loop state
   private holding = true; // sim frozen between a scene's setup and its first run frame
+  /** The active scene's run() body, queued by the shell and fired from this
+   *  director's own loop (see the `scene` wrapper). */
+  private pending: (() => void) | null = null;
   private acc = 0;
   private focusId = ""; // featured champion — env proximity + Fx juice follow them
   private readonly camPos = new THREE.Vector3(0, 26, 34);
@@ -472,6 +475,9 @@ class Director {
       duration: spec.duration,
       setup: () => {
         this.holding = true;
+        // Drop anything the outgoing scene queued: it would otherwise fire once
+        // against the incoming scene's freshly staged world.
+        this.pending = null;
         this.camMode = "cinematic"; // opt-in per scene; everything else is authored
         this.expose(1);
         this.damp(1);
@@ -482,9 +488,16 @@ class Director {
         this.fx.update(this.world, 0);
         this.worldView.sync(this.world, 0);
       },
+      // The shell's rAF fires AFTER this director's own animation loop, so a
+      // camPos written straight from here frames the pose of the PREVIOUS
+      // frame. With the sim on a fixed SIM_DT accumulator and the display at
+      // 120Hz, units advance on alternate frames and the camera on the others,
+      // and a shot that tracks a hero (`camPos.set(k.x + 3.5, …)`) square-waves
+      // it toward and away from the lens every frame. Queue the body instead
+      // and let the loop run it against the pose it is about to draw.
       run: (t) => {
         this.holding = false;
-        spec.run?.(t);
+        this.pending = spec.run ? () => spec.run?.(t) : null;
       },
     };
     if (spec.teardown) out.teardown = spec.teardown;
@@ -510,6 +523,12 @@ class Director {
           n++;
         }
       }
+      // Scene choreography, in phase with the pose about to be drawn (see the
+      // `run` wrapper). Scripted hero input therefore lands one sim step later
+      // than it used to, which is 16ms against cue granularity of ~100ms.
+      const pending = this.pending;
+      this.pending = null;
+      pending?.();
       this.fx.update(this.world, frameDt);
       // the HUD normally drains these queues; trailer mode has no HUD
       this.fx.feed.length = 0;
@@ -1501,5 +1520,9 @@ class Director {
 /** Boot trailer mode: assets are already loaded by main(); this owns the
  *  render loop and hands scene control to the shell. */
 export function runBattleArenaTrailer(view: View, lib: ModelLibrary): void {
-  new Director(view, lib).start();
+  const director = new Director(view, lib);
+  // DEV-only handle for headless checks — the sim state behind the shot, so a
+  // frame can be scored against what the world actually held when it drew.
+  if (import.meta.env.DEV) Object.assign(window, { __baTrailer: director });
+  director.start();
 }

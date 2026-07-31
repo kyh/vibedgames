@@ -137,6 +137,9 @@ async function main(): Promise<void> {
   //    pays for trailer code. No menus, no pause wiring, no network. ──
   if (params.has("trailer")) {
     const { runBattleArenaTrailer } = await import("./trailer/trailer-director");
+    // Same handle the editor and viewer branches publish — headless trailer
+    // checks need the renderer and camera to measure what was actually drawn.
+    if (import.meta.env.DEV) Object.assign(window, { __view: view });
     runBattleArenaTrailer(view, lib);
     window.addEventListener("resize", () => view.resize());
     return;

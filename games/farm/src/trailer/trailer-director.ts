@@ -139,7 +139,14 @@ function camPlace(scene: Phaser.Scene, zoom: number, cx: number, cy: number): vo
 
 /** Smoothed follow with a lead offset, clamped to the map every frame — the
  *  built-in follow relies on camera bounds, which misclamp under zoom near the
- *  map's edges (the field sits by the top edge; void would show). */
+ *  map's edges (the field sits by the top edge; void would show).
+ *
+ *  Self-driving: it installs itself as the scene's trailer frame hook rather
+ *  than being ticked from the scene body. The trailer shell drives those from
+ *  its own rAF, which fires AFTER Phaser's game loop, so a follow ticked there
+ *  chases the farmer's PREVIOUS position and the offset it holds him at wobbles
+ *  with the frame time. `startTrailer` clears the hook before every setup, so a
+ *  shot that stages no TrackCam is not left chasing with the last one. */
 class TrackCam {
   private cx: number;
   private cy: number;
@@ -154,9 +161,10 @@ class TrackCam {
     this.cy = gs.player.y + offY;
     lockCam(gs);
     camPlace(gs, zoom, this.cx, this.cy);
+    gs.trailerFrame = (dt) => this.step(dt);
   }
 
-  tick(dt: number): void {
+  private step(dt: number): void {
     const k = 1 - Math.exp(-dt * 5);
     this.cx += (this.gs.player.x + this.offX - this.cx) * k;
     this.cy += (this.gs.player.y + this.offY - this.cy) * k;
@@ -795,7 +803,6 @@ const FALL_ROWS: (CropId | null)[] = ["pumpkin", "wheat", "beetroot", "carrot", 
  *  second cut crossing a Farming level threshold on camera. */
 function sceneColdOpen(game: Phaser.Game): TrailerScene {
   let gs: GameScene | null = null;
-  let cam: TrackCam | null = null;
   return {
     id: "cold-open-harvest",
     duration: 3200,
@@ -816,12 +823,11 @@ function sceneColdOpen(game: Phaser.Game): TrailerScene {
       // built-in bounds clamp shows void under zoom. 250px across is ~2x
       // tighter than normal play, and the six crop rows then fill two thirds of
       // the frame height instead of floating over empty plateau.
-      cam = new TrackCam(gs, zoomFor(gs, 250), 52, -6);
+      new TrackCam(gs, zoomFor(gs, 250), 52, -6);
     },
-    run: (_t, dt) => {
+    run: () => {
       const g = gs;
       if (!g) return;
-      cam?.tick(dt / 1000);
       if (g.acting) return;
       const feet = g.feetTile();
       const cs = g.world.crops.get(g.world.idx(feet.tx + 1, feet.ty));
@@ -1386,7 +1392,6 @@ function sceneMineDeeper(game: Phaser.Game): TrailerScene {
 function sceneGather(game: Phaser.Game): TrailerScene {
   let gs: GameScene | null = null;
   let script: FarmScript | null = null;
-  let cam: TrackCam | null = null;
   return {
     id: "gather-run",
     // measured: two pickups + three axe swings land the fell at ~3.2s, so the
@@ -1417,11 +1422,10 @@ function sceneGather(game: Phaser.Game): TrailerScene {
       steps.push({ kind: "select", match: (it) => it.kind === "tool" && it.tool === "axe" });
       for (let i = 0; i < 3; i++) steps.push({ kind: "act", at: tree });
       script = new FarmScript(g, steps);
-      cam = new TrackCam(g, zoomFor(g, 300), -26, 4);
+      new TrackCam(g, zoomFor(g, 300), -26, 4);
       moveToward(g, start.tx - 1, start.ty, true);
     },
     run: (_t, dt) => {
-      cam?.tick(dt / 1000);
       script?.tick(dt / 1000);
     },
     teardown: () => {
@@ -1502,7 +1506,6 @@ function sceneFishing(game: Phaser.Game): TrailerScene {
 function sceneVillager(game: Phaser.Game): TrailerScene {
   let gs: GameScene | null = null;
   let script: FarmScript | null = null;
-  let cam: TrackCam | null = null;
   let away: Tile = { tx: 0, ty: 0 };
   /** When the fish left the pack (ms into the shot); 0 = still holding it. */
   let handedAt = 0;
@@ -1550,14 +1553,13 @@ function sceneVillager(game: Phaser.Game): TrailerScene {
       // 215 world px: at the old 280 the two of them were 7% of frame height
       // and the reaction read as a speck. The lead splits the difference
       // between the pair so both stay centred through the handover.
-      cam = new TrackCam(g, zoomFor(g, 215), -20, -6);
+      new TrackCam(g, zoomFor(g, 215), -20, -6);
       const first = beside();
       if (first) moveToward(g, first.tx, first.ty);
     },
     run: (t, dt) => {
       const g = gs;
       if (!g) return;
-      cam?.tick(dt / 1000);
       script?.tick(dt / 1000);
       // driven off the fish actually changing hands, not off the clock
       if (handedAt === 0 && !holdsLegend()) handedAt = t;
@@ -1849,6 +1851,14 @@ export function startTrailer(game: Phaser.Game): void {
       sceneSeasons(game),
       sceneNight(game),
       sceneFullFarm(game),
-    ],
+    ].map((scene) => ({
+      ...scene,
+      // A TrackCam installs itself as the scene's frame hook (see TrackCam);
+      // clear it here so it dies with the shot that staged it.
+      setup: () => {
+        getGame(game).trailerFrame = null;
+        return scene.setup();
+      },
+    })),
   });
 }

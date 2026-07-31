@@ -2908,6 +2908,30 @@ function direct(scene: GameScene): void {
     },
   };
 
+  // Scene bodies run from GameScene's own update, not the shell's rAF — see
+  // TrailerStaging.frame. `t` is one frame stale by the time it fires, which
+  // only feeds choreography curves and cue thresholds.
+  let pending: (() => void) | null = null;
+  staging.frame = () => {
+    const body = pending;
+    pending = null;
+    body?.();
+  };
+  const inGameLoop = (s: TrailerScene): TrailerScene => {
+    const body = s.run;
+    const setup = s.setup;
+    return {
+      ...s,
+      // Drop the outgoing scene's queued body: it would otherwise fire once
+      // against the incoming scene's freshly staged world.
+      setup: () => {
+        pending = null;
+        return setup();
+      },
+      ...(body ? { run: (t: number, dt: number) => void (pending = () => body(t, dt)) } : {}),
+    };
+  };
+
   runTrailer({
     // The game draws its own screen vignette (energy-barrier) — stacking the
     // shell's would double-darken the neon edges.
@@ -2936,6 +2960,6 @@ function direct(scene: GameScene): void {
       bossApproach,
       bossKill,
       survivors,
-    ],
+    ].map(inGameLoop),
   });
 }

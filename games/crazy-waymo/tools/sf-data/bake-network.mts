@@ -289,6 +289,27 @@ function mergeParallelPass() {
     if (out.length === 0) out.push(e.pts[0]);
     return out;
   };
+  // Same, but each sample carries its arclength — the same-roadway test below
+  // has to know how far from the ends it is standing.
+  const samplesWithS = (e, step) => {
+    const out = [];
+    let acc = 0;
+    let base = 0;
+    for (let i = 1; i < e.pts.length; i++) {
+      const [ax, az] = e.pts[i - 1];
+      const [bx, bz] = e.pts[i];
+      const segLen = Math.hypot(bx - ax, bz - az);
+      if (segLen < 1e-6) continue;
+      let t = acc === 0 ? 0 : step - acc;
+      while (t <= segLen) {
+        out.push([ax + ((bx - ax) * t) / segLen, az + ((bz - az) * t) / segLen, base + t]);
+        t += step;
+      }
+      acc = (acc + segLen) % step;
+      base += segLen;
+    }
+    return out;
+  };
   const edgeLen = (e) => {
     let L = 0;
     for (let i = 1; i < e.pts.length; i++)
@@ -341,11 +362,45 @@ function mergeParallelPass() {
         buckets.get(k).push(i);
       }
   });
+  /**
+   * The other way one roadway ends up mapped twice: not a divided arterial but
+   * a plain duplicate way, often of a DIFFERENT class, running a few units off
+   * its partner. The twin rule above cannot see those — it demands both sides
+   * be arterials — so Twin Peaks Blvd shipped as a 3.2 line and a 4.6 line 6.6u
+   * apart, their asphalt fused into one ~14u swath with the 4.6's centre line
+   * stranded off-centre in it and the 3.2's bike lanes stranded beside that.
+   *
+   * The test is physical rather than a tuned distance: two roads are the same
+   * roadway when one's centreline runs inside the UNION of the two asphalt
+   * bands, parallel, for its whole length. Genuine neighbours on the SF grid
+   * sit ~22u apart against a 6.4-14u union, so they can never trip it.
+   *
+   * The junction run-in at each end is excluded: a way that terminates on the
+   * road it duplicates curves into it over about a road width, and those
+   * samples are legitimately neither parallel nor at the running offset. That
+   * taper — not a lower percentage — is what makes the rule hold; scoring the
+   * ends dropped the Twin Peaks pair at 10 of 12 samples.
+   */
+  const sameRoadway = (B, bLen, A) => {
+    const union = A.half + B.half;
+    const inner = samplesWithS(B, 4).filter((p) => p[2] > union && p[2] < bLen - union);
+    if (inner.length < 6) return false;
+    let covered = 0;
+    for (let i = 0; i < inner.length; i++) {
+      const q = inner[Math.min(i + 1, inner.length - 1)];
+      const r = inner[Math.max(i - 1, 0)];
+      const dl = Math.hypot(q[0] - r[0], q[1] - r[1]) || 1;
+      const hit = nearestOnEdge(inner[i][0], inner[i][1], A);
+      if (hit.d >= union) continue;
+      if (Math.abs((hit.tx * (q[0] - r[0]) + hit.tz * (q[1] - r[1])) / dl) < 0.8) continue;
+      covered++;
+    }
+    return covered >= inner.length * 0.9;
+  };
   const removed = new Set();
   const order = edges.map((_, i) => i).sort((a, b) => lens[a] - lens[b]); // shortest first
   for (const bi of order) {
     const B = edges[bi];
-    if (B.half < MERGE_MIN_HALF) continue; // arterial carriageways only
     if (lens[bi] < 20) continue; // junction connectors are never "twins"
     const samples = samplesOf(B, 8);
     // Local tangent per sample (for the parallel check).
@@ -361,32 +416,30 @@ function mergeParallelPass() {
     const cand = new Set();
     for (const [x, z] of samples) {
       for (const id of buckets.get(Math.floor(x / CELL) + "," + Math.floor(z / CELL)) ?? []) {
-        if (
-          id !== bi &&
-          !removed.has(id) &&
-          lens[id] >= lens[bi] &&
-          edges[id].half >= MERGE_MIN_HALF
-        )
-          cand.add(id);
+        if (id !== bi && !removed.has(id) && lens[id] >= lens[bi]) cand.add(id);
       }
     }
     for (const ai of cand) {
       const A = edges[ai];
-      let covered = 0;
-      for (let si = 0; si < samples.length; si++) {
-        const [x, z] = samples[si];
-        const hit = nearestOnEdge(x, z, A);
-        if (hit.d >= MERGE_DIST) continue;
-        // Must run PARALLEL to A there — cross streets stay.
-        const [btx, btz] = sampleTans[si];
-        if (Math.abs(hit.tx * btx + hit.tz * btz) < 0.8) continue;
-        covered++;
+      // Divided-arterial twins: both sides arterial, within a fixed distance.
+      let twin = A.half >= MERGE_MIN_HALF && B.half >= MERGE_MIN_HALF;
+      if (twin) {
+        let covered = 0;
+        for (let si = 0; si < samples.length; si++) {
+          const [x, z] = samples[si];
+          const hit = nearestOnEdge(x, z, A);
+          if (hit.d >= MERGE_DIST) continue;
+          // Must run PARALLEL to A there — cross streets stay.
+          const [btx, btz] = sampleTans[si];
+          if (Math.abs(hit.tx * btx + hit.tz * btz) < 0.8) continue;
+          covered++;
+        }
+        twin = covered >= samples.length * 0.9;
       }
-      if (covered >= samples.length * 0.9) {
-        removed.add(bi);
-        edges[ai] = { ...A, half: Math.max(A.half, B.half) };
-        break;
-      }
+      if (!twin && !sameRoadway(B, lens[bi], A)) continue;
+      removed.add(bi);
+      edges[ai] = { ...A, half: Math.max(A.half, B.half) };
+      break;
     }
   }
   edges = edges.filter((_, i) => !removed.has(i));

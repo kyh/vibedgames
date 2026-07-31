@@ -52,6 +52,13 @@ const smooth = (f: number): number => f * f * (3 - 2 * f);
 
 const NEUTRAL: CarInput = { throttle: 0, brake: 0, steer: 0, boost: false };
 
+/** Half the sum of two robotaxi bodies, across and along. A body is ~2.2u by
+ *  ~4.5u and RemoteCars renders at 1.12 scale, so two of them intersect inside
+ *  these — measured in the RIVAL's frame, because a 3.2u gap is a close pass
+ *  abreast and an interpenetration nose to tail. */
+const RIVAL_HALF_W = 2.6;
+const RIVAL_HALF_L = 5;
+
 /** Every robotaxi livery the game ships (vehicle/car.ts ROBOTAXI_SKINS). All six
  *  GLBs are in the preload manifest and awaited before beginTrailer(), so the
  *  pack-race shot can mix them freely — an unknown id would silently fall back
@@ -70,9 +77,13 @@ const HERO_SKIN = "waymo";
  *  subject in ANY of the four delivered stills. The trailer spends twelve other
  *  beats training the viewer on one silhouette — white body, blue lidar band,
  *  roof dome — and this is the shot where losing it costs the most, because it
- *  is the only shot with six similar cars in it. The roster still reads: the
- *  five RIVALS wear everything else, Cybercab included. */
-const RIVAL_SKINS: readonly string[] = SKIN_IDS.filter((id) => id !== HERO_SKIN);
+ *  is the only shot with six similar cars in it.
+ *
+ *  THREE rivals, not five. Five filled the boulevard end to end, so the shot
+ *  read as traffic (which is what the beat exists to distinguish itself from)
+ *  and left the overtakes no clear road to happen on. Three still shows three
+ *  distinct liveries and leaves gaps to pass through. */
+const RIVAL_SKINS: readonly string[] = SKIN_IDS.filter((id) => id !== HERO_SKIN).slice(0, 3);
 
 /** Boulevard desirability by district character. A trailer shot on a street
  *  is also a shot of the neighbourhood it runs through, and the raw
@@ -240,6 +251,9 @@ class Director {
   private sceneDir = new THREE.Vector2(); // active travel direction
   private sceneAux = new THREE.Vector2(); // scene-specific extra vector
   private driftSide: 1 | -1 = 1;
+  /** The active scene's run() body, queued by the shell and fired from the
+   *  game loop's frame hook (see inGameLoop). */
+  private pending: (() => void) | null = null;
   // Set when the first user gesture lands before the stage exists — the
   // request is replayed the moment staging opens (see ensureStage).
   private audioPending = false;
@@ -309,6 +323,11 @@ class Director {
     const stage = this.game.beginTrailer();
     if (!stage) throw new Error("[trailer] game not ready for beginTrailer()");
     this.stage = stage;
+    stage.setFrameHook(() => {
+      const pending = this.pending;
+      this.pending = null;
+      pending?.();
+    });
     if (this.audioPending) {
       this.audioPending = false;
       stage.unlockAudio();
@@ -333,6 +352,9 @@ class Director {
     avoidR?: number;
   }): TrailerStage {
     const st = this.ensureStage();
+    // Drop any body the outgoing scene queued: it would otherwise fire once
+    // against the incoming scene's freshly staged car.
+    this.pending = null;
     st.setScriptedInput({ ...NEUTRAL });
     st.setFreecam(true);
     st.setFakePlayers(null);
@@ -850,7 +872,31 @@ class Director {
       this.sceneBayBridgeNight(), // locked   0.47  dusk landmark
       this.sceneVista(), // crane             0.42  the whole city, from above
       this.sceneHeroDrive(), // locked-off    0.40  release
-    ];
+    ].map((scene) => this.inGameLoop(scene));
+  }
+
+  /** Move a scene's per-frame body out of the shell's rAF and into the game
+   *  loop's frame hook.
+   *
+   *  The shell's rAF callback fires AFTER the renderer's animation loop, so a
+   *  camera placed from run() is always framing the car's PREVIOUS pose. With
+   *  physics on a fixed 60Hz step and the display at 120, the car advances on
+   *  alternate frames and the camera on the others: the car square-waved ~0.7u
+   *  toward and away from the lens, every frame, in every driving scene. Run
+   *  the same body one frame later but INSIDE the loop and the pose it steers
+   *  and frames is the pose about to be drawn, so the offset is constant.
+   *
+   *  `t`/`dt` are therefore one frame stale — they only feed choreography
+   *  curves and smoothing rates, where 8ms is nothing. */
+  private inGameLoop(scene: TrailerScene): TrailerScene {
+    const body = scene.run;
+    if (!body) return scene;
+    return {
+      ...scene,
+      run: (t, dt) => {
+        this.pending = () => body(t, dt);
+      },
+    };
   }
 
   /** 1 — COLD OPEN: flat out down a downtown arterial, threading moving
@@ -1178,7 +1224,12 @@ class Director {
         });
         const path = new Path(pts).extend(140);
         this.path = path;
-        this.weaveAmp = 1.5;
+        // NO WEAVE up here. The corridor is ~4.7u wide on one side of the
+        // driven line and the swerve always aims AWAY from the obstacle, so on
+        // a deck the reactive dodge either does nothing useful (1.5u does not
+        // clear a 2.2u-wide car) or steers at the barrier. The passes are
+        // staged to be clean instead — see the lanes below.
+        this.weaveAmp = 0;
         const start = path.at(14);
         const yaw = Math.atan2(start.tx, start.tz);
         // placeCar lifts whatever y it is given by 1.4, and a resting chassis
@@ -1189,9 +1240,14 @@ class Director {
         const deckTop = fw.deckTopAt(start.x, start.z);
         st.placeCar(start.x, start.z, yaw, 0, deckTop - 0.72);
         this.sceneAux.set(deckTop, 0); // deck Y, for the camera floor
+        // NEVER lane 0 — that IS the driven line. The lead rival used to sit on
+        // it, and since remote cars carry no collider the Waymo overtook by
+        // driving straight THROUGH it (measured centre-to-centre minimum:
+        // 0.09u). -3.2 is the next lane over: a 1.0u gap between 2.2u-wide
+        // bodies, which is a close pass on camera and never an intersection.
         this.fakes = [0, 1, 2].map((i) => ({
           s: 46 + i * 26,
-          lane: i % 2 === 0 ? 0 : -4.7, // in-lane beside us, or the far carriageway
+          lane: i % 2 === 0 ? -3.2 : -7.4, // the next lane over, or the far carriageway
           speed: 22 + i * 3,
         }));
         this.publishFakes(fw);
@@ -1390,13 +1446,15 @@ class Director {
       const p = path.at(f.s);
       const x = p.x + p.tz * f.lane;
       const z = p.z - p.tx * f.lane;
+      const h = Math.atan2(p.tx, p.tz);
+      this.checkClearance(`trailer-${i}`, x, z, h);
       players[`trailer-${i}`] = {
         id: `trailer-${i}`,
         state: {
           x,
           y: fw.deckYAt(x, z),
           z,
-          h: Math.atan2(p.tx, p.tz),
+          h,
           skin: "waymo",
           msg: "",
           msgAt: 0,
@@ -1697,13 +1755,15 @@ class Director {
       const p = path.at(f.s + f.speed / 12);
       const x = p.x + p.tz * f.lane;
       const z = p.z - p.tx * f.lane;
+      const h = Math.atan2(p.tx, p.tz);
+      this.checkClearance(`rival-${i}`, x, z, h);
       players[`rival-${i}`] = {
         id: `rival-${i}`,
         state: {
           x,
           y: this.city.heightAt(x, z),
           z,
-          h: Math.atan2(p.tx, p.tz),
+          h,
           skin: RIVAL_SKINS[i % RIVAL_SKINS.length] ?? HERO_SKIN,
           msg: "",
           msgAt: 0,
@@ -1711,6 +1771,25 @@ class Director {
       };
     });
     st.setFakePlayers(players);
+  }
+
+  /** Shout when a staged rival is inside the Waymo rather than passing it.
+   *  Remote cars are pure visuals — no collider, nothing to stop an overtake
+   *  becoming an interpenetration — so the only thing keeping the pack out of
+   *  the hero is the lane and speed arithmetic that placed it, and a silent
+   *  regression there reads as a rendering bug on camera. */
+  private checkClearance(id: string, x: number, z: number, h: number): void {
+    const car = this.stage?.car.position;
+    if (!car) return;
+    const dx = car.x - x;
+    const dz = car.z - z;
+    const lon = dx * Math.sin(h) + dz * Math.cos(h);
+    const lat = dx * Math.cos(h) - dz * Math.sin(h);
+    if (Math.abs(lat) < RIVAL_HALF_W && Math.abs(lon) < RIVAL_HALF_L) {
+      console.warn(
+        `[trailer] rival ${id} overlaps the Waymo (lat ${lat.toFixed(2)}u, lon ${lon.toFixed(2)}u)`,
+      );
+    }
   }
 
   /** 9 — PHYSICS: full boost through a curbside row of parked cars, Rapier

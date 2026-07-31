@@ -1779,8 +1779,14 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
     // instead of running a lane the length of a street. Narrow + dark so they
     // read as PAINT (the old wide bright band read as grass medians), and
     // never stacked on solid/double-yellow streets — that was paint soup.
+    // …and only where one FITS. The band sits at h-1.75..h-0.95, so on the 3.2
+    // half-width residential class (the bulk of the grid) it lands 1.5-2.3u off
+    // the centreline — the middle of the travel lane, not the kerb. Seen from
+    // above that reads as loose green patches dropped on the roadway rather
+    // than as a lane, which is what it is. 4.0 keeps the 4.6 class (1142 edges,
+    // band at 71% of the half-width) and drops the 3.2 class (3465).
     const solidCentre = h2 >= 0.34 && h2 < 0.68;
-    const bikeLane = !major && secLen > 8 && h4 < 0.12 && !solidCentre;
+    const bikeLane = !major && h >= 4 && secLen > 8 && h4 < 0.12 && !solidCentre;
     if (bikeLane) {
       paintBand(-1, h - 1.75, h - 0.95, 4.5, 2.2, 3, MAT_BIKE_GREEN);
       paintBand(1, h - 1.75, h - 0.95, 4.5, 2.2, 3, MAT_BIKE_GREEN);

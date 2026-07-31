@@ -1195,6 +1195,9 @@ export class GameScene extends Phaser.Scene {
     this.updateSplinters(dt, now);
     this.fx.update(dt, this.time.now);
     this.drawMinimap(now);
+    // Scene choreography in phase with the pose about to be drawn, so a
+    // camPos override centres on where the ship IS (see TrailerStaging.frame).
+    this.trailer?.frame?.();
     this.updateCamera(dt, time);
     this.drawPadOverlay();
     this.syncScreenUi();
@@ -6749,6 +6752,7 @@ export class GameScene extends Phaser.Scene {
       deathless: true,
       camPos: null,
       peers: null,
+      frame: null,
     };
     this.trailer = staging;
     return {

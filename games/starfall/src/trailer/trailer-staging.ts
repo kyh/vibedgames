@@ -40,6 +40,17 @@ export type TrailerStaging = {
   deathless: boolean;
   /** Camera center override; null = follow the ship. */
   camPos: Vec | null;
+  /**
+   * Per-frame scene choreography, called by GameScene.update AFTER the sim and
+   * immediately before the camera is placed.
+   *
+   * The trailer shell drives scenes from its own rAF, which fires after
+   * Phaser's game loop — so a `camPos` written straight from `run()` centres on
+   * the ship's PREVIOUS position and the ship jitters against the frame by
+   * whatever it travelled that tick. Queueing the body here puts the override
+   * and the pose it is derived from in the same frame.
+   */
+  frame: (() => void) | null;
   /** Fake offline peer map (must include the synthesized `solo` self entry).
    *  Entries flow through the real remote-player pipeline: ship gfx, shield
    *  rings, beams, AI targeting, beacon occupancy. Null = solo only. */

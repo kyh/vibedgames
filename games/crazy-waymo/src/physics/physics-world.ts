@@ -281,7 +281,15 @@ export class PhysicsWorld {
     this.world.step();
   }
 
-  step(dt: number, onFixedStep?: (fixedDt: number) => void): void {
+  /** How far past the last simulated pose the render clock has run, 0..1 of a
+   *  fixed step. The renderer sits between the last two poses at this fraction
+   *  (Car.captureStep / syncFromPhysics) — without it, a 120Hz display draws
+   *  each 60Hz pose twice and everything in the world visibly steps. */
+  get alpha(): number {
+    return Math.min(1, this.acc / FIXED_DT);
+  }
+
+  step(dt: number, onFixedStep?: (fixedDt: number) => void, onStepped?: () => void): void {
     this.acc += dt;
     let steps = 0;
     while (this.acc >= FIXED_DT && steps < MAX_STEPS) {
@@ -289,6 +297,7 @@ export class PhysicsWorld {
       // controller always integrates at FIXED_DT (reference behaviour).
       onFixedStep?.(FIXED_DT);
       this.world.step();
+      onStepped?.();
       this.acc -= FIXED_DT;
       steps++;
     }

@@ -143,6 +143,16 @@ export class GameScene extends Phaser.Scene {
   npcs!: NpcManager;
   /** Trailer-mode scripted movement — read like a stick when real input is silent. */
   trailerMove: { x: number; y: number; run: boolean } | null = null;
+  /**
+   * Trailer-mode per-frame choreography, run at the END of update() so a
+   * camera placed from it frames the pose this frame is about to draw.
+   *
+   * The trailer shell drives scenes from its own rAF, which fires after
+   * Phaser's game loop — a TrackCam placed straight from `run()` chases the
+   * farmer's PREVIOUS position, so the offset it holds him at wobbles with the
+   * frame time instead of staying put.
+   */
+  trailerFrame: ((dt: number) => void) | null = null;
   private fainted = false;
   private onResizeHandler?: (gs: Phaser.Structs.Size) => void;
   private saveHandler = (): void => this.save();
@@ -607,6 +617,7 @@ export class GameScene extends Phaser.Scene {
     this.shadow.setPosition(this.player.x, this.player.y + 1);
     this.shadow.setDepth(this.player.depth - 1);
     this.updateNet(dt);
+    this.trailerFrame?.(dt);
     // flush debounced saves (transitions and tab-hide/unload still save at once)
     this.saveAcc += dt;
     if (this.saveDirty && this.saveAcc >= SAVE_FLUSH_SEC) this.save();

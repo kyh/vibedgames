@@ -2,7 +2,7 @@
 // Elevated freeway centerlines (motorway/trunk mainlines, land-clipped).
 // Rendered as viaducts by src/world/freeways.ts — NOT part of the drivable
 // street network.
-export const FREEWAYS_GEN_ID = "2026-07-26T19:10:14.089Z";
+export const FREEWAYS_GEN_ID = "2026-07-31T18:29:43.189Z";
 
 export type FreewayLine = { readonly half: number; readonly p: readonly number[] };
 

@@ -117,7 +117,20 @@ import type { CityGenPayload } from "./gen-worker";
 // different batch state and the anchorage's face stones drew pure BLACK from
 // the standard chase framing. The colour lives in the bin's MatRec, so the
 // separation only reaches players through a rebake. Nothing else moves.
-export const WORLD_REV = 77;
+// 81: rebake of the rev-79 network (80 tried a post-octilinear dedupe pass and
+// was reverted — it could only take 2 of 15 candidates without stranding whole
+// street clusters, and put a building facade on the asphalt for the trouble).
+// 79: the map bake now also de-duplicates plain same-roadway pairs, not just
+// divided-arterial twins (tools/sf-data/bake-network.mts sameRoadway) — 17
+// edges that were one street mapped twice collapse, so their doubled asphalt,
+// stranded centre lines and doubled traffic lanes go with them.
+// 78: the Golden Gate's deck boards drop 0.5u so their TOP face is the
+// carriageway — they were seated off a hardcoded offset that put them above
+// city.heightAt, and since the wheels ride the surface the car drove the whole
+// span half-buried in the roadway. Green bike lanes also now need a street
+// wide enough to hold one (half >= 4.0): on the 3.2 residential class the band
+// landed mid travel-lane and read as loose green patches, not a lane.
+export const WORLD_REV = 81;
 
 export type Typed = Float32Array | Uint16Array | Uint32Array | Int8Array | Uint8Array | Int32Array;
 export type BufRef = { $buf: number; $type: "f32" | "u16" | "u32" | "i8" | "u8" | "i32" };

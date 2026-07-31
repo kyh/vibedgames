@@ -451,7 +451,17 @@ export class Car {
   private prevVelP = new THREE.Vector3();
   private wasAirborne = false;
   private v3a = new THREE.Vector3();
+  private v3b = new THREE.Vector3();
   private q3a = new THREE.Quaternion();
+  // The last two SIMULATED chassis poses. Rapier runs at a fixed 60Hz while the
+  // display does not, so drawing the newest pose shows each one twice on a
+  // 120Hz panel and the car visibly steps; the render sits between these two
+  // instead, at the accumulator's fraction (PhysicsWorld.alpha).
+  private prevPos = new THREE.Vector3();
+  private prevQuat = new THREE.Quaternion();
+  private simPos = new THREE.Vector3();
+  private simQuat = new THREE.Quaternion();
+  private poseSeeded = false;
 
   constructor(
     private readonly cache: ModelCache,
@@ -563,6 +573,7 @@ export class Car {
     if (this.vehicle) {
       this.vehicle.teleport(x, this.position.y + 1.4, z, yaw);
       this.prevVelP.set(0, 0, 0);
+      this.poseSeeded = false; // never lerp the render across a teleport
       return;
     }
     this.syncTransform(1, true);
@@ -581,6 +592,7 @@ export class Car {
       ? this.surface.heightAt(this.position.x, this.position.z) + 1.4
       : this.position.y + 1.4;
     vehicle.teleport(this.position.x, y, this.position.z, this.heading);
+    this.poseSeeded = false;
   }
 
   get physicsVehicle(): RaycastVehicle | null {
@@ -663,17 +675,44 @@ export class Car {
     }
   };
 
+  /** Snapshot the chassis after each fixed step. Called from inside the
+   *  physics loop, so the pair always straddles the render clock. A teleport
+   *  clears the seed (see reset) — without that the car would be lerped across
+   *  the map from wherever it used to be. */
+  captureStep(): void {
+    const veh = this.vehicle;
+    if (!veh) return;
+    if (this.poseSeeded) {
+      this.prevPos.copy(this.simPos);
+      this.prevQuat.copy(this.simQuat);
+    }
+    const t = veh.chassis.translation();
+    this.simPos.set(t.x, t.y, t.z);
+    veh.quaternion(this.simQuat);
+    if (!this.poseSeeded) {
+      this.prevPos.copy(this.simPos);
+      this.prevQuat.copy(this.simQuat);
+      this.poseSeeded = true;
+    }
+  }
+
   // Physics mode, phase 2 (after the world steps): pull the chassis pose back
   // into the game-facing state every other system reads.
-  syncFromPhysics(dt: number): void {
+  //
+  // `alpha` places the RENDERED pose between the last two simulated ones. The
+  // derived signals below (velocity, wall hits, airborne) stay on the live
+  // chassis — they are logic, not picture, and lerping them would blunt the
+  // one-frame velocity loss the crash detector keys on.
+  syncFromPhysics(dt: number, alpha = 1): void {
     const veh = this.vehicle;
     if (!veh) return;
     this.lastWallHit = 0;
     this.wallContact = false;
     this.justLanded = 0;
 
-    const t = veh.chassis.translation();
-    veh.quaternion(this.q3a);
+    if (!this.poseSeeded) this.captureStep();
+    const t = this.v3b.lerpVectors(this.prevPos, this.simPos, alpha);
+    this.q3a.slerpQuaternions(this.prevQuat, this.simQuat, alpha);
     const fwd = this.v3a.set(0, 0, 1).applyQuaternion(this.q3a);
     this.heading = Math.atan2(fwd.x, fwd.z);
     // Visual origin (wheel bottoms) hangs below the chassis centre.
@@ -729,6 +768,7 @@ export class Car {
       const x = clampInsideMap(t.x, WORLD_HALF_X);
       const z = clampInsideMap(t.z, WORLD_HALF_Z);
       veh.teleport(x, this.surface.heightAt(x, z) + 1.4, z, this.heading);
+      this.poseSeeded = false;
     }
   }
 

@@ -21,6 +21,8 @@ const DECK_Y = 7; // drive height over the water
 const DECK_W = 10; // drivable width
 const RAMP_LEN = 26;
 const RAIL_T = 0.8;
+/** Vertical stretch on the kit bridge segment that forms the deck boards. */
+const BOARD_SCALE_Y = 1.6;
 // The real towers stand 227 m above the water, which at this map's 4.45 m/u is
 // 51u — so 44u above a 7u deck. The old 26u put the tops at 33u/147 m and the
 // bridge lost its silhouette from anywhere in the city: a red bar with two
@@ -703,6 +705,12 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
   const segLen = 8;
   const boardScaleX = (DECK_W + 1.6) / Math.max(db.size.x, 0.001);
   const boardScaleZ = segLen / Math.max(db.size.z, 0.001);
+  // Drop the board so its TOP face lands on the carriageway, measured off the
+  // kit model rather than guessed. A hardcoded 0.32 put the deck's top 0.5u
+  // above the drive surface (this bake: 7.5 against city.heightAt's 7.0), and
+  // since the wheels ride the surface, the whole car drove half-sunk into the
+  // roadway for the length of the span.
+  const boardTop = BOARD_SCALE_Y * (db.min.y + db.size.y);
   const rampSegs = Math.ceil(rampLen / 4);
   const rampSegLen = rampLen / rampSegs;
   for (let i = 0; i < rampSegs; i++) {
@@ -712,16 +720,20 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
     const h1 = rampProfile(plan, t1);
     const pitch = Math.atan((h1 - h0) / rampSegLen);
     const seg = ctx.cache.instance(deckUrl);
-    seg.scale.set(boardScaleX, 1.6, rampSegLen / Math.max(db.size.z, 0.001) / Math.cos(pitch));
-    seg.position.set(ax, (h0 + h1) / 2 - 0.32, shoreZ - rampSegLen * (i + 0.5));
+    seg.scale.set(
+      boardScaleX,
+      BOARD_SCALE_Y,
+      rampSegLen / Math.max(db.size.z, 0.001) / Math.cos(pitch),
+    );
+    seg.position.set(ax, (h0 + h1) / 2 - boardTop, shoreZ - rampSegLen * (i + 0.5));
     seg.rotation.x = pitch;
     seg.updateMatrixWorld(true);
     objects.push(seg);
   }
   for (let z = rampTopZ; z > northEndZ - segLen; z -= segLen) {
     const seg = ctx.cache.instance(deckUrl);
-    seg.scale.set(boardScaleX, 1.6, boardScaleZ);
-    seg.position.set(ax, deckY - 0.32, z - segLen / 2);
+    seg.scale.set(boardScaleX, BOARD_SCALE_Y, boardScaleZ);
+    seg.position.set(ax, deckY - boardTop, z - segLen / 2);
     seg.updateMatrixWorld(true);
     objects.push(seg);
   }
@@ -740,8 +752,12 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
         const zMid = landfallZ + 8 - segZ * (i + 0.5);
         const t = (landfallZ + 8 - zMid) / runLen;
         const seg = ctx.cache.instance(deckUrl);
-        seg.scale.set(boardScaleX, 1.6, segZ / Math.max(db.size.z, 0.001) / Math.cos(pitch));
-        seg.position.set(ax, deckY + (blendTopY - deckY) * t - 0.32, zMid);
+        seg.scale.set(
+          boardScaleX,
+          BOARD_SCALE_Y,
+          segZ / Math.max(db.size.z, 0.001) / Math.cos(pitch),
+        );
+        seg.position.set(ax, deckY + (blendTopY - deckY) * t - boardTop, zMid);
         seg.rotation.x = pitch;
         seg.updateMatrixWorld(true);
         objects.push(seg);

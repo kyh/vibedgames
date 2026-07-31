@@ -217,6 +217,13 @@ export type TrailerStage = {
   setFreecam(on: boolean): void;
   /** Scripted pedals/steer override; null returns control to the keyboard. */
   setScriptedInput(input: CarInput | null): void;
+  /** Per-frame choreography slot, run inside the game loop after the physics
+   *  step and before the draw. The trailer shell's own rAF fires AFTER the
+   *  renderer's animation loop, so a camera placed from there frames the car's
+   *  PREVIOUS position; with physics on a fixed 60Hz step and the display at
+   *  120 the two then advance on alternate frames and the car square-waves
+   *  ~0.7u toward and away from the lens. dt is seconds. */
+  setFrameHook(fn: ((dt: number) => void) | null): void;
   /** Pin the day-night cycle (0.25 noon, 0.40 golden, 0.47 sunset). */
   setDayPhase(p: number): void;
   /** Fake multiplayer robotaxis (visual-only remote cars); null = live map. */
@@ -1486,6 +1493,11 @@ vec3 ocGerstner(vec2 p, float t) {
         break;
     }
 
+    // TRAILER: the director places its camera here, against the pose the draw
+    // is about to use (see TrailerStage.setFrameHook). Before the sun and the
+    // streaming below, which both key off where the camera ended up.
+    this.trailerFrame?.(dt);
+
     // Sun follow + shadow-frustum snap track wherever the camera ended up —
     // unconditional at the tail so no mode path (hit-stop, freecam…)
     // can forget it and leave shadows lagging the camera.
@@ -1626,8 +1638,12 @@ vec3 ocGerstner(vec2 p, float t) {
     traffic.update(dt, city, car.position.x, car.position.z, car.heading);
     this.signalLights?.update(traffic.time);
     this.physics?.streamSolids(car.position.x, car.position.z);
-    this.physics?.step(dt, (fdt) => car.physicsFixedStep(fdt));
-    car.syncFromPhysics(dt);
+    this.physics?.step(
+      dt,
+      (fdt) => car.physicsFixedStep(fdt),
+      () => car.captureStep(),
+    );
+    car.syncFromPhysics(dt, this.physics?.alpha ?? 1);
     // Same gate as the vehicle's pedal state machine: at/below 0.5 u/s the
     // pedal means reverse, so the cap says so.
     this.touch?.setReverseHint(car.forwardSpeed <= 0.5);
@@ -2116,6 +2132,7 @@ vec3 ocGerstner(vec2 p, float t) {
   // the director; null in every normal boot (updateNet checks it).
   private trailerFakes: PlayerMap | null = null;
   private trailerStage: TrailerStage | null = null;
+  private trailerFrame: ((dt: number) => void) | null = null;
 
   /** TRAILER: flip the loaded scene straight into gameplay — no banner, no
    *  countdown — and hand the director its staging facade. Only functional in
@@ -2188,6 +2205,9 @@ vec3 ocGerstner(vec2 p, float t) {
         this.freecam = on;
       },
       setScriptedInput: (input) => this.input.setScripted(input),
+      setFrameHook: (fn) => {
+        this.trailerFrame = fn;
+      },
       setDayPhase: (p) => this.dayNight.setPhase(p),
       setFakePlayers: (players) => {
         this.trailerFakes = players;
