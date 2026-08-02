@@ -325,6 +325,45 @@ function hourToPhase(hour: number): number {
   return 0.8;
 }
 
+// ?time= override: pins the cycle to a chosen hour instead of the SF clock.
+// Presets are HOURS (not phases) so `?time=sunset` and `?time=18:30` are the
+// same thing by construction — both go through hourToPhase.
+const TIME_PRESETS: Readonly<Record<string, number>> = {
+  dawn: 6,
+  sunrise: 6.75,
+  morning: 8,
+  noon: 12,
+  afternoon: 15,
+  golden: 17,
+  sunset: 18.5,
+  dusk: 19.5,
+  night: 22,
+  midnight: 0,
+};
+
+// Accepts a preset name, "HH:MM", "7pm"/"7:30pm", or a fractional hour 0-24.
+// Returns the hour, or null if the string parses as none of them.
+export function parseTimeParam(raw: string): number | null {
+  const s = raw.trim().toLowerCase();
+  const preset = TIME_PRESETS[s];
+  if (preset !== undefined) return preset;
+  const ampm = /^(\d{1,2})(?::([0-5]\d))?(am|pm)$/.exec(s);
+  if (ampm) {
+    const [, hh = "", mm = "0", ap] = ampm;
+    const h12 = Number(hh);
+    if (h12 < 1 || h12 > 12) return null;
+    return (h12 % 12) + (ap === "pm" ? 12 : 0) + Number(mm) / 60;
+  }
+  const clock = /^(\d{1,2}):([0-5]\d)$/.exec(s);
+  if (clock) {
+    const [, hh = "", mm = "0"] = clock;
+    const h = Number(hh);
+    return h <= 23 ? h + Number(mm) / 60 : null;
+  }
+  const n = Number(s);
+  return s !== "" && Number.isFinite(n) && n >= 0 && n <= 24 ? n % 24 : null;
+}
+
 export type DayNightRefs = {
   readonly sky: Sky;
   readonly sun: THREE.DirectionalLight;
@@ -358,7 +397,20 @@ export class DayNight {
   private scrColor = new THREE.Color();
   private scrBg = new THREE.Color();
 
-  constructor(private refs: DayNightRefs) {}
+  // ?time= pins the cycle for the session (editor and trailer setPhase calls
+  // still win — they run later). Invalid values fall back to the SF clock.
+  constructor(private refs: DayNightRefs) {
+    const raw = new URLSearchParams(window.location.search).get("time");
+    if (raw === null) return;
+    const hour = parseTimeParam(raw);
+    if (hour !== null) {
+      this.override = hourToPhase(hour);
+    } else {
+      console.warn(
+        `?time=${raw}: expected a preset (${Object.keys(TIME_PRESETS).join(", ")}), "HH:MM", "7pm", or an hour 0-24`,
+      );
+    }
+  }
 
   attachRenderer(renderer: THREE.WebGLRenderer): void {
     this.renderer = renderer;

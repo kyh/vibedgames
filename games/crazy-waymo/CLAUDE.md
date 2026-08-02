@@ -165,4 +165,7 @@ the page after edits before diagnosing any behavior.
 `?editor=1` — place props, paint floors, add/remove street cells; export JSON
 into `world/custom-props.ts` / `world/custom-map.ts`. `?tune=1` mounts the
 vehicle tuning panel. `?bake=1` downloads world bins by hand (prefer
-`pnpm bake:world`).
+`pnpm bake:world`). `?time=noon|sunset|night|19:30|7pm|18.5` — pin the
+day-night cycle to that hour instead of the live SF clock (presets +
+parsing in `render/day-night.ts parseTimeParam`; editor/trailer setPhase
+still wins).
