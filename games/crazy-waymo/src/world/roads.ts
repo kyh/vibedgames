@@ -12,6 +12,7 @@ import {
 } from "./conform";
 import { junctionControl } from "./junction-control";
 import type { NetEdge, RoadNetwork } from "./network";
+import { applyMaterialBreakup, ROAD_BREAKUP } from "../render/material-breakup";
 import { busLoadAt, SF_TRANSIT } from "./sf-transit";
 
 // PLANAR-MAP street geometry. Every edge sweep and junction patch is built as
@@ -706,6 +707,9 @@ roughnessFactor *= 1.0 - roadPolish * 0.10;`,
   };
 }
 applyAsphaltSpeckle(MAT_ROAD_BASE);
+// After the speckle so the macro drift chains onto it (shader-side only —
+// never the colour, which is the bin round-trip's identity key).
+applyMaterialBreakup(MAT_ROAD_BASE, ROAD_BREAKUP);
 ROAD_MATERIALS.roadbase = MAT_ROAD_BASE;
 const MAT_ROAD_MARK = new THREE.MeshStandardMaterial({
   color: 0xffffff,

@@ -2,7 +2,10 @@ import * as THREE from "three";
 
 import type { ModelCache } from "../assets/loader";
 import { modelUrl, PLAYER_CAR } from "../assets/manifest";
+import { ContactShadow, SHADOW_LIFT } from "./contact-shadow";
+import { applyLacquer } from "./lacquer";
 import type { RaycastVehicle } from "./raycast-vehicle";
+import { applySunRim, applyTrafficSunRim, RIM_HERO } from "./sun-rim";
 import { radialGlowTexture } from "../fx/lamp-glow";
 import { CAR, ROAD_Y, WORLD_HALF_X, WORLD_HALF_Z } from "../shared/constants";
 import type { Solid } from "../world/city";
@@ -56,6 +59,11 @@ const LIDAR_BLUE = new THREE.MeshStandardMaterial({
   emissiveIntensity: 0.4,
   roughness: 0.2,
 });
+// The sensor suite shares the hero rim so the signature rooftop silhouette
+// separates from bright sky/asphalt along with the paint.
+applySunRim(LIDAR_WHITE, RIM_HERO);
+applySunRim(LIDAR_DARK, RIM_HERO);
+applySunRim(LIDAR_BLUE, RIM_HERO);
 
 // Toy-car lacquer for player-class bodies: physical clearcoat over the kit
 // colormap. The loader dedups MeshStandardMaterial per kit, so this MUST
@@ -81,6 +89,7 @@ function lacquerMaterial(
     vertexColors: src.vertexColors,
   });
   if (tint) m.color.multiply(tint).lerp(tint, 0.55);
+  applyLacquer(m, RIM_HERO);
   return m;
 }
 
@@ -293,6 +302,14 @@ export function buildSkinBody(cache: ModelCache, skin: RobotaxiSkin): THREE.Obje
         c.material = lacquerMaterial(c.material, tint);
       }
     });
+  } else {
+    // Fitted GLBs keep their authored materials — those still get the hero
+    // rim (shared template materials; player-skin models only, idempotent).
+    body.traverse((c) => {
+      if (c instanceof THREE.Mesh && !Array.isArray(c.material)) {
+        if (c.material instanceof THREE.MeshStandardMaterial) applySunRim(c.material, RIM_HERO);
+      }
+    });
   }
   if (skin.lidar) body.add(buildWaymoSensors());
   if (skin.mustache) body.add(buildCarstache());
@@ -303,6 +320,7 @@ export function buildSkinBody(cache: ModelCache, skin: RobotaxiSkin): THREE.Obje
 // chunky center pair, drooping outer tips. Sedan nose sits at z ≈ 1.25,
 // grille height ≈ 0.55.
 const STACHE_PINK = new THREE.MeshStandardMaterial({ color: 0xff2db8, roughness: 0.55 });
+applySunRim(STACHE_PINK, RIM_HERO);
 export function buildCarstache(): THREE.Group {
   const g = new THREE.Group();
   const lobe = (x: number, y: number, sx: number, sy: number, roll: number): void => {
@@ -474,6 +492,11 @@ export class Car {
 
   private nightRig: NightRig;
   private nightFactor = -1; // last applied value; skip redundant writes
+  private contactShadow: ContactShadow;
+  // Traffic kit materials patch (sun rim): retried until the late-preload
+  // traffic GLBs exist. See sun-rim.ts applyTrafficSunRim.
+  private trafficRimDone = false;
+  private trafficRimTimer = 0;
   // Physics mode: when attached, a Rapier raycast-vehicle drives the car and
   // the kinematic sim below is bypassed entirely.
   private vehicle: RaycastVehicle | null = null;
@@ -502,10 +525,21 @@ export class Car {
     this.object3D.scale.setScalar(1.12);
     this.body = buildSkinBody(cache, skinById(skinId));
     this.collectWheels();
+    this.contactShadow = new ContactShadow();
+    this.contactShadow.setLayout(this.wheelLayout());
+    // The quad is a child of the hero-scaled group; lift is authored in world
+    // units so the drape-clearance budget holds.
+    this.contactShadow.mesh.position.y = SHADOW_LIFT / this.object3D.scale.y;
+    this.object3D.add(this.contactShadow.mesh);
     this.nightRig = buildNightRig();
     this.body.add(this.nightRig.group);
     this.setHeadlights(0);
     this.object3D.add(this.body);
+    this.trafficRimDone = applyTrafficSunRim(cache);
+  }
+
+  private wheelLayout(): { x: number; z: number }[] {
+    return this.wheels.map((w) => ({ x: w.node.position.x, z: w.node.position.z }));
   }
 
   private collectWheels(): void {
@@ -529,6 +563,7 @@ export class Car {
     this.object3D.remove(this.body);
     this.body = buildSkinBody(this.cache, skin);
     this.collectWheels();
+    this.contactShadow.setLayout(this.wheelLayout());
     this.body.add(this.nightRig.group);
     const nf = this.nightFactor;
     this.nightFactor = -1;
@@ -791,12 +826,16 @@ export class Car {
     const steerAngle = veh.wheelVisual(0).steering;
     const rest = veh.params.suspensionRestLength;
     const invScale = 1 / this.object3D.scale.y;
-    for (const w of this.wheels) {
+    for (let i = 0; i < this.wheels.length; i++) {
+      const w = this.wheels[i];
+      if (!w) continue;
       w.node.rotation.x = this.wheelSpin;
       if (w.front) w.node.rotation.y = steerAngle;
       const travel = rest - veh.wheelVisual(w.phys).suspension;
       w.node.position.y = w.restY + THREE.MathUtils.clamp(travel, -0.12, 0.2) * invScale;
+      this.contactShadow.setWheelTravel(i, travel);
     }
+    this.contactShadow.update(dt, !airborneNow);
     this.squash = Math.max(0, this.squash - dt * 5.5);
     const sq = this.squash;
     this.body.scale.set(1 + 0.12 * sq, 1 - 0.26 * sq, 1 + 0.12 * sq);
@@ -815,6 +854,13 @@ export class Car {
   }
 
   update(dt: number, input: CarInput, solids: SolidIndex): void {
+    if (!this.trafficRimDone) {
+      this.trafficRimTimer -= dt;
+      if (this.trafficRimTimer <= 0) {
+        this.trafficRimTimer = 1;
+        this.trafficRimDone = applyTrafficSunRim(this.cache);
+      }
+    }
     if (this.vehicle) {
       this.updatePhysicsControls(dt, input, solids);
       return;
@@ -990,6 +1036,9 @@ export class Car {
       w.node.rotation.x = this.wheelSpin;
       if (w.front) w.node.rotation.y = this.steerSmoothed * -0.42;
     }
+    // No per-wheel suspension in the kinematic fallback — travels stay at
+    // rest, only the airborne fade animates.
+    this.contactShadow.update(dt, !this.airborne);
 
     this.syncTransform(dt);
   }

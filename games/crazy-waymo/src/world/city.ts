@@ -14,6 +14,7 @@ import {
   GARAGE_MODEL,
 } from "../assets/manifest";
 import { registerBeacons } from "../fx/beacon-lights";
+import { applyMaterialBreakup, CITY_BREAKUP } from "../render/material-breakup";
 import { liveQuality } from "../render/quality";
 import {
   CHUNK,
@@ -681,6 +682,9 @@ function materialFactory(): (m: MatRec) => BakedMaterial {
             transparent: m.transparent,
             opacity: m.opacity,
           });
+      // Baked-path rebuilds of the live materials (plinths, seawall, prisms)
+      // must carry the same surface breakup the cold-gen path gets below.
+      applyMaterialBreakup(mat, CITY_BREAKUP);
       mats.set(k, mat);
     }
     return mat;
@@ -3405,6 +3409,10 @@ export class CityModel {
       await this.breathe();
       onProgress?.(batchN / batchBuckets.size);
       batchN++;
+      // Whole-city macro breakup + specular AA on every batched lit material
+      // (kit facades, plinths, prisms, props); idempotent across both load
+      // paths, and a no-op on unlit/transparent/decal buckets.
+      applyMaterialBreakup(bucket.material, CITY_BREAKUP);
       const batched = new THREE.BatchedMesh(
         bucket.items.length,
         bucket.verts,
@@ -3575,6 +3583,9 @@ export class CityModel {
         roughness: 0.95,
         vertexColors: true, // roof/wall split; the instance colour is the mean
       });
+      // The distant-facade tier is where flat speculars crawl the most — the
+      // imposters get the same drift + specular AA as the models they replace.
+      applyMaterialBreakup(boxMat, CITY_BREAKUP);
       const boxN = new Set(boxes.values()).size;
       const imp = new THREE.BatchedMesh(imposters.length, 24 * boxN, 36 * boxN, boxMat);
       imp.castShadow = false;

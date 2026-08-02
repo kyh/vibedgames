@@ -106,6 +106,50 @@ function buildShoreTexture(): THREE.DataTexture {
   tex.needsUpdate = true;
   return tex;
 }
+
+// --- Kart-royale ocean pass (see the ocean block in the constructor) --------
+// From a chase cam a few units up nearly ALL visible water is grazing
+// incidence, where uncapped Schlick Fresnel hands ~90% of every pixel to the
+// env reflection and the turquoise depth ramp cannot exist. Capping the
+// grazing response is what lets the body color survive at range.
+const OC_FRES_MAX = 0.6;
+/** Shallows give up a third of their reflectivity to stay turquoise. */
+const OC_SHALLOW_REFLECT = 0.62;
+// The sun path: hand-clamped lobes (a physical GGX D would detonate bloom).
+// `flatten01` ramps near -> far; the track CONE WIDENS toward the viewer —
+// narrow column at the horizon, fanning out near the camera.
+const OC_PATH_NEAR = 90;
+const OC_PATH_FAR = 1100;
+const OC_TRACK_EXP_NEAR = 3.5;
+const OC_TRACK_EXP_FAR = 15;
+const OC_TIGHT_GAIN = 7; // near lobe — rides the real Gerstner normals
+const OC_BROAD_EXP_NEAR = 400;
+const OC_BROAD_EXP_FAR = 30;
+const OC_BROAD_GAIN_FAR = 4.2; // far lobe stands in for the flattened wavelets
+const OC_OFF_AXIS_FLOOR = 0.15; // anti-solar sea dark but never black
+const OC_GLINT_GAIN = 3.6; // hash-grid far glitter riding the track
+// Path radiance vs the live sun (color x intensity). Kart-royale ran ~1.5x its
+// sun color at exposure 1.05; at waymo's 0.62 the same displayed lane needs
+// ~1.7x the radiance — peaks deliberately clear the day bloom cut.
+const OC_SUN_GAIN = 1.35;
+// Pre-saturation band: the fog drains chroma 1.85x faster than value
+// (render/aerial-fog.ts) — right for headlands, fatal for the bay, where hue
+// is the only "this is water" signal at range. Push back over exactly the
+// drained band, clamped so extrapolation never goes negative.
+const OC_SAT_NEAR = 60;
+const OC_SAT_FULL = 480;
+const OC_SAT_OUT = 900;
+const OC_SAT_GONE = 1900;
+const OC_PRESAT = 1.35;
+// Horizon dissolve: the fog caps at 0.92 (aerial-fog FOG_MAX) and 8% of a lit
+// sea is still a hard line — walk the water fully onto the haze it was
+// converging to, AFTER the fog mix so the two agree in the same color space.
+const OC_SKY_NEAR = 800;
+const OC_SKY_FAR = 2500;
+// Sun-keyed terms hold through sunset (lamp opens at 0.62 there) and die
+// across dusk, so the lane sweeps golden hour -> night without popping.
+const OC_SUN_FADE_LO = 0.62;
+const OC_SUN_FADE_HI = 1.0;
 // --- Ambient bed inputs (see updateAmbience) ---
 const AMBIENCE_HZ = 4;
 /** Ring of offsets the shore probe samples the land mask at, in world units. */
@@ -282,7 +326,9 @@ export class GameScene {
   private signalLights: SignalLights | null = null;
   private skids: SkidMarks | null = null;
   private debris: Debris | null = null;
-  private speedLines = new SpeedLines();
+  // World-space anime streaks are the PHONE speed read; on desktop the grade
+  // shader's speed-line combs replace them (two vocabularies would double up).
+  private speedLines = this.mobileUi ? new SpeedLines() : null;
   private clouds = new SkyClouds(this.mobileUi);
   private trails: DriftTrails | null = null;
   private vehicleFx = new VehicleFxRig(
@@ -529,6 +575,10 @@ export class GameScene {
     // turquoise shallow ramp and an animated lapping foam band along every
     // coast, and sparse hash twinkles pop as sun glints that ride the wave
     // crests. All fragment work — the plane stays one quad.
+    // The kart-royale pass on top (OC_* constants above the class): capped
+    // grazing Fresnel, a 3-lobe sun path driven by the live cycle, a
+    // pre-saturation band against the fog's chroma drain, and a horizon
+    // dissolve that closes the fog's 8% residual.
     const oceanMat = new THREE.MeshStandardMaterial({
       color: 0x2e7fc0,
       roughness: 0.32,
@@ -536,6 +586,11 @@ export class GameScene {
     });
     const oceanTime = this.oceanTime;
     const shoreTex = buildShoreTexture();
+    // Live sun feed for the sun path (written by the mesh's onBeforeRender
+    // below — the ocean draws every frame, so the uniforms are always fresh).
+    const oceanSunDir = { value: new THREE.Vector3(0, 1, 0) };
+    const oceanSunCol = { value: new THREE.Color(0x000000) };
+    const oceanDayW = { value: 1 };
     const spanX = (WORLD_W * SHORE_SPAN).toFixed(1);
     // Ocean Beach surf weight: full at the west shore (u 0.09), gone by the
     // middle of the Sunset (u 0.28).
@@ -545,6 +600,9 @@ export class GameScene {
     oceanMat.onBeforeCompile = (shader) => {
       shader.uniforms.uOceanTime = oceanTime;
       shader.uniforms.uShore = { value: shoreTex };
+      shader.uniforms.uOcSunDir = oceanSunDir;
+      shader.uniforms.uOcSunCol = oceanSunCol;
+      shader.uniforms.uOcDayW = oceanDayW;
       shader.vertexShader = shader.vertexShader
         .replace("#include <common>", "#include <common>\nvarying vec3 vOceanPos;")
         .replace(
@@ -557,7 +615,14 @@ export class GameScene {
           `#include <common>
 uniform float uOceanTime;
 uniform sampler2D uShore;
+uniform vec3 uOcSunDir;
+uniform vec3 uOcSunCol;
+uniform float uOcDayW;
 varying vec3 vOceanPos;
+// Cross-stage scratch: written in the color block, read by the Fresnel cap
+// and the sun-path/dissolve blocks further down the template.
+float ocShallowG = 0.0;
+float ocViewDistG = 0.0;
 float ocHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float ocNoise(vec2 p) {
   vec2 i = floor(p);
@@ -609,6 +674,7 @@ vec3 ocGerstner(vec2 p, float t) {
           {
             vec2 wp = vOceanPos.xz;
             float t = uOceanTime;
+            ocViewDistG = length(vOceanPos - cameraPosition);
             vec2 suv = vec2(wp.x / ${spanX} + 0.5, wp.y / ${spanZ} + 0.5);
             float s = texture2D(uShore, suv).r;
             // Fade the shore treatment at the texture border: beyond it the
@@ -625,6 +691,7 @@ vec3 ocGerstner(vec2 p, float t) {
             diffuseColor.rgb *= 1.0 + (swell / 1.5 - 0.5) * 0.10;
             // Shallow-water turquoise ramp toward the coast.
             float shallow = smoothstep(0.10, 0.44, s);
+            ocShallowG = shallow;
             diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.36, 0.78, 0.72), shallow * 0.75);
             // Lapping foam: an animated band just off the waterline plus a
             // solid white line hugging it. The visible waterline sits near
@@ -673,15 +740,94 @@ vec3 ocGerstner(vec2 p, float t) {
             diffuseColor.rgb += vec3(glint * 3.2 * ocSharp);
             diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.93, 0.97, 0.98), clamp(foam, 0.0, 0.9));
           }`,
+        )
+        .replace(
+          "#include <lights_fragment_end>",
+          `#include <lights_fragment_end>
+          {
+            // FRESNEL CAP: scale the accumulated env reflection so the
+            // effective grazing response tops out at OC_FRES_MAX instead of
+            // the physical 1.0, and hand shallows back their body color.
+            float ocP5 = pow(1.0 - saturate(dot(geometryNormal, geometryViewDir)), 5.0);
+            float ocCap = (0.02 + ${OC_FRES_MAX.toFixed(2)} * ocP5) / (0.02 + 0.98 * ocP5);
+            reflectedLight.indirectSpecular *=
+              ocCap * mix(1.0, ${OC_SHALLOW_REFLECT.toFixed(2)}, ocShallowG);
+          }`,
+        )
+        .replace(
+          "#include <opaque_fragment>",
+          `{
+            // THE SUN PATH (kart-royale water, re-derived for exposure 0.62):
+            // three hand-clamped lobes stretched along the sun azimuth. The
+            // tight lobe rides the real Gerstner normals near the camera; the
+            // broad lobe stands in for the flattened far wavelets; the glint
+            // lobe is hash-grid sparkle so the far lane stays points of
+            // light, not airbrush. Cats-paw streaks modulate the whole lane.
+            vec3 ocV = normalize(cameraPosition - vOceanPos);
+            vec3 ocN = normalize((vec4(normal, 0.0) * viewMatrix).xyz);
+            float ocFlat01 = smoothstep(${OC_PATH_NEAR.toFixed(1)}, ${OC_PATH_FAR.toFixed(1)}, ocViewDistG);
+            float ocNdl = saturate(dot(ocN, uOcSunDir));
+            float ocNdh = saturate(dot(ocN, normalize(ocV + uOcSunDir)));
+            vec3 ocR = reflect(-ocV, ocN);
+            vec2 ocRxz = ocR.xz / max(length(ocR.xz), 1e-4);
+            vec2 ocSxz = uOcSunDir.xz / max(length(uOcSunDir.xz), 1e-4);
+            float ocTrack = pow(max(dot(ocRxz, ocSxz), 0.0),
+              mix(${OC_TRACK_EXP_NEAR.toFixed(1)}, ${OC_TRACK_EXP_FAR.toFixed(1)}, ocFlat01));
+            float ocStreak = 0.72
+              + 0.28 * sin(dot(vOceanPos.xz, vec2(0.86, 0.51)) * 0.013 + uOceanTime * 0.09)
+                     * sin(dot(vOceanPos.xz, vec2(-0.51, 0.86)) * 0.021 - uOceanTime * 0.05);
+            float ocTight = pow(ocNdh, 1500.0) * ocNdl * ${OC_TIGHT_GAIN.toFixed(1)} * (1.0 - ocFlat01);
+            float ocBroad = pow(ocNdh, mix(${OC_BROAD_EXP_NEAR.toFixed(1)}, ${OC_BROAD_EXP_FAR.toFixed(1)}, ocFlat01))
+              * ocNdl * mix(1.0, ${OC_BROAD_GAIN_FAR.toFixed(1)}, ocFlat01);
+            ocBroad *= (${OC_OFF_AXIS_FLOOR.toFixed(2)} + ${(1 - OC_OFF_AXIS_FLOOR).toFixed(2)} * ocTrack) * ocStreak;
+            float ocGlint = pow(ocNdh, mix(240.0, 70.0, ocFlat01))
+              * step(0.82, ocHash(floor(vOceanPos.xz * 0.06)))
+              * ${OC_GLINT_GAIN.toFixed(1)} * ocFlat01 * (0.12 + 0.88 * ocTrack);
+            outgoingLight += uOcSunCol * (ocTight + ocBroad + ocGlint);
+            // PRE-SATURATION against the fog's chroma drain, banded to the
+            // exact range the drain works over, then clamped: negative
+            // radiance from the extrapolation would detonate bloom.
+            float ocBand = smoothstep(${OC_SAT_NEAR.toFixed(1)}, ${OC_SAT_FULL.toFixed(1)}, ocViewDistG)
+              * (1.0 - smoothstep(${OC_SAT_OUT.toFixed(1)}, ${OC_SAT_GONE.toFixed(1)}, ocViewDistG));
+            float ocLum = dot(outgoingLight, vec3(0.2126, 0.7152, 0.0722));
+            outgoingLight = max(
+              mix(vec3(ocLum), outgoingLight, 1.0 + ${OC_PRESAT.toFixed(2)} * ocBand * uOcDayW),
+              vec3(0.0));
+          }
+          #include <opaque_fragment>`,
+        )
+        .replace(
+          "#include <fog_fragment>",
+          `#include <fog_fragment>
+          #ifdef USE_FOG
+            // HORIZON DISSOLVE: walk the last 8% (aerial-fog FOG_MAX residual)
+            // onto hazeColor — the exact asymptote the fog chunk above was
+            // converging to, marine layer included — so sea and sky meet on
+            // the same number and the seam has nothing left to be.
+            gl_FragColor.rgb = mix(gl_FragColor.rgb, hazeColor,
+              smoothstep(${OC_SKY_NEAR.toFixed(1)}, ${OC_SKY_FAR.toFixed(1)}, ocViewDistG));
+          #endif`,
         );
     };
     const ocean = new THREE.Mesh(new THREE.PlaneGeometry(9000, 9000), oceanMat);
     ocean.rotation.x = -HALF_PI;
     ocean.position.y = -0.5;
+    // The sun path rides the LIVE cycle: direction from the day-night rig,
+    // radiance from the key's color x intensity, held through sunset and
+    // killed across dusk (the lamp ramp) so it never paints a moon lane.
+    ocean.onBeforeRender = () => {
+      const dayW =
+        1 - THREE.MathUtils.smoothstep(this.dayNight.lamp, OC_SUN_FADE_LO, OC_SUN_FADE_HI);
+      oceanDayW.value = dayW;
+      oceanSunDir.value.copy(this.dayNight.sunOffset).normalize();
+      oceanSunCol.value
+        .copy(this.sun.color)
+        .multiplyScalar(this.sun.intensity * OC_SUN_GAIN * dayW);
+    };
     this.scene.add(ocean);
 
     this.fx.addTo(this.scene);
-    this.scene.add(this.speedLines.object3D);
+    if (this.speedLines) this.scene.add(this.speedLines.object3D);
     this.scene.add(this.clouds.group);
     this.scene.add(this.shocks.group);
     this.scene.add(this.impactStars.group);
@@ -1616,7 +1762,7 @@ vec3 ocGerstner(vec2 p, float t) {
       car.position.z + Math.sin(a) * r,
     );
     this.rig.camera.lookAt(car.position.x, car.position.y + 1.0, car.position.z);
-    this.speedLines.update(dt, this.rig.camera, 0); // fade out leftover streaks
+    this.speedLines?.update(dt, this.rig.camera, 0); // fade out leftover streaks
     setGradeMotion(0, false); // and drain the post lens the same way
   }
 
@@ -1725,11 +1871,7 @@ vec3 ocGerstner(vec2 p, float t) {
     // Mini-turbo tier tell (Mario Kart): a blip + spark flare each time the
     // charge steps up a tier — blue at tier 1, orange at tier 2.
     const tier = drifting ? car.driftTier : 0;
-    if (tier > this.lastDriftTier) {
-      this.sfx.driftArm();
-      const hue = tier === 2 ? 0.07 : 0.58;
-      this.fx.burst(car.position.x, 0.6, car.position.z, hue, 10, 5);
-    }
+    if (tier > this.lastDriftTier) this.sfx.driftArm();
     this.lastDriftTier = tier;
 
     // Drift-release mini-turbo — the signature skill move — pays by tier.
@@ -1740,7 +1882,6 @@ vec3 ocGerstner(vec2 p, float t) {
       this.sfx.boost();
       this.rig.addTrauma(superTurbo ? 0.26 : 0.18);
       this.hud.flash(superTurbo ? "#ffa726" : "#8fe8ff", 0.16);
-      this.exhaustFlash(superTurbo ? 0.07 : 0.55);
       this.hud.showCombo(superTurbo ? "SUPER MINI-TURBO!" : "MINI-TURBO!");
     }
 
@@ -1748,7 +1889,6 @@ vec3 ocGerstner(vec2 p, float t) {
     if (car.isBoosting && !this.wasBoosting) {
       this.sfx.boost();
       this.rig.addTrauma(0.12);
-      this.exhaustFlash(0.07);
     }
     this.wasBoosting = car.isBoosting;
     this.sfx.setBoostLoop(car.isBoosting);
@@ -1883,7 +2023,7 @@ vec3 ocGerstner(vec2 p, float t) {
     // Speed streaks are a first-person effect glued to the chase camera —
     // under freecam (trailer fixed shots, DEV) feed 0 so leftovers fade out
     // instead of rushing along a static camera's forward axis.
-    this.speedLines.update(dt, this.rig.camera, this.freecam ? 0 : car.speed / CAR.boostSpeed);
+    this.speedLines?.update(dt, this.rig.camera, this.freecam ? 0 : car.speed / CAR.boostSpeed);
     // The post lens (CA / vignette squeeze / bloom lift) reads the same
     // motion; freecam feeds 0 so staged shots stay clean.
     setGradeMotion(this.freecam ? 0 : car.speed / CAR.boostSpeed, !this.freecam && car.isBoosting);
@@ -2307,6 +2447,7 @@ vec3 ocGerstner(vec2 p, float t) {
     this.hud.setScore(this.state.displayScore);
     this.hud.setSpeed(car.speed * MPH_FACTOR);
     this.hud.setBoost(car.boostMeter / CAR.boostMax);
+    this.hud.setDrift(car.driftTier, car.driftCharge);
     this.hud.setCombo(this.state.combo, this.state.comboTimer / FARE.comboWindow);
 
     // The card only shows while CARRYING (destination + patience); while

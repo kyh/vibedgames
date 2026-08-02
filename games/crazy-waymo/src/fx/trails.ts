@@ -1,15 +1,17 @@
 import * as THREE from "three";
 
+import { REINHARD_GLSL } from "./reinhard";
 import { SKID_LIFT } from "./skids";
+import { TIER_COLORS } from "./tier";
 
 // Drift light-trails: two glowing ribbons laid onto the road behind the rear
 // wheels while sliding or boosting — the arcade "light streak" that makes a
 // drift read from across the screen. One mesh, one draw call, ring-buffered
 // samples, additive blend so streaks pop over dark asphalt.
 //
-// Color is captured per sample (white slide → cyan charged → orange boost), so
-// a drift that arms mid-corner leaves a visible white→cyan gradient down the
-// ribbon.
+// Color is captured per sample (white slide → tier blue → tier orange), so a
+// drift that arms mid-corner leaves a visible white→blue gradient down the
+// ribbon. Tier hues come from fx/tier.ts so ribbon, sparks and HUD agree.
 
 const SAMPLES = 44; // per ribbon
 const RIBBONS = 2;
@@ -19,6 +21,11 @@ const HALF_W = 0.26;
 // still well below the car body.
 const LIFT = SKID_LIFT + 0.04; // 0.22
 const MIN_STEP = 0.45; // world units between samples
+// Ribbons cover big screen area, so they sit near the bottom of the 2.2-3.4
+// additive band — the shoulder still keeps stacked crossings from whiting out,
+// and only dense overlaps graze the day bloom gate.
+const TIER_INTENSITY = 1.2;
+const SLIDE_INTENSITY = 0.85;
 
 type Sample = {
   x: number;
@@ -70,6 +77,17 @@ export class DriftTrails {
       blending: THREE.AdditiveBlending,
       side: THREE.DoubleSide,
     });
+    // Max-channel Reinhard shoulder as the last op before write: two ribbons
+    // crossing (or ribbon over sparks) asymptote toward the tier hue instead
+    // of clipping to white.
+    mat.onBeforeCompile = (shader) => {
+      shader.fragmentShader = shader.fragmentShader
+        .replace("#include <common>", `#include <common>\n${REINHARD_GLSL}`)
+        .replace(
+          "#include <opaque_fragment>",
+          "outgoingLight = reinhardClip(outgoingLight);\n#include <opaque_fragment>",
+        );
+    };
     this.mesh = new THREE.Mesh(geo, mat);
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 2;
@@ -106,9 +124,9 @@ export class DriftTrails {
     }
     head.x = x;
     head.z = z;
-    if (kind === 2) this.tmp.setRGB(1.0, 0.5, 0.14);
-    else if (kind === 1) this.tmp.setRGB(0.25, 0.92, 1.0);
-    else this.tmp.setRGB(0.8, 0.88, 1.0);
+    if (kind === 2) this.tmp.set(TIER_COLORS[1]).multiplyScalar(TIER_INTENSITY);
+    else if (kind === 1) this.tmp.set(TIER_COLORS[0]).multiplyScalar(TIER_INTENSITY);
+    else this.tmp.setRGB(0.8, 0.88, 1.0).multiplyScalar(SLIDE_INTENSITY);
     const sample: Sample = {
       x,
       z,

@@ -5,6 +5,7 @@ import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { SMAAPass } from "three/addons/postprocessing/SMAAPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 
+import { CAMERA } from "../shared/constants";
 import { gradeMotion, gradeNight, gradeWarmth } from "./grade";
 
 // Desktop-only post chain (kart-racer pass): contact AO so nothing floats,
@@ -119,26 +120,37 @@ const GradeShader = {
 // reference grade, adapted to this game's radiances). Order inside:
 //   1. chromatic aberration gather (on linear — the offsets are sub-texel and
 //      capped, so the HDR fringe risk the sun disc poses is bounded by the cap)
-//   2. exposure (renderer.toneMappingExposure, via the day-night ramp)
-//   3. highlight shoulder — a power-law rolloff gated on max(rgb) BEFORE ACES
+//   2. radial rush zoom smear (linear side, so streaks carry radiance into the
+//      tone map): velocity = fromCentre * rush, quadratically edge-weighted so
+//      the vanishing point stays sharp, travel-capped, and multiplied by a
+//      WORLD-SPACE hold-out sphere around the player car (depth-reconstructed
+//      — a depth band would cut the car in half viewed end-on). High tier
+//      only; the whole gather is branch-skipped at rest.
+//   3. exposure (renderer.toneMappingExposure, via the day-night ramp)
+//   4. highlight shoulder — a power-law rolloff gated on max(rgb) BEFORE ACES
 //      so a 4x sky and a 20x glint still separate instead of both slamming
 //      into the ACES ceiling; includes highlight desaturation toward luma.
 //      Faded out at night: the night painting's emissive values are measured
 //      against plain ACES and must not soften.
-//   4. ACES fit (bit-for-bit three.js ACESFilmicToneMapping)
-//   5. midtone S-curve — smoothstep-toward-self keeps 0 and 1 pinned so it
+//   5. ACES fit (bit-for-bit three.js ACESFilmicToneMapping)
+//   6. midtone S-curve — smoothstep-toward-self keeps 0 and 1 pinned so it
 //      adds snap without crushing the shadow detail the AO pass paid for.
 //      Day-only: the night mid-tone dip already owns that range.
-//   6. teal-shadow / warm-highlight split tone. The cool axis is TEAL (G with
+//   7. teal-shadow / warm-highlight split tone. The cool axis is TEAL (G with
 //      B above unity), not blue — pure blue against a warm key reads violet.
 //      Day-weighted, and the warm side leans harder with uWarmth so golden
 //      hour reads gilded rather than merely bright.
-//   7. saturation lift with a highlight rolloff so bloomed glints go white,
+//   8. saturation lift with a highlight rolloff so bloomed glints go white,
 //      not neon.
-//   8. vignette — post-tonemap print-down; amount and inner edge close in
+//   9. speed-line combs — two angular value-noise combs (base + boost) in the
+//      outer radial band, composited display-referred with two safety terms:
+//      sceneLit (lines streak the light that is there — no tunnel/night
+//      starburst, which is also why they need no uNight weighting) and a
+//      headroom shoulder (bright frames take fewer lines, stacks asymptote).
+//  10. vignette — post-tonemap print-down; amount and inner edge close in
 //      with speed.
-//   9. monochrome grain, midtone-weighted, rolled off in shadows.
-//  10. sRGB encode (this pass writes the canvas — no OutputPass follows).
+//  11. monochrome grain, midtone-weighted, rolled off in shadows.
+//  12. sRGB encode (this pass writes the canvas — no OutputPass follows).
 const FinalGradeShader = {
   name: "WaymoFinalGradeShader",
   uniforms: {
@@ -155,6 +167,15 @@ const FinalGradeShader = {
     uTime: { value: 0 },
     uAspect: { value: 16 / 9 },
     uTexel: { value: new THREE.Vector2(1 / 1920, 1 / 1080) },
+    // Speed subject. uRush: x smear amount (0 = branch closed), y uv travel
+    // cap, z boost-comb strength. uStreak is the comb master gain, uKick the
+    // eased boost signal, uSubject the hero hold-out centre (world space).
+    uRush: { value: new THREE.Vector3() },
+    uStreak: { value: 0 },
+    uKick: { value: 0 },
+    uSubject: { value: new THREE.Vector3() },
+    uInvViewProj: { value: new THREE.Matrix4() },
+    tDepth: { value: null },
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -176,14 +197,48 @@ const FinalGradeShader = {
     uniform float uTime;
     uniform float uAspect;
     uniform vec2 uTexel;
+    uniform vec3 uRush;
+    uniform float uStreak;
+    uniform float uKick;
+    uniform vec3 uSubject;
+    uniform mat4 uInvViewProj;
+    uniform sampler2D tDepth;
     varying vec2 vUv;
     const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
+    const float TAU = 6.28318530718;
     // Shoulder: knee 0.9, exponent 0.72, desat 0.16 across a 30x span.
     const vec4 ROLLOFF = vec4(0.90, 0.72, 0.16, 30.0);
+    // Radial rush: fewer than ~11 taps bands visibly at the travel cap. The
+    // tap count is fixed; the High-tier gate lives CPU-side (uRush.x = 0).
+    const int SMEAR_TAPS = 11;
+    // Hero hold-out sphere, world units. The reference ran 2.05→3.40 around a
+    // ~2 u kart; rescaled for this SUV's ~2.8 u half-diagonal (subject sits
+    // SUBJECT_LIFT above the road-level car origin).
+    const float HOLDOUT_CORE = 3.4;
+    const float HOLDOUT_EDGE = 5.1;
+    // Comb lattice frequencies: INTEGER cells per revolution so the lattice
+    // wraps seam-free at the atan cut (reference authored per-radian: 26/63
+    // base, 47/111 boost — ×2π, rounded to integers).
+    const float BASE_COMB_A = 163.0;
+    const float BASE_COMB_B = 396.0;
+    const float BOOST_COMB_A = 295.0;
+    const float BOOST_COMB_B = 697.0;
+    const float BOOST_COMB_GAIN = 0.42;
     float hash12(vec2 p) {
       vec3 q = fract(vec3(p.x, p.y, p.x) * 0.1031);
       q += dot(q, q.yzx + 33.33);
       return fract((q.x + q.y) * q.z);
+    }
+    // 1D value noise on an angular lattice. The index wraps mod freq, so a
+    // comb has no seam where atan cuts; freq doubles as the hash seed so the
+    // four combs decorrelate.
+    float combNoise(float turns, float freq, float drift) {
+      float x = turns * freq + drift;
+      float i = floor(x);
+      float f = x - i;
+      float h0 = hash12(vec2(mod(i, freq), freq));
+      float h1 = hash12(vec2(mod(i + 1.0, freq), freq));
+      return mix(h0, h1, f * f * (3.0 - 2.0 * f));
     }
     vec3 shoulder(vec3 c) {
       float m = max(max(c.r, c.g), c.b);
@@ -233,6 +288,29 @@ const FinalGradeShader = {
           texture2D(tDiffuse, vUv).g,
           texture2D(tDiffuse, vUv - fringe).b);
       }
+      // Radial rush: edge-weighted zoom smear on the linear side, so streaks
+      // carry radiance into the tone map. Quadratic edge weighting keeps the
+      // vanishing point sharp; the hold-out multiplies the fragment's OWN
+      // velocity by a world-space sphere on the hero (never a depth band —
+      // that cuts the car in half viewed end-on). The smear taps skip the CA
+      // fringe: a sub-2-texel offset is invisible inside a 20+ px streak.
+      if (uRush.x > 0.0002) {
+        vec2 vel = fromCentre * (uRush.x * (0.30 + 0.70 * rad));
+        float travel = length(vel);
+        vel *= min(travel, uRush.y) / max(travel, 1e-6);
+        float sceneDepth = texture2D(tDepth, vUv).x;
+        vec4 wp = uInvViewProj * vec4(vUv * 2.0 - 1.0, sceneDepth * 2.0 - 1.0, 1.0);
+        vel *= smoothstep(HOLDOUT_CORE, HOLDOUT_EDGE, distance(wp.xyz / wp.w, uSubject));
+        if (length(vel) > 0.0004) {
+          float jitter = hash12(vUv / uTexel + fract(uTime) * 311.0) - 0.5;
+          vec3 acc = c;
+          for (int i = 1; i < SMEAR_TAPS; i++) {
+            float s = (float(i) + jitter) / float(SMEAR_TAPS) - 0.5;
+            acc += texture2D(tDiffuse, vUv + vel * s).rgb;
+          }
+          c = acc / float(SMEAR_TAPS);
+        }
+      }
       float dayW = 1.0 - uNight;
       c = mix(c, shoulder(c), dayW);
       c = acesToneMap(c);
@@ -242,7 +320,7 @@ const FinalGradeShader = {
       // a highlight tint — at this game's exposure most of a street frame
       // lives in the midtones, and warming only the highs left golden hour
       // reading dusky-blue.
-      c *= mix(vec3(1.0), vec3(1.05, 1.0, 0.93), uWarmth * dayW * 0.65);
+      c *= mix(vec3(1.0), vec3(1.12, 1.0, 0.82), uWarmth * dayW * 0.80);
       // Split tone. Teal shadows via a tiny additive lift (multiplies cannot
       // tint blacks) + a cool multiply — the cool side stands down as warmth
       // rises so the amber hour isn't fighting its own shadows; warm
@@ -261,6 +339,35 @@ const FinalGradeShader = {
       lum = dot(c, LUMA);
       float satAmt = 1.0 + (uSaturation - 1.0) * dayW;
       c = max(mix(vec3(lum), c, satAmt * (1.0 - 0.40 * smoothstep(0.70, 1.0, lum))), 0.0);
+      // Speed-line combs, display-referred (they paint on the finished image,
+      // so the exposure delta vs the reference does not apply). uStreak is a
+      // SWITCH driven from STREAK_REST = 0: a resting frame never enters.
+      if (uStreak > 0.002) {
+        vec2 p = fromCentre * a;
+        float turns = atan(p.y, p.x) / TAU + 0.5;
+        float baseN = combNoise(turns, BASE_COMB_A, uTime * 1.6) * 0.62
+                    + combNoise(turns, BASE_COMB_B, -uTime * 2.4) * 0.38;
+        // Outer third only; the inner edge walks in with boost.
+        float baseBand = smoothstep(mix(0.55, 0.44, uKick), 0.98, rad)
+                       * (1.0 - smoothstep(1.05, 1.50, rad));
+        float lines = smoothstep(0.55, 0.93, baseN) * baseBand * uStreak;
+        if (uRush.z > 0.004) {
+          float boostN = combNoise(turns, BOOST_COMB_A, -uTime * 7.5) * 0.58
+                       + combNoise(turns, BOOST_COMB_B, uTime * 11.0) * 0.42;
+          float boostBand = smoothstep(0.42, 0.90, rad)
+                          * (1.0 - smoothstep(1.10, 1.55, rad));
+          lines += smoothstep(0.66, 0.99, boostN) * boostBand * uKick * uRush.z * BOOST_COMB_GAIN;
+        }
+        lum = dot(c, LUMA);
+        // Safety 1: lines streak the light that is there — a tunnel or the
+        // night cannot grow a starburst out of black (and this is why the
+        // combs need no day-night weighting of their own).
+        lines *= 0.42 + 0.58 * smoothstep(0.04, 0.42, lum);
+        // Safety 2: headroom — bright frames take fewer lines, and the sum
+        // itself rolls off so stacked combs asymptote instead of clipping.
+        float head = 1.0 - 0.50 * smoothstep(0.60, 1.00, lum);
+        c += (lines / (1.0 + lines * 1.2)) * head * vec3(1.0, 0.972, 0.918);
+      }
       // Vignette: print-down on the finished image.
       c *= 1.0 - uVignette.x * smoothstep(uVignette.y, 1.02, rad);
       // Grain: monochrome, midtone-weighted, shadow-rolled-off.
@@ -273,56 +380,56 @@ const FinalGradeShader = {
   `,
 };
 
-// Bloom is a DAY setting and a NIGHT setting, not one setting. The cut has to
-// clear the lit sky by day (see the constructor note) — but that same 3.0 sits
-// far above every night emissive the game draws: a lit window peaks near 1.1
-// pre-tonemap, a lamp pool near 0.9, a headlight near 1.6. At a fixed 3.0
-// NOTHING blooms after dark, which is why the night frame had no glow in it at
-// all and every source read as a flat decal. Both numbers therefore ramp with
-// the cycle: after dark the cut drops under the emissives and the strength
-// comes up, so lamps, windows and headlights bleed the way a real night camera
-// makes them. `UnrealBloomPass.render` copies both fields into its uniforms
-// every frame, so writing the fields is the supported way to animate them.
-const DAY_BLOOM_STRENGTH = 0.22;
-// THE DAY CUT MUST CLEAR THE HORIZON, NOT JUST THE LIT SKY. Preetham's dome
-// saturates at grazing angles — measured pre-tonemap, the bottom ~8° of sky
-// sits at luminance 5.4 in EVERY azimuth at noon, well over the old 3.0 — so
-// the whole horizon ring was being harvested and blurred back over the far
-// city. That is the "milky mid-ground" in the Twin Peaks vista: with the cut
-// moved above the band, that frame's >=88%-luminance share falls 11.3% -> 8.3%
-// and its mean saturation RISES (16.2 -> 17.7), because what the veil was doing
-// was washing chroma out of everything behind it.
+// Bloom is a DAY setting and a NIGHT setting, not one setting. The two ends of
+// the ramp anchor to different budgets: the day gate to the sunlit-diffuse
+// ceiling (below), the night gate to the authored emissive budget — a lit
+// window peaks near 1.1 pre-tonemap, a lamp pool near 0.9, a headlight near
+// 1.6. Both fields ramp with the cycle. `UnrealBloomPass.render` copies
+// strength/threshold into its uniforms every frame, so writing the fields is
+// the supported way to animate them; the knee is a uniform the pass never
+// touches, written alongside them in render().
+const BLOOM_DAY_STRENGTH = 0.26;
+// THE DAY CUT SITS JUST ABOVE SUNLIT DIFFUSE WHITE. Pre-tonemap at this
+// game's exposure (0.62), the brightest lit-diffuse surfaces — a white kit
+// facade square to the noon key (1.85), sunlit kerb concrete, crosswalk
+// paint — land at ~1.5-1.9. The cut sits at the bottom of that band with the
+// knee reaching across it, so lit diffuse at most KISSES the pyramid while
+// everything authored as a SOURCE clears it outright: spark cores under their
+// per-emit gain, drift ribbons and boost flame near 2-3, the sun disc at 400
+// (day-night.ts SUN_DISC_RADIANCE). That is the glow identity: by day the FX
+// bloom, not the city.
 //
-// 6.5 clears the band with margin and still sits far under the sun disc
-// (day-night.ts SUN_DISC_RADIANCE, 400), which is the one thing that should
-// flare by day. Nothing else is lost: the additive FX (trails, boost rings,
-// sparks) peak near 1-2 over a lit road, so they never crossed 3.0 either.
-//
-// AND THERE IS NO CUT THAT GIVES THEM ONE — but not because a lower cut costs
-// anything. That was asserted from an analytic re-integration of the rolled-off
-// dome (noon peaks 2.76 in the aureole, 1.9 along the horizon; golden 1.92) and
-// the gate measured it instead: with the cut FORCED to 3.0 and then 2.5 at four
-// cameras, the >=88%-luminance share moves by at most +0.8pp (Ocean Beach
-// golden 9.68 -> 10.49, i.e. the sun's own glitter path) and by under 0.05pp at
-// Twin Peaks noon, skyline-from-bay noon and a Nob Hill golden chase — and the
-// same-camera pairs are indistinguishable. The veil does NOT come back at 2.5.
-//
-// The real reason is the arithmetic on the other side: the additive FX peak
-// near 1-2, so a cut at 2.5 cannot bloom them either. To glow a drift trail you
-// would need ~1.0, under the entire lit sky — THAT is where the veil lives. So
-// 6.5 -> 3.0 is close to free and close to pointless; the FX glow and the clean
-// horizon really are the same knob, just further apart than 3.0.
-//
-// If daytime FX glow is ever wanted, it is a second additive pass keyed off the
-// FX layer, not a move of this constant.
-const DAY_BLOOM_THRESHOLD = 6.5;
+// The Preetham horizon band (~5.4 pre-tonemap at noon) also crosses this cut,
+// and harvesting it is measured-cheap at this strength: forcing the cut from
+// 6.5 down to 2.5 across four cameras moved the >=88%-luminance share by at
+// most +0.8pp (Ocean Beach golden — the sun's own glitter path) and under
+// 0.05pp everywhere else, with same-camera pairs indistinguishable. The
+// milky-veil failure mode lives in the DISC, not the cut: an unbounded disc
+// hands the pyramid ~85,000 of headroom energy, and the disc is bounded at
+// the source.
+const BLOOM_DAY_THRESHOLD = 2.1;
+// Gate softness (the high-pass material's smoothWidth), in the same radiance
+// units as the cut. Day is a wide shoulder — the reference kart grade's shape
+// — so sunlit white fades INTO the pyramid instead of popping across a hard
+// edge as the camera swings. Night must stay near-hard: the lamp pools are
+// authored to ~0.9 against the 0.85 cut, and a day-width knee would
+// smoothstep them down to a few percent of their bloom, unlighting the night
+// the budget below exists to keep.
+const BLOOM_DAY_KNEE = 0.33;
+const BLOOM_NIGHT_KNEE = 0.02;
 // The night cut sits just under the dimmest thing that should glow — the lamp
 // pools, authored to ~0.9 at their core (fx/lamp-glow.ts POOL_GAIN) — and no
 // lower. Below ~0.7 it starts catching LIT SURFACES too, and the one surface
 // that is genuinely blown after dark (a wall 5 metres in front of the player's
 // 70-candela spot) turns into a frame-filling white blob.
-const NIGHT_BLOOM_STRENGTH = 0.5;
-const NIGHT_BLOOM_THRESHOLD = 0.85;
+const BLOOM_NIGHT_STRENGTH = 0.5;
+const BLOOM_NIGHT_THRESHOLD = 0.85;
+// Mip-composite spread. The night halo shape is insensitive to it (see the
+// spill experiments below: radius 0.3 -> 0 moved the facade mean not at all),
+// so one value serves both paintings; 0.55 widens the day glow toward the
+// reference look's soft halation.
+const BLOOM_RADIUS = 0.55;
+const BLOOM_NIGHT_RADIUS = 0.3;
 // THE NIGHT SPILL HAS NO SHAPE KNOB — four experiments, all measured on a FiDi
 // and a Market chase frame at midnight, kit-facade mean through a per-camera
 // stencil. Bloom does lift the facades it is supposed to be lighting: turning
@@ -346,9 +453,12 @@ const NIGHT_BLOOM_THRESHOLD = 0.85;
 // Speed-reactive bloom: the lens brightens with pace, never with the clock.
 // Additive on top of the day/night ramp; the transient ignite term buys the
 // boost-release frame a halo without building a sustained veil.
-const BLOOM_FAST_LIFT = 0.06;
-const BLOOM_KICK_LIFT = 0.14;
-const BLOOM_IGNITE_LIFT = 0.18;
+// Half the pre-port lifts: at the 1.6-2.1 day gate the golden-hour mie veil
+// already rides the bloom pyramid, and the old lift values pushed an into-sun
+// boost frame to a full milky white-out (measured, SUPER MINI-TURBO at 17:00).
+const BLOOM_FAST_LIFT = 0.03;
+const BLOOM_KICK_LIFT = 0.06;
+const BLOOM_IGNITE_LIFT = 0.09;
 
 // Chromatic aberration bounds (per-channel uv offset at |fromCentre| = 1).
 const CA_REST = 0.00045;
@@ -359,12 +469,57 @@ const VIGNETTE_SPEED = 0.12;
 const VIGNETTE_INNER_REST = 0.3;
 const VIGNETTE_INNER_FAST = 0.18;
 
+// Radial rush drive (uv-space smear amount). Geometric, display-side numbers
+// — ported verbatim from the reference grade; no exposure re-derivation
+// applies. The two families combine with max, not +: the fast term owns
+// full-throttle cruising, the speed²/kick pair owns boost, and ignite buys
+// the onset frame an overshoot.
+const RUSH_FAST = 0.0165;
+const RUSH_SPEED_SQ = 0.0125;
+const RUSH_KICK_SPEED = 0.015;
+const RUSH_IGNITE = 0.0085;
+// uv travel cap: base at gate-open, extra headroom under boost.
+const RUSH_CAP_BASE = 0.0125;
+const RUSH_CAP_BOOST = 0.0105;
+// Boost-comb strength: kick plus a slug of ignite, capped ABOVE 1 so the
+// ignition frame overshoots the sustained ceiling.
+const BOOST_COMB_MAX = 1.25;
+const BOOST_COMB_IGNITE = 0.55;
+// Speed-line master gain. REST MUST STAY 0 — the combs are a switch, not a
+// fade: a resting frame skips the branch and stays bit-identical to the
+// pre-port grade.
+const STREAK_REST = 0.0;
+const STREAK_BOOST = 0.46;
+// The comb gate opens across the first 42% of the eased fast signal.
+const STREAK_GATE_FAST = 0.42;
+
+// The ≥11-tap smear runs on the High tier only. The desktop governor encodes
+// its tier as the pixel ratio it hands setSize, so "High" = still at ≥75% of
+// native DPR; a machine stepped below that is already struggling and the rush
+// zeroes out (the combs stay — four noise evals, no extra taps).
+const SMEAR_TIER_RATIO = 0.75;
+
+// Hero hold-out subject. Until the scene pins the car via setSpeedSubject the
+// pipeline estimates it from the chase rig's FAST-end pose (rush only opens
+// near top speed, so the estimate is calibrated there: camera-rig.ts lerps
+// distance +1.5 and height -1.1 at speed). SUBJECT_LIFT raises the road-level
+// car origin to the body centre the sphere is measured from.
+const SUBJECT_EST_ARM = CAMERA.distance + 1.5;
+const SUBJECT_EST_DROP = CAMERA.height - 1.1;
+const SUBJECT_LIFT = 0.9;
+
 // N8AO: tight contact AO, cool-tinted, half-res. The radius stays SHORT —
 // large radii produce the flat grey haze that gives cheap AO away; the point
 // is the last metre where a wheel meets asphalt and a plinth meets pavement.
-const AO_RADIUS = 1.6;
-const AO_INTENSITY = 3.5;
+// The reference kart recipe: shorter radius + harder intensity + a NARROW
+// denoise — at radius*falloff the depth-rejection band sits under the car's
+// ride height, intensity is an exponent on visibility (5.0 is where the
+// under-chassis core reads), and a wide denoise blurs the contact band away,
+// which is what a soft 6-radius blur was doing to the wheel patches.
+const AO_RADIUS = 1.2;
+const AO_INTENSITY = 5.0;
 const AO_COLOR = 0x101c2a;
+const AO_DENOISE_RADIUS = 2;
 
 // The speed/boost signal easing (CPU side). `fast` is the eased top-speed
 // ramp; `kick` eases the boost flag with a fast attack and slow release (the
@@ -378,21 +533,45 @@ const KICK_RELEASE = 0.28;
 const IGNITE_TAU = 0.42;
 const IGNITE_GAIN = 2.1;
 
+// n8ao's beauty target carries the frame's only sampleable depth, which the
+// hold-out sphere needs for world reconstruction. It is not part of the
+// pass's typed surface (render/n8ao.d.ts), so probe structurally: a package
+// bump that moves the internal degrades to "no rush smear", never a crash.
+// Caching the texture once is safe — three resizes an attached depth texture
+// in place, the object identity survives setSize.
+function sceneDepthOf(pass: N8AOPass): THREE.DepthTexture | null {
+  const holder: object = pass;
+  if (!("beautyRenderTarget" in holder)) return null;
+  const target: unknown = holder.beautyRenderTarget;
+  if (!(target instanceof THREE.WebGLRenderTarget)) return null;
+  const depth = target.depthTexture;
+  return depth instanceof THREE.DepthTexture ? depth : null;
+}
+
 export class PostPipeline {
   private composer: EffectComposer;
   // DEV probes reach in to A/B the AO contribution (debug/dev-hooks.ts).
   readonly ao: N8AOPass;
   private bloom: UnrealBloomPass;
+  private bloomKnee: THREE.IUniform | undefined;
   private grade: ShaderPass;
   private finalGrade: ShaderPass;
   private renderer: THREE.WebGLRenderer;
+  private camera: THREE.Camera;
   private lastTime = 0;
   private fast = 0;
   private kick = 0;
   private kickSlow = 0;
+  private smearTier = true;
+  private smearDepthOk = false;
+  private subjectPinned = false;
+  private readonly subject = new THREE.Vector3();
+  private readonly camPos = new THREE.Vector3();
+  private readonly camDir = new THREE.Vector3();
 
   constructor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera) {
     this.renderer = renderer;
+    this.camera = camera;
     // HDR target: bloom needs >8bit to find highlights. MSAA is intentionally
     // absent — N8AOPass renders the scene into its own half-float target with
     // a sampleable depth texture; SMAA at the end of the chain is the AA.
@@ -408,7 +587,8 @@ export class PostPipeline {
     ao.configuration.color = new THREE.Color(AO_COLOR);
     ao.configuration.aoSamples = 16;
     ao.configuration.denoiseSamples = 8;
-    ao.configuration.denoiseRadius = 6;
+    ao.configuration.denoiseRadius = AO_DENOISE_RADIUS;
+    ao.configuration.denoiseIterations = 1;
     ao.configuration.halfRes = true;
     ao.configuration.depthAwareUpsampling = true;
     ao.configuration.screenSpaceRadius = false;
@@ -418,18 +598,15 @@ export class PostPipeline {
     this.ao = ao;
     this.composer.addPass(ao);
     // Threshold sits in PRE-tonemap linear HDR, so every number here is a
-    // radiance, not a pixel value: keep the cut high and the strength gentle —
-    // bloom should kiss the emissives (lamps, windows, trails, sun glare), not
-    // flood the frame. The vignette/vibrance grade does the daytime "pop".
-    //
-    // The cut has been chased upward twice by the same class of bug, and both
-    // times the frame it ruined was a driver looking west into the sun: 2.2 put
-    // 30-32% of the frame over 92% luminance, and 3.0 — which does clear the
-    // LIT sky — still sat under the horizon ring and under a sun disc three
-    // orders of magnitude over it. See DAY_BLOOM_THRESHOLD for what 6.5 clears
-    // and day-night.ts SUN_DISC_RADIANCE for the disc that made the cut
-    // unwinnable at any value.
-    this.bloom = new UnrealBloomPass(size, DAY_BLOOM_STRENGTH, 0.3, DAY_BLOOM_THRESHOLD);
+    // radiance, not a pixel value: the gate is authored against what the scene
+    // draws (BLOOM_DAY_THRESHOLD / BLOOM_NIGHT_THRESHOLD above) and the sun
+    // disc is bounded at the source (day-night.ts SUN_DISC_RADIANCE) — an
+    // unbounded disc makes any cut unwinnable. The knee lives on the
+    // high-pass material; the pass re-copies only `threshold` per frame, so
+    // smoothWidth is safe to own from here.
+    this.bloom = new UnrealBloomPass(size, BLOOM_DAY_STRENGTH, BLOOM_RADIUS, BLOOM_DAY_THRESHOLD);
+    this.bloomKnee = this.bloom.materialHighPassFilter.uniforms.smoothWidth;
+    if (this.bloomKnee) this.bloomKnee.value = BLOOM_DAY_KNEE;
     this.composer.addPass(this.bloom);
     this.grade = new ShaderPass(GradeShader);
     this.composer.addPass(this.grade);
@@ -437,7 +614,25 @@ export class PostPipeline {
     this.composer.addPass(new SMAAPass());
     this.finalGrade = new ShaderPass(FinalGradeShader);
     this.composer.addPass(this.finalGrade);
+    const depth = sceneDepthOf(ao);
+    if (depth) {
+      const d = this.finalGrade.uniforms.tDepth;
+      if (d) d.value = depth;
+      this.smearDepthOk = true;
+    }
     this.syncViewportUniforms(size.x, size.y);
+  }
+
+  /**
+   * Pin the hero hold-out sphere to the player car (world position, road-level
+   * origin — the body-centre lift is applied here). Call once per frame from
+   * the scene; until wired, render() estimates the subject from the chase
+   * rig's fast-end pose.
+   */
+  setSpeedSubject(world: THREE.Vector3): void {
+    this.subject.copy(world);
+    this.subject.y += SUBJECT_LIFT;
+    this.subjectPinned = true;
   }
 
   private syncViewportUniforms(width: number, height: number): void {
@@ -454,6 +649,10 @@ export class PostPipeline {
     this.composer.setPixelRatio(pixelRatio);
     this.composer.setSize(width, height);
     this.syncViewportUniforms(width * pixelRatio, height * pixelRatio);
+    // The governor's tier reaches this pass only as the pixel ratio it picked
+    // (desktop tiers ARE resolution steps) — read the tier back from it.
+    const native = Math.min(window.devicePixelRatio || 1, 2);
+    this.smearTier = pixelRatio >= native * SMEAR_TIER_RATIO;
   }
 
   render(): void {
@@ -499,21 +698,79 @@ export class PostPipeline {
     const time = fu.uTime;
     if (time) time.value = now % 600;
 
+    // Speed subject: comb master + boost comb + radial rush + hold-out.
+    const gate = Math.max(
+      THREE.MathUtils.smoothstep(this.fast, 0, STREAK_GATE_FAST),
+      this.kick,
+      ignite,
+    );
+    const streak = fu.uStreak;
+    if (streak) streak.value = STREAK_REST + (STREAK_BOOST - STREAK_REST) * gate;
+    const kickU = fu.uKick;
+    if (kickU) kickU.value = this.kick;
+    const boostComb = Math.min(BOOST_COMB_MAX, this.kick + BOOST_COMB_IGNITE * ignite);
+    const speed = THREE.MathUtils.clamp(motion.speed, 0, 1);
+    const rushAmt =
+      Math.max(
+        RUSH_FAST * Math.pow(this.fast, 1.5),
+        RUSH_SPEED_SQ * speed * speed + RUSH_KICK_SPEED * this.kick * speed,
+      ) +
+      RUSH_IGNITE * ignite;
+    const smearOn = this.smearTier && this.smearDepthOk;
+    const rush = fu.uRush;
+    if (rush && rush.value instanceof THREE.Vector3) {
+      rush.value.set(smearOn ? rushAmt : 0, RUSH_CAP_BASE + RUSH_CAP_BOOST * boostComb, boostComb);
+    }
+    if (smearOn && rushAmt > 0.0002) {
+      // The smear reconstructs world positions, so the matrices must be
+      // current NOW — the composer's own render is too late. Camera's
+      // updateMatrixWorld also refreshes matrixWorldInverse.
+      this.camera.updateMatrixWorld();
+      const ivp = fu.uInvViewProj;
+      if (ivp && ivp.value instanceof THREE.Matrix4) {
+        ivp.value
+          .multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse)
+          .invert();
+      }
+      if (!this.subjectPinned) {
+        this.camera.getWorldPosition(this.camPos);
+        this.camera.getWorldDirection(this.camDir);
+        const planar = Math.hypot(this.camDir.x, this.camDir.z);
+        if (planar > 1e-4) {
+          const arm = SUBJECT_EST_ARM / planar;
+          this.subject.set(
+            this.camPos.x + this.camDir.x * arm,
+            this.camPos.y - SUBJECT_EST_DROP + SUBJECT_LIFT,
+            this.camPos.z + this.camDir.z * arm,
+          );
+        }
+      }
+      const subj = fu.uSubject;
+      if (subj && subj.value instanceof THREE.Vector3) subj.value.copy(this.subject);
+    }
+
     // The cut falls on sqrt(night), not on night. `night` IS the lamp factor,
     // so at dusk it is still only ~0.6 when every streetlight in the city is
-    // already burning — and a linearly-interpolated cut is 3.0 there, above the
-    // 3.4 lamp halo it exists to catch. The day end of that lerp used to be
-    // 3.0, so the error was small; at 6.5 it would leave dusk with no glow at
-    // all. Square-rooting drops the cut early, in step with the lamps, and both
-    // ends of the ramp are unchanged.
+    // already burning. Square-rooting drops the gate toward the lamp budget
+    // early, in step with the lamps — at dusk the cut is ~1.0, under the lamp
+    // halos and the 1.6 headlights — and both ends of the ramp are unchanged.
+    // The knee rides the same ramp so the gate hardens as the emissive budget
+    // takes over from the sunlit-diffuse shoulder.
+    const gateRamp = Math.sqrt(night);
     this.bloom.threshold =
-      DAY_BLOOM_THRESHOLD + (NIGHT_BLOOM_THRESHOLD - DAY_BLOOM_THRESHOLD) * Math.sqrt(night);
+      BLOOM_DAY_THRESHOLD + (BLOOM_NIGHT_THRESHOLD - BLOOM_DAY_THRESHOLD) * gateRamp;
+    if (this.bloomKnee) {
+      this.bloomKnee.value = BLOOM_DAY_KNEE + (BLOOM_NIGHT_KNEE - BLOOM_DAY_KNEE) * gateRamp;
+    }
     this.bloom.strength =
-      DAY_BLOOM_STRENGTH +
-      (NIGHT_BLOOM_STRENGTH - DAY_BLOOM_STRENGTH) * night +
+      BLOOM_DAY_STRENGTH +
+      (BLOOM_NIGHT_STRENGTH - BLOOM_DAY_STRENGTH) * night +
       BLOOM_FAST_LIFT * this.fast +
       BLOOM_KICK_LIFT * this.kick +
       BLOOM_IGNITE_LIFT * ignite;
+    // The wide day radius smears the authored point emissives (stars, lamp
+    // pools) into cotton after dark — night keeps the pre-port tight kernel.
+    this.bloom.radius = BLOOM_RADIUS + (BLOOM_NIGHT_RADIUS - BLOOM_RADIUS) * night;
     this.composer.render();
   }
 }
