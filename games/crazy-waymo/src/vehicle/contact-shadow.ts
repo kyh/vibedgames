@@ -12,8 +12,8 @@ import { SKID_LIFT } from "../fx/skids";
 export const SHADOW_LOBE_R = 0.56; // lobe radius at rest
 export const SHADOW_DROOP = 0.1; // droop past which no contact patch remains
 export const SHADOW_LOAD = 0.09; // compression at which the patch is tightest
-export const SHADOW_LOBE_MAX = 0.66; // peak occlusion at contact
-export const SHADOW_BODY = 0.38; // chassis-ellipse occlusion
+export const SHADOW_LOBE_MAX = 0.78; // peak occlusion at contact
+export const SHADOW_BODY = 0.46; // chassis-ellipse occlusion
 // Never black, COOL — reads as sky occlusion, not a paint stain.
 export const SHADOW_TINT = 0x0c161c;
 // Clearance over the draped asphalt: same worst-case budget as skid marks

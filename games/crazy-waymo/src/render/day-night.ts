@@ -108,7 +108,7 @@ const SKY_DAY: SkyPreset = [2.0, 0.5, 0.0018, 0.8, 1.7];
 // Golden hour wants a VEIL, not a clear sky: turbidity + mie forward-scatter
 // paint the amber quarter around the low sun (the kart-racer money shot);
 // loose g keeps the glare see-through instead of a hard disc halo.
-const SKY_GOLDEN: SkyPreset = [2.8, 0.7, 0.0022, 0.66, 1.2];
+const SKY_GOLDEN: SkyPreset = [4.0, 0.45, 0.0022, 0.66, 1.2];
 const SKY_SUNSET: SkyPreset = [3.0, 0.85, 0.0016, 0.68, 0.55];
 const SKY_NIGHT: SkyPreset = [2.0, 0.5, 0.002, 0.8, 0.55];
 
@@ -233,7 +233,7 @@ const STOPS: readonly Stop[] = [
   // rig (a 70-candela spot plus two head sprites) under a noon-blue sky — the
   // single loudest thing in the most flattering frame the game has. Lamps now
   // wait for the sun to reach the horizon.
-  stop(0.40,  11,   235,   dir(11, 235),  0xffbe74, 1.9,  0xffd6a6, 0x6b5c40, 0.48, 0.12, 0xfff2e2, 0xc49a80, 430, 940, 0.26, 0,    0.70, 1.0,  SKY_GOLDEN),
+  stop(0.40,   9,   235,   dir(9, 235),   0xffa860, 1.9,  0xffd6a6, 0x6b5c40, 0.48, 0.12, 0xfff2e2, 0xc49a80, 430, 940, 0.26, 0,    0.76, 1.0,  SKY_GOLDEN),
   stop(0.47,   2,   248,   dir(4, 248),   0xff9350, 1.25, 0xff9d70, 0x3e3a44, 0.36, 0.11, 0xe0dcf0, 0xac7160, 400, 900, 0.18, 0.62, 0.68, 1.0,  SKY_SUNSET),
   // Night floors are tuned for PHONES: a desktop panel at full brightness can
   // read a 0.3-fill scene, a dim phone outdoors cannot. Moonlight carries the

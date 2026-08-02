@@ -22,10 +22,12 @@ export type MinimapMarker = {
   readonly edgeClamp?: boolean;
 };
 
-const WATER = "#2e5f8a";
-const LAND = "#a3a49b";
-const PARK = "#6f9455";
-const ROAD = "#c9cdd2";
+// Dark-chart palette: navy ground, cream streets — the kart-cluster read
+// (light-grey paper made the map the brightest plate on screen at night).
+const WATER = "#1d3a57";
+const LAND = "#2a3140";
+const PARK = "#3d5a44";
+const ROAD = "#e8e0cc";
 const DECK = "#c0483c";
 
 // World units across the minimap window. The small box zooms in: it is ~2/3

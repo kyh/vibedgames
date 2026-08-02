@@ -371,7 +371,14 @@ export class VehicleFxRig {
   private drivePlume(dt: number, car: Car, fwdX: number, fwdZ: number): void {
     if (car.isBoosting) this.boostTime += dt;
     else this.boostTime = 0;
-    const burn = car.isBoosting ? Math.min(1, Math.max(BURN_FLOOR, this.boostTime / BURN_RAMP)) : 0;
+    // Speed-scaled: a standstill boost put the camera nearly inside the ribbon
+    // and the full-burn plume filled the frame (review pass) — the flame earns
+    // its size with motion.
+    const spd = Math.hypot(car.velX, car.velZ);
+    const spdScale = 0.4 + 0.6 * Math.min(1, Math.max(0, (spd - 3) / 11));
+    const burn = car.isBoosting
+      ? Math.min(1, Math.max(BURN_FLOOR, this.boostTime / BURN_RAMP)) * spdScale
+      : 0;
     const bx = car.position.x - fwdX * (EXHAUST_BACK + PLUME_ROOT_BIAS);
     const bz = car.position.z - fwdZ * (EXHAUST_BACK + PLUME_ROOT_BIAS);
     const y = car.position.y + EXHAUST_UP;

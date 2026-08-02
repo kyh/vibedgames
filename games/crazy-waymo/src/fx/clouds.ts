@@ -397,11 +397,14 @@ export class SkyClouds {
       for (let k = 0; k < puffs; k++, i++) {
         const hero = k === 0;
         const w = hero ? heroW : heroW * (0.38 + Math.random() * 0.34);
-        const side = k % 2 === 1 ? 1 : -1;
-        const reach = 1 + Math.floor((k - 1) / 2) * 0.6; // outer pairs sit wider
-        const dx = hero ? 0 : side * heroW * CLUSTER_SPREAD_X * (0.6 + Math.random() * 0.4) * reach;
+        // Satellites scatter at random bearings — the old alternating left/
+        // right pairs at growing reach drew a shrinking chain that read as a
+        // generator signature from any angle (review pass).
+        const ang = Math.random() * Math.PI * 2;
+        const reach = 0.6 + Math.random() * 0.7 + k * 0.12;
+        const dx = hero ? 0 : Math.cos(ang) * heroW * CLUSTER_SPREAD_X * reach;
         const dy = hero ? 0 : -heroW * CLUSTER_DROP * (0.4 + Math.random() * 0.6);
-        const dz = hero ? 0 : (Math.random() - 0.5) * 2 * heroW * CLUSTER_SPREAD_Z;
+        const dz = hero ? 0 : Math.sin(ang) * heroW * CLUSTER_SPREAD_Z * 2 * reach;
         this.high.centers.set([cx + dx, cy + dy, cz + dz], i * 3);
         this.high.sizes.set([w, w * (0.3 + Math.random() * 0.14)], i * 2);
         this.high.alphas[i] = hero ? 0.85 + Math.random() * 0.15 : 0.55 + Math.random() * 0.35;

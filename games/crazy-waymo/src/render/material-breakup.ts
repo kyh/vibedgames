@@ -74,9 +74,9 @@ export const SPEC_AA_CAP = 0.42;
 // shader's own +-10% band so the drift layers UNDER its patches and seams.
 export const ROAD_BREAKUP: BreakupConfig = {
   period: 29.7,
-  hueAmp: 0.1,
-  valueAmp: 0.05,
-  roughAmp: 0.22,
+  hueAmp: 0.15,
+  valueAmp: 0.08,
+  roughAmp: 0.3,
   roughFloor: 0.62,
   warm: 0xfff0dc,
   cool: 0xdce6ff,
@@ -91,8 +91,8 @@ export const ROAD_BREAKUP: BreakupConfig = {
 // aliased glitter, not repaint the one deliberate sheen family.
 export const CITY_BREAKUP: BreakupConfig = {
   period: 23.0,
-  hueAmp: 0.12,
-  valueAmp: 0.06,
+  hueAmp: 0.15,
+  valueAmp: 0.09,
   roughAmp: 0.2,
   roughFloor: 0.45,
   warm: 0xffeed6,

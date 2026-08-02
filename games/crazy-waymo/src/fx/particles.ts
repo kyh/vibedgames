@@ -244,9 +244,9 @@ export type FxTier = 0 | 1 | 2;
 // donut test). Only one-frame moments (promotion, ignition) may cross the
 // gate; the held shower reads as sparks, not glow.
 export const TIER_FX = [
-  { rate: 26, core: 0.22, coreInt: 1.25, halo: 0.45, haloInt: 0.8, jet: 0, pulse: 0 },
-  { rate: 44, core: 0.28, coreInt: 1.35, halo: 0.55, haloInt: 0.8, jet: 0, pulse: 0 },
-  { rate: 68, core: 0.34, coreInt: 1.45, halo: 0.7, haloInt: 0.8, jet: 30, pulse: 6.5 },
+  { rate: 34, core: 0.22, coreInt: 1.25, halo: 0.35, haloInt: 0.8, jet: 0, pulse: 0 },
+  { rate: 56, core: 0.28, coreInt: 1.35, halo: 0.45, haloInt: 0.8, jet: 0, pulse: 0 },
+  { rate: 84, core: 0.34, coreInt: 1.45, halo: 0.55, haloInt: 0.8, jet: 30, pulse: 6.5 },
 ] as const;
 
 // Day-weighted additive governor floor: authored 2.2-3.4 radiances are tuned
@@ -381,7 +381,7 @@ export class Fx {
       color: this.white,
       channel: true,
       intensity: t.coreInt,
-      speed: 3.4 + 1.1 * tier,
+      speed: 4.6 + 1.3 * tier,
       spread: 1.2,
       up: 2.5 + 0.5 * tier,
       size: t.core,

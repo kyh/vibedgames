@@ -320,7 +320,7 @@ const FinalGradeShader = {
       // a highlight tint — at this game's exposure most of a street frame
       // lives in the midtones, and warming only the highs left golden hour
       // reading dusky-blue.
-      c *= mix(vec3(1.0), vec3(1.12, 1.0, 0.82), uWarmth * dayW * 0.80);
+      c *= mix(vec3(1.0), vec3(1.12, 1.0, 0.82), uWarmth * dayW);
       // Split tone. Teal shadows via a tiny additive lift (multiplies cannot
       // tint blacks) + a cool multiply — the cool side stands down as warmth
       // rises so the amber hour isn't fighting its own shadows; warm
@@ -332,7 +332,7 @@ const FinalGradeShader = {
       c += vec3(-0.0009, 0.0025, 0.0030) * shadowW;
       c *= mix(vec3(1.0), vec3(0.900, 1.010, 1.045), shadowW * (0.70 - 0.38 * uWarmth));
       vec3 warmTint = mix(vec3(1.115, 1.005, 0.878), vec3(1.16, 1.00, 0.80), uWarmth);
-      c *= mix(vec3(1.0), warmTint, highW * (0.55 + 0.30 * uWarmth));
+      c *= mix(vec3(1.0), warmTint, highW * (0.65 + 0.35 * uWarmth));
       c = max(c, 0.0);
       // Saturation lift with highlight rolloff, day-weighted (night owns its
       // own desaturation painting).
@@ -517,9 +517,12 @@ const SUBJECT_LIFT = 0.9;
 // under-chassis core reads), and a wide denoise blurs the contact band away,
 // which is what a soft 6-radius blur was doing to the wheel patches.
 const AO_RADIUS = 1.2;
-const AO_INTENSITY = 5.0;
+const AO_INTENSITY = 4.2;
 const AO_COLOR = 0x101c2a;
-const AO_DENOISE_RADIUS = 2;
+// 2 left the paint drape's z-offset seams as black speckle dashes along every
+// painted line at speed (review pass); 4 + two iterations blurs the seam away
+// while the wheel-contact core survives.
+const AO_DENOISE_RADIUS = 4;
 
 // The speed/boost signal easing (CPU side). `fast` is the eased top-speed
 // ramp; `kick` eases the boost flag with a fast attack and slow release (the
@@ -588,7 +591,7 @@ export class PostPipeline {
     ao.configuration.aoSamples = 16;
     ao.configuration.denoiseSamples = 8;
     ao.configuration.denoiseRadius = AO_DENOISE_RADIUS;
-    ao.configuration.denoiseIterations = 1;
+    ao.configuration.denoiseIterations = 2;
     ao.configuration.halfRes = true;
     ao.configuration.depthAwareUpsampling = true;
     ao.configuration.screenSpaceRadius = false;
@@ -665,7 +668,7 @@ export class PostPipeline {
     const motion = gradeMotion();
 
     // Signal easing. `fast` opens above ~62% of boost top speed.
-    const fastTarget = THREE.MathUtils.clamp((motion.speed - 0.62) / 0.38, 0, 1);
+    const fastTarget = THREE.MathUtils.clamp((motion.speed - 0.45) / 0.55, 0, 1);
     this.fast += (fastTarget - this.fast) * Math.min(1, dt / FAST_TAU);
     const kickTarget = motion.boost ? 1 : 0;
     const kickTau = kickTarget > this.kick ? KICK_ATTACK : KICK_RELEASE;
