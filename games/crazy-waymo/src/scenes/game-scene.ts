@@ -274,6 +274,7 @@ export type TrailerStage = {
   setDayPhase(p: number): void;
   /** Fake multiplayer robotaxis (visual-only remote cars); null = live map. */
   setFakePlayers(players: PlayerMap | null): void;
+  setFxDim(dim: number): void;
   /** Re-park every punted parked car at its curb spec (fresh row per scene). */
   restoreParked(): void;
   /** Stage `n` parked cars as a curbside row from (x0, z0) along (tx, tz) —
@@ -2430,6 +2431,7 @@ vec3 ocGerstner(vec2 p, float t) {
         this.trailerFakes = players;
       },
       restoreParked: () => this.parked?.restore(),
+      setFxDim: (dim) => this.fx.setFxDim(dim),
       stageParkedRow: (x0, z0, tx, tz, n, spacing) =>
         this.parked?.stageRow(x0, z0, tx, tz, n, spacing),
       // Unmuted for the session only — the M-key preference is untouched.

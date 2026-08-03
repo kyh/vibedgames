@@ -165,7 +165,11 @@ const PLUME_FRAG = /* glsl */ `
     rgb = mix(rgb, root, kiss * 0.55);
     // Tier owns the sheath and tail, with a floor so it reads on the spine too.
     rgb = mix(rgb, uTint, clamp(0.26 + (1.0 - spine) * 0.50 + vU * 0.36, 0.0, 0.88));
-    float a = axial * (0.42 * body + 0.74 * spine) * mix(1.0, 0.80, vAlign) * vFade
+    // Dead-astern the widened ribbons stack across the whole car and read as
+    // a wall of fire (every rear-chase trailer camera found this) — keep the
+    // 3/4 afterburner but collapse the last 20 degrees toward the axis hard.
+    float headOn = 1.0 - 0.68 * smoothstep(0.75, 0.97, vAlign);
+    float a = axial * (0.42 * body + 0.74 * spine) * mix(1.0, 0.80, vAlign) * headOn * vFade
       * ${PLUME_ALPHA};
     rgb *= uIntensity * uGain;
     float mx = max(rgb.r, max(rgb.g, rgb.b));

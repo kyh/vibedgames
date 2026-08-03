@@ -414,6 +414,7 @@ class Director {
     st.setFakePlayers(null);
     st.setDayPhase(opts.phase);
     st.cones.reset();
+    st.setFxDim(1);
     st.restoreParked(); // fresh curb rows: replay/loop re-scouts the SAME row
     st.fares.setTrailerHold(true);
     // Every scene stages its fleet by hand — the recycler would otherwise
@@ -907,21 +908,26 @@ class Director {
    * geometry wherever it exists. Closing that gap needs a district-weighted
    * variant of all three, not a docstring.
    */
+  /** The v2 cut: a premise hook, escalating verbs on a dawn-to-golden color
+   *  script, the money shots back-to-back at 0.40, and an end card. Cards
+   *  carry the joke ("NO DRIVER.") so no gameplay beat has to explain itself.
+   *  Dropped from v1: waterfront, hill-descent, street pack-race, dusk
+   *  freeway, bay-bridge — four near-identical "car drives, city pretty"
+   *  beats with no verb are what made the old cut read generic. */
   scenes(): TrailerScene[] {
     return [
-      this.sceneColdOpen(), // chase          0.42  speed (Columbus canyon)
-      this.sceneHillAir(), // locked-off      0.42  air (named hill — Potrero brow on this bake)
-      this.sceneWaterfront(), // crane        0.40  the city is real
-      this.sceneFareRun(), // tracking        0.43  the loop
-      this.sceneLombardDrift(), // tracking   0.44  the drift (the crooked block)
-      this.sceneHillDescent(), // chase       0.44  the SF grade
-      this.sceneMontageSmash(), // locked-off 0.44  cones
-      this.scenePackRace(), // chase          0.44  other players + liveries
-      this.sceneTrafficChaos(), // chase      0.44  physics
-      this.sceneFreeway(), // tracking        0.47  dusk viaduct
-      this.sceneBayBridgeNight(), // locked   0.47  dusk landmark
-      this.sceneVista(), // crane             0.42  the whole city, from above
-      this.sceneHeroDrive(), // locked-off    0.40  release
+      this.scenePickup(), //      locked      0.10  the premise: idle robotaxi erupts
+      this.cardScene("card-no-driver", "NO DRIVER."),
+      this.sceneColdOpen(), //    chase       0.15  speed (Columbus canyon)
+      this.sceneFareRun(), //     tracking    0.22  the loop (HUD on)
+      this.cardScene("card-five-stars", "FIVE STARS."),
+      this.sceneMontageSmash(), // locked-off 0.28  cones
+      this.sceneLombardDrift(), // tracking   0.32  the drift (the crooked block)
+      this.sceneHillAir(), //     locked-off  0.37  air (Potrero brow on this bake)
+      this.sceneSunBoost(), //    chase       0.40  golden money shot, into the sun
+      this.sceneHeroDrive(), //   locked-off  0.40  Golden Gate + the rival pack
+      this.sceneVista(), //       crane       0.43  sunset pull-away, the goodbye
+      this.cardScene("card-title", "CRAZY WAYMO", "crazy-waymo.vibedgames.com", 3000),
     ].map((scene) => this.inGameLoop(scene));
   }
 
@@ -968,7 +974,7 @@ class Director {
         const edge = spot.edge;
         // Glare beats skyline: drive away from the sun (the game rig stares
         // straight down the street — into-sun runs open the trailer white).
-        const dir = this.awayFromSun(edge, spot.dir, 0.42);
+        const dir = this.awayFromSun(edge, spot.dir, 0.15);
         // Ride the RIGHT LANE (not the centreline) and stage the traffic
         // ONCOMING in its own lane: every weave-based slalom variant tried
         // (both-sides, alternating, same-direction-only, three amplitudes)
@@ -985,7 +991,7 @@ class Director {
         // 4.37u this comment always claimed.
         const path = this.edgePath(edge, dir, 120, -2.1);
         const start = path.at(12);
-        const st = this.base({ phase: 0.42, avoidX: start.x, avoidZ: start.z, avoidR: 3 });
+        const st = this.base({ phase: 0.15, avoidX: start.x, avoidZ: start.z, avoidR: 3 });
         this.path = path;
         const cars = this.stagedTraffic(4);
         const sEdge = (travel: number): number => (dir > 0 ? travel : edge.len - travel);
@@ -1012,9 +1018,11 @@ class Director {
         // speed lines are all already at maximum, so the first three seconds of
         // the trailer have nowhere to go. Igniting on camera is the surge.
         const lit = t > 1100;
-        if (lit) this.topUpBoost();
         const top = Math.min(lit ? 44 : 32, (path.length - 40) / 3.2);
-        this.followPath(top, lit, dts);
+        // No flame: the dead-astern plume pre-spends the sun-boost beat and
+        // whites the subject; the FOV kick against the closing camera IS the
+        // surge here.
+        this.followPath(top, false, dts);
         // The beat calls for a LOW rear chase — the game rig rides too high
         // and opens the trailer on sky wash; the manual chase hugs the car.
         //
@@ -1062,19 +1070,20 @@ class Director {
     return {
       id: "hill-air",
       // 30u of run-in puts the car in frame from the reveal, the launch at
-      // ~40% and the whip-by at ~70% (the old beat's timing, kept — see its
-      // history: shorter run-ins launched before the suspension settled).
-      duration: 2000,
+      // ~40% and the whip-by at ~70%. 2600, not 2000: the capture pipeline's
+      // cut detection has ~0.45s of skew, and at 2000 the whip lived inside
+      // the error bar — the judged stills showed approach, not air.
+      duration: 2600,
       setup: async () => {
         const found = this.hillCrest;
         if (!found) {
-          await this.substituteBoostRun(0.42);
+          await this.substituteBoostRun(0.3);
           return;
         }
         // Flip the launch when the camera (looking back along -travel) would
         // otherwise face the sun — legal only when the mirrored grades and
         // margins still clear the scout's own gates.
-        const sun = this.sunHorizontal(0.42);
+        const sun = this.sunHorizontal(0.3);
         const flipOk =
           found.downGrade >= 0.09 &&
           found.upGrade >= 0.11 &&
@@ -1090,7 +1099,7 @@ class Director {
               landing: found.approach,
             }
           : found;
-        const st = this.base({ phase: 0.42, avoidX: crest.x, avoidZ: crest.z, avoidR: 8 });
+        const st = this.base({ phase: 0.3, avoidX: crest.x, avoidZ: crest.z, avoidR: 8 });
         const alongC = (p: { x: number; z: number }): number =>
           (p.x - crest.x) * crest.tx + (p.z - crest.z) * crest.tz;
         const acrossC = (p: { x: number; z: number }): number =>
@@ -1120,7 +1129,7 @@ class Director {
           crest.x + crest.tx * 24 + crest.tz * 2.4,
           crest.z + crest.tz * 24 - crest.tx * 2.4,
         );
-        this.sceneAux.set(this.city.heightAt(this.sceneNode.x, this.sceneNode.y) + 1.8, 0);
+        this.sceneAux.set(this.city.heightAt(this.sceneNode.x, this.sceneNode.y) + 1.2, 0);
         // No boost: the climb bleeds ~1 u/s over the run-in and the crest
         // still throws the car ballistic (needed curvature at 37 u/s is
         // ~0.007 rad/u, the measured crest is ~0.010) — the flame added
@@ -1134,7 +1143,7 @@ class Director {
         this.reveal();
         const st = this.stage;
         if (!st) return;
-        this.followPath(40, false, Math.min(dt, 50) / 1000);
+        this.followPath(43, false, Math.min(dt, 50) / 1000);
         const car = st.car.position;
         this.cam(
           this.sceneNode.x,
@@ -1584,11 +1593,11 @@ class Director {
       setup: async () => {
         const corner = this.fareCorner;
         if (!corner) {
-          await this.substituteBoostRun(0.43);
+          await this.substituteBoostRun(0.22);
           return;
         }
         const st = this.base({
-          phase: 0.43,
+          phase: 0.22,
           hud: true,
           avoidX: corner.x,
           avoidZ: corner.z,
@@ -1917,7 +1926,7 @@ class Director {
       duration: 2400,
       setup: async () => {
         const alt = this.plow ?? this.boulevard(0);
-        const dir = this.awayFromSun(alt.edge, alt.dir, 0.44);
+        const dir = this.awayFromSun(alt.edge, alt.dir, 0.28);
         const path0 = this.edgePath(alt.edge, dir, 0);
         // Row start needs 91u of row + 70u run-out before the edge ends.
         const sRow = Math.max(64, Math.min(alt.edge.len - 180, alt.edge.len / 2 - 20));
@@ -1930,7 +1939,7 @@ class Director {
         const curb = Math.max(2.6, alt.edge.half - 1.6);
         const x0 = p0.x + p0.tz * curb;
         const z0 = p0.z - p0.tx * curb;
-        const st = this.base({ phase: 0.44, avoidX: x0, avoidZ: z0, avoidR: 8 });
+        const st = this.base({ phase: 0.28, avoidX: x0, avoidZ: z0, avoidR: 8 });
         const rowLen = ROW_GAP * (ROW_N - 1);
         // Approach in the STREET lane, merge into the curb lane AT the row:
         // the curb lane between spawn and row start carries natural parked
@@ -1944,17 +1953,17 @@ class Director {
         ];
         // Densified to ~5u pitch — Path.project() snaps to POINTS, so long
         // bare segments would teleport the rabbit leg-to-leg.
-        // Start 62 back (not 46): the first punt then lands ~t1.5s, so the
-        // 30% frame is the full-speed approach with the row readable ahead
-        // instead of a tumbling wreck eclipsing the lens.
+        // Start 40 back: the first punt lands ~t0.95s — inside the shot's
+        // first 40%, so the mid frame is cartwheeling wrecks, not approach
+        // (judged: at 62 back the whole cut read as a drive toward a queue).
         const waypoints: Pt[] = [];
-        for (let a = -62; a < -12; a += 5) waypoints.push(lane(a, 3.8));
+        for (let a = -40; a < -12; a += 5) waypoints.push(lane(a, 3.8));
         for (let a = -12; a < 2; a += 5) waypoints.push(lane(a, 3.8 - ((a + 12) / 14) * 2.5));
         // 2.0 street-side of the row axis, not 1.3: far enough that contacts
         // stay glancing punts instead of square hits that spin the player.
         for (let a = 2; a <= rowLen + 70; a += 5) waypoints.push(lane(a, 2.0));
         this.path = new Path(waypoints);
-        const s0 = lane(-62, 3.8);
+        const s0 = lane(-40, 3.8);
         st.placeCar(s0[0], s0[1], Math.atan2(p0.tx, p0.tz), 0);
         // Row staged AFTER the player is on its mark: stageRow relocates the
         // parked cars NEAREST the row start, and the culling sweep that makes
@@ -1980,16 +1989,15 @@ class Director {
         );
         this.applyInput({ throttle: 1, boost: true });
         await settle();
-        this.kickSpeed = 32;
+        this.kickSpeed = 40;
       },
       run: (_t, dt) => {
-        // 4s of held boost with zero refill sources (parked-car punts award
-        // none) — refill invisibly so the plow stays flamed to the cut.
-        this.topUpBoost();
         if (this.runSubstitute(dt)) return;
         this.reveal();
         const dts = Math.min(dt, 50) / 1000;
-        this.followPath(44, true, dts);
+        // No flame: the plume hid the punts (the one thing this beat shows);
+        // the kick carries the row at full speed without it.
+        this.followPath(44, false, dts);
         // Off the axis, not above it. Raising the eye to 5.0u to "look over"
         // the boost flame did not work — the plume is emitted straight down a
         // dead-astern optical axis and stacks additively, so it grew wider
@@ -2043,14 +2051,17 @@ class Director {
       setup: async () => {
         const lom = this.lombard;
         if (!lom) {
-          await this.substituteBoostRun(0.4);
+          await this.substituteBoostRun(0.32);
           return;
         }
-        // 0.40, not DRIFT_PHASE: the block sits on the NORTH slope of Russian
+        // 0.32, mid-morning: the block sits on the NORTH slope of Russian
         // Hill, facing away from every warm-band sun — at 0.44 the take read
         // as night. 0.40 is the brightest warm stop; the slope still shades,
         // but the hemisphere fill holds the hedges and blooms readable.
-        const st = this.base({ phase: 0.4, avoidX: lom.x, avoidZ: lom.z, avoidR: 8 });
+        const st = this.base({ phase: 0.32, avoidX: lom.x, avoidZ: lom.z, avoidR: 8 });
+        // The postcard lens parks ~15u from the drift; at that range the
+        // spark stack fuses into a frame-filling flare at full gain.
+        st.setFxDim(0.4);
         // Enter just west of the crest (the marker sits ON the Russian Hill
         // summit; s is the travel frame along the block, east positive).
         const at = (s: number): Pt => [lom.x + lom.tx * s, lom.z + lom.tz * s];
@@ -2163,7 +2174,7 @@ class Director {
         // 2.0u eye (montage-drift's number): drops the horizon to the upper
         // third and keeps the hedge rows tall either side of the descending
         // car instead of a frame half full of asphalt.
-        this.cam(camX, this.city.heightAt(camX, camZ) + 2, camZ, p.x, p.y + 0.9, p.z, 55);
+        this.cam(camX, this.city.heightAt(camX, camZ) + 5.2, camZ, p.x, p.y + 0.4, p.z, 50);
       },
     };
   }
@@ -2268,7 +2279,7 @@ class Director {
         const run = this.summit;
         const at = this.summitAt;
         if (!run || !at) {
-          await this.substituteBoostRun(0.44);
+          await this.substituteBoostRun(0.43);
           return;
         }
         const path = this.edgePath(run.edge, run.dir, 60);
@@ -2278,7 +2289,7 @@ class Director {
         // 0.42, not 0.44: this road climbs the WEST flank, so a later phase
         // puts the whole vista in the ridge's own shadow with the street lamps
         // already coming up. 0.42 keeps the key near full and the sky blue.
-        const st = this.base({ phase: 0.42, avoidX: start.x, avoidZ: start.z, avoidR: 24 });
+        const st = this.base({ phase: 0.43, avoidX: start.x, avoidZ: start.z, avoidR: 32 });
         this.path = path;
         st.placeCar(start.x, start.z, Math.atan2(start.tx, start.tz), 0);
         // Which side of travel the Golden Gate — the one long-range landmark
@@ -2359,16 +2370,16 @@ class Director {
   private sceneMontageSmash(): TrailerScene {
     return {
       id: "montage-smash",
-      duration: 1250,
+      duration: 2400,
       setup: async () => {
         const j =
           this.junctions.find((cand) => cand.approaches.some((a) => a.run >= 30)) ??
           this.junctions[0];
         if (!j) {
-          await this.substituteBoostRun(0.44);
+          await this.substituteBoostRun(0.34);
           return;
         }
-        const st = this.base({ phase: 0.44, avoidX: j.x, avoidZ: j.z, avoidR: 7 });
+        const st = this.base({ phase: 0.34, avoidX: j.x, avoidZ: j.z, avoidR: 7 });
         const arm = j.approaches.reduce<Approach | null>(
           (acc, a) => (acc && acc.run >= a.run ? acc : a),
           null,
@@ -2516,6 +2527,31 @@ class Director {
         const x = this.sceneNode.x;
         const deckY = this.sceneNode.y;
         this.driveAt(x, car.position.z - 300, 9.5);
+        // The rival pack crosses with the hero — the multiplayer pitch folded
+        // into the closer instead of spending a beat of its own. All ahead
+        // (north = -z), flanking lanes only, matching speed: the arithmetic
+        // that keeps colliderless fakes out of the hero (they can never be
+        // overtaken at equal speed from behind).
+        const players: PlayerMap = {};
+        const lanes = [-2.6, 2.6, -1.4] as const;
+        lanes.forEach((lane, i) => {
+          const rx = x + lane;
+          const rz = car.position.z - 11 - i * 6.5;
+          this.checkClearance(`rival-${i}`, rx, rz, Math.PI);
+          players[`rival-${i}`] = {
+            id: `rival-${i}`,
+            state: {
+              x: rx,
+              y: deckY,
+              z: rz,
+              h: Math.PI,
+              skin: RIVAL_SKINS[i % RIVAL_SKINS.length] ?? HERO_SKIN,
+              msg: "",
+              msgAt: 0,
+            },
+          };
+        });
+        st.setFakePlayers(players);
         const e = smooth(clamp(t / 3000, 0, 1));
         // Eye above deck level aiming just over it: the tilt drops the roadway
         // onto the lower third, so the tower, the cables and the sky band get
@@ -2528,6 +2564,136 @@ class Director {
         // plane by 11.8u, so the near suspenders stay thin verticals rather
         // than bars across the lens.
         this.cam(x - 19, deckY + 5 + e * 2.4, this.sceneAux.x, x, deckY + 2.4, this.sceneAux.y, 46);
+      },
+      teardown: () => {
+        this.applyInput({});
+        this.stage?.setFakePlayers(null);
+      },
+    };
+  }
+
+  /** Interstitial text card — plays as display type on the shell's black
+   *  plate. Setup only silences the previous scene's frame hook so nothing
+   *  keeps driving physics under the card. */
+  private cardScene(id: string, title: string, sub?: string, duration = 1000): TrailerScene {
+    return {
+      id,
+      duration,
+      card: { title, sub },
+      setup: () => {
+        this.pending = null;
+      },
+    };
+  }
+
+  /** 1 — PICKUP: the robotaxi idles at a customer's curb, lidar dome level,
+   *  morning-quiet, a fare waiting on the sidewalk — then the ignition stack
+   *  fires and it erupts past the lens without them. The premise in one shot;
+   *  the card after ("NO DRIVER.") captions the joke instead of setting it up.
+   */
+  private scenePickup(): TrailerScene {
+    const PHASE = 0.96;
+    const IGNITE_AT = 1800;
+    return {
+      id: "pickup-ignition",
+      duration: 3800,
+      setup: async () => {
+        const { edge, dir } = this.boulevard(2);
+        const st = this.base({ phase: PHASE });
+        this.path = this.edgePath(edge, dir, 80);
+        const s0 = Math.min(30, this.path.length * 0.2);
+        const p = this.path.at(s0);
+        // Customer on the curb beside the parked car — the fare system draws
+        // the waiting figure and its beacon; setTrailerHold keeps them waiting
+        // forever, which is the joke.
+        const curb: RoadCell = {
+          gx: this.city.gridX(p.x - p.tz * 3.5),
+          gz: this.city.gridZ(p.z + p.tx * 3.5),
+        };
+        const dest: RoadCell = {
+          gx: this.city.gridX(p.x + p.tx * 60),
+          gz: this.city.gridZ(p.z + p.tz * 60),
+        };
+        st.fares.stageTrailerFare(curb, dest, "short");
+        st.placeCar(p.x, p.z, Math.atan2(p.tx, p.tz), 0);
+        // Locked lens 15u down the launch line, 4.6u off to the LEFT of
+        // travel, at standing height: the car idles in a front three-quarter,
+        // then launches toward and past the lens, plume broadside to camera.
+        this.sceneNode.set(p.x + p.tx * 11 + p.tz * 3.6, p.z + p.tz * 11 - p.tx * 3.6);
+        this.sceneAux.set(p.x, p.z);
+        this.applyInput({});
+        await settle();
+      },
+      run: (t, dt) => {
+        if (this.runSubstitute(dt)) return;
+        this.reveal();
+        const st = this.stage;
+        if (!st) return;
+        const car = st.car;
+        const lit = t >= IGNITE_AT;
+        if (lit) {
+          this.topUpBoost();
+          this.applyInput({ throttle: 1, boost: true });
+        }
+        const eyeY = this.city.heightAt(this.sceneNode.x, this.sceneNode.y) + 1.5;
+        // Hold the frame on the idle car; once it launches, let the aim track
+        // it so the pass-by whips the lens instead of exiting a static frame.
+        const aimX = lit ? car.position.x : this.sceneAux.x;
+        const aimZ = lit ? car.position.z : this.sceneAux.y;
+        this.cam(this.sceneNode.x, eyeY, this.sceneNode.y, aimX, car.position.y + 0.8, aimZ, 46);
+      },
+      teardown: () => this.applyInput({}),
+    };
+  }
+
+  /** 10 — SUN BOOST: the golden-hour money shot. A straight boulevard aimed
+   *  as nearly into the low sun as the bake offers, full boost the whole way:
+   *  plume, speed-line combs and the radial rush all firing against the amber
+   *  veil. The one scene that deliberately breaks the away-from-sun rule —
+   *  glare IS the subject, and the chase sits far enough off-axis that the
+   *  car keeps its silhouette against it. */
+  private sceneSunBoost(): TrailerScene {
+    const PHASE = 0.4;
+    return {
+      id: "sun-boost",
+      duration: 4000,
+      setup: async () => {
+        const sun = this.sunHorizontal(PHASE);
+        // Most sun-aligned boulevard, judged INTO the sun (dot of travel
+        // direction with the sun azimuth, best of both directions per edge).
+        let edge = this.boulevard(0).edge;
+        let dir: 1 | -1 = 1;
+        let best = -2;
+        for (const b of this.boulevards) {
+          const mid = this.city.network.sample(b.edge, b.edge.len / 2);
+          for (const d of [1, -1] as const) {
+            const toward = mid.tx * d * sun.x + mid.tz * d * sun.z;
+            if (toward > best) {
+              best = toward;
+              edge = b.edge;
+              dir = d;
+            }
+          }
+        }
+        const st = this.base({ phase: PHASE });
+        this.path = this.edgePath(edge, dir, 140);
+        const start = this.path.at(14);
+        st.placeCar(start.x, start.z, Math.atan2(start.tx, start.tz), 0);
+        this.weaveAmp = 1;
+        await settle();
+        this.kickSpeed = 26;
+      },
+      run: (t, dt) => {
+        if (this.runSubstitute(dt)) return;
+        this.reveal();
+        const dts = Math.min(dt, 50) / 1000;
+        this.topUpBoost();
+        this.followPath(34, true, dts);
+        // Low chase, wide off the exhaust axis: the plume reads three-quarter,
+        // the sun sits high-center, and the push-in over the shot's length
+        // rides the speed instead of stating it.
+        const push = smooth(clamp(t / 4000, 0, 1));
+        this.chaseCam(12.5 - 3.5 * push, 3.0, 14, dts, 58, 2.4);
       },
       teardown: () => this.applyInput({}),
     };

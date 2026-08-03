@@ -297,6 +297,19 @@ export class Fx {
   // stack of puffs clipping toward white (the post S-curve + vibrance sit on
   // top of whatever leaves here; 0.45 read as a fireball).
   // Ambient floor 0.12 keeps night smoke readable against the dark ground.
+  /** Extra multiplier on the additive governor. Trailer cameras park metres
+   *  from the spark shower — screen coverage the gameplay chase never sees —
+   *  and at that range the stack fuses into a blob no per-grain tuning can
+   *  fix. Scenes dim the whole pool instead; gameplay leaves it at 1. */
+  private fxDim = 1;
+
+  setFxDim(dim: number): void {
+    this.fxDim = Math.min(1, Math.max(0, dim));
+    this.fxGain.value = (NIGHT_FX_SCALE + (1 - NIGHT_FX_SCALE) * this.fxDay) * this.fxDim;
+  }
+
+  private fxDay = 1;
+
   setLighting(
     sun: THREE.Color,
     sunIntensity: number,
@@ -306,8 +319,8 @@ export class Fx {
   ): void {
     this.smokeSun.value.copy(sun).multiplyScalar(sunIntensity * 0.26);
     this.smokeAmbient.value.copy(ambient).multiplyScalar(ambientIntensity).addScalar(0.12);
-    const d = Math.min(1, Math.max(0, day));
-    this.fxGain.value = NIGHT_FX_SCALE + (1 - NIGHT_FX_SCALE) * d;
+    this.fxDay = Math.min(1, Math.max(0, day));
+    this.fxGain.value = (NIGHT_FX_SCALE + (1 - NIGHT_FX_SCALE) * this.fxDay) * this.fxDim;
   }
 
   /** Repaint the live tier channel (drift grains, jet, promotion layers). */
