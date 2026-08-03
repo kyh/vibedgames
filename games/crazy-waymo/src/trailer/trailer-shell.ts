@@ -1,11 +1,12 @@
 // trailer-shell.ts — self-contained trailer-mode runner: 16:9 letterbox,
-// dip-to-black cuts between staged scenes, and interstitial text cards.
+// hard cuts between staged scenes, and nothing else. No title cards, no
+// captions, no start gate, no end card — the trailer is pure gameplay from the
+// first reveal to the final cut.
 //
 // This copy DIVERGES from the shared shell (like session.ts, normally kept in
-// sync): it adds `card` scenes — black frames carrying a line of display type.
-// A trailer with no written beats has no premise; this game's premise ("a
-// robotaxi with no driver") is the joke, and the joke needs three words on
-// black to land. Game-specific staging lives in trailer-director.ts.
+// sync) in one way: gameplay-to-gameplay cuts are HARD — a montage that dips
+// to black between every beat has no momentum. The dip survives only around
+// the first reveal. Game-specific staging lives in trailer-director.ts.
 //
 // Integration:
 //   1. Copy this file to games/<game>/src/trailer/trailer-shell.ts unchanged.
@@ -42,11 +43,6 @@ export type TrailerScene = {
   run?: (t: number, dt: number) => void;
   /** Cleanup before the next scene stages. */
   teardown?: () => void;
-  /**
-   * Text card: the scene plays as display type over the black plate — the
-   * plate never lifts, `run` is ignored. `duration` is the hold.
-   */
-  card?: { title: string; sub?: string };
 };
 
 export type TrailerConfig = {
@@ -102,19 +98,10 @@ const CSS = `
 .vgt-vignette { position: absolute; inset: 0;
   background: radial-gradient(ellipse at center, transparent 58%, rgba(0,0,0,0.30) 100%); }
 .vgt-cut { position: absolute; inset: 0; background: #000; opacity: 1; }
-.vgt-card { position: absolute; inset: 0; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 1.2vh; opacity: 0;
-  transition: opacity 180ms ease-out; text-align: center;
-  font-family: "Avenir Next Condensed", "Roboto Condensed", "Arial Narrow", sans-serif; }
-.vgt-card .t { color: #fff4e2; font-weight: 900; font-size: 7.2vh;
-  letter-spacing: 0.14em; text-transform: uppercase; }
-.vgt-card .s { color: #ffcf6b; font-weight: 700; font-size: 2.6vh;
-  letter-spacing: 0.3em; text-transform: uppercase; }
 `;
 
-type TrailerDom = { cutPlate: HTMLElement; card: HTMLElement };
-
-function buildDom(config: TrailerConfig): TrailerDom {
+/** The only mutable layer left: the black plate every cut fades through. */
+function buildDom(config: TrailerConfig): HTMLElement {
   const style = document.createElement("style");
   style.textContent = CSS;
   document.head.appendChild(style);
@@ -122,11 +109,7 @@ function buildDom(config: TrailerConfig): TrailerDom {
   const root = el("div", "vgt-root", document.body);
   const stage = el("div", "vgt-stage", root);
   if (config.vignette !== false) el("div", "vgt-vignette", stage);
-  const cutPlate = el("div", "vgt-cut", stage);
-  const card = el("div", "vgt-card", stage);
-  el("div", "t", card);
-  el("div", "s", card);
-  return { cutPlate, card };
+  return el("div", "vgt-cut", stage);
 }
 
 /** Black held after the final cut before ?loop=1 restarts the trailer. */
@@ -136,7 +119,7 @@ export function runTrailer(config: TrailerConfig): void {
   const params = new URLSearchParams(window.location.search);
   const autoloop = params.has("loop");
   const cutMs = config.cutMs ?? 120;
-  const { cutPlate, card } = buildDom(config);
+  const cutPlate = buildDom(config);
 
   const state: TrailerState = { sceneId: "", sceneIndex: -1, t: 0, done: false };
   window.__trailer = state;
@@ -168,12 +151,11 @@ export function runTrailer(config: TrailerConfig): void {
     cutPlate.style.opacity = String(opacity);
   };
 
-  let lastWasCard = true;
+  let firstReveal = true;
   const playScene = async (scene: TrailerScene, index: number, myGen: number): Promise<void> => {
     // Gameplay-to-gameplay cuts are HARD — a montage that dips to black
-    // between every beat has no momentum. The dip survives only around cards
-    // (text needs the black) and the first reveal.
-    const softCut = lastWasCard || scene.card !== undefined;
+    // between every beat has no momentum. Only the first reveal fades.
+    const softCut = firstReveal;
     setCut(1, softCut ? cutMs * 0.4 : 0);
     await wait(softCut ? cutMs * 0.4 : 20);
     if (myGen !== generation) return;
@@ -192,33 +174,9 @@ export function runTrailer(config: TrailerConfig): void {
       if (myGen !== generation) return;
     }
 
-    if (scene.card) {
-      const title = card.querySelector<HTMLElement>(".t");
-      const sub = card.querySelector<HTMLElement>(".s");
-      if (title) title.textContent = scene.card.title;
-      if (sub) {
-        sub.textContent = scene.card.sub ?? "";
-        sub.style.display = scene.card.sub ? "" : "none";
-      }
-      state.sceneId = scene.id;
-      state.sceneIndex = index;
-      state.t = 0;
-      card.style.opacity = "1";
-      await wait(scene.duration);
-      // The final card IS the end frame — it holds through the closing plate
-      // instead of fading to dead black.
-      if (index !== config.scenes.length - 1) {
-        card.style.opacity = "0";
-        await wait(160);
-      }
-      state.t = scene.duration;
-      lastWasCard = true;
-      return;
-    }
-
     await wait(softCut ? cutMs * 0.2 : 0);
     setCut(0, softCut ? cutMs * 0.4 : 0);
-    lastWasCard = false;
+    firstReveal = false;
 
     state.sceneId = scene.id;
     state.sceneIndex = index;

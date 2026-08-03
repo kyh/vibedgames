@@ -909,25 +909,22 @@ class Director {
    * variant of all three, not a docstring.
    */
   /** The v2 cut: a premise hook, escalating verbs on a dawn-to-golden color
-   *  script, the money shots back-to-back at 0.40, and an end card. Cards
-   *  carry the joke ("NO DRIVER.") so no gameplay beat has to explain itself.
-   *  Dropped from v1: waterfront, hill-descent, street pack-race, dusk
-   *  freeway, bay-bridge — four near-identical "car drives, city pretty"
-   *  beats with no verb are what made the old cut read generic. */
+   *  script, and the money shots back-to-back at 0.40 — pure gameplay, no
+   *  text cards. Dropped from v1: waterfront, hill-descent, street
+   *  pack-race, dusk freeway, bay-bridge — four near-identical "car drives,
+   *  city pretty" beats with no verb are what made the old cut read
+   *  generic. */
   scenes(): TrailerScene[] {
     return [
       this.scenePickup(), //      locked      0.10  the premise: idle robotaxi erupts
-      this.cardScene("card-no-driver", "NO DRIVER."),
       this.sceneColdOpen(), //    chase       0.15  speed (Columbus canyon)
       this.sceneFareRun(), //     tracking    0.22  the loop (HUD on)
-      this.cardScene("card-five-stars", "FIVE STARS."),
       this.sceneMontageSmash(), // locked-off 0.28  cones
       this.sceneLombardDrift(), // tracking   0.32  the drift (the crooked block)
       this.sceneHillAir(), //     locked-off  0.37  air (Potrero brow on this bake)
       this.sceneSunBoost(), //    chase       0.40  golden money shot, into the sun
       this.sceneHeroDrive(), //   locked-off  0.40  Golden Gate + the rival pack
       this.sceneVista(), //       crane       0.43  sunset pull-away, the goodbye
-      this.cardScene("card-title", "CRAZY WAYMO", "crazy-waymo.vibedgames.com", 3000),
     ].map((scene) => this.inGameLoop(scene));
   }
 
@@ -2568,20 +2565,6 @@ class Director {
       teardown: () => {
         this.applyInput({});
         this.stage?.setFakePlayers(null);
-      },
-    };
-  }
-
-  /** Interstitial text card — plays as display type on the shell's black
-   *  plate. Setup only silences the previous scene's frame hook so nothing
-   *  keeps driving physics under the card. */
-  private cardScene(id: string, title: string, sub?: string, duration = 1000): TrailerScene {
-    return {
-      id,
-      duration,
-      card: { title, sub },
-      setup: () => {
-        this.pending = null;
       },
     };
   }
