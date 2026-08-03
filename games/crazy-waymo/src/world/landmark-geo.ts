@@ -38,6 +38,9 @@ export const MAT = {
   copper: new THREE.MeshStandardMaterial({ color: 0x996337, roughness: 0.8, metalness: 0.15 }),
   brick: new THREE.MeshStandardMaterial({ color: 0x9c5f45, roughness: 0.95 }),
   hedge: new THREE.MeshStandardMaterial({ color: 0x3f6d3a, roughness: 1 }),
+  /** Lombard's hydrangeas — rose, not Gate red: a red slab at kerb height
+   *  reads as a hazard barrier from the trailer's high lens. */
+  bloom: new THREE.MeshStandardMaterial({ color: 0xb86a94, roughness: 0.95 }),
   concrete: new THREE.MeshStandardMaterial({ color: 0xb2b1a8, roughness: 1 }),
   slate: new THREE.MeshStandardMaterial({ color: 0x51565c, roughness: 0.9 }),
   /** Still ornamental water — the Palace lagoon, the flooded Sutro basins. */

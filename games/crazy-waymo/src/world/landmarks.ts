@@ -1767,7 +1767,7 @@ function lombard(ctx: LandmarkCtx): THREE.Group {
       // Every other bed carries a bloom of colour — the block is famous for
       // the hydrangeas as much as for the bends.
       if (i % 2 === 0) {
-        g.add(box(3.4, 0.5, 2.6, MAT.gateRed, x, y + 3.2, z, yaw));
+        g.add(box(2.6, 0.35, 2.0, MAT.bloom, x, y + 3.15, z, yaw));
       }
       // Switchback kerb: a brick wall angling in toward the roadway, flipping
       // its lean every bed. That alternation IS the crooked read.

@@ -2041,10 +2041,12 @@ class Director {
     let driftAt = 0;
     return {
       id: "lombard-drift",
-      // Longer than the fast-cut it replaces: the dressed descent ~1.8s at
-      // lane speed, then a full ≥850ms drift so the tier-1 release still
-      // pops, then the exit. Timed off 37.5u to the corner at ~15.5 u/s.
-      duration: 3400,
+      // Descent ~1.8s at lane speed, ≥850ms drift, release pop — CUT. 2900,
+      // not 3400: the release's slide momentum carries the car into the
+      // colliderless corner planter ~3.1s in, and no release gate keeps it
+      // out (tried 0.25/0.34) — so the cut lands on the pop and the clip
+      // happens off screen. Cutting on the action beats showing the exit.
+      duration: 2500,
       setup: async () => {
         const lom = this.lombard;
         if (!lom) {
@@ -2157,13 +2159,19 @@ class Director {
           // release POP still buttons the cut. Gates are relative to the
           // drift arming — the approach length moves with the spawn slide.
           const held = t - driftAt;
-          if ((Math.abs(errExit) < 0.25 && held > 850) || held > 1150) this.step = 2;
+          // Release earlier (0.34 / 1000): the full arc swept the car wide of
+          // the asphalt and THROUGH the colliderless corner planter bed —
+          // invisible from the old low lens, dead centre of the high one.
+          if ((Math.abs(errExit) < 0.34 && held > 850) || held > 1000) this.step = 2;
           else this.drift(this.driftSide);
         }
         if (this.step === 2) {
           // 24 u/s, not 30: the exit is a half-4.6 residential street and a
           // hard pull re-clipped the corner it just drifted around.
-          this.driveAt(node.x + exit.x * 40, node.y + exit.y * 40, 24);
+          // Short target, low speed: powering down the exit carried the
+          // slide into the colliderless corner bed on every take — the pop
+          // is the button, the exit only needs to settle until the cut.
+          this.driveAt(node.x + exit.x * 18, node.y + exit.y * 18, 9);
         }
         const p = car.position;
         const camX = this.sceneAux.x;
@@ -2171,7 +2179,7 @@ class Director {
         // 2.0u eye (montage-drift's number): drops the horizon to the upper
         // third and keeps the hedge rows tall either side of the descending
         // car instead of a frame half full of asphalt.
-        this.cam(camX, this.city.heightAt(camX, camZ) + 5.2, camZ, p.x, p.y + 0.4, p.z, 50);
+        this.cam(camX, this.city.heightAt(camX, camZ) + 8.5, camZ, p.x, p.y + 0.4, p.z, 50);
       },
     };
   }
@@ -2671,7 +2679,11 @@ class Director {
         this.reveal();
         const dts = Math.min(dt, 50) / 1000;
         this.topUpBoost();
-        this.followPath(34, true, dts);
+        // 46, not 34: driveAt drops boost when the car runs 2 over target, so
+        // a mid-band target CYCLES the boost on every flat — each re-arm
+        // refired the full ignition ring stack (judged: pulsing rings the
+        // whole shot). At 46 the gate never closes.
+        this.followPath(46, true, dts);
         // Low chase, wide off the exhaust axis: the plume reads three-quarter,
         // the sun sits high-center, and the push-in over the shot's length
         // rides the speed instead of stating it.
