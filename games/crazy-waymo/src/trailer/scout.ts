@@ -188,6 +188,178 @@ export function scoutCrests(ctx: ScoutCtx, max = 6): CrestSpot[] {
 }
 
 // ---------------------------------------------------------------------------
+// Straight-LINE runs across the junction-dense grid. The NE hills (Nob Hill,
+// Russian Hill, Telegraph) bake into 13–35u edges — junctions every half
+// block — so every per-edge scout above is structurally blind exactly where
+// San Francisco is most recognisable; that blindness is why the launch and
+// drift beats kept resolving to the western residential belt. The octilinear
+// bake guarantees streets are straight LINES between jogs, so the cure is to
+// scan the line, not the edge: chain samples that stay on asphalt regardless
+// of which edge answers (at a junction the nearest centreline is the CROSSING
+// street's, and that is still drivable road).
+
+export type LineRun = {
+  readonly sMin: number; // extent behind the anchor, negative
+  readonly sMax: number; // extent ahead of the anchor
+};
+
+/** Longest contiguous on-asphalt span along (tx,tz) through (x0,z0), sampled
+ *  at 4u. On-asphalt = an edge centreline within its half-width + 1.5. */
+export function lineRun(
+  ctx: ScoutCtx,
+  x0: number,
+  z0: number,
+  tx: number,
+  tz: number,
+  reach = 260,
+): LineRun {
+  const on = (s: number): boolean => {
+    const hit = ctx.network.nearest(x0 + tx * s, z0 + tz * s, 14);
+    return hit !== null && hit.dist <= hit.edge.half + 1.5 && inPlayArea(x0 + tx * s, z0 + tz * s);
+  };
+  let sMin = 0;
+  let sMax = 0;
+  for (let s = 4; s <= reach; s += 4) {
+    if (!on(s)) break;
+    sMax = s;
+  }
+  for (let s = -4; s >= -reach; s -= 4) {
+    if (!on(s)) break;
+    sMin = s;
+  }
+  return { sMin, sMax };
+}
+
+// ---------------------------------------------------------------------------
+// A hill crest on a straight LINE through a district box — the launch spot
+// scout for the hills the per-edge scoutCrests cannot see (its len ≥ 70 gate
+// alone excludes every street on Nob Hill).
+
+export type UvBox = {
+  readonly uMin: number;
+  readonly uMax: number;
+  readonly vMin: number;
+  readonly vMax: number;
+};
+
+export type CrestLine = {
+  readonly x: number; // crest point
+  readonly z: number;
+  readonly tx: number; // LAUNCH travel direction
+  readonly tz: number;
+  readonly approach: number; // on-asphalt run-up before the crest
+  readonly landing: number; // on-asphalt run-out past it
+  readonly upGrade: number;
+  readonly downGrade: number;
+};
+
+/** Best launchable crest on the axis-aligned street lattice inside a u/v box.
+ *  Same grade gates as scoutCrests (up ≥ 0.09, down ≥ 0.11 over 21u — both
+ *  must be real for the suspension to unload); the approach floor is what a
+ *  kickSpeed reveal needs, the landing floor is ~2s of shot past the lens. */
+export function scoutCrestLine(
+  ctx: ScoutCtx,
+  box: UvBox,
+  minApproach = 24,
+  minLanding = 40,
+): CrestLine | null {
+  const RUN = 21;
+  // Scan from EVERY in-box edge midpoint. A lattice line with jogs breaks
+  // into disconnected segments and lineRun only walks the segment containing
+  // its anchor, so per-line dedupe (tried at tile and 1u keys) always ends up
+  // scanning the wrong segment of some street. ~100 edges per district box at
+  // ~130 samples each is milliseconds, once, at trailer boot.
+  let best: CrestLine | null = null;
+  let bestScore = 0;
+  for (const e of ctx.network.edges) {
+    const a = ctx.network.sample(e, e.len / 2);
+    const u = a.x / WORLD_W + 0.5;
+    const v = a.z / WORLD_H + 0.5;
+    if (u < box.uMin || u > box.uMax || v < box.vMin || v > box.vMax) continue;
+    const axisX = Math.abs(a.tx) > Math.abs(a.tz);
+    const tx = axisX ? 1 : 0;
+    const tz = axisX ? 0 : 1;
+    const span = lineRun(ctx, a.x, a.z, tx, tz);
+    if (span.sMax - span.sMin < RUN * 2 + minApproach + minLanding) continue;
+    // A line that stays on asphalt can still be undrivable: a half-tile JOG
+    // passes the on-asphalt test (junction asphalt covers the offset) but
+    // leaves the street's own centreline ~6.5u off the line — a car pursuing
+    // the straight rabbit rides the kerb at the jog and stalls on street
+    // furniture (measured: the first Nob Hill candidate crawled at 1.6 u/s,
+    // 4.6u off-line). Where the nearest edge runs PARALLEL to the line
+    // (mid-block — junction samples answer with the crossing street and
+    // prove nothing), record how far the centreline sits off the line: a
+    // small offset is a steer, a half-tile one is a kerb.
+    const offs: number[] = [];
+    let jogged = false;
+    for (let s = span.sMin; s <= span.sMax && !jogged; s += 4) {
+      const hit = ctx.network.nearest(a.x + tx * s, a.z + tz * s, 14);
+      const along = hit ? Math.abs(hit.tx * tx + hit.tz * tz) : 0;
+      offs.push(hit && along > 0.85 ? hit.dist : 0);
+      if (hit && along > 0.85 && hit.dist > 3.6) jogged = true;
+    }
+    if (jogged) continue;
+    const offNear = (q: number): number => offs[Math.round((q - span.sMin) / 4)] ?? 0;
+    const h = (s: number): number => ctx.heightAt(a.x + tx * s, a.z + tz * s);
+    for (let s = span.sMin; s <= span.sMax; s += 3) {
+      const here = h(s);
+      for (const dir of [1, -1] as const) {
+        // Keep both grade windows on the measured span — beyond it heightAt
+        // still answers (clamped terrain) but the road is fiction.
+        const lo = s - (dir > 0 ? RUN : RUN * 2);
+        const hi = s + (dir > 0 ? RUN * 2 : RUN);
+        if (lo < span.sMin || hi > span.sMax) continue;
+        const up = (here - h(s - RUN * dir)) / RUN;
+        // The drape rounds a lattice crest, so the first 21u past it can read
+        // gentle while the street then falls off a cliff — what throws the car
+        // is the fall inside the first ~second of flight (~2 windows at launch
+        // speed). Take the steeper of the near and far windows.
+        const down = Math.max(
+          (here - h(s + RUN * dir)) / RUN,
+          (here - h(s + RUN * 2 * dir)) / (RUN * 2),
+        );
+        // Crest OR brow. A summit crest (climb, then fall) does not exist on
+        // these hills once the jog gates run — the drape rounds every one.
+        // What does exist is the brow: a flat block tipping over into a steep
+        // straight fall. Air comes from the grade DISCONTINUITY, not the
+        // climb: ballistic needs (up+down)/21 > g/v², and at the 38 u/s the
+        // reveal kicks, 0.14 clears it with margin. The approach may fall
+        // slightly (up ≥ −0.02) but never climb-gate a brow out.
+        if (up < -0.02 || down < 0.1 || up + down < 0.14) continue;
+        const approach = dir > 0 ? s - span.sMin : span.sMax - s;
+        const landing = dir > 0 ? span.sMax - s : s - span.sMin;
+        if (approach < minApproach || landing < minLanding) continue;
+        // The LAUNCH window (a run-in the reveal covers plus the flight) must
+        // be truly straight — a ballistic car cannot steer through even a
+        // small offset, and the fixed lens sits on this stretch.
+        let launchOff = 0;
+        for (let ls = s - 32; ls <= s + 32; ls += 4) {
+          launchOff = Math.max(launchOff, offNear(ls));
+        }
+        if (launchOff > 1.6) continue;
+        // Sum, not min: min() scores every brow at ~0 (flat approach) and the
+        // whole point of admitting brows is that the discontinuity throws.
+        const score = up + down;
+        if (score > bestScore) {
+          bestScore = score;
+          best = {
+            x: a.x + tx * s,
+            z: a.z + tz * s,
+            tx: tx * dir,
+            tz: tz * dir,
+            approach,
+            landing,
+            upGrade: up,
+            downGrade: down,
+          };
+        }
+      }
+    }
+  }
+  return best;
+}
+
+// ---------------------------------------------------------------------------
 // The SF grade: a long straight street that falls away hard under the camera.
 //
 // This replaces a `scoutVista` that asked for a downhill with open WATER ahead
@@ -310,6 +482,21 @@ export function scoutRunNear(
 // sank, and the beat played as an empty crossing. Dry kerb, both sides, is a
 // hard requirement — the travel direction is chosen later (sun avoidance).
 
+/** A 230u straight flat dry-kerb street that is ALSO a neighbourhood shot.
+ *  Pure len × half hands the row to the Sunset's anonymous avenues; the same
+ *  geometry through denser fabric reads as San Francisco, so character
+ *  multiplies the score — geometry still gates, character only tips ties. */
+const PLOW_WEIGHT: Partial<Record<DistrictChar, number>> = {
+  downtown: 1.4,
+  highrise: 1.4,
+  commercial: 1.4,
+  victorian: 1.3,
+  residential: 1,
+  park: 0.8,
+  industrial: 0.6,
+  wharf: 0.6,
+};
+
 export function scoutPlowRun(ctx: ScoutCtx, minLen = 230): RunSpot | null {
   let best: RunSpot | null = null;
   let bestScore = 0;
@@ -333,7 +520,8 @@ export function scoutPlowRun(ctx: ScoutCtx, minLen = 230): RunSpot | null {
       }
     }
     if (!ok) continue;
-    const score = e.len * e.half;
+    const mid = ctx.network.sample(e, e.len / 2);
+    const score = e.len * e.half * (PLOW_WEIGHT[districtAtWorld(mid.x, mid.z)] ?? 1);
     if (score > bestScore) {
       bestScore = score;
       best = { edge: e, dir: 1 };

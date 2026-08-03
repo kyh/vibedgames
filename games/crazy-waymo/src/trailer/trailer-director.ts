@@ -23,7 +23,7 @@ import { districtAt, type DistrictChar } from "../world/sf-map";
 import {
   type Approach,
   type CornerSpot,
-  type CrestSpot,
+  type CrestLine,
   type DescentSpot,
   type FreewayRun,
   type GateSpot,
@@ -31,12 +31,14 @@ import {
   type NearRun,
   type RunSpot,
   type ScoutCtx,
+  type UvBox,
   edgeInPlayArea,
   isWaterAt,
+  lineRun,
   nearFreeway,
   scoutArterial,
   scoutCorners,
-  scoutCrests,
+  scoutCrestLine,
   scoutDescent,
   scoutFreeway,
   scoutGoldenGate,
@@ -101,14 +103,32 @@ const DISTRICT_WEIGHT: Partial<Record<DistrictChar, number>> = {
   wharf: 0.5,
 };
 
-/** Day phase for the drift beat. Shared, because pickCorners rejects corners
- *  whose exit street stares into the sun — and that test is only meaningful if
- *  it runs at the phase the shot is actually lit at. The two used to disagree
- *  (corner chosen for 0.40, scene shot at 0.465). 0.44 also keeps the Victorian
- *  block off the floor: at 0.465 the sun is 2 degrees up and a two-storey
- *  street reads as near-night, which buries a shot whose whole subject is a
- *  smoke plume. */
-const DRIFT_PHASE = 0.44;
+/** Named-hill district boxes (world/sf-map.ts), in preference order for the
+ *  launch beat. The beat anchors to a PLACE — the steepest crest in the bake
+ *  lives in the Sunset, and taking it is how the reel's biggest air ended up
+ *  in front of anonymous stucco. Nob and Russian Hill are first for the name;
+ *  in this bake neither survives the drivability gates (every summit line
+ *  jogs at a junction inside the launch window — measured, scout.ts), so the
+ *  beat lands on Potrero Hill's north brow, where the fall aims the flying
+ *  car at the downtown skyline. */
+const HILL_BOXES: readonly { name: string; box: UvBox }[] = [
+  { name: "Nob Hill", box: { uMin: 0.575, uMax: 0.645, vMin: 0.155, vMax: 0.225 } },
+  { name: "Russian Hill", box: { uMin: 0.575, uMax: 0.645, vMin: 0.07, vMax: 0.155 } },
+  { name: "Potrero Hill", box: { uMin: 0.69, uMax: 0.77, vMin: 0.45, vMax: 0.6 } },
+  { name: "Pacific Heights", box: { uMin: 0.42, uMax: 0.575, vMin: 0.13, vMax: 0.245 } },
+];
+
+/** A straight lattice line through a landmark, in travel order: the Lombard
+ *  block's roadway (the dressing flanks it; the street itself is straight —
+ *  the octilinear bake cannot represent switchbacks). */
+type LandmarkLine = {
+  readonly x: number; // anchor, snapped to the centreline
+  readonly z: number;
+  readonly tx: number; // travel direction
+  readonly tz: number;
+  readonly sMin: number; // on-asphalt extents around the anchor, travel frame
+  readonly sMax: number;
+};
 
 type Pt = readonly [number, number];
 
@@ -216,7 +236,10 @@ class Director {
   private readonly plow: RunSpot | null;
   private readonly boulevards: { edge: NetEdge; dir: 1 | -1 }[];
   private readonly arterial: { edge: NetEdge; dir: 1 | -1 };
-  private readonly crests: CrestSpot[];
+  private readonly hillCrest: CrestLine | null;
+  private readonly hillName: string;
+  private readonly lombard: LandmarkLine | null;
+  private readonly columbus: NearRun | null;
   private readonly descent: DescentSpot | null;
   private readonly ferry: NearRun | null;
   private readonly bayBridge: NearRun | null;
@@ -229,7 +252,6 @@ class Director {
   private readonly fortPointAt: { x: number; z: number } | null;
   private readonly freeway: FreewayRun | null;
   private readonly fareCorner: CornerSpot | null;
-  private readonly driftCorner: CornerSpot | null;
   private readonly junctions: JunctionSpot[];
   private readonly gate: GateSpot | null;
 
@@ -273,7 +295,19 @@ class Director {
     this.plow = scoutPlowRun(this.ctx);
     this.boulevards = this.pickBoulevards(4, this.plow?.edge);
     this.arterial = scoutArterial(this.ctx) ?? this.boulevard(0);
-    this.crests = scoutCrests(this.ctx, 3);
+    // The launch beat is anchored to a NAMED hill by line-scouting its street
+    // lattice — the per-edge crest scout is blind there (13-35u edges). First
+    // box with a drivable crest/brow wins.
+    this.hillCrest = null;
+    this.hillName = "";
+    for (const { name, box } of HILL_BOXES) {
+      const c = scoutCrestLine(this.ctx, box);
+      if (c) {
+        this.hillCrest = c;
+        this.hillName = name;
+        break;
+      }
+    }
     this.descent = scoutDescent(this.ctx);
     // Landmark-anchored beats. landmarkMarkers resolves the authored lat/lon
     // marks against the built network, so these are the monuments' real
@@ -289,19 +323,39 @@ class Director {
       return m ? scoutRunNear(this.ctx, m.x, m.z, opts) : null;
     };
     this.ferry = runAt("the Ferry Building", { radius: 90, minLen: 60, minHalf: 5 });
+    // Columbus Avenue for the cold open — the only boulevard-grade street the
+    // Coit anchor reaches, which IS Columbus by construction: the one diagonal
+    // through North Beach into the Financial District wall.
+    this.columbus = runAt("Coit Tower", { radius: 110, minLen: 140, minHalf: 6 });
+    // The Lombard crooked block: anchor on the landmark's resolved marker,
+    // snap to the roadway under it, and take the on-asphalt line extents.
+    // The dressing (planters/hedges/zig-zag kerbs) flanks this line for 52u.
+    const lombardAt = markAt("Lombard Street");
+    const lombardHit = lombardAt ? city.network.nearest(lombardAt.x, lombardAt.z, 20) : null;
+    if (lombardHit) {
+      // Travel EASTBOUND — the block descends east off the Russian Hill crest
+      // toward the Leavenworth corner, which is where the drift lives.
+      const tx = lombardHit.tx >= 0 ? lombardHit.tx : -lombardHit.tx;
+      const tz = lombardHit.tx >= 0 ? lombardHit.tz : -lombardHit.tz;
+      const span = lineRun(this.ctx, lombardHit.x, lombardHit.z, tx, tz, 160);
+      this.lombard = { x: lombardHit.x, z: lombardHit.z, tx, tz, sMin: span.sMin, sMax: span.sMax };
+    } else {
+      this.lombard = null;
+    }
     this.bayBridge = runAt("the Bay Bridge", { radius: 60, minLen: 55, minHalf: 5 });
     this.bayBridgeAt = markAt("the Bay Bridge");
     this.summit = runAt("the Twin Peaks overlook", { radius: 70, minLen: 45, minHalf: 3 });
     this.summitAt = markAt("the Twin Peaks overlook");
     this.fortPointAt = markAt("Fort Point");
     this.freeway = scoutFreeway(this.ctx);
-    const corners = this.pickCorners();
-    this.fareCorner = corners.fare;
-    this.driftCorner = corners.drift;
+    this.fareCorner = this.pickFareCorner();
     this.junctions = scoutSignalJunctions(this.ctx, 10);
     this.gate = scoutGoldenGate(this.ctx);
+    if (this.hillCrest) console.warn(`[trailer] hill-air staged on ${this.hillName}`);
     for (const [name, ok] of [
-      ["crest", this.crests.length > 0],
+      ["named-hill crest", this.hillCrest !== null],
+      ["lombard block", this.lombard !== null],
+      ["columbus", this.columbus !== null],
       ["descent", this.descent !== null],
       ["plow street", this.plow !== null],
       ["ferry building", this.ferry !== null],
@@ -713,23 +767,7 @@ class Director {
     return Math.abs(hIn - h) < 2.4 && Math.abs(hOut - h) < 2.4;
   }
 
-  /** The same junction taken the OTHER way round: arrive down the exit street,
-   *  leave down the entry street. scoutCorners emits both orientations of every
-   *  corner but then de-duplicates by POSITION, so only one of the pair ever
-   *  survives — and which one is an accident of node order, not a choice. Both
-   *  arms are the same two streets, so `cornerFlat` (which probes the same two
-   *  points, swapped) is unchanged by the flip. */
-  private reverseCorner(c: CornerSpot): CornerSpot {
-    return {
-      node: c.node,
-      x: c.x,
-      z: c.z,
-      inArm: { ...c.outArm, tx: -c.outArm.tx, tz: -c.outArm.tz },
-      outArm: { ...c.inArm, tx: -c.inArm.tx, tz: -c.inArm.tz },
-    };
-  }
-
-  private pickCorners(): { fare: CornerSpot | null; drift: CornerSpot | null } {
+  private pickFareCorner(): CornerSpot | null {
     // 8, not 20. scoutCorners de-duplicates within 160u BEFORE applying `max`,
     // and this bake only yields 8 distinct corners — asking for 20 returned
     // the identical list (verified headless), so the wider scan bought nothing
@@ -739,32 +777,9 @@ class Director {
     // Corners under the elevated freeway stage fine but SHOOT terribly —
     // viaduct pillars and deck cut the fixed cam's sightline to the apex.
     const flat = corners.filter((c) => this.cornerFlat(c) && !nearFreeway(c.x, c.z));
-    const fare =
-      flat.find((c) => c.inArm.run >= 55 && c.outArm.run >= 40) ?? flat[0] ?? corners[0] ?? null;
-    const rest = flat.filter(
-      (c) => fare === null || (c !== fare && Math.hypot(c.x - fare.x, c.z - fare.z) > 150),
+    return (
+      flat.find((c) => c.inArm.run >= 55 && c.outArm.run >= 40) ?? flat[0] ?? corners[0] ?? null
     );
-    // The drift cam sits on the exit street looking BACK along -outArm; if
-    // that stare lines up with the sun the whole cut is horizon glare — prefer
-    // corners whose exit points away from it, at the phase the shot is lit at.
-    const sun = this.sunHorizontal(DRIFT_PHASE);
-    const sunOk = (c: CornerSpot): boolean => -(c.outArm.tx * sun.x + c.outArm.tz * sun.z) < 0.35;
-    const isVic = (c: CornerSpot): boolean =>
-      districtAt(this.city.gridX(c.x), this.city.gridZ(c.z)).character === "victorian";
-    // What the Victorian preference was actually losing to: the only Victorian
-    // corner in `rest` stares 18 degrees off the sun ONE way round (dot 0.954)
-    // and 72 degrees off it the other (dot 0.300), and scoutCorners had kept
-    // the wrong one. Trying the reversed turn is what makes the preference the
-    // docstring has always claimed real — measured, the drift now lands on the
-    // Victorian block instead of a commercial one.
-    const turns = rest.flatMap((c) => [c, this.reverseCorner(c)]);
-    const drift =
-      turns.find((c) => sunOk(c) && isVic(c)) ??
-      turns.find(sunOk) ??
-      turns.find(isVic) ??
-      rest[0] ??
-      fare;
-    return { fare, drift };
   }
 
   /** Polyline down an edge in travel order. `lateral` offsets it along
@@ -792,6 +807,41 @@ class Director {
     const p = new Path(pts);
     if (extendBy > 0) p.extend(extendBy);
     return p;
+  }
+
+  /** Straight-line Path that swerves around known obstacles — parked cars,
+   *  which the bake places deterministically, so they are STAGING DATA, not
+   *  surprises. Each obstacle pushes the line toward its clear side with a
+   *  gaussian falloff; the pursuit then simply follows. The reactive
+   *  followPath weave cannot do this job on a narrow lane: measured on the
+   *  Lombard block (half 3.2, parked van at 2.15), the weave lost the race
+   *  and the take spent its back half pinned on the van at 0.1 u/s.
+   *  `lat` runs along (+tz, −tx) = LEFT of travel, like every lateral here. */
+  private linePathAvoiding(
+    x0: number,
+    z0: number,
+    tx: number,
+    tz: number,
+    s0: number,
+    s1: number,
+    obstacles: readonly { x: number; z: number }[],
+    maxLat = 1.6,
+    extendBy = 0,
+  ): Path {
+    const pts: Pt[] = [];
+    for (let s = s0; s <= s1; s += 4) {
+      let lat = 0;
+      for (const o of obstacles) {
+        const oS = (o.x - x0) * tx + (o.z - z0) * tz;
+        const oLat = (o.x - x0) * tz - (o.z - z0) * tx;
+        const push = Math.exp(-(((s - oS) / 7) ** 2));
+        lat += (oLat >= 0 ? -1 : 1) * 1.7 * push;
+      }
+      lat = clamp(lat, -maxLat, maxLat);
+      pts.push([x0 + tx * s + tz * lat, z0 + tz * s - tx * lat]);
+    }
+    const p = new Path(pts);
+    return extendBy > 0 ? p.extend(extendBy) : p;
   }
 
   /** The last N fleet cars (the police cruisers live at the front). */
@@ -859,11 +909,11 @@ class Director {
    */
   scenes(): TrailerScene[] {
     return [
-      this.sceneColdOpen(), // chase          0.42  speed
-      this.sceneHillAir(), // locked-off      0.42  air
+      this.sceneColdOpen(), // chase          0.42  speed (Columbus canyon)
+      this.sceneHillAir(), // locked-off      0.42  air (named hill — Potrero brow on this bake)
       this.sceneWaterfront(), // crane        0.40  the city is real
       this.sceneFareRun(), // tracking        0.43  the loop
-      this.sceneMontageDrift(), // locked-off 0.44  the drift
+      this.sceneLombardDrift(), // tracking   0.44  the drift (the crooked block)
       this.sceneHillDescent(), // chase       0.44  the SF grade
       this.sceneMontageSmash(), // locked-off 0.44  cones
       this.scenePackRace(), // chase          0.44  other players + liveries
@@ -899,8 +949,9 @@ class Director {
     };
   }
 
-  /** 1 — COLD OPEN: flat out down a downtown arterial, threading moving
-   *  traffic on both sides. Game chase rig (speed crouch + FOV kick). */
+  /** 1 — COLD OPEN: flat out down Columbus Avenue into the Financial District
+   *  wall, oncoming traffic whooshing past in its own lane. Manual low chase
+   *  (speed crouch + FOV kick on the boost ignite). */
   private sceneColdOpen(): TrailerScene {
     return {
       id: "cold-open-weave",
@@ -909,10 +960,15 @@ class Director {
       // waiting. Cutting it early is what makes the next cut land.
       duration: 3000,
       setup: async () => {
-        const { edge } = this.arterial;
+        // Columbus Avenue when the bake has it: the one diagonal through
+        // North Beach, opening straight into the Financial District wall — so
+        // the first shot says WHERE this is before it says how fast. The
+        // district-weighted arterial stays as the fallback street.
+        const spot = this.columbus ?? this.arterial;
+        const edge = spot.edge;
         // Glare beats skyline: drive away from the sun (the game rig stares
         // straight down the street — into-sun runs open the trailer white).
-        const dir = this.awayFromSun(edge, this.arterial.dir, 0.42);
+        const dir = this.awayFromSun(edge, spot.dir, 0.42);
         // Ride the RIGHT LANE (not the centreline) and stage the traffic
         // ONCOMING in its own lane: every weave-based slalom variant tried
         // (both-sides, alternating, same-direction-only, three amplitudes)
@@ -973,73 +1029,112 @@ class Director {
         // pushes 13u → 8.5u as the boost lights, so the FOV kick lands against
         // a closing camera instead of a static one.
         //
-        // The offset goes to the KERB side (−3.6, now that the car rides the
-        // right lane), never the centreline side: at +3.6 the eye sits 0.77u
-        // off the oncoming lane and every whoosh clips the lens.
+        // The offset goes to the KERB side (negative, now that the car rides
+        // the right lane), never the centreline side: on the oncoming side the
+        // eye sits under a lane-width from every whoosh. −2.4, not −3.6: on
+        // Columbus (half 7) the parking strip lives at 5.95 off the
+        // centreline, and −3.6 put the lens at −5.7 — inside a parked car's
+        // roof for a quarter of the cut. −2.4 keeps the plume off-axis and
+        // stays a car-width clear of the parked line.
         const push = smooth(clamp(t / 3000, 0, 1));
-        this.chaseCam(13 - 4.5 * push, 3.4, 15, dts, lit ? 62 : 56, -3.6);
+        this.chaseCam(13 - 4.5 * push, 3.4, 15, dts, lit ? 62 : 56, -2.4);
       },
     };
   }
 
-  /** 2 — HILL AIR: crest the steepest scouted SF hill at speed, all four
-   *  wheels off. Fixed low camera past the crest — the car launches at the
-   *  lens, whips by and lands. */
+  /** 2 — HILL AIR, on a NAMED hill: tip over a brow at speed, all four
+   *  wheels off. The old beat took the steepest crest in the bake, which
+   *  lives in the Sunset — real air, anonymous stucco. scoutCrestLine walks
+   *  the junction-dense lattices of the named hills (HILL_BOXES, preference
+   *  order) that the per-edge scout cannot see; on this bake it lands on
+   *  Potrero Hill's north brow, which throws the car at the downtown
+   *  skyline. Parked cars along the run are baked staging data — the path
+   *  swerves around them (linePathAvoiding), because a ballistic landing
+   *  cannot.
+   *
+   *  The camera keeps the old beat's proven grammar — fixed low lens past the
+   *  crest, car launches AT it against sky — which means the lens stares back
+   *  along the travel direction, and at a warm phase that is only shootable
+   *  when travel points sun-ward. A crest that clears the gates mirrored may
+   *  flip for it; a BROW is one-way by construction (its mirrored down-grade
+   *  is the flat approach) and takes whatever sun angle its hill gives. */
   private sceneHillAir(): TrailerScene {
     return {
       id: "hill-air",
-      // 2000, not 2600. At 46 u/s a 44u run-in is nearly a second of empty road
-      // and a house wall before the car is even in shot — a third of the
-      // trailer's second beat with no subject. 30u puts the car in frame from
-      // the reveal, the launch at ~40% and the whip-by at ~70%, and the cut
-      // ends before the following pan swings into the low sun.
-      //
-      // Not shorter than that, and not faster into the crest: a 20u run-in at
-      // 42 u/s launched the car before the suspension had settled onto the
-      // scouted line, it flew off the roadway, landed in a front yard and sat
-      // there at 0 u/s for the back half of the cut.
+      // 30u of run-in puts the car in frame from the reveal, the launch at
+      // ~40% and the whip-by at ~70% (the old beat's timing, kept — see its
+      // history: shorter run-ins launched before the suspension settled).
       duration: 2000,
       setup: async () => {
-        const crest = this.crests[0];
-        if (!crest) {
-          // No crest scouted (should not happen in SF): boost run substitute.
+        const found = this.hillCrest;
+        if (!found) {
           await this.substituteBoostRun(0.42);
           return;
         }
+        // Flip the launch when the camera (looking back along -travel) would
+        // otherwise face the sun — legal only when the mirrored grades and
+        // margins still clear the scout's own gates.
+        const sun = this.sunHorizontal(0.42);
+        const flipOk =
+          found.downGrade >= 0.09 &&
+          found.upGrade >= 0.11 &&
+          found.landing >= 24 &&
+          found.approach >= 40;
+        const flip = found.tx * sun.x + found.tz * sun.z < 0 && flipOk;
+        const crest = flip
+          ? {
+              ...found,
+              tx: -found.tx,
+              tz: -found.tz,
+              approach: found.landing,
+              landing: found.approach,
+            }
+          : found;
         const st = this.base({ phase: 0.42, avoidX: crest.x, avoidZ: crest.z, avoidR: 8 });
-        const path = this.edgePath(crest.edge, crest.dir, 160);
-        this.path = path;
-        const sC = crest.dir > 0 ? crest.sCrest : crest.edge.len - crest.sCrest;
-        const start = path.at(sC - 30);
-        st.placeCar(start.x, start.z, Math.atan2(start.tx, start.tz), 0);
-        // Camera 24u past the crest and 2.4u off the centreline, low over the
-        // ROADWAY (the shoulder line is lamp-post/tree territory — a trunk 1u
-        // from the lens fills the frame once the car passes). Close and on a
-        // long lens: the airborne car used to read 6% of frame width against a
-        // flat tan hillside of nearly the same value, which is the whole beat
-        // rendered as a speck. 24u at 40 degrees is ~2.2x bigger, and the low
-        // eye puts the launch against sky instead of against the cut bank.
-        //
-        // 2.4, not 1.8: this crest edge measures half 3.2, the car is driven
-        // on the CENTRELINE and it arrives ballistic with air steering, so at
-        // 1.8 a landing that drifts 0.9u laterally — nothing, on a beat whose
-        // earlier variant left the roadway entirely — puts the chassis through
-        // the lens. 2.4 is still 0.8u inside the kerb. The eye offset goes
-        // 1.5 -> 1.8 to compensate: the shoulder falls away 0.36u over that
-        // 0.6u, so the eye lands within 0.06u of the height it was shot at.
-        const p = path.at(sC + 24);
-        this.sceneNode.set(p.x + p.tz * 2.4, p.z - p.tx * 2.4);
+        const alongC = (p: { x: number; z: number }): number =>
+          (p.x - crest.x) * crest.tx + (p.z - crest.z) * crest.tz;
+        const acrossC = (p: { x: number; z: number }): number =>
+          Math.abs((p.x - crest.x) * crest.tz - (p.z - crest.z) * crest.tx);
+        const obstacles = this.city.parkedCarSpecs.filter(
+          (p) => alongC(p) > -crest.approach && alongC(p) < crest.landing + 30 && acrossC(p) < 5,
+        );
+        this.path = this.linePathAvoiding(
+          crest.x,
+          crest.z,
+          crest.tx,
+          crest.tz,
+          -crest.approach,
+          crest.landing,
+          obstacles,
+          1.6,
+          80,
+        );
+        const start = this.path.at(crest.approach - 30);
+        st.placeCar(start.x, start.z, Math.atan2(crest.tx, crest.tz), 0);
+        // Camera 24u past the crest, 2.4u off the centreline, eye ground+1.8,
+        // aim at the car on a 40-degree lens — the composition the old beat
+        // measured in (see git history of sceneHillAir): low eye puts the
+        // launch against sky, 2.4 keeps a drifting ballistic landing out of
+        // the lens while staying inside the kerb line.
+        this.sceneNode.set(
+          crest.x + crest.tx * 24 + crest.tz * 2.4,
+          crest.z + crest.tz * 24 - crest.tx * 2.4,
+        );
         this.sceneAux.set(this.city.heightAt(this.sceneNode.x, this.sceneNode.y) + 1.8, 0);
-        this.applyInput({ throttle: 1, boost: true });
+        // No boost: the climb bleeds ~1 u/s over the run-in and the crest
+        // still throws the car ballistic (needed curvature at 37 u/s is
+        // ~0.007 rad/u, the measured crest is ~0.010) — the flame added
+        // nothing here but a white smear between the car and the lens.
+        this.applyInput({ throttle: 1 });
         await settle();
-        this.kickSpeed = 36;
+        this.kickSpeed = 38;
       },
       run: (_t, dt) => {
         if (this.runSubstitute(dt)) return;
         this.reveal();
         const st = this.stage;
         if (!st) return;
-        this.followPath(46, true, Math.min(dt, 50) / 1000);
+        this.followPath(40, false, Math.min(dt, 50) / 1000);
         const car = st.car.position;
         this.cam(
           this.sceneNode.x,
@@ -1917,80 +2012,157 @@ class Director {
    *  "Victorian" is now measured rather than hoped for — see pickCorners's
    *  reversed-turn fallback, which is what finally lets the preference beat
    *  the sun test. */
-  private sceneMontageDrift(): TrailerScene {
+  /** 5 — LOMBARD: the crooked block. The roadway under the landmark is
+   *  STRAIGHT — the octilinear bake cannot represent switchbacks — but the
+   *  block is fully dressed (world/landmarks.ts `lombard`: brick planters,
+   *  hedges, red blooms, zig-zag kerb walls on both flanks over 52u), so the
+   *  beat drives the dressing: crest in from the west, run down between the
+   *  beds, and break into a committed drift at the corner past the block's
+   *  east end. Replaces the generic Victorian-corner drift — same verb, on
+   *  the one block everyone will claim they recognise.
+   *
+   *  Camera is LOCKED at the bottom of the block on the exit street, outside
+   *  of the turn, looking back up the dressed run — the postcard Lombard
+   *  framing — so the car descends between the hedge rows toward the lens
+   *  and the drift sweeps across frame at the corner. A side-raked tracker
+   *  was tried first: every lateral eye position on this block is inside a
+   *  house or a hedge bed, and the drift's frame rotation swung it through
+   *  the dressing mid-cut. */
+  private sceneLombardDrift(): TrailerScene {
+    // Shared between setup and run (scene-scoped, not Director scratch —
+    // base() has nothing to wipe): the moment the drift armed. The spawn
+    // slides west off parked bodies, so the approach length — and with it
+    // every later beat — moves with the bake.
+    let driftAt = 0;
     return {
-      id: "montage-drift",
-      duration: 1800,
+      id: "lombard-drift",
+      // Longer than the fast-cut it replaces: the dressed descent ~1.8s at
+      // lane speed, then a full ≥850ms drift so the tier-1 release still
+      // pops, then the exit. Timed off 37.5u to the corner at ~15.5 u/s.
+      duration: 3400,
       setup: async () => {
-        const corner = this.driftCorner ?? this.fareCorner;
-        if (!corner) {
-          await this.substituteBoostRun(DRIFT_PHASE);
+        const lom = this.lombard;
+        if (!lom) {
+          await this.substituteBoostRun(0.4);
           return;
         }
-        const st = this.base({ phase: DRIFT_PHASE, avoidX: corner.x, avoidZ: corner.z, avoidR: 6 });
-        const inA = corner.inArm;
-        const outA = corner.outArm;
-        this.sceneNode.set(corner.x, corner.z);
-        this.sceneDir.set(outA.tx, outA.tz);
-        const hIn = Math.atan2(inA.tx, inA.tz);
-        const hOut = Math.atan2(outA.tx, outA.tz);
-        this.driftSide = wrapAngle(hOut - hIn) < 0 ? 1 : -1;
-        st.placeCar(corner.x - inA.tx * 26, corner.z - inA.tz * 26, hIn, 0);
-        // Camera on the exit street looking back; laterally on the OUTSIDE
-        // of the turn so the drift sweeps across frame.
-        //
-        // 13u down the arm rather than 20: at 20 the opening frame was a dead
-        // wide — 65px of car and the bottom 45% bare asphalt with the horizon
-        // pinned at exactly mid-height. And 5.0u off the centreline rather than
-        // 2.6: at the kerb line both head lamps stared into the lens and their
-        // halos blew the largest hot patch in the reel over the hero frame, so
-        // the eye moves further to the outside and the lamps rake past it.
-        let px = outA.tz;
-        let pz = -outA.tx;
-        if (px * -inA.tx + pz * -inA.tz > 0) {
-          px = -px;
-          pz = -pz;
-        }
-        this.sceneAux.set(corner.x + outA.tx * 13 + px * 5, corner.z + outA.tz * 13 + pz * 5);
-        // Staged at rest: NEUTRAL through the cut (brake at standstill would
-        // reverse); drift input starts the frame the reveal kicks the speed.
+        // 0.40, not DRIFT_PHASE: the block sits on the NORTH slope of Russian
+        // Hill, facing away from every warm-band sun — at 0.44 the take read
+        // as night. 0.40 is the brightest warm stop; the slope still shades,
+        // but the hemisphere fill holds the hedges and blooms readable.
+        const st = this.base({ phase: 0.4, avoidX: lom.x, avoidZ: lom.z, avoidR: 8 });
+        // Enter just west of the crest (the marker sits ON the Russian Hill
+        // summit; s is the travel frame along the block, east positive).
+        const at = (s: number): Pt => [lom.x + lom.tx * s, lom.z + lom.tz * s];
+        // Parked cars are the block's real hazard: furniture parks them at
+        // half − 1.05 = 2.15 off the centreline here, which on a 3.2-half
+        // lane leaves their bodies 0.85u from the middle of the road — the
+        // first take drove the centreline into a parked truck at the spawn
+        // and spent the whole cut pinned on it. The bake is deterministic, so
+        // they become followPath obstacles (reactive weave), and the spawn
+        // slides west until it is clear of every parked body.
+        const nearLine = (s: number, r: number): boolean =>
+          this.city.parkedCarSpecs.some((p) => {
+            const dx = p.x - (lom.x + lom.tx * s);
+            const dz = p.z - (lom.z + lom.tz * s);
+            return Math.hypot(dx, dz) < r;
+          });
+        // Start AT the crest, not below it: from the locked lens 40u away a
+        // below-crest start read as an empty street for the first third of
+        // the cut. Slide west only as far as parked bodies force.
+        let sEnter = -2;
+        while (sEnter > lom.sMin + 4 && nearLine(sEnter, 4.5)) sEnter -= 4;
+        const along = (p: { x: number; z: number }): number =>
+          (p.x - lom.x) * lom.tx + (p.z - lom.z) * lom.tz;
+        const across = (p: { x: number; z: number }): number =>
+          Math.abs((p.x - lom.x) * lom.tz - (p.z - lom.z) * lom.tx);
+        const obstacles = this.city.parkedCarSpecs.filter(
+          (p) => along(p) > sEnter - 6 && along(p) < 40 && across(p) < 5,
+        );
+        // The dodge is BAKED INTO the path (see linePathAvoiding — the
+        // reactive weave measurably lost this race on a half-3.2 lane and
+        // pinned the take on a parked van). 1.5 of lateral clears a parked
+        // body without putting the car through the flanking hedge beds.
+        this.path = this.linePathAvoiding(
+          lom.x,
+          lom.z,
+          lom.tx,
+          lom.tz,
+          sEnter,
+          Math.max(lom.sMax, 28),
+          obstacles,
+          1.5,
+          50,
+        );
+        const start = at(sEnter);
+        st.placeCar(start[0], start[1], Math.atan2(lom.tx, lom.tz), 0);
+        this.sceneDir.set(-lom.tz, lom.tx);
+        // The drift corner: the cross street just past the block's east end
+        // (Leavenworth on this bake, s ≈ 27.5). Exit RIGHT of travel — the
+        // right-hand column carries ~50u of road here, the left jogs away.
+        this.sceneNode.set(lom.x + lom.tx * 27.5, lom.z + lom.tz * 27.5);
+        this.driftSide = 1;
+        // Locked eye down the exit street on the OUTSIDE of the turn —
+        // montage-drift's grammar, but at 17/7 rather than its 13/5: this
+        // lens looks sunward (the block runs west, the 0.40 sun sits low over
+        // its crest), and at 13/5 the drift plume crossed the lens against
+        // the sun and bloomed the entire frame white for ~0.4s at the beat's
+        // button (measured on a dense frame strip of the capture). The wider
+        // standoff keeps the plume off-axis; the sun stays in frame as mood.
+        this.sceneAux.set(
+          this.sceneNode.x + this.sceneDir.x * 17 + lom.tx * 7,
+          this.sceneNode.y + this.sceneDir.y * 17 + lom.tz * 7,
+        );
+        // Staged at rest: NEUTRAL through the cut; the reveal kicks a slow
+        // roll — the block is a 3.2-half residential lane walled with brick
+        // beds, and 26 u/s through it reads as a glitch, not a flex.
         await settle();
-        this.kickSpeed = 26;
+        this.kickSpeed = 14;
       },
       run: (t, dt) => {
         if (this.runSubstitute(dt)) return;
         this.reveal();
         const st = this.stage;
         if (!st) return;
+        const dts = Math.min(dt, 50) / 1000;
         const node = this.sceneNode;
         const exit = this.sceneDir;
         const car = st.car;
-        // Straight in → committed drift at the mouth (turn radius v/arcMax
-        // ≈ 10u — earlier and the arc cuts the block) → release aligned with
-        // the exit street, mini-turbo pops the car out toward the camera.
         const dNode = Math.hypot(node.x - car.position.x, node.y - car.position.z);
         const errExit = wrapAngle(
           Math.atan2(node.x + exit.x * 22 - car.position.x, node.y + exit.y * 22 - car.position.z) -
             car.heading,
         );
         if (this.step === 0) {
-          if (dNode < 16) this.step = 1;
-          else this.driveAt(node.x, node.y, 27);
+          // Thread the block — the path's baked dodges around the parked
+          // cars ARE the crooked-street choreography. 20 u/s, not 17: a
+          // 15 u/s drift entry over-rotated (arc radius ~5u), released
+          // mis-aligned on the fallback gate and rolled the car on the exit
+          // kerb — the arc needs the momentum.
+          if (dNode < 12) {
+            this.step = 1;
+            driftAt = t;
+          } else this.followPath(20, false, dts);
         }
         if (this.step === 1) {
           // Hold ≥ ~850ms of drift (tier-1 mini-turbo arms at 0.8s) so the
-          // release POP is the button of the cut, right before it ends.
-          if ((Math.abs(errExit) < 0.25 && t > 1250) || t > 1400) this.step = 2;
+          // release POP still buttons the cut. Gates are relative to the
+          // drift arming — the approach length moves with the spawn slide.
+          const held = t - driftAt;
+          if ((Math.abs(errExit) < 0.25 && held > 850) || held > 1150) this.step = 2;
           else this.drift(this.driftSide);
         }
         if (this.step === 2) {
-          this.driveAt(node.x + exit.x * 40, node.y + exit.y * 40, 34);
+          // 24 u/s, not 30: the exit is a half-4.6 residential street and a
+          // hard pull re-clipped the corner it just drifted around.
+          this.driveAt(node.x + exit.x * 40, node.y + exit.y * 40, 24);
         }
         const p = car.position;
         const camX = this.sceneAux.x;
         const camZ = this.sceneAux.y;
-        // 2.0u eye, not 3.4: lower drops the horizon to the upper third and
-        // crops the dead asphalt out of the bottom of the approach frames.
+        // 2.0u eye (montage-drift's number): drops the horizon to the upper
+        // third and keeps the hedge rows tall either side of the descending
+        // car instead of a frame half full of asphalt.
         this.cam(camX, this.city.heightAt(camX, camZ) + 2, camZ, p.x, p.y + 0.9, p.z, 55);
       },
     };
