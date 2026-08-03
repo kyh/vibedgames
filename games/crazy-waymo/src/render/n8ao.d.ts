@@ -13,6 +13,7 @@ declare module "n8ao" {
     aoSamples: number;
     denoiseSamples: number;
     denoiseRadius: number;
+    denoiseIterations: number;
     halfRes: boolean;
     depthAwareUpsampling: boolean;
     screenSpaceRadius: boolean;

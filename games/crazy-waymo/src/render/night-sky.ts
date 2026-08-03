@@ -25,6 +25,12 @@ const ZENITH_MUL = 0.6; // how much of the horizon value survives at the zenith
 const HORIZON_MUL = 0.78; // matches the flat background this replaced (fog * 0.72-ish)
 const STARS = 700;
 const REBAKE_EPS = 0.012; // per-channel fog drift that forces a re-bake
+// Triangular-PDF dither amplitude for the gradient, in 8-bit steps. The dome
+// ramp spans only a few dozen values over 128 rows, so an undithered 8-bit
+// paint shows fat horizontal bands on the one half of the night frame that is
+// otherwise a clean gradient; under one step of triangular noise they read as
+// grain that hides beneath the star field.
+const DITHER_AMPLITUDE = 0.75;
 
 // Deterministic star field: a re-bake must not re-roll the sky.
 function starRng(seed: number): () => number {
@@ -36,28 +42,51 @@ function starRng(seed: number): () => number {
 }
 
 const scratch = new THREE.Color();
+const hRGB = { r: 0, g: 0, b: 0 };
+const zRGB = { r: 0, g: 0, b: 0 };
 
 function paint(ctx: CanvasRenderingContext2D, fog: THREE.Color): void {
-  // getStyle(), never `r * 255`: with three's colour management on, a Color's
-  // channels are LINEAR, and the canvas this paints into is read back as sRGB.
-  // Writing linear bytes straight to it costs roughly a factor of three in
-  // value — the whole dome came out near-black on the first pass.
-  const hStyle = scratch.copy(fog).multiplyScalar(HORIZON_MUL).getStyle();
+  // getStyle()/getRGB(SRGBColorSpace), never `r * 255`: with three's colour
+  // management on, a Color's channels are LINEAR, and the canvas this paints
+  // into is read back as sRGB. Writing linear bytes straight to it costs
+  // roughly a factor of three in value — the whole dome came out near-black
+  // on the first pass.
+  scratch.copy(fog).multiplyScalar(HORIZON_MUL);
+  const hStyle = scratch.getStyle();
+  scratch.getRGB(hRGB, THREE.SRGBColorSpace);
   // Zenith drifts BLUER as well as darker — a straight multiply keeps the fog's
   // hue and reads as "the same colour, dimmer", which is the flat look again.
   scratch.copy(fog).multiplyScalar(HORIZON_MUL * ZENITH_MUL);
   scratch.b = Math.min(1, scratch.b * 1.5 + 0.004);
   scratch.r *= 0.72;
   scratch.g *= 0.86;
-  const zStyle = scratch.getStyle();
+  scratch.getRGB(zRGB, THREE.SRGBColorSpace);
 
-  const grad = ctx.createLinearGradient(0, 0, 0, H * HORIZON_V);
-  grad.addColorStop(0, zStyle);
-  grad.addColorStop(1, hStyle);
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, W, H * HORIZON_V);
+  // The gradient half is painted per-pixel with a triangular dither (see
+  // DITHER_AMPLITUDE) — createLinearGradient quantises straight to bands.
+  // Uint8ClampedArray assignment rounds and clamps, so the noisy float can be
+  // written as-is. The sRGB lerp per row matches what the canvas gradient did.
+  const rows = Math.round(H * HORIZON_V);
+  const img = ctx.createImageData(W, rows);
+  const px = img.data;
+  const ditherRnd = starRng(0x2b9d43);
+  let i = 0;
+  for (let y = 0; y < rows; y++) {
+    const t = y / (rows - 1);
+    const r = (zRGB.r + (hRGB.r - zRGB.r) * t) * 255;
+    const g = (zRGB.g + (hRGB.g - zRGB.g) * t) * 255;
+    const b = (zRGB.b + (hRGB.b - zRGB.b) * t) * 255;
+    for (let x = 0; x < W; x++) {
+      const n = (ditherRnd() + ditherRnd() - 1) * DITHER_AMPLITUDE;
+      px[i++] = r + n;
+      px[i++] = g + n;
+      px[i++] = b + n;
+      px[i++] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
   ctx.fillStyle = hStyle;
-  ctx.fillRect(0, H * HORIZON_V, W, H - H * HORIZON_V);
+  ctx.fillRect(0, rows, W, H - rows);
 
   // Stars thin out toward the horizon (haze) and never sit below it.
   const rnd = starRng(0x5f3a11);

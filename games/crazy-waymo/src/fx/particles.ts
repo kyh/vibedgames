@@ -1,5 +1,9 @@
 import * as THREE from "three";
 
+import { BoostPlume, FxRings } from "./boost-plume";
+import { REINHARD_GLSL } from "./reinhard";
+import { GRIND_COLOR } from "./tier";
+
 type EmitOpts = {
   count: number;
   color: THREE.Color;
@@ -13,10 +17,14 @@ type EmitOpts = {
   // Optional directional term: final velocity = radial term + dir * dirSpeed.
   dir?: { x: number; y: number; z: number };
   dirSpeed?: number;
-  // 0..1 scale on the day bloom gain (sparks pool only). Hot FX — drift
-  // sparks, boost flame, crash bursts — glow at 1; inert debris like sand and
-  // grass flecks opts out at 0, or every off-road run reads as a fire.
-  bloomGain?: number;
+  // HDR multiplier on color before additive blending. Hot FX author 2.2-3.4
+  // so a lone grain clears the ~1.6 day bloom gate through the max-channel
+  // Reinhard shoulder; inert debris (sand, grass flecks) stays at 1 and never
+  // blooms — no separate opt-out needed.
+  intensity?: number;
+  // Tier channel: the grain's color is uTierCol * intensity, re-read every
+  // frame — a tier promotion repaints grains already in the air (sparks only).
+  channel?: boolean;
 };
 
 // vAlpha = remaining life fraction (1 at birth -> 0 at death).
@@ -27,15 +35,14 @@ const VERT = `
   attribute float aMax;
   attribute float aSize;
   attribute vec3 aColor;
-  attribute float aGain;
+  attribute float aChannel;
   uniform float uScale;
   uniform float uGrow;
+  uniform vec3 uTierCol;
   varying float vAlpha;
   varying vec3 vColor;
-  varying float vGain;
   void main() {
-    vColor = aColor;
-    vGain = aGain;
+    vColor = aColor * mix(vec3(1.0), uTierCol, aChannel);
     vAlpha = clamp(aLife / max(aMax, 0.0001), 0.0, 1.0);
     float shrinkRamp = mix(0.6, 1.4, vAlpha);
     float growRamp = mix(1.5, 0.7, vAlpha);
@@ -69,16 +76,18 @@ const FRAG_SMOKE = `
     gl_FragColor = vec4(color, vAlpha * vAlpha * soft);
   }
 `;
-// Sparks: uGain boosts the CENTER of the sprite only (skirt stays at 1x, so a
-// gained spark reads white-hot core + colored halo, not a blob). By day the
-// bloom threshold sits at 6.5 pre-tonemap while spark colors peak ~1 — the
-// gain is what lets a day drift spark cross the cut and glow like the night
-// lamp halos do.
+// Sparks: intensities are authored pre-shoulder (hot FX 2.2-3.4) and the
+// max-channel Reinhard shoulder is the LAST op — stacked grains asymptote
+// toward their own hue instead of washing to white, and a lone core still
+// clears the day bloom gate. The hot-core desat only whitens the pinprick
+// centre (0.45, never 1.0 — a fully white core reads as fireflies with no
+// hue). uFxGain is the day-weighted governor: at night the bloom cut drops to
+// 0.85 and un-scaled 2-3x grains would flood the frame.
 const FRAG_SPARKS = `
-  uniform float uGain;
+  uniform float uFxGain;
   varying float vAlpha;
   varying vec3 vColor;
-  varying float vGain;
+  ${REINHARD_GLSL}
   void main() {
     vec2 d = gl_PointCoord - vec2(0.5);
     float r = dot(d, d);
@@ -86,10 +95,12 @@ const FRAG_SPARKS = `
     float soft = smoothstep(0.25, 0.0, r);
     vec3 color = mix(vColor * 0.35, vColor, pow(vAlpha, 0.6));
     // Hot core confined to the inner ~35% radius — r is SQUARED distance, so
-    // the earlier 1-4r ramp still covered most of the sprite and every gained
-    // spark rendered as a fat additive splat instead of a pinprick.
+    // a wider ramp would cover most of the sprite and every spark would
+    // render as a fat white splat instead of a pinprick.
     float core = pow(smoothstep(0.03, 0.0, r), 2.0);
-    color *= 1.0 + (uGain - 1.0) * core * vGain;
+    float mx = max(color.r, max(color.g, color.b));
+    color = mix(color, vec3(mx), core * 0.45);
+    color = reinhardClip(color * uFxGain);
     gl_FragColor = vec4(color, vAlpha * vAlpha * soft);
   }
 `;
@@ -101,7 +112,7 @@ class ParticleField {
   private size: Float32Array;
   private life: Float32Array;
   private max: Float32Array;
-  private gain: Float32Array;
+  private chan: Float32Array;
   private vel: Float32Array;
   private grav: Float32Array;
   private drag: Float32Array;
@@ -122,7 +133,7 @@ class ParticleField {
     this.size = new Float32Array(n);
     this.life = new Float32Array(n);
     this.max = new Float32Array(n);
-    this.gain = new Float32Array(n);
+    this.chan = new Float32Array(n);
     this.vel = new Float32Array(n * 3);
     this.grav = new Float32Array(n);
     this.drag = new Float32Array(n);
@@ -133,7 +144,7 @@ class ParticleField {
     geo.setAttribute("aSize", new THREE.BufferAttribute(this.size, 1));
     geo.setAttribute("aLife", new THREE.BufferAttribute(this.life, 1));
     geo.setAttribute("aMax", new THREE.BufferAttribute(this.max, 1));
-    geo.setAttribute("aGain", new THREE.BufferAttribute(this.gain, 1));
+    geo.setAttribute("aChannel", new THREE.BufferAttribute(this.chan, 1));
     geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
 
     this.mat = new THREE.ShaderMaterial({
@@ -158,6 +169,7 @@ class ParticleField {
     const dx = dir ? dir.x * ds : 0;
     const dy = dir ? dir.y * ds : 0;
     const dz = dir ? dir.z * ds : 0;
+    const intensity = o.intensity ?? 1;
     for (let k = 0; k < o.count; k++) {
       const i = this.cursor;
       this.cursor = (this.cursor + 1) % this.n;
@@ -169,13 +181,13 @@ class ParticleField {
       this.vel[i * 3] = Math.cos(ang) * o.spread + Math.cos(ang) * sp + dx;
       this.vel[i * 3 + 1] = o.up * (0.5 + Math.random()) + dy;
       this.vel[i * 3 + 2] = Math.sin(ang) * o.spread + Math.sin(ang) * sp + dz;
-      this.col[i * 3] = o.color.r;
-      this.col[i * 3 + 1] = o.color.g;
-      this.col[i * 3 + 2] = o.color.b;
+      this.col[i * 3] = o.color.r * intensity;
+      this.col[i * 3 + 1] = o.color.g * intensity;
+      this.col[i * 3 + 2] = o.color.b * intensity;
       this.size[i] = o.size * (0.7 + Math.random() * 0.6);
       this.life[i] = o.life;
       this.max[i] = o.life;
-      this.gain[i] = o.bloomGain ?? 1;
+      this.chan[i] = o.channel ? 1 : 0;
       this.grav[i] = o.gravity;
       this.drag[i] = o.drag;
     }
@@ -209,31 +221,70 @@ class ParticleField {
     geo.getAttribute("aSize").needsUpdate = true;
     geo.getAttribute("aLife").needsUpdate = true;
     geo.getAttribute("aMax").needsUpdate = true;
-    geo.getAttribute("aGain").needsUpdate = true;
+    geo.getAttribute("aChannel").needsUpdate = true;
   }
 }
 
 export type FxSurface = "road" | "grass" | "sand" | "concrete";
+
+export type FxTier = 0 | 1 | 2;
+
+// Drift-tier FX ladder — tiers are three DIFFERENT effects sharing a palette,
+// not one effect re-hued: rate and core size escalate, the top tier adds the
+// vertical ember jet (shape change) and the 6.5 Hz ground-ring pulse (rhythm
+// change — nothing else in the game beats). Hue itself comes from fx/tier.ts
+// via the live channel. rate = grains/s/wheel; sizes in point-sprite units.
+// Intensities sit just over the 1.6 day gate: each grain glows, but only the
+// dense center of the shower fuses. 2.25+ made EVERY grain a bloom kernel and
+// the whole spray read as one fireball at chase distance (measured, golden
+// hour) — the shower must stay grains, not a glow sprite.
+// Steady-state grains stay UNDER the 1.6 day bloom gate — a drift holds a
+// tight arc, so 0.4-0.7s of emissions pile into a few square metres and any
+// per-grain bloom fuses the pile into one fireball (measured, golden hour,
+// donut test). Only one-frame moments (promotion, ignition) may cross the
+// gate; the held shower reads as sparks, not glow.
+export const TIER_FX = [
+  { rate: 34, core: 0.22, coreInt: 1.25, halo: 0.35, haloInt: 0.8, jet: 0, pulse: 0 },
+  { rate: 56, core: 0.28, coreInt: 1.35, halo: 0.45, haloInt: 0.8, jet: 0, pulse: 0 },
+  { rate: 84, core: 0.34, coreInt: 1.45, halo: 0.55, haloInt: 0.8, jet: 30, pulse: 6.5 },
+] as const;
+
+// Day-weighted additive governor floor: authored 2.2-3.4 radiances are tuned
+// against the ~1.6 DAY bloom gate; the night gate sits at 0.85 with a coupled
+// emissive budget (window 1.1 / lamp 0.9 / headlight 1.6), so FX scale toward
+// this floor after dark instead of out-shining every lamp pool.
+const NIGHT_FX_SCALE = 0.55;
 
 // High-level effects used by the game.
 export class Fx {
   // Defaults approximate noon so the first frames before setLighting look sane.
   private smokeSun = { value: new THREE.Color(0.78, 0.72, 0.6) };
   private smokeAmbient = { value: new THREE.Color(0.55, 0.6, 0.65) };
-  private sparkGain = { value: 1 };
+  // Shared additive governor (sparks, rings, plume): mix(NIGHT_FX_SCALE, 1, day).
+  private fxGain = { value: 1 };
+  // Live tier channel — rewritten per frame; a promotion recolors every
+  // channel grain already in flight, that frame, for three floats.
+  private tierCol = { value: new THREE.Color(GRIND_COLOR) };
   readonly smoke = new ParticleField(420, THREE.NormalBlending, true, FRAG_SMOKE, {
     uSunTint: this.smokeSun,
     uAmbient: this.smokeAmbient,
+    uTierCol: { value: new THREE.Color(1, 1, 1) },
   }); // grows over life
   readonly sparks = new ParticleField(500, THREE.AdditiveBlending, false, FRAG_SPARKS, {
-    uGain: this.sparkGain,
+    uFxGain: this.fxGain,
+    uTierCol: this.tierCol,
   }); // shrinks over life
+  readonly plume = new BoostPlume(this.fxGain);
+  readonly rings = new FxRings(this.fxGain);
   private tmp = new THREE.Color();
+  private white = new THREE.Color(1, 1, 1);
   private tmpDir = { x: 0, y: 0, z: 0 };
 
   addTo(scene: THREE.Scene): void {
     scene.add(this.smoke.points);
     scene.add(this.sparks.points);
+    scene.add(this.plume.mesh);
+    scene.add(this.rings.mesh);
   }
   setScale(px: number): void {
     this.smoke.setScale(px);
@@ -246,12 +297,6 @@ export class Fx {
   // stack of puffs clipping toward white (the post S-curve + vibrance sit on
   // top of whatever leaves here; 0.45 read as a fireball).
   // Ambient floor 0.12 keeps night smoke readable against the dark ground.
-  // Spark gain tops out at x3.5 — deliberately UNDER the 6.5 day bloom cut.
-  // Cores at ~3.4 ACES-clip to a white-hot center on their own; pushing them
-  // past the cut instead (an earlier x7) fed every 20Hz spark trail into the
-  // bloom pyramid and a plain grind drift read as a chain of fireballs. Only
-  // spots where several sparks overlap now cross the cut, which is a glint,
-  // not a flood. At night the cut is 0.85 and gain MUST return to 1.
   setLighting(
     sun: THREE.Color,
     sunIntensity: number,
@@ -261,21 +306,21 @@ export class Fx {
   ): void {
     this.smokeSun.value.copy(sun).multiplyScalar(sunIntensity * 0.26);
     this.smokeAmbient.value.copy(ambient).multiplyScalar(ambientIntensity).addScalar(0.12);
-    this.sparkGain.value = 1 + 2.5 * Math.min(1, Math.max(0, day));
+    const d = Math.min(1, Math.max(0, day));
+    this.fxGain.value = NIGHT_FX_SCALE + (1 - NIGHT_FX_SCALE) * d;
+  }
+
+  /** Repaint the live tier channel (drift grains, jet, promotion layers). */
+  setTierChannel(css: string): void {
+    this.tierCol.value.set(css);
   }
 
   // Tire smoke while drifting. `charged` is the Mario-Kart mini-turbo tell:
-  // sparks turn cyan and the count jumps 2 -> 5. Smoke is tinted by the
-  // surface being torn up (same colors as kickup, so the two systems agree):
-  // road keeps grey rubber-smoke, off-road throws that surface's dust.
-  driftPuff(
-    x: number,
-    y: number,
-    z: number,
-    boosting: boolean,
-    charged = false,
-    surface: FxSurface = "road",
-  ): void {
+  // sparks ride the live tier channel and the count jumps 2 -> 5. Smoke is
+  // tinted by the surface being torn up (same colors as kickup, so the two
+  // systems agree): road keeps grey rubber-smoke, off-road throws that
+  // surface's dust.
+  driftPuff(x: number, y: number, z: number, boosting: boolean, surface: FxSurface = "road"): void {
     if (surface === "grass") this.tmp.setRGB(0.42, 0.36, 0.24);
     else if (surface === "sand") this.tmp.setRGB(0.66, 0.57, 0.41);
     else if (surface === "concrete") this.tmp.setRGB(0.8, 0.8, 0.78);
@@ -291,15 +336,20 @@ export class Fx {
       gravity: -1.2,
       drag: 2.4,
     });
-    if (boosting || charged) {
-      this.tmp.setHSL(charged ? 0.55 : 0.08, 1, 0.6);
+    // Boost-only ember kiss in the smoke. The drift-charge spark read belongs
+    // to the tier shower (driftShower) — a second charged emission here at
+    // smoke cadence stacked ~300 sprites/s on the same spot and fused into a
+    // fireball no shower tuning could fix (isolated by hiding the pool).
+    if (boosting) {
+      this.tmp.setHSL(0.08, 1, 0.6);
       this.sparks.emit(x, y + 0.3, z, {
-        count: charged ? 5 : 2,
+        count: 2,
         color: this.tmp,
+        intensity: 1.4,
         speed: 5,
         spread: 1,
         up: 0.5,
-        size: 1.1,
+        size: 0.4,
         life: 0.35,
         gravity: 0,
         drag: 3,
@@ -307,8 +357,188 @@ export class Fx {
     }
   }
 
-  // Boost exhaust: hot flame tongues shot backwards along (dirX, dirZ).
-  // Call per frame while boosting; one white-hot core + orange tails.
+  // Drift spark shower — the steady per-wheel spray. Three layers per call:
+  // hot cores (thrown along `dir`, the inherited-velocity + backward-throw
+  // vector precomputed by the rig), a colored halo cloud carrying the
+  // silhouette at chase distance, and an intermittent contact-patch lamp so
+  // every frame of a slide has SOME light at the tyre.
+  driftShower(
+    x: number,
+    y: number,
+    z: number,
+    tier: FxTier,
+    count: number,
+    dx: number,
+    dz: number,
+    dirSpeed: number,
+  ): void {
+    const t = TIER_FX[tier];
+    this.tmpDir.x = dx;
+    this.tmpDir.y = 0;
+    this.tmpDir.z = dz;
+    this.sparks.emit(x, y, z, {
+      count,
+      color: this.white,
+      channel: true,
+      intensity: t.coreInt,
+      speed: 4.6 + 1.3 * tier,
+      spread: 1.2,
+      up: 2.5 + 0.5 * tier,
+      size: t.core,
+      life: 0.4,
+      gravity: 14,
+      drag: 1.5,
+      dir: this.tmpDir,
+      dirSpeed,
+    });
+    this.sparks.emit(x, y + 0.12, z, {
+      count: Math.max(1, count >> 1),
+      color: this.white,
+      channel: true,
+      intensity: t.haloInt,
+      speed: 1.5,
+      spread: 0.9,
+      up: 1.2,
+      size: t.halo,
+      life: 0.3,
+      gravity: 2,
+      drag: 2.4,
+      dir: this.tmpDir,
+      dirSpeed: dirSpeed * 0.7,
+    });
+    if (Math.random() < 0.6) {
+      this.sparks.emit(x, y + 0.05, z, {
+        count: 1,
+        color: this.white,
+        channel: true,
+        intensity: 1.45,
+        speed: 0.2,
+        spread: 0.2,
+        up: 0.2,
+        size: 2.3 + 0.4 * tier,
+        life: 0.12,
+        gravity: 0,
+        drag: 6,
+        dir: this.tmpDir,
+        dirSpeed: dirSpeed * 0.9,
+      });
+    }
+  }
+
+  // Top-tier vertical ember jet: long life + low drag makes it a standing
+  // column — a STATE the eye can hold onto, not a stream of events.
+  emberJet(x: number, y: number, z: number, count: number, ix: number, iz: number): void {
+    this.tmpDir.x = ix;
+    this.tmpDir.y = 0;
+    this.tmpDir.z = iz;
+    this.sparks.emit(x, y, z, {
+      count,
+      color: this.white,
+      channel: true,
+      intensity: 1.5,
+      speed: 0.4,
+      spread: 1.5,
+      up: 6.2,
+      size: 0.16,
+      life: 0.7,
+      gravity: 11,
+      drag: 0.55,
+      dir: this.tmpDir,
+      dirSpeed: 1,
+    });
+  }
+
+  // Tier-promotion burst at one wheel: fast stretch-read cores + a colored
+  // glow shell. All on the live channel so the burst and the recolored shower
+  // land as one event.
+  promotionBurst(
+    x: number,
+    y: number,
+    z: number,
+    tier: FxTier,
+    count: number,
+    ix: number,
+    iz: number,
+  ): void {
+    this.tmpDir.x = ix;
+    this.tmpDir.y = 0;
+    this.tmpDir.z = iz;
+    this.sparks.emit(x, y, z, {
+      count,
+      color: this.white,
+      channel: true,
+      intensity: 3.0,
+      speed: 6.5,
+      spread: 1.4,
+      up: 3.2,
+      size: 0.6 + 0.12 * tier,
+      life: 0.62,
+      gravity: 13,
+      drag: 1.1,
+      dir: this.tmpDir,
+      dirSpeed: 1,
+    });
+    this.sparks.emit(x, y + 0.2, z, {
+      count: Math.max(1, count >> 1),
+      color: this.white,
+      channel: true,
+      intensity: 1.75,
+      speed: 3,
+      spread: 1.2,
+      up: 1.6,
+      size: 1.7,
+      life: 0.4,
+      gravity: 2,
+      drag: 2.5,
+      dir: this.tmpDir,
+      dirSpeed: 0.6,
+    });
+  }
+
+  // Air flare: one soft glow at rear-deck height — puts the promotion in the
+  // AIR where the chase camera actually looks.
+  promotionFlare(x: number, y: number, z: number, tier: FxTier): void {
+    this.sparks.emit(x, y, z, {
+      count: 1,
+      color: this.white,
+      channel: true,
+      intensity: 1.3 + 0.3 * tier,
+      speed: 0.3,
+      spread: 0.2,
+      up: 0.2,
+      size: 2.0 + 1.0 * tier,
+      life: 0.3,
+      gravity: -0.5,
+      drag: 4.5,
+    });
+  }
+
+  // Ground flash pool under the car on promotion — pops at birth (the alpha
+  // curve peaks on frame 1) so every promotion channel crests the same frame.
+  promotionPool(x: number, y: number, z: number, tier: FxTier, ix: number, iz: number): void {
+    this.tmpDir.x = ix;
+    this.tmpDir.y = 0;
+    this.tmpDir.z = iz;
+    this.sparks.emit(x, y + 0.15, z, {
+      count: 1,
+      color: this.white,
+      channel: true,
+      intensity: 0.95 + 0.16 * tier,
+      speed: 0,
+      spread: 0.1,
+      up: 0.05,
+      size: 4.2 + 1.2 * tier,
+      life: 0.34,
+      gravity: 0,
+      drag: 5,
+      dir: this.tmpDir,
+      dirSpeed: 0.75,
+    });
+  }
+
+  // Boost exhaust support cone: hot flame tongues shot backwards along
+  // (dirX, dirZ) UNDER the ribbon plume — the particulate the rigid mesh
+  // can't do (root kisses, cooling wisps). Call per frame while boosting.
   exhaustFlame(x: number, y: number, z: number, dirX: number, dirZ: number): void {
     const len = Math.hypot(dirX, dirZ);
     const inv = len > 0.0001 ? 1 / len : 0;
@@ -320,6 +550,7 @@ export class Fx {
     this.sparks.emit(x, y, z, {
       count: 1,
       color: this.tmp,
+      intensity: 2.8,
       speed: 0.4,
       spread: 0.2,
       up: 0.2,
@@ -335,6 +566,7 @@ export class Fx {
     this.sparks.emit(x, y, z, {
       count: 1,
       color: this.tmp,
+      intensity: 2.4,
       speed: 0.6,
       spread: 0.3,
       up: 0.3,
@@ -350,6 +582,7 @@ export class Fx {
     this.sparks.emit(x, y, z, {
       count: 1,
       color: this.tmp,
+      intensity: 1.8,
       speed: 0.7,
       spread: 0.4,
       up: 0.35,
@@ -363,8 +596,8 @@ export class Fx {
   }
 
   // Boost ignition pop (the Mario Kart read): a fat one-shot flame tongue
-  // from each exhaust plus a spray of hot flecks. Replaces the old expanding
-  // ground shockwave — boosts read from the pipes, not the pavement.
+  // from each exhaust plus a spray of hot flecks — the particulate half of
+  // the ignition stack (the ground rings + plume spike fire alongside it).
   boostFlash(x: number, y: number, z: number, dirX: number, dirZ: number, hue: number): void {
     const len = Math.hypot(dirX, dirZ);
     const inv = len > 0.0001 ? 1 / len : 0;
@@ -375,6 +608,7 @@ export class Fx {
     this.sparks.emit(x, y, z, {
       count: 3,
       color: this.tmp,
+      intensity: 3.0,
       speed: 0.5,
       spread: 0.25,
       up: 0.3,
@@ -389,6 +623,7 @@ export class Fx {
     this.sparks.emit(x, y, z, {
       count: 4,
       color: this.tmp,
+      intensity: 2.6,
       speed: 0.9,
       spread: 0.5,
       up: 0.4,
@@ -403,6 +638,7 @@ export class Fx {
     this.sparks.emit(x, y, z, {
       count: 6,
       color: this.tmp,
+      intensity: 2.4,
       speed: 4.5,
       spread: 1.2,
       up: 1.4,
@@ -438,6 +674,7 @@ export class Fx {
     });
     if (surface === "grass") this.tmp.setHSL(0.29, 0.8, 0.42);
     else this.tmp.setHSL(0.11, 0.7, 0.68);
+    // Inert debris: intensity stays at 1 (under the bloom gate by authoring).
     this.sparks.emit(x, y + 0.3, z, {
       count: 2,
       color: this.tmp,
@@ -448,7 +685,6 @@ export class Fx {
       life: 0.5,
       gravity: 9,
       drag: 1.2,
-      bloomGain: 0,
     });
   }
 
@@ -489,6 +725,7 @@ export class Fx {
     this.sparks.emit(x, y, z, {
       count: 2 + (Math.random() < 0.5 ? 1 : 0),
       color: this.tmp,
+      intensity: 2.3,
       speed: 2,
       spread: 0.8,
       up: 0.6,
@@ -507,6 +744,7 @@ export class Fx {
       this.sparks.emit(x, y, z, {
         count: 1,
         color: this.tmp,
+        intensity: 2.2,
         speed: power * (0.5 + Math.random()),
         spread: 1,
         up: power * 0.7,
@@ -521,5 +759,7 @@ export class Fx {
   update(dt: number): void {
     this.smoke.update(dt);
     this.sparks.update(dt);
+    this.plume.update(dt);
+    this.rings.update(dt);
   }
 }

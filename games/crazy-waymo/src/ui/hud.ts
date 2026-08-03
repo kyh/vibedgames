@@ -1,8 +1,70 @@
+import { TIER_COLORS, tierColor } from "../fx/tier";
+
 function el(id: string): HTMLElement {
   const node = document.getElementById(id);
   if (!node) throw new Error(`missing #${id}`);
   return node;
 }
+
+function damp(current: number, target: number, lambda: number, dt: number): number {
+  return current + (target - current) * (1 - Math.exp(-lambda * dt));
+}
+
+// ---- Drift rails (tuning knobs) -------------------------------------------
+// Rail fill is LADDER position, (tier + charge) / steps — never within-tier
+// charge, which resets to 0 at the exact moment of earning. A tier boundary
+// is a step; only opacity is eased.
+const RAIL_STEPS = 3;
+const RAIL_ON_BASE = 0.44;
+const RAIL_ON_FILL = 0.16;
+const RAIL_ON_TIER = 0.13;
+const RAIL_RISE_LAMBDA = 22;
+const RAIL_FALL_LAMBDA = 8;
+/** The earning (next-tier) rail cap per held tier; index 2 is the violet
+ *  release preview — never a holdable state, matching fx/tier.ts doctrine. */
+const RAIL_NEXT_COLOR: Record<0 | 1 | 2, string> = {
+  0: TIER_COLORS[0],
+  1: TIER_COLORS[1],
+  2: TIER_COLORS[2],
+};
+
+// ---- Speedometer paint (warm-ink cluster; every value is a tuning knob) ---
+const DIAL_W = 120;
+const DIAL_H = 84;
+const DIAL_CX = 60;
+const DIAL_CY = 42;
+const DIAL_R = 29;
+const DIAL_FACE_R = 38;
+// 240° sweep, symmetric about 12 o'clock, opening at the bottom (the digital
+// readout sits in the gap).
+const DIAL_A0 = Math.PI * (5 / 6);
+const DIAL_SWEEP = Math.PI * (4 / 3);
+const DIAL_MAX_MPH = 100;
+const REDLINE_FRAC = 0.85;
+const CHAN_W = 7; // channel groove width
+const CHAN_FILL_FRAC = 0.78; // fill/scale width inside the groove
+const CHAN_INK = "rgba(18, 10, 4, 0.64)";
+// ONE flat low value — a low-alpha ramp behind the fill reads as a fault.
+const CHAN_SCALE = "rgba(255, 232, 202, 0.15)";
+const DIAL_FILL_LO = "#fff4e2";
+const DIAL_FILL_MID = "#ffcf6b";
+const DIAL_FILL_HI = "#e0453f";
+const DIAL_FILL_GLOW = "rgba(255, 190, 110, 0.34)";
+const REDLINE_INK = "rgba(224, 69, 63, 0.55)";
+const REDLINE_OVER = "rgba(255, 150, 96, 0.92)";
+const TICK_OUT_R = 24;
+const TICK_MAJOR_IN_R = 17.5;
+const TICK_MINOR_IN_R = 21;
+const TICK_INK = "rgba(18, 10, 4, 0.82)";
+const TICK_CREAM_MAJOR = "rgba(255, 244, 226, 0.72)";
+const TICK_CREAM_MINOR = "rgba(255, 244, 226, 0.42)";
+const NEEDLE_TIP_R = DIAL_R - CHAN_W * 0.62;
+const NEEDLE_TAIL_R = DIAL_R * 0.3;
+const NEEDLE_HALF_W = DIAL_R * 0.078;
+const HUB_R = 4.5;
+const PAPER = "#fff4e2";
+const DIAL_INK = "rgba(18, 10, 4, 0.92)";
+const DIAL_FONT = '"Avenir Next Condensed", "Roboto Condensed", "Arial Narrow", sans-serif';
 
 function sub(selector: string): HTMLElement {
   const node = document.querySelector(selector);
@@ -50,6 +112,19 @@ export class Hud {
   private boostFill = el("boost-fill");
   private dial = el("dash-dial");
   private dialCtx: CanvasRenderingContext2D | null = null;
+  // Dial gradients cached at first draw — they never change frame to frame.
+  private dialFaceGrad: CanvasGradient | null = null;
+  private dialValueGrad: CanvasGradient | null = null;
+  private dialHubGrad: CanvasGradient | null = null;
+  private railL = el("rail-l");
+  private railR = el("rail-r");
+  private railBarL = sub("#rail-l > i");
+  private railBarR = sub("#rail-r > i");
+  private railOn = 0;
+  // Shown-value memos: a style write that changes nothing still dirties style.
+  private railOnShown = -1;
+  private railFillShown = -1;
+  private railTierShown = -1;
   private fareCard = el("fare-card");
   private fareWho = el("fare-card").querySelector<HTMLElement>(".who");
   private fareDist = el("fare-card").querySelector<HTMLElement>(".dist");
@@ -123,6 +198,55 @@ export class Hud {
         this.drawDial(Math.max(0, this.mphShown));
       }
     }
+    this.updateRails(dt);
+  }
+
+  /** Screen-edge drift rails: fill = ladder position, tier triple-encoded as
+   *  height + hue + pulse-rate (pulse lives in CSS via the .tN classes). One
+   *  composited translateY per frame; only opacity is eased. */
+  private updateRails(dt: number): void {
+    const charge = Math.max(0, Math.min(1, this.driftCharge));
+    const active = this.driftTier > 0 || charge > 0;
+    const fill = Math.min(1, (this.driftTier + charge) / RAIL_STEPS);
+    const want = active ? RAIL_ON_BASE + RAIL_ON_FILL * fill + RAIL_ON_TIER * this.driftTier : 0;
+    this.railOn = damp(
+      this.railOn,
+      want,
+      want > this.railOn ? RAIL_RISE_LAMBDA : RAIL_FALL_LAMBDA,
+      dt,
+    );
+    const on = this.railOn < 0.015 ? 0 : this.railOn;
+    if (Math.abs(on - this.railOnShown) > 0.005) {
+      this.railOnShown = on;
+      const o = on.toFixed(3);
+      this.railL.style.opacity = o;
+      this.railR.style.opacity = o;
+    }
+    if (Math.abs(fill - this.railFillShown) > 0.004) {
+      this.railFillShown = fill;
+      const t = `translateY(${((1 - fill) * 100).toFixed(2)}%)`;
+      this.railBarL.style.transform = t;
+      this.railBarR.style.transform = t;
+    }
+    const tier = this.driftTier;
+    if (tier !== this.railTierShown) {
+      // Promotion (not the first sync, not the post-drift reset) refires the
+      // flare; colors come from fx/tier.ts so rails and sparks agree.
+      const promoted = tier > this.railTierShown && this.railTierShown >= 0 && active;
+      this.railTierShown = tier;
+      const banked = tierColor(tier);
+      const next = RAIL_NEXT_COLOR[tier];
+      for (const rail of [this.railL, this.railR]) {
+        rail.classList.remove("t0", "t1", "t2", "pop");
+        rail.classList.add(`t${tier}`);
+        rail.style.setProperty("--cc", banked);
+        rail.style.setProperty("--cn", next);
+        if (promoted && !this.reduceMotion) {
+          void rail.offsetWidth;
+          rail.classList.add("pop");
+        }
+      }
+    }
   }
 
   setTimer(_seconds: number, _low: boolean): void {
@@ -193,117 +317,183 @@ export class Hud {
     }
   }
 
-  // Analogue gauge, kart-cluster style: dark face in a bevel + gold rim,
-  // 240° sweep, ticks every 10 (majors at 20), needle from the hub. The
-  // digital readout sits in the sweep's bottom gap under the hub.
+  // Warm-ink cluster instrument: channel groove, gradient value fill
+  // (cream → gold → kerb red), redline segment, ink-under-cream ticks, and a
+  // MOUNTED needle — counterweight + cast shadow + chrome hub are the three
+  // things that make a pointer look mounted. The digital readout sits in the
+  // sweep's bottom gap under the hub.
   private drawDial(mph: number): void {
     const canvas = this.dial;
     if (!(canvas instanceof HTMLCanvasElement)) return;
-    const W = 120;
-    const H = 84;
     if (!this.dialCtx) {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      canvas.width = W * dpr;
-      canvas.height = H * dpr;
+      canvas.width = DIAL_W * dpr;
+      canvas.height = DIAL_H * dpr;
       this.dialCtx = canvas.getContext("2d");
       this.dialCtx?.scale(dpr, dpr);
     }
     const ctx = this.dialCtx;
     if (!ctx) return;
-    const DIAL_MAX = 100;
-    const cx = 60;
-    const cy = 42;
-    const r = 29;
-    // 240° sweep, symmetric about 12 o'clock, opening at the bottom.
-    const a0 = Math.PI * (5 / 6);
-    const sweep = Math.PI * (4 / 3);
-    const frac = Math.max(0, Math.min(1, mph / DIAL_MAX));
-    ctx.clearRect(0, 0, W, H);
-    // Face, warm bevel ring, gold rim — matches the .pill plate recipe.
+    const cx = DIAL_CX;
+    const cy = DIAL_CY;
+    const r = DIAL_R;
+    if (!this.dialValueGrad) {
+      const face = ctx.createLinearGradient(0, cy - DIAL_FACE_R, 0, cy + DIAL_FACE_R);
+      face.addColorStop(0, "#3a2a1d");
+      face.addColorStop(0.55, "#20140d");
+      face.addColorStop(1, "#170e0a");
+      this.dialFaceGrad = face;
+      const val = ctx.createLinearGradient(cx - r, cy + r * 0.35, cx + r, cy - r * 0.55);
+      val.addColorStop(0, DIAL_FILL_LO);
+      val.addColorStop(0.45, DIAL_FILL_MID);
+      val.addColorStop(1, DIAL_FILL_HI);
+      this.dialValueGrad = val;
+      // Chrome hub: metalness 1.0 reads as a vertical light-to-dark ramp.
+      const hub = ctx.createLinearGradient(0, cy - HUB_R, 0, cy + HUB_R);
+      hub.addColorStop(0, "#fff7ec");
+      hub.addColorStop(0.55, "#b29a80");
+      hub.addColorStop(1, "#443426");
+      this.dialHubGrad = hub;
+    }
+    const frac = Math.max(0, Math.min(1, mph / DIAL_MAX_MPH));
+    ctx.clearRect(0, 0, DIAL_W, DIAL_H);
+    // Face: top-lit warm-ink gradient, warm bevel, cream hairline rim.
     ctx.beginPath();
-    ctx.arc(cx, cy, 38, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(20, 16, 12, 0.96)";
+    ctx.arc(cx, cy, DIAL_FACE_R, 0, Math.PI * 2);
+    ctx.fillStyle = this.dialFaceGrad ?? "#170e0a";
     ctx.fill();
     ctx.lineWidth = 4;
-    ctx.strokeStyle = "#352a1e";
+    ctx.strokeStyle = "#54402f";
     ctx.beginPath();
     ctx.arc(cx, cy, 35.5, 0, Math.PI * 2);
     ctx.stroke();
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = "rgba(255, 209, 71, 0.9)";
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = "rgba(255, 226, 186, 0.35)";
     ctx.beginPath();
-    ctx.arc(cx, cy, 38, 0, Math.PI * 2);
+    ctx.arc(cx, cy, DIAL_FACE_R, 0, Math.PI * 2);
     ctx.stroke();
-    // Track, then the speed arc over it (color shifts toward the redline).
+    // Channel groove, then the unfilled scale over it at one flat value.
     ctx.lineCap = "butt";
-    ctx.lineWidth = 7;
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.14)";
+    ctx.lineWidth = CHAN_W;
+    ctx.strokeStyle = CHAN_INK;
     ctx.beginPath();
-    ctx.arc(cx, cy, r, a0, a0 + sweep);
+    ctx.arc(cx, cy, r, DIAL_A0, DIAL_A0 + DIAL_SWEEP);
     ctx.stroke();
+    ctx.lineWidth = CHAN_W * CHAN_FILL_FRAC;
+    ctx.strokeStyle = CHAN_SCALE;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, DIAL_A0, DIAL_A0 + DIAL_SWEEP);
+    ctx.stroke();
+    // Redline segment, IN the channel.
+    ctx.strokeStyle = REDLINE_INK;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, DIAL_A0 + DIAL_SWEEP * REDLINE_FRAC, DIAL_A0 + DIAL_SWEEP);
+    ctx.stroke();
+    // Value fill: the cream→gold→red ramp with a soft warm glow; past the
+    // redline it re-lays hot so the needle's arc wins over the red band.
     if (frac > 0.005) {
-      ctx.strokeStyle = frac > 0.8 ? "#ff8a3c" : frac > 0.55 ? "#ffd147" : "#8fd9ff";
+      ctx.save();
+      ctx.shadowColor = DIAL_FILL_GLOW;
+      ctx.shadowBlur = DIAL_W * 0.02;
+      ctx.strokeStyle = this.dialValueGrad ?? DIAL_FILL_MID;
       ctx.beginPath();
-      ctx.arc(cx, cy, r, a0, a0 + sweep * frac);
+      ctx.arc(cx, cy, r, DIAL_A0, DIAL_A0 + DIAL_SWEEP * frac);
       ctx.stroke();
+      if (frac > REDLINE_FRAC) {
+        ctx.strokeStyle = REDLINE_OVER;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, DIAL_A0 + DIAL_SWEEP * REDLINE_FRAC, DIAL_A0 + DIAL_SWEEP * frac);
+        ctx.stroke();
+      }
+      ctx.restore();
     }
-    // Ticks inside the track: minors every 10 mph, longer majors every 20.
-    for (let m = 0; m <= DIAL_MAX; m += 10) {
+    // Ticks: minors every 10 mph, majors every 20 — each drawn twice, ink
+    // under then cream over (the same recipe as the text contour ring).
+    for (let m = 0; m <= DIAL_MAX_MPH; m += 10) {
       const major = m % 20 === 0;
-      const a = a0 + sweep * (m / DIAL_MAX);
-      const t1 = major ? 17.5 : 21;
-      ctx.strokeStyle = major ? "rgba(255, 255, 255, 0.7)" : "rgba(255, 255, 255, 0.32)";
-      ctx.lineWidth = major ? 2 : 1.5;
+      const a = DIAL_A0 + DIAL_SWEEP * (m / DIAL_MAX_MPH);
+      const ax = Math.cos(a);
+      const ay = Math.sin(a);
+      const rIn = major ? TICK_MAJOR_IN_R : TICK_MINOR_IN_R;
+      ctx.strokeStyle = TICK_INK;
+      ctx.lineWidth = major ? 2.6 : 1.8;
       ctx.beginPath();
-      ctx.moveTo(cx + Math.cos(a) * 24, cy + Math.sin(a) * 24);
-      ctx.lineTo(cx + Math.cos(a) * t1, cy + Math.sin(a) * t1);
+      ctx.moveTo(cx + ax * TICK_OUT_R, cy + ay * TICK_OUT_R);
+      ctx.lineTo(cx + ax * rIn, cy + ay * rIn);
+      ctx.stroke();
+      ctx.strokeStyle = major ? TICK_CREAM_MAJOR : TICK_CREAM_MINOR;
+      ctx.lineWidth = major ? 1.4 : 0.9;
+      ctx.beginPath();
+      ctx.moveTo(cx + ax * TICK_OUT_R, cy + ay * TICK_OUT_R);
+      ctx.lineTo(cx + ax * rIn, cy + ay * rIn);
       ctx.stroke();
     }
-    // Needle from the hub with a short counterweight tail; dark contour
-    // underneath so it survives crossing the bright arc colors.
-    const na = a0 + sweep * frac;
+    // Needle: cream polygon with a counterweight tail, cast shadow, ink edge.
+    const na = DIAL_A0 + DIAL_SWEEP * frac;
     const nx = Math.cos(na);
     const ny = Math.sin(na);
-    ctx.lineCap = "round";
-    ctx.strokeStyle = "rgba(10, 7, 4, 0.7)";
-    ctx.lineWidth = 5.5;
+    const px = -ny;
+    const py = nx;
+    const hw = NEEDLE_HALF_W;
+    const tailX = cx - nx * NEEDLE_TAIL_R;
+    const tailY = cy - ny * NEEDLE_TAIL_R;
     ctx.beginPath();
-    ctx.moveTo(cx - nx * 6, cy - ny * 6);
-    ctx.lineTo(cx + nx * 23, cy + ny * 23);
-    ctx.stroke();
-    ctx.strokeStyle = "#ff5a52";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(cx - nx * 6, cy - ny * 6);
-    ctx.lineTo(cx + nx * 23, cy + ny * 23);
-    ctx.stroke();
-    // Hub cap.
-    ctx.beginPath();
-    ctx.arc(cx, cy, 5, 0, Math.PI * 2);
-    ctx.fillStyle = "#241d16";
+    ctx.moveTo(cx + px * hw, cy + py * hw);
+    ctx.lineTo(cx + nx * NEEDLE_TIP_R, cy + ny * NEEDLE_TIP_R);
+    ctx.lineTo(cx - px * hw, cy - py * hw);
+    ctx.lineTo(tailX - px * hw * 0.9, tailY - py * hw * 0.9);
+    ctx.quadraticCurveTo(
+      tailX - nx * hw * 1.6,
+      tailY - ny * hw * 1.6,
+      tailX + px * hw * 0.9,
+      tailY + py * hw * 0.9,
+    );
+    ctx.closePath();
+    ctx.save();
+    ctx.shadowColor = "rgba(18, 10, 4, 0.68)";
+    ctx.shadowBlur = DIAL_W * 0.022;
+    ctx.shadowOffsetX = DIAL_W * 0.005;
+    ctx.shadowOffsetY = DIAL_W * 0.01;
+    ctx.fillStyle = PAPER;
     ctx.fill();
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = "#ffd147";
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(cx, cy, 1.8, 0, Math.PI * 2);
-    ctx.fillStyle = "#ff5a52";
-    ctx.fill();
-    // Digital readout under the hub.
-    ctx.textAlign = "center";
+    ctx.restore();
     ctx.lineJoin = "round";
-    ctx.font = "800 19px ui-monospace, 'SF Mono', Menlo, monospace";
+    ctx.lineWidth = 1.4;
+    ctx.strokeStyle = DIAL_INK;
+    ctx.stroke();
+    // Chrome hub over the needle root.
+    ctx.beginPath();
+    ctx.arc(cx, cy, HUB_R, 0, Math.PI * 2);
+    ctx.fillStyle = this.dialHubGrad ?? "#b29a80";
+    ctx.fill();
+    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = DIAL_INK;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx, cy, HUB_R * 0.4, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(18, 10, 4, 0.78)";
+    ctx.fill();
+    // Digital readout under the hub: ink stroke under cream fill.
+    ctx.textAlign = "center";
+    ctx.font = `900 19px ${DIAL_FONT}`;
     ctx.lineWidth = 3;
-    ctx.strokeStyle = "rgba(0, 0, 0, 0.75)";
+    ctx.strokeStyle = "rgba(18, 10, 4, 0.86)";
     ctx.strokeText(String(Math.round(mph)), cx, 69);
-    ctx.fillStyle = "#fff";
+    ctx.fillStyle = PAPER;
     ctx.fillText(String(Math.round(mph)), cx, 69);
-    ctx.font = "800 8px ui-monospace, 'SF Mono', Menlo, monospace";
-    ctx.fillStyle = "rgba(255, 209, 71, 0.85)";
+    ctx.font = `700 8px ${DIAL_FONT}`;
+    ctx.fillStyle = "rgba(255, 232, 202, 0.6)";
     ctx.fillText("MPH", cx, 78);
   }
   setBoost(frac: number): void {
     this.boostFill.style.width = `${Math.round(Math.max(0, Math.min(1, frac)) * 100)}%`;
+  }
+
+  driftTier: 0 | 1 | 2 = 0;
+  driftCharge = 0;
+  setDrift(tier: 0 | 1 | 2, charge: number): void {
+    this.driftTier = tier;
+    this.driftCharge = charge;
   }
   boostDenied(): void {
     this.boostPill.classList.remove("denied");
@@ -328,7 +518,7 @@ export class Hud {
     if (this.fareDist) this.fareDist.textContent = `${Math.round(distance)} m`;
     const f = Math.max(0, Math.min(1, patienceFrac));
     this.patienceFill.style.width = `${Math.round(f * 100)}%`;
-    this.patienceFill.style.background = f > 0.5 ? "#6bff8e" : f > 0.25 ? "#ffb64d" : "#ff5a52";
+    this.patienceFill.style.background = f > 0.5 ? "#7ef0a4" : f > 0.25 ? "#ffb64d" : "#e0453f";
   }
   hideFareCard(): void {
     this.fareCard.classList.remove("show");
@@ -353,8 +543,9 @@ export class Hud {
   // and brand color — swapping cars re-skins the meter.
   setOperator(label: string, accent: string): void {
     if (this.scoreLabel) this.scoreLabel.textContent = label;
-    if (this.scoreLabel) this.scoreLabel.style.color = accent;
-    this.scorePill.style.borderColor = accent;
+    // The plate's accent slot: rim-light gradient + label tint both key off
+    // --accent, so the brand color lands in one write.
+    this.scorePill.style.setProperty("--accent", accent);
   }
 
   announceMinor(text: string, color = "#aee3ff"): void {
@@ -394,6 +585,8 @@ export class Hud {
 
   showCountdown(text: string, big: boolean): void {
     this.countdown.textContent = text;
+    // GO! flips the gold display ramp to green (CSS .go).
+    this.countdown.classList.toggle("go", text.toUpperCase().startsWith("GO"));
     // Scale-settle: land past 1, snap back — the digit reads as slammed down.
     this.countdown.animate(
       [

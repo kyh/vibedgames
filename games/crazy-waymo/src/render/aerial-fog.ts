@@ -87,6 +87,19 @@ const WEST_NONE_X = toX(0.32);
 // bank readable as weather without erasing what it sits on.
 const WEST_WEIGHT = 0.3;
 
+// --- Dual-rate mix (the painter's aerial perspective) ---------------------
+// A surface loses its HUE before it loses its VALUE: chroma converges onto the
+// haze FOG_CHROMA_RATE times faster than the plain fog lerp converges
+// brightness. A single-rate lerp keeps a far facade reading as saturated
+// cardboard right up until it vanishes; with the drain, a distant ridge is
+// mostly desaturated while still holding its value step, so the silhouette
+// ladder survives. The caps are the residuals: FOG_MAX leaves 8% of the
+// surface in the mix so backdrop planes never fuse into one sheet, and
+// FOG_CHROMA_MAX leaves a whisper of the surface's own hue at full drain.
+const FOG_CHROMA_RATE = 1.85;
+const FOG_CHROMA_MAX = 0.96;
+const FOG_MAX = 0.92;
+
 const f = (n: number): string => n.toFixed(2);
 
 let installed = false;
@@ -191,8 +204,14 @@ export function installAerialFog(): void {
 	vec3 marineColor = mix( fogColor, vec3( lum ), 0.8 ) * ( 1.0 + 0.26 * lum );
 	vec3 hazeColor = mix( fogColor, marineColor, marine * 0.85 );
 
-	fogFactor = clamp( fogFactor + marineFog * ( 1.0 - fogFactor ), 0.0, 1.0 );
-	gl_FragColor.rgb = mix( gl_FragColor.rgb, hazeColor, fogFactor );
+	fogFactor = min( fogFactor + marineFog * ( 1.0 - fogFactor ), ${f(FOG_MAX)} );
+	// Dual-rate mix (see FOG_CHROMA_RATE): first rotate the fragment onto the
+	// haze's chromaticity at its OWN luminance, then converge value at the
+	// base rate — hue drains faster than brightness at every distance.
+	float hazeLum = max( dot( hazeColor, vec3( 0.2126, 0.7152, 0.0722 ) ), 1e-4 );
+	vec3 drained = hazeColor * ( dot( gl_FragColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) ) / hazeLum );
+	float chromaFog = min( fogFactor * ${f(FOG_CHROMA_RATE)}, ${f(FOG_CHROMA_MAX)} );
+	gl_FragColor.rgb = mix( mix( gl_FragColor.rgb, drained, chromaFog ), hazeColor, fogFactor );
 
 #endif
 `;

@@ -2,6 +2,7 @@ import * as THREE from "three";
 
 import { WORLD_HALF_X, WORLD_HALF_Z } from "../shared/constants";
 import type { RoadNetwork } from "./network";
+import { applyMaterialBreakup, ROAD_BREAKUP } from "../render/material-breakup";
 import { WEATHER } from "./masonry";
 import { applyAsphaltSpeckle, lowDetailSurfaces } from "./roads";
 import { SF_FREEWAY_RAMPS, SF_FREEWAYS } from "./sf-freeways";
@@ -126,6 +127,7 @@ applyConcreteWeathering(MAT_CONCRETE);
 // speckle) so ramp mouths merge into the roadway with no material seam.
 const MAT_DECK = new THREE.MeshStandardMaterial({ color: 0x555b68, roughness: 1 });
 applyAsphaltSpeckle(MAT_DECK);
+applyMaterialBreakup(MAT_DECK, ROAD_BREAKUP);
 const MAT_PAINT_WHITE = new THREE.MeshStandardMaterial({
   color: 0xf4f7f4,
   roughness: 0.9,

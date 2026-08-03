@@ -57,6 +57,33 @@ const FRINGE_MIN = 6; // ...but never thinner than this in world units
 // each vertex gets a value multiplier from a low-frequency bearing wave (broad
 // flanks catching or losing the light) plus a lift toward the crest.
 const RELIEF = 0.2;
+// Painter's value ladder (kart-royale backdrop treatment): the fog drains hue
+// faster than value (render/aerial-fog.ts), so VALUE is the only channel a
+// silhouette stack survives on at range — nearest ridge darkest, lightening
+// toward the sky. Applied per PIXEL before the fog mix (the camera roams
+// ±~1.5km of the band centre, so distance varies a lot within one band) and
+// day-weighted so the tuned night fog convergence is untouched.
+const LADDER_NEAR = 260;
+const LADDER_FAR = 3600;
+const LADDER_LO = 0.42;
+const LADDER_HI = 0.8;
+// Azimuthal aerial tint, desaturate-first: warm toward the live sun color in
+// the near-sun sector, violet-grey away — that contrast IS golden hour. Both
+// ops ramp with distance so the near band keeps most of its own color.
+const AERIAL_NEAR = 900;
+const AERIAL_FAR = 3600;
+const AERIAL_DESAT = 0.42;
+const AERIAL_TINT = 0.34;
+const COOL_AWAY = 0xa9b0c8;
+// smoothstep bounds on cos(view azimuth, sun azimuth): warm ONLY into the sun.
+const WARM_LO = 0.15;
+const WARM_HI = 0.92;
+// Sun-keyed terms hold through sunset (lamp opens at 0.62 there), die across
+// dusk; the intensity ramp keeps the night moon (0.28-0.32) from ever tinting.
+const SUN_FADE_LO = 0.62;
+const SUN_FADE_HI = 1.0;
+const SUN_INT_LO = 0.5;
+const SUN_INT_HI = 1.2;
 
 /** A summit in bearing space: 0 = north (-Z), 90 = east (+X). */
 type Ridge = {
@@ -186,6 +213,8 @@ function bearings(band: Band): readonly number[] {
   return out;
 }
 
+const glf = (n: number): string => n.toFixed(2);
+
 const VERT = /* glsl */ `
   attribute float aTop;
   attribute float aHaze;
@@ -193,14 +222,18 @@ const VERT = /* glsl */ `
   attribute float aFringe;
   attribute float aRelief;
   uniform float uShell;
-  uniform vec3 uFog;
   uniform float uNight;
-  varying vec3 vColor;
+  varying vec3 vTint;
+  varying float vToFog;
+  varying vec2 vDir;
+  varying float vDist;
   void main() {
     vec3 rel = position - cameraPosition;
     float d = max(length(rel.xz), 1.0);
     vec3 p = cameraPosition + rel * (uShell / d);
     gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
+    vDist = d;
+    vDir = rel.xz / d;
     // Aerial perspective within the band: the foot sits deeper in the haze
     // than the crest, which is what sells one ridge standing behind another.
     float toFog = clamp(aHaze + (1.0 - aHaze) * (1.0 - aTop) * 0.55, 0.0, 1.0);
@@ -212,14 +245,35 @@ const VERT = /* glsl */ `
     // down stayed BRIGHTER than the sky it stood against and drew a pale
     // horizontal seam right across the bay in every night vista.
     toFog = mix(toFog, 1.0, uNight * 0.55);
-    vColor = mix(aTint * aRelief * (1.0 - 0.86 * uNight), uFog, toFog);
+    vToFog = toFog;
+    vTint = aTint * aRelief * (1.0 - 0.86 * uNight);
   }
 `;
 
 const FRAG = /* glsl */ `
-  varying vec3 vColor;
+  uniform vec3 uFog;
+  uniform vec2 uSunAzim;
+  uniform vec3 uSunWarm;
+  uniform vec3 uCool;
+  uniform float uDay;
+  varying vec3 vTint;
+  varying float vToFog;
+  varying vec2 vDir;
+  varying float vDist;
   void main() {
-    gl_FragColor = vec4(vColor, 1.0);
+    vec3 col = vTint;
+    // Value ladder, then desaturate, then azimuth tint, then the fog mix —
+    // the kart-royale registration order (ladder -> aerial -> fog).
+    float ladder = mix(${glf(LADDER_LO)}, ${glf(LADDER_HI)},
+      smoothstep(${glf(LADDER_NEAR)}, ${glf(LADDER_FAR)}, vDist));
+    col *= mix(1.0, ladder, uDay);
+    float aer = smoothstep(${glf(AERIAL_NEAR)}, ${glf(AERIAL_FAR)}, vDist) * uDay;
+    float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
+    col = mix(col, vec3(lum), ${glf(AERIAL_DESAT)} * aer);
+    float az = dot(vDir, uSunAzim);
+    col = mix(col, mix(uCool, uSunWarm, smoothstep(${glf(WARM_LO)}, ${glf(WARM_HI)}, az)),
+      ${glf(AERIAL_TINT)} * aer);
+    gl_FragColor = vec4(mix(col, uFog, vToFog), 1.0);
   }
 `;
 
@@ -227,6 +281,16 @@ export class FarTerrain {
   readonly mesh: THREE.Mesh;
   private uFog = { value: new THREE.Color(0xbfdcf2) };
   private uNight = { value: 0 };
+  private uSunAzim = { value: new THREE.Vector2(0, -1) };
+  private uSunWarm = { value: new THREE.Color(0xffd9a8) };
+  private uCool = { value: new THREE.Color(COOL_AWAY) };
+  private uDay = { value: 0 };
+  // The scene's shadow light, found once from the mesh's own render callback.
+  // update()'s call site only carries fog + night, and widening the god
+  // object's wiring for one vec3 isn't worth the drift — if a shared sun
+  // signal ever lands (render/grade.ts pattern), feed it there instead.
+  private sunRef: THREE.DirectionalLight | null = null;
+  private scrSun = new THREE.Vector3();
 
   constructor() {
     const rings = BANDS.map(bearings);
@@ -318,7 +382,15 @@ export class FarTerrain {
     geo.setIndex(new THREE.BufferAttribute(indices, 1));
 
     const mat = new THREE.ShaderMaterial({
-      uniforms: { uShell: { value: SHELL }, uFog: this.uFog, uNight: this.uNight },
+      uniforms: {
+        uShell: { value: SHELL },
+        uFog: this.uFog,
+        uNight: this.uNight,
+        uSunAzim: this.uSunAzim,
+        uSunWarm: this.uSunWarm,
+        uCool: this.uCool,
+        uDay: this.uDay,
+      },
       vertexShader: VERT,
       fragmentShader: FRAG,
       side: THREE.DoubleSide, // the ring is viewed from inside AND from outside
@@ -332,6 +404,38 @@ export class FarTerrain {
     this.mesh.frustumCulled = false; // the shader moves every vertex
     this.mesh.matrixAutoUpdate = false;
     this.mesh.renderOrder = -1; // after the sky dome (-2), before everything real
+
+    // Live sun for the azimuth tint, read same-frame on the mesh's own draw;
+    // direction from the light's position/target pair (game-scene.updateSun).
+    this.mesh.onBeforeRender = (_renderer, scene) => {
+      let sun = this.sunRef;
+      if (sun === null || sun.parent !== scene) {
+        sun = null;
+        for (const child of scene.children) {
+          if (child instanceof THREE.DirectionalLight) {
+            sun = child;
+            break;
+          }
+        }
+        this.sunRef = sun;
+      }
+      if (sun === null) {
+        this.uDay.value = 0;
+        return;
+      }
+      const dir = this.scrSun.copy(sun.position).sub(sun.target.position);
+      if (dir.lengthSq() < 1e-6) {
+        this.uDay.value = 0;
+        return;
+      }
+      dir.normalize();
+      const azLen = Math.hypot(dir.x, dir.z);
+      if (azLen > 1e-4) this.uSunAzim.value.set(dir.x / azLen, dir.z / azLen);
+      this.uSunWarm.value.copy(sun.color);
+      this.uDay.value =
+        (1 - THREE.MathUtils.smoothstep(this.uNight.value, SUN_FADE_LO, SUN_FADE_HI)) *
+        THREE.MathUtils.smoothstep(sun.intensity, SUN_INT_LO, SUN_INT_HI);
+    };
   }
 
   /** Track the day-night grade: horizon tint from the fog, darkness from lamp. */

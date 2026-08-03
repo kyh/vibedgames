@@ -20,8 +20,34 @@ import { WORLD_H, WORLD_HALF_X, WORLD_W } from "../shared/constants";
 // sky, so at noon the entire upper half of every frame was a featureless
 // gradient with nothing in it. MK8 never ships an empty sky. The count is up,
 // the spread is tighter (see the constructor) and the puffs are shaded.
-const HIGH_COUNT = 46;
+const HIGH_COUNT = 64;
 const FOG_COUNT = 26;
+// Cumulus spawn in CLUSTERS — a hero puff with shoulder puffs overlapping it —
+// because a lone billboard reads as a blob while an overlapped stack reads as
+// massed cumulus (the reference sky is towers, not confetti). Members share
+// one drift speed so a cluster holds together crossing the map.
+const CLUSTER_PUFFS_MIN = 2;
+const CLUSTER_PUFFS_MAX = 5;
+/** Satellite lateral offset, as a fraction of the hero puff's width. */
+const CLUSTER_SPREAD_X = 0.46;
+/** Satellite depth offset (parallax between members), same units. */
+const CLUSTER_SPREAD_Z = 0.14;
+/** Satellites shoulder BELOW the hero — cumulus towers, not a flat row. */
+const CLUSTER_DROP = 0.14;
+// Sun-occlusion tap (kart-royale kr-sky-water §3): one extra texture fetch
+// displaced toward the sun gives both the anti-sun self-shadow AND — from the
+// sign of the same density gradient — the free silver lining on the sun flank.
+/** UV displacement of the sun tap, in quad heights (world-isotropic in VERT). */
+const SUN_TAP_FRAC = 0.35;
+const SUN_OCC_DEPTH = 0.38; // max darkening on the shadowed flank
+const SUN_OCC_GAIN = 1.6;
+const LINING_GAIN = 2.6; // (a - al) -> rim mask slope, KR verbatim
+/** Rim radiance vs the live sun color — re-derived for waymo's exposure 0.62. */
+const LINING_STRENGTH = 0.6;
+// Sun-keyed terms hold through sunset (lamp opens at 0.62 there) and die
+// across dusk, so the lit rims sweep dawn -> night without popping.
+const SUN_FADE_LO = 0.62;
+const SUN_FADE_HI = 1.0;
 // Vertical shading on a cumulus: the flat-lit top vs the sky-fill underside.
 // Without it a billboard is one flat alpha blob no matter how good the texture,
 // which is the other half of why they read as absent rather than as clouds.
@@ -53,9 +79,11 @@ const VERT = `
   attribute vec2 aSize;
   attribute float aAlpha;
   attribute float aSeed;
+  uniform vec3 uSunDir;
   varying vec2 vUv;
   varying float vAlpha;
   varying float vWorldY;
+  varying vec2 vSunUv;
   void main() {
     vUv = uv;
     vAlpha = aAlpha;
@@ -67,6 +95,11 @@ const VERT = `
     vec3 local = vec3(position.x * aSize.x, position.y * aSize.y, 0.0);
     vec3 world = aCenter + vec3(local.x * c + local.z * s, local.y, -local.x * s + local.z * c);
     vWorldY = world.y;
+    // The sun tap's UV displacement: project the sun direction onto the quad
+    // plane (local +x maps to world (c, 0, -s)), scaled per axis so the same
+    // world-space displacement lands on both the wide and the tall axis.
+    float sunX = dot(uSunDir.xz, vec2(c, -s));
+    vSunUv = vec2(sunX * aSize.y / max(aSize.x, 1.0), uSunDir.y) * ${SUN_TAP_FRAC.toFixed(2)};
     gl_Position = projectionMatrix * viewMatrix * vec4(world, 1.0);
   }
 `;
@@ -74,6 +107,9 @@ const VERT = `
 // skipping the blend write for them saves real ROP bandwidth on tile GPUs.
 // `floorFade` gives the low marine sheets a soft world-space underside (see
 // FLOOR_Y); the high cumulus sit 190u up and skip the extra work entirely.
+// `shade` also enables the sun tap: the marine layer is a flat sheet lit from
+// every side at once, so both the vertical ramp AND a directional rim on it
+// read as gradient errors — only the cumulus get either.
 function frag(discardLow: boolean, floorFade: boolean, shade: boolean): string {
   return `
   uniform sampler2D uMap;
@@ -82,6 +118,8 @@ function frag(discardLow: boolean, floorFade: boolean, shade: boolean): string {
   varying vec2 vUv;
   varying float vAlpha;
   varying float vWorldY;
+  varying vec2 vSunUv;
+  ${shade ? "uniform vec3 uSunCol;\n  uniform float uSunW;" : ""}
   void main() {
     float a = texture2D(uMap, vUv).a * vAlpha;
     ${floorFade ? `a *= smoothstep(${FLOOR_Y.toFixed(1)}, ${FLOOR_TOP.toFixed(1)}, vWorldY);` : ""}
@@ -90,7 +128,15 @@ function frag(discardLow: boolean, floorFade: boolean, shade: boolean): string {
     ${
       shade
         ? `rgb *= mix(${HIGH_BASE_SHADE.toFixed(2)}, 1.0,
-        smoothstep(${HIGH_SHADE_LO.toFixed(2)}, ${HIGH_SHADE_HI.toFixed(2)}, vUv.y));`
+        smoothstep(${HIGH_SHADE_LO.toFixed(2)}, ${HIGH_SHADE_HI.toFixed(2)}, vUv.y));
+    // One sun-displaced density tap: where the displaced sample is DENSER the
+    // texel sits behind cloud mass (self-shadow); where it is thinner the
+    // texel is the sun-facing flank and the same gradient is the silver lining.
+    float al = texture2D(uMap, vUv + vSunUv).a * vAlpha;
+    rgb *= 1.0 - ${SUN_OCC_DEPTH.toFixed(2)} * uSunW
+      * clamp((al - a) * ${SUN_OCC_GAIN.toFixed(2)}, 0.0, 1.0);
+    rgb += uSunCol * clamp((a - al) * ${LINING_GAIN.toFixed(2)}, 0.0, 1.0)
+      * smoothstep(0.05, 0.30, a);`
         : ""
     }
     gl_FragColor = vec4(rgb, a);
@@ -205,6 +251,9 @@ class CloudLayer {
         uMap: { value: opts.tex },
         uColor: { value: color },
         uDim: { value: 1 },
+        uSunDir: this.sunDirU,
+        uSunCol: this.sunColU,
+        uSunW: this.sunWU,
       },
       vertexShader: VERT,
       fragmentShader: frag(opts.discardLow, opts.floorFade, opts.shade),
@@ -224,6 +273,11 @@ class CloudLayer {
   readonly sizes: Float32Array;
   readonly seeds: Float32Array;
   dimUniform: { value: number } = { value: 1 };
+  // Live sun feed (SkyClouds writes the high layer's each frame; the marine
+  // layer keeps the defaults — its shader never reads them).
+  readonly sunDirU = { value: new THREE.Vector3(0, 1, 0) };
+  readonly sunColU = { value: new THREE.Color(0x000000) };
+  readonly sunWU = { value: 0 };
   private tint: THREE.Color;
   private dayColor: THREE.Color;
   private nightColor: THREE.Color;
@@ -253,6 +307,14 @@ export class SkyClouds {
   private level: CloudQuality = 2;
   private highActive = HIGH_COUNT;
   private fogActive = FOG_COUNT;
+  private nightF = 0;
+  // The scene's shadow light, found once from the cumulus mesh's own render
+  // callback. The update()/setNight() call sites only carry the night factor,
+  // and widening the god object's wiring for one vec3 isn't worth the drift —
+  // if a shared sun signal ever lands (render/grade.ts pattern), feed it there
+  // and delete this lookup.
+  private sunRef: THREE.DirectionalLight | null = null;
+  private scrSunDir = new THREE.Vector3();
 
   constructor(discardLow = false) {
     // Night tints are the moonlit sky's own blues, NOT grey: a white cloud
@@ -287,20 +349,67 @@ export class SkyClouds {
     this.group.add(this.high.mesh);
     this.group.add(this.fog.mesh);
 
+    // Feed the live sun to the cumulus shader (rim + occlusion tap). Runs on
+    // the mesh's own draw so the data is same-frame; direction comes from the
+    // light's position/target pair the way game-scene.updateSun writes them.
+    this.high.mesh.onBeforeRender = (_renderer, scene) => {
+      let sun = this.sunRef;
+      if (sun === null || sun.parent !== scene) {
+        sun = null;
+        for (const child of scene.children) {
+          if (child instanceof THREE.DirectionalLight) {
+            sun = child;
+            break;
+          }
+        }
+        this.sunRef = sun;
+      }
+      if (sun === null) return;
+      const dir = this.scrSunDir.copy(sun.position).sub(sun.target.position);
+      if (dir.lengthSq() < 1e-6) return;
+      this.high.sunDirU.value.copy(dir.normalize());
+      const dayW = 1 - THREE.MathUtils.smoothstep(this.nightF, SUN_FADE_LO, SUN_FADE_HI);
+      this.high.sunWU.value = dayW;
+      this.high.sunColU.value
+        .copy(sun.color)
+        .multiplyScalar(Math.min(sun.intensity, 1.2) * LINING_STRENGTH * dayW);
+    };
+
+    // Cluster spawner (see CLUSTER_*): a hero puff plus overlapping shoulder
+    // puffs per anchor. Members are contiguous in the instance buffer, so the
+    // mobile instanceCount cut drops whole clusters instead of gutting each.
     this.highSpeed = new Float32Array(HIGH_COUNT);
-    for (let i = 0; i < HIGH_COUNT; i++) {
-      const x = (Math.random() * 1.5 - 0.75) * WORLD_W;
-      const z = (Math.random() * 1.3 - 0.65) * WORLD_H;
-      const y = 175 + Math.random() * 150;
-      this.high.centers.set([x, y, z], i * 3);
-      // Squared roll: mostly modest puffs with a few big anvils, which is what
-      // gives a cumulus field its sense of scale (one uniform size reads as
-      // wallpaper).
-      const r = Math.random();
-      const w = 150 + r * r * 420;
-      this.high.sizes.set([w, w * (0.3 + Math.random() * 0.14)], i * 2);
-      this.high.alphas[i] = 0.78 + Math.random() * 0.22;
-      this.highSpeed[i] = 3.5 + Math.random() * 3;
+    let i = 0;
+    while (i < HIGH_COUNT) {
+      const puffs = Math.min(
+        HIGH_COUNT - i,
+        CLUSTER_PUFFS_MIN + Math.floor(Math.random() * (CLUSTER_PUFFS_MAX - CLUSTER_PUFFS_MIN + 1)),
+      );
+      const cx = (Math.random() * 1.5 - 0.75) * WORLD_W;
+      const cz = (Math.random() * 1.3 - 0.65) * WORLD_H;
+      const cy = 175 + Math.random() * 130;
+      const speed = 3.5 + Math.random() * 3;
+      // Squared roll: mostly modest clusters with a few big anvils, which is
+      // what gives a cumulus field its sense of scale (one uniform size reads
+      // as wallpaper).
+      const roll = Math.random();
+      const heroW = 190 + roll * roll * 380;
+      for (let k = 0; k < puffs; k++, i++) {
+        const hero = k === 0;
+        const w = hero ? heroW : heroW * (0.38 + Math.random() * 0.34);
+        // Satellites scatter at random bearings — the old alternating left/
+        // right pairs at growing reach drew a shrinking chain that read as a
+        // generator signature from any angle (review pass).
+        const ang = Math.random() * Math.PI * 2;
+        const reach = 0.6 + Math.random() * 0.7 + k * 0.12;
+        const dx = hero ? 0 : Math.cos(ang) * heroW * CLUSTER_SPREAD_X * reach;
+        const dy = hero ? 0 : -heroW * CLUSTER_DROP * (0.4 + Math.random() * 0.6);
+        const dz = hero ? 0 : Math.sin(ang) * heroW * CLUSTER_SPREAD_Z * 2 * reach;
+        this.high.centers.set([cx + dx, cy + dy, cz + dz], i * 3);
+        this.high.sizes.set([w, w * (0.3 + Math.random() * 0.14)], i * 2);
+        this.high.alphas[i] = hero ? 0.85 + Math.random() * 0.15 : 0.55 + Math.random() * 0.35;
+        this.highSpeed[i] = speed;
+      }
     }
     this.fogSpeed = new Float32Array(FOG_COUNT);
     this.fogBase = new Float32Array(FOG_COUNT);
@@ -377,6 +486,7 @@ export class SkyClouds {
   // paper cutout no matter how far you dim it, so each layer crossfades to its
   // own moonlit BLUE as well — see the tints on the layers above.
   setNight(f: number): void {
+    this.nightF = f;
     this.high.setNight(f);
     this.fog.setNight(f);
   }

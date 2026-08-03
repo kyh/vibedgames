@@ -19,13 +19,82 @@
         user-select: none;
         -webkit-tap-highlight-color: transparent;
       }
+      /* Warm-ink HUD tokens. Every dark stays hue 20-28° (never #000), every
+         light is cream (never #fff), gold is reserved for rank/payoff. */
+      :root {
+        --f:
+          "Avenir Next", "SF Pro Display", "Segoe UI", system-ui, -apple-system, "Helvetica Neue",
+          Arial, sans-serif;
+        --fd:
+          "Avenir Next Condensed", "Roboto Condensed", "PT Sans Narrow", "Arial Narrow",
+          "Helvetica Neue Condensed", ui-rounded, "SF Pro Rounded", var(--f);
+        --ink-2: #170e0a;
+        --ink-c: rgba(28, 15, 7, 0.93);
+        --paper: #fff4e2;
+        --dim: rgba(240, 220, 190, 0.66);
+        --gold: #ffcf6b;
+        --sky-warm: #ffd0a0;
+        --kerb-red: #e0453f;
+        --boost-blue: #4fc3ff;
+        --sea-shallow: #3fc9c4;
+        --gain-green: #7ef0a4;
+        --r: clamp(8px, 1.5vmin, 18px);
+        --ch: clamp(10px, 1.7vmin, 24px);
+        --rim: 1.5px;
+        /* Chamfer clips — each corner plate cuts the corner pointing INTO frame. */
+        --clip-br: polygon(
+          0 0,
+          100% 0,
+          100% calc(100% - var(--ch)),
+          calc(100% - var(--ch)) 100%,
+          0 100%
+        );
+        --clip-bl: polygon(0 0, 100% 0, 100% 100%, var(--ch) 100%, 0 calc(100% - var(--ch)));
+        --clip-tr: polygon(0 0, calc(100% - var(--ch)) 0, 100% var(--ch), 100% 100%, 0 100%);
+        --clip-tl: polygon(var(--ch) 0, 100% 0, 100% 100%, 0 100%, 0 var(--ch));
+        --clip-b2: polygon(
+          0 0,
+          100% 0,
+          100% calc(100% - var(--ch)),
+          calc(100% - var(--ch)) 100%,
+          var(--ch) 100%,
+          0 calc(100% - var(--ch))
+        );
+        --plate-bg: linear-gradient(179deg, #54402f 0%, #3d2b1e 30%, #281a12 66%, #170e0a 100%);
+        /* Gradient border: accent-tinted rim-light along the top edge, dark
+           die-cut contour along the bottom — a flat `border` reads as a form
+           control. */
+        --plate-rim: linear-gradient(
+          177deg,
+          color-mix(in srgb, var(--accent, var(--sky-warm)) 72%, #fff6e6) 0%,
+          color-mix(in srgb, var(--accent, var(--sky-warm)) 34%, rgba(255, 226, 186, 0.34)) 16%,
+          rgba(150, 112, 74, 0.4) 46%,
+          rgba(24, 12, 5, 0.88) 100%
+        );
+        /* drop-shadow, not box-shadow — box-shadow would square off the chamfer. */
+        --plate-shadow: drop-shadow(0 0.16vmin 0.28vmin rgba(20, 10, 4, 0.58))
+          drop-shadow(0 1vmin 2vmin rgba(24, 12, 5, 0.48));
+        /* 8-offset zero-blur contour ring; 0.039 ≈ 0.055/√2 keeps it round. */
+        --ring:
+          0.055em 0 0 var(--ink-c), -0.055em 0 0 var(--ink-c), 0 0.055em 0 var(--ink-c),
+          0 -0.055em 0 var(--ink-c), 0.039em 0.039em 0 var(--ink-c),
+          -0.039em 0.039em 0 var(--ink-c), 0.039em -0.039em 0 var(--ink-c),
+          -0.039em -0.039em 0 var(--ink-c), 0 0.07em 0.14em rgba(22, 11, 4, 0.62);
+        --ring-s:
+          0.07em 0 0 var(--ink-c), -0.07em 0 0 var(--ink-c), 0 0.07em 0 var(--ink-c),
+          0 -0.07em 0 var(--ink-c), 0.05em 0.05em 0 var(--ink-c), -0.05em 0.05em 0 var(--ink-c),
+          0.05em -0.05em 0 var(--ink-c), -0.05em -0.05em 0 var(--ink-c);
+        --e-out: cubic-bezier(0.16, 0.84, 0.44, 1);
+        --e-soft: cubic-bezier(0.33, 0, 0.16, 1);
+        --e-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
       html,
       body {
         margin: 0;
         padding: 0;
         height: 100%;
         overflow: hidden;
-        background: #14111a;
+        background: var(--ink-2);
         color: #fff;
         font-family: ui-monospace, "SF Mono", Menlo, monospace;
         touch-action: none;
@@ -44,46 +113,69 @@
         inset: 0;
         pointer-events: none;
         z-index: 5;
+        font-family: var(--fd);
         font-weight: 700;
-        /* Hard contour on every HUD text so it survives a bright sky. */
-        text-shadow: 0 2px 0 rgba(0, 0, 0, 0.55);
+        font-variant-numeric: tabular-nums lining-nums;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+        /* Contour ring on every HUD text so it survives a bright sky. */
+        text-shadow: var(--ring-s);
       }
-      /* Chunky kart plate: solid warm-dark body, dark bevel ring outside the
-         gold accent border, hard offset drop. No backdrop blur — the solid
-         panel replaces it (and it cost GPU on phones). */
+      /* THE plate, two-layer rim-light: the element paints the gradient RIM,
+         ::before paints the body inset by --rim over it. No backdrop blur —
+         the solid body replaces it (and it cost GPU on phones). */
       .pill {
         position: fixed;
-        background: rgba(24, 20, 16, 0.92);
-        border: 2px solid rgba(255, 209, 71, 0.75);
-        border-radius: 14px;
-        padding: 8px 14px;
+        background: var(--plate-rim);
+        border-radius: var(--r);
+        clip-path: var(--clip, none);
+        filter: var(--plate-shadow);
+        padding: 9px 15px;
         letter-spacing: 1px;
-        box-shadow:
-          0 0 0 2px rgba(16, 11, 7, 0.9),
-          0 5px 0 rgba(0, 0, 0, 0.45);
+      }
+      .pill::before {
+        content: "";
+        position: absolute;
+        inset: var(--rim);
+        border-radius: inherit;
+        background: var(--plate-bg);
+        clip-path: var(--clip, none);
+        /* sand bounce from below */
+        box-shadow: inset 0 -0.55vmin 1.3vmin rgba(255, 172, 98, 0.16);
+        /* the filter makes .pill a stacking context, so this cannot escape */
+        z-index: -1;
       }
       .label {
-        font-size: 10px;
-        font-weight: 900;
-        letter-spacing: 2px;
-        opacity: 0.7;
         display: block;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.22em;
+        /* matching indent so a centred label doesn't sit half a tracking off */
+        text-indent: 0.22em;
+        text-transform: uppercase;
+        color: color-mix(in srgb, var(--accent, var(--sky-warm)) 52%, var(--dim));
       }
       .value {
-        font-size: 22px;
-        font-weight: 800;
-        font-variant-numeric: tabular-nums;
+        display: inline-block;
+        min-width: 4.2ch;
+        font-size: 24px;
+        font-weight: 900;
+        letter-spacing: 0.01em;
+        color: var(--paper);
+        text-shadow: var(--ring);
       }
 
       /* Current area — persistent, top-center */
       #area {
+        --clip: var(--clip-b2);
         top: calc(14px + env(safe-area-inset-top));
         left: 50%;
         transform: translateX(-50%);
         padding: 6px 16px;
         font-size: 12px;
-        letter-spacing: 2px;
-        color: #ffd147;
+        letter-spacing: 0.22em;
+        text-indent: 0.22em;
+        color: color-mix(in srgb, var(--sky-warm) 62%, var(--paper));
         white-space: nowrap;
         opacity: 0;
         transition: opacity 0.3s;
@@ -94,21 +186,21 @@
 
       /* Timer — big, top-center */
       #timer {
+        --accent: var(--gold);
+        --clip: var(--clip-b2);
         top: calc(14px + env(safe-area-inset-top));
         left: 50%;
         transform: translateX(-50%);
         text-align: center;
-        border-color: rgba(255, 209, 71, 0.85);
         padding: 6px 22px;
       }
       #timer .value {
         font-size: 46px;
-        color: #ffd147;
-        text-shadow: 0 3px 0 rgba(0, 0, 0, 0.5);
+        color: var(--gold);
         line-height: 1;
       }
       #timer.low .value {
-        color: #ff5a52;
+        color: var(--kerb-red);
       }
       #timer.low {
         animation: heartbeat 1s ease-in-out infinite;
@@ -143,38 +235,37 @@
         font-size: 18px;
         font-weight: 900;
         font-style: italic;
-        color: #ffd147;
-        text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5);
+        color: var(--gold);
+        text-shadow: var(--ring-s);
       }
       #combo-track {
         height: 5px;
         border-radius: 3px;
-        background: rgba(255, 255, 255, 0.18);
+        background: rgba(18, 10, 4, 0.64);
+        box-shadow: inset 0 -1px 0 rgba(255, 226, 186, 0.14);
         overflow: hidden;
         margin-top: 3px;
       }
       #combo-fill {
         height: 100%;
         width: 100%;
-        background: #ffd147;
+        background: var(--gold);
       }
       #combo-meter.urgent #combo-fill {
-        background: #ff5a52;
+        background: var(--kerb-red);
       }
       #district {
         position: fixed;
         top: calc(120px + env(safe-area-inset-top));
         left: 50%;
         transform: translateX(-50%);
-        font:
-          800 italic 22px/1 system-ui,
-          sans-serif;
+        font: 900 italic 22px/1 var(--fd);
         letter-spacing: 1px;
-        color: #fff;
+        color: var(--paper);
         white-space: nowrap;
         text-shadow:
-          0 2px 0 rgba(0, 0, 0, 0.5),
-          0 0 18px rgba(255, 209, 71, 0.45);
+          var(--ring),
+          0 0 18px rgba(255, 190, 90, 0.45);
         opacity: 0;
         pointer-events: none;
       }
@@ -184,40 +275,43 @@
         left: 50%;
         transform: translateX(-50%);
         font-size: 30px;
-        color: #6bff8e;
-        text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5);
+        color: var(--gain-green);
+        text-shadow: var(--ring);
         opacity: 0;
         pointer-events: none;
-        font-weight: 800;
+        font-weight: 900;
       }
 
-      /* Score — top-left */
+      /* Score — top-left. The operator accent (Waymo green et al) arrives via
+         hud.setOperator writing --accent: rim light + label tint re-skin. */
       #score {
+        --clip: var(--clip-br);
         top: calc(14px + env(safe-area-inset-top));
         left: calc(14px + env(safe-area-inset-left));
-      }
-      #score .value {
-        color: #fff;
       }
       #boost-track {
         width: 100px;
         height: 8px;
         border-radius: 5px;
-        background: rgba(0, 0, 0, 0.45);
+        background: rgba(18, 10, 4, 0.64);
+        box-shadow:
+          inset 0 1px 2px rgba(14, 7, 3, 0.68),
+          inset 0 -1px 0 rgba(255, 226, 186, 0.14);
         overflow: hidden;
         margin-top: 4px;
       }
       #boost-fill {
         height: 100%;
         width: 0%;
-        background: linear-gradient(90deg, #ffd147, #ff8a3c);
+        /* boost gold — deliberately NOT a tier colour: banked ≠ earning */
+        background: linear-gradient(90deg, var(--paper), #ffc24a);
         transition: width 0.1s linear;
       }
       #speed.denied {
         animation: denyshake 0.16s linear 2;
       }
       #speed.denied #boost-fill {
-        background: #ff5a52;
+        background: var(--kerb-red);
       }
       @keyframes denyshake {
         25% {
@@ -230,6 +324,8 @@
 
       /* Mini dash — analogue speedo gauge + boost, bottom-left */
       #speed {
+        --accent: var(--kerb-red);
+        --clip: var(--clip-tr);
         left: calc(14px + env(safe-area-inset-left));
         bottom: calc(14px + env(safe-area-inset-bottom));
         padding: 7px 10px 7px;
@@ -247,11 +343,12 @@
 
       /* Fare card — top-right, only while carrying a passenger */
       #fare-card {
+        --accent: var(--boost-blue);
+        --clip: var(--clip-bl);
         top: calc(40px + env(safe-area-inset-top));
         right: calc(14px + env(safe-area-inset-right));
         min-width: 150px;
         text-align: right;
-        border-color: rgba(73, 224, 255, 0.8);
         transition:
           opacity 0.2s,
           transform 0.2s;
@@ -264,27 +361,31 @@
       }
       #fare-card .who {
         font-size: 13px;
-        color: #49e0ff;
+        letter-spacing: 0.14em;
+        color: color-mix(in srgb, var(--boost-blue) 62%, var(--paper));
       }
       #fare-card .dist {
         font-size: 22px;
-        font-variant-numeric: tabular-nums;
-        color: #fff;
+        font-weight: 900;
+        min-width: 5ch;
+        color: var(--paper);
+        text-shadow: var(--ring);
       }
       #patience-track {
         height: 5px;
         border-radius: 3px;
-        background: rgba(255, 255, 255, 0.16);
+        background: rgba(18, 10, 4, 0.64);
+        box-shadow: inset 0 -1px 0 rgba(255, 226, 186, 0.14);
         overflow: hidden;
         margin-top: 6px;
       }
       #patience-fill {
         height: 100%;
         width: 100%;
-        background: #6bff8e;
+        background: var(--gain-green);
       }
 
-      /* Combo — center-ish, punchy */
+      /* Combo — center-ish, punchy. Gold: this is the payoff slot. */
       #combo {
         position: fixed;
         top: 30%;
@@ -293,10 +394,10 @@
         font-size: clamp(26px, 6vw, 60px);
         font-weight: 900;
         font-style: italic;
-        color: #ffd147;
+        color: var(--gold);
         text-shadow:
-          0 0 18px rgba(255, 160, 40, 0.8),
-          0 4px 0 rgba(0, 0, 0, 0.5);
+          var(--ring),
+          0 0 18px rgba(255, 160, 40, 0.8);
         opacity: 0;
         pointer-events: none;
         letter-spacing: 1px;
@@ -309,12 +410,12 @@
         left: 50%;
         transform: translate(-50%, 0);
         font-size: clamp(16px, 3.2vw, 30px);
-        font-weight: 800;
+        font-weight: 900;
         font-style: italic;
-        color: #aee3ff;
+        color: var(--paper);
         text-shadow:
-          0 0 12px rgba(80, 180, 255, 0.6),
-          0 3px 0 rgba(0, 0, 0, 0.5);
+          var(--ring),
+          0 0 12px rgba(255, 200, 120, 0.4);
         opacity: 0;
         pointer-events: none;
         letter-spacing: 1px;
@@ -333,11 +434,11 @@
         font-weight: 900;
         font-style: italic;
         letter-spacing: 1px;
-        text-shadow: 0 3px 0 rgba(0, 0, 0, 0.5);
+        text-shadow: var(--ring);
         margin-top: 2px;
       }
 
-      /* Speed vignette */
+      /* Speed vignette — the ONE allowed cool element in the warm-ink system. */
       #vignette {
         position: fixed;
         inset: 0;
@@ -347,36 +448,186 @@
         background: radial-gradient(ellipse at center, transparent 55%, rgba(8, 6, 14, 0.55) 100%);
       }
 
-      /* Countdown 3-2-1-GO */
+      /* Screen-edge drift rails. Peripheral vision resolves motion + colour +
+         temporal frequency, not shape — so the charge lives at the edges and
+         the tier is triple-encoded: height (fill = ladder position), hue
+         (--cc banked / --cn earning, written by hud.ts from fx/tier.ts so
+         screen and sparks can never disagree), pulse-rate (.t0/.t1/.t2).
+         One composited translateY per frame; opacity damped in JS. */
+      .rail {
+        position: fixed;
+        top: clamp(64px, 15vh, 150px);
+        bottom: clamp(64px, 15vh, 150px);
+        width: clamp(26px, 4.6vmin, 72px);
+        overflow: hidden;
+        z-index: 4;
+        pointer-events: none;
+        opacity: 0;
+        --cc: #ffd75e;
+        --cn: #4fc3ff;
+      }
+      #rail-l {
+        left: calc(env(safe-area-inset-left, 0px) + 6px);
+        -webkit-mask-image: linear-gradient(
+          to right,
+          #000 0%,
+          rgba(0, 0, 0, 0.5) 38%,
+          transparent 100%
+        );
+        mask-image: linear-gradient(to right, #000 0%, rgba(0, 0, 0, 0.5) 38%, transparent 100%);
+        transform-origin: left center;
+      }
+      #rail-r {
+        right: calc(env(safe-area-inset-right, 0px) + 6px);
+        -webkit-mask-image: linear-gradient(
+          to left,
+          #000 0%,
+          rgba(0, 0, 0, 0.5) 38%,
+          transparent 100%
+        );
+        mask-image: linear-gradient(to left, #000 0%, rgba(0, 0, 0, 0.5) 38%, transparent 100%);
+        transform-origin: right center;
+      }
+      /* Cap/handover stops in PX, not % — the element is full-rail-height and
+         translated, so % stops would be % of the whole rail and the banked
+         colour would vanish at low fill. Floor alpha 0.58: hue survives a
+         blown-out sky. Second layer = warm scrim floor, never fades out. */
+      .rail > i {
+        position: absolute;
+        inset: 0;
+        transform: translateY(100%);
+        background:
+          linear-gradient(
+            to bottom,
+            rgba(255, 250, 240, 0.98) 0px,
+            rgba(255, 250, 240, 0.98) 4px,
+            var(--cn) 5px,
+            var(--cn) 20px,
+            color-mix(in srgb, var(--cn) 55%, var(--cc)) 26px,
+            var(--cc) 34px,
+            color-mix(in srgb, var(--cc) 90%, transparent) 22%,
+            color-mix(in srgb, var(--cc) 74%, transparent) 56%,
+            color-mix(in srgb, var(--cc) 58%, transparent) 100%
+          ),
+          linear-gradient(
+            to bottom,
+            rgba(24, 13, 5, 0.8) 0%,
+            rgba(24, 13, 5, 0.64) 40%,
+            rgba(24, 13, 5, 0.5) 100%
+          );
+        animation: rail-pulse var(--pulse, 1.1s) var(--e-soft) infinite;
+      }
+      /* Rungs at exactly ⅓ and ⅔, fixed to the frame, over the bar — height
+         becomes a COUNT; cream between ink edges survives any backdrop. */
+      .rail::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+          linear-gradient(
+            to bottom,
+            transparent calc(33.33% - 3px),
+            rgba(30, 16, 7, 0.88) calc(33.33% - 3px),
+            rgba(30, 16, 7, 0.88) calc(33.33% - 1px),
+            rgba(255, 246, 230, 0.96) calc(33.33% - 1px),
+            rgba(255, 246, 230, 0.96) calc(33.33% + 1px),
+            rgba(30, 16, 7, 0.88) calc(33.33% + 1px),
+            rgba(30, 16, 7, 0.88) calc(33.33% + 3px),
+            transparent calc(33.33% + 3px)
+          ),
+          linear-gradient(
+            to bottom,
+            transparent calc(66.66% - 3px),
+            rgba(30, 16, 7, 0.88) calc(66.66% - 3px),
+            rgba(30, 16, 7, 0.88) calc(66.66% - 1px),
+            rgba(255, 246, 230, 0.96) calc(66.66% - 1px),
+            rgba(255, 246, 230, 0.96) calc(66.66% + 1px),
+            rgba(30, 16, 7, 0.88) calc(66.66% + 1px),
+            rgba(30, 16, 7, 0.88) calc(66.66% + 3px),
+            transparent calc(66.66% + 3px)
+          );
+      }
+      /* Tier as temporal frequency. */
+      .rail.t0 {
+        --pulse: 1.1s;
+        --pulse-lo: 0.84;
+      }
+      .rail.t1 {
+        --pulse: 0.7s;
+        --pulse-lo: 0.74;
+      }
+      .rail.t2 {
+        --pulse: 0.4s;
+        --pulse-lo: 0.6;
+      }
+      @keyframes rail-pulse {
+        0%,
+        100% {
+          opacity: var(--pulse-lo, 0.84);
+        }
+        50% {
+          opacity: 1;
+        }
+      }
+      /* Tier-up flare. fill-mode none on purpose: a `both` fill would leave a
+         standing brightness() compositing pass forever. */
+      .rail.pop {
+        animation: rail-pop 0.44s var(--e-out);
+      }
+      @keyframes rail-pop {
+        0% {
+          transform: scaleX(2.4);
+          filter: brightness(2.6);
+        }
+        100% {
+          transform: scaleX(1);
+          filter: brightness(1);
+        }
+      }
+
+      /* Countdown 3-2-1-GO — the gold display ramp; GO! flips it green. */
       #countdown {
         position: fixed;
         top: 34%;
         left: 50%;
         transform: translate(-50%, -50%);
-        font:
-          900 italic clamp(70px, 16vw, 170px) / 1 system-ui,
-          sans-serif;
-        color: #ffd147;
-        text-shadow:
-          0 8px 0 rgba(0, 0, 0, 0.45),
-          0 0 50px rgba(255, 160, 40, 0.6);
+        font: 900 italic clamp(70px, 16vw, 170px) / 1 var(--fd);
+        letter-spacing: -0.02em;
+        /* clip-text numeral: the inherited ring would paint behind the
+           transparent glyphs — the drop-shadow stack is the contour here */
+        text-shadow: none;
+        background: linear-gradient(180deg, #fffdf6 5%, #ffe7ae 45%, #f7ae3c 84%, #e07c14 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        filter: drop-shadow(0 0.014em 0.012em rgba(26, 18, 8, 0.95))
+          drop-shadow(0 0.006em 0 rgba(26, 18, 8, 0.9))
+          drop-shadow(0 0 0.1em rgba(255, 170, 70, 0.55));
         opacity: 0;
         pointer-events: none;
       }
+      #countdown.go {
+        background: linear-gradient(180deg, #fdfff6 4%, #d6ffd0 36%, #6fe06a 72%, #1d9c38 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+      }
 
-      /* Minimap — north-up SF, flush with the bottom-right corner */
+      /* Minimap — north-up SF, flush with the bottom-right corner. A canvas
+         cannot host ::before, so the plate's rim is the padding ring: the
+         bitmap paints the content box and the gradient shows through --rim of
+         padding. Chamfer + drop-shadow match the plates. */
       #minimap {
         position: fixed;
         right: calc(14px + env(safe-area-inset-right));
         bottom: calc(14px + env(safe-area-inset-bottom));
         width: 148px;
         height: 148px;
-        border-radius: 14px;
-        border: 2px solid rgba(255, 209, 71, 0.75);
-        background: rgba(24, 20, 16, 0.92);
-        box-shadow:
-          0 0 0 2px rgba(16, 11, 7, 0.9),
-          0 5px 0 rgba(0, 0, 0, 0.45);
+        padding: var(--rim);
+        border-radius: var(--r);
+        --accent: var(--sea-shallow);
+        background: var(--plate-rim);
+        clip-path: var(--clip-tl);
+        filter: var(--plate-shadow);
         display: none;
         z-index: 5;
         pointer-events: none;
@@ -392,6 +643,13 @@
           top: auto;
           left: calc(14px + env(safe-area-inset-left));
           bottom: calc(138px + env(safe-area-inset-bottom));
+          clip-path: var(--clip-tr);
+        }
+        /* Rails end above the thumb zone: a thumb pad is opaque flesh and no
+           z-index fixes flesh. */
+        .rail {
+          top: 10vh;
+          bottom: 46vh;
         }
       }
       @media (pointer: coarse) and (max-height: 500px) {
@@ -409,6 +667,7 @@
           bottom: auto;
           left: calc(12px + env(safe-area-inset-left));
           top: calc(170px + env(safe-area-inset-top));
+          clip-path: var(--clip-br);
         }
       }
 
@@ -443,51 +702,49 @@
         opacity: 0;
         transition: opacity 0.3s ease;
         background: radial-gradient(
-          circle at 50% 40%,
-          rgba(20, 16, 28, 0.35),
-          rgba(10, 8, 14, 0.78)
+          ellipse 90% 80% at 50% 42%,
+          rgba(26, 15, 9, 0.35),
+          rgba(16, 9, 5, 0.78) 82%
         );
       }
       #banner.show {
         opacity: 1;
       }
       #banner-title {
-        font:
-          900 clamp(44px, 11vw, 120px) / 0.95 system-ui,
-          sans-serif;
+        font: 900 clamp(44px, 11vw, 120px) / 0.95 var(--fd);
         font-style: italic;
-        color: #ffd147;
+        color: var(--gold);
         letter-spacing: -2px;
         text-shadow:
-          0 6px 0 rgba(0, 0, 0, 0.45),
+          0 6px 0 rgba(23, 11, 4, 0.45),
           0 0 40px rgba(255, 160, 40, 0.5);
         transform: rotate(-3deg);
       }
       #banner-sub {
         margin-top: 18px;
         font-size: clamp(15px, 3.4vw, 22px);
-        color: #fff;
+        color: var(--paper);
         max-width: 80vw;
         line-height: 1.5;
-        text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5);
+        text-shadow: 0 2px 0 rgba(23, 11, 4, 0.5);
       }
       #banner-stats {
         margin-top: 10px;
         font-size: clamp(13px, 2.6vw, 17px);
-        color: #aee3ff;
+        color: var(--dim);
         font-variant-numeric: tabular-nums;
       }
       #banner-cta {
         margin-top: 26px;
         font-size: 15px;
         letter-spacing: 2px;
-        color: #14111a;
-        background: #ffd147;
+        color: var(--ink-2);
+        background: linear-gradient(180deg, #fff3cc, #ffc84e 58%, #f09a1c);
         border-radius: 10px;
         padding: 12px 22px;
         pointer-events: auto;
         cursor: pointer;
-        box-shadow: 0 5px 0 rgba(0, 0, 0, 0.4);
+        box-shadow: 0 5px 0 rgba(23, 11, 4, 0.4);
         animation: pulse 1.4s ease-in-out infinite;
       }
       @keyframes pulse {
@@ -532,15 +789,13 @@
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        background: #14111a;
+        background: var(--ink-2);
         z-index: 20;
         gap: 16px;
       }
       #loading .lt {
-        font:
-          900 italic clamp(34px, 9vw, 80px) / 1 system-ui,
-          sans-serif;
-        color: #ffd147;
+        font: 900 italic clamp(34px, 9vw, 80px) / 1 var(--fd);
+        color: var(--gold);
         transform: rotate(-3deg);
         letter-spacing: -2px;
       }
@@ -548,13 +803,13 @@
         width: min(60vw, 320px);
         height: 10px;
         border-radius: 6px;
-        background: rgba(255, 255, 255, 0.12);
+        background: rgba(255, 244, 226, 0.12);
         overflow: hidden;
       }
       #bar-fill {
         height: 100%;
         width: 100%;
-        background: #ffd147;
+        background: var(--gold);
         /* scaleX, not width: a width transition is layout and therefore stops
            dead whenever the main thread blocks (the world decode does, for
            seconds). A transform runs on the compositor and keeps moving. */
@@ -752,6 +1007,10 @@
         #timer.low {
           animation: none;
         }
+        .rail > i,
+        .rail.pop {
+          animation: none;
+        }
       }
       /* Landing screen: the banner is the whole screen. Hide every gameplay
          surface behind it — HUD pills, minimap, driver count, touch pad. */
@@ -787,7 +1046,7 @@
           Menlo,
           monospace;
         letter-spacing: 3px;
-        color: rgba(255, 209, 71, 0.75);
+        color: rgba(255, 207, 107, 0.75);
       }
       #banner-controls .hint {
         display: inline-flex;
@@ -1005,6 +1264,8 @@
     />
     <div id="netinfo"></div>
     <div id="hud">
+      <div class="rail" id="rail-l" aria-hidden="true"><i></i></div>
+      <div class="rail" id="rail-r" aria-hidden="true"><i></i></div>
       <div class="pill" id="timer">
         <span class="label">TIME</span><span class="value">60</span>
       </div>
