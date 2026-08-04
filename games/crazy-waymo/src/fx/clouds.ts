@@ -302,6 +302,8 @@ export class SkyClouds {
   // Per-fog-sheet drift speed + target alpha (dissolve is alpha-driven).
   private fogSpeed: Float32Array;
   private fogBase: Float32Array;
+  // Weather clock for Karl's presence swell; random start so sessions differ.
+  private karlT = Math.random() * 900;
   private fogWidth: Float32Array; // full (uncapped) width per sheet
   private highSpeed: Float32Array;
   private level: CloudQuality = 2;
@@ -498,17 +500,31 @@ export class SkyClouds {
       if (x > WORLD_HALF_X * 1.7) x = -WORLD_HALF_X * 1.7;
       this.high.centers[i * 3] = x;
     }
+    // Karl breathes as WEATHER, not a constant: two incommensurate sines
+    // (~7 min swell + ~100 s ripple) sweep his presence between wisps (0.55)
+    // and a bank half again heavier than the old constant (1.45) — and at the
+    // peaks the dissolve line moves up to 0.1 U further inland, so a heavy
+    // phase pours fog past Twin Peaks instead of always dying at the ridge.
+    // The session starts at a random point in the cycle: some runs open socked
+    // in, some clear. The volumetric bank (render/aerial-fog.ts) stays fixed —
+    // the sheets are what reads as fog arriving and leaving.
+    this.karlT += dt;
+    const swell =
+      Math.sin(this.karlT * ((Math.PI * 2) / 420)) * 0.5 +
+      Math.sin(this.karlT * ((Math.PI * 2) / 97) + 1.7) * 0.18;
+    const presence = THREE.MathUtils.clamp(1 + 0.9 * swell, 0.5, 1.75);
+    const dissolveU = FOG_DISSOLVE_U + 0.26 * Math.max(0, presence - 1);
     // Karl: drift east, fade in over the ocean, dissolve crossing the ridge.
     for (let i = 0; i < this.fogActive; i++) {
       const x = (this.fog.centers[i * 3] ?? 0) + (this.fogSpeed[i] ?? 0) * dt;
       this.fog.centers[i * 3] = x;
       const u = x / WORLD_W + 0.5;
-      const base = this.fogBase[i] ?? 0.2;
+      const base = (this.fogBase[i] ?? 0.2) * presence;
       const fadeIn = Math.min(1, (this.fog.alphas[i] ?? 0) / base + dt * 0.6);
       // Dissolve band: full strength until the city line, then thins out.
-      const dissolve = THREE.MathUtils.clamp(1 - (u - (FOG_DISSOLVE_U - 0.18)) / 0.18, 0, 1);
-      this.fog.alphas[i] = base * Math.min(fadeIn, 1) * dissolve;
-      if (u > FOG_DISSOLVE_U) this.spawnFog(i, false);
+      const dissolve = THREE.MathUtils.clamp(1 - (u - (dissolveU - 0.18)) / 0.18, 0, 1);
+      this.fog.alphas[i] = Math.min(1, base * Math.min(fadeIn, 1) * dissolve);
+      if (u > dissolveU) this.spawnFog(i, false);
     }
     this.high.markDirty();
     this.fog.markDirty();
