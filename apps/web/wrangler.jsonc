@@ -32,4 +32,45 @@
       "bucket_name": "vibedgames-games",
     },
   ],
+  // Per-PR preview deployments. Deploys as a SEPARATE Worker
+  // (`vibedgames-web-preview`) with its own D1 and its own R2 bucket, so a
+  // preview can never read or write production data.
+  //
+  // `d1_databases` / `r2_buckets` / `vars` / `routes` are non-inheritable —
+  // anything omitted here is simply absent, NOT inherited from above. That is
+  // the whole safety property: forget the D1 block and the preview fails to
+  // bind a database rather than silently binding production's.
+  //
+  // Provision the backing resources with `pnpm preview:provision` (idempotent).
+  "env": {
+    "preview": {
+      "workers_dev": true,
+      // MUST be an explicit empty array. Unlike bindings, `routes` is an
+      // INHERITABLE key — omit it and the preview Worker inherits
+      // `vibedgames.com/*` and hijacks production traffic on deploy.
+      "routes": [],
+      "observability": { "enabled": true },
+      "vars": {
+        // Points at production on purpose — `oAuthProxy` uses it to round-trip
+        // OAuth through the domain where the provider credentials are
+        // registered. Email/password auth derives its baseURL from the request
+        // Host, so it works on the preview hostname without this.
+        "PRODUCTION_URL": "https://vibedgames.com",
+        "R2_BUCKET_NAME": "vibedgames-games-preview",
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "vibedgames-preview",
+          "database_id": "PREVIEW_D1_DATABASE_ID",
+        },
+      ],
+      "r2_buckets": [
+        {
+          "binding": "GAMES_BUCKET",
+          "bucket_name": "vibedgames-games-preview",
+        },
+      ],
+    },
+  },
 }

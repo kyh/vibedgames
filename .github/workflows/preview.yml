@@ -1,0 +1,159 @@
+name: Preview
+
+# Deploys the web app for every PR as `vibedgames-web-preview`, a Worker bound
+# to its own D1 and its own R2 bucket. The preview is reachable at a stable
+# per-PR alias, so a reviewer — or an agent — can exercise the change against a
+# real deployment instead of trusting a green typecheck.
+#
+# The isolation lives in `apps/web/wrangler.jsonc` under `env.preview`, and is
+# applied by building with CLOUDFLARE_ENV=preview: the Cloudflare Vite plugin
+# resolves bindings at BUILD time into dist/server/wrangler.json, so the
+# environment must be selected before `vite build`, not on the wrangler command.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  preview:
+    # Forked PRs cannot read repository secrets, so a preview deploy would fail
+    # partway rather than usefully. Skip cleanly instead.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    outputs:
+      url: ${{ steps.upload.outputs.url }}
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Fails loudly if apps/web/wrangler.jsonc still carries the
+      # PREVIEW_D1_DATABASE_ID placeholder — deploying then would bind a
+      # non-existent database and fail at request time instead of here.
+      - name: Check preview resources are provisioned
+        run: pnpm preview:provision --check
+
+      - name: Build (preview bindings)
+        run: pnpm turbo run build --filter=@repo/web...
+        env:
+          CI: "1"
+          CLOUDFLARE_ENV: preview
+
+      # Keep the preview database's schema in step with the branch under test.
+      # drizzle-kit push and seed.sql are both idempotent, so this converges the
+      # shared preview database on every run.
+      - name: Push schema + seed preview database
+        run: |
+          pnpm -F db push
+          pnpm -C apps/web exec wrangler d1 execute vibedgames-preview \
+            --remote --file=../../packages/db/seed.sql
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_DATABASE_ID: ${{ secrets.PREVIEW_D1_DATABASE_ID }}
+          CLOUDFLARE_D1_TOKEN: ${{ secrets.CLOUDFLARE_D1_TOKEN }}
+
+      # Secrets are per-Worker, and `vibedgames-web-preview` is a different
+      # Worker from production — it has none until we supply them. Uploading
+      # them with the version keeps previews self-provisioning.
+      #
+      # FAL_API_KEY is deliberately omitted: `vg generate` costs real money, and
+      # a preview must not be able to spend it.
+      - name: Upload version
+        id: upload
+        run: |
+          set -euo pipefail
+          SECRETS_FILE="$(mktemp)"
+          trap 'rm -f "$SECRETS_FILE"' EXIT
+          {
+            echo "BETTER_AUTH_SECRET=${{ secrets.PREVIEW_BETTER_AUTH_SECRET }}"
+            echo "R2_ACCOUNT_ID=${{ secrets.R2_ACCOUNT_ID }}"
+            echo "R2_ACCESS_KEY_ID=${{ secrets.R2_ACCESS_KEY_ID }}"
+            echo "R2_SECRET_ACCESS_KEY=${{ secrets.R2_SECRET_ACCESS_KEY }}"
+          } > "$SECRETS_FILE"
+
+          pnpm -F @repo/web exec wrangler versions upload \
+            --tag "pr-${{ github.event.pull_request.number }}-${GITHUB_SHA}" \
+            --message "PR #${{ github.event.pull_request.number }} — ${GITHUB_SHA}" \
+            --preview-alias "pr-${{ github.event.pull_request.number }}" \
+            --secrets-file "$SECRETS_FILE" \
+            2>&1 | tee upload.log
+
+          # wrangler prints both the version-specific and the alias preview URL.
+          # The alias is the stable one — it survives every push to this PR — so
+          # prefer it and fall back to whatever URL was printed.
+          URL=$(grep -oE 'https://pr-[0-9]+-[a-z0-9.-]+\.workers\.dev' upload.log | head -1 || true)
+          if [ -z "$URL" ]; then
+            URL=$(grep -oE 'https://[a-z0-9.-]+\.workers\.dev' upload.log | head -1 || true)
+          fi
+          if [ -z "$URL" ]; then
+            echo "::error::Could not determine the preview URL from wrangler output."
+            exit 1
+          fi
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Preview: $URL"
+
+      - name: Comment preview URL
+        uses: actions/github-script@v8
+        env:
+          PREVIEW_URL: ${{ steps.upload.outputs.url }}
+        with:
+          script: |
+            const url = process.env.PREVIEW_URL;
+            const marker = '<!-- vibedgames-preview -->';
+            const body = [
+              marker,
+              `### Preview deployed`,
+              ``,
+              `| | |`,
+              `|---|---|`,
+              `| URL | ${url} |`,
+              `| Worker | \`vibedgames-web-preview\` |`,
+              `| Data | isolated \`vibedgames-preview\` D1 + \`vibedgames-games-preview\` R2 |`,
+              `| Commit | \`${context.sha.slice(0, 7)}\` |`,
+              ``,
+              `Seeded logins work here: \`user@vibedgames.com\` / \`admin@vibedgames.com\`, password \`password123\`.`,
+              `Asset generation is disabled on previews (no provider key), so nothing here can spend credits.`,
+              ``,
+              `---`,
+              `_Generated by [Claude Code](https://claude.ai/code)_`,
+            ].join('\n');
+
+            // Update the existing comment rather than stacking one per push.
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find((c) => c.body?.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
