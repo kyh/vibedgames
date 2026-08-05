@@ -9,7 +9,8 @@
   },
   "scripts": {
     "clean": "rm -rf .cache .turbo dist node_modules",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@better-auth/api-key": "^1.6.25",
@@ -22,11 +23,15 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.20.1",
     "@cloudflare/workers-types": "catalog:",
     "@kyh/tsconfig": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "typescript": "catalog:"
+    "drizzle-kit": "^0.31.10",
+    "typescript": "catalog:",
+    "vitest": "^4.1.10",
+    "wrangler": "catalog:"
   }
 }
