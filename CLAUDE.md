@@ -72,7 +72,9 @@ pnpm build            # Build all packages
 pnpm typecheck        # Type check all
 pnpm lint             # Lint all (oxlint)
 pnpm lint:fix         # Lint + fix
-pnpm test             # Run all tests (turbo run test)
+pnpm test             # Run all tests (turbo run test) — includes packages/api in workerd
+pnpm -F @repo/web test:e2e  # Playwright suite for the web app's mutation flows
+pnpm preview:provision      # Create/verify the preview D1 + R2 bucket (idempotent)
 pnpm format           # Format check (oxfmt --check)
 pnpm format:fix       # Format + write
 pnpm db:push          # Push schema (drizzle-kit push) to REMOTE prod D1

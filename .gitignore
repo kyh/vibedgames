@@ -9,6 +9,11 @@ node_modules
 # testing
 coverage
 
+# playwright — saved sign-in cookies, traces, reports
+apps/web/e2e/.auth/
+test-results/
+playwright-report/
+
 # python (uv-run skill scripts)
 __pycache__/
 *.pyc

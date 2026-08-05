@@ -110,6 +110,7 @@ jobs:
           echo "Preview: $URL"
 
       - name: Comment preview URL
+        id: comment
         uses: actions/github-script@v8
         env:
           PREVIEW_URL: ${{ steps.upload.outputs.url }}
@@ -157,3 +158,45 @@ jobs:
                 body,
               });
             }
+
+  e2e:
+    # The point of the preview: exercise the real deployment, not a typecheck.
+    # These are the mutation flows an agent cannot otherwise verify — see the
+    # platform matrix in AGENTS.md.
+    needs: preview
+    runs-on: ubuntu-latest
+    env:
+      E2E_BASE_URL: ${{ needs.preview.outputs.url }}
+      # Optional: route the browser through Cloudflare Browser Run rather than a
+      # runner-local Chromium. Unset, Playwright launches its own — which is the
+      # verified default. Lifted to job env because the `secrets` context is not
+      # available in a step-level `if:`.
+      E2E_CDP_URL: ${{ secrets.BROWSER_RUN_CDP_URL }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Nothing to install when Browser Run is supplying the browser.
+      - name: Install Chromium
+        if: env.E2E_CDP_URL == ''
+        run: pnpm -F @repo/web exec playwright install --with-deps chromium
+
+      - name: Run e2e against the preview
+        run: pnpm -F @repo/web test:e2e
+
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            apps/web/playwright-report/
+            apps/web/test-results/
+          retention-days: 7

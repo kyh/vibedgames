@@ -313,6 +313,9 @@ importers:
       '@kyh/tsconfig':
         specifier: 'catalog:'
         version: 1.2.0
+      '@playwright/test':
+        specifier: ^1.62.0
+        version: 1.62.0
       '@tailwindcss/typography':
         specifier: ^0.5.20
         version: 0.5.20(tailwindcss@4.3.3)
