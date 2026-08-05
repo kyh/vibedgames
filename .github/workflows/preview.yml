@@ -52,16 +52,22 @@ jobs:
       - name: Check preview resources are provisioned
         id: provisioned
         run: |
-          if pnpm preview:provision --check; then
+          # --print-id emits the id committed in apps/web/wrangler.jsonc, which
+          # is the same value the Worker binds. Reading it here rather than from
+          # a separate secret keeps schema pushes and request traffic pointed at
+          # one database — two copies of the id can drift, and the symptom would
+          # be a preview serving a database nobody migrated.
+          if PREVIEW_D1_ID=$(pnpm -s preview:provision --print-id); then
             echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "database_id=$PREVIEW_D1_ID" >> "$GITHUB_OUTPUT"
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"
             {
               echo "### Preview skipped — resources not provisioned"
               echo ""
               echo "Run \`pnpm preview:provision\` with \`CLOUDFLARE_API_TOKEN\` set, commit the"
-              echo "resulting \`apps/web/wrangler.jsonc\`, and set the \`PREVIEW_D1_DATABASE_ID\`"
-              echo "and \`PREVIEW_BETTER_AUTH_SECRET\` repository secrets."
+              echo "resulting \`apps/web/wrangler.jsonc\`, and set the"
+              echo "\`PREVIEW_BETTER_AUTH_SECRET\` repository secret."
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
@@ -83,7 +89,7 @@ jobs:
             --remote --file=../../packages/db/seed.sql
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_DATABASE_ID: ${{ secrets.PREVIEW_D1_DATABASE_ID }}
+          CLOUDFLARE_DATABASE_ID: ${{ steps.provisioned.outputs.database_id }}
           CLOUDFLARE_D1_TOKEN: ${{ secrets.CLOUDFLARE_D1_TOKEN }}
 
       # Secrets are per-Worker, and `vibedgames-web-preview` is a different

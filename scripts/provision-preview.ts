@@ -11,8 +11,9 @@
  * Idempotent: re-running it against an already-provisioned account finds the
  * existing resources and only rewrites the config if the id drifted.
  *
- *   pnpm preview:provision           # create + patch wrangler.jsonc
- *   pnpm preview:provision --check   # verify only, non-zero exit if unset
+ *   pnpm preview:provision              # create + patch wrangler.jsonc
+ *   pnpm preview:provision --check      # verify only, non-zero exit if unset
+ *   pnpm -s preview:provision --print-id  # print the configured id, for CI
  *
  * Requires CLOUDFLARE_API_TOKEN (and CLOUDFLARE_ACCOUNT_ID) in the environment,
  * the same credentials the deploy workflow uses.
@@ -33,6 +34,8 @@ const D1_NAME = "vibedgames-preview";
 const R2_BUCKET = "vibedgames-games-preview";
 
 const checkOnly = process.argv.includes("--check");
+/** Emit just the configured database id, for CI to consume. Implies --check. */
+const printId = process.argv.includes("--print-id");
 
 const wrangler = (args: string[]): string =>
   execFileSync("./node_modules/.bin/wrangler", args, {
@@ -69,16 +72,26 @@ const ensureDatabase = (): string => {
   return created;
 };
 
-const ensureBucket = (): void => {
-  // There is no scriptable "does this bucket exist" that is cheaper than
-  // trying to create it, and creating an existing bucket is an error rather
-  // than a no-op — so treat an already-exists failure as success.
+const bucketExists = (): boolean => {
   try {
-    wrangler(["r2", "bucket", "create", R2_BUCKET]);
-    console.log(`r2: created ${R2_BUCKET}`);
+    wrangler(["r2", "bucket", "info", R2_BUCKET]);
+    return true;
   } catch {
-    console.log(`r2: ${R2_BUCKET} already exists (or creation was refused — see above)`);
+    return false;
   }
+};
+
+const ensureBucket = (): void => {
+  // Check existence first rather than creating and swallowing the error. A
+  // blanket catch around `create` would report success for an auth failure, a
+  // quota limit, or a typo'd bucket name, and provisioning would "succeed"
+  // without a preview bucket. Anything that goes wrong below now propagates.
+  if (bucketExists()) {
+    console.log(`r2: ${R2_BUCKET} already exists`);
+    return;
+  }
+  wrangler(["r2", "bucket", "create", R2_BUCKET]);
+  console.log(`r2: created ${R2_BUCKET}`);
 };
 
 const readConfig = (): string => readFileSync(configPath, "utf8");
@@ -93,20 +106,23 @@ const currentConfiguredId = (): string | undefined => {
   return match?.[1];
 };
 
-if (checkOnly) {
+if (checkOnly || printId) {
   const id = currentConfiguredId();
-  if (!id) {
-    console.error(`✗ No preview D1 binding found in ${configPath}`);
-    process.exit(1);
-  }
-  if (id === PLACEHOLDER) {
+  if (!id || id === PLACEHOLDER) {
     console.error(
-      `✗ Preview D1 is still the ${PLACEHOLDER} placeholder.\n` +
-        `  Run 'pnpm preview:provision' with CLOUDFLARE_API_TOKEN set, then commit wrangler.jsonc.`,
+      !id
+        ? `✗ No preview D1 binding found in ${configPath}`
+        : `✗ Preview D1 is still the ${PLACEHOLDER} placeholder.\n` +
+            `  Run 'pnpm preview:provision' with CLOUDFLARE_API_TOKEN set, then commit wrangler.jsonc.`,
     );
     process.exit(1);
   }
-  console.log(`✓ Preview D1 configured (${id})`);
+  // `--print-id` writes the bare id to stdout so CI can bind schema pushes to
+  // the SAME database the Worker binds. Keeping the id in one place — the
+  // committed wrangler.jsonc — is the point: a second copy in a CI secret can
+  // drift, and then the schema lands in one database while traffic hits
+  // another.
+  console.log(printId ? id : `✓ Preview D1 configured (${id})`);
   process.exit(0);
 }
 
