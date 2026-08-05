@@ -3,17 +3,31 @@ name: Deploy
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      canary_percent:
+        description: "Traffic percentage for the canary step (1-100; 100 skips the ramp)"
+        required: false
+        default: "10"
+      soak_seconds:
+        description: "Seconds to hold at the canary percentage before going to 100%"
+        required: false
+        default: "180"
 
 concurrency:
   group: deploy-${{ github.ref }}
+
+env:
+  # Rollout shape. A push to main uses the defaults; workflow_dispatch can
+  # override either value — canary_percent=100 skips the ramp for an urgent fix.
+  CANARY_PERCENT: ${{ github.event.inputs.canary_percent || '10' }}
+  SOAK_SECONDS: ${{ github.event.inputs.soak_seconds || '180' }}
 
 jobs:
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
-      web: ${{ steps.check.outputs.web }}
-      party: ${{ steps.check.outputs.party }}
-      games: ${{ steps.check.outputs.games }}
+      matrix: ${{ steps.check.outputs.matrix }}
       r2_lifecycle: ${{ steps.check.outputs.r2_lifecycle }}
     steps:
       - uses: actions/checkout@v6
@@ -32,29 +46,54 @@ jobs:
       - name: Detect changed apps
         id: check
         run: |
+          set -euo pipefail
+
+          # Worker name per app, and whether it can take a gradual rollout.
+          #
+          # Party is all-at-once on purpose: only one version of a given
+          # Durable Object runs at a time, so splitting traffic between two
+          # versions of the party Worker does not actually split the DO. A
+          # percentage there would buy no safety and would leave the room
+          # protocol straddling two builds.
+          declare -A WORKER=( [web]=vibedgames-web [party]=vibedgames-party [games]=vibedgames-games )
+          declare -A GRADUAL=( [web]=true [party]=false [games]=true )
+
           BASE="${{ github.event.before }}"
-          if [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
-            echo "web=true" >> "$GITHUB_OUTPUT"
-            echo "party=true" >> "$GITHUB_OUTPUT"
-            echo "games=true" >> "$GITHUB_OUTPUT"
-            echo "r2_lifecycle=true" >> "$GITHUB_OUTPUT"
-            exit 0
+          # workflow_dispatch carries no `before` SHA, and the first push to a
+          # branch reports the zero SHA — deploy everything in both cases.
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            CHANGED="web party games"
+            LIFECYCLE=true
+          else
+            CHANGED=""
+            for app in web party games; do
+              if output=$(pnpm turbo ls --filter="@repo/${app}...[${BASE}]"); then
+                echo "$output" | grep -q "@repo/" && CHANGED="$CHANGED $app"
+              else
+                # turbo could not diff (shallow history, deleted ref) — deploying
+                # is the safe failure mode, skipping silently is not.
+                CHANGED="$CHANGED $app"
+              fi
+            done
+            if git diff --name-only "$BASE" HEAD -- apps/web/infra/r2/vibedgames-games.lifecycle.json | grep -q .; then
+              LIFECYCLE=true
+            else
+              LIFECYCLE=false
+            fi
           fi
 
-          for app in web party games; do
-            output=$(pnpm turbo ls --filter="@repo/${app}...[${BASE}]") || { echo "${app}=true" >> "$GITHUB_OUTPUT"; continue; }
-            if echo "$output" | grep -q "@repo/"; then
-              echo "${app}=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "${app}=false" >> "$GITHUB_OUTPUT"
-            fi
+          INCLUDE='[]'
+          for app in $CHANGED; do
+            INCLUDE=$(jq -c \
+              --arg app "$app" \
+              --arg worker "${WORKER[$app]}" \
+              --argjson gradual "${GRADUAL[$app]}" \
+              '. + [{app: $app, worker: $worker, gradual: $gradual}]' <<<"$INCLUDE")
           done
 
-          if git diff --name-only "$BASE" HEAD -- apps/web/infra/r2/vibedgames-games.lifecycle.json | grep -q .; then
-            echo "r2_lifecycle=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "r2_lifecycle=false" >> "$GITHUB_OUTPUT"
-          fi
+          echo "matrix={\"include\":${INCLUDE}}" >> "$GITHUB_OUTPUT"
+          echo "r2_lifecycle=${LIFECYCLE}" >> "$GITHUB_OUTPUT"
+          echo "Deploying:${CHANGED:- (nothing)}"
 
   apply-r2-lifecycle:
     needs: detect-changes
@@ -77,10 +116,16 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
-  deploy-web:
+  deploy:
     needs: detect-changes
-    if: needs.detect-changes.outputs.web == 'true'
+    if: needs.detect-changes.outputs.matrix != '{"include":[]}'
     runs-on: ubuntu-latest
+    strategy:
+      # One app's failed rollout must not cancel another's mid-ramp.
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.detect-changes.outputs.matrix) }}
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
       - uses: actions/checkout@v6
 
@@ -93,49 +138,50 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Build & deploy web
-        run: pnpm turbo run build --filter=@repo/web... && pnpm -F @repo/web exec wrangler deploy
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      - name: Build ${{ matrix.app }}
+        run: pnpm turbo run build --filter=@repo/${{ matrix.app }}...
 
-  deploy-party:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.party == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
+      # Upload without routing traffic. Tagging the version with the commit SHA
+      # lets the deploy steps address it by tag instead of scraping a version id
+      # out of wrangler's stdout, and leaves every build addressable for rollback.
+      - name: Upload version
+        run: |
+          pnpm -F @repo/${{ matrix.app }} exec wrangler versions upload \
+            --tag "${GITHUB_SHA}" \
+            --message "${GITHUB_SHA} — ${GITHUB_WORKFLOW} #${GITHUB_RUN_NUMBER}"
 
-      - uses: pnpm/action-setup@v6
+      - name: Canary at ${{ env.CANARY_PERCENT }}%
+        if: matrix.gradual && env.CANARY_PERCENT != '100'
+        run: |
+          pnpm -F @repo/${{ matrix.app }} exec wrangler versions deploy \
+            --version-tag "${GITHUB_SHA}@${CANARY_PERCENT}" -y \
+            --message "canary ${CANARY_PERCENT}% — ${GITHUB_SHA}"
 
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: pnpm
+      # Time-based soak: it bounds blast radius and leaves a window to hit the
+      # Rollback workflow. It is NOT yet an automated canary — nothing here reads
+      # error rates. When the observability phase lands, replace the sleep with a
+      # Workers Logs / Analytics Engine query and fail the job on a regression.
+      - name: Soak
+        if: matrix.gradual && env.CANARY_PERCENT != '100'
+        run: sleep "${SOAK_SECONDS}"
 
-      - run: pnpm install --frozen-lockfile
+      - name: Promote to 100%
+        run: |
+          pnpm -F @repo/${{ matrix.app }} exec wrangler versions deploy \
+            --version-tag "${GITHUB_SHA}@100" -y \
+            --message "promote ${GITHUB_SHA}"
 
-      - name: Build & deploy party
-        run: pnpm turbo run build --filter=@repo/party... && pnpm -F @repo/party exec wrangler deploy --name vibedgames-party
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-
-  deploy-games:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.games == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
-
-      - name: Build & deploy games
-        run: pnpm turbo run build --filter=@repo/games... && pnpm -F @repo/games exec wrangler deploy
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### ${{ matrix.worker }}"
+            echo ""
+            echo "- version tag: \`${GITHUB_SHA}\`"
+            if [ "${{ matrix.gradual }}" = "true" ] && [ "${CANARY_PERCENT}" != "100" ]; then
+              echo "- rollout: ${CANARY_PERCENT}% → soak ${SOAK_SECONDS}s → 100%"
+            else
+              echo "- rollout: 100% (no ramp)"
+            fi
+            echo "- rollback: run the **Rollback** workflow for \`${{ matrix.app }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
