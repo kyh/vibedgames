@@ -44,13 +44,29 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # Fails loudly if apps/web/wrangler.jsonc still carries the
-      # PREVIEW_D1_DATABASE_ID placeholder — deploying then would bind a
-      # non-existent database and fail at request time instead of here.
+      # Deploying against the PREVIEW_D1_DATABASE_ID placeholder would bind a
+      # non-existent database and fail at request time. Skip the preview instead
+      # of failing the PR: until someone runs `pnpm preview:provision` against
+      # the account, previews are simply not available, and that should not turn
+      # every PR red.
       - name: Check preview resources are provisioned
-        run: pnpm preview:provision --check
+        id: provisioned
+        run: |
+          if pnpm preview:provision --check; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### Preview skipped — resources not provisioned"
+              echo ""
+              echo "Run \`pnpm preview:provision\` with \`CLOUDFLARE_API_TOKEN\` set, commit the"
+              echo "resulting \`apps/web/wrangler.jsonc\`, and set the \`PREVIEW_D1_DATABASE_ID\`"
+              echo "and \`PREVIEW_BETTER_AUTH_SECRET\` repository secrets."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Build (preview bindings)
+        if: steps.provisioned.outputs.ready == 'true'
         run: pnpm turbo run build --filter=@repo/web...
         env:
           CI: "1"
@@ -60,6 +76,7 @@ jobs:
       # drizzle-kit push and seed.sql are both idempotent, so this converges the
       # shared preview database on every run.
       - name: Push schema + seed preview database
+        if: steps.provisioned.outputs.ready == 'true'
         run: |
           pnpm -F db push
           pnpm -C apps/web exec wrangler d1 execute vibedgames-preview \
@@ -76,6 +93,7 @@ jobs:
       # FAL_API_KEY is deliberately omitted: `vg generate` costs real money, and
       # a preview must not be able to spend it.
       - name: Upload version
+        if: steps.provisioned.outputs.ready == 'true'
         id: upload
         run: |
           set -euo pipefail
@@ -110,6 +128,7 @@ jobs:
           echo "Preview: $URL"
 
       - name: Comment preview URL
+        if: steps.provisioned.outputs.ready == 'true'
         id: comment
         uses: actions/github-script@v8
         env:
@@ -164,6 +183,7 @@ jobs:
     # These are the mutation flows an agent cannot otherwise verify — see the
     # platform matrix in AGENTS.md.
     needs: preview
+    if: needs.preview.outputs.url != ''
     runs-on: ubuntu-latest
     env:
       E2E_BASE_URL: ${{ needs.preview.outputs.url }}
