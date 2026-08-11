@@ -17,7 +17,7 @@ import { PhysicsWorld } from "../physics/physics-world";
 import { Rng } from "../shared/rng";
 import { Car } from "../vehicle/car";
 import { RaycastVehicle } from "../vehicle/raycast-vehicle";
-import { skinById } from "../vehicle/car";
+import { skinById, skinModelUrl } from "../vehicle/car";
 import { CityModel, type CityRestPayload } from "../world/city";
 import { editorMode, loadLocalOverrides } from "../world/custom-map";
 import { freewayPhysics } from "../world/freeways";
@@ -212,7 +212,11 @@ export async function loadWorld(deps: WorldLoaderDeps): Promise<WorldLoadResult>
   deps.scene.add(city.group);
 
   const spawn = deps.computeSpawn(city);
-  const skinId = skinById(storageGet("crazy-waymo:skin")).id;
+  const skin = skinById(storageGet("crazy-waymo:skin"));
+  const skinId = skin.id;
+  // Only the equipped body — the other operators stay unfetched until the
+  // player rolls onto a garage forecourt.
+  await deps.cache.ensure(skinModelUrl(skin));
   const car = new Car(deps.cache, skinId);
   car.setSurface(city);
   deps.scene.add(car.object3D);

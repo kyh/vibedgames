@@ -7,6 +7,7 @@ import {
   BUILDINGS_SKYSCRAPER,
   BUILDINGS_SUBURBAN,
   CHARACTERS,
+  editorModelUrls,
   modelUrl,
   KK_BUILDINGS,
   KK_CARS,
@@ -78,10 +79,13 @@ function defaultScale(cat: string, size: THREE.Vector3): number {
   return clamp(3.4 / Math.max(size.y, 0.001), 0.4, 6);
 }
 
-export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): void {
+export async function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): Promise<void> {
   const city = game.getCity();
   if (!city) return;
   const cache = game.getCache();
+  // The KayKit cars/extra props are in nobody's play preload — the roster is
+  // the only thing that can place them, so it fetches them itself.
+  await cache.preload(editorModelUrls(), () => {});
   const camera = game.camera;
 
   game.freecam = true;

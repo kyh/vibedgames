@@ -20,7 +20,7 @@ export type ItemDef = {
   name: string;
   cost: number;
   desc: string;
-  icon: string; // logical icon key (ui-icon-NN)
+  icon: number; // frame in the packed ui icon sheet (assets/ui/icons.webp)
   stats: ItemStats;
   active?: { kind: ActiveKind; cooldown: number; desc: string };
 };
@@ -30,7 +30,7 @@ export const ITEMS: ItemDef[] = [
     id: "boots",
     name: "Boots of the March",
     cost: 450,
-    icon: "ui-icon-01",
+    icon: 0,
     desc: "+45 move speed.",
     stats: { moveSpeed: 45 },
   },
@@ -38,7 +38,7 @@ export const ITEMS: ItemDef[] = [
     id: "ringmail",
     name: "Ringmail Vest",
     cost: 550,
-    icon: "ui-icon-02",
+    icon: 1,
     desc: "+6 armor, +2 hp regen.",
     stats: { armor: 6, hpRegen: 2 },
   },
@@ -46,7 +46,7 @@ export const ITEMS: ItemDef[] = [
     id: "whetstone",
     name: "Whetstone Blade",
     cost: 700,
-    icon: "ui-icon-03",
+    icon: 2,
     desc: "+22 attack damage.",
     stats: { damage: 22 },
   },
@@ -54,7 +54,7 @@ export const ITEMS: ItemDef[] = [
     id: "quiver",
     name: "Huntsman's Quiver",
     cost: 900,
-    icon: "ui-icon-04",
+    icon: 3,
     desc: "+35 attack speed, +10 damage.",
     stats: { attackSpeed: 35, damage: 10 },
   },
@@ -62,7 +62,7 @@ export const ITEMS: ItemDef[] = [
     id: "tome",
     name: "Tome of Embers",
     cost: 950,
-    icon: "ui-icon-05",
+    icon: 4,
     desc: "+250 mana, +2.5 mp regen, +10% spell amp.",
     stats: { mp: 250, mpRegen: 2.5, spellAmpPct: 10 },
   },
@@ -70,7 +70,7 @@ export const ITEMS: ItemDef[] = [
     id: "bulwark",
     name: "Bulwark Plate",
     cost: 1300,
-    icon: "ui-icon-06",
+    icon: 5,
     desc: "+450 hp, +5 armor, +3 hp regen.",
     stats: { hp: 450, armor: 5, hpRegen: 3 },
   },
@@ -78,7 +78,7 @@ export const ITEMS: ItemDef[] = [
     id: "fang",
     name: "Vampiric Fang",
     cost: 1400,
-    icon: "ui-icon-07",
+    icon: 6,
     desc: "+28 damage, +18% lifesteal.",
     stats: { damage: 28, lifestealPct: 18 },
   },
@@ -86,7 +86,7 @@ export const ITEMS: ItemDef[] = [
     id: "sash",
     name: "Sash of Haste",
     cost: 1600,
-    icon: "ui-icon-08",
+    icon: 7,
     desc: "+60 move speed, +200 hp.",
     stats: { moveSpeed: 60, hp: 200 },
     active: {
@@ -99,7 +99,7 @@ export const ITEMS: ItemDef[] = [
     id: "aegis",
     name: "Aegis Pendant",
     cost: 2100,
-    icon: "ui-icon-09",
+    icon: 8,
     desc: "+300 hp, +4 armor, +1.5 mp regen.",
     stats: { hp: 300, armor: 4, mpRegen: 1.5 },
     active: {
@@ -112,7 +112,7 @@ export const ITEMS: ItemDef[] = [
     id: "scepter",
     name: "Scepter of Ruin",
     cost: 2600,
-    icon: "ui-icon-10",
+    icon: 9,
     desc: "+30 damage, +250 hp, +12% spell amp, +20 attack speed.",
     stats: { damage: 30, hp: 250, spellAmpPct: 12, attackSpeed: 20 },
     active: { kind: "blink", cooldown: 14, desc: "Blink up to 600px toward the cursor." },

@@ -46,6 +46,7 @@ import { Fishing } from "../systems/fishing";
 import { makeGameKeys, NUM_KEY_NAMES, type GameKeys } from "../systems/keys";
 import { stickMove } from "../systems/stick";
 import { isTap } from "../systems/touch";
+import { syncTouchControls } from "../touch-controls";
 import { AnimalManager } from "../entities/animals";
 import { NpcManager } from "../entities/npcs";
 
@@ -371,9 +372,10 @@ export class GameScene extends Phaser.Scene {
     this.input.on("pointerdown", () => Sound.resume());
     this.keys = makeGameKeys(kb);
     for (const k of Object.values(this.keys)) k.removeAllListeners();
-    this.keys.M.on("down", () =>
-      this.toast(Sound.toggleMute() ? "Sound off" : "Sound on", "#dfe9ff"),
-    );
+    this.keys.M.on("down", () => {
+      this.toast(Sound.toggleMute() ? "Sound off" : "Sound on", "#dfe9ff");
+      syncTouchControls();
+    });
     Sound.startMusic("farm");
 
     NUM_KEY_NAMES.forEach((name, i) =>

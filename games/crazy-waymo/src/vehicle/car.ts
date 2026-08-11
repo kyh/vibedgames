@@ -267,6 +267,14 @@ export const ROBOTAXI_SKINS: readonly RobotaxiSkin[] = [
   },
 ];
 
+/** The GLB a skin's body is built from. The generated operator bodies are not
+ *  in the boot preload (see manifest GEN_ROBOTAXIS) — await
+ *  `cache.ensure(skinModelUrl(skin))` before buildSkinBody or the body comes
+ *  back as the loader's fallback box. */
+export function skinModelUrl(skin: RobotaxiSkin): string {
+  return modelUrl("cars", skin.model);
+}
+
 export function skinById(id: string | undefined | null): RobotaxiSkin {
   const first = ROBOTAXI_SKINS[0];
   if (!first) throw new Error("no skins");

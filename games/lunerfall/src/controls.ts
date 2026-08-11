@@ -17,6 +17,8 @@ export const CONTROLS: ControlsManifest = [
   { method: "touch", input: "DASH", action: "dash" },
   { method: "touch", input: "ATK", action: "attack" },
   { method: "touch", input: "SP", action: "special" },
+  { method: "touch", input: "⏸", action: "pause" },
+  { method: "touch", input: "🔊", action: "mute" },
   { method: "controller", input: "STICK", action: "move" },
   { method: "controller", input: "A", action: "jump" },
   { method: "controller", input: "B", action: "dash" },

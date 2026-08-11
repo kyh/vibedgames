@@ -22,10 +22,15 @@
         height: 100%;
         overflow: hidden;
         background: #c6ecff;
+        /* iOS has ignored `user-scalable=no` since iOS 10, and the whole game
+           is rapid tapping — two fast taps on the start card or a HUD pill
+           would otherwise trigger double-tap-to-zoom. #game sets `none`. */
+        touch-action: manipulation;
       }
       #game {
         position: fixed;
         inset: 0;
+        touch-action: none;
       }
       #game canvas {
         display: block;
@@ -67,6 +72,14 @@
       }
       #hint {
         margin-bottom: 18px;
+      }
+      /* The pose-cam panel owns the bottom-right corner. On a coarse pointer
+         the centred pills run under its collapsed pill ("TAP ANYWHERE TO RES…")
+         and vanish behind it expanded, so stack above whatever it reports. */
+      @media (pointer: coarse) {
+        #hud {
+          padding-bottom: calc(24px + env(safe-area-inset-bottom) + var(--fd-cam-h, 0px));
+        }
       }
       /* Live race leaderboard (multiplayer only) — top-left, above the action. */
       #board {
@@ -119,6 +132,13 @@
         color: #eef2ff;
         opacity: 0.6;
         text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+      }
+      /* @repo/embed's touch cluster (mute + pause) takes the top-right corner
+         on a coarse pointer: 44px buttons inset by its own 10px gap. */
+      @media (pointer: coarse) {
+        #netinfo {
+          top: calc(66px + env(safe-area-inset-top));
+        }
       }
       /* Thin, translucent wash — the live sky (parallax clouds + hovering
          dragons) keeps reading through it. Text legibility comes from the

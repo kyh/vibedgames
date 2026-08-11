@@ -153,7 +153,7 @@ export class GalleryScene extends Phaser.Scene {
       const y = this.cursorY + Math.floor(n / cols) * cellH + 24;
       const { color, label } = classify(idx);
       this.add.rectangle(x, y, 52, 52, 0x000000, 0.25).setStrokeStyle(2, color);
-      const img = this.add.image(x, y, "atlas-sheet", idx).setScale(3);
+      const img = this.add.image(x, y, "atlas", idx).setScale(3);
       this.add
         .text(x, y + 30, String(idx), {
           fontFamily: "monospace",

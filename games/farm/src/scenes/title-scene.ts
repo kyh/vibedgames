@@ -4,6 +4,7 @@ import { PhysicalGamepad } from "@vibedgames/gamepad";
 import { hasSave, clearSave } from "../systems/save";
 import { Sound } from "../render/audio";
 import { buildControlsCard, type ControlsCard } from "../render/controls-card";
+import { mountTouchControls } from "../touch-controls";
 
 export class TitleScene extends Phaser.Scene {
   private onResize?: (gs: Phaser.Structs.Size) => void;
@@ -17,6 +18,7 @@ export class TitleScene extends Phaser.Scene {
 
   create(): void {
     document.getElementById("veil")?.classList.add("hidden");
+    mountTouchControls();
     const { width, height } = this.scale;
 
     // cozy sky->grass backdrop
@@ -62,10 +64,9 @@ export class TitleScene extends Phaser.Scene {
     const contBtn = this.makeButton("☀  Continue", "#3a86c8");
     // The controls card — the pause sign's grouped parchment chips, rendered
     // in Phaser. Rebuilt fresh whenever a pad connects/disconnects.
-    this.controlsCard = buildControlsCard(this);
+    let cardBand = "";
     const rebuildCard = () => {
-      this.controlsCard?.container.destroy();
-      this.controlsCard = buildControlsCard(this);
+      cardBand = "";
       layout();
     };
     // Plugging in (or unplugging) a pad while the title is up updates the card.
@@ -102,26 +103,32 @@ export class TitleScene extends Phaser.Scene {
       this.input.keyboard?.on("keydown-C", () => this.scene.start("Game", { mode: "continue" }));
 
     const layout = () => {
-      const cx = this.scale.width / 2;
+      const w = this.scale.width;
+      const cx = w / 2;
       const h = this.scale.height;
       // compact stack for short (landscape phone) viewports
       const compact = h < 520;
-      title.setPosition(cx, h * (compact ? 0.2 : 0.26));
-      tag.setPosition(cx, title.y + (compact ? 60 : 92));
+      title.setFontSize(compact ? 50 : 84);
+      title.setPosition(cx, h * (compact ? 0.13 : 0.26));
+      tag.setPosition(cx, title.y + (compact ? 48 : 92));
       farmer.setVisible(!compact).setPosition(cx, tag.y + 96);
-      newBtn.container.setPosition(cx, h * (compact ? 0.6 : 0.66));
-      contBtn.container.setPosition(cx, newBtn.container.y + (compact ? 62 : 70));
-      // Controls card fills the band under the buttons, shrunk to fit when the
-      // viewport is short/narrow, bottom-anchored where the hint line lived.
+      newBtn.container.setPosition(cx, h * (compact ? 0.39 : 0.66));
+      contBtn.container.setPosition(cx, newBtn.container.y + (compact ? 60 : 70));
+      // Controls card fills the band under the buttons, bottom-anchored where
+      // the hint line lived. The card reflows to the band (build-time work), so
+      // it is rebuilt only when the band itself changes — i.e. on a rotation.
+      const top = contBtn.container.y + (compact ? 34 : 38);
+      const bottom = h - (compact ? 8 : 16);
+      const band = { maxWidth: w - 24, maxHeight: bottom - top };
+      const bandKey = `${Math.round(band.maxWidth)}x${Math.round(band.maxHeight)}`;
+      if (bandKey !== cardBand) {
+        cardBand = bandKey;
+        this.controlsCard?.container.destroy();
+        this.controlsCard = buildControlsCard(this, band);
+      }
       const card = this.controlsCard;
       if (card) {
-        const top = contBtn.container.y + 38;
-        const bottom = h - (compact ? 8 : 16);
-        const scale = Math.min(
-          1,
-          (bottom - top) / card.height,
-          (this.scale.width - 24) / card.width,
-        );
+        const scale = Math.min(1, band.maxHeight / card.height, band.maxWidth / card.width);
         card.container.setScale(scale).setPosition(cx, bottom - (card.height * scale) / 2);
       }
     };

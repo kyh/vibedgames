@@ -1,8 +1,10 @@
 import Phaser from "phaser";
 
-import { ABILITY_ICON, SPELL_SHEETS } from "../render/fx-map";
+import { SPELL_SHEETS } from "../render/fx-map";
 
-const SPELL_ICONS = [...new Set(Object.values(ABILITY_ICON))];
+// The 64px icon sets and the cloud set are same-size families, so each ships as
+// one packed grid instead of 36 separate requests. Frame order is row-major.
+const ICON = { frameWidth: 64, frameHeight: 64 };
 
 // Troop sheets are a uniform 192×192 grid. Terrain tiles are 64px.
 // FX strips vary. Frame *ranges* (which rows are idle/walk/attack) are resolved
@@ -10,7 +12,9 @@ const SPELL_ICONS = [...new Set(Object.values(ABILITY_ICON))];
 const UNIT = 192;
 
 const UNIT_KEYS = ["warrior", "pawn", "archer", "torch", "tnt", "barrel"] as const;
-const COLORS = ["blue", "red", "purple", "yellow"] as const;
+// The art pack ships four team paints; the game only ever renders radiant=blue
+// and dire=red (render/sprites.teamColor), so the other two are not shipped.
+const COLORS = ["blue", "red"] as const;
 
 export class BootScene extends Phaser.Scene {
   constructor() {
@@ -26,7 +30,7 @@ export class BootScene extends Phaser.Scene {
       for (const c of COLORS) {
         this.load.spritesheet(
           `u-${u}-${c}`,
-          `assets/units/${u}_${c}.png`,
+          `assets/units/${u}_${c}.webp`,
           u === "barrel" ? { frameWidth: 128, frameHeight: 128 } : f,
         );
       }
@@ -34,63 +38,60 @@ export class BootScene extends Phaser.Scene {
 
     // --- buildings (static) ---
     for (const c of COLORS) {
-      this.load.image(`b-castle-${c}`, `assets/buildings/castle_${c}.png`);
-      this.load.image(`b-tower-${c}`, `assets/buildings/tower_${c}.png`);
-      this.load.image(`b-house-${c}`, `assets/buildings/house_${c}.png`);
+      this.load.image(`b-castle-${c}`, `assets/buildings/castle_${c}.webp`);
+      this.load.image(`b-tower-${c}`, `assets/buildings/tower_${c}.webp`);
+      this.load.image(`b-house-${c}`, `assets/buildings/house_${c}.webp`);
     }
-    this.load.image("b-castle-destroyed", "assets/buildings/castle_destroyed.png");
-    this.load.image("b-tower-destroyed", "assets/buildings/tower_destroyed.png");
+    this.load.image("b-castle-destroyed", "assets/buildings/castle_destroyed.webp");
+    this.load.image("b-tower-destroyed", "assets/buildings/tower_destroyed.webp");
 
     // --- terrain ---
     // The live map renders with the terrain tileset (flat + elevated autotile,
     // cliffs, stairs) — the same sheet the ?gallery=map showcase composes
     // tile-by-tile.
-    this.load.image("tiles-img", "assets/terrain/tiles.png");
-    this.load.spritesheet("tiles", "assets/terrain/tiles.png", { frameWidth: 64, frameHeight: 64 });
-    this.load.spritesheet("foam", "assets/terrain/foam.png", {
+    this.load.image("tiles-img", "assets/terrain/tiles.webp");
+    this.load.spritesheet("tiles", "assets/terrain/tiles.webp", {
+      frameWidth: 64,
+      frameHeight: 64,
+    });
+    this.load.spritesheet("foam", "assets/terrain/foam.webp", {
       frameWidth: UNIT,
       frameHeight: UNIT,
     });
-    this.load.image("tshadow", "assets/terrain/shadow.png");
-    this.load.image("t-water", "assets/terrain/water.png");
+    this.load.image("tshadow", "assets/terrain/shadow.webp");
+    this.load.image("t-water", "assets/terrain/water.webp");
     // Bridge_All: frames 0/1/2 = horizontal bridge left-cap/middle/right-cap,
     // frame 11 = the flat shadow square that goes on the water underneath.
-    this.load.spritesheet("t-bridge", "assets/terrain/bridge.png", {
+    this.load.spritesheet("t-bridge", "assets/terrain/bridge.webp", {
       frameWidth: 64,
       frameHeight: 64,
     });
-    this.load.spritesheet("t-tree", "assets/terrain/tree.png", {
+    this.load.spritesheet("t-tree", "assets/terrain/tree.webp", {
       frameWidth: UNIT,
       frameHeight: UNIT,
-    });
-    // kept for the ?gallery=terrain showcase
-    this.load.spritesheet("t-ground", "assets/terrain/ground_flat.png", {
-      frameWidth: 64,
-      frameHeight: 64,
-    });
-    this.load.spritesheet("t-elev", "assets/terrain/ground_elevation.png", {
-      frameWidth: 64,
-      frameHeight: 64,
     });
 
     // --- decorations (rocks / bushes / mushrooms) scattered over the field ---
     for (let i = 1; i <= 4; i++) {
-      this.load.image(`deco-rock${i}`, `assets/deco/Rock${i}.png`);
+      this.load.image(`deco-rock${i}`, `assets/deco/Rock${i}.webp`);
       // bushes are 8-frame 128px sway strips, not single images
-      this.load.spritesheet(`deco-bush${i}`, `assets/deco/Bushe${i}.png`, {
+      this.load.spritesheet(`deco-bush${i}`, `assets/deco/Bushe${i}.webp`, {
         frameWidth: 128,
         frameHeight: 128,
       });
     }
     for (let i = 1; i <= 18; i++) {
       const n = String(i).padStart(2, "0");
-      this.load.image(`deco-${n}`, `assets/deco/${n}.png`);
+      this.load.image(`deco-${n}`, `assets/deco/${n}.webp`);
     }
 
     // --- ambient + extra terrain (clouds, animated water rocks, swaying trees, sheep) ---
-    for (let i = 1; i <= 8; i++) this.load.image(`cloud${i}`, `assets/deco/cloud${i}.png`);
+    this.load.spritesheet("clouds", "assets/deco/clouds.webp", {
+      frameWidth: 576,
+      frameHeight: 256,
+    });
     for (let i = 1; i <= 4; i++)
-      this.load.spritesheet(`wrock${i}`, `assets/terrain/wrock${i}.png`, {
+      this.load.spritesheet(`wrock${i}`, `assets/terrain/wrock${i}.webp`, {
         frameWidth: 128,
         frameHeight: 128,
       });
@@ -98,91 +99,88 @@ export class BootScene extends Phaser.Scene {
     // (cutting 1/2 at 256 wide made every frame straddle two trees — the old
     // "tree scrolls through the sheet" glitch).
     for (let i = 1; i <= 2; i++)
-      this.load.spritesheet(`ftree${i}`, `assets/deco/ftree${i}.png`, {
+      this.load.spritesheet(`ftree${i}`, `assets/deco/ftree${i}.webp`, {
         frameWidth: 192,
         frameHeight: 256,
       });
     for (let i = 3; i <= 4; i++)
-      this.load.spritesheet(`ftree${i}`, `assets/deco/ftree${i}.png`, {
+      this.load.spritesheet(`ftree${i}`, `assets/deco/ftree${i}.webp`, {
         frameWidth: 192,
         frameHeight: 192,
       });
-    this.load.spritesheet("sheep", "assets/deco/sheep.png", { frameWidth: 128, frameHeight: 128 });
+    this.load.spritesheet("sheep", "assets/deco/sheep.webp", { frameWidth: 128, frameHeight: 128 });
 
     // --- enemy-pack creatures for jungle neutrals + Roshan ---
-    this.load.spritesheet("e-skull-idle", "assets/enemies/skull_idle.png", {
+    this.load.spritesheet("e-skull-idle", "assets/enemies/skull_idle.webp", {
       frameWidth: UNIT,
       frameHeight: UNIT,
     });
-    this.load.spritesheet("e-skull-run", "assets/enemies/skull_run.png", {
+    this.load.spritesheet("e-skull-run", "assets/enemies/skull_run.webp", {
       frameWidth: UNIT,
       frameHeight: UNIT,
     });
-    this.load.spritesheet("e-gnoll-idle", "assets/enemies/gnoll_idle.png", {
+    this.load.spritesheet("e-gnoll-idle", "assets/enemies/gnoll_idle.webp", {
       frameWidth: UNIT,
       frameHeight: UNIT,
     });
-    this.load.spritesheet("e-gnoll-walk", "assets/enemies/gnoll_walk.png", {
+    this.load.spritesheet("e-gnoll-walk", "assets/enemies/gnoll_walk.webp", {
       frameWidth: UNIT,
       frameHeight: UNIT,
     });
-    this.load.spritesheet("e-minotaur-idle", "assets/enemies/minotaur_idle.png", {
+    this.load.spritesheet("e-minotaur-idle", "assets/enemies/minotaur_idle.webp", {
       frameWidth: 320,
       frameHeight: 320,
     });
-    this.load.spritesheet("e-minotaur-walk", "assets/enemies/minotaur_walk.png", {
+    this.load.spritesheet("e-minotaur-walk", "assets/enemies/minotaur_walk.webp", {
       frameWidth: 320,
       frameHeight: 320,
     });
 
     // --- fx ---
-    this.load.spritesheet("fx-explosion", "assets/fx/explosion.png", {
+    this.load.spritesheet("fx-explosion", "assets/fx/explosion.webp", {
       frameWidth: UNIT,
       frameHeight: UNIT,
     });
-    this.load.spritesheet("fx-fire", "assets/fx/fire.png", { frameWidth: 128, frameHeight: 128 });
-    // arrow.png is a 64×64 2-frame strip (arrow + tail); frame 0 is the full
+    this.load.spritesheet("fx-fire", "assets/fx/fire.webp", { frameWidth: 128, frameHeight: 128 });
+    // arrow.webp is a 64×64 2-frame strip (arrow + tail); frame 0 is the full
     // arrow, pointing EAST. Load as a sheet so we draw one clean arrow.
-    this.load.spritesheet("fx-arrow", "assets/fx/arrow.png", { frameWidth: 64, frameHeight: 64 });
+    this.load.spritesheet("fx-arrow", "assets/fx/arrow.webp", { frameWidth: 64, frameHeight: 64 });
     // particle FX: walk dust, building flames, cartoon explosions, splash
-    this.load.spritesheet("fx-dust1", "assets/fx/dust1.png", { frameWidth: 64, frameHeight: 64 });
-    this.load.spritesheet("fx-dust2", "assets/fx/dust2.png", { frameWidth: 64, frameHeight: 64 });
+    this.load.spritesheet("fx-dust1", "assets/fx/dust1.webp", { frameWidth: 64, frameHeight: 64 });
+    this.load.spritesheet("fx-dust2", "assets/fx/dust2.webp", { frameWidth: 64, frameHeight: 64 });
     for (let i = 1; i <= 3; i++)
-      this.load.spritesheet(`fx-flame${i}`, `assets/fx/flame${i}.png`, {
+      this.load.spritesheet(`fx-flame${i}`, `assets/fx/flame${i}.webp`, {
         frameWidth: 64,
         frameHeight: 64,
       });
-    this.load.spritesheet("fx-explode1", "assets/fx/explode1.png", {
+    this.load.spritesheet("fx-explode1", "assets/fx/explode1.webp", {
       frameWidth: UNIT,
       frameHeight: UNIT,
     });
-    this.load.spritesheet("fx-explode2", "assets/fx/explode2.png", {
+    this.load.spritesheet("fx-explode2", "assets/fx/explode2.webp", {
       frameWidth: UNIT,
       frameHeight: UNIT,
     });
-    this.load.spritesheet("fx-splash", "assets/fx/splash.png", {
+    this.load.spritesheet("fx-splash", "assets/fx/splash.webp", {
       frameWidth: UNIT,
       frameHeight: UNIT,
     });
 
     // --- ui (ui sprites: carved panels, ribbons, buttons) ---
-    this.load.image("ui-panel", "assets/ui/panel.png");
-    this.load.image("ui-carved9", "assets/ui/carved9.png");
-    this.load.image("ui-carved3", "assets/ui/carved3.png");
+    this.load.image("ui-panel", "assets/ui/panel.webp");
+    this.load.image("ui-carved9", "assets/ui/carved9.webp");
+    this.load.image("ui-carved3", "assets/ui/carved3.webp");
     for (const c of ["blue", "red", "yellow"])
-      this.load.image(`ui-ribbon-${c}`, `assets/ui/ribbon_${c}.png`);
+      this.load.image(`ui-ribbon-${c}`, `assets/ui/ribbon_${c}.webp`);
     for (const c of ["blue", "red"]) {
-      this.load.image(`ui-btn-${c}`, `assets/ui/btn_${c}.png`);
-      this.load.image(`ui-btn-${c}-pressed`, `assets/ui/btn_${c}_pressed.png`);
+      this.load.image(`ui-btn-${c}`, `assets/ui/btn_${c}.webp`);
+      this.load.image(`ui-btn-${c}-pressed`, `assets/ui/btn_${c}_pressed.webp`);
     }
-    for (let i = 1; i <= 10; i++) {
-      const n = String(i).padStart(2, "0");
-      this.load.image(`ui-icon-${n}`, `assets/ui/icon_${n}.png`);
-    }
+    this.load.spritesheet("ui-icons", "assets/ui/icons.webp", ICON);
 
     // gold mine prop (large jungle camps) + the shared skull death pop
-    this.load.image("deco-goldmine", "assets/deco/goldmine.png");
-    this.load.spritesheet("skull-pop", "assets/units/dead.png", {
+    this.load.image("deco-goldmine", "assets/deco/goldmine.webp");
+    this.load.spritesheet("skull-pop", "assets/units/dead.webp", {
       frameWidth: 128,
       frameHeight: 128,
     });
@@ -190,13 +188,13 @@ export class BootScene extends Phaser.Scene {
     // --- spell effects + ability icons + target cursor ---
     // packed effect strips (one row each; frame size + count from SPELL_SHEETS)
     for (const s of SPELL_SHEETS) {
-      this.load.spritesheet(s.key, `assets/spell/${s.key}.png`, {
+      this.load.spritesheet(s.key, `assets/spell/${s.key}.webp`, {
         frameWidth: s.frame,
         frameHeight: s.frame,
       });
     }
-    for (const ic of SPELL_ICONS) this.load.image(ic, `assets/spell/icons/${ic}.png`);
-    this.load.image("cursor-target", "assets/ui/cursor_target.png");
+    this.load.spritesheet("spell-icons", "assets/spell/icons.webp", ICON);
+    this.load.image("cursor-target", "assets/ui/cursor_target.webp");
 
     // decorations: rocks/bushes/mushrooms — load whatever is present lazily by
     // numbering; missing files just warn. Handled in MapBuilder.

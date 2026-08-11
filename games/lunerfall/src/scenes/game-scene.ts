@@ -4,6 +4,7 @@ import {
   attachVirtualGamepad,
   type ButtonOptions,
   type PhaserGamepad,
+  type Viewport,
 } from "@vibedgames/gamepad/phaser";
 
 import { sfx } from "../audio/sfx";
@@ -54,7 +55,8 @@ import { Grid } from "../sys/grid";
 import { rand, reseed } from "../sys/rng";
 import { type Offer, RunManager } from "../sys/run";
 import { Input, type InputState } from "../sys/input";
-import { gameInset, isCoarse } from "../sys/screen";
+import { gameInset, isCoarse, touchHudBand } from "../sys/screen";
+import { mountTouchHud, syncTouchHud } from "../touch-hud";
 import {
   VersusMatch,
   VS_BIOME,
@@ -194,6 +196,25 @@ const ROOM_PROPS: Partial<
   treasure: { key: "blue-columnfire", ox: 0.5, oy: 0.66, scale: 0.75 },
 };
 type SceneState = "active" | "dead" | "transition" | "connecting";
+
+// An on-screen action button — a ButtonOptions that definitely has a place and
+// a size, so the cluster it belongs to can be measured.
+type FixedButton = ButtonOptions & {
+  position: NonNullable<ButtonOptions["position"]>;
+  radius: number;
+};
+
+/** Top-left corner of the action cluster's bounding box, with thumb padding. */
+const clusterBounds = (buttons: FixedButton[], v: Viewport): { left: number; top: number } => {
+  let left = Number.POSITIVE_INFINITY;
+  let top = Number.POSITIVE_INFINITY;
+  for (const b of buttons) {
+    const c = b.position(v);
+    left = Math.min(left, c.x - b.radius);
+    top = Math.min(top, c.y - b.radius);
+  }
+  return { left: left - 10, top: top - 10 };
+};
 
 // Phase 5: run-driven scene. RunManager stitches typed rooms; the scene builds
 // each room (tiles, enemies, doors, features), resolves combat, and transitions
@@ -428,8 +449,10 @@ export class GameScene extends Phaser.Scene {
       .setDepth(100)
       .setAlpha(0);
 
-    // Edge-anchored HUD clears the notch/home indicator (safe-area insets).
+    // Edge-anchored HUD clears the notch/home indicator (safe-area insets) and,
+    // top-right, the DOM pause/mute cluster.
     const ins = gameInset(this);
+    const hudBand = touchHudBand(this);
     this.heartsText = this.add
       .text(8 + ins.left, 6 + ins.top, "", {
         fontFamily: "monospace",
@@ -439,7 +462,7 @@ export class GameScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setDepth(80);
     this.infoText = this.add
-      .text(BASE_W - 8 - ins.right, 7 + ins.top, "", {
+      .text(BASE_W - 8 - ins.right, 7 + ins.top + hudBand, "", {
         fontFamily: "monospace",
         fontSize: "9px",
         color: "#8b95a1",
@@ -477,7 +500,7 @@ export class GameScene extends Phaser.Scene {
     // Positions are game-space px (the adapter's viewport is the FIT game
     // size); insets keep the cluster clear of the home indicator.
     this.touch = isCoarse();
-    const buttons: ButtonOptions[] = [
+    const cluster: FixedButton[] = [
       {
         id: "jump",
         label: "JUMP",
@@ -503,27 +526,40 @@ export class GameScene extends Phaser.Scene {
         position: (v) => ({ x: v.width - 82 - v.inset.right, y: v.height - 70 - v.inset.bottom }),
       },
     ];
+    const buttons: ButtonOptions[] = [...cluster];
     if (this.mode === "versus")
       buttons.push({
         id: "exit",
         label: "EXIT",
         radius: 15,
-        position: (v) => ({ x: v.width - 24 - v.inset.right, y: 44 + v.inset.top }),
+        position: (v) => ({ x: v.width - 24 - v.inset.right, y: 44 + v.inset.top + hudBand }),
       });
     this.gamepad = attachVirtualGamepad(this, {
       visible: "coarse",
-      stick: { radius: 40, deadZone: 8, knobRadius: 14 },
+      stick: {
+        radius: 40,
+        deadZone: 8,
+        knobRadius: 14,
+        // Over a pit, a thumb that reaches for DASH, lands in the gap between
+        // two buttons and slides would otherwise read as a full-speed run.
+        region: (p, v) => {
+          const bounds = clusterBounds(cluster, v);
+          return p.x < bounds.left || p.y < bounds.top;
+        },
+      },
       render: { depth: 90, blendMode: Phaser.BlendModes.NORMAL },
       buttons,
       onButtonDown: (id) => {
         if (id === "exit") this.scene.start("select");
       },
     });
-    // M is the one mute toggle (keyboard-only, matching every other game).
-    this.input.keyboard?.on("keydown-M", () => {
-      sfx.toggleMute();
-      this.showBanner(sfx.muted ? "SOUND OFF" : "SOUND ON", 700);
-    });
+    // Touch has no Escape and no M: @repo/embed's cluster carries both. The
+    // trailer plays itself and owns its own chrome, so it opts out (main.ts
+    // keeps the hub's mute-only cluster off there for the same reason).
+    if (!params.has("trailer")) {
+      mountTouchHud(true);
+      this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => mountTouchHud(false));
+    }
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.gamepad.destroy());
     this.controls = new Input(this, this.gamepad);
     if (party.length > 0 && !this.demo) {
@@ -569,7 +605,11 @@ export class GameScene extends Phaser.Scene {
     sfx.unlock();
     this.input.keyboard?.once("keydown", () => sfx.unlock());
     this.input.once("pointerdown", () => sfx.unlock());
-    this.input.keyboard?.on("keydown-M", () => sfx.toggleMute());
+    this.input.keyboard?.on("keydown-M", () => {
+      sfx.toggleMute();
+      syncTouchHud();
+      this.showBanner(sfx.muted ? "SOUND OFF" : "SOUND ON", 700);
+    });
     // Versus has no death→hub exit (rounds respawn), so ESC leaves the duel.
     if (this.mode === "versus")
       this.input.keyboard?.on("keydown-ESC", () => this.scene.start("select"));

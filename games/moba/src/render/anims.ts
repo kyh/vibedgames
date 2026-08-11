@@ -59,7 +59,7 @@ const UNIT_ANIMS: Record<string, AnimRange[]> = {
   ],
 };
 
-const COLORS = ["blue", "red", "purple", "yellow"];
+const COLORS = ["blue", "red"];
 
 export function registerAnims(scene: Phaser.Scene): void {
   for (const [sheet, ranges] of Object.entries(UNIT_ANIMS)) {

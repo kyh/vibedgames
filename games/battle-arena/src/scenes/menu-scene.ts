@@ -5,7 +5,7 @@
 // buttons. The overlay is click-through except on its controls, so clicks in
 // the middle reach the 3D row for selection. START persists the pick to
 // localStorage["ba-champ"] / ["ba-name"] for future quick-start boots.
-import { watchControlContext } from "@repo/embed";
+import { isOfflineRequested, watchControlContext } from "@repo/embed";
 import { CHAMPIONS } from "../data/champions";
 import { buildControlsStrip, ensureControlCardStyle } from "../render/pause-overlay";
 import { abilityIcon, champSigil } from "../data/icons";
@@ -49,6 +49,9 @@ export class Menu {
   private build(): void {
     const params = new URLSearchParams(location.search);
     const name = params.get("name") ?? localStorage.getItem("ba-name") ?? "";
+    // ?offline=1 forbids any socket, so the online affordances are dropped
+    // rather than left as controls that silently start a bot match.
+    const offline = isOfflineRequested();
     const chips = CHAMPIONS.map(
       (c) =>
         `<button class="ba-chip" data-id="${c.id}" style="--accent:${hex(c.tint)}">
@@ -69,11 +72,11 @@ export class Menu {
         <div class="ba-chips">${chips}</div>
         <div class="ba-row2">
           <input id="ba-name" maxlength="14" placeholder="Your name" value="${esc(name)}" />
-          <input id="ba-room" maxlength="12" placeholder="Room code (optional)" value="${esc(params.get("room") ?? "")}" />
+          ${offline ? "" : `<input id="ba-room" maxlength="12" placeholder="Room code (optional)" value="${esc(params.get("room") ?? "")}" />`}
         </div>
         <div class="ba-actions">
           <button id="ba-bots" class="ba-go bots">PLAY vs BOTS</button>
-          <button id="ba-online" class="ba-go online">PLAY ONLINE</button>
+          ${offline ? "" : `<button id="ba-online" class="ba-go online">PLAY ONLINE</button>`}
         </div>
         <div class="ba-help"></div>
       </div>`;
@@ -85,13 +88,20 @@ export class Menu {
 
     const nameOf = (): string =>
       (document.getElementById("ba-name") as HTMLInputElement).value.trim() || "Player";
-    const codeOf = (): string =>
-      (document.getElementById("ba-room") as HTMLInputElement).value.trim();
+    const codeOf = (): string => {
+      const el = document.getElementById("ba-room");
+      return el instanceof HTMLInputElement ? el.value.trim() : "";
+    };
     (document.getElementById("ba-bots") as HTMLButtonElement).addEventListener("click", () =>
       this.start({ champId: this.selected, name: nameOf(), online: false, room: "" }),
     );
-    (document.getElementById("ba-online") as HTMLButtonElement).addEventListener("click", () =>
-      this.start({ champId: this.selected, name: nameOf(), online: true, room: roomId(codeOf()) }),
+    document.getElementById("ba-online")?.addEventListener("click", () =>
+      this.start({
+        champId: this.selected,
+        name: nameOf(),
+        online: true,
+        room: roomId(codeOf()),
+      }),
     );
 
     this.setSelected(this.selected);
@@ -157,7 +167,9 @@ function injectStyle(): void {
   const s = document.createElement("style");
   s.textContent = `
 #ba-menu{position:fixed;inset:0;z-index:40;display:flex;flex-direction:column;justify-content:space-between;pointer-events:none;font-family:ui-monospace,monospace;color:#fff}
-#ba-menu .ba-top{text-align:center;padding:22px 16px 0;background:linear-gradient(#080a12cc,#080a1200)}
+/* the lobby runs edge-to-edge under viewport-fit=cover, so every outer padding
+   carries the display cutout / home-indicator inset on top of its design value */
+#ba-menu .ba-top{text-align:center;padding:calc(22px + env(safe-area-inset-top,0px)) calc(16px + env(safe-area-inset-right,0px)) 0 calc(16px + env(safe-area-inset-left,0px));background:linear-gradient(#080a12cc,#080a1200)}
 .ba-logo{font:900 italic clamp(34px,7vw,72px)/1 system-ui,sans-serif;letter-spacing:-2px;color:#ffd24a;text-shadow:0 0 50px rgba(255,160,40,.4)}
 .ba-tag{margin:8px 0 14px;font:600 13px ui-monospace,monospace;opacity:.7}
 .ba-info{min-height:150px;display:flex;flex-direction:column;align-items:center;gap:2px}
@@ -171,7 +183,7 @@ function injectStyle(): void {
 .ba-i-a img{width:40px;height:40px;border-radius:8px;border:1px solid rgba(255,255,255,.25);background:#0a0e1a}
 .ba-i-a i{position:absolute;top:-5px;left:7px;font:800 9px ui-monospace,monospace;font-style:normal;color:#ffd24a;background:rgba(10,14,24,.92);border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:0 3px}
 .ba-i-a em{font:600 9px ui-monospace,monospace;font-style:normal;opacity:.75;text-align:center;line-height:1.2}
-#ba-menu .ba-bottom{padding:0 16px 22px;background:linear-gradient(#080a1200,#080a12dd 40%)}
+#ba-menu .ba-bottom{padding:0 calc(16px + env(safe-area-inset-right,0px)) calc(22px + env(safe-area-inset-bottom,0px)) calc(16px + env(safe-area-inset-left,0px));background:linear-gradient(#080a1200,#080a12dd 40%)}
 .ba-chips{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:14px}
 .ba-chip{pointer-events:auto;display:flex;flex-direction:column;align-items:center;gap:3px;width:104px;padding:10px 6px;background:rgba(20,26,42,.85);border:2px solid rgba(255,255,255,.12);border-radius:10px;color:#fff;cursor:pointer;font:800 13px ui-monospace,monospace;transition:transform .1s,border-color .1s,box-shadow .1s}
 .ba-chip:hover{transform:translateY(-2px)}
@@ -203,7 +215,7 @@ function injectStyle(): void {
 /* landscape phones: everything must fit 390px tall with the PLAY buttons on
    screen — drop the info panel, compact chips/inputs/actions */
 @media (max-height: 520px){
-  #ba-menu .ba-top{padding:8px 12px 0}
+  #ba-menu .ba-top{padding:calc(8px + env(safe-area-inset-top,0px)) calc(12px + env(safe-area-inset-right,0px)) 0 calc(12px + env(safe-area-inset-left,0px))}
   .ba-logo{font-size:24px;letter-spacing:-1px}
   .ba-tag{display:none}
   .ba-info{display:none}
@@ -215,9 +227,14 @@ function injectStyle(): void {
   .ba-row2 input{padding:8px 12px;font-size:13px}
   .ba-go{padding:10px 18px;font-size:14px}
   .ba-help{margin-top:8px}
-  /* the pause tablet still teaches controls; the strip won't fit 390px tall */
-  .ba-help .ba-p-strip{display:none}
-  #ba-menu .ba-bottom{padding:0 12px 10px}
+  /* the strip is the only place a standalone landscape phone is ever told how
+     to play (the pause tablet needs a wrapper), so it shrinks rather than hides */
+  .ba-help{margin-top:6px}
+  .ba-help .ba-p-strip{gap:4px 10px;font-size:9px}
+  .ba-help .ba-p-strip .ba-p-k{font-size:9px;padding:1px 4px}
+  .ba-help .ba-p-strip .ba-p-a{font-size:9px}
+  .ba-help-lead{display:none}
+  #ba-menu .ba-bottom{padding:0 calc(12px + env(safe-area-inset-right,0px)) calc(10px + env(safe-area-inset-bottom,0px)) calc(12px + env(safe-area-inset-left,0px))}
 }
 `;
   document.head.appendChild(s);

@@ -56,7 +56,7 @@ const post = isCoarsePointer() ? null : new PostPipeline(renderer, game.scene, g
 post?.setSize(window.innerWidth, window.innerHeight, renderer.getPixelRatio());
 
 // Wrapper pause: solo game, safe to fully freeze (see GameScene.requestPause).
-const pauseOverlay = createPauseOverlay();
+const pauseOverlay = createPauseOverlay(() => game.restartRun());
 setPauseHandlers({
   onPause: () => {
     pauseOverlay.show();
@@ -121,7 +121,7 @@ const loaded = game.load();
 if (new URLSearchParams(window.location.search).has("editor")) {
   void Promise.all([import("./editor/map-editor"), loaded]).then(async ([{ startEditor }]) => {
     await game.ready; // editor needs the fully built city
-    startEditor(game, renderer);
+    await startEditor(game, renderer);
   });
 }
 

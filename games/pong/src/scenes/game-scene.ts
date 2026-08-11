@@ -2,11 +2,12 @@ import * as THREE from "three";
 import { notifyGameStarted, watchControlContext } from "@repo/embed";
 import { PhysicalGamepad } from "@vibedgames/gamepad";
 
-import { rematchNoteSegments, servePromptSegments } from "../controls";
-import type { PromptSegment } from "../controls";
+import { connectingPromptPhrases, rematchNotePhrases, servePromptPhrases } from "../controls";
+import type { PromptPhrase } from "../controls";
+import { watchHandCamera } from "../input/camera";
 import { inkChip } from "../pause-overlay";
 import { ParticlePool } from "../fx/particles";
-import { sfx, toggleMute } from "../fx/sfx";
+import { sfx } from "../fx/sfx";
 import { RingPool } from "../fx/shock-rings";
 import { NetSession } from "../net/session";
 import {
@@ -323,7 +324,6 @@ export class GameScene {
     this.particles = new ParticlePool(this.scene);
     this.rings = new RingPool(this.scene);
 
-    window.addEventListener("keydown", this.onKeyDown);
     window.addEventListener("blur", this.onBlur);
     window.addEventListener("pointermove", this.onPointerMove);
     window.addEventListener("pointerdown", this.onPointerDown);
@@ -426,12 +426,6 @@ export class GameScene {
 
   // ---- input ---------------------------------------------------------------
 
-  // The paddle is gesture/pointer-driven; the keyboard's only job is the
-  // unadvertised mute toggle (Escape-pause lives in @repo/embed).
-  private onKeyDown = (e: KeyboardEvent): void => {
-    if (e.code === "KeyM") toggleMute();
-  };
-
   // Alt-tab can strand a mid-flight camera drag — clear it so the pan doesn't
   // resume by itself when focus returns.
   private onBlur = (): void => {
@@ -525,9 +519,10 @@ export class GameScene {
     // running (per its own contract) but must not wake the sim through a
     // fist gesture while we're paused.
     if (this.paused) return;
-    // Still handshaking: a reflexive tap must not start a phantom rally that
-    // sits frozen until the connection resolves.
-    if (!this.net.live) return;
+    // Still handshaking. A tap here is intent, not noise: rather than swallow
+    // it and leave the player staring at "connecting" for the rest of the
+    // fallback window, take it as "play now" and serve solo.
+    if (!this.net.live) this.playSolo();
     // A guest can't touch the authoritative ball/score — forward the intent so
     // the host serves / rematches for both of us.
     if (this.isGuest()) {
@@ -541,6 +536,20 @@ export class GameScene {
       this.syncHud();
     }
     if (this.phase === "serving") this.serve();
+  }
+
+  /** Abandon matchmaking for the local solo game. Replaces the session rather
+   *  than mutating it: `forceOffline` is how the net layer says "never open a
+   *  socket", and the shared session file is kept identical across games. */
+  private playSolo(): void {
+    this.net.destroy();
+    this.net = new NetSession({
+      room: MP_ROOM,
+      maxPlayers: MP_MAX_PLAYERS,
+      fallbackMs: OFFLINE_FALLBACK_MS,
+      forceOffline: true,
+      onEvent: (event, payload, from) => this.handleEvent(event, payload, from),
+    });
   }
 
   private serve(): void {
@@ -1140,16 +1149,17 @@ export class GameScene {
     // filtered per device and connected pad (controls.ts).
     let controlsCopy = false;
     if (!this.net.live) {
-      this.bannerEl.replaceChildren("connecting", smallNote("finding a match…"));
+      this.bannerEl.replaceChildren("connecting", promptNote(connectingPromptPhrases()));
       this.bannerEl.style.opacity = "1";
+      controlsCopy = true;
     } else if (this.phase === "serving" && this.serveAt === null) {
-      this.bannerEl.replaceChildren("PONG", promptNote(servePromptSegments()));
+      this.bannerEl.replaceChildren("PONG", promptNote(servePromptPhrases()));
       this.bannerEl.style.opacity = "1";
       controlsCopy = true;
     } else if (this.phase === "won") {
       const iWon = this.scoreYou > this.scoreAi;
       const strong = iWon ? "you win" : human ? "rival wins" : "ai wins";
-      this.bannerEl.replaceChildren(strong, promptNote(rematchNoteSegments()));
+      this.bannerEl.replaceChildren(strong, promptNote(rematchNotePhrases()));
       this.bannerEl.style.opacity = "1";
       controlsCopy = true;
     } else {
@@ -1159,12 +1169,19 @@ export class GameScene {
     this.netInfoEl.textContent = this.netInfoText();
   }
 
-  /** While the banner shows manifest-derived copy, watch for pad hot-plugs and
-   *  re-render it (a freshly connected pad adds "or A serves" live); the
-   *  subscription is dropped as soon as the banner stops showing that copy. */
+  /** While the banner shows manifest-derived copy, watch for the things that
+   *  change which inputs exist — a pad hot-plug adds "or A serves", the hand
+   *  camera coming up adds "✋ HAND" — and re-render; the subscriptions are
+   *  dropped as soon as the banner stops showing that copy. */
   private watchBannerControls(showing: boolean): void {
     if (showing && this.unwatchControls === null) {
-      this.unwatchControls = watchControlContext(() => this.syncHud());
+      const rerender = (): void => this.syncHud();
+      const unwatchPad = watchControlContext(rerender);
+      const unwatchCamera = watchHandCamera(rerender);
+      this.unwatchControls = () => {
+        unwatchPad();
+        unwatchCamera();
+      };
     } else if (!showing && this.unwatchControls !== null) {
       this.unwatchControls();
       this.unwatchControls = null;
@@ -1269,20 +1286,23 @@ function el(id: string): HTMLElement {
   return node;
 }
 
-function smallNote(text: string): HTMLElement {
-  const node = document.createElement("small");
-  node.textContent = text;
-  return node;
-}
-
 /** Banner note where input words render as the pause card's ink keycap chips
- *  ("[✋ HAND] or [MOUSE] steers…") — same chip, same visual language. */
-function promptNote(segments: readonly PromptSegment[]): HTMLElement {
+ *  ("[✋ HAND] or [MOUSE] steers…") — same chip, same visual language. Each
+ *  phrase is one unbreakable run, so a narrow screen wraps between phrases
+ *  instead of stranding "or TAP serves" on its own line. */
+function promptNote(phrases: readonly PromptPhrase[]): HTMLElement {
   const node = document.createElement("small");
   node.style.lineHeight = "1.9"; // room for chips when the line wraps
-  for (const segment of segments) {
-    node.append(segment.kind === "chip" ? inkChip(segment.text) : segment.text);
-  }
+  phrases.forEach((phrase, i) => {
+    if (i > 0) node.append(" ");
+    const run = document.createElement("span");
+    run.style.whiteSpace = "nowrap";
+    for (const segment of phrase) {
+      run.append(segment.kind === "chip" ? inkChip(segment.text) : segment.text);
+    }
+    if (i < phrases.length - 1) run.append(" ·");
+    node.append(run);
+  });
   return node;
 }
 

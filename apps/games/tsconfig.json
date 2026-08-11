@@ -5,5 +5,7 @@
     "noEmit": true
   },
   "include": ["."],
-  "exclude": ["node_modules", "dist"]
+  // tests/ is plain JS and imports the bundled worker out of dist/, which drags
+  // the excluded build output back into the program.
+  "exclude": ["node_modules", "dist", "tests"]
 }

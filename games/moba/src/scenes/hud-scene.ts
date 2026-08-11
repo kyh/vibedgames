@@ -7,7 +7,7 @@ import type { AbilityKey } from "../data/heroes";
 import { ITEMS, ITEM_BY_ID } from "../data/items";
 import { BRIDGES, GRID, WORLD, isHighCell, isLandCell } from "../data/map";
 import { FONT } from "../render/font";
-import { abilityIcon } from "../render/fx-map";
+import { abilityIconFrame } from "../render/fx-map";
 import { heroSheetTex } from "../render/sprites";
 import { SLOT_LABEL } from "./game-scene";
 import type { GameScene } from "./game-scene";
@@ -34,6 +34,7 @@ type Slot = {
   circle: Phaser.GameObjects.Arc; // compact-mode round button (replaces panel+box)
   cdCircle: Phaser.GameObjects.Arc; // compact-mode cooldown/mana veil (whole-button)
   icon: Phaser.GameObjects.Image;
+  iconFrame: number; // applied spell-sheet frame, so update() re-textures only on change
   cd: Phaser.GameObjects.Rectangle;
   cdText: Phaser.GameObjects.Text;
   pips: Phaser.GameObjects.Rectangle[];
@@ -317,7 +318,7 @@ export class HudScene extends Phaser.Scene {
         .setStrokeStyle(2, 0x8a7350)
         .setInteractive({ useHandCursor: true });
       // abilities show their spell icon, with the key as a small corner badge
-      const icon = this.add.image(0, 0, "ui-icon-01").setDisplaySize(50, 50).setVisible(false);
+      const icon = this.add.image(0, 0, "spell-icons", 0).setDisplaySize(50, 50).setVisible(false);
       const keyLabel = this.add
         .text(0, 0, SLOT_LABEL[key], {
           fontFamily: FONT,
@@ -364,6 +365,7 @@ export class HudScene extends Phaser.Scene {
         circle,
         cdCircle,
         icon,
+        iconFrame: -1,
         cd,
         cdText,
         pips,
@@ -413,7 +415,7 @@ export class HudScene extends Phaser.Scene {
         .rectangle(0, 0, 38, 38, 0x1c1410, 0.12)
         .setStrokeStyle(2, 0x8a7350)
         .setInteractive({ useHandCursor: true });
-      const icon = this.add.image(0, 0, "ui-icon-01").setDisplaySize(30, 30).setVisible(false);
+      const icon = this.add.image(0, 0, "ui-icons", 0).setDisplaySize(30, 30).setVisible(false);
       const key = this.add
         .text(0, 0, `${i + 1}`, { fontFamily: FONT, fontSize: "10px", color: "#6b5530" })
         .setOrigin(0.5);
@@ -515,7 +517,7 @@ export class HudScene extends Phaser.Scene {
         .rectangle(0, y, panelW - 36, 40, 0x4a3320, 0.08)
         .setStrokeStyle(1, 0xb89868)
         .setInteractive({ useHandCursor: true });
-      const icon = this.add.image(-panelW / 2 + 36, y, it.icon).setDisplaySize(30, 30);
+      const icon = this.add.image(-panelW / 2 + 36, y, "ui-icons", it.icon).setDisplaySize(30, 30);
       const name = this.add
         .text(-panelW / 2 + 60, y - 8, it.name, {
           fontFamily: FONT,
@@ -782,15 +784,30 @@ export class HudScene extends Phaser.Scene {
     const W = this.scale.width;
     const H = this.scale.height;
     const panelW = Math.min(880, Math.max(340, W - 80));
-    const panelH = 420;
-    // children are container-relative so the whole board can scale to fit phones
-    this.board.setPosition(W / 2, H / 2);
-    this.board.setScale(Math.min(1, (H - 24) / panelH, (W - 24) / panelW));
-    const bg = this.add.nineslice(0, 0, "ui-carved9", 0, panelW, panelH, 20, 20, 20, 20);
-    this.board.add(bg);
+    // A team column has to hold a hero name AND a right-aligned K/D/A + gold
+    // block; below ~560px the two overprint, so the teams stack instead.
+    const stacked = panelW < 560;
+    const colW = stacked ? panelW - 48 : panelW / 2 - 54;
+    const rowH = 24;
 
     const heroes = [...w.units.values()].filter((u) => u.kind === "hero" && u.hero);
     const teams: Team[] = ["radiant", "dire"];
+    // sort() is safe here — filter() already produced a fresh array
+    const rosters = teams.map((team) => ({
+      team,
+      list: heroes
+        .filter((u) => u.team === team)
+        .sort((a, b) => (b.hero?.gold ?? 0) - (a.hero?.gold ?? 0)),
+    }));
+    const blockH = rosters.map((r) => 26 + r.list.length * rowH);
+    const bodyH = stacked ? blockH.reduce((sum, h) => sum + h, 0) + 14 : Math.max(...blockH, rowH);
+    const panelH = 62 + bodyH + 42;
+
+    // children are container-relative so the whole board can scale to fit phones
+    this.board.setPosition(W / 2, H / 2);
+    this.board.setScale(Math.min(1, (H - 24) / panelH, (W - 24) / panelW));
+    this.board.add(this.add.nineslice(0, 0, "ui-carved9", 0, panelW, panelH, 20, 20, 20, 20));
+
     const teamKills: Record<Team, number> = { radiant: 0, dire: 0 };
     for (const u of heroes) if (u.hero) teamKills[u.team] += u.hero.kills;
 
@@ -809,13 +826,14 @@ export class HudScene extends Phaser.Scene {
         .setOrigin(0.5),
     );
 
-    teams.forEach((team, ti) => {
-      const colX = -panelW / 2 + 34 + ti * (panelW / 2);
-      const headColor = team === "radiant" ? "#2a6f9e" : "#9e2f2a";
-      let y = -panelH / 2 + 62;
+    let stackY = -panelH / 2 + 62;
+    rosters.forEach((roster, ti) => {
+      const colX = stacked ? -panelW / 2 + 24 : -panelW / 2 + 34 + ti * (panelW / 2);
+      const headColor = roster.team === "radiant" ? "#2a6f9e" : "#9e2f2a";
+      let y = stacked ? stackY : -panelH / 2 + 62;
       this.board.add(
         this.add
-          .text(colX, y, team === "radiant" ? "RADIANT" : "DIRE", {
+          .text(colX, y, roster.team === "radiant" ? "RADIANT" : "DIRE", {
             fontFamily: FONT,
             fontSize: "16px",
             color: headColor,
@@ -824,7 +842,7 @@ export class HudScene extends Phaser.Scene {
       );
       this.board.add(
         this.add
-          .text(colX + panelW / 2 - 64, y, "K / D / A    Net", {
+          .text(colX + colW, y, "K / D / A    Net", {
             fontFamily: FONT,
             fontSize: "11px",
             color: "#7a6240",
@@ -832,11 +850,7 @@ export class HudScene extends Phaser.Scene {
           .setOrigin(1, 0),
       );
       y += 26;
-      // sort() is safe here — filter() already produced a fresh array
-      const list = heroes
-        .filter((u) => u.team === team)
-        .sort((a, b) => (b.hero?.gold ?? 0) - (a.hero?.gold ?? 0));
-      for (const u of list) {
+      for (const u of roster.list) {
         const h = u.hero;
         if (!h) continue;
         const def = HERO_BY_ID[h.defId];
@@ -856,15 +870,16 @@ export class HudScene extends Phaser.Scene {
         const net = Math.floor(h.gold);
         this.board.add(
           this.add
-            .text(colX + panelW / 2 - 64, y, `${h.kills}/${h.deaths}/${h.assists}    🪙${net}`, {
+            .text(colX + colW, y, `${h.kills}/${h.deaths}/${h.assists}    🪙${net}`, {
               fontFamily: FONT,
               fontSize: "12px",
               color: "#6b5530",
             })
             .setOrigin(1, 0),
         );
-        y += 24;
+        y += rowH;
       }
+      stackY = y + 14;
     });
     this.board.add(
       this.add
@@ -961,10 +976,10 @@ export class HudScene extends Phaser.Scene {
         this.clockText.setPosition(stripX + 84, iy + 7);
         this.kdaText.setPosition(stripX + 10, iy + 23);
       } else {
-        this.infoPanel.setPosition(stripX, iy).setSize(216, 30);
+        this.infoPanel.setPosition(stripX, iy).setSize(220, 30);
         this.goldText.setPosition(stripX + 12, iy + 6);
-        this.clockText.setPosition(stripX + 88, iy + 8);
-        this.kdaText.setPosition(stripX + 146, iy + 8);
+        this.clockText.setPosition(stripX + 80, iy + 8);
+        this.kdaText.setPosition(stripX + 134, iy + 8);
       }
     } else {
       this.infoPanel.setPosition(left, iy).setSize(226, 112);
@@ -1155,9 +1170,11 @@ export class HudScene extends Phaser.Scene {
     const mins = Math.floor(world.gameTime / 60);
     const secs = Math.floor(world.gameTime % 60);
     this.clockText.setText(`⏱ ${mins}:${secs.toString().padStart(2, "0")}`);
+    // One label + a slashed triple: at 11px the display font collapses spaces
+    // and its zero is an O, so per-stat letters read as the word "KODOAO".
     this.kdaText.setText(
       this.compact
-        ? `K ${h.kills} D ${h.deaths} A ${h.assists}`
+        ? `KDA ${h.kills}/${h.deaths}/${h.assists}`
         : `K ${h.kills}  D ${h.deaths}  A ${h.assists}  ·  LH ${h.lastHits}`,
     );
     this.apText.setText(
@@ -1208,10 +1225,13 @@ export class HudScene extends Phaser.Scene {
       // tappable level-up badge while points are banked (touch/guest path)
       s.plus.setVisible(me.alive && h.abilityPoints > 0 && rank < ad.maxRank);
       // ability spell icon (set once per hero)
-      const iconKey = abilityIcon(ad.effect);
-      if (iconKey && this.textures.exists(iconKey)) {
-        const sz = this.compact ? 32 : 50;
-        if (s.icon.texture.key !== iconKey) s.icon.setTexture(iconKey).setDisplaySize(sz, sz);
+      const iconFrame = abilityIconFrame(ad.effect);
+      if (iconFrame !== null && this.textures.exists("spell-icons")) {
+        if (s.iconFrame !== iconFrame) {
+          s.iconFrame = iconFrame;
+          const sz = this.compact ? 32 : 50;
+          s.icon.setTexture("spell-icons", iconFrame).setDisplaySize(sz, sz);
+        }
         s.icon.setVisible(true);
       }
       s.pips.forEach((p, j) => p.setFillStyle(j < rank ? 0xffe14a : 0x39456a));
@@ -1259,7 +1279,7 @@ export class HudScene extends Phaser.Scene {
       const id = h.items[i];
       if (id) {
         const it = ITEM_BY_ID[id];
-        s.icon.setVisible(true).setTexture(it?.icon ?? "ui-icon-01");
+        s.icon.setVisible(true).setTexture("ui-icons", it?.icon ?? 0);
         const ready = (h.itemActiveReadyAt[id] ?? 0) <= world.now;
         const strokeColor = it?.active ? (ready ? 0x3f9e4d : 0x9a7a30) : 0x8a7350;
         s.box.setStrokeStyle(2, strokeColor);

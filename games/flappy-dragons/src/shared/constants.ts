@@ -54,6 +54,7 @@ export const COIN_MARGIN = 70;
 /** digits.png is a 10-frame 16×16 strip, rendered 2×. */
 export const DIGIT_W = 32;
 export const DIGIT_H = 32;
+/** Score inset below the top of the *view* (not the course) and below the notch. */
 export const SCORE_Y = 20;
 
 /** Wing-cycle frame rate (legacy stepped a frame per tick = comic 20Hz; ~10fps reads right). */
@@ -105,6 +106,17 @@ export const RESPAWN_MS = 1300;
  * playable on short phone-landscape viewports.
  */
 export const COURSE_H = 720;
+
+/**
+ * Least course width (logical px) the camera keeps in view. Zooming purely to
+ * fill the height leaves a 393×852 phone in portrait showing 332 units — a
+ * trunk reaches the dragon 1.4s after it appears, against 9.6s in landscape,
+ * on the same seeded course. 480 buys 2.4s there; the course floor stays
+ * pinned to the bottom of the screen so what it costs is sky above, which the
+ * trunks and the backdrop fill (see GameScene.layout). Wider viewports are
+ * already past this floor and are untouched.
+ */
+export const MIN_VIEW_W = 480;
 
 /** A stable 0..1 hash for course slot `i` under `seed` (mulberry32-style). */
 export function hash01(seed: number, i: number): number {

@@ -11,11 +11,12 @@
       name="description"
       content="Keyboard-first action MOBA. Pick a hero, push two lanes, storm the ancient."
     />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Lilita+One&display=swap"
+      rel="preload"
+      href="assets/fonts/lilita-one-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
     />
     <!--
       A trailer capture (?trailer=1) is pure gameplay, and the loading veil is a
@@ -29,6 +30,16 @@
         document.documentElement.classList.add("trailer");
     </script>
     <style>
+      /* Self-hosted rather than linked from Google Fonts: the stylesheet is
+         render-blocking and the woff2 lives on a second origin, so a cold phone
+         paid two DNS+TLS round-trips before the first frame. */
+      @font-face {
+        font-family: "Lilita One";
+        font-style: normal;
+        font-weight: 400;
+        font-display: swap;
+        src: url("assets/fonts/lilita-one-latin.woff2") format("woff2");
+      }
       * {
         box-sizing: border-box;
       }

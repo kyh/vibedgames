@@ -25,9 +25,12 @@ export class BootScene extends Phaser.Scene {
     this.load.image("msg-ready", "msg-ready.png");
     this.load.image("msg-gameover", "msg-gameover.png");
 
-    this.load.audio("point", "point.wav");
-    this.load.audio("hit", "hit.wav");
-    this.load.audio("flap", "flap.wav");
+    // Opus first, AAC for Safari (Phaser picks the first the device reports it
+    // can play). The WAVs these replace were 296KB — 38% of the whole download
+    // — for three sub-second effects.
+    for (const sfx of ["point", "hit", "flap"]) {
+      this.load.audio(sfx, [`${sfx}.webm`, `${sfx}.m4a`]);
+    }
   }
 
   create(): void {

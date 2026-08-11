@@ -1,6 +1,7 @@
 import Phaser from "phaser";
-import { notifyGameStarted, watchControlContext } from "@repo/embed";
-import { PhysicalGamepad } from "@vibedgames/gamepad";
+import { createTouchControls, notifyGameStarted, watchControlContext } from "@repo/embed";
+import type { TouchControls } from "@repo/embed";
+import { PhysicalGamepad, safeAreaInset } from "@vibedgames/gamepad";
 
 import { CONTROLS } from "../controls";
 import { buildControls, ensureStyle as ensureControlsStyle } from "../pause-overlay";
@@ -25,6 +26,7 @@ import {
   flapVelocityFor,
   GRAVITY,
   MAX_TILT,
+  MIN_VIEW_W,
   MP_MAX_PLAYERS,
   MP_ROOM,
   NET_TICK_HZ,
@@ -146,6 +148,8 @@ export class GameScene extends Phaser.Scene {
   private hintEl: HTMLElement | null = null;
   private bestEl: HTMLElement | null = null;
   private boardEl: HTMLElement | null = null;
+  private touchControls: TouchControls | null = null;
+  private muted = true;
   private netInfoEl: HTMLElement | null = null;
   private startEl: HTMLElement | null = null;
   private started = false;
@@ -173,7 +177,16 @@ export class GameScene extends Phaser.Scene {
     this.skin = rollSkin();
 
     // Muted by default; returning players who opted into sound stay unmuted.
-    this.sound.mute = storageGet(SOUND_KEY) !== "1";
+    this.setMuted(storageGet(SOUND_KEY) !== "1");
+
+    // M and Escape are keyboard-only, so a phone otherwise has no way to hear
+    // the game or leave a run.
+    this.touchControls = createTouchControls({
+      mute: {
+        get: () => this.muted,
+        set: (next) => this.setMuted(next),
+      },
+    });
 
     this.net = new NetSession({
       room: MP_ROOM,
@@ -236,13 +249,18 @@ export class GameScene extends Phaser.Scene {
     // M is a user gesture, so unmuting here can safely resume a suspended
     // audio context.
     this.input.keyboard?.on("keydown-M", (e: KeyboardEvent) => {
-      if (!e.repeat) this.toggleMute();
+      if (!e.repeat) {
+        this.setMuted(!this.muted);
+        this.touchControls?.sync();
+      }
     });
 
     this.scale.on(Phaser.Scale.Events.RESIZE, this.layout, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.layout, this);
       this.net.destroy();
+      this.touchControls?.destroy();
+      this.touchControls = null;
     });
 
     this.layout();
@@ -434,6 +452,14 @@ export class GameScene extends Phaser.Scene {
       // Legacy integration order: position first, then gravity into velocity.
       this.birdY += this.vy * dt;
       this.vy += GRAVITY * dt;
+      // Solid ceiling. Without it, steady tapping — the natural panic input on
+      // a phone — parks the dragon above the view, where it is invisible and
+      // (before the trunks were extended up there) passed through every pipe.
+      const ceiling = this.viewTop();
+      if (this.birdY < ceiling) {
+        this.birdY = ceiling;
+        this.vy = 0;
+      }
       this.bird.y = this.birdY + DRAGON_SPRITE_OFFSET_Y;
       this.bird.rotation = Phaser.Math.Clamp(this.vy * TILT_FACTOR, -MAX_TILT, MAX_TILT);
       this.checkScore();
@@ -683,8 +709,18 @@ export class GameScene extends Phaser.Scene {
 
   private spawnPipe(i: number): Pipe {
     const topHeight = topHeightFor(this.seed, i);
+    // The trunk starts at the top of the VIEW, not of the course: a viewport
+    // that shows sky above the course would otherwise show trunks ending in
+    // mid-air, and the dragon could fly over them.
+    const trunkTop = this.viewTop();
     const topBody = this.add
-      .tileSprite(0, 0, PIPE_WIDTH, Math.max(1, topHeight - TUBE_CAP_H + 2), "tube-body")
+      .tileSprite(
+        0,
+        trunkTop,
+        PIPE_WIDTH,
+        Math.max(1, topHeight - trunkTop - TUBE_CAP_H + 2),
+        "tube-body",
+      )
       .setOrigin(0, 0)
       .setTileScale(ART_SCALE)
       .setDepth(0);
@@ -784,10 +820,10 @@ export class GameScene extends Phaser.Scene {
     for (const pipe of this.pipes.values()) {
       const x = this.screenX(pipe.index);
       if (BIRD_X + BIRD_W <= x || BIRD_X >= x + PIPE_WIDTH) continue;
-      if (
-        (this.birdY < pipe.topHeight && this.birdY + BIRD_H > 0) ||
-        this.birdY + BIRD_H > pipe.topHeight + PIPE_GAP
-      ) {
+      // Overlapping the trunk column: anything outside the gap is a crash. The
+      // ceiling clamp keeps the dragon below the trunk tops, so there is no
+      // "above the pipe" case to exempt.
+      if (this.birdY < pipe.topHeight || this.birdY + BIRD_H > pipe.topHeight + PIPE_GAP) {
         this.die();
         return;
       }
@@ -892,10 +928,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   private scorePop(): void {
+    const y = this.scoreY();
     for (const digit of this.digits) {
       this.tweens.killTweensOf(digit);
-      digit.setY(SCORE_Y - 6);
-      this.tweens.add({ targets: digit, y: SCORE_Y, duration: 160, ease: "Back.easeOut" });
+      digit.setY(y - 6);
+      this.tweens.add({ targets: digit, y, duration: 160, ease: "Back.easeOut" });
     }
   }
 
@@ -903,8 +940,9 @@ export class GameScene extends Phaser.Scene {
 
   private refreshScore(): void {
     const text = String(this.score);
+    const y = this.scoreY();
     while (this.digits.length < text.length) {
-      this.digits.push(this.add.image(0, SCORE_Y, "digits", 0).setOrigin(0, 0).setDepth(20));
+      this.digits.push(this.add.image(0, y, "digits", 0).setOrigin(0, 0).setDepth(20));
     }
     while (this.digits.length > text.length) {
       const d = this.digits.pop();
@@ -915,7 +953,7 @@ export class GameScene extends Phaser.Scene {
     for (const [i, digit] of this.digits.entries()) {
       digit
         .setFrame(text.charCodeAt(i) - 48)
-        .setPosition(startX + i * DIGIT_W, SCORE_Y)
+        .setPosition(startX + i * DIGIT_W, y)
         .setDisplaySize(DIGIT_W, DIGIT_H);
     }
   }
@@ -930,8 +968,12 @@ export class GameScene extends Phaser.Scene {
     if (this.bestEl) this.bestEl.textContent = text;
   }
 
-  private toggleMute(): void {
-    const muted = !this.sound.mute;
+  private setMuted(muted: boolean): void {
+    // The scene owns the flag rather than reading it back off the sound
+    // manager: Phaser swaps in a no-audio manager when the device has no
+    // output, and that one silently drops writes to `mute` and always reads
+    // false — which left the toggle stuck after a single press.
+    this.muted = muted;
     this.sound.mute = muted;
     storageSet(SOUND_KEY, muted ? "0" : "1");
     // Autoplay policy may have left the context suspended (we boot muted, so
@@ -1008,40 +1050,67 @@ export class GameScene extends Phaser.Scene {
 
   // ---- layout --------------------------------------------------------------
 
-  /** Logical view width: screen width divided by the course zoom. */
+  /**
+   * Camera zoom. Filling the viewport height is the goal; MIN_VIEW_W is the
+   * floor that stops a narrow viewport from cropping the course down to a
+   * couple of trunk widths (see the constant).
+   */
+  private viewZoom(): number {
+    return Math.min(this.scale.height / COURSE_H, this.scale.width / MIN_VIEW_W);
+  }
+
+  /** Logical width of the visible window. */
   private viewW(): number {
-    return (this.scale.width * COURSE_H) / this.scale.height;
+    return this.scale.width / this.viewZoom();
+  }
+
+  /**
+   * Logical y of the top of the visible window — 0 when the zoom fills the
+   * height, negative when MIN_VIEW_W pushed it out. The course FLOOR is pinned
+   * to the bottom of the screen, so the extra room is always sky above.
+   */
+  private viewTop(): number {
+    return COURSE_H - this.scale.height / this.viewZoom();
+  }
+
+  /** Top of the score digits: below the view top and below any notch. */
+  private scoreY(): number {
+    return this.viewTop() + SCORE_Y + safeAreaInset().top / this.viewZoom();
   }
 
   private layout(): void {
-    // The whole world lives in a fixed COURSE_H-tall logical space; the camera
-    // zooms it to fill the real viewport height. Every client therefore plays
-    // the exact same course geometry (the 8-player race stays fair), and short
-    // phone-landscape viewports just render it smaller instead of breaking.
-    const zoom = this.scale.height / COURSE_H;
+    // The whole world lives in a fixed COURSE_H-tall logical space and the
+    // camera zooms it onto the real viewport. Every client therefore plays the
+    // exact same course geometry (the 8-player race stays fair) whatever its
+    // screen; only how much of it is on screen at once differs.
+    const zoom = this.viewZoom();
     const width = this.viewW();
-    this.cameras.main.setZoom(zoom).centerOn(width / 2, COURSE_H / 2);
-    const tileScale = COURSE_H / BG_NATIVE_H;
+    const top = this.viewTop();
+    const viewH = COURSE_H - top;
+    this.cameras.main.setZoom(zoom).centerOn(width / 2, top + viewH / 2);
+    // Sized to the VIEW, not the course: tileScale × zoom is `height/native`
+    // either way, so the backdrop lands on the same screen pixels as before
+    // and never leaves a band of bare sky above the course.
+    const tileScale = viewH / BG_NATIVE_H;
     for (const layer of this.bgLayers) {
-      layer.sprite.setSize(width, COURSE_H).setTileScale(tileScale);
+      layer.sprite.setPosition(0, top).setSize(width, viewH).setTileScale(tileScale);
     }
     this.applyParallax();
     // Narrow logical viewports (phone portrait) can't fit the banners at 2×.
     for (const img of [this.readyImg, this.overImg]) {
       img
         .setScale(Math.min(ART_SCALE, (width - 16) / img.width))
-        .setPosition(width / 2, COURSE_H / 2);
+        .setPosition(width / 2, top + viewH / 2);
     }
     this.refreshScore();
-    // The visible pipe window depends on the logical width — rebuild.
+    // Both the visible pipe window and the trunk tops depend on the view.
     this.clearPipes();
   }
 
   private applyParallax(): void {
-    const tileScale = COURSE_H / BG_NATIVE_H;
     const px = this.worldX + this.readyDrift;
     for (const layer of this.bgLayers) {
-      layer.sprite.tilePositionX = (px * layer.factor) / tileScale;
+      layer.sprite.tilePositionX = (px * layer.factor) / layer.sprite.tileScaleX;
     }
   }
 }

@@ -105,7 +105,7 @@ export function buildWorldMap(
   const imageTile = (v: number, tx: number, ty: number, depth: number): void => {
     const idx = tileIndex(v);
     // centre origin so the 90° rotation stays inside the cell
-    const img = scene.add.image(tx * TILE + TILE / 2, ty * TILE + TILE / 2, "atlas-sheet", idx);
+    const img = scene.add.image(tx * TILE + TILE / 2, ty * TILE + TILE / 2, "atlas", idx);
     img.setFlip(tileFlipX(v), tileFlipY(v));
     if (tileRotate(v)) img.setRotation(Math.PI / 2);
     img.setDepth(depth);

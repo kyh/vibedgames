@@ -23,6 +23,9 @@ pnpm --filter @repo/pong preview     # vite preview
 | ---------------------------------- | ---------------- |
 | ✋ hand (mouse, finger, pad stick) | steer the paddle |
 | ✊ fist (click, tap, pad A)        | serve · rematch  |
-| M                                  | mute             |
+| M · 🔊 button                      | mute             |
+| Escape · ⏸ button                  | pause            |
 
-Multiplayer: auto-joins the shared `pong-default` room (2 players max) for a live 1v1; solo fallback (vs AI paddle) when the party server is unreachable or nobody else is around.
+Hand tracking costs ~17 MB of third-party wasm + model and a camera prompt, so it never loads during boot: a desktop starts it after first paint, a touch device opts in by tapping the "TAP FOR HAND CONTROL" pill. Instruction copy only advertises ✋/✊ while tracking is actually live.
+
+Multiplayer: auto-joins the shared `pong-default` room (2 players max) for a live 1v1; solo fallback (vs AI paddle) when the party server is unreachable or nobody else is around, and a tap during the handshake starts that solo game immediately.

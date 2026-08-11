@@ -10,8 +10,31 @@ function lerpAngle(a: number, b: number, t: number): number {
   return a + d * t;
 }
 
+/** The aspect CAMERA.fov was framed for. Wider than this keeps the authored
+ *  vertical angle; narrower gets the Hor+ treatment below. */
+const DESIGN_ASPECT = 16 / 9;
+/** Ceiling on the widened vertical angle. A portrait phone would otherwise
+ *  solve past 130°, which fisheyes the hood and stretches the kerbs. */
+const MAX_VERTICAL_FOV = 96;
+
+/**
+ * Hor+ framing. THREE's `fov` is the VERTICAL angle, so holding it fixed makes
+ * a portrait phone see roughly a third of the lateral view a 16:9 screen does
+ * — cross traffic arrives with no warning and a speech bubble sized for
+ * desktop spills off both edges. Solve the vertical angle back from the
+ * horizontal one the design aspect gets instead.
+ */
+function verticalFovFor(designFov: number, aspect: number): number {
+  if (aspect >= DESIGN_ASPECT) return designFov;
+  const halfH = Math.tan(THREE.MathUtils.degToRad(designFov) / 2) * DESIGN_ASPECT;
+  return Math.min(MAX_VERTICAL_FOV, THREE.MathUtils.radToDeg(2 * Math.atan(halfH / aspect)));
+}
+
 export class ChaseCamera {
   readonly camera: THREE.PerspectiveCamera;
+  /** The 16:9 vertical angle the speed-FOV ease works in — the camera's own
+   *  `fov` is this run through verticalFovFor and is not a valid input. */
+  private designFov = CAMERA.fov;
   private camYaw = 0;
   private look = new THREE.Vector3();
   private shake = 0;
@@ -34,11 +57,17 @@ export class ChaseCamera {
     // surface (avoidClip + minHeight), and tripling near triples depth-buffer
     // precision everywhere — the draped road layers stop shimmering at the
     // far end of long straights.
-    this.camera = new THREE.PerspectiveCamera(CAMERA.fov, aspect, 0.3, 2000);
+    this.camera = new THREE.PerspectiveCamera(
+      verticalFovFor(CAMERA.fov, aspect),
+      aspect,
+      0.3,
+      2000,
+    );
   }
 
   resize(aspect: number): void {
     this.camera.aspect = aspect;
+    this.camera.fov = verticalFovFor(this.designFov, aspect);
     this.camera.updateProjectionMatrix();
   }
 
@@ -153,11 +182,14 @@ export class ChaseCamera {
     this.camera.rotateZ(rollShake + driftRoll);
 
     // Speed FOV: kick wide fast, recover slow — boost hits like a gear change.
+    // Eased in DESIGN space so the rush reads the same on every aspect; the
+    // Hor+ solve is applied on the way to the camera.
     const frac = THREE.MathUtils.clamp(car.speed / CAR.boostSpeed, 0, 1);
     const targetFov =
       THREE.MathUtils.lerp(CAMERA.fov, CAMERA.fovBoost, frac) + (car.isBoosting ? 4 : 0);
-    const fovRate = targetFov > this.camera.fov ? 10 : 3;
-    this.camera.fov += (targetFov - this.camera.fov) * Math.min(1, dt * fovRate);
+    const fovRate = targetFov > this.designFov ? 10 : 3;
+    this.designFov += (targetFov - this.designFov) * Math.min(1, dt * fovRate);
+    this.camera.fov = verticalFovFor(this.designFov, this.camera.aspect);
     this.camera.updateProjectionMatrix();
   }
 

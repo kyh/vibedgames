@@ -9,10 +9,12 @@ import * as THREE from "three";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { CHAMPIONS } from "../data/champions";
 import { AnimatedCharacter, ModelLibrary } from "./models";
+import { fovForAspect } from "./view";
 
 const ARC_R = 15; // arc radius — edge champs curve gently back into the fog
 const ARC_GAP = 2.35; // spacing along the arc between champions (6-champ row)
 const CAM_Z = 11.5;
+const STAGE_FOV = 45; // vertical at square or wider; widened for portrait
 
 type Slot = {
   id: string;
@@ -128,7 +130,7 @@ export class MenuStage {
       });
     });
 
-    this.camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+    this.camera = new THREE.PerspectiveCamera(STAGE_FOV, 1, 0.1, 100);
     this.camera.position.set(0, 2.8, CAM_Z);
     this.camera.lookAt(0, 1.05, 0);
     this.resize();
@@ -197,6 +199,7 @@ export class MenuStage {
 
   resize(): void {
     this.camera.aspect = window.innerWidth / window.innerHeight;
+    this.camera.fov = fovForAspect(STAGE_FOV, this.camera.aspect);
     this.camera.updateProjectionMatrix();
   }
 

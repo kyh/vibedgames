@@ -34,6 +34,7 @@
       #game {
         position: fixed;
         inset: 0;
+        touch-action: none;
       }
       #game canvas {
         display: block;
@@ -72,6 +73,12 @@
       }
       #players {
         text-align: right;
+      }
+      @media (pointer: coarse) {
+        /* Yield the top-right corner to the shared touch pause button. */
+        #players {
+          margin-right: 54px;
+        }
       }
       #stats {
         align-self: center;
@@ -114,7 +121,11 @@
         justify-content: center;
         gap: 18px;
         text-align: center;
-        padding: 24px;
+        /* Same inset treatment as #hud — "tap to start" otherwise lands under
+           the home indicator in landscape. */
+        padding: calc(24px + env(safe-area-inset-top, 0px))
+          calc(24px + env(safe-area-inset-right, 0px)) calc(24px + env(safe-area-inset-bottom, 0px))
+          calc(24px + env(safe-area-inset-left, 0px));
         overflow: hidden;
         /* Lighter than before: a soft center vignette keeps the copy readable
            while the real arena (generated maze + grass) reads through the edges,
@@ -209,6 +220,16 @@
       @keyframes start-pulse {
         50% {
           opacity: 0.35;
+        }
+      }
+      /* Landscape phone: the title alone is half the viewport, so the column
+         overflows and the prompt is pushed off the bottom. Shrink it instead. */
+      @media (max-height: 480px) {
+        #start {
+          gap: 10px;
+        }
+        #start h1 img {
+          width: clamp(180px, 30vw, 380px);
         }
       }
       @media (prefers-reduced-motion: reduce) {

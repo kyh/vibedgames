@@ -31,3 +31,8 @@ npx tsx games/tetris/scripts/smoke.ts  # headless game-core smoke checks (no thr
 | F / 📷 T-pose (pad Y)                        | power sweep  |
 | V                                            | recenter     |
 | M / P                                        | mute / pause |
+
+On a coarse pointer the six labelled circles (DROP / ROT / HOLD / PWR / ↺ ↻) plus a
+floating stick cover every verb, mute and pause sit in the top-right cluster, and the
+webcam is opt-in — the panel reads "tap to play with the camera" and only then are the
+camera requested and MediaPipe loaded.

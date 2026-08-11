@@ -22,6 +22,13 @@ export type StickOptions = {
   deadZone?: number;
   /** Visual knob (inner puck) radius, used by renderers. */
   knobRadius?: number;
+  /**
+   * Where a touch is allowed to anchor the floating stick, in screen-space px.
+   * Return false over the action cluster so a thumb that reaches for a button
+   * and misses it by a few px does nothing, instead of silently becoming a
+   * movement input. Default: anywhere.
+   */
+  region?: (point: Vec2, viewport: Viewport) => boolean;
 };
 
 /** A button on the virtual gamepad. */

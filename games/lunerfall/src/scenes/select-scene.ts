@@ -19,7 +19,7 @@ import {
   UPGRADES,
   upgradeLevel,
 } from "../data/meta";
-import { gameInset, isCoarse } from "../sys/screen";
+import { gameInset, isCoarse, touchHudBand } from "../sys/screen";
 
 // A tappable pill: stroke rect (the hit target) + centred label.
 type TapBtn = { rect: Phaser.GameObjects.Rectangle; txt: Phaser.GameObjects.Text };
@@ -276,19 +276,26 @@ export class SelectScene extends Phaser.Scene {
   }
 
   // Tap targets replacing the keyboard chords: GO/UNLOCK · FORGE · CO-OP ·
-  // VERSUS along the bottom edge, sound toggle top-left (phones have no M key
-  // — without this, touch players get permanent silence). Labels/colors are
-  // kept current by refresh().
+  // VERSUS along the bottom edge. (Sound lives in the DOM cluster, ../touch-hud.)
+  // Labels/colors are kept current by refresh().
   private buildTouchUi() {
     this.goBtn = undefined;
     this.coopBtn = undefined;
     this.vsBtn = undefined;
     if (!this.touch) return;
     const ins = gameInset(this);
-    this.bank.setPosition(BASE_W - 8 - ins.right, 8 + ins.top);
+    // The pause/mute cluster owns the top-right corner on a phone; the hub's
+    // own top-left is empty, so the shard bank moves there rather than fight it.
+    this.bank.setOrigin(0, 0).setPosition(8 + ins.left, 8 + ins.top);
     const y = BASE_H - 20 - ins.bottom;
+    // The copy above the buttons is one stack laid out UPWARD from them, title
+    // included: a home-indicator inset lifts the whole block. Anchoring the
+    // blurb to the hero row instead left the lifted lines printing through it.
+    const line = 11;
     this.hint.setY(y - 25);
-    this.coopText.setY(y - 36);
+    this.coopText.setY(y - 25 - line);
+    this.blurb.setY(y - 25 - line * 2);
+    this.title.setY(Math.min(this.rowY + 34, y - 25 - line * 2 - 13));
     const widths = [96, 58, 58, 66];
     const gap = 8;
     const total = widths.reduce((a, b) => a + b) + gap * (widths.length - 1);
@@ -316,10 +323,13 @@ export class SelectScene extends Phaser.Scene {
 
   // ── Moon Forge (permanent upgrades) ──────────────────────────────────────
   private buildShop() {
+    const ins = gameInset(this);
     const panel = this.add.container(0, 0).setDepth(50).setVisible(false);
     // Tapping the dim backdrop (anywhere off a row) closes the panel; the rows
-    // sit above it so their taps win the hit test.
-    const dim = this.add.rectangle(0, 0, BASE_W, BASE_H, 0x05070b, 0.84).setOrigin(0);
+    // sit above it so their taps win the hit test. Near-opaque: the hub behind
+    // is all centred text and chips, which at phone size reads through a
+    // lighter scrim as noise printed over the upgrade rows.
+    const dim = this.add.rectangle(0, 0, BASE_W, BASE_H, 0x05070b, 0.96).setOrigin(0);
     dim.setInteractive().on("pointerdown", () => this.shopOpen && this.toggleShop());
     const title = this.add
       .text(BASE_W / 2, 32, "MOON FORGE", {
@@ -364,17 +374,24 @@ export class SelectScene extends Phaser.Scene {
       panel.add(t);
       return t;
     });
+    // The panel's own hint calls ✕ the way out, so it has to clear the notch
+    // and the pause/mute cluster — a landscape phone puts both in this corner.
     const close = this.add
-      .text(BASE_W - 18, 16, "✕", { fontFamily: "monospace", fontSize: "13px", color: "#8b95a1" })
+      .text(BASE_W - 18 - ins.right, 16 + ins.top + touchHudBand(this), "✕", {
+        fontFamily: "monospace",
+        fontSize: "13px",
+        color: "#8b95a1",
+      })
       .setOrigin(0.5)
       .setPadding(8, 8, 8, 8)
       .setInteractive({ useHandCursor: true })
       .on("pointerdown", () => this.shopOpen && this.toggleShop());
     panel.add(close);
+    // Clears the hub's own tap row, which the panel dims but does not move.
     const hint = this.add
       .text(
         BASE_W / 2,
-        BASE_H - 20,
+        BASE_H - 20 - ins.bottom - (this.touch ? 26 : 0),
         this.touch
           ? "tap a row to select — tap again to buy — ✕ closes"
           : "↑ ↓  select      ENTER  buy      M  close",

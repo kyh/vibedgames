@@ -5,7 +5,8 @@
 # authored (no hand-guessed FPS). No --trim: frames stay full-canvas so the
 # feet-anchored origins in config.ts remain valid across every clip.
 #
-# Re-run after the source pack changes. Requires the Aseprite app (CLI mode).
+# Re-run after the source pack changes. Requires the Aseprite app (CLI mode)
+# and cwebp (`brew install webp`).
 set -euo pipefail
 
 ASE="${ASEPRITE:-/Applications/Aseprite.app/Contents/MacOS/aseprite}"
@@ -20,6 +21,10 @@ exp() { # <relative-aseprite-path> <out-name>
   "$ASE" -b "$SRC/$1" --script "$HIDE" \
     --sheet "$OUT/$2.png" --sheet-type packed \
     --data "$OUT/$2.json" --format json-array --list-tags >/dev/null
+  # The game loads WebP (boot-scene.ts). Lossless: pixel art needs exact
+  # colours and alpha, and it is still ~68% smaller than the PNG.
+  cwebp -quiet -lossless -z 9 -exact "$OUT/$2.png" -o "$OUT/$2.webp"
+  rm "$OUT/$2.png"
   echo "  ✓ $2"
 }
 

@@ -823,6 +823,29 @@
         opacity: 0.6;
       }
 
+      /* Chat pill. 16px is a floor, not a taste: iOS Safari zooms the whole
+         page when an input smaller than that takes focus, and it has ignored
+         `user-scalable=no` since iOS 10. */
+      #chat {
+        display: none;
+        position: fixed;
+        left: 50%;
+        bottom: calc(88px + env(safe-area-inset-bottom));
+        transform: translateX(-50%);
+        z-index: 30;
+        width: min(480px, 80vw);
+        padding: 10px 16px;
+        border-radius: 999px;
+        border: 2px solid rgba(255, 255, 255, 0.45);
+        background: rgba(10, 14, 24, 0.88);
+        color: #fff;
+        font:
+          600 16px ui-monospace,
+          monospace;
+        outline: none;
+        pointer-events: auto;
+      }
+
       /* Touch controls */
       #touch {
         position: fixed;
@@ -1018,6 +1041,22 @@
       body.landing #netinfo,
       body.landing #touch {
         display: none;
+      }
+      /* Typing suspends driving anyway, and on a portrait phone the chat pill
+         sits across the pedal — a tap aimed at the field would brake. Carries
+         the `.on.play` classes so it outranks the rule that shows them. */
+      body.chatting #touch.on.play {
+        display: none;
+      }
+      /* The shared @repo/embed pause/mute cluster owns the top-right corner on
+         a touch device; the cards that live there start below it. */
+      @media (pointer: coarse) {
+        #netinfo {
+          top: calc(76px + env(safe-area-inset-top));
+        }
+        #fare-card {
+          top: calc(98px + env(safe-area-inset-top));
+        }
       }
       /* Keycap legend, below the CTA. Chips read as keys, not prose; one row
          per input method under the pause overlay's KEYS/TOUCH/PAD tags. */
@@ -1237,31 +1276,7 @@
         opacity: 0.5;
       }
     </style>
-    <input
-      id="chat"
-      maxlength="90"
-      placeholder="say something…"
-      autocomplete="off"
-      style="
-        display: none;
-        position: fixed;
-        left: 50%;
-        bottom: 88px;
-        transform: translateX(-50%);
-        z-index: 30;
-        width: min(480px, 80vw);
-        padding: 10px 16px;
-        border-radius: 999px;
-        border: 2px solid rgba(255, 255, 255, 0.45);
-        background: rgba(10, 14, 24, 0.88);
-        color: #fff;
-        font:
-          600 14px ui-monospace,
-          monospace;
-        outline: none;
-        pointer-events: auto;
-      "
-    />
+    <input id="chat" maxlength="90" placeholder="say something…" autocomplete="off" />
     <div id="netinfo"></div>
     <div id="hud">
       <div class="rail" id="rail-l" aria-hidden="true"><i></i></div>

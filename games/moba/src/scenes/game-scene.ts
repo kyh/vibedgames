@@ -1,5 +1,7 @@
 import { PhysicalGamepad, attachVirtualGamepad } from "@vibedgames/gamepad/phaser";
 import type { PadButton, StickState } from "@vibedgames/gamepad/phaser";
+import { createTouchControls, isOfflineRequested } from "@repo/embed";
+import type { TouchControls } from "@repo/embed";
 import { MultiplayerClient } from "@vibedgames/multiplayer";
 import Phaser from "phaser";
 
@@ -13,7 +15,7 @@ import { dealDamage, isEnemy } from "../sim/combat";
 import { dist2 } from "../sim/math";
 import { buyItem, createWorld, dashHero, issueOrder, spawnHero, step } from "../sim/world";
 import type { Order, Unit, World } from "../sim/types";
-import { resumeAudio, sfx, toggleMute } from "../render/audio";
+import { isMuted, resumeAudio, setMuted, sfx, toggleMute } from "../render/audio";
 import { FONT } from "../render/font";
 import { WorldView } from "../render/view";
 import { INTENT_EVENT, MULTIPLAYER_HOST, PARTY, ROOM, parseIntent } from "../net/protocol";
@@ -27,6 +29,26 @@ import {
 } from "../net/snapshot";
 
 const TEAM_SIZE = 3;
+
+// The shared pause/mute cluster's stock corner is top-right, which the compact
+// HUD already spends on the team-score capsule — so a portrait phone drops it
+// into a column underneath. Colours echo the HUD's carved-bronze buttons.
+const TOUCH_CONTROLS_CSS = `
+.moba-touch {
+  --vg-touch-bg: rgba(28, 20, 16, 0.8);
+  --vg-touch-bg-active: rgba(138, 115, 80, 0.55);
+  --vg-touch-border: 2px solid #8a7350;
+  --vg-touch-fg: #ffe8b0;
+  flex-direction: column;
+  top: calc(env(safe-area-inset-top, 0px) + 44px);
+}
+@media (orientation: landscape) {
+  .moba-touch {
+    flex-direction: row;
+    top: calc(env(safe-area-inset-top, 0px) + 10px);
+  }
+}
+`;
 
 // Keyboard-first scheme with hands split so nothing overlaps: MOVE with the arrow
 // keys (right hand), ABILITIES on Q/W/E/R (left hand), F = dash, Space = attack.
@@ -71,6 +93,7 @@ export class GameScene extends Phaser.Scene {
   private moveKeys: Record<"up" | "down" | "left" | "right", Phaser.Input.Keyboard.Key> | null =
     null;
   private pad: ReturnType<typeof attachVirtualGamepad> | null = null;
+  private touchControls: TouchControls | null = null;
   // Physical controller — polled once per frame here (before the HUD's update,
   // which reads it for shop/scoreboard buttons; the Hud scene updates after us).
   readonly physPad = new PhysicalGamepad();
@@ -108,7 +131,10 @@ export class GameScene extends Phaser.Scene {
 
   init(data: { heroId?: string; online?: boolean }): void {
     if (data?.heroId) this.heroChoice = data.heroId;
-    this.online = !!data?.online;
+    // The one choke point for online mode — both the lobby's PLAY ONLINE
+    // button and the `?online=1` deep link arrive here, so `?offline=1` is
+    // enforced once and no socket can be opened behind it.
+    this.online = !!data?.online && !isOfflineRequested();
   }
 
   /** Reset every mutable per-match field (the scene instance is reused on restart). */
@@ -181,6 +207,8 @@ export class GameScene extends Phaser.Scene {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.applyZoom, this);
       this.pad?.destroy();
       this.pad = null;
+      this.touchControls?.destroy();
+      this.touchControls = null;
       this.physPad.destroy();
       this.net?.destroy();
     });
@@ -413,7 +441,10 @@ export class GameScene extends Phaser.Scene {
     ["ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX"].forEach((code, i) => {
       kb.on(`keydown-${code}`, () => this.useItemSlot(i));
     });
-    kb.on("keydown-M", () => toggleMute());
+    kb.on("keydown-M", () => {
+      toggleMute();
+      this.touchControls?.sync();
+    });
 
     // Movement: arrow keys (right hand, held). Space = basic attack. Camera follows.
     const KC = Phaser.Input.Keyboard.KeyCodes;
@@ -440,6 +471,20 @@ export class GameScene extends Phaser.Scene {
       // scene still renders over it
       render: { depth: 50000, blendMode: Phaser.BlendModes.NORMAL },
       onFirstTouch: () => resumeAudio(),
+    });
+    // Pause is Escape-bound and mute is M-bound, so without this a phone player
+    // cannot leave the match and never learns the game has sound.
+    this.touchControls = createTouchControls({
+      className: "moba-touch",
+      css: TOUCH_CONTROLS_CSS,
+      styleId: "moba-touch-controls",
+      mute: {
+        get: () => isMuted(),
+        set: (next) => {
+          setMuted(next);
+          resumeAudio();
+        },
+      },
     });
   }
 

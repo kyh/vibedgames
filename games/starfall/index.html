@@ -37,6 +37,7 @@
       #game {
         position: fixed;
         inset: 0;
+        touch-action: none;
       }
       #game canvas {
         display: block;
@@ -137,6 +138,18 @@
       #hudright {
         text-align: right;
       }
+      /* @repo/embed's mute/pause cluster mounts on touch devices only, and it
+         claims the same top-right corner as this column. */
+      .vg-touch-controls {
+        --vg-touch-fg: #cfe0ff;
+        --vg-touch-bg: rgba(3, 7, 22, 0.62);
+        --vg-touch-bg-active: rgba(127, 178, 255, 0.24);
+        --vg-touch-border: 1px solid rgba(127, 178, 255, 0.3);
+        --vg-touch-radius: 3px;
+      }
+      body:has(.vg-touch-controls) #hudright {
+        margin-top: 46px;
+      }
       /* dir-006: persistent sector line — the ambient mid-game chase. */
       #sector {
         font-size: 11px;
@@ -164,7 +177,10 @@
         left: 50%;
         transform: translateX(-50%);
         width: 44vw;
-        max-width: 720px;
+        /* Centred, so on a narrow phone it grows into the top-right corner the
+           shared touch cluster owns — it overlapped the mute button by 7px at
+           360px wide. Keep both halves clear of the reserved corner. */
+        max-width: min(720px, calc(100vw - 2 * (var(--vg-touch-reserve, 0px) + 12px)));
         pointer-events: none;
         opacity: 0;
         transition: opacity 0.25s ease;

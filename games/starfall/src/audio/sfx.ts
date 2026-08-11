@@ -116,17 +116,22 @@ export class Sfx {
   }
 
   /**
-   * Flip mute, persist the choice, and return the new state. Call from a user
+   * Set mute, persist the choice, and return the new state. Call from a user
    * gesture: turning sound ON creates/resumes the AudioContext via `unlock()`.
    */
-  toggleMute(): boolean {
-    this.muted = !this.muted;
+  setMuted(next: boolean): boolean {
+    this.muted = next;
     storageSet(SOUND_KEY, this.muted ? "0" : "1");
     if (!this.muted) this.unlock();
     if (this.ctx && this.master) {
       this.master.gain.setTargetAtTime(this.muted ? 0 : MASTER_GAIN, this.ctx.currentTime, 0.02);
     }
     return this.muted;
+  }
+
+  /** Flip mute (the M key); returns the new state. */
+  toggleMute(): boolean {
+    return this.setMuted(!this.muted);
   }
 
   /**

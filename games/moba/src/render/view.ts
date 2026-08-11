@@ -656,14 +656,14 @@ export class WorldView {
   /** Soft clouds drifting slowly across the map (depth above everything). */
   private buildClouds(): void {
     const s = this.scene;
-    if (!s.textures.exists("cloud1")) return;
+    if (!s.textures.exists("clouds")) return;
     const COUNT = 10;
     for (let i = 0; i < COUNT; i++) {
-      const n = 1 + ((i * 3) % 8);
+      const frame = (i * 3) % 8;
       const x = rng2(i * 13, 1) * WORLD.width;
       const y = rng2(1, i * 17) * WORLD.height;
       const c = s.add
-        .image(x, y, `cloud${n}`)
+        .image(x, y, "clouds", frame)
         .setScale(0.7 + rng2(i, i) * 0.6)
         .setAlpha(0.45 + rng2(i, 3) * 0.25)
         .setDepth(9000); // above units, below HUD

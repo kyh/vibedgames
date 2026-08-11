@@ -8,6 +8,10 @@ import { buildKitClips } from "../data/clip-timing";
 // JSON), builds animations with the authored per-frame timings, loads the
 // environment art + fx textures, then routes to the hub (or straight into a run
 // for the debug params).
+//
+// Textures ship as WebP: lossless for every sheet (pixel art needs exact
+// colours and alpha, and lossless still beats PNG by ~68% here), and the one
+// painted backdrop lossy, where its dither noise was costing 380 KB.
 export class BootScene extends Phaser.Scene {
   constructor() {
     super("boot");
@@ -15,26 +19,26 @@ export class BootScene extends Phaser.Scene {
 
   preload() {
     for (const key of ATLAS_KEYS) {
-      this.load.aseprite(key, `sprites/ase/${key}.png`, `sprites/ase/${key}.json`);
+      this.load.aseprite(key, `sprites/ase/${key}.webp`, `sprites/ase/${key}.json`);
     }
 
     // Environment art: static tiles/props + backdrop.
     for (const img of ["tiles", "props", "backdrop", "bamboo", "bushes", "rocks", "tree"]) {
-      this.load.image(`env:${img}`, `sprites/env/${img}.png`);
+      this.load.image(`env:${img}`, `sprites/env/${img}.webp`);
     }
     for (const [key, w, h] of ANIMATED_PROPS) {
-      this.load.spritesheet(`prop:${key}`, `sprites/props/${key}.png`, {
+      this.load.spritesheet(`prop:${key}`, `sprites/props/${key}.webp`, {
         frameWidth: w,
         frameHeight: h,
       });
     }
 
     // Projectiles.
-    this.load.spritesheet("fx:flame-wave", "sprites/fx/flame-wave.png", {
+    this.load.spritesheet("fx:flame-wave", "sprites/fx/flame-wave.webp", {
       frameWidth: 182,
       frameHeight: 16,
     });
-    this.load.image("fx:arrow", "sprites/fx/arrow.png");
+    this.load.image("fx:arrow", "sprites/fx/arrow.webp");
   }
 
   create() {

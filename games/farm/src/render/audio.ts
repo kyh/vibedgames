@@ -178,9 +178,13 @@ class SoundEngine {
     this.musicMode = null;
   }
 
+  setMuted(muted: boolean): void {
+    this.muted = muted;
+    storageSet(SOUND_KEY, muted ? "0" : "1");
+  }
+
   toggleMute(): boolean {
-    this.muted = !this.muted;
-    storageSet(SOUND_KEY, this.muted ? "0" : "1");
+    this.setMuted(!this.muted);
     return this.muted;
   }
 

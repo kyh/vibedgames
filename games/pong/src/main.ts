@@ -1,11 +1,13 @@
 import * as THREE from "three";
-import { setPauseHandlers } from "@repo/embed";
+import { createTouchControls, setPauseHandlers } from "@repo/embed";
 
-import { startHandTracking } from "./input/camera";
+import { isMuted, setMuted } from "./fx/sfx";
+import { createHandCamera } from "./input/camera";
 import { createPongPauseOverlay } from "./pause-overlay";
 import { DitherPass } from "./render/dither-pass";
 import { GameScene } from "./scenes/game-scene";
 import { DITHER_PIXEL, MAX_DT } from "./shared/constants";
+import { COARSE_INPUT } from "./shared/input-mode";
 
 const container = document.getElementById("game");
 if (!container) throw new Error("missing #game container");
@@ -44,13 +46,31 @@ setPauseHandlers({
   },
 });
 
-// Webcam hand tracking auto-starts (legacy semantics — no start button);
-// on failure it shows a status in its panel and the pointer keeps working.
-// A closed fist serves/rematches so a cam-only player never has to touch.
-const handTracker = startHandTracking(
+// Mute is the M key and pause is Escape, so without this a phone plays a
+// permanently silent game it cannot leave.
+const touchControls = createTouchControls({
+  mute: { get: isMuted, set: setMuted },
+});
+window.addEventListener("keydown", (e) => {
+  if (e.code !== "KeyM") return;
+  setMuted(!isMuted());
+  touchControls.sync();
+});
+
+// Webcam hand tracking. On failure it shows a status in its panel and the
+// pointer keeps working; a closed fist serves/rematches so a cam-only player
+// never has to touch. Starting it costs ~17 MB of third-party wasm + model and
+// a camera-permission prompt, so it never runs during boot: a fine pointer
+// still gets it automatically (the hand is the better paddle) but only once
+// the court is up, while a phone — which already steers well with a finger,
+// and pays for the download in cellular data — opts in by tapping the panel.
+const handCamera = createHandCamera(
   (x) => game.handleHandPosition(x),
   () => game.handleGestureConfirm(),
 );
+if (!COARSE_INPUT) {
+  window.addEventListener("load", () => handCamera.enable(), { once: true });
+}
 
 window.addEventListener("resize", () => {
   game.resize(window.innerWidth / window.innerHeight);
@@ -73,6 +93,6 @@ if (import.meta.env.DEV) {
   Object.assign(window, {
     __pong: game,
     __pongHand: (x: number) => game.handleHandPosition(x),
-    __pongCamera: handTracker,
+    __pongCamera: handCamera,
   });
 }

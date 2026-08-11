@@ -27,5 +27,6 @@ Multiplayer: shared farm via `@vibedgames/multiplayer` (auto-join, offline solo 
 - 1–9 or scroll — switch tools
 - I — inventory
 - M — sound on / off
-- Touch: drag stick to move, tap a square to act, tap hotbar to switch tools
+- Touch: drag stick to move, tap a square to act, tap hotbar to switch tools; the
+  🔊 / ⏸ cluster (top right, touch only) covers what M and Escape do on a keyboard
 - Controller: stick to move, A to act, LB/RB to switch tools, Y for inventory

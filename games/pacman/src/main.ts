@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { setPauseHandlers } from "@repo/embed";
 
-import { music, sfx } from "./audio/sfx";
+import { music, unlockAudio } from "./audio/sfx";
 import { FaceCamera } from "./input/face-camera";
 import { IS_TOUCH } from "./input/input-mode";
 import { pauseOverlay } from "./pause-overlay";
@@ -28,19 +28,14 @@ container.appendChild(renderer.domElement);
 
 const game = new GameScene();
 
-// Browsers gate audio behind a user gesture — first tap/keypress unlocks the
-// synth context and starts the lullaby loop. Both calls are idempotent, and
-// keeping the listeners around lets a suspended context resume after tab
+// First tap/keypress unlocks the synth context and starts the lullaby loop.
+// Keeping the listeners around lets a suspended context resume after tab
 // switches. Face-only players get sound on their first click anywhere.
-const unlockAudio = (): void => {
-  sfx.unlock();
-  music.start("audio/bgm.m4a");
-};
 window.addEventListener("pointerdown", unlockAudio);
 window.addEventListener("keydown", unlockAudio);
 
-// Webcam face control — auto-starts like the legacy build; on denial/failure
-// the panel shows a status line and keyboard input keeps working.
+// Webcam face control — on denial/failure the panel shows a status line and
+// keyboard/touch input keeps working.
 const face = new FaceCamera({
   video: elOf("webcam-video", HTMLVideoElement),
   overlay: elOf("webcam-overlay", HTMLCanvasElement),
@@ -49,12 +44,20 @@ const face = new FaceCamera({
   onHeadTurnLeft: () => game.onHeadTurnLeft(),
   onHeadTurnRight: () => game.onHeadTurnRight(),
 });
-void face.start();
 
-// Tap the porthole to collapse it to a pill (it covers real estate on phones).
-// The face pipeline keeps running — a hidden <video> still decodes frames.
+// The porthole IS the camera switch: tapping it toggles between the full
+// preview and a pill, and opening it starts the camera if it never ran.
+// Touch boots collapsed — the full panel blankets the lower-right playfield,
+// a phone only grants getUserMedia inside a gesture, and a player who never
+// asks for the camera never pays for the 6 MB face stack behind it. Desktop
+// keeps the legacy auto-start. Collapsing never stops tracking: a hidden
+// <video> still decodes frames.
 const webcamPanel = elOf("webcam", HTMLElement);
-webcamPanel.addEventListener("click", () => webcamPanel.classList.toggle("collapsed"));
+webcamPanel.addEventListener("click", () => {
+  if (!webcamPanel.classList.toggle("collapsed")) void face.start();
+});
+if (IS_TOUCH) webcamPanel.classList.add("collapsed");
+else void face.start();
 
 window.addEventListener("resize", () => {
   game.resize(window.innerWidth / window.innerHeight);

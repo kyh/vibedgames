@@ -1,6 +1,14 @@
 import { PhysicalGamepad, attachVirtualGamepad, safeAreaInset } from "@vibedgames/gamepad/phaser";
 import type { Inset, PhaserGamepad } from "@vibedgames/gamepad/phaser";
-import { notifyGameStarted, setPauseHandlers, watchControlContext } from "@repo/embed";
+import {
+  createTouchControls,
+  isOfflineRequested,
+  notifyGameStarted,
+  sealPointerEvents,
+  setPauseHandlers,
+  watchControlContext,
+} from "@repo/embed";
+import type { TouchControls } from "@repo/embed";
 import { MultiplayerClient } from "@vibedgames/multiplayer";
 import type { Player, PlayerMap } from "@vibedgames/multiplayer";
 import Phaser from "phaser";
@@ -662,9 +670,10 @@ export class GameScene extends Phaser.Scene {
   private fireKey: Phaser.Input.Keyboard.Key | null = null;
   /** qa-013 one-shot: opening rocks placed after the first ship spawn. */
   private openingRocksSeeded = false;
-  /** The mobile controller (floating move-joystick + a "rest" fire button:
-   *  any finger that isn't the stick fires). Desktop keeps the mouse model
-   *  (aim+thrust at the cursor); the gamepad only activates on first touch. */
+  /** The mobile controller: a floating move-joystick that also fires while
+   *  it's held (see isFiring), plus a "rest" button so a second finger fires
+   *  too. Desktop keeps the mouse model (aim+thrust at the cursor); the
+   *  gamepad only activates on first touch. */
   private gamepad!: PhaserGamepad;
   /** Physical controller: left stick = aim + thrust (same heading+magnitude
    *  model as the touch joystick), RT or A held = fire. */
@@ -672,6 +681,8 @@ export class GameScene extends Phaser.Scene {
   /** Re-renders the start-screen copy on pad connect/disconnect while the
    *  overlay is up; unsubscribed the moment play begins. */
   private unwatchControls: (() => void) | null = null;
+  /** Touch-only mute/pause cluster (M and Escape are keyboard-only). */
+  private touchControls!: TouchControls;
   /** Items we picked up locally, awaiting host confirmation (id → time). */
   private recentPickups = new Map<string, number>();
   /** Shards we collected locally, awaiting host removal (id -> time), the
@@ -861,9 +872,6 @@ export class GameScene extends Phaser.Scene {
   private splinterGfx!: Phaser.GameObjects.Graphics;
   private minimapGfx!: Phaser.GameObjects.Graphics;
   private flashRect!: Phaser.GameObjects.Rectangle;
-  /** Joystick overlay, scene-drawn (adapter `render: false`) so syncScreenUi
-   *  can counter the camera zoom — see drawPadOverlay. */
-  private padGfx!: Phaser.GameObjects.Graphics;
   /** Device safe-area insets (home indicator/notch), re-read on resize; keeps
    *  the canvas-drawn minimap off the home indicator. */
   private safeInset: Inset = { top: 0, right: 0, bottom: 0, left: 0 };
@@ -994,14 +1002,6 @@ export class GameScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setDepth(90)
       .setAlpha(0);
-    // Same overlay style as the adapter's built-in renderer (depth 95: above
-    // the world, below the DOM HUD; additive glow over the dark arena).
-    this.padGfx = this.add
-      .graphics()
-      .setScrollFactor(0)
-      .setDepth(95)
-      .setBlendMode(Phaser.BlendModes.ADD);
-
     // Explicit offline boot (?offline=1): never dial the party server. A
     // failed WebSocket handshake logs a browser console error the page cannot
     // suppress, so an offline-by-intent run (bot playtest, deliberate solo)
@@ -1010,8 +1010,7 @@ export class GameScene extends Phaser.Scene {
     // `this.offline`, so the client simply never exists on this path.
     // Trailer mode (?trailer=1) is always a fully offline session: the
     // director stages "multiplayer" with local fake peers, never the network.
-    const bootQuery = new URLSearchParams(location.search);
-    if (bootQuery.get("offline") === "1" || bootQuery.has("trailer")) {
+    if (isOfflineRequested() || new URLSearchParams(location.search).has("trailer")) {
       this.offline = true;
       this.ensureSeeded();
     } else {
@@ -1030,18 +1029,28 @@ export class GameScene extends Phaser.Scene {
 
     // Desktop steers from the cursor (activePointer); the gamepad below owns
     // the touch path. These two listeners only track that a pointer exists and
-    // unlock audio on the first gesture.
-    this.input.on(Phaser.Input.Events.POINTER_MOVE, () => {
-      this.pointerSeen = true;
+    // unlock audio on the first gesture. A touch must NOT arm cursor-steer:
+    // it has no resting position, so the ship would fly at wherever the finger
+    // last was for the rest of the session.
+    this.input.on(Phaser.Input.Events.POINTER_MOVE, (p: Phaser.Input.Pointer) => {
+      if (!p.wasTouch) this.pointerSeen = true;
     });
-    this.input.on(Phaser.Input.Events.POINTER_DOWN, () => {
-      this.pointerSeen = true;
+    this.input.on(Phaser.Input.Events.POINTER_DOWN, (p: Phaser.Input.Pointer) => {
+      if (!p.wasTouch) this.pointerSeen = true;
       sfx.unlock(); // WebAudio needs a user gesture
     });
 
     // Sound is opt-in: muted by default, M toggles, choice persists (see
     // sfx). The gesture itself unlocks audio.
-    this.input.keyboard?.on("keydown-M", () => sfx.toggleMute());
+    // M and Escape are keyboard-only, so without this cluster a phone player
+    // gets a permanently silent run they cannot pause.
+    this.touchControls = createTouchControls({
+      mute: { get: () => sfx.muted, set: (next) => sfx.setMuted(next) },
+    });
+    this.input.keyboard?.on("keydown-M", () => {
+      sfx.toggleMute();
+      this.touchControls.sync(); // a device can have both a keyboard and a screen
+    });
 
     // qa-005: held SPACE autofires exactly like a held mouse button (spec
     // Controls: "hold mouse/space to fire"). addKey captures the keystroke so
@@ -1049,9 +1058,8 @@ export class GameScene extends Phaser.Scene {
     this.fireKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE) ?? null;
 
     // Mobile controller: a floating move-joystick (first finger) plus a "rest"
-    // fire button — any finger that isn't the stick fires. `render: false`:
-    // the scene draws the overlay itself (drawPadOverlay) because screen-fixed
-    // objects inherit the main camera's zoom and must counter it.
+    // fire button — any finger that isn't the stick fires.
+    // (Firing itself is one-thumbed, see isFiring.)
     this.gamepad = attachVirtualGamepad(this, {
       stick: {
         radius: JOYSTICK_RADIUS,
@@ -1059,7 +1067,6 @@ export class GameScene extends Phaser.Scene {
         knobRadius: JOYSTICK_KNOB_RADIUS,
       },
       buttons: [{ id: "fire" }],
-      render: false,
       onFirstTouch: () => this.enterTouchMode(),
     });
     if (IS_COARSE_POINTER) this.enterTouchMode(); // touch copy from boot, not first tap
@@ -1113,6 +1120,7 @@ export class GameScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.onViewportChange, this);
       this.gamepad.destroy();
+      this.touchControls.destroy();
       if (!this.offline) this.client.destroy(); // offline already destroyed it
     });
 
@@ -1150,8 +1158,9 @@ export class GameScene extends Phaser.Scene {
     this.ensureSpawned();
     this.seedOpeningRocks();
     this.tickRespawn(now);
-    // Reconcile dropped touches + publish press edges; the overlay itself is
-    // drawn by drawPadOverlay (adapter render: false).
+    // The knob wears the local player's colour, which is only known once the
+    // ship exists — so it is pushed per frame rather than fixed at attach.
+    this.gamepad.setTint(this.myTint());
     this.gamepad.update();
     this.steerShip(dt);
     this.handleShooting(delta, now);
@@ -1199,7 +1208,6 @@ export class GameScene extends Phaser.Scene {
     // camPos override centres on where the ship IS (see TrailerStaging.frame).
     this.trailer?.frame?.();
     this.updateCamera(dt, time);
-    this.drawPadOverlay();
     this.syncScreenUi();
     this.updateHud(now);
     this.publishDiag(); // after this frame's work, so bots never read stale state
@@ -1228,9 +1236,14 @@ export class GameScene extends Phaser.Scene {
       if (!this.started) this.writeStartCopy();
     });
     this.input.keyboard?.once("keyup", () => this.beginPlay());
-    // The overlay covers the canvas, so Phaser's pointer input never sees the
-    // tap — listen on the overlay element itself.
-    this.startEl?.addEventListener("pointerup", () => this.beginPlay(), { once: true });
+    // The overlay covers the canvas, so listen on the element itself — and seal
+    // it, because covering the canvas is NOT enough on touch: the tap's own
+    // events bubble to Phaser's window listeners, and its compatibility mouse
+    // burst re-targets to the canvas the instant the overlay stops hit-testing.
+    if (this.startEl) {
+      sealPointerEvents(this.startEl);
+      this.startEl.addEventListener("pointerup", () => this.beginPlay(), { once: true });
+    }
   }
 
   /** Start-screen copy, re-run when the touch scheme is detected or a pad
@@ -1253,6 +1266,9 @@ export class GameScene extends Phaser.Scene {
   private beginPlay(): void {
     if (this.started) return;
     this.started = true;
+    // The sealed start overlay keeps its tap off the canvas, so this gesture is
+    // the one that has to unlock WebAudio.
+    sfx.unlock();
     // qa-020, offline solo ONLY: the sector clock (and the intensity curve)
     // starts at first input, not at boot — overlay-idle time was pure sector
     // loss, and a long idle met the rel-405 forced dreadnought at Lv1. Online
@@ -1596,16 +1612,22 @@ export class GameScene extends Phaser.Scene {
     this.writeStartCopy();
   }
 
-  /** Holding fire: any non-stick finger on touch, the mouse button or held
-   *  SPACE on desktop, or RT / A held on a physical controller (merged,
-   *  never exclusive). */
+  /** Holding fire: any finger on touch, the mouse button or held SPACE on
+   *  desktop, or RT / A held on a physical controller (merged, never
+   *  exclusive).
+   *
+   *  Touch mirrors the desktop model — there the pointer that steers is the
+   *  same one that fires, so the joystick finger fires too. A second finger
+   *  (the "rest" fire button) also fires, but it is a bonus: the phone is
+   *  playable one-thumbed, exactly as the start screen's HOLD → SHOOT
+   *  promises. */
   private isFiring(): boolean {
     if (this.trailer) return this.trailer.fire; // trailer: scripted trigger only
     if (this.pad.connected && (this.pad.isButtonDown("rt") || this.pad.isButtonDown("a")))
       return true;
     if (this.fireKey?.isDown) return true;
     return this.gamepad.isTouch
-      ? this.gamepad.isButtonDown("fire")
+      ? this.gamepad.getStick().active || this.gamepad.isButtonDown("fire")
       : this.input.activePointer.isDown;
   }
 
@@ -6197,7 +6219,7 @@ export class GameScene extends Phaser.Scene {
    * and trauma roll — Phaser transforms them about the viewport centre. Counter
    * both every frame so their local coordinates read as plain CSS pixels
    * anchored at the screen's top-left (minimap corner-pinned, flash
-   * full-screen, joystick under the finger).
+   * full-screen). The gamepad overlay counters the same transform itself.
    */
   private syncScreenUi(): void {
     const zoom = this.cameras.main.zoom;
@@ -6211,36 +6233,12 @@ export class GameScene extends Phaser.Scene {
     // order covers Phaser's camera transform.
     const x = cx - (cx * cos + cy * sin) / zoom;
     const y = cy + (cx * sin - cy * cos) / zoom;
-    for (const obj of [this.minimapGfx, this.flashRect, this.padGfx, this.barrier.vignette]) {
+    for (const obj of [this.minimapGfx, this.flashRect, this.barrier.vignette]) {
       obj
         .setPosition(x, y)
         .setRotation(-rot)
         .setScale(1 / zoom);
     }
-  }
-
-  /** Draw the floating joystick into padGfx in screen-space CSS px (mapped 1:1
-   *  by syncScreenUi). Replaces the adapter's renderer (`render: false`), which
-   *  can't counter the camera zoom. The fire button is a "rest" button with no
-   *  on-screen position, so the stick is all there is to draw. */
-  private drawPadOverlay(): void {
-    const g = this.padGfx;
-    g.clear();
-    const geom = this.gamepad.pad.getStickGeometry();
-    const stick = this.gamepad.getStick();
-    if (!geom || !stick.active) return;
-    const tint = this.myTint();
-    const ax = stick.anchorX;
-    const ay = stick.anchorY;
-    // Puck clamps to the ring edge so it never escapes the base.
-    const clamped = Math.min(stick.distance, geom.radius);
-    const kx = stick.distance > 0.001 ? ax + (stick.dx / stick.distance) * clamped : ax;
-    const ky = stick.distance > 0.001 ? ay + (stick.dy / stick.distance) * clamped : ay;
-    g.fillStyle(0xffffff, 0.05).fillCircle(ax, ay, geom.radius);
-    g.lineStyle(2, 0xffffff, 0.2).strokeCircle(ax, ay, geom.radius);
-    g.fillStyle(0xffffff, 0.12).fillCircle(ax, ay, geom.deadZone);
-    g.fillStyle(tint, 0.22).fillCircle(kx, ky, geom.knobRadius);
-    g.lineStyle(2, tint, 0.85).strokeCircle(kx, ky, geom.knobRadius);
   }
 
   // ---- display-object factories ---------------------------------------------------------

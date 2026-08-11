@@ -16,7 +16,8 @@ import {
 } from "../data/animals";
 import { SKILL_NAMES, type SkillId } from "../systems/skills";
 import { Sound } from "../render/audio";
-import { isTouchDevice } from "../systems/touch";
+import { hotbarGrid } from "../render/hotbar-layout";
+import { isPick, isTouchDevice } from "../systems/touch";
 import { GameScene } from "./game-scene";
 
 const FONT = "ui-monospace, monospace";
@@ -34,6 +35,9 @@ export class HudScene extends Phaser.Scene {
   }[] = [];
   /** Hotbar slot size — shrinks from SLOT on narrow (portrait phone) screens. */
   private slot = SLOT;
+  /** Slots per hotbar row — drops below HOTBAR when a single row cannot hold
+   *  MIN_SLOT-wide slots (portrait phone). */
+  private perRow = HOTBAR;
   private inset: Inset = { top: 0, right: 0, bottom: 0, left: 0 };
   private touchUi: Phaser.GameObjects.Container[] = [];
   private topPanel!: Phaser.GameObjects.Graphics;
@@ -67,6 +71,7 @@ export class HudScene extends Phaser.Scene {
     this.toastY = 0;
     this.hudSig = "";
     this.slot = SLOT;
+    this.perRow = HOTBAR;
     this.touchUi = [];
     for (const e of [
       "toast",
@@ -188,8 +193,11 @@ export class HudScene extends Phaser.Scene {
     const zone = this.add.zone(0, 0, size + PAD, size + PAD).setInteractive({
       useHandCursor: true,
     });
-    zone.on("pointerdown", () => {
-      if (!this.g.uiOpen) store.inv.select(i);
+    // Commit on release, not on press: the hotbar band is exactly where a thumb
+    // starts a movement drag, and the floating stick claims that touch on the
+    // way down — so a drag has to stay a move and not also swap tools.
+    zone.on("pointerup", (p: Phaser.Input.Pointer) => {
+      if (!this.g.uiOpen && isPick(p)) store.inv.select(i);
     });
     return zone;
   }
@@ -218,14 +226,38 @@ export class HudScene extends Phaser.Scene {
     mk("🎒", () => this.g.toggleInventory());
   }
 
+  /** Center of hotbar slot `i`. Slots wrap into rows on narrow screens, first
+   *  row on top so the 1–9 order still reads left to right, top to bottom. */
+  private slotPos(i: number, W: number, H: number): { x: number; y: number } {
+    const pitch = this.slot + PAD;
+    const total = this.perRow * pitch - PAD;
+    const rows = Math.ceil(HOTBAR / this.perRow);
+    return {
+      x: (W - total) / 2 + this.slot / 2 + (i % this.perRow) * pitch,
+      y:
+        H -
+        this.slot / 2 -
+        14 -
+        this.inset.bottom -
+        (rows - 1 - Math.floor(i / this.perRow)) * pitch,
+    };
+  }
+
+  /** Top edge of the whole hotbar block — what everything above it clears. */
+  private hotbarTop(H: number): number {
+    const rows = Math.ceil(HOTBAR / this.perRow);
+    return H - 14 - this.inset.bottom - rows * (this.slot + PAD) + PAD;
+  }
+
   private layout(): void {
     const W = this.scale.width,
       H = this.scale.height;
     this.inset = safeAreaInset();
-    const { top: it, right: ir, bottom: ib, left: il } = this.inset;
-    const slot = Math.min(SLOT, Math.floor((W - 12 - il - ir) / HOTBAR) - PAD);
-    if (slot !== this.slot) {
+    const { top: it, right: ir, left: il } = this.inset;
+    const { slot, perRow } = hotbarGrid(W - 12 - il - ir, SLOT, PAD);
+    if (slot !== this.slot || perRow !== this.perRow) {
       this.slot = slot;
+      this.perRow = perRow;
       this.hudSig = ""; // force a graphics rebuild at the new slot size
       this.slotNodes.forEach((n, i) => {
         n.zone.destroy();
@@ -233,13 +265,10 @@ export class HudScene extends Phaser.Scene {
         this.hotbar.add(n.zone);
       });
     }
-    const total = HOTBAR * (slot + PAD) - PAD;
-    const startX = (W - total) / 2 + slot / 2;
-    const y = H - slot / 2 - 14 - ib;
     for (let i = 0; i < HOTBAR; i++) {
-      const x = startX + i * (slot + PAD);
       const n = this.slotNodes[i];
       if (!n) continue;
+      const { x, y } = this.slotPos(i, W, H);
       n.icon.setPosition(x, y);
       n.qty.setPosition(x + slot / 2 - 4, y + slot / 2 - 3);
       n.key.setPosition(x - slot / 2 + 3, y - slot / 2 + 2);
@@ -249,10 +278,15 @@ export class HudScene extends Phaser.Scene {
     this.seasonText.setPosition(24 + il, 38 + it);
     this.clockText.setPosition(24 + il, 56 + it);
     this.goldText.setPosition(W - 22 - ir, 28 + it);
-    this.toolTip.setPosition(W / 2, y - slot / 2 - 8);
+    this.toolTip.setPosition(W / 2, this.hotbarTop(H) - 8);
     this.touchUi.forEach((c, i) => c.setPosition(34 + il, 108 + it + i * 56));
     if (this.modal) this.modal.setPosition(W / 2, H / 2);
-    if (this.dialogueBox) this.dialogueBox.setPosition(W / 2, H - 120);
+    if (this.dialogueBox) this.dialogueBox.setPosition(W / 2, this.dialogueY(H));
+  }
+
+  /** Dialogue sits just above the hotbar, whatever height the hotbar grew to. */
+  private dialogueY(H: number): number {
+    return this.hotbarTop(H) - 60;
   }
 
   override update(): void {
@@ -309,14 +343,11 @@ export class HudScene extends Phaser.Scene {
   private redrawGraphics(W: number, H: number): void {
     // hotbar
     const slot = this.slot;
-    const { top: it, right: ir, bottom: ib, left: il } = this.inset;
-    const total = HOTBAR * (slot + PAD) - PAD;
-    const startX = (W - total) / 2 + slot / 2;
-    const y = H - slot / 2 - 14 - ib;
+    const { top: it, right: ir, left: il } = this.inset;
     for (let i = 0; i < HOTBAR; i++) {
       const n = this.slotNodes[i];
       if (!n) continue;
-      const x = startX + i * (slot + PAD);
+      const { x, y } = this.slotPos(i, W, H);
       const sel = i === store.inv.selected;
       n.bg.clear();
       n.bg.fillStyle(0x000000, 0.35);
@@ -458,7 +489,7 @@ export class HudScene extends Phaser.Scene {
       H = this.scale.height;
     const w = Math.min(460, W - 24),
       h = 96;
-    const c = this.add.container(W / 2, H - 120).setDepth(130);
+    const c = this.add.container(W / 2, this.dialogueY(H)).setDepth(130);
     const g = this.add.graphics();
     g.fillStyle(0x000000, 0.3);
     g.fillRoundedRect(-w / 2 + 4, -h / 2 + 5, w, h, 12);

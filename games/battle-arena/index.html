@@ -38,11 +38,14 @@
       #game canvas {
         display: block;
       }
+      /* Above the floating damage numbers (6) and the low-HP vignette (7), and
+         above the touch pad (4): the timer, goal and shop are the surfaces that
+         must stay readable and tappable no matter what the fight is drawing. */
       #hud {
         position: fixed;
         inset: 0;
         pointer-events: none;
-        z-index: 5;
+        z-index: 8;
       }
       #loading {
         position: fixed;

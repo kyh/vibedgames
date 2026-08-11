@@ -9,12 +9,15 @@ import { store } from "../systems/store";
 import { HOTBAR } from "../systems/inventory";
 import { itemIcon } from "../data/items";
 import { MAX_ENERGY } from "../config";
-import { isTouchDevice } from "../systems/touch";
+import { hotbarGrid } from "../render/hotbar-layout";
+import { isPick, isTouchDevice } from "../systems/touch";
 import { MineScene } from "./mine-scene";
 
 const FONT = "ui-monospace, monospace";
-const SZ = 38;
-const PAD = 3;
+// Same slot geometry as the farm hotbar (scenes/hud-scene): it is the same
+// twelve inventory slots, so a tool sits under the same thumb in both places.
+const SZ = 42;
+const PAD = 4;
 
 // Unzoomed overlay scene for the mine: dark vignette + HP/energy/gold/floor +
 // hotbar. Separate scene so it isn't transformed by the mine camera's zoom.
@@ -114,7 +117,11 @@ export class MineHudScene extends Phaser.Scene {
     this.zones = [];
     for (let i = 0; i < HOTBAR; i++) {
       const z = this.add.zone(0, 0, slot + PAD, slot + PAD).setInteractive();
-      z.on("pointerdown", () => store.inv.select(i));
+      // Commit on release: the hotbar band is where a thumb starts a movement
+      // drag, and the floating stick claims that touch on the way down.
+      z.on("pointerup", (p: Phaser.Input.Pointer) => {
+        if (isPick(p)) store.inv.select(i);
+      });
       this.zones.push(z);
     }
   }
@@ -161,14 +168,16 @@ export class MineHudScene extends Phaser.Scene {
       this.hint.setPosition(18 + il, H - 24 - ib);
     }
 
-    // hotbar bottom-center — slot size shrinks to fit narrow (portrait) screens
-    const slot = Math.min(SZ, Math.floor((W - 12) / HOTBAR) - PAD);
+    // hotbar bottom-center — wraps into rows on narrow (portrait) screens
+    const { slot, perRow, rows } = hotbarGrid(W - 12, SZ, PAD);
     this.ensureZones(slot);
-    const total = HOTBAR * (slot + PAD) - PAD;
+    const pitch = slot + PAD;
+    const total = perRow * pitch - PAD;
     const sx = (W - total) / 2 + slot / 2;
-    const y = H - slot / 2 - 30 - ib;
+    const bottomY = H - slot / 2 - 30 - ib;
     for (let i = 0; i < HOTBAR; i++) {
-      const x = sx + i * (slot + PAD);
+      const x = sx + (i % perRow) * pitch;
+      const y = bottomY - (rows - 1 - Math.floor(i / perRow)) * pitch;
       const sel = i === store.inv.selected;
       g.fillStyle(sel ? 0x6a5a2a : 0x1a1a22, 0.85);
       g.fillRoundedRect(x - slot / 2, y - slot / 2, slot, slot, 5);

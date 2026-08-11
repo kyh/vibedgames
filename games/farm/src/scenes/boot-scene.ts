@@ -36,70 +36,71 @@ export class BootScene extends Phaser.Scene {
 
   preload(): void {
     for (const a of Object.keys(CHAR_FRAMES) as CharAction[]) {
-      this.load.spritesheet(`p-${a}`, `assets/char/${a}.png`, CHAR);
+      this.load.spritesheet(`p-${a}`, `assets/char/${a}.webp`, CHAR);
     }
     for (const a of Object.keys(SKEL)) {
-      this.load.spritesheet(`e-skel-${a}`, `assets/enemy/skel_${a}.png`, CHAR);
+      this.load.spritesheet(`e-skel-${a}`, `assets/enemy/skel_${a}.webp`, CHAR);
     }
 
     // world map: tileset atlas (as tileset image AND frame sheet), the
     // packed deco sprite atlas, and the layout
-    this.load.image("atlas", "assets/tiles/atlas.png");
-    this.load.spritesheet("atlas-sheet", "assets/tiles/atlas.png", {
+    // One texture, used both as the tilemap's tileset and as a 16px frame
+    // sheet — loading it under two keys fetched the game's biggest asset twice.
+    this.load.spritesheet("atlas", "assets/tiles/atlas.webp", {
       frameWidth: 16,
       frameHeight: 16,
     });
-    this.load.atlas("deco-atlas", "assets/deco-atlas.png", "assets/deco-atlas.json");
+    this.load.atlas("deco-atlas", "assets/deco-atlas.webp", "assets/deco-atlas.json");
     this.load.json("map", "assets/map.json");
-    this.load.image("char-shadow-tex", "assets/obj/charactershadow.png");
+    this.load.image("char-shadow-tex", "assets/obj/charactershadow.webp");
 
     // crops
     for (const c of CROP_ORDER) {
-      this.load.spritesheet(`crop-${c}`, `assets/crops/${c}.png`, {
+      this.load.spritesheet(`crop-${c}`, `assets/crops/${c}.webp`, {
         frameWidth: 16,
         frameHeight: 16,
       });
-      this.load.image(`crop-${c}-icon`, `assets/crops/${c}_icon.png`);
+      this.load.image(`crop-${c}-icon`, `assets/crops/${c}_icon.webp`);
     }
 
     // objects still spawned by gameplay (mine nodes, soil, icons)
-    this.load.image("obj-rock", "assets/obj/rock.png");
-    this.load.image("obj-ore-coal", "assets/obj/ore_coal.png");
-    this.load.image("obj-ore-copper", "assets/obj/ore_copper.png");
-    this.load.image("obj-ore-crystal", "assets/obj/ore_crystal.png");
-    this.load.image("obj-soil", "assets/obj/soil.png");
-    this.load.image("obj-seeds", "assets/obj/seeds.png");
-    this.load.image("obj-wood", "assets/obj/wood.png");
-    this.load.image("obj-stone", "assets/obj/stone.png");
-    this.load.image("obj-fish", "assets/obj/fish.png");
-    this.load.image("obj-egg", "assets/obj/egg.png");
-    this.load.image("obj-milk", "assets/obj/milk.png");
-    this.load.spritesheet("obj-mushroom-red", "assets/obj/mushroom_red.png", {
+    this.load.image("obj-rock", "assets/obj/rock.webp");
+    this.load.image("obj-ore-coal", "assets/obj/ore_coal.webp");
+    this.load.image("obj-ore-copper", "assets/obj/ore_copper.webp");
+    this.load.image("obj-ore-crystal", "assets/obj/ore_crystal.webp");
+    this.load.image("obj-soil", "assets/obj/soil.webp");
+    this.load.image("obj-seeds", "assets/obj/seeds.webp");
+    this.load.image("obj-wood", "assets/obj/wood.webp");
+    this.load.image("obj-stone", "assets/obj/stone.webp");
+    this.load.image("obj-fish", "assets/obj/fish.webp");
+    this.load.image("obj-egg", "assets/obj/egg.webp");
+    this.load.image("obj-milk", "assets/obj/milk.webp");
+    this.load.spritesheet("obj-mushroom-red", "assets/obj/mushroom_red.webp", {
       frameWidth: 16,
       frameHeight: 16,
     });
-    this.load.spritesheet("obj-mushroom-blue", "assets/obj/mushroom_blue.png", {
+    this.load.spritesheet("obj-mushroom-blue", "assets/obj/mushroom_blue.webp", {
       frameWidth: 16,
       frameHeight: 16,
     });
 
     // animals
-    this.load.spritesheet("obj-chicken", "assets/obj/chicken.png", {
+    this.load.spritesheet("obj-chicken", "assets/obj/chicken.webp", {
       frameWidth: 32,
       frameHeight: 32,
     });
-    this.load.spritesheet("obj-cow", "assets/obj/cow.png", { frameWidth: 32, frameHeight: 32 });
-    this.load.spritesheet("obj-pig", "assets/obj/pig.png", { frameWidth: 32, frameHeight: 32 });
-    this.load.spritesheet("obj-sheep", "assets/obj/sheep.png", {
+    this.load.spritesheet("obj-cow", "assets/obj/cow.webp", { frameWidth: 32, frameHeight: 32 });
+    this.load.spritesheet("obj-pig", "assets/obj/pig.webp", { frameWidth: 32, frameHeight: 32 });
+    this.load.spritesheet("obj-sheep", "assets/obj/sheep.webp", {
       frameWidth: 32,
       frameHeight: 32,
     });
-    this.load.spritesheet("obj-duck", "assets/obj/duck.png", { frameWidth: 16, frameHeight: 16 });
-    this.load.spritesheet("obj-bird", "assets/obj/bird.png", { frameWidth: 16, frameHeight: 16 });
+    this.load.spritesheet("obj-duck", "assets/obj/duck.webp", { frameWidth: 16, frameHeight: 16 });
+    this.load.spritesheet("obj-bird", "assets/obj/bird.webp", { frameWidth: 16, frameHeight: 16 });
 
     // ui
     for (const n of ["axe", "pickaxe", "shovel", "water", "sword", "rod"])
-      this.load.image(`ui-${n}`, `assets/ui/${n}.png`);
+      this.load.image(`ui-${n}`, `assets/ui/${n}.webp`);
   }
 
   create(): void {

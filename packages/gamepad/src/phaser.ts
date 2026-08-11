@@ -2,6 +2,8 @@ import Phaser from "phaser";
 
 import { VirtualGamepad } from "./core.js";
 import { preShow, safeAreaInset } from "./safe-area.js";
+import { screenSpacePosition, screenSpaceTransform } from "./screen-space.js";
+import type { CameraView, ScreenSpaceTransform } from "./screen-space.js";
 import type { StickState, VirtualGamepadOptions, VisibilityPolicy } from "./types.js";
 
 export type PhaserGamepadRenderOptions = {
@@ -45,7 +47,8 @@ export type PhaserGamepad = {
   /** Recolor the knob + buttons (e.g. to the local player's color). */
   setTint(color: number): void;
   /** Call once per frame from your scene's `update()`: reconciles stale
-   *  pointers, publishes press edges, and redraws the overlay. */
+   *  pointers and publishes press edges. The overlay redraws itself at render
+   *  time, so this can be called as early in the frame as the game likes. */
   update(): void;
   destroy(): void;
 };
@@ -54,6 +57,10 @@ export type PhaserGamepad = {
  * Wire a {@link VirtualGamepad} to a Phaser scene: registers extra pointers,
  * forwards touch events (mouse is ignored so a desktop game keeps its own
  * cursor controls), and draws a screen-fixed joystick + buttons overlay.
+ *
+ * The overlay is hit-tested in canvas pixels, so it is also *drawn* in canvas
+ * pixels: every frame it counters the main camera's zoom and roll (see
+ * {@link screenSpaceTransform}). Works at any zoom, on any scene.
  *
  * ```ts
  * const gamepad = attachVirtualGamepad(this, {
@@ -126,11 +133,24 @@ export function attachVirtualGamepad(
 
   const draw = (): void => {
     if (!gfx) return;
+    const pin = screenSpaceTransform(cameraView(scene.cameras.main));
+    gfx.setPosition(pin.x, pin.y).setRotation(pin.rotation).setScale(pin.scale);
     gfx.clear();
     const show = isTouch || preShow(policy);
     if (show) drawGamepad(gfx, pad, tint);
-    syncLabels(scene, gfx, pad, labels, show);
+    syncLabels(scene, gfx, pad, labels, show, pin);
   };
+  // Drawn at render time, not from `update()`: a game reads the pad early in
+  // its frame and moves the camera later in the same frame, so a pin taken in
+  // `update()` would counter the PREVIOUS frame's zoom and roll — the overlay
+  // would lag one frame behind a shaking camera.
+  scene.events.on(Phaser.Scenes.Events.PRE_RENDER, draw);
+  // A restarted scene re-runs create() and attaches a second gamepad; Phaser's
+  // own shutdown leaves scene-event listeners in place, so drop ours or the
+  // stale draw keeps firing against a destroyed Graphics.
+  scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+    scene.events.off(Phaser.Scenes.Events.PRE_RENDER, draw);
+  });
 
   return {
     pad,
@@ -150,16 +170,35 @@ export function attachVirtualGamepad(
       pad.reconcile(live);
       pad.nextFrame();
       syncViewport();
-      draw();
     },
     destroy() {
       scene.input.off(Phaser.Input.Events.POINTER_DOWN, onDown);
       scene.input.off(Phaser.Input.Events.POINTER_MOVE, onMove);
       scene.input.off(Phaser.Input.Events.POINTER_UP, onUp);
+      scene.events.off(Phaser.Scenes.Events.PRE_RENDER, draw);
       gfx?.destroy();
       for (const t of labels.values()) t.destroy();
       labels.clear();
     },
+  };
+}
+
+/**
+ * Read the camera state that decides where a `scrollFactor(0)` object lands.
+ * Phaser 4's camera type declares `setRotation`/`setAngle` but no readable
+ * `rotation`, so the roll is probed instead of assumed to be zero — games that
+ * shake the camera (trauma roll) still get an overlay that stays put.
+ */
+export function cameraView(camera: Phaser.Cameras.Scene2D.Camera): CameraView {
+  const probe: object = camera;
+  const rotation = "rotation" in probe && typeof probe.rotation === "number" ? probe.rotation : 0;
+  return {
+    width: camera.width,
+    height: camera.height,
+    originX: camera.originX,
+    originY: camera.originY,
+    zoom: camera.zoom,
+    rotation,
   };
 }
 
@@ -170,6 +209,7 @@ function syncLabels(
   pad: VirtualGamepad,
   labels: Map<string, Phaser.GameObjects.Text>,
   show: boolean,
+  pin: ScreenSpaceTransform,
 ): void {
   for (const b of pad.getButtonLayout()) {
     if (b.rest || !b.label) continue;
@@ -188,7 +228,10 @@ function syncLabels(
     }
     text.setVisible(show);
     if (!show) continue;
-    text.setPosition(b.x, b.y);
+    // Font size stays in canvas px and the 1/zoom scale cancels the camera's,
+    // so the glyph rasterises at exactly the size it renders at.
+    const at = screenSpacePosition(pin, b.x, b.y);
+    text.setPosition(at.x, at.y).setRotation(pin.rotation).setScale(pin.scale);
     text.setFontSize(Math.round(b.radius * 0.42));
     text.setAlpha(b.pressed ? 1 : 0.75);
   }
@@ -224,7 +267,9 @@ function drawGamepad(g: Phaser.GameObjects.Graphics, pad: VirtualGamepad, tint: 
 export { VirtualGamepad, stickDirection4, stickDirection8 } from "./core.js";
 export { PhysicalGamepad, isPadConnected } from "./physical.js";
 export { safeAreaInset } from "./safe-area.js";
+export { screenSpacePosition, screenSpaceTransform } from "./screen-space.js";
 export type { PadButton, PhysicalGamepadOptions } from "./physical.js";
+export type { CameraView, ScreenSpaceTransform } from "./screen-space.js";
 export type {
   ButtonLayout,
   ButtonOptions,

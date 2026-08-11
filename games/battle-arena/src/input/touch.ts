@@ -70,9 +70,12 @@ export class TouchControls {
     this.layer = document.createElement("div");
     this.layer.id = "ba-touch";
     // pointer-events:none — the layer must never eat HUD taps (shop, end card,
-    // belt chips); sticks work off window-level listeners, the pad re-enables auto
+    // belt chips); sticks work off window-level listeners, the pad re-enables auto.
+    // z-index BELOW #hud: the HUD is pointer-events:none except where it is
+    // genuinely interactive, and #ba-shop is nested inside it, so a pad drawn
+    // above the HUD both paints over the open shop card and swallows its taps.
     this.layer.style.cssText =
-      "position:fixed;inset:0;z-index:7;display:none;touch-action:none;pointer-events:none";
+      "position:fixed;inset:0;z-index:4;display:none;touch-action:none;pointer-events:none";
     this.moveEl = stickEl();
     this.aimEl = stickEl();
     this.layer.append(this.moveEl, this.aimEl);
@@ -83,8 +86,10 @@ export class TouchControls {
     for (const b of BTN_KEYS) {
       const el = document.createElement("div");
       el.className = "ba-tbtn";
-      // B rides the right-most column of the third row so that row (HOP · B)
-      // never reaches over the item belt pinned bottom-left on phones.
+      // The bottom row is the one that shares its band with the item belt pinned
+      // bottom-LEFT on phones, so it starts at column 2: HOP · B, with column 1
+      // left empty. Placing HOP in column 1 put it over the belt's last chip.
+      if (b.id === "J") el.style.gridColumn = "2";
       if (b.id === "B") el.style.gridColumn = "3";
       const label = document.createElement("span");
       label.className = "ba-tl";

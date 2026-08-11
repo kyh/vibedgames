@@ -29,12 +29,17 @@ export function isMuted(): boolean {
   return muted;
 }
 
-/** Flip mute, persist the choice, and return the new muted state. Runs from a
- *  user gesture (the M key), so turning sound on can create/resume the ctx. */
-export function toggleMute(): boolean {
-  muted = !muted;
+/** Set mute and persist the choice. Runs from a user gesture (the M key or the
+ *  touch control), so turning sound on can create/resume the ctx. */
+export function setMuted(next: boolean): void {
+  muted = next;
   storageSet(SOUND_KEY, muted ? "0" : "1");
   if (!muted) audio();
+}
+
+/** Flip mute and return the new muted state. */
+export function toggleMute(): boolean {
+  setMuted(!muted);
   return muted;
 }
 

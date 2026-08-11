@@ -48,10 +48,14 @@ export function isMuted(): boolean {
   return muted;
 }
 
-export function toggleMute(): boolean {
-  muted = !muted;
+export function setMuted(next: boolean): void {
+  muted = next;
   if (master) master.gain.value = muted ? 0 : 0.32;
   storageSet(SOUND_KEY, muted ? "0" : "1");
+}
+
+export function toggleMute(): boolean {
+  setMuted(!muted);
   return muted;
 }
 

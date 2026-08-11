@@ -11,7 +11,7 @@
 import { controlGroups, createPauseShell } from "@repo/embed";
 import type { ControlMethod } from "@repo/embed";
 
-import { CONTROLS } from "./controls";
+import { visibleControls } from "./controls";
 
 export type PongPauseOverlay = {
   /** Mount the overlay. Idempotent while shown. */
@@ -104,7 +104,7 @@ function renderCard(overlay: HTMLElement): void {
 
   // Controls, grouped by method — filtered fresh each show() so a pad
   // plugged in mid-game earns its PAD section on the next pause.
-  for (const group of controlGroups(CONTROLS, { coarse })) {
+  for (const group of controlGroups(visibleControls(), { coarse })) {
     const label = document.createElement("div");
     label.textContent = GROUP_LABELS[group.method];
     label.style.cssText =

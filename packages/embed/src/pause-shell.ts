@@ -4,6 +4,9 @@
 //   - resume on pointerup anywhere, EXCEPT on interactive children
 //     (button/a/input/... or [data-pause-keep]) so a "how to play" button
 //     doesn't also resume
+//   - the dismissing tap stays ON the overlay: it neither bubbles to the
+//     game's window-level listeners nor leaves a compatibility mouse burst
+//     behind for the canvas (./pointer-seal)
 //   - resume on keyup, EXCEPT Escape — the core keydown toggle (./game) owns
 //     Escape; acting on its keyup too would double-fire one press
 //   - resume on a FRESH physical-pad button press (the game loop is usually
@@ -18,6 +21,7 @@
 // into it via `render`, styling through its own class + injected CSS.
 
 import { resumeGame } from "./game";
+import { sealPointerEvents } from "./pointer-seal";
 
 /** z-index of every pause overlay — above any game HUD. */
 export const PAUSE_OVERLAY_Z = 2147483000;
@@ -150,6 +154,7 @@ export function createPauseShell(options: PauseShellOptions): PauseShell {
 
     options.render(root);
     document.body.append(root);
+    sealPointerEvents(root, { keepClick: isInteractive });
     stopPadResume = resumeOnPadPress();
     if (fade > 0) requestAnimationFrame(() => root?.style.setProperty("opacity", "1"));
 

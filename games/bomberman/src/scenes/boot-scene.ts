@@ -15,23 +15,23 @@ export class BootScene extends Phaser.Scene {
     this.makeUtilTextures();
 
     // Tiles + props (all generated via `vg generate`, transparent where needed).
-    this.load.image("floor", "assets/floor.png");
-    this.load.image("wall", "assets/wall.png");
-    this.load.image("crate", "assets/crate.png");
-    this.load.image("bomb", "assets/bomb.png");
-    this.load.image("pow-bomb", "assets/pow-bomb.png");
-    this.load.image("pow-fire", "assets/pow-fire.png");
-    this.load.image("pow-speed", "assets/pow-speed.png");
+    this.load.image("floor", "assets/floor.webp");
+    this.load.image("wall", "assets/wall.webp");
+    this.load.image("crate", "assets/crate.webp");
+    this.load.image("bomb", "assets/bomb.webp");
+    this.load.image("pow-bomb", "assets/pow-bomb.webp");
+    this.load.image("pow-fire", "assets/pow-fire.webp");
+    this.load.image("pow-speed", "assets/pow-speed.webp");
 
     // Directional walk sheets — 4 frames each (2x2). Left reuses side, flipped.
     const pframe = { frameWidth: PLAYER_FRAME, frameHeight: PLAYER_FRAME };
-    this.load.spritesheet("player-down", "assets/player-down.png", pframe);
-    this.load.spritesheet("player-up", "assets/player-up.png", pframe);
-    this.load.spritesheet("player-side", "assets/player-side.png", pframe);
+    this.load.spritesheet("player-down", "assets/player-down.webp", pframe);
+    this.load.spritesheet("player-up", "assets/player-up.webp", pframe);
+    this.load.spritesheet("player-side", "assets/player-side.webp", pframe);
 
     // Explosion: 16-frame fire burst derived from a generated video, rendered
     // additively (pure-black background contributes nothing under ADD blend).
-    this.load.spritesheet("explosion", "assets/explosion.png", {
+    this.load.spritesheet("explosion", "assets/explosion.webp", {
       frameWidth: EXPLO_FRAME,
       frameHeight: EXPLO_FRAME,
     });

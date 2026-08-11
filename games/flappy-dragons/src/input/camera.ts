@@ -689,6 +689,14 @@ function buildPanel(parent: HTMLElement, collapsed: boolean): Panel {
   root.append(screen);
   parent.appendChild(root);
 
+  // The bottom-centred HUD pills reach under this panel on a narrow screen and
+  // disappear behind it once it expands, so publish how much of the bottom-right
+  // corner it currently owns and let index.html lift them clear.
+  new ResizeObserver(() => {
+    const height = root.getBoundingClientRect().height;
+    document.documentElement.style.setProperty("--fd-cam-h", `${Math.round(height)}px`);
+  }).observe(root);
+
   return { root, screen, video, overlay, button, recal, status };
 }
 

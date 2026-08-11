@@ -97,7 +97,29 @@ export function notifyGameStarted(): void {
   ensureListener();
   if (started || paused) return;
   started = true;
+  notifyPausableChanged();
   if (embedded()) window.parent.postMessage({ type: GAME_STARTED_MESSAGE }, "*");
+}
+
+/**
+ * Whether {@link pauseGame} would currently do anything. A pause affordance
+ * that renders before play begins is a dead control — it looks tappable and
+ * silently no-ops, which testers filed as a bug in two games.
+ */
+export function isPausable(): boolean {
+  return started && !paused;
+}
+
+const pausableListeners = new Set<() => void>();
+
+/** Observe {@link isPausable}. Returns an unsubscribe. */
+export function watchPausable(onChange: () => void): () => void {
+  pausableListeners.add(onChange);
+  return () => pausableListeners.delete(onChange);
+}
+
+function notifyPausableChanged(): void {
+  for (const listener of pausableListeners) listener();
 }
 
 /** Wire the game's pause UI + freeze/unfreeze into the wrapper's pause request. */
@@ -111,6 +133,7 @@ export function pauseGame(): void {
   if (paused || !started) return;
   paused = true;
   started = false;
+  notifyPausableChanged();
   setKeyGate(true);
   handlers.onPause?.();
   // Escape-initiated pauses need to tell the wrapper to bring its chrome back;
@@ -122,6 +145,7 @@ export function pauseGame(): void {
 export function resumeGame(): void {
   if (!paused) return;
   paused = false;
+  notifyPausableChanged();
   // Removing the gate here means the resuming key's own keyup was already
   // swallowed (it fired while the gate was up) — the game never sees a
   // phantom release for a press it never saw.

@@ -23,12 +23,14 @@ container.appendChild(renderer.domElement);
 
 const game = new GameScene(window.innerWidth / window.innerHeight);
 
-// Pose control + webcam: auto-starts (no button), degrades to keyboard if the
-// camera is denied or the model fails to load.
+// Pose control + webcam: degrades to keyboard if the camera is denied or the
+// model fails to load. A mouse-and-keyboard session auto-starts it; a phone
+// opts in by tapping the panel, so first paint isn't racing a permission
+// prompt and a multi-megabyte model download.
 const poseControls = new PoseControls(game.poseActions);
 game.attachPoseControls(poseControls);
 const poseCamera = new PoseCamera(poseControls.handlePose);
-void poseCamera.start();
+if (!isCoarsePointer()) void poseCamera.start();
 
 window.addEventListener("resize", () => {
   game.resize(window.innerWidth / window.innerHeight);

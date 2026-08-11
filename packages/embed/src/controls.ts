@@ -36,7 +36,7 @@ export type ControlContext = {
 
 // Same boot-time check every game uses (e.g. crazy-waymo touch.ts) — but
 // evaluated lazily so overlays pick up the truth at render time.
-function isCoarse(): boolean {
+export function isCoarsePointer(): boolean {
   return (
     (typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches) ||
     (typeof window !== "undefined" && "ontouchstart" in window)
@@ -53,7 +53,7 @@ function padConnectedNow(): boolean {
  * works on both platforms); controller entries only while a pad is connected.
  */
 export function activeMethods(context: ControlContext = {}): ReadonlySet<ControlMethod> {
-  const coarse = context.coarse ?? isCoarse();
+  const coarse = context.coarse ?? isCoarsePointer();
   const pad = context.padConnected ?? padConnectedNow();
   const methods = new Set<ControlMethod>(
     coarse ? ["touch", "camera"] : ["keys", "mouse", "camera"],

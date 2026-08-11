@@ -112,8 +112,10 @@
         display: none;
       }
       /* Touch layouts: the bottom strip belongs to the webcam + control pills,
-         so lives/pellets dock under the score row instead. */
+         so lives/pellets dock under the SCORE pill instead — left-aligned, to
+         leave the right half of that band to the pause/mute cluster. */
       body.touch #stats {
+        align-self: flex-start;
         margin-top: 10px;
         margin-bottom: 0;
       }
@@ -159,11 +161,18 @@
         display: flex;
       }
 
+      /* Centred in the safe area rather than pinned at a fraction of the
+         height: a landscape phone is ~390px tall and a top-third anchor ran
+         the control card off the fold. */
       #banner {
         position: fixed;
-        top: 34%;
-        left: 0;
-        right: 0;
+        inset: 0;
+        padding: calc(12px + env(safe-area-inset-top)) calc(12px + env(safe-area-inset-right))
+          calc(12px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left));
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
         text-align: center;
         opacity: 0;
         transition: opacity 0.25s ease;
@@ -327,13 +336,13 @@
       #netinfo:empty {
         display: none;
       }
+      /* Standings flow inside the HUD column, under the score row: as a second
+         fixed top-left corner they stacked straight through the SCORE pill. */
       #board {
-        position: fixed;
-        top: calc(12px + env(safe-area-inset-top));
-        left: calc(12px + env(safe-area-inset-left));
-        pointer-events: none;
+        margin-top: 10px;
         display: flex;
         flex-direction: column;
+        align-items: flex-start;
         gap: 4px;
         font:
           12px/1.25 ui-monospace,
@@ -354,6 +363,9 @@
       #board .row.me {
         outline: 1px solid rgba(255, 255, 255, 0.5);
       }
+      #board:empty {
+        display: none;
+      }
       #board .sc {
         margin-left: auto;
         font-weight: 700;
@@ -365,12 +377,12 @@
     <div id="game"></div>
     <div id="flash"></div>
     <div id="netinfo"></div>
-    <div id="board"></div>
     <div id="hud">
       <div class="row">
         <div class="pill" id="score">SCORE 0</div>
         <div class="pill" id="best">BEST 0</div>
       </div>
+      <div id="board"></div>
       <div class="pill" id="stats"></div>
     </div>
     <div id="controls">

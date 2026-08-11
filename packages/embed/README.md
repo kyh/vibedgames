@@ -31,6 +31,21 @@ re-sends `game-started` so the wrapper can tuck its chrome away again.
 
 Everything no-ops when the game runs standalone (not in an iframe).
 
+## Overlays that a tap dismisses
+
+Any full-screen overlay a player taps away — the pause overlay, a game's own
+start screen — must be sealed, or the game underneath acts on that same tap:
+
+```ts
+import { sealPointerEvents } from "@repo/embed";
+
+sealPointerEvents(startEl); // before wiring its own dismissal handler
+```
+
+`createPauseShell` and `createTouchControls` already do this for themselves.
+The two leaks it closes, and why `preventDefault()` on the dismissal handler is
+not one of the answers, are in [`src/pointer-seal.ts`](./src/pointer-seal.ts).
+
 ## Wrapper side
 
 ```ts

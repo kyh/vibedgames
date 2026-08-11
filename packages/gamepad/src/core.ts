@@ -13,7 +13,10 @@ import type {
 
 const ZERO_INSET: Inset = { top: 0, right: 0, bottom: 0, left: 0 };
 
-const DEFAULT_STICK: Required<StickOptions> = { radius: 64, deadZone: 8, knobRadius: 26 };
+type ResolvedStick = Required<Pick<StickOptions, "radius" | "deadZone" | "knobRadius">> &
+  Pick<StickOptions, "region">;
+
+const DEFAULT_STICK: ResolvedStick = { radius: 64, deadZone: 8, knobRadius: 26 };
 const DEFAULT_BUTTON_RADIUS = 44;
 
 const IDLE_STICK: StickState = {
@@ -49,12 +52,12 @@ type Binding = { kind: "stick" } | { kind: "button"; id: string };
  *
  * Touch routing on each `pointerDown`, in order:
  *   1. fixed buttons (a touch inside a button's circle presses it),
- *   2. the stick (the first free touch anchors the floating stick),
+ *   2. the stick (the first free touch inside `stick.region` anchors it),
  *   3. a "rest" button, if any (catches every other touch — the
  *      "any finger fires" model).
  */
 export class VirtualGamepad {
-  private readonly stickOpts: Required<StickOptions> | null;
+  private readonly stickOpts: ResolvedStick | null;
   private readonly buttons: ResolvedButton[];
   private readonly onButtonDown?: (id: string) => void;
   private readonly onButtonUp?: (id: string) => void;
@@ -111,8 +114,12 @@ export class VirtualGamepad {
         return;
       }
     }
-    // 2. The first free touch anchors the floating stick.
-    if (this.stickOpts && !this.stick) {
+    // 2. The first free touch inside the stick's region anchors the stick.
+    if (
+      this.stickOpts &&
+      !this.stick &&
+      (this.stickOpts.region?.({ x, y }, this.viewport) ?? true)
+    ) {
       this.stick = { pointerId: id, anchorX: x, anchorY: y, curX: x, curY: y };
       this.binding.set(id, { kind: "stick" });
       return;
@@ -233,7 +240,8 @@ export class VirtualGamepad {
 
   /** Resolved stick tuning, or null if the stick is disabled. */
   getStickGeometry(): StickGeometry | null {
-    return this.stickOpts ? { ...this.stickOpts } : null;
+    const o = this.stickOpts;
+    return o ? { radius: o.radius, deadZone: o.deadZone, knobRadius: o.knobRadius } : null;
   }
 
   /** Resolved button geometry + state, for renderers. */

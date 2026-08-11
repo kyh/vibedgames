@@ -33,14 +33,13 @@ export function isMuted(): boolean {
   return muted;
 }
 
-/** Flip mute, persist the choice, return the new muted state. Runs from the
- *  M-key gesture, so creating/resuming the context on unmute satisfies
- *  autoplay rules even when no sound has played yet. */
-export function toggleMute(): boolean {
-  muted = !muted;
+/** Set mute and persist the choice. Runs from the M key or the touch cluster's
+ *  button, so creating/resuming the context on unmute satisfies autoplay rules
+ *  even when no sound has played yet. */
+export function setMuted(next: boolean): void {
+  muted = next;
   storageSet(SOUND_KEY, muted ? "0" : "1");
   if (!muted) audio();
-  return muted;
 }
 
 let ctx: AudioContext | null = null;

@@ -38,6 +38,11 @@ function initialSoundOn(): boolean {
   return storageGet(SOUND_KEY) === "1";
 }
 
+/** The persisted preference both engines follow — what a mute button reads. */
+export function isSoundOn(): boolean {
+  return initialSoundOn();
+}
+
 const SFX_NAMES = [
   "chomp",
   "pellet",
@@ -207,6 +212,20 @@ export class Music {
 }
 
 export const music = new Music();
+
+/** Looping lullaby the music player starts once audio is unlocked. */
+const BGM_URL = "audio/bgm.m4a";
+
+/**
+ * Browsers gate audio behind a user gesture — call this from any handler that
+ * one produced (a tap anywhere, a keypress, the touch mute button, which the
+ * window listeners never see because the cluster seals its own pointers).
+ * Both calls are idempotent.
+ */
+export function unlockAudio(): void {
+  sfx.unlock();
+  music.start(BGM_URL);
+}
 
 // ---- synth engine (pure) --------------------------------------------------------
 

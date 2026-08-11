@@ -1,5 +1,5 @@
 import { activeMethods } from "@repo/embed";
-import type { ControlMethod, ControlsManifest } from "@repo/embed";
+import type { ControlEntry, ControlMethod, ControlsManifest } from "@repo/embed";
 
 // Every way to play, one list — the title legend and the pause overlay both
 // render from this (filtered per device / connected pad by @repo/embed).
@@ -18,11 +18,12 @@ export const CONTROLS: ControlsManifest = [
   { method: "keys", input: "P", action: "pause" },
   { method: "touch", input: "DRAG", action: "move" },
   { method: "touch", input: "ROT", action: "rotate" },
-  { method: "touch", input: "⟲ ⟳", action: "turn view" },
+  { method: "touch", input: "↺ ↻", action: "turn view" },
   { method: "touch", input: "DROP tap", action: "hard drop" },
   { method: "touch", input: "DROP hold", action: "soft drop" },
   { method: "touch", input: "HOLD", action: "hold piece" },
   { method: "touch", input: "PWR", action: "power sweep" },
+  { method: "touch", input: "🔊", action: "mute" },
   { method: "camera", input: "📷 lean", action: "move" },
   { method: "camera", input: "📷 twist", action: "rotate" },
   { method: "camera", input: "📷 T-pose", action: "power sweep" },
@@ -46,16 +47,28 @@ export const METHOD_LABEL: Record<ControlMethod, string> = {
   controller: "pad",
 };
 
-/** Title-banner sub line: the headline camera verbs plus how to start. */
+function say(entry: ControlEntry): string {
+  return `${entry.input} to ${entry.action}`;
+}
+
+/** Title-banner sub line: the headline verbs plus how to start.
+ *
+ *  The floating stick draws nothing until a finger lands and the labelled
+ *  buttons cover every verb except movement, so on touch the drag row takes the
+ *  lead — it is the only control a phone player has no other way to discover,
+ *  and on a landscape phone this line is the whole reference (the legend has no
+ *  room). Everywhere else the two headline camera gestures lead. */
 export function titleSubText(): string {
-  const camera = CONTROLS.filter((entry) => entry.method === "camera")
-    .slice(0, 2)
-    .map((entry) => `${entry.input} to ${entry.action}`);
   const methods = activeMethods();
+  const camera = CONTROLS.filter((entry) => entry.method === "camera");
+  const drag = CONTROLS.find((entry) => entry.method === "touch" && entry.action === "move");
+  const headline = (
+    methods.has("touch") && drag ? [drag, ...camera.slice(1, 2)] : camera.slice(0, 2)
+  ).map(say);
   const start = methods.has("controller")
     ? "any button to start"
     : methods.has("touch")
       ? "tap to start"
       : "Enter / Space to start";
-  return [...camera, start].join(" · ");
+  return [...headline, start].join(" · ");
 }

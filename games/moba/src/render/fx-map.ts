@@ -16,6 +16,31 @@ export const SPELL_SHEETS: SpellSheet[] = [
   { key: "sp-gypno", frame: 64, frames: 14, fps: 20 },
 ];
 
+/** Frame order inside `assets/spell/icons.webp` — one packed 6×3 sheet of 64px
+ *  icons, so the index here IS the Phaser frame. Repack in this order. */
+const SPELL_ICON_FRAME: Record<string, number> = Object.fromEntries(
+  [
+    "ic-burst",
+    "ic-chain",
+    "ic-claw",
+    "ic-comet",
+    "ic-fire",
+    "ic-firering",
+    "ic-gypno",
+    "ic-light",
+    "ic-lightning",
+    "ic-nature",
+    "ic-shadow",
+    "ic-shield",
+    "ic-skull",
+    "ic-spikes",
+    "ic-tesla",
+    "ic-tornado",
+    "ic-vortex",
+    "ic-water",
+  ].map((name, i) => [name, i]),
+);
+
 /** 64px HUD icon for every ability slot, keyed by effect id. */
 export const ABILITY_ICON: Record<string, string> = {
   "ironvow:Q": "ic-light",
@@ -44,8 +69,10 @@ export const ABILITY_ICON: Record<string, string> = {
   "brewkeeper:R": "ic-nature",
 };
 
-export function abilityIcon(effect: string): string | null {
-  return ABILITY_ICON[effect] ?? null;
+/** Frame in the packed spell-icon sheet for an ability's HUD icon. */
+export function abilityIconFrame(effect: string): number | null {
+  const name = ABILITY_ICON[effect];
+  return name === undefined ? null : (SPELL_ICON_FRAME[name] ?? null);
 }
 
 /** A one-shot sprite burst played when an ability is cast (on top of the

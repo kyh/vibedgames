@@ -1,14 +1,19 @@
-// Thin adapter over @vibedgames/multiplayer for the plain-loop (non-React,
-// non-Phaser) games. It owns the connection, provides an offline solo fallback
-// so the game still runs single-player when the party server is unreachable or
-// nobody else is around, and exposes the host-authoritative verbs the scene
-// uses. Poll `tick()` once per frame; read the getters each frame (the scene
-// drives rendering from its own RAF loop, so there is no subscribe()).
+// Thin adapter over @vibedgames/multiplayer for games that poll from their own
+// frame loop (a Phaser scene's update() or a plain RAF loop) instead of
+// subscribe(). It owns the connection, provides an offline solo fallback so the
+// game still runs single-player when the party server is unreachable or nobody
+// else is around, and exposes the host-authoritative verbs the scene uses.
+// Poll `tick()` once per frame; read the getters each frame.
 //
 // Semantics mirror the package exactly: shared-state and player-state patches
 // shallow-merge (last-write-wins per field), and events are fire-and-forget.
 // Offline, everything loops back locally so the same code paths keep working.
+//
+// Keep this file byte-identical across games/*/src/net/session.ts — per-game
+// tuning (room, maxPlayers, fallbackMs) goes in the NetSession constructor.
+//
 
+import { isOfflineRequested } from "@repo/embed";
 import { MultiplayerClient } from "@vibedgames/multiplayer";
 import type { Player, PlayerMap } from "@vibedgames/multiplayer";
 
@@ -43,7 +48,12 @@ export class NetSession {
   constructor(opts: NetSessionOptions) {
     this.fallbackMs = opts.fallbackMs;
     this.onEvent = opts.onEvent;
-    this.solo = opts.forceOffline === true;
+    // Offline BY INTENT (`?offline=1`, trailer staging) is a different state
+    // from the fallback below, and must skip constructing the client rather
+    // than lean on a failed connection: a refused handshake logs a console
+    // error the page cannot suppress, and the game would still be unplayable
+    // until `fallbackMs` elapsed. Every `this.client` read below is null-safe.
+    this.solo = opts.forceOffline === true || isOfflineRequested();
     this.client = this.solo
       ? null
       : new MultiplayerClient({

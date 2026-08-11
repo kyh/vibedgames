@@ -28,6 +28,7 @@ import { View } from "../render/view";
 import { WorldView } from "../render/world-view";
 import { Environment } from "../render/environment";
 import { Fx } from "../render/fx";
+import type { Audio } from "../render/audio";
 import { Hud } from "../render/hud";
 import { Hints } from "../render/hints";
 
@@ -775,6 +776,11 @@ export class GameScene {
     if (!me || !me.alive) return false;
     const sp = SPAWNS[me.slot % SPAWNS.length]!;
     return (me.x - sp.x) ** 2 + (me.y - sp.y) ** 2 <= SHOP_RADIUS * SHOP_RADIUS;
+  }
+
+  /** The match's audio bus — main.ts hands its mute flag to the touch cluster. */
+  get audio(): Audio {
+    return this.fx.audio;
   }
 
   /** Wrapper-requested pause/resume (see main.ts's setPauseHandlers wiring) —

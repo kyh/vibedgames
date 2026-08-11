@@ -4,6 +4,10 @@
 // bottom-right button cluster covers every keyboard verb — including the
 // camera orbit, which is gameplay, not chrome. Touch is purely additive:
 // the adapter ignores the mouse, so keyboard + pose keep working untouched.
+//
+// Orbit is labelled ↺ ↻ (U+21BA/BB), not ⟲ ⟳ (U+27F2/F3): at the adapter's
+// label size (radius × 0.42 ≈ 13px) the gapped-arrow pair measures 6px of ink
+// against 10.9px, and reads as a dot.
 
 import { attachDomGamepad, stickDirection4 } from "@vibedgames/gamepad/dom";
 import type { Dir4, DomGamepad, Viewport } from "@vibedgames/gamepad/dom";
@@ -39,14 +43,35 @@ const SCREEN_DIR: Record<Dir4, ScreenDir> = {
   right: "right",
 };
 
-/** Right-thumb cluster anchored to the bottom-right safe area. col 0 is the
- *  edge column (primary verbs), col 1 sits inboard; rows stack upward and
- *  compress on short (landscape phone) screens to clear the HUD pills. */
-function cluster(v: Viewport, col: 0 | 1, row: 0 | 1 | 2): { x: number; y: number } {
-  const gap = v.height < 500 ? 80 : 96;
+/** Slot → grid cell, counted from the bottom-right safe-area corner: column 0
+ *  is the screen edge (primary verbs), rows stack upward. Six buttons are two
+ *  columns of three on a tall screen; a landscape phone folds them into three
+ *  columns of two, because a third row runs up into the webcam thumbnail
+ *  pinned above the cluster (and forces the rows closer than their radii). */
+type Slot = 0 | 1 | 2 | 3 | 4 | 5;
+
+const TALL_GRID = [
+  [0, 0],
+  [0, 1],
+  [1, 0],
+  [1, 1],
+  [0, 2],
+  [1, 2],
+] as const;
+const SHORT_GRID = [
+  [0, 0],
+  [0, 1],
+  [1, 0],
+  [1, 1],
+  [2, 0],
+  [2, 1],
+] as const;
+
+function cluster(v: Viewport, slot: Slot): { x: number; y: number } {
+  const [col, row] = (v.height < 500 ? SHORT_GRID : TALL_GRID)[slot];
   return {
-    x: v.width - v.inset.right - (col === 0 ? 58 : 152),
-    y: v.height - v.inset.bottom - 60 - row * gap,
+    x: v.width - v.inset.right - 58 - col * 94,
+    y: v.height - v.inset.bottom - 60 - row * 96,
   };
 }
 
@@ -81,12 +106,12 @@ export class TouchControls {
       visible: "coarse", // fixed buttons are discoverable before the first touch
       stick: { radius: 56, deadZone: 10 },
       buttons: [
-        { id: "drop", label: "DROP", radius: 46, position: (v) => cluster(v, 0, 0) },
-        { id: "rotate", label: "ROT", radius: 40, position: (v) => cluster(v, 0, 1) },
-        { id: "hold", label: "HOLD", radius: 34, position: (v) => cluster(v, 1, 0) },
-        { id: "power", label: "PWR", radius: 34, position: (v) => cluster(v, 1, 1) },
-        { id: "orbit-right", label: "⟳", radius: 32, position: (v) => cluster(v, 0, 2) },
-        { id: "orbit-left", label: "⟲", radius: 32, position: (v) => cluster(v, 1, 2) },
+        { id: "drop", label: "DROP", radius: 46, position: (v) => cluster(v, 0) },
+        { id: "rotate", label: "ROT", radius: 40, position: (v) => cluster(v, 1) },
+        { id: "hold", label: "HOLD", radius: 34, position: (v) => cluster(v, 2) },
+        { id: "power", label: "PWR", radius: 34, position: (v) => cluster(v, 3) },
+        { id: "orbit-right", label: "↻", radius: 32, position: (v) => cluster(v, 4) },
+        { id: "orbit-left", label: "↺", radius: 32, position: (v) => cluster(v, 5) },
       ],
       render: { tint: "#8ea2ff" },
     });

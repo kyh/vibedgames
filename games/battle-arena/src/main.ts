@@ -1,5 +1,18 @@
-// Boot: load assets, show the lobby, then run the chosen match.
-import { notifyGameStarted, setPauseHandlers } from "@repo/embed";
+// Boot: load the lobby's assets, show the lobby, then run the chosen match.
+//
+// Asset loading is two-phase. The champion-select lobby needs six champion
+// models, the weapons they hold and one idle clip library — ~3 MB. The arena
+// (enemies, the dungeon prop vocabulary, the combat/movement clip libraries)
+// is another ~13 MB that nothing on screen can show yet, so it is fetched on
+// the first sign of intent and awaited when a match actually launches. A phone
+// on cellular reaches champion select in a quarter of the bytes, and a visitor
+// who never taps never pays for the arena at all.
+import {
+  createTouchControls,
+  isOfflineRequested,
+  notifyGameStarted,
+  setPauseHandlers,
+} from "@repo/embed";
 import * as THREE from "three";
 import { ModelLibrary } from "./render/models";
 import { View } from "./render/view";
@@ -21,16 +34,19 @@ const barFill = document.getElementById("bar-fill");
 const CHAMP_MODELS = ["Knight", "Ranger", "Mage", "Rogue_Hooded", "Paladin_with_Helmet", "Witch"];
 const BOSS_MODEL = "Skeleton_Golem";
 const ENEMY_MODELS = ["Skeleton_Warrior", "Skeleton_Mage", "Skeleton_Minion", "FrostGolem"];
-const WEAPON_MODELS = [
+// what the roster holds in champion select — loaded with the champions
+const CHAMP_WEAPON_MODELS = [
   "sword_2handed", // Garran (knight) — the one 2H greatsword champ
   "dagger", // Vesper (rogue) — dualwield
   "paladin_hammer", // Aurelius — hammer + shield
   "paladin_shield",
   "bow",
   "staff",
+  "wand_A",
+];
+const ARENA_WEAPON_MODELS = [
   "Skeleton_Staff",
   "FrostGolem_Axe_Large",
-  "wand_A",
   // Fantasy Weapons Bits — the creep-drop loot pickups (world-view syncCoins)
   "sword_A",
   "sword_D",
@@ -41,8 +57,9 @@ const WEAPON_MODELS = [
   "staff_B",
   "wand_B",
 ];
+// Idle_B lives here, and it is the only clip the 3D roster plays.
+const LOBBY_CLIP_LIB = "Rig_Medium_General";
 const CLIP_LIBS = [
-  "Rig_Medium_General",
   "Rig_Medium_MovementBasic",
   "Rig_Medium_MovementAdvanced",
   "Rig_Medium_CombatMelee",
@@ -96,41 +113,81 @@ function readLocalMapDraft(): MapData | null {
   }
 }
 
+/** Await `jobs`, driving the boot progress bar as they land. */
+async function runJobs(jobs: Promise<void>[]): Promise<void> {
+  let done = 0;
+  if (barFill) barFill.style.width = "0%";
+  const track = async (job: Promise<void>): Promise<void> => {
+    await job;
+    done++;
+    if (barFill) barFill.style.width = `${Math.round((done / jobs.length) * 100)}%`;
+  };
+  await Promise.all(jobs.map(track));
+}
+
+function showLoading(on: boolean): void {
+  if (loadingEl) loadingEl.style.display = on ? "flex" : "none";
+}
+
+/** A load that never resolves leaves the veil up forever, so both the boot and
+ *  the deferred arena load report through here instead. */
+function showFailure(e: unknown): void {
+  console.error(e);
+  if (!loadingEl) return;
+  // Trailer mode hides the veil via html.trailer; an inline display beats that
+  // rule, so a failed load still surfaces instead of dying to a black frame.
+  loadingEl.style.display = "flex";
+  loadingEl.innerHTML = `<div style="color:#ff6a6a;font:14px monospace;padding:20px;text-align:center">Failed to load:<br>${e instanceof Error ? e.message : String(e)}</div>`;
+}
+
 async function main(): Promise<void> {
   const view = new View(container);
   const lib = new ModelLibrary();
   const bundledMapJob = fetchBundledMap(); // in parallel with the model loads
 
-  const jobs: Promise<void>[] = [
+  await runJobs([
     ...CHAMP_MODELS.map((m) => lib.loadCharacter(m, `./models/characters/${m}.glb`)),
-    lib.loadCharacter(BOSS_MODEL, `./models/characters/${BOSS_MODEL}.glb`),
-    ...ENEMY_MODELS.map((m) => lib.loadCharacter(m, `./models/characters/${m}.glb`)),
-    ...CLIP_LIBS.map((c) => lib.loadClips(`./models/animations/${c}.glb`)),
-    ...CLIP_LIBS_LARGE.map((c) => lib.loadClips(`./models/animations/${c}.glb`, "Large/")),
-    // scenery gets a matte grade (KayKit ships glossy); the dungeon atlas also
-    // takes a warm-dark tint so the pale floor mortar stops reading as neon
-    ...PROP_SPECS.map((p) =>
-      lib.loadCharacter(
-        p.name,
-        p.url,
-        p.url.includes("/dungeon/") ? { matte: true, tint: 0xcabb9f } : { matte: true },
-      ),
-    ),
-    ...WEAPON_MODELS.map((m) => lib.loadCharacter(m, `./models/weapons/${m}.gltf`)),
-  ];
-  let done = 0;
-  await Promise.all(
-    jobs.map((j) =>
-      j.then(() => {
-        done++;
-        if (barFill) barFill.style.width = `${Math.round((done / jobs.length) * 100)}%`;
-      }),
-    ),
-  );
+    ...CHAMP_WEAPON_MODELS.map((m) => lib.loadCharacter(m, `./models/weapons/${m}.gltf`)),
+    lib.loadClips(`./models/animations/${LOBBY_CLIP_LIB}.glb`),
+  ]);
 
-  if (loadingEl) loadingEl.style.display = "none";
+  let arenaJob: Promise<void> | null = null;
+  let arenaReady = false;
+  const loadArenaOnce = async (): Promise<void> => {
+    await runJobs([
+      lib.loadCharacter(BOSS_MODEL, `./models/characters/${BOSS_MODEL}.glb`),
+      ...ENEMY_MODELS.map((m) => lib.loadCharacter(m, `./models/characters/${m}.glb`)),
+      ...CLIP_LIBS.map((c) => lib.loadClips(`./models/animations/${c}.glb`)),
+      ...CLIP_LIBS_LARGE.map((c) => lib.loadClips(`./models/animations/${c}.glb`, "Large/")),
+      // scenery gets a matte grade (KayKit ships glossy); the dungeon atlas also
+      // takes a warm-dark tint so the pale floor mortar stops reading as neon
+      ...PROP_SPECS.map((p) =>
+        lib.loadCharacter(
+          p.name,
+          p.url,
+          p.url.includes("/dungeon/") ? { matte: true, tint: 0xcabb9f } : { matte: true },
+        ),
+      ),
+      ...ARENA_WEAPON_MODELS.map((m) => lib.loadCharacter(m, `./models/weapons/${m}.gltf`)),
+    ]);
+    arenaReady = true;
+  };
+  const loadArena = (): Promise<void> => (arenaJob ??= loadArenaOnce());
 
   const params = new URLSearchParams(location.search);
+
+  // Every branch below the lobby renders the arena itself, so they pay for it
+  // up front behind the same progress bar the champion set just used.
+  if (
+    params.has("trailer") ||
+    params.has("editor") ||
+    params.has("viewer") ||
+    params.has("auto") ||
+    params.has("online")
+  ) {
+    await loadArena();
+  }
+  showLoading(false);
 
   // ── Gameplay trailer (?trailer=1): scripted, letterboxed, offline-staged
   //    showcase; its own scene/loop + a separate vite chunk so gameplay never
@@ -196,7 +253,7 @@ async function main(): Promise<void> {
     const dt = Math.min(timer.getDelta(), 1 / 30);
     activeScene?.update(dt);
   };
-  const launch = (opts: SceneOpts): void => {
+  const startMatch = (opts: SceneOpts): void => {
     notifyGameStarted();
     onlineMatch = opts.online;
     const custom = (opts.online ? null : localMapDraft) ?? bundledMap;
@@ -210,11 +267,37 @@ async function main(): Promise<void> {
     const touch = new TouchControls();
     const scene = new GameScene(view, lib, controls, opts, touch);
     activeScene = scene;
+    // Escape and M are keyboard-only, so a phone otherwise has no way to pause
+    // the arena or ever hear it (sound is opt-in, see render/audio.ts).
+    createTouchControls({
+      mute: { get: () => scene.audio.isMuted, set: (next) => scene.audio.setMuted(next) },
+    });
     if (import.meta.env.DEV) {
       (window as unknown as { __ba: GameScene }).__ba = scene;
       (window as unknown as { __view: View }).__view = view;
     }
     view.renderer.setAnimationLoop(matchLoop);
+  };
+  const startWhenLoaded = async (opts: SceneOpts): Promise<void> => {
+    showLoading(true);
+    await loadArena();
+    showLoading(false);
+    startMatch(opts);
+  };
+  const launch = (requested: SceneOpts): void => {
+    // The one choke point for online matches — the lobby's PLAY ONLINE button
+    // and the `?online[&room=]` deep link both land here, so `?offline=1` is
+    // enforced once and no socket can be opened behind it. Dropping the room
+    // too keeps the offline branch's localStorage map draft applicable.
+    const opts: SceneOpts =
+      isOfflineRequested() && requested.online
+        ? { ...requested, online: false, room: "" }
+        : requested;
+    if (arenaReady) {
+      startMatch(opts);
+      return;
+    }
+    void startWhenLoaded(opts).catch(showFailure);
   };
 
   // Wrapper-requested pause (registered once at boot — the embed package
@@ -282,6 +365,18 @@ async function main(): Promise<void> {
     canvas.addEventListener("pointermove", onMove);
     canvas.addEventListener("click", onClick);
     window.addEventListener("resize", onResize);
+    // First touch or keypress in the lobby = someone who is going to play, so
+    // the arena streams in behind champion select and START usually finds it
+    // already there. A visitor who only looks never downloads it.
+    const warmArena = (): void => {
+      window.removeEventListener("pointerdown", warmArena);
+      window.removeEventListener("keydown", warmArena);
+      // loadArena is memoised, so a failure here is reported by launch()'s own
+      // handler; swallow it now rather than raising it over champion select.
+      void loadArena().catch(() => undefined);
+    };
+    window.addEventListener("pointerdown", warmArena);
+    window.addEventListener("keydown", warmArena);
     stage.select(initialChamp); // sync the 3D row with the persisted pick
     const menuTimer = new THREE.Timer();
     view.renderer.setAnimationLoop((t) => {
@@ -294,12 +389,4 @@ async function main(): Promise<void> {
   window.addEventListener("resize", () => view.resize());
 }
 
-void main().catch((e) => {
-  console.error(e);
-  if (loadingEl) {
-    // Trailer mode hides the veil via html.trailer; an inline display beats that
-    // rule, so a failed boot still surfaces instead of dying to a black frame.
-    loadingEl.style.display = "flex";
-    loadingEl.innerHTML = `<div style="color:#ff6a6a;font:14px monospace;padding:20px;text-align:center">Failed to load:<br>${e instanceof Error ? e.message : String(e)}</div>`;
-  }
-});
+void main().catch(showFailure);

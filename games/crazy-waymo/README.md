@@ -33,13 +33,15 @@ World tooling (see [CLAUDE.md](./CLAUDE.md) for when each is required): `pnpm ba
 
 ## Controls
 
-| Input                         | Action         |
-| ----------------------------- | -------------- |
-| W / ↑ (pad RT, touch HOLD)    | go             |
-| S / ↓ (pad LT, touch BRAKE)   | stop / reverse |
-| ← → (pad L-stick, touch DRAG) | steer          |
-| Shift (pad B/RB, touch 🔥)    | boost          |
-| M                             | mute           |
+| Input                         | Action                                     |
+| ----------------------------- | ------------------------------------------ |
+| W / ↑ (pad RT, touch HOLD)    | go                                         |
+| S / ↓ (pad LT, touch BRAKE)   | stop / reverse                             |
+| ← → (pad L-stick, touch DRAG) | steer                                      |
+| Shift (pad B/RB, touch 🔥)    | boost                                      |
+| M (touch 🔊)                  | mute                                       |
+| Esc (touch ⏸)                 | pause — the overlay also holds RESTART RUN |
+| R                             | restart                                    |
 
 Multiplayer: everyone auto-joins a shared room via `@vibedgames/multiplayer` — other drivers appear as remote cars with chat bubbles.
 

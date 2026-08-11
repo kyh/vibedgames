@@ -1,5 +1,6 @@
 import * as THREE from "three";
-import { notifyGameStarted, watchControlContext } from "@repo/embed";
+import { createTouchControls, notifyGameStarted, watchControlContext } from "@repo/embed";
+import type { TouchControls as EmbedTouchControls } from "@repo/embed";
 import type { PlayerMap } from "@vibedgames/multiplayer";
 
 import { ModelCache } from "../assets/loader";
@@ -69,7 +70,7 @@ import { setTouchPlaying, setupTouch, type TouchControls } from "../ui/touch";
 import type { Car, CarInput } from "../vehicle/car";
 import type { CityModel, Garage } from "../world/city";
 import { HECKLES, SpeechBubbles } from "../fx/speech-bubbles";
-import { ROBOTAXI_SKINS, skinById } from "../vehicle/car";
+import { ROBOTAXI_SKINS, skinById, skinModelUrl } from "../vehicle/car";
 import { districtAt, landFactor } from "../world/sf-map";
 import {
   CeilingIndex,
@@ -80,6 +81,9 @@ import {
 import { loadWorld, type WorldCoreSystems, type WorldSpawn } from "./world-loader";
 
 const HALF_PI = Math.PI / 2;
+
+/** Distance to the nearest garage that starts fetching the showroom bodies. */
+const GARAGE_PREFETCH_DIST = 140;
 
 /** One axis of the trailer staging clamp — see TrailerStage.placeCar. */
 const clampToPlayArea = (v: number, half: number): number =>
@@ -196,6 +200,20 @@ const BEST_KEY = "crazy-waymo:best";
 const SOUND_KEY = "crazy-waymo:sound";
 const HINT_DRIFT_KEY = "crazy-waymo:hint-drift";
 const HINT_BOOST_KEY = "crazy-waymo:hint-boost";
+
+/** The shared pause/mute cluster in the game's own plate palette — gold on the
+ *  same smoked panel as the HUD pills. Custom properties only; @repo/embed
+ *  owns its layout and its safe-area insets. */
+const TOUCH_CLUSTER_CSS = `
+.waymo-touch {
+  --vg-touch-gap: 12px;
+  --vg-touch-fg: #ffe9b0;
+  --vg-touch-bg: rgba(20, 17, 26, 0.62);
+  --vg-touch-bg-active: rgba(255, 209, 71, 0.42);
+  --vg-touch-border: 2px solid rgba(255, 209, 71, 0.5);
+  --vg-touch-radius: 12px;
+}
+`;
 
 // Mobile quality knobs (tier-independent; the tiered ones live in quality.ts).
 const LAMP_GLOW_BUDGET = { cap: 150, poolScale: 0.75 } as const;
@@ -316,6 +334,9 @@ export class GameScene {
   private garageOpen = false;
   private garageEl: HTMLDivElement | null = null;
   private garagePreview: GaragePreview | null = null;
+  /** The showroom bodies (4 MB of generated meshes) are fetched on approach,
+   *  not at boot — see manifest GEN_ROBOTAXIS. Null until the first garage. */
+  private showroomLoad: Promise<void> | null = null;
   private ownedSkins = new Set<string>(["waymo"]);
   private netAcc = 0;
   private netInfoEl = document.getElementById("netinfo");
@@ -463,6 +484,7 @@ export class GameScene {
   // Touch-capable device: on-screen buttons show and CTA copy says TAP.
   private touchUi = false;
   private touch: TouchControls | null = null;
+  private embedTouch: EmbedTouchControls;
   private titleT = 0;
   private flameAccum = 0;
   private scrapeFrames = 0;
@@ -850,8 +872,18 @@ vec3 ocGerstner(vec2 p, float t) {
     this.touchUi = this.touch.isTouch;
     this.hud.onCta(() => this.handleStartPress());
     // Muted by default; returning players who opted into sound stay unmuted.
-    // M is the one toggle.
     this.sfx.setMuted(storageGet(SOUND_KEY) !== "1");
+    // M and Escape are keyboard-only, so without this a phone plays the whole
+    // run silent and cannot pause. No-op on a fine pointer.
+    this.embedTouch = createTouchControls({
+      mute: {
+        get: () => this.sfx.muted,
+        set: () => this.toggleMute(),
+      },
+      className: "waymo-touch",
+      styleId: "waymo-touch-style",
+      css: TOUCH_CLUSTER_CSS,
+    });
   }
 
   get camera(): THREE.PerspectiveCamera {
@@ -1269,8 +1301,16 @@ vec3 ocGerstner(vec2 p, float t) {
       }
     }
     const d = Math.hypot(g.padX - car.position.x, g.padZ - car.position.z);
+    // Start the showroom bodies the moment a garage is in sight — a block of
+    // driving is enough for 4 MB, so the pad still opens on a full showroom.
+    if (d < GARAGE_PREFETCH_DIST) void this.loadShowroom();
     if (!this.garageOpen && d < 5.5 && car.speed < 4) this.openGarage();
     else if (this.garageOpen && d > 8) this.closeGarage();
+  }
+
+  private loadShowroom(): Promise<void> {
+    this.showroomLoad ??= this.cache.preload(ROBOTAXI_SKINS.map(skinModelUrl), () => {});
+    return this.showroomLoad;
   }
 
   private garageCardsHtml(): string {
@@ -1310,15 +1350,33 @@ vec3 ocGerstner(vec2 p, float t) {
         }
         this.skinId = sk.id;
         storageSet("crazy-waymo:skin", sk.id);
-        this.car.setSkin(sk.id);
+        void this.wearSkin(sk.id);
         this.hud.setOperator(sk.label, sk.accent);
         this.renderGarage();
       });
-      this.garagePreview = new GaragePreview(this.cache);
-      this.garagePreview.bind(el);
     }
     this.renderGarage();
     el.style.display = "flex";
+    // Cards are text and can go up now; the turntables need the bodies.
+    if (!this.garagePreview) void this.mountShowroom(el);
+  }
+
+  /** Rebuild the car's body once its GLB is in. The load is already resolved
+   *  by the forecourt prefetch on any normal approach — this covers the player
+   *  who taps EQUIP inside that window, and drops a pick that was superseded
+   *  while the body was still arriving. */
+  private async wearSkin(skinId: string): Promise<void> {
+    await this.loadShowroom();
+    if (this.skinId === skinId) this.car?.setSkin(skinId);
+  }
+
+  private async mountShowroom(container: HTMLDivElement): Promise<void> {
+    await this.loadShowroom();
+    if (this.garagePreview) return;
+    const preview = new GaragePreview(this.cache);
+    preview.bind(container);
+    this.garagePreview = preview;
+    if (this.garageOpen) this.renderGarage();
   }
 
   private renderGarage(): void {
@@ -1363,6 +1421,10 @@ vec3 ocGerstner(vec2 p, float t) {
     el.style.display = "block";
     el.value = "";
     this.input.setTyping(true);
+    // The chat pill lands on the pedal on a portrait phone, and a tap aimed at
+    // the field would brake instead. Typing already suspends driving, so the
+    // pedals go away for the duration rather than fight for the same pixels.
+    document.body.classList.add("chatting");
     el.focus();
   }
 
@@ -1372,6 +1434,7 @@ vec3 ocGerstner(vec2 p, float t) {
       el.style.display = "none";
       el.blur();
     }
+    document.body.classList.remove("chatting");
     this.input.setTyping(false);
   }
 
@@ -1398,11 +1461,18 @@ vec3 ocGerstner(vec2 p, float t) {
     if (this.mode.kind === "title") this.start();
   }
 
+  /** Restart the run — R, and the pause overlay's button for players with no
+   *  keyboard. Trailer mode owns its run and must never be reset from UI. */
+  restartRun(): void {
+    if (!this.trailerMode) this.start();
+  }
+
   /** M. Session-only in trailer mode: the trailer now solicits a keypress to
    *  unlock audio, and that key landing on M must not rewrite the player's
    *  saved sound preference for the real game. */
   private toggleMute(): void {
     this.sfx.setMuted(!this.sfx.muted);
+    this.embedTouch.sync();
     if (!this.trailerMode) storageSet(SOUND_KEY, this.sfx.muted ? "0" : "1");
   }
 
@@ -1621,7 +1691,7 @@ vec3 ocGerstner(vec2 p, float t) {
     if (this.input.consumeMute()) this.toggleMute();
     this.updateGarages(dt);
     this.heckleCooldown = Math.max(0, this.heckleCooldown - dt);
-    this.bubbles.update(dt);
+    this.bubbles.update(dt, this.rig.camera);
     this.hud.update(dt);
     this.fx.update(dt);
     this.impactStars.update(dt);
@@ -2472,29 +2542,36 @@ vec3 ocGerstner(vec2 p, float t) {
     this.projectArrow(next.pos, tierHex(next.tier));
   }
 
+  // The fare's off-screen bearing, drawn on the border of the HUD-free box.
+  // Clamping the projected point per axis (what this used to do) collapses the
+  // bearing into a corner, and the corners are exactly where the pedal and the
+  // speedo live — so instead the arrow rides where the ray from the box centre
+  // toward the target leaves the box, which is inside the viewport, clear of
+  // the touch controls, and still pointing the right way.
   private projectArrow(target: THREE.Vector3, color: string): void {
     const ndc = this.scrArrow.copy(target).project(this.rig.camera);
     const behind = ndc.z > 1;
-    let x = ndc.x;
-    let y = ndc.y;
-    if (behind) {
-      x = -x;
-      y = -y;
-    }
+    const x = behind ? -ndc.x : ndc.x;
+    const y = behind ? -ndc.y : ndc.y;
     const onScreen = !behind && x > -0.92 && x < 0.92 && y > -0.92 && y < 0.92;
     if (onScreen) {
       this.hud.setArrow(false, 0, 0, 0);
       return;
     }
-    const m = 0.86;
-    const cx = THREE.MathUtils.clamp(x, -m, m);
-    const cy = THREE.MathUtils.clamp(y, -m, m);
-    const sx = (cx * 0.5 + 0.5) * window.innerWidth;
-    const sy = (-cy * 0.5 + 0.5) * window.innerHeight;
-    const dx = sx - window.innerWidth / 2;
-    const dy = sy - window.innerHeight / 2;
+    const box = this.hud.arrowBounds();
+    const cx = (box.minX + box.maxX) / 2;
+    const cy = (box.minY + box.maxY) / 2;
+    const dx = (x * 0.5 + 0.5) * window.innerWidth - cx;
+    const dy = (-y * 0.5 + 0.5) * window.innerHeight - cy;
+    if (dx === 0 && dy === 0) {
+      this.hud.setArrow(false, 0, 0, 0);
+      return;
+    }
+    const hitX = dx === 0 ? Infinity : (box.maxX - cx) / Math.abs(dx);
+    const hitY = dy === 0 ? Infinity : (box.maxY - cy) / Math.abs(dy);
+    const t = Math.min(hitX, hitY);
     const rot = Math.atan2(dx, -dy);
-    this.hud.setArrow(true, sx - 32, sy - 32, rot, color);
+    this.hud.setArrow(true, cx + dx * t - 32, cy + dy * t - 32, rot, color);
   }
 }
 

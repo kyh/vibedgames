@@ -20,17 +20,30 @@ const PAD_X = 18;
 const PAD_Y = 12;
 const TAIL_H = 16;
 const RADIUS = 14;
-const MAX_LINE_W = 340;
+/** World units per canvas px — the size a bubble reads at over a car. */
+const UNITS_PER_PX = 0.02;
+/** …but never wider than this share of the frame. A phone's horizontal field
+ *  is a fraction of a desktop's, so the desktop size spans the whole portrait
+ *  screen, clipped on both edges, and blanks the road ahead for six seconds. */
+const MAX_SCREEN_FRAC = 0.5;
+
+/** Wrap width in canvas px. Portrait wraps sooner: once the whole bubble is
+ *  capped to half the frame, a tall narrow block keeps its type legible where
+ *  one long line would shrink to nothing. */
+function maxLineWidth(): number {
+  return window.innerWidth < window.innerHeight ? 210 : 340;
+}
 
 function drawBubble(text: string, accent: string): HTMLCanvasElement {
   const measure = document.createElement("canvas").getContext("2d");
+  const wrapAt = maxLineWidth();
   const lines: string[] = [];
   if (measure) {
     measure.font = FONT;
     let line = "";
     for (const word of text.split(/\s+/)) {
       const probe = line ? `${line} ${word}` : word;
-      if (measure.measureText(probe).width > MAX_LINE_W && line) {
+      if (measure.measureText(probe).width > wrapAt && line) {
         lines.push(line);
         line = word;
       } else {
@@ -42,9 +55,7 @@ function drawBubble(text: string, accent: string): HTMLCanvasElement {
     lines.push(text);
   }
   const lineH = 32;
-  const textW = measure
-    ? Math.max(...lines.map((l) => measure.measureText(l).width), 40)
-    : MAX_LINE_W;
+  const textW = measure ? Math.max(...lines.map((l) => measure.measureText(l).width), 40) : wrapAt;
   const w = Math.ceil(textW + PAD_X * 2);
   const h = lines.length * lineH + PAD_Y * 2;
   const canvas = document.createElement("canvas");
@@ -115,8 +126,9 @@ export class SpeechBubbles {
       depthTest: false,
     });
     const sprite = new THREE.Sprite(material);
-    // world size: ~0.02 units per canvas px reads well over a car
-    sprite.scale.set(canvas.width * 0.02, canvas.height * 0.02, 1);
+    // Provisional — update() re-solves it against the live frame, and the
+    // bubble is still at zero opacity for that first frame.
+    sprite.scale.set(canvas.width * UNITS_PER_PX, canvas.height * UNITS_PER_PX, 1);
     sprite.renderOrder = 50;
     this.group.add(sprite);
     this.bubbles.push({
@@ -138,8 +150,9 @@ export class SpeechBubbles {
     }
   }
 
-  update(dt: number): void {
+  update(dt: number, camera: THREE.PerspectiveCamera): void {
     const pos = new THREE.Vector3();
+    const halfTan = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
     for (let i = this.bubbles.length - 1; i >= 0; i--) {
       const b = this.bubbles[i];
       if (!b) continue;
@@ -169,7 +182,11 @@ export class SpeechBubbles {
       const canvas = b.texture.image;
       const cw = canvas instanceof HTMLCanvasElement ? canvas.width : 200;
       const ch = canvas instanceof HTMLCanvasElement ? canvas.height : 80;
-      b.sprite.scale.set(cw * 0.02 * s, ch * 0.02 * s, 1);
+      // Frame width at the bubble's own depth: the cap is what keeps a
+      // portrait phone's narrow horizontal field from being papered over.
+      const frameW = 2 * camera.position.distanceTo(b.sprite.position) * halfTan * camera.aspect;
+      const perPx = Math.min(UNITS_PER_PX, (frameW * MAX_SCREEN_FRAC) / cw);
+      b.sprite.scale.set(cw * perPx * s, ch * perPx * s, 1);
       if (b.sprite.material instanceof THREE.SpriteMaterial) {
         b.sprite.material.opacity = popIn * fade;
       }

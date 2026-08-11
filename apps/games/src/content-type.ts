@@ -23,6 +23,8 @@ const CONTENT_TYPES: Record<string, string> = {
   avif: "image/avif",
   ico: "image/x-icon",
   wasm: "application/wasm",
+  glb: "model/gltf-binary",
+  gltf: "model/gltf+json",
   mp3: "audio/mpeg",
   ogg: "audio/ogg",
   wav: "audio/wav",

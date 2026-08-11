@@ -6,6 +6,7 @@
 // slot, death screen, end card), edge arrows, Tab scoreboard.
 // Reads the world each frame; never mutates the sim. Zero WebGL draw calls;
 // every per-frame style write is change-gated against a cached last value.
+import { isOfflineRequested } from "@repo/embed";
 import { CHAMP_BY_ID, valAt } from "../data/champions";
 import { abilityIcon, attackIcon, champSigil, iconUrl, statusIcon } from "../data/icons";
 import { ITEMS, ITEM_BY_ID, MAX_ITEMS, type ItemDef } from "../data/items";
@@ -21,6 +22,12 @@ import type { View } from "./view";
 const KEYCAP: Record<AbilityKey, string> = { Q: "1", W: "2", E: "3", R: "4", DASH: "⇧", JUMP: "␣" };
 /** The flat, always-unlocked mobility pair — no rank pips, no level lock. */
 const UTIL_KEYS = new Set<AbilityKey>(["DASH", "JUMP"]);
+// .ba-plate is centred on its anchor: 12px name line + 5px bar + 2px gap, and
+// the 54px HP bar is the floor on its width — a 14-char name roughly doubles it.
+const PLATE_HALF_H = 10;
+const PLATE_HALF_W = 54;
+/** Breathing room around the timer block before a plate counts as colliding. */
+const PLATE_KEEP_OUT = 6;
 
 /** Status kinds rendered with a red (hostile) border in the buff row. */
 const DEBUFF_KINDS = new Set(["stun", "root", "slow", "dot", "damageAmp", "hex"]);
@@ -120,6 +127,12 @@ export class Hud {
   private arrowDelivery!: Arrow;
   private lowHpEl: HTMLDivElement;
   private lowHpEl2: HTMLDivElement;
+  private topEl!: HTMLElement;
+  /** #ba-top's box, cached between resizes — see hitsTopBand(). */
+  private topBand: DOMRect | null = null;
+  private readonly remeasureTopBand = (): void => {
+    this.topBand = null;
+  };
 
   /** Set true by the scene for online matches — hides the HEROES button. */
   online = false;
@@ -245,6 +258,8 @@ export class Hud {
 
     this.timerEl = byId("ba-timer");
     this.goalEl = byId("ba-goal");
+    this.topEl = byId("ba-top");
+    window.addEventListener("resize", this.remeasureTopBand);
     const obj = byId("ba-objective");
     this.objCoinEl = obj.children[0] instanceof HTMLElement ? obj.children[0] : obj;
     this.objDropEl = obj.children[1] instanceof HTMLElement ? obj.children[1] : obj;
@@ -278,9 +293,7 @@ export class Hud {
     const menuBtn = byId("ba-menu-btn");
     this.menuBtn =
       menuBtn instanceof HTMLButtonElement ? menuBtn : document.createElement("button");
-    this.menuBtn.addEventListener("click", () => {
-      location.search = "?menu";
-    });
+    this.menuBtn.addEventListener("click", backToLobby);
     this.arrowCoin = { el: arrowEl("ba-arrow-coin"), lastTf: "", on: false };
     this.arrowDelivery = { el: arrowEl("ba-arrow-delivery"), lastTf: "", on: false };
 
@@ -463,6 +476,7 @@ export class Hud {
   }
 
   dispose(): void {
+    window.removeEventListener("resize", this.remeasureTopBand);
     this.lowHpEl.remove();
     this.lowHpEl2.remove();
   }
@@ -609,6 +623,23 @@ export class Hud {
     ctx.restore();
   }
 
+  /** Would a plate anchored at (x, y) collide with the timer/goal block? A
+   *  landscape phone is only 393px tall, so world-space plates drift straight
+   *  through the match clock and the win condition, which have to stay
+   *  readable — a plate that lands on them is dropped for the frame. The test
+   *  is against that block's own box rather than the whole top band: anywhere
+   *  else up there the plate is the more useful thing on screen. Plate extents
+   *  come from the constants above so a plate never forces a layout read. */
+  private hitsTopBand(x: number, y: number): boolean {
+    const band = (this.topBand ??= this.topEl.getBoundingClientRect());
+    return (
+      x + PLATE_HALF_W > band.left - PLATE_KEEP_OUT &&
+      x - PLATE_HALF_W < band.right + PLATE_KEEP_OUT &&
+      y + PLATE_HALF_H > band.top - PLATE_KEEP_OUT &&
+      y - PLATE_HALF_H < band.bottom + PLATE_KEEP_OUT
+    );
+  }
+
   private updatePlates(w: World, me: Unit): void {
     const seen = new Set<string>();
     for (const u of w.units.values()) {
@@ -636,10 +667,11 @@ export class Hud {
         this.plates.set(u.id, plate);
       }
       const s = this.view.worldToScreen(u.x, u.y);
-      if (s.visible) {
+      const top = s.y - 56;
+      if (s.visible && !this.hitsTopBand(s.x, top)) {
         plate.wrap.style.display = "block";
         plate.wrap.style.left = `${s.x}px`;
-        plate.wrap.style.top = `${s.y - 56}px`;
+        plate.wrap.style.top = `${top}px`;
         plate.fill.style.width = `${Math.max(0, (u.hp / u.maxHp) * 100)}%`;
       } else {
         plate.wrap.style.display = "none";
@@ -1226,7 +1258,7 @@ export class Hud {
       </div>`;
     this.endEl.querySelectorAll<HTMLButtonElement>(".ba-end-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
-        if (btn.dataset.act === "hero") location.search = "?menu";
+        if (btn.dataset.act === "hero") backToLobby();
         else location.reload();
       });
     });
@@ -1250,6 +1282,13 @@ export class Hud {
 
 function byId(id: string): HTMLElement {
   return document.getElementById(id)!;
+}
+
+/** Leave the match for champion select. `?offline=1` is a boot guarantee, not a
+ *  match setting, so it survives the trip — otherwise the lobby it lands on
+ *  offers PLAY ONLINE again and a session promised no socket can open one. */
+function backToLobby(): void {
+  location.search = isOfflineRequested() ? "?menu&offline=1" : "?menu";
 }
 
 /** Kill-feed champ sigil (heroes only — creeps/environment get no mark). */
@@ -1280,7 +1319,7 @@ const STYLE = `
 #ba-top{position:fixed;top:calc(12px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);text-align:center;pointer-events:none}
 #ba-timer{font:800 40px ui-monospace,monospace;color:#ffd24a;text-shadow:0 3px 0 rgba(0,0,0,.5);line-height:1;font-variant-numeric:tabular-nums;pointer-events:auto;cursor:pointer;touch-action:none}
 #ba-timer.low{color:#ff5a52}
-#ba-goal{font:700 12px ui-monospace,monospace;letter-spacing:2px;opacity:.8;margin-top:4px}
+#ba-goal{font:700 12px ui-monospace,monospace;letter-spacing:2px;opacity:.8;margin-top:4px;text-shadow:0 2px 5px rgba(0,0,0,.9)}
 #ba-objective{display:flex;gap:14px;justify-content:center;margin-top:5px;font:700 11px ui-monospace,monospace;letter-spacing:1px;opacity:.85;font-variant-numeric:tabular-nums}
 #ba-objective .coin{color:#ffd24a}
 #ba-objective .drop{color:#6bffcc}
@@ -1401,7 +1440,10 @@ body.ba-mouse-mode canvas{cursor:default}
 #ba-shop{position:fixed;bottom:120px;left:50%;transform:translateX(-50%);width:min(92vw,560px);max-height:46vh;overflow-y:auto;background:rgba(10,14,24,.94);border:2px solid rgba(255,209,71,.4);border-radius:14px;padding:12px;pointer-events:auto;z-index:8}
 .ba-shop-head{font:800 16px ui-monospace,monospace;color:#ffd24a;margin-bottom:8px}
 .ba-shop-hint{font-size:11px;opacity:.6;font-weight:600}
-.ba-shop-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+/* minmax(0,…): grid items default to min-width:auto, so plain 1fr columns
+   refuse to shrink below their content and the right column's price is clipped
+   by the panel edge on a phone. */
+.ba-shop-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px}
 .ba-item{display:flex;flex-direction:row;align-items:center;text-align:left;gap:9px;background:rgba(30,36,52,.8);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:7px 9px;color:#fff;cursor:pointer;font-family:ui-monospace,monospace}
 .ba-item.afford{border-color:rgba(107,255,142,.6)}
 .ba-item:disabled{opacity:.4;cursor:not-allowed}
@@ -1437,10 +1479,15 @@ body.ba-touch-on #ba-vitals{width:170px}
 /* keep the hint and belt clear of the bottom-right button grid */
 body.ba-touch-on #ba-hint{bottom:calc(240px + env(safe-area-inset-bottom))}
 body.ba-touch-on .ba-item-chip{width:28px;height:28px}
+/* the shared @repo/embed pause+mute cluster owns the top-right corner on a
+   coarse pointer, so the kill feed starts below it */
+body.ba-touch-on #ba-feed{top:calc(76px + env(safe-area-inset-top))}
 /* phone compaction — narrow (portrait) OR short (landscape) viewports */
 @media (max-width:720px),(max-height:500px){
 #ba-board{display:none}
-#ba-board.force{display:flex}
+/* the tapped-timer scoreboard drops below #ba-top instead of over it — the
+   timer is also the toggle back off, so it has to stay readable */
+#ba-board.force{display:flex;top:calc(92px + env(safe-area-inset-top))}
 #ba-minimap{display:none}
 .ba-abil{width:48px;height:48px}
 .ba-abil.ult{width:52px;height:52px}
@@ -1459,6 +1506,11 @@ body.ba-touch-on .ba-item-chip{width:28px;height:28px}
 .ba-end-btns{margin-top:14px}
 .ba-end-btn{padding:11px 20px;font-size:14px}
 .ba-rtitle{font-size:40px}
+}
+/* portrait phones: two shop columns leave ~100px for a name + a description,
+   so the grid collapses to one readable column and scrolls instead */
+@media (max-width:520px){
+.ba-shop-grid{grid-template-columns:minmax(0,1fr)}
 }
 `;
 

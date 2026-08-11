@@ -17,6 +17,8 @@ export const CONTROLS: ControlsManifest = [
   { method: "touch", input: "SWIPE ↓", action: "reverse" },
   { method: "touch", input: "🤳", action: "selfie cam" },
   { method: "touch", input: "TAP / ↻", action: "restart" },
+  { method: "touch", input: "📷", action: "face camera on / off" },
+  { method: "touch", input: "🔊", action: "mute" },
   { method: "camera", input: "open mouth", action: "chomp" },
   { method: "camera", input: "turn head", action: "turn" },
   { method: "controller", input: "A / STICK ↑", action: "chomp" },

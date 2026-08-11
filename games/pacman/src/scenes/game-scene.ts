@@ -14,12 +14,13 @@
 // and the maze is a bigger generated braided board.
 
 import * as THREE from "three";
-import { notifyGameStarted, watchControlContext } from "@repo/embed";
+import { createTouchControls, notifyGameStarted, watchControlContext } from "@repo/embed";
+import type { TouchControls } from "@repo/embed";
 import { PhysicalGamepad, stickDirection4 } from "@vibedgames/gamepad";
 import type { Dir4 } from "@vibedgames/gamepad";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 
-import { music, sfx } from "../audio/sfx";
+import { isSoundOn, music, sfx, unlockAudio } from "../audio/sfx";
 import { restartHint } from "../controls";
 import { IS_TOUCH } from "../input/input-mode";
 import { buildControls, ensureStyle as ensureControlsStyle } from "../pause-overlay";
@@ -148,6 +149,34 @@ const COMBO_WINDOW_S = 0.9;
 
 const SWIPE_MIN_PX = 24;
 const EPS = 1e-4;
+/**
+ * Ceiling for the portrait FOV widening below — past this it just fisheyes.
+ *
+ * 110 is deliberate, not a default. A phone wants 118° vertical to hold the
+ * 16:9 horizontal view; capping tighter (95 was tried) does buy back some of
+ * the empty sky, but it costs corridor lookahead and blows pac up until he
+ * fills the frame. The empty band above the maze comes from the chase camera's
+ * pitch, not from this angle, so narrowing here pays for nothing.
+ */
+const MAX_FOV = 110;
+
+/** Plush-clinic skin for the shared touch pause/mute cluster (@repo/embed):
+ *  same card/edge palette as the HUD pills, docked under the BEST pill so it
+ *  never lands on one. */
+const TOUCH_CONTROLS_CSS = `
+.vg-touch-controls.pac-touch {
+  top: calc(env(safe-area-inset-top, 0px) + 62px);
+  --vg-touch-bg: rgba(255, 255, 255, 0.78);
+  --vg-touch-bg-active: rgba(245, 185, 66, 0.85);
+  --vg-touch-fg: #6b5e66;
+  --vg-touch-border: 1.5px solid rgba(242, 126, 157, 0.25);
+  --vg-touch-radius: 999px;
+  --vg-touch-glyph-size: 20px;
+}
+.vg-touch-controls.pac-touch button {
+  box-shadow: 0 6px 20px rgba(212, 150, 167, 0.25);
+}
+`;
 
 export class GameScene {
   readonly scene = new THREE.Scene();
@@ -216,6 +245,18 @@ export class GameScene {
   private padStickDir: Dir4 | null = null;
   /** Live while a banner is up: re-renders it on pad connect/disconnect. */
   private unwatchControls: (() => void) | null = null;
+  /** Touch-only pause/mute cluster — the phone stand-ins for Escape and M. */
+  private touchControls: TouchControls = createTouchControls({
+    className: "pac-touch",
+    css: TOUCH_CONTROLS_CSS,
+    styleId: "pacman-touch-controls-style",
+    mute: {
+      get: () => !isSoundOn(),
+      set: (muted) => {
+        if (muted !== !isSoundOn()) this.toggleSound();
+      },
+    },
+  });
 
   // ---- display objects -----------------------------------------------------------
   /** Outer rig: world position + axis-aligned squash/stretch. */
@@ -240,6 +281,8 @@ export class GameScene {
   private shaker = new TraumaCamera();
   private t = 0;
   private fovKick = 0;
+  /** Vertical FOV for the live aspect — the kick rides on top of this. */
+  private baseFov = BASE_FOV;
   private squashKick = 0;
   private stretchAmt = 0;
   private comboIdx = 0;
@@ -271,12 +314,9 @@ export class GameScene {
   constructor() {
     this.scene.background = new THREE.Color(COLORS.bg);
     this.scene.fog = new THREE.Fog(COLORS.bg, FOG_NEAR, FOG_FAR);
-    this.camera = new THREE.PerspectiveCamera(
-      BASE_FOV,
-      window.innerWidth / window.innerHeight,
-      0.1,
-      1000,
-    );
+    const aspect = window.innerWidth / window.innerHeight;
+    this.baseFov = fovForAspect(aspect);
+    this.camera = new THREE.PerspectiveCamera(this.baseFov, aspect, 0.1, 1000);
 
     this.buildLights();
     this.buildMaze();
@@ -592,6 +632,8 @@ export class GameScene {
 
   resize(aspect: number): void {
     this.camera.aspect = aspect;
+    this.baseFov = fovForAspect(aspect);
+    this.camera.fov = this.baseFov + this.fovKick;
     this.camera.updateProjectionMatrix();
   }
 
@@ -764,10 +806,14 @@ export class GameScene {
     this.restartBtnEl.addEventListener("click", () => this.requestRestart());
   }
 
-  /** M key — one toggle for music + sfx, persisted. */
+  /** M key / the touch cluster's speaker — one toggle for music + sfx, persisted. */
   private toggleSound(): void {
     const on = music.toggle();
     sfx.setEnabled(on);
+    // The cluster seals its own pointer events, so the window listener that
+    // normally unlocks audio never sees the tap that turned sound on.
+    if (on) unlockAudio();
+    this.touchControls.sync();
     this.showNotice(on ? "♪ sound on" : "♪ sound off");
   }
 
@@ -824,7 +870,7 @@ export class GameScene {
       // Keyboard fallback for the chomp (legacy couldn't move without a webcam).
       case "Space":
         e.preventDefault();
-        this.stepRequested = true;
+        this.chomp();
         break;
     }
   };
@@ -853,16 +899,35 @@ export class GameScene {
     const dy = e.clientY - this.swipeOrigin.y;
     if (dx * dx + dy * dy < SWIPE_MIN_PX * SWIPE_MIN_PX) return;
     this.swiped = true;
+    // On a banner, ANY deliberate gesture starts the round — the same as a
+    // mouth chomp, a head turn or pad A. Steering there is a no-op, and the
+    // swipe would otherwise also eat the tap-to-restart onPointerUp gates on
+    // `!swiped`, leaving touch with no way off the gameover screen.
+    if (this.onBanner) {
+      this.handleStart();
+      return;
+    }
     if (Math.abs(dx) > Math.abs(dy)) this.steer(dx > 0 ? "right" : "left");
     else if (dy > 0) this.steer("reverse");
-    else this.stepRequested = true;
+    else this.chomp();
   };
 
   private onPointerUp = (): void => {
-    const tappable = this.phase === "title" || this.phase === "win" || this.phase === "gameover";
-    if (!this.swiped && this.swipeOrigin && tappable) this.handleStart();
+    if (!this.swiped && this.swipeOrigin && this.onBanner) this.handleStart();
     this.swipeOrigin = null;
   };
+
+  /** A banner is up, so every input means "start/restart" rather than "play". */
+  private get onBanner(): boolean {
+    return this.phase === "title" || this.phase === "win" || this.phase === "gameover";
+  }
+
+  /** One chomp: a grid step while playing, the start gesture on a banner.
+   *  Every chomp input (mouth, SPACE, swipe ↑, pad A / stick ↑) lands here. */
+  private chomp(): void {
+    if (this.onBanner) this.handleStart();
+    else this.stepRequested = true;
+  }
 
   /** Physical pad, polled per frame. Buttons mirror the keyboard: A = SPACE
    *  (chomp; start/restart from a banner), d-pad = arrows, START = R, LB =
@@ -870,11 +935,7 @@ export class GameScene {
    *  snapped direction CHANGING, so a held deflection is one turn, not sixty. */
   private pollPad(): void {
     this.pad.update();
-    const onBanner = this.phase === "title" || this.phase === "win" || this.phase === "gameover";
-    if (this.pad.justPressed("a")) {
-      if (onBanner) this.handleStart();
-      else this.stepRequested = true;
-    }
+    if (this.pad.justPressed("a")) this.chomp();
     if (this.pad.justPressed("start")) this.requestRestart();
     if (this.pad.justPressed("left")) this.steer("left");
     if (this.pad.justPressed("right")) this.steer("right");
@@ -884,7 +945,7 @@ export class GameScene {
       this.padStickDir = dir;
       if (dir === "left" || dir === "right") this.steer(dir);
       else if (dir === "down") this.steer("reverse");
-      else if (dir === "up") this.stepRequested = true;
+      else if (dir === "up") this.chomp();
     }
   }
 
@@ -911,28 +972,18 @@ export class GameScene {
     const wasOpen = this.prevMouthOpen;
     this.prevMouthOpen = open;
     if (!open || wasOpen) return;
-    if (this.phase === "title" || this.phase === "win" || this.phase === "gameover") {
-      this.handleStart();
-      return;
-    }
-    this.stepRequested = true;
+    this.chomp();
   }
 
   /** Legacy fired a synthetic ArrowLeft on head-turn-left. */
   onHeadTurnLeft(): void {
-    if (this.phase === "title" || this.phase === "win" || this.phase === "gameover") {
-      this.handleStart();
-      return;
-    }
-    this.steer("left");
+    if (this.onBanner) this.handleStart();
+    else this.steer("left");
   }
 
   onHeadTurnRight(): void {
-    if (this.phase === "title" || this.phase === "win" || this.phase === "gameover") {
-      this.handleStart();
-      return;
-    }
-    this.steer("right");
+    if (this.onBanner) this.handleStart();
+    else this.steer("right");
   }
 
   // ---- simulation ----------------------------------------------------------
@@ -1350,7 +1401,7 @@ export class GameScene {
     }
 
     this.fovKick *= Math.exp(-FOV_KICK_DECAY * dt);
-    const fov = BASE_FOV + this.fovKick;
+    const fov = this.baseFov + this.fovKick;
     if (Math.abs(fov - this.camera.fov) > 0.005) {
       this.camera.fov = fov;
       this.camera.updateProjectionMatrix();
@@ -1382,6 +1433,20 @@ function el(id: string): HTMLElement {
   const node = document.getElementById(id);
   if (!node) throw new Error(`missing #${id}`);
   return node;
+}
+
+/**
+ * Hor+ vertical FOV. `PerspectiveCamera.fov` is the VERTICAL angle, so holding
+ * BASE_FOV on a portrait phone collapses the horizontal field to ~39° — ghosts
+ * one corridor over are invisible until they touch you. Below square, solve the
+ * vertical angle that keeps the horizontal field at its square-aspect value
+ * (same construction as games/tetris/src/render/camera-rig.ts), capped so an
+ * extreme ratio stops widening rather than turning into a fish-eye.
+ */
+function fovForAspect(aspect: number): number {
+  if (aspect >= 1) return BASE_FOV;
+  const vertical = (Math.atan(Math.tan((BASE_FOV * Math.PI) / 360) / aspect) * 360) / Math.PI;
+  return Math.min(MAX_FOV, vertical);
 }
 
 /**

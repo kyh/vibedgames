@@ -71,6 +71,16 @@ const GradeShader = {
     }`,
 };
 
+/** `CAM.fov` is the VERTICAL angle, so holding it fixed on a portrait phone
+ *  collapses the horizontal view to a corridor (25° at 393×852 against 82° at
+ *  16:9). Below square, hold the HORIZONTAL fov at its square-aspect value
+ *  instead — solve vFov from hFov(1) = base — capped so extreme ratios don't
+ *  fisheye. Same solve as games/tetris' camera rig. */
+export function fovForAspect(base: number, aspect: number): number {
+  if (aspect >= 1) return base;
+  return Math.min(110, (Math.atan(Math.tan((base * Math.PI) / 360) / aspect) * 360) / Math.PI);
+}
+
 /** Clamped hermite smoothstep (GLSL semantics, increasing edges). */
 function sstep(e0: number, e1: number, x: number): number {
   const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
@@ -241,12 +251,8 @@ export class View {
     this.scene.environmentIntensity = 0.36;
     pmrem.dispose();
 
-    this.camera = new THREE.PerspectiveCamera(
-      CAM.fov,
-      window.innerWidth / window.innerHeight,
-      0.5,
-      400,
-    );
+    const aspect = window.innerWidth / window.innerHeight;
+    this.camera = new THREE.PerspectiveCamera(fovForAspect(CAM.fov, aspect), aspect, 0.5, 400);
     this.camPos.set(
       0,
       Math.sin(CAM.baseElev) * CAM.distance,
@@ -522,7 +528,7 @@ export class View {
     // FOV punch-in (kill / heavy hit / your R) — distinct channel from the shake
     this.fovPunch *= Math.max(0, 1 - 7 * dt);
     if (this.fovPunch < 0.01) this.fovPunch = 0;
-    const fovNow = CAM.fov - this.fovPunch;
+    const fovNow = fovForAspect(CAM.fov, this.camera.aspect) - this.fovPunch;
     if (Math.abs(fovNow - this.camera.fov) > 0.01) {
       this.camera.fov = fovNow;
       this.camera.updateProjectionMatrix();
@@ -574,7 +580,7 @@ export class View {
     this.kickVec.multiplyScalar(Math.max(0, 1 - dt * 11));
     this.fovPunch *= Math.max(0, 1 - 7 * dt);
     if (this.fovPunch < 0.01) this.fovPunch = 0;
-    const fovNow = fovBase - this.fovPunch;
+    const fovNow = fovForAspect(fovBase, this.camera.aspect) - this.fovPunch;
     if (Math.abs(fovNow - this.camera.fov) > 0.01) {
       this.camera.fov = fovNow;
       this.camera.updateProjectionMatrix();
@@ -722,6 +728,7 @@ export class View {
   resize(): void {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.camera.aspect = window.innerWidth / window.innerHeight;
+    this.camera.fov = fovForAspect(CAM.fov, this.camera.aspect);
     this.camera.updateProjectionMatrix();
     this.composer?.setSize(window.innerWidth, window.innerHeight);
     if (this.fxaa) {

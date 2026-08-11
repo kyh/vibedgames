@@ -3,7 +3,14 @@
 // pose into camera-relative moves (DAS/ARR, pose-freshness ownership). main.ts
 // just boots it and renders scene + camera each frame.
 
-import { controlGroups, notifyGameStarted, pauseGame, watchControlContext } from "@repo/embed";
+import {
+  controlGroups,
+  createTouchControls,
+  notifyGameStarted,
+  pauseGame,
+  watchControlContext,
+} from "@repo/embed";
+import type { TouchControls as EmbedTouchControls } from "@repo/embed";
 import { PhysicalGamepad, stickDirection4 } from "@vibedgames/gamepad";
 import { Color, Scene } from "three";
 
@@ -13,7 +20,7 @@ import type { Cell } from "../game/board";
 import { screenToWorld, type ScreenDir } from "../game/camera-correction";
 import { Engine, type LockEvent } from "../game/engine";
 import { ParticlePool } from "../fx/particles";
-import { sfx, toggleMute } from "../fx/sfx";
+import { isMuted, setMuted, sfx, toggleMute } from "../fx/sfx";
 import { Keyboard, type KeyboardHandlers } from "../input/keyboard";
 import type { PoseActions, PoseControls } from "../input/pose-control";
 import { isCoarsePointer, TouchControls, type TouchHandlers } from "../input/touch";
@@ -41,6 +48,19 @@ import {
 
 type Repeat = { dir: -1 | 0 | 1; das: number; arr: number };
 
+/** Themes the shared pause/mute cluster into the HUD's glass pills, and stacks
+ *  it so it occupies one 44px column — the top-right strip the HUD reserves. */
+const TOUCH_CONTROLS_CSS = `
+.tetris-touch-controls {
+  flex-direction: column;
+  --vg-touch-fg: #d7dcf0;
+  --vg-touch-bg: rgba(20, 22, 36, 0.66);
+  --vg-touch-bg-active: rgba(142, 162, 255, 0.28);
+  --vg-touch-border: 1px solid rgba(120, 134, 200, 0.28);
+  --vg-touch-radius: 10px;
+}
+`;
+
 function el(id: string): HTMLElement | null {
   return document.getElementById(id);
 }
@@ -55,6 +75,7 @@ export class GameScene {
   private readonly engine = new Engine();
   private readonly keyboard: Keyboard;
   private readonly touch: TouchControls;
+  private readonly touchControls: EmbedTouchControls;
   private readonly pad = new PhysicalGamepad();
   private readonly coarse = isCoarsePointer();
   private poseControls: PoseControls | null = null;
@@ -92,6 +113,14 @@ export class GameScene {
     this.particles = new ParticlePool(this.scene);
     this.keyboard = new Keyboard(this.keyboardHandlers());
     this.touch = new TouchControls(this.touchHandlers());
+    // M and P are keyboard-only: without this a phone plays permanently silent
+    // and cannot pause. No-ops on a fine pointer.
+    this.touchControls = createTouchControls({
+      mute: { get: isMuted, set: setMuted },
+      className: "tetris-touch-controls",
+      css: TOUCH_CONTROLS_CSS,
+      styleId: "tetris-touch-controls-css",
+    });
     document.body.classList.toggle("touch", this.coarse);
     this.renderLegend();
     this.showBanner("TETRIS", titleSubText());
@@ -183,7 +212,10 @@ export class GameScene {
       pause: () => this.requestPause(),
       start: () => this.startIfIdle(),
       recenter: () => this.poseControls?.recenter(),
-      muteToggle: () => toggleMute(),
+      muteToggle: () => {
+        toggleMute();
+        this.touchControls.sync();
+      },
     };
   }
 
@@ -595,13 +627,14 @@ export class GameScene {
     }
     const poseFresh = now - this.lastPoseAt < POSE_TIMEOUT_MS;
     const padFresh = now - this.lastPadAt < POSE_TIMEOUT_MS;
-    const owner =
-      poseFresh && this.lastPoseAt >= this.lastPadAt ? "POSE" : padFresh ? "PAD" : "KEYS";
+    // The idle owner is whatever the player falls back to: a phone has no keys.
+    const idle = this.coarse ? "TOUCH" : "KEYS";
+    const owner = poseFresh && this.lastPoseAt >= this.lastPadAt ? "POSE" : padFresh ? "PAD" : idle;
     if (owner !== this.hudOwner) {
       this.hudOwner = owner;
       const node = el("input-owner");
       if (node) {
-        node.textContent = owner === "POSE" ? "● POSE" : owner === "PAD" ? "● PAD" : "○ KEYS";
+        node.textContent = owner === "POSE" || owner === "PAD" ? `● ${owner}` : `○ ${owner}`;
       }
     }
   }
@@ -631,7 +664,9 @@ export class GameScene {
     const legend = el("legend");
     if (legend) legend.style.display = mode === "legend" ? "flex" : "none";
     const hotkeys = el("hotkeys");
-    if (hotkeys) hotkeys.style.display = mode === "hotkeys" ? "flex" : "none";
+    // Touch has no keyboard to reference and the bar lands on the DROP/HOLD
+    // buttons; an inline display would beat the stylesheet's `body.touch` rule.
+    if (hotkeys) hotkeys.style.display = mode === "hotkeys" && !this.coarse ? "flex" : "none";
   }
 }
 

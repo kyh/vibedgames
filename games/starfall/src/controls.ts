@@ -9,6 +9,7 @@ export const CONTROLS: ControlsManifest = [
   { method: "mouse", input: "CLICK", action: "shoot" },
   { method: "touch", input: "DRAG", action: "move" },
   { method: "touch", input: "HOLD", action: "shoot" },
+  { method: "touch", input: "🔊", action: "mute" },
   { method: "controller", input: "L-STICK", action: "move" },
   { method: "controller", input: "RT / A", action: "shoot" },
 ];

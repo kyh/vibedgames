@@ -3,15 +3,29 @@
 // Pacman forward, head turns steer. Also draws the face-mesh landmark overlay
 // onto the preview canvas, with the legacy colors.
 //
-// The camera auto-starts on page load (legacy initialized on mount, no start
-// button). On failure (denied/no camera/CDN offline) it degrades to a status
-// message — keyboard input keeps working.
+// The MediaPipe stack (a 2.3 MB wasm runtime plus a 3.8 MB model) is by far the
+// largest thing this page can download — an order of magnitude past the game
+// itself — so nothing is fetched until a camera is actually granted:
+// `getUserMedia` runs FIRST and tasks-vision is imported lazily behind it. A
+// player who denies the prompt, or has no camera, pays nothing. `start()` is
+// therefore also safe to call straight from a tap, which is the only way a
+// phone grants a camera at all (see main.ts).
+//
+// On failure (denied/no camera/CDN offline) it degrades to a status message —
+// keyboard/touch input keeps working, and another `start()` retries.
 
-import type { FaceLandmarkerResult, NormalizedLandmark } from "@mediapipe/tasks-vision";
-import { DrawingUtils, FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
+import type {
+  DrawingUtils,
+  FaceLandmarker,
+  FaceLandmarkerResult,
+  NormalizedLandmark,
+} from "@mediapipe/tasks-vision";
 
 import { HEAD_DEBOUNCE_MS, HEAD_TURN_THRESHOLD, MOUTH_OPEN_RATIO } from "../shared/constants";
 import { IS_TOUCH } from "./input-mode";
+
+/** The lazily-imported module: `FaceLandmarker`'s statics are needed to draw. */
+type Vision = typeof import("@mediapipe/tasks-vision");
 
 /** Verbatim legacy CDN URL (the 0.10.35 JS lib shipped against these binaries). */
 const WASM_CDN = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm";
@@ -41,28 +55,49 @@ export type FaceCameraOptions = {
 
 export class FaceCamera {
   private readonly opts: FaceCameraOptions;
+  private vision: Vision | null = null;
   private landmarker: FaceLandmarker | null = null;
   private drawingUtils: DrawingUtils | null = null;
   private overlayCtx: CanvasRenderingContext2D | null = null;
+  private stream: MediaStream | null = null;
   private result: FaceLandmarkerResult | null = null;
   private lastVideoTime = -1;
   private lastHeadChange = 0;
+  /** Back to "idle" on failure, so tapping the porthole retries. */
+  private state: "idle" | "starting" | "live" = "idle";
 
   constructor(opts: FaceCameraOptions) {
     this.opts = opts;
   }
 
-  /** Initialize landmarker + webcam; never throws — failures show in the panel. */
+  /**
+   * Request the webcam, then load the landmarker behind it; never throws —
+   * failures show in the panel. Idempotent: repeat calls while starting or
+   * live are ignored, so the porthole's collapse toggle can drive it.
+   */
   async start(): Promise<void> {
+    if (this.state !== "idle") return;
+    this.state = "starting";
     this.setStatus("starting camera…");
     try {
       const ctx = this.opts.overlay.getContext("2d");
       if (!ctx) throw new Error("no 2d context for overlay canvas");
       this.overlayCtx = ctx;
-      this.drawingUtils = new DrawingUtils(ctx);
 
-      const fileset = await FilesetResolver.forVisionTasks(WASM_CDN);
-      this.landmarker = await FaceLandmarker.createFromOptions(fileset, {
+      // Camera BEFORE the model: a denied prompt must not have cost 6 MB of
+      // wasm + weights, and on a phone the grant only survives inside the
+      // gesture that called us.
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user" },
+        audio: false,
+      });
+
+      this.setStatus("loading face model…");
+      const vision = await import("@mediapipe/tasks-vision");
+      this.vision = vision;
+      this.drawingUtils = new vision.DrawingUtils(ctx);
+      const fileset = await vision.FilesetResolver.forVisionTasks(WASM_CDN);
+      this.landmarker = await vision.FaceLandmarker.createFromOptions(fileset, {
         baseOptions: {
           modelAssetPath: MODEL_PATH,
           delegate: "GPU",
@@ -72,26 +107,31 @@ export class FaceCamera {
         numFaces: 1,
       });
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user" },
-        audio: false,
-      });
-
       const video = this.opts.video;
-      video.srcObject = stream;
-      video.onloadeddata = () => {
-        this.opts.overlay.width = video.videoWidth;
-        this.opts.overlay.height = video.videoHeight;
-        this.setStatus(null);
-        this.predict();
-      };
+      video.srcObject = this.stream;
+      video.addEventListener(
+        "loadeddata",
+        () => {
+          this.opts.overlay.width = video.videoWidth;
+          this.opts.overlay.height = video.videoHeight;
+          this.setStatus(null);
+          this.predict();
+        },
+        { once: true },
+      );
       void video.play();
+      this.state = "live";
     } catch (err) {
       // warn, not error: denial is an expected, fully-handled degradation.
       console.warn("face camera unavailable:", err);
+      // A stream granted before a later failure would leave the camera light
+      // on with nothing reading it.
+      for (const track of this.stream?.getTracks() ?? []) track.stop();
+      this.stream = null;
+      this.state = "idle";
       this.setStatus(
         IS_TOUCH
-          ? "camera unavailable — swipe: ↑ step · ←/→ turn"
+          ? "camera unavailable — tap to retry · swipe: ↑ step · ←/→ turn"
           : "camera unavailable — keyboard: ←/→ turn · SPACE step",
       );
     }
@@ -146,21 +186,20 @@ export class FaceCamera {
   /** Face-mesh overlay — legacy structure/order, restyled in pastels. */
   private drawMesh(landmarks: NormalizedLandmark[]): void {
     const du = this.drawingUtils;
-    if (!du) return;
-    du.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_TESSELATION, {
+    const face = this.vision?.FaceLandmarker;
+    if (!du || !face) return;
+    du.drawConnectors(landmarks, face.FACE_LANDMARKS_TESSELATION, {
       color: "#f5c9d655",
       lineWidth: 1,
     });
-    du.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_RIGHT_EYE, { color: "#f08aab" });
-    du.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_RIGHT_EYEBROW, {
-      color: "#f08aab",
-    });
-    du.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LEFT_EYE, { color: "#f08aab" });
-    du.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LEFT_EYEBROW, { color: "#f08aab" });
-    du.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_FACE_OVAL, { color: "#ecd9cf" });
-    du.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LIPS, { color: "#e8a8bd" });
-    du.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_RIGHT_IRIS, { color: "#f08aab" });
-    du.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LEFT_IRIS, { color: "#f08aab" });
+    du.drawConnectors(landmarks, face.FACE_LANDMARKS_RIGHT_EYE, { color: "#f08aab" });
+    du.drawConnectors(landmarks, face.FACE_LANDMARKS_RIGHT_EYEBROW, { color: "#f08aab" });
+    du.drawConnectors(landmarks, face.FACE_LANDMARKS_LEFT_EYE, { color: "#f08aab" });
+    du.drawConnectors(landmarks, face.FACE_LANDMARKS_LEFT_EYEBROW, { color: "#f08aab" });
+    du.drawConnectors(landmarks, face.FACE_LANDMARKS_FACE_OVAL, { color: "#ecd9cf" });
+    du.drawConnectors(landmarks, face.FACE_LANDMARKS_LIPS, { color: "#e8a8bd" });
+    du.drawConnectors(landmarks, face.FACE_LANDMARKS_RIGHT_IRIS, { color: "#f08aab" });
+    du.drawConnectors(landmarks, face.FACE_LANDMARKS_LEFT_IRIS, { color: "#f08aab" });
   }
 
   /**

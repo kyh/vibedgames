@@ -11,7 +11,7 @@ import type { PlayerMap } from "@vibedgames/multiplayer";
 import type { ModelCache } from "../assets/loader";
 
 import type { Surface } from "../vehicle/car";
-import { buildSkinBody, skinById } from "../vehicle/car";
+import { buildSkinBody, skinById, skinModelUrl } from "../vehicle/car";
 import { slopeQuaternion } from "../world/terrain";
 
 /** Instance taxis inside this radius (matches the city's DETAIL_DISTANCE so
@@ -192,11 +192,33 @@ export class RemoteCars {
     for (const [id, car] of this.cars) this.remove(id, car);
   }
 
+  // Peer skins are lazy like the player's own: a body whose GLB has not been
+  // fetched shows the default Waymo, and every car wearing that skin is
+  // dropped once the real one lands so the next sync respawns it correctly.
+  // Requested at most once per url — a failed fetch settles and stays settled
+  // rather than re-dropping the same cars forever.
+  private requestedSkins = new Set<string>();
+  private async requestSkin(url: string): Promise<void> {
+    if (this.requestedSkins.has(url)) return;
+    this.requestedSkins.add(url);
+    await this.cache.ensure(url);
+    for (const [id, car] of this.cars) {
+      if (skinModelUrl(skinById(car.skin)) === url) this.remove(id, car);
+    }
+  }
+
   private spawn(id: string, t: RemoteTransform): RemoteCar {
     const group = new THREE.Group();
     group.scale.setScalar(1.12);
     // The sender's chosen robotaxi (Waymo/Zoox/Cybercab/Cruise), sensors and all.
-    group.add(buildSkinBody(this.cache, skinById(t.skin)));
+    const skin = skinById(t.skin);
+    const url = skinModelUrl(skin);
+    if (this.cache.has(url)) {
+      group.add(buildSkinBody(this.cache, skin));
+    } else {
+      void this.requestSkin(url);
+      group.add(buildSkinBody(this.cache, skinById(null)));
+    }
 
     // A colored roof beacon so players are told apart in a crowd.
     const beaconGeo = new THREE.SphereGeometry(0.32, 12, 8);

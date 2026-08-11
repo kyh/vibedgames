@@ -1,5 +1,10 @@
 import { safeAreaInset } from "@vibedgames/gamepad";
-import { controlGroups, notifyGameStarted, watchControlContext } from "@repo/embed";
+import {
+  controlGroups,
+  isOfflineRequested,
+  notifyGameStarted,
+  watchControlContext,
+} from "@repo/embed";
 import type { ControlMethod } from "@repo/embed";
 import Phaser from "phaser";
 
@@ -92,7 +97,7 @@ export class MenuScene extends Phaser.Scene {
     }
     for (let i = 0; i < 4; i++) {
       const c = this.add
-        .image(((i + 0.4) / 4) * W, (0.12 + 0.74 * ((i * 0.53) % 1)) * H, `cloud${1 + (i % 8)}`)
+        .image(((i + 0.4) / 4) * W, (0.12 + 0.74 * ((i * 0.53) % 1)) * H, "clouds", i % 8)
         .setAlpha(0.4)
         .setScale(0.8);
       this.tweens.add({
@@ -218,38 +223,47 @@ export class MenuScene extends Phaser.Scene {
       })
       .setOrigin(0.5, 0);
 
-    // start buttons: vs Bots (local) and Online (multiplayer drop-in);
-    // stacked on narrow screens so they never overflow
-    const stack = W < 640;
+    // start buttons: vs Bots (local) and Online (multiplayer drop-in). They
+    // share one row at every width, narrowing to fit — a second stacked row
+    // pushed the controls plaque up over the top button on a portrait phone.
     const btnY = H - (this.compactH ? 52 : 72) - inset.bottom;
-    const mkBtn = (x: number, y: number, label: string, color: "blue" | "red", online: boolean) => {
+    const mkBtn = (x: number, w: number, label: string, color: "blue" | "red", online: boolean) => {
       const b = this.add
-        .nineslice(x, y, `ui-btn-${color}`, 0, 272, 66, 28, 28, 20, 26)
+        .nineslice(x, btnY, `ui-btn-${color}`, 0, w, 66, 28, 28, 20, 26)
         .setInteractive({ useHandCursor: true });
       const t = this.add
-        .text(x, y - 4, label, { fontFamily: FONT, fontSize: "21px", color: "#1e3a44" })
+        .text(x, btnY - 4, label, { fontFamily: FONT, fontSize: "21px", color: "#1e3a44" })
         .setOrigin(0.5);
+      // shrink the type rather than the object: the hover tween owns `scale`
+      if (t.width > w - 34) t.setFontSize(Math.floor((21 * (w - 34)) / t.width));
       b.on("pointerover", () => this.tweens.add({ targets: [b, t], scale: 1.05, duration: 110 }));
       b.on("pointerout", () => this.tweens.add({ targets: [b, t], scale: 1, duration: 110 }));
       b.on("pointerdown", () => {
         b.setTexture(`ui-btn-${color}-pressed`);
-        t.setText("LOADING…").setY(y);
+        t.setText("LOADING…").setY(btnY);
         notifyGameStarted();
         this.time.delayedCall(80, () =>
           this.scene.start("Game", { heroId: this.selected, online }),
         );
       });
     };
-    mkBtn(stack ? W / 2 : W / 2 - 150, stack ? btnY - 74 : btnY, "PLAY vs BOTS", "blue", false);
-    mkBtn(stack ? W / 2 : W / 2 + 150, btnY, "PLAY ONLINE", "red", true);
+    // ?offline=1 forbids any socket, so the online button is dropped rather
+    // than left as a control that silently starts a bot match.
+    if (isOfflineRequested()) {
+      mkBtn(W / 2, Math.min(272, W - 48), "PLAY vs BOTS", "blue", false);
+    } else {
+      const btnW = Math.min(272, (W - 40) / 2 - 8);
+      mkBtn(W / 2 - btnW / 2 - 8, btnW, "PLAY vs BOTS", "blue", false);
+      mkBtn(W / 2 + btnW / 2 + 8, btnW, "PLAY ONLINE", "red", true);
+    }
     // The only place controls are taught — the match HUD carries no hint bar.
     // The pause plaque's control language (gold method headers, HUD-echo
     // keycap chips) rendered as a war-plaque strip above the buttons.
-    this.buildControlsPlaque(btnY, stack);
+    this.buildControlsPlaque(btnY);
     // Plugging in (or pulling) a pad while the menu is up updates the plaque.
     // Scene instance is reused — drop any stale subscription before adding one.
     this.unwatchControls?.();
-    this.unwatchControls = watchControlContext(() => this.buildControlsPlaque(btnY, stack));
+    this.unwatchControls = watchControlContext(() => this.buildControlsPlaque(btnY));
 
     this.select(this.selected);
   }
@@ -259,7 +273,7 @@ export class MenuScene extends Phaser.Scene {
    *  rules, chips split exactly like the pause plaque (shared chipTexts). Sits
    *  above the PLAY buttons; on short viewports it collapses to a bare
    *  single-line strip below them, scaled to fit. Rebuilt fresh per call. */
-  private buildControlsPlaque(btnY: number, stack: boolean): void {
+  private buildControlsPlaque(btnY: number): void {
     this.controlsPlaque?.destroy();
     this.controlsPlaque = null;
     const W = this.scale.width;
@@ -355,9 +369,7 @@ export class MenuScene extends Phaser.Scene {
 
     if (compact) {
       // bare strip under the buttons, where the old controls line lived
-      container
-        .setScale(Math.min(1, (W - 24) / maxRowW))
-        .setPosition(W / 2, btnY + (stack ? 46 : 42));
+      container.setScale(Math.min(1, (W - 24) / maxRowW)).setPosition(W / 2, btnY + 42);
       return;
     }
 

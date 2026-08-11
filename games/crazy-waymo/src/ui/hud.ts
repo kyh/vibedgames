@@ -28,6 +28,31 @@ const RAIL_NEXT_COLOR: Record<0 | 1 | 2, string> = {
   2: TIER_COLORS[2],
 };
 
+// ---- Off-screen destination arrow -----------------------------------------
+/** HUD boxes the arrow must stay clear of, top band and bottom band alike. */
+const ARROW_OBSTACLES = [
+  "timer",
+  "score",
+  "combo-meter",
+  "district",
+  "area",
+  "fare-card",
+  "t-chat",
+  "speed",
+  "minimap",
+  "t-brake",
+  "t-boost",
+] as const;
+/** #dest-arrow is a 64px box positioned by its top-left corner. */
+const ARROW_HALF = 32;
+const ARROW_GUTTER = 8;
+/** Floor on the vertical band, for viewports too short to fit both HUD bands
+ *  and a gap. Overlapping something beats having nowhere to draw. */
+const ARROW_MIN_BAND = 140;
+/** Layout reads are cheap at this rate and the boxes only move on resize,
+ *  orientation change, or a HUD card appearing. */
+const ARROW_BOX_MS = 500;
+
 // ---- Speedometer paint (warm-ink cluster; every value is a tuning knob) ---
 const DIAL_W = 120;
 const DIAL_H = 84;
@@ -139,6 +164,8 @@ export class Hud {
   private vignette = el("vignette");
   private arrow = el("dest-arrow");
   private arrowPoly = el("dest-arrow").querySelector<SVGPolygonElement>("polygon");
+  private arrowBox: { minX: number; maxX: number; minY: number; maxY: number } | null = null;
+  private arrowBoxAt = 0;
   private banner = el("banner");
   private bannerTitle = el("banner-title");
   private bannerSub = el("banner-sub");
@@ -603,6 +630,54 @@ export class Hud {
   setVignette(intensity: number): void {
     const v = this.reduceMotion ? 0 : Math.max(0, Math.min(1, intensity));
     this.vignette.style.opacity = v.toFixed(2);
+  }
+
+  /**
+   * The box the off-screen arrow's CENTRE may sit in — the viewport minus the
+   * furniture that would hide it. Only the top and bottom edges are pushed in
+   * by the HUD: everything in ARROW_OBSTACLES is anchored to one of those two
+   * bands, and insetting the sides as well would take away the left/right the
+   * arrow exists to point at. On a phone the pedal, speedo and minimap own the
+   * whole bottom of the screen, which is precisely where a fixed NDC clamp
+   * used to park the arrow.
+   *
+   * Measured, not derived: the boxes move with orientation, safe-area insets
+   * and the `(pointer: coarse)` rules. Re-read at ARROW_BOX_MS so a layout read
+   * never lands in the per-frame path.
+   */
+  arrowBounds(): { minX: number; maxX: number; minY: number; maxY: number } {
+    const now = performance.now();
+    const cached = this.arrowBox;
+    if (cached && now - this.arrowBoxAt < ARROW_BOX_MS) return cached;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const mid = h / 2;
+    let top = 0;
+    let bottom = h;
+    for (const id of ARROW_OBSTACLES) {
+      const node = document.getElementById(id);
+      if (!node) continue;
+      const r = node.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) continue; // hidden — claims no space
+      if (r.top + r.height / 2 < mid) top = Math.max(top, r.bottom);
+      else bottom = Math.min(bottom, r.top);
+    }
+    const pad = ARROW_HALF + ARROW_GUTTER;
+    // A short landscape phone can run the two bands together; keep a strip.
+    if (bottom - top < ARROW_MIN_BAND) {
+      const centre = (top + bottom) / 2;
+      top = centre - ARROW_MIN_BAND / 2;
+      bottom = centre + ARROW_MIN_BAND / 2;
+    }
+    const box = {
+      minX: pad,
+      maxX: w - pad,
+      minY: Math.max(pad, top + pad),
+      maxY: Math.min(h - pad, bottom - pad),
+    };
+    this.arrowBox = box;
+    this.arrowBoxAt = now;
+    return box;
   }
 
   // Off-screen objective arrow. When visible it sits at (x,y) rotated to point.

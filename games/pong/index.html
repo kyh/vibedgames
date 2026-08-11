@@ -42,6 +42,14 @@
         padding: calc(18px + env(safe-area-inset-top)) calc(18px + env(safe-area-inset-right))
           calc(18px + env(safe-area-inset-bottom)) calc(18px + env(safe-area-inset-left));
       }
+      /* The touch pause/mute cluster owns the top-right corner. A narrow screen
+         is the only place the centred score reaches it — "You 11 — 11 RIVAL"
+         runs under the buttons at 393px — so drop the HUD below it there. */
+      @media (pointer: coarse) and (max-width: 480px) {
+        #hud {
+          padding-top: calc(64px + env(safe-area-inset-top));
+        }
+      }
       #score {
         font-size: 17px;
         letter-spacing: 2px;
@@ -124,14 +132,25 @@
         background: #000;
       }
 
+      /* Printed on paper rather than floating over the court: unbacked ink text
+         landed on the court's own baseline and centre line, which read as a
+         strikethrough through "PONG". Same framing as the pause card, and the
+         type is sized off the short side so a landscape phone doesn't get a
+         60px headline in 393px of height. */
       #banner {
         position: fixed;
-        top: 36%;
-        left: 0;
-        right: 0;
+        top: 34%;
+        left: 50%;
+        transform: translateX(-50%);
+        width: max-content;
+        max-width: min(92vw, 560px);
+        padding: 16px 22px 18px;
+        background: #d4d4d4;
+        border: 2px solid #000;
+        box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.85);
         text-align: center;
         font-weight: 800;
-        font-size: clamp(34px, 7vw, 72px);
+        font-size: clamp(32px, 8vmin, 72px);
         line-height: 1;
         letter-spacing: 4px;
         opacity: 0;
@@ -146,6 +165,19 @@
         letter-spacing: 3px;
       }
 
+      /* Ink-on-paper skin for @repo/embed's touch pause/mute cluster — the two
+         controls that are keyboard-only everywhere else. */
+      .vg-touch-controls {
+        --vg-touch-bg: #d4d4d4;
+        --vg-touch-bg-active: #b3b3b3;
+        --vg-touch-fg: #000;
+        --vg-touch-border: 2px solid #000;
+        --vg-touch-radius: 0;
+      }
+      .vg-touch-controls button {
+        box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.85);
+      }
+
       /* Webcam hand-tracking panel — the project's core gimmick, framed to feel
          intentional: ink border + hard offset shadow, an inverted label bar, and
          a grayscale feed so it sits in the ink-on-paper palette (the green/red
@@ -154,8 +186,10 @@
         position: fixed;
         right: calc(14px + env(safe-area-inset-right));
         bottom: calc(14px + env(safe-area-inset-bottom));
-        /* Clamped for phones: 224px would swallow 57% of a 390px screen. */
-        width: min(224px, 34vw);
+        /* Clamped for phones off the SHORT side: 34vw is right in portrait but
+           a landscape phone is 850+px wide, where the full 224px panel covers
+           the player's own paddle at full right deflection. */
+        width: min(224px, 34vmin);
         aspect-ratio: 4 / 3;
         background: #d4d4d4;
         border: 2px solid #000;
@@ -167,6 +201,17 @@
       @media (max-width: 480px) {
         #camera-panel {
           bottom: calc(64px + env(safe-area-inset-bottom));
+        }
+      }
+      /* A landscape phone has no room in the bottom-right: the player's paddle
+         sweeps the whole width ~45px off the bottom edge, so the panel moves to
+         the top-left — clear of the paddle and of the touch cluster (top-right). */
+      @media (orientation: landscape) and (max-height: 500px) {
+        #camera-panel {
+          top: calc(14px + env(safe-area-inset-top));
+          bottom: auto;
+          left: calc(14px + env(safe-area-inset-left));
+          right: auto;
         }
       }
       /* Tap-minimized: the panel collapses to a "HAND CONTROL" pill (the
@@ -203,6 +248,13 @@
         padding: 3px 7px;
         pointer-events: none;
       }
+      /* Tracking is opt-in on a phone (it costs ~17 MB and a camera prompt),
+         so there the idle pill has to say what tapping it does. */
+      @media (pointer: coarse) {
+        #camera-panel[data-state="off"]::before {
+          content: "✋ TAP FOR HAND CONTROL";
+        }
+      }
       #camera-panel video {
         object-fit: fill; /* fill (not cover) so the whole frame shows and stays aligned with the skeleton canvas */
         display: block;
@@ -219,9 +271,8 @@
         height: 100%;
         transform: scaleX(-1);
       }
-      /* Hide the feed until it's live so init/error states read as a clean panel. */
-      #camera-panel[data-state="init"] video,
-      #camera-panel[data-state="error"] video {
+      /* Hide the feed until it's live so the other states read as a clean panel. */
+      #camera-panel:not([data-state="live"]) video {
         display: none;
       }
       #camera-status {

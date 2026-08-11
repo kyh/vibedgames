@@ -1,4 +1,10 @@
-import { notifyGameStarted, watchControlContext } from "@repo/embed";
+import {
+  createTouchControls,
+  isOfflineRequested,
+  notifyGameStarted,
+  watchControlContext,
+} from "@repo/embed";
+import type { TouchControls } from "@repo/embed";
 import { PhysicalGamepad, attachVirtualGamepad, stickDirection4 } from "@vibedgames/gamepad/phaser";
 import type { PhaserGamepad } from "@vibedgames/gamepad/phaser";
 import { MultiplayerClient } from "@vibedgames/multiplayer";
@@ -43,7 +49,7 @@ import { now as simNow } from "../util/clock";
 declare global {
   interface Window {
     /** Dev-console hook (DEV builds only). */
-    __bb?: { scene: GameScene; client: MultiplayerClient };
+    __bb?: { scene: GameScene; client: MultiplayerClient | undefined };
   }
 }
 
@@ -174,6 +180,8 @@ export class GameScene extends Phaser.Scene {
   private gamepad!: PhaserGamepad;
   /** Physical controller: stick/d-pad move, A bombs, START restarts. */
   private readonly pad = new PhysicalGamepad();
+  /** Touch-only pause button. No mute accessor — the game ships no audio. */
+  private touchControls: TouchControls | null = null;
   private unwatchControls: (() => void) | null = null;
   /** When we entered a restartable state (dead or round over); null while
    *  fighting. Gates tap-to-restart — see bindInput. */
@@ -323,25 +331,39 @@ export class GameScene extends Phaser.Scene {
       })
       .setDepth(40);
 
-    // No `initialState`: the package re-applies it whenever a client becomes
-    // host, which would wipe a live round on host migration. Instead the first
-    // host seeds the world explicitly (see `ensureSeeded`) — a promoted guest
-    // already has the shared state and won't reset it.
-    this.client = new MultiplayerClient({
-      host: MULTIPLAYER_HOST,
-      party: "vg-server",
-      room: ROOM,
-      onEvent: (event, payload, from) => this.handleEvent(event, payload, from),
-    });
-    this.client.subscribe(() => {
-      this.netDirty = true;
-    });
+    // Explicit offline boot (?offline=1): never dial the party server. A
+    // failed WebSocket handshake logs a browser console error the page cannot
+    // suppress, so an offline-by-intent run (bot playtest, deliberate solo)
+    // must skip the socket entirely rather than lean on the failure fallback
+    // (maybeGoOffline), which would also hold the round behind `live` for the
+    // whole grace window. Every `this.client` access is guarded by
+    // `this.offline`, so the client simply never exists on this path.
+    if (isOfflineRequested()) {
+      this.offline = true;
+      this.netDirty = true; // no subscribe() offline — kick the first onUpdate
+      this.ensureSeeded();
+    } else {
+      // No `initialState`: the package re-applies it whenever a client becomes
+      // host, which would wipe a live round on host migration. Instead the first
+      // host seeds the world explicitly (see `ensureSeeded`) — a promoted guest
+      // already has the shared state and won't reset it.
+      this.client = new MultiplayerClient({
+        host: MULTIPLAYER_HOST,
+        party: "vg-server",
+        room: ROOM,
+        onEvent: (event, payload, from) => this.handleEvent(event, payload, from),
+      });
+      this.client.subscribe(() => {
+        this.netDirty = true;
+      });
+    }
 
     this.bindInput();
 
     this.events.on(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.applyZoom, this);
       this.gamepad.destroy();
+      this.touchControls?.destroy();
       if (!this.offline) this.client.destroy(); // offline already destroyed it
     });
 
@@ -434,9 +456,9 @@ export class GameScene extends Phaser.Scene {
 
   private bindInput(): void {
     // Mobile controls: a floating move-joystick anywhere on screen, plus a
-    // fixed bomb button bottom-right. Screen-fixed (ignores camera zoom/scroll)
-    // and above the board. Tap-to-bomb fires on the press edge. Attached before
-    // the keyboard guard so touch works even with no keyboard present.
+    // fixed bomb button bottom-right, above the board. Tap-to-bomb fires on the
+    // press edge. Attached before the keyboard guard so touch works even with
+    // no keyboard present.
     this.gamepad = attachVirtualGamepad(this, {
       buttons: [
         {
@@ -1479,6 +1501,11 @@ export class GameScene extends Phaser.Scene {
     this.started = true;
     this.unwatchControls?.();
     this.unwatchControls = null;
+    // Escape is the only other way to pause, so a phone has none. Mounted here
+    // rather than in create() because the button outranks the start screen's
+    // z-index: offered before play begins it would pause a game that hasn't
+    // started, over the one overlay that teaches the controls.
+    this.touchControls = createTouchControls();
     notifyGameStarted();
     this.startEl?.classList.add("hide");
     // Drop it only after the fade, so it can't swallow taps on the way out.

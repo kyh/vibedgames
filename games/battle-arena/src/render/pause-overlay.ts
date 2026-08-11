@@ -137,7 +137,8 @@ export function buildControlsStrip(coarse: boolean): HTMLElement | null {
 // (Control-card rules live in GROUP_CSS above, shared with the lobby.)
 const CSS = `
 .ba-pause{display:flex;align-items:center;justify-content:center;
-  padding:20px;
+  padding:calc(20px + env(safe-area-inset-top,0px)) calc(20px + env(safe-area-inset-right,0px))
+    calc(20px + env(safe-area-inset-bottom,0px)) calc(20px + env(safe-area-inset-left,0px));
   background:radial-gradient(ellipse at 50% 42%,rgba(12,14,22,.58),rgba(5,6,10,.85));
   backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
   color:#e8e2d4;font-family:ui-monospace,'SF Mono',Menlo,monospace;text-align:center}

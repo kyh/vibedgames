@@ -198,8 +198,10 @@
         color: #d7dcf0;
       }
 
-      /* Small screens: compact pills, tiny previews, two-row wrap. */
-      @media (max-width: 640px) {
+      /* Small screens: compact pills, tiny previews, two-row wrap. A landscape
+         phone is wide but short, so it needs the same compaction — gate on
+         either axis, not width alone. */
+      @media (max-width: 640px), (max-height: 550px) {
         .row {
           flex-wrap: wrap;
           gap: 6px;
@@ -228,6 +230,34 @@
         body.touch #legend {
           display: none !important;
         }
+        /* A short viewport puts the well's mouth right under the HUD row, so a
+           left-to-right score/NEXT/HOLD strip hides the piece for its first
+           second. Stack that group down the left edge, clear of the well. */
+        #hud .row > .group:first-child {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+        /* The thumb cluster reaches the vertical middle on a short screen, and
+           the banner sub-line is the only place touch movement is taught — so
+           centre it in what is left, not under the buttons. 290px = the three
+           button columns (2 x 94 apart) plus the outermost radius. */
+        body.touch #banner {
+          padding-right: 290px;
+        }
+        /* 7vw of a 852px-wide phone is a 60px title, which then runs over the
+           HUD column the banner was just shifted toward. */
+        body.touch #banner-title {
+          font-size: clamp(28px, 5.5vw, 48px);
+        }
+      }
+
+      /* Coarse pointers get @repo/embed's pause + mute cluster pinned to the
+         top-right corner (44px buttons stacked); keep the HUD out from under
+         it — every other control here is reachable by keyboard. */
+      @media (pointer: coarse) {
+        #hud .row {
+          padding-right: 54px;
+        }
       }
 
       /* Small or touch screens: shrink the webcam panel to a thumbnail pinned
@@ -253,9 +283,17 @@
           font-size: 9px;
         }
       }
+      /* Landscape phone: the thumbnail shares the right edge with the pause /
+         mute cluster above it and the thumb buttons below, so it insets past
+         the cluster's column and expands only within the band between them. */
       @media (max-height: 550px) {
         #camera-panel {
           top: calc(env(safe-area-inset-top, 0px) + 48px);
+          right: calc(env(safe-area-inset-right, 0px) + 64px);
+        }
+        #camera-panel.expanded {
+          width: 152px;
+          height: 114px;
         }
       }
     </style>

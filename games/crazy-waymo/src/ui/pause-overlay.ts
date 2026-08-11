@@ -4,7 +4,7 @@
 // full-screen fading root); the look extends the landing banner: chunky
 // italic gold display type, hazard-stripe bars, keycap chips.
 
-import { controlGroups, createPauseShell } from "@repo/embed";
+import { controlGroups, createPauseShell, resumeGame } from "@repo/embed";
 
 import { CONTROLS, METHOD_TAG } from "../controls";
 
@@ -83,6 +83,24 @@ const CSS = `
 @keyframes waymo-pulse {
   50% { transform: scale(1.05); }
 }
+#waymo-pause .prestart {
+  margin-top: 16px;
+  min-height: 44px;
+  padding: 0 18px;
+  font: 700 12px/1 ui-monospace, "SF Mono", Menlo, monospace;
+  letter-spacing: 2px;
+  color: #ffe9b0;
+  background: rgba(20, 17, 26, 0.62);
+  border: 2px solid rgba(255, 209, 71, 0.5);
+  border-radius: 10px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+#waymo-pause .prestart:active {
+  background: rgba(255, 209, 71, 0.42);
+  color: #14111a;
+}
 #waymo-pause .pgroups {
   margin-top: 30px;
   display: flex;
@@ -151,17 +169,20 @@ function hintChip(input: string, action: string): HTMLElement {
 }
 
 /** Build CRAZY WAYMO's pause overlay. Same show/hide contract as the stock
- *  @repo/embed one — wire it into setPauseHandlers from main.ts. */
-
-export function createPauseOverlay(): PauseOverlay {
+ *  @repo/embed one — wire it into setPauseHandlers from main.ts.
+ *
+ *  `onRestart` is the touch half of the R key: a player who has buried the car
+ *  in a facade has no keyboard to reach for, and pause is the one deliberate
+ *  surface where a run-ending button is safe from a mis-tap. */
+export function createPauseOverlay(onRestart: () => void): PauseOverlay {
   return createPauseShell({
     css: CSS,
     styleId: STYLE_ID,
-    render: renderContent,
+    render: (overlay) => renderContent(overlay, onRestart),
   });
 }
 
-function renderContent(overlay: HTMLElement): void {
+function renderContent(overlay: HTMLElement, onRestart: () => void): void {
   overlay.id = "waymo-pause";
   const coarse = window.matchMedia("(pointer: coarse)").matches;
 
@@ -185,7 +206,21 @@ function renderContent(overlay: HTMLElement): void {
   cta.className = "pcta";
   cta.textContent = coarse ? "TAP TO RESUME" : "CLICK OR PRESS ANY KEY";
 
-  overlay.append(plate, sub, cta);
+  // pointerup, not click: a synthesised click after touchend can land on the
+  // canvas once the overlay is gone. The shell keeps clicks on interactive
+  // children, so this does not also resume.
+  const restart = document.createElement("button");
+  restart.type = "button";
+  restart.className = "prestart";
+  restart.textContent = "↺ RESTART RUN";
+  restart.addEventListener("pointerup", (event) => {
+    event.stopPropagation();
+    event.preventDefault();
+    resumeGame();
+    onRestart();
+  });
+
+  overlay.append(plate, sub, cta, restart);
 
   // Controls, grouped per input method — fresh each show() so a pad plugged
   // in mid-run gets its PAD row.

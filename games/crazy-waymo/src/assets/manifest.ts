@@ -29,7 +29,11 @@ export const SERVICE_CARS = ["ambulance", "firetruck", "garbage-truck"] as const
 export const CONSTRUCTION_VEHICLES = ["tractor", "tractor-shovel"] as const;
 export const POLICE_CAR = "police";
 // Generated robotaxi bodies (Meshy image-to-3d from GPT-Image-2 renders of
-// the real vehicles) — player skins only, never traffic.
+// the real vehicles) — player skins only, never traffic. Three of them embed
+// their own textures and weigh 4 MB between them, so they are NOT in the boot
+// preload: `vehicle/car.ts skinModelUrl` + `ModelCache.ensure` pull one in
+// when a body actually needs it (saved skin at boot, garage forecourt, a
+// remote player's pick).
 export const GEN_ROBOTAXIS = [
   "robotaxi-cruise",
   "robotaxi-zoox",
@@ -294,14 +298,24 @@ export function lateModelUrls(): string[] {
   return allModelUrls().filter((u) => !early.has(u));
 }
 
-// Everything the game ever preloads (early + late).
+// The kits only the map editor's roster can place: nothing in world gen or
+// `custom-props.ts` references them, so a player pays 11 requests for a
+// palette they will never open. `?editor=1` loads them itself.
+export function editorModelUrls(): string[] {
+  return [
+    ...KK_CARS.map((c) => modelUrl("cars", c)),
+    ...KK_PROPS_EXTRA.map((p) => modelUrl("props", p)),
+  ];
+}
+
+// Everything the game preloads to play (early + late) — excludes the lazy
+// player skins and the editor-only kits above.
 export function allModelUrls(): string[] {
   const urls: string[] = [];
   urls.push(modelUrl("cars", PLAYER_CAR));
   urls.push(modelUrl("cars", POLICE_CAR));
   for (const c of TRAFFIC_CARS) urls.push(modelUrl("cars", c));
   for (const c of SERVICE_CARS) urls.push(modelUrl("cars", c));
-  for (const c of GEN_ROBOTAXIS) urls.push(modelUrl("cars", c));
   for (const c of CONSTRUCTION_VEHICLES) urls.push(modelUrl("cars", c));
   for (const r of ROADS) urls.push(modelUrl("roads", r));
   for (const b of [
@@ -315,8 +329,6 @@ export function allModelUrls(): string[] {
   for (const t of PARK_TILES) urls.push(modelUrl("parks", t));
   urls.push(modelUrl("buildings", GARAGE_MODEL));
   for (const b of KK_BUILDINGS) urls.push(modelUrl("buildings", b));
-  for (const c of KK_CARS) urls.push(modelUrl("cars", c));
-  for (const x of KK_PROPS_EXTRA) urls.push(modelUrl("props", x));
   for (const d of [...DEBRIS_SMALL, ...DEBRIS_BIG]) urls.push(modelUrl("debris", d));
   for (const c of CHARACTERS) urls.push(modelUrl("characters", c));
   return urls;

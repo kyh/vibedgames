@@ -244,6 +244,22 @@ export class GalleryScene extends Phaser.Scene {
   }
 
   private buildTerrainPage(): void {
+    // The flat/elevation tilesets are only ever shown here — the live map draws
+    // from the packed `tiles` sheet — so they load with the page, not the game.
+    const L = this.load;
+    L.spritesheet("t-ground", "assets/terrain/ground_flat.webp", {
+      frameWidth: CELL,
+      frameHeight: CELL,
+    });
+    L.spritesheet("t-elev", "assets/terrain/ground_elevation.webp", {
+      frameWidth: CELL,
+      frameHeight: CELL,
+    });
+    L.once(Phaser.Loader.Events.COMPLETE, () => this.renderTerrainPage());
+    L.start();
+  }
+
+  private renderTerrainPage(): void {
     // a small composed island: water bg, grass autotile patch, elevation, deco, foam line
     const cx = this.scale.width / 2;
     const cy = this.scale.height / 2 + 20;
@@ -311,19 +327,22 @@ export class GalleryScene extends Phaser.Scene {
     // load the showcase tileset + buildings + units, then
     // render. Loaded dynamically so the game build isn't affected.
     const L = this.load;
-    L.image("sc-tiles-img", "assets/terrain/tiles.png");
-    L.spritesheet("sc-tiles", "assets/terrain/tiles.png", { frameWidth: CELL, frameHeight: CELL });
-    L.image("sc-castle", "assets/showcase/castle.png");
-    L.image("sc-tower", "assets/showcase/tower.png");
-    for (let i = 1; i <= 3; i++) L.image(`sc-house${i}`, `assets/showcase/house${i}.png`);
-    L.spritesheet("sc-warrior", "assets/showcase/warrior.png", {
+    L.image("sc-tiles-img", "assets/terrain/tiles.webp");
+    L.spritesheet("sc-tiles", "assets/terrain/tiles.webp", { frameWidth: CELL, frameHeight: CELL });
+    L.image("sc-castle", "assets/showcase/castle.webp");
+    L.image("sc-tower", "assets/showcase/tower.webp");
+    for (let i = 1; i <= 3; i++) L.image(`sc-house${i}`, `assets/showcase/house${i}.webp`);
+    L.spritesheet("sc-warrior", "assets/showcase/warrior.webp", {
       frameWidth: 192,
       frameHeight: 192,
     });
-    L.spritesheet("sc-lancer", "assets/showcase/lancer.png", { frameWidth: 320, frameHeight: 320 });
-    L.spritesheet("sc-pawn", "assets/showcase/pawn.png", { frameWidth: 192, frameHeight: 192 });
-    L.spritesheet("sc-foam", "assets/terrain/foam.png", { frameWidth: 192, frameHeight: 192 });
-    L.image("sc-shadow", "assets/terrain/shadow.png");
+    L.spritesheet("sc-lancer", "assets/showcase/lancer.webp", {
+      frameWidth: 320,
+      frameHeight: 320,
+    });
+    L.spritesheet("sc-pawn", "assets/showcase/pawn.webp", { frameWidth: 192, frameHeight: 192 });
+    L.spritesheet("sc-foam", "assets/terrain/foam.webp", { frameWidth: 192, frameHeight: 192 });
+    L.image("sc-shadow", "assets/terrain/shadow.webp");
     L.once(Phaser.Loader.Events.COMPLETE, () => this.renderMap());
     L.start();
   }

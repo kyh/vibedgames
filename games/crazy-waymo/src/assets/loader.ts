@@ -188,6 +188,11 @@ export class ModelCache {
           });
           this.templates.set(url, scene);
           this.boundsCache.set(url, computeMeshBounds(scene));
+          // Both reverse indexes below are built once from `templates` — a
+          // model that arrives after them (lazy player skins) would otherwise
+          // never be findable.
+          this.matSrc = null;
+          this.canonMap = null;
           resolve();
         },
         undefined,
@@ -196,18 +201,34 @@ export class ModelCache {
     });
   }
 
-  // Load all URLs, reporting fractional progress. Failures are tolerated so one
-  // bad asset can't black-screen the whole game (callers get a fallback box).
+  /** Loaded and instanceable right now (no fallback box). */
+  has(url: string): boolean {
+    return this.templates.has(url);
+  }
+
+  // One model, on demand: deduped against any load already in flight, and
+  // never rejecting — a failed asset leaves `instance()` on its fallback box
+  // exactly as the bulk preload does, so one bad GLB can't black-screen the
+  // game. Settles (rather than retrying) so a caller polling on it terminates.
+  private inFlight = new Map<string, Promise<void>>();
+  ensure(url: string): Promise<void> {
+    if (this.templates.has(url)) return Promise.resolve();
+    const pending = this.inFlight.get(url);
+    if (pending) return pending;
+    const load = this.loadOne(url).catch((e: unknown) => {
+      console.warn("[assets] failed to load", url, e);
+    });
+    this.inFlight.set(url, load);
+    return load;
+  }
+
+  // Load all URLs, reporting fractional progress.
   async preload(urls: readonly string[], onProgress: (frac: number) => void): Promise<void> {
     let done = 0;
     const total = urls.length;
     await Promise.all(
       urls.map(async (url) => {
-        try {
-          await this.loadOne(url);
-        } catch (e) {
-          console.warn("[assets] failed to load", url, e);
-        }
+        await this.ensure(url);
         done++;
         onProgress(done / total);
       }),
