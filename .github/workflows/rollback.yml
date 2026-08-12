@@ -1,0 +1,72 @@
+name: Rollback
+
+# Manual undo for a bad deploy. `deploy.yml` uploads every build as a tagged
+# version before routing traffic to it, so every recent build is still
+# addressable here — rolling back is a routing change, not a rebuild.
+
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: "Which Worker to roll back"
+        required: true
+        type: choice
+        options:
+          - web
+          - games
+          - party
+      version_tag:
+        description: "Commit SHA of the version to restore. Leave blank to fall back to the previously-deployed version."
+        required: false
+        default: ""
+      reason:
+        description: "Why (recorded on the deployment)"
+        required: true
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Show current deployments
+        run: pnpm -F @repo/${{ inputs.app }} exec wrangler deployments list
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      # An explicit tag pins the exact build to restore. Without one, wrangler
+      # rollback steps back to the previously-deployed version, which is the
+      # right default when you just want the last-known-good state back.
+      - name: Roll back
+        run: |
+          if [ -n "${{ inputs.version_tag }}" ]; then
+            pnpm -F @repo/${{ inputs.app }} exec wrangler versions deploy \
+              --version-tag "${{ inputs.version_tag }}@100" -y \
+              --message "rollback: ${{ inputs.reason }}"
+          else
+            pnpm -F @repo/${{ inputs.app }} exec wrangler rollback -y \
+              --message "rollback: ${{ inputs.reason }}"
+          fi
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      - name: Summary
+        run: |
+          {
+            echo "### Rolled back \`${{ inputs.app }}\`"
+            echo ""
+            echo "- target: ${{ inputs.version_tag != '' && inputs.version_tag || 'previous deployment' }}"
+            echo "- reason: ${{ inputs.reason }}"
+            echo ""
+            echo "The rolled-back code is still on \`main\`. Push a revert or a fix —"
+            echo "the next deploy will overwrite this rollback."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -13,6 +13,7 @@
     "db:local": "pnpm db:push-local && pnpm db:seed-local",
     "admin:create": "tsx scripts/create-admin.ts",
     "dogfood": "tsx scripts/dogfood.ts",
+    "preview:provision": "tsx scripts/provision-preview.ts",
     "dogfood:reset": "tsx scripts/dogfood-reset.ts",
     "dev": "turbo watch db studio dev --continue --filter=!./games/*",
     "dev:web": "turbo watch dev -F @repo/web...",

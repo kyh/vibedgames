@@ -39,11 +39,11 @@ The Worker never sees `process.env` — putting `BETTER_AUTH_SECRET` in `.env` s
 | Identity                               | Use                                                           |
 | -------------------------------------- | ------------------------------------------------------------- |
 | `user@vibedgames.com` / `password123`  | browser login, regular user                                   |
-| `admin@vibedgames.com` / `password123` | browser login, admin (`/admin/users`, `/admin/invites`)       |
+| `admin@vibedgames.com` / `password123` | browser login, admin (`/admin` — users + invites sections)    |
 | `dev-local-session-token-0000000000`   | long-lived bearer token for the CLI and raw HTTP              |
 | `DEV123`                               | invite code, unlimited uses — for exercising `/auth/register` |
 
-Five sample games are seeded onto the admin account, so `/home` is non-empty when signed in as `admin@vibedgames.com`, and they show up in `/admin/users`. (The games themselves are served from the live prod subdomains; only the D1 rows are local.) `/` and `/discover` never read D1 — they render the hardcoded `featuredGames` array in `apps/web/src/components/game/data.ts`, so re-seeding cannot change them.
+Five sample games are seeded onto the admin account, so `/home` is non-empty when signed in as `admin@vibedgames.com`, and they show up in the `/admin` users list. (The games themselves are served from the live prod subdomains; only the D1 rows are local.) `/` and `/discover` never read D1 — they render the hardcoded `featuredGames` array in `apps/web/src/components/game/data.ts`, so re-seeding cannot change them.
 
 Headless auth without a browser:
 
@@ -71,7 +71,9 @@ Static gate — run before every commit:
 pnpm verify   # typecheck · lint · format · test
 ```
 
-`pnpm test` covers the `vg` CLI's unit suites plus the deterministic sim scripts in four example games. It does **not** run the Playwright e2e specs in `games/crazy-waymo` and `games/lunerfall` (`pnpm -F @repo/lunerfall test:e2e`), and there is no test for the web app or `packages/api` — so a green `verify` is a floor, not proof. Drive the change.
+`pnpm test` covers the `vg` CLI's unit suites, the deterministic sim scripts in four example games, and `packages/api` — the credits ledger and the R2 deploy path, run inside workerd against real D1 and R2 bindings via `@cloudflare/vitest-pool-workers`. Those tests derive their schema from the Drizzle TS schema at setup time (`packages/api/test/global-setup.ts`), so there is nothing to regenerate when the schema changes.
+
+It does **not** run browser tests: neither the example-game Playwright specs in `games/crazy-waymo` and `games/lunerfall` (`pnpm -F @repo/lunerfall test:e2e`) nor the web app's own suite (`pnpm -F @repo/web test:e2e`, below). A green `verify` is a floor, not proof. Drive the change.
 
 Runtime — the web app is the only surface a browser-driving agent can reach. With `pnpm dev:web` running:
 
@@ -89,7 +91,20 @@ agent-browser screenshot /tmp/after.png
 
 The auth form uses react-hook-form, so prefer the `data-test` attributes over positional refs for the two credential fields; everything else is reliable off `snapshot`.
 
-Six flows cover all nine `useMutation` sites in the app: `/settings` (create + revoke an API key), `/admin/invites` (create + revoke a code), `/admin/users` (create a user, grant credits, then re-check `/settings`), `/home` (delete a game), `/auth/register` (type `DEV123` into the invite OTP field — that is the `auth.validateInvite` mutation), `/auth/cli?code=<code>` (confirm a CLI device code — fires on mount, and deliberately invalidates nothing).
+**Every page is server-rendered and becomes typeable before React hydrates.** Text entered in that window is discarded when React mounts its controlled inputs — the visible symptoms are a submit button that never enables, or a form that submits natively as a `GET` and lands back on the same page with the values in the query string. Fill, then confirm the value stuck before submitting. The e2e suite wraps this in `fillStable` (`apps/web/e2e/helpers.ts`).
+
+### Automated: `pnpm -F @repo/web test:e2e`
+
+Those six flows are now Playwright specs in `apps/web/e2e/`, covering all nine `useMutation` sites: `/settings` (create + revoke an API key), `/admin` invites section (create + revoke a code), `/admin` users section (create a user, grant credits — the toast asserts the resulting ledger balance), `/home` (delete a game, behind its confirm dialog), `/auth/register` (`DEV123` into the invite OTP field — the `auth.validateInvite` mutation), `/auth/cli?code=<code>` (confirm a CLI device code — the spec mints a real one via `auth.cliInit`, since the mutation fires on mount and there is no button to press).
+
+Note that users and invites are two sections of a single `/admin` page — there are no `/admin/users` or `/admin/invites` routes.
+
+```sh
+pnpm -F @repo/web test:e2e                      # against a local dev:web (started for you)
+E2E_BASE_URL=https://pr-12-… pnpm -F @repo/web test:e2e   # against a deployed preview
+```
+
+`E2E_CHROMIUM_PATH` points Playwright at an already-installed Chromium when the sandbox's revision does not match; `E2E_CDP_URL` routes the browser through Cloudflare Browser Run instead of launching one locally. The specs mutate shared server state, so they run serially.
 
 ## Platform matrix
 
@@ -108,7 +123,13 @@ For the surfaces marked No, `pnpm typecheck` and `pnpm build` are the gate; a re
 
 ## Rules that matter
 
-- **Never `wrangler deploy` locally.** Deploys happen from GitHub Actions on push to `main`.
+- **Never `wrangler deploy` locally.** Deploys happen from GitHub Actions on push to `main`. Every build is uploaded as a version tagged with its commit SHA and then ramped (web and games: 10% → soak → 100%; party goes straight to 100%, because only one version of a Durable Object runs at a time). Undo is the **Rollback** workflow, not a revert-and-redeploy.
+- **A PR gets a preview at `pr-<n>-vibedgames-web-preview.…workers.dev`**, deployed from `env.preview` in `apps/web/wrangler.jsonc` with its own D1 and its own R2 bucket. Two things make that isolation real, and both are easy to break:
+  - `routes` is an **inheritable** wrangler key. `env.preview` sets `"routes": []` explicitly; delete that line and the preview Worker inherits `vibedgames.com/*` and takes production traffic on deploy.
+  - The Cloudflare Vite plugin resolves bindings at **build** time into `dist/server/wrangler.json`. The environment is selected with `CLOUDFLARE_ENV=preview` before `vite build` — passing `--env` to `wrangler` afterwards does nothing, because wrangler is reading the already-resolved config.
+
+  Previews get no `FAL_API_KEY`, so they cannot spend generation credits. Backing resources come from `pnpm preview:provision` (idempotent).
+
 - **`vg deploy` against `localhost` is safe — but only `localhost`.** When the Host header is `localhost[:port]`, `presignPut`/`presignGet` hand back HMAC-signed `/api/r2-upload` and `/api/r2-download` proxy URLs, so bytes land in the Miniflare-simulated `GAMES_BUCKET`, not prod R2 (`packages/api/src/deploy/r2-presign.ts`); `deletePrefix` always goes through the binding. The `R2_*` values in `apps/web/.dev.vars` only need to be non-empty for the config to be constructed — dummies work. The check is on the literal host string, so pointing the CLI at `http://127.0.0.1:5173` bypasses the proxy and presigns against **production** R2.
 - **Never push schema to remote.** `pnpm db:push` and `pnpm db:push-remote` both target production D1. Local work is `pnpm db:push-local` / `pnpm db:local`.
 - **Every mutation invalidates exactly the query keys it touches**, in its own `onSuccess`. There is no blanket invalidation in the query client; if a write should refresh a list, say so at the call site.
