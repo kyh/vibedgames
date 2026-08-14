@@ -104,6 +104,18 @@ export {
   runQc,
   verdictFor,
 } from "./sprite/qc.js";
+export {
+  computeProfiles,
+  DEFAULT_SNAP_CONFIG,
+  estimateStepSize,
+  quantize,
+  resample,
+  resolveStepSizes,
+  sanitizeCuts,
+  type SnapConfig,
+  snapImage,
+  walk,
+} from "./sprite/pixel-snap.js";
 export { packSpritesheet, type PackResult, type SpritesheetManifest } from "./sprite/pack.js";
 
 export { roundHalfToEven } from "./pymath.js";
