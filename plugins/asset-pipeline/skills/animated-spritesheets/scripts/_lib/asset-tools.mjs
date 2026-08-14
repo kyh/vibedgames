@@ -4550,13 +4550,236 @@ Suggested: Add more detail about when to use this skill, what triggers it, and w
   return suggestions;
 }
 
+// src/skill/init.ts
+import { chmodSync, existsSync as existsSync6, mkdirSync as mkdirSync3, writeFileSync as writeFileSync3 } from "node:fs";
+import { join as join4, resolve as resolve5 } from "node:path";
+
+// src/skill/templates.ts
+var SKILL_TEMPLATE = (skillName, skillTitle) => `---
+name: ${skillName}
+description: "TODO: Complete and informative explanation of what the skill does and when to use it. Include WHEN to use this skill - specific scenarios, file types, or tasks that trigger it."
+---
+
+# ${skillTitle}
+
+## Overview
+
+[TODO: 1-2 sentences explaining what this skill enables]
+
+## Structuring This Skill
+
+[TODO: Choose the structure that best fits this skill's purpose. Common patterns:
+
+**1. Workflow-Based** (best for sequential processes)
+- Works well when there are clear step-by-step procedures
+- Example: DOCX skill with "Workflow Decision Tree" \u2192 "Reading" \u2192 "Creating" \u2192 "Editing"
+- Structure: ## Overview \u2192 ## Workflow Decision Tree \u2192 ## Step 1 \u2192 ## Step 2...
+
+**2. Task-Based** (best for tool collections)
+- Works well when the skill offers different operations/capabilities
+- Example: PDF skill with "Quick Start" \u2192 "Merge PDFs" \u2192 "Split PDFs" \u2192 "Extract Text"
+- Structure: ## Overview \u2192 ## Quick Start \u2192 ## Task Category 1 \u2192 ## Task Category 2...
+
+**3. Reference/Guidelines** (best for standards or specifications)
+- Works well for brand guidelines, coding standards, or requirements
+- Example: Brand styling with "Brand Guidelines" \u2192 "Colors" \u2192 "Typography" \u2192 "Features"
+- Structure: ## Overview \u2192 ## Guidelines \u2192 ## Specifications \u2192 ## Usage...
+
+**4. Capabilities-Based** (best for integrated systems)
+- Works well when the skill provides multiple interrelated features
+- Example: Product Management with "Core Capabilities" \u2192 numbered capability list
+- Structure: ## Overview \u2192 ## Core Capabilities \u2192 ### 1. Feature \u2192 ### 2. Feature...
+
+Patterns can be mixed and matched as needed. Most skills combine patterns (e.g., start with task-based, add workflow for complex operations).
+
+Delete this entire "Structuring This Skill" section when done - it's just guidance.]
+
+## [TODO: Replace with the first main section based on chosen structure]
+
+[TODO: Add content here. See examples in existing skills:
+- Code samples for technical skills
+- Decision trees for complex workflows
+- Concrete examples with realistic user requests
+- References to scripts/templates/references as needed]
+
+## Resources
+
+This skill includes example resource directories that demonstrate how to organize different types of bundled resources:
+
+### scripts/
+Executable code (Python/Bash/etc.) that can be run directly to perform specific operations.
+
+**Examples from other skills:**
+- PDF skill: \`fill_fillable_fields.py\`, \`extract_form_field_info.py\` - utilities for PDF manipulation
+- DOCX skill: \`document.py\`, \`utilities.py\` - Python modules for document processing
+
+**Appropriate for:** Python scripts, shell scripts, or any executable code that performs automation, data processing, or specific operations.
+
+**Note:** Scripts may be executed without loading into context, but can still be read by Claude for patching or environment adjustments.
+
+### references/
+Documentation and reference material intended to be loaded into context to inform Claude's process and thinking.
+
+**Examples from other skills:**
+- Product management: \`communication.md\`, \`context_building.md\` - detailed workflow guides
+- BigQuery: API reference documentation and query examples
+- Finance: Schema documentation, company policies
+
+**Appropriate for:** In-depth documentation, API references, database schemas, comprehensive guides, or any detailed information that Claude should reference while working.
+
+### assets/
+Files not intended to be loaded into context, but rather used within the output Claude produces.
+
+**Examples from other skills:**
+- Brand styling: PowerPoint template files (.pptx), logo files
+- Frontend builder: HTML/React boilerplate project directories
+- Typography: Font files (.ttf, .woff2)
+
+**Appropriate for:** Templates, boilerplate code, document templates, images, icons, fonts, or any files meant to be copied or used in the final output.
+
+---
+
+**Any unneeded directories can be deleted.** Not every skill requires all three types of resources.
+`;
+var EXAMPLE_REFERENCE = (skillTitle) => `# Reference Documentation for ${skillTitle}
+
+This is a placeholder for detailed reference documentation.
+Replace with actual reference content or delete if not needed.
+
+Example real reference docs from other skills:
+- product-management/references/communication.md - Comprehensive guide for status updates
+- product-management/references/context_building.md - Deep-dive on gathering context
+- bigquery/references/ - API references and query examples
+
+## When Reference Docs Are Useful
+
+Reference docs are ideal for:
+- Comprehensive API documentation
+- Detailed workflow guides
+- Complex multi-step processes
+- Information too lengthy for main SKILL.md
+- Content that's only needed for specific use cases
+
+## Structure Suggestions
+
+### API Reference Example
+- Overview
+- Authentication
+- Endpoints with examples
+- Error codes
+- Rate limits
+
+### Workflow Guide Example
+- Prerequisites
+- Step-by-step instructions
+- Common patterns
+- Troubleshooting
+- Best practices
+`;
+var EXAMPLE_ASSET = `# Example Asset File
+
+This placeholder represents where asset files would be stored.
+Replace with actual asset files (templates, images, fonts, etc.) or delete if not needed.
+
+Asset files are NOT intended to be loaded into context, but rather used within
+the output Claude produces.
+
+Example asset files from other skills:
+- Brand guidelines: logo.png, slides_template.pptx
+- Frontend builder: hello-world/ directory with HTML/React boilerplate
+- Typography: custom-font.ttf, font-family.woff2
+- Data: sample_data.csv, test_dataset.json
+
+## Common Asset Types
+
+- Templates: .pptx, .docx, boilerplate directories
+- Images: .png, .jpg, .svg, .gif
+- Fonts: .ttf, .otf, .woff, .woff2
+- Boilerplate code: Project directories, starter files
+- Icons: .ico, .svg
+- Data files: .csv, .json, .xml, .yaml
+
+Note: This is a text placeholder. Actual assets can be any file type.
+`;
+var EXAMPLE_SCRIPT = (skillName) => `#!/usr/bin/env node
+/**
+ * Example helper script for ${skillName}
+ *
+ * This is a placeholder script that can be executed directly.
+ * Replace with actual implementation or delete if not needed.
+ *
+ * Example real scripts from other skills:
+ * - asset-pipeline/scripts/asset_sheet_probe.mjs - Reports non-empty sprite frames
+ * - pixel-snapper/scripts/pixel_snapper.mjs - Recovers a native pixel grid
+ */
+
+function main() {
+  console.log("This is an example script for the ${skillName} skill");
+  console.log("Replace this with actual functionality or delete this file");
+}
+
+main();
+`;
+
+// src/skill/init.ts
+function titleCaseSkillName(skillName) {
+  return skillName.split("-").map((word) => word ? word[0].toUpperCase() + word.slice(1).toLowerCase() : word).join(" ");
+}
+function initSkill(skillName, path, log) {
+  const skillDir = join4(resolve5(path), skillName);
+  if (existsSync6(skillDir)) {
+    log(`\u274C Error: Skill directory already exists: ${skillDir}`);
+    return null;
+  }
+  const created = [];
+  try {
+    mkdirSync3(skillDir, { recursive: true });
+    log(`\u2705 Created skill directory: ${skillDir}`);
+  } catch (error) {
+    log(`\u274C Error creating directory: ${error instanceof Error ? error.message : error}`);
+    return null;
+  }
+  const skillTitle = titleCaseSkillName(skillName);
+  try {
+    writeFileSync3(join4(skillDir, "SKILL.md"), SKILL_TEMPLATE(skillName, skillTitle));
+    log("\u2705 Created SKILL.md");
+    created.push("SKILL.md");
+  } catch (error) {
+    log(`\u274C Error creating SKILL.md: ${error instanceof Error ? error.message : error}`);
+    return null;
+  }
+  try {
+    const scriptsDir = join4(skillDir, "scripts");
+    mkdirSync3(scriptsDir, { recursive: true });
+    const scriptPath = join4(scriptsDir, "example.mjs");
+    writeFileSync3(scriptPath, EXAMPLE_SCRIPT(skillName));
+    chmodSync(scriptPath, 493);
+    log("\u2705 Created scripts/example.mjs");
+    created.push("scripts/example.mjs");
+    const referencesDir = join4(skillDir, "references");
+    mkdirSync3(referencesDir, { recursive: true });
+    writeFileSync3(join4(referencesDir, "api_reference.md"), EXAMPLE_REFERENCE(skillTitle));
+    log("\u2705 Created references/api_reference.md");
+    created.push("references/api_reference.md");
+    const assetsDir = join4(skillDir, "assets");
+    mkdirSync3(assetsDir, { recursive: true });
+    writeFileSync3(join4(assetsDir, "example_asset.txt"), EXAMPLE_ASSET);
+    log("\u2705 Created assets/example_asset.txt");
+    created.push("assets/example_asset.txt");
+  } catch (error) {
+    log(`\u274C Error creating resource directories: ${error instanceof Error ? error.message : error}`);
+    return null;
+  }
+  return { dir: skillDir, created };
+}
+
 // src/skill/validate.ts
-import { existsSync as existsSync6, readFileSync as readFileSync5 } from "node:fs";
-import { join as join4 } from "node:path";
+import { existsSync as existsSync7, readFileSync as readFileSync5 } from "node:fs";
+import { join as join5 } from "node:path";
 var ALLOWED_PROPERTIES = ["name", "description", "license", "allowed-tools", "metadata"];
 function validateSkill(skillPath) {
-  const skillMd = join4(skillPath, "SKILL.md");
-  if (!existsSync6(skillMd)) return { valid: false, message: "SKILL.md not found" };
+  const skillMd = join5(skillPath, "SKILL.md");
+  if (!existsSync7(skillMd)) return { valid: false, message: "SKILL.md not found" };
   const content = readFileSync5(skillMd, "utf8");
   if (!content.startsWith("---")) {
     return { valid: false, message: "No YAML frontmatter found" };
@@ -4803,6 +5026,7 @@ export {
   getNumber,
   getString,
   globFrames,
+  initSkill,
   isGreenMatte,
   isKeyableFringeChroma,
   keepLargestComponents,
@@ -4855,6 +5079,7 @@ export {
   tileCount,
   tileIdFromColRow,
   tilesetMetaFromManifest,
+  titleCaseSkillName,
   toHex,
   toPythonJson,
   totalCells,

@@ -205,6 +205,7 @@ export {
   checkVariation,
 } from "./skill/analyze.js";
 export { generateSuggestions, type Suggestion } from "./skill/upgrade.js";
+export { initSkill, type InitResult, titleCaseSkillName } from "./skill/init.js";
 export { validateSkill } from "./skill/validate.js";
 export { createZip, type ZipEntry } from "./skill/zip.js";
 
