@@ -1,4 +1,4 @@
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, join, relative } from "node:path";
 
 import { defineCommand } from "citty";
@@ -18,7 +18,17 @@ import {
   writeTextFile,
 } from "../asset/paths.js";
 import { analyzeBaseline, probeSheet } from "../asset/sheet.js";
+import {
+  exportMapRender,
+  exportTilesetGrid,
+  loadManifestJson,
+  makeSelftestMap,
+  MANIFEST_JSON_CANDIDATES,
+  sanitizeTilesets,
+  tilesetMetaFromManifest,
+} from "../asset/tilemap.js";
 import { collectSizes, sizesToCsv } from "../asset/sizes.js";
+import { parseColor } from "../image/color.js";
 import { outputArgs, writeStructured } from "../lib/output.js";
 
 /**
@@ -26,6 +36,40 @@ import { outputArgs, writeStructured } from "../lib/output.js";
  * `plugins/asset-pipeline/skills/asset-pipeline/scripts/*.py`. Same flags,
  * same reports, no Python.
  */
+
+/**
+ * Locate the JSON manifest for tilemap exports: an explicit path, a folder
+ * containing one, or the conventional names in the working directory.
+ */
+function resolveTilemapManifest(explicit: string | undefined): string {
+  if (!explicit) {
+    const found = MANIFEST_JSON_CANDIDATES.find((c) => existsSync(c));
+    if (!found) {
+      consola.error(
+        `Manifest not found. Pass --manifest or create one of: ${MANIFEST_JSON_CANDIDATES.join(", ")}`,
+      );
+      process.exit(1);
+    }
+    return found;
+  }
+  if (existsSync(explicit) && statSync(explicit).isDirectory()) {
+    const inside = ["assets_index.json", "asset_index.json"]
+      .map((n) => join(explicit, n))
+      .find((c) => existsSync(c));
+    if (!inside) {
+      consola.error(
+        `--manifest points at a directory (${explicit}), but no assets_index.json was found inside.`,
+      );
+      process.exit(1);
+    }
+    return inside;
+  }
+  if (!existsSync(explicit)) {
+    consola.error(`Manifest not found: ${explicit}`);
+    process.exit(1);
+  }
+  return explicit;
+}
 
 /** Citty types positionals as optional; fail loudly rather than reading `undefined`. */
 function requirePath(value: string | undefined): string {
@@ -245,6 +289,123 @@ const manifestExport = defineCommand({
   },
 });
 
+const tilemap = defineCommand({
+  meta: {
+    name: "tilemap",
+    description: "Export tileset grid overlays, self-test maps, and tilemap renders.",
+  },
+  args: {
+    manifest: {
+      type: "string",
+      description: "Path to assets_index.json, or a folder containing one (default: auto-detect).",
+    },
+    map: { type: "string", description: "Tilemap JSON to render." },
+    tileset: {
+      type: "string",
+      description: "Tileset name to use (default: first in the manifest, alphabetically).",
+    },
+    "export-tileset-grid": {
+      type: "string",
+      description: "Write a grid-overlay PNG for the tileset to this path.",
+    },
+    "export-map-render": {
+      type: "string",
+      description: "Render --map to a PNG at this path.",
+    },
+    "make-selftest-map": {
+      type: "string",
+      description: "Write a tilemap JSON placing every non-empty tile at its own coordinate.",
+    },
+    scale: { type: "string", description: "Scale factor for PNG exports (default: 4)." },
+    "label-ids": { type: "boolean", description: "Label tile IDs on the exported grid." },
+    bg: { type: "string", description: "Background colour for --export-map-render." },
+    "fill-rect": {
+      type: "string",
+      description: "Fill a tile-rect behind tiles: x,y,w,h,#RRGGBB[AA] in tile units. Repeatable.",
+    },
+    trim: { type: "boolean", description: "Trim transparent borders on PNG exports." },
+  },
+  run: ({ args }) => {
+    const manifestPath = resolveTilemapManifest(args.manifest);
+    const manifest = loadManifestJson(manifestPath);
+    const tilesets = sanitizeTilesets(manifest);
+    const name = args.tileset ?? Object.keys(tilesets).sort()[0]!;
+    let meta = tilesetMetaFromManifest(manifestPath, manifest, name);
+    const scale = args.scale === undefined ? 4 : Number(args.scale);
+    if (!Number.isFinite(scale)) {
+      consola.error("--scale must be a number.");
+      process.exit(1);
+    }
+
+    if (!args["export-tileset-grid"] && !args["export-map-render"] && !args["make-selftest-map"]) {
+      consola.error(
+        "Nothing to do. Pass --export-tileset-grid, --export-map-render or --make-selftest-map.",
+      );
+      process.exit(1);
+    }
+
+    if (args["export-tileset-grid"]) {
+      exportTilesetGrid(meta, args["export-tileset-grid"], {
+        scale,
+        labelIds: Boolean(args["label-ids"]),
+        trim: Boolean(args.trim),
+      });
+      consola.log(`Wrote ${args["export-tileset-grid"]}`);
+    }
+
+    if (args["export-map-render"]) {
+      if (!args.map) {
+        consola.error("--export-map-render requires --map PATH");
+        process.exit(1);
+      }
+      const mapPayload: unknown = JSON.parse(readFileSync(args.map, "utf8"));
+      if (mapPayload === null || typeof mapPayload !== "object" || Array.isArray(mapPayload)) {
+        consola.error("Map JSON must be an object at top-level.");
+        process.exit(1);
+      }
+      // A map may name its own tileset, which wins over the CLI default.
+      const mapMeta = (mapPayload as Record<string, unknown>).meta;
+      if (mapMeta !== null && typeof mapMeta === "object" && !Array.isArray(mapMeta)) {
+        const named = (mapMeta as Record<string, unknown>).tileset;
+        if (typeof named === "string" && named in tilesets) {
+          meta = tilesetMetaFromManifest(manifestPath, manifest, named);
+        }
+      }
+
+      const rawFills = args["fill-rect"];
+      const fillSpecs =
+        rawFills === undefined ? [] : Array.isArray(rawFills) ? rawFills : [rawFills];
+      const fills = fillSpecs.map((spec) => {
+        const parts = String(spec)
+          .split(",")
+          .map((p) => p.trim());
+        if (parts.length !== 5) throw new Error("--fill-rect must be x,y,w,h,#RRGGBB[AA]");
+        return {
+          x: Number(parts[0]),
+          y: Number(parts[1]),
+          w: Number(parts[2]),
+          h: Number(parts[3]),
+          color: parseColor(parts[4]!),
+        };
+      });
+
+      exportMapRender(meta, args["export-map-render"], {
+        mapPayload: mapPayload as Record<string, unknown>,
+        scale,
+        background: args.bg ? parseColor(args.bg) : null,
+        fills,
+        trim: Boolean(args.trim),
+      });
+      consola.log(`Wrote ${args["export-map-render"]}`);
+    }
+
+    if (args["make-selftest-map"]) {
+      writeJsonFile(args["make-selftest-map"], makeSelftestMap(meta));
+      consola.log(`Wrote ${args["make-selftest-map"]}`);
+    }
+  },
+});
+
 export const assetCommand = defineCommand({
   meta: {
     name: "asset",
@@ -256,5 +417,6 @@ export const assetCommand = defineCommand({
     "sprite-baseline": spriteBaseline,
     "manifest-check": manifestCheck,
     "manifest-export": manifestExport,
+    tilemap,
   },
 });
