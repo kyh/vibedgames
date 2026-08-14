@@ -98,9 +98,7 @@ function resolveGameUrl(slug: string | null): string {
   // steer the browser off `*.vibedgames.com` entirely — `../`, an embedded
   // `/`, or `evil.com#` would all re-point the origin.
   if (!SLUG_RE.test(resolved)) {
-    consola.error(
-      `"${resolved}" isn't a valid game slug (lowercase letters, digits, and single hyphens).`,
-    );
+    consola.error(`Invalid game slug "${resolved}". Use lowercase letters, digits, and hyphens.`);
     process.exit(1);
   }
 
