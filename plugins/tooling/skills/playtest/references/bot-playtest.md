@@ -98,8 +98,11 @@ The script is just a loop over `vg playtest` calls. When you need something it d
 
 ```sh
 vg playtest open "http://localhost:5173?test=1&seed=42"
-vg playtest wait --fn "(window.__GAME_DIAGNOSTICS__?.frame ?? 0) > 10"
+# Wait for the CONTRACT first, not for frames — a game sitting on its menu
+# never advances a frame until seed()/setState() has started a run.
+vg playtest wait --fn "window.__GAME_TEST_HOOKS__ !== undefined"
 vg playtest eval "window.__GAME_TEST_HOOKS__.seed(42)"
+vg playtest wait --fn "(window.__GAME_DIAGNOSTICS__?.frame ?? 0) > 10"
 vg playtest eval "window.dispatchEvent(new KeyboardEvent('keydown',{key:'d',code:'KeyD',keyCode:68,which:68,bubbles:true}))"
 vg playtest wait 1500
 vg playtest eval "window.dispatchEvent(new KeyboardEvent('keyup',{key:'d',code:'KeyD',keyCode:68,which:68,bubbles:true}))"

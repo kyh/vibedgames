@@ -29,6 +29,37 @@ const PKG_SPEC = `${PKG}@^0.34.0`;
 /** Subcommands that take a URL, and so can accept `--game`. */
 const NAVIGATE = new Set(["open", "goto", "navigate"]);
 
+/**
+ * Global flags that consume the following token. Needed so `--session p1` isn't
+ * mistaken for the subcommand `p1`. Only flags that can legitimately appear
+ * BEFORE the subcommand matter here; everything else starting with `-` is
+ * treated as a boolean, and `--flag=value` needs no entry at all.
+ */
+const VALUED_GLOBAL_FLAGS = new Set([
+  "--session",
+  "--profile",
+  "--engine",
+  "--executable-path",
+  "--timeout",
+  "--idle-timeout",
+  "--args",
+  "--proxy",
+  "--state",
+  "--headers",
+  "--tools",
+]);
+
+/** Index of the subcommand token, or -1 when the args are all flags. */
+function findSubcommand(args: string[]): number {
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === undefined) continue;
+    if (!arg.startsWith("-")) return i;
+    if (VALUED_GLOBAL_FLAGS.has(arg)) i += 1; // skip its value
+  }
+  return -1;
+}
+
 /** True if agent-browser is on PATH (installed via npm, brew, or cargo). */
 function isInstalled(bin: string): boolean {
   // cross-spawn's sync sets `error` to null on success (node's spawnSync leaves
@@ -113,11 +144,12 @@ export function expandGameFlag(args: string[], resolveUrl = resolveGameUrl): str
   const slug = next !== undefined && !next.startsWith("-") ? next : null;
   const rest = [...args.slice(0, index), ...args.slice(index + (slug ? 2 : 1))];
 
-  // The subcommand is the first bare token left; `vg playtest --game` alone
-  // means "open it".
-  const command = rest.find((arg) => !arg.startsWith("-"));
-  if (command === undefined) return ["open", resolveUrl(slug), ...rest];
+  // `vg playtest --game` (or `--session p1 --game`) with no subcommand means
+  // "open it" — prepend `open` so global flags still lead.
+  const at = findSubcommand(rest);
+  if (at === -1) return [...rest, "open", resolveUrl(slug)];
 
+  const command = rest[at] as string;
   if (!NAVIGATE.has(command)) {
     consola.error(
       `\`--game\` sets the URL to open, so it only works with \`${[...NAVIGATE].join("`, `")}\` — not \`${command}\`. Open the game first, then run \`vg playtest ${command} …\` against it.`,
@@ -125,7 +157,6 @@ export function expandGameFlag(args: string[], resolveUrl = resolveGameUrl): str
     process.exit(1);
   }
 
-  const at = rest.indexOf(command);
   return [...rest.slice(0, at + 1), resolveUrl(slug), ...rest.slice(at + 1)];
 }
 

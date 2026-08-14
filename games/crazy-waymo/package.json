@@ -30,6 +30,7 @@
     "@kyh/tsconfig": "catalog:",
     "@types/node": "catalog:",
     "@types/three": "^0.185.1",
+    "playwright-core": "^1.62.0",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vite-node": "^6.0.0"

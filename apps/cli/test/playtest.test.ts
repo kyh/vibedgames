@@ -27,12 +27,40 @@ test("expandGameFlag inserts the URL after an explicit navigate subcommand", () 
   ]);
 });
 
-test("expandGameFlag keeps trailing flags after the injected URL", () => {
+test("expandGameFlag appends the implicit `open` after leading flags", () => {
+  // With no subcommand, `open` + URL go last so any global flag keeps its
+  // position (and, crucially, stays adjacent to its own value).
   assert.deepEqual(expandGameFlag(["--game", "my-game", "--headed", "--json"]), [
-    "open",
-    "https://my-game.vibedgames.com",
     "--headed",
     "--json",
+    "open",
+    "https://my-game.vibedgames.com",
+  ]);
+});
+
+test("expandGameFlag does not mistake a valued global flag's value for the subcommand", () => {
+  assert.deepEqual(expandGameFlag(["--session", "p1", "--game", "my-game"]), [
+    "--session",
+    "p1",
+    "open",
+    "https://my-game.vibedgames.com",
+  ]);
+  assert.deepEqual(expandGameFlag(["--session", "p1", "open", "--game", "my-game"]), [
+    "--session",
+    "p1",
+    "open",
+    "https://my-game.vibedgames.com",
+  ]);
+});
+
+test("expandGameFlag handles a subcommand that repeats a flag value", () => {
+  // `--profile open` must not make the URL land at the `open` in the flag's
+  // value — the insertion point comes from the scan, not from indexOf.
+  assert.deepEqual(expandGameFlag(["--profile", "open", "open", "--game", "my-game"]), [
+    "--profile",
+    "open",
+    "open",
+    "https://my-game.vibedgames.com",
   ]);
 });
 
@@ -45,7 +73,7 @@ test("expandGameFlag treats a following flag as 'no slug given'", () => {
     return "https://from-project-config.vibedgames.com";
   });
   assert.deepEqual(seen, [null]);
-  assert.deepEqual(out, ["open", "https://from-project-config.vibedgames.com", "--headed"]);
+  assert.deepEqual(out, ["--headed", "open", "https://from-project-config.vibedgames.com"]);
 });
 
 test("expandGameFlag passes an explicit slug through to URL resolution", () => {
