@@ -42,6 +42,7 @@ export {
   prettyPath,
   resolveTargets,
   type Size,
+  toPythonJson,
   walkFiles,
   writeJsonFile,
   writeTextFile,
@@ -93,6 +94,16 @@ export {
   type RecoverResult,
 } from "./sprite/recover.js";
 export { buildSequenceGif } from "./sprite/sequence-gif.js";
+export {
+  frameGeometry,
+  frameMetrics,
+  type FrameMetrics,
+  qc,
+  type QcCheck,
+  type QcReport,
+  runQc,
+  verdictFor,
+} from "./sprite/qc.js";
 export { packSpritesheet, type PackResult, type SpritesheetManifest } from "./sprite/pack.js";
 
 export { roundHalfToEven } from "./pymath.js";

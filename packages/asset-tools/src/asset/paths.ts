@@ -67,10 +67,24 @@ export function prettyPath(path: string): string {
   return rel && !rel.startsWith(`..${sep}`) && rel !== ".." ? rel : resolve(path);
 }
 
+/**
+ * Serialize the way Python's `json.dumps(..., indent=2)` does, including its
+ * default `ensure_ascii=True`: any non-ASCII character is escaped as `\uXXXX`.
+ * Without this an em-dash in a QC message serializes literally here and as an
+ * escape there, so byte-comparing reports against the Python originals fails
+ * on content that is in fact identical.
+ */
+export function toPythonJson(payload: unknown): string {
+  return JSON.stringify(payload, null, 2).replace(
+    /[\u007f-\uffff]/g,
+    (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+}
+
 /** Write JSON to a path, creating parent directories first. */
 export function writeJsonFile(path: string, payload: unknown): void {
   mkdirSync(dirname(resolve(path)), { recursive: true });
-  writeFileSync(path, `${JSON.stringify(payload, null, 2)}\n`);
+  writeFileSync(path, `${toPythonJson(payload)}\n`);
 }
 
 /** Write text to a path, creating parent directories first. */
