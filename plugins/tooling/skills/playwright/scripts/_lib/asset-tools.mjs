@@ -3150,8 +3150,343 @@ function snapSheet(image, cols, rows, config) {
   };
 }
 
-// src/sprite/pack.ts
+// src/sprite/size-contract.ts
+import { existsSync as existsSync5, statSync as statSync2 } from "node:fs";
 import { basename as basename2 } from "node:path";
+var FRAME_WIDTH = 256;
+var FRAME_HEIGHT = 256;
+var DEFAULT_TOLERANCES = {
+  maxTargetHeightDriftPct: 0.08,
+  maxIntraHeightDriftPct: 0.08,
+  maxBottomDriftPx: 2,
+  maxWidthOverflowPct: 0.12,
+  maxCenterDriftPx: null
+};
+function percent2(value, digits = 1) {
+  const factor = 10 ** digits;
+  return `${(roundHalfToEven(value * 100 * factor) / factor).toFixed(digits)}%`;
+}
+function fixed0(value) {
+  return roundHalfToEven(value).toFixed(0);
+}
+function optionalNumber(value) {
+  if (value === null || value === void 0) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+function measureBitmap(image, label, source, frameSize) {
+  const bbox = image.getBBox();
+  const record = { frame: label, source, frameSize };
+  if (!bbox) {
+    record.empty = true;
+    return record;
+  }
+  record.empty = false;
+  record.alphaBBox = [bbox.left, bbox.top, bbox.right, bbox.bottom];
+  record.visibleWidth = bbox.right - bbox.left;
+  record.visibleHeight = bbox.bottom - bbox.top;
+  record.visibleCenterX = (bbox.left + bbox.right - 1) / 2;
+  record.visibleBottomY = bbox.bottom - 1;
+  return record;
+}
+function measureSource(source, cellSize, frameGlob = "frame-*.png") {
+  if (existsSync5(source) && statSync2(source).isDirectory()) {
+    return globFrames(source, frameGlob).map((path) => {
+      const image2 = Bitmap.fromFile(path);
+      return measureBitmap(image2, basename2(path), path, [image2.width, image2.height]);
+    });
+  }
+  if (!existsSync5(source)) throw new Error(`missing size contract source: ${source}`);
+  const image = Bitmap.fromFile(source);
+  const [cellW, cellH] = cellSize;
+  if (image.width >= cellW && image.height >= cellH && image.width % cellW === 0 && image.height % cellH === 0) {
+    const columns = image.width / cellW;
+    const rows = image.height / cellH;
+    const out = [];
+    for (let row = 0; row < rows; row += 1) {
+      for (let col = 0; col < columns; col += 1) {
+        const index = row * columns + col + 1;
+        const cell = image.crop({
+          left: col * cellW,
+          top: row * cellH,
+          right: (col + 1) * cellW,
+          bottom: (row + 1) * cellH
+        });
+        out.push(
+          measureBitmap(cell, `frame-${String(index).padStart(2, "0")}`, source, [cellW, cellH])
+        );
+      }
+    }
+    return out;
+  }
+  return [measureBitmap(image, basename2(source), source, [image.width, image.height])];
+}
+function summarizeMeasurements(measurements) {
+  const live = measurements.filter((m) => !m.empty);
+  if (live.length === 0) {
+    return { frames: measurements.length, nonEmptyFrames: 0, frameSize: null };
+  }
+  const widths = live.map((m) => m.visibleWidth);
+  const heights = live.map((m) => m.visibleHeight);
+  const bottoms = live.map((m) => m.visibleBottomY);
+  const centers = live.map((m) => m.visibleCenterX);
+  const frameSizes = live.map((m) => m.frameSize).filter(Boolean);
+  const first = frameSizes[0];
+  const uniform = first !== void 0 && frameSizes.every((size) => size[0] === first[0] && size[1] === first[1]);
+  const medianHeight = median(heights);
+  return {
+    frames: measurements.length,
+    nonEmptyFrames: live.length,
+    frameSize: uniform ? first : null,
+    visibleWidthRange: [Math.min(...widths), Math.max(...widths)],
+    visibleHeightRange: [Math.min(...heights), Math.max(...heights)],
+    visibleBottomYRange: [Math.min(...bottoms), Math.max(...bottoms)],
+    visibleCenterXRange: [Math.min(...centers), Math.max(...centers)],
+    medianVisibleWidth: median(widths),
+    medianVisibleHeight: medianHeight,
+    medianBottomY: median(bottoms),
+    medianCenterX: median(centers),
+    maxVisibleWidth: Math.max(...widths),
+    maxVisibleHeight: Math.max(...heights),
+    intraHeightDriftPct: medianHeight ? (Math.max(...heights) - Math.min(...heights)) / medianHeight : null
+  };
+}
+function promptGuidanceForContract(contract) {
+  const runtimeCell = contract.runtimeCell ?? [FRAME_WIDTH, FRAME_HEIGHT];
+  const targetHeight = contract.targetVisibleHeight;
+  const bottomY = contract.targetBottomY;
+  const pivot = contract.pivot || "base-center";
+  const guidance = [
+    "Use a locked camera: no zoom, pan, crop, or camera push-in/out.",
+    "Keep the same apparent sprite scale as the input reference for the whole clip.",
+    `Keep the sprite's ${pivot} fixed; motion should come from the action, not from sliding the whole sprite around the frame.`,
+    "Keep the first and final frames close to the same scale and placement so the result can be packed into a game spritesheet."
+  ];
+  if (targetHeight) {
+    guidance.push(
+      `After processing, the sprite should remain about ${targetHeight}px tall inside a ${runtimeCell[0]}x${runtimeCell[1]} runtime cell; treat this as scale guidance, not visible text.`
+    );
+  }
+  if (bottomY !== void 0 && bottomY !== null) {
+    guidance.push(
+      `Keep the contact/base point visually stable; the intended runtime bottom anchor is y=${bottomY}.`
+    );
+  }
+  return guidance;
+}
+function check(name, passed, passMessage, warnMessage, observed, target) {
+  return {
+    name,
+    status: passed ? "pass" : "warn",
+    message: passed ? passMessage : warnMessage,
+    observed,
+    target
+  };
+}
+function contractChecks(summary, contract) {
+  const tolerances = {
+    ...DEFAULT_TOLERANCES,
+    ...contract.tolerances ?? {}
+  };
+  if (summary.nonEmptyFrames === 0) {
+    return [
+      { name: "non-empty-frames", status: "warn", message: "No non-empty frames were found." }
+    ];
+  }
+  const checks = [];
+  const targetHeight = optionalNumber(contract.targetVisibleHeight);
+  const medianHeight = optionalNumber(summary.medianVisibleHeight);
+  const maxHeightDrift = optionalNumber(tolerances.maxTargetHeightDriftPct);
+  if (targetHeight && medianHeight && maxHeightDrift !== null) {
+    const range = summary.visibleHeightRange;
+    const drift = Math.max(Math.abs(range[0] - targetHeight), Math.abs(range[1] - targetHeight)) / targetHeight;
+    checks.push(
+      check(
+        "target-visible-height",
+        drift <= maxHeightDrift,
+        `height drift ${percent2(drift)} <= ${percent2(maxHeightDrift)}`,
+        `height drift ${percent2(drift)} > ${percent2(maxHeightDrift)}`,
+        range,
+        targetHeight
+      )
+    );
+  }
+  const intraDrift = optionalNumber(summary.intraHeightDriftPct);
+  const maxIntraDrift = optionalNumber(tolerances.maxIntraHeightDriftPct);
+  if (intraDrift !== null && maxIntraDrift !== null) {
+    checks.push(
+      check(
+        "intra-sequence-height",
+        intraDrift <= maxIntraDrift,
+        `intra-height drift ${percent2(intraDrift)} <= ${percent2(maxIntraDrift)}`,
+        `intra-height drift ${percent2(intraDrift)} > ${percent2(maxIntraDrift)}`,
+        summary.visibleHeightRange,
+        maxIntraDrift
+      )
+    );
+  }
+  const targetBottom = optionalNumber(contract.targetBottomY);
+  const maxBottomDrift = optionalNumber(tolerances.maxBottomDriftPx);
+  if (targetBottom !== null && maxBottomDrift !== null) {
+    const range = summary.visibleBottomYRange;
+    const drift = Math.max(
+      Math.abs(range[0] - targetBottom),
+      Math.abs(range[1] - targetBottom)
+    );
+    checks.push(
+      check(
+        "target-bottom-y",
+        drift <= maxBottomDrift,
+        `bottom drift ${fixed0(drift)}px <= ${fixed0(maxBottomDrift)}px`,
+        `bottom drift ${fixed0(drift)}px > ${fixed0(maxBottomDrift)}px`,
+        range,
+        targetBottom
+      )
+    );
+  }
+  const maxWidth = optionalNumber(contract.maxVisibleWidth);
+  const maxWidthOverflow = optionalNumber(tolerances.maxWidthOverflowPct);
+  if (maxWidth && maxWidthOverflow !== null) {
+    const observedMax = optionalNumber(summary.maxVisibleWidth);
+    const overflow = Math.max(0, ((observedMax ?? 0) - maxWidth) / maxWidth);
+    checks.push(
+      check(
+        "max-visible-width",
+        overflow <= maxWidthOverflow,
+        `width overflow ${percent2(overflow)} <= ${percent2(maxWidthOverflow)}`,
+        `width overflow ${percent2(overflow)} > ${percent2(maxWidthOverflow)}`,
+        summary.visibleWidthRange,
+        maxWidth
+      )
+    );
+  }
+  const targetCenter = optionalNumber(contract.targetCenterX);
+  const maxCenterDrift = optionalNumber(tolerances.maxCenterDriftPx);
+  if (targetCenter !== null && maxCenterDrift !== null) {
+    const range = summary.visibleCenterXRange;
+    const drift = Math.max(
+      Math.abs(range[0] - targetCenter),
+      Math.abs(range[1] - targetCenter)
+    );
+    checks.push(
+      check(
+        "target-center-x",
+        drift <= maxCenterDrift,
+        `center drift ${fixed0(drift)}px <= ${fixed0(maxCenterDrift)}px`,
+        `center drift ${fixed0(drift)}px > ${fixed0(maxCenterDrift)}px`,
+        range,
+        targetCenter
+      )
+    );
+  }
+  return checks;
+}
+var BRIEF_KEYS = [
+  "name",
+  "source",
+  "runtimeCell",
+  "anchorPolicy",
+  "pivot",
+  "targetVisibleHeight",
+  "targetVisibleWidth",
+  "maxVisibleWidth",
+  "targetBottomY",
+  "targetCenterX",
+  "tolerances"
+];
+function contractBrief(contract) {
+  const out = {};
+  for (const key of BRIEF_KEYS) if (key in contract) out[key] = contract[key];
+  return out;
+}
+function cellSizeOf(contract) {
+  const cell = contract.runtimeCell ?? [FRAME_WIDTH, FRAME_HEIGHT];
+  return [Math.trunc(cell[0]), Math.trunc(cell[1])];
+}
+function loadSizeContract(payload, source) {
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error(`size contract must be a JSON object: ${source}`);
+  }
+  const data = payload;
+  if (data.kind !== "sprite-size-contract") throw new Error(`not a sprite size contract: ${source}`);
+  return {
+    ...data,
+    runtimeCell: data.runtimeCell ?? [FRAME_WIDTH, FRAME_HEIGHT],
+    anchorPolicy: data.anchorPolicy ?? "grounded",
+    pivot: data.pivot ?? "base-center",
+    tolerances: { ...DEFAULT_TOLERANCES, ...data.tolerances ?? {} }
+  };
+}
+function deriveSizeContract(source, options = {}) {
+  const {
+    cellSize = [FRAME_WIDTH, FRAME_HEIGHT],
+    frameGlob = "frame-*.png",
+    name = null,
+    action: action2 = null,
+    direction = null,
+    anchorPolicy = "grounded",
+    pivot = "base-center",
+    sourceCanvas = null,
+    tolerances = {}
+  } = options;
+  const measurements = measureSource(source, cellSize, frameGlob);
+  const summary = summarizeMeasurements(measurements);
+  if (summary.nonEmptyFrames === 0) {
+    throw new Error(`cannot derive size contract from empty source: ${source}`);
+  }
+  const targetVisibleHeight = roundHalfToEven(summary.medianVisibleHeight);
+  const targetBottomY = roundHalfToEven(summary.medianBottomY);
+  const isDir = existsSync5(source) && statSync2(source).isDirectory();
+  return {
+    version: 1,
+    kind: "sprite-size-contract",
+    name: name ?? basename2(source).replace(/\.[^.]+$/, ""),
+    source,
+    sourceKind: isDir ? "directory" : "image",
+    action: action2,
+    direction,
+    runtimeCell: [cellSize[0], cellSize[1]],
+    sourceCanvas: sourceCanvas ?? summary.frameSize ?? null,
+    anchorPolicy,
+    pivot,
+    targetVisibleHeight,
+    targetVisibleWidth: roundHalfToEven(summary.medianVisibleWidth),
+    maxVisibleWidth: summary.maxVisibleWidth,
+    targetBottomY,
+    targetCenterX: roundHalfToEven(summary.medianCenterX),
+    tolerances: { ...DEFAULT_TOLERANCES, ...tolerances },
+    measurementsSummary: summary,
+    measurements,
+    promptGuidance: promptGuidanceForContract({
+      runtimeCell: [cellSize[0], cellSize[1]],
+      targetVisibleHeight,
+      targetBottomY,
+      pivot
+    })
+  };
+}
+function auditSizeContract(source, contract, options = {}) {
+  const { cellSize = null, frameGlob = "frame-*.png", stage = "runtime" } = options;
+  const measurements = measureSource(source, cellSize ?? cellSizeOf(contract), frameGlob);
+  const summary = summarizeMeasurements(measurements);
+  const checks = contractChecks(summary, contract);
+  const passed = checks.every((c) => c.status === "pass");
+  return {
+    version: 1,
+    kind: "sprite-size-contract-audit",
+    stage,
+    source,
+    contract: contractBrief(contract),
+    status: passed ? "pass" : "warn",
+    passed,
+    summary,
+    checks,
+    measurements
+  };
+}
+
+// src/sprite/pack.ts
+import { basename as basename3 } from "node:path";
 function packSpritesheet(inputDir, out, options = {}) {
   const { glob = "frame-*.png", columns = null, fps = 10, action: action2 = "anim" } = options;
   const frames = loadFrames(inputDir, glob);
@@ -3175,7 +3510,7 @@ function packSpritesheet(inputDir, out, options = {}) {
   return {
     sheet,
     manifest: {
-      image: basename2(out),
+      image: basename3(out),
       frameWidth,
       frameHeight,
       columns: cols,
@@ -3190,6 +3525,9 @@ export {
   ACTIONS,
   Bitmap,
   DEFAULT_SNAP_CONFIG,
+  DEFAULT_TOLERANCES,
+  FRAME_HEIGHT,
+  FRAME_WIDTH,
   HIGH_FRINGE_REMOVAL_RATIO,
   LuaParseError,
   MANIFEST_CANDIDATES,
@@ -3197,9 +3535,11 @@ export {
   PROFILES,
   actionFacts,
   analyzeBaseline,
+  auditSizeContract,
   autoDetectManifest,
   buildSequenceGif,
   canonicalProfiles,
+  cellSizeOf,
   checkManifest,
   chromaFringeChannels,
   cleanChroma,
@@ -3207,10 +3547,12 @@ export {
   collectSizes,
   colorDistance,
   computeProfiles,
+  contractChecks,
   cropBox,
   decodePng,
   decontaminateMatte,
   defaultRoot,
+  deriveSizeContract,
   despillChroma,
   diffImages,
   drawDigits,
@@ -3240,8 +3582,10 @@ export {
   keyMatte,
   loadFrames,
   loadManifestJson,
+  loadSizeContract,
   main,
   makeSelftestMap,
+  measureSource,
   median,
   nonEmptyTileIds,
   normalizeCanvas,
@@ -3252,6 +3596,7 @@ export {
   parseLua,
   prettyPath,
   probeSheet,
+  promptGuidanceForContract,
   qc,
   quantize2 as quantize,
   readImageSize,
@@ -3270,6 +3615,7 @@ export {
   snapImage,
   snapSheet,
   strokeRect,
+  summarizeMeasurements,
   tileCount,
   tileIdFromColRow,
   tilesetMetaFromManifest,

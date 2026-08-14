@@ -136,6 +136,22 @@ export {
   snapSheet,
   walk,
 } from "./sprite/pixel-snap.js";
+export {
+  auditSizeContract,
+  cellSizeOf,
+  type Check,
+  contractChecks,
+  DEFAULT_TOLERANCES,
+  deriveSizeContract,
+  FRAME_HEIGHT,
+  FRAME_WIDTH,
+  loadSizeContract,
+  type Measurement,
+  measureSource,
+  promptGuidanceForContract,
+  summarizeMeasurements,
+  type Tolerances,
+} from "./sprite/size-contract.js";
 export { packSpritesheet, type PackResult, type SpritesheetManifest } from "./sprite/pack.js";
 
 export { roundHalfToEven } from "./pymath.js";
