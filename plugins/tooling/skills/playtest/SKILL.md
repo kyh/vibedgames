@@ -86,7 +86,8 @@ Adding this contract to a game is a prerequisite, not an optional extra. Without
 A smoke check proves the game loads; a bot playtest proves it _plays_. It drives real held input and measures **progression**:
 
 ```sh
-node scripts/bot-playtest.mjs --url http://localhost:5173 --seed 12345
+# from the project root — Node resolves this relative to your cwd
+node .claude/skills/playtest/scripts/bot-playtest.mjs --url http://localhost:5173 --seed 12345
 ```
 
 The bundled script (zero dependencies — just Node and `vg`) drives a scripted input sweep of held keys, samples diagnostics between steps, and prints a JSON report. It measures four things: the loop survived (`framesAdvanced`), input reaches the player (`distanceTravelled`), the objective is reachable (`scoreAfter` / `stepOfFirstScore`), and held input never stopped producing anything (`softlockWindows`) — plus zero console and page errors. Exit `0` means it plays, `1` means it doesn't and the report names which check failed, `2` means the harness itself broke.

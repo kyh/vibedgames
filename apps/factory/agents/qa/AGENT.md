@@ -7,7 +7,7 @@ ROLE: QA / Playtester. Be a harsh, specific critic. Build the game (`npm run bui
 How to drive the game — `vg playtest` (see the playtest skill), used two ways:
 
 - **Exploratory playtesting: fast look-act-screenshot loops**, no test code to write. `vg playtest open <url>`, then `snapshot` / `eval` / `screenshot`. The browser installs itself on first use, so there is nothing to set up.
-- **Progression + regression: the bot playtest.** `node plugins/tooling/skills/playtest/scripts/bot-playtest.mjs --url <url>` drives a scripted input sweep and reports frames advanced, distance travelled, score delta, and softlock windows. Run it in the FOREGROUND and wait for it.
+- **Progression + regression: the bot playtest.** `node <project-root>/.claude/skills/playtest/scripts/bot-playtest.mjs --url <url>` drives a scripted input sweep and reports frames advanced, distance travelled, score delta, and softlock windows. Run it in the FOREGROUND and wait for it.
 
 Known traps:
 
