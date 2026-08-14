@@ -15,6 +15,7 @@
 
 export { type Args, fail, getAll, getFlag, getNumber, getString, main, parseArgs } from "./args.js";
 export { parseColor, toHex } from "./image/color.js";
+export { diffImages, type DiffResult } from "./image/diff.js";
 export { drawDigits, drawLine, fillRect, strokeRect } from "./image/draw.js";
 export { encodeGif, type GifFrame } from "./image/gif.js";
 export { decodePng, type DecodedPng, encodePng, readPngSize } from "./image/png.js";
@@ -130,7 +131,9 @@ export {
   resolveStepSizes,
   sanitizeCuts,
   type SnapConfig,
+  type SheetSnapInfo,
   snapImage,
+  snapSheet,
   walk,
 } from "./sprite/pixel-snap.js";
 export { packSpritesheet, type PackResult, type SpritesheetManifest } from "./sprite/pack.js";

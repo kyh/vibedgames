@@ -12,14 +12,25 @@ import { Bitmap } from "../image/raster.js";
  *   4. Walk each axis placing cuts that snap to nearby edge peaks.
  *   5. Resample: one output pixel per cell, taking the majority colour.
  *
- * ONE DELIBERATE DEVIATION. The Python version seeds its k-means centroids
- * from `numpy.random.default_rng(seed).choice(...)`. Reproducing that stream
- * exactly would mean reimplementing numpy's SeedSequence and PCG64 bit for
- * bit, so this uses its own seeded generator instead. Everything downstream —
- * the gradient profiles, pitch estimation, cut walking and resampling — is a
- * faithful port, so the recovered grid (the point of the tool) is unchanged;
- * only which pixels seed the initial palette differs, and k-means converges
- * from there. Runs remain fully deterministic for a given `--seed`.
+ * ONE DELIBERATE DEVIATION, with a measured blast radius. The Python version
+ * seeds its k-means centroids from `numpy.random.default_rng(seed).choice(...)`.
+ * Reproducing that stream exactly would mean reimplementing numpy's
+ * SeedSequence and PCG64 bit for bit, so this uses its own seeded generator.
+ * Everything downstream — gradient profiles, pitch estimation, cut walking,
+ * resampling — is a faithful port.
+ *
+ * What that costs, measured against the Python original:
+ *
+ *  - On dense, high-contrast input (real pixel art, the intended use) output
+ *    is byte-identical, including the recovered frame dimensions.
+ *  - On input too sparse or low-contrast for the gradient profiles to show a
+ *    clear pitch, the algorithm is hypersensitive to its palette and the two
+ *    implementations can land on different cuts — and therefore different
+ *    output dimensions. Neither result is meaningful there; the tool has
+ *    failed to find a grid either way.
+ *
+ * So the deviation is invisible where the tool works and only surfaces where
+ * it doesn't. Runs stay fully deterministic for a given `--seed`.
  */
 
 export type SnapConfig = {
@@ -351,4 +362,92 @@ export function snapImage(inputPath: string, config: SnapConfig): Bitmap {
   const colCuts = sanitizeCuts(walk(columns, stepX, image.width, config), image.width);
   const rowCuts = sanitizeCuts(walk(rows, stepY, image.height, config), image.height);
   return resample(quantized, colCuts, rowCuts);
+}
+
+export type SheetSnapInfo = {
+  inputDims: [number, number];
+  inputFrameDims: [number, number];
+  targetFrameDims: [number, number];
+  outputDims: [number, number];
+};
+
+/**
+ * Spritesheet-aware snapping: crop the sheet into frames, snap them all to ONE
+ * shared pixel grid, and reassemble.
+ *
+ * Cropping first matters. A raw sheet has two competing scales — the frame
+ * size and the intra-frame pixel cell — and step-size detection cannot tell
+ * them apart. Cropping removes the frame-grid scale; tight-packing the crops
+ * into a single strip and snapping that once leaves one pitch to recover, so
+ * every frame lands at the same scale with no size drift between them.
+ */
+export function snapSheet(
+  image: Bitmap,
+  cols: number,
+  rows: number,
+  config: SnapConfig,
+): { image: Bitmap; info: SheetSnapInfo } {
+  const { width: W, height: H } = image;
+  if (W % cols !== 0 || H % rows !== 0) {
+    throw new Error(
+      `Sheet ${W}x${H} is not divisible by cols=${cols} rows=${rows}; ` +
+        "frames would be non-integer dimensions.",
+    );
+  }
+
+  const fw = W / cols;
+  const fh = H / rows;
+  const count = cols * rows;
+
+  // Lay the frames out in one tight strip, row-major.
+  const strip = Bitmap.create(fw * count, fh);
+  for (let index = 0; index < count; index += 1) {
+    const r = Math.floor(index / cols);
+    const c = index - r * cols;
+    strip.paste(
+      image.crop({ left: c * fw, top: r * fh, right: (c + 1) * fw, bottom: (r + 1) * fh }),
+      index * fw,
+      0,
+    );
+  }
+
+  const quantized = quantize(strip, config);
+  const { columns, rows: rowProfile } = computeProfiles(quantized);
+  const [stepX, stepY] = resolveStepSizes(
+    estimateStepSize(columns, config),
+    estimateStepSize(rowProfile, config),
+    strip.width,
+    strip.height,
+    config,
+  );
+  const snapped = resample(
+    quantized,
+    sanitizeCuts(walk(columns, stepX, strip.width, config), strip.width),
+    sanitizeCuts(walk(rowProfile, stepY, strip.height, config), strip.height),
+  );
+
+  // Shared native frame width; trailing remainder columns are empty margin.
+  const tw = Math.floor(snapped.width / count);
+  const sh = snapped.height;
+
+  const out = Bitmap.create(tw * cols, sh * rows);
+  for (let index = 0; index < count; index += 1) {
+    const r = Math.floor(index / cols);
+    const c = index - r * cols;
+    out.paste(
+      snapped.crop({ left: index * tw, top: 0, right: (index + 1) * tw, bottom: sh }),
+      c * tw,
+      r * sh,
+    );
+  }
+
+  return {
+    image: out,
+    info: {
+      inputDims: [W, H],
+      inputFrameDims: [fw, fh],
+      targetFrameDims: [tw, sh],
+      outputDims: [tw * cols, sh * rows],
+    },
+  };
 }

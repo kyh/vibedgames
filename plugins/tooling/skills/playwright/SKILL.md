@@ -170,16 +170,16 @@ Level up when:
 - Unit tests cover complex logic (pathfinding, damage calc, state machines)
 - Visual regression on key screens (menu, HUD) with locked determinism
 
-## Visual Regression with imgdiff.py
+## Visual Regression with imgdiff.mjs
 
 For pixel comparison of screenshots:
 
 ```bash
 # Compare baseline to current
-python scripts/imgdiff.py baseline.png current.png --out diff.png
+node scripts/imgdiff.mjs baseline.png current.png --out diff.png
 
 # Allow small tolerance (anti-aliasing differences)
-python scripts/imgdiff.py baseline.png current.png --max-rms 2.0
+node scripts/imgdiff.mjs baseline.png current.png --max-rms 2.0
 ```
 
 Exit codes: 0 = identical, 1 = different, 2 = error

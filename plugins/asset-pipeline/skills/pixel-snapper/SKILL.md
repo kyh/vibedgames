@@ -9,7 +9,7 @@ metadata:
 
 Recover the underlying low-resolution pixel grid from images that _look_ like pixel art but are stored at high resolution with anti-aliased/smudged edges (e.g. a 1024×1024 AI-generated character that conceptually has ~100×100 chunky pixels).
 
-`scripts/pixel_snapper.py` is a Python port of an MIT-licensed Rust implementation (see `references/credits.md`), dimensionally identical to upstream, run as a uv self-contained script. `scripts/pixel_snapper_sheet.py` is a known-layout spritesheet helper: crops frames, snaps them together as one strip so every frame shares a single pixel grid, reassembles.
+`scripts/pixel_snapper.mjs` is a Python port of an MIT-licensed Rust implementation (see `references/credits.md`), dimensionally identical to upstream, run as a uv self-contained script. `scripts/pixel_snapper_sheet.mjs` is a known-layout spritesheet helper: crops frames, snaps them together as one strip so every frame shares a single pixel grid, reassembles.
 
 ## Discover, Don't Resize
 
@@ -28,20 +28,20 @@ Naive downscale (Lanczos/bilinear/nearest) averages neighbors → blur or aliasi
 
 Use when the user has AI-generated "pixel art" (gpt-image, retro-diffusion, etc.) and wants a cleaner/smaller/palette-quantized version, needs a high-res mockup converted to a true pixel-art asset, wants to recover an upscaled retro asset's grid, or mentions "snap to pixel grid", "fake pixel art", "downsample to native res", or the Hugo-Dz repo.
 
-Skip for: photographs / continuous-tone / vector art (no grid to recover); already-native pixel art (would just round-trip, possibly losing detail); spritesheet _layout_ recovery where rows/cols are unknown (probe first — `pixel_snapper_sheet.py` expects known `--cols`/`--rows`).
+Skip for: photographs / continuous-tone / vector art (no grid to recover); already-native pixel art (would just round-trip, possibly losing detail); spritesheet _layout_ recovery where rows/cols are unknown (probe first — `pixel_snapper_sheet.mjs` expects known `--cols`/`--rows`).
 
 ## Quick Start
 
 Self-contained via PEP 723 (numpy + pillow); uv installs deps on first run and caches:
 
 ```bash
-uv run .claude/skills/pixel-snapper/scripts/pixel_snapper.py input.png output.png --k-colors 256
+node .claude/skills/pixel-snapper/scripts/pixel_snapper.mjs input.png output.png --k-colors 256
 ```
 
-After `chmod +x`, the shebang `#!/usr/bin/env -S uv run --script` lets you call it directly:
+After `chmod +x`, the shebang `#!/usr/bin/env node` lets you call it directly:
 
 ```bash
-.claude/skills/pixel-snapper/scripts/pixel_snapper.py input.png output.png --k-colors 256
+.claude/skills/pixel-snapper/scripts/pixel_snapper.mjs input.png output.png --k-colors 256
 ```
 
 Output is one snapped PNG at the discovered native resolution. For inspection, follow up with an integer nearest-neighbour upscale via ffmpeg:
@@ -53,7 +53,7 @@ ffmpeg -y -i snapped.png -vf "scale=iw*8:ih*8:flags=neighbor" snapped-x8.png
 For a known-layout spritesheet, snap every frame to one shared pixel grid:
 
 ```bash
-uv run .claude/skills/pixel-snapper/scripts/pixel_snapper_sheet.py \
+node .claude/skills/pixel-snapper/scripts/pixel_snapper_sheet.mjs \
   sheet.png sheet-snapped.png --cols 6 --rows 1 --k-colors 256
 ```
 

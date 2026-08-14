@@ -126,312 +126,9 @@ function toHex([r, g, b]) {
   return `#${[r, g, b].map((c) => c.toString(16).padStart(2, "0")).join("")}`;
 }
 
-// src/image/draw.ts
-function put(target, x, y, ink) {
-  if (!target.contains(x, y)) return;
-  const i = target.index(x, y);
-  target.data[i] = ink[0];
-  target.data[i + 1] = ink[1];
-  target.data[i + 2] = ink[2];
-  target.data[i + 3] = ink[3];
-}
-function drawLine(target, x0, y0, x1, y1, ink) {
-  let x = Math.round(x0);
-  let y = Math.round(y0);
-  const endX = Math.round(x1);
-  const endY = Math.round(y1);
-  const dx = Math.abs(endX - x);
-  const dy = -Math.abs(endY - y);
-  const stepX = x < endX ? 1 : -1;
-  const stepY = y < endY ? 1 : -1;
-  let error = dx + dy;
-  for (; ; ) {
-    put(target, x, y, ink);
-    if (x === endX && y === endY) return;
-    const doubled = 2 * error;
-    if (doubled >= dy) {
-      error += dy;
-      x += stepX;
-    }
-    if (doubled <= dx) {
-      error += dx;
-      y += stepY;
-    }
-  }
-}
-function fillRect(target, x0, y0, x1, y1, ink) {
-  const left = Math.min(x0, x1);
-  const right = Math.max(x0, x1);
-  const top = Math.min(y0, y1);
-  const bottom = Math.max(y0, y1);
-  for (let y = top; y <= bottom; y += 1) {
-    for (let x = left; x <= right; x += 1) put(target, x, y, ink);
-  }
-}
-function strokeRect(target, x0, y0, x1, y1, ink, width = 1) {
-  for (let i = 0; i < Math.max(1, width); i += 1) {
-    const left = x0 + i;
-    const top = y0 + i;
-    const right = x1 - i;
-    const bottom = y1 - i;
-    if (left > right || top > bottom) return;
-    drawLine(target, left, top, right, top, ink);
-    drawLine(target, left, bottom, right, bottom, ink);
-    drawLine(target, left, top, left, bottom, ink);
-    drawLine(target, right, top, right, bottom, ink);
-  }
-}
-var GLYPH_WIDTH = 6;
-var GLYPH_HEIGHT = 12;
-var GLYPH_DATA = "AAAAAAAAAAAAAAAAD7DEsA8AinIAc4gA1BoAG9MA6wIAAuoA6wIAAuoA1BoAG9MAinIAc4kAD7DEsA8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABCg8QAAAMNt8AAAABgA8AAAAAAA8AAAAAAA8AAAAAAA8AAAAAAA8AAAAAAA8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGLD0EYAFcECKNcAKFUAC+oAAAAAX50AAAAj1BUAAAzMNwAAAa1ZAAAAYfTAwLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACqnAzUsAdnQAGeAAEQYARNsAAACj9UMAAAAAT6IAkwQAA+0AolQAPcYAHr/BuygAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAASvcAAAANxvIAAACVVvAAADyvAPAAB8gaAPAAWtXAwPyiAAAAAPAAAAAAAPAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARd7AwIQAXWgAAAAAdk8AAAAAj5rEsiMAjmsAUr4AIAMAA+sAqE8AOr4AJcTAuCMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAApLHwiIAaoUAUa4AxSQABnYA63LAryAA8VMAU70A2gMAA+sAmEEAQbwAFrO/uyMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAqMDAxuwAAAAAZIIAAAABzxYAAABOmgAAAADBJwAAADexAAAAAK0+AAAAJMcAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQ8a/wzkA4CEAI9YAzTQANuEANfjT+EwAwVMAVZ4A7gIAA+wAxz0APMwAL8HBwDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIbnAtBcAu0MAQ5cA6wMAA9kAvVEAVPAAIa+/c+oAegYAJcQArlAAhWsAJMTHkwIAAAAAAAAAAAAAAAAA";
-var glyphCache = null;
-function glyphs() {
-  glyphCache ??= new Uint8Array(Buffer.from(GLYPH_DATA, "base64"));
-  return glyphCache;
-}
-function drawDigits(target, x, y, text, ink) {
-  const data = glyphs();
-  let cursor = x;
-  for (const ch of text) {
-    const digit = ch.charCodeAt(0) - 48;
-    if (digit < 0 || digit > 9) {
-      cursor += GLYPH_WIDTH;
-      continue;
-    }
-    const base = digit * GLYPH_WIDTH * GLYPH_HEIGHT;
-    for (let gy = 0; gy < GLYPH_HEIGHT; gy += 1) {
-      for (let gx = 0; gx < GLYPH_WIDTH; gx += 1) {
-        const coverage = data[base + gy * GLYPH_WIDTH + gx];
-        if (coverage === 0) continue;
-        const px = cursor + gx;
-        const py = y + gy;
-        if (!target.contains(px, py)) continue;
-        const i = target.index(px, py);
-        const m = coverage / 255;
-        const transparent = target.data[i + 3] === 0;
-        for (let c = 0; c < 3; c += 1) {
-          target.data[i + c] = transparent ? ink[c] : Math.round(target.data[i + c] * (1 - m) + ink[c] * m);
-        }
-        target.data[i + 3] = Math.round(target.data[i + 3] * (1 - m) + ink[3] * m);
-      }
-    }
-    cursor += GLYPH_WIDTH;
-  }
-}
-
-// src/image/gif.ts
-function quantize(pixels, maxColors) {
-  let boxes = [pixels];
-  while (boxes.length < maxColors) {
-    let target = -1;
-    let bestRange = 0;
-    let bestChannel = 0;
-    for (let i = 0; i < boxes.length; i += 1) {
-      const box2 = boxes[i];
-      if (box2.length < 2) continue;
-      for (let c = 0; c < 3; c += 1) {
-        let min = 255;
-        let max = 0;
-        for (const p of box2) {
-          if (p[c] < min) min = p[c];
-          if (p[c] > max) max = p[c];
-        }
-        if (max - min > bestRange) {
-          bestRange = max - min;
-          target = i;
-          bestChannel = c;
-        }
-      }
-    }
-    if (target < 0 || bestRange === 0) break;
-    const box = boxes[target];
-    box.sort((a, b) => a[bestChannel] - b[bestChannel]);
-    const mid = box.length >> 1;
-    boxes = [
-      ...boxes.slice(0, target),
-      box.slice(0, mid),
-      box.slice(mid),
-      ...boxes.slice(target + 1)
-    ];
-  }
-  const colors = boxes.filter((box) => box.length > 0).map((box) => {
-    let r = 0;
-    let g = 0;
-    let b = 0;
-    for (const p of box) {
-      r += p[0];
-      g += p[1];
-      b += p[2];
-    }
-    return [Math.round(r / box.length), Math.round(g / box.length), Math.round(b / box.length)];
-  });
-  if (colors.length === 0) colors.push([0, 0, 0]);
-  return { colors, lookup: /* @__PURE__ */ new Map() };
-}
-function nearest(palette, r, g, b) {
-  const key = r << 16 | g << 8 | b;
-  const cached = palette.lookup.get(key);
-  if (cached !== void 0) return cached;
-  let best = 0;
-  let bestDist = Infinity;
-  for (let i = 0; i < palette.colors.length; i += 1) {
-    const c = palette.colors[i];
-    const dr = c[0] - r;
-    const dg = c[1] - g;
-    const db = c[2] - b;
-    const dist = dr * dr + dg * dg + db * db;
-    if (dist < bestDist) {
-      bestDist = dist;
-      best = i;
-    }
-  }
-  palette.lookup.set(key, best);
-  return best;
-}
-var BitWriter = class {
-  bytes = [];
-  accumulator = 0;
-  bits = 0;
-  write(code, width) {
-    this.accumulator |= code << this.bits;
-    this.bits += width;
-    while (this.bits >= 8) {
-      this.bytes.push(this.accumulator & 255);
-      this.accumulator >>= 8;
-      this.bits -= 8;
-    }
-  }
-  finish() {
-    if (this.bits > 0) this.bytes.push(this.accumulator & 255);
-    const out = [];
-    for (let i = 0; i < this.bytes.length; i += 255) {
-      const chunk2 = this.bytes.slice(i, i + 255);
-      out.push(chunk2.length, ...chunk2);
-    }
-    out.push(0);
-    return Buffer.from(out);
-  }
-};
-function lzwCompress(indices, minCodeSize) {
-  const clearCode = 1 << minCodeSize;
-  const endCode = clearCode + 1;
-  const writer = new BitWriter();
-  let dict = /* @__PURE__ */ new Map();
-  let next = endCode + 1;
-  let codeWidth = minCodeSize + 1;
-  const resetDict = () => {
-    dict = /* @__PURE__ */ new Map();
-    next = endCode + 1;
-    codeWidth = minCodeSize + 1;
-  };
-  resetDict();
-  writer.write(clearCode, codeWidth);
-  let prefix = String(indices[0]);
-  for (let i = 1; i < indices.length; i += 1) {
-    const k = indices[i];
-    const combined = `${prefix},${k}`;
-    if (dict.has(combined)) {
-      prefix = combined;
-      continue;
-    }
-    writer.write(dict.get(prefix) ?? Number(prefix), codeWidth);
-    dict.set(combined, next);
-    next += 1;
-    if (next > 1 << codeWidth && codeWidth < 12) {
-      codeWidth += 1;
-    } else if (next > 4095) {
-      writer.write(clearCode, codeWidth);
-      resetDict();
-    }
-    prefix = String(k);
-  }
-  writer.write(dict.get(prefix) ?? Number(prefix), codeWidth);
-  writer.write(endCode, codeWidth);
-  return writer.finish();
-}
-function encodeGif(frames, loop = 0) {
-  if (frames.length === 0) throw new Error("GIF: no frames to encode");
-  const width = frames[0].bitmap.width;
-  const height = frames[0].bitmap.height;
-  for (const frame of frames) {
-    if (frame.bitmap.width !== width || frame.bitmap.height !== height) {
-      throw new Error(
-        `GIF: every frame must be ${width}x${height}, got ${frame.bitmap.width}x${frame.bitmap.height}`
-      );
-    }
-  }
-  const parts = [];
-  const header = Buffer.alloc(13);
-  header.write("GIF89a", 0, "ascii");
-  header.writeUInt16LE(width, 6);
-  header.writeUInt16LE(height, 8);
-  header[10] = 0;
-  header[11] = 0;
-  header[12] = 0;
-  parts.push(header);
-  const netscape = Buffer.from([
-    33,
-    255,
-    11,
-    ...Buffer.from("NETSCAPE2.0", "ascii"),
-    3,
-    1,
-    0,
-    0,
-    0
-  ]);
-  netscape.writeUInt16LE(loop, 16);
-  parts.push(netscape);
-  for (const frame of frames) {
-    const { bitmap } = frame;
-    const pixels = [];
-    for (let i = 0; i < bitmap.data.length; i += 4) {
-      pixels.push([bitmap.data[i], bitmap.data[i + 1], bitmap.data[i + 2]]);
-    }
-    const palette = quantize(
-      pixels.map((p) => [...p]),
-      256
-    );
-    const indices = new Uint8Array(width * height);
-    for (let i = 0; i < indices.length; i += 1) {
-      const p = pixels[i];
-      indices[i] = nearest(palette, p[0], p[1], p[2]);
-    }
-    let tableBits = 1;
-    while (1 << tableBits < palette.colors.length) tableBits += 1;
-    const tableSize = 1 << tableBits;
-    const gce = Buffer.alloc(8);
-    gce[0] = 33;
-    gce[1] = 249;
-    gce[2] = 4;
-    gce[3] = 2 << 2;
-    gce.writeUInt16LE(Math.max(0, Math.round(frame.delayMs / 10)), 4);
-    gce[6] = 0;
-    gce[7] = 0;
-    parts.push(gce);
-    const descriptor = Buffer.alloc(10);
-    descriptor[0] = 44;
-    descriptor.writeUInt16LE(0, 1);
-    descriptor.writeUInt16LE(0, 3);
-    descriptor.writeUInt16LE(width, 5);
-    descriptor.writeUInt16LE(height, 7);
-    descriptor[9] = 128 | tableBits - 1;
-    parts.push(descriptor);
-    const table = Buffer.alloc(tableSize * 3);
-    for (let i = 0; i < palette.colors.length; i += 1) {
-      const c = palette.colors[i];
-      table[i * 3] = c[0];
-      table[i * 3 + 1] = c[1];
-      table[i * 3 + 2] = c[2];
-    }
-    parts.push(table);
-    const minCodeSize = Math.max(2, tableBits);
-    parts.push(Buffer.from([minCodeSize]));
-    parts.push(lzwCompress(indices, minCodeSize));
-  }
-  parts.push(Buffer.from([59]));
-  return Buffer.concat(parts);
-}
+// src/image/raster.ts
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 
 // src/image/png.ts
 import { deflateSync, inflateSync } from "node:zlib";
@@ -741,8 +438,6 @@ function readPngSize(buffer) {
 }
 
 // src/image/raster.ts
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
 var Bitmap = class _Bitmap {
   width;
   height;
@@ -1197,6 +892,333 @@ function readWebpSize(buffer) {
     return { width: 1 + (bits & 16383), height: 1 + (bits >> 14 & 16383) };
   }
   return null;
+}
+
+// src/image/diff.ts
+function diffImages(baseline, current) {
+  if (baseline.width !== current.width || baseline.height !== current.height) {
+    throw new Error(
+      `Different sizes: (${baseline.width}, ${baseline.height}) vs (${current.width}, ${current.height})`
+    );
+  }
+  const out = new Bitmap(baseline.width, baseline.height);
+  const sums = [0, 0, 0, 0];
+  for (let i = 0; i < out.data.length; i += 1) {
+    const delta = Math.abs(baseline.data[i] - current.data[i]);
+    out.data[i] = delta;
+    sums[i % 4] += delta * delta;
+  }
+  const pixels = baseline.width * baseline.height;
+  const channelRms = sums.map((sum) => Math.sqrt(sum / pixels));
+  const rms = Math.sqrt(channelRms.reduce((sum, v) => sum + v * v, 0) / channelRms.length);
+  return { image: out, rms, channelRms };
+}
+
+// src/image/draw.ts
+function put(target, x, y, ink) {
+  if (!target.contains(x, y)) return;
+  const i = target.index(x, y);
+  target.data[i] = ink[0];
+  target.data[i + 1] = ink[1];
+  target.data[i + 2] = ink[2];
+  target.data[i + 3] = ink[3];
+}
+function drawLine(target, x0, y0, x1, y1, ink) {
+  let x = Math.round(x0);
+  let y = Math.round(y0);
+  const endX = Math.round(x1);
+  const endY = Math.round(y1);
+  const dx = Math.abs(endX - x);
+  const dy = -Math.abs(endY - y);
+  const stepX = x < endX ? 1 : -1;
+  const stepY = y < endY ? 1 : -1;
+  let error = dx + dy;
+  for (; ; ) {
+    put(target, x, y, ink);
+    if (x === endX && y === endY) return;
+    const doubled = 2 * error;
+    if (doubled >= dy) {
+      error += dy;
+      x += stepX;
+    }
+    if (doubled <= dx) {
+      error += dx;
+      y += stepY;
+    }
+  }
+}
+function fillRect(target, x0, y0, x1, y1, ink) {
+  const left = Math.min(x0, x1);
+  const right = Math.max(x0, x1);
+  const top = Math.min(y0, y1);
+  const bottom = Math.max(y0, y1);
+  for (let y = top; y <= bottom; y += 1) {
+    for (let x = left; x <= right; x += 1) put(target, x, y, ink);
+  }
+}
+function strokeRect(target, x0, y0, x1, y1, ink, width = 1) {
+  for (let i = 0; i < Math.max(1, width); i += 1) {
+    const left = x0 + i;
+    const top = y0 + i;
+    const right = x1 - i;
+    const bottom = y1 - i;
+    if (left > right || top > bottom) return;
+    drawLine(target, left, top, right, top, ink);
+    drawLine(target, left, bottom, right, bottom, ink);
+    drawLine(target, left, top, left, bottom, ink);
+    drawLine(target, right, top, right, bottom, ink);
+  }
+}
+var GLYPH_WIDTH = 6;
+var GLYPH_HEIGHT = 12;
+var GLYPH_DATA = "AAAAAAAAAAAAAAAAD7DEsA8AinIAc4gA1BoAG9MA6wIAAuoA6wIAAuoA1BoAG9MAinIAc4kAD7DEsA8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABCg8QAAAMNt8AAAABgA8AAAAAAA8AAAAAAA8AAAAAAA8AAAAAAA8AAAAAAA8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGLD0EYAFcECKNcAKFUAC+oAAAAAX50AAAAj1BUAAAzMNwAAAa1ZAAAAYfTAwLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACqnAzUsAdnQAGeAAEQYARNsAAACj9UMAAAAAT6IAkwQAA+0AolQAPcYAHr/BuygAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAASvcAAAANxvIAAACVVvAAADyvAPAAB8gaAPAAWtXAwPyiAAAAAPAAAAAAAPAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARd7AwIQAXWgAAAAAdk8AAAAAj5rEsiMAjmsAUr4AIAMAA+sAqE8AOr4AJcTAuCMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAApLHwiIAaoUAUa4AxSQABnYA63LAryAA8VMAU70A2gMAA+sAmEEAQbwAFrO/uyMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAqMDAxuwAAAAAZIIAAAABzxYAAABOmgAAAADBJwAAADexAAAAAK0+AAAAJMcAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQ8a/wzkA4CEAI9YAzTQANuEANfjT+EwAwVMAVZ4A7gIAA+wAxz0APMwAL8HBwDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIbnAtBcAu0MAQ5cA6wMAA9kAvVEAVPAAIa+/c+oAegYAJcQArlAAhWsAJMTHkwIAAAAAAAAAAAAAAAAA";
+var glyphCache = null;
+function glyphs() {
+  glyphCache ??= new Uint8Array(Buffer.from(GLYPH_DATA, "base64"));
+  return glyphCache;
+}
+function drawDigits(target, x, y, text, ink) {
+  const data = glyphs();
+  let cursor = x;
+  for (const ch of text) {
+    const digit = ch.charCodeAt(0) - 48;
+    if (digit < 0 || digit > 9) {
+      cursor += GLYPH_WIDTH;
+      continue;
+    }
+    const base = digit * GLYPH_WIDTH * GLYPH_HEIGHT;
+    for (let gy = 0; gy < GLYPH_HEIGHT; gy += 1) {
+      for (let gx = 0; gx < GLYPH_WIDTH; gx += 1) {
+        const coverage = data[base + gy * GLYPH_WIDTH + gx];
+        if (coverage === 0) continue;
+        const px = cursor + gx;
+        const py = y + gy;
+        if (!target.contains(px, py)) continue;
+        const i = target.index(px, py);
+        const m = coverage / 255;
+        const transparent = target.data[i + 3] === 0;
+        for (let c = 0; c < 3; c += 1) {
+          target.data[i + c] = transparent ? ink[c] : Math.round(target.data[i + c] * (1 - m) + ink[c] * m);
+        }
+        target.data[i + 3] = Math.round(target.data[i + 3] * (1 - m) + ink[3] * m);
+      }
+    }
+    cursor += GLYPH_WIDTH;
+  }
+}
+
+// src/image/gif.ts
+function quantize(pixels, maxColors) {
+  let boxes = [pixels];
+  while (boxes.length < maxColors) {
+    let target = -1;
+    let bestRange = 0;
+    let bestChannel = 0;
+    for (let i = 0; i < boxes.length; i += 1) {
+      const box2 = boxes[i];
+      if (box2.length < 2) continue;
+      for (let c = 0; c < 3; c += 1) {
+        let min = 255;
+        let max = 0;
+        for (const p of box2) {
+          if (p[c] < min) min = p[c];
+          if (p[c] > max) max = p[c];
+        }
+        if (max - min > bestRange) {
+          bestRange = max - min;
+          target = i;
+          bestChannel = c;
+        }
+      }
+    }
+    if (target < 0 || bestRange === 0) break;
+    const box = boxes[target];
+    box.sort((a, b) => a[bestChannel] - b[bestChannel]);
+    const mid = box.length >> 1;
+    boxes = [
+      ...boxes.slice(0, target),
+      box.slice(0, mid),
+      box.slice(mid),
+      ...boxes.slice(target + 1)
+    ];
+  }
+  const colors = boxes.filter((box) => box.length > 0).map((box) => {
+    let r = 0;
+    let g = 0;
+    let b = 0;
+    for (const p of box) {
+      r += p[0];
+      g += p[1];
+      b += p[2];
+    }
+    return [Math.round(r / box.length), Math.round(g / box.length), Math.round(b / box.length)];
+  });
+  if (colors.length === 0) colors.push([0, 0, 0]);
+  return { colors, lookup: /* @__PURE__ */ new Map() };
+}
+function nearest(palette, r, g, b) {
+  const key = r << 16 | g << 8 | b;
+  const cached = palette.lookup.get(key);
+  if (cached !== void 0) return cached;
+  let best = 0;
+  let bestDist = Infinity;
+  for (let i = 0; i < palette.colors.length; i += 1) {
+    const c = palette.colors[i];
+    const dr = c[0] - r;
+    const dg = c[1] - g;
+    const db = c[2] - b;
+    const dist = dr * dr + dg * dg + db * db;
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = i;
+    }
+  }
+  palette.lookup.set(key, best);
+  return best;
+}
+var BitWriter = class {
+  bytes = [];
+  accumulator = 0;
+  bits = 0;
+  write(code, width) {
+    this.accumulator |= code << this.bits;
+    this.bits += width;
+    while (this.bits >= 8) {
+      this.bytes.push(this.accumulator & 255);
+      this.accumulator >>= 8;
+      this.bits -= 8;
+    }
+  }
+  finish() {
+    if (this.bits > 0) this.bytes.push(this.accumulator & 255);
+    const out = [];
+    for (let i = 0; i < this.bytes.length; i += 255) {
+      const chunk2 = this.bytes.slice(i, i + 255);
+      out.push(chunk2.length, ...chunk2);
+    }
+    out.push(0);
+    return Buffer.from(out);
+  }
+};
+function lzwCompress(indices, minCodeSize) {
+  const clearCode = 1 << minCodeSize;
+  const endCode = clearCode + 1;
+  const writer = new BitWriter();
+  let dict = /* @__PURE__ */ new Map();
+  let next = endCode + 1;
+  let codeWidth = minCodeSize + 1;
+  const resetDict = () => {
+    dict = /* @__PURE__ */ new Map();
+    next = endCode + 1;
+    codeWidth = minCodeSize + 1;
+  };
+  resetDict();
+  writer.write(clearCode, codeWidth);
+  let prefix = String(indices[0]);
+  for (let i = 1; i < indices.length; i += 1) {
+    const k = indices[i];
+    const combined = `${prefix},${k}`;
+    if (dict.has(combined)) {
+      prefix = combined;
+      continue;
+    }
+    writer.write(dict.get(prefix) ?? Number(prefix), codeWidth);
+    dict.set(combined, next);
+    next += 1;
+    if (next > 1 << codeWidth && codeWidth < 12) {
+      codeWidth += 1;
+    } else if (next > 4095) {
+      writer.write(clearCode, codeWidth);
+      resetDict();
+    }
+    prefix = String(k);
+  }
+  writer.write(dict.get(prefix) ?? Number(prefix), codeWidth);
+  writer.write(endCode, codeWidth);
+  return writer.finish();
+}
+function encodeGif(frames, loop = 0) {
+  if (frames.length === 0) throw new Error("GIF: no frames to encode");
+  const width = frames[0].bitmap.width;
+  const height = frames[0].bitmap.height;
+  for (const frame of frames) {
+    if (frame.bitmap.width !== width || frame.bitmap.height !== height) {
+      throw new Error(
+        `GIF: every frame must be ${width}x${height}, got ${frame.bitmap.width}x${frame.bitmap.height}`
+      );
+    }
+  }
+  const parts = [];
+  const header = Buffer.alloc(13);
+  header.write("GIF89a", 0, "ascii");
+  header.writeUInt16LE(width, 6);
+  header.writeUInt16LE(height, 8);
+  header[10] = 0;
+  header[11] = 0;
+  header[12] = 0;
+  parts.push(header);
+  const netscape = Buffer.from([
+    33,
+    255,
+    11,
+    ...Buffer.from("NETSCAPE2.0", "ascii"),
+    3,
+    1,
+    0,
+    0,
+    0
+  ]);
+  netscape.writeUInt16LE(loop, 16);
+  parts.push(netscape);
+  for (const frame of frames) {
+    const { bitmap } = frame;
+    const pixels = [];
+    for (let i = 0; i < bitmap.data.length; i += 4) {
+      pixels.push([bitmap.data[i], bitmap.data[i + 1], bitmap.data[i + 2]]);
+    }
+    const palette = quantize(
+      pixels.map((p) => [...p]),
+      256
+    );
+    const indices = new Uint8Array(width * height);
+    for (let i = 0; i < indices.length; i += 1) {
+      const p = pixels[i];
+      indices[i] = nearest(palette, p[0], p[1], p[2]);
+    }
+    let tableBits = 1;
+    while (1 << tableBits < palette.colors.length) tableBits += 1;
+    const tableSize = 1 << tableBits;
+    const gce = Buffer.alloc(8);
+    gce[0] = 33;
+    gce[1] = 249;
+    gce[2] = 4;
+    gce[3] = 2 << 2;
+    gce.writeUInt16LE(Math.max(0, Math.round(frame.delayMs / 10)), 4);
+    gce[6] = 0;
+    gce[7] = 0;
+    parts.push(gce);
+    const descriptor = Buffer.alloc(10);
+    descriptor[0] = 44;
+    descriptor.writeUInt16LE(0, 1);
+    descriptor.writeUInt16LE(0, 3);
+    descriptor.writeUInt16LE(width, 5);
+    descriptor.writeUInt16LE(height, 7);
+    descriptor[9] = 128 | tableBits - 1;
+    parts.push(descriptor);
+    const table = Buffer.alloc(tableSize * 3);
+    for (let i = 0; i < palette.colors.length; i += 1) {
+      const c = palette.colors[i];
+      table[i * 3] = c[0];
+      table[i * 3 + 1] = c[1];
+      table[i * 3 + 2] = c[2];
+    }
+    parts.push(table);
+    const minCodeSize = Math.max(2, tableBits);
+    parts.push(Buffer.from([minCodeSize]));
+    parts.push(lzwCompress(indices, minCodeSize));
+  }
+  parts.push(Buffer.from([59]));
+  return Buffer.concat(parts);
 }
 
 // src/asset/lua.ts
@@ -2238,13 +2260,7 @@ function decontaminateMatte(image, options) {
   return { image: out, record: { specksRemoved: removed } };
 }
 function cleanChroma(image, options) {
-  const {
-    chroma,
-    tolerance = 90,
-    fringeRadius = 1,
-    despillRadius = 2,
-    decontam = true
-  } = options;
+  const { chroma, tolerance = 90, fringeRadius = 1, despillRadius = 2, decontam = true } = options;
   const keyed = keyMatte(image, { chroma, tolerance });
   const defringed = removeChromaFringe(keyed.image, { chroma, edgeRadius: fringeRadius });
   const despilled = despillChroma(defringed.image, { chroma, edgeRadius: despillRadius });
@@ -3077,6 +3093,62 @@ function snapImage(inputPath, config) {
   const rowCuts = sanitizeCuts(walk(rows, stepY, image.height, config), image.height);
   return resample(quantized, colCuts, rowCuts);
 }
+function snapSheet(image, cols, rows, config) {
+  const { width: W, height: H } = image;
+  if (W % cols !== 0 || H % rows !== 0) {
+    throw new Error(
+      `Sheet ${W}x${H} is not divisible by cols=${cols} rows=${rows}; frames would be non-integer dimensions.`
+    );
+  }
+  const fw = W / cols;
+  const fh = H / rows;
+  const count = cols * rows;
+  const strip = Bitmap.create(fw * count, fh);
+  for (let index = 0; index < count; index += 1) {
+    const r = Math.floor(index / cols);
+    const c = index - r * cols;
+    strip.paste(
+      image.crop({ left: c * fw, top: r * fh, right: (c + 1) * fw, bottom: (r + 1) * fh }),
+      index * fw,
+      0
+    );
+  }
+  const quantized = quantize2(strip, config);
+  const { columns, rows: rowProfile } = computeProfiles(quantized);
+  const [stepX, stepY] = resolveStepSizes(
+    estimateStepSize(columns, config),
+    estimateStepSize(rowProfile, config),
+    strip.width,
+    strip.height,
+    config
+  );
+  const snapped = resample(
+    quantized,
+    sanitizeCuts(walk(columns, stepX, strip.width, config), strip.width),
+    sanitizeCuts(walk(rowProfile, stepY, strip.height, config), strip.height)
+  );
+  const tw = Math.floor(snapped.width / count);
+  const sh = snapped.height;
+  const out = Bitmap.create(tw * cols, sh * rows);
+  for (let index = 0; index < count; index += 1) {
+    const r = Math.floor(index / cols);
+    const c = index - r * cols;
+    out.paste(
+      snapped.crop({ left: index * tw, top: 0, right: (index + 1) * tw, bottom: sh }),
+      c * tw,
+      r * sh
+    );
+  }
+  return {
+    image: out,
+    info: {
+      inputDims: [W, H],
+      inputFrameDims: [fw, fh],
+      targetFrameDims: [tw, sh],
+      outputDims: [tw * cols, sh * rows]
+    }
+  };
+}
 
 // src/sprite/pack.ts
 import { basename as basename2 } from "node:path";
@@ -3140,6 +3212,7 @@ export {
   decontaminateMatte,
   defaultRoot,
   despillChroma,
+  diffImages,
   drawDigits,
   drawLine,
   encodeGif,
@@ -3195,6 +3268,7 @@ export {
   sanitizeTilesets,
   sizesToCsv,
   snapImage,
+  snapSheet,
   strokeRect,
   tileCount,
   tileIdFromColRow,
