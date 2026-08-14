@@ -1,0 +1,23 @@
+{
+  "name": "@repo/asset-tools",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "build": "tsx scripts/bundle.ts",
+    "clean": "rm -rf .cache .turbo dist node_modules",
+    "test": "node --import tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@kyh/tsconfig": "catalog:",
+    "@types/node": "catalog:",
+    "esbuild": "^0.28.1",
+    "tsx": "^4.20.6",
+    "typescript": "catalog:"
+  }
+}

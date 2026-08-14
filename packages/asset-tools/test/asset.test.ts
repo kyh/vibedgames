@@ -10,7 +10,7 @@ import { parseFrame, prettyPath, walkFiles } from "../src/asset/paths.js";
 import { analyzeBaseline, probeSheet } from "../src/asset/sheet.js";
 import { collectSizes, sizesToCsv } from "../src/asset/sizes.js";
 import { Bitmap } from "../src/image/raster.js";
-import { roundHalfToEven } from "../src/lib/pymath.js";
+import { roundHalfToEven } from "../src/pymath.js";
 
 /**
  * Behavioural parity tests for the commands ported from

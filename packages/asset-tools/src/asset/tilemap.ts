@@ -328,7 +328,7 @@ export function makeSelftestMap(meta: TilesetMeta): Json {
       width: meta.columns,
       height: meta.rows,
       generatedFrom: meta.path.split(/[/\\]/).join("/"),
-      generator: "vg asset tilemap --make-selftest-map",
+      generator: "asset_tilemap_editor.mjs --make-selftest-map",
     },
     data,
   };

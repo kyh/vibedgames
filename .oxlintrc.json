@@ -11,7 +11,8 @@
     ".expo",
     ".wxt",
     ".output",
-    "out"
+    "out",
+    "**/scripts/_lib/**"
   ],
   "plugins": ["eslint", "typescript", "unicorn", "react", "nextjs", "oxc", "node", "promise"],
   "categories": {
@@ -22,14 +23,25 @@
   "rules": {
     "typescript/no-explicit-any": "error",
     "typescript/no-non-null-assertion": "error",
-    "typescript/consistent-type-assertions": ["error", { "assertionStyle": "never" }],
+    "typescript/consistent-type-assertions": [
+      "error",
+      {
+        "assertionStyle": "never"
+      }
+    ],
     "react/react-in-jsx-scope": "off",
     "eslint/no-shadow": "off",
     "eslint/no-await-in-loop": "off"
   },
   "overrides": [
     {
-      "files": ["apps/**", "games/**", "packages/multiplayer/**", "scripts/**"],
+      "files": [
+        "apps/**",
+        "games/**",
+        "packages/asset-tools/**",
+        "packages/multiplayer/**",
+        "scripts/**"
+      ],
       "rules": {
         "typescript/consistent-type-assertions": "warn",
         "typescript/no-non-null-assertion": "warn"

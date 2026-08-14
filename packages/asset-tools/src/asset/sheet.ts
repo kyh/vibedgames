@@ -1,5 +1,5 @@
 import { Bitmap } from "../image/raster.js";
-import { roundHalfToEven } from "../lib/pymath.js";
+import { roundHalfToEven } from "../pymath.js";
 import type { Size } from "./paths.js";
 
 /**

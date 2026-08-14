@@ -3,7 +3,6 @@ import { readFileSync } from "node:fs";
 
 import { defineCommand, runMain } from "citty";
 
-import { assetCommand } from "./commands/asset.js";
 import { completionsCommand } from "./commands/completions.js";
 import { creditsCommand } from "./commands/credits.js";
 import { deployCommand } from "./commands/deploy.js";
@@ -38,7 +37,6 @@ const main = defineCommand({
     factory: factoryCommand,
     fork: forkCommand,
     generate: generateCommand,
-    asset: assetCommand,
     credits: creditsCommand,
     update: updateCommand,
     completions: completionsCommand,
