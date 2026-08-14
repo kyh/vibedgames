@@ -41,10 +41,10 @@
   },
   "devDependencies": {
     "dotenv-cli": "^11.0.0",
-    "oxfmt": "^0.60.0",
-    "oxlint": "^1.75.0",
-    "tsx": "^4.23.1",
-    "turbo": "^2.10.6",
+    "oxfmt": "^0.63.0",
+    "oxlint": "^1.78.0",
+    "tsx": "^4.23.12",
+    "turbo": "^2.10.10",
     "typescript": "catalog:"
   },
   "engines": {

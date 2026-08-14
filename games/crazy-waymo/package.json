@@ -17,22 +17,22 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@dimforge/rapier3d-compat": "^0.19.3",
+    "@dimforge/rapier3d-compat": "^0.20.0",
     "@repo/embed": "workspace:*",
     "@vibedgames/gamepad": "workspace:^",
     "@vibedgames/multiplayer": "workspace:^",
-    "n8ao": "^2.0.0",
+    "n8ao": "^2.0.1",
     "polygon-clipping": "^0.15.7",
     "three": "^0.185.1"
   },
   "devDependencies": {
-    "@gltf-transform/core": "^4.4.1",
-    "@gltf-transform/extensions": "^4.4.1",
+    "@gltf-transform/core": "^4.4.2",
+    "@gltf-transform/extensions": "^4.4.2",
     "@kyh/tsconfig": "catalog:",
-    "@playwright/test": "^1.62.0",
+    "@playwright/test": "^1.62.1",
     "@types/node": "catalog:",
-    "@types/three": "^0.185.1",
-    "playwright-core": "^1.62.0",
+    "@types/three": "^0.185.4",
+    "playwright-core": "^1.62.1",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vite-node": "^6.0.0"

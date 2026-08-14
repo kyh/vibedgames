@@ -20,9 +20,9 @@
   },
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",
-    "@playwright/test": "^1.62.0",
+    "@playwright/test": "^1.62.1",
     "@types/node": "catalog:",
-    "tsx": "^4.23.1",
+    "tsx": "^4.23.12",
     "typescript": "catalog:",
     "vite": "catalog:"
   }
