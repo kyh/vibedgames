@@ -39,6 +39,15 @@ function dosDateTime(date: Date): { time: number; date: number } {
   return { time, date: day };
 }
 
+/**
+ * General-purpose bit 11: "the filename is UTF-8".
+ *
+ * Names are written with `Buffer.from(name, "utf8")`, so this has to be set —
+ * with the flags at zero, a reader is entitled to decode them as CP437, and a
+ * skill carrying `é.png` extracts as `Ã©.png`, breaking every link to it.
+ */
+const FLAG_UTF8 = 0x0800;
+
 export type ZipEntry = { name: string; data: Uint8Array; mtime?: Date };
 
 export function createZip(entries: ZipEntry[]): Buffer {
@@ -59,7 +68,7 @@ export function createZip(entries: ZipEntry[]): Buffer {
     const header = Buffer.alloc(30);
     header.writeUInt32LE(0x04034b50, 0);
     header.writeUInt16LE(20, 4); // version needed
-    header.writeUInt16LE(0, 6); // flags
+    header.writeUInt16LE(FLAG_UTF8, 6); // general-purpose flags
     header.writeUInt16LE(method, 8);
     header.writeUInt16LE(time, 10);
     header.writeUInt16LE(date, 12);
@@ -74,7 +83,7 @@ export function createZip(entries: ZipEntry[]): Buffer {
     entryHeader.writeUInt32LE(0x02014b50, 0);
     entryHeader.writeUInt16LE(20, 4); // version made by
     entryHeader.writeUInt16LE(20, 6); // version needed
-    entryHeader.writeUInt16LE(0, 8); // flags
+    entryHeader.writeUInt16LE(FLAG_UTF8, 8); // general-purpose flags
     entryHeader.writeUInt16LE(method, 10);
     entryHeader.writeUInt16LE(time, 12);
     entryHeader.writeUInt16LE(date, 14);

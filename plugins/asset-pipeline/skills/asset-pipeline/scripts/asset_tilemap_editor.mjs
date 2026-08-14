@@ -116,7 +116,9 @@ function startEditor(args, manifestPath, tileset) {
 }
 
 main(() => {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(process.argv.slice(2), {
+    booleans: ["edit", "label-ids", "trim"],
+  });
   const manifestPath = resolveManifest(getString(args, "manifest"));
   const manifest = loadManifestJson(manifestPath);
   const tilesets = sanitizeTilesets(manifest);

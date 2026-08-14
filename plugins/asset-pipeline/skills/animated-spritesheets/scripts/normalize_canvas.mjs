@@ -38,7 +38,9 @@ function parseSize(text) {
 }
 
 main(() => {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(process.argv.slice(2), {
+    booleans: ["no-upscale"],
+  });
   const inputDir = getString(args, "input-dir");
   const outDir = getString(args, "out-dir");
   if (!inputDir || !outDir) fail("--input-dir and --out-dir are required");

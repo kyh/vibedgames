@@ -136,7 +136,9 @@ function pixelSnapFrames(framesDir, kColors) {
 }
 
 main(() => {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(process.argv.slice(2), {
+    booleans: ["json", "no-pixel-snap", "no-qc", "recover"],
+  });
   const board = args.positionals[0];
   if (!board) fail("a pose board PNG is required");
   if (!existsSync(board)) fail(`board not found: ${board}`);

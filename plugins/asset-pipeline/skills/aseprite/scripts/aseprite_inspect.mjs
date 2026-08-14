@@ -44,9 +44,11 @@ options:
                         default).`;
 
 main(() => {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(process.argv.slice(2), {
+    booleans: ["decode-cels", "help", "pretty", "treat-index0-transparent"],
+  });
 
-  if (getFlag(args, "help") || getFlag(args, "h")) {
+  if (getFlag(args, "help")) {
     process.stdout.write(`${USAGE}\n`);
     process.exit(0);
   }

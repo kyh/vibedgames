@@ -31,7 +31,9 @@ import {
 } from "./_lib/asset-tools.mjs";
 
 main(() => {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(process.argv.slice(2), {
+    booleans: ["fail-on-hints", "json", "strict"],
+  });
   const sheet = args.positionals[0];
   if (!sheet) fail("a spritesheet path is required");
 

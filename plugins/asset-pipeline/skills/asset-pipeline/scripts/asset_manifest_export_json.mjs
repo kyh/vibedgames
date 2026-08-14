@@ -20,7 +20,9 @@ import {
 } from "./_lib/asset-tools.mjs";
 
 main(() => {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(process.argv.slice(2), {
+    booleans: ["keep-paths"],
+  });
   const manifest = getString(args, "manifest");
   const out = getString(args, "out");
   if (!manifest) fail("--manifest is required (path to assets_index.lua or .json)");

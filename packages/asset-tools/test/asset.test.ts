@@ -1,15 +1,23 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { globSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { test } from "node:test";
 
+import { getAll, getFlag, getString, parseArgs } from "../src/args.js";
 import { LuaParseError, parseLua } from "../src/asset/lua.js";
 import { checkManifest, exportManifest } from "../src/asset/manifest.js";
 import { parseFrame, prettyPath, walkFiles } from "../src/asset/paths.js";
 import { analyzeBaseline, probeSheet } from "../src/asset/sheet.js";
 import { collectSizes, sizesToCsv } from "../src/asset/sizes.js";
 import { Bitmap } from "../src/image/raster.js";
+import { createZip } from "../src/skill/zip.js";
+import {
+  cellSizeOf,
+  FRAME_HEIGHT,
+  FRAME_WIDTH,
+  loadSizeContract,
+} from "../src/sprite/size-contract.js";
 import { roundHalfToEven } from "../src/pymath.js";
 
 /**
@@ -254,4 +262,133 @@ test("written PNGs are readable by the decoder that wrote them", () => {
   const reread = Bitmap.fromFile(path);
   assert.deepEqual([reread.width, reread.height], [32, 16]);
   assert.ok(readFileSync(path).length > 0);
+});
+
+// ---- argv parsing ---------------------------------------------------------
+
+test("a declared boolean flag does not swallow the next positional", () => {
+  const opts = { booleans: ["pretty", "decode-cels"] };
+  // The ordering argparse accepted, and the one the usage text advertises.
+  assert.deepEqual(parseArgs(["--pretty", "sprite.ase"], opts).positionals, ["sprite.ase"]);
+  assert.equal(getFlag(parseArgs(["--pretty", "sprite.ase"], opts), "pretty"), true);
+
+  const both = parseArgs(["--decode-cels", "--pretty", "a.ase"], opts);
+  assert.deepEqual(both.positionals, ["a.ase"]);
+  assert.equal(getFlag(both, "decode-cels"), true);
+});
+
+test("an option that takes a value still consumes it", () => {
+  const args = parseArgs(["--out", "sheet.png", "in.png"], { booleans: ["pretty"] });
+  assert.equal(getString(args, "out"), "sheet.png");
+  assert.deepEqual(args.positionals, ["in.png"]);
+});
+
+test("-h is help, the way argparse gave every script for free", () => {
+  assert.equal(getFlag(parseArgs(["-h"]), "help"), true);
+  assert.equal(getFlag(parseArgs(["--help"]), "help"), true);
+  // And it does not become a filename.
+  assert.deepEqual(parseArgs(["-h"]).positionals, []);
+});
+
+test("-- ends option parsing", () => {
+  const args = parseArgs(["--scale", "2", "--", "--not-an-option.png"]);
+  assert.equal(getString(args, "scale"), "2");
+  assert.deepEqual(args.positionals, ["--not-an-option.png"]);
+});
+
+test("--flag=value still works for a declared boolean", () => {
+  const args = parseArgs(["--pretty=false", "x.ase"], { booleans: ["pretty"] });
+  assert.equal(getFlag(args, "pretty"), false);
+  assert.deepEqual(args.positionals, ["x.ase"]);
+});
+
+test("repeated options keep their order", () => {
+  const args = parseArgs(["--fill-rect", "a", "--fill-rect", "b"]);
+  assert.deepEqual(getAll(args, "fill-rect"), ["a", "b"]);
+});
+
+/**
+ * The parser can only protect a flag it was told about, so a script that reads
+ * `getFlag(args, "x")` without listing `"x"` silently re-opens the bug where
+ * `--x FILE` eats the positional. Check every shipped script instead of
+ * trusting that they were all updated.
+ */
+test("every skill script declares the boolean flags it reads", () => {
+  const repoRoot = join(import.meta.dirname, "..", "..", "..");
+  const scripts = globSync("plugins/*/skills/*/scripts/*.mjs", { cwd: repoRoot }).map((rel) =>
+    join(repoRoot, rel),
+  );
+  assert.ok(scripts.length >= 20, `expected the skill scripts, found ${scripts.length}`);
+
+  const offenders: string[] = [];
+  for (const path of scripts) {
+    const source = readFileSync(path, "utf8");
+    if (!source.includes('from "./_lib/asset-tools.mjs"')) continue;
+
+    const read = [...source.matchAll(/getFlag\(\s*args\s*,\s*"([^"]+)"/g)].map((m) => m[1]!);
+    if (read.length === 0) continue;
+
+    const declared = new Set(
+      [...(/booleans:\s*\[([^\]]*)\]/.exec(source)?.[1] ?? "").matchAll(/"([^"]+)"/g)].map(
+        (m) => m[1]!,
+      ),
+    );
+    const missing = [...new Set(read)].filter((name) => !declared.has(name));
+    if (missing.length > 0) offenders.push(`${basename(path)}: ${missing.join(", ")}`);
+  }
+  assert.deepEqual(offenders, []);
+});
+
+// ---- zip ------------------------------------------------------------------
+
+test("filenames are flagged UTF-8 in both headers", () => {
+  const zip = createZip([{ name: "assets/é.png", data: new Uint8Array([1, 2, 3]) }]);
+
+  // Local header: signature at 0, general-purpose flags at offset 6.
+  assert.equal(zip.readUInt32LE(0), 0x04034b50);
+  assert.equal(zip.readUInt16LE(6) & 0x0800, 0x0800, "local header missing the UTF-8 bit");
+
+  // Central directory: find its signature, flags at offset 8 from there.
+  const central = zip.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
+  assert.ok(central > 0, "no central directory");
+  assert.equal(zip.readUInt16LE(central + 8) & 0x0800, 0x0800, "central header missing the bit");
+
+  // And the name really is UTF-8, which is what the bit is promising.
+  const nameLength = zip.readUInt16LE(26);
+  assert.equal(zip.subarray(30, 30 + nameLength).toString("utf8"), "assets/é.png");
+});
+
+// ---- size contract --------------------------------------------------------
+
+test("a malformed runtimeCell is rejected where the message can name the file", () => {
+  const base = { kind: "sprite-size-contract" };
+  assert.deepEqual(cellSizeOf(loadSizeContract(base, "c.json")).length, 2);
+
+  for (const bad of ["64x64", [64], [64, 64, 64], ["64", "64"], [64, null], []]) {
+    assert.throws(
+      () => loadSizeContract({ ...base, runtimeCell: bad }, "contract.json"),
+      /runtimeCell must be \[width, height\] numbers.*contract\.json/,
+      `accepted ${JSON.stringify(bad)}`,
+    );
+  }
+
+  const good = loadSizeContract({ ...base, runtimeCell: [96, 128.9] }, "c.json");
+  assert.deepEqual(cellSizeOf(good), [96, 128]);
+});
+
+test("a non-object tolerances is rejected rather than spread", () => {
+  assert.throws(
+    () => loadSizeContract({ kind: "sprite-size-contract", tolerances: 3 }, "c.json"),
+    /tolerances must be an object.*c\.json/,
+  );
+  const merged = loadSizeContract(
+    { kind: "sprite-size-contract", tolerances: { visibleHeightPx: 9 } },
+    "c.json",
+  );
+  assert.equal((merged.tolerances as Record<string, number>).visibleHeightPx, 9);
+});
+
+test("cellSizeOf falls back rather than producing NaN", () => {
+  assert.deepEqual(cellSizeOf({}), [FRAME_WIDTH, FRAME_HEIGHT]);
+  assert.deepEqual(cellSizeOf({ runtimeCell: "nonsense" }), [FRAME_WIDTH, FRAME_HEIGHT]);
 });

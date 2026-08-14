@@ -55,7 +55,9 @@ function selftest() {
   process.exit(0);
 }
 
-const args = parseArgs(process.argv.slice(2));
+const args = parseArgs(process.argv.slice(2), {
+  booleans: ["keep-action-profile", "selftest"],
+});
 if (getFlag(args, "selftest")) selftest();
 
 const files = args.positionals;

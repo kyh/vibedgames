@@ -198,7 +198,9 @@ const COMMANDS = {
 };
 
 main(() => {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(process.argv.slice(2), {
+    booleans: ["keep-largest", "no-decontam", "whole-image"],
+  });
   const command = args.positionals[0];
   const run = COMMANDS[command];
   if (!run) {

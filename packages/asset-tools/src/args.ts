@@ -14,31 +14,62 @@ export type Args = {
   options: Map<string, string[]>;
 };
 
-export function parseArgs(argv: string[]): Args {
+export type ParseOptions = {
+  /**
+   * Options that take no value. A script MUST list every name it later reads
+   * with `getFlag`.
+   *
+   * Without the list there is no way to tell `--pretty file.ase` (a flag then a
+   * positional) from `--out file.png` (an option and its value), and guessing
+   * silently eats the positional — `argparse` knew because the script declared
+   * its arguments, and this is that declaration.
+   */
+  booleans?: readonly string[];
+};
+
+export function parseArgs(argv: string[], options: ParseOptions = {}): Args {
+  const booleans = new Set(options.booleans ?? []);
   const positionals: string[] = [];
-  const options = new Map<string, string[]>();
+  const parsed = new Map<string, string[]>();
 
   const push = (key: string, value: string) => {
-    const existing = options.get(key);
+    const existing = parsed.get(key);
     if (existing) existing.push(value);
-    else options.set(key, [value]);
+    else parsed.set(key, [value]);
   };
 
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i]!;
+
+    // `-h` is the one short option argparse gave every script for free.
+    if (token === "-h") {
+      push("help", "true");
+      continue;
+    }
     if (!token.startsWith("--")) {
       positionals.push(token);
       continue;
     }
+    // A bare `--` ends option parsing, as it does in any POSIX tool.
+    if (token === "--") {
+      positionals.push(...argv.slice(i + 1));
+      break;
+    }
+
     const body = token.slice(2);
     const equals = body.indexOf("=");
     if (equals !== -1) {
       push(body.slice(0, equals), body.slice(equals + 1));
       continue;
     }
+    if (booleans.has(body)) {
+      push(body, "true");
+      continue;
+    }
+
     const next = argv[i + 1];
-    // A bare `--flag` is a boolean unless the next token is a value. A value
-    // that itself starts with `--` would be ambiguous, so it reads as a flag.
+    // An undeclared option takes the next token as its value, unless that
+    // token is itself an option or there is nothing left.
     if (next === undefined || next.startsWith("--")) {
       push(body, "true");
     } else {
@@ -47,7 +78,7 @@ export function parseArgs(argv: string[]): Args {
     }
   }
 
-  return { positionals, options };
+  return { positionals, options: parsed };
 }
 
 export function getString(args: Args, key: string): string | undefined {

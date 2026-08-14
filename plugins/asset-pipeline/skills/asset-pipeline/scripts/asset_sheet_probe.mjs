@@ -19,7 +19,9 @@ import {
 } from "./_lib/asset-tools.mjs";
 
 main(() => {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(process.argv.slice(2), {
+    booleans: ["list", "show-empty"],
+  });
   const target = args.positionals[0];
   if (!target) fail("A PNG file or folder path is required.");
 

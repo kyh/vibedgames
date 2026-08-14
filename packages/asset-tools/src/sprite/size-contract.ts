@@ -343,9 +343,24 @@ function contractBrief(contract: Record<string, unknown>): Record<string, unknow
   return out;
 }
 
+/**
+ * A `[width, height]` pair, or nothing.
+ *
+ * A size contract is a JSON file people hand-edit, so `runtimeCell` arrives as
+ * whatever they typed. Reading it as `number[]` and trusting the two slots
+ * turns `"64x64"` or `[64]` into `NaN` that only surfaces later as a sprite
+ * scaled to nothing.
+ */
+function asCellPair(value: unknown): [number, number] | null {
+  if (!Array.isArray(value) || value.length !== 2) return null;
+  const [w, h] = value;
+  if (typeof w !== "number" || typeof h !== "number") return null;
+  if (!Number.isFinite(w) || !Number.isFinite(h)) return null;
+  return [Math.trunc(w), Math.trunc(h)];
+}
+
 export function cellSizeOf(contract: Record<string, unknown>): [number, number] {
-  const cell = (contract.runtimeCell as number[]) ?? [FRAME_WIDTH, FRAME_HEIGHT];
-  return [Math.trunc(cell[0]!), Math.trunc(cell[1]!)];
+  return asCellPair(contract.runtimeCell) ?? [FRAME_WIDTH, FRAME_HEIGHT];
 }
 
 export function loadSizeContract(payload: unknown, source: string): Record<string, unknown> {
@@ -355,12 +370,27 @@ export function loadSizeContract(payload: unknown, source: string): Record<strin
   const data = payload as Record<string, unknown>;
   if (data.kind !== "sprite-size-contract")
     throw new Error(`not a sprite size contract: ${source}`);
+
+  // Reject a malformed cell here, where the message can name the file, rather
+  // than letting NaN travel into the measurements and audit.
+  const runtimeCell =
+    data.runtimeCell === undefined ? [FRAME_WIDTH, FRAME_HEIGHT] : asCellPair(data.runtimeCell);
+  if (runtimeCell === null) {
+    throw new Error(
+      `runtimeCell must be [width, height] numbers, got ${JSON.stringify(data.runtimeCell)}: ${source}`,
+    );
+  }
+  const tolerances = data.tolerances;
+  if (tolerances !== undefined && (typeof tolerances !== "object" || tolerances === null)) {
+    throw new Error(`tolerances must be an object, got ${JSON.stringify(tolerances)}: ${source}`);
+  }
+
   return {
     ...data,
-    runtimeCell: data.runtimeCell ?? [FRAME_WIDTH, FRAME_HEIGHT],
+    runtimeCell,
     anchorPolicy: data.anchorPolicy ?? "grounded",
     pivot: data.pivot ?? "base-center",
-    tolerances: { ...DEFAULT_TOLERANCES, ...((data.tolerances as object) ?? {}) },
+    tolerances: { ...DEFAULT_TOLERANCES, ...tolerances },
   };
 }
 

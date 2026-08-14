@@ -97,7 +97,9 @@ const COMMANDS = {
 };
 
 main(() => {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(process.argv.slice(2), {
+    booleans: ["strict"],
+  });
   const run = COMMANDS[args.positionals[0]];
   if (!run) fail("Usage: node size_contract.mjs <derive|audit|prompt> ...");
   run(args);
