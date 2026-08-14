@@ -13,7 +13,7 @@
     "build": "tsc && chmod +x dist/index.js",
     "dev": "tsc --watch",
     "clean": "rm -rf .turbo dist node_modules",
-    "test": "node --import tsx --test test/media-args.test.ts test/media-download.test.ts test/media-poll.test.ts test/codex.test.ts",
+    "test": "node --import tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

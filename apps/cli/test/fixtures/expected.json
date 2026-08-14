@@ -1,0 +1,47 @@
+{
+  "bilevel1.png": {
+    "w": 61,
+    "h": 37,
+    "sha": "54d4eb8d1c6c3c7d7201880ab20be06d5b26bef79b1a561208eb4e45cb6f0da3"
+  },
+  "gray8.png": {
+    "w": 61,
+    "h": 37,
+    "sha": "c19cb96283535e2ba75e8045b31224246e629efc5b3ed2eff153048ed830a66d"
+  },
+  "gray_alpha8.png": {
+    "w": 61,
+    "h": 37,
+    "sha": "c5cb26ab2f4f1711acbf125340218968c32378f4bfbb5c105f6f43454746867a"
+  },
+  "interlaced.png": {
+    "w": 61,
+    "h": 37,
+    "sha": "a16365e7de81c37a02e2b75a5666da86d2603570739ad406aa6a735d482a542f"
+  },
+  "palette4.png": {
+    "w": 61,
+    "h": 37,
+    "sha": "0b8d004c9c856722fd32d71db107bf71ac68132e25a038f41c25a161ff99e2ba"
+  },
+  "palette8.png": {
+    "w": 61,
+    "h": 37,
+    "sha": "b3a226a709e9440b6946e5c0c3fdb76758af775cb30b4d7261f3f03a08be7e96"
+  },
+  "palette_trns.png": {
+    "w": 61,
+    "h": 37,
+    "sha": "f181cd233a748be30ee0fe3840d4c39e6104bf712a218f0ec1f574f8f7c38bf7"
+  },
+  "rgb8.png": {
+    "w": 61,
+    "h": 37,
+    "sha": "a00e5ef0e8f555c05fbc4d9be8c5f39363a69e5202331e9066ee20eefca17440"
+  },
+  "rgba8.png": {
+    "w": 61,
+    "h": 37,
+    "sha": "a16365e7de81c37a02e2b75a5666da86d2603570739ad406aa6a735d482a542f"
+  }
+}
