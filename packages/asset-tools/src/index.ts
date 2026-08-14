@@ -72,6 +72,23 @@ export {
 } from "./asset/tilemap.js";
 
 export { globFrames, type LoadedFrame, loadFrames, median } from "./sprite/frames.js";
+export {
+  chromaFringeChannels,
+  cleanChroma,
+  colorDistance,
+  decontaminateMatte,
+  despillChroma,
+  type DespillRecord,
+  fringeWarning,
+  HIGH_FRINGE_REMOVAL_RATIO,
+  type FringeRecord,
+  isGreenMatte,
+  isKeyableFringeChroma,
+  keepLargestComponents,
+  keyMatte,
+  type KeyRecord,
+  removeChromaFringe,
+} from "./sprite/chroma.js";
 export { normalizeCanvas } from "./sprite/normalize.js";
 export {
   type ActionFacts,

@@ -1951,6 +1951,319 @@ function median(values) {
   return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
+// src/sprite/chroma.ts
+var HIGH_FRINGE_REMOVAL_RATIO = 0.02;
+function colorDistance(a, b) {
+  return Math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2);
+}
+function chromaFringeChannels(chroma) {
+  const dominant = [0, 1, 2].filter((i) => chroma[i] >= 128);
+  const suppressed = [0, 1, 2].filter((i) => chroma[i] < 128);
+  if (dominant.length === 0 || suppressed.length === 0) {
+    throw new Error(
+      `chroma (${chroma.join(", ")}) cannot be split into dominant/suppressed channels; fringe cleanup needs a saturated matte color such as #00FF00 or #FF00FF`
+    );
+  }
+  return { dominant, suppressed };
+}
+function isGreenMatte(chroma) {
+  return chroma[1] >= 180 && chroma[1] - Math.max(chroma[0], chroma[2]) >= 80;
+}
+function isKeyableFringeChroma(chroma) {
+  let split;
+  try {
+    split = chromaFringeChannels(chroma);
+  } catch {
+    return false;
+  }
+  const low = Math.min(...split.dominant.map((i) => chroma[i]));
+  const high = Math.max(...split.suppressed.map((i) => chroma[i]));
+  return low >= 180 && low - high >= 80;
+}
+function fringeWarning(removed, kept, chroma) {
+  const total = removed + kept;
+  if (total <= 0) return null;
+  if (removed / total < HIGH_FRINGE_REMOVAL_RATIO) return null;
+  return isGreenMatte(chroma) ? "high green-fringe removal ratio; green foreground details may have been removed. Use a non-green matte such as #FF00FF, or pass --no-decontam to keep green specks." : "high fringe removal ratio; foreground details close to the matte color may have been removed. Use a matte color absent from the sprite, or pass --no-decontam.";
+}
+function backgroundReachable(width, height, isFloodable) {
+  const reachable = new Uint8Array(width * height);
+  const queue = new Int32Array(width * height);
+  let head = 0;
+  let tail = 0;
+  const enqueue = (x, y) => {
+    const index = y * width + x;
+    if (reachable[index] || !isFloodable(index)) return;
+    reachable[index] = 1;
+    queue[tail++] = index;
+  };
+  for (let x = 0; x < width; x += 1) {
+    enqueue(x, 0);
+    enqueue(x, height - 1);
+  }
+  for (let y = 0; y < height; y += 1) {
+    enqueue(0, y);
+    enqueue(width - 1, y);
+  }
+  while (head < tail) {
+    const index = queue[head++];
+    const y = Math.floor(index / width);
+    const x = index - y * width;
+    if (x + 1 < width) enqueue(x + 1, y);
+    if (x > 0) enqueue(x - 1, y);
+    if (y + 1 < height) enqueue(x, y + 1);
+    if (y > 0) enqueue(x, y - 1);
+  }
+  return reachable;
+}
+function hasBackgroundNeighbor(reachable, x, y, width, height, radius) {
+  for (let ny = Math.max(0, y - radius); ny < Math.min(height, y + radius + 1); ny += 1) {
+    for (let nx = Math.max(0, x - radius); nx < Math.min(width, x + radius + 1); nx += 1) {
+      if (nx === x && ny === y) continue;
+      if (reachable[ny * width + nx]) return true;
+    }
+  }
+  return false;
+}
+function keepLargestComponents(image, minArea) {
+  const { width, height } = image;
+  const seen = new Uint8Array(width * height);
+  const queue = new Int32Array(width * height);
+  const out = Bitmap.create(width, height);
+  for (let startY = 0; startY < height; startY += 1) {
+    for (let startX = 0; startX < width; startX += 1) {
+      const start = startY * width + startX;
+      if (seen[start] || image.data[start * 4 + 3] === 0) continue;
+      let head = 0;
+      let tail = 0;
+      queue[tail++] = start;
+      seen[start] = 1;
+      const points = [];
+      while (head < tail) {
+        const index = queue[head++];
+        points.push(index);
+        const y = Math.floor(index / width);
+        const x = index - y * width;
+        const visit = (nx, ny) => {
+          const n = ny * width + nx;
+          if (seen[n] || image.data[n * 4 + 3] === 0) return;
+          seen[n] = 1;
+          queue[tail++] = n;
+        };
+        if (x + 1 < width) visit(x + 1, y);
+        if (x > 0) visit(x - 1, y);
+        if (y + 1 < height) visit(x, y + 1);
+        if (y > 0) visit(x, y - 1);
+      }
+      if (points.length >= minArea) {
+        for (const index of points) {
+          const p = index * 4;
+          out.data[p] = image.data[p];
+          out.data[p + 1] = image.data[p + 1];
+          out.data[p + 2] = image.data[p + 2];
+          out.data[p + 3] = image.data[p + 3];
+        }
+      }
+    }
+  }
+  return out;
+}
+function keyMatte(image, options) {
+  const { chroma, tolerance = 90, keepLargest = false, minComponentArea = 80 } = options;
+  const { width, height } = image;
+  const candidate = new Uint8Array(width * height);
+  let candidates = 0;
+  for (let index = 0; index < candidate.length; index += 1) {
+    const p = index * 4;
+    if (image.data[p + 3] === 0) {
+      candidate[index] = 1;
+      continue;
+    }
+    const rgb = [image.data[p], image.data[p + 1], image.data[p + 2]];
+    if (colorDistance(rgb, chroma) <= tolerance) {
+      candidate[index] = 1;
+      candidates += 1;
+    }
+  }
+  const reachable = backgroundReachable(width, height, (index) => candidate[index] === 1);
+  let out = Bitmap.create(width, height);
+  let removed = 0;
+  let kept = 0;
+  for (let index = 0; index < candidate.length; index += 1) {
+    const p = index * 4;
+    const alpha = image.data[p + 3];
+    if (reachable[index]) {
+      if (alpha !== 0) removed += 1;
+      continue;
+    }
+    if (alpha === 0) continue;
+    out.data[p] = image.data[p];
+    out.data[p + 1] = image.data[p + 1];
+    out.data[p + 2] = image.data[p + 2];
+    out.data[p + 3] = alpha;
+    kept += 1;
+  }
+  if (keepLargest) out = keepLargestComponents(out, minComponentArea);
+  const bbox = out.getBBox();
+  return {
+    image: out,
+    record: {
+      chromaRgb: [...chroma],
+      tolerance,
+      keepLargest,
+      minComponentArea: keepLargest ? minComponentArea : null,
+      removedPixels: removed,
+      inToleranceCandidates: candidates,
+      keptPixels: kept,
+      bbox: bbox ? [bbox.left, bbox.top, bbox.right, bbox.bottom] : null
+    }
+  };
+}
+function removeChromaFringe(image, options) {
+  const { chroma, minLevel = 70, dominance = 24, edgeRadius = 1 } = options;
+  const { dominant, suppressed } = chromaFringeChannels(chroma);
+  const { width, height } = image;
+  const reachable = backgroundReachable(width, height, (index) => image.data[index * 4 + 3] === 0);
+  const out = Bitmap.create(width, height);
+  let removed = 0;
+  let kept = 0;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const p = image.index(x, y);
+      const alpha = image.data[p + 3];
+      if (alpha === 0) continue;
+      const rgb = [image.data[p], image.data[p + 1], image.data[p + 2]];
+      const low = Math.min(...dominant.map((i) => rgb[i]));
+      const high = Math.max(...suppressed.map((i) => rgb[i]));
+      if (hasBackgroundNeighbor(reachable, x, y, width, height, edgeRadius) && low >= minLevel && low - high >= dominance) {
+        removed += 1;
+        continue;
+      }
+      out.data[p] = rgb[0];
+      out.data[p + 1] = rgb[1];
+      out.data[p + 2] = rgb[2];
+      out.data[p + 3] = alpha;
+      kept += 1;
+    }
+  }
+  const bbox = out.getBBox();
+  return {
+    image: out,
+    record: {
+      chromaRgb: [...chroma],
+      removedFringePixels: removed,
+      keptPixels: kept,
+      removedToKeptRatio: removed / Math.max(1, kept),
+      minLevel,
+      dominance,
+      edgeRadius,
+      bbox: bbox ? [bbox.left, bbox.top, bbox.right, bbox.bottom] : null,
+      warning: fringeWarning(removed, kept, chroma)
+    }
+  };
+}
+function nearTransparentMask(image, radius) {
+  const { width, height } = image;
+  let near = new Uint8Array(width * height);
+  for (let i = 0; i < near.length; i += 1) near[i] = image.data[i * 4 + 3] === 0 ? 1 : 0;
+  for (let step = 0; step < Math.max(0, radius); step += 1) {
+    const grown = Uint8Array.from(near);
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        if (!near[y * width + x]) continue;
+        if (y + 1 < height) grown[(y + 1) * width + x] = 1;
+        if (y > 0) grown[(y - 1) * width + x] = 1;
+        if (x + 1 < width) grown[y * width + x + 1] = 1;
+        if (x > 0) grown[y * width + x - 1] = 1;
+      }
+    }
+    near = grown;
+  }
+  return near;
+}
+function despillChroma(image, options) {
+  const { chroma, edgeRadius = 2, bandOnly = true } = options;
+  const { dominant, suppressed } = chromaFringeChannels(chroma);
+  const out = image.copy();
+  const near = bandOnly ? nearTransparentMask(image, edgeRadius) : null;
+  let despilled = 0;
+  let spillRemoved = 0;
+  for (let index = 0; index < image.width * image.height; index += 1) {
+    const p = index * 4;
+    if (image.data[p + 3] === 0) continue;
+    if (near && !near[index]) continue;
+    const high = Math.max(...suppressed.map((i) => image.data[p + i]));
+    let changed = false;
+    let delta = 0;
+    for (const channel of dominant) {
+      const original = image.data[p + channel];
+      const clamped = Math.min(original, high);
+      if (clamped !== original) {
+        changed = true;
+        delta += original - clamped;
+      }
+      out.data[p + channel] = clamped;
+    }
+    if (changed) {
+      despilled += 1;
+      spillRemoved += delta;
+    }
+  }
+  return {
+    image: out,
+    record: {
+      chromaRgb: [...chroma],
+      edgeRadius,
+      bandOnly,
+      despilledPixels: despilled,
+      spillRemoved
+    }
+  };
+}
+function decontaminateMatte(image, options) {
+  const { chroma, excess = 50, minLevel = 100 } = options;
+  const { dominant, suppressed } = chromaFringeChannels(chroma);
+  const out = image.copy();
+  let removed = 0;
+  for (let index = 0; index < image.width * image.height; index += 1) {
+    const p = index * 4;
+    if (image.data[p + 3] <= 0) continue;
+    const domMin = Math.min(...dominant.map((i) => image.data[p + i]));
+    const supMax = Math.max(...suppressed.map((i) => image.data[p + i]));
+    if (domMin - supMax > excess && domMin > minLevel) {
+      out.data[p + 3] = 0;
+      removed += 1;
+    }
+  }
+  return { image: out, record: { specksRemoved: removed } };
+}
+function cleanChroma(image, options) {
+  const {
+    chroma,
+    tolerance = 90,
+    fringeRadius = 1,
+    despillRadius = 2,
+    decontam = true
+  } = options;
+  const keyed = keyMatte(image, { chroma, tolerance });
+  const defringed = removeChromaFringe(keyed.image, { chroma, edgeRadius: fringeRadius });
+  const despilled = despillChroma(defringed.image, { chroma, edgeRadius: despillRadius });
+  let result = despilled.image;
+  let decontamRecord = { skipped: true };
+  if (decontam && isKeyableFringeChroma(chroma)) {
+    const cleaned = decontaminateMatte(result, { chroma });
+    result = cleaned.image;
+    decontamRecord = cleaned.record;
+  }
+  return {
+    image: result,
+    key: keyed.record,
+    fringe: defringed.record,
+    despill: despilled.record,
+    decontam: decontamRecord
+  };
+}
+
 // src/sprite/normalize.ts
 import { basename, join as join3 } from "node:path";
 function normalizeCanvas(inputDir, outDir, options = {}) {
@@ -2805,6 +3118,7 @@ export {
   ACTIONS,
   Bitmap,
   DEFAULT_SNAP_CONFIG,
+  HIGH_FRINGE_REMOVAL_RATIO,
   LuaParseError,
   MANIFEST_CANDIDATES,
   MANIFEST_JSON_CANDIDATES,
@@ -2815,12 +3129,17 @@ export {
   buildSequenceGif,
   canonicalProfiles,
   checkManifest,
+  chromaFringeChannels,
+  cleanChroma,
   coerceFrameCount,
   collectSizes,
+  colorDistance,
   computeProfiles,
   cropBox,
   decodePng,
+  decontaminateMatte,
   defaultRoot,
+  despillChroma,
   drawDigits,
   drawLine,
   encodeGif,
@@ -2836,11 +3155,16 @@ export {
   formatPythonValue,
   frameGeometry,
   frameMetrics,
+  fringeWarning,
   getAll,
   getFlag,
   getNumber,
   getString,
   globFrames,
+  isGreenMatte,
+  isKeyableFringeChroma,
+  keepLargestComponents,
+  keyMatte,
   loadFrames,
   loadManifestJson,
   main,
@@ -2860,6 +3184,7 @@ export {
   readImageSize,
   readPngSize,
   recoverFrames,
+  removeChromaFringe,
   resample,
   resolveProfile,
   resolveStepSizes,
