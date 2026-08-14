@@ -42,19 +42,20 @@ export function parseColor(input: string): RGBA {
 
   if (value.startsWith("#")) {
     const hex = value.slice(1);
-    const expand = (c: string) => parseInt(c + c, 16);
+    // Validate the whole string up front. Per-digit `parseInt` is not enough:
+    // it parses leading digits and stops, so "1z" reads as 1 rather than
+    // failing, and a malformed colour would be written into pixels instead of
+    // being reported.
+    if (!/^(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/.test(hex)) {
+      throw new Error(`Unrecognised colour: ${input}`);
+    }
     if (hex.length === 3 || hex.length === 4) {
+      const expand = (c: string) => parseInt(c + c, 16);
       const a = hex.length === 4 ? expand(hex[3]!) : 255;
       return [expand(hex[0]!), expand(hex[1]!), expand(hex[2]!), a];
     }
-    if (hex.length === 6 || hex.length === 8) {
-      const byte = (i: number) => parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-      const a = hex.length === 8 ? byte(3) : 255;
-      const rgba: RGBA = [byte(0), byte(1), byte(2), a];
-      if (rgba.some((c) => Number.isNaN(c))) throw new Error(`Unrecognised colour: ${input}`);
-      return rgba;
-    }
-    throw new Error(`Unrecognised colour: ${input}`);
+    const byte = (i: number) => parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+    return [byte(0), byte(1), byte(2), hex.length === 8 ? byte(3) : 255];
   }
 
   const fn = /^rgba?\(([^)]+)\)$/.exec(value);

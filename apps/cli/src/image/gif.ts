@@ -143,7 +143,8 @@ function lzwCompress(indices: Uint8Array, minCodeSize: number): Buffer {
     codeWidth = minCodeSize + 1;
   };
 
-  writer.write(clearCode, codeWidth);
+  // Exactly one clear code opens the stream. Emitting a second is tolerated by
+  // lenient decoders but is not a valid bitstream.
   resetDict();
   writer.write(clearCode, codeWidth);
 
@@ -173,9 +174,14 @@ function lzwCompress(indices: Uint8Array, minCodeSize: number): Buffer {
 }
 
 /**
- * Encode frames as a looping animated GIF. Frames are composited against
- * `background` first, since GIF has only 1-bit transparency and the sprite
- * review flow always wanted a flat backdrop anyway.
+ * Encode frames as a looping animated GIF.
+ *
+ * Alpha is discarded, not composited — each frame's RGB is quantised as-is,
+ * which is what Pillow's `convert("RGB")` did in the pipeline this replaces
+ * (it drops the alpha band rather than blending against anything). Callers
+ * that want a backdrop behind transparent pixels must composite the frames
+ * onto one before calling, exactly as the sprite review flow does with its
+ * `--flat-bg` option.
  */
 export function encodeGif(frames: GifFrame[], loop = 0): Buffer {
   if (frames.length === 0) throw new Error("GIF: no frames to encode");

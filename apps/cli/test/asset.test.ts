@@ -196,8 +196,8 @@ test("manifest-export renames terse keys and rebases paths", () => {
   );
   buildSheet(join(dir, "hero.png"), 1, 1, 8);
 
-  const exported = exportManifest(manifest, true) as Record<string, any>;
-  const sprite = exported.sprites[0];
+  const exported = exportManifest(manifest, true) as Record<string, unknown>;
+  const sprite = (exported.sprites as Record<string, unknown>[])[0]!;
   assert.deepEqual(Object.keys(sprite).sort(), [
     "frameHeight",
     "frameWidth",
@@ -208,7 +208,11 @@ test("manifest-export renames terse keys and rebases paths", () => {
     "width",
   ]);
   assert.equal(sprite.path, "hero.png", "path rebased onto the manifest folder");
-  assert.equal(exported.meta.root, ".", "root reset once paths are relative");
+  assert.equal(
+    (exported.meta as Record<string, unknown>).root,
+    ".",
+    "root reset once paths are relative",
+  );
 });
 
 test("manifest-check separates undeclared art from missing art", () => {

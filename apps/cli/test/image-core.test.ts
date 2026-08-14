@@ -141,6 +141,16 @@ test("parses the colour spellings the skills pass on the command line", () => {
   assert.throws(() => parseColor("not-a-colour"), /Unrecognised/);
 });
 
+test("rejects malformed hex instead of producing NaN channels", () => {
+  // A NaN channel would be written straight into pixels by --bg/--fill-rect.
+  // `parseInt` stops at the first bad digit, so "1z" reads as 1 unless the
+  // whole string is validated.
+  for (const bad of ["#ggg", "#gggg", "#12345z", "#1z0000", "#12345", "#", "#1234567"]) {
+    assert.throws(() => parseColor(bad), /Unrecognised/, `expected ${bad} to be rejected`);
+  }
+  assert.deepEqual(parseColor("#abcdef"), [171, 205, 239, 255]);
+});
+
 test("writes a GIF that decodes back to the frames it was given", () => {
   const frames = [0, 1].map((n) => {
     const bitmap = Bitmap.create(8, 8, [0, 0, 0, 255]);
@@ -153,6 +163,32 @@ test("writes a GIF that decodes back to the frames it was given", () => {
   assert.equal(gif.readUInt16LE(8), 8, "logical screen height");
   assert.equal(gif[gif.length - 1], 0x3b, "trailer");
   assert.ok(gif.includes(Buffer.from("NETSCAPE2.0", "ascii")), "loops forever");
+});
+
+test("the LZW stream opens with exactly one clear code", () => {
+  // Two clear codes in a row is tolerated by lenient viewers but is not a
+  // valid bitstream, and stricter decoders are entitled to reject it.
+  const bitmap = Bitmap.create(4, 4, [10, 20, 30, 255]);
+  bitmap.putPixel(1, 1, [200, 100, 50, 255]);
+  const gif = encodeGif([{ bitmap, delayMs: 100 }]);
+
+  // Walk to the image descriptor (0x2c), skip it and the local colour table,
+  // then read the LZW minimum code size and the first two codes.
+  const descriptor = gif.indexOf(0x2c);
+  const packed = gif[descriptor + 9]!;
+  const tableEntries = 1 << ((packed & 0x07) + 1);
+  const minCodeSize = gif[descriptor + 10 + tableEntries * 3]!;
+  const dataStart = descriptor + 10 + tableEntries * 3 + 1;
+  const payload = gif.subarray(dataStart + 1); // skip the sub-block length byte
+
+  const codeWidth = minCodeSize + 1;
+  const bits = (payload[0]! | (payload[1]! << 8) | (payload[2]! << 16)) >>> 0;
+  const mask = (1 << codeWidth) - 1;
+  const first = bits & mask;
+  const second = (bits >> codeWidth) & mask;
+
+  assert.equal(first, 1 << minCodeSize, "stream opens with a clear code");
+  assert.notEqual(second, 1 << minCodeSize, "and does not repeat it");
 });
 
 test("refuses to build a GIF from mismatched frame sizes", () => {
