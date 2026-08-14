@@ -9,6 +9,10 @@
  * `spacing` is visible at a glance instead of showing up as garbled tiles
  * in-game.
  *
+ * `--edit` opens a painting editor in the browser instead: same map format,
+ * same keys as the old desktop window, but nothing to install — it serves one
+ * page over loopback and the canvas does the drawing.
+ *
  * Examples:
  *   node asset_tilemap_editor.mjs --manifest path/to/assets_index.json \
  *       --export-tileset-grid tmp/grid.png --scale 3 --label-ids
@@ -16,11 +20,15 @@
  *       --make-selftest-map tmp/selftest.json
  *   node asset_tilemap_editor.mjs --manifest path/to/assets_index.json \
  *       --map maps/level1.json --export-map-render tmp/level1.png --scale 2
+ *   node asset_tilemap_editor.mjs --manifest path/to/assets_index.json \
+ *       --map maps/level1.json --edit
  */
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
+  createTilemapEditor,
   exportMapRender,
   exportTilesetGrid,
   fail,
@@ -65,6 +73,48 @@ function resolveManifest(explicit) {
   return explicit;
 }
 
+/**
+ * Serve the editor page and block until interrupted.
+ *
+ * Loopback only, and the URL carries a per-run token that every API call must
+ * repeat — a local port is reachable by anything else on the machine, and this
+ * one can write files.
+ */
+function startEditor(args, manifestPath, tileset) {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const html = readFileSync(join(here, "tilemap-editor.html"), "utf8");
+  const host = getString(args, "host") ?? "127.0.0.1";
+  const port = getNumber(args, "port", 0);
+
+  const editor = createTilemapEditor({
+    manifestPath,
+    mapPath: getString(args, "map") ?? null,
+    tileset,
+    html,
+    writeRoot: getString(args, "write-root") ?? process.cwd(),
+  });
+
+  editor.server.on("error", (error) => {
+    fail(
+      error.code === "EADDRINUSE"
+        ? `Port ${port} is already in use — pass a different --port, or omit it to get a free one.`
+        : error.message,
+    );
+  });
+
+  editor.server.listen(port, host, () => {
+    const actual = editor.server.address().port;
+    console.log(`Tilemap editor: ${editor.url(actual, host)}`);
+    console.log("Open that URL (the token is part of it). Ctrl-C to stop.");
+  });
+
+  // Nothing else to do on this thread; the server keeps the process alive.
+  process.on("SIGINT", () => {
+    editor.server.close();
+    process.exit(0);
+  });
+}
+
 main(() => {
   const args = parseArgs(process.argv.slice(2));
   const manifestPath = resolveManifest(getString(args, "manifest"));
@@ -79,8 +129,15 @@ main(() => {
   const renderOut = getString(args, "export-map-render");
   const selftestOut = getString(args, "make-selftest-map");
 
+  if (getFlag(args, "edit")) {
+    startEditor(args, manifestPath, name);
+    return;
+  }
+
   if (!gridOut && !renderOut && !selftestOut) {
-    fail("Nothing to do. Pass --export-tileset-grid, --export-map-render or --make-selftest-map.");
+    fail(
+      "Nothing to do. Pass --edit, --export-tileset-grid, --export-map-render or --make-selftest-map.",
+    );
   }
 
   if (gridOut) {

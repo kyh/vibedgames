@@ -175,7 +175,7 @@ node .claude/skills/asset-pipeline/scripts/asset_sizes.mjs
 node .claude/skills/asset-pipeline/scripts/asset_sizes.mjs --root assets/ --json tmp/sizes.json
 ```
 
-### Tileset/Tilemap Exports (`asset_tilemap_editor.mjs`)
+### Tileset/Tilemap Exports and Editor (`asset_tilemap_editor.mjs`)
 
 Manifest-driven checks that `tileWidth`/`tileHeight` grid math and `columns`/`rows` are what you think they are. A wrong `margin` or `spacing` is invisible in the manifest and shows up in-game as tiles sheared by a pixel — these exports make it obvious before that happens.
 
@@ -200,3 +200,24 @@ node .claude/skills/asset-pipeline/scripts/asset_tilemap_editor.mjs \
   --manifest path/to/assets_index.json --map tmp/selftest.json \
   --export-map-render tmp/selftest_bg.png --scale 6 --bg '#77cfd8' --fill-rect '0,40,24,6,#12a7d5'
 ```
+
+#### Painting a map by hand (`--edit`)
+
+`--edit` serves a painting editor over loopback and prints a URL — nothing to
+install, and the map format is the same one the exports read. Left-click paints
+the selected tile, right-click erases, dragging strokes; arrows move the cursor,
+WASD moves the palette selection, `[`/`]` switch tileset, `+`/`-` zoom, `G`
+toggles the grid, `Ctrl-S`/`F5` saves and `Ctrl-L`/`F9` reloads.
+
+```bash
+node .claude/skills/asset-pipeline/scripts/asset_tilemap_editor.mjs \
+  --manifest path/to/assets_index.json --map maps/level1.json --edit
+```
+
+The URL includes a per-run token that every request must repeat, and saves are
+refused outside the working directory (`--write-root` moves that boundary).
+`--port` pins the port; without it the OS picks a free one.
+
+An agent generally does not need this — generating a map JSON directly is
+faster, and `--export-map-render` is how you check it. Reach for `--edit` when a
+human wants to lay out a level by eye.

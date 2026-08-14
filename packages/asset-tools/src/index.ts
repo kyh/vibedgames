@@ -56,6 +56,14 @@ export {
 } from "./asset/aseprite.js";
 export { LuaParseError, type LuaValue, parseLua } from "./asset/lua.js";
 export {
+  createTilemapEditor,
+  DEFAULT_MAP_HEIGHT,
+  DEFAULT_MAP_WIDTH,
+  type EditorHandle,
+  type EditorOptions,
+  isInside,
+} from "./asset/tilemap-server.js";
+export {
   autoDetectManifest,
   checkManifest,
   exportManifest,
@@ -90,10 +98,17 @@ export {
   loadManifestJson,
   makeSelftestMap,
   MANIFEST_JSON_CANDIDATES,
+  MAP_MAX,
+  MAP_MIN,
+  newMap,
   nonEmptyTileIds,
+  normalizeMapData,
+  parseTilemap,
   sanitizeTilesets,
   tileCount,
   tileIdFromColRow,
+  type TilemapDoc,
+  tilemapPayload,
   type TilesetMeta,
   tilesetMetaFromManifest,
 } from "./asset/tilemap.js";

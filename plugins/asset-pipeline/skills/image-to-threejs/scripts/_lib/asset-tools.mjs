@@ -2067,13 +2067,481 @@ function parseLua(text) {
   return value;
 }
 
+// src/asset/tilemap-server.ts
+import { randomUUID } from "node:crypto";
+import { existsSync as existsSync2, mkdirSync as mkdirSync2, readFileSync as readFileSync3, writeFileSync as writeFileSync2 } from "node:fs";
+import { createServer } from "node:http";
+import { dirname as dirname3, extname, isAbsolute as isAbsolute2, relative, resolve as resolve3 } from "node:path";
+
+// src/asset/tilemap.ts
+import { existsSync, readFileSync as readFileSync2 } from "node:fs";
+import { dirname as dirname2, isAbsolute, resolve as resolve2 } from "node:path";
+var MANIFEST_JSON_CANDIDATES = [
+  "assets_index.json",
+  "asset_index.json",
+  "assets/assets_index.json",
+  "assets/asset_index.json"
+];
+function asInt(value, fallback) {
+  return typeof value === "number" && Number.isFinite(value) ? Math.trunc(value) : fallback;
+}
+function loadManifestJson(path) {
+  const payload = JSON.parse(readFileSync2(path, "utf8"));
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("Manifest JSON must be an object at top-level.");
+  }
+  return payload;
+}
+function sanitizeTilesets(manifest) {
+  const tilesets = manifest.tilesets;
+  if (tilesets === null || typeof tilesets !== "object" || Array.isArray(tilesets)) {
+    throw new Error("Manifest missing `tilesets` object.");
+  }
+  const out = {};
+  for (const [name, entry] of Object.entries(tilesets)) {
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) continue;
+    if (typeof entry.path !== "string") continue;
+    out[name] = entry;
+  }
+  if (Object.keys(out).length === 0) {
+    throw new Error("Manifest has no usable tilesets (each needs a string `path`).");
+  }
+  return out;
+}
+function resolveAssetPath(manifestPath, manifest, rel) {
+  const manifestDir = resolve2(dirname2(manifestPath));
+  const meta = manifest.meta;
+  const root = meta !== null && typeof meta === "object" && typeof meta.root === "string" ? meta.root : null;
+  const base = root === null ? manifestDir : resolve2(manifestDir, root);
+  if (isAbsolute(rel)) return resolve2(rel);
+  const candidates = [resolve2(base, rel), resolve2(manifestDir, rel), resolve2(process.cwd(), rel)];
+  return candidates.find((c) => existsSync(c)) ?? candidates[0];
+}
+function tilesetMetaFromManifest(manifestPath, manifest, name) {
+  const tilesets = sanitizeTilesets(manifest);
+  const entry = tilesets[name];
+  if (!entry) throw new Error(`Tileset not found in manifest: ${name}`);
+  const path = resolveAssetPath(manifestPath, manifest, entry.path);
+  if (!existsSync(path)) throw new Error(`Tileset file not found: ${path}`);
+  const tileW = asInt(entry.tileWidth ?? entry.tileW, 16);
+  const tileH = asInt(entry.tileHeight ?? entry.tileH, 16);
+  const margin = asInt(entry.margin, 0);
+  const spacing = asInt(entry.spacing, 0);
+  const size = readImageSize(path);
+  if (!size) throw new Error(`Could not read tileset dimensions: ${path}`);
+  let columns = asInt(entry.columns, 0);
+  let rows = asInt(entry.rows, 0);
+  if (columns <= 0) {
+    const denom = tileW + spacing;
+    columns = denom > 0 ? Math.floor((size.width - 2 * margin + spacing) / denom) : 0;
+  }
+  if (rows <= 0) {
+    const denom = tileH + spacing;
+    rows = denom > 0 ? Math.floor((size.height - 2 * margin + spacing) / denom) : 0;
+  }
+  if (columns <= 0 || rows <= 0) {
+    throw new Error(`Invalid tileset grid for ${name}: columns=${columns} rows=${rows}`);
+  }
+  return {
+    name,
+    path,
+    tileW,
+    tileH,
+    columns,
+    rows,
+    margin,
+    spacing,
+    imageW: size.width,
+    imageH: size.height
+  };
+}
+function tileCount(meta) {
+  return meta.columns * meta.rows;
+}
+function tileIdFromColRow(meta, col, row) {
+  if (col < 0 || row < 0 || col >= meta.columns || row >= meta.rows) return 0;
+  return row * meta.columns + col + 1;
+}
+function colRowFromTileId(meta, tileId) {
+  if (tileId <= 0) return [0, 0];
+  const index = tileId - 1;
+  const row = Math.floor(index / meta.columns);
+  return [index - row * meta.columns, row];
+}
+function cropBox(meta, tileId) {
+  const [col, row] = colRowFromTileId(meta, tileId);
+  const left = meta.margin + col * (meta.tileW + meta.spacing);
+  const top = meta.margin + row * (meta.tileH + meta.spacing);
+  return { left, top, right: left + meta.tileW, bottom: top + meta.tileH };
+}
+function trimTransparent(image) {
+  const bbox = image.getBBox();
+  return bbox ? image.crop(bbox) : image;
+}
+function exportTilesetGrid(meta, outPath, options) {
+  const scale = Math.max(1, Math.trunc(options.scale));
+  let image = Bitmap.fromFile(meta.path);
+  if (scale !== 1) image = image.resize(image.width * scale, image.height * scale, "nearest");
+  const line = [255, 255, 255, 80];
+  const bold = [47, 230, 255, 180];
+  const x0 = meta.margin * scale;
+  const y0 = meta.margin * scale;
+  const stepX = (meta.tileW + meta.spacing) * scale;
+  const stepY = (meta.tileH + meta.spacing) * scale;
+  const width = meta.columns * meta.tileW * scale + Math.max(0, (meta.columns - 1) * meta.spacing * scale);
+  const height = meta.rows * meta.tileH * scale + Math.max(0, (meta.rows - 1) * meta.spacing * scale);
+  for (let c = 0; c <= meta.columns; c += 1) {
+    const x = x0 + c * stepX;
+    drawLine(image, x, y0, x, y0 + height, line);
+  }
+  for (let r = 0; r <= meta.rows; r += 1) {
+    const y = y0 + r * stepY;
+    drawLine(image, x0, y, x0 + width, y, line);
+  }
+  strokeRect(image, x0, y0, x0 + width, y0 + height, bold, 2);
+  if (options.labelIds) {
+    for (let r = 0; r < meta.rows; r += 1) {
+      for (let c = 0; c < meta.columns; c += 1) {
+        const id = String(tileIdFromColRow(meta, c, r));
+        const tx = x0 + c * stepX + 2;
+        const ty = y0 + r * stepY + 2;
+        drawDigits(image, tx + 1, ty + 1, id, [0, 0, 0, 180]);
+        drawDigits(image, tx, ty, id, [255, 255, 255, 200]);
+      }
+    }
+  }
+  (options.trim ? trimTransparent(image) : image).toFile(outPath);
+}
+function exportMapRender(meta, outPath, options) {
+  const scale = Math.max(1, Math.trunc(options.scale));
+  const data = options.mapPayload.data;
+  if (!Array.isArray(data)) throw new Error("Map JSON must have `data` as a 2D array.");
+  const mapMeta = options.mapPayload.meta;
+  const hasMeta = mapMeta !== null && typeof mapMeta === "object" && !Array.isArray(mapMeta);
+  let width = hasMeta ? asInt(mapMeta.width, 0) : 0;
+  let height = hasMeta ? asInt(mapMeta.height, 0) : 0;
+  if (width <= 0) {
+    width = data.reduce(
+      (max, row) => Array.isArray(row) ? Math.max(max, row.length) : max,
+      0
+    );
+  }
+  if (height <= 0) height = data.length;
+  if (width <= 0 || height <= 0) throw new Error("Invalid map dimensions.");
+  const grid = normalizeMapData(data, width, height);
+  const sheet = Bitmap.fromFile(meta.path);
+  let out = Bitmap.create(
+    width * meta.tileW,
+    height * meta.tileH,
+    options.background ?? [0, 0, 0, 0]
+  );
+  for (const fill of options.fills) {
+    fillRect(
+      out,
+      fill.x * meta.tileW,
+      fill.y * meta.tileH,
+      (fill.x + fill.w) * meta.tileW,
+      (fill.y + fill.h) * meta.tileH,
+      fill.color
+    );
+  }
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const id = grid[y][x];
+      if (id <= 0) continue;
+      out.alphaComposite(sheet.crop(cropBox(meta, id)), x * meta.tileW, y * meta.tileH);
+    }
+  }
+  if (scale !== 1) out = out.resize(out.width * scale, out.height * scale, "nearest");
+  (options.trim ? trimTransparent(out) : out).toFile(outPath);
+}
+function nonEmptyTileIds(meta) {
+  const image = Bitmap.fromFile(meta.path);
+  const out = /* @__PURE__ */ new Set();
+  for (let id = 1; id <= tileCount(meta); id += 1) {
+    if (image.crop(cropBox(meta, id)).getBBox()) out.add(id);
+  }
+  return out;
+}
+var MAP_MIN = 1;
+var MAP_MAX = 512;
+function newMap(width, height) {
+  return Array.from({ length: height }, () => new Array(width).fill(0));
+}
+function normalizeMapData(data, width, height) {
+  const rows = Array.isArray(data) ? data : [];
+  const out = newMap(width, height);
+  for (let y = 0; y < height; y += 1) {
+    const row = rows[y];
+    if (!Array.isArray(row)) continue;
+    for (let x = 0; x < width; x += 1) {
+      const cell = row[x];
+      out[y][x] = typeof cell === "number" && Number.isFinite(cell) ? Math.trunc(cell) : 0;
+    }
+  }
+  return out;
+}
+function tilemapPayload(meta, width, height, data) {
+  return {
+    meta: {
+      version: 1,
+      tileset: meta.name,
+      tileWidth: meta.tileW,
+      tileHeight: meta.tileH,
+      width,
+      height
+    },
+    data
+  };
+}
+function parseTilemap(payload, fallback) {
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("Map JSON must be an object.");
+  }
+  const doc = payload;
+  const meta = doc.meta;
+  if (meta === null || typeof meta !== "object" || Array.isArray(meta) || !Array.isArray(doc.data)) {
+    throw new Error("Map JSON must have a `meta` object and a `data` array.");
+  }
+  const metaObj = meta;
+  const clamp = (value) => Math.max(MAP_MIN, Math.min(MAP_MAX, value));
+  const width = clamp(asInt(metaObj.width, fallback.width));
+  const height = clamp(asInt(metaObj.height, fallback.height));
+  return {
+    width,
+    height,
+    data: normalizeMapData(doc.data, width, height),
+    tileset: typeof metaObj.tileset === "string" ? metaObj.tileset : null
+  };
+}
+function makeSelftestMap(meta) {
+  const nonEmpty = nonEmptyTileIds(meta);
+  const data = [];
+  for (let r = 0; r < meta.rows; r += 1) {
+    const row = [];
+    for (let c = 0; c < meta.columns; c += 1) {
+      const id = tileIdFromColRow(meta, c, r);
+      row.push(nonEmpty.has(id) ? id : 0);
+    }
+    data.push(row);
+  }
+  return {
+    meta: {
+      version: 1,
+      tileset: meta.name,
+      tileWidth: meta.tileW,
+      tileHeight: meta.tileH,
+      width: meta.columns,
+      height: meta.rows,
+      generatedFrom: meta.path.split(/[/\\]/).join("/"),
+      generator: "asset_tilemap_editor.mjs --make-selftest-map"
+    },
+    data
+  };
+}
+
+// src/asset/tilemap-server.ts
+var DEFAULT_MAP_WIDTH = 64;
+var DEFAULT_MAP_HEIGHT = 36;
+var CONTENT_TYPES = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp"
+};
+function isInside(root, candidate) {
+  const rel = relative(resolve3(root), resolve3(candidate));
+  return rel === "" || !rel.startsWith("..") && !isAbsolute2(rel);
+}
+function sendJson(res, status, body) {
+  const payload = JSON.stringify(body);
+  res.writeHead(status, {
+    "content-type": "application/json; charset=utf-8",
+    "content-length": Buffer.byteLength(payload),
+    // Nothing here should ever be cached: the point is to reflect files on disk.
+    "cache-control": "no-store"
+  });
+  res.end(payload);
+}
+function readBody(req, limitBytes = 8 * 1024 * 1024) {
+  return new Promise((resolveBody, rejectBody) => {
+    const chunks = [];
+    let total = 0;
+    req.on("data", (chunk2) => {
+      total += chunk2.length;
+      if (total > limitBytes) {
+        rejectBody(new Error("Request body too large."));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk2);
+    });
+    req.on("end", () => resolveBody(Buffer.concat(chunks).toString("utf8")));
+    req.on("error", rejectBody);
+  });
+}
+function tilesetSummary(meta) {
+  return {
+    name: meta.name,
+    tileWidth: meta.tileW,
+    tileHeight: meta.tileH,
+    columns: meta.columns,
+    rows: meta.rows,
+    margin: meta.margin,
+    spacing: meta.spacing,
+    imageWidth: meta.imageW,
+    imageHeight: meta.imageH,
+    path: meta.path
+  };
+}
+function createTilemapEditor(options) {
+  const token = randomUUID();
+  const manifestPath = resolve3(options.manifestPath);
+  const writeRoot = resolve3(options.writeRoot);
+  const readTilesets = () => {
+    const manifest = loadManifestJson(manifestPath);
+    return { manifest, tilesets: sanitizeTilesets(manifest) };
+  };
+  const metaFor = (name) => {
+    const { manifest, tilesets } = readTilesets();
+    if (!(name in tilesets)) throw new Error(`No such tileset: ${name}`);
+    return tilesetMetaFromManifest(manifestPath, manifest, name);
+  };
+  const resolveWritable = (raw) => {
+    const target = resolve3(writeRoot, raw);
+    if (!isInside(writeRoot, target)) {
+      throw new Error(`Refusing to touch a path outside ${writeRoot}: ${raw}`);
+    }
+    return target;
+  };
+  const handlers = {
+    async "/api/state"() {
+      const { tilesets } = readTilesets();
+      const names = Object.keys(tilesets).sort();
+      const selected = options.tileset && names.includes(options.tileset) ? options.tileset : names[0];
+      let map = {
+        width: DEFAULT_MAP_WIDTH,
+        height: DEFAULT_MAP_HEIGHT,
+        data: newMap(DEFAULT_MAP_WIDTH, DEFAULT_MAP_HEIGHT),
+        tileset: null
+      };
+      if (options.mapPath && existsSync2(options.mapPath)) {
+        map = parseTilemap(JSON.parse(readFileSync3(options.mapPath, "utf8")), {
+          width: DEFAULT_MAP_WIDTH,
+          height: DEFAULT_MAP_HEIGHT
+        });
+      }
+      const initial = map.tileset && names.includes(map.tileset) ? map.tileset : selected;
+      return {
+        manifestPath,
+        mapPath: options.mapPath ?? null,
+        writeRoot,
+        tilesetNames: names,
+        tileset: tilesetSummary(metaFor(initial)),
+        map
+      };
+    },
+    async "/api/tileset"(url) {
+      const name = url.searchParams.get("name");
+      if (!name) throw new Error("name is required");
+      return tilesetSummary(metaFor(name));
+    },
+    async "/api/load"(url) {
+      const path = url.searchParams.get("path");
+      if (!path) throw new Error("path is required");
+      const target = resolveWritable(path);
+      if (!existsSync2(target)) throw new Error(`Map not found: ${path}`);
+      return {
+        path: target,
+        ...parseTilemap(JSON.parse(readFileSync3(target, "utf8")), {
+          width: DEFAULT_MAP_WIDTH,
+          height: DEFAULT_MAP_HEIGHT
+        })
+      };
+    },
+    async "/api/save"(url, req) {
+      const body = JSON.parse(await readBody(req));
+      if (body === null || typeof body !== "object") throw new Error("Body must be an object.");
+      const doc = body;
+      const raw = typeof doc.path === "string" && doc.path ? doc.path : options.mapPath;
+      if (!raw) throw new Error("No path given and no --map to fall back on.");
+      const target = resolveWritable(raw);
+      if (typeof doc.tileset !== "string") throw new Error("tileset is required");
+      const meta = metaFor(doc.tileset);
+      const parsed = parseTilemap(
+        { meta: { width: doc.width, height: doc.height }, data: doc.data },
+        { width: DEFAULT_MAP_WIDTH, height: DEFAULT_MAP_HEIGHT }
+      );
+      mkdirSync2(dirname3(target), { recursive: true });
+      writeFileSync2(
+        target,
+        `${JSON.stringify(tilemapPayload(meta, parsed.width, parsed.height, parsed.data), null, 2)}
+`
+      );
+      return { path: target, width: parsed.width, height: parsed.height };
+    }
+  };
+  const server = createServer((req, res) => {
+    void (async () => {
+      const url = new URL(req.url ?? "/", "http://localhost");
+      const authorized = req.headers["x-editor-token"] === token || url.searchParams.get("t") === token;
+      if (!authorized) {
+        res.writeHead(403, { "content-type": "text/plain; charset=utf-8" });
+        res.end("Forbidden \u2014 open the URL the editor printed, token included.\n");
+        return;
+      }
+      if (url.pathname === "/") {
+        res.writeHead(200, {
+          "content-type": "text/html; charset=utf-8",
+          "cache-control": "no-store"
+        });
+        res.end(options.html);
+        return;
+      }
+      if (url.pathname === "/api/sheet") {
+        try {
+          const name = url.searchParams.get("name");
+          if (!name) throw new Error("name is required");
+          const meta = metaFor(name);
+          const bytes = readFileSync3(meta.path);
+          res.writeHead(200, {
+            "content-type": CONTENT_TYPES[extname(meta.path).toLowerCase()] ?? "image/png",
+            "content-length": bytes.length,
+            "cache-control": "no-store"
+          });
+          res.end(bytes);
+        } catch (error) {
+          sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+        }
+        return;
+      }
+      const handler = handlers[url.pathname];
+      if (!handler) {
+        sendJson(res, 404, { error: `No such endpoint: ${url.pathname}` });
+        return;
+      }
+      try {
+        sendJson(res, 200, await handler(url, req));
+      } catch (error) {
+        sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+      }
+    })();
+  });
+  return {
+    server,
+    token,
+    url: (port, host = "127.0.0.1") => `http://${host}:${port}/?t=${token}`
+  };
+}
+
 // src/asset/manifest.ts
-import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
-import { dirname as dirname3, isAbsolute, relative as relative2, resolve as resolve3 } from "node:path";
+import { existsSync as existsSync4, readFileSync as readFileSync4 } from "node:fs";
+import { dirname as dirname5, isAbsolute as isAbsolute3, relative as relative3, resolve as resolve5 } from "node:path";
 
 // src/asset/paths.ts
-import { existsSync, mkdirSync as mkdirSync2, readdirSync, statSync, writeFileSync as writeFileSync2 } from "node:fs";
-import { dirname as dirname2, join, relative, resolve as resolve2, sep } from "node:path";
+import { existsSync as existsSync3, mkdirSync as mkdirSync3, readdirSync, statSync, writeFileSync as writeFileSync3 } from "node:fs";
+import { dirname as dirname4, join, relative as relative2, resolve as resolve4, sep } from "node:path";
 function parseFrame(text) {
   const match = /^(\d+)\s*x\s*(\d+)$/i.exec(text.trim());
   if (!match) throw new Error(`frame must be WxH, e.g. 32x32 (got "${text}")`);
@@ -2102,16 +2570,16 @@ function walkFiles(root, extension = ".png") {
   return out.sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
 }
 function resolveTargets(path, extension = ".png") {
-  if (!existsSync(path)) throw new Error(`Path not found: ${path}`);
+  if (!existsSync3(path)) throw new Error(`Path not found: ${path}`);
   return statSync(path).isFile() ? [path] : walkFiles(path, extension);
 }
 function defaultRoot(explicit) {
   if (explicit) return explicit;
-  return existsSync("assets") ? "assets" : ".";
+  return existsSync3("assets") ? "assets" : ".";
 }
 function prettyPath(path) {
-  const rel = relative(process.cwd(), resolve2(path));
-  return rel && !rel.startsWith(`..${sep}`) && rel !== ".." ? rel : resolve2(path);
+  const rel = relative2(process.cwd(), resolve4(path));
+  return rel && !rel.startsWith(`..${sep}`) && rel !== ".." ? rel : resolve4(path);
 }
 function toPythonJson(payload) {
   return JSON.stringify(payload, null, 2).replace(
@@ -2120,13 +2588,13 @@ function toPythonJson(payload) {
   );
 }
 function writeJsonFile(path, payload) {
-  mkdirSync2(dirname2(resolve2(path)), { recursive: true });
-  writeFileSync2(path, `${toPythonJson(payload)}
+  mkdirSync3(dirname4(resolve4(path)), { recursive: true });
+  writeFileSync3(path, `${toPythonJson(payload)}
 `);
 }
 function writeTextFile(path, contents) {
-  mkdirSync2(dirname2(resolve2(path)), { recursive: true });
-  writeFileSync2(path, contents);
+  mkdirSync3(dirname4(resolve4(path)), { recursive: true });
+  writeFileSync3(path, contents);
 }
 
 // src/asset/manifest.ts
@@ -2138,8 +2606,8 @@ var MANIFEST_CANDIDATES = [
 ];
 var LUA_PATH_RE = /path\s*=\s*"([^"]+\.png)"/g;
 function resolveManifestPath(raw, manifestDir, jsonRoot) {
-  if (isAbsolute(raw)) return resolve3(raw);
-  return jsonRoot ? resolve3(manifestDir, jsonRoot, raw) : resolve3(manifestDir, raw);
+  if (isAbsolute3(raw)) return resolve5(raw);
+  return jsonRoot ? resolve5(manifestDir, jsonRoot, raw) : resolve5(manifestDir, raw);
 }
 function collectJsonPaths(payload) {
   const paths = [];
@@ -2161,9 +2629,9 @@ function collectJsonPaths(payload) {
   return paths;
 }
 function extractManifestPaths(manifestPath) {
-  const manifestDir = resolve3(dirname3(manifestPath));
+  const manifestDir = resolve5(dirname5(manifestPath));
   if (manifestPath.toLowerCase().endsWith(".json")) {
-    const payload = JSON.parse(readFileSync2(manifestPath, "utf8"));
+    const payload = JSON.parse(readFileSync4(manifestPath, "utf8"));
     if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
       throw new Error("JSON manifest must be an object at top-level.");
     }
@@ -2173,7 +2641,7 @@ function extractManifestPaths(manifestPath) {
       collectJsonPaths(payload).map((p) => resolveManifestPath(p, manifestDir, jsonRoot))
     );
   }
-  const text = readFileSync2(manifestPath, "utf8");
+  const text = readFileSync4(manifestPath, "utf8");
   const out = /* @__PURE__ */ new Set();
   for (const match of text.matchAll(LUA_PATH_RE)) {
     out.add(resolveManifestPath(match[1], manifestDir, null));
@@ -2182,7 +2650,7 @@ function extractManifestPaths(manifestPath) {
 }
 function checkManifest(manifestPath, root) {
   const manifestPaths = extractManifestPaths(manifestPath);
-  const actualPaths = new Set(walkFiles(root, ".png").map((p) => resolve3(p)));
+  const actualPaths = new Set(walkFiles(root, ".png").map((p) => resolve5(p)));
   const missing = [...actualPaths].filter((p) => !manifestPaths.has(p)).map(prettyPath);
   const extra = [...manifestPaths].filter((p) => !actualPaths.has(p)).map(prettyPath);
   const byName = (a, b) => a < b ? -1 : a > b ? 1 : 0;
@@ -2194,7 +2662,7 @@ function checkManifest(manifestPath, root) {
   };
 }
 function autoDetectManifest() {
-  return MANIFEST_CANDIDATES.find((p) => existsSync2(p)) ?? null;
+  return MANIFEST_CANDIDATES.find((p) => existsSync4(p)) ?? null;
 }
 var KEY_RENAMES = {
   w: "width",
@@ -2219,8 +2687,8 @@ function rewritePaths(base, value) {
   const out = {};
   for (const [key, nested] of Object.entries(value)) {
     if (key === "path" && typeof nested === "string" && nested.toLowerCase().endsWith(".png")) {
-      const absolute = isAbsolute(nested) ? resolve3(nested) : resolve3(process.cwd(), nested);
-      const rel = relative2(resolve3(base), absolute);
+      const absolute = isAbsolute3(nested) ? resolve5(nested) : resolve5(process.cwd(), nested);
+      const rel = relative3(resolve5(base), absolute);
       out[key] = rel && !rel.startsWith("..") ? rel.split(/[/\\]/).join("/") : nested;
     } else {
       out[key] = rewritePaths(base, nested);
@@ -2230,19 +2698,19 @@ function rewritePaths(base, value) {
 }
 function exportManifest(manifestPath, packRelative) {
   if (manifestPath.toLowerCase().endsWith(".json")) {
-    const payload = JSON.parse(readFileSync2(manifestPath, "utf8"));
+    const payload = JSON.parse(readFileSync4(manifestPath, "utf8"));
     if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
       throw new Error("JSON manifest must be an object at top-level.");
     }
     return payload;
   }
-  const parsed = parseLua(readFileSync2(manifestPath, "utf8"));
+  const parsed = parseLua(readFileSync4(manifestPath, "utf8"));
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error("Lua manifest must return a table/object.");
   }
   let normalized = renameKeys(parsed);
   if (packRelative) {
-    normalized = rewritePaths(resolve3(dirname3(manifestPath)), normalized);
+    normalized = rewritePaths(resolve5(dirname5(manifestPath)), normalized);
     const meta = normalized.meta;
     if (meta !== null && typeof meta === "object" && !Array.isArray(meta)) {
       meta.root = ".";
@@ -2380,235 +2848,6 @@ function sizesToCsv(rows) {
   }
   return `${lines.join("\n")}
 `;
-}
-
-// src/asset/tilemap.ts
-import { existsSync as existsSync3, readFileSync as readFileSync3 } from "node:fs";
-import { dirname as dirname4, isAbsolute as isAbsolute2, resolve as resolve4 } from "node:path";
-var MANIFEST_JSON_CANDIDATES = [
-  "assets_index.json",
-  "asset_index.json",
-  "assets/assets_index.json",
-  "assets/asset_index.json"
-];
-function asInt(value, fallback) {
-  return typeof value === "number" && Number.isFinite(value) ? Math.trunc(value) : fallback;
-}
-function loadManifestJson(path) {
-  const payload = JSON.parse(readFileSync3(path, "utf8"));
-  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new Error("Manifest JSON must be an object at top-level.");
-  }
-  return payload;
-}
-function sanitizeTilesets(manifest) {
-  const tilesets = manifest.tilesets;
-  if (tilesets === null || typeof tilesets !== "object" || Array.isArray(tilesets)) {
-    throw new Error("Manifest missing `tilesets` object.");
-  }
-  const out = {};
-  for (const [name, entry] of Object.entries(tilesets)) {
-    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) continue;
-    if (typeof entry.path !== "string") continue;
-    out[name] = entry;
-  }
-  if (Object.keys(out).length === 0) {
-    throw new Error("Manifest has no usable tilesets (each needs a string `path`).");
-  }
-  return out;
-}
-function resolveAssetPath(manifestPath, manifest, rel) {
-  const manifestDir = resolve4(dirname4(manifestPath));
-  const meta = manifest.meta;
-  const root = meta !== null && typeof meta === "object" && typeof meta.root === "string" ? meta.root : null;
-  const base = root === null ? manifestDir : resolve4(manifestDir, root);
-  if (isAbsolute2(rel)) return resolve4(rel);
-  const candidates = [resolve4(base, rel), resolve4(manifestDir, rel), resolve4(process.cwd(), rel)];
-  return candidates.find((c) => existsSync3(c)) ?? candidates[0];
-}
-function tilesetMetaFromManifest(manifestPath, manifest, name) {
-  const tilesets = sanitizeTilesets(manifest);
-  const entry = tilesets[name];
-  if (!entry) throw new Error(`Tileset not found in manifest: ${name}`);
-  const path = resolveAssetPath(manifestPath, manifest, entry.path);
-  if (!existsSync3(path)) throw new Error(`Tileset file not found: ${path}`);
-  const tileW = asInt(entry.tileWidth ?? entry.tileW, 16);
-  const tileH = asInt(entry.tileHeight ?? entry.tileH, 16);
-  const margin = asInt(entry.margin, 0);
-  const spacing = asInt(entry.spacing, 0);
-  const size = readImageSize(path);
-  if (!size) throw new Error(`Could not read tileset dimensions: ${path}`);
-  let columns = asInt(entry.columns, 0);
-  let rows = asInt(entry.rows, 0);
-  if (columns <= 0) {
-    const denom = tileW + spacing;
-    columns = denom > 0 ? Math.floor((size.width - 2 * margin + spacing) / denom) : 0;
-  }
-  if (rows <= 0) {
-    const denom = tileH + spacing;
-    rows = denom > 0 ? Math.floor((size.height - 2 * margin + spacing) / denom) : 0;
-  }
-  if (columns <= 0 || rows <= 0) {
-    throw new Error(`Invalid tileset grid for ${name}: columns=${columns} rows=${rows}`);
-  }
-  return {
-    name,
-    path,
-    tileW,
-    tileH,
-    columns,
-    rows,
-    margin,
-    spacing,
-    imageW: size.width,
-    imageH: size.height
-  };
-}
-function tileCount(meta) {
-  return meta.columns * meta.rows;
-}
-function tileIdFromColRow(meta, col, row) {
-  if (col < 0 || row < 0 || col >= meta.columns || row >= meta.rows) return 0;
-  return row * meta.columns + col + 1;
-}
-function colRowFromTileId(meta, tileId) {
-  if (tileId <= 0) return [0, 0];
-  const index = tileId - 1;
-  const row = Math.floor(index / meta.columns);
-  return [index - row * meta.columns, row];
-}
-function cropBox(meta, tileId) {
-  const [col, row] = colRowFromTileId(meta, tileId);
-  const left = meta.margin + col * (meta.tileW + meta.spacing);
-  const top = meta.margin + row * (meta.tileH + meta.spacing);
-  return { left, top, right: left + meta.tileW, bottom: top + meta.tileH };
-}
-function trimTransparent(image) {
-  const bbox = image.getBBox();
-  return bbox ? image.crop(bbox) : image;
-}
-function exportTilesetGrid(meta, outPath, options) {
-  const scale = Math.max(1, Math.trunc(options.scale));
-  let image = Bitmap.fromFile(meta.path);
-  if (scale !== 1) image = image.resize(image.width * scale, image.height * scale, "nearest");
-  const line = [255, 255, 255, 80];
-  const bold = [47, 230, 255, 180];
-  const x0 = meta.margin * scale;
-  const y0 = meta.margin * scale;
-  const stepX = (meta.tileW + meta.spacing) * scale;
-  const stepY = (meta.tileH + meta.spacing) * scale;
-  const width = meta.columns * meta.tileW * scale + Math.max(0, (meta.columns - 1) * meta.spacing * scale);
-  const height = meta.rows * meta.tileH * scale + Math.max(0, (meta.rows - 1) * meta.spacing * scale);
-  for (let c = 0; c <= meta.columns; c += 1) {
-    const x = x0 + c * stepX;
-    drawLine(image, x, y0, x, y0 + height, line);
-  }
-  for (let r = 0; r <= meta.rows; r += 1) {
-    const y = y0 + r * stepY;
-    drawLine(image, x0, y, x0 + width, y, line);
-  }
-  strokeRect(image, x0, y0, x0 + width, y0 + height, bold, 2);
-  if (options.labelIds) {
-    for (let r = 0; r < meta.rows; r += 1) {
-      for (let c = 0; c < meta.columns; c += 1) {
-        const id = String(tileIdFromColRow(meta, c, r));
-        const tx = x0 + c * stepX + 2;
-        const ty = y0 + r * stepY + 2;
-        drawDigits(image, tx + 1, ty + 1, id, [0, 0, 0, 180]);
-        drawDigits(image, tx, ty, id, [255, 255, 255, 200]);
-      }
-    }
-  }
-  (options.trim ? trimTransparent(image) : image).toFile(outPath);
-}
-function normalizeMapData(data, width, height) {
-  const out = Array.from({ length: height }, () => new Array(width).fill(0));
-  if (!Array.isArray(data)) return out;
-  for (let y = 0; y < Math.min(height, data.length); y += 1) {
-    const row = data[y];
-    if (!Array.isArray(row)) continue;
-    for (let x = 0; x < Math.min(width, row.length); x += 1) {
-      const value = row[x];
-      if (typeof value === "number" && Number.isFinite(value)) out[y][x] = Math.trunc(value);
-    }
-  }
-  return out;
-}
-function exportMapRender(meta, outPath, options) {
-  const scale = Math.max(1, Math.trunc(options.scale));
-  const data = options.mapPayload.data;
-  if (!Array.isArray(data)) throw new Error("Map JSON must have `data` as a 2D array.");
-  const mapMeta = options.mapPayload.meta;
-  const hasMeta = mapMeta !== null && typeof mapMeta === "object" && !Array.isArray(mapMeta);
-  let width = hasMeta ? asInt(mapMeta.width, 0) : 0;
-  let height = hasMeta ? asInt(mapMeta.height, 0) : 0;
-  if (width <= 0) {
-    width = data.reduce(
-      (max, row) => Array.isArray(row) ? Math.max(max, row.length) : max,
-      0
-    );
-  }
-  if (height <= 0) height = data.length;
-  if (width <= 0 || height <= 0) throw new Error("Invalid map dimensions.");
-  const grid = normalizeMapData(data, width, height);
-  const sheet = Bitmap.fromFile(meta.path);
-  let out = Bitmap.create(
-    width * meta.tileW,
-    height * meta.tileH,
-    options.background ?? [0, 0, 0, 0]
-  );
-  for (const fill of options.fills) {
-    fillRect(
-      out,
-      fill.x * meta.tileW,
-      fill.y * meta.tileH,
-      (fill.x + fill.w) * meta.tileW,
-      (fill.y + fill.h) * meta.tileH,
-      fill.color
-    );
-  }
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const id = grid[y][x];
-      if (id <= 0) continue;
-      out.alphaComposite(sheet.crop(cropBox(meta, id)), x * meta.tileW, y * meta.tileH);
-    }
-  }
-  if (scale !== 1) out = out.resize(out.width * scale, out.height * scale, "nearest");
-  (options.trim ? trimTransparent(out) : out).toFile(outPath);
-}
-function nonEmptyTileIds(meta) {
-  const image = Bitmap.fromFile(meta.path);
-  const out = /* @__PURE__ */ new Set();
-  for (let id = 1; id <= tileCount(meta); id += 1) {
-    if (image.crop(cropBox(meta, id)).getBBox()) out.add(id);
-  }
-  return out;
-}
-function makeSelftestMap(meta) {
-  const nonEmpty = nonEmptyTileIds(meta);
-  const data = [];
-  for (let r = 0; r < meta.rows; r += 1) {
-    const row = [];
-    for (let c = 0; c < meta.columns; c += 1) {
-      const id = tileIdFromColRow(meta, c, r);
-      row.push(nonEmpty.has(id) ? id : 0);
-    }
-    data.push(row);
-  }
-  return {
-    meta: {
-      version: 1,
-      tileset: meta.name,
-      tileWidth: meta.tileW,
-      tileHeight: meta.tileH,
-      width: meta.columns,
-      height: meta.rows,
-      generatedFrom: meta.path.split(/[/\\]/).join("/"),
-      generator: "asset_tilemap_editor.mjs --make-selftest-map"
-    },
-    data
-  };
 }
 
 // src/sprite/frames.ts
@@ -3292,7 +3531,7 @@ function buildSequenceGif(frames, flatBackground) {
 }
 
 // src/sprite/qc.ts
-import { existsSync as existsSync4, readFileSync as readFileSync4 } from "node:fs";
+import { existsSync as existsSync5, readFileSync as readFileSync5 } from "node:fs";
 var ALPHA_ON = 16;
 var EMPTY_AREA_FRAC = 3e-3;
 var CLIP_BORDER_FRAC = 0.01;
@@ -3320,8 +3559,8 @@ function frameGeometry(sheet, sheetPath, frameWidth, frameHeight) {
     return { frameWidth, frameHeight, count: columns2, columns: columns2, rows: 1 };
   }
   const manifestPath = sheetPath.replace(/\.[^./\\]+$/, ".json");
-  if (existsSync4(manifestPath)) {
-    const m = JSON.parse(readFileSync4(manifestPath, "utf8"));
+  if (existsSync5(manifestPath)) {
+    const m = JSON.parse(readFileSync5(manifestPath, "utf8"));
     const count = Math.trunc(m.frameCount);
     return {
       frameWidth: Math.trunc(m.frameWidth),
@@ -3818,7 +4057,7 @@ function snapSheet(image, cols, rows, config) {
 }
 
 // src/sprite/size-contract.ts
-import { existsSync as existsSync5, statSync as statSync2 } from "node:fs";
+import { existsSync as existsSync6, statSync as statSync2 } from "node:fs";
 import { basename as basename2 } from "node:path";
 var FRAME_WIDTH = 256;
 var FRAME_HEIGHT = 256;
@@ -3857,13 +4096,13 @@ function measureBitmap(image, label, source, frameSize) {
   return record;
 }
 function measureSource(source, cellSize, frameGlob = "frame-*.png") {
-  if (existsSync5(source) && statSync2(source).isDirectory()) {
+  if (existsSync6(source) && statSync2(source).isDirectory()) {
     return globFrames(source, frameGlob).map((path) => {
       const image2 = Bitmap.fromFile(path);
       return measureBitmap(image2, basename2(path), path, [image2.width, image2.height]);
     });
   }
-  if (!existsSync5(source)) throw new Error(`missing size contract source: ${source}`);
+  if (!existsSync6(source)) throw new Error(`missing size contract source: ${source}`);
   const image = Bitmap.fromFile(source);
   const [cellW, cellH] = cellSize;
   if (image.width >= cellW && image.height >= cellH && image.width % cellW === 0 && image.height % cellH === 0) {
@@ -4098,7 +4337,7 @@ function deriveSizeContract(source, options = {}) {
   }
   const targetVisibleHeight = roundHalfToEven(summary.medianVisibleHeight);
   const targetBottomY = roundHalfToEven(summary.medianBottomY);
-  const isDir = existsSync5(source) && statSync2(source).isDirectory();
+  const isDir = existsSync6(source) && statSync2(source).isDirectory();
   return {
     version: 1,
     kind: "sprite-size-contract",
@@ -5213,8 +5452,8 @@ Suggested: Add more detail about when to use this skill, what triggers it, and w
 }
 
 // src/skill/init.ts
-import { chmodSync, existsSync as existsSync6, mkdirSync as mkdirSync3, writeFileSync as writeFileSync3 } from "node:fs";
-import { join as join4, resolve as resolve5 } from "node:path";
+import { chmodSync, existsSync as existsSync7, mkdirSync as mkdirSync4, writeFileSync as writeFileSync4 } from "node:fs";
+import { join as join4, resolve as resolve6 } from "node:path";
 
 // src/skill/templates.ts
 var SKILL_TEMPLATE = (skillName, skillTitle) => `---
@@ -5388,14 +5627,14 @@ function titleCaseSkillName(skillName) {
   return skillName.split("-").map((word) => word ? word[0].toUpperCase() + word.slice(1).toLowerCase() : word).join(" ");
 }
 function initSkill(skillName, path, log) {
-  const skillDir = join4(resolve5(path), skillName);
-  if (existsSync6(skillDir)) {
+  const skillDir = join4(resolve6(path), skillName);
+  if (existsSync7(skillDir)) {
     log(`\u274C Error: Skill directory already exists: ${skillDir}`);
     return null;
   }
   const created = [];
   try {
-    mkdirSync3(skillDir, { recursive: true });
+    mkdirSync4(skillDir, { recursive: true });
     log(`\u2705 Created skill directory: ${skillDir}`);
   } catch (error) {
     log(`\u274C Error creating directory: ${error instanceof Error ? error.message : error}`);
@@ -5403,7 +5642,7 @@ function initSkill(skillName, path, log) {
   }
   const skillTitle = titleCaseSkillName(skillName);
   try {
-    writeFileSync3(join4(skillDir, "SKILL.md"), SKILL_TEMPLATE(skillName, skillTitle));
+    writeFileSync4(join4(skillDir, "SKILL.md"), SKILL_TEMPLATE(skillName, skillTitle));
     log("\u2705 Created SKILL.md");
     created.push("SKILL.md");
   } catch (error) {
@@ -5412,20 +5651,20 @@ function initSkill(skillName, path, log) {
   }
   try {
     const scriptsDir = join4(skillDir, "scripts");
-    mkdirSync3(scriptsDir, { recursive: true });
+    mkdirSync4(scriptsDir, { recursive: true });
     const scriptPath = join4(scriptsDir, "example.mjs");
-    writeFileSync3(scriptPath, EXAMPLE_SCRIPT(skillName));
+    writeFileSync4(scriptPath, EXAMPLE_SCRIPT(skillName));
     chmodSync(scriptPath, 493);
     log("\u2705 Created scripts/example.mjs");
     created.push("scripts/example.mjs");
     const referencesDir = join4(skillDir, "references");
-    mkdirSync3(referencesDir, { recursive: true });
-    writeFileSync3(join4(referencesDir, "api_reference.md"), EXAMPLE_REFERENCE(skillTitle));
+    mkdirSync4(referencesDir, { recursive: true });
+    writeFileSync4(join4(referencesDir, "api_reference.md"), EXAMPLE_REFERENCE(skillTitle));
     log("\u2705 Created references/api_reference.md");
     created.push("references/api_reference.md");
     const assetsDir = join4(skillDir, "assets");
-    mkdirSync3(assetsDir, { recursive: true });
-    writeFileSync3(join4(assetsDir, "example_asset.txt"), EXAMPLE_ASSET);
+    mkdirSync4(assetsDir, { recursive: true });
+    writeFileSync4(join4(assetsDir, "example_asset.txt"), EXAMPLE_ASSET);
     log("\u2705 Created assets/example_asset.txt");
     created.push("assets/example_asset.txt");
   } catch (error) {
@@ -5467,13 +5706,13 @@ function normalizeFactory(source, keepActionProfile = false) {
 }
 
 // src/skill/validate.ts
-import { existsSync as existsSync7, readFileSync as readFileSync5 } from "node:fs";
+import { existsSync as existsSync8, readFileSync as readFileSync6 } from "node:fs";
 import { join as join5 } from "node:path";
 var ALLOWED_PROPERTIES = ["name", "description", "license", "allowed-tools", "metadata"];
 function validateSkill(skillPath) {
   const skillMd = join5(skillPath, "SKILL.md");
-  if (!existsSync7(skillMd)) return { valid: false, message: "SKILL.md not found" };
-  const content = readFileSync5(skillMd, "utf8");
+  if (!existsSync8(skillMd)) return { valid: false, message: "SKILL.md not found" };
+  const content = readFileSync6(skillMd, "utf8");
   if (!content.startsWith("---")) {
     return { valid: false, message: "No YAML frontmatter found" };
   }
@@ -5653,6 +5892,8 @@ export {
   ASEPRITE_EXTENSIONS,
   AsepriteParseError,
   Bitmap,
+  DEFAULT_MAP_HEIGHT,
+  DEFAULT_MAP_WIDTH,
   DEFAULT_SNAP_CONFIG,
   DEFAULT_TOLERANCES,
   DIRECTIONS,
@@ -5664,6 +5905,8 @@ export {
   LuaParseError,
   MANIFEST_CANDIDATES,
   MANIFEST_JSON_CANDIDATES,
+  MAP_MAX,
+  MAP_MIN,
   MARKER,
   POSE_BOARD_PRESETS,
   PROFILES,
@@ -5690,6 +5933,7 @@ export {
   colorDistance,
   computeProfiles,
   contractChecks,
+  createTilemapEditor,
   createZip,
   cropBox,
   decodePng,
@@ -5729,6 +5973,7 @@ export {
   initSkill,
   inspectAseprite,
   isGreenMatte,
+  isInside,
   isKeyableFringeChroma,
   keepLargestComponents,
   keyMatte,
@@ -5739,15 +5984,18 @@ export {
   makeSelftestMap,
   measureSource,
   median,
+  newMap,
   nonEmptyTileIds,
   normalizeCanvas,
   normalizeFactory,
+  normalizeMapData,
   packSpritesheet,
   parseArgs,
   parseColor,
   parseFrame,
   parseFrontmatter,
   parseLua,
+  parseTilemap,
   prettyPath,
   probeSheet,
   promptGuidanceForContract,
@@ -5780,6 +6028,7 @@ export {
   summarizeMeasurements,
   tileCount,
   tileIdFromColRow,
+  tilemapPayload,
   tilesetMetaFromManifest,
   titleCaseSkillName,
   toHex,

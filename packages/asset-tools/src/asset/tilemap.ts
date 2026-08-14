@@ -215,21 +215,6 @@ export function exportTilesetGrid(
   (options.trim ? trimTransparent(image) : image).toFile(outPath);
 }
 
-/** Reshape loose JSON into a dense w*h grid of tile IDs. */
-function normalizeMapData(data: unknown, width: number, height: number): number[][] {
-  const out: number[][] = Array.from({ length: height }, () => new Array<number>(width).fill(0));
-  if (!Array.isArray(data)) return out;
-  for (let y = 0; y < Math.min(height, data.length); y += 1) {
-    const row: unknown = data[y];
-    if (!Array.isArray(row)) continue;
-    for (let x = 0; x < Math.min(width, row.length); x += 1) {
-      const value: unknown = row[x];
-      if (typeof value === "number" && Number.isFinite(value)) out[y]![x] = Math.trunc(value);
-    }
-  }
-  return out;
-}
-
 export type FillRect = { x: number; y: number; w: number; h: number; color: RGBA };
 
 /** Composite a tilemap into a PNG using the tileset it names. */
@@ -300,6 +285,103 @@ export function nonEmptyTileIds(meta: TilesetMeta): Set<number> {
     if (image.crop(cropBox(meta, id)).getBBox()) out.add(id);
   }
   return out;
+}
+
+/** Bounds on a map's dimensions, so a malformed file can't allocate wildly. */
+export const MAP_MIN = 1;
+export const MAP_MAX = 512;
+
+export type TilemapDoc = {
+  meta: {
+    version: number;
+    tileset: string;
+    tileWidth: number;
+    tileHeight: number;
+    width: number;
+    height: number;
+  };
+  data: number[][];
+};
+
+/** An all-empty map of the given size. */
+export function newMap(width: number, height: number): number[][] {
+  return Array.from({ length: height }, () => new Array<number>(width).fill(0));
+}
+
+/**
+ * Coerce loaded `data` to exactly width × height of integers.
+ *
+ * A hand-edited or engine-written map can be ragged, short, or carry
+ * non-numbers; rather than reject it, pad and truncate to the declared size so
+ * the file stays openable and the damage is visible on screen.
+ */
+export function normalizeMapData(data: unknown, width: number, height: number): number[][] {
+  const rows = Array.isArray(data) ? data : [];
+  const out = newMap(width, height);
+  for (let y = 0; y < height; y += 1) {
+    const row: unknown = rows[y];
+    if (!Array.isArray(row)) continue;
+    for (let x = 0; x < width; x += 1) {
+      const cell: unknown = row[x];
+      out[y]![x] = typeof cell === "number" && Number.isFinite(cell) ? Math.trunc(cell) : 0;
+    }
+  }
+  return out;
+}
+
+/** The on-disk shape a map is saved in. */
+export function tilemapPayload(
+  meta: TilesetMeta,
+  width: number,
+  height: number,
+  data: number[][],
+): TilemapDoc {
+  return {
+    meta: {
+      version: 1,
+      tileset: meta.name,
+      tileWidth: meta.tileW,
+      tileHeight: meta.tileH,
+      width,
+      height,
+    },
+    data,
+  };
+}
+
+/**
+ * Read a saved map, clamped to sane dimensions.
+ *
+ * `tileset` is passed through when the file names one, so the editor can
+ * follow a map back to the tileset it was drawn with.
+ */
+export function parseTilemap(
+  payload: unknown,
+  fallback: { width: number; height: number },
+): { width: number; height: number; data: number[][]; tileset: string | null } {
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("Map JSON must be an object.");
+  }
+  const doc = payload as Json;
+  const meta = doc.meta;
+  if (
+    meta === null ||
+    typeof meta !== "object" ||
+    Array.isArray(meta) ||
+    !Array.isArray(doc.data)
+  ) {
+    throw new Error("Map JSON must have a `meta` object and a `data` array.");
+  }
+  const metaObj = meta as Json;
+  const clamp = (value: number) => Math.max(MAP_MIN, Math.min(MAP_MAX, value));
+  const width = clamp(asInt(metaObj.width, fallback.width));
+  const height = clamp(asInt(metaObj.height, fallback.height));
+  return {
+    width,
+    height,
+    data: normalizeMapData(doc.data, width, height),
+    tileset: typeof metaObj.tileset === "string" ? metaObj.tileset : null,
+  };
 }
 
 /**
