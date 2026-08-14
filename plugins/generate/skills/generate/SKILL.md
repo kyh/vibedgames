@@ -7,7 +7,7 @@ description: >
   "upload an asset", "queue async job", "track request", or any direct
   interaction with the model endpoint catalog. This is the foundational skill.
   Every other media skill in this repo executes its work through `vg generate`
-  commands. Use `--json` whenever the output will be parsed by an agent.
+  commands. Use `--json` whenever the output will be parsed by an agent, or `--field <path>` to print a single value.
 ---
 
 # vg generate: model endpoint runner
@@ -73,8 +73,7 @@ vg generate run fal-ai/flux/dev \
 ### Async + poll
 
 ```bash
-SUBMIT=$(vg generate run fal-ai/veo3.1 --prompt "a dog running" --async --json)
-REQ=$(echo "$SUBMIT" | jq -r '.request_id')
+REQ=$(vg generate run fal-ai/veo3.1 --prompt "a dog running" --async --field request_id)
 vg generate status fal-ai/veo3.1 "$REQ" \
  --download "./out/{request_id}_{index}.{ext}" \
  --json
@@ -83,7 +82,7 @@ vg generate status fal-ai/veo3.1 "$REQ" \
 ### Upload then run
 
 ```bash
-URL=$(vg generate upload ./photo.jpg --json | jq -r '.url')
+URL=$(vg generate upload ./photo.jpg --field url)
 vg generate run fal-ai/nano-banana-pro/edit \
  --image_urls "$URL" \
  --prompt "make the sky stormy" \

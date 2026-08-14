@@ -114,7 +114,7 @@ Expected dimensions:
 | `thorne-brawler-south-1` | 129×129         |
 | `wren-wizard-south-1`    | 103×101         |
 
-If you get different numbers on these inputs, something has changed in the port (or in numpy's RNG behavior between versions).
+If you get different numbers on these inputs, something has changed in the port. One caveat: the k-means seeding differs from upstream's (see `credits.md`), so on an input whose pitch is genuinely ambiguous a small deviation is a seeding difference rather than a regression. On dense pixel art like these characters it is not.
 
 ## When NOT to Use This
 

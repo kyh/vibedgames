@@ -9,7 +9,7 @@ metadata:
 
 Recover the underlying low-resolution pixel grid from images that _look_ like pixel art but are stored at high resolution with anti-aliased/smudged edges (e.g. a 1024×1024 AI-generated character that conceptually has ~100×100 chunky pixels).
 
-`scripts/pixel_snapper.mjs` is a Python port of an MIT-licensed Rust implementation (see `references/credits.md`), dimensionally identical to upstream, run as a uv self-contained script. `scripts/pixel_snapper_sheet.mjs` is a known-layout spritesheet helper: crops frames, snaps them together as one strip so every frame shares a single pixel grid, reassembles.
+`scripts/pixel_snapper.mjs` is a Node port of an MIT-licensed Rust implementation (see `references/credits.md`), dimensionally identical to upstream. `scripts/pixel_snapper_sheet.mjs` is a known-layout spritesheet helper: crops frames, snaps them together as one strip so every frame shares a single pixel grid, reassembles.
 
 ## Discover, Don't Resize
 
@@ -22,7 +22,7 @@ Naive downscale (Lanczos/bilinear/nearest) averages neighbors → blur or aliasi
 - Native snapped output, or a nearest-neighbour upscale for inspection? Usually you want both.
 - Are the cells actually square? The snapper assumes one shared cell pitch for both axes.
 
-**Core principles**: output resolution is discovered, not specified · `k_colors` is the only user-facing knob (other tunables live in the `Config` dataclass) · always inspect the output by eye — dimensions are a sanity check, not a quality check · keep the source PNG so you can re-snap with a different `k_colors` later · **snapping needs resolution to find the grid — feed it a large source (≥~512px across the subject; a lone character ~1024²). Undersized inputs (256²) blur the grid away or trip the 64×64 fallback; the fix is to regenerate larger, not to upscale a small source first.**
+**Core principles**: output resolution is discovered, not specified · `k_colors` is the only user-facing knob (other tunables live in `DEFAULT_SNAP_CONFIG`) · always inspect the output by eye — dimensions are a sanity check, not a quality check · keep the source PNG so you can re-snap with a different `k_colors` later · **snapping needs resolution to find the grid — feed it a large source (≥~512px across the subject; a lone character ~1024²). Undersized inputs (256²) blur the grid away or trip the 64×64 fallback; the fix is to regenerate larger, not to upscale a small source first.**
 
 ## When to Use
 
@@ -32,7 +32,7 @@ Skip for: photographs / continuous-tone / vector art (no grid to recover); alrea
 
 ## Quick Start
 
-Self-contained via PEP 723 (numpy + pillow); uv installs deps on first run and caches:
+Nothing to install — the scripts import a bundled `scripts/_lib/asset-tools.mjs` and need only Node:
 
 ```bash
 node .claude/skills/pixel-snapper/scripts/pixel_snapper.mjs input.png output.png --k-colors 256

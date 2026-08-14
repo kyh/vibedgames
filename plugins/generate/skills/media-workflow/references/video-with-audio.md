@@ -17,7 +17,7 @@ Use this recipe to add narration, sound effects, music, or environmental ambienc
 `fal-ai/mmaudio-v2` generates synchronized audio that matches video content from a prompt.
 
 ```bash
-URL_VIDEO=$(vg generate upload ./silent.mp4 --json | jq -r '.url')
+URL_VIDEO=$(vg generate upload ./silent.mp4 --field url)
 
 vg generate run fal-ai/mmaudio-v2 \
  --video_url "$URL_VIDEO" \
@@ -34,8 +34,8 @@ vg generate run fal-ai/mmaudio-v2 \
 When the audio already exists (recorded VO, music track, separate SFX file), use the merge utility:
 
 ```bash
-URL_VIDEO=$(vg generate upload ./silent.mp4 --json | jq -r '.url')
-URL_AUDIO=$(vg generate upload ./voiceover.wav --json | jq -r '.url')
+URL_VIDEO=$(vg generate upload ./silent.mp4 --field url)
+URL_AUDIO=$(vg generate upload ./voiceover.wav --field url)
 
 vg generate run fal-ai/ffmpeg-api/merge-audio-video \
  --video_url "$URL_VIDEO" \
@@ -51,20 +51,18 @@ For the full utility endpoint catalog (split, mix, extract, etc.), search the ca
 Three steps: generate speech → merge with video → optionally add subtitles.
 
 ```bash
-URL_VIDEO=$(vg generate upload ./silent.mp4 --json | jq -r '.url')
+URL_VIDEO=$(vg generate upload ./silent.mp4 --field url)
 
 # Step 1: TTS
-TTS_RESULT=$(vg generate run fal-ai/minimax/speech-2.6-turbo \
+URL_AUDIO=$(vg generate run fal-ai/minimax/speech-2.6-turbo \
  --text "Welcome to our product demonstration." \
- --json)
-URL_AUDIO=$(echo "$TTS_RESULT" | jq -r '.audio.url')
+ --field result.audio.url)
 
 # Step 2: merge audio + video
-MERGE_RESULT=$(vg generate run fal-ai/ffmpeg-api/merge-audio-video \
+URL_MERGED=$(vg generate run fal-ai/ffmpeg-api/merge-audio-video \
  --video_url "$URL_VIDEO" \
  --audio_url "$URL_AUDIO" \
- --json)
-URL_MERGED=$(echo "$MERGE_RESULT" | jq -r '.video.url')
+ --field result.video.url)
 
 # Step 3 (optional): auto-subtitles
 vg generate run fal-ai/workflow-utilities/auto-subtitle \
@@ -78,7 +76,7 @@ For TTS endpoint selection, see [model-catalog/text-to-audio.md](../../model-cat
 ## Flow D: music generation + merge
 
 ```bash
-URL_VIDEO=$(vg generate upload ./silent.mp4 --json | jq -r '.url')
+URL_VIDEO=$(vg generate upload ./silent.mp4 --field url)
 
 # Step 1: generate music (discover endpoint first)
 vg generate models "music generation" --json
@@ -95,7 +93,7 @@ For music endpoint selection, search the catalog:
 
 ```bash
 vg generate models "music generation" --json
-vg generate models --category text-to-audio --json | jq '.models[] | select(.tags[]? == "music")'
+vg generate models "music" --category text-to-audio --json
 ```
 
 ## Endpoint reference

@@ -46,18 +46,16 @@ Input-image quality dominates output quality — fix the image before blaming th
 ## Pre-processing chain (single-image, busy background)
 
 ```bash
-URL_RAW=$(vg generate upload ./object.jpg --json | jq -r '.url')
+URL_RAW=$(vg generate upload ./object.jpg --field url)
 
 # Step 1: background removal
-RES_BG=$(vg generate run fal-ai/bria/background/remove --image_url "$URL_RAW" --json)
-URL_CLEAN=$(echo "$RES_BG" | jq -r '.image.url')
+URL_CLEAN=$(vg generate run fal-ai/bria/background/remove --image_url "$URL_RAW" --field result.image.url)
 
 # Step 2: image-to-3D
-SUBMIT=$(vg generate run fal-ai/hunyuan-3d/v3.1/pro/image-to-3d \
+REQ=$(vg generate run fal-ai/hunyuan-3d/v3.1/pro/image-to-3d \
  --image_url "$URL_CLEAN" \
  --async \
- --json)
-REQ=$(echo "$SUBMIT" | jq -r '.request_id')
+ --field request_id)
 
 # Step 3: poll + download
 vg generate status fal-ai/hunyuan-3d/v3.1/pro/image-to-3d "$REQ" \

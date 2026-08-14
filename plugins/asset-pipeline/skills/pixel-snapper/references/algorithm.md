@@ -39,7 +39,7 @@ output PNG (e.g. 100×100, snapped, palette-quantized)
 ## Stage 1 — K-means Color Quantization (`quantize`)
 
 - Operates only on opaque pixels (`alpha > 0`).
-- Initialization: `k` random pixels picked via numpy `default_rng(seed=42)`. Upstream Rust uses ChaCha8Rng — different bit stream, same idea.
+- Initialization: `k` random pixels picked via a mulberry32 generator seeded with 42. Upstream Rust uses ChaCha8Rng — different bit stream, same idea.
 - Iterates up to `max_kmeans_iterations` (15) until cluster centers stop moving (tol 0.5).
 - Output is the source image with each opaque pixel replaced by its assigned cluster center color.
 - Why this matters: subsequent edge-gradient detection works much better when colors are sharp categories rather than continuous gradients. A pre-quantized image has _sharper_ and _more localized_ edge peaks at the true cell boundaries.

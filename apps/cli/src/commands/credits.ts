@@ -3,18 +3,11 @@ import consola from "consola";
 
 import { createClient } from "../lib/api.js";
 import { getToken } from "../lib/config.js";
+import { outputArgs, writeStructured } from "../lib/output.js";
 
 const MICRO_PER_USD = 1_000_000;
 const SUB_CENT_MICRO = MICRO_PER_USD / 100;
 const MAX_ENTRIES_SHOWN = 15;
-
-function isJsonOutput(args: { json?: boolean }): boolean {
-  return Boolean(args.json) || process.env.VG_JSON_OUTPUT === "1";
-}
-
-function writeJson(value: unknown): void {
-  process.stdout.write(JSON.stringify(value, null, 2) + "\n");
-}
 
 // Dollars from integer micro-USD. Two decimals normally; four when the
 // magnitude is sub-cent so small generation charges don't render as $0.00.
@@ -81,7 +74,7 @@ export const creditsCommand = defineCommand({
     description: "Show your credit balance and recent usage.",
   },
   args: {
-    json: { type: "boolean", description: "Print structured JSON to stdout." },
+    ...outputArgs,
   },
   run: async ({ args }) => {
     const token = getToken();
@@ -96,22 +89,20 @@ export const creditsCommand = defineCommand({
     try {
       const { balanceMicro, entries } = await client.credits.me.query();
 
-      if (isJsonOutput(args)) {
-        writeJson({
-          balance_micro: balanceMicro,
-          balance_usd: balanceMicro / MICRO_PER_USD,
-          entries: entries.map((e) => ({
-            id: e.id,
-            delta_micro: e.deltaMicro,
-            kind: e.kind,
-            request_id: e.requestId,
-            endpoint_id: e.endpointId,
-            note: e.note,
-            created_at: e.createdAt.toISOString(),
-          })),
-        });
-        return;
-      }
+      const payload = {
+        balance_micro: balanceMicro,
+        balance_usd: balanceMicro / MICRO_PER_USD,
+        entries: entries.map((e) => ({
+          id: e.id,
+          delta_micro: e.deltaMicro,
+          kind: e.kind,
+          request_id: e.requestId,
+          endpoint_id: e.endpointId,
+          note: e.note,
+          created_at: e.createdAt.toISOString(),
+        })),
+      };
+      if (writeStructured(payload, args)) return;
 
       consola.log(`Balance: ${formatUsd(balanceMicro)}`);
 

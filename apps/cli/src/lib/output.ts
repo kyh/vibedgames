@@ -25,7 +25,7 @@ export function writeJson(value: unknown): void {
  */
 export function selectField(value: unknown, path: string): unknown {
   const segments = path
-    .replace(/\[(\d+)\]/g, ".$1")
+    .replace(/\[(-?\d+)\]/g, ".$1")
     .split(".")
     .filter(Boolean);
 

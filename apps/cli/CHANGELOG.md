@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **`--field <path>` on every command that emits JSON** (`generate run/status/models/schema/pricing/docs/upload`, `credits`, `fork`). Prints one value from the result, bare, so `$(vg generate upload x.png --field url)` needs no JSON processor — `jq` is no longer a prerequisite for following the generate skill. Paths are dotted, accept `images[0]` or `images.0`, and count negative indices from the end; an unresolvable path exits non-zero instead of printing an empty line.
+- Skill recipes that chained `vg generate run --json | jq -r '.audio.url'` now read `--field result.audio.url`. The old form was reading the wrong level: the CLI nests the model's output under `result`, so those examples returned nothing.
+- Skill scripts no longer need Python. The asset-pipeline, animated-spritesheets, pixel-snapper, aseprite, playwright and skill-creator skills run on `node` alone, against a bundled dependency-free `scripts/_lib/asset-tools.mjs`.
+
 ## 0.3.1 — 2026-07-29
 
 - **`vg deploy` no longer uploads a source archive by default.** The archive is readable by any logged-in user, so shipping it is a publish — it is now opt-in via `--source`. Deploys that relied on the old default stop being forkable; re-deploy with `--source` to restore it. `--no-source` still parses and is still a no-op against the new default.

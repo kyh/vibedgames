@@ -12,8 +12,8 @@ Use this recipe to apply a garment onto a person photo. The default endpoint is 
 ## Single-call flow
 
 ```bash
-URL_PERSON=$(vg generate upload ./person.jpg --json | jq -r '.url')
-URL_GARMENT=$(vg generate upload ./dress.jpg --json | jq -r '.url')
+URL_PERSON=$(vg generate upload ./person.jpg --field url)
+URL_GARMENT=$(vg generate upload ./dress.jpg --field url)
 
 vg generate run fal-ai/fashn/tryon/v1.5 \
  --model_image "$URL_PERSON" \
@@ -38,11 +38,10 @@ For e-commerce-grade output, chain three steps:
 If the garment image has a busy background, the tryon model may pick up artifacts. Remove the background first:
 
 ```bash
-URL_GARMENT_RAW=$(vg generate upload ./garment.jpg --json | jq -r '.url')
+URL_GARMENT_RAW=$(vg generate upload ./garment.jpg --field url)
 
 # Discover or use a known background-removal endpoint
-RES_BG=$(vg generate run <bg-removal-endpoint> --image_url "$URL_GARMENT_RAW" --json)
-URL_GARMENT_CLEAN=$(echo "$RES_BG" | jq -r '.image.url')
+URL_GARMENT_CLEAN=$(vg generate run <bg-removal-endpoint> --image_url "$URL_GARMENT_RAW" --field result.image.url)
 ```
 
 For background-removal endpoint discovery:
@@ -55,15 +54,14 @@ vg generate models --endpoint_id fal-ai/bria/background/remove --json
 ### Step 2: try-on
 
 ```bash
-URL_PERSON=$(vg generate upload ./person.jpg --json | jq -r '.url')
+URL_PERSON=$(vg generate upload ./person.jpg --field url)
 
-RES_TRYON=$(vg generate run fal-ai/fashn/tryon/v1.5 \
+URL_TRYON=$(vg generate run fal-ai/fashn/tryon/v1.5 \
  --model_image "$URL_PERSON" \
  --garment_image "$URL_GARMENT_CLEAN" \
  --garment_type "top" \
  --quality "quality" \
- --json)
-URL_TRYON=$(echo "$RES_TRYON" | jq -r '.image.url')
+ --field result.image.url)
 ```
 
 ### Step 3: optional upscale for final delivery

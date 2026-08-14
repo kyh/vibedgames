@@ -42,7 +42,11 @@ vg generate upload <file>         # upload an asset, get a URL
 vg generate docs <query>          # search generative-model documentation
 ```
 
-Most commands support `--json` for machine-readable output.
+Most commands support `--json` for machine-readable output, and `--field <path>`
+to print one value out of it — `vg generate upload x.png --field url` prints the
+bare URL, ready for `$(...)` capture, so no JSON processor is needed. The path is
+dotted, takes `images[0]` or `images.0`, and counts negative indices from the
+end; a path that doesn't resolve is an error rather than an empty line.
 
 `vg init` shells out to `npx skills add kyh/vibedgames` and installs for Claude
 Code, Cursor and Codex by default (symlinked from a shared `.agents/skills/`);

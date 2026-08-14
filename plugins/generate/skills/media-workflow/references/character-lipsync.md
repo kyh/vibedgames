@@ -18,8 +18,8 @@ Use this recipe to create talking-head video, sync lips to existing footage, or 
 Single-step: face image + audio file → animated video.
 
 ```bash
-URL_FACE=$(vg generate upload ./portrait.jpg --json | jq -r '.url')
-URL_AUDIO=$(vg generate upload ./speech.mp3 --json | jq -r '.url')
+URL_FACE=$(vg generate upload ./portrait.jpg --field url)
+URL_AUDIO=$(vg generate upload ./speech.mp3 --field url)
 
 vg generate run veed/fabric-1.0 \
  --image_url "$URL_FACE" \
@@ -41,13 +41,12 @@ vg generate status veed/fabric-1.0 <request_id> \
 Two-step: TTS first, then talking-head.
 
 ```bash
-URL_FACE=$(vg generate upload ./portrait.jpg --json | jq -r '.url')
+URL_FACE=$(vg generate upload ./portrait.jpg --field url)
 
 # Step 1: TTS
-TTS_RESULT=$(vg generate run fal-ai/minimax/speech-2.6-turbo \
+URL_AUDIO=$(vg generate run fal-ai/minimax/speech-2.6-turbo \
  --text "Hello, welcome to our presentation." \
- --json)
-URL_AUDIO=$(echo "$TTS_RESULT" | jq -r '.audio.url')
+ --field result.audio.url)
 
 # Step 2: animate the portrait with the generated audio
 vg generate run veed/fabric-1.0 \
@@ -83,8 +82,8 @@ vg generate run fal-ai/creatify/aurora \
 Replace the mouth area in an existing video to match new audio.
 
 ```bash
-URL_VIDEO=$(vg generate upload ./original-video.mp4 --json | jq -r '.url')
-URL_AUDIO=$(vg generate upload ./new-speech.mp3 --json | jq -r '.url')
+URL_VIDEO=$(vg generate upload ./original-video.mp4 --field url)
+URL_AUDIO=$(vg generate upload ./new-speech.mp3 --field url)
 
 vg generate run fal-ai/sync-lipsync/v2 \
  --video_url "$URL_VIDEO" \
