@@ -73,6 +73,20 @@ export {
 export { globFrames, type LoadedFrame, loadFrames, median } from "./sprite/frames.js";
 export { normalizeCanvas } from "./sprite/normalize.js";
 export {
+  type ActionFacts,
+  ACTIONS,
+  type ActionPreset,
+  actionFacts,
+  canonicalProfiles,
+  coerceFrameCount,
+  formatPythonValue,
+  type Profile,
+  PROFILES,
+  resolveProfile,
+  type SelectionPolicy,
+  type Timing,
+} from "./sprite/presets.js";
+export {
   type Component,
   findComponents,
   recoverFrames,

@@ -1989,6 +1989,159 @@ function normalizeCanvas(inputDir, outDir, options = {}) {
   return written;
 }
 
+// src/sprite/presets.ts
+var action = (name, defaultFrames, recommendedFrames, fps, timing, loopable, selectionPolicy) => ({
+  action: name,
+  defaultFrames,
+  recommendedFrames,
+  fps,
+  timing,
+  loopable,
+  selectionPolicy
+});
+var ACTIONS = {
+  idle: action("idle", 10, [8, 10, 12], 6, "loop", true, "cycle"),
+  hurt: action("hurt", 6, [4, 5, 6, 8], 8, "one_shot", false, "action_window"),
+  jump: action("jump", 6, [6, 8, 10], 8, "transition", false, "full_duration_include_end"),
+  crouch: action("crouch", 6, [5, 6, 8], 8, "hold", true, "hold_pose"),
+  attack: action("attack", 8, [6, 8, 10, 12], 10, "one_shot", false, "action_window"),
+  death: action("death", 10, [8, 10, 12], 8, "transition", false, "full_duration_include_end"),
+  walk: action("walk", 8, [8, 10, 12], 10, "loop", true, "cycle"),
+  run: action("run", 8, [8, 10, 12], 12, "loop", true, "cycle"),
+  roll: action("roll", 8, [6, 8, 10], 14, "one_shot", false, "action_window"),
+  dash: action("dash", 6, [5, 6, 8], 14, "one_shot", false, "action_window"),
+  talk: action("talk", 12, [8, 10, 12], 8, "loop", true, "cycle"),
+  interact: action("interact", 10, [8, 10, 12], 8, "one_shot", false, "action_window"),
+  pick_up: action("pick_up", 12, [8, 10, 12], 8, "one_shot", false, "action_window"),
+  use: action("use", 10, [8, 10, 12], 8, "one_shot", false, "action_window"),
+  examine: action("examine", 10, [8, 10, 12], 8, "one_shot", false, "action_window"),
+  give: action("give", 10, [8, 10, 12], 8, "one_shot", false, "action_window"),
+  shrug: action("shrug", 10, [8, 10, 12], 8, "one_shot", false, "action_window"),
+  walk_forward: action("walk_forward", 12, [8, 10, 12], 10, "loop", true, "cycle"),
+  walk_backward: action("walk_backward", 12, [8, 10, 12], 10, "loop", true, "cycle"),
+  block_high: action("block_high", 8, [4, 6, 8, 10], 10, "hold", true, "hold_pose"),
+  block_low: action("block_low", 8, [4, 6, 8, 10], 10, "hold", true, "hold_pose"),
+  knockdown: action(
+    "knockdown",
+    12,
+    [8, 10, 12],
+    8,
+    "transition",
+    false,
+    "full_duration_include_end"
+  ),
+  get_up: action("get_up", 12, [6, 8, 10, 12], 8, "transition", false, "full_duration_include_end"),
+  light_attack: action("light_attack", 8, [6, 8, 10, 12], 12, "one_shot", false, "action_window"),
+  heavy_attack: action("heavy_attack", 12, [6, 8, 10, 12], 10, "one_shot", false, "action_window")
+};
+var PLATFORMER = {
+  profile: "platformer",
+  description: "Side-view platformer defaults: loops, jumps, attacks, reactions, death.",
+  direction: "w",
+  actions: ["idle", "walk", "run", "jump", "roll", "attack", "hurt", "crouch", "death"],
+  frameOverrides: {}
+};
+var FIGHTING = {
+  profile: "fighting-game",
+  description: "Side-view brawler/fighter: longer loops, blocks, knockdown/get-up transitions.",
+  direction: "w",
+  actions: [
+    "idle",
+    "walk",
+    "run",
+    "jump",
+    "crouch",
+    "hurt",
+    "walk_forward",
+    "walk_backward",
+    "light_attack",
+    "heavy_attack",
+    "attack",
+    "block_high",
+    "block_low",
+    "knockdown",
+    "get_up",
+    "death"
+  ],
+  // Core loops widen to 12; hurt/jump/crouch widen to 8.
+  frameOverrides: {
+    idle: 12,
+    walk: 12,
+    run: 12,
+    attack: 12,
+    death: 12,
+    hurt: 8,
+    jump: 8,
+    crouch: 8
+  }
+};
+var POINT_AND_CLICK = {
+  profile: "point-and-click",
+  description: "Classic adventure character: dialogue + object-interaction gestures, video-first.",
+  direction: "sw",
+  actions: ["idle", "walk", "talk", "interact", "pick_up", "use", "examine", "give", "shrug"],
+  frameOverrides: {}
+};
+var PROFILES = {
+  platformer: PLATFORMER,
+  "fighting-game": FIGHTING,
+  "point-and-click": POINT_AND_CLICK,
+  // `adventure` is an alias and is hidden from listings.
+  adventure: POINT_AND_CLICK
+};
+var PROFILE_ALIASES = /* @__PURE__ */ new Set(["adventure"]);
+function canonicalProfiles() {
+  return Object.keys(PROFILES).filter((key) => !PROFILE_ALIASES.has(key));
+}
+function resolveProfile(profileId) {
+  const key = profileId ?? "platformer";
+  const profile = PROFILES[key];
+  if (!profile) {
+    const known = canonicalProfiles().sort().join(", ");
+    throw new Error(`unknown profile '${key}'; expected one of: ${known}`);
+  }
+  return profile;
+}
+function actionFacts(actionId, profile = null) {
+  const preset = ACTIONS[actionId];
+  if (!preset) {
+    const known = Object.keys(ACTIONS).sort().join(", ");
+    throw new Error(`unknown action '${actionId}'; expected one of: ${known}`);
+  }
+  const facts = {
+    ...preset,
+    recommendedFrames: [...preset.recommendedFrames],
+    // Transitions (jump/death/get_up) keep their vertical travel; everything
+    // else lands feet on a shared baseline.
+    anchorPolicy: preset.timing === "transition" ? "preserve-motion" : "grounded"
+  };
+  const override = profile?.frameOverrides[actionId];
+  if (override !== void 0) {
+    facts.defaultFrames = override;
+    facts.profileOverride = true;
+  }
+  return facts;
+}
+function coerceFrameCount(actionId, requested) {
+  const recommended = ACTIONS[actionId].recommendedFrames;
+  if (recommended.includes(requested)) return { frames: requested, warning: null };
+  let nearest2 = recommended[0];
+  for (const value of recommended) {
+    const better = Math.abs(value - requested) < Math.abs(nearest2 - requested) || Math.abs(value - requested) === Math.abs(nearest2 - requested) && value > nearest2;
+    if (better) nearest2 = value;
+  }
+  return {
+    frames: nearest2,
+    warning: `frame count ${requested} not recommended for ${actionId}; coerced to ${nearest2} (recommended: (${recommended.join(", ")}))`
+  };
+}
+function formatPythonValue(value) {
+  if (typeof value === "boolean") return value ? "True" : "False";
+  if (value === null || value === void 0) return "None";
+  if (Array.isArray(value)) return `[${value.map(formatPythonValue).join(", ")}]`;
+  return String(value);
+}
+
 // src/sprite/recover.ts
 function sampleBackground(image) {
   const corners = [
@@ -2139,7 +2292,7 @@ function buildSequenceGif(frames, flatBackground) {
 // src/sprite/pack.ts
 import { basename as basename2 } from "node:path";
 function packSpritesheet(inputDir, out, options = {}) {
-  const { glob = "frame-*.png", columns = null, fps = 10, action = "anim" } = options;
+  const { glob = "frame-*.png", columns = null, fps = 10, action: action2 = "anim" } = options;
   const frames = loadFrames(inputDir, glob);
   const sizes = new Set(frames.map((f) => `${f.image.width}x${f.image.height}`));
   if (sizes.size !== 1) {
@@ -2168,19 +2321,24 @@ function packSpritesheet(inputDir, out, options = {}) {
       rows,
       frameCount: count,
       fps,
-      animations: { [action]: { fps, frames: Array.from({ length: count }, (_, i) => i) } }
+      animations: { [action2]: { fps, frames: Array.from({ length: count }, (_, i) => i) } }
     }
   };
 }
 export {
+  ACTIONS,
   Bitmap,
   LuaParseError,
   MANIFEST_CANDIDATES,
   MANIFEST_JSON_CANDIDATES,
+  PROFILES,
+  actionFacts,
   analyzeBaseline,
   autoDetectManifest,
   buildSequenceGif,
+  canonicalProfiles,
   checkManifest,
+  coerceFrameCount,
   collectSizes,
   cropBox,
   decodePng,
@@ -2196,6 +2354,7 @@ export {
   fail,
   fillRect,
   findComponents,
+  formatPythonValue,
   getAll,
   getFlag,
   getNumber,
@@ -2218,6 +2377,7 @@ export {
   readImageSize,
   readPngSize,
   recoverFrames,
+  resolveProfile,
   resolveTargets,
   roundHalfToEven,
   sanitizeTilesets,
