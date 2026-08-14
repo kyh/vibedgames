@@ -4,6 +4,7 @@ import { defineCommand } from "citty";
 import consola from "consola";
 import spawn from "cross-spawn";
 
+import { getBaseUrl } from "../lib/config.js";
 import { readProjectConfig } from "../lib/config-file.js";
 
 /**
@@ -26,39 +27,16 @@ import { readProjectConfig } from "../lib/config-file.js";
 const PKG = "agent-browser";
 const PKG_SPEC = `${PKG}@^0.34.0`;
 
-/** Subcommands that take a URL, and so can accept `--game`. */
-const NAVIGATE = new Set(["open", "goto", "navigate"]);
-
 /**
- * Global flags that consume the following token. Needed so `--session p1` isn't
- * mistaken for the subcommand `p1`. Only flags that can legitimately appear
- * BEFORE the subcommand matter here; everything else starting with `-` is
- * treated as a boolean, and `--flag=value` needs no entry at all.
+ * Subcommands that take a URL. Used only to decide whether a bare
+ * `--game` still needs an `open` in front of it — never to locate the
+ * subcommand, so an unknown verb degrades to agent-browser's own error rather
+ * than to a wrong guess here.
  */
-const VALUED_GLOBAL_FLAGS = new Set([
-  "--session",
-  "--profile",
-  "--engine",
-  "--executable-path",
-  "--timeout",
-  "--idle-timeout",
-  "--args",
-  "--proxy",
-  "--state",
-  "--headers",
-  "--tools",
-]);
+const URL_TAKING = new Set(["open", "goto", "navigate", "url"]);
 
-/** Index of the subcommand token, or -1 when the args are all flags. */
-function findSubcommand(args: string[]): number {
-  for (let i = 0; i < args.length; i += 1) {
-    const arg = args[i];
-    if (arg === undefined) continue;
-    if (!arg.startsWith("-")) return i;
-    if (VALUED_GLOBAL_FLAGS.has(arg)) i += 1; // skip its value
-  }
-  return -1;
-}
+/** The slug grammar the deploy path accepts. */
+const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 /** True if agent-browser is on PATH (installed via npm, brew, or cargo). */
 function isInstalled(bin: string): boolean {
@@ -110,10 +88,37 @@ function bootstrap(): string {
   return bin;
 }
 
-/** `https://{slug}.vibedgames.com` for `slug`, or the current project's slug. */
+/**
+ * The URL a game is served at: a per-slug subdomain of whatever host this CLI
+ * is pointed at, so `VG_API_URL=…staging vg playtest --game x` playtests
+ * staging rather than silently hitting production the way a hardcoded apex
+ * would. Mirrors the derivation the deploy router does server-side.
+ */
 function resolveGameUrl(slug: string | null): string {
-  if (slug) return `https://${slug}.vibedgames.com`;
+  const resolved = slug ?? projectSlug();
 
+  // The slug lands in the host, so anything outside the deploy grammar could
+  // steer the browser off `*.vibedgames.com` entirely — `../`, an embedded
+  // `/`, or `evil.com#` would all re-point the origin.
+  if (!SLUG.test(resolved)) {
+    consola.error(
+      `"${resolved}" isn't a valid game slug (lowercase letters, digits, and single hyphens).`,
+    );
+    process.exit(1);
+  }
+
+  const base = new URL(getBaseUrl());
+  if (base.hostname === "localhost" || base.hostname === "127.0.0.1") {
+    consola.error(
+      `\`--game\` resolves a deployed game's subdomain, which a local API URL (${base.host}) doesn't serve. Pass the game's URL directly instead.`,
+    );
+    process.exit(1);
+  }
+  return `${base.protocol}//${resolved}.${base.host}`;
+}
+
+/** The current project's slug, from the nearest vibedgames.json. */
+function projectSlug(): string {
   let config: { slug: string } | null = null;
   try {
     config = readProjectConfig(process.cwd());
@@ -127,50 +132,62 @@ function resolveGameUrl(slug: string | null): string {
     );
     process.exit(1);
   }
-  return `https://${config.slug}.vibedgames.com`;
+  return config.slug;
 }
 
 /**
- * Replace `--game [slug]` with the resolved URL. `--game` is only meaningful
- * on a navigating subcommand, so anywhere else it's a hard error rather than a
- * silently ignored flag — an agent that typo'd `vg playtest --game snapshot`
- * should be told, not handed an unrelated success.
+ * Replace each `--game [slug]` with the resolved URL, in place.
+ *
+ * Substituting where the flag already sits means this never has to work out
+ * where agent-browser's subcommand starts, so there's no mirror of its flag
+ * grammar here to drift out of date — and repeating the flag works for
+ * multi-URL subcommands (`diff url --game a --game b`). The one structural
+ * decision left is whether a bare `--game` needs an `open` in front of it,
+ * which is settled by looking for a URL-taking verb earlier in the args.
  */
 export function expandGameFlag(args: string[], resolveUrl = resolveGameUrl): string[] {
-  const index = args.indexOf("--game");
-  if (index === -1) return args;
+  if (!args.includes("--game")) return args;
 
-  const next = args[index + 1];
-  const slug = next !== undefined && !next.startsWith("-") ? next : null;
-  const rest = [...args.slice(0, index), ...args.slice(index + (slug ? 2 : 1))];
-
-  // `vg playtest --game` (or `--session p1 --game`) with no subcommand means
-  // "open it" — prepend `open` so global flags still lead.
-  const at = findSubcommand(rest);
-  if (at === -1) return [...rest, "open", resolveUrl(slug)];
-
-  const command = rest[at] as string;
-  if (!NAVIGATE.has(command)) {
+  // Catch `vg playtest snapshot --game x`, where the URL has nowhere to go.
+  // Guarded on args[0] being a bare token, since that is the only position a
+  // subcommand can occupy without a preceding flag possibly claiming it as a
+  // value — and skipped entirely when some verb here does take a URL.
+  const first = args[0];
+  if (first !== undefined && !first.startsWith("-") && !args.some((a) => URL_TAKING.has(a))) {
     consola.error(
-      `\`--game\` sets the URL to open, so it only works with \`${[...NAVIGATE].join("`, `")}\` — not \`${command}\`. Open the game first, then run \`vg playtest ${command} …\` against it.`,
+      `\`--game\` supplies a URL, so it only works with \`${[...URL_TAKING].join("`, `")}\` — not \`${first}\`. Open the game first, then run \`vg playtest ${first} …\` against it.`,
     );
     process.exit(1);
   }
 
-  return [...rest.slice(0, at + 1), resolveUrl(slug), ...rest.slice(at + 1)];
+  const out: string[] = [];
+  let urlExpected = false;
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i] as string;
+    if (arg !== "--game") {
+      if (URL_TAKING.has(arg)) urlExpected = true;
+      out.push(arg);
+      continue;
+    }
+    const next = args[i + 1];
+    const slug = next !== undefined && !next.startsWith("-") ? next : null;
+    if (slug !== null) i += 1;
+    if (!urlExpected) {
+      out.push("open");
+      urlExpected = true;
+    }
+    out.push(resolveUrl(slug));
+  }
+  return out;
 }
 
 /** Resolve (installing on first use) and exec agent-browser. Never returns. */
 export function runPlaytest(rawArgs: string[]): never {
   const args = expandGameFlag(rawArgs);
 
-  // `vg playtest install` is the explicit re-provision path — don't bootstrap
-  // underneath it and run the install twice.
-  const bin = resolveBinary() ?? (args[0] === "install" ? null : bootstrap());
-  if (!bin) {
-    consola.error(`\`${PKG}\` isn't installed. Run \`vg playtest\` with any other command first.`);
-    process.exit(1);
-  }
+  // Bootstrap covers `install` too: on a fresh machine that's the most natural
+  // first command, and re-running the provision step it just did is harmless.
+  const bin = resolveBinary() ?? bootstrap();
 
   const result = spawn.sync(bin, args, { stdio: "inherit" });
   process.exit(result.status ?? 1);

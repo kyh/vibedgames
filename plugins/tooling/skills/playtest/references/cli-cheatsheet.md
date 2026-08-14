@@ -14,12 +14,21 @@ Every argument passes through to [agent-browser](https://github.com/vercel-labs/
 ```sh
 vg playtest open http://localhost:5173
 vg playtest open "http://localhost:5173?test=1&seed=42"
-vg playtest --game my-game                 # https://my-game.vibedgames.com
+vg playtest --game my-game                 # the deployed game, opened
 vg playtest --game                         # slug from ./vibedgames.json
 vg playtest open http://localhost:5173 --headed
 vg playtest reload
 vg playtest close
 ```
+
+`--game` expands to the game's URL wherever you put it, so it also works with an explicit verb and with multi-URL subcommands:
+
+```sh
+vg playtest --session p1 open --game my-game
+vg playtest diff url --game my-game --game my-game-v2 --screenshot
+```
+
+The host follows `VG_API_URL`, so pointing the CLI at staging playtests staging rather than production.
 
 ## Wait for Readiness
 
@@ -134,7 +143,10 @@ vg playtest --session p1 eval "window.__GAME_DIAGNOSTICS__" --json
 vg playtest session list
 ```
 
-**Two-client multiplayer testing this way is unverified.** Sessions are documented to be isolated, but nobody here has confirmed two concurrent clients against the party server — and two concurrent WebGL contexts share the software rasterizer, so any timing measured that way is unreliable regardless. If you try it, confirm both clients really are connected before trusting a finding, and say in your report that the setup is unproven.
+Two concurrent sessions genuinely are isolated — verified on 0.34: `p1` and `p2` each held their own page state against the same URL at the same time. So a two-client multiplayer check is possible, with two caveats:
+
+- Sync through the party server hasn't been exercised this way yet. Confirm both clients actually connected before trusting a finding.
+- Two concurrent WebGL contexts share the software rasterizer, so any _timing_ measured across two sessions is unreliable. Assert on state, not on latency.
 
 ## Install and Diagnostics
 

@@ -43,7 +43,7 @@ node scripts/bot-playtest.mjs --url http://localhost:5173 --script ./sweep.json
 | Flag                    | Meaning                                                       |
 | ----------------------- | ------------------------------------------------------------- |
 | `--url <url>`           | Where the game is served (mutually exclusive with `--game`)   |
-| `--game <slug>`         | Playtest `https://{slug}.vibedgames.com`                      |
+| `--game <slug>`         | Playtest the deployed game (follows `VG_API_URL`)             |
 | `--seed <n>`            | Seed passed to `__GAME_TEST_HOOKS__.seed()` (default `12345`) |
 | `--script <path>`       | JSON array of `{ keys: string[], ms: number }` steps          |
 | `--reaction-delay <ms>` | Idle gap after each step — models a slower player             |
@@ -72,7 +72,7 @@ The default sweep holds each direction plus a jump. Replace it with the game's c
 ]
 ```
 
-Key names are [Chrome key codes](https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/code) (`KeyW`, `ArrowLeft`, `Space`), and simultaneous keys in one step are held together — that's how you express "run and jump".
+Key names are [KeyboardEvent codes](https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/code), and simultaneous keys in one step are held together — that's how you express "run and jump". The script maps `Key<A-Z>`, `Digit<0-9>`, the arrows, and the common named keys (`Space`, `Enter`, `Escape`, `Tab`, `Backspace`, `Delete`, `Shift*`, `Control*`, `Alt*`, and the punctuation codes). Anything else exits 2 naming the unsupported code — add it to `NAMED_KEYS` in the script rather than guessing a substitute.
 
 When raw keys can't express the verb — placing a tower, choosing a card, triggering a wave — add a game-specific hook (`forceWave()`, `placeTower(x, y)`) to `__GAME_TEST_HOOKS__` and call it via `vg playtest eval`. A bot that can't perform the core verb measures nothing.
 
@@ -114,13 +114,7 @@ vg playtest errors
 
 **Verified against agent-browser 0.34 — do not use `vg playtest keydown`/`keyup` for game input.** They dispatch a trusted event, but with an empty `code` and `keyCode: 0`, so any engine that matches on keyCode (Phaser included) silently ignores it. `press` populates the event correctly (`code: "KeyD"`, `keyCode: 68`) but is a discrete tap, so it cannot express a hold.
 
-The only way to hold a properly-formed key is to dispatch the event yourself:
-
-```sh
-vg playtest eval "window.dispatchEvent(new KeyboardEvent('keydown',{key:'d',code:'KeyD',keyCode:68,which:68,bubbles:true}))"
-vg playtest wait 1500
-vg playtest eval "window.dispatchEvent(new KeyboardEvent('keyup',{key:'d',code:'KeyD',keyCode:68,which:68,bubbles:true}))"
-```
+The only way to hold a properly-formed key is to dispatch the event yourself — the sequence shown under [Manual Bot Steps](#manual-bot-steps) above.
 
 `scripts/bot-playtest.mjs` does exactly this, including the `code` → `keyCode` mapping. The one tradeoff is `isTrusted: false`, which matters only for games that explicitly check it.
 

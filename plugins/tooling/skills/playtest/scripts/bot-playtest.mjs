@@ -4,8 +4,9 @@
  * measure whether it actually PLAYS: loop alive, input alive, objective
  * reachable, no softlocks, no errors.
  *
- * Zero dependencies. Shells out to `vg playtest` (agent-browser), which keeps
- * a daemon alive between calls, so one invocation per step is cheap.
+ * Zero dependencies. Shells out to `vg playtest` (agent-browser). The daemon
+ * keeps the browser alive between calls, but each call still pays a CLI start,
+ * so the loop keeps invocations to roughly one per step.
  *
  * The game must expose the diagnostics contract — see references/bot-playtest.md.
  *
@@ -80,42 +81,82 @@ function parseArgs(argv) {
 const held = new Set();
 
 function releaseHeldKeys() {
-  // Clear before releasing: `dispatchKey` can itself call `fail`, and this must
+  // Clear before releasing: `dispatchKeys` can itself call `fail`, and this must
   // not recurse forever when the CLI is what's broken.
   const keys = [...held];
   held.clear();
-  for (const key of keys) dispatchKey("keyup", key);
+  dispatchKeys("keyup", keys);
 }
 
+/** `code` → `keyCode`, for codes whose keyCode isn't derivable from the name. */
 const NAMED_KEYS = {
-  ArrowLeft: [37, "ArrowLeft"],
-  ArrowUp: [38, "ArrowUp"],
-  ArrowRight: [39, "ArrowRight"],
-  ArrowDown: [40, "ArrowDown"],
-  Space: [32, " "],
-  Enter: [13, "Enter"],
-  Escape: [27, "Escape"],
-  Tab: [9, "Tab"],
-  ShiftLeft: [16, "Shift"],
-  ShiftRight: [16, "Shift"],
-  ControlLeft: [17, "Control"],
-  ControlRight: [17, "Control"],
+  ArrowLeft: 37,
+  ArrowUp: 38,
+  ArrowRight: 39,
+  ArrowDown: 40,
+  Space: 32,
+  Enter: 13,
+  Escape: 27,
+  Tab: 9,
+  Backspace: 8,
+  Delete: 46,
+  ShiftLeft: 16,
+  ShiftRight: 16,
+  ControlLeft: 17,
+  ControlRight: 17,
+  AltLeft: 18,
+  AltRight: 18,
+  Minus: 189,
+  Equal: 187,
+  Comma: 188,
+  Period: 190,
+  Slash: 191,
+  Backquote: 192,
+  BracketLeft: 219,
+  BracketRight: 221,
+  Backslash: 220,
+  Semicolon: 186,
+  Quote: 222,
+};
+
+/** The `key` value a browser reports for a given `code`. */
+const NAMED_VALUES = {
+  Space: " ",
+  ShiftLeft: "Shift",
+  ShiftRight: "Shift",
+  ControlLeft: "Control",
+  ControlRight: "Control",
+  AltLeft: "Alt",
+  AltRight: "Alt",
+  Minus: "-",
+  Equal: "=",
+  Comma: ",",
+  Period: ".",
+  Slash: "/",
+  Backquote: "`",
+  BracketLeft: "[",
+  BracketRight: "]",
+  Backslash: "\\",
+  Semicolon: ";",
+  Quote: "'",
 };
 
 /** `keyCode` and `key` for a KeyboardEvent `code`. */
 function keyFields(code) {
-  if (code in NAMED_KEYS) return NAMED_KEYS[code];
   const letter = /^Key([A-Z])$/.exec(code);
   if (letter) return [letter[1].charCodeAt(0), letter[1].toLowerCase()];
   const digit = /^Digit([0-9])$/.exec(code);
   if (digit) return [48 + Number(digit[1]), digit[1]];
+  if (code in NAMED_KEYS) return [NAMED_KEYS[code], NAMED_VALUES[code] ?? code];
   fail(
-    `unsupported key code "${code}". Use a KeyboardEvent code: KeyW, ArrowLeft, Space, Digit1, ShiftLeft…`,
+    `unsupported key code "${code}". Supported: Key<A-Z>, Digit<0-9>, and ${Object.keys(NAMED_KEYS).join(", ")}.`,
   );
 }
 
 /**
- * Press or release a key by dispatching a KeyboardEvent in the page.
+ * Press or release keys by dispatching KeyboardEvents in the page — all keys
+ * for a step in one call, since a subprocess per key is the dominant cost of a
+ * run and simultaneous keys should land together anyway.
  *
  * NOT `vg playtest keydown/keyup`: as of agent-browser 0.34 those dispatch an
  * event with an empty `code` and `keyCode: 0`, which engines that match on
@@ -124,13 +165,17 @@ function keyFields(code) {
  * event ourselves is the only way to hold a properly-formed key. The tradeoff
  * is `isTrusted: false`, which matters only for games that check it.
  */
-function dispatchKey(type, code) {
-  const [keyCode, key] = keyFields(code);
+function dispatchKeys(type, codes) {
+  if (codes.length === 0) return;
+  const inits = codes.map((code) => {
+    const [keyCode, key] = keyFields(code);
+    return JSON.stringify({ key, code, keyCode, which: keyCode, bubbles: true });
+  });
   const { status, stdout, stderr } = playtest([
     "eval",
-    `(() => { window.dispatchEvent(new KeyboardEvent(${JSON.stringify(type)}, { key: ${JSON.stringify(key)}, code: ${JSON.stringify(code)}, keyCode: ${keyCode}, which: ${keyCode}, bubbles: true })); return true; })()`,
+    `(() => { for (const init of [${inits.join(",")}]) window.dispatchEvent(new KeyboardEvent(${JSON.stringify(type)}, init)); return true; })()`,
   ]);
-  if (status !== 0) fail(`${type} ${code} failed: ${stderr.trim() || stdout.trim()}`);
+  if (status !== 0) fail(`${type} ${codes.join("+")} failed: ${stderr.trim() || stdout.trim()}`);
 }
 
 function fail(message) {
@@ -148,54 +193,48 @@ function playtest(args) {
 }
 
 /**
- * Parse a `--json` response body.
+ * Read the payload of a `--json` command. agent-browser wraps every JSON
+ * response as `{ success, data, error }`, with the command's payload under
+ * `data` — `data.result` for `eval`, `data.messages` for `console`. Verified
+ * against agent-browser 0.34.
  *
- * agent-browser wraps every JSON response as `{ success, data, error }`, with
- * the command's payload under `data` — `data.result` for `eval`,
- * `data.messages` for `console`. Verified against agent-browser 0.34; the
- * fallbacks below keep this working if a later version flattens the envelope.
+ * A shape this doesn't recognize is a harness failure, not something to guess
+ * around: silently returning the envelope would hand callers `undefined` for
+ * every field and produce a report full of zeroes that reads like a broken
+ * game rather than a broken harness.
  */
-function parseResponse(stdout) {
+function payload(args, key) {
+  const { status, stdout, stderr } = playtest([...args, "--json"]);
   const text = stdout.trim();
-  if (!text) return null;
+  if (status !== 0) fail(`\`${args[0]}\` failed: ${stderr.trim() || text}`);
+
+  let parsed;
   try {
-    return JSON.parse(text);
+    parsed = JSON.parse(text);
   } catch {
-    return { raw: text };
+    fail(`\`${args[0]} --json\` did not return JSON: ${text.slice(0, 200)}`);
   }
+  if (parsed?.success === false) fail(`\`${args[0]}\` failed: ${JSON.stringify(parsed.error)}`);
+  if (!parsed?.data || !(key in parsed.data)) {
+    fail(
+      `unexpected agent-browser response for \`${args[0]}\` (no data.${key}): ${text.slice(0, 200)}`,
+    );
+  }
+  return parsed.data[key];
 }
 
 /** Evaluate an expression in the page and return its value. */
 function evaluate(expression) {
-  const { status, stdout, stderr } = playtest(["eval", expression, "--json"]);
-  if (status !== 0) fail(`eval failed: ${stderr.trim() || stdout.trim()}`);
-  const parsed = parseResponse(stdout);
-  if (parsed === null) return null;
-  if (parsed.raw !== undefined) return parsed.raw;
-  if (parsed.success === false) fail(`eval failed: ${JSON.stringify(parsed.error)}`);
-  if (parsed.data && "result" in parsed.data) return parsed.data.result;
-  if ("result" in parsed) return parsed.result;
-  return parsed;
+  return payload(["eval", expression], "result");
 }
 
-/**
- * Console messages at error level. `console` returns every level, so filter
- * here. An unrecognized shape is reported raw rather than swallowed — better a
- * noisy report than an empty one that reads as "no errors".
- */
+/** Console messages at error level — `console` returns every level. */
 function readConsoleErrors() {
-  const parsed = parseResponse(playtest(["console", "--json"]).stdout);
-  if (parsed === null) return [];
-  if (parsed.raw !== undefined) return [parsed.raw];
-  const entries =
-    parsed.data?.messages ?? parsed.messages ?? (Array.isArray(parsed) ? parsed : null);
-  if (!Array.isArray(entries)) return [JSON.stringify(parsed)];
+  const entries = payload(["console"], "messages");
+  if (!Array.isArray(entries)) fail("`console` returned a non-array `messages`.");
   return entries
-    .filter((entry) => {
-      const level = entry?.type ?? entry?.level;
-      return typeof level === "string" && level.toLowerCase() === "error";
-    })
-    .map((entry) => entry?.text ?? entry?.message ?? JSON.stringify(entry));
+    .filter((entry) => entry?.type === "error")
+    .map((entry) => entry?.text ?? JSON.stringify(entry));
 }
 
 const SAMPLE = `(() => {
@@ -212,22 +251,19 @@ const SAMPLE = `(() => {
   };
 })()`;
 
-function sleep(ms) {
-  if (ms > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
-
 function main() {
   const opts = parseArgs(process.argv.slice(2));
   const target = opts.game ? ["--game", opts.game] : [opts.url];
 
+  // Clear BEFORE navigating: anything the game logs while booting is part of
+  // this run, and clearing afterwards would erase exactly the boot errors the
+  // report exists to catch.
+  playtest(["console", "--clear"]);
+  playtest(["errors", "--clear"]);
+
   const open = playtest(["open", ...target, ...(opts.headed ? ["--headed"] : [])]);
   if (open.status !== 0)
     fail(`couldn't open the game: ${open.stderr.trim() || open.stdout.trim()}`);
-
-  // Clear anything the daemon carried over from a previous run so the error
-  // counts below belong to this run only.
-  playtest(["console", "--clear"]);
-  playtest(["errors", "--clear"]);
 
   // Wait for the CONTRACT, not for frames. Most games boot into a menu where
   // the game loop hasn't started, so frames only begin advancing once
@@ -239,25 +275,31 @@ function main() {
     "window.__GAME_DIAGNOSTICS__ !== undefined && window.__GAME_TEST_HOOKS__ !== undefined",
   ]);
   if (ready.status !== 0) {
-    console.error(
-      "bot-playtest: the game never published window.__GAME_DIAGNOSTICS__ / window.__GAME_TEST_HOOKS__. Either it crashed on boot, or it doesn't implement the diagnostics contract (see references/bot-playtest.md).",
+    fail(
+      "the game never published window.__GAME_DIAGNOSTICS__ / window.__GAME_TEST_HOOKS__. Either it crashed on boot, or it doesn't implement the diagnostics contract (see references/bot-playtest.md).",
     );
-    process.exit(HARNESS_FAILURE);
   }
 
   // seed() must RESTART the run, not just reseed — frames rendered before this
   // call were unseeded and must not be measured. setState('active-play') is
-  // what leaves the menu.
+  // what leaves the menu. Stash the frame it left off at so the wait below
+  // proves the loop moved *after* the hooks, rather than passing instantly on
+  // a game that was already past frame 10.
   evaluate(
-    `(() => { const h = window.__GAME_TEST_HOOKS__; if (!h) return false; h.seed?.(${opts.seed}); h.setState?.('active-play'); return true; })()`,
+    `(() => { const h = window.__GAME_TEST_HOOKS__; h.seed?.(${opts.seed}); h.setState?.('active-play'); window.__BOT_F0__ = h && window.__GAME_DIAGNOSTICS__.frame; })()`,
   );
 
-  const live = playtest(["wait", "--fn", "(window.__GAME_DIAGNOSTICS__?.frame ?? 0) > 10"]);
+  const live = playtest([
+    "wait",
+    "--fn",
+    // `!== __BOT_F0__` covers both shapes of a correct seed(): one that resets
+    // the counter, and one that just keeps counting up.
+    "(window.__GAME_DIAGNOSTICS__?.frame ?? 0) > 10 && window.__GAME_DIAGNOSTICS__.frame !== window.__BOT_F0__",
+  ]);
   if (live.status !== 0) {
-    console.error(
-      "bot-playtest: diagnostics are published but the loop never advanced past frame 10. seed()/setState('active-play') should start a run — check they aren't no-ops (see references/bot-playtest.md).",
+    fail(
+      "diagnostics are published but the loop never advanced after seed()/setState('active-play') — check they aren't no-ops (see references/bot-playtest.md).",
     );
-    process.exit(HARNESS_FAILURE);
   }
 
   const before = evaluate(SAMPLE);
@@ -269,15 +311,14 @@ function main() {
   let stepOfFirstScore = -1;
 
   opts.script.forEach((step, index) => {
-    for (const key of step.keys) {
-      held.add(key);
-      dispatchKey("keydown", key);
-    }
+    for (const key of step.keys) held.add(key);
+    dispatchKeys("keydown", step.keys);
     playtest(["wait", String(step.ms)]);
     releaseHeldKeys();
     // A slower "reaction time" models a less skilled player; comparing runs at
     // 0ms and 300ms shows whether difficulty pressure is real or decorative.
-    sleep(opts.reactionDelay);
+    // Wait in the browser, not the harness, so the game keeps running.
+    if (opts.reactionDelay > 0) playtest(["wait", String(opts.reactionDelay)]);
 
     const snap = evaluate(SAMPLE);
     if (!snap) return;
@@ -290,13 +331,21 @@ function main() {
     prev = snap;
   });
 
-  // `console` returns every level, so filter to errors here. `errors` (uncaught
-  // exceptions) has no JSON mode — any non-empty output is a failure.
+  // `console` returns every level, so filter to errors there. `errors`
+  // (uncaught exceptions) has no JSON mode — any non-empty output is a failure.
+  // A failed collection is a harness failure, not "no errors found": reporting
+  // a clean run because the check itself broke is the worst outcome here.
   const consoleErrors = readConsoleErrors();
-  const pageErrors = playtest(["errors"]).stdout.trim();
+  const errorsOut = playtest(["errors"]);
+  if (errorsOut.status !== 0) {
+    fail(`couldn't collect page errors: ${errorsOut.stderr.trim() || errorsOut.stdout.trim()}`);
+  }
+  const pageErrors = errorsOut.stdout.trim();
 
   const report = {
-    url: opts.game ? `https://${opts.game}.vibedgames.com` : opts.url,
+    // Report what was asked for, not a second guess at the URL — `vg playtest`
+    // owns slug→URL resolution and follows VG_API_URL when doing it.
+    target: opts.game ? `game:${opts.game}` : opts.url,
     seed: opts.seed,
     reactionDelay: opts.reactionDelay,
     steps: opts.script.length,

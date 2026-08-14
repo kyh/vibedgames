@@ -20,7 +20,22 @@ vg playtest screenshot /tmp/frame.png
 vg playtest close
 ```
 
-A daemon persists between invocations, so one-call-per-step is cheap and the page stays open across commands. `vg playtest --help` is the full surface; `references/cli-cheatsheet.md` is the game-shaped subset.
+A daemon persists between invocations, so one-call-per-step is cheap and the page stays open across commands.
+
+### Load the upstream skill for the general command surface
+
+agent-browser ships its own skills and serves them from the installed binary, so the content always matches the version you actually have:
+
+```sh
+vg playtest skills get core       # the general browser-automation guide — read before driving anything
+vg playtest skills get core --full  # + full command reference and templates
+vg playtest skills get dogfood    # systematic exploratory testing / bug hunts
+vg playtest skills list           # everything available on this version
+```
+
+**`skills get core` is the source of truth for the generic surface** — the snapshot-and-ref loop, sessions, waiting, forms, auth, troubleshooting. Don't re-derive it here, and don't trust a stale memory of it.
+
+This skill covers only what upstream can't know: the game diagnostics contract, the bot playtest, canvas/WebGL determinism, `--game`, and the traps we hit driving real games (see below). `references/cli-cheatsheet.md` is the game-shaped subset of commands.
 
 **Playtest a deployed game with no local setup at all:**
 
@@ -38,14 +53,18 @@ Before anything clever, prove the game boots and doesn't throw:
 ```sh
 vg playtest batch \
   "open http://localhost:5173" \
-  "wait --fn 'window.__GAME_DIAGNOSTICS__?.frame > 10'" \
+  "wait --fn 'window.__GAME_TEST_HOOKS__ !== undefined'" \
+  "eval 'window.__GAME_TEST_HOOKS__.setState(\"active-play\")'" \
+  "wait --fn '(window.__GAME_DIAGNOSTICS__?.frame ?? 0) > 10'" \
   "eval 'window.__GAME_DIAGNOSTICS__' --json" \
   "screenshot /tmp/boot.png"
 vg playtest errors     # uncaught exceptions — must be empty
 vg playtest console    # console.error — treat as product failure
 ```
 
-`batch` runs the whole sequence in one invocation and returns one result array. If `wait --fn` times out, the game never reached a live frame — that's the bug, and you have it in ten seconds without writing a test file.
+`batch` runs the whole sequence in one invocation and returns one result array.
+
+**Wait for the contract before waiting for frames.** A game sitting on its menu has a frame counter that never moves until `setState('active-play')` starts a run — wait on frames first and you deadlock on exactly the games that implement the contract correctly. If the _first_ wait times out, the game never published its diagnostics: it crashed on boot, or it doesn't implement the contract. If the _second_ times out, the hooks are no-ops.
 
 **Treat any console error or failed asset request as a failure** unless you can name why it's benign.
 
@@ -53,31 +72,12 @@ vg playtest console    # console.error — treat as product failure
 
 The browser can see pixels; it can't see whether the player is stuck. Games expose two globals so a playtest can measure real state instead of guessing from screenshots:
 
-```javascript
-// Read-only, updated every frame from the game loop
-window.__GAME_DIAGNOSTICS__ = {
-  frame: 0, // increments every update — the loop's heartbeat
-  score: 0, // or the objective metric: waves, distance, gems
-  complete: false, // win/fail state reached
-  player: { x: 0, y: 0, speed: 0 }, // x/z for 3D games
-  entities: 0, // live entity count
-  renderer: null, // Three.js only: { calls, triangles } from renderer.info.render
-};
+- `window.__GAME_DIAGNOSTICS__` — read-only per-frame telemetry (`frame`, `score`, `complete`, `player`, `entities`).
+- `window.__GAME_TEST_HOOKS__` — the mutations a playtest may perform (`seed`, `setState`, `setReducedMotion`, …).
 
-// Mutations — keep them real as the game evolves; silent no-op hooks
-// make every downstream assertion lie
-window.__GAME_TEST_HOOKS__ = {
-  seed(n) {}, // reseed RNG AND restart/regenerate the run — see below
-  setState(name) {}, // jump to a named state: 'active-play', 'fail', 'boss'
-  setPausedForScreenshot(paused) {},
-  setReducedMotion(enabled) {}, // freeze shake/particles/time-based FX
-  hideDebugUi() {},
-};
-```
+**The full field list and rules live in `references/bot-playtest.md`** — that is the address `games/lunerfall/src/sys/diag.ts` and `games/starfall/src/shared/diag.ts` both cite, so it stays the one copy to edit.
 
-JSON-serializable primitives only, never raw engine objects — `eval --json` has to serialize whatever you return.
-
-**`seed(n)` must restart, not just reseed.** By the time a playtest can call it, the game has already run frames (and possibly generated the level) with unseeded RNG. The contract: `seed(n)` reseeds **and** restarts the run, so everything measured afterwards is deterministic. If a restart is expensive, seed before boot instead — read a `?seed=` query param at init.
+Two rules worth knowing before you read it: JSON-serializable primitives only, never raw engine objects; and `seed(n)` must **restart** the run, not just reseed it, or everything measured afterwards is still unseeded.
 
 Adding this contract to a game is a prerequisite, not an optional extra. Without it a playtest can only assert "pixels changed".
 
@@ -89,24 +89,19 @@ A smoke check proves the game loads; a bot playtest proves it _plays_. It drives
 node scripts/bot-playtest.mjs --url http://localhost:5173 --seed 12345
 ```
 
-The bundled script (zero dependencies — just Node and `vg`) drives a scripted input sweep of held keys, samples diagnostics between steps, and prints a JSON report:
+The bundled script (zero dependencies — just Node and `vg`) drives a scripted input sweep of held keys, samples diagnostics between steps, and prints a JSON report. It measures four things: the loop survived (`framesAdvanced`), input reaches the player (`distanceTravelled`), the objective is reachable (`scoreAfter` / `stepOfFirstScore`), and held input never stopped producing anything (`softlockWindows`) — plus zero console and page errors. Exit `0` means it plays, `1` means it doesn't and the report names which check failed, `2` means the harness itself broke.
 
-- `framesAdvanced > 100` — the loop survived. A stall is a crash or a frozen loop.
-- `distanceTravelled` above threshold — input mapping is alive. Near-zero under held keys means broken input.
-- `scoreAfter > scoreBefore` + `stepOfFirstScore` — the objective is reachable, and how fast a naive player finds it. If a scripted sweep never scores, the objective is unreachable, unreadable, or broken.
-- `softlockWindows` — windows where frames advanced but held input produced **neither motion nor progress**. Repeated windows mean stuck-on-geometry, dead input states, or unrecovered fail states. Fail above 2.
-- Zero page errors, zero console errors, for the whole run.
+The pass thresholds live in `THRESHOLDS` at the top of the script; read them there rather than from prose that can drift.
 
 Adapt `--script` to the game's core verb: a runner holds forward and switches lanes, an arena game sweeps the space, a tower defense places towers through test hooks. Game-specific hooks (`forceWave()`) are encouraged where raw keys can't express the verb.
 
-Full contract, tuning, and difficulty/fairness runs: `references/bot-playtest.md`.
+Metric meanings, flags, difficulty/fairness runs, and the key-dispatch trap: `references/bot-playtest.md`.
 
-## Canvas & WebGL: Two Footguns
+## Canvas & WebGL
 
-- **Never report headless FPS as performance.** Headless Chrome renders WebGL on SwiftShader (software raster) — ~2fps on scenes a real GPU runs at 120. Headless runs are for _correctness_. Capture FPS with `--headed` on a real GPU and label headless numbers functional-only.
-- **Headless can't capture WebGPU canvases on Linux/Windows** — rendering works, the screenshot comes out black. Add `--headed` (on Linux with no `DISPLAY`, agent-browser starts Xvfb automatically). Verify the pipeline with `vg playtest doctor --webgpu`.
+Two things will mislead you if you don't know them: **headless FPS is not performance** (software rasterization, ~2fps on scenes a GPU runs at 120), and **headless can't capture WebGPU canvases on Linux/Windows** (the screenshot comes out black even though rendering worked). Both are `--headed` problems with real consequences for what you report.
 
-Determinism setup, readiness signals, and flake classification: `references/canvas-determinism.md`.
+Determinism setup, readiness signals, flake classification, and the full footgun list: `references/canvas-determinism.md`.
 
 ## Screenshots and Visual Diffs
 
@@ -119,7 +114,7 @@ vg playtest diff screenshot --baseline /tmp/baseline.png -o /tmp/diff.png
 vg playtest diff snapshot --baseline /tmp/before.txt   # accessibility-tree diff, for DOM/HUD
 ```
 
-**Freeze before every baseline**: seed RNG, `setReducedMotion(true)`, `setPausedForScreenshot(true)`, `hideDebugUi()`, wait for fonts and textures/GLTFs, lock the viewport (`vg playtest set viewport 1280 720`). Skip baselines for un-seedable prototypes or particle-dominated scenes — and say why — rather than masking the image into meaninglessness.
+A baseline taken without freezing the scene first is a flake generator — the freeze checklist and the "when not to take a baseline at all" judgment are in `references/canvas-determinism.md`.
 
 ## Anti-Patterns
 
@@ -155,6 +150,8 @@ vg playtest diff snapshot --baseline /tmp/before.txt   # accessibility-tree diff
 - `references/bot-playtest.md` — diagnostics contract, metrics, difficulty/fairness runs
 - `references/canvas-determinism.md` — deterministic mode, readiness, flake triage, Phaser/Three.js specifics
 - `references/cli-cheatsheet.md` — the game-shaped subset of the `vg playtest` command surface
+
+For anything generic — the snapshot/ref loop, sessions, auth, waiting, troubleshooting — read `vg playtest skills get core` rather than these files.
 
 ## Remember
 

@@ -11,6 +11,14 @@
 
 **The fix is never "more retries" — it's deterministic mode plus explicit readiness.**
 
+## Headless Footguns
+
+These are the ones that produce confidently wrong reports rather than errors:
+
+- **Never report headless FPS as performance.** Headless Chrome renders WebGL on SwiftShader, a software rasterizer — ~2fps on scenes a real GPU runs at 120. Headless runs are for _correctness_. Capture frame rate with `--headed` on a real GPU, and label any headless number functional-only.
+- **Headless can't capture WebGPU canvases on Linux or Windows.** Rendering and in-page readbacks work; only the screenshot comes out black. Use `--headed` — on Linux with no `DISPLAY`, agent-browser starts Xvfb itself. `vg playtest doctor --webgpu` verifies the whole pipeline. macOS captures fine headless.
+- **Don't run two playtests against WebGL games concurrently.** They share the software rasterizer, and the frame-time collapse drifts game time from wall time, flaking every timed phase and screenshot baseline.
+
 ## Classify Before Fixing
 
 | Type            | Symptom                                             | Root cause                                 |
