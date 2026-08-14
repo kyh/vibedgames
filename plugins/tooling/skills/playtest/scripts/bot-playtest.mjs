@@ -70,6 +70,13 @@ function parseArgs(argv) {
   }
   if (!opts.url && !opts.game) fail("Pass --url <url> or --game <slug>.");
   if (opts.url && opts.game) fail("Pass either --url or --game, not both.");
+  // Validated here rather than at the URL so both seeding paths are covered:
+  // `?seed=NaN` is ignored by the game and `seed(NaN)` poisons the RNG, and
+  // either way the report would claim a seed that never took.
+  if (!Number.isFinite(opts.seed)) fail("`--seed` must be a finite number.");
+  if (!Number.isFinite(opts.reactionDelay) || opts.reactionDelay < 0) {
+    fail("`--reaction-delay` must be a non-negative number of milliseconds.");
+  }
   return opts;
 }
 
@@ -295,6 +302,13 @@ function main() {
     if (typeof href !== "string") fail("couldn't read location.href to apply the seed.");
     const url = new URL(href);
     url.searchParams.set("seed", String(opts.seed));
+
+    // Clear before the reload, never after: the first boot's logs are the ones
+    // to discard, and clearing afterwards would swallow anything the *seeded*
+    // boot reported — the failure this run exists to catch.
+    playtest(["console", "--clear"]);
+    playtest(["errors", "--clear"]);
+
     const reopen = playtest(["open", url.toString(), ...(opts.headed ? ["--headed"] : [])]);
     if (reopen.status !== 0) fail(`couldn't reopen with ?seed=: ${reopen.stderr.trim()}`);
     const reready = playtest([
@@ -304,9 +318,6 @@ function main() {
     ]);
     if (reready.status !== 0)
       fail("the game stopped publishing diagnostics after the seeded reload.");
-    // The reload discarded whatever the first boot logged.
-    playtest(["console", "--clear"]);
-    playtest(["errors", "--clear"]);
   }
 
   // seed() must RESTART the run, not just reseed — frames rendered before this
