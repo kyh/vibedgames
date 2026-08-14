@@ -54,6 +54,12 @@ Code, Cursor and Codex by default (symlinked from a shared `.agents/skills/`);
 of the project. `vg update` runs automatically once a day — disable with
 `VG_NO_AUTO_UPDATE=1`.
 
+Both self-update with whichever package manager installed the CLI, detected
+from its install path (npm, pnpm, yarn or bun) — installing with a different
+one would write a second copy into a prefix your shell may not be looking at.
+If that manager isn't on PATH, the CLI prints the exact command to run instead
+of failing with a bare exit code.
+
 `vg factory` is a pure passthrough to the [factory](../factory) binary, which is
 installed as a platform-specific optional package on first use — the CLI itself
 carries none of it.

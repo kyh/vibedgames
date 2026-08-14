@@ -1,10 +1,17 @@
+import { fileURLToPath } from "node:url";
+
 import { defineCommand } from "citty";
 import consola from "consola";
 
-import { run } from "../lib/run.js";
+import {
+  detectPackageManager,
+  globalInstallArgs,
+  globalInstallCommand,
+  PKG_NAME,
+} from "../lib/package-manager.js";
+import { isMissingCommand, run } from "../lib/run.js";
 
 const REPO = "kyh/vibedgames";
-const PKG = "vibedgames";
 const DEFAULT_AGENTS = "claude-code,cursor,codex";
 const description = "Install/update vibedgames skills and the vg CLI";
 
@@ -52,14 +59,26 @@ export const initCommand = defineCommand({
       .map((s) => s.trim())
       .filter(Boolean);
 
+    // Whatever installed this CLI is what should upgrade it. Installing with a
+    // different manager writes a second copy into a prefix the shell may not
+    // even be looking at, so `vg --version` would not move.
+    const manager = detectPackageManager(fileURLToPath(import.meta.url));
+
     consola.start("Installing/updating vibedgames skills and the vg CLI...");
 
     const [add, cli] = await Promise.all([
       run("npx", skillsAddArgs(agents, args.global, args.yes)),
-      run("npm", ["install", "-g", PKG]),
+      run(manager, globalInstallArgs(manager)),
     ]);
 
     if (add.code !== 0) {
+      if (isMissingCommand(add)) {
+        throw new Error(
+          "`npx` was not found on PATH. It ships with Node, so this usually means " +
+            "the vg CLI is running from a standalone build — install Node, or add " +
+            `the skills yourself with: npx skills add ${REPO}`,
+        );
+      }
       if (add.output.trim()) consola.error(add.output.trim());
       throw new Error(`skills add exited with code ${add.code}`);
     }
@@ -76,12 +95,14 @@ export const initCommand = defineCommand({
     }
 
     if (cli.code !== 0) {
-      if (cli.output.trim()) consola.warn(cli.output.trim());
+      if (cli.output.trim() && !isMissingCommand(cli)) consola.warn(cli.output.trim());
       consola.warn(
-        `Couldn't install the vg CLI globally (npm exit ${cli.code}). Install manually: npm install -g ${PKG}`,
+        isMissingCommand(cli)
+          ? `Couldn't find ${manager} to update the vg CLI. Update manually: ${globalInstallCommand(manager)}`
+          : `Couldn't install the vg CLI globally (${manager} exit ${cli.code}). Install manually: ${globalInstallCommand(manager)}`,
       );
       return;
     }
-    consola.success("Installed/updated vg CLI globally");
+    consola.success(`Installed/updated ${PKG_NAME} globally with ${manager}`);
   },
 });

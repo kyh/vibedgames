@@ -1,12 +1,16 @@
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import { defineCommand } from "citty";
 import consola from "consola";
 
-import { run } from "../lib/run.js";
+import {
+  detectPackageManager,
+  globalInstallArgs,
+  globalInstallCommand,
+} from "../lib/package-manager.js";
+import { isMissingCommand, run } from "../lib/run.js";
 import { fetchLatestVersion, isNewerVersion } from "../lib/update.js";
-
-const PKG = "vibedgames";
 
 const pkg = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as {
   version: string;
@@ -33,16 +37,21 @@ export const updateCommand = defineCommand({
     },
     auto: {
       type: "boolean",
-      description: "(internal) silent background mode: only update when npm has a newer version",
+      description:
+        "(internal) silent background mode: only update when the registry has a newer version",
       default: false,
     },
   },
   run: async ({ args }) => {
+    // Upgrade with whatever installed this CLI: another manager would write a
+    // second copy into a different global prefix, leaving the one on PATH stale.
+    const manager = detectPackageManager(fileURLToPath(import.meta.url));
+
     if (args.auto) {
       const latest = await fetchLatestVersion();
       if (!latest || !isNewerVersion(latest, pkg.version)) return;
       await Promise.all([
-        run("npm", ["install", "-g", PKG]),
+        run(manager, globalInstallArgs(manager)),
         run("npx", skillsUpdateArgs(args.global)),
       ]);
       return;
@@ -51,16 +60,18 @@ export const updateCommand = defineCommand({
     consola.start("Updating the vg CLI and vibedgames skills...");
 
     const [cli, skills] = await Promise.all([
-      run("npm", ["install", "-g", PKG]),
+      run(manager, globalInstallArgs(manager)),
       run("npx", skillsUpdateArgs(args.global)),
     ]);
 
     if (cli.code === 0) {
-      consola.success("vg CLI updated to latest");
+      consola.success(`vg CLI updated to latest with ${manager}`);
     } else {
-      if (cli.output.trim()) consola.warn(cli.output.trim());
+      if (cli.output.trim() && !isMissingCommand(cli)) consola.warn(cli.output.trim());
       consola.warn(
-        `Couldn't update the vg CLI (npm exit ${cli.code}). Update manually: npm install -g ${PKG}`,
+        isMissingCommand(cli)
+          ? `Couldn't find ${manager} to update the vg CLI. Update manually: ${globalInstallCommand(manager)}`
+          : `Couldn't update the vg CLI (${manager} exit ${cli.code}). Update manually: ${globalInstallCommand(manager)}`,
       );
     }
 
