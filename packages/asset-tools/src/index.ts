@@ -13,7 +13,17 @@
  * is `node:zlib`, which powers the PNG codec.
  */
 
-export { type Args, fail, getAll, getFlag, getNumber, getString, main, parseArgs } from "./args.js";
+export {
+  type Args,
+  fail,
+  failUsage,
+  getAll,
+  getFlag,
+  getNumber,
+  getString,
+  main,
+  parseArgs,
+} from "./args.js";
 export { parseColor, toHex } from "./image/color.js";
 export { diffImages, type DiffResult } from "./image/diff.js";
 export { drawDigits, drawLine, fillRect, strokeRect } from "./image/draw.js";
@@ -152,6 +162,29 @@ export {
   summarizeMeasurements,
   type Tolerances,
 } from "./sprite/size-contract.js";
+export {
+  ACTION_IDS,
+  ANCHOR_GAME_VIEWS,
+  ANCHOR_ROLES,
+  cellHeight,
+  cellWidth,
+  type Direction,
+  DIRECTIONS,
+  frameLabel,
+  getActionId,
+  getDirection,
+  POSE_BOARD_PRESETS,
+  type PoseBoardPreset,
+  renderAnchorPrompt,
+  renderFrameGuidance,
+  renderPoseBoardPrompt,
+  resolveAnchorGameView,
+  resolveAnchorRole,
+  resolvePoseBoardPreset,
+  styleBlock,
+  totalCells,
+  withStyle,
+} from "./sprite/prompt.js";
 export { packSpritesheet, type PackResult, type SpritesheetManifest } from "./sprite/pack.js";
 
 export { roundHalfToEven } from "./pymath.js";

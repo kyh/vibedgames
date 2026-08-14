@@ -78,6 +78,17 @@ export function fail(message: string): never {
 }
 
 /**
+ * Exit 2 for a malformed invocation — an unknown value for a flag with a fixed
+ * set of choices. `argparse` reserves that code for usage errors and scripts
+ * distinguish it from a run that started and then failed, so the ported
+ * scripts keep the same convention.
+ */
+export function failUsage(message: string): never {
+  process.stderr.write(`${message}\n`);
+  process.exit(2);
+}
+
+/**
  * Run a script body, turning thrown errors into a clean one-line message.
  * A stack trace tells an agent nothing it can act on; the message does.
  */
