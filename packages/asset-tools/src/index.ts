@@ -195,5 +195,6 @@ export {
   type YamlValue,
 } from "./skill/frontmatter.js";
 export { validateSkill } from "./skill/validate.js";
+export { createZip, type ZipEntry } from "./skill/zip.js";
 
 export { roundHalfToEven } from "./pymath.js";

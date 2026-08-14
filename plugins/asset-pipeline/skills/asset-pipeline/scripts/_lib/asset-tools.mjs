@@ -4361,7 +4361,10 @@ function validateSkill(skillPath) {
   }
   const rawDescription = frontmatter.description;
   if (typeof rawDescription !== "string") {
-    return { valid: false, message: `Description must be a string, got ${typeName(rawDescription)}` };
+    return {
+      valid: false,
+      message: `Description must be a string, got ${typeName(rawDescription)}`
+    };
   }
   const description = rawDescription.trim();
   if (description) {
@@ -4390,6 +4393,86 @@ function typeName(value) {
     default:
       return "dict";
   }
+}
+
+// src/skill/zip.ts
+import { deflateRawSync } from "node:zlib";
+var crcTable2 = (() => {
+  const table = new Int32Array(256);
+  for (let n = 0; n < 256; n += 1) {
+    let c = n;
+    for (let k = 0; k < 8; k += 1) c = c & 1 ? 3988292384 ^ c >>> 1 : c >>> 1;
+    table[n] = c;
+  }
+  return table;
+})();
+function crc322(bytes) {
+  let c = 4294967295;
+  for (let i = 0; i < bytes.length; i += 1) c = crcTable2[(c ^ bytes[i]) & 255] ^ c >>> 8;
+  return (c ^ 4294967295) >>> 0;
+}
+function dosDateTime(date) {
+  const time = Math.floor(date.getSeconds() / 2) & 31 | (date.getMinutes() & 63) << 5 | (date.getHours() & 31) << 11;
+  const day = date.getDate() & 31 | (date.getMonth() + 1 & 15) << 5 | (Math.max(0, date.getFullYear() - 1980) & 127) << 9;
+  return { time, date: day };
+}
+function createZip(entries) {
+  const locals = [];
+  const central = [];
+  let offset = 0;
+  for (const entry of entries) {
+    const nameBytes = Buffer.from(entry.name, "utf8");
+    const crc = crc322(entry.data);
+    const deflated = deflateRawSync(entry.data, { level: 9 });
+    const useDeflate = deflated.length < entry.data.length;
+    const payload = useDeflate ? deflated : Buffer.from(entry.data);
+    const method = useDeflate ? 8 : 0;
+    const { time, date } = dosDateTime(entry.mtime ?? /* @__PURE__ */ new Date());
+    const header = Buffer.alloc(30);
+    header.writeUInt32LE(67324752, 0);
+    header.writeUInt16LE(20, 4);
+    header.writeUInt16LE(0, 6);
+    header.writeUInt16LE(method, 8);
+    header.writeUInt16LE(time, 10);
+    header.writeUInt16LE(date, 12);
+    header.writeUInt32LE(crc, 14);
+    header.writeUInt32LE(payload.length, 18);
+    header.writeUInt32LE(entry.data.length, 22);
+    header.writeUInt16LE(nameBytes.length, 26);
+    header.writeUInt16LE(0, 28);
+    locals.push(header, nameBytes, payload);
+    const entryHeader = Buffer.alloc(46);
+    entryHeader.writeUInt32LE(33639248, 0);
+    entryHeader.writeUInt16LE(20, 4);
+    entryHeader.writeUInt16LE(20, 6);
+    entryHeader.writeUInt16LE(0, 8);
+    entryHeader.writeUInt16LE(method, 10);
+    entryHeader.writeUInt16LE(time, 12);
+    entryHeader.writeUInt16LE(date, 14);
+    entryHeader.writeUInt32LE(crc, 16);
+    entryHeader.writeUInt32LE(payload.length, 20);
+    entryHeader.writeUInt32LE(entry.data.length, 24);
+    entryHeader.writeUInt16LE(nameBytes.length, 28);
+    entryHeader.writeUInt16LE(0, 30);
+    entryHeader.writeUInt16LE(0, 32);
+    entryHeader.writeUInt16LE(0, 34);
+    entryHeader.writeUInt16LE(0, 36);
+    entryHeader.writeUInt32LE(420 << 16, 38);
+    entryHeader.writeUInt32LE(offset, 42);
+    central.push(entryHeader, nameBytes);
+    offset += header.length + nameBytes.length + payload.length;
+  }
+  const centralBuffer = Buffer.concat(central);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(101010256, 0);
+  end.writeUInt16LE(0, 4);
+  end.writeUInt16LE(0, 6);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(centralBuffer.length, 12);
+  end.writeUInt32LE(offset, 16);
+  end.writeUInt16LE(0, 20);
+  return Buffer.concat([...locals, centralBuffer, end]);
 }
 export {
   ACTIONS,
@@ -4426,6 +4509,7 @@ export {
   colorDistance,
   computeProfiles,
   contractChecks,
+  createZip,
   cropBox,
   decodePng,
   decontaminateMatte,
