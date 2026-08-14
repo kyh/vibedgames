@@ -1,6 +1,6 @@
 {
   "name": "tooling",
-  "description": "Developer tooling for deploying games, frontend testing with Playwright, and Claude Code skill authoring.",
+  "description": "Developer tooling for deploying games, playtesting them in a real browser, and Claude Code skill authoring.",
   "version": "1.0.0",
   "author": {
     "name": "vibedgames"

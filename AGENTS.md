@@ -71,20 +71,20 @@ Static gate — run before every commit:
 pnpm verify   # typecheck · lint · format · test
 ```
 
-`pnpm test` covers the `vg` CLI's unit suites plus the deterministic sim scripts in four example games. It does **not** run the Playwright e2e specs in `games/crazy-waymo` and `games/lunerfall` (`pnpm -F @repo/lunerfall test:e2e`), and there is no test for the web app or `packages/api` — so a green `verify` is a floor, not proof. Drive the change.
+`pnpm test` covers the `vg` CLI's unit suites plus the deterministic sim scripts in four example games. There is no test for the web app or `packages/api`, and nothing in `verify` drives a browser — so a green `verify` is a floor, not proof. Drive the change: `vg playtest` for games (see the `playtest` skill), the recipe below for the web app.
 
-Runtime — the web app is the only surface a browser-driving agent can reach. With `pnpm dev:web` running:
+Runtime — the web app and the example games are both browser-reachable. `vg playtest` is the one browser driver (a passthrough to agent-browser; it installs itself and its browser on first use, so there is nothing to set up beyond `pnpm dogfood`). With `pnpm dev:web` running:
 
 ```sh
-agent-browser open http://localhost:5173/auth/login
-agent-browser fill '[data-test="email-input"]' user@vibedgames.com
-agent-browser fill '[data-test="password-input"]' password123
-agent-browser press Enter                       # lands on /home
-agent-browser open http://localhost:5173/settings
-agent-browser snapshot                          # accessibility tree with @eN refs
-agent-browser fill @e10 my-key                  # refs come from the snapshot above
-agent-browser click @e12                        # "Create key" — the list should refresh
-agent-browser screenshot /tmp/after.png
+vg playtest open http://localhost:5173/auth/login
+vg playtest fill '[data-test="email-input"]' user@vibedgames.com
+vg playtest fill '[data-test="password-input"]' password123
+vg playtest press Enter                       # lands on /home
+vg playtest open http://localhost:5173/settings
+vg playtest snapshot                          # accessibility tree with @eN refs
+vg playtest fill @e10 my-key                  # refs come from the snapshot above
+vg playtest click @e12                        # "Create key" — the list should refresh
+vg playtest screenshot /tmp/after.png
 ```
 
 The auth form uses react-hook-form, so prefer the `data-test` attributes over positional refs for the two credential fields; everything else is reliable off `snapshot`.
@@ -95,14 +95,14 @@ Six flows cover all nine `useMutation` sites in the app: `/settings` (create + r
 
 | Surface       | Dev command                   | Where                      | Agent-verifiable at runtime?                         |
 | ------------- | ----------------------------- | -------------------------- | ---------------------------------------------------- |
-| Web app       | `pnpm dev:web`                | `:5173`                    | **Yes** — agent-browser, or curl for the API routes  |
+| Web app       | `pnpm dev:web`                | `:5173`                    | **Yes** — `vg playtest`, or curl for the API routes  |
 | `vg` CLI      | `pnpm dogfood`                | `vg` on PATH               | **Yes** — `VG_API_URL` + `VG_TOKEN`, `--json` output |
 | Party (DO)    | `pnpm dev:party`              | `:8787` (wrangler default) | Partly — WebSocket protocol, no UI                   |
 | Games worker  | `pnpm dev:games`              | `:3002`                    | Partly — curl; serves R2 bundles, no local fixtures  |
-| Example games | `pnpm dev:<game>`             | per-game vite port         | No — canvas/WebGL, needs eyes                        |
+| Example games | `pnpm dev:<game>`             | per-game vite port         | **Yes** — `vg playtest`; see the `playtest` skill    |
 | Factory       | `pnpm -F @repo/factory start` | terminal                   | No — interactive Bun/OpenTUI app                     |
 
-For the surfaces marked No, `pnpm typecheck` and `pnpm build` are the gate; a real check needs a human.
+For the surfaces marked No, `pnpm typecheck` and `pnpm build` are the gate; a real check needs a human. Games are agent-verifiable for _correctness_ (loop alive, input alive, objective reachable, no errors) — whether one is **fun** still needs a human, and headless frame rates are meaningless.
 
 `pnpm dogfood` builds and `npm link`s the local CLI and re-syncs `.claude/skills/` against `plugins/*/skills/*`. The symlinks are committed, so a fresh clone already resolves skills — only the link step is per-machine. `pnpm dogfood:reset` undoes it.
 

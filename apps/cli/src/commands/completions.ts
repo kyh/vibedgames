@@ -8,6 +8,7 @@ const SUBCOMMANDS = [
   "login",
   "logout",
   "deploy",
+  "playtest",
   "fork",
   "generate",
   "update",
