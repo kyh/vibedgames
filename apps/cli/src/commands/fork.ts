@@ -7,8 +7,7 @@ import consola from "consola";
 
 import { createClient } from "../lib/api.js";
 import { extractSource } from "../lib/archive.js";
-
-const SLUG_RE = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/;
+import { SLUG_RE } from "../lib/config-file.js";
 
 export const forkCommand = defineCommand({
   meta: {

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { expandGameFlag } from "../src/commands/playtest.js";
+import { SLUG_RE } from "../src/lib/config-file.js";
 
 /** Stand-in for the real resolver so these stay pure unit tests. */
 const url = (slug: string | null) => `https://${slug ?? "from-project-config"}.vibedgames.com`;
@@ -87,4 +88,21 @@ test("expandGameFlag passes an explicit slug through to URL resolution", () => {
     return url(slug);
   });
   assert.deepEqual(seen, ["my-game"]);
+});
+
+test("SLUG_RE keeps a slug inside its own subdomain", () => {
+  // `--game` puts the slug in the hostname, so anything that could re-point the
+  // origin has to be rejected before the URL is built.
+  for (const bad of ["my/evil.com", "../other", "a.b", "evil.com#", "-x", "x-", "", "A"]) {
+    assert.equal(SLUG_RE.test(bad), false, `${JSON.stringify(bad)} must be rejected`);
+  }
+});
+
+test("SLUG_RE accepts exactly what deploy accepts", () => {
+  // Shared with deploy/fork/new — a slug that deployed must stay playtestable,
+  // including the repeated hyphens deploy allows.
+  for (const good of ["my-game", "a--b", "ab", "a-b-c", "game2"]) {
+    assert.equal(SLUG_RE.test(good), true, `${good} must be accepted`);
+  }
+  assert.equal(SLUG_RE.test("a"), false, "single-character slugs aren't deployable");
 });

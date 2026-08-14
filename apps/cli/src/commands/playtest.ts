@@ -5,7 +5,7 @@ import consola from "consola";
 import spawn from "cross-spawn";
 
 import { getBaseUrl } from "../lib/config.js";
-import { readProjectConfig } from "../lib/config-file.js";
+import { SLUG_RE, readProjectConfig } from "../lib/config-file.js";
 
 /**
  * `vg playtest` — drive a browser to actually play the game.
@@ -34,9 +34,6 @@ const PKG_SPEC = `${PKG}@^0.34.0`;
  * than to a wrong guess here.
  */
 const URL_TAKING = new Set(["open", "goto", "navigate", "url"]);
-
-/** The slug grammar the deploy path accepts. */
-const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 /** True if agent-browser is on PATH (installed via npm, brew, or cargo). */
 function isInstalled(bin: string): boolean {
@@ -100,7 +97,7 @@ function resolveGameUrl(slug: string | null): string {
   // The slug lands in the host, so anything outside the deploy grammar could
   // steer the browser off `*.vibedgames.com` entirely — `../`, an embedded
   // `/`, or `evil.com#` would all re-point the origin.
-  if (!SLUG.test(resolved)) {
+  if (!SLUG_RE.test(resolved)) {
     consola.error(
       `"${resolved}" isn't a valid game slug (lowercase letters, digits, and single hyphens).`,
     );

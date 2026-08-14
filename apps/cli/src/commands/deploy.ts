@@ -13,11 +13,10 @@ import {
   readProjectConfig,
   writeProjectConfig,
   type ProjectConfig,
+  SLUG_RE,
 } from "../lib/config-file.js";
 import { buildManifest } from "../lib/manifest.js";
 import { uploadAll } from "../lib/upload.js";
-
-const SLUG_RE = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/;
 
 export const deployCommand = defineCommand({
   meta: {
