@@ -280,6 +280,35 @@ function main() {
     );
   }
 
+  // Two ways a game can honour a seed, and `seed?.()` alone silently skips the
+  // second: games whose scene is single-start (games/starfall) deliberately
+  // omit the hook and read `?seed=` at boot instead. Calling an absent hook
+  // would leave the run unseeded while the report still claimed the seed — the
+  // exact "silent no-op hook" the contract warns about. So detect which one
+  // this game implements, and for boot-only games reload with the param.
+  let seedApplied = evaluate("typeof window.__GAME_TEST_HOOKS__?.seed === 'function'")
+    ? "hook"
+    : "boot-param";
+
+  if (seedApplied === "boot-param") {
+    const href = evaluate("location.href");
+    if (typeof href !== "string") fail("couldn't read location.href to apply the seed.");
+    const url = new URL(href);
+    url.searchParams.set("seed", String(opts.seed));
+    const reopen = playtest(["open", url.toString(), ...(opts.headed ? ["--headed"] : [])]);
+    if (reopen.status !== 0) fail(`couldn't reopen with ?seed=: ${reopen.stderr.trim()}`);
+    const reready = playtest([
+      "wait",
+      "--fn",
+      "window.__GAME_DIAGNOSTICS__ !== undefined && window.__GAME_TEST_HOOKS__ !== undefined",
+    ]);
+    if (reready.status !== 0)
+      fail("the game stopped publishing diagnostics after the seeded reload.");
+    // The reload discarded whatever the first boot logged.
+    playtest(["console", "--clear"]);
+    playtest(["errors", "--clear"]);
+  }
+
   // seed() must RESTART the run, not just reseed — frames rendered before this
   // call were unseeded and must not be measured. setState('active-play') is
   // what leaves the menu. Stash the frame it left off at so the wait below
@@ -355,6 +384,9 @@ function main() {
     distanceTravelled: Number(distance.toFixed(2)),
     stepOfFirstScore,
     softlockWindows,
+    // How the seed actually landed, so a reader can tell a real seeded run
+    // from one where the hook quietly did nothing.
+    seedApplied,
     complete: prev.complete,
     consoleErrors,
     pageErrors,

@@ -157,16 +157,22 @@ export function expandGameFlag(args: string[], resolveUrl = resolveGameUrl): str
 
   const out: string[] = [];
   let urlExpected = false;
-  for (let i = 0; i < args.length; i += 1) {
-    const arg = args[i] as string;
+  // `entries()` types each element as string, so no assertion is needed to
+  // index the array; `consumed` skips a slug already claimed by its flag.
+  let consumed = false;
+  for (const [index, arg] of args.entries()) {
+    if (consumed) {
+      consumed = false;
+      continue;
+    }
     if (arg !== "--game") {
       if (URL_TAKING.has(arg)) urlExpected = true;
       out.push(arg);
       continue;
     }
-    const next = args[i + 1];
+    const next = args[index + 1];
     const slug = next !== undefined && !next.startsWith("-") ? next : null;
-    if (slug !== null) i += 1;
+    consumed = slug !== null;
     if (!urlExpected) {
       out.push("open");
       urlExpected = true;
