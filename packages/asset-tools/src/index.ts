@@ -194,6 +194,17 @@ export {
   type SplitSkill,
   type YamlValue,
 } from "./skill/frontmatter.js";
+export {
+  type Analysis,
+  analyzeSkillBody,
+  type CategoryResult,
+  checkAntiPatterns,
+  checkEmpowerment,
+  checkOrganization,
+  checkPhilosophy,
+  checkVariation,
+} from "./skill/analyze.js";
+export { generateSuggestions, type Suggestion } from "./skill/upgrade.js";
 export { validateSkill } from "./skill/validate.js";
 export { createZip, type ZipEntry } from "./skill/zip.js";
 

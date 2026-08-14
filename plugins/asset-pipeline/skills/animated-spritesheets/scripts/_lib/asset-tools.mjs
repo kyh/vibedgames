@@ -4296,6 +4296,260 @@ function splitSkill(content) {
   };
 }
 
+// src/skill/analyze.ts
+function countMatches(text, pattern) {
+  return [...text.matchAll(pattern)].length;
+}
+function keywordsFound(bodyLower, keywords) {
+  return keywords.filter((keyword) => bodyLower.includes(keyword));
+}
+function checkPhilosophy(body) {
+  let score = 0;
+  const feedback = [];
+  const found = keywordsFound(body.toLowerCase(), [
+    "philosophy",
+    "approach",
+    "principle",
+    "mental model",
+    "framework",
+    "thinking",
+    "mindset",
+    "why",
+    "consider",
+    "understand"
+  ]);
+  if (found.length >= 3) {
+    score += 30;
+    feedback.push(`\u2705 Philosophy indicators found: ${found.slice(0, 5).join(", ")}`);
+  } else if (found.length >= 1) {
+    score += 15;
+    feedback.push(`\u26A0\uFE0F  Some philosophy indicators found: ${found.join(", ")}`);
+  } else {
+    feedback.push("\u274C No clear philosophical foundation detected");
+  }
+  const questions = countMatches(body, /\?[^\n]*/g);
+  if (questions >= 3) {
+    score += 10;
+    feedback.push(`\u2705 Contains ${questions} guiding questions`);
+  } else if (questions >= 1) {
+    score += 5;
+    feedback.push(`\u26A0\uFE0F  Contains ${questions} guiding question(s)`);
+  }
+  return { category: "Philosophy", score, feedback };
+}
+function checkAntiPatterns(body) {
+  let score = 0;
+  const feedback = [];
+  const found = keywordsFound(body.toLowerCase(), [
+    "avoid",
+    "never",
+    "don't",
+    "do not",
+    "anti-pattern",
+    "mistake",
+    "common pitfall",
+    "warning",
+    "incorrect",
+    "wrong way"
+  ]);
+  if (found.length >= 5) {
+    score += 25;
+    feedback.push(`\u2705 Strong anti-pattern guidance: ${found.slice(0, 5).join(", ")}`);
+  } else if (found.length >= 2) {
+    score += 12;
+    feedback.push(`\u26A0\uFE0F  Some anti-pattern guidance: ${found.join(", ")}`);
+  } else {
+    feedback.push("\u274C No explicit anti-pattern warnings");
+  }
+  const strong = countMatches(body, /\b(NEVER|DO NOT|DON'T)\b/g);
+  if (strong > 0) {
+    score += 10;
+    feedback.push(`\u2705 Contains ${strong} strong warning(s)`);
+  }
+  return { category: "Anti-Patterns", score, feedback };
+}
+function checkVariation(body) {
+  let score = 0;
+  const feedback = [];
+  const bodyLower = body.toLowerCase();
+  const found = keywordsFound(bodyLower, [
+    "vary",
+    "variation",
+    "different",
+    "diverse",
+    "context-specific",
+    "adapt",
+    "customize",
+    "unique",
+    "avoid repetition",
+    "not the same"
+  ]);
+  if (found.length >= 3) {
+    score += 20;
+    feedback.push(`\u2705 Variation encouraged: ${found.slice(0, 5).join(", ")}`);
+  } else if (found.length >= 1) {
+    score += 10;
+    feedback.push(`\u26A0\uFE0F  Some variation mentioned: ${found.join(", ")}`);
+  } else {
+    feedback.push("\u274C No explicit variation encouragement");
+  }
+  const templateWarnings = countMatches(
+    bodyLower,
+    /(template|repetitive|generic|cookie-cutter|converge)/g
+  );
+  if (templateWarnings > 0) {
+    score += 10;
+    feedback.push(`\u2705 Warns against generic patterns (${templateWarnings} mentions)`);
+  }
+  return { category: "Variation", score, feedback };
+}
+function checkOrganization(body) {
+  let score = 0;
+  const feedback = [];
+  const headers = countMatches(body, /^#+\s+(.+)$/gm);
+  if (headers >= 5) {
+    score += 10;
+    feedback.push(`\u2705 Well-structured with ${headers} sections`);
+  } else if (headers >= 2) {
+    score += 5;
+    feedback.push(`\u26A0\uFE0F  Has ${headers} sections`);
+  } else {
+    feedback.push("\u274C Lacks clear organization");
+  }
+  const lists = countMatches(body, /^\s*[-*]\s+/gm);
+  if (lists >= 10) {
+    score += 5;
+    feedback.push(`\u2705 Contains ${lists} list items (actionable)`);
+  }
+  return { category: "Organization", score, feedback };
+}
+function checkEmpowerment(body) {
+  let score = 0;
+  const feedback = [];
+  const bodyLower = body.toLowerCase();
+  const found = keywordsFound(bodyLower, [
+    "extraordinary",
+    "capable",
+    "unlock",
+    "enable",
+    "empower",
+    "creative",
+    "innovative",
+    "push boundaries",
+    "explore"
+  ]);
+  if (found.length >= 3) {
+    score += 10;
+    feedback.push(`\u2705 Empowering tone: ${found.join(", ")}`);
+  } else if (found.length >= 1) {
+    score += 5;
+    feedback.push(`\u26A0\uFE0F  Some empowering language: ${found.join(", ")}`);
+  }
+  const constraints = keywordsFound(bodyLower, ["must", "always", "required", "mandatory"]);
+  if (constraints.length > 20) {
+    score -= 5;
+    feedback.push(`\u26A0\uFE0F  Many rigid constraints (${constraints.length} instances)`);
+  }
+  return { category: "Empowerment", score, feedback };
+}
+function analyzeSkillBody(frontmatter, body) {
+  const description = typeof frontmatter.description === "string" ? frontmatter.description : "";
+  const categories = [
+    description.length > 50 ? { category: "Description", score: 5, feedback: ["\u2705 Comprehensive description"] } : { category: "Description", score: 0, feedback: ["\u274C Description too brief"] },
+    checkPhilosophy(body),
+    checkAntiPatterns(body),
+    checkVariation(body),
+    checkOrganization(body),
+    checkEmpowerment(body)
+  ];
+  return {
+    name: typeof frontmatter.name === "string" ? frontmatter.name : "unknown",
+    totalScore: categories.reduce((sum, c) => sum + c.score, 0),
+    categories
+  };
+}
+
+// src/skill/upgrade.ts
+function generateSuggestions(frontmatter, body) {
+  const suggestions = [];
+  const bodyLower = body.toLowerCase();
+  if (!bodyLower.includes("philosophy") && !bodyLower.includes("principle")) {
+    suggestions.push({
+      category: "Philosophy",
+      priority: "HIGH",
+      suggestion: "Add a philosophy or principles section",
+      example: `## Core Philosophy
+
+Before diving into procedures, understand the fundamental approach:
+- What is the underlying philosophy guiding this domain?
+- What questions should be asked before taking action?
+- What mental model helps make better decisions?`
+    });
+  }
+  if (!bodyLower.includes("anti-pattern") && !bodyLower.slice(0, 500).includes("avoid")) {
+    suggestions.push({
+      category: "Anti-Patterns",
+      priority: "HIGH",
+      suggestion: 'Add anti-patterns or "what to avoid" section',
+      example: `## Anti-Patterns to Avoid
+
+Common mistakes when [doing this task]:
+- \u274C **Template trap**: Using rigid templates that constrain creativity
+- \u274C **Context blindness**: Applying same approach regardless of situation
+- \u274C **Over-specification**: Adding unnecessary constraints`
+    });
+  }
+  if (!bodyLower.includes("vary") && !bodyLower.includes("different")) {
+    suggestions.push({
+      category: "Variation",
+      priority: "MEDIUM",
+      suggestion: "Add explicit variation encouragement",
+      example: `## Encouraging Variation
+
+**IMPORTANT**: Outputs should vary based on context. Avoid converging on "favorite" patterns:
+- Adapt to the specific use case
+- Consider different approaches for different scenarios
+- No two outputs should be identical unless requirements are identical`
+    });
+  }
+  if (!bodyLower.includes("extraordinary") && !bodyLower.includes("capable")) {
+    suggestions.push({
+      category: "Empowerment",
+      priority: "LOW",
+      suggestion: "Add empowering conclusion",
+      example: `## Remember
+
+Claude is capable of extraordinary work in this domain. These guidelines unlock that potential\u2014they don't constrain it. Use judgment, adapt to context, and push boundaries when appropriate.`
+    });
+  }
+  const description = typeof frontmatter.description === "string" ? frontmatter.description : "";
+  if (description.length < 100) {
+    suggestions.push({
+      category: "Description",
+      priority: "HIGH",
+      suggestion: "Expand the description field in frontmatter",
+      example: `Current: ${description}
+
+Suggested: Add more detail about when to use this skill, what triggers it, and what tasks it helps with. Aim for 100-200 characters with specific use cases.`
+    });
+  }
+  const sectionCount = body.split("\n##").length - 1;
+  if (sectionCount < 3) {
+    suggestions.push({
+      category: "Organization",
+      priority: "MEDIUM",
+      suggestion: "Add more section headers for better organization",
+      example: `Organize the skill into clear sections:
+## Philosophy/Principles
+## Core Guidelines
+## Anti-Patterns
+## Examples (optional)
+## Advanced Topics (optional)`
+    });
+  }
+  return suggestions;
+}
+
 // src/skill/validate.ts
 import { existsSync as existsSync6, readFileSync as readFileSync5 } from "node:fs";
 import { join as join4 } from "node:path";
@@ -4494,6 +4748,7 @@ export {
   PROFILES,
   actionFacts,
   analyzeBaseline,
+  analyzeSkillBody,
   auditSizeContract,
   autoDetectManifest,
   buildSequenceGif,
@@ -4501,7 +4756,12 @@ export {
   cellHeight,
   cellSizeOf,
   cellWidth,
+  checkAntiPatterns,
+  checkEmpowerment,
   checkManifest,
+  checkOrganization,
+  checkPhilosophy,
+  checkVariation,
   chromaFringeChannels,
   cleanChroma,
   coerceFrameCount,
@@ -4535,6 +4795,7 @@ export {
   frameLabel,
   frameMetrics,
   fringeWarning,
+  generateSuggestions,
   getActionId,
   getAll,
   getDirection,
