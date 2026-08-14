@@ -88,7 +88,7 @@ var NAMED = {
   orange: [255, 165, 0],
   pink: [255, 192, 203],
   brown: [165, 42, 42],
-  transparent: [0, 0, 0],
+  transparent: [0, 0, 0]
 };
 function parseColor(input) {
   const value = input.trim().toLowerCase();
@@ -113,14 +113,11 @@ function parseColor(input) {
     const parts = fn[1].split(/[,/\s]+/).filter(Boolean);
     if (parts.length < 3) throw new Error(`Unrecognised colour: ${input}`);
     const channel = (raw) => {
-      const n = raw.endsWith("%") ? (Number.parseFloat(raw) * 255) / 100 : Number.parseFloat(raw);
+      const n = raw.endsWith("%") ? Number.parseFloat(raw) * 255 / 100 : Number.parseFloat(raw);
       if (Number.isNaN(n)) throw new Error(`Unrecognised colour: ${input}`);
       return Math.max(0, Math.min(255, Math.round(n)));
     };
-    const alpha =
-      parts.length > 3
-        ? Math.max(0, Math.min(255, Math.round(Number.parseFloat(parts[3]) * 255)))
-        : 255;
+    const alpha = parts.length > 3 ? Math.max(0, Math.min(255, Math.round(Number.parseFloat(parts[3]) * 255))) : 255;
     return [channel(parts[0]), channel(parts[1]), channel(parts[2]), alpha];
   }
   throw new Error(`Unrecognised colour: ${input}`);
@@ -148,7 +145,7 @@ function drawLine(target, x0, y0, x1, y1, ink) {
   const stepX = x < endX ? 1 : -1;
   const stepY = y < endY ? 1 : -1;
   let error = dx + dy;
-  for (;;) {
+  for (; ; ) {
     put(target, x, y, ink);
     if (x === endX && y === endY) return;
     const doubled = 2 * error;
@@ -186,8 +183,7 @@ function strokeRect(target, x0, y0, x1, y1, ink, width = 1) {
 }
 var GLYPH_WIDTH = 6;
 var GLYPH_HEIGHT = 12;
-var GLYPH_DATA =
-  "AAAAAAAAAAAAAAAAD7DEsA8AinIAc4gA1BoAG9MA6wIAAuoA6wIAAuoA1BoAG9MAinIAc4kAD7DEsA8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABCg8QAAAMNt8AAAABgA8AAAAAAA8AAAAAAA8AAAAAAA8AAAAAAA8AAAAAAA8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGLD0EYAFcECKNcAKFUAC+oAAAAAX50AAAAj1BUAAAzMNwAAAa1ZAAAAYfTAwLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACqnAzUsAdnQAGeAAEQYARNsAAACj9UMAAAAAT6IAkwQAA+0AolQAPcYAHr/BuygAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAASvcAAAANxvIAAACVVvAAADyvAPAAB8gaAPAAWtXAwPyiAAAAAPAAAAAAAPAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARd7AwIQAXWgAAAAAdk8AAAAAj5rEsiMAjmsAUr4AIAMAA+sAqE8AOr4AJcTAuCMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAApLHwiIAaoUAUa4AxSQABnYA63LAryAA8VMAU70A2gMAA+sAmEEAQbwAFrO/uyMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAqMDAxuwAAAAAZIIAAAABzxYAAABOmgAAAADBJwAAADexAAAAAK0+AAAAJMcAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQ8a/wzkA4CEAI9YAzTQANuEANfjT+EwAwVMAVZ4A7gIAA+wAxz0APMwAL8HBwDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIbnAtBcAu0MAQ5cA6wMAA9kAvVEAVPAAIa+/c+oAegYAJcQArlAAhWsAJMTHkwIAAAAAAAAAAAAAAAAA";
+var GLYPH_DATA = "AAAAAAAAAAAAAAAAD7DEsA8AinIAc4gA1BoAG9MA6wIAAuoA6wIAAuoA1BoAG9MAinIAc4kAD7DEsA8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABCg8QAAAMNt8AAAABgA8AAAAAAA8AAAAAAA8AAAAAAA8AAAAAAA8AAAAAAA8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGLD0EYAFcECKNcAKFUAC+oAAAAAX50AAAAj1BUAAAzMNwAAAa1ZAAAAYfTAwLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACqnAzUsAdnQAGeAAEQYARNsAAACj9UMAAAAAT6IAkwQAA+0AolQAPcYAHr/BuygAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAASvcAAAANxvIAAACVVvAAADyvAPAAB8gaAPAAWtXAwPyiAAAAAPAAAAAAAPAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARd7AwIQAXWgAAAAAdk8AAAAAj5rEsiMAjmsAUr4AIAMAA+sAqE8AOr4AJcTAuCMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAApLHwiIAaoUAUa4AxSQABnYA63LAryAA8VMAU70A2gMAA+sAmEEAQbwAFrO/uyMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAqMDAxuwAAAAAZIIAAAABzxYAAABOmgAAAADBJwAAADexAAAAAK0+AAAAJMcAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQ8a/wzkA4CEAI9YAzTQANuEANfjT+EwAwVMAVZ4A7gIAA+wAxz0APMwAL8HBwDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIbnAtBcAu0MAQ5cA6wMAA9kAvVEAVPAAIa+/c+oAegYAJcQArlAAhWsAJMTHkwIAAAAAAAAAAAAAAAAA";
 var glyphCache = null;
 function glyphs() {
   glyphCache ??= new Uint8Array(Buffer.from(GLYPH_DATA, "base64"));
@@ -214,9 +210,7 @@ function drawDigits(target, x, y, text, ink) {
         const m = coverage / 255;
         const transparent = target.data[i + 3] === 0;
         for (let c = 0; c < 3; c += 1) {
-          target.data[i + c] = transparent
-            ? ink[c]
-            : Math.round(target.data[i + c] * (1 - m) + ink[c] * m);
+          target.data[i + c] = transparent ? ink[c] : Math.round(target.data[i + c] * (1 - m) + ink[c] * m);
         }
         target.data[i + 3] = Math.round(target.data[i + 3] * (1 - m) + ink[3] * m);
       }
@@ -257,27 +251,25 @@ function quantize(pixels, maxColors) {
       ...boxes.slice(0, target),
       box.slice(0, mid),
       box.slice(mid),
-      ...boxes.slice(target + 1),
+      ...boxes.slice(target + 1)
     ];
   }
-  const colors = boxes
-    .filter((box) => box.length > 0)
-    .map((box) => {
-      let r = 0;
-      let g = 0;
-      let b = 0;
-      for (const p of box) {
-        r += p[0];
-        g += p[1];
-        b += p[2];
-      }
-      return [Math.round(r / box.length), Math.round(g / box.length), Math.round(b / box.length)];
-    });
+  const colors = boxes.filter((box) => box.length > 0).map((box) => {
+    let r = 0;
+    let g = 0;
+    let b = 0;
+    for (const p of box) {
+      r += p[0];
+      g += p[1];
+      b += p[2];
+    }
+    return [Math.round(r / box.length), Math.round(g / box.length), Math.round(b / box.length)];
+  });
   if (colors.length === 0) colors.push([0, 0, 0]);
   return { colors, lookup: /* @__PURE__ */ new Map() };
 }
 function nearest(palette, r, g, b) {
-  const key = (r << 16) | (g << 8) | b;
+  const key = r << 16 | g << 8 | b;
   const cached = palette.lookup.get(key);
   if (cached !== void 0) return cached;
   let best = 0;
@@ -364,7 +356,7 @@ function encodeGif(frames, loop = 0) {
   for (const frame of frames) {
     if (frame.bitmap.width !== width || frame.bitmap.height !== height) {
       throw new Error(
-        `GIF: every frame must be ${width}x${height}, got ${frame.bitmap.width}x${frame.bitmap.height}`,
+        `GIF: every frame must be ${width}x${height}, got ${frame.bitmap.width}x${frame.bitmap.height}`
       );
     }
   }
@@ -386,7 +378,7 @@ function encodeGif(frames, loop = 0) {
     1,
     0,
     0,
-    0,
+    0
   ]);
   netscape.writeUInt16LE(loop, 16);
   parts.push(netscape);
@@ -398,7 +390,7 @@ function encodeGif(frames, loop = 0) {
     }
     const palette = quantize(
       pixels.map((p) => [...p]),
-      256,
+      256
     );
     const indices = new Uint8Array(width * height);
     for (let i = 0; i < indices.length; i += 1) {
@@ -423,7 +415,7 @@ function encodeGif(frames, loop = 0) {
     descriptor.writeUInt16LE(0, 3);
     descriptor.writeUInt16LE(width, 5);
     descriptor.writeUInt16LE(height, 7);
-    descriptor[9] = 128 | (tableBits - 1);
+    descriptor[9] = 128 | tableBits - 1;
     parts.push(descriptor);
     const table = Buffer.alloc(tableSize * 3);
     for (let i = 0; i < palette.colors.length; i += 1) {
@@ -451,14 +443,14 @@ var ADAM7 = [
   { xStart: 2, yStart: 0, xStep: 4, yStep: 4 },
   { xStart: 0, yStart: 2, xStep: 2, yStep: 4 },
   { xStart: 1, yStart: 0, xStep: 2, yStep: 2 },
-  { xStart: 0, yStart: 1, xStep: 1, yStep: 2 },
+  { xStart: 0, yStart: 1, xStep: 1, yStep: 2 }
 ];
 var CHANNELS = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 };
 var crcTable = (() => {
   const table = new Int32Array(256);
   for (let n = 0; n < 256; n += 1) {
     let c = n;
-    for (let k = 0; k < 8; k += 1) c = c & 1 ? 3988292384 ^ (c >>> 1) : c >>> 1;
+    for (let k = 0; k < 8; k += 1) c = c & 1 ? 3988292384 ^ c >>> 1 : c >>> 1;
     table[n] = c;
   }
   return table;
@@ -466,7 +458,7 @@ var crcTable = (() => {
 function crc32(bytes) {
   let c = 4294967295;
   for (let i = 0; i < bytes.length; i += 1) {
-    c = crcTable[(c ^ bytes[i]) & 255] ^ (c >>> 8);
+    c = crcTable[(c ^ bytes[i]) & 255] ^ c >>> 8;
   }
   return (c ^ 4294967295) >>> 0;
 }
@@ -476,15 +468,15 @@ function unfilter(type, line, prev, bpp) {
     case 0:
       return;
     case 1:
-      for (let i = bpp; i < len; i += 1) line[i] = (line[i] + line[i - bpp]) & 255;
+      for (let i = bpp; i < len; i += 1) line[i] = line[i] + line[i - bpp] & 255;
       return;
     case 2:
-      for (let i = 0; i < len; i += 1) line[i] = (line[i] + prev[i]) & 255;
+      for (let i = 0; i < len; i += 1) line[i] = line[i] + prev[i] & 255;
       return;
     case 3:
       for (let i = 0; i < len; i += 1) {
         const left = i >= bpp ? line[i - bpp] : 0;
-        line[i] = (line[i] + ((left + prev[i]) >> 1)) & 255;
+        line[i] = line[i] + (left + prev[i] >> 1) & 255;
       }
       return;
     case 4:
@@ -497,7 +489,7 @@ function unfilter(type, line, prev, bpp) {
         const pb = Math.abs(p - b);
         const pc = Math.abs(p - c);
         const pred = pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
-        line[i] = (line[i] + pred) & 255;
+        line[i] = line[i] + pred & 255;
       }
       return;
     default:
@@ -506,22 +498,22 @@ function unfilter(type, line, prev, bpp) {
 }
 function sampleAt(line, index, bitDepth) {
   if (bitDepth === 8) return line[index];
-  if (bitDepth === 16) return (line[index * 2] << 8) | line[index * 2 + 1];
+  if (bitDepth === 16) return line[index * 2] << 8 | line[index * 2 + 1];
   const perByte = 8 / bitDepth;
   const byte = line[Math.floor(index / perByte)];
-  const shift = 8 - bitDepth * ((index % perByte) + 1);
-  return (byte >> shift) & ((1 << bitDepth) - 1);
+  const shift = 8 - bitDepth * (index % perByte + 1);
+  return byte >> shift & (1 << bitDepth) - 1;
 }
 function scaleTo8(value, bitDepth) {
   if (bitDepth === 8) return value;
   if (bitDepth === 16) return value >> 8;
-  return Math.round((value * 255) / ((1 << bitDepth) - 1));
+  return Math.round(value * 255 / ((1 << bitDepth) - 1));
 }
 function expandPass(raw, offset, passWidth, passHeight, geom, header, palette, transparency, out) {
   const { width, bitDepth, colorType } = header;
   const channels = CHANNELS[colorType];
-  const bpp = Math.max(1, Math.ceil((channels * bitDepth) / 8));
-  const lineBytes = Math.ceil((channels * bitDepth * passWidth) / 8);
+  const bpp = Math.max(1, Math.ceil(channels * bitDepth / 8));
+  const lineBytes = Math.ceil(channels * bitDepth * passWidth / 8);
   let prev = new Uint8Array(lineBytes);
   let cursor = offset;
   for (let row = 0; row < passHeight; row += 1) {
@@ -559,12 +551,7 @@ function expandPass(raw, offset, passWidth, passHeight, geom, header, palette, t
         g = scaleTo8(rawG, bitDepth);
         b = scaleTo8(rawB, bitDepth);
         if (colorType === 6) a = scaleTo8(sampleAt(line, base + 3, bitDepth), bitDepth);
-        else if (
-          transparency &&
-          transparency[0] === rawR &&
-          transparency[1] === rawG &&
-          transparency[2] === rawB
-        ) {
+        else if (transparency && transparency[0] === rawR && transparency[1] === rawG && transparency[2] === rawB) {
           a = 0;
         }
       }
@@ -593,7 +580,7 @@ function decodePng(buffer) {
       buffer[pos + 4],
       buffer[pos + 5],
       buffer[pos + 6],
-      buffer[pos + 7],
+      buffer[pos + 7]
     );
     const body = buffer.subarray(pos + 8, pos + 8 + length);
     if (type === "IHDR") {
@@ -602,7 +589,7 @@ function decodePng(buffer) {
         height: view.getUint32(pos + 12),
         bitDepth: buffer[pos + 16],
         colorType: buffer[pos + 17],
-        interlace: buffer[pos + 20],
+        interlace: buffer[pos + 20]
       };
       if (buffer[pos + 18] !== 0) throw new Error("PNG: unsupported compression method");
       if (buffer[pos + 19] !== 0) throw new Error("PNG: unsupported filter method");
@@ -614,12 +601,12 @@ function decodePng(buffer) {
     } else if (type === "tRNS") {
       if (!header) throw new Error("PNG: tRNS before IHDR");
       if (header.colorType === 3) transparency = Array.from(body);
-      else if (header.colorType === 0) transparency = [(body[0] << 8) | body[1]];
+      else if (header.colorType === 0) transparency = [body[0] << 8 | body[1]];
       else {
         transparency = [
-          (body[0] << 8) | body[1],
-          (body[2] << 8) | body[3],
-          (body[4] << 8) | body[5],
+          body[0] << 8 | body[1],
+          body[2] << 8 | body[3],
+          body[4] << 8 | body[5]
         ];
       }
     } else if (type === "IDAT") {
@@ -647,7 +634,7 @@ function decodePng(buffer) {
       header,
       palette,
       transparency,
-      out,
+      out
     );
   } else if (interlace === 1) {
     let cursor = 0;
@@ -664,7 +651,7 @@ function decodePng(buffer) {
         header,
         palette,
         transparency,
-        out,
+        out
       );
     }
   } else {
@@ -700,7 +687,7 @@ function filterScanlines(data, width, height) {
         if (type === 0) value = line[i];
         else if (type === 1) value = line[i] - a;
         else if (type === 2) value = line[i] - b;
-        else if (type === 3) value = line[i] - ((a + b) >> 1);
+        else if (type === 3) value = line[i] - (a + b >> 1);
         else {
           const p = a + b - c;
           const pa = Math.abs(p - a);
@@ -709,7 +696,7 @@ function filterScanlines(data, width, height) {
           value = line[i] - (pa <= pb && pa <= pc ? a : pb <= pc ? b : c);
         }
         candidate[i] = value & 255;
-        score += Math.abs(((value & 255) << 24) >> 24);
+        score += Math.abs((value & 255) << 24 >> 24);
       }
       if (score < bestScore) {
         bestScore = score;
@@ -727,7 +714,7 @@ function encodePng(image) {
   const { width, height, data } = image;
   if (data.length !== width * height * 4) {
     throw new Error(
-      `PNG: pixel buffer is ${data.length} bytes, expected ${width * height * 4} for ${width}x${height}`,
+      `PNG: pixel buffer is ${data.length} bytes, expected ${width * height * 4} for ${width}x${height}`
     );
   }
   const ihdr = Buffer.alloc(13);
@@ -742,7 +729,7 @@ function encodePng(image) {
     Buffer.from(SIGNATURE),
     chunk("IHDR", ihdr),
     chunk("IDAT", deflateSync(filterScanlines(data, width, height), { level: 9 })),
-    chunk("IEND", new Uint8Array(0)),
+    chunk("IEND", new Uint8Array(0))
   ]);
 }
 function readPngSize(buffer) {
@@ -956,7 +943,7 @@ var Bitmap = class _Bitmap {
     for (let i = 0; i < out.length; i += 1) {
       const p = i * 4;
       out[i] = Math.round(
-        this.data[p] * 0.299 + this.data[p + 1] * 0.587 + this.data[p + 2] * 0.114,
+        this.data[p] * 0.299 + this.data[p + 1] * 0.587 + this.data[p + 2] * 0.114
       );
     }
     return out;
@@ -1021,7 +1008,7 @@ var Bitmap = class _Bitmap {
       this.height,
       width,
       kernel,
-      support,
+      support
     );
     quantizeInPlace(horizontal);
     const vertical = resamplePass(
@@ -1030,7 +1017,7 @@ var Bitmap = class _Bitmap {
       width,
       height,
       kernel,
-      support,
+      support
     );
     const planar = transpose(vertical, height, width);
     const out = new _Bitmap(width, height);
@@ -1047,7 +1034,7 @@ var FILTERS = {
     kernel: (x) => {
       const t = Math.abs(x);
       return t < 1 ? 1 - t : 0;
-    },
+    }
   },
   bicubic: {
     support: 2,
@@ -1059,7 +1046,7 @@ var FILTERS = {
       if (t < 1) return ((a + 2) * t - (a + 3)) * t * t + 1;
       if (t < 2) return (((t - 5) * t + 8) * t - 4) * a;
       return 0;
-    },
+    }
   },
   lanczos: {
     support: 3,
@@ -1068,13 +1055,13 @@ var FILTERS = {
       if (t === 0) return 1;
       if (t >= 3) return 0;
       const pix = Math.PI * t;
-      return (3 * Math.sin(pix) * Math.sin(pix / 3)) / (pix * pix);
-    },
-  },
+      return 3 * Math.sin(pix) * Math.sin(pix / 3) / (pix * pix);
+    }
+  }
 };
 function mulDiv255(value, alpha) {
   const tmp = value * alpha + 128;
-  return (tmp + (tmp >> 8)) >> 8;
+  return tmp + (tmp >> 8) >> 8;
 }
 function premultiply(data) {
   const out = new Float64Array(data.length);
@@ -1100,7 +1087,7 @@ function unpremultiply(src, out) {
     }
     for (let c = 0; c < 3; c += 1) {
       const premul = clamp8(src[i + c]);
-      out[i + c] = Math.min(255, Math.floor((premul * 255) / a));
+      out[i + c] = Math.min(255, Math.floor(premul * 255 / a));
     }
   }
 }
@@ -1174,10 +1161,7 @@ function readImageSize(path) {
   if (buffer.subarray(0, 3).toString("ascii") === "GIF") {
     return { width: buffer.readUInt16LE(6), height: buffer.readUInt16LE(8) };
   }
-  if (
-    buffer.subarray(0, 4).toString("ascii") === "RIFF" &&
-    buffer.subarray(8, 12).toString("ascii") === "WEBP"
-  ) {
+  if (buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WEBP") {
     return readWebpSize(buffer);
   }
   return null;
@@ -1201,8 +1185,8 @@ function readWebpSize(buffer) {
   const format = buffer.subarray(12, 16).toString("ascii");
   if (format === "VP8X") {
     return {
-      width: 1 + (buffer[24] | (buffer[25] << 8) | (buffer[26] << 16)),
-      height: 1 + (buffer[27] | (buffer[28] << 8) | (buffer[29] << 16)),
+      width: 1 + (buffer[24] | buffer[25] << 8 | buffer[26] << 16),
+      height: 1 + (buffer[27] | buffer[28] << 8 | buffer[29] << 16)
     };
   }
   if (format === "VP8 ") {
@@ -1210,7 +1194,7 @@ function readWebpSize(buffer) {
   }
   if (format === "VP8L") {
     const bits = buffer.readUInt32LE(21);
-    return { width: 1 + (bits & 16383), height: 1 + ((bits >> 14) & 16383) };
+    return { width: 1 + (bits & 16383), height: 1 + (bits >> 14 & 16383) };
   }
   return null;
 }
@@ -1234,9 +1218,9 @@ function isDigit(ch) {
 function tokenize(text) {
   const tokens = [];
   let i = 0;
-  const peek = (n = 0) => (i + n < text.length ? text[i + n] : "");
+  const peek = (n = 0) => i + n < text.length ? text[i + n] : "";
   const skipTrivia = () => {
-    for (;;) {
+    for (; ; ) {
       while (isSpace(peek())) i += 1;
       if (peek() !== "-" || peek(1) !== "-") return;
       i += 2;
@@ -1249,7 +1233,7 @@ function tokenize(text) {
       }
     }
   };
-  for (;;) {
+  for (; ; ) {
     skipTrivia();
     if (i >= text.length) {
       tokens.push({ type: "eof", value: "", pos: i });
@@ -1266,7 +1250,7 @@ function tokenize(text) {
       const quote = ch;
       i += 1;
       const out = [];
-      for (;;) {
+      for (; ; ) {
         const c = peek();
         if (c === "") throw new LuaParseError("Unterminated string");
         if (c === quote) {
@@ -1290,7 +1274,7 @@ function tokenize(text) {
       tokens.push({ type: "string", value: out.join(""), pos });
       continue;
     }
-    if (isDigit(ch) || (ch === "-" && isDigit(peek(1)))) {
+    if (isDigit(ch) || ch === "-" && isDigit(peek(1))) {
       let j = ch === "-" ? i + 1 : i;
       while (j < text.length && (isDigit(text[j]) || text[j] === ".")) j += 1;
       tokens.push({ type: "number", value: text.slice(i, j), pos });
@@ -1329,9 +1313,7 @@ function parseLua(text) {
     }
     if (token.type === "number") {
       eat("number");
-      return token.value.includes(".")
-        ? Number.parseFloat(token.value)
-        : Number.parseInt(token.value, 10);
+      return token.value.includes(".") ? Number.parseFloat(token.value) : Number.parseInt(token.value, 10);
     }
     if (token.type === "ident") {
       if (token.value === "true") {
@@ -1398,21 +1380,10 @@ function parseLua(text) {
 
 // src/asset/manifest.ts
 import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
-import {
-  dirname as dirname3,
-  isAbsolute,
-  relative as relative2,
-  resolve as resolve3,
-} from "node:path";
+import { dirname as dirname3, isAbsolute, relative as relative2, resolve as resolve3 } from "node:path";
 
 // src/asset/paths.ts
-import {
-  existsSync,
-  mkdirSync as mkdirSync2,
-  readdirSync,
-  statSync,
-  writeFileSync as writeFileSync2,
-} from "node:fs";
+import { existsSync, mkdirSync as mkdirSync2, readdirSync, statSync, writeFileSync as writeFileSync2 } from "node:fs";
 import { dirname as dirname2, join, relative, resolve as resolve2, sep } from "node:path";
 function parseFrame(text) {
   const match = /^(\d+)\s*x\s*(\d+)$/i.exec(text.trim());
@@ -1439,7 +1410,7 @@ function walkFiles(root, extension = ".png") {
     }
   };
   visit(root);
-  return out.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  return out.sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
 }
 function resolveTargets(path, extension = ".png") {
   if (!existsSync(path)) throw new Error(`Path not found: ${path}`);
@@ -1455,11 +1426,8 @@ function prettyPath(path) {
 }
 function writeJsonFile(path, payload) {
   mkdirSync2(dirname2(resolve2(path)), { recursive: true });
-  writeFileSync2(
-    path,
-    `${JSON.stringify(payload, null, 2)}
-`,
-  );
+  writeFileSync2(path, `${JSON.stringify(payload, null, 2)}
+`);
 }
 function writeTextFile(path, contents) {
   mkdirSync2(dirname2(resolve2(path)), { recursive: true });
@@ -1471,7 +1439,7 @@ var MANIFEST_CANDIDATES = [
   "assets_index.lua",
   "asset_index.lua",
   "assets/assets_index.lua",
-  "assets/asset_index.lua",
+  "assets/asset_index.lua"
 ];
 var LUA_PATH_RE = /path\s*=\s*"([^"]+\.png)"/g;
 function resolveManifestPath(raw, manifestDir, jsonRoot) {
@@ -1505,10 +1473,9 @@ function extractManifestPaths(manifestPath) {
       throw new Error("JSON manifest must be an object at top-level.");
     }
     const meta = payload.meta;
-    const jsonRoot =
-      meta !== null && typeof meta === "object" && typeof meta.root === "string" ? meta.root : null;
+    const jsonRoot = meta !== null && typeof meta === "object" && typeof meta.root === "string" ? meta.root : null;
     return new Set(
-      collectJsonPaths(payload).map((p) => resolveManifestPath(p, manifestDir, jsonRoot)),
+      collectJsonPaths(payload).map((p) => resolveManifestPath(p, manifestDir, jsonRoot))
     );
   }
   const text = readFileSync2(manifestPath, "utf8");
@@ -1523,12 +1490,12 @@ function checkManifest(manifestPath, root) {
   const actualPaths = new Set(walkFiles(root, ".png").map((p) => resolve3(p)));
   const missing = [...actualPaths].filter((p) => !manifestPaths.has(p)).map(prettyPath);
   const extra = [...manifestPaths].filter((p) => !actualPaths.has(p)).map(prettyPath);
-  const byName = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+  const byName = (a, b) => a < b ? -1 : a > b ? 1 : 0;
   return {
     manifest_paths: manifestPaths.size,
     actual_pngs: actualPaths.size,
     missing: missing.sort(byName),
-    extra: extra.sort(byName),
+    extra: extra.sort(byName)
   };
 }
 function autoDetectManifest() {
@@ -1540,7 +1507,7 @@ var KEY_RENAMES = {
   tileW: "tileWidth",
   tileH: "tileHeight",
   frameW: "frameWidth",
-  frameH: "frameHeight",
+  frameH: "frameHeight"
 };
 function renameKeys(value) {
   if (Array.isArray(value)) return value.map(renameKeys);
@@ -1604,7 +1571,7 @@ function roundHalfToEven(value) {
 function gridFor(path, size, frame) {
   if (size.width % frame.width !== 0 || size.height % frame.height !== 0) {
     throw new Error(
-      `${path} size ${size.width}x${size.height} not divisible by ${frame.width}x${frame.height}`,
+      `${path} size ${size.width}x${size.height} not divisible by ${frame.width}x${frame.height}`
     );
   }
   return { columns: size.width / frame.width, rows: size.height / frame.height };
@@ -1623,7 +1590,7 @@ function probeSheet(path, frame, includeEmpty) {
         left: col * frame.width,
         top: row * frame.height,
         right: (col + 1) * frame.width,
-        bottom: (row + 1) * frame.height,
+        bottom: (row + 1) * frame.height
       });
       if (cell.getBBox()) nonEmpty.push([col, row]);
       else empty.push([col, row]);
@@ -1634,7 +1601,7 @@ function probeSheet(path, frame, includeEmpty) {
     frame: { w: frame.width, h: frame.height },
     grid: { columns, rows },
     non_empty: [...nonEmpty].sort(byColumnThenRow),
-    empty_count: empty.length,
+    empty_count: empty.length
   };
   if (includeEmpty) result.empty = empty;
   return result;
@@ -1652,7 +1619,7 @@ function analyzeBaseline(path, frame, targetBottom, targetCenterX, outPath) {
         left,
         top,
         right: left + frame.width,
-        bottom: top + frame.height,
+        bottom: top + frame.height
       });
       const bbox = cell.getBBox();
       const index = row * columns + col;
@@ -1673,7 +1640,7 @@ function analyzeBaseline(path, frame, targetBottom, targetCenterX, outPath) {
         alphaBBox: [bbox.left, bbox.top, bbox.right, bbox.bottom],
         visibleBottomY: bottomY,
         visibleCenterX: centerX,
-        shiftToTarget: [shiftX, shiftY],
+        shiftToTarget: [shiftX, shiftY]
       });
       if (fixed) {
         const shifted = Bitmap.create(frame.width, frame.height);
@@ -1696,7 +1663,7 @@ function analyzeBaseline(path, frame, targetBottom, targetCenterX, outPath) {
     visibleBottomYRange: bottoms.length ? [Math.min(...bottoms), Math.max(...bottoms)] : null,
     shiftYRange: shifts.length ? [Math.min(...shifts), Math.max(...shifts)] : null,
     out: outPath,
-    frames,
+    frames
   };
 }
 
@@ -1711,7 +1678,7 @@ function collectSizes(root) {
   return rows;
 }
 function sizesToCsv(rows) {
-  const escape = (value) => (/[",\r\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value);
+  const escape = (value) => /[",\r\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
   const lines = ["width,height,path"];
   for (const row of rows) {
     lines.push(`${row.width},${row.height},${escape(row.path)}`);
@@ -1727,7 +1694,7 @@ var MANIFEST_JSON_CANDIDATES = [
   "assets_index.json",
   "asset_index.json",
   "assets/assets_index.json",
-  "assets/asset_index.json",
+  "assets/asset_index.json"
 ];
 function asInt(value, fallback) {
   return typeof value === "number" && Number.isFinite(value) ? Math.trunc(value) : fallback;
@@ -1758,15 +1725,10 @@ function sanitizeTilesets(manifest) {
 function resolveAssetPath(manifestPath, manifest, rel) {
   const manifestDir = resolve4(dirname4(manifestPath));
   const meta = manifest.meta;
-  const root =
-    meta !== null && typeof meta === "object" && typeof meta.root === "string" ? meta.root : null;
+  const root = meta !== null && typeof meta === "object" && typeof meta.root === "string" ? meta.root : null;
   const base = root === null ? manifestDir : resolve4(manifestDir, root);
   if (isAbsolute2(rel)) return resolve4(rel);
-  const candidates = [
-    resolve4(base, rel),
-    resolve4(manifestDir, rel),
-    resolve4(process.cwd(), rel),
-  ];
+  const candidates = [resolve4(base, rel), resolve4(manifestDir, rel), resolve4(process.cwd(), rel)];
   return candidates.find((c) => existsSync3(c)) ?? candidates[0];
 }
 function tilesetMetaFromManifest(manifestPath, manifest, name) {
@@ -1804,7 +1766,7 @@ function tilesetMetaFromManifest(manifestPath, manifest, name) {
     margin,
     spacing,
     imageW: size.width,
-    imageH: size.height,
+    imageH: size.height
   };
 }
 function tileCount(meta) {
@@ -1840,10 +1802,8 @@ function exportTilesetGrid(meta, outPath, options) {
   const y0 = meta.margin * scale;
   const stepX = (meta.tileW + meta.spacing) * scale;
   const stepY = (meta.tileH + meta.spacing) * scale;
-  const width =
-    meta.columns * meta.tileW * scale + Math.max(0, (meta.columns - 1) * meta.spacing * scale);
-  const height =
-    meta.rows * meta.tileH * scale + Math.max(0, (meta.rows - 1) * meta.spacing * scale);
+  const width = meta.columns * meta.tileW * scale + Math.max(0, (meta.columns - 1) * meta.spacing * scale);
+  const height = meta.rows * meta.tileH * scale + Math.max(0, (meta.rows - 1) * meta.spacing * scale);
   for (let c = 0; c <= meta.columns; c += 1) {
     const x = x0 + c * stepX;
     drawLine(image, x, y0, x, y0 + height, line);
@@ -1888,7 +1848,10 @@ function exportMapRender(meta, outPath, options) {
   let width = hasMeta ? asInt(mapMeta.width, 0) : 0;
   let height = hasMeta ? asInt(mapMeta.height, 0) : 0;
   if (width <= 0) {
-    width = data.reduce((max, row) => (Array.isArray(row) ? Math.max(max, row.length) : max), 0);
+    width = data.reduce(
+      (max, row) => Array.isArray(row) ? Math.max(max, row.length) : max,
+      0
+    );
   }
   if (height <= 0) height = data.length;
   if (width <= 0 || height <= 0) throw new Error("Invalid map dimensions.");
@@ -1897,7 +1860,7 @@ function exportMapRender(meta, outPath, options) {
   let out = Bitmap.create(
     width * meta.tileW,
     height * meta.tileH,
-    options.background ?? [0, 0, 0, 0],
+    options.background ?? [0, 0, 0, 0]
   );
   for (const fill of options.fills) {
     fillRect(
@@ -1906,7 +1869,7 @@ function exportMapRender(meta, outPath, options) {
       fill.y * meta.tileH,
       (fill.x + fill.w) * meta.tileW,
       (fill.y + fill.h) * meta.tileH,
-      fill.color,
+      fill.color
     );
   }
   for (let y = 0; y < height; y += 1) {
@@ -1947,9 +1910,9 @@ function makeSelftestMap(meta) {
       width: meta.columns,
       height: meta.rows,
       generatedFrom: meta.path.split(/[/\\]/).join("/"),
-      generator: "vg asset tilemap --make-selftest-map",
+      generator: "asset_tilemap_editor.mjs --make-selftest-map"
     },
-    data,
+    data
   };
 }
 
@@ -1968,10 +1931,7 @@ function globFrames(dir, pattern = "frame-*.png") {
   } catch {
     return [];
   }
-  return entries
-    .filter((name) => re.test(name))
-    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
-    .map((name) => join2(dir, name));
+  return entries.filter((name) => re.test(name)).sort((a, b) => a < b ? -1 : a > b ? 1 : 0).map((name) => join2(dir, name));
 }
 function loadFrames(dir, pattern = "frame-*.png") {
   const paths = globFrames(dir, pattern);
@@ -1994,7 +1954,7 @@ function normalizeCanvas(inputDir, outDir, options = {}) {
     pad = 6,
     allowUpscale = true,
     targetHeight = null,
-    charFill = 0.5,
+    charFill = 0.5
   } = options;
   const frames = loadFrames(inputDir, glob);
   const boxes = frames.map((f) => f.image.getBBox()).filter((b) => b !== null);
@@ -2019,9 +1979,7 @@ function normalizeCanvas(inputDir, outDir, options = {}) {
   const pasteY = canvas.height - pad - newHeight;
   const written = [];
   for (const frame of frames) {
-    const cropped = frame.image
-      .crop({ left: unionLeft, top: unionTop, right: unionRight, bottom: unionBottom })
-      .resize(newWidth, newHeight, "lanczos");
+    const cropped = frame.image.crop({ left: unionLeft, top: unionTop, right: unionRight, bottom: unionBottom }).resize(newWidth, newHeight, "lanczos");
     const out = Bitmap.create(canvas.width, canvas.height);
     out.pasteMasked(cropped, pasteX, pasteY, cropped.channel(3));
     const dst = join3(outDir, basename(frame.path));
@@ -2029,6 +1987,153 @@ function normalizeCanvas(inputDir, outDir, options = {}) {
     written.push(dst);
   }
   return written;
+}
+
+// src/sprite/recover.ts
+function sampleBackground(image) {
+  const corners = [
+    image.getPixel(0, 0),
+    image.getPixel(image.width - 1, 0),
+    image.getPixel(0, image.height - 1),
+    image.getPixel(image.width - 1, image.height - 1)
+  ];
+  return [0, 1, 2].map(
+    (channel) => Math.round(corners.reduce((sum, c) => sum + c[channel], 0) / corners.length)
+  );
+}
+function findComponents(image, background, threshold) {
+  const { width, height } = image;
+  const mask = new Uint8Array(width * height);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const [r, g, b] = image.getPixel(x, y);
+      const distance = Math.abs(r - background[0]) + Math.abs(g - background[1]) + Math.abs(b - background[2]);
+      if (distance > threshold) mask[y * width + x] = 1;
+    }
+  }
+  const seen = new Uint8Array(width * height);
+  const components = [];
+  const queue = new Int32Array(width * height);
+  for (let startY = 0; startY < height; startY += 1) {
+    for (let startX = 0; startX < width; startX += 1) {
+      const start = startY * width + startX;
+      if (seen[start] || !mask[start]) continue;
+      let head = 0;
+      let tail = 0;
+      queue[tail++] = start;
+      seen[start] = 1;
+      const points = [];
+      let minX = startX;
+      let maxX = startX;
+      let minY = startY;
+      let maxY = startY;
+      while (head < tail) {
+        const index = queue[head++];
+        const y = Math.floor(index / width);
+        const x = index - y * width;
+        points.push(index);
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+        if (x + 1 < width && !seen[index + 1] && mask[index + 1]) {
+          seen[index + 1] = 1;
+          queue[tail++] = index + 1;
+        }
+        if (x > 0 && !seen[index - 1] && mask[index - 1]) {
+          seen[index - 1] = 1;
+          queue[tail++] = index - 1;
+        }
+        if (y + 1 < height && !seen[index + width] && mask[index + width]) {
+          seen[index + width] = 1;
+          queue[tail++] = index + width;
+        }
+        if (y > 0 && !seen[index - width] && mask[index - width]) {
+          seen[index - width] = 1;
+          queue[tail++] = index - width;
+        }
+      }
+      components.push({
+        area: points.length,
+        bbox: [minX, minY, maxX, maxY],
+        center: [(minX + maxX) / 2, (minY + maxY) / 2],
+        points
+      });
+    }
+  }
+  return components;
+}
+function recoverFrames(sheetPath, options) {
+  const { rows, cols, frames, threshold } = options;
+  if (rows <= 0 || cols <= 0) throw new Error("--rows and --cols must be positive integers");
+  if (frames !== null && frames <= 0) throw new Error("--frames must be a positive integer");
+  const image = Bitmap.fromFile(sheetPath);
+  const background = sampleBackground(image);
+  const components = findComponents(image, background, threshold);
+  const wanted = rows * cols;
+  const selected = [...components].sort((a, b) => b.area - a.area).slice(0, wanted);
+  const assigned = Array.from({ length: wanted }, () => null);
+  const cellWidth = image.width / cols;
+  const cellHeight = image.height / rows;
+  for (const component of selected) {
+    const col = Math.min(cols - 1, Math.max(0, Math.floor(component.center[0] / cellWidth)));
+    const row = Math.min(rows - 1, Math.max(0, Math.floor(component.center[1] / cellHeight)));
+    const index = row * cols + col;
+    const current = assigned[index] ?? null;
+    if (current === null || component.area > current.area) assigned[index] = component;
+  }
+  const required = frames === null ? wanted : Math.min(frames, wanted);
+  const missing = assigned.slice(0, required).map((item, i) => item === null ? i + 1 : 0).filter(Boolean);
+  if (missing.length > 0) {
+    throw new Error(
+      `Recovery found ${components.length} distinct pose(s) but ${required} frame(s) were requested; grid slots ${missing.join(", ")} came up empty. The model likely merged poses across cells or laid out fewer than ${required}. Re-run without --recover to slice the grid uniformly instead.`
+    );
+  }
+  const emitted = frames === null ? assigned : assigned.slice(0, required);
+  const result = {
+    sheet: sheetPath,
+    bg_rgb: background,
+    rows,
+    cols,
+    threshold,
+    frames: []
+  };
+  if (frames !== null) result.requested_frames = required;
+  const crops = emitted.map((component, i) => {
+    if (!component) throw new Error("internal: unassigned frame slot survived validation");
+    const [minX, minY, maxX, maxY] = component.bbox;
+    const crop = Bitmap.create(maxX - minX + 1, maxY - minY + 1);
+    for (const point of component.points) {
+      const y = Math.floor(point / image.width);
+      const x = point - y * image.width;
+      crop.putPixel(x - minX, y - minY, image.getPixel(x, y));
+    }
+    return {
+      /** 1-based, zero-padded to two digits by callers for the filename. */
+      index: i + 1,
+      label: String(i + 1).padStart(2, "0"),
+      image: crop,
+      bbox: component.bbox,
+      area: component.area,
+      center: component.center
+    };
+  });
+  return { result, crops };
+}
+
+// src/sprite/sequence-gif.ts
+function buildSequenceGif(frames, flatBackground) {
+  if (frames.length === 0) throw new Error("No frames selected");
+  const composed = frames.map(({ path, delayMs }) => {
+    let bitmap = Bitmap.fromFile(path);
+    if (flatBackground) {
+      const backdrop = Bitmap.create(bitmap.width, bitmap.height, flatBackground);
+      backdrop.alphaComposite(bitmap, 0, 0);
+      bitmap = backdrop;
+    }
+    return { bitmap, delayMs };
+  });
+  return encodeGif(composed);
 }
 
 // src/sprite/pack.ts
@@ -2039,7 +2144,7 @@ function packSpritesheet(inputDir, out, options = {}) {
   const sizes = new Set(frames.map((f) => `${f.image.width}x${f.image.height}`));
   if (sizes.size !== 1) {
     throw new Error(
-      `frames are not a uniform size (${[...sizes].sort().join(", ")}); normalize them first (run \`vg sprite normalize-canvas\`).`,
+      `frames are not a uniform size (${[...sizes].sort().join(", ")}); normalize them first (run \`vg sprite normalize-canvas\`).`
     );
   }
   const frameWidth = frames[0].image.width;
@@ -2063,8 +2168,8 @@ function packSpritesheet(inputDir, out, options = {}) {
       rows,
       frameCount: count,
       fps,
-      animations: { [action]: { fps, frames: Array.from({ length: count }, (_, i) => i) } },
-    },
+      animations: { [action]: { fps, frames: Array.from({ length: count }, (_, i) => i) } }
+    }
   };
 }
 export {
@@ -2074,6 +2179,7 @@ export {
   MANIFEST_JSON_CANDIDATES,
   analyzeBaseline,
   autoDetectManifest,
+  buildSequenceGif,
   checkManifest,
   collectSizes,
   cropBox,
@@ -2089,6 +2195,7 @@ export {
   extractManifestPaths,
   fail,
   fillRect,
+  findComponents,
   getAll,
   getFlag,
   getNumber,
@@ -2110,6 +2217,7 @@ export {
   probeSheet,
   readImageSize,
   readPngSize,
+  recoverFrames,
   resolveTargets,
   roundHalfToEven,
   sanitizeTilesets,
@@ -2121,5 +2229,5 @@ export {
   toHex,
   walkFiles,
   writeJsonFile,
-  writeTextFile,
+  writeTextFile
 };

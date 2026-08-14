@@ -72,6 +72,13 @@ export {
 
 export { globFrames, type LoadedFrame, loadFrames, median } from "./sprite/frames.js";
 export { normalizeCanvas } from "./sprite/normalize.js";
+export {
+  type Component,
+  findComponents,
+  recoverFrames,
+  type RecoverResult,
+} from "./sprite/recover.js";
+export { buildSequenceGif } from "./sprite/sequence-gif.js";
 export { packSpritesheet, type PackResult, type SpritesheetManifest } from "./sprite/pack.js";
 
 export { roundHalfToEven } from "./pymath.js";
