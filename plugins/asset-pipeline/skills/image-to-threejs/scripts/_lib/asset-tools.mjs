@@ -3487,14 +3487,54 @@ function auditSizeContract(source, contract, options = {}) {
 
 // src/sprite/prompt.ts
 var DIRECTIONS = {
-  n: { id: "n", label: "North", promptName: "north / back-facing", screenFacing: "back-facing, away from the viewer" },
-  ne: { id: "ne", label: "North-East", promptName: "north-east / back-right-facing", screenFacing: "diagonal back-right-facing, away from the viewer" },
-  s: { id: "s", label: "South", promptName: "south / front-facing", screenFacing: "front-facing, toward the viewer" },
-  se: { id: "se", label: "South-East", promptName: "south-east / front-right-facing", screenFacing: "diagonal front-right-facing, toward screen-right" },
-  e: { id: "e", label: "East", promptName: "east / right-facing", screenFacing: "profile facing screen-right" },
-  sw: { id: "sw", label: "South-West", promptName: "south-west / front-left-facing", screenFacing: "diagonal front-left-facing, toward screen-left" },
-  w: { id: "w", label: "West", promptName: "west / left-facing", screenFacing: "profile facing screen-left" },
-  nw: { id: "nw", label: "North-West", promptName: "north-west / back-left-facing", screenFacing: "diagonal back-left-facing, away toward screen-left" }
+  n: {
+    id: "n",
+    label: "North",
+    promptName: "north / back-facing",
+    screenFacing: "back-facing, away from the viewer"
+  },
+  ne: {
+    id: "ne",
+    label: "North-East",
+    promptName: "north-east / back-right-facing",
+    screenFacing: "diagonal back-right-facing, away from the viewer"
+  },
+  s: {
+    id: "s",
+    label: "South",
+    promptName: "south / front-facing",
+    screenFacing: "front-facing, toward the viewer"
+  },
+  se: {
+    id: "se",
+    label: "South-East",
+    promptName: "south-east / front-right-facing",
+    screenFacing: "diagonal front-right-facing, toward screen-right"
+  },
+  e: {
+    id: "e",
+    label: "East",
+    promptName: "east / right-facing",
+    screenFacing: "profile facing screen-right"
+  },
+  sw: {
+    id: "sw",
+    label: "South-West",
+    promptName: "south-west / front-left-facing",
+    screenFacing: "diagonal front-left-facing, toward screen-left"
+  },
+  w: {
+    id: "w",
+    label: "West",
+    promptName: "west / left-facing",
+    screenFacing: "profile facing screen-left"
+  },
+  nw: {
+    id: "nw",
+    label: "North-West",
+    promptName: "north-west / back-left-facing",
+    screenFacing: "diagonal back-left-facing, away toward screen-left"
+  }
 };
 function getDirection(directionId) {
   const resolved = (directionId || "").trim().toLowerCase();
@@ -3869,10 +3909,42 @@ var LABELS = {
     "return to settled idle",
     "loop hold matching frame 1"
   ],
-  hurt: ["idle start", "impact anticipation", "impact recoil", "hit peak", "recover balance", "return to guard"],
-  jump: ["ready stance", "crouch anticipation", "takeoff", "airborne peak", "falling", "landing recovery"],
-  crouch: ["upright ready stance", "crouch anticipation", "lowering into crouch", "lowest crouched hold", "rising from crouch", "return to ready stance"],
-  death: ["idle start", "hit reaction", "stagger", "collapse start", "falling", "impact", "settle", "still pose", "final still", "final hold"],
+  hurt: [
+    "idle start",
+    "impact anticipation",
+    "impact recoil",
+    "hit peak",
+    "recover balance",
+    "return to guard"
+  ],
+  jump: [
+    "ready stance",
+    "crouch anticipation",
+    "takeoff",
+    "airborne peak",
+    "falling",
+    "landing recovery"
+  ],
+  crouch: [
+    "upright ready stance",
+    "crouch anticipation",
+    "lowering into crouch",
+    "lowest crouched hold",
+    "rising from crouch",
+    "return to ready stance"
+  ],
+  death: [
+    "idle start",
+    "hit reaction",
+    "stagger",
+    "collapse start",
+    "falling",
+    "impact",
+    "settle",
+    "still pose",
+    "final still",
+    "final hold"
+  ],
   // Spatial-progression labels (a single arc, not abstract beats) so the model
   // advances the weapon monotonically along one swing instead of drawing N poses.
   attack: [
@@ -3887,13 +3959,92 @@ var LABELS = {
     "settle toward ready",
     "return to ready stance"
   ],
-  talk: ["settled speaking idle", "small head turn", "hand gesture begins", "gesture opens", "gesture peak", "soft emphasis", "gesture relaxes", "hand returns", "near speaking idle", "loop hold matching frame 1"],
-  interact: ["idle start", "anticipate reach", "arm extends", "operate or take peak", "brief contact hold", "release", "arm returns", "settle", "return to idle", "idle hold"],
-  pick_up: ["idle start", "look toward target", "bend begins", "reach downward", "lowest reach", "grasp implied object", "lift begins", "rise with hand close", "settle upright", "return to idle", "idle hold", "loop-safe idle"],
-  use: ["idle start", "anticipate reach", "reach outward", "hand meets implied control", "operate peak", "brief hold", "release", "arm returns", "settle", "return to idle"],
-  examine: ["idle start", "attention shift", "lean begins", "peer forward", "examine peak", "thoughtful hold", "lean eases back", "head returns", "settle", "return to idle"],
-  give: ["idle start", "prepare item hand", "arm extends", "offering pose", "offer hold", "release or accept beat", "arm retracts", "hand returns", "settle", "return to idle"],
-  shrug: ["idle start", "confused anticipation", "shoulders lift", "palms open", "shrug peak", "head tilt hold", "shoulders relax", "hands lower", "settle", "return to idle"]
+  talk: [
+    "settled speaking idle",
+    "small head turn",
+    "hand gesture begins",
+    "gesture opens",
+    "gesture peak",
+    "soft emphasis",
+    "gesture relaxes",
+    "hand returns",
+    "near speaking idle",
+    "loop hold matching frame 1"
+  ],
+  interact: [
+    "idle start",
+    "anticipate reach",
+    "arm extends",
+    "operate or take peak",
+    "brief contact hold",
+    "release",
+    "arm returns",
+    "settle",
+    "return to idle",
+    "idle hold"
+  ],
+  pick_up: [
+    "idle start",
+    "look toward target",
+    "bend begins",
+    "reach downward",
+    "lowest reach",
+    "grasp implied object",
+    "lift begins",
+    "rise with hand close",
+    "settle upright",
+    "return to idle",
+    "idle hold",
+    "loop-safe idle"
+  ],
+  use: [
+    "idle start",
+    "anticipate reach",
+    "reach outward",
+    "hand meets implied control",
+    "operate peak",
+    "brief hold",
+    "release",
+    "arm returns",
+    "settle",
+    "return to idle"
+  ],
+  examine: [
+    "idle start",
+    "attention shift",
+    "lean begins",
+    "peer forward",
+    "examine peak",
+    "thoughtful hold",
+    "lean eases back",
+    "head returns",
+    "settle",
+    "return to idle"
+  ],
+  give: [
+    "idle start",
+    "prepare item hand",
+    "arm extends",
+    "offering pose",
+    "offer hold",
+    "release or accept beat",
+    "arm retracts",
+    "hand returns",
+    "settle",
+    "return to idle"
+  ],
+  shrug: [
+    "idle start",
+    "confused anticipation",
+    "shoulders lift",
+    "palms open",
+    "shrug peak",
+    "head tilt hold",
+    "shoulders relax",
+    "hands lower",
+    "settle",
+    "return to idle"
+  ]
 };
 function frameLabel(action2, index, frameCount) {
   if (action2 === "knockdown") return labelForIndex(LABELS.death, index, frameCount);
@@ -3960,11 +4111,7 @@ function poseBoardFacingLock(direction) {
   return base;
 }
 function renderPoseBoardPrompt(actionId, direction, frameCount, options = {}) {
-  const {
-    poseBoard = null,
-    framePromptStyle = "specific",
-    chroma = "#00FF00"
-  } = options;
+  const { poseBoard = null, framePromptStyle = "specific", chroma = "#00FF00" } = options;
   const board = poseBoard ?? resolvePoseBoardPreset("standard");
   const phrase = chromaPhrase(chroma);
   const frameLines = renderFrameGuidance(actionId, frameCount, framePromptStyle);
@@ -4063,6 +4210,187 @@ function packSpritesheet(inputDir, out, options = {}) {
     }
   };
 }
+
+// src/skill/frontmatter.ts
+var FrontmatterError = class extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "FrontmatterError";
+  }
+};
+function stripComment(line) {
+  let quote = null;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (quote) {
+      if (ch === quote) quote = null;
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+    } else if (ch === "#" && (i === 0 || /\s/.test(line[i - 1]))) {
+      return line.slice(0, i);
+    }
+  }
+  return line;
+}
+function parseScalar(raw) {
+  const text = raw.trim();
+  if (text === "") return "";
+  if (text.startsWith('"') && text.endsWith('"') && text.length >= 2 || text.startsWith("'") && text.endsWith("'") && text.length >= 2) {
+    const body = text.slice(1, -1);
+    return text[0] === '"' ? body.replaceAll(String.raw`\"`, '"').replaceAll("\\n", "\n") : body;
+  }
+  if (text.startsWith("[") && text.endsWith("]")) {
+    const inner = text.slice(1, -1).trim();
+    if (!inner) return [];
+    return inner.split(",").map((item) => parseScalar(item));
+  }
+  if (text === "true") return true;
+  if (text === "false") return false;
+  if (text === "null" || text === "~") return null;
+  if (/^-?\d+$/.test(text)) return Number.parseInt(text, 10);
+  if (/^-?\d*\.\d+$/.test(text)) return Number.parseFloat(text);
+  return text;
+}
+function parseFrontmatter(text) {
+  const out = {};
+  let currentKey = null;
+  let nested = null;
+  for (const rawLine of text.split("\n")) {
+    const line = stripComment(rawLine);
+    if (!line.trim()) continue;
+    const indented = /^\s/.test(line);
+    if (indented) {
+      if (!nested || currentKey === null) {
+        throw new FrontmatterError(`unexpected indented line: ${rawLine.trim()}`);
+      }
+      const match2 = /^\s+([^:]+):\s*(.*)$/.exec(line);
+      if (!match2) throw new FrontmatterError(`could not parse nested line: ${rawLine.trim()}`);
+      nested[match2[1].trim()] = parseScalar(match2[2]);
+      continue;
+    }
+    const match = /^([^:]+):\s*(.*)$/.exec(line);
+    if (!match) throw new FrontmatterError(`could not parse line: ${rawLine.trim()}`);
+    const key = match[1].trim();
+    const value = match[2];
+    if (value.trim() === "") {
+      currentKey = key;
+      nested = {};
+      out[key] = nested;
+    } else {
+      currentKey = null;
+      nested = null;
+      out[key] = parseScalar(value);
+    }
+  }
+  return out;
+}
+function splitSkill(content) {
+  if (!content.startsWith("---")) return null;
+  const match = /^---\n([\s\S]*?)\n---/.exec(content);
+  if (!match) return null;
+  const frontmatterText = match[1];
+  return {
+    frontmatterText,
+    frontmatter: parseFrontmatter(frontmatterText),
+    body: content.slice(match[0].length).replace(/^\n/, "")
+  };
+}
+
+// src/skill/validate.ts
+import { existsSync as existsSync6, readFileSync as readFileSync5 } from "node:fs";
+import { join as join4 } from "node:path";
+var ALLOWED_PROPERTIES = ["name", "description", "license", "allowed-tools", "metadata"];
+function validateSkill(skillPath) {
+  const skillMd = join4(skillPath, "SKILL.md");
+  if (!existsSync6(skillMd)) return { valid: false, message: "SKILL.md not found" };
+  const content = readFileSync5(skillMd, "utf8");
+  if (!content.startsWith("---")) {
+    return { valid: false, message: "No YAML frontmatter found" };
+  }
+  const match = /^---\n([\s\S]*?)\n---/.exec(content);
+  if (!match) return { valid: false, message: "Invalid frontmatter format" };
+  const frontmatterText = match[1];
+  if (/^description:\s*[>|]-?\s*$/m.test(frontmatterText)) {
+    return {
+      valid: false,
+      message: "Description must use an inline string value, not YAML folded/literal scalar (`>` or `|`)."
+    };
+  }
+  let frontmatter;
+  try {
+    frontmatter = parseFrontmatter(frontmatterText);
+  } catch (error) {
+    const detail = error instanceof FrontmatterError ? error.message : String(error);
+    return { valid: false, message: `Invalid YAML in frontmatter: ${detail}` };
+  }
+  const unexpected = Object.keys(frontmatter).filter((key) => !ALLOWED_PROPERTIES.includes(key)).sort();
+  if (unexpected.length > 0) {
+    return {
+      valid: false,
+      message: `Unexpected key(s) in SKILL.md frontmatter: ${unexpected.join(", ")}. Allowed properties are: ${[...ALLOWED_PROPERTIES].sort().join(", ")}`
+    };
+  }
+  if (!("name" in frontmatter)) return { valid: false, message: "Missing 'name' in frontmatter" };
+  if (!("description" in frontmatter)) {
+    return { valid: false, message: "Missing 'description' in frontmatter" };
+  }
+  const rawName = frontmatter.name;
+  if (typeof rawName !== "string") {
+    return { valid: false, message: `Name must be a string, got ${typeName(rawName)}` };
+  }
+  const name = rawName.trim();
+  if (name) {
+    if (!/^[a-z0-9-]+$/.test(name)) {
+      return {
+        valid: false,
+        message: `Name '${name}' should be hyphen-case (lowercase letters, digits, and hyphens only)`
+      };
+    }
+    if (name.startsWith("-") || name.endsWith("-") || name.includes("--")) {
+      return {
+        valid: false,
+        message: `Name '${name}' cannot start/end with hyphen or contain consecutive hyphens`
+      };
+    }
+    if (name.length > 64) {
+      return {
+        valid: false,
+        message: `Name is too long (${name.length} characters). Maximum is 64 characters.`
+      };
+    }
+  }
+  const rawDescription = frontmatter.description;
+  if (typeof rawDescription !== "string") {
+    return { valid: false, message: `Description must be a string, got ${typeName(rawDescription)}` };
+  }
+  const description = rawDescription.trim();
+  if (description) {
+    if (description.includes("<") || description.includes(">")) {
+      return { valid: false, message: "Description cannot contain angle brackets (< or >)" };
+    }
+    if (description.length > 1024) {
+      return {
+        valid: false,
+        message: `Description is too long (${description.length} characters). Maximum is 1024 characters.`
+      };
+    }
+  }
+  return { valid: true, message: "Skill is valid!" };
+}
+function typeName(value) {
+  if (value === null) return "NoneType";
+  if (Array.isArray(value)) return "list";
+  switch (typeof value) {
+    case "string":
+      return "str";
+    case "boolean":
+      return "bool";
+    case "number":
+      return Number.isInteger(value) ? "int" : "float";
+    default:
+      return "dict";
+  }
+}
 export {
   ACTIONS,
   ACTION_IDS,
@@ -4074,6 +4402,7 @@ export {
   DIRECTIONS,
   FRAME_HEIGHT,
   FRAME_WIDTH,
+  FrontmatterError,
   HIGH_FRINGE_REMOVAL_RATIO,
   LuaParseError,
   MANIFEST_CANDIDATES,
@@ -4146,6 +4475,7 @@ export {
   parseArgs,
   parseColor,
   parseFrame,
+  parseFrontmatter,
   parseLua,
   prettyPath,
   probeSheet,
@@ -4173,6 +4503,7 @@ export {
   sizesToCsv,
   snapImage,
   snapSheet,
+  splitSkill,
   strokeRect,
   styleBlock,
   summarizeMeasurements,
@@ -4182,6 +4513,7 @@ export {
   toHex,
   toPythonJson,
   totalCells,
+  validateSkill,
   verdictFor,
   walk,
   walkFiles,

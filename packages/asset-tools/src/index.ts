@@ -187,4 +187,13 @@ export {
 } from "./sprite/prompt.js";
 export { packSpritesheet, type PackResult, type SpritesheetManifest } from "./sprite/pack.js";
 
+export {
+  FrontmatterError,
+  parseFrontmatter,
+  splitSkill,
+  type SplitSkill,
+  type YamlValue,
+} from "./skill/frontmatter.js";
+export { validateSkill } from "./skill/validate.js";
+
 export { roundHalfToEven } from "./pymath.js";

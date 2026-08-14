@@ -28,6 +28,7 @@ const CONSUMERS = [
   "asset-pipeline/skills/image-to-threejs",
   "asset-pipeline/skills/aseprite",
   "tooling/skills/playwright",
+  "tooling/skills/skill-creator",
 ];
 
 const BANNER = `// GENERATED FILE — do not edit.
