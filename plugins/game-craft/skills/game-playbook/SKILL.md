@@ -26,8 +26,8 @@ ship before the craft pass.
    - enemies / pickups / projectiles.
    - **impact + ability VFX on PURE BLACK** (slash arcs, explosions, muzzle
      flashes) — render them with `BlendModes.ADD` so black is free transparency,
-     no alpha pass needed. A generated video → ffmpeg frame strip makes great
-     fire/explosion (see `pixel-art` Recipe 5).
+     no alpha pass needed. A generated video, sliced into a frame strip, makes
+     great fire/explosion (see `pixel-art` Recipe 5).
    - ground/tiles or a parallax/arena backdrop.
      Replace the template's logo/bg — never ship placeholder art.
 
