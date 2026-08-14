@@ -38,6 +38,22 @@ export {
   type RGBA,
 } from "./image/raster.js";
 
+export {
+  ASEPRITE_COMMON_TYPOS,
+  ASEPRITE_EXTENSIONS,
+  type AsepriteCel,
+  type AsepriteFrame,
+  type AsepriteInspection,
+  type AsepriteLayer,
+  AsepriteParseError,
+  type AsepriteTag,
+  type Bounds,
+  inferBoundsFromPixels,
+  inspectAseprite,
+  type InspectOptions,
+  type PropertyValue,
+  type UserData,
+} from "./asset/aseprite.js";
 export { LuaParseError, type LuaValue, parseLua } from "./asset/lua.js";
 export {
   autoDetectManifest,

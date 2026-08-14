@@ -17,7 +17,6 @@
  *   node pack_spritesheet.mjs --input-dir runtime --out sheet.png --columns 5 --json-out sheet.json
  */
 import {
-  getFlag,
   getNumber,
   getString,
   fail,

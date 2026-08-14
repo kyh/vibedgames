@@ -21,17 +21,20 @@ An `.ase`/`.aseprite` file is a structured timeline of layered pixel (or tilemap
 
 ## Quick Start
 
-Turn a file into JSON (shebang is `#!/usr/bin/env python3`):
+Turn a file into JSON — needs nothing but `node`:
 
 ```bash
-python3 .claude/skills/aseprite/scripts/aseprite_inspect.py path/to/sprite.aseprite --json
+node .claude/skills/aseprite/scripts/aseprite_inspect.mjs path/to/sprite.aseprite --json
 ```
 
 Opt into pixel-derived inference (e.g. tight bounds):
 
 ```bash
-python3 .claude/skills/aseprite/scripts/aseprite_inspect.py path/to/sprite.aseprite --json --decode-cels
+node .claude/skills/aseprite/scripts/aseprite_inspect.mjs path/to/sprite.aseprite --json --decode-cels
 ```
+
+Add `--pretty` to indent the JSON. Decoding is capped by `--max-decompress-mib`
+(default 64), so a hostile file can't make it allocate.
 
 ## What You Can Infer Reliably
 
@@ -66,6 +69,6 @@ Use slice keys per frame for runtime hitboxes. Use pivot when present; otherwise
 
 ## References & Scripts
 
-- `scripts/aseprite_inspect.py` — binary parser + JSON; optional cel/tile decode
+- `scripts/aseprite_inspect.mjs` — binary parser + JSON; optional cel/tile decode
 - `references/aseprite-format-cheatsheet.md` — chunk map + gotchas
 - `references/inference-recipes.md` — how to compute bounds/timing/order safely
