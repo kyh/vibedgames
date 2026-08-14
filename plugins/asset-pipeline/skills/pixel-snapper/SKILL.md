@@ -1,6 +1,6 @@
 ---
 name: pixel-snapper
-description: "Recover the true low-resolution pixel grid from upscaled or AI-generated fake pixel art PNGs. Use for snap-to-grid cleanup, native-resolution sprite assets, palette-quantized game art, and known-layout spritesheets. Bundles self-contained uv Python scripts."
+description: "Recover the true low-resolution pixel grid from upscaled or AI-generated fake pixel art PNGs. Use for snap-to-grid cleanup, native-resolution sprite assets, palette-quantized game art, and known-layout spritesheets. Bundles self-contained Node scripts (no Python, no install)."
 metadata:
   short-description: "Recover native pixel grids from fake pixel art."
 ---
