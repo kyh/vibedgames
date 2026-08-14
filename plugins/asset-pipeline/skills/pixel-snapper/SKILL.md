@@ -44,10 +44,10 @@ After `chmod +x`, the shebang `#!/usr/bin/env node` lets you call it directly:
 .claude/skills/pixel-snapper/scripts/pixel_snapper.mjs input.png output.png --k-colors 256
 ```
 
-Output is one snapped PNG at the discovered native resolution. For inspection, follow up with an integer nearest-neighbour upscale via ffmpeg:
+Output is one snapped PNG at the discovered native resolution. For inspection, follow up with an integer nearest-neighbour upscale — nearest at an integer factor keeps every pixel a hard square, so you judge the recovered art rather than a resampler's smoothing:
 
 ```bash
-ffmpeg -y -i snapped.png -vf "scale=iw*8:ih*8:flags=neighbor" snapped-x8.png
+node .claude/skills/pixel-snapper/scripts/image_util.mjs upscale snapped.png snapped-x8.png --factor 8
 ```
 
 For a known-layout spritesheet, snap every frame to one shared pixel grid:

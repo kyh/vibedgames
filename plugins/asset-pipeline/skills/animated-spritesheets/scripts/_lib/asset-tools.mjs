@@ -3329,10 +3329,7 @@ function contractChecks(summary, contract) {
   const maxBottomDrift = optionalNumber(tolerances.maxBottomDriftPx);
   if (targetBottom !== null && maxBottomDrift !== null) {
     const range = summary.visibleBottomYRange;
-    const drift = Math.max(
-      Math.abs(range[0] - targetBottom),
-      Math.abs(range[1] - targetBottom)
-    );
+    const drift = Math.max(Math.abs(range[0] - targetBottom), Math.abs(range[1] - targetBottom));
     checks.push(
       check(
         "target-bottom-y",
@@ -3364,10 +3361,7 @@ function contractChecks(summary, contract) {
   const maxCenterDrift = optionalNumber(tolerances.maxCenterDriftPx);
   if (targetCenter !== null && maxCenterDrift !== null) {
     const range = summary.visibleCenterXRange;
-    const drift = Math.max(
-      Math.abs(range[0] - targetCenter),
-      Math.abs(range[1] - targetCenter)
-    );
+    const drift = Math.max(Math.abs(range[0] - targetCenter), Math.abs(range[1] - targetCenter));
     checks.push(
       check(
         "target-center-x",
@@ -3408,7 +3402,8 @@ function loadSizeContract(payload, source) {
     throw new Error(`size contract must be a JSON object: ${source}`);
   }
   const data = payload;
-  if (data.kind !== "sprite-size-contract") throw new Error(`not a sprite size contract: ${source}`);
+  if (data.kind !== "sprite-size-contract")
+    throw new Error(`not a sprite size contract: ${source}`);
   return {
     ...data,
     runtimeCell: data.runtimeCell ?? [FRAME_WIDTH, FRAME_HEIGHT],
