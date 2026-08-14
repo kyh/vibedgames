@@ -1,4 +1,5 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 
 import { decodePng, encodePng, readPngSize } from "./png.js";
 
@@ -46,6 +47,7 @@ export class Bitmap {
   }
 
   toFile(path: string): void {
+    mkdirSync(dirname(resolve(path)), { recursive: true });
     writeFileSync(path, encodePng({ width: this.width, height: this.height, data: this.data }));
   }
 
@@ -133,6 +135,36 @@ export class Bitmap {
         this.data[di + 1] = src.data[si + 1]!;
         this.data[di + 2] = src.data[si + 2]!;
         this.data[di + 3] = src.data[si + 3]!;
+      }
+    }
+  }
+
+  /**
+   * Pillow's three-argument `paste(im, box, mask)`, which is a lerp rather
+   * than a composite: every destination band, *alpha included*, is blended as
+   * `dst * (1 - m) + src * m`.
+   *
+   * When the mask is the source's own alpha — which is how the sprite scripts
+   * always call it — that squares the alpha and premultiplies the colour of
+   * partially transparent pixels. It is almost certainly not what the original
+   * author intended, but hard-alpha sprites (the overwhelming majority) are
+   * unaffected, and every sheet these skills have shipped was produced this
+   * way. Reproduced deliberately so ported output stays identical; see
+   * `alphaComposite` for the well-behaved operation.
+   */
+  pasteMasked(src: Bitmap, left: number, top: number, mask: Uint8Array): void {
+    for (let y = 0; y < src.height; y += 1) {
+      const dy = top + y;
+      if (dy < 0 || dy >= this.height) continue;
+      for (let x = 0; x < src.width; x += 1) {
+        const dx = left + x;
+        if (dx < 0 || dx >= this.width) continue;
+        const m = mask[y * src.width + x]! / 255;
+        const si = src.index(x, y);
+        const di = this.index(dx, dy);
+        for (let c = 0; c < 4; c += 1) {
+          this.data[di + c] = Math.round(this.data[di + c]! * (1 - m) + src.data[si + c]! * m);
+        }
       }
     }
   }
