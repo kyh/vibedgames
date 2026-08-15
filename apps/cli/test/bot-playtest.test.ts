@@ -10,8 +10,12 @@ import { test } from "node:test";
  * `scripts/bot-playtest.mjs` ships with the playtest skill rather than this
  * package, but it only runs through `vg playtest` and is the least-exercised
  * code in that pairing — so its input contract is covered here rather than
- * nowhere. These drive the real script as a subprocess: everything below fails
- * before a browser is launched, so no dev server or network is involved.
+ * nowhere. These drive the real script as a subprocess.
+ *
+ * Every assertion is about argument validation, which happens before the
+ * script shells out to anything. Nothing here asserts on what `vg playtest`
+ * does, because `vg` is this package's own bin and isn't on PATH in CI — a
+ * test that depended on it would pass locally and fail on a fresh runner.
  */
 const BOT = fileURLToPath(
   new URL("../../../plugins/tooling/skills/playtest/scripts/bot-playtest.mjs", import.meta.url),
@@ -79,10 +83,11 @@ test("accepts every key family the docs promise", () => {
     { keys: ["KeyW", "KeyA", "Digit1", "ArrowLeft", "Space"], ms: 100 },
     { keys: ["ShiftLeft", "ControlRight", "AltLeft", "Period", "Slash"], ms: 100 },
   ]);
-  // Valid input gets past validation and fails only on the unreachable URL.
+  // Asserts only that validation let these through. What happens next depends
+  // on whether `vg` is installed, so it is deliberately not asserted.
   const { stderr } = run(["--url", "http://localhost:1", "--script", path]);
   assert.doesNotMatch(stderr, /unsupported key code/);
-  assert.match(stderr, /couldn't open the game/);
+  assert.doesNotMatch(stderr, /needs a (non-empty|positive)/);
 });
 
 test("rejects malformed steps", () => {
