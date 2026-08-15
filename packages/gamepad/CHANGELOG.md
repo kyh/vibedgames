@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.2 — 2026-08-15
+
+- Fixed: the Phaser overlay drew where it was **not** hit-tested on any scene whose
+  camera zoom is not 1. Buttons are positioned and hit-tested in canvas pixels, but
+  the overlay was drawn with only `setScrollFactor(0)` — which cancels the camera's
+  *scroll* and nothing else, so it still rode the zoom. A fixed button could render
+  far enough from its touch target to be a decoy: at zoom 0.82 one sat 65px from a
+  52px hit circle, i.e. completely unhittable at the place it appeared. The overlay
+  now counters the camera's zoom **and roll** every frame, and is drawn at
+  `PRE_RENDER` rather than from `update()` so a camera moved later in the frame
+  cannot leave it a frame behind. Games on a zoom-1 camera are unaffected.
+- Added: `screenSpaceTransform()` / `screenSpacePosition()` (and the `CameraView` /
+  `ScreenSpaceTransform` types) for games that draw their own screen-fixed objects
+  through a zoomed camera.
+- The Phaser peer range is now `>=3.53` — `Scenes.Events.PRE_RENDER` is required.
+
 ## 0.1.1 — 2026-07-13
 
 - The package now imports under plain Node ESM. Relative imports carry explicit `.js`
