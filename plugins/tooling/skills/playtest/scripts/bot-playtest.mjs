@@ -59,10 +59,16 @@ function parseArgs(argv) {
       i += 1;
       return value;
     };
+    // `Number("")` is 0, not NaN, so an empty value would slip past the finite
+    // checks below and silently seed with 0 instead of saying anything.
+    const num = () => {
+      const raw = next();
+      return raw.trim() === "" ? Number.NaN : Number(raw);
+    };
     if (arg === "--url") opts.url = next();
     else if (arg === "--game") opts.game = next();
-    else if (arg === "--seed") opts.seed = Number(next());
-    else if (arg === "--reaction-delay") opts.reactionDelay = Number(next());
+    else if (arg === "--seed") opts.seed = num();
+    else if (arg === "--reaction-delay") opts.reactionDelay = num();
     else if (arg === "--script") opts.script = JSON.parse(readFileSync(next(), "utf8"));
     else if (arg === "--headed") opts.headed = true;
     else if (arg === "--keep-open") opts.keepOpen = true;
@@ -77,7 +83,30 @@ function parseArgs(argv) {
   if (!Number.isFinite(opts.reactionDelay) || opts.reactionDelay < 0) {
     fail("`--reaction-delay` must be a non-negative number of milliseconds.");
   }
+  validateScript(opts.script);
   return opts;
+}
+
+/**
+ * Check the input script before anything launches. An unsupported key code or
+ * a malformed step would otherwise surface mid-run, after a browser start and
+ * a seeded reload, reported as a harness failure with no hint that the script
+ * itself was the problem.
+ */
+function validateScript(script) {
+  if (!Array.isArray(script) || script.length === 0) {
+    fail("`--script` must be a non-empty JSON array of { keys, ms } steps.");
+  }
+  for (const [index, step] of script.entries()) {
+    if (!step || !Array.isArray(step.keys) || step.keys.length === 0) {
+      fail(`step ${index} needs a non-empty \`keys\` array.`);
+    }
+    if (!Number.isFinite(step.ms) || step.ms <= 0) {
+      fail(`step ${index} needs a positive \`ms\` duration.`);
+    }
+    // Throws (exit 2) naming the offending code.
+    for (const code of step.keys) keyFields(code);
+  }
 }
 
 /**
