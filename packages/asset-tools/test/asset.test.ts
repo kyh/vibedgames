@@ -339,6 +339,47 @@ test("every skill script declares the boolean flags it reads", () => {
   assert.deepEqual(offenders, []);
 });
 
+/**
+ * The check above only sees flags a script *reads*. A flag that is accepted and
+ * ignored — kept because the Python original took it — is advertised in the
+ * usage text, never passed to `getFlag`, and so was invisible: that is how
+ * `aseprite_inspect.mjs --json file.ase` kept eating its filename after the
+ * first fix. Anything a script's own text spells as `--flag` must therefore be
+ * declared, read as a value, or visibly take one.
+ */
+test("every flag a script advertises is declared or takes a value", () => {
+  const repoRoot = join(import.meta.dirname, "..", "..", "..");
+  const scripts = globSync("plugins/*/skills/*/scripts/*.mjs", { cwd: repoRoot }).map((rel) =>
+    join(repoRoot, rel),
+  );
+
+  const offenders: string[] = [];
+  for (const path of scripts) {
+    const source = readFileSync(path, "utf8");
+    if (!source.includes('from "./_lib/asset-tools.mjs"')) continue;
+
+    const declared = new Set(
+      [...(/booleans:\s*\[([^\]]*)\]/.exec(source)?.[1] ?? "").matchAll(/"([^"]+)"/g)].map(
+        (m) => m[1]!,
+      ),
+    );
+    const valued = new Set(
+      [...source.matchAll(/get(?:String|Number|All)\(\s*args\s*,\s*"([^"]+)"/g)].map((m) => m[1]!),
+    );
+    // `--size WxH` / `--out <path>`: a metavar after the flag means it takes one.
+    const metavar = new Set(
+      [...source.matchAll(/--([a-z0-9][a-z0-9-]*)[= ](?:[A-Z_]{2,}|<)/g)].map((m) => m[1]!),
+    );
+
+    const advertised = new Set([...source.matchAll(/--([a-z0-9][a-z0-9-]*)/g)].map((m) => m[1]!));
+    const gap = [...advertised].filter(
+      (name) => !declared.has(name) && !valued.has(name) && !metavar.has(name),
+    );
+    if (gap.length > 0) offenders.push(`${basename(path)}: ${gap.sort().join(", ")}`);
+  }
+  assert.deepEqual(offenders, []);
+});
+
 // ---- zip ------------------------------------------------------------------
 
 test("filenames are flagged UTF-8 in both headers", () => {

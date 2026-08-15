@@ -2484,9 +2484,15 @@ function contractBrief(contract) {
   for (const key of BRIEF_KEYS) if (key in contract) out[key] = contract[key];
   return out;
 }
+function asCellPair(value) {
+  if (!Array.isArray(value) || value.length !== 2) return null;
+  const [w, h] = value;
+  if (typeof w !== "number" || typeof h !== "number") return null;
+  if (!Number.isFinite(w) || !Number.isFinite(h)) return null;
+  return [Math.trunc(w), Math.trunc(h)];
+}
 function cellSizeOf(contract) {
-  const cell = contract.runtimeCell ?? [FRAME_WIDTH, FRAME_HEIGHT];
-  return [Math.trunc(cell[0]), Math.trunc(cell[1])];
+  return asCellPair(contract.runtimeCell) ?? [FRAME_WIDTH, FRAME_HEIGHT];
 }
 function loadSizeContract(payload, source) {
   if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
@@ -2495,12 +2501,22 @@ function loadSizeContract(payload, source) {
   const data = payload;
   if (data.kind !== "sprite-size-contract")
     throw new Error(`not a sprite size contract: ${source}`);
+  const runtimeCell = data.runtimeCell === void 0 ? [FRAME_WIDTH, FRAME_HEIGHT] : asCellPair(data.runtimeCell);
+  if (runtimeCell === null) {
+    throw new Error(
+      `runtimeCell must be [width, height] numbers, got ${JSON.stringify(data.runtimeCell)}: ${source}`
+    );
+  }
+  const tolerances = data.tolerances;
+  if (tolerances !== void 0 && (typeof tolerances !== "object" || tolerances === null)) {
+    throw new Error(`tolerances must be an object, got ${JSON.stringify(tolerances)}: ${source}`);
+  }
   return {
     ...data,
-    runtimeCell: data.runtimeCell ?? [FRAME_WIDTH, FRAME_HEIGHT],
+    runtimeCell,
     anchorPolicy: data.anchorPolicy ?? "grounded",
     pivot: data.pivot ?? "base-center",
-    tolerances: { ...DEFAULT_TOLERANCES, ...data.tolerances ?? {} }
+    tolerances: { ...DEFAULT_TOLERANCES, ...tolerances }
   };
 }
 function deriveSizeContract(source, options = {}) {

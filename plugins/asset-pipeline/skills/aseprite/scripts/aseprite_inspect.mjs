@@ -45,7 +45,9 @@ options:
 
 main(() => {
   const args = parseArgs(process.argv.slice(2), {
-    booleans: ["decode-cels", "help", "pretty", "treat-index0-transparent"],
+    // `json` is accepted and ignored — JSON is the only output — but it still
+    // has to be declared, or `--json file.ase` would eat the filename.
+    booleans: ["decode-cels", "help", "json", "pretty", "treat-index0-transparent"],
   });
 
   if (getFlag(args, "help")) {
