@@ -47,7 +47,8 @@ node .claude/skills/playtest/scripts/bot-playtest.mjs --url http://localhost:517
 | `--url <url>`           | Where the game is served (mutually exclusive with `--game`)   |
 | `--game <slug>`         | Playtest the deployed game (follows `VG_API_URL`)             |
 | `--seed <n>`            | Seed passed to `__GAME_TEST_HOOKS__.seed()` (default `12345`) |
-| `--script <path>`       | JSON array of `{ keys: string[], ms: number }` steps          |
+| `--script <path>`       | JSON array of `{ keys?, pointer?, ms }` steps                 |
+| `--expect-progress`     | Assert the objective advances (see below)                     |
 | `--reaction-delay <ms>` | Idle gap after each step — models a slower player             |
 | `--headed`              | Show the browser (needed for real-GPU and WebGPU capture)     |
 | `--keep-open`           | Leave the page open afterwards so you can inspect it          |
@@ -58,12 +59,12 @@ Exit `0` = the game plays, `1` = it doesn't (the JSON report names which check f
 
 - `framesAdvanced > 100` — the loop survived the run. A stall is a crash or frozen loop.
 - `maxStepDisplacement > 5` — input mapping is alive: the furthest the player got from where a single step started. Near-zero under held input means broken input (or a mouse-driven game given a keyboard script). `distanceTravelled` is reported alongside it as total path length, but is not the gate — path sums every sampled wobble, so an idle bob could drift past a threshold on a game whose input is entirely dead.
-- `scoreAfter > scoreBefore` + `stepOfFirstScore` — the objective is reachable, and how fast a naive player finds it. This is an assertion **only when you pass `--script`**: the default sweep is a generic WASD walk that knows nothing about how a given game scores, so on the default it lands in `warnings` instead. A harness that fails healthy games teaches its reader to ignore the verdict. Supply the game's core verb and it becomes a real check.
+- `scoreAfter > scoreBefore` + `stepOfFirstScore` — the objective is reachable, and how fast a naive player finds it. This is an assertion **only under `--expect-progress`**; otherwise it lands in `warnings`. Pass that flag once your script actually performs the game's scoring verb. A generic sweep knows nothing about how a given game scores, and a harness that fails healthy games teaches its reader to ignore the verdict.
 - `stuckSteps` / `longestStuckRun` — steps where frames advanced, the step **asked the player to move**, and nothing came of it. Only the longest _consecutive_ run fails (above 2), because one dead step is a key the game doesn't bind while several in a row is a player wedged in geometry. A step asks the player to move if it holds WASD/arrows or a `pointer`; override with `"expectMotion": true | false` when a game moves on some other key.
 
   Motion is measured as **peak displacement during the hold**, not net displacement at the end of it — otherwise every round trip reads as zero, and a jump that works perfectly is reported as a stuck player.
 
-- `consoleErrors` / `pageErrors` — must both be empty for the full run.
+- `consoleErrors` / `pageErrors` — both are arrays, and both must be empty for the full run.
 
 ## Writing a Good Input Script
 

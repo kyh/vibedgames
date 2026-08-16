@@ -39,10 +39,9 @@ const THRESHOLDS = {
   framesAdvanced: 100,
   displacement: 5,
   stuckRun: 2,
+  /** Displacement (world units) below which a step counts as "didn't move". */
+  motionEpsilon: 0.2,
 };
-
-/** Displacement (world units) below which a step counts as "didn't move". */
-const MOTION_EPSILON = 0.2;
 
 /** How often the in-page tracker samples player state during a step. */
 const SAMPLE_MS = 40;
@@ -70,7 +69,7 @@ function parseArgs(argv) {
     game: null,
     seed: 12345,
     script: DEFAULT_SCRIPT,
-    customScript: false,
+    expectProgress: false,
     reactionDelay: 0,
     headed: false,
     keepOpen: false,
@@ -93,10 +92,9 @@ function parseArgs(argv) {
     else if (arg === "--game") opts.game = next();
     else if (arg === "--seed") opts.seed = num();
     else if (arg === "--reaction-delay") opts.reactionDelay = num();
-    else if (arg === "--script") {
-      opts.script = readScript(next());
-      opts.customScript = true;
-    } else if (arg === "--headed") opts.headed = true;
+    else if (arg === "--script") opts.script = readScript(next());
+    else if (arg === "--expect-progress") opts.expectProgress = true;
+    else if (arg === "--headed") opts.headed = true;
     else if (arg === "--keep-open") opts.keepOpen = true;
     else fail(`Unknown argument: ${arg}`);
   }
@@ -186,27 +184,33 @@ function expectsMotion(step) {
 }
 
 /**
- * Inputs currently held. A keydown — or a mouse button — left dangling by an
- * early exit stays stuck in the game and poisons the next run against the same
- * daemon, so anything that ends the process releases these first.
+ * The step whose inputs are currently down. A keydown — or a mouse button —
+ * left dangling by an early exit stays stuck in the game and poisons the next
+ * run against the same daemon, so anything that ends the process releases it.
  */
-const held = new Set();
-let pointerHeld = null;
+let inFlight = null;
 
 function releaseHeldInputs() {
-  // Snapshot and clear before dispatching: the dispatch can itself call `fail`,
-  // and this must not recurse forever when the CLI is what's broken.
-  const keys = [...held];
-  const pointer = pointerHeld;
-  held.clear();
-  pointerHeld = null;
-  dispatchKeys("keyup", keys);
-  if (pointer) {
-    playtest([
-      "eval",
-      `(() => { ${POINTER_FN} ${pointerCall(pointer, "pointerup", 0)} return true; })()`,
-    ]);
+  const step = inFlight;
+  // Disown before dispatching, so a release that itself fails can't recurse
+  // back through `fail` forever when the CLI is what's broken.
+  inFlight = null;
+
+  // One eval for all of it: this runs when the run is already failing, and each
+  // extra subprocess is another chance to die before the release lands. The
+  // sampler goes too — a 40ms interval left running in the daemon's page
+  // outlives this process for the same reason a held key would.
+  const parts = ["clearInterval(window.__BOT_TICK__);"];
+  if (step) {
+    parts.push(...keyParts("keyup", step.keys ?? []), ...pointerParts(step.pointer, "up"));
   }
+  // Raw spawn rather than `playtest`, which calls `fail` when the CLI can't be
+  // run — and `fail` calls this. Best-effort by design: the run is already over,
+  // and there is nothing useful to do if the release itself can't be delivered.
+  spawnSync("vg", ["playtest", "eval", `(() => { ${parts.join("\n")}\nreturn true; })()`], {
+    encoding: "utf8",
+    timeout: 30_000,
+  });
 }
 
 /** `code` → `keyCode`, for codes whose keyCode isn't derivable from the name. */
@@ -274,10 +278,16 @@ function keyFields(code) {
   );
 }
 
+function keyInits(codes) {
+  return codes.map((code) => {
+    const [keyCode, key] = keyFields(code);
+    return JSON.stringify({ key, code, keyCode, which: keyCode, bubbles: true });
+  });
+}
+
 /**
- * Press or release keys by dispatching KeyboardEvents in the page — all keys
- * for a step in one call, since a subprocess per key is the dominant cost of a
- * run and simultaneous keys should land together anyway.
+ * In-page source pressing or releasing a step's keys — all of them in one
+ * statement, since simultaneous keys should land together.
  *
  * NOT `vg playtest keydown/keyup`: as of agent-browser 0.34 those dispatch an
  * event with an empty `code` and `keyCode: 0`, which engines that match on
@@ -286,20 +296,23 @@ function keyFields(code) {
  * event ourselves is the only way to hold a properly-formed key. The tradeoff
  * is `isTrusted: false`, which matters only for games that check it.
  */
-function keyInits(codes) {
-  return codes.map((code) => {
-    const [keyCode, key] = keyFields(code);
-    return JSON.stringify({ key, code, keyCode, which: keyCode, bubbles: true });
-  });
+function keyParts(type, codes) {
+  if (codes.length === 0) return [];
+  return [
+    `for (const init of [${keyInits(codes).join(",")}]) window.dispatchEvent(new KeyboardEvent(${JSON.stringify(type)}, init));`,
+  ];
 }
 
-function dispatchKeys(type, codes) {
-  if (codes.length === 0) return;
-  const { status, stdout, stderr } = playtest([
-    "eval",
-    `(() => { for (const init of [${keyInits(codes).join(",")}]) window.dispatchEvent(new KeyboardEvent(${JSON.stringify(type)}, init)); return true; })()`,
-  ]);
-  if (status !== 0) fail(`${type} ${codes.join("+")} failed: ${stderr.trim() || stdout.trim()}`);
+/** In-page source moving/pressing (`"down"`) or releasing (`"up"`) the cursor. */
+function pointerParts(pointer, phase) {
+  if (!pointer) return [];
+  const down = pointer.down === true;
+  if (phase === "up") return down ? [POINTER_FN, pointerCall(pointer, "pointerup", 0)] : [];
+  return [
+    POINTER_FN,
+    pointerCall(pointer, "pointermove", down ? 1 : 0),
+    ...(down ? [pointerCall(pointer, "pointerdown", 1)] : []),
+  ];
 }
 
 /**
@@ -365,48 +378,30 @@ function pointerCall(pointer, type, buttons) {
 
 /** Press the step's inputs and start measuring, in one round trip. */
 function beginStep(step) {
-  const parts = [];
-  const codes = step.keys ?? [];
-  if (step.pointer) {
-    const down = step.pointer.down === true;
-    parts.push(POINTER_FN, pointerCall(step.pointer, "pointermove", down ? 1 : 0));
-    if (down) parts.push(pointerCall(step.pointer, "pointerdown", 1));
-  }
-  if (codes.length > 0) {
-    parts.push(
-      `for (const init of [${keyInits(codes).join(",")}]) window.dispatchEvent(new KeyboardEvent("keydown", init));`,
-    );
-  }
-  parts.push(TRACK_BEGIN);
-
-  // Record what's about to go down BEFORE dispatching it: a failure part-way
-  // through the eval can still have pressed something, and an input this
-  // process never releases stays held in the daemon's page for the next run.
-  for (const code of codes) held.add(code);
-  if (step.pointer?.down === true) pointerHeld = step.pointer;
+  const parts = [
+    ...pointerParts(step.pointer, "down"),
+    ...keyParts("keydown", step.keys ?? []),
+    TRACK_BEGIN,
+  ];
+  // Claim the step BEFORE dispatching: an eval that fails part-way through can
+  // still have pressed something, and an input this process never releases
+  // stays held in the daemon's page for the next run.
+  inFlight = step;
   evaluate(`(() => { ${parts.join("\n")}\nreturn true; })()`);
 }
 
 /** Release the step's inputs and return what moved while they were held. */
 function endStep(step) {
-  const parts = [];
-  const codes = step.keys ?? [];
-  if (codes.length > 0) {
-    parts.push(
-      `for (const init of [${keyInits(codes).join(",")}]) window.dispatchEvent(new KeyboardEvent("keyup", init));`,
-    );
-  }
-  if (step.pointer?.down === true) {
-    parts.push(POINTER_FN, pointerCall(step.pointer, "pointerup", 0));
-  }
-  parts.push(TRACK_END);
-
-  // Only forget these once the release has actually landed. Clearing first
+  const parts = [
+    ...keyParts("keyup", step.keys ?? []),
+    ...pointerParts(step.pointer, "up"),
+    TRACK_END,
+  ];
+  // Only disown the step once the release has actually landed. Clearing first
   // would leave `releaseHeldInputs` with nothing to do on the failure path —
-  // which is the one path where it matters.
+  // the one path where it matters.
   const summary = evaluate(`(() => { ${parts.join("\n")} })()`);
-  held.clear();
-  pointerHeld = null;
+  inFlight = null;
   return summary;
 }
 
@@ -416,7 +411,16 @@ function fail(message) {
   process.exit(HARNESS_FAILURE);
 }
 
-/** Run one `vg playtest` command. Returns { status, stdout, stderr }. */
+/**
+ * Block for `ms`. The game runs in a separate browser process and the tracker
+ * samples from inside the page, so neither needs the harness awake — holding
+ * here costs nothing and saves a `vg playtest wait` subprocess per step.
+ */
+function sleep(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/** Run one `vg playtest` command. */
 function playtest(args) {
   const res = spawnSync("vg", ["playtest", ...args], { encoding: "utf8", timeout: 120_000 });
   if (res.error)
@@ -455,7 +459,6 @@ function payload(args, key) {
   return parsed.data[key];
 }
 
-/** Evaluate an expression in the page and return its value. */
 function evaluate(expression) {
   return payload(["eval", expression], "result");
 }
@@ -470,17 +473,25 @@ function readConsoleErrors() {
 }
 
 /** The run's baseline, read the same way the per-step tracker reads. */
-const SAMPLE = `(() => { ${READ_FN}
-  return window.__GAME_DIAGNOSTICS__ ? __botRead() : null;
-})()`;
+const SAMPLE = `(() => { ${READ_FN} return __botRead(); })()`;
 
-function main() {
-  const opts = parseArgs(process.argv.slice(2));
-  const target = opts.game ? ["--game", opts.game] : [opts.url];
+const CONTRACT_READY =
+  "window.__GAME_DIAGNOSTICS__ !== undefined && window.__GAME_TEST_HOOKS__ !== undefined";
 
-  // Clear BEFORE navigating: anything the game logs while booting is part of
-  // this run, and clearing afterwards would erase exactly the boot errors the
-  // report exists to catch.
+/**
+ * Navigate and wait for the diagnostics contract.
+ *
+ * Logs are cleared BEFORE navigating, never after: anything the game logs while
+ * booting belongs to this run, and clearing afterwards would erase exactly the
+ * boot errors the report exists to catch. That holds for the seeded reload too,
+ * where the logs worth keeping are the *second* boot's.
+ *
+ * Waits for the CONTRACT, not for frames. Most games boot into a menu where the
+ * loop hasn't started, so frames only advance once setState('active-play') has
+ * skipped it — waiting on frames first would deadlock on exactly the games that
+ * implement the contract correctly.
+ */
+function boot(target, opts, whenAbsent) {
   playtest(["console", "--clear"]);
   playtest(["errors", "--clear"]);
 
@@ -488,20 +499,17 @@ function main() {
   if (open.status !== 0)
     fail(`couldn't open the game: ${open.stderr.trim() || open.stdout.trim()}`);
 
-  // Wait for the CONTRACT, not for frames. Most games boot into a menu where
-  // the game loop hasn't started, so frames only begin advancing once
-  // setState('active-play') has skipped it — waiting on frames first would
-  // deadlock on exactly the games that implement the contract correctly.
-  const ready = playtest([
-    "wait",
-    "--fn",
-    "window.__GAME_DIAGNOSTICS__ !== undefined && window.__GAME_TEST_HOOKS__ !== undefined",
-  ]);
-  if (ready.status !== 0) {
-    fail(
-      "the game never published window.__GAME_DIAGNOSTICS__ / window.__GAME_TEST_HOOKS__. Either it crashed on boot, or it doesn't implement the diagnostics contract (see references/bot-playtest.md).",
-    );
-  }
+  if (playtest(["wait", "--fn", CONTRACT_READY]).status !== 0) fail(whenAbsent);
+}
+
+function main() {
+  const opts = parseArgs(process.argv.slice(2));
+
+  boot(
+    opts.game ? ["--game", opts.game] : [opts.url],
+    opts,
+    "the game never published window.__GAME_DIAGNOSTICS__ / window.__GAME_TEST_HOOKS__. Either it crashed on boot, or it doesn't implement the diagnostics contract (see references/bot-playtest.md).",
+  );
 
   // Two ways a game can honour a seed, and `seed?.()` alone silently skips the
   // second: games whose scene is single-start (games/starfall) deliberately
@@ -509,31 +517,20 @@ function main() {
   // would leave the run unseeded while the report still claimed the seed — the
   // exact "silent no-op hook" the contract warns about. So detect which one
   // this game implements, and for boot-only games reload with the param.
-  const seedApplied = evaluate("typeof window.__GAME_TEST_HOOKS__?.seed === 'function'")
-    ? "hook"
-    : "boot-param";
+  const boot0 = evaluate(
+    "({ hasSeedHook: typeof window.__GAME_TEST_HOOKS__?.seed === 'function', href: location.href })",
+  );
+  const seedApplied = boot0?.hasSeedHook ? "hook" : "boot-param";
 
   if (seedApplied === "boot-param") {
-    const href = evaluate("location.href");
-    if (typeof href !== "string") fail("couldn't read location.href to apply the seed.");
-    const url = new URL(href);
+    if (typeof boot0?.href !== "string") fail("couldn't read location.href to apply the seed.");
+    const url = new URL(boot0.href);
     url.searchParams.set("seed", String(opts.seed));
-
-    // Clear before the reload, never after: the first boot's logs are the ones
-    // to discard, and clearing afterwards would swallow anything the *seeded*
-    // boot reported — the failure this run exists to catch.
-    playtest(["console", "--clear"]);
-    playtest(["errors", "--clear"]);
-
-    const reopen = playtest(["open", url.toString(), ...(opts.headed ? ["--headed"] : [])]);
-    if (reopen.status !== 0) fail(`couldn't reopen with ?seed=: ${reopen.stderr.trim()}`);
-    const reready = playtest([
-      "wait",
-      "--fn",
-      "window.__GAME_DIAGNOSTICS__ !== undefined && window.__GAME_TEST_HOOKS__ !== undefined",
-    ]);
-    if (reready.status !== 0)
-      fail("the game stopped publishing diagnostics after the seeded reload.");
+    boot(
+      [url.toString()],
+      opts,
+      "the game stopped publishing diagnostics after the seeded reload.",
+    );
   }
 
   // seed() must RESTART the run, not just reseed — frames rendered before this
@@ -559,37 +556,38 @@ function main() {
   }
 
   const before = evaluate(SAMPLE);
-  if (!before) fail("window.__GAME_DIAGNOSTICS__ is not published — nothing to measure.");
-
   let prev = before;
   let distance = 0;
   let maxStepDisplacement = 0;
   let stuckSteps = 0;
   let stuckRun = 0;
   let longestStuckRun = 0;
-  let stepOfFirstScore = -1;
+  let stepOfFirstScore = null;
 
   opts.script.forEach((step, index) => {
     beginStep(step);
-    playtest(["wait", String(step.ms)]);
+    sleep(step.ms);
     const moved = endStep(step);
     // A slower "reaction time" models a less skilled player; comparing runs at
     // 0ms and 300ms shows whether difficulty pressure is real or decorative.
-    // Wait in the browser, not the harness, so the game keeps running.
-    if (opts.reactionDelay > 0) playtest(["wait", String(opts.reactionDelay)]);
-    if (!moved) return;
+    if (opts.reactionDelay > 0) sleep(opts.reactionDelay);
+    // Silently skipping would leave `prev` at the baseline, reporting
+    // framesAdvanced 0 — a broken harness dressed up as a stalled game.
+    if (!moved)
+      fail(`step ${index} lost its in-page tracker; the page probably navigated mid-run.`);
 
     distance += moved.path;
     maxStepDisplacement = Math.max(maxStepDisplacement, moved.peak);
     const progressed = moved.score > moved.scoreBefore;
-    if (progressed && stepOfFirstScore === -1) stepOfFirstScore = index;
+    if (progressed && stepOfFirstScore === null) stepOfFirstScore = index;
 
     // Stuck signature: frames advanced, the player tried to move, and nothing
     // came of it. Counted as a RUN rather than a total, because one step that
     // moves nothing is a key the game doesn't bind, while several in a row is
     // a player wedged in geometry — only the second is worth failing over.
     if (expectsMotion(step)) {
-      const stuck = moved.frame > moved.frameBefore && moved.peak < MOTION_EPSILON && !progressed;
+      const stuck =
+        moved.frame > moved.frameBefore && moved.peak < THRESHOLDS.motionEpsilon && !progressed;
       if (stuck) {
         stuckSteps += 1;
         stuckRun += 1;
@@ -598,19 +596,16 @@ function main() {
         stuckRun = 0;
       }
     }
-    prev = { frame: moved.frame, score: moved.score, complete: moved.complete };
+    prev = moved;
   });
 
-  // `console` returns every level, so filter to errors there. `errors`
-  // (uncaught exceptions) has no JSON mode — any non-empty output is a failure.
-  // A failed collection is a harness failure, not "no errors found": reporting
-  // a clean run because the check itself broke is the worst outcome here.
+  // `console` returns every level, so filter to errors there; `errors` is
+  // uncaught exceptions only. Both go through `payload`, so a failed collection
+  // is a harness failure rather than "no errors found" — reporting a clean run
+  // because the check itself broke is the worst outcome here.
   const consoleErrors = readConsoleErrors();
-  const errorsOut = playtest(["errors"]);
-  if (errorsOut.status !== 0) {
-    fail(`couldn't collect page errors: ${errorsOut.stderr.trim() || errorsOut.stdout.trim()}`);
-  }
-  const pageErrors = errorsOut.stdout.trim();
+  const pageErrors = payload(["errors"], "errors");
+  if (!Array.isArray(pageErrors)) fail("`errors` returned a non-array `errors`.");
 
   const report = {
     // Report what was asked for, not a second guess at the URL — `vg playtest`
@@ -660,21 +655,22 @@ function main() {
     warnings.push(
       `stuck detection never applied: ${motionSteps} step(s) ask the player to move, and failing needs more than ${THRESHOLDS.stuckRun} in a row`,
     );
-  // Only an assertion when the caller supplied the game's own verbs. The
-  // default sweep is a generic WASD walk that knows nothing about how this
-  // game scores, so failing a healthy game on it would train a reader to
-  // ignore the verdict — which costs more than the missing signal.
+  // An assertion only when the caller says the script performs the game's
+  // scoring verb. Inferring that from "was --script passed?" got it wrong in
+  // both directions — a tweaked copy of the default sweep would fail a healthy
+  // game, which is the verdict-you-learn-to-ignore this exists to avoid.
   if (report.scoreAfter <= report.scoreBefore) {
-    const message = "the sweep never progressed the objective";
-    if (opts.customScript) failures.push(message);
+    const message = "the run never progressed the objective";
+    if (opts.expectProgress) failures.push(message);
     else
       warnings.push(
-        `${message} — expected from the default sweep; pass \`--script\` with this game's core verb to assert progression`,
+        `${message} — pass \`--expect-progress\` once your script performs this game's scoring verb, to make that an assertion`,
       );
   }
   if (report.consoleErrors.length > 0)
     failures.push(`${report.consoleErrors.length} console error(s)`);
-  if (report.pageErrors) failures.push("uncaught page error(s)");
+  if (report.pageErrors.length > 0)
+    failures.push(`${report.pageErrors.length} uncaught page error(s)`);
 
   console.log(JSON.stringify({ ...report, warnings, failures }, null, 2));
 

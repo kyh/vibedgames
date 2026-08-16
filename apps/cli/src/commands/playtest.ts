@@ -1,12 +1,12 @@
-import { existsSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { defineCommand } from "citty";
 import consola from "consola";
 import spawn from "cross-spawn";
 
-import { getBaseUrl } from "../lib/config.js";
+import { getBaseUrl, getConfigDir } from "../lib/config.js";
+import { isNewerVersion } from "../lib/update.js";
 import { SLUG_RE, readProjectConfig } from "../lib/config-file.js";
 
 /**
@@ -27,8 +27,11 @@ import { SLUG_RE, readProjectConfig } from "../lib/config-file.js";
  */
 
 const PKG = "agent-browser";
-const MIN_VERSION = { major: 0, minor: 34 };
-const PKG_SPEC = `${PKG}@^${MIN_VERSION.major}.${MIN_VERSION.minor}.0`;
+const MIN_VERSION = "0.34.0";
+const PKG_SPEC = `${PKG}@^${MIN_VERSION}`;
+
+/** Stands in for a version string we could not read. Always meets the floor. */
+const UNKNOWN_VERSION = "unknown";
 
 /**
  * Subcommands that take a URL. Used to decide whether a bare `--game` still
@@ -50,7 +53,7 @@ function installedVersion(bin: string): string | null {
   const res = spawn.sync(bin, ["--version"], { encoding: "utf8", timeout: 30_000 });
   if (res.status !== 0 || res.error) return null;
   const match = /(\d+)\.(\d+)\.(\d+)/.exec(res.stdout ?? "");
-  return match ? match[0] : "unknown";
+  return match ? match[0] : UNKNOWN_VERSION;
 }
 
 /**
@@ -61,24 +64,22 @@ function installedVersion(bin: string): string | null {
  * to match this skill would break their other work to fix a risk that may not
  * exist. PKG_SPEC still caps what a *fresh* install pulls in.
  *
- * An unparseable version passes: a binary from brew or cargo may not report a
+ * An unparseable version passes — `isNewerVersion` returns false for anything
+ * that isn't `x.y.z` — because a binary from brew or cargo may not report a
  * semver at all, and blocking it would be worse than trusting it.
  */
 function meetsMinimum(version: string): boolean {
-  const parts = /^(\d+)\.(\d+)\./.exec(version);
-  if (!parts) return true;
-  const major = Number(parts[1]);
-  const minor = Number(parts[2]);
-  if (major !== MIN_VERSION.major) return major > MIN_VERSION.major;
-  return minor >= MIN_VERSION.minor;
+  return !isNewerVersion(MIN_VERSION, version);
 }
 
-type Binary = { bin: string; version: string | null };
+type Binary = { bin: string; version: string };
 
 /** The agent-browser binary to use. VG_AGENT_BROWSER_BIN overrides (dev). */
 function resolveBinary(): Binary | null {
   const override = process.env.VG_AGENT_BROWSER_BIN;
-  if (override) return existsSync(override) ? { bin: override, version: null } : null;
+  // A dev-pointed binary is taken on trust — it is typically a local build with
+  // no npm version to read, and `meetsMinimum` waves an unparseable one through.
+  if (override) return existsSync(override) ? { bin: override, version: UNKNOWN_VERSION } : null;
   const version = installedVersion(PKG);
   return version === null ? null : { bin: PKG, version };
 }
@@ -91,16 +92,10 @@ function resolveBinary(): Binary | null {
  */
 function bootstrap(): Binary {
   consola.start(`Installing the playtest browser (${PKG})…`);
-  const install = spawn.sync("npm", ["install", "-g", PKG_SPEC], { stdio: "inherit" });
-  if (install.status !== 0 || install.error) {
-    consola.error(`Couldn't install ${PKG}. Try manually: npm install -g ${PKG_SPEC}`);
-    process.exit(1);
-  }
-
-  const resolved = resolveBinary();
+  const resolved = installGlobal();
   if (!resolved) {
     consola.error(
-      `Installed ${PKG_SPEC} but \`${PKG}\` isn't on PATH. Check that npm's global bin directory is in your PATH (\`npm bin -g\`).`,
+      `Couldn't install ${PKG}, or it isn't on PATH afterwards. Try manually: npm install -g ${PKG_SPEC} — and check that npm's global bin directory is in your PATH (\`npm bin -g\`).`,
     );
     process.exit(1);
   }
@@ -128,27 +123,28 @@ function bootstrap(): Binary {
  * driving every run, which is how a documented contract silently stops holding.
  */
 function ensureMinimum(resolved: Binary): Binary {
-  if (resolved.version === null || meetsMinimum(resolved.version)) return resolved;
+  if (meetsMinimum(resolved.version)) return resolved;
 
-  // The bot script shells out to `vg playtest` once per step, so an upgrade
-  // that can't stick — read-only npm prefix, offline, locked-down CI — would
-  // otherwise retry on every one of those calls. One attempt per stale version
-  // per machine (the stamp lives in the temp dir, so a reboot retries).
-  const stamp = join(tmpdir(), `vg-${PKG}-upgrade-${resolved.version}`);
+  // The bot script runs `vg playtest` once per step, so an upgrade that cannot
+  // stick — read-only npm prefix, offline, locked-down CI — would otherwise
+  // retry its npm round-trip on every one of them. Recorded per user rather
+  // than in a shared /tmp, where one account's stamp would silently suppress
+  // everyone else's upgrade.
+  const stamp = join(getConfigDir(), `${PKG}-upgrade-failed-${resolved.version}`);
   if (existsSync(stamp)) return resolved;
 
   consola.warn(
-    `Found ${PKG} ${resolved.version}, but the playtest skill needs at least ${MIN_VERSION.major}.${MIN_VERSION.minor}. Upgrading…`,
+    `Found ${PKG} ${resolved.version}, but the playtest skill needs at least ${MIN_VERSION}. Upgrading…`,
   );
-  const upgrade = spawn.sync("npm", ["install", "-g", PKG_SPEC], { stdio: "inherit" });
-  const upgraded = upgrade.status === 0 && !upgrade.error ? resolveBinary() : null;
-  if (!upgraded || (upgraded.version !== null && !meetsMinimum(upgraded.version))) {
+  const upgraded = installGlobal();
+  if (!upgraded || !meetsMinimum(upgraded.version)) {
     // Continue anyway: an older binary handles most commands fine, and failing
     // outright would strand anyone who can't write to npm's global prefix.
     try {
+      mkdirSync(getConfigDir(), { recursive: true, mode: 0o700 });
       writeFileSync(stamp, "");
     } catch {
-      // A stamp we can't write only costs a retry next time.
+      // A stamp we cannot write only costs a retry next time.
     }
     consola.warn(
       `Couldn't upgrade ${PKG}. Continuing on ${resolved.version} — run \`npm install -g ${PKG_SPEC}\` if commands misbehave.`,
@@ -156,6 +152,12 @@ function ensureMinimum(resolved: Binary): Binary {
     return resolved;
   }
   return upgraded;
+}
+
+/** `npm install -g` the pinned spec, then re-resolve. Null if either step fails. */
+function installGlobal(): Binary | null {
+  const res = spawn.sync("npm", ["install", "-g", PKG_SPEC], { stdio: "inherit" });
+  return res.status === 0 && !res.error ? resolveBinary() : null;
 }
 
 /**
@@ -204,24 +206,14 @@ function projectSlug(): string {
 }
 
 /**
- * Replace each `--game [slug]` with the resolved URL, in place.
- *
- * Substituting where the flag already sits means this never has to work out
- * where agent-browser's subcommand starts, so there's no mirror of its flag
- * grammar here to drift out of date — and repeating the flag works for
- * multi-URL subcommands (`diff url --game a --game b`). The one structural
- * decision left is whether a bare `--game` needs an `open` in front of it,
- * which is settled by looking for a URL-taking verb earlier in the args.
- */
-/**
- * The subcommand in `args`, when one can be identified without knowing
- * agent-browser's flag grammar.
+ * The tokens in `args` that aren't flags or flag values — agent-browser's verb
+ * and its positional arguments, in order.
  *
  * A bare token is a flag's value if a flag sits immediately before it, and a
- * subcommand otherwise — `--session p1 snapshot` has `p1` claimed by
- * `--session`, leaving `snapshot` as the first unclaimed token. `--session=p1`
- * carries its own value and claims nothing. That holds for any single-valued
- * flag, known or not, so no mirror of upstream's options can drift here.
+ * verb otherwise — `--session p1 snapshot` has `p1` claimed by `--session`,
+ * leaving `snapshot`. `--session=p1` carries its own value and claims nothing.
+ * That holds for any single-valued flag, known or not, so no mirror of
+ * upstream's options can drift here.
  *
  * Deliberately incomplete: agent-browser's boolean flags take an OPTIONAL
  * `true`/`false`, so `--headed snapshot` is genuinely ambiguous without knowing
@@ -229,14 +221,12 @@ function projectSlug(): string {
  * a grammar that moves every release. This catches the shapes people actually
  * type; anything past it reaches agent-browser as before.
  */
-export function findSubcommand(args: string[]): string | null {
-  for (const [index, arg] of args.entries()) {
-    if (arg.startsWith("-")) continue;
+export function bareTokens(args: string[]): string[] {
+  return args.filter((arg, index) => {
+    if (arg.startsWith("-")) return false;
     const previous = args[index - 1];
-    if (previous !== undefined && previous.startsWith("-") && !previous.includes("=")) continue;
-    return arg;
-  }
-  return null;
+    return !(previous !== undefined && previous.startsWith("-") && !previous.includes("="));
+  });
 }
 
 export function expandGameFlag(args: string[], resolveUrl = resolveGameUrl): string[] {
@@ -246,8 +236,14 @@ export function expandGameFlag(args: string[], resolveUrl = resolveGameUrl): str
   // agent-browser silently runs the snapshot and ignores the stray URL, so
   // leaving it to upstream costs a wrong answer rather than an error. Skipped
   // when some verb here does take a URL, which is the well-formed case.
-  const hasUrlVerb = args.some((a) => URL_TAKING.has(a));
-  const subcommand = hasUrlVerb ? null : findSubcommand(args);
+  // Both questions — "is a URL-taking verb already here?" and "is some OTHER
+  // verb here?" — are read off the same list. Scanning the raw args for the
+  // first would also match a flag's value, so `--profile open --game x` would
+  // count the profile name as the verb and hand agent-browser a URL with no
+  // subcommand at all.
+  const bare = bareTokens(args);
+  const hasUrlVerb = bare.some((token) => URL_TAKING.has(token));
+  const subcommand = hasUrlVerb ? null : (bare[0] ?? null);
   if (subcommand !== null) {
     consola.error(
       `\`--game\` supplies a URL, so it only works with \`${[...URL_TAKING].join("`, `")}\` — not \`${subcommand}\`. Open the game first, then run \`vg playtest ${subcommand} …\` against it.`,

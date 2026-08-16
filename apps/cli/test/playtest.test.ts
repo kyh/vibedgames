@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { expandGameFlag, findSubcommand } from "../src/commands/playtest.js";
+import { bareTokens, expandGameFlag } from "../src/commands/playtest.js";
 import { SLUG_RE } from "../src/lib/config-file.js";
 
 /** Stand-in for the real resolver so these stay pure unit tests. */
@@ -53,17 +53,17 @@ test("expandGameFlag does not mistake a valued global flag's value for the subco
   ]);
 });
 
-test("findSubcommand sees past a valued global flag", () => {
+test("bareTokens sees past a valued global flag", () => {
   // agent-browser answers `--session p1 snapshot open <url>` by running the
   // snapshot and silently ignoring the URL, so missing the guard here costs a
   // wrong answer rather than an error. `p1` is claimed by `--session`, leaving
   // `snapshot` as the first unclaimed bare token.
-  assert.equal(findSubcommand(["--session", "p1", "snapshot", "--game", "x"]), "snapshot");
-  assert.equal(findSubcommand(["snapshot", "--game", "x"]), "snapshot");
+  assert.equal(bareTokens(["--session", "p1", "snapshot", "--game", "x"])[0], "snapshot");
+  assert.equal(bareTokens(["snapshot", "--game", "x"])[0], "snapshot");
 });
 
-test("findSubcommand sees past a --flag=value token, which claims nothing", () => {
-  assert.equal(findSubcommand(["--session=p1", "snapshot", "--game", "x"]), "snapshot");
+test("bareTokens sees past a --flag=value token, which claims nothing", () => {
+  assert.equal(bareTokens(["--session=p1", "snapshot", "--game", "x"])[0], "snapshot");
 });
 
 test("expandGameFlag does not emit a second `open` when the verb trails the flag", () => {
@@ -75,12 +75,12 @@ test("expandGameFlag does not emit a second `open` when the verb trails the flag
   ]);
 });
 
-test("findSubcommand reports none when every bare token is a flag's value", () => {
+test("bareTokens finds none when every bare token is a flag's value", () => {
   // These are the shapes that legitimately need an `open` inserted.
-  assert.equal(findSubcommand(["--game", "x"]), null);
-  assert.equal(findSubcommand(["--headed", "--game", "x"]), null);
-  assert.equal(findSubcommand(["--session", "p1", "--game", "x"]), null);
-  assert.equal(findSubcommand(["--brand-new-flag", "v", "--game", "x"]), null);
+  assert.equal(bareTokens(["--game", "x"]).length, 0);
+  assert.equal(bareTokens(["--headed", "--game", "x"]).length, 0);
+  assert.equal(bareTokens(["--session", "p1", "--game", "x"]).length, 0);
+  assert.equal(bareTokens(["--brand-new-flag", "v", "--game", "x"]).length, 0);
 });
 
 test("expandGameFlag handles a flag value that repeats a subcommand name", () => {

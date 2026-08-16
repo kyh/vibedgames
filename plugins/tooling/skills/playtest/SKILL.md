@@ -92,7 +92,7 @@ node .claude/skills/playtest/scripts/bot-playtest.mjs --url http://localhost:517
 
 The bundled script (zero dependencies — just Node and `vg`) drives a scripted sweep of held keys and pointer moves, samples diagnostics **during** each step, and prints a JSON report. It measures four things: the loop survived (`framesAdvanced`), input reaches the player (`distanceTravelled`), the objective is reachable (`scoreAfter` / `stepOfFirstScore`), and the player never wedged (`longestStuckRun`) — plus zero console and page errors. Exit `0` means it plays, `1` means it doesn't and the report names which check failed, `2` means the harness itself broke.
 
-Two defaults are deliberate, and both exist so a passing game passes: objective progression is a `warning` on the default sweep and an assertion only under `--script`, and a game that steers with the mouse needs `pointer` steps rather than the WASD default. See [bot-playtest.md](references/bot-playtest.md).
+Two defaults are deliberate, and both exist so a passing game passes: objective progression is a `warning` until you pass `--expect-progress`, and a game that steers with the mouse needs `pointer` steps rather than the WASD default. See [bot-playtest.md](references/bot-playtest.md).
 
 The pass thresholds live in `THRESHOLDS` at the top of the script; read them there rather than from prose that can drift.
 
@@ -143,7 +143,7 @@ A baseline taken without freezing the scene first is a flake generator — the f
 
 - [ ] Smoke check passes: boots, reaches a live frame, zero console/page errors
 - [ ] Diagnostics contract exposed and honest (no silent no-op hooks)
-- [ ] Bot playtest moves, scores under a `--script` carrying the game's core verb, and reports `longestStuckRun` ≤ 2
+- [ ] Bot playtest moves, scores under `--script --expect-progress` with the game's core verb, and reports `longestStuckRun` ≤ 2
 - [ ] Fail state triggers and retry restores play (for games that can be lost)
 - [ ] Deployed build playtested with `vg playtest --game <slug>`, not just localhost
 
