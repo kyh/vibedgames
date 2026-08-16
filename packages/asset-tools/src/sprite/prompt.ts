@@ -229,6 +229,16 @@ function chromaPhrase(chroma: string): string {
   return names[chroma.toUpperCase()] ?? `chroma color ${chroma}`;
 }
 
+/** The colour's name alone, for a line that states the hex separately. */
+function chromaName(chroma: string): string {
+  const names: Record<string, string> = {
+    "#00FF00": "chroma green",
+    "#FF00FF": "chroma magenta",
+    "#0000FF": "chroma blue",
+  };
+  return names[chroma.toUpperCase()] ?? "chroma color";
+}
+
 function directionLine(direction: Direction, gameView: string): string {
   if (gameView === "adventure") {
     const lines: Record<string, string> = {
@@ -382,9 +392,22 @@ function anchorContextGuidance(anchorContext: string | null): string {
 
 export function renderAnchorPrompt(
   direction: Direction,
-  options: { gameView?: string; anchorRole?: string; anchorContext?: string | null } = {},
+  options: {
+    gameView?: string;
+    anchorRole?: string;
+    anchorContext?: string | null;
+    chroma?: string;
+  } = {},
 ): string {
-  const { gameView = "platformer", anchorRole = "character", anchorContext = null } = options;
+  const {
+    gameView = "platformer",
+    anchorRole = "character",
+    anchorContext = null,
+    // The matte the anchor is generated on has to be the one the keyer is later
+    // told to remove; `--chroma` used to be accepted here and dropped, so asking
+    // for magenta produced a green board that `chroma_clean` could not key.
+    chroma = "#00FF00",
+  } = options;
   const resolvedView = resolveAnchorGameView(gameView);
   const resolvedRole = resolveAnchorRole(anchorRole);
 
@@ -416,7 +439,7 @@ Look and rendering:
 Background and composition:
 - 1024x1024 square canvas.
 ${anchorCompositionGuidance(resolvedView)}
-- Use an opaque exact flat chroma green background: #00FF00.
+- Use an opaque exact flat ${chromaName(chroma)} background: ${chroma}.
 - No gradients, texture, anti-aliased haze, lighting effects, checkerboards, faux transparency, or background shadows.
 - No cast shadow, ground shadow, contact shadow, glow, particles, or effects touching the background.
 - No scenery, UI, labels, text, props, borders, shadows, or extra characters.

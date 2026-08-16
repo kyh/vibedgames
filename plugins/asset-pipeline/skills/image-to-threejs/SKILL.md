@@ -50,6 +50,9 @@ Run everything through `uv`; system python is often 3.9 and it needs 3.10+.
 ```bash
 I2T=~/.local/share/img2threejs
 run() { uv run --python 3.12 --no-project python "$I2T/$@"; }
+
+# This skill's own directory, used by the commands further down.
+SKILL=.claude/skills/image-to-threejs
 ```
 
 ## The loop

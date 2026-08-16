@@ -1883,7 +1883,9 @@ function frameGeometry(sheet, sheetPath, frameWidth, frameHeight) {
     const required = (key) => {
       const value = m[key];
       if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-        throw new Error(`${manifestPath}: "${key}" must be a positive number, got ${String(value)}`);
+        throw new Error(
+          `${manifestPath}: "${key}" must be a positive number, got ${String(value)}`
+        );
       }
       return Math.trunc(value);
     };
@@ -1891,7 +1893,9 @@ function frameGeometry(sheet, sheetPath, frameWidth, frameHeight) {
       const value = m[key];
       if (value === void 0) return fallback;
       if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-        throw new Error(`${manifestPath}: "${key}" must be a positive number, got ${String(value)}`);
+        throw new Error(
+          `${manifestPath}: "${key}" must be a positive number, got ${String(value)}`
+        );
       }
       return Math.trunc(value);
     };
@@ -2582,6 +2586,7 @@ function asCellPair(value) {
   const [w, h] = value;
   if (typeof w !== "number" || typeof h !== "number") return null;
   if (!Number.isFinite(w) || !Number.isFinite(h)) return null;
+  if (w < 1 || h < 1) return null;
   return [Math.trunc(w), Math.trunc(h)];
 }
 function cellSizeOf(contract) {
@@ -2842,6 +2847,14 @@ function chromaPhrase(chroma) {
   };
   return names[chroma.toUpperCase()] ?? `chroma color ${chroma}`;
 }
+function chromaName(chroma) {
+  const names = {
+    "#00FF00": "chroma green",
+    "#FF00FF": "chroma magenta",
+    "#0000FF": "chroma blue"
+  };
+  return names[chroma.toUpperCase()] ?? "chroma color";
+}
 function directionLine(direction, gameView) {
   if (gameView === "adventure") {
     const lines = {
@@ -2986,7 +2999,15 @@ function anchorContextGuidance(anchorContext) {
   return context ? `Additional game context: ${context}` : "Additional game context: none supplied.";
 }
 function renderAnchorPrompt(direction, options = {}) {
-  const { gameView = "platformer", anchorRole = "character", anchorContext = null } = options;
+  const {
+    gameView = "platformer",
+    anchorRole = "character",
+    anchorContext = null,
+    // The matte the anchor is generated on has to be the one the keyer is later
+    // told to remove; `--chroma` used to be accepted here and dropped, so asking
+    // for magenta produced a green board that `chroma_clean` could not key.
+    chroma = "#00FF00"
+  } = options;
   const resolvedView = resolveAnchorGameView(gameView);
   const resolvedRole = resolveAnchorRole(anchorRole);
   return `Intended use: a reusable single-frame directional anchor sprite for a 2D game asset pipeline.
@@ -3017,7 +3038,7 @@ Look and rendering:
 Background and composition:
 - 1024x1024 square canvas.
 ${anchorCompositionGuidance(resolvedView)}
-- Use an opaque exact flat chroma green background: #00FF00.
+- Use an opaque exact flat ${chromaName(chroma)} background: ${chroma}.
 - No gradients, texture, anti-aliased haze, lighting effects, checkerboards, faux transparency, or background shadows.
 - No cast shadow, ground shadow, contact shadow, glow, particles, or effects touching the background.
 - No scenery, UI, labels, text, props, borders, shadows, or extra characters.

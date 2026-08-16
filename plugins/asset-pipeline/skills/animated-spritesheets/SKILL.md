@@ -25,14 +25,14 @@ nothing to install: each imports a bundled, dependency-free `scripts/_lib/`.
 ```bash
 # 0. (once) An approved character anchor PNG on a flat chroma matte (the identity
 #    reference). Make it via the pixel-art skill, or:
-node scripts/sprite_prompt.mjs anchor --direction e --chroma '#00FF00'   # -> vg generate run
+node .claude/skills/animated-spritesheets/scripts/sprite_prompt.mjs anchor --direction e --chroma '#00FF00'   # -> vg generate run
 
 # 1. ASK what the action needs (frame count / fps)
-node scripts/sprite_presets.mjs --action attack --json
+node .claude/skills/animated-spritesheets/scripts/sprite_presets.mjs --action attack --json
 
 # 2. PROMPT — get the labeled pose-board prompt (per-frame semantic poses on an
 #    implied 4x3 grid, identical-character + no-shadow litany, the craft):
-node scripts/sprite_prompt.mjs pose-board --action attack --direction e --frames 8 \
+node .claude/skills/animated-spritesheets/scripts/sprite_prompt.mjs pose-board --action attack --direction e --frames 8 \
   --frame-prompt-style specific --pose-board standard --style lobit-v1 --chroma '#00FF00'
 
 # 3. GENERATE the pose board with the anchor as the identity reference. The board
@@ -46,7 +46,7 @@ vg generate run fal-ai/nano-banana-pro/edit --prompt "<from step 2>" \
 # 4. PROCESS into runtime frames with ONE command. Default = naive uniform slice
 #    (the robust path). Add --recover to re-center a pose that drifted off its cell
 #    (it falls back to the uniform slice if it can't, so passing it is always safe):
-node scripts/process_sheet.mjs attack-board.png --action attack --rows 3 --cols 4 --frames 8 --out-dir runs/hero-attack
+node .claude/skills/animated-spritesheets/scripts/process_sheet.mjs attack-board.png --action attack --rows 3 --cols 4 --frames 8 --out-dir runs/hero-attack
 ```
 
 The deliverable is `<out-dir>/spritesheet.png` + `spritesheet.json`, with

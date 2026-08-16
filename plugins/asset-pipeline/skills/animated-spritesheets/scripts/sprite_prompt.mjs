@@ -45,6 +45,7 @@ const COMMANDS = {
       gameView: getString(args, "game-view") ?? "platformer",
       anchorRole: getString(args, "role") ?? "character",
       anchorContext: getString(args, "anchor-context") ?? null,
+      chroma: getString(args, "chroma") ?? "#00FF00",
     });
     console.log(withStyle(prompt, styleOf(args)));
   },

@@ -356,6 +356,9 @@ function asCellPair(value: unknown): [number, number] | null {
   const [w, h] = value;
   if (typeof w !== "number" || typeof h !== "number") return null;
   if (!Number.isFinite(w) || !Number.isFinite(h)) return null;
+  // A zero cell is not a cell. It passed as a pair, then made the whole sheet
+  // one frame and audited `pass` against a grid that does not exist.
+  if (w < 1 || h < 1) return null;
   return [Math.trunc(w), Math.trunc(h)];
 }
 

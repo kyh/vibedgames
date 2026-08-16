@@ -16,8 +16,8 @@ node .claude/skills/pixel-snapper/scripts/pixel_snapper.mjs \
 
 ```bash
 node .claude/skills/pixel-snapper/scripts/pixel_snapper.mjs \
-  concepts/sprites/characters/cass-cowboy-south-1.png \
-  experiments/<timestamp>-pixel-snap-cass/cass-snapped.png \
+  path/to/your/sprite.png \
+  experiments/<timestamp>-pixel-snap/sprite-snapped.png \
   --k-colors 256
 ```
 
@@ -38,7 +38,7 @@ chmod +x .claude/skills/pixel-snapper/scripts/pixel_snapper.mjs
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 OUT_DIR=experiments/${TIMESTAMP}-pixel-snap-batch
 mkdir -p "$OUT_DIR"
-for f in concepts/sprites/characters/*.png; do
+for f in path/to/your/sprites/*.png; do
   name=$(basename "$f" .png)
   node .claude/skills/pixel-snapper/scripts/pixel_snapper.mjs \
     "$f" "$OUT_DIR/${name}-snapped.png" --k-colors 256
@@ -80,44 +80,45 @@ Use `pixel_snapper_sheet.mjs` when the input is already a sheet with known rows 
 
 ```bash
 node .claude/skills/pixel-snapper/scripts/pixel_snapper_sheet.mjs \
-  concepts/sprites/characters/walk-south.png \
+  path/to/your/walk-south.png \
   experiments/<timestamp>-pixel-snap-walk/walk-south-snapped.png \
   --cols 6 --rows 1 --k-colors 256
 ```
 
 ## Quick Sanity Checks
 
-- **Input dims**: `node scripts/image_util.mjs size input.png`.
+- **Input dims**: `node .claude/skills/pixel-snapper/scripts/image_util.mjs size input.png`.
 - **Output dims**: same. The script also prints them on completion.
 - **Was the fallback triggered?** If output is exactly 64×64 and input is large, step-detection failed. Either change `k_colors` significantly, or this image isn't a pixel-snapping candidate.
 - **Did colors collapse to nothing?** If output is mostly one color, `k_colors` is too low; double it.
 
 ## Reproducing the Reference Test
 
-The character concepts in `concepts/sprites/characters/` were the original test set. Verifying the port:
+The port was verified against a four-character concept set that does not live in this
+repo, so the command below is written for your own sprites. Snap a directory you
+trust and compare the dimensions across runs:
 
 ```bash
 mkdir -p experiments/pixel-snapper-verification
-for f in concepts/sprites/characters/*.png; do
+for f in path/to/your/sprites/*.png; do
   name=$(basename "$f" .png)
   node .claude/skills/pixel-snapper/scripts/pixel_snapper.mjs \
     "$f" "experiments/pixel-snapper-verification/${name}-snapped.png" --k-colors 256
 done
 ```
 
-Expected dimensions:
+What to look for: the snapped size should be stable run to run, and should look
+like a plausible native resolution (a character that reads as ~100px tall should
+snap to roughly that, not to 64×64). Output that is exactly 64×64 from a large
+input means step-detection fell back rather than found a pitch.
 
-| Character                | Expected Output |
-| ------------------------ | --------------- |
-| `cass-cowboy-south-1`    | 94×96           |
-| `kaede-ninja-south-1`    | 115×114         |
-| `thorne-brawler-south-1` | 129×129         |
-| `wren-wizard-south-1`    | 103×101         |
-
-If you get different numbers on these inputs, something has changed in the port. One caveat: the k-means seeding differs from upstream's (see `credits.md`), so on an input whose pitch is genuinely ambiguous a small deviation is a seeding difference rather than a regression. On dense pixel art like these characters it is not.
+One caveat: the k-means seeding differs from upstream's (see `credits.md`), so on
+an input whose pitch is genuinely ambiguous a small deviation between this and
+upstream is a seeding difference rather than a regression. On dense pixel art it
+is not.
 
 ## When NOT to Use This
 
-- Input is a photograph or continuous-tone illustration → use `node scripts/image_util.mjs resize in.png out.png --size WxH` (Lanczos).
+- Input is a photograph or continuous-tone illustration → use `node .claude/skills/pixel-snapper/scripts/image_util.mjs resize in.png out.png --size WxH` (Lanczos).
 - You need to infer unknown rows/columns or extract arbitrary frames from a spritesheet → use an asset-probing workflow first.
 - The image is already at native pixel-art resolution → just leave it alone, or use a palette-only quantizer like `pngquant` if you specifically want fewer colors.

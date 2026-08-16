@@ -25,8 +25,15 @@ import {
 
 function parseSize(text) {
   const match = /^(\d+)\s*x\s*(\d+)$/i.exec(text.trim());
-  if (!match) fail(`--size must be WxH, e.g. 128x128 (got "${text}")`);
-  return { width: Number(match[1]), height: Number(match[2]) };
+  if (!match) failUsage(`--size must be WxH, e.g. 128x128 (got "${text}")`);
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  // `--size 0x8` resized without complaint and wrote a zero-width PNG, which
+  // every later step then read as a valid image.
+  if (width < 1 || height < 1) {
+    failUsage(`--size must be at least 1x1 (got "${text}")`);
+  }
+  return { width, height };
 }
 
 const COMMANDS = {
