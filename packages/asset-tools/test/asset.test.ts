@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { globSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { globSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { test } from "node:test";
@@ -255,6 +255,66 @@ test("manifest-check reads JSON manifests and honours meta.root", () => {
   const report = checkManifest(manifest, dir);
   assert.deepEqual(report.missing, []);
   assert.deepEqual(report.extra, []);
+});
+
+test("manifest-check honours meta.root in Lua manifests too", () => {
+  const dir = workspace();
+  mkdirSync(join(dir, "assets"), { recursive: true });
+  buildSheet(join(dir, "assets", "hero.png"), 1, 1, 8);
+  const manifest = join(dir, "assets_index.lua");
+  writeFileSync(
+    manifest,
+    `return {
+       meta = { version = 1, root = "assets", defaultFps = 10 },
+       sprites = { { path = "hero.png" } },
+     }`,
+  );
+
+  const report = checkManifest(manifest, join(dir, "assets"));
+  assert.deepEqual(report.extra, [], "hero.png is declared and present, not absent");
+  assert.deepEqual(report.missing, [], "hero.png is on disk and declared, not undeclared");
+});
+
+test("manifest-export resolves relative paths through meta.root, not the cwd", () => {
+  const dir = workspace();
+  mkdirSync(join(dir, "assets", "Tilesets"), { recursive: true });
+  buildSheet(join(dir, "assets", "Tilesets", "desert.png"), 1, 1, 8);
+  const manifest = join(dir, "assets_index.lua");
+  writeFileSync(
+    manifest,
+    `return {
+       meta = { root = "assets" },
+       tilesets = { desert = { path = "Tilesets/desert.png" } },
+     }`,
+  );
+
+  const exported = exportManifest(manifest, true) as Record<string, unknown>;
+  const desert = (exported.tilesets as Record<string, Record<string, unknown>>).desert!;
+  assert.equal(
+    desert.path,
+    "assets/Tilesets/desert.png",
+    "meta.root is folded into the path, so root can become '.'",
+  );
+  assert.equal((exported.meta as Record<string, unknown>).root, ".");
+});
+
+test("manifest-export rebases onto the output folder when one is given", () => {
+  const dir = workspace();
+  mkdirSync(join(dir, "assets"), { recursive: true });
+  mkdirSync(join(dir, "tmp"), { recursive: true });
+  buildSheet(join(dir, "assets", "hero.png"), 1, 1, 8);
+  const manifest = join(dir, "assets_index.lua");
+  writeFileSync(
+    manifest,
+    `return { meta = { root = "assets" }, sprites = { { path = "hero.png" } } }`,
+  );
+
+  const exported = exportManifest(manifest, true, join(dir, "tmp", "assets_index.json")) as Record<
+    string,
+    unknown
+  >;
+  const sprite = (exported.sprites as Record<string, unknown>[])[0]!;
+  assert.equal(sprite.path, "../assets/hero.png", "relative to the output folder, as documented");
 });
 
 test("written PNGs are readable by the decoder that wrote them", () => {

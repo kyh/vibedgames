@@ -6,6 +6,7 @@
  *   node asset_manifest_check.mjs
  *   node asset_manifest_check.mjs --manifest path/to/assets_index.lua --root assets
  *   node asset_manifest_check.mjs --manifest path/to/assets_index.lua --root assets --json tmp/check.json
+ *   node asset_manifest_check.mjs --strict     # exit 1 if anything is missing or extra
  */
 import { existsSync } from "node:fs";
 
@@ -14,6 +15,7 @@ import {
   checkManifest,
   defaultRoot,
   fail,
+  getFlag,
   getString,
   main,
   MANIFEST_CANDIDATES,
@@ -24,6 +26,7 @@ import {
 main(() => {
   const args = parseArgs(process.argv.slice(2), {
     values: ["json", "manifest", "root"],
+    booleans: ["strict"],
   });
   const root = defaultRoot(getString(args, "root"));
   if (!existsSync(root)) fail(`Root not found: ${root}`);
@@ -43,4 +46,6 @@ main(() => {
 
   const json = getString(args, "json");
   if (json) writeJsonFile(json, report);
+
+  if (getFlag(args, "strict") && report.missing.length + report.extra.length > 0) process.exit(1);
 });

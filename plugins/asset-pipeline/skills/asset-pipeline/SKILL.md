@@ -130,15 +130,23 @@ If a character looks like it's **floating above its shadow** or stands at differ
 
 Verify every PNG on disk appears in the manifest and vice versa.
 
+`missing` is art on disk the manifest never declares (it will never load);
+`extra` is art the manifest promises that nobody shipped (it 404s at runtime).
+Relative paths resolve through `meta.root`, in both Lua and JSON manifests.
+
 ```bash
 node .claude/skills/asset-pipeline/scripts/asset_manifest_check.mjs
 node .claude/skills/asset-pipeline/scripts/asset_manifest_check.mjs --manifest path/to/assets_index.lua --root assets
 node .claude/skills/asset-pipeline/scripts/asset_manifest_check.mjs --json tmp/coverage.json
+node .claude/skills/asset-pipeline/scripts/asset_manifest_check.mjs --strict   # exit 1 on any mismatch
 ```
+
+Pass `--strict` from a script or CI: without it the command reports the
+mismatch and still exits 0, which reads as a pass.
 
 ### Manifest Export (`asset_manifest_export_json.mjs`)
 
-Export `assets_index.lua` (Love2D-style) to a portable `assets_index.json`. By default it rewrites all `path` entries relative to the output folder and sets `meta.root` to `"."`, so the result can be copied/zipped and still work.
+Export `assets_index.lua` (Love2D-style) to a portable `assets_index.json`. By default it folds `meta.root` into every `path`, rewrites them relative to `--out`'s folder, and sets `meta.root` to `"."` — so the JSON works from wherever it lands. Write it next to the assets it describes if you want the result copyable/zippable; exporting to a `tmp/` sibling gives correct-but-`../`-prefixed paths. `--keep-paths` leaves the manifest's own paths and root untouched.
 
 ```bash
 node .claude/skills/asset-pipeline/scripts/asset_manifest_export_json.mjs --manifest path/to/assets_index.lua --out path/to/assets_index.json
