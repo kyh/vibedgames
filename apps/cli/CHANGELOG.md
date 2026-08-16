@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-08-15
+
+- **`vg playtest` — drive a real browser to prove a game actually plays.** Smoke checks, scripted bot playtests, softlock detection, canvas/WebGL determinism, screenshots and visual diffs, on top of `agent-browser`. Replaces the Playwright skill: the bot measures that the loop survived, input reaches the player, the objective is reachable and nothing wedged, and exits non-zero naming the check that failed.
 
 - **`--field <path>` on every command that emits JSON** (`generate run/status/models/schema/pricing/docs/upload`, `credits`, `fork`). Prints one value from the result, bare, so `$(vg generate upload x.png --field url)` needs no JSON processor — `jq` is no longer a prerequisite for following the generate skill. Paths are dotted, accept `images[0]` or `images.0`, and count negative indices from the end; an unresolvable path exits non-zero instead of printing an empty line.
 - Skill recipes that chained `vg generate run --json | jq -r '.audio.url'` now read `--field result.audio.url`. The old form was reading the wrong level: the CLI nests the model's output under `result`, so those examples returned nothing.
