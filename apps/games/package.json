@@ -18,7 +18,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",
     "@kyh/tsconfig": "catalog:",
-    "miniflare": "^4.20260722.0",
+    "miniflare": "5.20260811.1-alpha",
     "typescript": "catalog:",
     "wrangler": "catalog:"
   }

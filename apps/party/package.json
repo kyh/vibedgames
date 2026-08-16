@@ -20,7 +20,7 @@
     "@cloudflare/workers-types": "catalog:",
     "@kyh/tsconfig": "catalog:",
     "@types/node": "catalog:",
-    "partyserver": "^0.5.8",
+    "partyserver": "^0.5.10",
     "typescript": "catalog:",
     "wrangler": "catalog:"
   }
