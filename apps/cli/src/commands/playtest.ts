@@ -262,8 +262,10 @@ export function bareTokens(args: string[]): string[] {
     // (`--session open`), which is now read as the verb. That is the rarer
     // input by a wide margin, and it fails loudly instead of silently going
     // somewhere wrong.
-    if (KNOWN_VERBS.has(arg)) return true;
+    // `--game`'s own value is exempt: that flag is ours, so we know it takes a
+    // value, and a game may legitimately be called `open` or `diff`.
     const previous = args[index - 1];
+    if (KNOWN_VERBS.has(arg) && previous !== "--game") return true;
     return !(previous !== undefined && previous.startsWith("-") && !previous.includes("="));
   });
 }

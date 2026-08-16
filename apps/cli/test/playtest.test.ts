@@ -163,3 +163,19 @@ test("bareTokens keeps a known verb, and still drops an ordinary flag value", ()
   // somewhere wrong.
   assert.deepEqual(bareTokens(["--session", "open", "--game", "x"]), ["open"]);
 });
+
+test("expandGameFlag accepts a slug that happens to be a verb", () => {
+  // `--game` is our own flag, so its value is known to be a slug — without
+  // that exemption a game called `open` or `diff` was rejected as a misplaced
+  // command before its URL was ever resolved.
+  for (const slug of ["open", "diff", "url", "goto", "navigate"]) {
+    assert.deepEqual(
+      expandGameFlag(["--game", slug], () => `https://${slug}.vibedgames.com`),
+      ["open", `https://${slug}.vibedgames.com`],
+    );
+  }
+  assert.deepEqual(
+    expandGameFlag(["open", "--game", "open"], () => "https://open.vibedgames.com"),
+    ["open", "https://open.vibedgames.com"],
+  );
+});
