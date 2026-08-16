@@ -88,10 +88,16 @@ this.anims.create({
 6. `sheet_qc.mjs` — QC the packed sheet and report a verdict (same token in the
    `--json` `qc` field and the human badge, just uppercased there): **`clean`** /
    **`review`** (soft hints to eyeball — size outliers, possible facing flips) /
-   **`warn`** (hard defects — empty cells, edge-clipping, foot-baseline wander).
-   Runs automatically; `--no-qc` skips it. **Read the verdict:** regenerate the board
-   on `warn`; eyeball `review/<action>.gif` on `review`. Run it standalone too:
-   `sheet_qc.mjs sheet.png [--json] [--strict]`.
+   **`warn`** (hard defects — empty cells, edge-clipping, foot-baseline wander,
+   an inked cell grid). Runs automatically; `--no-qc` skips it. **Read the
+   verdict:** regenerate the board on `warn`; eyeball `review/<action>.gif` on
+   `review`. Run it standalone too: `sheet_qc.mjs sheet.png [--json] [--strict]`.
+   The `grid` check deserves special attention: models routinely ink the cell
+   outlines despite the prompt forbidding them, and the uniform slice bakes a
+   black rule into every frame. That rule then joins each frame's bounding box,
+   so size/baseline/facing get measured against the rectangle rather than the
+   character — a `grid` warn makes the rest of the report meaningless, so
+   regenerate rather than reading past it.
 
 ## Craft
 

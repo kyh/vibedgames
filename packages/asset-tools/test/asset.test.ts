@@ -13,7 +13,7 @@ import { analyzeBaseline, probeSheet } from "../src/asset/sheet.js";
 import { collectSizes, sizesToCsv } from "../src/asset/sizes.js";
 import { Bitmap } from "../src/image/raster.js";
 import { createZip } from "../src/skill/zip.js";
-import { frameGeometry } from "../src/sprite/qc.js";
+import { frameGeometry, runQc } from "../src/sprite/qc.js";
 import {
   cellSizeOf,
   FRAME_HEIGHT,
@@ -62,6 +62,81 @@ function buildSheet(
   }
   sheet.toFile(path);
 }
+
+/**
+ * A blobby figure per cell — nothing about it fills a whole bounding-box edge,
+ * which is what separates real art from a drawn cell outline.
+ */
+function buildFigureSheet(path: string, count: number, frame: number): Bitmap {
+  const sheet = Bitmap.create(count * frame, frame);
+  for (let i = 0; i < count; i += 1) {
+    const cx = i * frame + frame / 2;
+    const cy = frame * 0.6;
+    for (let y = -Math.floor(frame * 0.3); y <= Math.floor(frame * 0.3); y += 1) {
+      const halfWidth = Math.round(frame * 0.18 * Math.cos((y / (frame * 0.35)) * 1.2));
+      for (let x = -halfWidth; x <= halfWidth; x += 1) {
+        sheet.putPixel(cx + x, cy + y, [200, 60, 60, 255]);
+      }
+    }
+  }
+  sheet.toFile(path);
+  return sheet;
+}
+
+/** Ink the cell outlines, exactly as a pose-board model does when it ignores the prompt. */
+function inkCellOutlines(sheet: Bitmap, count: number, frame: number, path: string): void {
+  for (let i = 0; i < count; i += 1) {
+    const x0 = i * frame + 8;
+    const x1 = i * frame + frame - 9;
+    const y0 = 8;
+    const y1 = frame - 9;
+    for (let x = x0; x <= x1; x += 1) {
+      for (let t = 0; t < 2; t += 1) {
+        sheet.putPixel(x, y0 + t, [0, 0, 0, 255]);
+        sheet.putPixel(x, y1 - t, [0, 0, 0, 255]);
+      }
+    }
+    for (let y = y0; y <= y1; y += 1) {
+      for (let t = 0; t < 2; t += 1) {
+        sheet.putPixel(x0 + t, y, [0, 0, 0, 255]);
+        sheet.putPixel(x1 - t, y, [0, 0, 0, 255]);
+      }
+    }
+  }
+  sheet.toFile(path);
+}
+
+test("sheet-qc flags an inked cell outline, and leaves clean art alone", () => {
+  const dir = workspace();
+  const clean = join(dir, "clean.png");
+  const sheet = buildFigureSheet(clean, 4, 64);
+  const before = runQc(clean, 64, 64);
+  assert.equal(
+    before.checks.find((c) => c.check === "grid"),
+    undefined,
+    "figures do not fill a whole bbox edge, so nothing looks ruled",
+  );
+
+  const ruled = join(dir, "ruled.png");
+  inkCellOutlines(sheet, 4, 64, ruled);
+  const after = runQc(ruled, 64, 64);
+  const grid = after.checks.find((c) => c.check === "grid");
+  assert.ok(grid, "a straight rule spanning the bbox is the drawn-grid fingerprint");
+  assert.deepEqual(grid.frames, [1, 2, 3, 4]);
+  assert.equal(after.verdict, "warn", "a baked-in grid is a hard defect, not a hint");
+});
+
+test("sheet-qc does not mistake a solid rectangular sprite for a drawn grid", () => {
+  const dir = workspace();
+  const sheet = join(dir, "blocks.png");
+  buildSheet(sheet, 4, 1, 32);
+  const report = runQc(sheet, 32, 32);
+  assert.equal(
+    report.checks.find((c) => c.check === "grid"),
+    undefined,
+    "a filled square is opaque well inside its edge; a ruled line is not",
+  );
+});
 
 test("parseFrame accepts WxH and rejects anything else", () => {
   assert.deepEqual(parseFrame("32x32"), { width: 32, height: 32 });

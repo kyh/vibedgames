@@ -1852,6 +1852,10 @@ var CLIP_BORDER_FRAC = 0.01;
 var BASELINE_TOL = 0.12;
 var SIZE_DRIFT_TOL = 0.35;
 var FACING_CX_TOL = 0.18;
+var RULE_EDGE_FRAC = 0.95;
+var RULE_INNER_FRAC = 0.5;
+var RULE_INNER_OFFSET = 3;
+var RULE_MIN_SPAN = 12;
 function roundTo(value, digits) {
   const factor = 10 ** digits;
   return roundHalfToEven(value * factor) / factor;
@@ -1946,7 +1950,8 @@ function frameMetrics(sheet, index, geometry) {
       width: 0,
       cx_frac: 0,
       baseline_frac: 1,
-      border_frac: 0
+      border_frac: 0,
+      rule_edges: 0
     };
   }
   let borderOpaque = 0;
@@ -1966,6 +1971,29 @@ function frameMetrics(sheet, index, geometry) {
     sample(0, y);
     sample(fw - 1, y);
   }
+  const on = (x, y) => sheet.contains(originX + x, originY + y) && sheet.data[sheet.index(originX + x, originY + y) + 3] > ALPHA_ON;
+  const spanX = maxX - minX + 1;
+  const spanY = maxY - minY + 1;
+  const rowFrac = (y) => {
+    let n = 0;
+    for (let x = minX; x <= maxX; x += 1) if (on(x, y)) n += 1;
+    return n / spanX;
+  };
+  const colFrac = (x) => {
+    let n = 0;
+    for (let y = minY; y <= maxY; y += 1) if (on(x, y)) n += 1;
+    return n / spanY;
+  };
+  const ruled = (outer, inner) => outer >= RULE_EDGE_FRAC && inner <= RULE_INNER_FRAC;
+  const clamp = (value, lo, hi) => Math.min(hi, Math.max(lo, value));
+  let ruleEdges = 0;
+  if (spanX >= RULE_MIN_SPAN && spanY >= RULE_MIN_SPAN) {
+    const inset = RULE_INNER_OFFSET;
+    if (ruled(rowFrac(minY), rowFrac(clamp(minY + inset, minY, maxY)))) ruleEdges += 1;
+    if (ruled(rowFrac(maxY), rowFrac(clamp(maxY - inset, minY, maxY)))) ruleEdges += 1;
+    if (ruled(colFrac(minX), colFrac(clamp(minX + inset, minX, maxX)))) ruleEdges += 1;
+    if (ruled(colFrac(maxX), colFrac(clamp(maxX - inset, minX, maxX)))) ruleEdges += 1;
+  }
   const meanX = xs.reduce((sum, v) => sum + v, 0) / xs.length;
   return {
     empty: false,
@@ -1976,7 +2004,8 @@ function frameMetrics(sheet, index, geometry) {
     cx_frac: roundTo((meanX - fw / 2) / fw, 4),
     // Foot baseline: bottom of the figure as a fraction from the top.
     baseline_frac: roundTo((maxY + 1) / fh, 4),
-    border_frac: roundTo(borderOpaque / borderTotal, 4)
+    border_frac: roundTo(borderOpaque / borderTotal, 4),
+    rule_edges: ruleEdges
   };
 }
 function isLocalExtremum(values, i) {
@@ -2005,6 +2034,15 @@ function qc(metrics) {
       severity: "warn",
       frames: clipped,
       detail: `${clipped.length} frame(s) touch the cell border (likely cut off)`
+    });
+  }
+  const ruled = metrics.map((m, i) => m.rule_edges > 0 ? i + 1 : 0).filter(Boolean);
+  if (ruled.length > 0) {
+    checks.push({
+      check: "grid",
+      severity: "warn",
+      frames: ruled,
+      detail: `${ruled.length} frame(s) contain a straight ruled line spanning the whole bounding box \u2014 the model inked the pose-board cell outlines and the slice baked them in. The rule also skews every size/baseline/facing measurement, so regenerate the board (restate "no grid lines, cell outlines or borders") rather than trusting the rest of this report`
     });
   }
   if (live.length >= 2) {
@@ -2336,6 +2374,17 @@ function snapImage(inputPath, config) {
   const colCuts = sanitizeCuts(walk(columns, stepX, image.width, config), image.width);
   const rowCuts = sanitizeCuts(walk(rows, stepY, image.height, config), image.height);
   return resample(quantized, colCuts, rowCuts);
+}
+var DEGENERATE_SIDE = 8;
+function snapWarning(input, output, config) {
+  if (output.width < DEGENERATE_SIDE || output.height < DEGENERATE_SIDE) {
+    return `recovered grid collapsed to ${output.width}x${output.height} from ${input.width}x${input.height} \u2014 there was no pixel grid to find. Key the background out first (a flat matte hides the grid), or the source is not upscaled pixel art at all`;
+  }
+  const fallback = config.fallbackTargetSegments;
+  if (output.width === fallback && output.height === fallback) {
+    return `output is exactly ${fallback}x${fallback}: step detection found no structure and fell back to a fixed segment count, so these are not the source's own pixels`;
+  }
+  return null;
 }
 
 // src/sprite/size-contract.ts
@@ -3454,6 +3503,7 @@ export {
   resolveProfile,
   runQc,
   snapImage,
+  snapWarning,
   toPythonJson,
   totalCells,
   withStyle,
