@@ -38,7 +38,12 @@ vg generate status fal-ai/nano-banana-pro/edit <walk_request_id> --result --down
 vg generate status fal-ai/nano-banana-pro/edit <idle_request_id> --result --download ./idle.png --json
 ```
 
-3. **URL source**: always read `downloaded_files[0].url` from the tool result JSON. This is the correct path for all models (nano, gpt, Bria).
+3. **URL source**: read the CDN url from `result.images[0].url` in the tool result JSON. This is the correct path for all image models (nano, gpt, Bria) and it is what you pass to the next step's `--image_urls`. `downloaded_files` is a sibling array of **local file paths (plain strings)**, not objects — `downloaded_files[0].url` is `undefined` and will silently poison every chained call.
+
+   ```bash
+   # quote the path — an unquoted [0] is a glob in zsh
+   vg generate run <endpoint> ... --download ./out.png --field "result.images[0].url"
+   ```
 
 4. **Bria sync**: Bria (`fal-ai/bria/background/remove`) has no queue endpoint and does not support `--async`. Run it sync. It completes in seconds.
 
@@ -115,7 +120,7 @@ vg generate run fal-ai/nano-banana-pro/edit \
  --download ./game-assets/<slug>/character.png --json
 ```
 
-Read `downloaded_files[0].url` from the tool result, this is `CHARACTER_URL`, needed for all sprite sheet recipes.
+Read `result.images[0].url` from the tool result — that is `CHARACTER_URL`, needed for all sprite sheet recipes. (`downloaded_files` holds local paths, not urls.)
 
 ---
 

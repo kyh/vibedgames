@@ -63,8 +63,8 @@ vg login
 ```
 
 This auto-opens the user's browser to a device-code confirmation page
-and prints an 8-character code in the terminal. Tell the user:
-"I opened a browser — confirm code `XXXXXXXX`." Wait for the CLI to
+and prints a 6-character code in the terminal. Tell the user:
+"I opened a browser — confirm code `XXXXXX`." Wait for the CLI to
 print `Logged in successfully` before continuing. If the browser
 didn't open (remote shell, headless env), read the URL from the CLI
 output and give it to the user to open manually.
