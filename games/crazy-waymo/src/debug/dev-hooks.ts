@@ -1,5 +1,5 @@
 // DEV-only hooks for headless inspection (freecam + teleport), driven from
-// Playwright via `window.__taxi`. main.ts only imports this module when
+// `vg playtest` via `window.__taxi`. main.ts only imports this module when
 // import.meta.env.DEV is true, so none of it reaches production builds.
 import * as THREE from "three";
 

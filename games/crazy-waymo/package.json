@@ -12,7 +12,6 @@
     "lint:streets": "vite-node tools/street-lint.ts",
     "recolor:atlas": "node tools/recolor-building-atlas.mjs",
     "test": "vite-node tools/test-world.mts",
-    "test:e2e": "playwright test",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"
   },
@@ -29,7 +28,6 @@
     "@gltf-transform/core": "^4.4.2",
     "@gltf-transform/extensions": "^4.4.2",
     "@kyh/tsconfig": "catalog:",
-    "@playwright/test": "^1.62.1",
     "@types/node": "catalog:",
     "@types/three": "^0.185.4",
     "playwright-core": "^1.62.1",

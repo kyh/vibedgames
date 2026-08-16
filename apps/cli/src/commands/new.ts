@@ -4,8 +4,7 @@ import { resolve } from "node:path";
 import { defineCommand } from "citty";
 import consola from "consola";
 import tiged from "tiged";
-
-const SLUG_RE = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/;
+import { SLUG_RE } from "../lib/config-file.js";
 
 type EnginePreset =
   | {

@@ -48,7 +48,7 @@ ship before the craft pass.
    Arcade physics for movement + `overlap` hit detection, `load.spritesheet`
    with the EXACT frame dims you normalized to.
 4. **Craft pass** — the checklist below. This is what makes it great.
-5. **Verify it's actually fun.** Run it (see `playwright` / `run`), play it —
+5. **Verify it's actually fun.** Run it (see `playtest` / `run`), play it —
    move, attack, take a hit, die, restart. A game that only "looks done" in a
    static screenshot usually feels dead in motion. Tune speeds/cooldowns/spawn
    rates until the core loop is satisfying in the first 10 seconds.

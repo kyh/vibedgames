@@ -5,7 +5,7 @@
 - Fixed: the Phaser overlay drew where it was **not** hit-tested on any scene whose
   camera zoom is not 1. Buttons are positioned and hit-tested in canvas pixels, but
   the overlay was drawn with only `setScrollFactor(0)` — which cancels the camera's
-  *scroll* and nothing else, so it still rode the zoom. A fixed button could render
+  _scroll_ and nothing else, so it still rode the zoom. A fixed button could render
   far enough from its touch target to be a decoy: at zoom 0.82 one sat 65px from a
   52px hit circle, i.e. completely unhittable at the place it appeared. The overlay
   now counters the camera's zoom **and roll** every frame, and is drawn at
