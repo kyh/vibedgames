@@ -94,7 +94,7 @@ function parseArgs(argv) {
     else if (arg === "--seed") opts.seed = num();
     else if (arg === "--reaction-delay") opts.reactionDelay = num();
     else if (arg === "--script") {
-      opts.script = JSON.parse(readFileSync(next(), "utf8"));
+      opts.script = readScript(next());
       opts.customScript = true;
     } else if (arg === "--headed") opts.headed = true;
     else if (arg === "--keep-open") opts.keepOpen = true;
@@ -111,6 +111,25 @@ function parseArgs(argv) {
   }
   validateScript(opts.script);
   return opts;
+}
+
+/**
+ * Load a `--script` file. A missing path or malformed JSON is a mistake in the
+ * command, not a crash: raw `ENOENT`/`SyntaxError` stack traces read as a bug
+ * in the harness and bury the one line that says which file is wrong.
+ */
+function readScript(path) {
+  let text;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch {
+    fail(`couldn't read --script ${path}.`);
+  }
+  try {
+    return JSON.parse(text);
+  } catch (err) {
+    fail(`--script ${path} isn't valid JSON: ${err.message}`);
+  }
 }
 
 /**

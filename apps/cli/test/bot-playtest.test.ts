@@ -111,6 +111,21 @@ test("rejects malformed steps", () => {
   );
 });
 
+test("reports a bad --script file as a mistake, not a crash", () => {
+  const dir = mkdtempSync(join(tmpdir(), "bot-playtest-"));
+  const malformed = join(dir, "malformed.json");
+  writeFileSync(malformed, "{not json");
+
+  const missing = run(["--url", "http://x", "--script", join(dir, "absent.json")]);
+  assert.equal(missing.status, HARNESS_FAILURE);
+  assert.match(missing.stderr, /couldn't read --script/);
+  assert.doesNotMatch(missing.stderr, /at Object\./, "should not surface a stack trace");
+
+  const bad = run(["--url", "http://x", "--script", malformed]);
+  assert.equal(bad.status, HARNESS_FAILURE);
+  assert.match(bad.stderr, /isn't valid JSON/);
+});
+
 test("accepts a pointer-only step, for games that steer with the mouse", () => {
   const path = scriptFile([{ pointer: { x: 0.5, y: 0.5, down: true }, ms: 100 }]);
   const { stderr } = run(["--url", "http://localhost:1", "--script", path]);
