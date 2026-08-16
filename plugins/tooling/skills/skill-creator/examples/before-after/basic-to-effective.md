@@ -40,7 +40,7 @@ description: Help write emails
 - ❌ Doesn't prevent common mistakes
 - ❌ No context awareness
 
-**analyze_skill.py score**: ~25/100
+**analyze_skill.mjs score**: ~25/100
 
 ---
 
@@ -198,7 +198,7 @@ Email is a tool for clear, respectful communication. These guidelines help achie
 ✅ **Concrete examples** (not vague advice)
 ✅ **Empowering tone** ("use judgment")
 
-**analyze_skill.py score**: ~78/100
+**analyze_skill.mjs score**: ~78/100
 
 ---
 

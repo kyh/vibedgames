@@ -499,14 +499,15 @@ loader.load("models/character.gltf", (gltf) => {
 **Solutions**:
 
 - Verify the file path is correct (relative to HTML file)
-- Use a local web server (`python3 -m http.server 8000`)
+- Serve over HTTP rather than `file://` — GLTF fetches are subject to CORS
 - Check browser console for exact error
 
 ```bash
-# Start local server in your project directory
-python3 -m http.server 8080
+# A scaffolded project already has a dev server
+npm run dev
 
-# Visit http://localhost:8080
+# For a bare directory, any static server works
+npx serve .
 ```
 
 ### ❌ Models Look Wrong - Incorrect Scale/Rotation

@@ -1,0 +1,630 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tilemap Editor</title>
+    <!-- Empty, so the browser doesn't request a favicon the server would (correctly) refuse. -->
+    <link rel="icon" href="data:," />
+    <style>
+      :root {
+        --bg: #0f1114;
+        --panel: #15171a;
+        --line: #2a2f36;
+        --ink: #e8e8e8;
+        --dim: #9aa4b0;
+        --accent: #5ec8f5;
+        --warn: #f5a25e;
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        height: 100vh;
+        display: grid;
+        grid-template-columns: minmax(280px, 26vw) 1fr;
+        background: var(--bg);
+        color: var(--ink);
+        font:
+          13px/1.45 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+      }
+      aside,
+      main {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        min-height: 0;
+        padding: 10px;
+        gap: 8px;
+      }
+      aside {
+        background: var(--panel);
+        border-right: 1px solid var(--line);
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      label {
+        color: var(--dim);
+      }
+      select,
+      input,
+      button {
+        font: inherit;
+        background: #1c2026;
+        color: var(--ink);
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        padding: 4px 7px;
+      }
+      button:hover:not(:disabled) {
+        border-color: var(--accent);
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.5;
+      }
+      input[type="text"] {
+        flex: 1;
+        min-width: 8ch;
+      }
+      .surface {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        background: #0b0d10;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+      }
+      canvas {
+        display: block;
+        image-rendering: pixelated;
+      }
+      #status,
+      #message {
+        color: var(--dim);
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+      #message.error {
+        color: var(--warn);
+      }
+      kbd {
+        color: var(--ink);
+      }
+      details summary {
+        cursor: pointer;
+        color: var(--dim);
+      }
+      dl {
+        margin: 6px 0 0;
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 2px 10px;
+      }
+      dt {
+        color: var(--accent);
+      }
+      dd {
+        margin: 0;
+        color: var(--dim);
+      }
+    </style>
+  </head>
+  <body>
+    <aside>
+      <div class="row">
+        <label for="tileset">Tileset</label>
+        <select id="tileset"></select>
+      </div>
+      <div class="surface"><canvas id="palette"></canvas></div>
+      <div class="row">
+        <button id="grid-toggle" type="button">Grid</button>
+        <button id="zoom-out" type="button">−</button>
+        <button id="zoom-in" type="button">+</button>
+        <button id="new-map" type="button">New</button>
+      </div>
+      <div class="row">
+        <input id="path" type="text" spellcheck="false" />
+        <button id="save" type="button">Save</button>
+        <button id="load" type="button">Load</button>
+      </div>
+      <details open>
+        <summary>Keys</summary>
+        <dl>
+          <dt>Arrows</dt>
+          <dd>move cursor</dd>
+          <dt>WASD</dt>
+          <dd>move palette selection</dd>
+          <dt>Space / Enter</dt>
+          <dd>paint</dd>
+          <dt>X / Backspace</dt>
+          <dd>erase</dd>
+          <dt>[ / ]</dt>
+          <dd>switch tileset</dd>
+          <dt>+ / −</dt>
+          <dd>zoom map</dd>
+          <dt>G</dt>
+          <dd>grid</dd>
+          <dt>N</dt>
+          <dd>new map</dd>
+          <dt>F5 / Ctrl-S</dt>
+          <dd>save</dd>
+          <dt>F9 / Ctrl-L</dt>
+          <dd>reload</dd>
+          <dt>Mouse</dt>
+          <dd>left paint, right erase, drag to stroke</dd>
+        </dl>
+      </details>
+      <div id="message"></div>
+    </aside>
+
+    <main>
+      <div id="status"></div>
+      <div class="surface"><canvas id="map"></canvas></div>
+    </main>
+
+    <script type="module">
+      const token = new URLSearchParams(location.search).get("t") ?? "";
+
+      /** Every request carries the token as a header, which a cross-origin page can't set. */
+      async function api(path, init = {}) {
+        const response = await fetch(path, {
+          ...init,
+          headers: { ...(init.headers ?? {}), "x-editor-token": token },
+        });
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error ?? `${response.status}`);
+        return body;
+      }
+
+      const el = (id) => document.getElementById(id);
+      const paletteCanvas = el("palette");
+      const mapCanvas = el("map");
+      const paletteCtx = paletteCanvas.getContext("2d");
+      const mapCtx = mapCanvas.getContext("2d");
+
+      const state = {
+        tilesetNames: [],
+        tileset: null,
+        sheet: null,
+        map: { width: 0, height: 0, data: [] },
+        mapPath: null,
+        cursor: { x: 0, y: 0 },
+        selection: { col: 0, row: 0 },
+        paletteScale: 3,
+        mapScale: 3,
+        grid: true,
+        dirty: false,
+      };
+
+      function say(text, isError = false) {
+        const node = el("message");
+        node.textContent = text;
+        node.className = isError ? "error" : "";
+      }
+
+      /** Source rect of a tile in the sheet — margin and spacing are the whole point. */
+      function tileRect(id) {
+        const t = state.tileset;
+        const index = id - 1;
+        const row = Math.floor(index / t.columns);
+        const col = index - row * t.columns;
+        return {
+          x: t.margin + col * (t.tileWidth + t.spacing),
+          y: t.margin + row * (t.tileHeight + t.spacing),
+          w: t.tileWidth,
+          h: t.tileHeight,
+        };
+      }
+
+      const tileIdAt = (col, row) =>
+        col < 0 || row < 0 || col >= state.tileset.columns || row >= state.tileset.rows
+          ? 0
+          : row * state.tileset.columns + col + 1;
+
+      const selectedTileId = () => tileIdAt(state.selection.col, state.selection.row);
+
+      /**
+       * A two-tone box: dark outside, bright inside. A single stroke
+       * disappears against a tile that happens to share its colour, and the
+       * selection has to stay findable on any tileset.
+       */
+      function marker(ctx, x, y, w, h, color) {
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = "rgba(0,0,0,0.85)";
+        ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+        ctx.strokeStyle = color;
+        ctx.strokeRect(x + 3, y + 3, w - 6, h - 6);
+      }
+
+      function drawGrid(ctx, cols, rows, cell, width, height) {
+        if (!state.grid) return;
+        ctx.strokeStyle = "rgba(120,140,160,0.35)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let c = 0; c <= cols; c += 1) {
+          const x = Math.round(c * cell) + 0.5;
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, height);
+        }
+        for (let r = 0; r <= rows; r += 1) {
+          const y = Math.round(r * cell) + 0.5;
+          ctx.moveTo(0, y);
+          ctx.lineTo(width, y);
+        }
+        ctx.stroke();
+      }
+
+      function drawPalette() {
+        const t = state.tileset;
+        if (!t || !state.sheet) return;
+        const cellW = t.tileWidth * state.paletteScale;
+        const cellH = t.tileHeight * state.paletteScale;
+        paletteCanvas.width = t.columns * cellW;
+        paletteCanvas.height = t.rows * cellH;
+
+        paletteCtx.imageSmoothingEnabled = false;
+        paletteCtx.clearRect(0, 0, paletteCanvas.width, paletteCanvas.height);
+
+        for (let row = 0; row < t.rows; row += 1) {
+          for (let col = 0; col < t.columns; col += 1) {
+            const src = tileRect(tileIdAt(col, row));
+            paletteCtx.drawImage(
+              state.sheet,
+              src.x,
+              src.y,
+              src.w,
+              src.h,
+              col * cellW,
+              row * cellH,
+              cellW,
+              cellH,
+            );
+          }
+        }
+
+        drawGrid(paletteCtx, t.columns, t.rows, cellW, paletteCanvas.width, paletteCanvas.height);
+
+        marker(
+          paletteCtx,
+          state.selection.col * cellW,
+          state.selection.row * cellH,
+          cellW,
+          cellH,
+          "#5ec8f5",
+        );
+      }
+
+      function drawMap() {
+        const t = state.tileset;
+        if (!t || !state.sheet) return;
+        const cellW = t.tileWidth * state.mapScale;
+        const cellH = t.tileHeight * state.mapScale;
+        mapCanvas.width = state.map.width * cellW;
+        mapCanvas.height = state.map.height * cellH;
+
+        mapCtx.imageSmoothingEnabled = false;
+        mapCtx.clearRect(0, 0, mapCanvas.width, mapCanvas.height);
+
+        for (let y = 0; y < state.map.height; y += 1) {
+          for (let x = 0; x < state.map.width; x += 1) {
+            const id = state.map.data[y][x];
+            if (id <= 0 || id > t.columns * t.rows) continue;
+            const src = tileRect(id);
+            mapCtx.drawImage(
+              state.sheet,
+              src.x,
+              src.y,
+              src.w,
+              src.h,
+              x * cellW,
+              y * cellH,
+              cellW,
+              cellH,
+            );
+          }
+        }
+
+        drawGrid(
+          mapCtx,
+          state.map.width,
+          state.map.height,
+          cellW,
+          mapCanvas.width,
+          mapCanvas.height,
+        );
+
+        marker(mapCtx, state.cursor.x * cellW, state.cursor.y * cellH, cellW, cellH, "#f5a25e");
+      }
+
+      function drawStatus() {
+        const t = state.tileset;
+        el("status").textContent =
+          `${t.name}  ${t.columns}×${t.rows} tiles of ${t.tileWidth}×${t.tileHeight}` +
+          `   ·   map ${state.map.width}×${state.map.height} @${state.mapScale}×` +
+          `   ·   cursor ${state.cursor.x},${state.cursor.y}` +
+          `   ·   tile #${selectedTileId()}` +
+          (state.dirty ? "   ·   unsaved" : "");
+      }
+
+      const redraw = () => {
+        drawPalette();
+        drawMap();
+        drawStatus();
+      };
+
+      function loadSheet(name) {
+        return new Promise((done, failed) => {
+          const image = new Image();
+          image.onload = () => done(image);
+          image.onerror = () => failed(new Error(`Could not load the sheet for ${name}`));
+          image.src = `/api/sheet?name=${encodeURIComponent(name)}&t=${encodeURIComponent(token)}`;
+        });
+      }
+
+      async function selectTileset(name) {
+        state.tileset = await api(`/api/tileset?name=${encodeURIComponent(name)}`);
+        state.sheet = await loadSheet(name);
+        state.selection.col = Math.min(state.selection.col, state.tileset.columns - 1);
+        state.selection.row = Math.min(state.selection.row, state.tileset.rows - 1);
+        el("tileset").value = name;
+        say(`Tileset: ${name} — ${state.tileset.path}`);
+        redraw();
+      }
+
+      function paint(erase = false) {
+        const { x, y } = state.cursor;
+        const next = erase ? 0 : selectedTileId();
+        if (state.map.data[y][x] === next) return;
+        state.map.data[y][x] = next;
+        state.dirty = true;
+      }
+
+      function cellFromEvent(event) {
+        const rect = mapCanvas.getBoundingClientRect();
+        const t = state.tileset;
+        return {
+          x: Math.floor((event.clientX - rect.left) / (t.tileWidth * state.mapScale)),
+          y: Math.floor((event.clientY - rect.top) / (t.tileHeight * state.mapScale)),
+        };
+      }
+
+      function applyAt(event, erase) {
+        const { x, y } = cellFromEvent(event);
+        if (x < 0 || y < 0 || x >= state.map.width || y >= state.map.height) return;
+        state.cursor = { x, y };
+        paint(erase);
+        redraw();
+      }
+
+      async function save() {
+        const path = el("path").value.trim();
+        try {
+          const result = await api("/api/save", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              path,
+              tileset: state.tileset.name,
+              width: state.map.width,
+              height: state.map.height,
+              data: state.map.data,
+            }),
+          });
+          state.mapPath = result.path;
+          state.dirty = false;
+          say(`Saved ${result.path}`);
+          drawStatus();
+        } catch (error) {
+          say(String(error.message ?? error), true);
+        }
+      }
+
+      async function load() {
+        const path = el("path").value.trim();
+        try {
+          const result = await api(`/api/load?path=${encodeURIComponent(path)}`);
+          state.map = { width: result.width, height: result.height, data: result.data };
+          state.cursor.x = Math.min(state.cursor.x, result.width - 1);
+          state.cursor.y = Math.min(state.cursor.y, result.height - 1);
+          state.mapPath = result.path;
+          state.dirty = false;
+          if (result.tileset && state.tilesetNames.includes(result.tileset)) {
+            await selectTileset(result.tileset);
+          }
+          say(`Loaded ${result.path}`);
+          redraw();
+        } catch (error) {
+          say(String(error.message ?? error), true);
+        }
+      }
+
+      function newMap() {
+        state.map.data = Array.from({ length: state.map.height }, () =>
+          new Array(state.map.width).fill(0),
+        );
+        state.dirty = true;
+        say(`New map: ${state.map.width}×${state.map.height}`);
+        redraw();
+      }
+
+      function cycleTileset(delta) {
+        const at = state.tilesetNames.indexOf(state.tileset.name);
+        const next =
+          state.tilesetNames[(at + delta + state.tilesetNames.length) % state.tilesetNames.length];
+        void selectTileset(next);
+      }
+
+      function zoom(delta) {
+        state.mapScale = Math.max(1, Math.min(10, state.mapScale + delta));
+        redraw();
+      }
+
+      // ---- wiring -----------------------------------------------------------
+
+      paletteCanvas.addEventListener("mousedown", (event) => {
+        const rect = paletteCanvas.getBoundingClientRect();
+        const t = state.tileset;
+        const col = Math.floor((event.clientX - rect.left) / (t.tileWidth * state.paletteScale));
+        const row = Math.floor((event.clientY - rect.top) / (t.tileHeight * state.paletteScale));
+        if (col < 0 || row < 0 || col >= t.columns || row >= t.rows) return;
+        state.selection = { col, row };
+        redraw();
+      });
+
+      let stroking = 0;
+      mapCanvas.addEventListener("contextmenu", (event) => event.preventDefault());
+      mapCanvas.addEventListener("mousedown", (event) => {
+        event.preventDefault();
+        stroking = event.button === 2 ? 2 : 1;
+        applyAt(event, stroking === 2);
+      });
+      mapCanvas.addEventListener("mousemove", (event) => {
+        if (stroking) applyAt(event, stroking === 2);
+      });
+      window.addEventListener("mouseup", () => {
+        stroking = 0;
+      });
+
+      el("tileset").addEventListener("change", (event) => void selectTileset(event.target.value));
+      el("grid-toggle").addEventListener("click", () => {
+        state.grid = !state.grid;
+        redraw();
+      });
+      el("zoom-in").addEventListener("click", () => zoom(1));
+      el("zoom-out").addEventListener("click", () => zoom(-1));
+      el("new-map").addEventListener("click", newMap);
+      el("save").addEventListener("click", () => void save());
+      el("load").addEventListener("click", () => void load());
+
+      window.addEventListener("keydown", (event) => {
+        if (event.target instanceof HTMLInputElement) return;
+
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+          event.preventDefault();
+          void save();
+          return;
+        }
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "l") {
+          event.preventDefault();
+          void load();
+          return;
+        }
+        if (event.ctrlKey || event.metaKey || event.altKey) return;
+
+        const key = event.key;
+        const handled = () => {
+          event.preventDefault();
+          redraw();
+        };
+
+        switch (key) {
+          case "ArrowLeft":
+            state.cursor.x = Math.max(0, state.cursor.x - 1);
+            return handled();
+          case "ArrowRight":
+            state.cursor.x = Math.min(state.map.width - 1, state.cursor.x + 1);
+            return handled();
+          case "ArrowUp":
+            state.cursor.y = Math.max(0, state.cursor.y - 1);
+            return handled();
+          case "ArrowDown":
+            state.cursor.y = Math.min(state.map.height - 1, state.cursor.y + 1);
+            return handled();
+          case " ":
+          case "Enter":
+            paint(false);
+            return handled();
+          case "x":
+          case "X":
+          case "Backspace":
+          case "Delete":
+            paint(true);
+            return handled();
+          case "F5":
+            event.preventDefault();
+            void save();
+            return;
+          case "F9":
+            event.preventDefault();
+            void load();
+            return;
+          case "[":
+            event.preventDefault();
+            return cycleTileset(-1);
+          case "]":
+            event.preventDefault();
+            return cycleTileset(1);
+          case "+":
+          case "=":
+            event.preventDefault();
+            return zoom(1);
+          case "-":
+          case "_":
+            event.preventDefault();
+            return zoom(-1);
+          default:
+            break;
+        }
+
+        const t = state.tileset;
+        switch (key.toLowerCase()) {
+          case "a":
+            state.selection.col = Math.max(0, state.selection.col - 1);
+            return handled();
+          case "d":
+            state.selection.col = Math.min(t.columns - 1, state.selection.col + 1);
+            return handled();
+          case "w":
+            state.selection.row = Math.max(0, state.selection.row - 1);
+            return handled();
+          case "s":
+            state.selection.row = Math.min(t.rows - 1, state.selection.row + 1);
+            return handled();
+          case "g":
+            state.grid = !state.grid;
+            return handled();
+          case "n":
+            event.preventDefault();
+            return newMap();
+          default:
+            return;
+        }
+      });
+
+      window.addEventListener("beforeunload", (event) => {
+        if (state.dirty) event.preventDefault();
+      });
+
+      // ---- boot -------------------------------------------------------------
+
+      try {
+        const initial = await api("/api/state");
+        state.tilesetNames = initial.tilesetNames;
+        state.map = {
+          width: initial.map.width,
+          height: initial.map.height,
+          data: initial.map.data,
+        };
+        state.mapPath = initial.mapPath;
+        el("path").value = initial.mapPath ?? "tilemap.json";
+        el("tileset").replaceChildren(
+          ...initial.tilesetNames.map((name) => new Option(name, name)),
+        );
+        await selectTileset(initial.tileset.name);
+        say(`Manifest: ${initial.manifestPath}`);
+      } catch (error) {
+        say(`Could not start: ${error.message ?? error}`, true);
+      }
+    </script>
+  </body>
+</html>

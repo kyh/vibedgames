@@ -8,6 +8,7 @@ import consola from "consola";
 import { createClient } from "../lib/api.js";
 import { extractSource } from "../lib/archive.js";
 import { SLUG_RE } from "../lib/config-file.js";
+import { isJsonOutput, outputArgs, writeStructured } from "../lib/output.js";
 
 export const forkCommand = defineCommand({
   meta: {
@@ -35,11 +36,7 @@ export const forkCommand = defineCommand({
       description: "Overwrite the target directory if it exists.",
       default: false,
     },
-    json: {
-      type: "boolean",
-      description: "Emit machine-readable JSON (for agents).",
-      default: false,
-    },
+    ...outputArgs,
   },
   run: async ({ args }) => {
     const source = args.slug.trim().toLowerCase();
@@ -65,7 +62,7 @@ export const forkCommand = defineCommand({
     const client = createClient();
 
     // ---- Resolve + download source -----------------------------------------
-    if (!args.json) consola.start(`Forking ${source}`);
+    if (!isJsonOutput(args) && !args.field) consola.start(`Forking ${source}`);
     let src;
     try {
       src = await client.deploy.getSource.query({ slug: source });
@@ -96,10 +93,7 @@ export const forkCommand = defineCommand({
     );
     rewritePackageName(dir, target);
 
-    if (args.json) {
-      consola.log(JSON.stringify({ slug: target, dir, forkedFrom: source }));
-      return;
-    }
+    if (writeStructured({ slug: target, dir, forkedFrom: source }, args)) return;
 
     consola.success(`Forked ${source} → ${target}`);
     consola.log(`  ${dir}`);

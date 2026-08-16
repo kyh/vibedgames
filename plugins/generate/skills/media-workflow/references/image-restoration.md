@@ -25,7 +25,7 @@ If multiple defects are present, run them in sequence (denoise → deblur → up
 ### Single-defect restoration
 
 ```bash
-URL=$(vg generate upload ./damaged.jpg --json | jq -r '.url')
+URL=$(vg generate upload ./damaged.jpg --field url)
 
 # Pick endpoint based on dominant defect
 vg generate run fal-ai/nafnet/deblur \
@@ -37,7 +37,7 @@ vg generate run fal-ai/nafnet/deblur \
 ### Face restoration with fidelity control
 
 ```bash
-URL=$(vg generate upload ./bad-face.jpg --json | jq -r '.url')
+URL=$(vg generate upload ./bad-face.jpg --field url)
 
 vg generate run fal-ai/codeformer \
  --image_url "$URL" \
@@ -55,7 +55,7 @@ vg generate run fal-ai/codeformer \
 ### Document restoration
 
 ```bash
-URL=$(vg generate upload ./scan.jpg --json | jq -r '.url')
+URL=$(vg generate upload ./scan.jpg --field url)
 
 vg generate run fal-ai/docres \
  --image_url "$URL" \
@@ -71,9 +71,8 @@ For a noisy + blurry photo, chain two passes:
 
 ```bash
 # Pass 1: denoise
-URL1=$(vg generate upload ./input.jpg --json | jq -r '.url')
-RES1=$(vg generate run fal-ai/nafnet/denoise --image_url "$URL1" --json)
-URL2=$(echo "$RES1" | jq -r '.image.url')
+URL1=$(vg generate upload ./input.jpg --field url)
+URL2=$(vg generate run fal-ai/nafnet/denoise --image_url "$URL1" --field result.image.url)
 
 # Pass 2: deblur the cleaned-up result
 vg generate run fal-ai/nafnet/deblur \
@@ -86,10 +85,9 @@ For an old portrait scan: face-fix → upscale.
 
 ```bash
 # Pass 1: codeformer for face
-URL1=$(vg generate upload ./portrait-scan.jpg --json | jq -r '.url')
-RES1=$(vg generate run fal-ai/codeformer \
- --image_url "$URL1" --fidelity 0.7 --json)
-URL2=$(echo "$RES1" | jq -r '.image.url')
+URL1=$(vg generate upload ./portrait-scan.jpg --field url)
+URL2=$(vg generate run fal-ai/codeformer \
+ --image_url "$URL1" --fidelity 0.7 --field result.image.url)
 
 # Pass 2: upscale (see model-catalog/image-to-image.md for upscale endpoints)
 vg generate run <upscale-endpoint> \
@@ -104,7 +102,7 @@ For defects not covered above (artifacts, color shifts, JPEG compression):
 
 ```bash
 vg generate models "image restoration" --json
-vg generate models --category image-to-image --json | jq '.models[] | select(.tags[]? == "restoration")'
+vg generate models "restoration" --category image-to-image --json
 vg generate docs "image restoration enhance" --json
 ```
 

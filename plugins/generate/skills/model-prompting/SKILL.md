@@ -1,13 +1,6 @@
 ---
 name: model-prompting
-description: >
-  Model-family-specific prompt craft for model endpoints. Trigger when the
-  user mentions a specific model family by name and asks how to prompt it
-  ("how do I prompt Kling", "GPT Image 2 prompt structure", "Happy Horse
-  tips"), or when prompts to a routed endpoint keep coming back generic and
-  the family's known nuances should be applied. For endpoint selection
-  ("which model for X"), use `model-catalog` instead. This skill is
-  about how to talk to a model once it has been chosen.
+description: 'Model-family-specific prompt craft for model endpoints. Trigger when the user mentions a specific model family by name and asks how to prompt it ("how do I prompt Kling", "GPT Image 2 prompt structure", "Happy Horse tips"), or when prompts to a routed endpoint keep coming back generic and the family''s known nuances should be applied. For endpoint selection ("which model for X"), use `model-catalog` instead. This skill is about how to talk to a model once it has been chosen.'
 ---
 
 # Model Prompting

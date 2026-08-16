@@ -19,6 +19,20 @@
  * harness itself failed (browser missing, game never booted).
  */
 
+import { fileURLToPath } from "node:url";
+
+/** Print this file's header docblock, so `--help` cannot drift from the docs. */
+function printHelp() {
+  const source = readFileSync(fileURLToPath(import.meta.url), "utf8");
+  const match = /^(?:#![^\n]*\n)?\/\*\*([\s\S]*?)\*\//.exec(source);
+  const text = (match?.[1] ?? "")
+    .split("\n")
+    .map((line) => line.replace(/^\s*\* ?/, ""))
+    .join("\n")
+    .trim();
+  process.stdout.write(`${text || "No help available."}\n`);
+}
+
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
@@ -96,7 +110,10 @@ function parseArgs(argv) {
     else if (arg === "--expect-progress") opts.expectProgress = true;
     else if (arg === "--headed") opts.headed = true;
     else if (arg === "--keep-open") opts.keepOpen = true;
-    else fail(`Unknown argument: ${arg}`);
+    else if (arg === "--help" || arg === "-h") {
+      printHelp();
+      process.exit(0);
+    } else fail(`Unknown argument: ${arg}`);
   }
   if (!opts.url && !opts.game) fail("Pass --url <url> or --game <slug>.");
   if (opts.url && opts.game) fail("Pass either --url or --game, not both.");

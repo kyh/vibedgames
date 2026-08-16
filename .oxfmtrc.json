@@ -11,7 +11,8 @@
     ".wxt",
     ".output",
     "out",
-    "games/farm/public/assets"
+    "games/farm/public/assets",
+    "**/scripts/_lib/**"
   ],
   "experimentalSortPackageJson": {}
 }

@@ -69,7 +69,7 @@
       "inputImageIsArray": false,
       "synchronous": true,
       "downloadKeys": ["image.url"],
-      "note": "Semantic segmentation (not chroma key) — works even on white-on-white. Synchronous: do not pass --async. Alternative to chroma_clean.py when you did not generate on a flat matte."
+      "note": "Semantic segmentation (not chroma key) — works even on white-on-white. Synchronous: do not pass --async. Alternative to chroma_clean.mjs when you did not generate on a flat matte."
     }
   }
 }

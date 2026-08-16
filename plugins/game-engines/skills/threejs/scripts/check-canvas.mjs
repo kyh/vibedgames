@@ -32,6 +32,21 @@
  * pre-resolved via PLAYWRIGHT_BROWSERS_PATH in this environment.
  */
 
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+/** Print this file's header docblock, so `--help` cannot drift from the docs. */
+function printHelp() {
+  const source = readFileSync(fileURLToPath(import.meta.url), "utf8");
+  const match = /^(?:#![^\n]*\n)?\/\*\*([\s\S]*?)\*\//.exec(source);
+  const text = (match?.[1] ?? "")
+    .split("\n")
+    .map((line) => line.replace(/^\s*\* ?/, ""))
+    .join("\n")
+    .trim();
+  process.stdout.write(`${text || "No help available."}\n`);
+}
+
 import { pathToFileURL } from "node:url";
 import { writeFileSync } from "node:fs";
 import { inflateSync } from "node:zlib";
@@ -185,6 +200,10 @@ function analyze({ width, height, channels, data }) {
 }
 
 async function main() {
+  if (process.argv.includes("--help") || process.argv.includes("-h")) {
+    printHelp();
+    return 0;
+  }
   let opts;
   try {
     opts = parseArgs(process.argv.slice(2));

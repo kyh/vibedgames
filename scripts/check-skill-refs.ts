@@ -56,7 +56,7 @@ export function checkSkillRefs(root: string = DEFAULT_ROOT): {
     for (const m of text.matchAll(/\]\(([^)]+)\)/g)) {
       const raw = m[1].split("#")[0].trim();
       if (!raw || /^(https?:|mailto:)/.test(raw)) continue;
-      if (!/\.(md|py|ts|js|json|png|sh)$/.test(raw)) continue; // only file-ish links
+      if (!/\.(md|py|ts|js|mjs|json|png|sh)$/.test(raw)) continue; // only file-ish links
       const target = raw.startsWith(".claude/skills/") ? join(root, raw) : resolve(dir, raw);
       if (!fileExists(target)) {
         issues.push({ file, ref: raw, why: "link target missing" });

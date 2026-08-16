@@ -1,0 +1,14 @@
+# Build output that is committed on purpose. Marking it generated collapses it
+# in GitHub diffs by default and keeps it out of language stats, so a pull
+# request reads as the source that changed rather than the artifact rebuilt
+# alongside it.
+
+# esbuild bundles of `@repo/asset-tools`, emitted by `pnpm dogfood` into every
+# skill that imports them — seven byte-identical copies of one artifact.
+# Source: packages/asset-tools/src/
+**/scripts/_lib/** linguist-generated=true
+
+# img2threejs factory output, normalized by `normalize_factory.mjs`.
+*.generated.ts linguist-generated=true
+
+pnpm-lock.yaml linguist-generated=true

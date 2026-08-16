@@ -27,6 +27,9 @@ const run = (cmd: string, args: string[], cwd = ROOT) => {
   if (result.status !== 0) process.exit(result.status ?? 1);
 };
 
+console.log("→ bundling asset-tools into skill scripts/_lib/");
+run("pnpm", ["--filter", "@repo/asset-tools", "build"]);
+
 console.log("→ building vg CLI");
 run("pnpm", ["--filter", "vibedgames", "build"]);
 

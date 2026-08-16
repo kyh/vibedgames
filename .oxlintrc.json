@@ -11,7 +11,8 @@
     ".expo",
     ".wxt",
     ".output",
-    "out"
+    "out",
+    "**/scripts/_lib/**"
   ],
   "plugins": ["eslint", "typescript", "unicorn", "react", "nextjs", "oxc", "node", "promise"],
   "categories": {
@@ -22,14 +23,33 @@
   "rules": {
     "typescript/no-explicit-any": "error",
     "typescript/no-non-null-assertion": "error",
-    "typescript/consistent-type-assertions": ["error", { "assertionStyle": "never" }],
+    "typescript/consistent-type-assertions": [
+      "error",
+      {
+        "assertionStyle": "never"
+      }
+    ],
     "react/react-in-jsx-scope": "off",
     "eslint/no-shadow": "off",
     "eslint/no-await-in-loop": "off"
   },
+  // The two rules below are downgraded for the listed paths because this repo's
+  // tsconfig sets `noUncheckedIndexedAccess`, which types every `array[i]` as
+  // possibly-undefined. In array-heavy code — a PNG codec, a resampler, a
+  // worldgen loop — the two rules contradict each other: the compiler demands a
+  // narrowing the linter forbids, and the only mechanical alternative (`?? 0` on
+  // every element read) trades a loud crash for a silently wrong pixel.
+  // This reasoning does NOT cover code that parses external input; that should
+  // validate and throw, not assert. See `sprite/size-contract.ts` for the shape.
   "overrides": [
     {
-      "files": ["apps/**", "games/**", "packages/multiplayer/**", "scripts/**"],
+      "files": [
+        "apps/**",
+        "games/**",
+        "packages/asset-tools/**",
+        "packages/multiplayer/**",
+        "scripts/**"
+      ],
       "rules": {
         "typescript/consistent-type-assertions": "warn",
         "typescript/no-non-null-assertion": "warn"

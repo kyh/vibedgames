@@ -1,16 +1,6 @@
 ---
 name: media-workflow
-description: >
-  Design and execute multi-step media workflows with `vg generate` — both
-  opinionated use-case recipes and custom pipelines. Use for any production that
-  needs more than a single endpoint call: "make a commercial", "ad creative",
-  "product photography", "cinematic shot", "film look", "character design",
-  "consistent character", "storyboard", "multi-shot", "narrative video",
-  "talking head", "lip sync", "make this person talk", "virtual try-on",
-  "restore image", "deblur", "fix face", "old photo restore", "add audio to
-  video", "video sound effects", "photoreal", "editorial portrait", plus custom
-  pipelines combining planning, generation, editing, image/video utilities,
-  audio, subtitles, batching, and final delivery manifests.
+description: 'Design and execute multi-step media workflows with `vg generate` — both opinionated use-case recipes and custom pipelines. Use for any production that needs more than a single endpoint call: "make a commercial", "ad creative", "product photography", "cinematic shot", "film look", "character design", "consistent character", "storyboard", "multi-shot", "narrative video", "talking head", "lip sync", "make this person talk", "virtual try-on", "restore image", "deblur", "fix face", "old photo restore", "add audio to video", "video sound effects", "photoreal", "editorial portrait", plus custom pipelines combining planning, generation, editing, image/video utilities, audio, subtitles, batching, and final delivery manifests.'
 ---
 
 # `vg generate` workflow production

@@ -1,17 +1,6 @@
 ---
 name: pixel-art
-description: >
-  Generate 2D pixel art game assets, characters, sprite sheets, background
-  removal, and game backgrounds. Trigger for "pixel art character", "sprite
-  sheet", "walk cycle", "game sprites", "isometric sprites", "side-scroller
-  assets", "RPG character sprites", "idle animation", "attack animation",
-  "jump animation", "game background", "parallax background", "isometric map",
-  "2D game art", "pixel art animation", "top-down character", "explosion sprite
-  sheet", "animated FX from video", "fire/magic effect". Covers character
-  generation (nano-banana-pro / gpt-image-2), sprite sheet animation (nano/edit
-  or fal-ai/gpt-image-2/edit), top-down 4-directional walkers, background removal
-  (Bria), background generation (parallax layers or isometric map), and animated
-  VFX derived from a generated video rendered with additive blend.
+description: 'Generate 2D pixel art game assets, characters, sprite sheets, background removal, and game backgrounds. Trigger for "pixel art character", "sprite sheet", "walk cycle", "game sprites", "isometric sprites", "side-scroller assets", "RPG character sprites", "idle animation", "attack animation", "jump animation", "game background", "parallax background", "isometric map", "2D game art", "pixel art animation", "top-down character", "explosion sprite sheet", "animated FX from video", "fire/magic effect". Covers character generation (nano-banana-pro / gpt-image-2), sprite sheet animation (nano/edit or fal-ai/gpt-image-2/edit), top-down 4-directional walkers, background removal (Bria), background generation (parallax layers or isometric map), and animated VFX derived from a generated video rendered with additive blend.'
 metadata:
   author: vibedgames
   version: "0.1.0"
@@ -257,11 +246,39 @@ Real fire/explosion motion beats an AI-drawn frame strip, and you can sidestep a
 1. **Generate** a short clip on a pure-black background. Use `$EXPLOSION_PROMPT` from [references/prompts.md](references/prompts.md) (Recipe 5) — it prompts hard for a locked-off camera and no smoke/grey haze (grey survives ADD blend and shows as a haze square):
 
 ```bash
-vg generate run bytedance/seedance-2.0/fast/text-to-video --prompt "$EXPLOSION_PROMPT" --aspect_ratio "1:1" --resolution "720p" --async --json
-# then: vg generate status bytedance/seedance-2.0/fast/text-to-video <id> --result --download ./game-assets/<slug>/fx/explosion.mp4 --json
+REQ=$(vg generate run bytedance/seedance-2.0/fast/text-to-video --prompt "$EXPLOSION_PROMPT" --aspect_ratio "1:1" --resolution "720p" --async --field request_id)
+# then, once it completes — keep the URL, you need it in step 2:
+VIDEO_URL=$(vg generate status bytedance/seedance-2.0/fast/text-to-video "$REQ" --result --field result.video.url)
 ```
 
-2. **Extract a frame strip** with ffmpeg. Sample the active window (skip the empty lead-in, include the decay tail so it fades out), scale each frame to a power-of-two, tile into one horizontal sheet. Pin exact dims so Phaser's `load.spritesheet` math is unambiguous:
+2. **Extract a frame strip.** Sample the active window (skip the empty lead-in, include the decay tail so it fades out), scale each frame to a power-of-two, and tile into one horizontal sheet. Pin exact dims so Phaser's `load.spritesheet` math is unambiguous — 16 frames at 128² makes a 2048×128 strip.
+
+   Decoding video is the one step in this whole skill that Node can't do, so
+   extract the frames **remotely**, from the URL you already have — no local
+   install, and nothing to upload since the clip is already hosted. Find the
+   utility endpoint the same way you find any other:
+
+```bash
+vg generate models "extract frames" --category video-to-video --json
+```
+
+Then run it against `$VIDEO_URL` with your chosen frame rate and window,
+download the frames into one directory, and pack them locally:
+
+```bash
+# scale each frame to the cell size (Lanczos, same filter ffmpeg would use)
+for f in ./fx-frames/frame-*.png; do
+  node .claude/skills/pixel-snapper/scripts/image_util.mjs resize "$f" "$f" --size 128x128
+done
+
+# tile into a single-row strip + a manifest with the frame box
+node .claude/skills/animated-spritesheets/scripts/pack_spritesheet.mjs \
+  --input-dir ./fx-frames --out ./game-assets/<slug>/fx/explosion.png \
+  --fps 32 --action explode --json-out ./game-assets/<slug>/fx/explosion.json
+```
+
+If you already have `ffmpeg` locally, it does the same job in one line and is
+faster — it just isn't a dependency this skill assumes:
 
 ```bash
 # 16 frames over the burst→decay window, each 128², into a 2048×128 strip

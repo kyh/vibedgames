@@ -12,6 +12,7 @@ import { parseDownloadFlag, parseRunInput, readExplicitLocalFile } from "../lib/
 import { downloadMedia, extractMediaRefs } from "../lib/media-download.js";
 import { endpointPath, queueAppId, waitForCompletion } from "../lib/media-poll.js";
 import { uploadFile } from "../lib/media-upload.js";
+import { isJsonOutput, outputArgs, writeJson, writeStructured } from "../lib/output.js";
 import { isRecord } from "../lib/types.js";
 
 // Action-specific fields for the status-command payload. `result` wraps
@@ -33,12 +34,13 @@ function buildActionFields(
   return {};
 }
 
-function isJsonOutput(args: { json?: boolean }): boolean {
-  return Boolean(args.json) || process.env.VG_JSON_OUTPUT === "1";
-}
-
-function writeJson(value: unknown): void {
-  process.stdout.write(JSON.stringify(value, null, 2) + "\n");
+/**
+ * True when stdout is carrying data rather than a progress narrative, so
+ * spinners and status lines must stay off it. `--field` counts: its whole
+ * point is that the output can be captured by a shell verbatim.
+ */
+function isStructuredOutput(args: { json?: boolean; field?: string }): boolean {
+  return isJsonOutput(args) || Boolean(args.field);
 }
 
 function extractMediaUrls(result: unknown): string[] {
@@ -69,7 +71,7 @@ const runCommand = defineCommand({
       description:
         "Download media from result. Optional value is a path or template with {index},{name},{ext},{request_id}.",
     },
-    json: { type: "boolean", description: "Print structured JSON to stdout." },
+    ...outputArgs,
     quiet: { type: "boolean", description: "Suppress progress output during sync runs." },
   },
   run: async ({ args, rawArgs }) => {
@@ -108,8 +110,7 @@ const runCommand = defineCommand({
         request_id: requestId,
         hint: `Check status: vg generate status ${endpoint_id} ${requestId}`,
       };
-      if (isJsonOutput(args)) writeJson(payload);
-      else {
+      if (!writeStructured(payload, args)) {
         consola.success(`Submitted ${endpoint_id}`);
         consola.log(`  request_id: ${requestId}`);
       }
@@ -117,7 +118,7 @@ const runCommand = defineCommand({
     }
 
     const completed = await waitForCompletion(client, endpoint_id, requestId, {
-      quiet: Boolean(args.quiet) || isJsonOutput(args),
+      quiet: Boolean(args.quiet) || isStructuredOutput(args),
     });
 
     let downloaded: Awaited<ReturnType<typeof downloadMedia>> | undefined;
@@ -141,9 +142,7 @@ const runCommand = defineCommand({
         : {}),
     };
 
-    if (isJsonOutput(args)) {
-      writeJson(payload);
-    } else {
+    if (!writeStructured(payload, args)) {
       consola.success(`Run completed (${completed.request_id})`);
       if (downloaded) {
         for (const path of downloaded.downloaded) consola.log(`  ${path}`);
@@ -166,7 +165,7 @@ const runCommand = defineCommand({
 // backend call. The `--download` template still controls output naming;
 // without it we default to cwd.
 async function runViaCodex(opts: {
-  args: { async?: boolean; json?: boolean; quiet?: boolean };
+  args: { async?: boolean; json?: boolean; field?: string; quiet?: boolean };
   finalInput: Record<string, unknown>;
   downloadFlag: { mode: "off" | "on"; template?: string };
   endpoint_id: string;
@@ -215,9 +214,7 @@ async function runViaCodex(opts: {
     ...(ignoredReferences.length > 0 ? { ignored_references: ignoredReferences } : {}),
   };
 
-  if (isJsonOutput(args)) {
-    writeJson(payload);
-  } else {
+  if (!writeStructured(payload, args)) {
     consola.success(`Codex generated ${downloaded.length} image(s) (${requestId})`);
     for (const path of downloaded) consola.log(`  ${path}`);
     for (const f of failed) consola.warn(`  failed: ${f.url} (${f.error})`);
@@ -243,7 +240,7 @@ const statusCommand = defineCommand({
       type: "string",
       description: "Download media from the result (implies --result).",
     },
-    json: { type: "boolean" },
+    ...outputArgs,
   },
   run: async ({ args, rawArgs }) => {
     if (args.result && args.cancel) {
@@ -318,22 +315,22 @@ const statusCommand = defineCommand({
         : {}),
     };
 
-    if (isJsonOutput(args)) {
-      writeJson(payload);
-    } else if (action === "status") {
-      const status = isRecord(data) && typeof data.status === "string" ? data.status : "?";
-      consola.log(`status: ${status}`);
-      if (isRecord(data) && typeof data.queue_position === "number") {
-        consola.log(`queue_position: ${data.queue_position}`);
-      }
-    } else {
-      consola.success(`${action} ${args.endpoint_id} ${args.request_id}`);
-      if (downloaded) {
-        for (const p of downloaded.downloaded) consola.log(`  ${p}`);
-        for (const f of downloaded.failed) consola.warn(`  failed: ${f.url} (${f.error})`);
-      }
-      if (action === "result" && !downloaded?.downloaded.length) {
-        for (const url of extractMediaUrls(data)) consola.log(`  ${url}`);
+    if (!writeStructured(payload, args)) {
+      if (action === "status") {
+        const status = isRecord(data) && typeof data.status === "string" ? data.status : "?";
+        consola.log(`status: ${status}`);
+        if (isRecord(data) && typeof data.queue_position === "number") {
+          consola.log(`queue_position: ${data.queue_position}`);
+        }
+      } else {
+        consola.success(`${action} ${args.endpoint_id} ${args.request_id}`);
+        if (downloaded) {
+          for (const p of downloaded.downloaded) consola.log(`  ${p}`);
+          for (const f of downloaded.failed) consola.warn(`  failed: ${f.url} (${f.error})`);
+        }
+        if (action === "result" && !downloaded?.downloaded.length) {
+          for (const url of extractMediaUrls(data)) consola.log(`  ${url}`);
+        }
       }
     }
 
@@ -361,7 +358,7 @@ const modelsCommand = defineCommand({
       type: "string",
       description: "Expand fields: openapi-3.0, enterprise_status. Repeat or comma-separate.",
     },
-    json: { type: "boolean" },
+    ...outputArgs,
   },
   run: async ({ args }) => {
     const query: Record<string, string | string[]> = {};
@@ -382,8 +379,7 @@ const modelsCommand = defineCommand({
       path: "/v1/models",
       query,
     });
-    if (isJsonOutput(args)) writeJson(data);
-    else printModels(data);
+    if (!writeStructured(data, args)) printModels(data);
   },
 });
 
@@ -418,7 +414,7 @@ const schemaCommand = defineCommand({
   args: {
     endpoint_id: { type: "positional", required: true },
     format: { type: "string", description: "compact (default) | openapi" },
-    json: { type: "boolean" },
+    ...outputArgs,
   },
   run: async ({ args }) => {
     const expand = args.format === "openapi" ? ["openapi-3.0"] : [];
@@ -433,7 +429,7 @@ const schemaCommand = defineCommand({
         ...(expand.length > 0 ? { expand } : {}),
       },
     });
-    writeJson(data);
+    if (!writeStructured(data, args)) writeJson(data);
   },
 });
 
@@ -443,7 +439,7 @@ const pricingCommand = defineCommand({
   meta: { name: "pricing", description: "Fetch pricing for a model." },
   args: {
     endpoint_id: { type: "positional", required: true },
-    json: { type: "boolean" },
+    ...outputArgs,
   },
   run: async ({ args }) => {
     const client = createClient();
@@ -453,7 +449,7 @@ const pricingCommand = defineCommand({
       path: "/v1/models/pricing",
       query: { endpoint_id: args.endpoint_id },
     });
-    writeJson(data);
+    if (!writeStructured(data, args)) writeJson(data);
   },
 });
 
@@ -463,7 +459,7 @@ const docsCommand = defineCommand({
   meta: { name: "docs", description: "Search generative-model documentation." },
   args: {
     query: { type: "positional", required: true },
-    json: { type: "boolean" },
+    ...outputArgs,
   },
   run: async ({ args }) => {
     const client = createClient();
@@ -478,7 +474,7 @@ const docsCommand = defineCommand({
         params: { name: "search_fal", arguments: { query: args.query } },
       },
     });
-    writeJson(data);
+    if (!writeStructured(data, args)) writeJson(data);
   },
 });
 
@@ -491,7 +487,7 @@ const uploadCommand = defineCommand({
   },
   args: {
     path: { type: "positional", required: true },
-    json: { type: "boolean" },
+    ...outputArgs,
   },
   run: async ({ args }) => {
     const stat = readExplicitLocalFile(args.path);
@@ -501,8 +497,7 @@ const uploadCommand = defineCommand({
     }
     const client = createClient();
     const url = await uploadFile(client, stat);
-    if (isJsonOutput(args)) writeJson({ url });
-    else process.stdout.write(url + "\n");
+    if (!writeStructured({ url }, args)) process.stdout.write(url + "\n");
   },
 });
 

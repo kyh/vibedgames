@@ -13,10 +13,9 @@ For choosing endpoints and writing prompts, use the generate skills (`model-cata
 3D generation is slow (1–5 min) — always async, then poll. Endpoint selection lives in the `model-catalog` skill (`text-to-3d` / `image-to-3d`); IDs are passed through verbatim.
 
 ```bash
-SUBMIT=$(vg generate run fal-ai/meshy/v6/text-to-3d \
+REQ=$(vg generate run fal-ai/meshy/v6/text-to-3d \
   --prompt "a low-poly treasure chest, game asset, clean topology" \
-  --async --json)
-REQ=$(echo "$SUBMIT" | jq -r '.request_id')
+  --async --field request_id)
 
 vg generate status fal-ai/meshy/v6/text-to-3d "$REQ" \
   --download "./public/models/chest.{ext}" --json

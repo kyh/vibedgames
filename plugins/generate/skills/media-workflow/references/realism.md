@@ -45,7 +45,7 @@ For prompt mechanics specific to GPT Image 2, see [model-prompting/references/gp
 vg generate schema openai/gpt-image-2 --json
 
 # 2. Optionally upload a reference (for identity-preserving generation)
-URL_REF=$(vg generate upload ./reference.jpg --json | jq -r '.url')
+URL_REF=$(vg generate upload ./reference.jpg --field url)
 
 # 3. Run with structured prompt
 vg generate run openai/gpt-image-2 \

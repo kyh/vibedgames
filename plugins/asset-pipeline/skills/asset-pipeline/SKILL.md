@@ -7,7 +7,7 @@ description: "Asset pipeline utilities for 2D game projects: validate an asset m
 
 Bundled `scripts/` keep a game's art pipeline consistent and debuggable. Run from repo root.
 
-`uv` is recommended: every script ships PEP 723 metadata (`# /// script ...`) so `uv run <script.py>` installs deps automatically (no `pip install`). Without `uv`: Python 3.11+ with Pillow.
+Scripts are plain Node — `node <script.mjs>`. No Python, no `uv`, no `pip install`, and nothing to install beyond Node itself: each script imports a bundled, dependency-free `scripts/_lib/asset-tools.mjs`.
 
 ## Asset Index Theory
 
@@ -102,12 +102,12 @@ Frames are `[column, row]` pairs, zero-based (`[0,0]` = first cell). Grid is `fr
 
 ### Workflow: Building an Asset Index
 
-1. **Inventory** — `asset_sizes.py` for all PNG dimensions.
-2. **Probe sheets** — `asset_sheet_probe.py --frame WxH --list` for non-empty cells.
+1. **Inventory** — `asset_sizes.mjs` for all PNG dimensions.
+2. **Probe sheets** — `asset_sheet_probe.mjs --frame WxH --list` for non-empty cells.
 3. **Categorize** — background / tileset / static image / spritesheet.
 4. **Define animations** — frame sequences + fps for spritesheets.
 5. **Write manifest** — JSON (or Lua for Love2D).
-6. **Validate** — `asset_manifest_check.py` for manifest ↔ disk sync.
+6. **Validate** — `asset_manifest_check.mjs` for manifest ↔ disk sync.
 
 ## Animation Normalization
 
@@ -126,83 +126,98 @@ If a character looks like it's **floating above its shadow** or stands at differ
 
 ## Tools
 
-### Manifest Coverage Check (`asset_manifest_check.py`)
+### Manifest Coverage Check (`asset_manifest_check.mjs`)
 
 Verify every PNG on disk appears in the manifest and vice versa.
 
 ```bash
-uv run .claude/skills/asset-pipeline/scripts/asset_manifest_check.py
-uv run .claude/skills/asset-pipeline/scripts/asset_manifest_check.py --manifest path/to/assets_index.lua --root assets
-uv run .claude/skills/asset-pipeline/scripts/asset_manifest_check.py --json tmp/coverage.json
+node .claude/skills/asset-pipeline/scripts/asset_manifest_check.mjs
+node .claude/skills/asset-pipeline/scripts/asset_manifest_check.mjs --manifest path/to/assets_index.lua --root assets
+node .claude/skills/asset-pipeline/scripts/asset_manifest_check.mjs --json tmp/coverage.json
 ```
 
-### Manifest Export (`asset_manifest_export_json.py`)
+### Manifest Export (`asset_manifest_export_json.mjs`)
 
 Export `assets_index.lua` (Love2D-style) to a portable `assets_index.json`. By default it rewrites all `path` entries relative to the output folder and sets `meta.root` to `"."`, so the result can be copied/zipped and still work.
 
 ```bash
-uv run .claude/skills/asset-pipeline/scripts/asset_manifest_export_json.py --manifest path/to/assets_index.lua --out path/to/assets_index.json
+node .claude/skills/asset-pipeline/scripts/asset_manifest_export_json.mjs --manifest path/to/assets_index.lua --out path/to/assets_index.json
 ```
 
-### Sprite-Sheet Probe (`asset_sheet_probe.py`)
+### Sprite-Sheet Probe (`asset_sheet_probe.mjs`)
 
 Find non-empty cells in a sheet grid. Essential for building `frames` arrays.
 
 ```bash
-uv run .claude/skills/asset-pipeline/scripts/asset_sheet_probe.py image.png --frame 32x32
-uv run .claude/skills/asset-pipeline/scripts/asset_sheet_probe.py folder/ --frame 16x16 --list --json tmp/probe.json
+node .claude/skills/asset-pipeline/scripts/asset_sheet_probe.mjs image.png --frame 32x32
+node .claude/skills/asset-pipeline/scripts/asset_sheet_probe.mjs folder/ --frame 16x16 --list --json tmp/probe.json
 ```
 
-### Sprite Baseline Audit/Fix (`asset_sprite_baseline.py`)
+### Sprite Baseline Audit/Fix (`asset_sprite_baseline.mjs`)
 
 Audit visible alpha bounds inside a sheet grid and optionally write baseline-corrected copies. Use when a character floats above its shadow in one direction, a directional idle was made from an attack frame, AI sheets have inconsistent transparent padding under the feet, or engine origins are correct but visual foot placement differs. It's a runtime export guardrail — it verifies final PNG frames agree with engine sprite-origin/shadow assumptions, not animation quality.
 
 ```bash
 # Report per-frame alpha bounds, visible bottom pixel, required shift.
-uv run .claude/skills/asset-pipeline/scripts/asset_sprite_baseline.py public/assets/kaede --frame 256x256 --json tmp/kaede-baselines.json
+node .claude/skills/asset-pipeline/scripts/asset_sprite_baseline.mjs public/assets/kaede --frame 256x256 --json tmp/kaede-baselines.json
 
 # Write fixed copies whose visible feet land on y=255.
-uv run .claude/skills/asset-pipeline/scripts/asset_sprite_baseline.py public/assets/kaede --frame 256x256 --target-bottom 255 --out-dir tmp/kaede-baseline-fixed
+node .claude/skills/asset-pipeline/scripts/asset_sprite_baseline.mjs public/assets/kaede --frame 256x256 --target-bottom 255 --out-dir tmp/kaede-baseline-fixed
 
 # Also normalize horizontal center (for idle/standing sources).
-uv run .claude/skills/asset-pipeline/scripts/asset_sprite_baseline.py public/assets/kaede/idle-n.png --frame 256x256 --target-bottom 255 --target-center-x 128 --out tmp/idle-n-fixed.png
+node .claude/skills/asset-pipeline/scripts/asset_sprite_baseline.mjs public/assets/kaede/idle-n.png --frame 256x256 --target-bottom 255 --target-center-x 128 --out tmp/idle-n-fixed.png
 ```
 
-### PNG Dimension Listing (`asset_sizes.py`)
+### PNG Dimension Listing (`asset_sizes.mjs`)
 
 ```bash
-uv run .claude/skills/asset-pipeline/scripts/asset_sizes.py
-uv run .claude/skills/asset-pipeline/scripts/asset_sizes.py --root assets/ --json tmp/sizes.json
+node .claude/skills/asset-pipeline/scripts/asset_sizes.mjs
+node .claude/skills/asset-pipeline/scripts/asset_sizes.mjs --root assets/ --json tmp/sizes.json
 ```
 
-### Tileset/Tilemap Editor (`asset_tilemap_editor.py`)
+### Tileset/Tilemap Exports and Editor (`asset_tilemap_editor.mjs`)
 
-Manifest-driven GUI to verify `tileWidth`/`tileHeight` grid math + `columns`/`rows`, that cursor movement is exactly 1 cell per keypress, and that save/load preserves layout. The GUI uses `tkinter` (provided by your Python distro/OS, not installed via uv/pip).
+Manifest-driven checks that `tileWidth`/`tileHeight` grid math and `columns`/`rows` are what you think they are. A wrong `margin` or `spacing` is invisible in the manifest and shows up in-game as tiles sheared by a pixel — these exports make it obvious before that happens.
 
-```bash
-uv run .claude/skills/asset-pipeline/scripts/asset_tilemap_editor.py --manifest path/to/assets_index.json
-```
-
-Controls: arrows move cursor cell-by-cell · `WASD` move palette selection · `Space/Enter` paint, `X/Backspace` erase · `[`/`]` switch tileset, `+/-` zoom · `F5` quick-save (`tilemap.json`), `F9` quick-load (requires `--map`) · `G` grid, `H` help.
-
-Headless exports (no `tkinter`):
+Start with the self-test map: it places every non-empty tile at its own coordinate, so rendering it should reproduce the tileset exactly. If the render doesn't match the sheet, the grid metadata is wrong.
 
 ```bash
 # Grid-overlay PNG for a tileset
-uv run .claude/skills/asset-pipeline/scripts/asset_tilemap_editor.py \
+node .claude/skills/asset-pipeline/scripts/asset_tilemap_editor.mjs \
   --manifest path/to/assets_index.json --tileset <tileset_name> \
   --export-tileset-grid tmp/tileset_grid.png --label-ids --scale 6 --trim
 
 # Self-test tilemap (all non-empty tiles in-place) and render it
-uv run .claude/skills/asset-pipeline/scripts/asset_tilemap_editor.py \
+node .claude/skills/asset-pipeline/scripts/asset_tilemap_editor.mjs \
   --manifest path/to/assets_index.json --tileset <tileset_name> \
   --make-selftest-map tmp/selftest.json
-uv run .claude/skills/asset-pipeline/scripts/asset_tilemap_editor.py \
+node .claude/skills/asset-pipeline/scripts/asset_tilemap_editor.mjs \
   --manifest path/to/assets_index.json --map tmp/selftest.json \
   --export-map-render tmp/selftest.png --scale 6 --trim
 
 # Background color + fill rectangles behind tiles (concept mockups)
-uv run .claude/skills/asset-pipeline/scripts/asset_tilemap_editor.py \
+node .claude/skills/asset-pipeline/scripts/asset_tilemap_editor.mjs \
   --manifest path/to/assets_index.json --map tmp/selftest.json \
   --export-map-render tmp/selftest_bg.png --scale 6 --bg '#77cfd8' --fill-rect '0,40,24,6,#12a7d5'
 ```
+
+#### Painting a map by hand (`--edit`)
+
+`--edit` serves a painting editor over loopback and prints a URL — nothing to
+install, and the map format is the same one the exports read. Left-click paints
+the selected tile, right-click erases, dragging strokes; arrows move the cursor,
+WASD moves the palette selection, `[`/`]` switch tileset, `+`/`-` zoom, `G`
+toggles the grid, `Ctrl-S`/`F5` saves and `Ctrl-L`/`F9` reloads.
+
+```bash
+node .claude/skills/asset-pipeline/scripts/asset_tilemap_editor.mjs \
+  --manifest path/to/assets_index.json --map maps/level1.json --edit
+```
+
+The URL includes a per-run token that every request must repeat, and saves are
+refused outside the working directory (`--write-root` moves that boundary).
+`--port` pins the port; without it the OS picks a free one.
+
+An agent generally does not need this — generating a map JSON directly is
+faster, and `--export-map-render` is how you check it. Reach for `--edit` when a
+human wants to lay out a level by eye.

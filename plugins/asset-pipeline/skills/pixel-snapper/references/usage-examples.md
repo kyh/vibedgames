@@ -7,7 +7,7 @@ Concrete invocation patterns. All paths assume project root.
 Quick and dirty for a small retro-style input:
 
 ```bash
-uv run .claude/skills/pixel-snapper/scripts/pixel_snapper.py \
+node .claude/skills/pixel-snapper/scripts/pixel_snapper.mjs \
   input.png \
   output.png
 ```
@@ -15,20 +15,20 @@ uv run .claude/skills/pixel-snapper/scripts/pixel_snapper.py \
 ## Single Image — High Color Count (recommended for AI renders)
 
 ```bash
-uv run .claude/skills/pixel-snapper/scripts/pixel_snapper.py \
-  concepts/sprites/characters/cass-cowboy-south-1.png \
-  experiments/<timestamp>-pixel-snap-cass/cass-snapped.png \
+node .claude/skills/pixel-snapper/scripts/pixel_snapper.mjs \
+  path/to/your/sprite.png \
+  experiments/<timestamp>-pixel-snap/sprite-snapped.png \
   --k-colors 256
 ```
 
 ## Direct invocation (after `chmod +x`)
 
-The script's shebang is `#!/usr/bin/env -S uv run --script`, so once executable you can call it like any CLI:
+The script's shebang is `#!/usr/bin/env node`, so once executable you can call it like any CLI:
 
 ```bash
-chmod +x .claude/skills/pixel-snapper/scripts/pixel_snapper.py
+chmod +x .claude/skills/pixel-snapper/scripts/pixel_snapper.mjs
 
-.claude/skills/pixel-snapper/scripts/pixel_snapper.py \
+.claude/skills/pixel-snapper/scripts/pixel_snapper.mjs \
   input.png output.png --k-colors 256
 ```
 
@@ -38,9 +38,9 @@ chmod +x .claude/skills/pixel-snapper/scripts/pixel_snapper.py
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 OUT_DIR=experiments/${TIMESTAMP}-pixel-snap-batch
 mkdir -p "$OUT_DIR"
-for f in concepts/sprites/characters/*.png; do
+for f in path/to/your/sprites/*.png; do
   name=$(basename "$f" .png)
-  uv run .claude/skills/pixel-snapper/scripts/pixel_snapper.py \
+  node .claude/skills/pixel-snapper/scripts/pixel_snapper.mjs \
     "$f" "$OUT_DIR/${name}-snapped.png" --k-colors 256
 done
 ```
@@ -52,9 +52,8 @@ After snapping, view the output at a usable size without browser resampling arti
 ```bash
 for f in "$OUT_DIR"/*-snapped.png; do
   name=$(basename "$f" .png)
-  ffmpeg -y -loglevel error -i "$f" \
-    -vf "scale=iw*8:ih*8:flags=neighbor" \
-    "$OUT_DIR/${name}-x8.png"
+  node .claude/skills/pixel-snapper/scripts/image_util.mjs upscale \
+    "$f" "$OUT_DIR/${name}-x8.png" --factor 8
 done
 ```
 
@@ -66,10 +65,10 @@ When you don't know which `k_colors` is right for a given input, sweep:
 
 ```bash
 for k in 16 32 64 128 256; do
-  uv run .claude/skills/pixel-snapper/scripts/pixel_snapper.py \
+  node .claude/skills/pixel-snapper/scripts/pixel_snapper.mjs \
     input.png "out-k${k}.png" --k-colors "$k"
-  ffmpeg -y -loglevel error -i "out-k${k}.png" \
-    -vf "scale=iw*8:ih*8:flags=neighbor" "out-k${k}-x8.png"
+  node .claude/skills/pixel-snapper/scripts/image_util.mjs upscale \
+    "out-k${k}.png" "out-k${k}-x8.png" --factor 8
 done
 ```
 
@@ -77,48 +76,49 @@ Then visually compare. Smaller `k` = blockier, more "vintage". Larger `k` = clos
 
 ## Known-Layout Spritesheet
 
-Use `pixel_snapper_sheet.py` when the input is already a sheet with known rows and columns. It crops the frames out of the sheet (removing the frame-grid scale that would otherwise confuse step detection), snaps them together as one strip so every frame lands on the same pixel grid and stays the same size, then reassembles the sheet.
+Use `pixel_snapper_sheet.mjs` when the input is already a sheet with known rows and columns. It crops the frames out of the sheet (removing the frame-grid scale that would otherwise confuse step detection), snaps them together as one strip so every frame lands on the same pixel grid and stays the same size, then reassembles the sheet.
 
 ```bash
-uv run .claude/skills/pixel-snapper/scripts/pixel_snapper_sheet.py \
-  concepts/sprites/characters/walk-south.png \
+node .claude/skills/pixel-snapper/scripts/pixel_snapper_sheet.mjs \
+  path/to/your/walk-south.png \
   experiments/<timestamp>-pixel-snap-walk/walk-south-snapped.png \
   --cols 6 --rows 1 --k-colors 256
 ```
 
 ## Quick Sanity Checks
 
-- **Input dims**: `sips -g pixelWidth -g pixelHeight input.png` (macOS) or `identify input.png` (ImageMagick).
+- **Input dims**: `node .claude/skills/pixel-snapper/scripts/image_util.mjs size input.png`.
 - **Output dims**: same. The script also prints them on completion.
 - **Was the fallback triggered?** If output is exactly 64×64 and input is large, step-detection failed. Either change `k_colors` significantly, or this image isn't a pixel-snapping candidate.
 - **Did colors collapse to nothing?** If output is mostly one color, `k_colors` is too low; double it.
 
 ## Reproducing the Reference Test
 
-The character concepts in `concepts/sprites/characters/` were the original test set. Verifying the port:
+The port was verified against a four-character concept set that does not live in this
+repo, so the command below is written for your own sprites. Snap a directory you
+trust and compare the dimensions across runs:
 
 ```bash
 mkdir -p experiments/pixel-snapper-verification
-for f in concepts/sprites/characters/*.png; do
+for f in path/to/your/sprites/*.png; do
   name=$(basename "$f" .png)
-  uv run .claude/skills/pixel-snapper/scripts/pixel_snapper.py \
+  node .claude/skills/pixel-snapper/scripts/pixel_snapper.mjs \
     "$f" "experiments/pixel-snapper-verification/${name}-snapped.png" --k-colors 256
 done
 ```
 
-Expected dimensions:
+What to look for: the snapped size should be stable run to run, and should look
+like a plausible native resolution (a character that reads as ~100px tall should
+snap to roughly that, not to 64×64). Output that is exactly 64×64 from a large
+input means step-detection fell back rather than found a pitch.
 
-| Character                | Expected Output |
-| ------------------------ | --------------- |
-| `cass-cowboy-south-1`    | 94×96           |
-| `kaede-ninja-south-1`    | 115×114         |
-| `thorne-brawler-south-1` | 129×129         |
-| `wren-wizard-south-1`    | 103×101         |
-
-If you get different numbers on these inputs, something has changed in the port (or in numpy's RNG behavior between versions).
+One caveat: the k-means seeding differs from upstream's (see `credits.md`), so on
+an input whose pitch is genuinely ambiguous a small deviation between this and
+upstream is a seeding difference rather than a regression. On dense pixel art it
+is not.
 
 ## When NOT to Use This
 
-- Input is a photograph or continuous-tone illustration → use `ffmpeg -vf "scale=W:H:flags=lanczos"` or ImageMagick's `convert -resize`.
+- Input is a photograph or continuous-tone illustration → use `node .claude/skills/pixel-snapper/scripts/image_util.mjs resize in.png out.png --size WxH` (Lanczos).
 - You need to infer unknown rows/columns or extract arbitrary frames from a spritesheet → use an asset-probing workflow first.
 - The image is already at native pixel-art resolution → just leave it alone, or use a palette-only quantizer like `pngquant` if you specifically want fewer colors.

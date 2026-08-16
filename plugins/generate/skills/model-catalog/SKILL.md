@@ -1,13 +1,6 @@
 ---
 name: model-catalog
-description: >
-  Choose the right model endpoint for a given task, and the default endpoint IDs
-  the production skills (character-design, cinematography, storytelling, pixel-art,
-  regenerate-3d, media-workflow) use when the user has not named a model.
-  Modality-organized catalog of production endpoint defaults, text-to-image,
-  image-to-image, text-to-video, image-to-video, and more. Use when the user has
-  not named a specific model, or asks "which model for X", "best endpoint for Y",
-  "what should I use for Z".
+description: 'Choose the right model endpoint for a given task, and the default endpoint IDs the production skills (character-design, cinematography, storytelling, pixel-art, regenerate-3d, media-workflow) use when the user has not named a model. Modality-organized catalog of production endpoint defaults, text-to-image, image-to-image, text-to-video, image-to-video, and more. Use when the user has not named a specific model, or asks "which model for X", "best endpoint for Y", "what should I use for Z".'
 ---
 
 # Models Catalog

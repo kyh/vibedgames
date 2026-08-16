@@ -63,6 +63,31 @@ curl -s -i -X POST http://localhost:5173/api/auth/sign-in/email \
 
 Note better-auth rate-limits to 10 requests / 60s per IP — a tight retry loop against `/api/auth/*` will start getting 429s.
 
+### A real `VG_TOKEN`, for a session with no browser
+
+The token above is the seeded local one. Against **prod** — a cloud session, or CI
+— `VG_TOKEN` has to be a real one, and `vg login` cannot produce it unattended: it
+prints a code and waits for someone to confirm it in a browser. Do that once on a
+machine that has one, then read the token back out:
+
+```sh
+vg login                                   # confirm the code in the browser
+cat ~/.config/vg/auth.json                 # { "token": "...", "baseUrl": "..." }
+node -p 'require(require("os").homedir()+"/.config/vg/auth.json").token' | pbcopy
+```
+
+Set that as the environment secret. `VG_TOKEN` alone is sufficient — it is read
+before the saved config, so a session with no `~/.config/vg` authenticates from it:
+
+```sh
+VG_TOKEN=… vg whoami        # names the account the token belongs to
+VG_TOKEN=… vg credits       # and it can see the balance
+```
+
+It is a live credential against a real balance, so keep it out of the repo and out
+of a public repo's Actions secrets unless a workflow actually needs it — none
+currently does.
+
 ## Verify a change end-to-end
 
 Static gate — run before every commit:

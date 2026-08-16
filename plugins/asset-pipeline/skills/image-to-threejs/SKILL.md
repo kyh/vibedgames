@@ -50,6 +50,9 @@ Run everything through `uv`; system python is often 3.9 and it needs 3.10+.
 ```bash
 I2T=~/.local/share/img2threejs
 run() { uv run --python 3.12 --no-project python "$I2T/$@"; }
+
+# This skill's own directory, used by the commands further down.
+SKILL=.claude/skills/image-to-threejs
 ```
 
 ## The loop
@@ -177,7 +180,7 @@ quality bar for material/lighting passes — defer them at blockout/structural.
 run forge/stage3_build/generate_threejs_factory.py spec.json \
     --out src/model/<name>-factory.generated.ts --pass-id blockout --force
 
-uv run --python 3.12 --no-project $SKILL/scripts/normalize_factory.py \
+node $SKILL/scripts/normalize_factory.mjs \
     src/model/<name>-factory.generated.ts
 
 uv run --python 3.12 --no-project $SKILL/scripts/render_model.py \

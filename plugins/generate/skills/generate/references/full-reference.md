@@ -178,12 +178,23 @@ Skills live in this repo under `plugins/*/skills/` and are symlinked into `.clau
 
 ## Agent-first design
 
-All commands emit structured JSON when piped or called with `--json`:
+All commands emit structured JSON when piped or called with `--json`, and
+`--field` pulls one value out of it so nothing has to be piped through a JSON
+processor:
 
 ```bash
 vg generate run fal-ai/flux/dev --prompt "a cat" --json
-vg generate models "text to video" --json | jq '.models[]'
+vg generate models "text to video" --json
+
+# One value, printed bare, ready for $(...) capture
+vg generate run fal-ai/flux/dev --prompt "a cat" --field result.images[0].url
+vg generate upload ./input.png --field url
 ```
+
+`--field` takes a dotted path, accepts `images[0]` or `images.0`, and counts
+negative indices from the end. Scalars print bare, arrays of scalars print one
+per line, and anything structural prints as JSON. An unresolvable path is an
+error, not an empty line.
 
 For a machine-readable description of every command, argument, and option:
 
@@ -207,15 +218,13 @@ vg generate run fal-ai/flux/dev \
 ### Async submission, then poll until done
 
 ```bash
-SUBMIT=$(vg generate run <endpoint_id> --prompt "..." --async --json)
-REQ=$(echo "$SUBMIT" | jq -r '.request_id')
+REQ=$(vg generate run <endpoint_id> --prompt "..." --async --field request_id)
 
 # Poll until status is COMPLETED
 while true; do
- RES=$(vg generate status <endpoint_id> "$REQ" --json)
- STATUS=$(echo "$RES" | jq -r '.status')
+ STATUS=$(vg generate status <endpoint_id> "$REQ" --field status)
  [ "$STATUS" = "COMPLETED" ] && break
- [ "$STATUS" = "FAILED" ] && { echo "$RES" | jq '.error'; exit 1; }
+ [ "$STATUS" = "FAILED" ] && { vg generate status <endpoint_id> "$REQ" --json; exit 1; }
  sleep 5
 done
 
@@ -227,7 +236,7 @@ vg generate status <endpoint_id> "$REQ" \
 ### Upload then reference
 
 ```bash
-URL=$(vg generate upload ./input.png --json | jq -r '.url')
+URL=$(vg generate upload ./input.png --field url)
 vg generate run fal-ai/nano-banana-pro/edit \
  --image_urls "$URL" \
  --prompt "..." \

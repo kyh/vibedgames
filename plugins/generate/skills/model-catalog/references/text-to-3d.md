@@ -24,11 +24,10 @@ Curated picks. Output is typically GLB / OBJ / PLY. **Meshy 6** and **Hunyuan 3D
 ## Async pattern
 
 ```bash
-SUBMIT=$(vg generate run fal-ai/meshy/v6/text-to-3d \
+REQ=$(vg generate run fal-ai/meshy/v6/text-to-3d \
  --prompt "a medieval sword with ornate handle" \
  --async \
- --json)
-REQ=$(echo "$SUBMIT" | jq -r '.request_id')
+ --field request_id)
 
 vg generate status fal-ai/meshy/v6/text-to-3d "$REQ" \
  --download "./out/{request_id}.{ext}" \

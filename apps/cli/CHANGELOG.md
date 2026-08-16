@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- **`--field <path>` on every command that emits JSON** (`generate run/status/models/schema/pricing/docs/upload`, `credits`, `fork`). Prints one value from the result, bare, so `$(vg generate upload x.png --field url)` needs no JSON processor — `jq` is no longer a prerequisite for following the generate skill. Paths are dotted, accept `images[0]` or `images.0`, and count negative indices from the end; an unresolvable path exits non-zero instead of printing an empty line.
+- Skill recipes that chained `vg generate run --json | jq -r '.audio.url'` now read `--field result.audio.url`. The old form was reading the wrong level: the CLI nests the model's output under `result`, so those examples returned nothing.
+- `vg init` and `vg update` self-update with the package manager that installed the CLI — npm, pnpm, yarn or bun, detected from the install path — instead of always `npm install -g`. On a pnpm/bun/yarn install the old behaviour either failed outright or wrote a second copy into a different global prefix, so `vg --version` never moved. When the manager isn't on PATH, both now print the exact command to run.
+- The tilemap editor is a browser UI (`asset_tilemap_editor.mjs --edit`) rather than a Tkinter window: same map format and keys, nothing to install. It serves one page over loopback behind a per-run token, and refuses to read or write outside the working directory.
+- Skill scripts no longer need Python. The asset-pipeline, animated-spritesheets, pixel-snapper, aseprite and skill-creator skills run on `node` alone, against a bundled dependency-free `scripts/_lib/asset-tools.mjs`.
+- **A misspelled option is an error, not a silent default.** The skill scripts used to accept any `--flag` and quietly ignore the ones they never read, so `pixel_snapper.mjs --k-colours 4` ran on the default palette and exited 0. Each script now declares its whole option surface and anything outside it exits 2 with `unrecognized arguments`, the way the Python originals did.
+- `--help` and `-h` work on every skill script, printing what the script does. They were accepted and then ignored on all but one, so asking a script for help answered with whichever required argument was missing.
+- Usage errors exit 2 and runtime failures exit 1 across the skill scripts, restoring the split the Python originals had.
+- A corrupt PNG is refused rather than decoded into whatever the file implies: truncated pixel data used to produce an image nobody wrote, and a corrupt header could raise an allocation failure instead of a message.
+
 ## 0.3.1 — 2026-07-29
 
 - **`vg deploy` no longer uploads a source archive by default.** The archive is readable by any logged-in user, so shipping it is a publish — it is now opt-in via `--source`. Deploys that relied on the old default stop being forkable; re-deploy with `--source` to restore it. `--no-source` still parses and is still a no-op against the new default.
