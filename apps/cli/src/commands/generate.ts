@@ -140,6 +140,9 @@ const runCommand = defineCommand({
       ...(downloaded && downloaded.failed.length > 0
         ? { download_failures: downloaded.failed }
         : {}),
+      ...(downloaded && downloaded.mislabeled.length > 0
+        ? { download_format_mismatches: downloaded.mislabeled }
+        : {}),
     };
 
     if (!writeStructured(payload, args)) {
@@ -147,6 +150,7 @@ const runCommand = defineCommand({
       if (downloaded) {
         for (const path of downloaded.downloaded) consola.log(`  ${path}`);
         for (const f of downloaded.failed) consola.warn(`  failed: ${f.url} (${f.error})`);
+        warnMislabeled(downloaded.mislabeled);
       }
       if (!downloaded?.downloaded.length) {
         for (const url of extractMediaUrls(completed.result)) consola.log(`  ${url}`);
@@ -158,6 +162,20 @@ const runCommand = defineCommand({
     }
   },
 });
+
+/**
+ * A downloaded file whose extension does not match the bytes inside it.
+ *
+ * The model, not the CLI, picks the output format, so asking for `board.png`
+ * from an endpoint that returns JPEG produces a `.png` full of JPEG. The next
+ * tool in the pipeline reports "bad signature" with no hint of where it came
+ * from, so name it here while the cause is still on screen.
+ */
+function warnMislabeled(mislabeled: { path: string; actual: string }[]): void {
+  for (const m of mislabeled) {
+    consola.warn(`  ${m.path} holds ${m.actual.toUpperCase()} data, not what its extension says`);
+  }
+}
 
 // Delegate image generation to the local Codex CLI instead of the
 // vibedgames model runner. Produces local files directly (Codex writes
@@ -313,6 +331,9 @@ const statusCommand = defineCommand({
       ...(downloaded && downloaded.failed.length > 0
         ? { download_failures: downloaded.failed }
         : {}),
+      ...(downloaded && downloaded.mislabeled.length > 0
+        ? { download_format_mismatches: downloaded.mislabeled }
+        : {}),
     };
 
     if (!writeStructured(payload, args)) {
@@ -327,6 +348,7 @@ const statusCommand = defineCommand({
         if (downloaded) {
           for (const p of downloaded.downloaded) consola.log(`  ${p}`);
           for (const f of downloaded.failed) consola.warn(`  failed: ${f.url} (${f.error})`);
+          warnMislabeled(downloaded.mislabeled);
         }
         if (action === "result" && !downloaded?.downloaded.length) {
           for (const url of extractMediaUrls(data)) consola.log(`  ${url}`);

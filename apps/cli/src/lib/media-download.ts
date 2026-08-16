@@ -108,7 +108,50 @@ function extFromUrl(url: string): string {
 type DownloadResult = {
   downloaded: string[];
   failed: { url: string; error: string }[];
+  mislabeled: { path: string; actual: string }[];
 };
+
+// The extension each content type genuinely is. Only formats an agent is
+// likely to hand to a decoder afterwards need an entry; anything absent is
+// left alone rather than guessed at.
+const EXT_FOR_CONTENT_TYPE: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/webp": "webp",
+  "image/gif": "gif",
+  "image/avif": "avif",
+  "video/mp4": "mp4",
+  "video/webm": "webm",
+  "video/quicktime": "mov",
+  "audio/mpeg": "mp3",
+  "audio/wav": "wav",
+  "audio/ogg": "ogg",
+};
+
+// Extensions that name the same format, so `.jpg` for `image/jpeg` is not a lie.
+const EXT_ALIASES: Record<string, string> = {
+  jpeg: "jpg",
+  tif: "tiff",
+  htm: "html",
+};
+
+const canonicalExt = (ext: string) => EXT_ALIASES[ext] ?? ext;
+
+/**
+ * The extension the caller asked for versus the bytes actually served.
+ *
+ * `--download board.png` is honoured literally — renaming the path the caller
+ * chose would break whatever they wired it into — so when a model returns JPEG
+ * the file is a `.png` holding JPEG bytes. Downstream decoders reject it with
+ * "bad signature" and nothing points back here, hence the explicit report.
+ */
+function mislabelOf(target: string, ref: MediaRef): { path: string; actual: string } | null {
+  const asked = canonicalExt(extname(target).slice(1).toLowerCase());
+  if (!asked) return null;
+  const actual = ref.contentType ? EXT_FOR_CONTENT_TYPE[ref.contentType] : undefined;
+  if (!actual || canonicalExt(actual) === asked) return null;
+  return { path: target, actual };
+}
 
 /**
  * Download all extracted media refs to disk, materializing the path from
@@ -134,7 +177,9 @@ export async function downloadMedia(opts: {
   // Fetch all refs in parallel; fal CDN handles the concurrency fine and
   // multi-image runs (`--num_images N`) become N× faster than the old
   // sequential loop. Results stay in ref order via mapped Promise.all.
-  type Outcome = { ok: true; target: string } | { ok: false; url: string; error: string };
+  type Outcome =
+    | { ok: true; target: string; mislabel: { path: string; actual: string } | null }
+    | { ok: false; url: string; error: string };
 
   const outcomes: Outcome[] = await Promise.all(
     opts.refs.map(async (ref, i): Promise<Outcome> => {
@@ -146,7 +191,7 @@ export async function downloadMedia(opts: {
         }
         const bytes = new Uint8Array(await res.arrayBuffer());
         writeFileSync(target, bytes);
-        return { ok: true, target };
+        return { ok: true, target, mislabel: mislabelOf(target, ref) };
       } catch (err) {
         return {
           ok: false,
@@ -159,11 +204,16 @@ export async function downloadMedia(opts: {
 
   const downloaded: string[] = [];
   const failed: { url: string; error: string }[] = [];
+  const mislabeled: { path: string; actual: string }[] = [];
   for (const o of outcomes) {
-    if (o.ok) downloaded.push(o.target);
-    else failed.push({ url: o.url, error: o.error });
+    if (!o.ok) {
+      failed.push({ url: o.url, error: o.error });
+      continue;
+    }
+    downloaded.push(o.target);
+    if (o.mislabel) mislabeled.push(o.mislabel);
   }
-  return { downloaded, failed };
+  return { downloaded, failed, mislabeled };
 }
 
 // Strip any directory components from a fal-provided file_name so a

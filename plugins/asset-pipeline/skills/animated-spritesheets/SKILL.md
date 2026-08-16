@@ -49,6 +49,15 @@ vg generate run fal-ai/nano-banana-pro/edit --prompt "<from step 2>" \
 node .claude/skills/animated-spritesheets/scripts/process_sheet.mjs attack-board.png --action attack --rows 3 --cols 4 --frames 8 --out-dir runs/hero-attack
 ```
 
+> **`--download x.png` does not make the file a PNG.** The model chooses the
+> output format, so an endpoint that answers JPEG writes JPEG bytes into the
+> `.png` you named, and every script here — they read PNG only, by design —
+> rejects it with `Not a PNG file (bad signature)`. `vg generate` warns when
+> the bytes contradict the extension; when it does, pick an endpoint that
+> returns PNG rather than trying to convert (there is no converter in this
+> toolkit, and no ImageMagick/ffmpeg to fall back on). `nano-banana-pro/edit`
+> returns PNG; `flux/dev` returns JPEG.
+
 The deliverable is `<out-dir>/spritesheet.png` + `spritesheet.json`, with
 `runtime/` frames and `review/<action>.gif`. Load it:
 

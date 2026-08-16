@@ -183,6 +183,50 @@ test("downloadMedia writes to a file template literally (not as a directory)", a
   assert.deepEqual(result.downloaded, [resolve(target)]);
 });
 
+test("downloadMedia reports a download whose bytes contradict its extension", async () => {
+  // A model picks its own output format, so `--download board.png` against an
+  // endpoint that answers JPEG writes JPEG into a `.png`. The path is honoured
+  // as asked; the mismatch is reported so the "bad signature" a PNG decoder
+  // raises three steps later is traceable.
+  const port = await makeTestServer(cleanups, (_, res) => {
+    res.setHeader("content-type", "image/jpeg");
+    res.end(Buffer.from([0xff, 0xd8, 0xff, 0xe0]));
+  });
+  const dir = tmpDir();
+  const target = join(dir, "board.png");
+  const ref = {
+    url: `http://127.0.0.1:${port}/source.jpg`,
+    filename: "source.jpg",
+    contentType: "image/jpeg" as const,
+  };
+
+  const result = await downloadMedia({ refs: [ref], template: target, requestId: "rid" });
+  assert.deepEqual(result.downloaded, [resolve(target)], "the requested path is still honoured");
+  assert.deepEqual(result.mislabeled, [{ path: resolve(target), actual: "jpg" }]);
+});
+
+test("downloadMedia stays quiet when the extension matches, aliases included", async () => {
+  const port = await makeTestServer(cleanups, (_, res) => {
+    res.setHeader("content-type", "image/jpeg");
+    res.end(Buffer.from([0xff, 0xd8, 0xff, 0xe0]));
+  });
+  const dir = tmpDir();
+  const ref = {
+    url: `http://127.0.0.1:${port}/source.jpg`,
+    filename: "source.jpg",
+    contentType: "image/jpeg" as const,
+  };
+
+  for (const name of ["board.jpg", "board.jpeg"]) {
+    const result = await downloadMedia({
+      refs: [ref],
+      template: join(dir, name),
+      requestId: "rid",
+    });
+    assert.deepEqual(result.mislabeled, [], `${name} names the same format`);
+  }
+});
+
 test("downloadMedia suffixes colliding targets so multi-output runs don't overwrite", async () => {
   // extractMediaRefs gives every ref the default filename `output.png`
   // when fal omits `file_name`. Without disambiguation, all N downloads
