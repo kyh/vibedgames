@@ -33,6 +33,15 @@ const ADAM7 = [
 /** Channel count per PNG colour type, indexed by the colour type itself. */
 const CHANNELS: Record<number, number> = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 };
 
+/**
+ * Pixel ceiling for a decoded image, ~256 MB of RGBA.
+ *
+ * Generous next to any game asset, and far below the 2^31-1 per side the
+ * format permits, so a corrupt or hostile header is a message instead of an
+ * out-of-memory crash.
+ */
+const MAX_PIXELS = 64_000_000;
+
 export type DecodedPng = {
   width: number;
   height: number;
@@ -204,6 +213,28 @@ function expandPass(
   return cursor;
 }
 
+/**
+ * Bytes of unfiltered scanline data a valid image of this shape must carry:
+ * one filter byte per row, plus the packed samples. Adam7 splits the image
+ * into seven passes, each with its own rows and its own filter bytes.
+ */
+function expectedRawBytes(header: Header): number {
+  const channels = CHANNELS[header.colorType]!;
+  const rowBytes = (w: number) => Math.ceil((channels * header.bitDepth * w) / 8);
+
+  if (header.interlace === 0) {
+    return header.height === 0 ? 0 : header.height * (1 + rowBytes(header.width));
+  }
+  let total = 0;
+  for (const geom of ADAM7) {
+    const passWidth = Math.ceil(Math.max(0, header.width - geom.xStart) / geom.xStep);
+    const passHeight = Math.ceil(Math.max(0, header.height - geom.yStart) / geom.yStep);
+    if (passWidth === 0 || passHeight === 0) continue;
+    total += passHeight * (1 + rowBytes(passWidth));
+  }
+  return total;
+}
+
 /** Decode a PNG buffer into 8-bit RGBA. Throws on malformed input. */
 export function decodePng(buffer: Uint8Array): DecodedPng {
   for (let i = 0; i < SIGNATURE.length; i += 1) {
@@ -218,6 +249,10 @@ export function decodePng(buffer: Uint8Array): DecodedPng {
   const idat: Uint8Array[] = [];
 
   while (pos < buffer.length) {
+    // A truncated file must be reported as truncated. Without this the reads
+    // below run off the end of the DataView, and the caller gets an engine
+    // `RangeError` about offsets instead of something it can act on.
+    if (pos + 8 > buffer.length) throw new Error("PNG: truncated before a chunk header");
     const length = view.getUint32(pos);
     const type = String.fromCharCode(
       buffer[pos + 4]!,
@@ -225,6 +260,9 @@ export function decodePng(buffer: Uint8Array): DecodedPng {
       buffer[pos + 6]!,
       buffer[pos + 7]!,
     );
+    if (pos + 12 + length > buffer.length) {
+      throw new Error(`PNG: truncated ${type} chunk (wanted ${length} bytes)`);
+    }
     const body = buffer.subarray(pos + 8, pos + 8 + length);
 
     if (type === "IHDR") {
@@ -239,6 +277,19 @@ export function decodePng(buffer: Uint8Array): DecodedPng {
       if (buffer[pos + 19] !== 0) throw new Error("PNG: unsupported filter method");
       if (!(header.colorType in CHANNELS)) {
         throw new Error(`PNG: unsupported colour type ${header.colorType}`);
+      }
+      // The dimensions come straight off the file, and the RGBA buffer is sized
+      // from them, so a corrupt IHDR would otherwise be an allocation the size
+      // of whatever the header claims — a `RangeError` from the engine rather
+      // than something a caller can report. Zero is invalid per spec, and would
+      // otherwise decode "successfully" to an empty image.
+      if (header.width < 1 || header.height < 1) {
+        throw new Error(`PNG: invalid dimensions ${header.width}x${header.height}`);
+      }
+      if (header.width * header.height > MAX_PIXELS) {
+        throw new Error(
+          `PNG: ${header.width}x${header.height} exceeds the ${MAX_PIXELS.toLocaleString("en-US")}-pixel limit`,
+        );
       }
     } else if (type === "PLTE") {
       palette = Uint8Array.from(body);
@@ -271,6 +322,19 @@ export function decodePng(buffer: Uint8Array): DecodedPng {
   if (colorType === 3 && bitDepth === 16) throw new Error("PNG: indexed images cap at 8-bit");
 
   const raw = new Uint8Array(inflateSync(Buffer.concat(idat.map((c) => Buffer.from(c)))));
+
+  // The scanlines have to actually be there. Short IDAT data used to read past
+  // the end of `raw`, where `subarray` clamps and missing bytes come back as
+  // `undefined`: a 1x1 image with two bytes of pixel data decoded to a colour
+  // nobody wrote, and exited 0. Larger images happened to trip "unknown filter
+  // type undefined" instead, which is the same bug wearing a message.
+  const expected = expectedRawBytes(header);
+  if (raw.length < expected) {
+    throw new Error(
+      `PNG: truncated pixel data (${raw.length} bytes, expected ${expected} for ${width}x${height})`,
+    );
+  }
+
   const out = new Uint8Array(width * height * 4);
 
   if (interlace === 0) {

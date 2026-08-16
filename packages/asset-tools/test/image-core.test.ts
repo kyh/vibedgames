@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { deflateSync } from "node:zlib";
 
 import { parseColor, toHex } from "../src/image/color.js";
 import { encodeGif } from "../src/image/gif.js";
@@ -200,4 +201,82 @@ test("refuses to build a GIF from mismatched frame sizes", () => {
       ]),
     /every frame must be/,
   );
+});
+
+/**
+ * The decoder sizes its output buffer from the header, so a corrupt IHDR is an
+ * allocation the size of whatever the file claims. Fuzzing found both ends of
+ * that: huge dimensions raised an engine `RangeError` ("Array buffer allocation
+ * failed"), and a truncated file read off the end of the DataView. Neither is
+ * something a caller can report, and a 0x0 image decoded "successfully".
+ */
+test("a corrupt header is a message, not an allocation failure", () => {
+  const good = encodePng({ width: 4, height: 3, data: new Uint8Array(4 * 3 * 4).fill(200) });
+  const withSize = (w: number, h: number): Uint8Array => {
+    const copy = Buffer.from(good);
+    copy.writeUInt32BE(w, 16); // IHDR width  = 8 sig + 4 len + 4 type
+    copy.writeUInt32BE(h, 20); // IHDR height
+    return copy;
+  };
+
+  assert.throws(() => decodePng(withSize(0x00ffffff, 0x00ffffff)), /exceeds the .* limit/);
+  assert.throws(() => decodePng(withSize(0x0fffffff, 3)), /exceeds the .* limit/);
+  assert.throws(() => decodePng(withSize(0, 0)), /invalid dimensions 0x0/);
+  assert.throws(() => decodePng(withSize(4, 0)), /invalid dimensions 4x0/);
+
+  // Truncation at every offset is a truncation message, never a RangeError.
+  for (let cut = 8; cut < good.length; cut += 1) {
+    try {
+      decodePng(good.subarray(0, cut));
+    } catch (error) {
+      assert.ok(
+        !(error instanceof RangeError),
+        `truncating to ${cut} bytes raised a RangeError: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  // And the guard does not reject anything real.
+  assert.equal(decodePng(good).width, 4);
+});
+
+/**
+ * Short IDAT data is the quietest corruption there is: `subarray` clamps at the
+ * end of the buffer and the missing bytes read back as `undefined`, so a 1x1
+ * image carrying two bytes of pixel data decoded to a colour nobody wrote and
+ * exited 0. An agent would have shipped that sprite.
+ */
+test("truncated pixel data is refused, not invented", () => {
+  const sig = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  const chunk = (type: string, body: Uint8Array): Buffer => {
+    const out = Buffer.alloc(12 + body.length);
+    out.writeUInt32BE(body.length);
+    out.write(type, 4);
+    Buffer.from(body).copy(out, 8);
+    return out;
+  };
+  const build = (w: number, h: number, raw: number[], interlace = 0): Buffer => {
+    const ihdr = Buffer.alloc(13);
+    ihdr.writeUInt32BE(w, 0);
+    ihdr.writeUInt32BE(h, 4);
+    ihdr[8] = 8; // bit depth
+    ihdr[9] = 6; // RGBA
+    ihdr[12] = interlace;
+    return Buffer.concat([
+      sig,
+      chunk("IHDR", ihdr),
+      chunk("IDAT", deflateSync(Buffer.from(raw))),
+      chunk("IEND", Buffer.alloc(0)),
+    ]);
+  };
+
+  // 1x1 RGBA needs 1 filter byte + 4 sample bytes.
+  assert.throws(() => decodePng(build(1, 1, [0, 7])), /truncated pixel data \(2 bytes, expected 5/);
+  assert.throws(() => decodePng(build(4, 4, new Array(10).fill(0))), /expected 68 for 4x4/);
+  // Interlaced images are measured per Adam7 pass, not as one block.
+  assert.throws(() => decodePng(build(8, 8, [0, 0, 0], 1)), /truncated pixel data/);
+
+  // Exactly enough data still decodes, and carries the bytes it was given.
+  const ok = decodePng(build(1, 1, [0, 1, 2, 3, 4]));
+  assert.deepEqual([...ok.data], [1, 2, 3, 4]);
 });

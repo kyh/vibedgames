@@ -190,6 +190,7 @@ var ADAM7 = [
   { xStart: 0, yStart: 1, xStep: 1, yStep: 2 }
 ];
 var CHANNELS = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 };
+var MAX_PIXELS = 64e6;
 var crcTable = (() => {
   const table = new Int32Array(256);
   for (let n = 0; n < 256; n += 1) {
@@ -308,6 +309,21 @@ function expandPass(raw, offset, passWidth, passHeight, geom, header, palette, t
   }
   return cursor;
 }
+function expectedRawBytes(header) {
+  const channels = CHANNELS[header.colorType];
+  const rowBytes = (w) => Math.ceil(channels * header.bitDepth * w / 8);
+  if (header.interlace === 0) {
+    return header.height === 0 ? 0 : header.height * (1 + rowBytes(header.width));
+  }
+  let total = 0;
+  for (const geom of ADAM7) {
+    const passWidth = Math.ceil(Math.max(0, header.width - geom.xStart) / geom.xStep);
+    const passHeight = Math.ceil(Math.max(0, header.height - geom.yStart) / geom.yStep);
+    if (passWidth === 0 || passHeight === 0) continue;
+    total += passHeight * (1 + rowBytes(passWidth));
+  }
+  return total;
+}
 function decodePng(buffer) {
   for (let i = 0; i < SIGNATURE.length; i += 1) {
     if (buffer[i] !== SIGNATURE[i]) throw new Error("Not a PNG file (bad signature)");
@@ -319,6 +335,7 @@ function decodePng(buffer) {
   let transparency = null;
   const idat = [];
   while (pos < buffer.length) {
+    if (pos + 8 > buffer.length) throw new Error("PNG: truncated before a chunk header");
     const length = view.getUint32(pos);
     const type = String.fromCharCode(
       buffer[pos + 4],
@@ -326,6 +343,9 @@ function decodePng(buffer) {
       buffer[pos + 6],
       buffer[pos + 7]
     );
+    if (pos + 12 + length > buffer.length) {
+      throw new Error(`PNG: truncated ${type} chunk (wanted ${length} bytes)`);
+    }
     const body = buffer.subarray(pos + 8, pos + 8 + length);
     if (type === "IHDR") {
       header = {
@@ -339,6 +359,14 @@ function decodePng(buffer) {
       if (buffer[pos + 19] !== 0) throw new Error("PNG: unsupported filter method");
       if (!(header.colorType in CHANNELS)) {
         throw new Error(`PNG: unsupported colour type ${header.colorType}`);
+      }
+      if (header.width < 1 || header.height < 1) {
+        throw new Error(`PNG: invalid dimensions ${header.width}x${header.height}`);
+      }
+      if (header.width * header.height > MAX_PIXELS) {
+        throw new Error(
+          `PNG: ${header.width}x${header.height} exceeds the ${MAX_PIXELS.toLocaleString("en-US")}-pixel limit`
+        );
       }
     } else if (type === "PLTE") {
       palette = Uint8Array.from(body);
@@ -367,6 +395,12 @@ function decodePng(buffer) {
   }
   if (colorType === 3 && bitDepth === 16) throw new Error("PNG: indexed images cap at 8-bit");
   const raw = new Uint8Array(inflateSync(Buffer.concat(idat.map((c) => Buffer.from(c)))));
+  const expected = expectedRawBytes(header);
+  if (raw.length < expected) {
+    throw new Error(
+      `PNG: truncated pixel data (${raw.length} bytes, expected ${expected} for ${width}x${height})`
+    );
+  }
   const out = new Uint8Array(width * height * 4);
   if (interlace === 0) {
     expandPass(
