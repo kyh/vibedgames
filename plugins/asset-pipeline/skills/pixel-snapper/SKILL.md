@@ -22,7 +22,7 @@ Naive downscale (Lanczos/bilinear/nearest) averages neighbors → blur or aliasi
 - Native snapped output, or a nearest-neighbour upscale for inspection? Usually you want both.
 - Are the cells actually square? The snapper assumes one shared cell pitch for both axes.
 
-**Core principles**: output resolution is discovered, not specified · `k_colors` is the only user-facing knob (other tunables live in `DEFAULT_SNAP_CONFIG`) · always inspect the output by eye — dimensions are a sanity check, not a quality check · keep the source PNG so you can re-snap with a different `k_colors` later · **snapping needs resolution to find the grid — feed it a large source (≥~512px across the subject; a lone character ~1024²). Undersized inputs (256²) blur the grid away or trip the 64×64 fallback; the fix is to regenerate larger, not to upscale a small source first.**
+**Core principles**: output resolution is discovered, not specified · `k_colors` is the only user-facing knob (other tunables live in `DEFAULT_SNAP_CONFIG`) · always inspect the output by eye — dimensions are a sanity check, not a quality check · keep the source PNG so you can re-snap with a different `k_colors` later · **key the background out before snapping** — a wide flat matte gives the walker nothing but its own edges to lock onto, and the recovered "grid" collapses to a handful of pixels · **snapping needs resolution to find the grid — feed it a large source (≥~512px across the subject; a lone character ~1024²). Undersized inputs (256²) blur the grid away or trip the 64×64 fallback; the fix is to regenerate larger, not to upscale a small source first.**
 
 ## When to Use
 
@@ -65,7 +65,7 @@ See `references/usage-examples.md` for batch processing and verification recipes
 2. **Pick `k_colors`** — start 256 for AI renders; for quantized retro art try 16, 32, 64 ascending until detail survives without noise.
 3. **Run** — sanity-check printed dims against expectation (a "32×32 sprite" snaps near 32×32, not 5×5 or 800×800).
 4. **Inspect** the `iw*8` nearest-neighbour upscale.
-5. **Iterate** — common fixes: different `k_colors` (halve/double); non-square cells (snapper picks the smaller pitch → may need pre-resize); exactly 64×64 output = step-detection fallback fired (input may lack detectable pixel structure).
+5. **Iterate** — common fixes: different `k_colors` (halve/double); non-square cells (snapper picks the smaller pitch → may need pre-resize); exactly 64×64 output = step-detection fallback fired (input may lack detectable pixel structure). The script prints a warning for both collapse modes and `--strict` turns them into exit 1, so a batch can stop instead of writing a 2×2 file that looks like a success.
 6. **Save to `experiments/`**, never directly into `public/assets/`. Promote only after visual approval.
 
 ## Anti-Patterns

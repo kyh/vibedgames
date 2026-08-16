@@ -364,6 +364,40 @@ export function snapImage(inputPath: string, config: SnapConfig): Bitmap {
   return resample(quantized, colCuts, rowCuts);
 }
 
+/**
+ * Below this the "recovered grid" is not a sprite. It happens when the image is
+ * mostly flat — a lone figure on an unkeyed matte, say — and the only strong
+ * edges are the few the background contributes, so the walker finds two or three
+ * cuts across the whole picture.
+ */
+const DEGENERATE_SIDE = 8;
+
+/**
+ * Why the caller should distrust a snap result, or null when it looks sane.
+ *
+ * The snapper cannot fail loudly on its own — a 2x2 output is a legal image and
+ * writing it is a legal outcome — so the judgement has to live next to the
+ * dimensions rather than inside the pipeline.
+ */
+export function snapWarning(input: Bitmap, output: Bitmap, config: SnapConfig): string | null {
+  if (output.width < DEGENERATE_SIDE || output.height < DEGENERATE_SIDE) {
+    return (
+      `recovered grid collapsed to ${output.width}x${output.height} from ` +
+      `${input.width}x${input.height} — there was no pixel grid to find. Key the ` +
+      `background out first (a flat matte hides the grid), or the source is not ` +
+      `upscaled pixel art at all`
+    );
+  }
+  const fallback = config.fallbackTargetSegments;
+  if (output.width === fallback && output.height === fallback) {
+    return (
+      `output is exactly ${fallback}x${fallback}: step detection found no structure ` +
+      `and fell back to a fixed segment count, so these are not the source's own pixels`
+    );
+  }
+  return null;
+}
+
 export type SheetSnapInfo = {
   inputDims: [number, number];
   inputFrameDims: [number, number];

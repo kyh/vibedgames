@@ -82,6 +82,10 @@ function parseArgs(argv, options = {}) {
 function getString(args, key) {
   return args.options.get(key)?.at(-1);
 }
+function getFlag(args, key) {
+  const value = getString(args, key);
+  return value !== void 0 && value !== "false";
+}
 function getInt(args, key, fallback) {
   const raw = getString(args, key);
   if (raw === void 0) return fallback;
@@ -1217,6 +1221,17 @@ function snapImage(inputPath, config) {
   const rowCuts = sanitizeCuts(walk(rows, stepY, image.height, config), image.height);
   return resample(quantized, colCuts, rowCuts);
 }
+var DEGENERATE_SIDE = 8;
+function snapWarning(input, output, config) {
+  if (output.width < DEGENERATE_SIDE || output.height < DEGENERATE_SIDE) {
+    return `recovered grid collapsed to ${output.width}x${output.height} from ${input.width}x${input.height} \u2014 there was no pixel grid to find. Key the background out first (a flat matte hides the grid), or the source is not upscaled pixel art at all`;
+  }
+  const fallback = config.fallbackTargetSegments;
+  if (output.width === fallback && output.height === fallback) {
+    return `output is exactly ${fallback}x${fallback}: step detection found no structure and fell back to a fixed segment count, so these are not the source's own pixels`;
+  }
+  return null;
+}
 function snapSheet(image, cols, rows, config) {
   const { width: W, height: H } = image;
   if (W % cols !== 0 || H % rows !== 0) {
@@ -1297,11 +1312,13 @@ export {
   DEFAULT_SNAP_CONFIG,
   fail,
   failUsage,
+  getFlag,
   getInt,
   getString,
   main,
   parseArgs,
   readImageSize,
   snapImage,
-  snapSheet
+  snapSheet,
+  snapWarning
 };
