@@ -131,6 +131,21 @@ test("reports a bad --script file as a mistake, not a crash", () => {
   assert.match(bad.output, /isn't valid JSON/);
 });
 
+test("rejects an inherited property name as a key code", () => {
+  // `code in NAMED_KEYS` accepted these, then built an event with an undefined
+  // keyCode — a key that dispatches and does nothing, rather than an error.
+  for (const bad of ["toString", "constructor", "__proto__", "hasOwnProperty"]) {
+    const { status, output } = run([
+      "--url",
+      "http://x",
+      "--script",
+      scriptFile([{ keys: [bad], ms: 100 }]),
+    ]);
+    assert.equal(status, HARNESS_FAILURE, `${bad} should be rejected`);
+    assert.match(output, /unsupported key code/);
+  }
+});
+
 test("accepts a pointer-only step, for games that steer with the mouse", () => {
   const path = scriptFile([{ pointer: { x: 0.5, y: 0.5, down: true }, ms: 100 }]);
   const { output } = run(["--url", "http://localhost:1", "--script", path]);

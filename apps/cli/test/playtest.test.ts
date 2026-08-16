@@ -66,13 +66,13 @@ test("bareTokens sees past a --flag=value token, which claims nothing", () => {
   assert.equal(bareTokens(["--session=p1", "snapshot", "--game", "x"])[0], "snapshot");
 });
 
-test("expandGameFlag does not emit a second `open` when the verb trails the flag", () => {
-  // A single-pass "have I seen a verb yet?" would insert one here and then push
-  // the user's own, handing agent-browser `open <url> open`.
-  assert.deepEqual(expandGameFlag(["--game", "my-game", "open"], url), [
-    "https://my-game.vibedgames.com",
-    "open",
-  ]);
+test("bareTokens keeps a trailing verb visible, so a dead command can be caught", () => {
+  // `--game my-game open` can't be expanded usefully: in place gives
+  // `<url> open`, whose first positional agent-browser reads as the
+  // subcommand, and inserting a verb gives `open <url> open`. expandGameFlag
+  // exits on this; what matters here is that the verb is seen at all.
+  assert.deepEqual(bareTokens(["--game", "my-game", "open"]), ["open"]);
+  assert.deepEqual(bareTokens(["open", "--game", "my-game"]), ["open"]);
 });
 
 test("bareTokens finds none when every bare token is a flag's value", () => {

@@ -190,29 +190,26 @@ function expectsMotion(step) {
  */
 let inFlight = null;
 
-/** Set once `open` succeeds; before that there is nothing to release. */
-let browserOpened = false;
-
 function releaseHeldInputs() {
-  // Nothing can be held before the page is open, and the sampler lives only
-  // inside a step. Without this, failing on a bad `--seed` would still spawn a
-  // release — which on a fresh machine means bootstrapping agent-browser and
-  // downloading Chrome before printing the argument error.
-  if (!browserOpened) return;
-
   const step = inFlight;
   // Disown before dispatching, so a release that itself fails can't recurse
   // back through `fail` forever when the CLI is what's broken.
   inFlight = null;
+  // A step is the only thing that puts an input down or starts the sampler, and
+  // it can only start once the page is open — so no step means nothing to undo.
+  // Reaching for the browser anyway would have `--seed nonsense` bootstrap
+  // agent-browser and download Chrome just to report a typo.
+  if (!step) return;
 
   // One eval for all of it: this runs when the run is already failing, and each
   // extra subprocess is another chance to die before the release lands. The
   // sampler goes too — a 40ms interval left running in the daemon's page
   // outlives this process for the same reason a held key would.
-  const parts = ["clearInterval(window.__BOT_TICK__);"];
-  if (step) {
-    parts.push(...keyParts("keyup", step.keys ?? []), ...pointerParts(step.pointer, "up"));
-  }
+  const parts = [
+    "clearInterval(window.__BOT_TICK__);",
+    ...keyParts("keyup", step.keys ?? []),
+    ...pointerParts(step.pointer, "up"),
+  ];
   // Raw spawn rather than `playtest`, which calls `fail` when the CLI can't be
   // run — and `fail` calls this. Best-effort by design: the run is already over,
   // and there is nothing useful to do if the release itself can't be delivered.
@@ -281,16 +278,27 @@ function keyFields(code) {
   if (letter) return [letter[1].charCodeAt(0), letter[1].toLowerCase()];
   const digit = /^Digit([0-9])$/.exec(code);
   if (digit) return [48 + Number(digit[1]), digit[1]];
-  if (code in NAMED_KEYS) return [NAMED_KEYS[code], NAMED_VALUES[code] ?? code];
+  // `in` would accept inherited names, so `toString` became a key with an
+  // undefined keyCode instead of an unsupported-code failure.
+  if (Object.hasOwn(NAMED_KEYS, code))
+    return [NAMED_KEYS[code], Object.hasOwn(NAMED_VALUES, code) ? NAMED_VALUES[code] : code];
   fail(
     `unsupported key code "${code}". Supported: Key<A-Z>, Digit<0-9>, and ${Object.keys(NAMED_KEYS).join(", ")}.`,
   );
 }
 
 function keyInits(codes) {
+  // Modifiers held in the same step have to show up as flags on their
+  // companions too, or `Shift+W` arrives as a plain `w` and the binding a
+  // script was written to exercise never fires.
+  const modifiers = {
+    shiftKey: codes.some((c) => c === "ShiftLeft" || c === "ShiftRight"),
+    ctrlKey: codes.some((c) => c === "ControlLeft" || c === "ControlRight"),
+    altKey: codes.some((c) => c === "AltLeft" || c === "AltRight"),
+  };
   return codes.map((code) => {
     const [keyCode, key] = keyFields(code);
-    return JSON.stringify({ key, code, keyCode, which: keyCode, bubbles: true });
+    return JSON.stringify({ key, code, keyCode, which: keyCode, ...modifiers, bubbles: true });
   });
 }
 
@@ -307,8 +315,13 @@ function keyInits(codes) {
  */
 function keyParts(type, codes) {
   if (codes.length === 0) return [];
+  // Dispatched at the focused element, not at `window`. A real keypress starts
+  // there and bubbles up through document to window, so listeners on all three
+  // fire once; dispatching on `window` fires only window's, and a game using
+  // `document.addEventListener("keydown", …)` is reported as dead input.
   return [
-    `for (const init of [${keyInits(codes).join(",")}]) window.dispatchEvent(new KeyboardEvent(${JSON.stringify(type)}, init));`,
+    `{ const t = document.activeElement ?? document.body ?? window;
+      for (const init of [${keyInits(codes).join(",")}]) t.dispatchEvent(new KeyboardEvent(${JSON.stringify(type)}, init)); }`,
   ];
 }
 
@@ -342,13 +355,17 @@ const POINTER_FN = `window.__botPointer = (frac, type, buttons) => {
 };`;
 
 /**
- * Read player state the same way at every sample site. `y ?? z` keeps 3D games
- * (depth on z) and 2D games (depth on y) on one code path.
+ * Read player state the same way at every sample site.
+ *
+ * All three axes, defaulting to 0. Picking `y ?? z` instead would read a 3D
+ * game that exposes both as if it moved on x/y, and a game whose travel is on
+ * x/z reports as motionless.
  */
 const READ_FN = `const __botRead = () => {
   const d = window.__GAME_DIAGNOSTICS__, p = (d && d.player) || {};
-  return { x: p.x ?? 0, y: p.y ?? p.z ?? 0, frame: (d && d.frame) ?? 0, score: (d && d.score) ?? 0, complete: !!(d && d.complete) };
-};`;
+  return { x: p.x ?? 0, y: p.y ?? 0, z: p.z ?? 0, frame: (d && d.frame) ?? 0, score: (d && d.score) ?? 0, complete: !!(d && d.complete) };
+};
+const __botDist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);`;
 
 /**
  * Start sampling player state inside the page for the duration of a step.
@@ -366,8 +383,8 @@ const TRACK_BEGIN = `${READ_FN}
   clearInterval(window.__BOT_TICK__);
   window.__BOT_TICK__ = setInterval(() => {
     const c = __botRead();
-    t.path += Math.hypot(c.x - t.last.x, c.y - t.last.y);
-    t.peak = Math.max(t.peak, Math.hypot(c.x - t.start.x, c.y - t.start.y));
+    t.path += __botDist(c, t.last);
+    t.peak = Math.max(t.peak, __botDist(c, t.start));
     t.last = c;
     if (c.score > t.score) t.score = c.score;
   }, ${SAMPLE_MS});`;
@@ -377,9 +394,9 @@ const TRACK_END = `${READ_FN}
   const t = window.__BOT_TRACK__;
   if (!t) return null;
   const c = __botRead();
-  const path = t.path + Math.hypot(c.x - t.last.x, c.y - t.last.y);
-  const peak = Math.max(t.peak, Math.hypot(c.x - t.start.x, c.y - t.start.y));
-  return { path: +path.toFixed(3), peak: +peak.toFixed(3), frameBefore: t.start.frame, frame: c.frame, scoreBefore: t.start.score, score: Math.max(t.score, c.score), x: c.x, y: c.y, complete: c.complete };`;
+  const path = t.path + __botDist(c, t.last);
+  const peak = Math.max(t.peak, __botDist(c, t.start));
+  return { path: +path.toFixed(3), peak: +peak.toFixed(3), frameBefore: t.start.frame, frame: c.frame, scoreBefore: t.start.score, score: Math.max(t.score, c.score), x: c.x, y: c.y, z: c.z, complete: c.complete };`;
 
 function pointerCall(pointer, type, buttons) {
   return `window.__botPointer(${JSON.stringify({ x: pointer.x, y: pointer.y })}, ${JSON.stringify(type)}, ${buttons});`;
@@ -387,10 +404,12 @@ function pointerCall(pointer, type, buttons) {
 
 /** Press the step's inputs and start measuring, in one round trip. */
 function beginStep(step) {
+  // Tracking first: a game that moves the player synchronously on keydown
+  // would otherwise fold that movement into the baseline and report peak 0.
   const parts = [
+    TRACK_BEGIN,
     ...pointerParts(step.pointer, "down"),
     ...keyParts("keydown", step.keys ?? []),
-    TRACK_BEGIN,
   ];
   // Claim the step BEFORE dispatching: an eval that fails part-way through can
   // still have pressed something, and an input this process never releases
@@ -412,6 +431,16 @@ function endStep(step) {
   const summary = evaluate(`(() => { ${parts.join("\n")} })()`);
   inFlight = null;
   return summary;
+}
+
+// Ctrl-C mid-hold leaves the key down and the sampler running in a daemon page
+// that outlives this process, which is the same poison an early exit causes.
+// `sleep` blocks the thread, so the handler lands once the current hold ends.
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => {
+    releaseHeldInputs();
+    process.exit(HARNESS_FAILURE);
+  });
 }
 
 function fail(message) {
@@ -508,7 +537,6 @@ function boot(target, opts, whenAbsent) {
   if (open.status !== 0)
     fail(`couldn't open the game: ${open.stderr.trim() || open.stdout.trim()}`);
 
-  browserOpened = true;
   if (playtest(["wait", "--fn", CONTRACT_READY]).status !== 0) fail(whenAbsent);
 }
 

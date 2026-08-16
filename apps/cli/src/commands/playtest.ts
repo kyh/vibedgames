@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { defineCommand } from "citty";
@@ -32,6 +32,9 @@ const PKG_SPEC = `${PKG}@^${MIN_VERSION}`;
 
 /** Stands in for a version string we could not read. Always meets the floor. */
 const UNKNOWN_VERSION = "unknown";
+
+/** How long a failed upgrade suppresses the next attempt. */
+const UPGRADE_RETRY_MS = 24 * 60 * 60_000;
 
 /**
  * Subcommands that take a URL. Used to decide whether a bare `--game` still
@@ -131,7 +134,7 @@ function ensureMinimum(resolved: Binary): Binary {
   // than in a shared /tmp, where one account's stamp would silently suppress
   // everyone else's upgrade.
   const stamp = join(getConfigDir(), `${PKG}-upgrade-failed-${resolved.version}`);
-  if (existsSync(stamp)) return resolved;
+  if (recentlyFailed(stamp)) return resolved;
 
   consola.warn(
     `Found ${PKG} ${resolved.version}, but the playtest skill needs at least ${MIN_VERSION}. Upgrading…`,
@@ -154,9 +157,28 @@ function ensureMinimum(resolved: Binary): Binary {
   return upgraded;
 }
 
+/**
+ * Whether an upgrade was already tried recently. Time-boxed rather than
+ * permanent: the usual reason one fails is being offline, and a machine that is
+ * online tomorrow should get the upgrade rather than stay pinned by a stamp it
+ * wrote once.
+ */
+function recentlyFailed(stamp: string): boolean {
+  try {
+    return Date.now() - statSync(stamp).mtimeMs < UPGRADE_RETRY_MS;
+  } catch {
+    return false;
+  }
+}
+
 /** `npm install -g` the pinned spec, then re-resolve. Null if either step fails. */
 function installGlobal(): Binary | null {
-  const res = spawn.sync("npm", ["install", "-g", PKG_SPEC], { stdio: "inherit" });
+  // Bounded so a wedged registry or install script can't hang `vg playtest`
+  // forever; generous enough not to cut off a slow but working download.
+  const res = spawn.sync("npm", ["install", "-g", PKG_SPEC], {
+    stdio: "inherit",
+    timeout: 10 * 60_000,
+  });
   return res.status === 0 && !res.error ? resolveBinary() : null;
 }
 
@@ -241,9 +263,30 @@ export function expandGameFlag(args: string[], resolveUrl = resolveGameUrl): str
   // first would also match a flag's value, so `--profile open --game x` would
   // count the profile name as the verb and hand agent-browser a URL with no
   // subcommand at all.
+  // Only the VERB decides whether a URL is wanted — `diff` reads its own on the
+  // next token. Asking whether ANY bare token is URL-taking lets a positional
+  // argument answer for the command: `click open --game x` would pass the guard
+  // on the selector named `open` and click the current page.
   const bare = bareTokens(args);
-  const hasUrlVerb = bare.some((token) => URL_TAKING.has(token));
-  const subcommand = hasUrlVerb ? null : (bare[0] ?? null);
+  const verb = bare[0];
+  const hasUrlVerb =
+    verb !== undefined &&
+    (URL_TAKING.has(verb) || (verb === "diff" && bare[1] !== undefined && URL_TAKING.has(bare[1])));
+
+  // A verb that only appears AFTER the flag can't receive the URL: substituting
+  // in place would emit `<url> open`, whose first positional agent-browser
+  // reads as the subcommand. Say so rather than hand over a dead command.
+  const verbLeads = bareTokens(args.slice(0, args.indexOf("--game"))).some((token) =>
+    URL_TAKING.has(token),
+  );
+  if (hasUrlVerb && !verbLeads) {
+    consola.error(
+      "`--game` supplies the URL to a verb, so it has to come after one: `vg playtest open --game my-game`.",
+    );
+    process.exit(1);
+  }
+
+  const subcommand = hasUrlVerb ? null : (verb ?? null);
   if (subcommand !== null) {
     consola.error(
       `\`--game\` supplies a URL, so it only works with \`${[...URL_TAKING].join("`, `")}\` — not \`${subcommand}\`. Open the game first, then run \`vg playtest ${subcommand} …\` against it.`,
