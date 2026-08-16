@@ -397,12 +397,14 @@ export function renderAnchorPrompt(
     anchorRole?: string;
     anchorContext?: string | null;
     chroma?: string;
+    guideImage?: boolean;
   } = {},
 ): string {
   const {
     gameView = "platformer",
     anchorRole = "character",
     anchorContext = null,
+    guideImage = false,
     // The matte the anchor is generated on has to be the one the keyer is later
     // told to remove; `--chroma` used to be accepted here and dropped, so asking
     // for magenta produced a green board that `chroma_clean` could not key.
@@ -417,8 +419,11 @@ Game view: ${ANCHOR_GAME_VIEWS[resolvedView]}.
 Asset role: ${ANCHOR_ROLES[resolvedRole]}.
 ${anchorContextGuidance(anchorContext)}
 
-Image 1 role: identity anchor. Preserve the exact approved asset identity, silhouette, proportions, palette blocks, and pixel-art readability from this reference image.
-Image 2 role: pixel-style guide. Use this only to reinforce the crisp pixelated treatment, chunky pixel texture, square canvas discipline, and sprite readability. Do not copy guide pixels, checker patterns, borders, labels, or layout marks into the output.
+Image 1 role: identity anchor. Preserve the exact approved asset identity, silhouette, proportions, palette blocks, and pixel-art readability from this reference image.${
+    guideImage
+      ? "\nImage 2 role: pixel-style guide. Use this only to reinforce the crisp pixelated treatment, chunky pixel texture, square canvas discipline, and sprite readability. Do not copy guide pixels, checker patterns, borders, labels, or layout marks into the output."
+      : ""
+  }
 
 Primary request: generate a single-frame ${direction.promptName} anchor sprite.
 
@@ -754,17 +759,26 @@ export function renderPoseBoardPrompt(
     poseBoard?: PoseBoardPreset | null;
     framePromptStyle?: string;
     chroma?: string;
+    guideImage?: boolean;
   } = {},
 ): string {
-  const { poseBoard = null, framePromptStyle = "specific", chroma = "#00FF00" } = options;
+  const {
+    poseBoard = null,
+    framePromptStyle = "specific",
+    chroma = "#00FF00",
+    guideImage = false,
+  } = options;
   const board = poseBoard ?? resolvePoseBoardPreset("standard");
   const phrase = chromaPhrase(chroma);
   const frameLines = renderFrameGuidance(actionId, frameCount, framePromptStyle);
 
   return `Intended use: a reusable ${actionId} animation spritesheet for a 2D game.
 
-Image 1 role: identity anchor. Preserve the exact approved anchor sprite identity.
-Image 2 role: black-and-white alternating-pixel pose-board geometry guide at the exact target size. Use it only to preserve the output aspect ratio, full-board composition, pixel texture, and implied ${board.columns} column x ${board.rows} row pose-board layout. It is not a background, style, contact-sheet, border, or grid-line reference. Do not copy its black pixels, white pixels, checker pattern, grid lines, borders, labels, or presentation-sheet look into the final output.
+Image 1 role: identity anchor. Preserve the exact approved anchor sprite identity.${
+    guideImage
+      ? `\nImage 2 role: black-and-white alternating-pixel pose-board geometry guide at the exact target size. Use it only to preserve the output aspect ratio, full-board composition, pixel texture, and implied ${board.columns} column x ${board.rows} row pose-board layout. It is not a background, style, contact-sheet, border, or grid-line reference. Do not copy its black pixels, white pixels, checker pattern, grid lines, borders, labels, or presentation-sheet look into the final output.`
+      : ""
+  }
 
 Subject:
 - Same already-approved sprite character.
