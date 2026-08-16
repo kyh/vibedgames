@@ -48,13 +48,8 @@ main(() => {
     values: ["max-decompress-mib", "palette-entries"],
     // `json` is accepted and ignored — JSON is the only output — but it still
     // has to be declared, or `--json file.ase` would eat the filename.
-    booleans: ["decode-cels", "help", "json", "pretty", "treat-index0-transparent"],
+    booleans: ["decode-cels", "json", "pretty", "treat-index0-transparent"],
   });
-
-  if (getFlag(args, "help")) {
-    process.stdout.write(`${USAGE}\n`);
-    process.exit(0);
-  }
 
   const file = args.positionals[0];
   if (file === undefined) {

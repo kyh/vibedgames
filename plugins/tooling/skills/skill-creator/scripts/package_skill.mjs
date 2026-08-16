@@ -76,12 +76,20 @@ function packageSkill(skillPathArg, outputDir) {
 }
 
 const [skillPath, outputDir] = process.argv.slice(2);
+const USAGE = [
+  "Usage: node package_skill.mjs <path/to/skill-folder> [output-directory]",
+  "",
+  "Example:",
+  "  node package_skill.mjs skills/public/my-skill",
+  "  node package_skill.mjs skills/public/my-skill ./dist",
+].join("\n");
+if (skillPath === "--help" || skillPath === "-h") {
+  console.log(USAGE);
+  process.exit(0);
+}
 if (!skillPath) {
-  console.log("Usage: node package_skill.mjs <path/to/skill-folder> [output-directory]");
-  console.log("\nExample:");
-  console.log("  node package_skill.mjs skills/public/my-skill");
-  console.log("  node package_skill.mjs skills/public/my-skill ./dist");
-  process.exit(1);
+  console.error(USAGE);
+  process.exit(2);
 }
 
 console.log(`📦 Packaging skill: ${skillPath}`);

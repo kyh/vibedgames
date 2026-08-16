@@ -9,9 +9,14 @@
  */
 import { validateSkill } from "./_lib/asset-tools.mjs";
 
+const USAGE = "Usage: node quick_validate.mjs <skill_directory>";
+if (process.argv[2] === "--help" || process.argv[2] === "-h") {
+  console.log(USAGE);
+  process.exit(0);
+}
 if (process.argv.length !== 3) {
-  console.log("Usage: node quick_validate.mjs <skill_directory>");
-  process.exit(1);
+  console.error(USAGE);
+  process.exit(2);
 }
 
 const { valid, message } = validateSkill(process.argv[2]);

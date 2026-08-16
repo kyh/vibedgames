@@ -287,11 +287,28 @@ test("an option that takes a value still consumes it", () => {
   assert.deepEqual(args.positionals, ["in.png"]);
 });
 
-test("-h is help, the way argparse gave every script for free", () => {
-  assert.equal(getFlag(parseArgs(["-h"]), "help"), true);
-  assert.equal(getFlag(parseArgs(["--help"]), "help"), true);
-  // And it does not become a filename.
-  assert.deepEqual(parseArgs(["-h"]).positionals, []);
+test("-h prints the script's own docblock and exits 0", () => {
+  // `parseArgs` answers help itself and exits, so this has to be a subprocess:
+  // asserting in-process would take the test runner down with it.
+  const dir = workspace();
+  const entry = join(dir, "helped.ts");
+  const argsModule = join(import.meta.dirname, "..", "src", "args.ts");
+  writeFileSync(
+    entry,
+    `#!/usr/bin/env node\n/**\n * helped — a one-line summary.\n *\n * Usage:\n *   node helped.ts <in>\n */\n` +
+      `import { parseArgs } from ${JSON.stringify(argsModule)};\n` +
+      `parseArgs(process.argv.slice(2), { values: ["out"] });\n` +
+      `process.stdout.write("RAN BODY");\n`,
+  );
+  for (const flag of ["-h", "--help"]) {
+    const run = spawnSync(process.execPath, ["--import", "tsx", entry, flag], { encoding: "utf8" });
+    assert.equal(run.status, 0, `${flag} should exit 0: ${run.stderr}`);
+    assert.match(run.stdout, /helped — a one-line summary\./);
+    assert.match(run.stdout, /Usage:/);
+    // Help short-circuits: the script body never runs, and a missing required
+    // positional is not reported as an error on top of the help.
+    assert.doesNotMatch(run.stdout, /RAN BODY/);
+  }
 });
 
 test("-- ends option parsing", () => {
@@ -376,6 +393,9 @@ test("every flag a script advertises is declared or takes a value", () => {
     );
 
     const advertised = new Set([...source.matchAll(/--([a-z0-9][a-z0-9-]*)/g)].map((m) => m[1]!));
+    // `--help` is free on every script — `parseArgs` answers it before a script
+    // sees the arguments — so no script has to declare it.
+    advertised.delete("help");
     const gap = [...advertised].filter(
       (name) => !declared.has(name) && !valued.has(name) && !metavar.has(name),
     );

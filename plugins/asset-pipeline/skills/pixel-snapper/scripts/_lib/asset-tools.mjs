@@ -4,6 +4,20 @@
 // source there and re-run `pnpm dogfood` (or that build) to regenerate.
 
 // src/args.ts
+import { readFileSync } from "node:fs";
+function headerDoc(entry) {
+  if (!entry) return null;
+  let source;
+  try {
+    source = readFileSync(entry, "utf8");
+  } catch {
+    return null;
+  }
+  const match = /^(?:#![^\n]*\n)?\/\*\*([\s\S]*?)\*\//.exec(source);
+  if (!match) return null;
+  const text = match[1].split("\n").map((line) => line.replace(/^\s*\* ?/, "")).join("\n").trim();
+  return text.length > 0 ? text : null;
+}
 function parseArgs(argv, options = {}) {
   const booleans = new Set(options.booleans ?? []);
   const known = /* @__PURE__ */ new Set([...booleans, ...options.values ?? [], "help"]);
@@ -57,6 +71,12 @@ function parseArgs(argv, options = {}) {
     }
   }
   if (unknown.length > 0) failUsage(`unrecognized arguments: ${unknown.join(" ")}`);
+  if (parsed.has("help")) {
+    const help = headerDoc(process.argv[1]);
+    process.stdout.write(`${help ?? "No help available."}
+`);
+    process.exit(0);
+  }
   return { positionals, options: parsed };
 }
 function getString(args, key) {
@@ -88,7 +108,7 @@ function main(run) {
 }
 
 // src/image/raster.ts
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync as readFileSync2, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 // src/image/png.ts
@@ -422,7 +442,7 @@ var Bitmap = class _Bitmap {
     return bmp;
   }
   static fromFile(path) {
-    const buffer = readFileSync(path);
+    const buffer = readFileSync2(path);
     const { width, height, data } = decodePng(buffer);
     return new _Bitmap(width, height, data);
   }
@@ -809,7 +829,7 @@ function transpose(src, width, height) {
   return out;
 }
 function readImageSize(path) {
-  const buffer = readFileSync(path);
+  const buffer = readFileSync2(path);
   if (buffer.length >= 24 && buffer[0] === 137 && buffer[1] === 80) {
     return readPngSize(buffer);
   }

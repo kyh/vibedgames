@@ -13,9 +13,14 @@ import { join } from "node:path";
 import { analyzeSkillBody, parseFrontmatter } from "./_lib/asset-tools.mjs";
 
 const [skillPath] = process.argv.slice(2);
+const USAGE = "Usage: node analyze_skill.mjs <path/to/skill>";
+if (skillPath === "--help" || skillPath === "-h") {
+  console.log(USAGE);
+  process.exit(0);
+}
 if (process.argv.length !== 3) {
-  console.log("Usage: node analyze_skill.mjs <path/to/skill>");
-  process.exit(1);
+  console.error(USAGE);
+  process.exit(2);
 }
 if (!existsSync(skillPath)) {
   console.log(`❌ Skill directory not found: ${skillPath}`);

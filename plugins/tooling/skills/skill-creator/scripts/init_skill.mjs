@@ -13,18 +13,27 @@
 import { initSkill } from "./_lib/asset-tools.mjs";
 
 const argv = process.argv.slice(2);
+const USAGE = [
+  "Usage: node init_skill.mjs <skill-name> --path <path>",
+  "",
+  "Skill name requirements:",
+  "  - Hyphen-case identifier (e.g., 'data-analyzer')",
+  "  - Lowercase letters, digits, and hyphens only",
+  "  - Max 40 characters",
+  "  - Must match directory name exactly",
+  "",
+  "Examples:",
+  "  node init_skill.mjs my-new-skill --path skills/public",
+  "  node init_skill.mjs my-api-helper --path skills/private",
+  "  node init_skill.mjs custom-skill --path /custom/location",
+].join("\n");
+if (argv[0] === "--help" || argv[0] === "-h") {
+  console.log(USAGE);
+  process.exit(0);
+}
 if (argv.length < 3 || argv[1] !== "--path") {
-  console.log("Usage: node init_skill.mjs <skill-name> --path <path>");
-  console.log("\nSkill name requirements:");
-  console.log("  - Hyphen-case identifier (e.g., 'data-analyzer')");
-  console.log("  - Lowercase letters, digits, and hyphens only");
-  console.log("  - Max 40 characters");
-  console.log("  - Must match directory name exactly");
-  console.log("\nExamples:");
-  console.log("  node init_skill.mjs my-new-skill --path skills/public");
-  console.log("  node init_skill.mjs my-api-helper --path skills/private");
-  console.log("  node init_skill.mjs custom-skill --path /custom/location");
-  process.exit(1);
+  console.error(USAGE);
+  process.exit(2);
 }
 
 const [skillName, , path] = argv;

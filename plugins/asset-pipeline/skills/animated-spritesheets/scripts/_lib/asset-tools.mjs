@@ -4,6 +4,20 @@
 // source there and re-run `pnpm dogfood` (or that build) to regenerate.
 
 // src/args.ts
+import { readFileSync } from "node:fs";
+function headerDoc(entry) {
+  if (!entry) return null;
+  let source;
+  try {
+    source = readFileSync(entry, "utf8");
+  } catch {
+    return null;
+  }
+  const match = /^(?:#![^\n]*\n)?\/\*\*([\s\S]*?)\*\//.exec(source);
+  if (!match) return null;
+  const text = match[1].split("\n").map((line) => line.replace(/^\s*\* ?/, "")).join("\n").trim();
+  return text.length > 0 ? text : null;
+}
 function parseArgs(argv, options = {}) {
   const booleans = new Set(options.booleans ?? []);
   const known = /* @__PURE__ */ new Set([...booleans, ...options.values ?? [], "help"]);
@@ -57,6 +71,12 @@ function parseArgs(argv, options = {}) {
     }
   }
   if (unknown.length > 0) failUsage(`unrecognized arguments: ${unknown.join(" ")}`);
+  if (parsed.has("help")) {
+    const help = headerDoc(process.argv[1]);
+    process.stdout.write(`${help ?? "No help available."}
+`);
+    process.exit(0);
+  }
   return { positionals, options: parsed };
 }
 function getString(args, key) {
@@ -151,7 +171,7 @@ function parseColor(input) {
 }
 
 // src/image/raster.ts
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync as readFileSync2, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 // src/image/png.ts
@@ -478,7 +498,7 @@ var Bitmap = class _Bitmap {
     return bmp;
   }
   static fromFile(path) {
-    const buffer = readFileSync(path);
+    const buffer = readFileSync2(path);
     const { width, height, data } = decodePng(buffer);
     return new _Bitmap(width, height, data);
   }
@@ -1784,7 +1804,7 @@ function buildSequenceGif(frames, flatBackground) {
 }
 
 // src/sprite/qc.ts
-import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
+import { existsSync as existsSync2, readFileSync as readFileSync3 } from "node:fs";
 var ALPHA_ON = 16;
 var EMPTY_AREA_FRAC = 3e-3;
 var CLIP_BORDER_FRAC = 0.01;
@@ -1813,7 +1833,7 @@ function frameGeometry(sheet, sheetPath, frameWidth, frameHeight) {
   }
   const manifestPath = sheetPath.replace(/\.[^./\\]+$/, ".json");
   if (existsSync2(manifestPath)) {
-    const m = JSON.parse(readFileSync2(manifestPath, "utf8"));
+    const m = JSON.parse(readFileSync3(manifestPath, "utf8"));
     const count = Math.trunc(m.frameCount);
     return {
       frameWidth: Math.trunc(m.frameWidth),

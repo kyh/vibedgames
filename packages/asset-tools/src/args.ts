@@ -8,6 +8,8 @@
  * about and reports a message an agent can act on.
  */
 
+import { readFileSync } from "node:fs";
+
 export type Args = {
   positionals: string[];
   /** Every `--key` seen, in order, so repeatable options keep their sequence. */
@@ -37,6 +39,32 @@ export type ParseOptions = {
    */
   values?: readonly string[];
 };
+
+/**
+ * The script's own header docblock, which is its help text.
+ *
+ * `argparse` built `--help` from the declarations; here the authoritative
+ * description of a script is the comment at the top of it. Reading that back
+ * means help cannot drift from the documentation the way a second copy of the
+ * usage string would.
+ */
+function headerDoc(entry: string | undefined): string | null {
+  if (!entry) return null;
+  let source: string;
+  try {
+    source = readFileSync(entry, "utf8");
+  } catch {
+    return null;
+  }
+  const match = /^(?:#![^\n]*\n)?\/\*\*([\s\S]*?)\*\//.exec(source);
+  if (!match) return null;
+  const text = match[1]!
+    .split("\n")
+    .map((line) => line.replace(/^\s*\* ?/, ""))
+    .join("\n")
+    .trim();
+  return text.length > 0 ? text : null;
+}
 
 export function parseArgs(argv: string[], options: ParseOptions = {}): Args {
   const booleans = new Set(options.booleans ?? []);
@@ -106,6 +134,14 @@ export function parseArgs(argv: string[], options: ParseOptions = {}): Args {
   }
 
   if (unknown.length > 0) failUsage(`unrecognized arguments: ${unknown.join(" ")}`);
+
+  // `-h`/`--help` short-circuits before any required-argument check, the way
+  // argparse did, so asking a script what it does never looks like misuse.
+  if (parsed.has("help")) {
+    const help = headerDoc(process.argv[1]);
+    process.stdout.write(`${help ?? "No help available."}\n`);
+    process.exit(0);
+  }
 
   return { positionals, options: parsed };
 }

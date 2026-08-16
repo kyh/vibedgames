@@ -4,6 +4,20 @@
 // source there and re-run `pnpm dogfood` (or that build) to regenerate.
 
 // src/args.ts
+import { readFileSync } from "node:fs";
+function headerDoc(entry) {
+  if (!entry) return null;
+  let source;
+  try {
+    source = readFileSync(entry, "utf8");
+  } catch {
+    return null;
+  }
+  const match = /^(?:#![^\n]*\n)?\/\*\*([\s\S]*?)\*\//.exec(source);
+  if (!match) return null;
+  const text = match[1].split("\n").map((line) => line.replace(/^\s*\* ?/, "")).join("\n").trim();
+  return text.length > 0 ? text : null;
+}
 function parseArgs(argv, options = {}) {
   const booleans = new Set(options.booleans ?? []);
   const known = /* @__PURE__ */ new Set([...booleans, ...options.values ?? [], "help"]);
@@ -57,6 +71,12 @@ function parseArgs(argv, options = {}) {
     }
   }
   if (unknown.length > 0) failUsage(`unrecognized arguments: ${unknown.join(" ")}`);
+  if (parsed.has("help")) {
+    const help = headerDoc(process.argv[1]);
+    process.stdout.write(`${help ?? "No help available."}
+`);
+    process.exit(0);
+  }
   return { positionals, options: parsed };
 }
 function getString(args, key) {
@@ -154,7 +174,7 @@ function parseColor(input) {
 }
 
 // src/image/raster.ts
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync as readFileSync2, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 // src/image/png.ts
@@ -488,7 +508,7 @@ var Bitmap = class _Bitmap {
     return bmp;
   }
   static fromFile(path) {
-    const buffer = readFileSync(path);
+    const buffer = readFileSync2(path);
     const { width, height, data } = decodePng(buffer);
     return new _Bitmap(width, height, data);
   }
@@ -875,7 +895,7 @@ function transpose(src, width, height) {
   return out;
 }
 function readImageSize(path) {
-  const buffer = readFileSync(path);
+  const buffer = readFileSync2(path);
   if (buffer.length >= 24 && buffer[0] === 137 && buffer[1] === 80) {
     return readPngSize(buffer);
   }
@@ -1195,12 +1215,12 @@ function parseLua(text) {
 
 // src/asset/tilemap-server.ts
 import { randomUUID } from "node:crypto";
-import { existsSync as existsSync2, mkdirSync as mkdirSync2, readFileSync as readFileSync3, writeFileSync as writeFileSync2 } from "node:fs";
+import { existsSync as existsSync2, mkdirSync as mkdirSync2, readFileSync as readFileSync4, writeFileSync as writeFileSync2 } from "node:fs";
 import { createServer } from "node:http";
 import { dirname as dirname3, extname, isAbsolute as isAbsolute2, relative, resolve as resolve3 } from "node:path";
 
 // src/asset/tilemap.ts
-import { existsSync, readFileSync as readFileSync2 } from "node:fs";
+import { existsSync, readFileSync as readFileSync3 } from "node:fs";
 import { dirname as dirname2, isAbsolute, resolve as resolve2 } from "node:path";
 var MANIFEST_JSON_CANDIDATES = [
   "assets_index.json",
@@ -1212,7 +1232,7 @@ function asInt(value, fallback) {
   return typeof value === "number" && Number.isFinite(value) ? Math.trunc(value) : fallback;
 }
 function loadManifestJson(path) {
-  const payload = JSON.parse(readFileSync2(path, "utf8"));
+  const payload = JSON.parse(readFileSync3(path, "utf8"));
   if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
     throw new Error("Manifest JSON must be an object at top-level.");
   }
@@ -1553,7 +1573,7 @@ function createTilemapEditor(options) {
         tileset: null
       };
       if (options.mapPath && existsSync2(options.mapPath)) {
-        map = parseTilemap(JSON.parse(readFileSync3(options.mapPath, "utf8")), {
+        map = parseTilemap(JSON.parse(readFileSync4(options.mapPath, "utf8")), {
           width: DEFAULT_MAP_WIDTH,
           height: DEFAULT_MAP_HEIGHT
         });
@@ -1580,7 +1600,7 @@ function createTilemapEditor(options) {
       if (!existsSync2(target)) throw new Error(`Map not found: ${path}`);
       return {
         path: target,
-        ...parseTilemap(JSON.parse(readFileSync3(target, "utf8")), {
+        ...parseTilemap(JSON.parse(readFileSync4(target, "utf8")), {
           width: DEFAULT_MAP_WIDTH,
           height: DEFAULT_MAP_HEIGHT
         })
@@ -1630,7 +1650,7 @@ function createTilemapEditor(options) {
           const name = url.searchParams.get("name");
           if (!name) throw new Error("name is required");
           const meta = metaFor(name);
-          const bytes = readFileSync3(meta.path);
+          const bytes = readFileSync4(meta.path);
           res.writeHead(200, {
             "content-type": CONTENT_TYPES[extname(meta.path).toLowerCase()] ?? "image/png",
             "content-length": bytes.length,
@@ -1662,7 +1682,7 @@ function createTilemapEditor(options) {
 }
 
 // src/asset/manifest.ts
-import { existsSync as existsSync4, readFileSync as readFileSync4 } from "node:fs";
+import { existsSync as existsSync4, readFileSync as readFileSync5 } from "node:fs";
 import { dirname as dirname5, isAbsolute as isAbsolute3, relative as relative3, resolve as resolve5 } from "node:path";
 
 // src/asset/paths.ts
@@ -1757,7 +1777,7 @@ function collectJsonPaths(payload) {
 function extractManifestPaths(manifestPath) {
   const manifestDir = resolve5(dirname5(manifestPath));
   if (manifestPath.toLowerCase().endsWith(".json")) {
-    const payload = JSON.parse(readFileSync4(manifestPath, "utf8"));
+    const payload = JSON.parse(readFileSync5(manifestPath, "utf8"));
     if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
       throw new Error("JSON manifest must be an object at top-level.");
     }
@@ -1767,7 +1787,7 @@ function extractManifestPaths(manifestPath) {
       collectJsonPaths(payload).map((p) => resolveManifestPath(p, manifestDir, jsonRoot))
     );
   }
-  const text = readFileSync4(manifestPath, "utf8");
+  const text = readFileSync5(manifestPath, "utf8");
   const out = /* @__PURE__ */ new Set();
   for (const match of text.matchAll(LUA_PATH_RE)) {
     out.add(resolveManifestPath(match[1], manifestDir, null));
@@ -1824,13 +1844,13 @@ function rewritePaths(base, value) {
 }
 function exportManifest(manifestPath, packRelative) {
   if (manifestPath.toLowerCase().endsWith(".json")) {
-    const payload = JSON.parse(readFileSync4(manifestPath, "utf8"));
+    const payload = JSON.parse(readFileSync5(manifestPath, "utf8"));
     if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
       throw new Error("JSON manifest must be an object at top-level.");
     }
     return payload;
   }
-  const parsed = parseLua(readFileSync4(manifestPath, "utf8"));
+  const parsed = parseLua(readFileSync5(manifestPath, "utf8"));
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error("Lua manifest must return a table/object.");
   }
