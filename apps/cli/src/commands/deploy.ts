@@ -16,33 +16,45 @@ import {
   SLUG_RE,
 } from "../lib/config-file.js";
 import { buildManifest } from "../lib/manifest.js";
+import { isJsonOutput, outputArgs, writeStructured } from "../lib/output.js";
+import { assertKnownFlags } from "../lib/strict-args.js";
 import { uploadAll } from "../lib/upload.js";
+
+const deployArgs = {
+  dir: {
+    type: "positional",
+    description: "Directory to deploy",
+    required: false,
+    default: ".",
+  },
+  slug: {
+    type: "string",
+    description: "Override the slug (bypasses vibedgames.json)",
+    required: false,
+  },
+  source: {
+    type: "boolean",
+    description:
+      "Also upload a forkable source archive, letting anyone logged in fork the project.",
+    default: false,
+  },
+  ...outputArgs,
+} as const;
 
 export const deployCommand = defineCommand({
   meta: {
     name: "deploy",
     description: "Deploy a game to vibedgames",
   },
-  args: {
-    dir: {
-      type: "positional",
-      description: "Directory to deploy",
-      required: false,
-      default: ".",
-    },
-    slug: {
-      type: "string",
-      description: "Override the slug (bypasses vibedgames.json)",
-      required: false,
-    },
-    source: {
-      type: "boolean",
-      description:
-        "Also upload a forkable source archive, letting anyone logged in fork the project.",
-      default: false,
-    },
-  },
-  run: async ({ args }) => {
+  args: deployArgs,
+  run: async ({ args, rawArgs }) => {
+    assertKnownFlags(rawArgs, deployArgs);
+
+    // Progress narration shares stdout with the payload, so it has to go quiet
+    // whenever stdout is the result rather than a story about it.
+    const structured = isJsonOutput(args) || Boolean(args.field);
+    const say = structured ? () => {} : (message: string) => consola.info(message);
+
     const dir = resolve(args.dir);
 
     if (!existsSync(dir)) {
@@ -60,7 +72,7 @@ export const deployCommand = defineCommand({
       for (const name of ["dist", "build", "out"]) {
         if (existsSync(join(dir, name, "index.html"))) {
           deployDir = join(dir, name);
-          consola.info(`Project root detected — deploying its build output ${name}/ instead.`);
+          say(`Project root detected — deploying its build output ${name}/ instead.`);
           break;
         }
       }
@@ -105,7 +117,7 @@ export const deployCommand = defineCommand({
         name: typeof name === "string" && name.length > 0 ? name : undefined,
       };
       writeProjectConfig(dir, config);
-      consola.info(`Wrote ${projectConfigPath(dir)}`);
+      say(`Wrote ${projectConfigPath(dir)}`);
     }
 
     if (!SLUG_RE.test(config.slug)) {
@@ -127,7 +139,7 @@ export const deployCommand = defineCommand({
     }
 
     const totalBytes = manifest.reduce((acc, f) => acc + f.size, 0);
-    consola.info(`Deploying ${config.slug}: ${manifest.length} files, ${formatBytes(totalBytes)}`);
+    say(`Deploying ${config.slug}: ${manifest.length} files, ${formatBytes(totalBytes)}`);
 
     // ---- Pack forkable source (opt-in: source is a publish, --source) -------
     let sourceArchive: SourceArchive | null = null;
@@ -138,7 +150,7 @@ export const deployCommand = defineCommand({
       } else {
         try {
           sourceArchive = await packSource(root, join(tmpdir(), "vibedgames"));
-          consola.info(
+          say(
             `Source: ${sourceArchive.files.length} files, ${formatBytes(sourceArchive.bytes)} — forkable via \`vg fork ${config.slug}\``,
           );
         } catch (err) {
@@ -176,14 +188,14 @@ export const deployCommand = defineCommand({
     }
 
     // ---- Upload to R2 -------------------------------------------------------
-    consola.start(`Uploading ${created.uploads.length} files`);
+    if (!structured) consola.start(`Uploading ${created.uploads.length} files`);
     try {
       await uploadAll({
         files: manifest,
         uploads: created.uploads,
         onProgress: (done, total) => {
           if (done === total || done % 10 === 0) {
-            consola.info(`Uploaded ${done}/${total}`);
+            say(`Uploaded ${done}/${total}`);
           }
         },
       });
@@ -225,8 +237,27 @@ export const deployCommand = defineCommand({
       process.exit(1);
     }
 
-    const elapsed = ((Date.now() - started) / 1000).toFixed(1);
-    consola.success(`Deployed ${config.slug} in ${elapsed}s`);
+    const elapsedMs = Date.now() - started;
+    if (
+      writeStructured(
+        {
+          slug: config.slug,
+          url: finalized.url,
+          deployment_id: created.deploymentId,
+          files: manifest.length,
+          bytes: totalBytes,
+          source: sourceArchive
+            ? { files: sourceArchive.files.length, bytes: sourceArchive.bytes }
+            : null,
+          elapsed_ms: elapsedMs,
+        },
+        args,
+      )
+    ) {
+      return;
+    }
+
+    consola.success(`Deployed ${config.slug} in ${(elapsedMs / 1000).toFixed(1)}s`);
     consola.log(`  ${finalized.url}`);
   },
 });

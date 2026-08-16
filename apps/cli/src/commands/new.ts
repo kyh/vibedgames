@@ -5,6 +5,7 @@ import { defineCommand } from "citty";
 import consola from "consola";
 import tiged from "tiged";
 import { SLUG_RE } from "../lib/config-file.js";
+import { assertKnownFlags } from "../lib/strict-args.js";
 
 type EnginePreset =
   | {
@@ -125,40 +126,44 @@ const NONE_FILES: ReadonlyArray<{ path: string; content: (slug: string) => strin
   { path: ".gitignore", content: () => `node_modules\ndist\n.DS_Store\n` },
 ];
 
+const newArgs = {
+  slug: {
+    type: "positional",
+    description: "Lowercase, hyphenated slug — used as the directory name and deploy subdomain.",
+    required: true,
+  },
+  engine: {
+    type: "string",
+    description: "Engine preset: phaser (default), threejs, or none.",
+    default: "phaser",
+  },
+  template: {
+    type: "string",
+    description:
+      "Override the engine preset and fetch from an arbitrary degit spec (e.g. owner/repo, owner/repo#branch). Skips the engine preset entirely.",
+  },
+  here: {
+    type: "boolean",
+    description: "Write into the current directory instead of creating <slug>/.",
+    default: false,
+  },
+  force: {
+    type: "boolean",
+    description: "Overwrite an existing target directory.",
+    default: false,
+  },
+} as const;
+
 export const newCommand = defineCommand({
   meta: {
     name: "new",
     description:
       "Scaffold a new browser game. Pulls an official engine template (phaser, threejs) or generates a minimal canvas starter.",
   },
-  args: {
-    slug: {
-      type: "positional",
-      description: "Lowercase, hyphenated slug — used as the directory name and deploy subdomain.",
-      required: true,
-    },
-    engine: {
-      type: "string",
-      description: "Engine preset: phaser (default), threejs, or none.",
-      default: "phaser",
-    },
-    template: {
-      type: "string",
-      description:
-        "Override the engine preset and fetch from an arbitrary degit spec (e.g. owner/repo, owner/repo#branch). Skips the engine preset entirely.",
-    },
-    here: {
-      type: "boolean",
-      description: "Write into the current directory instead of creating <slug>/.",
-      default: false,
-    },
-    force: {
-      type: "boolean",
-      description: "Overwrite an existing target directory.",
-      default: false,
-    },
-  },
-  run: async ({ args }) => {
+  args: newArgs,
+  run: async ({ args, rawArgs }) => {
+    assertKnownFlags(rawArgs, newArgs);
+
     const slug = args.slug.trim().toLowerCase();
     if (!SLUG_RE.test(slug)) {
       consola.error(

@@ -9,6 +9,30 @@ import { createClient } from "../lib/api.js";
 import { extractSource } from "../lib/archive.js";
 import { SLUG_RE } from "../lib/config-file.js";
 import { isJsonOutput, outputArgs, writeStructured } from "../lib/output.js";
+import { assertKnownFlags } from "../lib/strict-args.js";
+
+const forkArgs = {
+  slug: {
+    type: "positional",
+    description: "Slug of the project to fork (e.g. bomberman).",
+    required: true,
+  },
+  target: {
+    type: "positional",
+    description: "New slug + directory for the fork. Defaults to <slug>-fork.",
+    required: false,
+  },
+  name: {
+    type: "string",
+    description: "Display name for the fork (defaults to the target slug).",
+  },
+  force: {
+    type: "boolean",
+    description: "Overwrite the target directory if it exists.",
+    default: false,
+  },
+  ...outputArgs,
+} as const;
 
 export const forkCommand = defineCommand({
   meta: {
@@ -16,29 +40,10 @@ export const forkCommand = defineCommand({
     description:
       "Fork another project's source so you can build on it. Downloads the source a project shipped with `vg deploy`, extracts it locally, and rewrites it to a new slug.",
   },
-  args: {
-    slug: {
-      type: "positional",
-      description: "Slug of the project to fork (e.g. bomberman).",
-      required: true,
-    },
-    target: {
-      type: "positional",
-      description: "New slug + directory for the fork. Defaults to <slug>-fork.",
-      required: false,
-    },
-    name: {
-      type: "string",
-      description: "Display name for the fork (defaults to the target slug).",
-    },
-    force: {
-      type: "boolean",
-      description: "Overwrite the target directory if it exists.",
-      default: false,
-    },
-    ...outputArgs,
-  },
-  run: async ({ args }) => {
+  args: forkArgs,
+  run: async ({ args, rawArgs }) => {
+    assertKnownFlags(rawArgs, forkArgs);
+
     const source = args.slug.trim().toLowerCase();
     const target = (args.target ?? `${source}-fork`).trim().toLowerCase();
     if (!SLUG_RE.test(target)) {

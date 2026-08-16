@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -7,7 +8,7 @@ import spawn from "cross-spawn";
 
 import { getBaseUrl, getConfigDir } from "../lib/config.js";
 import { isNewerVersion } from "../lib/update.js";
-import { SLUG_RE, readProjectConfig } from "../lib/config-file.js";
+import { SLUG_RE, findProjectRoot, readProjectConfig } from "../lib/config-file.js";
 
 /**
  * `vg playtest` — drive a browser to actually play the game.
@@ -343,9 +344,41 @@ export function expandGameFlag(args: string[], resolveUrl = resolveGameUrl): str
   return out;
 }
 
+/**
+ * agent-browser's session defaults to the literal name `default`, which is
+ * shared by every caller on the machine. Two `vg playtest` runs — two projects
+ * in two terminals, or two agents on one box — then drive the SAME browser tab:
+ * one navigates away mid-run and the other screenshots its page. Scope the
+ * session to the project so concurrent playtests can't collide.
+ *
+ * Left alone when the caller already chose a session, or set one in the
+ * environment, or is asking about sessions themselves (`session list` must see
+ * every session, not just this project's).
+ */
+export function withScopedSession(args: string[], sessionId: () => string): string[] {
+  if (args.includes("--session") || args.some((a) => a.startsWith("--session="))) return args;
+  if (process.env.AGENT_BROWSER_SESSION) return args;
+  const verb = bareTokens(args)[0];
+  // No verb means `--help`/`--version`, and `install`/`session` are machine-wide
+  // — `session list` has to see every session, not just this project's.
+  if (verb === undefined || verb === "session" || verb === "install") return args;
+  return ["--session", sessionId(), ...args];
+}
+
+/**
+ * A stable per-project session name. Keyed on the project root when there is
+ * one so every command run from anywhere inside the project shares a browser,
+ * and on the cwd otherwise. Hashed because the name lands in a socket path.
+ */
+function projectSessionId(): string {
+  const root = findProjectRoot(process.cwd()) ?? process.cwd();
+  const digest = createHash("sha256").update(root).digest("hex").slice(0, 12);
+  return `vg-${digest}`;
+}
+
 /** Resolve (installing on first use) and exec agent-browser. Never returns. */
 export function runPlaytest(rawArgs: string[]): never {
-  const args = expandGameFlag(rawArgs);
+  const args = withScopedSession(expandGameFlag(rawArgs), projectSessionId);
 
   // Bootstrap covers `install` too: on a fresh machine that's the most natural
   // first command, and re-running the provision step it just did is harmless.

@@ -4,6 +4,9 @@ import consola from "consola";
 import { createClient } from "../lib/api.js";
 import { getToken } from "../lib/config.js";
 import { outputArgs, writeStructured } from "../lib/output.js";
+import { assertKnownFlags } from "../lib/strict-args.js";
+
+const creditsArgs = { ...outputArgs } as const;
 
 const MICRO_PER_USD = 1_000_000;
 const SUB_CENT_MICRO = MICRO_PER_USD / 100;
@@ -73,10 +76,10 @@ export const creditsCommand = defineCommand({
     name: "credits",
     description: "Show your credit balance and recent usage.",
   },
-  args: {
-    ...outputArgs,
-  },
-  run: async ({ args }) => {
+  args: creditsArgs,
+  run: async ({ args, rawArgs }) => {
+    assertKnownFlags(rawArgs, creditsArgs);
+
     const token = getToken();
 
     if (!token) {

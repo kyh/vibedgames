@@ -10,6 +10,7 @@ import {
   PKG_NAME,
 } from "../lib/package-manager.js";
 import { isMissingCommand, run } from "../lib/run.js";
+import { assertKnownFlags } from "../lib/strict-args.js";
 
 const REPO = "kyh/vibedgames";
 const DEFAULT_AGENTS = "claude-code,cursor,codex";
@@ -30,30 +31,34 @@ const skillsUpdateArgs = (global: boolean, yes: boolean) => {
   return args;
 };
 
+const initArgs = {
+  agent: {
+    type: "string",
+    description:
+      "Comma-separated target agents. Default installs for Claude Code, Cursor, and Codex (symlinked from a shared .agents/skills/ dir). Pass '*' for every supported agent.",
+    alias: "a",
+    default: DEFAULT_AGENTS,
+  },
+  global: {
+    type: "boolean",
+    description: "Install to user directory instead of project",
+    default: false,
+    alias: "g",
+  },
+  yes: {
+    type: "boolean",
+    description: "Skip confirmation prompts",
+    default: true,
+    alias: "y",
+  },
+} as const;
+
 export const initCommand = defineCommand({
   meta: { name: "init", description },
-  args: {
-    agent: {
-      type: "string",
-      description:
-        "Comma-separated target agents. Default installs for Claude Code, Cursor, and Codex (symlinked from a shared .agents/skills/ dir). Pass '*' for every supported agent.",
-      alias: "a",
-      default: DEFAULT_AGENTS,
-    },
-    global: {
-      type: "boolean",
-      description: "Install to user directory instead of project",
-      default: false,
-      alias: "g",
-    },
-    yes: {
-      type: "boolean",
-      description: "Skip confirmation prompts",
-      default: true,
-      alias: "y",
-    },
-  },
-  run: async ({ args }) => {
+  args: initArgs,
+  run: async ({ args, rawArgs }) => {
+    assertKnownFlags(rawArgs, initArgs);
+
     const agents = args.agent
       .split(",")
       .map((s) => s.trim())
