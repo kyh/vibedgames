@@ -62,6 +62,19 @@ test("findSubcommand sees past a valued global flag", () => {
   assert.equal(findSubcommand(["snapshot", "--game", "x"]), "snapshot");
 });
 
+test("findSubcommand sees past a --flag=value token, which claims nothing", () => {
+  assert.equal(findSubcommand(["--session=p1", "snapshot", "--game", "x"]), "snapshot");
+});
+
+test("expandGameFlag does not emit a second `open` when the verb trails the flag", () => {
+  // A single-pass "have I seen a verb yet?" would insert one here and then push
+  // the user's own, handing agent-browser `open <url> open`.
+  assert.deepEqual(expandGameFlag(["--game", "my-game", "open"], url), [
+    "https://my-game.vibedgames.com",
+    "open",
+  ]);
+});
+
 test("findSubcommand reports none when every bare token is a flag's value", () => {
   // These are the shapes that legitimately need an `open` inserted.
   assert.equal(findSubcommand(["--game", "x"]), null);

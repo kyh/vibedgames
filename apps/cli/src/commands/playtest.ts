@@ -1,4 +1,6 @@
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { defineCommand } from "citty";
 import consola from "consola";
@@ -20,8 +22,8 @@ import { SLUG_RE, readProjectConfig } from "../lib/config-file.js";
  * The one thing layered on top is `--game [slug]`, which resolves a deployed
  * game's URL so an agent can playtest what it just shipped with no local setup.
  *
- * Pinned to a minor: agent-browser is pre-1.0, so patches are welcome but a
- * minor bump can move the command surface out from under the playtest skill.
+ * A minimum version is enforced: agent-browser is pre-1.0, so a minor bump can
+ * move the command surface out from under the playtest skill.
  */
 
 const PKG = "agent-browser";
@@ -52,11 +54,17 @@ function installedVersion(bin: string): string | null {
 }
 
 /**
- * Whether a version satisfies PKG_SPEC. An unparseable version passes: a
- * binary installed from brew or cargo may not report a semver at all, and
- * blocking it would be worse than trusting it.
+ * Whether a version is new enough for the playtest skill.
+ *
+ * A floor, not an exact pin, so a newer agent-browser is left alone: someone
+ * running 0.35 installed it for a reason, and downgrading a shared global tool
+ * to match this skill would break their other work to fix a risk that may not
+ * exist. PKG_SPEC still caps what a *fresh* install pulls in.
+ *
+ * An unparseable version passes: a binary from brew or cargo may not report a
+ * semver at all, and blocking it would be worse than trusting it.
  */
-function satisfiesPin(version: string): boolean {
+function meetsMinimum(version: string): boolean {
   const parts = /^(\d+)\.(\d+)\./.exec(version);
   if (!parts) return true;
   const major = Number(parts[1]);
@@ -111,24 +119,37 @@ function bootstrap(): Binary {
 }
 
 /**
- * Bring an agent-browser older than the pin up to it.
+ * Bring an agent-browser older than the minimum up to it.
  *
- * The pin exists because agent-browser is pre-1.0: the playtest skill teaches a
- * command surface, and the bot script depends on response shapes, both of which
- * a minor bump can move. Installing the pin only on first use would leave an
- * older global install — already on PATH from some earlier project — driving
- * every run, which is how a documented contract silently stops holding.
+ * The floor exists because agent-browser is pre-1.0: the playtest skill teaches
+ * a command surface, and the bot script depends on response shapes, both of
+ * which a minor bump can move. Installing the spec only on first use would
+ * leave an older global install — already on PATH from some earlier project —
+ * driving every run, which is how a documented contract silently stops holding.
  */
-function ensurePinned(resolved: Binary): Binary {
-  if (resolved.version === null || satisfiesPin(resolved.version)) return resolved;
+function ensureMinimum(resolved: Binary): Binary {
+  if (resolved.version === null || meetsMinimum(resolved.version)) return resolved;
+
+  // The bot script shells out to `vg playtest` once per step, so an upgrade
+  // that can't stick — read-only npm prefix, offline, locked-down CI — would
+  // otherwise retry on every one of those calls. One attempt per stale version
+  // per machine (the stamp lives in the temp dir, so a reboot retries).
+  const stamp = join(tmpdir(), `vg-${PKG}-upgrade-${resolved.version}`);
+  if (existsSync(stamp)) return resolved;
+
   consola.warn(
-    `Found ${PKG} ${resolved.version}, but the playtest skill is written against ${PKG_SPEC}. Upgrading…`,
+    `Found ${PKG} ${resolved.version}, but the playtest skill needs at least ${MIN_VERSION.major}.${MIN_VERSION.minor}. Upgrading…`,
   );
   const upgrade = spawn.sync("npm", ["install", "-g", PKG_SPEC], { stdio: "inherit" });
   const upgraded = upgrade.status === 0 && !upgrade.error ? resolveBinary() : null;
-  if (!upgraded || (upgraded.version !== null && !satisfiesPin(upgraded.version))) {
+  if (!upgraded || (upgraded.version !== null && !meetsMinimum(upgraded.version))) {
     // Continue anyway: an older binary handles most commands fine, and failing
     // outright would strand anyone who can't write to npm's global prefix.
+    try {
+      writeFileSync(stamp, "");
+    } catch {
+      // A stamp we can't write only costs a retry next time.
+    }
     consola.warn(
       `Couldn't upgrade ${PKG}. Continuing on ${resolved.version} — run \`npm install -g ${PKG_SPEC}\` if commands misbehave.`,
     );
@@ -198,16 +219,21 @@ function projectSlug(): string {
  *
  * A bare token is a flag's value if a flag sits immediately before it, and a
  * subcommand otherwise — `--session p1 snapshot` has `p1` claimed by
- * `--session`, leaving `snapshot` as the first unclaimed token. That holds for
- * any single-valued flag, known or not, so no mirror of upstream's options can
- * drift here. Returns null when every bare token is spoken for, which is the
- * `vg playtest --session p1 --game x` shape that legitimately needs an `open`.
+ * `--session`, leaving `snapshot` as the first unclaimed token. `--session=p1`
+ * carries its own value and claims nothing. That holds for any single-valued
+ * flag, known or not, so no mirror of upstream's options can drift here.
+ *
+ * Deliberately incomplete: agent-browser's boolean flags take an OPTIONAL
+ * `true`/`false`, so `--headed snapshot` is genuinely ambiguous without knowing
+ * that `--headed` is boolean — and knowing that for ~50 options means mirroring
+ * a grammar that moves every release. This catches the shapes people actually
+ * type; anything past it reaches agent-browser as before.
  */
 export function findSubcommand(args: string[]): string | null {
   for (const [index, arg] of args.entries()) {
     if (arg.startsWith("-")) continue;
     const previous = args[index - 1];
-    if (previous !== undefined && previous.startsWith("-")) continue;
+    if (previous !== undefined && previous.startsWith("-") && !previous.includes("=")) continue;
     return arg;
   }
   return null;
@@ -220,7 +246,8 @@ export function expandGameFlag(args: string[], resolveUrl = resolveGameUrl): str
   // agent-browser silently runs the snapshot and ignores the stray URL, so
   // leaving it to upstream costs a wrong answer rather than an error. Skipped
   // when some verb here does take a URL, which is the well-formed case.
-  const subcommand = args.some((a) => URL_TAKING.has(a)) ? null : findSubcommand(args);
+  const hasUrlVerb = args.some((a) => URL_TAKING.has(a));
+  const subcommand = hasUrlVerb ? null : findSubcommand(args);
   if (subcommand !== null) {
     consola.error(
       `\`--game\` supplies a URL, so it only works with \`${[...URL_TAKING].join("`, `")}\` — not \`${subcommand}\`. Open the game first, then run \`vg playtest ${subcommand} …\` against it.`,
@@ -229,26 +256,29 @@ export function expandGameFlag(args: string[], resolveUrl = resolveGameUrl): str
   }
 
   const out: string[] = [];
-  let urlExpected = false;
   // `entries()` types each element as string, so no assertion is needed to
   // index the array; `consumed` skips a slug already claimed by its flag.
   let consumed = false;
+  let opened = false;
   for (const [index, arg] of args.entries()) {
     if (consumed) {
       consumed = false;
       continue;
     }
     if (arg !== "--game") {
-      if (URL_TAKING.has(arg)) urlExpected = true;
       out.push(arg);
       continue;
     }
     const next = args[index + 1];
     const slug = next !== undefined && !next.startsWith("-") ? next : null;
     consumed = slug !== null;
-    if (!urlExpected) {
+    // Decided from the whole array rather than from what came before the flag,
+    // so `--game x open` substitutes in place instead of emitting a second
+    // `open`. Once per expansion, so repeating `--game` yields one verb and
+    // several URLs — the shape `diff url` wants.
+    if (!hasUrlVerb && !opened) {
       out.push("open");
-      urlExpected = true;
+      opened = true;
     }
     out.push(resolveUrl(slug));
   }
@@ -262,7 +292,7 @@ export function runPlaytest(rawArgs: string[]): never {
   // Bootstrap covers `install` too: on a fresh machine that's the most natural
   // first command, and re-running the provision step it just did is harmless.
   const resolved = resolveBinary();
-  const { bin } = resolved ? ensurePinned(resolved) : bootstrap();
+  const { bin } = resolved ? ensureMinimum(resolved) : bootstrap();
 
   const result = spawn.sync(bin, args, { stdio: "inherit" });
   process.exit(result.status ?? 1);

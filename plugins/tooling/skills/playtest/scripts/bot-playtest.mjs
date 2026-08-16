@@ -37,7 +37,7 @@ const DEFAULT_SCRIPT = [
 
 const THRESHOLDS = {
   framesAdvanced: 100,
-  distanceTravelled: 5,
+  displacement: 5,
   stuckRun: 2,
 };
 
@@ -186,18 +186,27 @@ function expectsMotion(step) {
 }
 
 /**
- * Keys currently held. A keydown left dangling by an early exit stays stuck in
- * the game and poisons the next run against the same daemon, so anything that
- * ends the process releases these first.
+ * Inputs currently held. A keydown — or a mouse button — left dangling by an
+ * early exit stays stuck in the game and poisons the next run against the same
+ * daemon, so anything that ends the process releases these first.
  */
 const held = new Set();
+let pointerHeld = null;
 
-function releaseHeldKeys() {
-  // Clear before releasing: `dispatchKeys` can itself call `fail`, and this must
-  // not recurse forever when the CLI is what's broken.
+function releaseHeldInputs() {
+  // Snapshot and clear before dispatching: the dispatch can itself call `fail`,
+  // and this must not recurse forever when the CLI is what's broken.
   const keys = [...held];
+  const pointer = pointerHeld;
   held.clear();
+  pointerHeld = null;
   dispatchKeys("keyup", keys);
+  if (pointer) {
+    playtest([
+      "eval",
+      `(() => { ${POINTER_FN} ${pointerCall(pointer, "pointerup", 0)} return true; })()`,
+    ]);
+  }
 }
 
 /** `code` → `keyCode`, for codes whose keyCode isn't derivable from the name. */
@@ -357,18 +366,24 @@ function pointerCall(pointer, type, buttons) {
 /** Press the step's inputs and start measuring, in one round trip. */
 function beginStep(step) {
   const parts = [];
+  const codes = step.keys ?? [];
   if (step.pointer) {
     const down = step.pointer.down === true;
     parts.push(POINTER_FN, pointerCall(step.pointer, "pointermove", down ? 1 : 0));
     if (down) parts.push(pointerCall(step.pointer, "pointerdown", 1));
   }
-  const codes = step.keys ?? [];
   if (codes.length > 0) {
     parts.push(
       `for (const init of [${keyInits(codes).join(",")}]) window.dispatchEvent(new KeyboardEvent("keydown", init));`,
     );
   }
   parts.push(TRACK_BEGIN);
+
+  // Record what's about to go down BEFORE dispatching it: a failure part-way
+  // through the eval can still have pressed something, and an input this
+  // process never releases stays held in the daemon's page for the next run.
+  for (const code of codes) held.add(code);
+  if (step.pointer?.down === true) pointerHeld = step.pointer;
   evaluate(`(() => { ${parts.join("\n")}\nreturn true; })()`);
 }
 
@@ -385,12 +400,18 @@ function endStep(step) {
     parts.push(POINTER_FN, pointerCall(step.pointer, "pointerup", 0));
   }
   parts.push(TRACK_END);
+
+  // Only forget these once the release has actually landed. Clearing first
+  // would leave `releaseHeldInputs` with nothing to do on the failure path —
+  // which is the one path where it matters.
+  const summary = evaluate(`(() => { ${parts.join("\n")} })()`);
   held.clear();
-  return evaluate(`(() => { ${parts.join("\n")} })()`);
+  pointerHeld = null;
+  return summary;
 }
 
 function fail(message) {
-  releaseHeldKeys();
+  releaseHeldInputs();
   console.error(`bot-playtest: ${message}`);
   process.exit(HARNESS_FAILURE);
 }
@@ -542,13 +563,13 @@ function main() {
 
   let prev = before;
   let distance = 0;
+  let maxStepDisplacement = 0;
   let stuckSteps = 0;
   let stuckRun = 0;
   let longestStuckRun = 0;
   let stepOfFirstScore = -1;
 
   opts.script.forEach((step, index) => {
-    for (const key of step.keys ?? []) held.add(key);
     beginStep(step);
     playtest(["wait", String(step.ms)]);
     const moved = endStep(step);
@@ -559,6 +580,7 @@ function main() {
     if (!moved) return;
 
     distance += moved.path;
+    maxStepDisplacement = Math.max(maxStepDisplacement, moved.peak);
     const progressed = moved.score > moved.scoreBefore;
     if (progressed && stepOfFirstScore === -1) stepOfFirstScore = index;
 
@@ -601,6 +623,7 @@ function main() {
     scoreBefore: before.score,
     scoreAfter: prev.score,
     distanceTravelled: Number(distance.toFixed(2)),
+    maxStepDisplacement: Number(maxStepDisplacement.toFixed(2)),
     stepOfFirstScore,
     stuckSteps,
     longestStuckRun,
@@ -616,13 +639,26 @@ function main() {
   const warnings = [];
   if (report.framesAdvanced <= THRESHOLDS.framesAdvanced)
     failures.push(`game loop stalled (framesAdvanced ${report.framesAdvanced})`);
-  if (report.distanceTravelled <= THRESHOLDS.distanceTravelled)
+  // Gated on the largest displacement any ONE step achieved, not on the summed
+  // path: path accumulates every sampled wobble, so a game with an idle bob and
+  // completely dead input can drift past a total-distance threshold and look
+  // responsive. Peak-from-step-start stays bounded by how far the player
+  // actually got.
+  if (report.maxStepDisplacement <= THRESHOLDS.displacement)
     failures.push(
-      `player did not respond to input (distanceTravelled ${report.distanceTravelled}) — if this game steers with the mouse, give the script \`pointer\` steps`,
+      `player did not respond to input (maxStepDisplacement ${report.maxStepDisplacement}) — if this game steers with the mouse, give the script \`pointer\` steps`,
     );
   if (report.longestStuckRun > THRESHOLDS.stuckRun)
     failures.push(
       `player wedged for ${report.longestStuckRun} consecutive movement steps (longestStuckRun)`,
+    );
+  // Failing needs more consecutive stuck steps than the script even contains,
+  // so silence here proves nothing. Say so rather than let a green run imply a
+  // check that could never have run.
+  const motionSteps = opts.script.filter(expectsMotion).length;
+  if (motionSteps <= THRESHOLDS.stuckRun)
+    warnings.push(
+      `stuck detection never applied: ${motionSteps} step(s) ask the player to move, and failing needs more than ${THRESHOLDS.stuckRun} in a row`,
     );
   // Only an assertion when the caller supplied the game's own verbs. The
   // default sweep is a generic WASD walk that knows nothing about how this
