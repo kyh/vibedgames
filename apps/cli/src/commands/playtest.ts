@@ -25,29 +25,54 @@ import { SLUG_RE, readProjectConfig } from "../lib/config-file.js";
  */
 
 const PKG = "agent-browser";
-const PKG_SPEC = `${PKG}@^0.34.0`;
+const MIN_VERSION = { major: 0, minor: 34 };
+const PKG_SPEC = `${PKG}@^${MIN_VERSION.major}.${MIN_VERSION.minor}.0`;
 
 /**
- * Subcommands that take a URL. Used only to decide whether a bare
- * `--game` still needs an `open` in front of it — never to locate the
- * subcommand, so an unknown verb degrades to agent-browser's own error rather
- * than to a wrong guess here.
+ * Subcommands that take a URL. Used to decide whether a bare `--game` still
+ * needs an `open` in front of it, and — via `findSubcommand` — to tell a
+ * misplaced `--game` from a well-formed one. An unknown verb still degrades to
+ * agent-browser's own error rather than to a wrong guess here.
  */
 const URL_TAKING = new Set(["open", "goto", "navigate", "url"]);
 
-/** True if agent-browser is on PATH (installed via npm, brew, or cargo). */
-function isInstalled(bin: string): boolean {
+/**
+ * The installed agent-browser's version, or null if the binary can't be run.
+ *
+ * Doubles as the "is it installed?" probe: a version we can read is proof the
+ * binary works, which a bare exit code isn't.
+ */
+function installedVersion(bin: string): string | null {
   // cross-spawn's sync sets `error` to null on success (node's spawnSync leaves
   // it undefined), so test truthiness rather than comparing against undefined.
-  const res = spawn.sync(bin, ["--version"], { stdio: "ignore", timeout: 30_000 });
-  return res.status === 0 && !res.error;
+  const res = spawn.sync(bin, ["--version"], { encoding: "utf8", timeout: 30_000 });
+  if (res.status !== 0 || res.error) return null;
+  const match = /(\d+)\.(\d+)\.(\d+)/.exec(res.stdout ?? "");
+  return match ? match[0] : "unknown";
 }
 
+/**
+ * Whether a version satisfies PKG_SPEC. An unparseable version passes: a
+ * binary installed from brew or cargo may not report a semver at all, and
+ * blocking it would be worse than trusting it.
+ */
+function satisfiesPin(version: string): boolean {
+  const parts = /^(\d+)\.(\d+)\./.exec(version);
+  if (!parts) return true;
+  const major = Number(parts[1]);
+  const minor = Number(parts[2]);
+  if (major !== MIN_VERSION.major) return major > MIN_VERSION.major;
+  return minor >= MIN_VERSION.minor;
+}
+
+type Binary = { bin: string; version: string | null };
+
 /** The agent-browser binary to use. VG_AGENT_BROWSER_BIN overrides (dev). */
-function resolveBinary(): string | null {
+function resolveBinary(): Binary | null {
   const override = process.env.VG_AGENT_BROWSER_BIN;
-  if (override) return existsSync(override) ? override : null;
-  return isInstalled(PKG) ? PKG : null;
+  if (override) return existsSync(override) ? { bin: override, version: null } : null;
+  const version = installedVersion(PKG);
+  return version === null ? null : { bin: PKG, version };
 }
 
 /**
@@ -56,7 +81,7 @@ function resolveBinary(): string | null {
  * fetches Chrome for Testing and reuses an existing Chrome/Brave/Playwright
  * install when it finds one), so a first run pays for both.
  */
-function bootstrap(): string {
+function bootstrap(): Binary {
   consola.start(`Installing the playtest browser (${PKG})…`);
   const install = spawn.sync("npm", ["install", "-g", PKG_SPEC], { stdio: "inherit" });
   if (install.status !== 0 || install.error) {
@@ -64,8 +89,8 @@ function bootstrap(): string {
     process.exit(1);
   }
 
-  const bin = resolveBinary();
-  if (!bin) {
+  const resolved = resolveBinary();
+  if (!resolved) {
     consola.error(
       `Installed ${PKG_SPEC} but \`${PKG}\` isn't on PATH. Check that npm's global bin directory is in your PATH (\`npm bin -g\`).`,
     );
@@ -73,7 +98,7 @@ function bootstrap(): string {
   }
 
   consola.start("Provisioning the browser (first run only)…");
-  const provision = spawn.sync(bin, ["install"], { stdio: "inherit" });
+  const provision = spawn.sync(resolved.bin, ["install"], { stdio: "inherit" });
   if (provision.status !== 0) {
     consola.error(
       `\`${PKG} install\` failed. On Linux you may need system libraries: ${PKG} install --with-deps`,
@@ -82,7 +107,34 @@ function bootstrap(): string {
   }
 
   consola.success("Playtest browser ready.");
-  return bin;
+  return resolved;
+}
+
+/**
+ * Bring an agent-browser older than the pin up to it.
+ *
+ * The pin exists because agent-browser is pre-1.0: the playtest skill teaches a
+ * command surface, and the bot script depends on response shapes, both of which
+ * a minor bump can move. Installing the pin only on first use would leave an
+ * older global install — already on PATH from some earlier project — driving
+ * every run, which is how a documented contract silently stops holding.
+ */
+function ensurePinned(resolved: Binary): Binary {
+  if (resolved.version === null || satisfiesPin(resolved.version)) return resolved;
+  consola.warn(
+    `Found ${PKG} ${resolved.version}, but the playtest skill is written against ${PKG_SPEC}. Upgrading…`,
+  );
+  const upgrade = spawn.sync("npm", ["install", "-g", PKG_SPEC], { stdio: "inherit" });
+  const upgraded = upgrade.status === 0 && !upgrade.error ? resolveBinary() : null;
+  if (!upgraded || (upgraded.version !== null && !satisfiesPin(upgraded.version))) {
+    // Continue anyway: an older binary handles most commands fine, and failing
+    // outright would strand anyone who can't write to npm's global prefix.
+    consola.warn(
+      `Couldn't upgrade ${PKG}. Continuing on ${resolved.version} — run \`npm install -g ${PKG_SPEC}\` if commands misbehave.`,
+    );
+    return resolved;
+  }
+  return upgraded;
 }
 
 /**
@@ -140,17 +192,38 @@ function projectSlug(): string {
  * decision left is whether a bare `--game` needs an `open` in front of it,
  * which is settled by looking for a URL-taking verb earlier in the args.
  */
+/**
+ * The subcommand in `args`, when one can be identified without knowing
+ * agent-browser's flag grammar.
+ *
+ * A bare token is a flag's value if a flag sits immediately before it, and a
+ * subcommand otherwise — `--session p1 snapshot` has `p1` claimed by
+ * `--session`, leaving `snapshot` as the first unclaimed token. That holds for
+ * any single-valued flag, known or not, so no mirror of upstream's options can
+ * drift here. Returns null when every bare token is spoken for, which is the
+ * `vg playtest --session p1 --game x` shape that legitimately needs an `open`.
+ */
+export function findSubcommand(args: string[]): string | null {
+  for (const [index, arg] of args.entries()) {
+    if (arg.startsWith("-")) continue;
+    const previous = args[index - 1];
+    if (previous !== undefined && previous.startsWith("-")) continue;
+    return arg;
+  }
+  return null;
+}
+
 export function expandGameFlag(args: string[], resolveUrl = resolveGameUrl): string[] {
   if (!args.includes("--game")) return args;
 
-  // Catch `vg playtest snapshot --game x`, where the URL has nowhere to go.
-  // Guarded on args[0] being a bare token, since that is the only position a
-  // subcommand can occupy without a preceding flag possibly claiming it as a
-  // value — and skipped entirely when some verb here does take a URL.
-  const first = args[0];
-  if (first !== undefined && !first.startsWith("-") && !args.some((a) => URL_TAKING.has(a))) {
+  // Catch `vg playtest snapshot --game x`, where the URL has nowhere to go —
+  // agent-browser silently runs the snapshot and ignores the stray URL, so
+  // leaving it to upstream costs a wrong answer rather than an error. Skipped
+  // when some verb here does take a URL, which is the well-formed case.
+  const subcommand = args.some((a) => URL_TAKING.has(a)) ? null : findSubcommand(args);
+  if (subcommand !== null) {
     consola.error(
-      `\`--game\` supplies a URL, so it only works with \`${[...URL_TAKING].join("`, `")}\` — not \`${first}\`. Open the game first, then run \`vg playtest ${first} …\` against it.`,
+      `\`--game\` supplies a URL, so it only works with \`${[...URL_TAKING].join("`, `")}\` — not \`${subcommand}\`. Open the game first, then run \`vg playtest ${subcommand} …\` against it.`,
     );
     process.exit(1);
   }
@@ -188,7 +261,8 @@ export function runPlaytest(rawArgs: string[]): never {
 
   // Bootstrap covers `install` too: on a fresh machine that's the most natural
   // first command, and re-running the provision step it just did is harmless.
-  const bin = resolveBinary() ?? bootstrap();
+  const resolved = resolveBinary();
+  const { bin } = resolved ? ensurePinned(resolved) : bootstrap();
 
   const result = spawn.sync(bin, args, { stdio: "inherit" });
   process.exit(result.status ?? 1);

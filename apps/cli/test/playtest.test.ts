@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { expandGameFlag } from "../src/commands/playtest.js";
+import { expandGameFlag, findSubcommand } from "../src/commands/playtest.js";
 import { SLUG_RE } from "../src/lib/config-file.js";
 
 /** Stand-in for the real resolver so these stay pure unit tests. */
@@ -51,6 +51,23 @@ test("expandGameFlag does not mistake a valued global flag's value for the subco
     "open",
     "https://my-game.vibedgames.com",
   ]);
+});
+
+test("findSubcommand sees past a valued global flag", () => {
+  // agent-browser answers `--session p1 snapshot open <url>` by running the
+  // snapshot and silently ignoring the URL, so missing the guard here costs a
+  // wrong answer rather than an error. `p1` is claimed by `--session`, leaving
+  // `snapshot` as the first unclaimed bare token.
+  assert.equal(findSubcommand(["--session", "p1", "snapshot", "--game", "x"]), "snapshot");
+  assert.equal(findSubcommand(["snapshot", "--game", "x"]), "snapshot");
+});
+
+test("findSubcommand reports none when every bare token is a flag's value", () => {
+  // These are the shapes that legitimately need an `open` inserted.
+  assert.equal(findSubcommand(["--game", "x"]), null);
+  assert.equal(findSubcommand(["--headed", "--game", "x"]), null);
+  assert.equal(findSubcommand(["--session", "p1", "--game", "x"]), null);
+  assert.equal(findSubcommand(["--brand-new-flag", "v", "--game", "x"]), null);
 });
 
 test("expandGameFlag handles a flag value that repeats a subcommand name", () => {

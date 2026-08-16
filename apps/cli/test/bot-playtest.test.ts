@@ -14,8 +14,9 @@ import { test } from "node:test";
  *
  * Every assertion is about argument validation, which happens before the
  * script shells out to anything. Nothing here asserts on what `vg playtest`
- * does, because `vg` is this package's own bin and isn't on PATH in CI — a
- * test that depended on it would pass locally and fail on a fresh runner.
+ * does — the run below empties PATH so `vg` can't be found even on a dogfooded
+ * machine where it is linked. Without that, a script that survives validation
+ * goes on to launch a real browser: slow, and flaky under turbo's parallelism.
  */
 const BOT = fileURLToPath(
   new URL("../../../plugins/tooling/skills/playtest/scripts/bot-playtest.mjs", import.meta.url),
@@ -25,7 +26,12 @@ const BOT = fileURLToPath(
 const HARNESS_FAILURE = 2;
 
 function run(args: string[]): { status: number; stderr: string } {
-  const res = spawnSync("node", [BOT, ...args], { encoding: "utf8", timeout: 30_000 });
+  const res = spawnSync(process.execPath, [BOT, ...args], {
+    encoding: "utf8",
+    timeout: 30_000,
+    // node is invoked by absolute path, so nothing here needs a PATH lookup.
+    env: { ...process.env, PATH: "" },
+  });
   return { status: res.status ?? -1, stderr: (res.stderr ?? "") + (res.stdout ?? "") };
 }
 
@@ -97,10 +103,43 @@ test("rejects malformed steps", () => {
   );
   assert.match(
     run(["--url", "http://x", "--script", scriptFile([{ keys: [], ms: 100 }])]).stderr,
-    /step 0 needs a non-empty `keys` array/,
+    /step 0 needs a non-empty `keys` array or a `pointer`/,
   );
   assert.match(
     run(["--url", "http://x", "--script", scriptFile([{ keys: ["KeyW"], ms: 0 }])]).stderr,
     /step 0 needs a positive `ms` duration/,
+  );
+});
+
+test("accepts a pointer-only step, for games that steer with the mouse", () => {
+  const path = scriptFile([{ pointer: { x: 0.5, y: 0.5, down: true }, ms: 100 }]);
+  const { stderr } = run(["--url", "http://localhost:1", "--script", path]);
+  assert.doesNotMatch(stderr, /needs a non-empty `keys`/);
+  assert.doesNotMatch(stderr, /viewport fraction/);
+});
+
+test("rejects pointer coordinates that aren't viewport fractions", () => {
+  // Pixels are the tempting mistake, and they'd silently aim off-screen.
+  for (const bad of [
+    { x: 640, y: 0.5 },
+    { x: -0.1, y: 0.5 },
+    { x: 0.5, y: "mid" },
+  ]) {
+    const { status, stderr } = run([
+      "--url",
+      "http://x",
+      "--script",
+      scriptFile([{ pointer: bad, ms: 100 }]),
+    ]);
+    assert.equal(status, HARNESS_FAILURE, `pointer ${JSON.stringify(bad)} should be rejected`);
+    assert.match(stderr, /must be a viewport fraction between 0 and 1/);
+  }
+});
+
+test("rejects a non-boolean expectMotion", () => {
+  const path = scriptFile([{ keys: ["KeyW"], ms: 100, expectMotion: "yes" }]);
+  assert.match(
+    run(["--url", "http://x", "--script", path]).stderr,
+    /`expectMotion` must be a boolean/,
   );
 });

@@ -1,6 +1,6 @@
 # Bot Playtest: Prove the Game Plays, Not Just Renders
 
-A smoke check proves the game renders; a bot playtest proves it _plays_. The bot drives real scripted input and measures **progression** — objective movement, player responsiveness, softlock windows, error-free runtime. A game that renders beautifully but can't be progressed by a scripted sweep is not ready. Engine-agnostic: works for Phaser and Three.js alike.
+A smoke check proves the game renders; a bot playtest proves it _plays_. The bot drives real scripted input and measures **progression** — objective movement, player responsiveness, stuck runs, error-free runtime. A game that renders beautifully but can't be progressed by a scripted sweep is not ready. Engine-agnostic: works for Phaser and Three.js alike.
 
 ## The Diagnostics Contract
 
@@ -58,8 +58,11 @@ Exit `0` = the game plays, `1` = it doesn't (the JSON report names which check f
 
 - `framesAdvanced > 100` — the loop survived the run. A stall is a crash or frozen loop.
 - `distanceTravelled > 5` — input mapping is alive. Near-zero under held keys means broken input.
-- `scoreAfter > scoreBefore` + `stepOfFirstScore` — the objective is reachable, and how fast a naive player finds it. If a scripted sweep never scores, the objective is unreachable, unreadable, or broken.
-- `softlockWindows` — sampling windows where frames advanced but held input produced **neither motion nor score progress**. Repeated windows = stuck-on-geometry, dead input states, or unrecovered fail states. Fails above 2.
+- `scoreAfter > scoreBefore` + `stepOfFirstScore` — the objective is reachable, and how fast a naive player finds it. This is an assertion **only when you pass `--script`**: the default sweep is a generic WASD walk that knows nothing about how a given game scores, so on the default it lands in `warnings` instead. A harness that fails healthy games teaches its reader to ignore the verdict. Supply the game's core verb and it becomes a real check.
+- `stuckSteps` / `longestStuckRun` — steps where frames advanced, the step **asked the player to move**, and nothing came of it. Only the longest _consecutive_ run fails (above 2), because one dead step is a key the game doesn't bind while several in a row is a player wedged in geometry. A step asks the player to move if it holds WASD/arrows or a `pointer`; override with `"expectMotion": true | false` when a game moves on some other key.
+
+  Motion is measured as **peak displacement during the hold**, not net displacement at the end of it — otherwise every round trip reads as zero, and a jump that works perfectly is reported as a stuck player.
+
 - `consoleErrors` / `pageErrors` — must both be empty for the full run.
 
 ## Writing a Good Input Script
@@ -75,6 +78,17 @@ The default sweep holds each direction plus a jump. Replace it with the game's c
 ```
 
 Key names are [KeyboardEvent codes](https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/code), and simultaneous keys in one step are held together — that's how you express "run and jump". The script maps `Key<A-Z>`, `Digit<0-9>`, the arrows, and the common named keys (`Space`, `Enter`, `Escape`, `Tab`, `Backspace`, `Delete`, `Shift*`, `Control*`, `Alt*`, and the punctuation codes). Anything else exits 2 naming the unsupported code — add it to `NAMED_KEYS` in the script rather than guessing a substitute.
+
+**A keyboard sweep proves nothing about a game that steers with the mouse.** Aim-and-thrust shooters, twin-stick games and point-to-move games will report `distanceTravelled` near zero under WASD and look broken when they are fine. Use `pointer` steps, in viewport fractions so the script survives a resize:
+
+```json
+[
+  { "pointer": { "x": 0.8, "y": 0.3, "down": true }, "ms": 1500 },
+  { "pointer": { "x": 0.2, "y": 0.7, "down": true }, "ms": 1500 }
+]
+```
+
+`down` holds the primary button for the step (firing, dragging); omit it to only move the cursor. A step may carry both `keys` and `pointer` — that's "strafe while aiming". Each step's cursor position is held for its whole duration, which is what makes an aim-and-thrust ship actually travel.
 
 When raw keys can't express the verb — placing a tower, choosing a card, triggering a wave — add a game-specific hook (`forceWave()`, `placeTower(x, y)`) to `__GAME_TEST_HOOKS__` and call it via `vg playtest eval`. A bot that can't perform the core verb measures nothing.
 

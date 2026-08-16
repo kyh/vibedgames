@@ -25,7 +25,7 @@ import { readFileSync } from "node:fs";
 const HARNESS_FAILURE = 2;
 
 // A generic sweep: hold each direction long enough to cross a room, so a
-// stuck-on-geometry game shows up as a softlock window rather than as noise.
+// stuck-on-geometry game shows up as a run of stuck steps rather than as noise.
 const DEFAULT_SCRIPT = [
   { keys: ["KeyW"], ms: 1000 },
   { keys: ["KeyA"], ms: 1900 },
@@ -38,8 +38,31 @@ const DEFAULT_SCRIPT = [
 const THRESHOLDS = {
   framesAdvanced: 100,
   distanceTravelled: 5,
-  softlockWindows: 2,
+  stuckRun: 2,
 };
+
+/** Displacement (world units) below which a step counts as "didn't move". */
+const MOTION_EPSILON = 0.2;
+
+/** How often the in-page tracker samples player state during a step. */
+const SAMPLE_MS = 40;
+
+/**
+ * Codes that mean "the player is trying to move". Only these steps can count
+ * as stuck: a game where attack is `KeyJ` would otherwise be accused of a
+ * softlock for every attack, since attacking correctly moves nobody. Override
+ * per step with `expectMotion` when a game moves on some other key.
+ */
+const MOVEMENT_CODES = new Set([
+  "KeyW",
+  "KeyA",
+  "KeyS",
+  "KeyD",
+  "ArrowUp",
+  "ArrowLeft",
+  "ArrowDown",
+  "ArrowRight",
+]);
 
 function parseArgs(argv) {
   const opts = {
@@ -47,6 +70,7 @@ function parseArgs(argv) {
     game: null,
     seed: 12345,
     script: DEFAULT_SCRIPT,
+    customScript: false,
     reactionDelay: 0,
     headed: false,
     keepOpen: false,
@@ -69,8 +93,10 @@ function parseArgs(argv) {
     else if (arg === "--game") opts.game = next();
     else if (arg === "--seed") opts.seed = num();
     else if (arg === "--reaction-delay") opts.reactionDelay = num();
-    else if (arg === "--script") opts.script = JSON.parse(readFileSync(next(), "utf8"));
-    else if (arg === "--headed") opts.headed = true;
+    else if (arg === "--script") {
+      opts.script = JSON.parse(readFileSync(next(), "utf8"));
+      opts.customScript = true;
+    } else if (arg === "--headed") opts.headed = true;
     else if (arg === "--keep-open") opts.keepOpen = true;
     else fail(`Unknown argument: ${arg}`);
   }
@@ -98,15 +124,46 @@ function validateScript(script) {
     fail("`--script` must be a non-empty JSON array of { keys, ms } steps.");
   }
   for (const [index, step] of script.entries()) {
-    if (!step || !Array.isArray(step.keys) || step.keys.length === 0) {
-      fail(`step ${index} needs a non-empty \`keys\` array.`);
+    if (!step || typeof step !== "object") fail(`step ${index} must be an object.`);
+    const keys = step.keys ?? [];
+    if (!Array.isArray(keys)) fail(`step ${index}: \`keys\` must be an array.`);
+    if (keys.length === 0 && !step.pointer) {
+      fail(`step ${index} needs a non-empty \`keys\` array or a \`pointer\`.`);
     }
     if (!Number.isFinite(step.ms) || step.ms <= 0) {
       fail(`step ${index} needs a positive \`ms\` duration.`);
     }
+    if (step.expectMotion !== undefined && typeof step.expectMotion !== "boolean") {
+      fail(`step ${index}: \`expectMotion\` must be a boolean.`);
+    }
+    if (step.pointer) {
+      const { x, y } = step.pointer;
+      // Fractions of the viewport, so a script isn't tied to one window size.
+      for (const [name, value] of [
+        ["x", x],
+        ["y", y],
+      ]) {
+        if (!Number.isFinite(value) || value < 0 || value > 1) {
+          fail(`step ${index}: \`pointer.${name}\` must be a viewport fraction between 0 and 1.`);
+        }
+      }
+      if (step.pointer.down !== undefined && typeof step.pointer.down !== "boolean") {
+        fail(`step ${index}: \`pointer.down\` must be a boolean.`);
+      }
+    }
     // Throws (exit 2) naming the offending code.
-    for (const code of step.keys) keyFields(code);
+    for (const code of keys) keyFields(code);
   }
+}
+
+/**
+ * Whether a step is claiming the player should move, and so can count toward a
+ * stuck run. A pointer step counts because the games that use one steer with
+ * it (aim-and-thrust); a bare attack or menu key does not.
+ */
+function expectsMotion(step) {
+  if (typeof step.expectMotion === "boolean") return step.expectMotion;
+  return Boolean(step.pointer) || (step.keys ?? []).some((code) => MOVEMENT_CODES.has(code));
 }
 
 /**
@@ -201,17 +258,116 @@ function keyFields(code) {
  * event ourselves is the only way to hold a properly-formed key. The tradeoff
  * is `isTrusted: false`, which matters only for games that check it.
  */
-function dispatchKeys(type, codes) {
-  if (codes.length === 0) return;
-  const inits = codes.map((code) => {
+function keyInits(codes) {
+  return codes.map((code) => {
     const [keyCode, key] = keyFields(code);
     return JSON.stringify({ key, code, keyCode, which: keyCode, bubbles: true });
   });
+}
+
+function dispatchKeys(type, codes) {
+  if (codes.length === 0) return;
   const { status, stdout, stderr } = playtest([
     "eval",
-    `(() => { for (const init of [${inits.join(",")}]) window.dispatchEvent(new KeyboardEvent(${JSON.stringify(type)}, init)); return true; })()`,
+    `(() => { for (const init of [${keyInits(codes).join(",")}]) window.dispatchEvent(new KeyboardEvent(${JSON.stringify(type)}, init)); return true; })()`,
   ]);
   if (status !== 0) fail(`${type} ${codes.join("+")} failed: ${stderr.trim() || stdout.trim()}`);
+}
+
+/**
+ * Pointer dispatch, for games that steer from the cursor rather than the
+ * keyboard (aim-and-thrust shooters, twin-stick, point-to-move). Coordinates
+ * arrive as viewport fractions so a script survives a window resize. Both the
+ * PointerEvent and its MouseEvent twin go out: engines listen for one or the
+ * other, and a game that ignores the pointer entirely is exactly the finding
+ * a run should surface rather than crash on.
+ */
+const POINTER_FN = `window.__botPointer = (frac, type, buttons) => {
+  const cx = Math.round(window.innerWidth * frac.x);
+  const cy = Math.round(window.innerHeight * frac.y);
+  const target = document.elementFromPoint(cx, cy) || document.querySelector("canvas") || window;
+  const init = { clientX: cx, clientY: cy, screenX: cx, screenY: cy, bubbles: true, cancelable: true, composed: true, pointerId: 1, isPrimary: true, pointerType: "mouse", button: 0, buttons };
+  target.dispatchEvent(new PointerEvent(type, init));
+  target.dispatchEvent(new MouseEvent(type === "pointermove" ? "mousemove" : type === "pointerdown" ? "mousedown" : "mouseup", init));
+};`;
+
+/**
+ * Read player state the same way at every sample site. `y ?? z` keeps 3D games
+ * (depth on z) and 2D games (depth on y) on one code path.
+ */
+const READ_FN = `const __botRead = () => {
+  const d = window.__GAME_DIAGNOSTICS__, p = (d && d.player) || {};
+  return { x: p.x ?? 0, y: p.y ?? p.z ?? 0, frame: (d && d.frame) ?? 0, score: (d && d.score) ?? 0, complete: !!(d && d.complete) };
+};`;
+
+/**
+ * Start sampling player state inside the page for the duration of a step.
+ *
+ * Sampling only at step boundaries measures net displacement, which is zero for
+ * every motion that returns where it started — a jump arc being the obvious
+ * one. That reads as "held input produced nothing" on a game whose jump works
+ * perfectly. Tracking peak displacement and path length across the step is
+ * what tells a real stuck-on-geometry case from a round trip.
+ */
+const TRACK_BEGIN = `${READ_FN}
+  const s = __botRead();
+  const t = { start: s, last: s, path: 0, peak: 0, score: s.score };
+  window.__BOT_TRACK__ = t;
+  clearInterval(window.__BOT_TICK__);
+  window.__BOT_TICK__ = setInterval(() => {
+    const c = __botRead();
+    t.path += Math.hypot(c.x - t.last.x, c.y - t.last.y);
+    t.peak = Math.max(t.peak, Math.hypot(c.x - t.start.x, c.y - t.start.y));
+    t.last = c;
+    if (c.score > t.score) t.score = c.score;
+  }, ${SAMPLE_MS});`;
+
+const TRACK_END = `${READ_FN}
+  clearInterval(window.__BOT_TICK__);
+  const t = window.__BOT_TRACK__;
+  if (!t) return null;
+  const c = __botRead();
+  const path = t.path + Math.hypot(c.x - t.last.x, c.y - t.last.y);
+  const peak = Math.max(t.peak, Math.hypot(c.x - t.start.x, c.y - t.start.y));
+  return { path: +path.toFixed(3), peak: +peak.toFixed(3), frameBefore: t.start.frame, frame: c.frame, scoreBefore: t.start.score, score: Math.max(t.score, c.score), x: c.x, y: c.y, complete: c.complete };`;
+
+function pointerCall(pointer, type, buttons) {
+  return `window.__botPointer(${JSON.stringify({ x: pointer.x, y: pointer.y })}, ${JSON.stringify(type)}, ${buttons});`;
+}
+
+/** Press the step's inputs and start measuring, in one round trip. */
+function beginStep(step) {
+  const parts = [];
+  if (step.pointer) {
+    const down = step.pointer.down === true;
+    parts.push(POINTER_FN, pointerCall(step.pointer, "pointermove", down ? 1 : 0));
+    if (down) parts.push(pointerCall(step.pointer, "pointerdown", 1));
+  }
+  const codes = step.keys ?? [];
+  if (codes.length > 0) {
+    parts.push(
+      `for (const init of [${keyInits(codes).join(",")}]) window.dispatchEvent(new KeyboardEvent("keydown", init));`,
+    );
+  }
+  parts.push(TRACK_BEGIN);
+  evaluate(`(() => { ${parts.join("\n")}\nreturn true; })()`);
+}
+
+/** Release the step's inputs and return what moved while they were held. */
+function endStep(step) {
+  const parts = [];
+  const codes = step.keys ?? [];
+  if (codes.length > 0) {
+    parts.push(
+      `for (const init of [${keyInits(codes).join(",")}]) window.dispatchEvent(new KeyboardEvent("keyup", init));`,
+    );
+  }
+  if (step.pointer?.down === true) {
+    parts.push(POINTER_FN, pointerCall(step.pointer, "pointerup", 0));
+  }
+  parts.push(TRACK_END);
+  held.clear();
+  return evaluate(`(() => { ${parts.join("\n")} })()`);
 }
 
 function fail(message) {
@@ -273,18 +429,9 @@ function readConsoleErrors() {
     .map((entry) => entry?.text ?? JSON.stringify(entry));
 }
 
-const SAMPLE = `(() => {
-  const d = window.__GAME_DIAGNOSTICS__;
-  if (!d) return null;
-  const p = d.player || {};
-  return {
-    frame: d.frame ?? 0,
-    score: d.score ?? 0,
-    complete: !!d.complete,
-    x: p.x ?? 0,
-    // 3D games report depth on z; 2D games on y. Either way it's "the other axis".
-    y: p.y ?? p.z ?? 0,
-  };
+/** The run's baseline, read the same way the per-step tracker reads. */
+const SAMPLE = `(() => { ${READ_FN}
+  return window.__GAME_DIAGNOSTICS__ ? __botRead() : null;
 })()`;
 
 function main() {
@@ -322,7 +469,7 @@ function main() {
   // would leave the run unseeded while the report still claimed the seed — the
   // exact "silent no-op hook" the contract warns about. So detect which one
   // this game implements, and for boot-only games reload with the param.
-  let seedApplied = evaluate("typeof window.__GAME_TEST_HOOKS__?.seed === 'function'")
+  const seedApplied = evaluate("typeof window.__GAME_TEST_HOOKS__?.seed === 'function'")
     ? "hook"
     : "boot-param";
 
@@ -376,28 +523,41 @@ function main() {
 
   let prev = before;
   let distance = 0;
-  let softlockWindows = 0;
+  let stuckSteps = 0;
+  let stuckRun = 0;
+  let longestStuckRun = 0;
   let stepOfFirstScore = -1;
 
   opts.script.forEach((step, index) => {
-    for (const key of step.keys) held.add(key);
-    dispatchKeys("keydown", step.keys);
+    for (const key of step.keys ?? []) held.add(key);
+    beginStep(step);
     playtest(["wait", String(step.ms)]);
-    releaseHeldKeys();
+    const moved = endStep(step);
     // A slower "reaction time" models a less skilled player; comparing runs at
     // 0ms and 300ms shows whether difficulty pressure is real or decorative.
     // Wait in the browser, not the harness, so the game keeps running.
     if (opts.reactionDelay > 0) playtest(["wait", String(opts.reactionDelay)]);
+    if (!moved) return;
 
-    const snap = evaluate(SAMPLE);
-    if (!snap) return;
-    const moved = Math.hypot(snap.x - prev.x, snap.y - prev.y);
-    distance += moved;
-    const progressed = snap.score > prev.score;
+    distance += moved.path;
+    const progressed = moved.score > moved.scoreBefore;
     if (progressed && stepOfFirstScore === -1) stepOfFirstScore = index;
-    // Softlock signature: frames advance, held input moves nothing, no progress.
-    if (snap.frame > prev.frame && moved < 0.2 && !progressed) softlockWindows += 1;
-    prev = snap;
+
+    // Stuck signature: frames advanced, the player tried to move, and nothing
+    // came of it. Counted as a RUN rather than a total, because one step that
+    // moves nothing is a key the game doesn't bind, while several in a row is
+    // a player wedged in geometry — only the second is worth failing over.
+    if (expectsMotion(step)) {
+      const stuck = moved.frame > moved.frameBefore && moved.peak < MOTION_EPSILON && !progressed;
+      if (stuck) {
+        stuckSteps += 1;
+        stuckRun += 1;
+        longestStuckRun = Math.max(longestStuckRun, stuckRun);
+      } else {
+        stuckRun = 0;
+      }
+    }
+    prev = { frame: moved.frame, score: moved.score, complete: moved.complete };
   });
 
   // `console` returns every level, so filter to errors there. `errors`
@@ -423,7 +583,8 @@ function main() {
     scoreAfter: prev.score,
     distanceTravelled: Number(distance.toFixed(2)),
     stepOfFirstScore,
-    softlockWindows,
+    stuckSteps,
+    longestStuckRun,
     // How the seed actually landed, so a reader can tell a real seeded run
     // from one where the hook quietly did nothing.
     seedApplied,
@@ -433,23 +594,34 @@ function main() {
   };
 
   const failures = [];
+  const warnings = [];
   if (report.framesAdvanced <= THRESHOLDS.framesAdvanced)
     failures.push(`game loop stalled (framesAdvanced ${report.framesAdvanced})`);
   if (report.distanceTravelled <= THRESHOLDS.distanceTravelled)
     failures.push(
-      `player did not respond to input (distanceTravelled ${report.distanceTravelled})`,
+      `player did not respond to input (distanceTravelled ${report.distanceTravelled}) — if this game steers with the mouse, give the script \`pointer\` steps`,
     );
-  if (report.softlockWindows > THRESHOLDS.softlockWindows)
+  if (report.longestStuckRun > THRESHOLDS.stuckRun)
     failures.push(
-      `held input repeatedly produced nothing (softlockWindows ${report.softlockWindows})`,
+      `player wedged for ${report.longestStuckRun} consecutive movement steps (longestStuckRun)`,
     );
-  if (report.scoreAfter <= report.scoreBefore)
-    failures.push("the sweep never progressed the objective");
+  // Only an assertion when the caller supplied the game's own verbs. The
+  // default sweep is a generic WASD walk that knows nothing about how this
+  // game scores, so failing a healthy game on it would train a reader to
+  // ignore the verdict — which costs more than the missing signal.
+  if (report.scoreAfter <= report.scoreBefore) {
+    const message = "the sweep never progressed the objective";
+    if (opts.customScript) failures.push(message);
+    else
+      warnings.push(
+        `${message} — expected from the default sweep; pass \`--script\` with this game's core verb to assert progression`,
+      );
+  }
   if (report.consoleErrors.length > 0)
     failures.push(`${report.consoleErrors.length} console error(s)`);
   if (report.pageErrors) failures.push("uncaught page error(s)");
 
-  console.log(JSON.stringify({ ...report, failures }, null, 2));
+  console.log(JSON.stringify({ ...report, warnings, failures }, null, 2));
 
   if (!opts.keepOpen) playtest(["close"]);
 
@@ -457,6 +629,7 @@ function main() {
     console.error(`\nbot-playtest: FAILED — ${failures.join("; ")}`);
     process.exit(1);
   }
+  for (const warning of warnings) console.error(`bot-playtest: warning — ${warning}`);
   console.error("\nbot-playtest: PASSED");
 }
 
