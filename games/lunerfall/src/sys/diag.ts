@@ -2,7 +2,7 @@ import type Phaser from "phaser";
 
 import { reseed } from "./rng";
 
-// Bot-playtest diagnostics contract (see the playwright skill's
+// Bot-playtest diagnostics contract (see the playtest skill's
 // references/bot-playtest.md): __GAME_DIAGNOSTICS__ is read-only per-frame
 // telemetry, __GAME_TEST_HOOKS__ are the mutations a test may perform.
 // Always exposed, like the existing __game / __lf probes — JSON-serializable

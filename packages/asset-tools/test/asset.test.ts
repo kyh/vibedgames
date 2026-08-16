@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { globSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
@@ -278,7 +279,10 @@ test("a declared boolean flag does not swallow the next positional", () => {
 });
 
 test("an option that takes a value still consumes it", () => {
-  const args = parseArgs(["--out", "sheet.png", "in.png"], { booleans: ["pretty"] });
+  const args = parseArgs(["--out", "sheet.png", "in.png"], {
+    booleans: ["pretty"],
+    values: ["out"],
+  });
   assert.equal(getString(args, "out"), "sheet.png");
   assert.deepEqual(args.positionals, ["in.png"]);
 });
@@ -432,4 +436,67 @@ test("a non-object tolerances is rejected rather than spread", () => {
 test("cellSizeOf falls back rather than producing NaN", () => {
   assert.deepEqual(cellSizeOf({}), [FRAME_WIDTH, FRAME_HEIGHT]);
   assert.deepEqual(cellSizeOf({ runtimeCell: "nonsense" }), [FRAME_WIDTH, FRAME_HEIGHT]);
+});
+
+/**
+ * The static checks above read a script's text; they cannot see a name the
+ * script uses but never imported. `failUsage` was added to three scripts whose
+ * import block the edit missed, and every one of them still lint-, type- and
+ * format-checked clean — the bundle is a plain `.mjs` those tools do not follow
+ * into. Only running the file finds it, so run every one.
+ */
+test("every skill script loads and reports a usage error, not a crash", () => {
+  const repoRoot = join(import.meta.dirname, "..", "..", "..");
+  const scripts = globSync("plugins/*/skills/*/scripts/*.mjs", { cwd: repoRoot })
+    .filter((rel) => !rel.includes("/_lib/"))
+    .map((rel) => join(repoRoot, rel));
+  assert.ok(scripts.length >= 20, `expected the skill scripts, found ${scripts.length}`);
+
+  const offenders: string[] = [];
+  for (const path of scripts) {
+    const run = spawnSync(process.execPath, [path], {
+      encoding: "utf8",
+      cwd: tmpdir(),
+      timeout: 30_000,
+    });
+    const output = `${run.stdout ?? ""}${run.stderr ?? ""}`;
+    // A bare invocation should explain itself and exit 0/1/2 — never a
+    // ReferenceError, a TypeError or a raw stack trace.
+    if (/\b(?:Reference|Type|Syntax)Error\b|^\s+at .+:\d+:\d+$/m.test(output)) {
+      offenders.push(`${basename(path)}: ${output.trim().split("\n")[0]}`);
+    } else if (![0, 1, 2].includes(run.status ?? -1)) {
+      offenders.push(`${basename(path)}: exit ${run.status}`);
+    }
+  }
+  assert.deepEqual(offenders, []);
+});
+
+/**
+ * A misspelled option used to parse fine, never be read, and leave the run on
+ * its defaults — so the caller believed a setting had been applied that never
+ * was. Rejecting it needs the script's whole option surface, which is why
+ * `values` exists alongside `booleans`.
+ */
+test("an option outside the declared surface is rejected", () => {
+  const dir = workspace();
+  const entry = join(dir, "entry.ts");
+  const argsModule = join(import.meta.dirname, "..", "src", "args.ts");
+  writeFileSync(
+    entry,
+    `import { parseArgs } from ${JSON.stringify(argsModule)};\n` +
+      `parseArgs(process.argv.slice(2), { booleans: ["snap"], values: ["k-colors"] });\n` +
+      `process.stdout.write("parsed");\n`,
+  );
+  const run = (...argv: string[]) =>
+    spawnSync(process.execPath, ["--import", "tsx", entry, ...argv], { encoding: "utf8" });
+
+  const typo = run("--k-colours", "4");
+  assert.equal(typo.status, 2, `a misspelled option must be a usage error: ${typo.stderr}`);
+  assert.match(typo.stderr, /unrecognized arguments: --k-colours/);
+  // The value it swallowed is not reported as a second complaint.
+  assert.doesNotMatch(typo.stderr, /\b4\b/);
+
+  assert.equal(run("--k-colors", "4").status, 0, "the correct spelling still parses");
+  assert.equal(run("--snap").status, 0, "a declared boolean still parses");
+  assert.equal(run("--help").status, 0, "help is free on every script");
 });

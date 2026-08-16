@@ -19,6 +19,7 @@
  */
 import {
   fail,
+  failUsage,
   getFlag,
   getNumber,
   getString,
@@ -39,11 +40,12 @@ function parseSize(text) {
 
 main(() => {
   const args = parseArgs(process.argv.slice(2), {
+    values: ["canvas", "char-fill", "glob", "input-dir", "out-dir", "pad", "target-height"],
     booleans: ["no-upscale"],
   });
   const inputDir = getString(args, "input-dir");
   const outDir = getString(args, "out-dir");
-  if (!inputDir || !outDir) fail("--input-dir and --out-dir are required");
+  if (!inputDir || !outDir) failUsage("--input-dir and --out-dir are required");
 
   const pad = getNumber(args, "pad", 6);
   if (pad < 0) fail("--pad must be >= 0");

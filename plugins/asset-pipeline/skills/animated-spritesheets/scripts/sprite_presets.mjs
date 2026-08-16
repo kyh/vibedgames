@@ -49,6 +49,7 @@ function emit(value, asJson) {
 
 main(() => {
   const args = parseArgs(process.argv.slice(2), {
+    values: ["action", "coerce-frames", "profile"],
     booleans: ["json", "list", "list-profiles"],
   });
   const asJson = getFlag(args, "json");

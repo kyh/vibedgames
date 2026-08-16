@@ -17,6 +17,7 @@ import { dirname, resolve } from "node:path";
 import {
   buildSequenceGif,
   fail,
+  failUsage,
   getString,
   main,
   parseArgs,
@@ -24,13 +25,15 @@ import {
 } from "./_lib/asset-tools.mjs";
 
 main(() => {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(process.argv.slice(2), {
+    values: ["durations-ms", "flat-bg", "input-dir", "order", "out", "pattern"],
+  });
   const inputDir = getString(args, "input-dir");
   const order = getString(args, "order");
   const out = getString(args, "out");
-  if (!inputDir) fail("--input-dir is required");
-  if (!order) fail("--order is required, e.g. --order 01,03,02,04");
-  if (!out) fail("--out is required");
+  if (!inputDir) failUsage("--input-dir is required");
+  if (!order) failUsage("--order is required, e.g. --order 01,03,02,04");
+  if (!out) failUsage("--out is required");
 
   const ids = order
     .split(",")

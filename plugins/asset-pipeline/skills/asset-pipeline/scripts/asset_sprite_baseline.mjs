@@ -19,6 +19,7 @@ import { basename, join, relative } from "node:path";
 import {
   analyzeBaseline,
   fail,
+  failUsage,
   getNumber,
   getString,
   main,
@@ -29,12 +30,14 @@ import {
 } from "./_lib/asset-tools.mjs";
 
 main(() => {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(process.argv.slice(2), {
+    values: ["frame", "json", "out", "out-dir", "target-bottom", "target-center-x"],
+  });
   const input = args.positionals[0];
-  if (!input) fail("A PNG file or folder path is required.");
+  if (!input) failUsage("A PNG file or folder path is required.");
 
   const frameSpec = getString(args, "frame");
-  if (!frameSpec) fail("--frame is required, e.g. --frame 256x256");
+  if (!frameSpec) failUsage("--frame is required, e.g. --frame 256x256");
   const frame = parseFrame(frameSpec);
 
   const targetBottom = getNumber(args, "target-bottom", frame.height - 1);

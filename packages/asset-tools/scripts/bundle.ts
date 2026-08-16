@@ -17,7 +17,7 @@
  *
  * Run via `pnpm --filter @repo/asset-tools build`, which `pnpm dogfood` calls.
  */
-import { globSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { globSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -25,17 +25,7 @@ import { build } from "esbuild";
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const REPO_ROOT = resolve(PACKAGE_ROOT, "../..");
-
-/** Skills whose scripts import the shared library. */
-const CONSUMERS = [
-  "asset-pipeline/skills/asset-pipeline",
-  "asset-pipeline/skills/animated-spritesheets",
-  "asset-pipeline/skills/pixel-snapper",
-  "asset-pipeline/skills/image-to-threejs",
-  "asset-pipeline/skills/aseprite",
-  "tooling/skills/playwright",
-  "tooling/skills/skill-creator",
-];
+const PLUGINS_ROOT = join(REPO_ROOT, "plugins");
 
 const BANNER = `// GENERATED FILE — do not edit.
 // Built from packages/asset-tools by \`pnpm --filter @repo/asset-tools build\`.
@@ -63,13 +53,40 @@ function importedNames(scriptsDir: string): string[] {
   return [...names].sort();
 }
 
+/**
+ * Skills whose scripts import the library, discovered rather than listed.
+ *
+ * A hand-kept list drifts silently: it survives the skill it names being
+ * deleted, and a new importer gets no bundle until someone remembers to add a
+ * line. The importing scripts are the only source of truth either way.
+ */
+function findConsumers(): string[] {
+  const dirs = new Set<string>();
+  for (const file of globSync("*/skills/*/scripts/*.mjs", { cwd: PLUGINS_ROOT })) {
+    const scriptsDir = join(PLUGINS_ROOT, dirname(file));
+    if (importedNames(scriptsDir).length > 0) dirs.add(dirname(dirname(file)));
+  }
+  return [...dirs].sort();
+}
+
+/** Drop a committed bundle whose skill no longer imports the library. */
+function pruneOrphans(consumers: Set<string>): void {
+  for (const file of globSync("*/skills/*/scripts/_lib/asset-tools.mjs", { cwd: PLUGINS_ROOT })) {
+    const skill = dirname(dirname(dirname(file)));
+    if (consumers.has(skill)) continue;
+    rmSync(join(PLUGINS_ROOT, dirname(file)), { recursive: true, force: true });
+    console.log(`  pruned  ${skill} (no script imports the library)`);
+  }
+}
+
+const CONSUMERS = findConsumers();
+if (CONSUMERS.length === 0) throw new Error("no skill imports the library — is the glob wrong?");
+pruneOrphans(new Set(CONSUMERS));
+
 let total = 0;
 for (const consumer of CONSUMERS) {
-  const scriptsDir = join(REPO_ROOT, "plugins", consumer, "scripts");
+  const scriptsDir = join(PLUGINS_ROOT, consumer, "scripts");
   const names = importedNames(scriptsDir);
-  if (names.length === 0) {
-    throw new Error(`${consumer} is listed as a consumer but imports nothing from the library`);
-  }
 
   const result = await build({
     stdin: {

@@ -8,6 +8,7 @@
  */
 import {
   fail,
+  failUsage,
   getFlag,
   getString,
   main,
@@ -20,13 +21,14 @@ import {
 
 main(() => {
   const args = parseArgs(process.argv.slice(2), {
+    values: ["frame", "json"],
     booleans: ["list", "show-empty"],
   });
   const target = args.positionals[0];
-  if (!target) fail("A PNG file or folder path is required.");
+  if (!target) failUsage("A PNG file or folder path is required.");
 
   const frameSpec = getString(args, "frame");
-  if (!frameSpec) fail("--frame is required, e.g. --frame 32x32");
+  if (!frameSpec) failUsage("--frame is required, e.g. --frame 32x32");
   const frame = parseFrame(frameSpec);
   const showEmpty = getFlag(args, "show-empty");
 

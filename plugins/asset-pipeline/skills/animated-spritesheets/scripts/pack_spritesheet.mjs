@@ -20,6 +20,7 @@ import {
   getNumber,
   getString,
   fail,
+  failUsage,
   main,
   packSpritesheet,
   parseArgs,
@@ -27,10 +28,12 @@ import {
 } from "./_lib/asset-tools.mjs";
 
 main(() => {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(process.argv.slice(2), {
+    values: ["action", "columns", "fps", "glob", "input-dir", "json-out", "out"],
+  });
   const inputDir = getString(args, "input-dir");
   const out = getString(args, "out");
-  if (!inputDir || !out) fail("--input-dir and --out are required");
+  if (!inputDir || !out) failUsage("--input-dir and --out are required");
 
   const columnsSpec = getString(args, "columns");
   const { manifest, sheet } = packSpritesheet(inputDir, out, {

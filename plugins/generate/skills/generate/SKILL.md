@@ -1,13 +1,6 @@
 ---
 name: generate
-description: >
-  Use the `vg generate` CLI to search, inspect, run, and manage 1200+ generative
-  model endpoints. Trigger when the user asks to "generate an image", "make a
-  video", "search models", "run a model", "fetch schema", "check pricing",
-  "upload an asset", "queue async job", "track request", or any direct
-  interaction with the model endpoint catalog. This is the foundational skill.
-  Every other media skill in this repo executes its work through `vg generate`
-  commands. Use `--json` whenever the output will be parsed by an agent, or `--field <path>` to print a single value.
+description: 'Use the `vg generate` CLI to search, inspect, run, and manage 1200+ generative model endpoints. Trigger when the user asks to "generate an image", "make a video", "search models", "run a model", "fetch schema", "check pricing", "upload an asset", "queue async job", "track request", or any direct interaction with the model endpoint catalog. This is the foundational skill. Every other media skill in this repo executes its work through `vg generate` commands. Use `--json` whenever the output will be parsed by an agent, or `--field path` to print a single value.'
 ---
 
 # vg generate: model endpoint runner

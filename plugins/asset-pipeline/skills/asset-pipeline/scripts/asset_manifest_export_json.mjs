@@ -12,6 +12,7 @@ import { existsSync } from "node:fs";
 import {
   exportManifest,
   fail,
+  failUsage,
   getFlag,
   getString,
   main,
@@ -21,12 +22,13 @@ import {
 
 main(() => {
   const args = parseArgs(process.argv.slice(2), {
+    values: ["manifest", "out"],
     booleans: ["keep-paths"],
   });
   const manifest = getString(args, "manifest");
   const out = getString(args, "out");
-  if (!manifest) fail("--manifest is required (path to assets_index.lua or .json)");
-  if (!out) fail("--out is required (output JSON path)");
+  if (!manifest) failUsage("--manifest is required (path to assets_index.lua or .json)");
+  if (!out) failUsage("--out is required (output JSON path)");
   if (!existsSync(manifest)) fail(`Manifest not found: ${manifest}`);
 
   writeJsonFile(out, exportManifest(manifest, !getFlag(args, "keep-paths")));

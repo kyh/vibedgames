@@ -35,6 +35,7 @@ import {
   cleanChroma,
   DEFAULT_SNAP_CONFIG,
   fail,
+  failUsage,
   getFlag,
   getNumber,
   getString,
@@ -137,16 +138,17 @@ function pixelSnapFrames(framesDir, kColors) {
 
 main(() => {
   const args = parseArgs(process.argv.slice(2), {
+    values: ["action", "char-fill", "chroma", "cols", "frames", "out-dir", "rows", "snap-k-colors"],
     booleans: ["json", "no-pixel-snap", "no-qc", "recover"],
   });
   const board = args.positionals[0];
-  if (!board) fail("a pose board PNG is required");
+  if (!board) failUsage("a pose board PNG is required");
   if (!existsSync(board)) fail(`board not found: ${board}`);
 
   const action = getString(args, "action");
-  if (!action) fail("--action is required");
+  if (!action) failUsage("--action is required");
   const outDir = getString(args, "out-dir");
-  if (!outDir) fail("--out-dir is required");
+  if (!outDir) failUsage("--out-dir is required");
 
   const rows = getNumber(args, "rows", 0);
   const cols = getNumber(args, "cols", 0);

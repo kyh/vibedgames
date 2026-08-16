@@ -15,6 +15,7 @@
 import {
   Bitmap,
   fail,
+  failUsage,
   getNumber,
   getString,
   main,
@@ -31,7 +32,7 @@ function parseSize(text) {
 const COMMANDS = {
   size(args) {
     const paths = args.positionals.slice(1);
-    if (paths.length === 0) fail("Usage: node image_util.mjs size <file.png> [...]");
+    if (paths.length === 0) failUsage("Usage: node image_util.mjs size <file.png> [...]");
     for (const path of paths) {
       const size = readImageSize(path);
       if (!size) fail(`could not read image dimensions: ${path}`);
@@ -46,7 +47,7 @@ const COMMANDS = {
   upscale(args) {
     const [, input, output] = args.positionals;
     if (!input || !output) {
-      fail("Usage: node image_util.mjs upscale <in.png> <out.png> --factor 8");
+      failUsage("Usage: node image_util.mjs upscale <in.png> <out.png> --factor 8");
     }
     const factor = getNumber(args, "factor", 8);
     if (!Number.isInteger(factor) || factor < 1) fail("--factor must be a positive integer");
@@ -61,10 +62,10 @@ const COMMANDS = {
   resize(args) {
     const [, input, output] = args.positionals;
     if (!input || !output) {
-      fail("Usage: node image_util.mjs resize <in.png> <out.png> --size WxH");
+      failUsage("Usage: node image_util.mjs resize <in.png> <out.png> --size WxH");
     }
     const spec = getString(args, "size");
-    if (!spec) fail("--size is required, e.g. --size 128x128");
+    if (!spec) failUsage("--size is required, e.g. --size 128x128");
     const { width, height } = parseSize(spec);
 
     Bitmap.fromFile(input).resize(width, height, "lanczos").toFile(output);
@@ -73,8 +74,10 @@ const COMMANDS = {
 };
 
 main(() => {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(process.argv.slice(2), {
+    values: ["factor", "size"],
+  });
   const run = COMMANDS[args.positionals[0]];
-  if (!run) fail("Usage: node image_util.mjs <size|upscale|resize> ...");
+  if (!run) failUsage("Usage: node image_util.mjs <size|upscale|resize> ...");
   run(args);
 });

@@ -22,7 +22,9 @@ import {
 } from "./_lib/asset-tools.mjs";
 
 main(() => {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(process.argv.slice(2), {
+    values: ["json", "manifest", "root"],
+  });
   const root = defaultRoot(getString(args, "root"));
   if (!existsSync(root)) fail(`Root not found: ${root}`);
 

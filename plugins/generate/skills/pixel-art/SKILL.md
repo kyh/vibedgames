@@ -1,17 +1,6 @@
 ---
 name: pixel-art
-description: >
-  Generate 2D pixel art game assets, characters, sprite sheets, background
-  removal, and game backgrounds. Trigger for "pixel art character", "sprite
-  sheet", "walk cycle", "game sprites", "isometric sprites", "side-scroller
-  assets", "RPG character sprites", "idle animation", "attack animation",
-  "jump animation", "game background", "parallax background", "isometric map",
-  "2D game art", "pixel art animation", "top-down character", "explosion sprite
-  sheet", "animated FX from video", "fire/magic effect". Covers character
-  generation (nano-banana-pro / gpt-image-2), sprite sheet animation (nano/edit
-  or fal-ai/gpt-image-2/edit), top-down 4-directional walkers, background removal
-  (Bria), background generation (parallax layers or isometric map), and animated
-  VFX derived from a generated video rendered with additive blend.
+description: 'Generate 2D pixel art game assets, characters, sprite sheets, background removal, and game backgrounds. Trigger for "pixel art character", "sprite sheet", "walk cycle", "game sprites", "isometric sprites", "side-scroller assets", "RPG character sprites", "idle animation", "attack animation", "jump animation", "game background", "parallax background", "isometric map", "2D game art", "pixel art animation", "top-down character", "explosion sprite sheet", "animated FX from video", "fire/magic effect". Covers character generation (nano-banana-pro / gpt-image-2), sprite sheet animation (nano/edit or fal-ai/gpt-image-2/edit), top-down 4-directional walkers, background removal (Bria), background generation (parallax layers or isometric map), and animated VFX derived from a generated video rendered with additive blend.'
 metadata:
   author: vibedgames
   version: "0.1.0"

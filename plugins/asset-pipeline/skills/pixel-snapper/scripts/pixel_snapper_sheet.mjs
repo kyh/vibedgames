@@ -21,6 +21,7 @@ import {
   Bitmap,
   DEFAULT_SNAP_CONFIG,
   fail,
+  failUsage,
   getNumber,
   main,
   parseArgs,
@@ -28,10 +29,12 @@ import {
 } from "./_lib/asset-tools.mjs";
 
 main(() => {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(process.argv.slice(2), {
+    values: ["cols", "k-colors", "rows", "seed"],
+  });
   const [input, output] = args.positionals;
   if (!input || !output) {
-    fail("Usage: node pixel_snapper_sheet.mjs input.png output.png --cols N --rows N");
+    failUsage("Usage: node pixel_snapper_sheet.mjs input.png output.png --cols N --rows N");
   }
 
   const cols = getNumber(args, "cols", 0);

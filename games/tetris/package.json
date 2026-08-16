@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@mediapipe/tasks-vision": "0.10.35",
+    "@mediapipe/tasks-vision": "1.0.1",
     "@repo/embed": "workspace:*",
     "@vibedgames/gamepad": "workspace:^",
     "cannon-es": "^0.20.0",
@@ -20,7 +20,7 @@
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",
     "@types/node": "catalog:",
-    "@types/three": "^0.185.1",
+    "@types/three": "^0.185.4",
     "typescript": "catalog:",
     "vite": "catalog:"
   }

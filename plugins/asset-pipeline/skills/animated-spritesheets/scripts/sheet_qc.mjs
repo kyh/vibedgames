@@ -21,6 +21,7 @@
  */
 import {
   fail,
+  failUsage,
   getFlag,
   getNumber,
   getString,
@@ -32,10 +33,11 @@ import {
 
 main(() => {
   const args = parseArgs(process.argv.slice(2), {
+    values: ["frame-height", "frame-width"],
     booleans: ["fail-on-hints", "json", "strict"],
   });
   const sheet = args.positionals[0];
-  if (!sheet) fail("a spritesheet path is required");
+  if (!sheet) failUsage("a spritesheet path is required");
 
   const frameWidth =
     getString(args, "frame-width") === undefined ? null : getNumber(args, "frame-width", 0);

@@ -25,10 +25,27 @@ export type ParseOptions = {
    * its arguments, and this is that declaration.
    */
   booleans?: readonly string[];
+  /**
+   * Options that take a value — every name the script later reads with
+   * `getString`, `getNumber` or `getAll`.
+   *
+   * Together with `booleans` this is the script's whole option surface, and
+   * anything outside it is rejected. Without that, a misspelled `--k-colours 4`
+   * parsed fine, was never read, and the run silently used the default: the
+   * caller believes a setting was applied that never was. `argparse` called
+   * that "unrecognized arguments" and exited 2.
+   */
+  values?: readonly string[];
 };
 
 export function parseArgs(argv: string[], options: ParseOptions = {}): Args {
   const booleans = new Set(options.booleans ?? []);
+  // `help` is free on every script, as `-h`/`--help` were under argparse.
+  const known = new Set([...booleans, ...(options.values ?? []), "help"]);
+  // A script that declares nothing gets the old permissive parse; every shipped
+  // script declares, and a test enforces that.
+  const strict = options.booleans !== undefined || options.values !== undefined;
+  const unknown: string[] = [];
   const positionals: string[] = [];
   const parsed = new Map<string, string[]>();
 
@@ -59,17 +76,27 @@ export function parseArgs(argv: string[], options: ParseOptions = {}): Args {
     const body = token.slice(2);
     const equals = body.indexOf("=");
     if (equals !== -1) {
-      push(body.slice(0, equals), body.slice(equals + 1));
+      const name = body.slice(0, equals);
+      if (strict && !known.has(name)) unknown.push(`--${name}`);
+      push(name, body.slice(equals + 1));
       continue;
     }
     if (booleans.has(body)) {
       push(body, "true");
       continue;
     }
+    if (strict && !known.has(body)) {
+      unknown.push(`--${body}`);
+      // Skip what looks like its value too, so one typo reports once rather
+      // than turning the following filename into a second complaint.
+      const next = argv[i + 1];
+      if (next !== undefined && !next.startsWith("--")) i += 1;
+      continue;
+    }
 
     const next = argv[i + 1];
-    // An undeclared option takes the next token as its value, unless that
-    // token is itself an option or there is nothing left.
+    // A declared value option takes the next token, unless that token is
+    // itself an option or there is nothing left.
     if (next === undefined || next.startsWith("--")) {
       push(body, "true");
     } else {
@@ -77,6 +104,8 @@ export function parseArgs(argv: string[], options: ParseOptions = {}): Args {
       i += 1;
     }
   }
+
+  if (unknown.length > 0) failUsage(`unrecognized arguments: ${unknown.join(" ")}`);
 
   return { positionals, options: parsed };
 }

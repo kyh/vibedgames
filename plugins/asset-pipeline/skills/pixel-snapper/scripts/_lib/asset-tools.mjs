@@ -6,6 +6,9 @@
 // src/args.ts
 function parseArgs(argv, options = {}) {
   const booleans = new Set(options.booleans ?? []);
+  const known = /* @__PURE__ */ new Set([...booleans, ...options.values ?? [], "help"]);
+  const strict = options.booleans !== void 0 || options.values !== void 0;
+  const unknown = [];
   const positionals = [];
   const parsed = /* @__PURE__ */ new Map();
   const push = (key, value) => {
@@ -30,11 +33,19 @@ function parseArgs(argv, options = {}) {
     const body = token.slice(2);
     const equals = body.indexOf("=");
     if (equals !== -1) {
-      push(body.slice(0, equals), body.slice(equals + 1));
+      const name = body.slice(0, equals);
+      if (strict && !known.has(name)) unknown.push(`--${name}`);
+      push(name, body.slice(equals + 1));
       continue;
     }
     if (booleans.has(body)) {
       push(body, "true");
+      continue;
+    }
+    if (strict && !known.has(body)) {
+      unknown.push(`--${body}`);
+      const next2 = argv[i + 1];
+      if (next2 !== void 0 && !next2.startsWith("--")) i += 1;
       continue;
     }
     const next = argv[i + 1];
@@ -45,6 +56,7 @@ function parseArgs(argv, options = {}) {
       i += 1;
     }
   }
+  if (unknown.length > 0) failUsage(`unrecognized arguments: ${unknown.join(" ")}`);
   return { positionals, options: parsed };
 }
 function getString(args, key) {
@@ -61,6 +73,11 @@ function fail(message) {
   process.stderr.write(`${message}
 `);
   process.exit(1);
+}
+function failUsage(message) {
+  process.stderr.write(`${message}
+`);
+  process.exit(2);
 }
 function main(run) {
   try {
@@ -1225,6 +1242,7 @@ export {
   Bitmap,
   DEFAULT_SNAP_CONFIG,
   fail,
+  failUsage,
   getNumber,
   getString,
   main,

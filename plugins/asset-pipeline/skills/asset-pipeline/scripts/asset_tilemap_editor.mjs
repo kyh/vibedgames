@@ -117,6 +117,20 @@ function startEditor(args, manifestPath, tileset) {
 
 main(() => {
   const args = parseArgs(process.argv.slice(2), {
+    values: [
+      "bg",
+      "export-map-render",
+      "export-tileset-grid",
+      "fill-rect",
+      "host",
+      "make-selftest-map",
+      "manifest",
+      "map",
+      "port",
+      "scale",
+      "tileset",
+      "write-root",
+    ],
     booleans: ["edit", "label-ids", "trim"],
   });
   const manifestPath = resolveManifest(getString(args, "manifest"));

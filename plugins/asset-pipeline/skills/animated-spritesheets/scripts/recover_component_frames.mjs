@@ -16,6 +16,7 @@ import { join } from "node:path";
 
 import {
   fail,
+  failUsage,
   getNumber,
   getString,
   main,
@@ -25,16 +26,18 @@ import {
 } from "./_lib/asset-tools.mjs";
 
 main(() => {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(process.argv.slice(2), {
+    values: ["cols", "frames", "out-dir", "prefix", "rows", "threshold"],
+  });
   const sheet = args.positionals[0];
-  if (!sheet) fail("A pose-board PNG path is required.");
+  if (!sheet) failUsage("A pose-board PNG path is required.");
 
   const outDir = getString(args, "out-dir");
-  if (!outDir) fail("--out-dir is required");
+  if (!outDir) failUsage("--out-dir is required");
 
   const rows = getNumber(args, "rows", 0);
   const cols = getNumber(args, "cols", 0);
-  if (!rows || !cols) fail("--rows and --cols are required");
+  if (!rows || !cols) failUsage("--rows and --cols are required");
 
   const prefix = getString(args, "prefix") ?? "frame";
   const frames = getString(args, "frames") === undefined ? null : getNumber(args, "frames", 0);

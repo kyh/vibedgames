@@ -9,7 +9,7 @@ pnpm dev:crazy-waymo                        # http://localhost:5193
 pnpm --filter @repo/crazy-waymo typecheck
 pnpm --filter @repo/crazy-waymo build
 pnpm --filter @repo/crazy-waymo test        # headless world-gen invariant harness (tools/test-world.mts)
-pnpm --filter @repo/crazy-waymo test:e2e    # playwright smoke suite (needs a browser)
+vg playtest --game crazy-waymo              # drive the deployed build in a real browser
 ```
 
 World tooling (see [CLAUDE.md](./CLAUDE.md) for when each is required): `pnpm bake:world` regenerates + installs `public/world/*.bin`, `pnpm bake:map` re-bakes the OSM vector network + street mask, `pnpm lint:streets` prints a street-mask sanity report.

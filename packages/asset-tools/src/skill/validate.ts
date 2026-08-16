@@ -8,7 +8,15 @@ import { FrontmatterError, parseFrontmatter } from "./frontmatter.js";
  * a skill will load at all, kept separate from the quality analysis.
  */
 
-const ALLOWED_PROPERTIES = ["name", "description", "license", "allowed-tools", "metadata"];
+/** The keys the SKILL.md spec allows; anything else fails packaging upstream. */
+const ALLOWED_PROPERTIES = [
+  "name",
+  "description",
+  "license",
+  "allowed-tools",
+  "compatibility",
+  "metadata",
+];
 
 export function validateSkill(skillPath: string): { valid: boolean; message: string } {
   const skillMd = join(skillPath, "SKILL.md");

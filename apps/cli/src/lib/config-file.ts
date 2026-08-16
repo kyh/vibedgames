@@ -8,6 +8,13 @@ export type ProjectConfig = {
 
 const FILENAME = "vibedgames.json";
 
+/**
+ * The slug grammar every surface must agree on — it is the deploy target, the
+ * fork target, and the label in `{slug}.vibedgames.com`. Kept here rather than
+ * per-command so a validator can't drift and reject a slug that deploy accepts.
+ */
+export const SLUG_RE = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/;
+
 // Walk from `dir` up toward the filesystem root, stopping at the first
 // vibedgames.json. Lets `vg deploy ./dist` pick up the config from the
 // project root even when the build step doesn't copy it into the output.

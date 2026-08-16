@@ -9,6 +9,7 @@
 import {
   DEFAULT_SNAP_CONFIG,
   fail,
+  failUsage,
   getNumber,
   main,
   parseArgs,
@@ -16,10 +17,12 @@ import {
 } from "./_lib/asset-tools.mjs";
 
 main(() => {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(process.argv.slice(2), {
+    values: ["k-colors", "seed"],
+  });
   const [input, output] = args.positionals;
   if (!input || !output) {
-    fail("Usage: node pixel_snapper.mjs input.png output.png [--k-colors N] [--seed N]");
+    failUsage("Usage: node pixel_snapper.mjs input.png output.png [--k-colors N] [--seed N]");
   }
 
   const kColors = getNumber(args, "k-colors", 16);

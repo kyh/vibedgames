@@ -62,6 +62,31 @@ function parseScalar(raw: string): YamlValue {
   return text;
 }
 
+/**
+ * Join the lines of a block scalar the way YAML does.
+ *
+ * `|` keeps the newlines, `>` folds each run of them into a single space but
+ * keeps a blank line as a real break. A trailing `-` strips the final newline.
+ */
+function joinBlockScalar(lines: string[], style: string): string {
+  const indent = lines.find((l) => l.trim())?.match(/^\s*/)?.[0].length ?? 0;
+  const stripped = lines.map((l) => l.slice(indent));
+  const literal = style.startsWith("|");
+
+  let text = "";
+  if (literal) {
+    text = stripped.join("\n");
+  } else {
+    for (const [i, line] of stripped.entries()) {
+      if (i === 0) text = line;
+      else if (line.trim() === "" || stripped[i - 1]!.trim() === "") text += `\n${line}`;
+      else text += ` ${line}`;
+    }
+  }
+  text = text.replace(/\s+$/, "");
+  return style.endsWith("-") ? text : `${text}\n`;
+}
+
 /** Parse frontmatter YAML into an object. Throws `FrontmatterError` on input
  * this subset cannot represent, rather than silently returning something wrong. */
 export function parseFrontmatter(text: string): Record<string, YamlValue> {
@@ -69,7 +94,9 @@ export function parseFrontmatter(text: string): Record<string, YamlValue> {
   let currentKey: string | null = null;
   let nested: Record<string, YamlValue> | null = null;
 
-  for (const rawLine of text.split("\n")) {
+  const rawLines = text.split("\n");
+  for (let i = 0; i < rawLines.length; i += 1) {
+    const rawLine = rawLines[i]!;
     const line = stripComment(rawLine);
     if (!line.trim()) continue;
 
@@ -88,6 +115,24 @@ export function parseFrontmatter(text: string): Record<string, YamlValue> {
     if (!match) throw new FrontmatterError(`could not parse line: ${rawLine.trim()}`);
     const key = match[1]!.trim();
     const value = match[2]!;
+
+    // `key: >` / `key: |` opens a block scalar: every following line indented
+    // under it is its text, taken verbatim — a `#` in prose is not a comment.
+    const block = /^([|>])([+-]?)$/.exec(value.trim());
+    if (block) {
+      const body: string[] = [];
+      while (i + 1 < rawLines.length) {
+        const next = rawLines[i + 1]!;
+        if (next.trim() !== "" && !/^\s/.test(next)) break;
+        body.push(next);
+        i += 1;
+      }
+      while (body.length > 0 && body[body.length - 1]!.trim() === "") body.pop();
+      currentKey = null;
+      nested = null;
+      out[key] = joinBlockScalar(body, block[1]! + block[2]!);
+      continue;
+    }
 
     if (value.trim() === "") {
       // A bare `key:` opens a nested mapping (or is an empty value if nothing

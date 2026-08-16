@@ -11,6 +11,11 @@
 //     is not observable from inside Miniflare.
 //   * Miniflare strips `content-encoding` off the response it hands back
 //     without decoding the body, so compression is asserted on the bytes.
+//
+// miniflare is held at 4.x on purpose. npm's `latest` is a 5.x -alpha that
+// replaces the top-level single-worker options below with a per-worker
+// `config` object; adopting it is a migration, not a version bump. Don't let a
+// blanket dependency update carry this one along.
 import { Miniflare } from "miniflare";
 import { gunzipSync } from "node:zlib";
 import { fileURLToPath } from "node:url";

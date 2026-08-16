@@ -13,6 +13,7 @@ import { initCommand } from "./commands/init.js";
 import { loginCommand } from "./commands/login.js";
 import { logoutCommand } from "./commands/logout.js";
 import { newCommand } from "./commands/new.js";
+import { playtestCommand, runPlaytest } from "./commands/playtest.js";
 import { updateCommand } from "./commands/update.js";
 import { whoamiCommand } from "./commands/whoami.js";
 import { maybeScheduleAutoUpdate } from "./lib/update.js";
@@ -34,6 +35,7 @@ const main = defineCommand({
     login: loginCommand,
     logout: logoutCommand,
     deploy: deployCommand,
+    playtest: playtestCommand,
     factory: factoryCommand,
     fork: forkCommand,
     generate: generateCommand,
@@ -51,11 +53,16 @@ if (subcommand && !["update", "init", "completions"].includes(subcommand)) {
   maybeScheduleAutoUpdate();
 }
 
-// `vg factory` is a pure passthrough to the factory plugin binary — route it
-// before citty runs so flags like --help/--version reach the binary instead
-// of being intercepted here. (The registered command keeps it in `vg --help`.)
+// `vg factory` and `vg playtest` are pure passthroughs to their binaries —
+// route them before citty runs so flags like --help/--version reach the binary
+// instead of being intercepted here. (The registered commands keep them in
+// `vg --help`.)
 if (subcommand === "factory") {
   runFactory(process.argv.slice(3));
+}
+
+if (subcommand === "playtest") {
+  runPlaytest(process.argv.slice(3));
 }
 
 runMain(main);

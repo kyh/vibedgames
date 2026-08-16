@@ -39,7 +39,7 @@ function styleOf(args) {
 const COMMANDS = {
   anchor(args) {
     const direction = getString(args, "direction");
-    if (!direction) fail("--direction is required (n,s,e,w,ne,nw,se,sw)");
+    if (!direction) failUsage("--direction is required (n,s,e,w,ne,nw,se,sw)");
 
     const prompt = renderAnchorPrompt(getDirection(direction), {
       gameView: getString(args, "game-view") ?? "platformer",
@@ -52,8 +52,8 @@ const COMMANDS = {
   "pose-board"(args) {
     const action = getString(args, "action");
     const direction = getString(args, "direction");
-    if (!action) fail("--action is required (e.g. attack, idle, walk)");
-    if (!direction) fail("--direction is required (n,s,e,w,ne,nw,se,sw)");
+    if (!action) failUsage("--action is required (e.g. attack, idle, walk)");
+    if (!direction) failUsage("--direction is required (n,s,e,w,ne,nw,se,sw)");
 
     const framePromptStyle = getString(args, "frame-prompt-style") ?? "specific";
     if (framePromptStyle !== "specific" && framePromptStyle !== "loose") {
@@ -86,8 +86,21 @@ const COMMANDS = {
 };
 
 main(() => {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(process.argv.slice(2), {
+    values: [
+      "action",
+      "anchor-context",
+      "chroma",
+      "direction",
+      "frame-prompt-style",
+      "frames",
+      "game-view",
+      "pose-board",
+      "role",
+      "style",
+    ],
+  });
   const run = COMMANDS[args.positionals[0]];
-  if (!run) fail("Usage: node sprite_prompt.mjs <anchor|pose-board> ...");
+  if (!run) failUsage("Usage: node sprite_prompt.mjs <anchor|pose-board> ...");
   run(args);
 });

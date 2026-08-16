@@ -24,6 +24,7 @@ import {
   auditSizeContract,
   deriveSizeContract,
   fail,
+  failUsage,
   FRAME_HEIGHT,
   FRAME_WIDTH,
   getFlag,
@@ -48,7 +49,7 @@ function parseCell(value) {
 }
 
 function readContract(path) {
-  if (!path) fail("--contract is required");
+  if (!path) failUsage("--contract is required");
   return loadSizeContract(JSON.parse(readFileSync(path, "utf8")), path);
 }
 
@@ -56,8 +57,8 @@ const COMMANDS = {
   derive(args) {
     const source = getString(args, "source");
     const out = getString(args, "out");
-    if (!source) fail("--source is required");
-    if (!out) fail("--out is required");
+    if (!source) failUsage("--source is required");
+    if (!out) failUsage("--out is required");
 
     const contract = deriveSizeContract(source, {
       cellSize: parseCell(getString(args, "cell") ?? `${FRAME_WIDTH}x${FRAME_HEIGHT}`),
@@ -74,7 +75,7 @@ const COMMANDS = {
 
   audit(args) {
     const source = getString(args, "source");
-    if (!source) fail("--source is required");
+    if (!source) failUsage("--source is required");
     const contract = readContract(getString(args, "contract"));
 
     const report = auditSizeContract(source, contract, {
@@ -98,9 +99,22 @@ const COMMANDS = {
 
 main(() => {
   const args = parseArgs(process.argv.slice(2), {
+    values: [
+      "action",
+      "anchor-policy",
+      "cell",
+      "contract",
+      "direction",
+      "frame-glob",
+      "name",
+      "out",
+      "pivot",
+      "source",
+      "stage",
+    ],
     booleans: ["strict"],
   });
   const run = COMMANDS[args.positionals[0]];
-  if (!run) fail("Usage: node size_contract.mjs <derive|audit|prompt> ...");
+  if (!run) failUsage("Usage: node size_contract.mjs <derive|audit|prompt> ...");
   run(args);
 });

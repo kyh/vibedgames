@@ -21,6 +21,7 @@ import {
   cleanChroma,
   despillChroma,
   fail,
+  failUsage,
   getFlag,
   getNumber,
   getString,
@@ -57,7 +58,7 @@ function siblingOutput(src, suffix) {
 const COMMANDS = {
   key(args) {
     const src = args.positionals[1];
-    if (!src && !getString(args, "input")) fail("--input is required");
+    if (!src && !getString(args, "input")) failUsage("--input is required");
     const input = getString(args, "input") ?? src;
     if (statSync(input).isDirectory()) {
       fail("key expects a single PNG; use fringe/despill for directories");
@@ -81,7 +82,7 @@ const COMMANDS = {
 
   fringe(args) {
     const input = getString(args, "input");
-    if (!input) fail("--input is required");
+    if (!input) failUsage("--input is required");
     const chroma = chromaOf(args);
     const edgeRadius = getNumber(args, "edge-radius", 1);
     const frames = inputsFor(input, getString(args, "glob") ?? "*.png");
@@ -121,7 +122,7 @@ const COMMANDS = {
 
   despill(args) {
     const input = getString(args, "input");
-    if (!input) fail("--input is required");
+    if (!input) failUsage("--input is required");
     const chroma = chromaOf(args);
     const edgeRadius = getNumber(args, "edge-radius", 2);
     const bandOnly = !getFlag(args, "whole-image");
@@ -152,7 +153,7 @@ const COMMANDS = {
 
   clean(args) {
     const input = getString(args, "input");
-    if (!input) fail("--input is required");
+    if (!input) failUsage("--input is required");
     const chroma = chromaOf(args);
     const settings = {
       chroma,
@@ -199,6 +200,17 @@ const COMMANDS = {
 
 main(() => {
   const args = parseArgs(process.argv.slice(2), {
+    values: [
+      "chroma",
+      "despill-radius",
+      "edge-radius",
+      "fringe-radius",
+      "glob",
+      "input",
+      "out",
+      "out-dir",
+      "tolerance",
+    ],
     booleans: ["keep-largest", "no-decontam", "whole-image"],
   });
   const command = args.positionals[0];
