@@ -1,6 +1,6 @@
 ---
 name: release
-description: Bump, build, publish, tag, and changelog vibedgames npm packages — `vibedgames` (CLI), `@vibedgames/multiplayer`, and/or `@vibedgames/gamepad`. Skips packages with no changes since last release. Use when the user wants to ship a new version. Args optional: package(s) and bump type, e.g. "release multiplayer patch", "release gamepad patch", "release cli minor", "release all patch".
+description: 'Bump, build, publish, tag, and changelog vibedgames npm packages — `vibedgames` (CLI), `@vibedgames/multiplayer`, and/or `@vibedgames/gamepad`. Skips packages with no changes since last release. Use when the user wants to ship a new version. Args optional: package(s) and bump type, e.g. "release multiplayer patch", "release gamepad patch", "release cli minor", "release all patch".'
 allowed-tools: Bash(*), Read, Edit, Write
 ---
 

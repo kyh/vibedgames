@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { globSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { globSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { test } from "node:test";
@@ -12,6 +12,7 @@ import { parseFrame, prettyPath, walkFiles } from "../src/asset/paths.js";
 import { analyzeBaseline, probeSheet } from "../src/asset/sheet.js";
 import { collectSizes, sizesToCsv } from "../src/asset/sizes.js";
 import { Bitmap } from "../src/image/raster.js";
+import { validateSkill } from "../src/skill/validate.js";
 import { createZip } from "../src/skill/zip.js";
 import { frameGeometry } from "../src/sprite/qc.js";
 import {
@@ -629,4 +630,37 @@ test("every skill script imports the library names it calls", () => {
     if (missing.length > 0) offenders.push(`${basename(path)}: ${missing.join(", ")}`);
   }
   assert.deepEqual(offenders, []);
+});
+
+/**
+ * The installer parses this frontmatter with a strict YAML parser; ours splits
+ * on the first colon and is happy either way. That gap was not theoretical —
+ * `release`'s description said "Args optional: package(s) and bump type", passed
+ * our validation, and was then skipped outright by `skills add` with a YAML
+ * error, so the skill silently never installed.
+ */
+test("an unquoted description containing a colon is rejected", () => {
+  const dir = workspace();
+  const write = (frontmatter: string): string => {
+    const skill = join(dir, "s");
+    mkdirSync(skill, { recursive: true });
+    writeFileSync(join(skill, "SKILL.md"), `---\n${frontmatter}\n---\n\n# S\n\nBody text here.\n`);
+    return skill;
+  };
+
+  const bad = validateSkill(write("name: s\ndescription: Does things. Args optional: a and b."));
+  assert.equal(bad.valid, false);
+  assert.match(bad.message, /not quoted|nested mapping/);
+
+  // Quoting it is the fix, in either quote style.
+  assert.equal(
+    validateSkill(write(`name: s\ndescription: 'Does things. Args: a and b.'`)).valid,
+    true,
+  );
+  assert.equal(
+    validateSkill(write(`name: s\ndescription: "Does things. Args: a and b."`)).valid,
+    true,
+  );
+  // A description with no colon is unaffected.
+  assert.equal(validateSkill(write("name: s\ndescription: Does things simply.")).valid, true);
 });

@@ -685,6 +685,15 @@ function validateSkill(skillPath) {
       message: "Description must use an inline string value, not YAML folded/literal scalar (`>` or `|`)."
     };
   }
+  for (const line of frontmatterText.split("\n")) {
+    const match2 = /^([a-z-]+):\s+(?!["'|>])(.*)$/i.exec(line);
+    if (match2 && match2[2].includes(": ")) {
+      return {
+        valid: false,
+        message: `\`${match2[1]}\` contains ": " but is not quoted, which strict YAML reads as a nested mapping \u2014 the installer will skip this skill. Wrap the value in quotes.`
+      };
+    }
+  }
   let frontmatter;
   try {
     frontmatter = parseFrontmatter(frontmatterText);

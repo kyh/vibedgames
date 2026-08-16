@@ -41,6 +41,22 @@ export function validateSkill(skillPath: string): { valid: boolean; message: str
     };
   }
 
+  // An unquoted scalar containing ": " is a nested mapping to a strict YAML
+  // parser, which is what actually installs these skills. Our own parser splits
+  // on the first colon and reads it fine, so this passed validation and then
+  // failed to install — `skills add` skipped the release skill outright.
+  for (const line of frontmatterText.split("\n")) {
+    const match = /^([a-z-]+):\s+(?!["'|>])(.*)$/i.exec(line);
+    if (match && match[2]!.includes(": ")) {
+      return {
+        valid: false,
+        message:
+          `\`${match[1]}\` contains ": " but is not quoted, which strict YAML reads as a ` +
+          `nested mapping — the installer will skip this skill. Wrap the value in quotes.`,
+      };
+    }
+  }
+
   let frontmatter: Record<string, unknown>;
   try {
     frontmatter = parseFrontmatter(frontmatterText);
