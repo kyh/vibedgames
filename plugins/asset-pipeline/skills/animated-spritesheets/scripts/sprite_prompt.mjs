@@ -13,7 +13,7 @@ import {
   fail,
   failUsage,
   getDirection,
-  getNumber,
+  getInt,
   getString,
   main,
   parseArgs,
@@ -62,7 +62,7 @@ const COMMANDS = {
       );
     }
     const board = resolvePoseBoardPreset(getString(args, "pose-board") ?? "standard");
-    const frames = getNumber(args, "frames", 0);
+    const frames = getInt(args, "frames", 0);
     if (frames <= 0) fail("--frames must be a positive integer");
     if (frames > totalCells(board)) {
       fail(

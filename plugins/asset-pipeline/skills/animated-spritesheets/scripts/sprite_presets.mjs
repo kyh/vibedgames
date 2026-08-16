@@ -18,7 +18,7 @@ import {
   coerceFrameCount,
   formatPythonValue,
   getFlag,
-  getNumber,
+  getInt,
   getString,
   main,
   parseArgs,
@@ -74,7 +74,7 @@ main(() => {
   if (actionId) {
     const facts = actionFacts(actionId, profile);
     if (getString(args, "coerce-frames") !== undefined) {
-      const requested = getNumber(args, "coerce-frames", 0);
+      const requested = getInt(args, "coerce-frames", 0);
       const { frames, warning } = coerceFrameCount(actionId, requested);
       facts.requestedFrames = requested;
       facts.coercedFrames = frames;

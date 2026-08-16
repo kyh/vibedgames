@@ -16,7 +16,7 @@ import {
   Bitmap,
   fail,
   failUsage,
-  getNumber,
+  getInt,
   getString,
   main,
   parseArgs,
@@ -49,7 +49,7 @@ const COMMANDS = {
     if (!input || !output) {
       failUsage("Usage: node image_util.mjs upscale <in.png> <out.png> --factor 8");
     }
-    const factor = getNumber(args, "factor", 8);
+    const factor = getInt(args, "factor", 8);
     if (!Number.isInteger(factor) || factor < 1) fail("--factor must be a positive integer");
 
     const image = Bitmap.fromFile(input);

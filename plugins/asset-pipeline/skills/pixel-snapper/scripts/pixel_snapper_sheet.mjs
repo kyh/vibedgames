@@ -22,7 +22,7 @@ import {
   DEFAULT_SNAP_CONFIG,
   fail,
   failUsage,
-  getNumber,
+  getInt,
   main,
   parseArgs,
   snapSheet,
@@ -37,17 +37,17 @@ main(() => {
     failUsage("Usage: node pixel_snapper_sheet.mjs input.png output.png --cols N --rows N");
   }
 
-  const cols = getNumber(args, "cols", 0);
-  const rows = getNumber(args, "rows", 0);
+  const cols = getInt(args, "cols", 0);
+  const rows = getInt(args, "rows", 0);
   if (cols <= 0 || rows <= 0) fail("--cols and --rows must be positive integers");
 
-  const kColors = getNumber(args, "k-colors", 256);
+  const kColors = getInt(args, "k-colors", 256);
   if (kColors <= 0) fail("--k-colors must be a positive integer");
 
   const { image, info } = snapSheet(Bitmap.fromFile(input), cols, rows, {
     ...DEFAULT_SNAP_CONFIG,
     kColors,
-    kSeed: getNumber(args, "seed", 42),
+    kSeed: getInt(args, "seed", 42),
   });
   image.toFile(output);
 

@@ -19,6 +19,7 @@ export {
   failUsage,
   getAll,
   getFlag,
+  getInt,
   getNumber,
   getString,
   main,

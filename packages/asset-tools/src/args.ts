@@ -163,7 +163,22 @@ export function getNumber(args: Args, key: string, fallback: number): number {
   const raw = getString(args, key);
   if (raw === undefined) return fallback;
   const value = Number(raw);
-  if (!Number.isFinite(value)) fail(`--${key} must be a number, got "${raw}"`);
+  if (!Number.isFinite(value)) failUsage(`--${key} must be a number, got "${raw}"`);
+  return value;
+}
+
+/**
+ * A whole number, for the options `argparse` declared `type=int`.
+ *
+ * `getNumber` accepted `--rows 3.7` and the grid maths quietly truncated it,
+ * so a sheet was sliced on a geometry nobody asked for and the run exited 0.
+ * Python refused it outright, and so does this.
+ */
+export function getInt(args: Args, key: string, fallback: number): number {
+  const raw = getString(args, key);
+  if (raw === undefined) return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value)) failUsage(`--${key} must be a whole number, got "${raw}"`);
   return value;
 }
 

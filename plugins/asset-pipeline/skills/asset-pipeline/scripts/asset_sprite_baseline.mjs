@@ -20,7 +20,7 @@ import {
   analyzeBaseline,
   fail,
   failUsage,
-  getNumber,
+  getInt,
   getString,
   main,
   parseArgs,
@@ -40,9 +40,9 @@ main(() => {
   if (!frameSpec) failUsage("--frame is required, e.g. --frame 256x256");
   const frame = parseFrame(frameSpec);
 
-  const targetBottom = getNumber(args, "target-bottom", frame.height - 1);
+  const targetBottom = getInt(args, "target-bottom", frame.height - 1);
   const targetCenterX =
-    getString(args, "target-center-x") === undefined ? null : getNumber(args, "target-center-x", 0);
+    getString(args, "target-center-x") === undefined ? null : getInt(args, "target-center-x", 0);
 
   const targets = resolveTargets(input);
   if (targets.length === 0) fail(`No PNG files found in ${input}`);

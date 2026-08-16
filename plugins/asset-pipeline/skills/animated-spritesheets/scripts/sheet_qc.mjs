@@ -23,7 +23,7 @@ import {
   fail,
   failUsage,
   getFlag,
-  getNumber,
+  getInt,
   getString,
   main,
   parseArgs,
@@ -40,9 +40,9 @@ main(() => {
   if (!sheet) failUsage("a spritesheet path is required");
 
   const frameWidth =
-    getString(args, "frame-width") === undefined ? null : getNumber(args, "frame-width", 0);
+    getString(args, "frame-width") === undefined ? null : getInt(args, "frame-width", 0);
   const frameHeight =
-    getString(args, "frame-height") === undefined ? null : getNumber(args, "frame-height", 0);
+    getString(args, "frame-height") === undefined ? null : getInt(args, "frame-height", 0);
 
   const report = runQc(sheet, frameWidth, frameHeight);
 

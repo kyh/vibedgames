@@ -37,6 +37,7 @@ import {
   fail,
   failUsage,
   getFlag,
+  getInt,
   getNumber,
   getString,
   globFrames,
@@ -150,13 +151,13 @@ main(() => {
   const outDir = getString(args, "out-dir");
   if (!outDir) failUsage("--out-dir is required");
 
-  const rows = getNumber(args, "rows", 0);
-  const cols = getNumber(args, "cols", 0);
+  const rows = getInt(args, "rows", 0);
+  const cols = getInt(args, "cols", 0);
   if (rows <= 0 || cols <= 0) fail("--rows and --cols must be positive integers");
 
   const charFill = getNumber(args, "char-fill", 0.5);
   if (!(charFill > 0 && charFill <= 1)) fail("--char-fill must be in (0, 1]");
-  const snapKColors = getNumber(args, "snap-k-colors", 16);
+  const snapKColors = getInt(args, "snap-k-colors", 16);
   if (snapKColors <= 0) fail("--snap-k-colors must be a positive integer");
 
   const facts = actionFacts(action);
@@ -166,11 +167,11 @@ main(() => {
   // for that many), not rows*cols — trailing grid cells are flat chroma and
   // would pack as junk.
   const requested = getString(args, "frames");
-  if (requested !== undefined && getNumber(args, "frames", 0) <= 0) {
+  if (requested !== undefined && getInt(args, "frames", 0) <= 0) {
     fail("--frames must be a positive integer");
   }
   const frames =
-    requested === undefined ? Math.min(facts.defaultFrames, cells) : getNumber(args, "frames", 0);
+    requested === undefined ? Math.min(facts.defaultFrames, cells) : getInt(args, "frames", 0);
 
   const dCells = join(outDir, "cells");
   const dKeyed = join(outDir, "_keyed");

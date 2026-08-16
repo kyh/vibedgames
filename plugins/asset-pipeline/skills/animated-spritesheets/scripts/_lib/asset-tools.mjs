@@ -90,7 +90,14 @@ function getNumber(args, key, fallback) {
   const raw = getString(args, key);
   if (raw === void 0) return fallback;
   const value = Number(raw);
-  if (!Number.isFinite(value)) fail(`--${key} must be a number, got "${raw}"`);
+  if (!Number.isFinite(value)) failUsage(`--${key} must be a number, got "${raw}"`);
+  return value;
+}
+function getInt(args, key, fallback) {
+  const raw = getString(args, key);
+  if (raw === void 0) return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value)) failUsage(`--${key} must be a whole number, got "${raw}"`);
   return value;
 }
 function fail(message) {
@@ -1863,18 +1870,38 @@ function frameGeometry(sheet, sheetPath, frameWidth, frameHeight) {
       throw new Error("--frame-width and --frame-height must be positive");
     }
     const columns2 = Math.max(1, Math.floor(sheet.width / frameWidth));
-    return { frameWidth, frameHeight, count: columns2, columns: columns2, rows: 1 };
+    const rows = Math.max(1, Math.floor(sheet.height / frameHeight));
+    return { frameWidth, frameHeight, count: columns2 * rows, columns: columns2, rows };
   }
   const manifestPath = sheetPath.replace(/\.[^./\\]+$/, ".json");
   if (existsSync2(manifestPath)) {
-    const m = JSON.parse(readFileSync3(manifestPath, "utf8"));
-    const count = Math.trunc(m.frameCount);
+    const parsed = JSON.parse(readFileSync3(manifestPath, "utf8"));
+    if (parsed === null || typeof parsed !== "object") {
+      throw new Error(`${manifestPath}: expected an object`);
+    }
+    const m = parsed;
+    const required = (key) => {
+      const value = m[key];
+      if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+        throw new Error(`${manifestPath}: "${key}" must be a positive number, got ${String(value)}`);
+      }
+      return Math.trunc(value);
+    };
+    const optional = (key, fallback) => {
+      const value = m[key];
+      if (value === void 0) return fallback;
+      if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+        throw new Error(`${manifestPath}: "${key}" must be a positive number, got ${String(value)}`);
+      }
+      return Math.trunc(value);
+    };
+    const count = required("frameCount");
     return {
-      frameWidth: Math.trunc(m.frameWidth),
-      frameHeight: Math.trunc(m.frameHeight),
+      frameWidth: required("frameWidth"),
+      frameHeight: required("frameHeight"),
       count,
-      columns: Math.trunc(m.columns || count),
-      rows: Math.trunc(m.rows || 1)
+      columns: optional("columns", count),
+      rows: optional("rows", 1)
     };
   }
   const side = sheet.height;
@@ -3386,6 +3413,7 @@ export {
   formatPythonValue,
   getDirection,
   getFlag,
+  getInt,
   getNumber,
   getString,
   globFrames,

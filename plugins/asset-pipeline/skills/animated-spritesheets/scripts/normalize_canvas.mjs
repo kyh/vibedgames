@@ -21,6 +21,7 @@ import {
   fail,
   failUsage,
   getFlag,
+  getInt,
   getNumber,
   getString,
   main,
@@ -47,14 +48,14 @@ main(() => {
   const outDir = getString(args, "out-dir");
   if (!inputDir || !outDir) failUsage("--input-dir and --out-dir are required");
 
-  const pad = getNumber(args, "pad", 6);
+  const pad = getInt(args, "pad", 6);
   if (pad < 0) fail("--pad must be >= 0");
 
   const charFill = getNumber(args, "char-fill", 0.5);
   if (!(charFill > 0 && charFill <= 1)) fail("--char-fill must be in (0, 1]");
 
   const targetHeightSpec = getString(args, "target-height");
-  const targetHeight = targetHeightSpec === undefined ? null : getNumber(args, "target-height", 0);
+  const targetHeight = targetHeightSpec === undefined ? null : getInt(args, "target-height", 0);
   if (targetHeight !== null && targetHeight <= 0) {
     fail("--target-height must be a positive integer");
   }

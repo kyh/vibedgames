@@ -82,11 +82,11 @@ function parseArgs(argv, options = {}) {
 function getString(args, key) {
   return args.options.get(key)?.at(-1);
 }
-function getNumber(args, key, fallback) {
+function getInt(args, key, fallback) {
   const raw = getString(args, key);
   if (raw === void 0) return fallback;
   const value = Number(raw);
-  if (!Number.isFinite(value)) fail(`--${key} must be a number, got "${raw}"`);
+  if (!Number.isInteger(value)) failUsage(`--${key} must be a whole number, got "${raw}"`);
   return value;
 }
 function fail(message) {
@@ -1297,7 +1297,7 @@ export {
   DEFAULT_SNAP_CONFIG,
   fail,
   failUsage,
-  getNumber,
+  getInt,
   getString,
   main,
   parseArgs,

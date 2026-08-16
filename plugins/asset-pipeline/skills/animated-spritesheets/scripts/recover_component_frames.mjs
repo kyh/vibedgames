@@ -17,7 +17,7 @@ import { join } from "node:path";
 import {
   fail,
   failUsage,
-  getNumber,
+  getInt,
   getString,
   main,
   parseArgs,
@@ -35,18 +35,18 @@ main(() => {
   const outDir = getString(args, "out-dir");
   if (!outDir) failUsage("--out-dir is required");
 
-  const rows = getNumber(args, "rows", 0);
-  const cols = getNumber(args, "cols", 0);
+  const rows = getInt(args, "rows", 0);
+  const cols = getInt(args, "cols", 0);
   if (!rows || !cols) failUsage("--rows and --cols are required");
 
   const prefix = getString(args, "prefix") ?? "frame";
-  const frames = getString(args, "frames") === undefined ? null : getNumber(args, "frames", 0);
+  const frames = getString(args, "frames") === undefined ? null : getInt(args, "frames", 0);
 
   const { result, crops } = recoverFrames(sheet, {
     rows,
     cols,
     frames,
-    threshold: getNumber(args, "threshold", 15),
+    threshold: getInt(args, "threshold", 15),
   });
 
   for (const crop of crops) {

@@ -23,6 +23,7 @@ import {
   fail,
   failUsage,
   getFlag,
+  getInt,
   getNumber,
   getString,
   globFrames,
@@ -84,7 +85,7 @@ const COMMANDS = {
     const input = getString(args, "input");
     if (!input) failUsage("--input is required");
     const chroma = chromaOf(args);
-    const edgeRadius = getNumber(args, "edge-radius", 1);
+    const edgeRadius = getInt(args, "edge-radius", 1);
     const frames = inputsFor(input, getString(args, "glob") ?? "*.png");
     const outDir =
       getString(args, "out-dir") ?? (statSync(input).isDirectory() ? input : dirname(input));
@@ -124,7 +125,7 @@ const COMMANDS = {
     const input = getString(args, "input");
     if (!input) failUsage("--input is required");
     const chroma = chromaOf(args);
-    const edgeRadius = getNumber(args, "edge-radius", 2);
+    const edgeRadius = getInt(args, "edge-radius", 2);
     const bandOnly = !getFlag(args, "whole-image");
     const frames = inputsFor(input, getString(args, "glob") ?? "*.png");
     const outDir =
@@ -158,8 +159,8 @@ const COMMANDS = {
     const settings = {
       chroma,
       tolerance: getNumber(args, "tolerance", 90),
-      fringeRadius: getNumber(args, "fringe-radius", 1),
-      despillRadius: getNumber(args, "despill-radius", 2),
+      fringeRadius: getInt(args, "fringe-radius", 1),
+      despillRadius: getInt(args, "despill-radius", 2),
       decontam: !getFlag(args, "no-decontam"),
     };
 

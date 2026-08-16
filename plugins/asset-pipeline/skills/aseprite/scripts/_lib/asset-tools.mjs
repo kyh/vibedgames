@@ -86,11 +86,11 @@ function getFlag(args, key) {
   const value = getString(args, key);
   return value !== void 0 && value !== "false";
 }
-function getNumber(args, key, fallback) {
+function getInt(args, key, fallback) {
   const raw = getString(args, key);
   if (raw === void 0) return fallback;
   const value = Number(raw);
-  if (!Number.isFinite(value)) fail(`--${key} must be a number, got "${raw}"`);
+  if (!Number.isInteger(value)) failUsage(`--${key} must be a whole number, got "${raw}"`);
   return value;
 }
 function fail(message) {
@@ -851,7 +851,7 @@ var crcTable2 = (() => {
 })();
 export {
   getFlag,
-  getNumber,
+  getInt,
   inspectAseprite,
   main,
   parseArgs

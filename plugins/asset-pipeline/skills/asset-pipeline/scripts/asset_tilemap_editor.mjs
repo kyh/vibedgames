@@ -34,7 +34,7 @@ import {
   fail,
   getAll,
   getFlag,
-  getNumber,
+  getInt,
   getString,
   loadManifestJson,
   main,
@@ -84,7 +84,7 @@ function startEditor(args, manifestPath, tileset) {
   const here = dirname(fileURLToPath(import.meta.url));
   const html = readFileSync(join(here, "tilemap-editor.html"), "utf8");
   const host = getString(args, "host") ?? "127.0.0.1";
-  const port = getNumber(args, "port", 0);
+  const port = getInt(args, "port", 0);
 
   const editor = createTilemapEditor({
     manifestPath,
@@ -139,7 +139,7 @@ main(() => {
   const name = getString(args, "tileset") ?? Object.keys(tilesets).sort()[0];
   let meta = tilesetMetaFromManifest(manifestPath, manifest, name);
 
-  const scale = getNumber(args, "scale", 4);
+  const scale = getInt(args, "scale", 4);
   const trim = getFlag(args, "trim");
   const gridOut = getString(args, "export-tileset-grid");
   const renderOut = getString(args, "export-map-render");

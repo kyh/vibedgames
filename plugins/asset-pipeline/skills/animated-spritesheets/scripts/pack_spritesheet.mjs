@@ -17,7 +17,7 @@
  *   node pack_spritesheet.mjs --input-dir runtime --out sheet.png --columns 5 --json-out sheet.json
  */
 import {
-  getNumber,
+  getInt,
   getString,
   fail,
   failUsage,
@@ -38,8 +38,8 @@ main(() => {
   const columnsSpec = getString(args, "columns");
   const { manifest, sheet } = packSpritesheet(inputDir, out, {
     glob: getString(args, "glob") ?? "frame-*.png",
-    columns: columnsSpec === undefined ? null : getNumber(args, "columns", 0),
-    fps: getNumber(args, "fps", 10),
+    columns: columnsSpec === undefined ? null : getInt(args, "columns", 0),
+    fps: getInt(args, "fps", 10),
     action: getString(args, "action") ?? "anim",
   });
 

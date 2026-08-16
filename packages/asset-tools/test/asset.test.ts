@@ -13,6 +13,7 @@ import { analyzeBaseline, probeSheet } from "../src/asset/sheet.js";
 import { collectSizes, sizesToCsv } from "../src/asset/sizes.js";
 import { Bitmap } from "../src/image/raster.js";
 import { createZip } from "../src/skill/zip.js";
+import { frameGeometry } from "../src/sprite/qc.js";
 import {
   cellSizeOf,
   FRAME_HEIGHT,
@@ -385,7 +386,9 @@ test("every flag a script advertises is declared or takes a value", () => {
       ),
     );
     const valued = new Set(
-      [...source.matchAll(/get(?:String|Number|All)\(\s*args\s*,\s*"([^"]+)"/g)].map((m) => m[1]!),
+      [...source.matchAll(/get(?:String|Number|Int|All)\(\s*args\s*,\s*"([^"]+)"/g)].map(
+        (m) => m[1]!,
+      ),
     );
     // `--size WxH` / `--out <path>`: a metavar after the flag means it takes one.
     const metavar = new Set(
@@ -519,4 +522,111 @@ test("an option outside the declared surface is rejected", () => {
   assert.equal(run("--k-colors", "4").status, 0, "the correct spelling still parses");
   assert.equal(run("--snap").status, 0, "a declared boolean still parses");
   assert.equal(run("--help").status, 0, "help is free on every script");
+});
+
+// ---- sheet QC ------------------------------------------------------------
+
+/**
+ * QC that inspects nothing must not pass. Explicit frame dimensions used to
+ * hard-code one row, so an 8-row sheet was judged on its top row and the rest
+ * shipped unchecked; and a sibling manifest missing `frameCount` produced `NaN`
+ * frames, which inspected zero cells and printed CLEAN.
+ */
+test("frameGeometry covers every row, and refuses a manifest it cannot read", () => {
+  const dir = workspace();
+  const sheetPath = join(dir, "sheet.png");
+  buildSheet(sheetPath, 8, 8, 32);
+  const sheet = Bitmap.fromFile(sheetPath);
+
+  const explicit = frameGeometry(sheet, sheetPath, 32, 32);
+  assert.deepEqual(
+    { columns: explicit.columns, rows: explicit.rows, count: explicit.count },
+    { columns: 8, rows: 8, count: 64 },
+    "an 8x8 sheet has 64 frames, not the first row's 8",
+  );
+
+  // A single row still resolves to a single row.
+  const strip = join(dir, "strip.png");
+  buildSheet(strip, 4, 1, 16);
+  const oneRow = frameGeometry(Bitmap.fromFile(strip), strip, 16, 16);
+  assert.deepEqual({ rows: oneRow.rows, count: oneRow.count }, { rows: 1, count: 4 });
+
+  // A sibling manifest missing or misdeclaring a field is an error, not NaN.
+  const manifest = join(dir, "sheet.json");
+  writeFileSync(manifest, JSON.stringify({ notFrameCount: 1 }));
+  assert.throws(
+    () => frameGeometry(sheet, sheetPath, null, null),
+    /"frameCount" must be a positive/,
+  );
+  writeFileSync(manifest, JSON.stringify({ frameCount: 4, frameWidth: 32, frameHeight: "32" }));
+  assert.throws(
+    () => frameGeometry(sheet, sheetPath, null, null),
+    /"frameHeight" must be a positive/,
+  );
+  writeFileSync(manifest, JSON.stringify({ frameCount: 4, frameWidth: 32, frameHeight: 32 }));
+  assert.equal(frameGeometry(sheet, sheetPath, null, null).count, 4, "a good manifest still reads");
+});
+
+/**
+ * `argparse` declared these `type=int`, and refused a fractional value. Reading
+ * them with `getNumber` accepted `--rows 3.7`, truncated it inside the grid
+ * maths, and sliced the sheet on a geometry nobody asked for — at exit 0.
+ */
+test("integer options refuse a fractional value, float options keep it", () => {
+  const dir = workspace();
+  const entry = join(dir, "nums.ts");
+  const argsModule = join(import.meta.dirname, "..", "src", "args.ts");
+  writeFileSync(
+    entry,
+    `import { parseArgs, getInt, getNumber } from ${JSON.stringify(argsModule)};\n` +
+      `const args = parseArgs(process.argv.slice(2), { values: ["rows", "tolerance"] });\n` +
+      `process.stdout.write(String(getInt(args, "rows", 1)) + "/" + String(getNumber(args, "tolerance", 90)));\n`,
+  );
+  const run = (...argv: string[]) =>
+    spawnSync(process.execPath, ["--import", "tsx", entry, ...argv], { encoding: "utf8" });
+
+  const fractional = run("--rows", "3.7");
+  assert.equal(fractional.status, 2, "a fractional row count is a usage error");
+  assert.match(fractional.stderr, /--rows must be a whole number, got "3\.7"/);
+  assert.equal(run("--rows", "abc").status, 2);
+
+  assert.equal(run("--rows", "3").stdout, "3/90", "whole numbers still parse");
+  assert.equal(run("--tolerance", "87.5").stdout, "1/87.5", "a float option keeps its decimals");
+});
+
+/**
+ * Every name a script uses from the bundle must be imported from it.
+ *
+ * The runtime smoke test above only exercises the no-argument path, so a name
+ * referenced further in — `getInt` inside an option read, say — stays invisible
+ * until someone runs that exact command. Lint, typecheck and format all miss it
+ * too: the bundle is a plain `.mjs` they do not follow into. Read the imports
+ * instead, and compare them with what the body actually calls.
+ */
+test("every skill script imports the library names it calls", () => {
+  const repoRoot = join(import.meta.dirname, "..", "..", "..");
+  const scripts = globSync("plugins/*/skills/*/scripts/*.mjs", { cwd: repoRoot })
+    .filter((rel) => !rel.includes("/_lib/"))
+    .map((rel) => join(repoRoot, rel));
+
+  const offenders: string[] = [];
+  for (const path of scripts) {
+    const source = readFileSync(path, "utf8");
+    const importMatch = /import \{([^}]*)\} from "\.\/_lib\/asset-tools\.mjs";/.exec(source);
+    if (!importMatch) continue;
+
+    const imported = new Set(
+      importMatch[1]!
+        .split(",")
+        .map((name) => name.trim())
+        .filter(Boolean),
+    );
+    const body = source.slice(importMatch.index + importMatch[0].length);
+    const called = new Set(
+      [...body.matchAll(/\b(get[A-Z]\w*|failUsage|fail|main|parseArgs)\s*\(/g)].map((m) => m[1]!),
+    );
+    const missing = [...called].filter((name) => !imported.has(name)).sort();
+    if (missing.length > 0) offenders.push(`${basename(path)}: ${missing.join(", ")}`);
+  }
+  assert.deepEqual(offenders, []);
 });

@@ -103,19 +103,48 @@ export function frameGeometry(
       throw new Error("--frame-width and --frame-height must be positive");
     }
     const columns = Math.max(1, Math.floor(sheet.width / frameWidth));
-    return { frameWidth, frameHeight, count: columns, columns, rows: 1 };
+    // Every row the sheet actually has, not just the first: a QC pass that
+    // silently inspected an eighth of an 8-row sheet and reported CLEAN is
+    // worse than no QC at all.
+    const rows = Math.max(1, Math.floor(sheet.height / frameHeight));
+    return { frameWidth, frameHeight, count: columns * rows, columns, rows };
   }
 
   const manifestPath = sheetPath.replace(/\.[^./\\]+$/, ".json");
   if (existsSync(manifestPath)) {
-    const m = JSON.parse(readFileSync(manifestPath, "utf8")) as Record<string, number>;
-    const count = Math.trunc(m.frameCount!);
+    const parsed: unknown = JSON.parse(readFileSync(manifestPath, "utf8"));
+    if (parsed === null || typeof parsed !== "object") {
+      throw new Error(`${manifestPath}: expected an object`);
+    }
+    const m = parsed as Record<string, unknown>;
+    // Read these rather than assert them. A manifest missing `frameCount` used
+    // to produce `NaN` frames, which inspected nothing and reported CLEAN.
+    const required = (key: string): number => {
+      const value = m[key];
+      if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+        throw new Error(
+          `${manifestPath}: "${key}" must be a positive number, got ${String(value)}`,
+        );
+      }
+      return Math.trunc(value);
+    };
+    const optional = (key: string, fallback: number): number => {
+      const value = m[key];
+      if (value === undefined) return fallback;
+      if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+        throw new Error(
+          `${manifestPath}: "${key}" must be a positive number, got ${String(value)}`,
+        );
+      }
+      return Math.trunc(value);
+    };
+    const count = required("frameCount");
     return {
-      frameWidth: Math.trunc(m.frameWidth!),
-      frameHeight: Math.trunc(m.frameHeight!),
+      frameWidth: required("frameWidth"),
+      frameHeight: required("frameHeight"),
       count,
-      columns: Math.trunc(m.columns || count),
-      rows: Math.trunc(m.rows || 1),
+      columns: optional("columns", count),
+      rows: optional("rows", 1),
     };
   }
 

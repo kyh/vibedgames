@@ -15,7 +15,7 @@
  */
 import { readFileSync } from "node:fs";
 
-import { getFlag, getNumber, inspectAseprite, main, parseArgs } from "./_lib/asset-tools.mjs";
+import { getFlag, getInt, inspectAseprite, main, parseArgs } from "./_lib/asset-tools.mjs";
 
 const USAGE = `usage: aseprite_inspect.mjs [-h] [--json] [--pretty] [--decode-cels]
                             [--max-decompress-mib MAX_DECOMPRESS_MIB]
@@ -59,8 +59,8 @@ main(() => {
 
   const report = inspectAseprite(file, readFileSync(file), {
     decodeCels: getFlag(args, "decode-cels"),
-    maxDecompressMib: getNumber(args, "max-decompress-mib", 64),
-    paletteEntries: getNumber(args, "palette-entries", 16),
+    maxDecompressMib: getInt(args, "max-decompress-mib", 64),
+    paletteEntries: getInt(args, "palette-entries", 16),
     treatIndex0Transparent: getFlag(args, "treat-index0-transparent"),
   });
 
