@@ -45,6 +45,12 @@ const UPGRADE_RETRY_MS = 24 * 60 * 60_000;
 const URL_TAKING = new Set(["open", "goto", "navigate", "url"]);
 
 /**
+ * Verbs this module recognizes, used only to tell a subcommand from a flag's
+ * value. `diff` is here because `diff url` is how two URLs are compared.
+ */
+const KNOWN_VERBS = new Set([...URL_TAKING, "diff"]);
+
+/**
  * The installed agent-browser's version, or null if the binary can't be run.
  *
  * Doubles as the "is it installed?" probe: a version we can read is proof the
@@ -246,6 +252,17 @@ function projectSlug(): string {
 export function bareTokens(args: string[]): string[] {
   return args.filter((arg, index) => {
     if (arg.startsWith("-")) return false;
+    // A token that IS a known verb is one, whatever precedes it. "Preceded by a
+    // flag" can't tell a boolean flag from a valued one, so `--headed open`
+    // would otherwise read `open` as `--headed`'s value, see no verb at all,
+    // and insert a second one — agent-browser then navigates to the literal
+    // string "open" and lands on chrome-error://.
+    //
+    // The cost is a session or profile named exactly after a verb
+    // (`--session open`), which is now read as the verb. That is the rarer
+    // input by a wide margin, and it fails loudly instead of silently going
+    // somewhere wrong.
+    if (KNOWN_VERBS.has(arg)) return true;
     const previous = args[index - 1];
     return !(previous !== undefined && previous.startsWith("-") && !previous.includes("="));
   });

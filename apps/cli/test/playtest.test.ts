@@ -136,3 +136,30 @@ test("SLUG_RE accepts exactly what deploy accepts", () => {
   }
   assert.equal(SLUG_RE.test("a"), false, "single-character slugs aren't deployable");
 });
+
+test("expandGameFlag reads a verb that follows a boolean flag as the verb", () => {
+  // "preceded by a flag" can't tell `--headed` (boolean) from `--session`
+  // (valued). Treating `open` as a value here saw no verb at all and inserted a
+  // second one, and agent-browser then navigated to the literal string "open":
+  // `✗ Navigation failed: net::ERR_TUNNEL_CONNECTION_FAILED`, chrome-error://.
+  assert.deepEqual(expandGameFlag(["--headed", "open", "--game", "my-game"], url), [
+    "--headed",
+    "open",
+    "https://my-game.vibedgames.com",
+  ]);
+  assert.deepEqual(expandGameFlag(["--headed", "--json", "goto", "--game", "my-game"], url), [
+    "--headed",
+    "--json",
+    "goto",
+    "https://my-game.vibedgames.com",
+  ]);
+});
+
+test("bareTokens keeps a known verb, and still drops an ordinary flag value", () => {
+  assert.deepEqual(bareTokens(["--headed", "open", "--game", "x"]), ["open"]);
+  assert.deepEqual(bareTokens(["--session", "p1", "--game", "x"]), []);
+  // The accepted cost: a session named after a verb now reads as the verb.
+  // Rarer than `--headed open`, and it fails loudly rather than navigating
+  // somewhere wrong.
+  assert.deepEqual(bareTokens(["--session", "open", "--game", "x"]), ["open"]);
+});

@@ -272,6 +272,45 @@ const NAMED_VALUES = {
   Quote: "'",
 };
 
+/**
+ * What a US keyboard reports as `key` while Shift is held. The keyCodes above
+ * already assume that layout, so this stays consistent with them.
+ */
+const SHIFTED = {
+  Digit1: "!",
+  Digit2: "@",
+  Digit3: "#",
+  Digit4: "$",
+  Digit5: "%",
+  Digit6: "^",
+  Digit7: "&",
+  Digit8: "*",
+  Digit9: "(",
+  Digit0: ")",
+  Minus: "_",
+  Equal: "+",
+  Comma: "<",
+  Period: ">",
+  Slash: "?",
+  Backquote: "~",
+  BracketLeft: "{",
+  BracketRight: "}",
+  Backslash: "|",
+  Semicolon: ":",
+  Quote: '"',
+};
+
+/**
+ * The `key` a browser reports for `code` with Shift down. Without this a step
+ * holding Shift sets `shiftKey: true` but still reports the unshifted value, so
+ * a binding written against `event.key === "A"` never fires — the same class of
+ * miss the modifier flags were added to fix.
+ */
+function shiftedKey(code, key) {
+  if (/^Key[A-Z]$/.test(code)) return key.toUpperCase();
+  return SHIFTED[code] ?? key;
+}
+
 /** `keyCode` and `key` for a KeyboardEvent `code`. */
 function keyFields(code) {
   const letter = /^Key([A-Z])$/.exec(code);
@@ -298,7 +337,15 @@ function keyInits(codes) {
   };
   return codes.map((code) => {
     const [keyCode, key] = keyFields(code);
-    return JSON.stringify({ key, code, keyCode, which: keyCode, ...modifiers, bubbles: true });
+    const reported = modifiers.shiftKey ? shiftedKey(code, key) : key;
+    return JSON.stringify({
+      key: reported,
+      code,
+      keyCode,
+      which: keyCode,
+      ...modifiers,
+      bubbles: true,
+    });
   });
 }
 
