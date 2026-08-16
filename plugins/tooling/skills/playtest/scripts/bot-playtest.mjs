@@ -190,7 +190,16 @@ function expectsMotion(step) {
  */
 let inFlight = null;
 
+/** Set once `open` succeeds; before that there is nothing to release. */
+let browserOpened = false;
+
 function releaseHeldInputs() {
+  // Nothing can be held before the page is open, and the sampler lives only
+  // inside a step. Without this, failing on a bad `--seed` would still spawn a
+  // release — which on a fresh machine means bootstrapping agent-browser and
+  // downloading Chrome before printing the argument error.
+  if (!browserOpened) return;
+
   const step = inFlight;
   // Disown before dispatching, so a release that itself fails can't recurse
   // back through `fail` forever when the CLI is what's broken.
@@ -499,6 +508,7 @@ function boot(target, opts, whenAbsent) {
   if (open.status !== 0)
     fail(`couldn't open the game: ${open.stderr.trim() || open.stdout.trim()}`);
 
+  browserOpened = true;
   if (playtest(["wait", "--fn", CONTRACT_READY]).status !== 0) fail(whenAbsent);
 }
 

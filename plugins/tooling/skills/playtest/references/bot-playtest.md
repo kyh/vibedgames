@@ -42,16 +42,16 @@ node .claude/skills/playtest/scripts/bot-playtest.mjs --game my-game --seed 42  
 node .claude/skills/playtest/scripts/bot-playtest.mjs --url http://localhost:5173 --script ./sweep.json
 ```
 
-| Flag                    | Meaning                                                       |
-| ----------------------- | ------------------------------------------------------------- |
-| `--url <url>`           | Where the game is served (mutually exclusive with `--game`)   |
-| `--game <slug>`         | Playtest the deployed game (follows `VG_API_URL`)             |
-| `--seed <n>`            | Seed passed to `__GAME_TEST_HOOKS__.seed()` (default `12345`) |
-| `--script <path>`       | JSON array of `{ keys?, pointer?, ms }` steps                 |
-| `--expect-progress`     | Assert the objective advances (see below)                     |
-| `--reaction-delay <ms>` | Idle gap after each step — models a slower player             |
-| `--headed`              | Show the browser (needed for real-GPU and WebGPU capture)     |
-| `--keep-open`           | Leave the page open afterwards so you can inspect it          |
+| Flag                    | Meaning                                                                          |
+| ----------------------- | -------------------------------------------------------------------------------- |
+| `--url <url>`           | Where the game is served (mutually exclusive with `--game`)                      |
+| `--game <slug>`         | Playtest the deployed game (follows `VG_API_URL`)                                |
+| `--seed <n>`            | Seed passed to `__GAME_TEST_HOOKS__.seed()` (default `12345`)                    |
+| `--script <path>`       | JSON array of `{ keys?, pointer?, ms }` steps — each needs `keys` or a `pointer` |
+| `--expect-progress`     | Assert the objective advances (see below)                                        |
+| `--reaction-delay <ms>` | Idle gap after each step — models a slower player                                |
+| `--headed`              | Show the browser (needed for real-GPU and WebGPU capture)                        |
+| `--keep-open`           | Leave the page open afterwards so you can inspect it                             |
 
 Exit `0` = the game plays, `1` = it doesn't (the JSON report names which check failed), `2` = the harness itself failed (no browser, game never booted).
 
