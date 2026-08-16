@@ -35,8 +35,8 @@ const UNKNOWN_VERSION = "unknown";
 
 /**
  * Subcommands that take a URL. Used to decide whether a bare `--game` still
- * needs an `open` in front of it, and — via `findSubcommand` — to tell a
- * misplaced `--game` from a well-formed one. An unknown verb still degrades to
+ * needs an `open` in front of it, and — over `bareTokens` — to tell a misplaced
+ * `--game` from a well-formed one. An unknown verb still degrades to
  * agent-browser's own error rather than to a wrong guess here.
  */
 const URL_TAKING = new Set(["open", "goto", "navigate", "url"]);
