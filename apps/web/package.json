@@ -16,7 +16,7 @@
     "with-env": "dotenv -e ../../.env --"
   },
   "dependencies": {
-    "@hookform/resolvers": "^5.8.0",
+    "@hookform/resolvers": "^5.9.1",
     "@repo/api": "workspace:^",
     "@repo/db": "workspace:^",
     "@repo/embed": "workspace:*",
