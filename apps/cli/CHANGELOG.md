@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.1 — 2026-08-17
+
+- **Unknown flags are rejected instead of ignored.** citty parses an undeclared flag and drops it, so `vg deploy ./dist --slugg wrong` deployed to the _default_ slug and exited 0 — a human spots the wrong URL, an agent reads success and carries on. Commands with a closed flag set now exit 2 with `unrecognized arguments`, matching the skill scripts. `vg generate run` stays permissive (it forwards arbitrary model params), as do the `playtest`/`factory` passthroughs.
+- `vg deploy` and `vg whoami` gained `--json`/`--field`. Deploy is the command whose URL an agent most needs to capture, and it was the one without them.
+- `vg playtest` scopes its browser session to the project instead of sharing one machine-wide. Two agents playtesting at once were driving the same browser — one saw the other's page in its screenshots, and `playtest close --all` closed both.
+- `vg init` streams progress instead of running silently for minutes; the buffered output made a working install indistinguishable from a hang.
+- `vg new --help` lists every engine preset. `--engine react-r3f` worked and was documented elsewhere, but help advertised only phaser/threejs/none.
+- `vg generate run --download name.png` warns when the bytes it received are a different format than the extension implies — the PNG-only asset scripts otherwise failed several commands later with no way back to the cause.
+
 ## 0.4.0 — 2026-08-15
 
 - **`vg playtest` — drive a real browser to prove a game actually plays.** Smoke checks, scripted bot playtests, softlock detection, canvas/WebGL determinism, screenshots and visual diffs, on top of `agent-browser`. Replaces the Playwright skill: the bot measures that the loop survived, input reaches the player, the objective is reachable and nothing wedged, and exits non-zero naming the check that failed.
