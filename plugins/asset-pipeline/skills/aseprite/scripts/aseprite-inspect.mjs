@@ -10,14 +10,14 @@
  * - Optional inference: --decode-cels to zlib-decompress cel/tilemap data and
  *   compute tight bounds.
  *
- *   node aseprite_inspect.mjs sprite.aseprite --json
- *   node aseprite_inspect.mjs sprite.aseprite --pretty --decode-cels
+ *   node aseprite-inspect.mjs sprite.aseprite --json
+ *   node aseprite-inspect.mjs sprite.aseprite --pretty --decode-cels
  */
 import { readFileSync } from "node:fs";
 
 import { getFlag, getInt, inspectAseprite, main, parseArgs } from "./_lib/asset-tools.mjs";
 
-const USAGE = `usage: aseprite_inspect.mjs [-h] [--json] [--pretty] [--decode-cels]
+const USAGE = `usage: aseprite-inspect.mjs [-h] [--json] [--pretty] [--decode-cels]
                             [--max-decompress-mib MAX_DECOMPRESS_MIB]
                             [--palette-entries PALETTE_ENTRIES]
                             [--treat-index0-transparent]

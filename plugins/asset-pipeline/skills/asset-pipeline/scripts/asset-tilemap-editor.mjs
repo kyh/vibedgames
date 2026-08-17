@@ -14,13 +14,13 @@
  * page over loopback and the canvas does the drawing.
  *
  * Examples:
- *   node asset_tilemap_editor.mjs --manifest path/to/assets_index.json \
+ *   node asset-tilemap-editor.mjs --manifest path/to/assets_index.json \
  *       --export-tileset-grid tmp/grid.png --scale 3 --label-ids
- *   node asset_tilemap_editor.mjs --manifest path/to/assets_index.json \
+ *   node asset-tilemap-editor.mjs --manifest path/to/assets_index.json \
  *       --make-selftest-map tmp/selftest.json
- *   node asset_tilemap_editor.mjs --manifest path/to/assets_index.json \
+ *   node asset-tilemap-editor.mjs --manifest path/to/assets_index.json \
  *       --map maps/level1.json --export-map-render tmp/level1.png --scale 2
- *   node asset_tilemap_editor.mjs --manifest path/to/assets_index.json \
+ *   node asset-tilemap-editor.mjs --manifest path/to/assets_index.json \
  *       --map maps/level1.json --edit
  */
 import { existsSync, readFileSync, statSync } from "node:fs";

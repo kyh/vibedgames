@@ -24,13 +24,13 @@ An `.ase`/`.aseprite` file is a structured timeline of layered pixel (or tilemap
 Turn a file into JSON — needs nothing but `node`:
 
 ```bash
-node .claude/skills/aseprite/scripts/aseprite_inspect.mjs path/to/sprite.aseprite --json
+node .claude/skills/aseprite/scripts/aseprite-inspect.mjs path/to/sprite.aseprite --json
 ```
 
 Opt into pixel-derived inference (e.g. tight bounds):
 
 ```bash
-node .claude/skills/aseprite/scripts/aseprite_inspect.mjs path/to/sprite.aseprite --json --decode-cels
+node .claude/skills/aseprite/scripts/aseprite-inspect.mjs path/to/sprite.aseprite --json --decode-cels
 ```
 
 Add `--pretty` to indent the JSON. Decoding is capped by `--max-decompress-mib`
@@ -69,6 +69,6 @@ Use slice keys per frame for runtime hitboxes. Use pivot when present; otherwise
 
 ## References & Scripts
 
-- `scripts/aseprite_inspect.mjs` — binary parser + JSON; optional cel/tile decode
+- `scripts/aseprite-inspect.mjs` — binary parser + JSON; optional cel/tile decode
 - `references/aseprite-format-cheatsheet.md` — chunk map + gotchas
 - `references/inference-recipes.md` — how to compute bounds/timing/order safely

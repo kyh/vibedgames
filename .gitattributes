@@ -8,7 +8,7 @@
 # Source: packages/asset-tools/src/
 **/scripts/_lib/** linguist-generated=true
 
-# img2threejs factory output, normalized by `normalize_factory.mjs`.
+# img2threejs factory output, normalized by `normalize-factory.mjs`.
 *.generated.ts linguist-generated=true
 
 pnpm-lock.yaml linguist-generated=true

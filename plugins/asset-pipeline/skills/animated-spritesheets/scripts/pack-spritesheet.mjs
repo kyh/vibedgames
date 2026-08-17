@@ -13,8 +13,8 @@
  * a grid when a strip would be too wide.
  *
  * Examples:
- *   node pack_spritesheet.mjs --input-dir runtime --out sheet.png
- *   node pack_spritesheet.mjs --input-dir runtime --out sheet.png --columns 5 --json-out sheet.json
+ *   node pack-spritesheet.mjs --input-dir runtime --out sheet.png
+ *   node pack-spritesheet.mjs --input-dir runtime --out sheet.png --columns 5 --json-out sheet.json
  */
 import {
   getInt,

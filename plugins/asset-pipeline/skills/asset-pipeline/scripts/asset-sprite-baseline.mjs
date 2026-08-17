@@ -7,10 +7,10 @@
  * every sprite aligned to one baseline.
  *
  * Examples:
- *   node asset_sprite_baseline.mjs public/assets/kaede --frame 256x256
- *   node asset_sprite_baseline.mjs public/assets/kaede/attack-n.png --frame 256x256 \
+ *   node asset-sprite-baseline.mjs public/assets/kaede --frame 256x256
+ *   node asset-sprite-baseline.mjs public/assets/kaede/attack-n.png --frame 256x256 \
  *       --target-bottom 255 --out fixed/attack-n.png
- *   node asset_sprite_baseline.mjs public/assets/kaede --frame 256x256 \
+ *   node asset-sprite-baseline.mjs public/assets/kaede --frame 256x256 \
  *       --target-bottom 255 --out-dir fixed/kaede --json tmp/baselines.json
  */
 import { statSync } from "node:fs";

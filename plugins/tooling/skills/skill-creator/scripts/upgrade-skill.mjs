@@ -2,11 +2,11 @@
 /**
  * Generate suggestions for improving an existing skill.
  *
- * Where analyze_skill.mjs scores a skill, this proposes the specific section
+ * Where analyze-skill.mjs scores a skill, this proposes the specific section
  * that is missing and shows what it should look like.
  *
  * Usage:
- *   node upgrade_skill.mjs <path/to/skill>
+ *   node upgrade-skill.mjs <path/to/skill>
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { generateSuggestions, parseFrontmatter } from "./_lib/asset-tools.mjs";
 
 const [skillPath] = process.argv.slice(2);
-const USAGE = "Usage: node upgrade_skill.mjs <path/to/skill>";
+const USAGE = "Usage: node upgrade-skill.mjs <path/to/skill>";
 if (skillPath === "--help" || skillPath === "-h") {
   console.log(USAGE);
   process.exit(0);
@@ -78,7 +78,7 @@ console.log(rule);
 console.log(`
 1. Review the suggestions above
 2. Edit your SKILL.md to incorporate relevant improvements
-3. Run analyze_skill.mjs to see how the score improves
+3. Run analyze-skill.mjs to see how the score improves
 4. Test the skill with real use cases
 5. Iterate based on performance
     `);

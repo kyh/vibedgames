@@ -8,7 +8,7 @@
  * renaming anything.
  *
  * Example:
- *   node build_sequence_gif.mjs --input-dir runtime --order 01,03,02,04 \
+ *   node build-sequence-gif.mjs --input-dir runtime --order 01,03,02,04 \
  *       --out review/walk.gif --durations-ms 120,90,120,90 --flat-bg '#202028'
  */
 import { mkdirSync, writeFileSync } from "node:fs";

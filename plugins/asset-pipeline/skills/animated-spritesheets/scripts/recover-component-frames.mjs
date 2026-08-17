@@ -9,7 +9,7 @@
  * and crops it to its own bounds.
  *
  * Example:
- *   node recover_component_frames.mjs board.png --rows 3 --cols 4 --frames 8 \
+ *   node recover-component-frames.mjs board.png --rows 3 --cols 4 --frames 8 \
  *       --out-dir runs/hero-attack/recovered
  */
 import { join } from "node:path";

@@ -7,9 +7,9 @@
  * carry the meaningful action.
  *
  * Usage:
- *   node sprite_presets.mjs --action walk [--profile platformer] [--json]
- *   node sprite_presets.mjs --profile fighting-game --list [--json]
- *   node sprite_presets.mjs --list-profiles [--json]
+ *   node sprite-presets.mjs --action walk [--profile platformer] [--json]
+ *   node sprite-presets.mjs --profile fighting-game --list [--json]
+ *   node sprite-presets.mjs --list-profiles [--json]
  */
 import {
   ACTIONS,
@@ -93,6 +93,6 @@ main(() => {
     return;
   }
 
-  console.log("Usage: node sprite_presets.mjs --action <id> | --list | --list-profiles [--json]");
+  console.log("Usage: node sprite-presets.mjs --action <id> | --list | --list-profiles [--json]");
   process.exit(2);
 });
