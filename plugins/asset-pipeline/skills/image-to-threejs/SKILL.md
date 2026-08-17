@@ -1,11 +1,18 @@
 ---
 name: image-to-threejs
-description: "Turn a generated reference image into a rigged, procedural Three.js prop — code, not a mesh file. Generate ONE clean product-shot reference with `vg generate`, author a component spec (parts, materials, pivots, sockets, colliders), emit a TypeScript factory, normalize it, and drop it into a Three.js game with its hinge/socket rig intact. Use for hero props that need to ANIMATE or come apart: chests, doors, levers, crates, weapons, machines. Triggers: 'make a 3d chest/door/prop', 'image to three.js code', 'procedural three.js model', 'model this object in code', 'openable chest', 'rigged prop'."
+description: "REQUIRES `uv` + Python 3.12 and a one-time `git clone` — unlike the other asset skills, this one is not Node-only. Turn a generated reference image into a rigged, procedural Three.js prop — code, not a mesh file. Generate ONE clean product-shot reference with `vg generate`, author a component spec (parts, materials, pivots, sockets, colliders), emit a TypeScript factory, normalize it, and drop it into a Three.js game with its hinge/socket rig intact. Use for hero props that need to ANIMATE or come apart: chests, doors, levers, crates, weapons, machines. Triggers: 'make a 3d chest/door/prop', 'image to three.js code', 'procedural three.js model', 'model this object in code', 'openable chest', 'rigged prop'."
 metadata:
   short-description: "Reference image -> component spec -> procedural Three.js factory with pivots + sockets."
 ---
 
 # Image to Three.js
+
+> **Prerequisites — read before starting.** This skill is not Node-only. Its
+> generator is an external Python program, so it needs `uv` and Python 3.12 on
+> the machine plus a one-time `git clone` (see [Setup](#setup)). Every other
+> asset-pipeline skill runs on `node` alone; this one does not. If `uv` is not
+> available and cannot be installed, stop here and pick a different approach
+> rather than starting the pipeline — the wall arrives several steps in.
 
 Rebuild an object as **procedural Three.js code** driven by one generated
 reference image. The output is a TypeScript factory — primitives, procedural
