@@ -126,6 +126,9 @@ const NONE_FILES: ReadonlyArray<{ path: string; content: (slug: string) => strin
   { path: ".gitignore", content: () => `node_modules\ndist\n.DS_Store\n` },
 ];
 
+// Derived so `--help` and the error message can't drift from the presets again.
+const ENGINE_IDS = Object.keys(ENGINES);
+
 const newArgs = {
   slug: {
     type: "positional",
@@ -134,7 +137,7 @@ const newArgs = {
   },
   engine: {
     type: "string",
-    description: "Engine preset: phaser (default), threejs, or none.",
+    description: `Engine preset: ${ENGINE_IDS.join(", ")} (default: phaser).`,
     default: "phaser",
   },
   template: {
@@ -158,7 +161,7 @@ export const newCommand = defineCommand({
   meta: {
     name: "new",
     description:
-      "Scaffold a new browser game. Pulls an official engine template (phaser, threejs) or generates a minimal canvas starter.",
+      "Scaffold a new browser game. Pulls an engine template (phaser, threejs, react-r3f) or generates a minimal canvas starter.",
   },
   args: newArgs,
   run: async ({ args, rawArgs }) => {
@@ -180,9 +183,7 @@ export const newCommand = defineCommand({
         } as EnginePreset)
       : ENGINES[args.engine];
     if (!preset) {
-      consola.error(
-        `Unknown engine: ${args.engine}. Use one of: ${Object.keys(ENGINES).join(", ")}.`,
-      );
+      consola.error(`Unknown engine: ${args.engine}. Use one of: ${ENGINE_IDS.join(", ")}.`);
       process.exit(1);
     }
 

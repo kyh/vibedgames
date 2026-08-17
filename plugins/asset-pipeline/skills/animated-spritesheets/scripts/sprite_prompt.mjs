@@ -8,11 +8,15 @@
  * Examples:
  *   node sprite_prompt.mjs anchor --direction e --chroma '#00FF00'
  *   node sprite_prompt.mjs pose-board --action attack --direction e --frames 8
+ *
+ * Pass --guide-image only when you actually send a second reference image
+ * alongside the anchor; it adds the "Image 2 role" clause to the prompt.
  */
 import {
   fail,
   failUsage,
   getDirection,
+  getFlag,
   getInt,
   getString,
   main,
@@ -46,6 +50,7 @@ const COMMANDS = {
       anchorRole: getString(args, "role") ?? "character",
       anchorContext: getString(args, "anchor-context") ?? null,
       chroma: getString(args, "chroma") ?? "#00FF00",
+      guideImage: getFlag(args, "guide-image"),
     });
     console.log(withStyle(prompt, styleOf(args)));
   },
@@ -80,6 +85,7 @@ const COMMANDS = {
         poseBoard: board,
         framePromptStyle,
         chroma: getString(args, "chroma") ?? "#00FF00",
+        guideImage: getFlag(args, "guide-image"),
       },
     );
     console.log(withStyle(prompt, styleOf(args)));
@@ -88,6 +94,7 @@ const COMMANDS = {
 
 main(() => {
   const args = parseArgs(process.argv.slice(2), {
+    booleans: ["guide-image"],
     values: [
       "action",
       "anchor-context",

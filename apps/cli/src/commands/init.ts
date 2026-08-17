@@ -69,10 +69,12 @@ export const initCommand = defineCommand({
     // even be looking at, so `vg --version` would not move.
     const manager = detectPackageManager(fileURLToPath(import.meta.url));
 
-    consola.start("Installing/updating vibedgames skills and the vg CLI...");
+    consola.start(
+      "Installing/updating vibedgames skills and the vg CLI (this takes a few minutes — `skills` fetches the repo once per skill)...",
+    );
 
     const [add, cli] = await Promise.all([
-      run("npx", skillsAddArgs(agents, args.global, args.yes)),
+      run("npx", skillsAddArgs(agents, args.global, args.yes), { stream: true }),
       run(manager, globalInstallArgs(manager)),
     ]);
 
@@ -89,7 +91,9 @@ export const initCommand = defineCommand({
     }
     consola.success(`Installed vibedgames skills for ${agents.join(", ")}`);
 
-    const update = await run("npx", skillsUpdateArgs(args.global, args.yes));
+    const update = await run("npx", skillsUpdateArgs(args.global, args.yes), {
+      stream: true,
+    });
     if (update.code !== 0) {
       if (update.output.trim()) consola.warn(update.output.trim());
       consola.warn(
