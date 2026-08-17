@@ -10,6 +10,7 @@ import {
   globalInstallCommand,
 } from "../lib/package-manager.js";
 import { isMissingCommand, run } from "../lib/run.js";
+import { assertKnownFlags } from "../lib/strict-args.js";
 import { fetchLatestVersion, isNewerVersion } from "../lib/update.js";
 
 const pkg = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as {
@@ -22,27 +23,31 @@ const skillsUpdateArgs = (global: boolean) => {
   return args;
 };
 
+const updateArgs = {
+  global: {
+    type: "boolean",
+    description: "Update skills installed in the user directory instead of the project",
+    default: false,
+    alias: "g",
+  },
+  auto: {
+    type: "boolean",
+    description:
+      "(internal) silent background mode: only update when the registry has a newer version",
+    default: false,
+  },
+} as const;
+
 export const updateCommand = defineCommand({
   meta: {
     name: "update",
     description:
       "Update the vg CLI and vibedgames skills to latest (runs automatically once a day; disable with VG_NO_AUTO_UPDATE=1)",
   },
-  args: {
-    global: {
-      type: "boolean",
-      description: "Update skills installed in the user directory instead of the project",
-      default: false,
-      alias: "g",
-    },
-    auto: {
-      type: "boolean",
-      description:
-        "(internal) silent background mode: only update when the registry has a newer version",
-      default: false,
-    },
-  },
-  run: async ({ args }) => {
+  args: updateArgs,
+  run: async ({ args, rawArgs }) => {
+    assertKnownFlags(rawArgs, updateArgs);
+
     // Upgrade with whatever installed this CLI: another manager would write a
     // second copy into a different global prefix, leaving the one on PATH stale.
     const manager = detectPackageManager(fileURLToPath(import.meta.url));

@@ -3,13 +3,20 @@ import consola from "consola";
 
 import { createClient } from "../lib/api.js";
 import { getToken } from "../lib/config.js";
+import { outputArgs, writeStructured } from "../lib/output.js";
+import { assertKnownFlags } from "../lib/strict-args.js";
+
+const whoamiArgs = { ...outputArgs } as const;
 
 export const whoamiCommand = defineCommand({
   meta: {
     name: "whoami",
     description: "Show the currently authenticated user",
   },
-  run: async () => {
+  args: whoamiArgs,
+  run: async ({ args, rawArgs }) => {
+    assertKnownFlags(rawArgs, whoamiArgs);
+
     const token = getToken();
 
     if (!token) {
@@ -23,6 +30,7 @@ export const whoamiCommand = defineCommand({
 
     try {
       const user = await client.auth.me.query();
+      if (writeStructured({ id: user.id, name: user.name, email: user.email }, args)) return;
       consola.log(`${user.name} (${user.email})`);
     } catch (err) {
       // Only an auth error means "log in"; surface network/server failures as

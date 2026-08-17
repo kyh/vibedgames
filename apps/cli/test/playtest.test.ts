@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { bareTokens, expandGameFlag } from "../src/commands/playtest.js";
+import { bareTokens, expandGameFlag, withScopedSession } from "../src/commands/playtest.js";
 import { SLUG_RE } from "../src/lib/config-file.js";
 
 /** Stand-in for the real resolver so these stay pure unit tests. */
@@ -178,4 +178,35 @@ test("expandGameFlag accepts a slug that happens to be a verb", () => {
     expandGameFlag(["open", "--game", "open"], () => "https://open.vibedgames.com"),
     ["open", "https://open.vibedgames.com"],
   );
+});
+
+const SESSION = () => "vg-abc123";
+
+test("withScopedSession scopes a verb to the project", () => {
+  assert.deepEqual(withScopedSession(["open", "http://localhost:5173"], SESSION), [
+    "--session",
+    "vg-abc123",
+    "open",
+    "http://localhost:5173",
+  ]);
+  assert.deepEqual(withScopedSession(["screenshot", "out.png"], SESSION), [
+    "--session",
+    "vg-abc123",
+    "screenshot",
+    "out.png",
+  ]);
+});
+
+test("withScopedSession never overrides an explicit session", () => {
+  const explicit = ["--session", "p1", "open", "http://localhost:5173"];
+  assert.deepEqual(withScopedSession(explicit, SESSION), explicit);
+  const inline = ["--session=p2", "snapshot"];
+  assert.deepEqual(withScopedSession(inline, SESSION), inline);
+});
+
+test("withScopedSession leaves machine-wide commands alone", () => {
+  // `session list` has to see every session; --help/--version carry no verb.
+  assert.deepEqual(withScopedSession(["session", "list"], SESSION), ["session", "list"]);
+  assert.deepEqual(withScopedSession(["install"], SESSION), ["install"]);
+  assert.deepEqual(withScopedSession(["--help"], SESSION), ["--help"]);
 });
