@@ -1785,9 +1785,17 @@ var MANIFEST_CANDIDATES = [
   "assets/asset_index.lua"
 ];
 var LUA_PATH_RE = /path\s*=\s*"([^"]+\.png)"/g;
-function resolveManifestPath(raw, manifestDir, jsonRoot) {
+var LUA_META_ROOT_RE = /meta\s*=\s*\{[^}]*\broot\s*=\s*"([^"]*)"/;
+function resolveManifestPath(raw, manifestDir, root) {
   if (isAbsolute3(raw)) return resolve5(raw);
-  return jsonRoot ? resolve5(manifestDir, jsonRoot, raw) : resolve5(manifestDir, raw);
+  return root ? resolve5(manifestDir, root, raw) : resolve5(manifestDir, raw);
+}
+function metaRootOf(payload) {
+  if (payload === null || typeof payload !== "object") return null;
+  const meta = payload.meta;
+  if (meta === null || typeof meta !== "object") return null;
+  const root = meta.root;
+  return typeof root === "string" && root ? root : null;
 }
 function collectJsonPaths(payload) {
   const paths = [];
@@ -1815,16 +1823,16 @@ function extractManifestPaths(manifestPath) {
     if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
       throw new Error("JSON manifest must be an object at top-level.");
     }
-    const meta = payload.meta;
-    const jsonRoot = meta !== null && typeof meta === "object" && typeof meta.root === "string" ? meta.root : null;
+    const jsonRoot = metaRootOf(payload);
     return new Set(
       collectJsonPaths(payload).map((p) => resolveManifestPath(p, manifestDir, jsonRoot))
     );
   }
   const text = readFileSync5(manifestPath, "utf8");
+  const luaRoot = LUA_META_ROOT_RE.exec(text)?.[1] ?? null;
   const out = /* @__PURE__ */ new Set();
   for (const match of text.matchAll(LUA_PATH_RE)) {
-    out.add(resolveManifestPath(match[1], manifestDir, null));
+    out.add(resolveManifestPath(match[1], manifestDir, luaRoot));
   }
   return out;
 }
@@ -1861,22 +1869,22 @@ function renameKeys(value) {
   }
   return out;
 }
-function rewritePaths(base, value) {
-  if (Array.isArray(value)) return value.map((item) => rewritePaths(base, item));
+function rewritePaths(base, sourceRoot, value) {
+  if (Array.isArray(value)) return value.map((item) => rewritePaths(base, sourceRoot, item));
   if (value === null || typeof value !== "object") return value;
   const out = {};
   for (const [key, nested] of Object.entries(value)) {
     if (key === "path" && typeof nested === "string" && nested.toLowerCase().endsWith(".png")) {
-      const absolute = isAbsolute3(nested) ? resolve5(nested) : resolve5(process.cwd(), nested);
+      const absolute = isAbsolute3(nested) ? resolve5(nested) : resolve5(sourceRoot, nested);
       const rel = relative3(resolve5(base), absolute);
-      out[key] = rel && !rel.startsWith("..") ? rel.split(/[/\\]/).join("/") : nested;
+      out[key] = rel ? rel.split(/[/\\]/).join("/") : nested;
     } else {
-      out[key] = rewritePaths(base, nested);
+      out[key] = rewritePaths(base, sourceRoot, nested);
     }
   }
   return out;
 }
-function exportManifest(manifestPath, packRelative) {
+function exportManifest(manifestPath, packRelative, outPath) {
   if (manifestPath.toLowerCase().endsWith(".json")) {
     const payload = JSON.parse(readFileSync5(manifestPath, "utf8"));
     if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
@@ -1890,7 +1898,10 @@ function exportManifest(manifestPath, packRelative) {
   }
   let normalized = renameKeys(parsed);
   if (packRelative) {
-    normalized = rewritePaths(resolve5(dirname5(manifestPath)), normalized);
+    const manifestDir = resolve5(dirname5(manifestPath));
+    const sourceRoot = resolve5(manifestDir, metaRootOf(normalized) ?? ".");
+    const base = outPath ? resolve5(dirname5(outPath)) : manifestDir;
+    normalized = rewritePaths(base, sourceRoot, normalized);
     const meta = normalized.meta;
     if (meta !== null && typeof meta === "object" && !Array.isArray(meta)) {
       meta.root = ".";

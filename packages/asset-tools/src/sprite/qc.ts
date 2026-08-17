@@ -16,6 +16,13 @@ import { median } from "./frames.js";
  *  - FACING FLIP — one cell (often the first) is mirrored, so the character
  *    faces the wrong way for part of the animation.
  *
+ *  - DRAWN GRID — the board comes back with the cell outlines actually inked,
+ *    despite the prompt forbidding them, so the uniform slice bakes a straight
+ *    black rule into the frames. Left unflagged it is the worst failure of the
+ *    three: the rule joins the alpha bounding box, so size, baseline and facing
+ *    are all measured against the rectangle instead of the character and every
+ *    other check goes quiet.
+ *
  * Plus the always-checkable ones: empty cells, frames clipping the cell edge,
  * and a foot baseline that wanders. Everything is measured from the alpha
  * channel.
@@ -35,6 +42,17 @@ const BASELINE_TOL = 0.12;
 const SIZE_DRIFT_TOL = 0.35;
 const FACING_CX_TOL = 0.18;
 
+// A bounding-box edge this opaque is a ruled line, not a silhouette: no
+// character fills an entire edge of its own bbox to the last pixel.
+const RULE_EDGE_FRAC = 0.95;
+// ...as long as it is thin. A genuinely solid shape (a crate, a slab) is opaque
+// this far inside too, and must not be mistaken for a drawn border.
+const RULE_INNER_FRAC = 0.5;
+const RULE_INNER_OFFSET = 3;
+// Below this the bbox is too small for "the whole edge is opaque" to mean
+// anything — a 4px-wide sprite fills its own edges by accident.
+const RULE_MIN_SPAN = 12;
+
 export type FrameMetrics = {
   empty: boolean;
   area_frac: number;
@@ -43,10 +61,11 @@ export type FrameMetrics = {
   cx_frac: number;
   baseline_frac: number;
   border_frac: number;
+  rule_edges: number;
 };
 
 export type QcCheck = {
-  check: "empty" | "clip" | "baseline" | "size" | "facing";
+  check: "empty" | "clip" | "grid" | "baseline" | "size" | "facing";
   severity: "warn" | "hint";
   frames: number[];
   detail: string;
@@ -196,6 +215,7 @@ export function frameMetrics(
       cx_frac: 0,
       baseline_frac: 1,
       border_frac: 0,
+      rule_edges: 0,
     };
   }
 
@@ -219,6 +239,37 @@ export function frameMetrics(
     sample(fw - 1, y);
   }
 
+  // Ruled edges of the bounding box — the fingerprint of a drawn cell outline.
+  // Measured on the bbox rather than the cell border, because `normalize_canvas`
+  // insets the frame and the rule travels inwards with it, out of reach of the
+  // `clip` check.
+  const on = (x: number, y: number) =>
+    sheet.contains(originX + x, originY + y) &&
+    sheet.data[sheet.index(originX + x, originY + y) + 3]! > ALPHA_ON;
+  const spanX = maxX - minX + 1;
+  const spanY = maxY - minY + 1;
+  const rowFrac = (y: number) => {
+    let n = 0;
+    for (let x = minX; x <= maxX; x += 1) if (on(x, y)) n += 1;
+    return n / spanX;
+  };
+  const colFrac = (x: number) => {
+    let n = 0;
+    for (let y = minY; y <= maxY; y += 1) if (on(x, y)) n += 1;
+    return n / spanY;
+  };
+  const ruled = (outer: number, inner: number) =>
+    outer >= RULE_EDGE_FRAC && inner <= RULE_INNER_FRAC;
+  const clamp = (value: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, value));
+  let ruleEdges = 0;
+  if (spanX >= RULE_MIN_SPAN && spanY >= RULE_MIN_SPAN) {
+    const inset = RULE_INNER_OFFSET;
+    if (ruled(rowFrac(minY), rowFrac(clamp(minY + inset, minY, maxY)))) ruleEdges += 1;
+    if (ruled(rowFrac(maxY), rowFrac(clamp(maxY - inset, minY, maxY)))) ruleEdges += 1;
+    if (ruled(colFrac(minX), colFrac(clamp(minX + inset, minX, maxX)))) ruleEdges += 1;
+    if (ruled(colFrac(maxX), colFrac(clamp(maxX - inset, minX, maxX)))) ruleEdges += 1;
+  }
+
   const meanX = xs.reduce((sum, v) => sum + v, 0) / xs.length;
   return {
     empty: false,
@@ -230,6 +281,7 @@ export function frameMetrics(
     // Foot baseline: bottom of the figure as a fraction from the top.
     baseline_frac: roundTo((maxY + 1) / fh, 4),
     border_frac: roundTo(borderOpaque / borderTotal, 4),
+    rule_edges: ruleEdges,
   };
 }
 
@@ -272,6 +324,21 @@ export function qc(metrics: FrameMetrics[]): QcCheck[] {
       severity: "warn",
       frames: clipped,
       detail: `${clipped.length} frame(s) touch the cell border (likely cut off)`,
+    });
+  }
+
+  const ruled = metrics.map((m, i) => (m.rule_edges > 0 ? i + 1 : 0)).filter(Boolean);
+  if (ruled.length > 0) {
+    checks.push({
+      check: "grid",
+      severity: "warn",
+      frames: ruled,
+      detail:
+        `${ruled.length} frame(s) contain a straight ruled line spanning the whole ` +
+        `bounding box — the model inked the pose-board cell outlines and the slice ` +
+        `baked them in. The rule also skews every size/baseline/facing measurement, ` +
+        `so regenerate the board (restate "no grid lines, cell outlines or borders") ` +
+        `rather than trusting the rest of this report`,
     });
   }
 

@@ -176,6 +176,7 @@ export {
   type SheetSnapInfo,
   snapImage,
   snapSheet,
+  snapWarning,
   walk,
 } from "./sprite/pixel-snap.js";
 export {

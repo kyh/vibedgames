@@ -12,6 +12,15 @@
  *   key       key the matte out to transparency
  *   fringe    sweep matte-tinted fringe pixels
  *   despill   neutralise matte tint without deleting pixels
+ *
+ * --input takes a file or a directory (--glob picks the members). Output is
+ * --out for a single file, --out-dir for a batch; omit both and each result
+ * lands beside its source.
+ *
+ * Examples:
+ *   node chroma_clean.mjs clean --input sprite.png --out sprite-clean.png
+ *   node chroma_clean.mjs clean --input cells/ --out-dir keyed/ --chroma '#FF00FF'
+ *   node chroma_clean.mjs key --input sprite.png --tolerance 60 --keep-largest
  */
 import { existsSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";

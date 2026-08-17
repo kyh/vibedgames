@@ -49,6 +49,15 @@ vg generate run fal-ai/nano-banana-pro/edit --prompt "<from step 2>" \
 node .claude/skills/animated-spritesheets/scripts/process_sheet.mjs attack-board.png --action attack --rows 3 --cols 4 --frames 8 --out-dir runs/hero-attack
 ```
 
+> **`--download x.png` does not make the file a PNG.** The model chooses the
+> output format, so an endpoint that answers JPEG writes JPEG bytes into the
+> `.png` you named, and every script here — they read PNG only, by design —
+> rejects it with `Not a PNG file (bad signature)`. `vg generate` warns when
+> the bytes contradict the extension; when it does, pick an endpoint that
+> returns PNG rather than trying to convert (there is no converter in this
+> toolkit, and no ImageMagick/ffmpeg to fall back on). `nano-banana-pro/edit`
+> returns PNG; `flux/dev` returns JPEG.
+
 The deliverable is `<out-dir>/spritesheet.png` + `spritesheet.json`, with
 `runtime/` frames and `review/<action>.gif`. Load it:
 
@@ -88,10 +97,16 @@ this.anims.create({
 6. `sheet_qc.mjs` — QC the packed sheet and report a verdict (same token in the
    `--json` `qc` field and the human badge, just uppercased there): **`clean`** /
    **`review`** (soft hints to eyeball — size outliers, possible facing flips) /
-   **`warn`** (hard defects — empty cells, edge-clipping, foot-baseline wander).
-   Runs automatically; `--no-qc` skips it. **Read the verdict:** regenerate the board
-   on `warn`; eyeball `review/<action>.gif` on `review`. Run it standalone too:
-   `sheet_qc.mjs sheet.png [--json] [--strict]`.
+   **`warn`** (hard defects — empty cells, edge-clipping, foot-baseline wander,
+   an inked cell grid). Runs automatically; `--no-qc` skips it. **Read the
+   verdict:** regenerate the board on `warn`; eyeball `review/<action>.gif` on
+   `review`. Run it standalone too: `sheet_qc.mjs sheet.png [--json] [--strict]`.
+   The `grid` check deserves special attention: models routinely ink the cell
+   outlines despite the prompt forbidding them, and the uniform slice bakes a
+   black rule into every frame. That rule then joins each frame's bounding box,
+   so size/baseline/facing get measured against the rectangle rather than the
+   character — a `grid` warn makes the rest of the report meaningless, so
+   regenerate rather than reading past it.
 
 ## Craft
 

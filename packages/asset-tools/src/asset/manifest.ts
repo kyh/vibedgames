@@ -22,9 +22,24 @@ export const MANIFEST_CANDIDATES = [
 // the check works against manifests this repo has never seen.
 const LUA_PATH_RE = /path\s*=\s*"([^"]+\.png)"/g;
 
-function resolveManifestPath(raw: string, manifestDir: string, jsonRoot: string | null): string {
+// `meta = { version = 1, root = "assets", ... }`. Read with a regex rather than
+// the Lua parser for the same reason as LUA_PATH_RE: a manifest this repo has
+// never seen must still be checkable, and a parse error here would take the
+// whole check down.
+const LUA_META_ROOT_RE = /meta\s*=\s*\{[^}]*\broot\s*=\s*"([^"]*)"/;
+
+function resolveManifestPath(raw: string, manifestDir: string, root: string | null): string {
   if (isAbsolute(raw)) return resolve(raw);
-  return jsonRoot ? resolve(manifestDir, jsonRoot, raw) : resolve(manifestDir, raw);
+  return root ? resolve(manifestDir, root, raw) : resolve(manifestDir, raw);
+}
+
+/** `meta.root` — the folder every relative `path` in the manifest hangs off. */
+function metaRootOf(payload: unknown): string | null {
+  if (payload === null || typeof payload !== "object") return null;
+  const meta = (payload as Record<string, unknown>).meta;
+  if (meta === null || typeof meta !== "object") return null;
+  const root = (meta as Record<string, unknown>).root;
+  return typeof root === "string" && root ? root : null;
 }
 
 /** Collect every `.png` value stored under a `path` key, at any depth. */
@@ -57,22 +72,17 @@ export function extractManifestPaths(manifestPath: string): Set<string> {
     if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
       throw new Error("JSON manifest must be an object at top-level.");
     }
-    const meta = (payload as Record<string, unknown>).meta;
-    const jsonRoot =
-      meta !== null &&
-      typeof meta === "object" &&
-      typeof (meta as Record<string, unknown>).root === "string"
-        ? ((meta as Record<string, unknown>).root as string)
-        : null;
+    const jsonRoot = metaRootOf(payload);
     return new Set(
       collectJsonPaths(payload).map((p) => resolveManifestPath(p, manifestDir, jsonRoot)),
     );
   }
 
   const text = readFileSync(manifestPath, "utf8");
+  const luaRoot = LUA_META_ROOT_RE.exec(text)?.[1] ?? null;
   const out = new Set<string>();
   for (const match of text.matchAll(LUA_PATH_RE)) {
-    out.add(resolveManifestPath(match[1]!, manifestDir, null));
+    out.add(resolveManifestPath(match[1]!, manifestDir, luaRoot));
   }
   return out;
 }
@@ -132,28 +142,46 @@ function renameKeys(value: LuaValue): LuaValue {
   return out;
 }
 
-/** Rewrite every `path` to be relative to the manifest's own folder. */
-function rewritePaths(base: string, value: LuaValue): LuaValue {
-  if (Array.isArray(value)) return value.map((item) => rewritePaths(base, item));
+/**
+ * Rewrite every `path` so it reads relative to `base`.
+ *
+ * `sourceRoot` is where the manifest's own relative paths point (its folder
+ * joined with `meta.root`) — resolving against the process cwd instead would
+ * make the export depend on where the command happened to be run from.
+ *
+ * A `../` result is emitted rather than suppressed: a path that escapes `base`
+ * is still a true path, whereas leaving the original in place next to
+ * `meta.root = "."` silently points the manifest at files that aren't there.
+ */
+function rewritePaths(base: string, sourceRoot: string, value: LuaValue): LuaValue {
+  if (Array.isArray(value)) return value.map((item) => rewritePaths(base, sourceRoot, item));
   if (value === null || typeof value !== "object") return value;
 
   const out: Record<string, LuaValue> = {};
   for (const [key, nested] of Object.entries(value)) {
     if (key === "path" && typeof nested === "string" && nested.toLowerCase().endsWith(".png")) {
-      const absolute = isAbsolute(nested) ? resolve(nested) : resolve(process.cwd(), nested);
+      const absolute = isAbsolute(nested) ? resolve(nested) : resolve(sourceRoot, nested);
       const rel = relative(resolve(base), absolute);
-      // Leaving the path alone beats emitting a `../..` escape hatch when the
-      // asset lives outside the manifest's folder.
-      out[key] = rel && !rel.startsWith("..") ? rel.split(/[/\\]/).join("/") : nested;
+      out[key] = rel ? rel.split(/[/\\]/).join("/") : nested;
     } else {
-      out[key] = rewritePaths(base, nested);
+      out[key] = rewritePaths(base, sourceRoot, nested);
     }
   }
   return out;
 }
 
-/** Load a manifest and normalise it into the portable JSON shape. */
-export function exportManifest(manifestPath: string, packRelative: boolean): LuaValue {
+/**
+ * Load a manifest and normalise it into the portable JSON shape.
+ *
+ * `outPath` is where the JSON will be written; paths are rebased onto its
+ * folder so the exported file works from where it lands. Without it they are
+ * rebased onto the manifest's own folder.
+ */
+export function exportManifest(
+  manifestPath: string,
+  packRelative: boolean,
+  outPath?: string,
+): LuaValue {
   if (manifestPath.toLowerCase().endsWith(".json")) {
     const payload: unknown = JSON.parse(readFileSync(manifestPath, "utf8"));
     if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
@@ -169,10 +197,10 @@ export function exportManifest(manifestPath: string, packRelative: boolean): Lua
 
   let normalized = renameKeys(parsed) as Record<string, LuaValue>;
   if (packRelative) {
-    normalized = rewritePaths(resolve(dirname(manifestPath)), normalized) as Record<
-      string,
-      LuaValue
-    >;
+    const manifestDir = resolve(dirname(manifestPath));
+    const sourceRoot = resolve(manifestDir, metaRootOf(normalized) ?? ".");
+    const base = outPath ? resolve(dirname(outPath)) : manifestDir;
+    normalized = rewritePaths(base, sourceRoot, normalized) as Record<string, LuaValue>;
     const meta = normalized.meta;
     if (meta !== null && typeof meta === "object" && !Array.isArray(meta)) {
       (meta as Record<string, LuaValue>).root = ".";
