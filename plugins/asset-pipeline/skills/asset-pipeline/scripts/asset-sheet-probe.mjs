@@ -3,8 +3,8 @@
  * Analyze sprite-sheet grids and list non-empty frames.
  *
  * Examples:
- *   node asset_sheet_probe.mjs path/to/sheet.png --frame 32x32 --list
- *   node asset_sheet_probe.mjs path/to/folder --frame 16x16 --list --json tmp/probe.json
+ *   node asset-sheet-probe.mjs path/to/sheet.png --frame 32x32 --list
+ *   node asset-sheet-probe.mjs path/to/folder --frame 16x16 --list --json tmp/probe.json
  */
 import {
   fail,

@@ -18,9 +18,9 @@
  * lands beside its source.
  *
  * Examples:
- *   node chroma_clean.mjs clean --input sprite.png --out sprite-clean.png
- *   node chroma_clean.mjs clean --input cells/ --out-dir keyed/ --chroma '#FF00FF'
- *   node chroma_clean.mjs key --input sprite.png --tolerance 60 --keep-largest
+ *   node chroma-clean.mjs clean --input sprite.png --out sprite-clean.png
+ *   node chroma-clean.mjs clean --input cells/ --out-dir keyed/ --chroma '#FF00FF'
+ *   node chroma-clean.mjs key --input sprite.png --tolerance 60 --keep-largest
  */
 import { existsSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -227,7 +227,7 @@ main(() => {
   const run = COMMANDS[command];
   if (!run) {
     fail(
-      `Usage: node chroma_clean.mjs <clean|key|fringe|despill> --input <path> [--chroma '#00FF00']`,
+      `Usage: node chroma-clean.mjs <clean|key|fringe|despill> --input <path> [--chroma '#00FF00']`,
     );
   }
   run(args);

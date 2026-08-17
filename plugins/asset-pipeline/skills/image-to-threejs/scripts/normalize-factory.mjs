@@ -9,9 +9,9 @@
  *
  * Idempotent — re-run after every regeneration.
  *
- *   node normalize_factory.mjs src/model/chest-factory.generated.ts
- *   node normalize_factory.mjs src/model/*.generated.ts --keep-action-profile
- *   node normalize_factory.mjs --selftest
+ *   node normalize-factory.mjs src/model/chest-factory.generated.ts
+ *   node normalize-factory.mjs src/model/*.generated.ts --keep-action-profile
+ *   node normalize-factory.mjs --selftest
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 

@@ -3,7 +3,7 @@
 Algorithm, parameter defaults, and the reference Rust implementation by **Hugo Duprez**
 ([@Hugo-Dz](https://github.com/Hugo-Dz), Sprite Fusion) —
 <https://github.com/Hugo-Dz/spritefusion-pixel-snapper> (MIT).
-`scripts/pixel_snapper.mjs` is a JavaScript port of his `src/main.rs`.
+`scripts/pixel-snapper.mjs` is a JavaScript port of his `src/main.rs`.
 
 ## License (reproduced from upstream — retained as MIT requires)
 

@@ -398,7 +398,7 @@ Doesn't say "be creative" - says "gradient meshes, noise textures, grain overlay
 | Context-aware?                | ✅ Yes      | Adapt to purpose, audience, constraints          |
 | Actionable?                   | ✅ Yes      | Specific techniques and examples                 |
 
-**analyze_skill.mjs estimated score: 92/100**
+**analyze-skill.mjs estimated score: 92/100**
 
 ---
 

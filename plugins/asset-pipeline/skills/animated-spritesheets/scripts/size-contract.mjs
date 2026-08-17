@@ -14,9 +14,9 @@
  *   prompt   print the contract's generation guidance
  *
  * Examples:
- *   node size_contract.mjs derive --source runs/idle/runtime --out runs/contract.json
- *   node size_contract.mjs audit --source runs/attack/runtime --contract runs/contract.json --strict
- *   node size_contract.mjs prompt --contract runs/contract.json
+ *   node size-contract.mjs derive --source runs/idle/runtime --out runs/contract.json
+ *   node size-contract.mjs audit --source runs/attack/runtime --contract runs/contract.json --strict
+ *   node size-contract.mjs prompt --contract runs/contract.json
  */
 import { readFileSync } from "node:fs";
 
@@ -115,6 +115,6 @@ main(() => {
     booleans: ["strict"],
   });
   const run = COMMANDS[args.positionals[0]];
-  if (!run) failUsage("Usage: node size_contract.mjs <derive|audit|prompt> ...");
+  if (!run) failUsage("Usage: node size-contract.mjs <derive|audit|prompt> ...");
   run(args);
 });

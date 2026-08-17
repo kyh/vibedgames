@@ -174,8 +174,8 @@ export const EXAMPLE_SCRIPT = (skillName: string): string =>
  * Replace with actual implementation or delete if not needed.
  *
  * Example real scripts from other skills:
- * - asset-pipeline/scripts/asset_sheet_probe.mjs - Reports non-empty sprite frames
- * - pixel-snapper/scripts/pixel_snapper.mjs - Recovers a native pixel grid
+ * - asset-pipeline/scripts/asset-sheet-probe.mjs - Reports non-empty sprite frames
+ * - pixel-snapper/scripts/pixel-snapper.mjs - Recovers a native pixel grid
  */
 
 function main() {

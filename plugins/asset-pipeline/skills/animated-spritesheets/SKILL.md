@@ -25,14 +25,14 @@ nothing to install: each imports a bundled, dependency-free `scripts/_lib/`.
 ```bash
 # 0. (once) An approved character anchor PNG on a flat chroma matte (the identity
 #    reference). Make it via the pixel-art skill, or:
-node .claude/skills/animated-spritesheets/scripts/sprite_prompt.mjs anchor --direction e --chroma '#00FF00'   # -> vg generate run
+node .claude/skills/animated-spritesheets/scripts/sprite-prompt.mjs anchor --direction e --chroma '#00FF00'   # -> vg generate run
 
 # 1. ASK what the action needs (frame count / fps)
-node .claude/skills/animated-spritesheets/scripts/sprite_presets.mjs --action attack --json
+node .claude/skills/animated-spritesheets/scripts/sprite-presets.mjs --action attack --json
 
 # 2. PROMPT — get the labeled pose-board prompt (per-frame semantic poses on an
 #    implied 4x3 grid, identical-character + no-shadow litany, the craft):
-node .claude/skills/animated-spritesheets/scripts/sprite_prompt.mjs pose-board --action attack --direction e --frames 8 \
+node .claude/skills/animated-spritesheets/scripts/sprite-prompt.mjs pose-board --action attack --direction e --frames 8 \
   --frame-prompt-style specific --pose-board standard --style lobit-v1 --chroma '#00FF00'
 
 # 3. GENERATE the pose board with the anchor as the identity reference. The board
@@ -46,7 +46,7 @@ vg generate run fal-ai/nano-banana-pro/edit --prompt "<from step 2>" \
 # 4. PROCESS into runtime frames with ONE command. Default = naive uniform slice
 #    (the robust path). Add --recover to re-center a pose that drifted off its cell
 #    (it falls back to the uniform slice if it can't, so passing it is always safe):
-node .claude/skills/animated-spritesheets/scripts/process_sheet.mjs attack-board.png --action attack --rows 3 --cols 4 --frames 8 --out-dir runs/hero-attack
+node .claude/skills/animated-spritesheets/scripts/process-sheet.mjs attack-board.png --action attack --rows 3 --cols 4 --frames 8 --out-dir runs/hero-attack
 ```
 
 > **`--download x.png` does not make the file a PNG.** The model chooses the
@@ -74,14 +74,14 @@ this.anims.create({
 }); // end = frameCount - 1
 ```
 
-## What `process_sheet.mjs` does (under the hood)
+## What `process-sheet.mjs` does (under the hood)
 
 1. **slice / recover** — default is a naive uniform `--rows × --cols` slice (the
    robust path). `--recover` instead re-centers each cell's foreground component to
    rescue a pose that drifted off-grid; it can't split poses that merged into one
    blob, so it falls back to the uniform slice when it can't fill the cells —
    passing `--recover` is always safe. `--frames N` takes the first N cells.
-2. `chroma_clean.mjs clean` — key the matte → fringe → despill → decontaminate
+2. `chroma-clean.mjs clean` — key the matte → fringe → despill → decontaminate
    (global speck-removal so dark/low-contrast sprites stay clean).
 3. **pixel snap (on by default)** — recover crisp native pixels from the AI's
    fake-pixel "mixels". All frames are assembled into one strip and snapped
@@ -90,17 +90,17 @@ this.anims.create({
    `--no-pixel-snap` keeps the smooth high-res look (for painterly/non-pixel
    sprites); `--snap-k-colors` sets palette size. Needs ≥~512px cells to work well
    — hence the 2K board (see `pixel-snapper`).
-4. `normalize_canvas.mjs` — place each frame on a shared 256×256 anchor with
+4. `normalize-canvas.mjs` — place each frame on a shared 256×256 anchor with
    **headroom** (`--char-fill`, default ~0.5 of the cell) so attack arcs and big
    poses never clip the edge.
-5. `pack_spritesheet.mjs` — pack to `spritesheet.png` + manifest.
-6. `sheet_qc.mjs` — QC the packed sheet and report a verdict (same token in the
+5. `pack-spritesheet.mjs` — pack to `spritesheet.png` + manifest.
+6. `sheet-qc.mjs` — QC the packed sheet and report a verdict (same token in the
    `--json` `qc` field and the human badge, just uppercased there): **`clean`** /
    **`review`** (soft hints to eyeball — size outliers, possible facing flips) /
    **`warn`** (hard defects — empty cells, edge-clipping, foot-baseline wander,
    an inked cell grid). Runs automatically; `--no-qc` skips it. **Read the
    verdict:** regenerate the board on `warn`; eyeball `review/<action>.gif` on
-   `review`. Run it standalone too: `sheet_qc.mjs sheet.png [--json] [--strict]`.
+   `review`. Run it standalone too: `sheet-qc.mjs sheet.png [--json] [--strict]`.
    The `grid` check deserves special attention: models routinely ink the cell
    outlines despite the prompt forbidding them, and the uniform slice bakes a
    black rule into every frame. That rule then joins each frame's bounding box,
@@ -118,25 +118,25 @@ this.anims.create({
   Past ~12 cells the model loses layout consistency.
 - **Make it ONE motion, not N poses.** The model's default failure is each cell as
   a separate dramatic pose, so frames jump around instead of tracing one swing.
-  Two prompt moves beat this, both built into `sprite_prompt.mjs pose-board`:
+  Two prompt moves beat this, both built into `sprite-prompt.mjs pose-board`:
   (1) it always frames the used cells as _consecutive film frames of one continuous
   motion sampled at evenly-spaced instants_; (2) with `--frame-prompt-style specific`
   (the default) it writes per-frame labels as **monotonic spatial progression along a single path**
   (weapon back → wind-up peak → mid-strike across centerline → contact →
   follow-through → recover), not abstract beats. **If you add an action** to
-  `sprite_presets.mjs` / `frame_label`, label it as progression along one path —
+  `sprite-presets.mjs` / `frame_label`, label it as progression along one path —
   that, not the frame count, makes it read as motion.
 - **Lock the facing.** The model loves to mirror a cell (often frame 1). The
   pose-board prompt pins facing in _every_ cell (`_pose_board_facing_lock`);
-  `--direction e`/`w` adds a side-profile lock. `sheet_qc.mjs` catches gross flips;
+  `--direction e`/`w` adds a side-profile lock. `sheet-qc.mjs` catches gross flips;
   eyeball the gif for subtle ones.
 - **Lock the scale.** Same _size_ in every cell on a shared foot baseline — pose
   change fine, scale change not. The prompt says so. `normalize_canvas` can't
-  un-drift mixed scales, so `sheet_qc.mjs` flags size outliers (sparing monotonic
+  un-drift mixed scales, so `sheet-qc.mjs` flags size outliers (sparing monotonic
   pose arcs like a death collapse).
 - **Matte.** Flat `#00FF00` (`#FF00FF` if the subject is green). Generate-time
   prompts must forbid baked shadows — the engine adds those.
-- **Genre/action data** comes from `sprite_presets.mjs` (frames, fps, profiles).
+- **Genre/action data** comes from `sprite-presets.mjs` (frames, fps, profiles).
 
 ## Remember
 

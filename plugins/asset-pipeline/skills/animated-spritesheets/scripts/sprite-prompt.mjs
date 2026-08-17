@@ -6,8 +6,8 @@
  *   pose-board  a grid of poses the pipeline slices into animation frames
  *
  * Examples:
- *   node sprite_prompt.mjs anchor --direction e --chroma '#00FF00'
- *   node sprite_prompt.mjs pose-board --action attack --direction e --frames 8
+ *   node sprite-prompt.mjs anchor --direction e --chroma '#00FF00'
+ *   node sprite-prompt.mjs pose-board --action attack --direction e --frames 8
  *
  * Pass --guide-image only when you actually send a second reference image
  * alongside the anchor; it adds the "Image 2 role" clause to the prompt.
@@ -109,6 +109,6 @@ main(() => {
     ],
   });
   const run = COMMANDS[args.positionals[0]];
-  if (!run) failUsage("Usage: node sprite_prompt.mjs <anchor|pose-board> ...");
+  if (!run) failUsage("Usage: node sprite-prompt.mjs <anchor|pose-board> ...");
   run(args);
 });

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Spritesheet-aware variant of pixel_snapper.mjs.
+ * Spritesheet-aware variant of pixel-snapper.mjs.
  *
  * Takes a sheet whose layout (cols, rows) is known, crops it into frames,
  * snaps all frames to ONE shared pixel grid, and reassembles a fresh sheet.
@@ -15,7 +15,7 @@
  * skill's references/credits.md.
  *
  * Usage:
- *   node pixel_snapper_sheet.mjs input.png output.png --cols 6 --rows 1 [--k-colors 256]
+ *   node pixel-snapper-sheet.mjs input.png output.png --cols 6 --rows 1 [--k-colors 256]
  */
 import {
   Bitmap,
@@ -34,7 +34,7 @@ main(() => {
   });
   const [input, output] = args.positionals;
   if (!input || !output) {
-    failUsage("Usage: node pixel_snapper_sheet.mjs input.png output.png --cols N --rows N");
+    failUsage("Usage: node pixel-snapper-sheet.mjs input.png output.png --cols N --rows N");
   }
 
   const cols = getInt(args, "cols", 0);

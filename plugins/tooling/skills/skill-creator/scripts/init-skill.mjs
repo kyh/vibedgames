@@ -3,18 +3,18 @@
  * Skill Initializer — creates a new skill from template.
  *
  * Usage:
- *   node init_skill.mjs <skill-name> --path <path>
+ *   node init-skill.mjs <skill-name> --path <path>
  *
  * Examples:
- *   node init_skill.mjs my-new-skill --path skills/public
- *   node init_skill.mjs my-api-helper --path skills/private
- *   node init_skill.mjs custom-skill --path /custom/location
+ *   node init-skill.mjs my-new-skill --path skills/public
+ *   node init-skill.mjs my-api-helper --path skills/private
+ *   node init-skill.mjs custom-skill --path /custom/location
  */
 import { initSkill } from "./_lib/asset-tools.mjs";
 
 const argv = process.argv.slice(2);
 const USAGE = [
-  "Usage: node init_skill.mjs <skill-name> --path <path>",
+  "Usage: node init-skill.mjs <skill-name> --path <path>",
   "",
   "Skill name requirements:",
   "  - Hyphen-case identifier (e.g., 'data-analyzer')",
@@ -23,9 +23,9 @@ const USAGE = [
   "  - Must match directory name exactly",
   "",
   "Examples:",
-  "  node init_skill.mjs my-new-skill --path skills/public",
-  "  node init_skill.mjs my-api-helper --path skills/private",
-  "  node init_skill.mjs custom-skill --path /custom/location",
+  "  node init-skill.mjs my-new-skill --path skills/public",
+  "  node init-skill.mjs my-api-helper --path skills/private",
+  "  node init-skill.mjs custom-skill --path /custom/location",
 ].join("\n");
 if (argv[0] === "--help" || argv[0] === "-h") {
   console.log(USAGE);

@@ -5,7 +5,7 @@
  * rather than constrain.
  *
  * Usage:
- *   node analyze_skill.mjs <path/to/skill>
+ *   node analyze-skill.mjs <path/to/skill>
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { analyzeSkillBody, parseFrontmatter } from "./_lib/asset-tools.mjs";
 
 const [skillPath] = process.argv.slice(2);
-const USAGE = "Usage: node analyze_skill.mjs <path/to/skill>";
+const USAGE = "Usage: node analyze-skill.mjs <path/to/skill>";
 if (skillPath === "--help" || skillPath === "-h") {
   console.log(USAGE);
   process.exit(0);

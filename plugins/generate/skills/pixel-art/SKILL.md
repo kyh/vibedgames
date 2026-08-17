@@ -273,11 +273,11 @@ download the frames into one directory, and pack them locally:
 ```bash
 # scale each frame to the cell size (Lanczos, same filter ffmpeg would use)
 for f in ./fx-frames/frame-*.png; do
-  node .claude/skills/pixel-snapper/scripts/image_util.mjs resize "$f" "$f" --size 128x128
+  node .claude/skills/pixel-snapper/scripts/image-util.mjs resize "$f" "$f" --size 128x128
 done
 
 # tile into a single-row strip + a manifest with the frame box
-node .claude/skills/animated-spritesheets/scripts/pack_spritesheet.mjs \
+node .claude/skills/animated-spritesheets/scripts/pack-spritesheet.mjs \
   --input-dir ./fx-frames --out ./game-assets/<slug>/fx/explosion.png \
   --fps 32 --action explode --json-out ./game-assets/<slug>/fx/explosion.json
 ```
