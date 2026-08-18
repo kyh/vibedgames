@@ -119,6 +119,8 @@ vg playtest diff snapshot --baseline /tmp/before.txt   # accessibility-tree diff
 
 A baseline taken without freezing the scene first is a flake generator — the freeze checklist and the "when not to take a baseline at all" judgment are in `references/canvas-determinism.md`.
 
+A diff catches a change; it can't tell you the frame was wrong to begin with. For 3D, pair the screenshots with the visual-defect rubric in the `threejs` skill (`references/debugging-and-profiling.md` § Visual defects) — z-fighting, shadow acne, wrong color space, and DPR blur all render "successfully" and pass every smoke check.
+
 ## Anti-Patterns
 
 ❌ **Sleep-driven steps** — `wait 2000` then click
