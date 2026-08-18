@@ -13,8 +13,8 @@
  * leaving headroom so an attack arc never clips.
  *
  * Examples:
- *   node normalize_canvas.mjs --input-dir sliced --out-dir runtime
- *   node normalize_canvas.mjs --input-dir sliced --out-dir runtime \
+ *   node normalize-canvas.mjs --input-dir sliced --out-dir runtime
+ *   node normalize-canvas.mjs --input-dir sliced --out-dir runtime \
  *       --canvas 256x256 --pad 6 --target-height 128
  */
 import {

@@ -3,11 +3,11 @@
  * Skill Packager — creates a distributable .skill file of a skill folder.
  *
  * Usage:
- *   node package_skill.mjs <path/to/skill-folder> [output-directory]
+ *   node package-skill.mjs <path/to/skill-folder> [output-directory]
  *
  * Example:
- *   node package_skill.mjs skills/public/my-skill
- *   node package_skill.mjs skills/public/my-skill ./dist
+ *   node package-skill.mjs skills/public/my-skill
+ *   node package-skill.mjs skills/public/my-skill ./dist
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
@@ -77,11 +77,11 @@ function packageSkill(skillPathArg, outputDir) {
 
 const [skillPath, outputDir] = process.argv.slice(2);
 const USAGE = [
-  "Usage: node package_skill.mjs <path/to/skill-folder> [output-directory]",
+  "Usage: node package-skill.mjs <path/to/skill-folder> [output-directory]",
   "",
   "Example:",
-  "  node package_skill.mjs skills/public/my-skill",
-  "  node package_skill.mjs skills/public/my-skill ./dist",
+  "  node package-skill.mjs skills/public/my-skill",
+  "  node package-skill.mjs skills/public/my-skill ./dist",
 ].join("\n");
 if (skillPath === "--help" || skillPath === "-h") {
   console.log(USAGE);

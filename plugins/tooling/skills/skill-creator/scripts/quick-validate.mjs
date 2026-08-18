@@ -5,11 +5,11 @@
  * description that will survive being embedded in a tool definition.
  *
  * Usage:
- *   node quick_validate.mjs <skill_directory>
+ *   node quick-validate.mjs <skill_directory>
  */
 import { validateSkill } from "./_lib/asset-tools.mjs";
 
-const USAGE = "Usage: node quick_validate.mjs <skill_directory>";
+const USAGE = "Usage: node quick-validate.mjs <skill_directory>";
 if (process.argv[2] === "--help" || process.argv[2] === "-h") {
   console.log(USAGE);
   process.exit(0);

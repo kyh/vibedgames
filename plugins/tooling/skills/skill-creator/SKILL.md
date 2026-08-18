@@ -123,7 +123,7 @@ See references/composability.md for designing skills that work well together.
 ### 4. Initialize the Skill
 
 ```bash
-node .claude/skills/skill-creator/scripts/init_skill.mjs <skill-name> --path <output-directory>
+node .claude/skills/skill-creator/scripts/init-skill.mjs <skill-name> --path <output-directory>
 ```
 
 Creates skill directory with SKILL.md template and resource directories.
@@ -233,7 +233,7 @@ Delete unused example files from initialization.
 ### 6. Analyze Skill Quality
 
 ```bash
-node .claude/skills/skill-creator/scripts/analyze_skill.mjs <path/to/skill>
+node .claude/skills/skill-creator/scripts/analyze-skill.mjs <path/to/skill>
 ```
 
 Scores your skill on:
@@ -249,7 +249,7 @@ Scores your skill on:
 If score is low, run upgrade suggestions:
 
 ```bash
-node .claude/skills/skill-creator/scripts/upgrade_skill.mjs <path/to/skill>
+node .claude/skills/skill-creator/scripts/upgrade-skill.mjs <path/to/skill>
 ```
 
 Provides specific improvements with examples.
@@ -257,7 +257,7 @@ Provides specific improvements with examples.
 ### 7. Package the Skill
 
 ```bash
-node .claude/skills/skill-creator/scripts/package_skill.mjs <path/to/skill>
+node .claude/skills/skill-creator/scripts/package-skill.mjs <path/to/skill>
 ```
 
 Validates and packages into `.skill` file for distribution.
@@ -336,7 +336,7 @@ An effective skill should:
 - [ ] **Stay concise** - lean SKILL.md, details in references
 - [ ] **Compose well** - work with other skills
 
-Run analyze_skill.mjs to check these objectively.
+Run analyze-skill.mjs to check these objectively.
 
 ---
 
@@ -379,12 +379,12 @@ These examples demonstrate the transformation pattern from basic to effective.
 
 ## Tool Usage
 
-### analyze_skill.mjs
+### analyze-skill.mjs
 
 Analyzes skill quality and scores on key dimensions.
 
 ```bash
-node .claude/skills/skill-creator/scripts/analyze_skill.mjs <path/to/skill>
+node .claude/skills/skill-creator/scripts/analyze-skill.mjs <path/to/skill>
 ```
 
 **Output**:
@@ -401,12 +401,12 @@ node .claude/skills/skill-creator/scripts/analyze_skill.mjs <path/to/skill>
 - When improving existing skills
 - To compare skill quality
 
-### upgrade_skill.mjs
+### upgrade-skill.mjs
 
 Generates specific improvement suggestions.
 
 ```bash
-node .claude/skills/skill-creator/scripts/upgrade_skill.mjs <path/to/skill>
+node .claude/skills/skill-creator/scripts/upgrade-skill.mjs <path/to/skill>
 ```
 
 **Output**:
@@ -417,16 +417,16 @@ node .claude/skills/skill-creator/scripts/upgrade_skill.mjs <path/to/skill>
 
 **Use when**:
 
-- Skill scores poorly on analyze_skill.mjs
+- Skill scores poorly on analyze-skill.mjs
 - Updating an old skill to modern practices
 - Learning what improvements to make
 
-### quick_validate.mjs
+### quick-validate.mjs
 
 Validates YAML frontmatter and basic structure.
 
 ```bash
-node .claude/skills/skill-creator/scripts/quick_validate.mjs <path/to/skill>
+node .claude/skills/skill-creator/scripts/quick-validate.mjs <path/to/skill>
 ```
 
 **Use when**:
@@ -461,7 +461,7 @@ See references/composability.md for detailed composability patterns.
 | Approach            | Procedural    | Philosophy-first                  |
 | Anti-patterns       | Not covered   | Comprehensive reference           |
 | Variation           | Not mentioned | Explicit patterns and guidance    |
-| Quality analysis    | Manual only   | analyze_skill.mjs script          |
+| Quality analysis    | Manual only   | analyze-skill.mjs script          |
 | Examples            | None          | Before/after + annotated analysis |
 | Composability       | Not covered   | Dedicated reference file          |
 | Self-improvement    | No            | Can analyze itself                |

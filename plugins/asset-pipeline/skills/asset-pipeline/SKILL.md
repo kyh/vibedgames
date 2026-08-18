@@ -102,12 +102,12 @@ Frames are `[column, row]` pairs, zero-based (`[0,0]` = first cell). Grid is `fr
 
 ### Workflow: Building an Asset Index
 
-1. **Inventory** — `asset_sizes.mjs` for all PNG dimensions.
-2. **Probe sheets** — `asset_sheet_probe.mjs --frame WxH --list` for non-empty cells.
+1. **Inventory** — `asset-sizes.mjs` for all PNG dimensions.
+2. **Probe sheets** — `asset-sheet-probe.mjs --frame WxH --list` for non-empty cells.
 3. **Categorize** — background / tileset / static image / spritesheet.
 4. **Define animations** — frame sequences + fps for spritesheets.
 5. **Write manifest** — JSON (or Lua for Love2D).
-6. **Validate** — `asset_manifest_check.mjs` for manifest ↔ disk sync.
+6. **Validate** — `asset-manifest-check.mjs` for manifest ↔ disk sync.
 
 ## Animation Normalization
 
@@ -126,7 +126,7 @@ If a character looks like it's **floating above its shadow** or stands at differ
 
 ## Tools
 
-### Manifest Coverage Check (`asset_manifest_check.mjs`)
+### Manifest Coverage Check (`asset-manifest-check.mjs`)
 
 Verify every PNG on disk appears in the manifest and vice versa.
 
@@ -135,55 +135,55 @@ Verify every PNG on disk appears in the manifest and vice versa.
 Relative paths resolve through `meta.root`, in both Lua and JSON manifests.
 
 ```bash
-node .claude/skills/asset-pipeline/scripts/asset_manifest_check.mjs
-node .claude/skills/asset-pipeline/scripts/asset_manifest_check.mjs --manifest path/to/assets_index.lua --root assets
-node .claude/skills/asset-pipeline/scripts/asset_manifest_check.mjs --json tmp/coverage.json
-node .claude/skills/asset-pipeline/scripts/asset_manifest_check.mjs --strict   # exit 1 on any mismatch
+node .claude/skills/asset-pipeline/scripts/asset-manifest-check.mjs
+node .claude/skills/asset-pipeline/scripts/asset-manifest-check.mjs --manifest path/to/assets_index.lua --root assets
+node .claude/skills/asset-pipeline/scripts/asset-manifest-check.mjs --json tmp/coverage.json
+node .claude/skills/asset-pipeline/scripts/asset-manifest-check.mjs --strict   # exit 1 on any mismatch
 ```
 
 Pass `--strict` from a script or CI: without it the command reports the
 mismatch and still exits 0, which reads as a pass.
 
-### Manifest Export (`asset_manifest_export_json.mjs`)
+### Manifest Export (`asset-manifest-export-json.mjs`)
 
 Export `assets_index.lua` (Love2D-style) to a portable `assets_index.json`. By default it folds `meta.root` into every `path`, rewrites them relative to `--out`'s folder, and sets `meta.root` to `"."` — so the JSON works from wherever it lands. Write it next to the assets it describes if you want the result copyable/zippable; exporting to a `tmp/` sibling gives correct-but-`../`-prefixed paths. `--keep-paths` leaves the manifest's own paths and root untouched.
 
 ```bash
-node .claude/skills/asset-pipeline/scripts/asset_manifest_export_json.mjs --manifest path/to/assets_index.lua --out path/to/assets_index.json
+node .claude/skills/asset-pipeline/scripts/asset-manifest-export-json.mjs --manifest path/to/assets_index.lua --out path/to/assets_index.json
 ```
 
-### Sprite-Sheet Probe (`asset_sheet_probe.mjs`)
+### Sprite-Sheet Probe (`asset-sheet-probe.mjs`)
 
 Find non-empty cells in a sheet grid. Essential for building `frames` arrays.
 
 ```bash
-node .claude/skills/asset-pipeline/scripts/asset_sheet_probe.mjs image.png --frame 32x32
-node .claude/skills/asset-pipeline/scripts/asset_sheet_probe.mjs folder/ --frame 16x16 --list --json tmp/probe.json
+node .claude/skills/asset-pipeline/scripts/asset-sheet-probe.mjs image.png --frame 32x32
+node .claude/skills/asset-pipeline/scripts/asset-sheet-probe.mjs folder/ --frame 16x16 --list --json tmp/probe.json
 ```
 
-### Sprite Baseline Audit/Fix (`asset_sprite_baseline.mjs`)
+### Sprite Baseline Audit/Fix (`asset-sprite-baseline.mjs`)
 
 Audit visible alpha bounds inside a sheet grid and optionally write baseline-corrected copies. Use when a character floats above its shadow in one direction, a directional idle was made from an attack frame, AI sheets have inconsistent transparent padding under the feet, or engine origins are correct but visual foot placement differs. It's a runtime export guardrail — it verifies final PNG frames agree with engine sprite-origin/shadow assumptions, not animation quality.
 
 ```bash
 # Report per-frame alpha bounds, visible bottom pixel, required shift.
-node .claude/skills/asset-pipeline/scripts/asset_sprite_baseline.mjs public/assets/kaede --frame 256x256 --json tmp/kaede-baselines.json
+node .claude/skills/asset-pipeline/scripts/asset-sprite-baseline.mjs public/assets/kaede --frame 256x256 --json tmp/kaede-baselines.json
 
 # Write fixed copies whose visible feet land on y=255.
-node .claude/skills/asset-pipeline/scripts/asset_sprite_baseline.mjs public/assets/kaede --frame 256x256 --target-bottom 255 --out-dir tmp/kaede-baseline-fixed
+node .claude/skills/asset-pipeline/scripts/asset-sprite-baseline.mjs public/assets/kaede --frame 256x256 --target-bottom 255 --out-dir tmp/kaede-baseline-fixed
 
 # Also normalize horizontal center (for idle/standing sources).
-node .claude/skills/asset-pipeline/scripts/asset_sprite_baseline.mjs public/assets/kaede/idle-n.png --frame 256x256 --target-bottom 255 --target-center-x 128 --out tmp/idle-n-fixed.png
+node .claude/skills/asset-pipeline/scripts/asset-sprite-baseline.mjs public/assets/kaede/idle-n.png --frame 256x256 --target-bottom 255 --target-center-x 128 --out tmp/idle-n-fixed.png
 ```
 
-### PNG Dimension Listing (`asset_sizes.mjs`)
+### PNG Dimension Listing (`asset-sizes.mjs`)
 
 ```bash
-node .claude/skills/asset-pipeline/scripts/asset_sizes.mjs
-node .claude/skills/asset-pipeline/scripts/asset_sizes.mjs --root assets/ --json tmp/sizes.json
+node .claude/skills/asset-pipeline/scripts/asset-sizes.mjs
+node .claude/skills/asset-pipeline/scripts/asset-sizes.mjs --root assets/ --json tmp/sizes.json
 ```
 
-### Tileset/Tilemap Exports and Editor (`asset_tilemap_editor.mjs`)
+### Tileset/Tilemap Exports and Editor (`asset-tilemap-editor.mjs`)
 
 Manifest-driven checks that `tileWidth`/`tileHeight` grid math and `columns`/`rows` are what you think they are. A wrong `margin` or `spacing` is invisible in the manifest and shows up in-game as tiles sheared by a pixel — these exports make it obvious before that happens.
 
@@ -191,20 +191,20 @@ Start with the self-test map: it places every non-empty tile at its own coordina
 
 ```bash
 # Grid-overlay PNG for a tileset
-node .claude/skills/asset-pipeline/scripts/asset_tilemap_editor.mjs \
+node .claude/skills/asset-pipeline/scripts/asset-tilemap-editor.mjs \
   --manifest path/to/assets_index.json --tileset <tileset_name> \
   --export-tileset-grid tmp/tileset_grid.png --label-ids --scale 6 --trim
 
 # Self-test tilemap (all non-empty tiles in-place) and render it
-node .claude/skills/asset-pipeline/scripts/asset_tilemap_editor.mjs \
+node .claude/skills/asset-pipeline/scripts/asset-tilemap-editor.mjs \
   --manifest path/to/assets_index.json --tileset <tileset_name> \
   --make-selftest-map tmp/selftest.json
-node .claude/skills/asset-pipeline/scripts/asset_tilemap_editor.mjs \
+node .claude/skills/asset-pipeline/scripts/asset-tilemap-editor.mjs \
   --manifest path/to/assets_index.json --map tmp/selftest.json \
   --export-map-render tmp/selftest.png --scale 6 --trim
 
 # Background color + fill rectangles behind tiles (concept mockups)
-node .claude/skills/asset-pipeline/scripts/asset_tilemap_editor.mjs \
+node .claude/skills/asset-pipeline/scripts/asset-tilemap-editor.mjs \
   --manifest path/to/assets_index.json --map tmp/selftest.json \
   --export-map-render tmp/selftest_bg.png --scale 6 --bg '#77cfd8' --fill-rect '0,40,24,6,#12a7d5'
 ```
@@ -218,7 +218,7 @@ WASD moves the palette selection, `[`/`]` switch tileset, `+`/`-` zoom, `G`
 toggles the grid, `Ctrl-S`/`F5` saves and `Ctrl-L`/`F9` reloads.
 
 ```bash
-node .claude/skills/asset-pipeline/scripts/asset_tilemap_editor.mjs \
+node .claude/skills/asset-pipeline/scripts/asset-tilemap-editor.mjs \
   --manifest path/to/assets_index.json --map maps/level1.json --edit
 ```
 

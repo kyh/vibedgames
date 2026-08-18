@@ -3,7 +3,7 @@
  * Export a Lua asset manifest (assets_index.lua) to a portable assets_index.json.
  *
  * Example:
- *   node asset_manifest_export_json.mjs \
+ *   node asset-manifest-export-json.mjs \
  *     --manifest path/to/assets_index.lua \
  *     --out path/to/assets_index.json
  */

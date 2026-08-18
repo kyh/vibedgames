@@ -3,10 +3,10 @@
  * Verify that all PNGs are referenced by the asset manifest and vice versa.
  *
  * Usage:
- *   node asset_manifest_check.mjs
- *   node asset_manifest_check.mjs --manifest path/to/assets_index.lua --root assets
- *   node asset_manifest_check.mjs --manifest path/to/assets_index.lua --root assets --json tmp/check.json
- *   node asset_manifest_check.mjs --strict     # exit 1 if anything is missing or extra
+ *   node asset-manifest-check.mjs
+ *   node asset-manifest-check.mjs --manifest path/to/assets_index.lua --root assets
+ *   node asset-manifest-check.mjs --manifest path/to/assets_index.lua --root assets --json tmp/check.json
+ *   node asset-manifest-check.mjs --strict     # exit 1 if anything is missing or extra
  */
 import { existsSync } from "node:fs";
 

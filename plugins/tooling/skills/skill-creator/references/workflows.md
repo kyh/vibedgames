@@ -7,11 +7,11 @@ For complex tasks, break operations into clear, sequential steps. It is often he
 ```markdown
 Filling a PDF form involves these steps:
 
-1. Analyze the form (run analyze_form.mjs)
+1. Analyze the form (run analyze-form.mjs)
 2. Create field mapping (edit fields.json)
-3. Validate mapping (run validate_fields.mjs)
-4. Fill the form (run fill_form.mjs)
-5. Verify output (run verify_output.mjs)
+3. Validate mapping (run validate-fields.mjs)
+4. Fill the form (run fill-form.mjs)
+5. Verify output (run verify-output.mjs)
 ```
 
 ## Conditional Workflows

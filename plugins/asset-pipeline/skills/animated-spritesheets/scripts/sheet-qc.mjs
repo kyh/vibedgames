@@ -14,10 +14,10 @@
  *               fingerprint of a mirrored cell
  *
  * Usage:
- *   node sheet_qc.mjs runs/hero-attack/spritesheet.png     # reads sibling .json
- *   node sheet_qc.mjs sheet.png --frame-width 256 --frame-height 256 --json
- *   node sheet_qc.mjs sheet.png --strict         # exit 1 if any HARD check fails
- *   node sheet_qc.mjs sheet.png --fail-on-hints  # exit 1 on soft hints too
+ *   node sheet-qc.mjs runs/hero-attack/spritesheet.png     # reads sibling .json
+ *   node sheet-qc.mjs sheet.png --frame-width 256 --frame-height 256 --json
+ *   node sheet-qc.mjs sheet.png --strict         # exit 1 if any HARD check fails
+ *   node sheet-qc.mjs sheet.png --fail-on-hints  # exit 1 on soft hints too
  */
 import {
   fail,

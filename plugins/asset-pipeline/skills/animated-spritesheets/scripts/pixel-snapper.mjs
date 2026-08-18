@@ -8,8 +8,8 @@
  * reported here instead of being left for the caller to notice.
  *
  * Usage:
- *   node pixel_snapper.mjs input.png output.png [--k-colors 256] [--seed 42]
- *   node pixel_snapper.mjs input.png output.png --strict   # exit 1 on a bad snap
+ *   node pixel-snapper.mjs input.png output.png [--k-colors 256] [--seed 42]
+ *   node pixel-snapper.mjs input.png output.png --strict   # exit 1 on a bad snap
  */
 import {
   Bitmap,
@@ -31,7 +31,7 @@ main(() => {
   });
   const [input, output] = args.positionals;
   if (!input || !output) {
-    failUsage("Usage: node pixel_snapper.mjs input.png output.png [--k-colors N] [--seed N]");
+    failUsage("Usage: node pixel-snapper.mjs input.png output.png [--k-colors N] [--seed N]");
   }
 
   const kColors = getInt(args, "k-colors", 16);

@@ -3,9 +3,9 @@
  * List image dimensions for asset PNGs.
  *
  * Usage:
- *   node asset_sizes.mjs
- *   node asset_sizes.mjs --root assets --json tmp/sizes.json
- *   node asset_sizes.mjs --root path/to/assets --csv tmp/sizes.csv
+ *   node asset-sizes.mjs
+ *   node asset-sizes.mjs --root assets --json tmp/sizes.json
+ *   node asset-sizes.mjs --root path/to/assets --csv tmp/sizes.csv
  */
 import { existsSync } from "node:fs";
 

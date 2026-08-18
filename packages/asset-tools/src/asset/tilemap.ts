@@ -410,7 +410,7 @@ export function makeSelftestMap(meta: TilesetMeta): Json {
       width: meta.columns,
       height: meta.rows,
       generatedFrom: meta.path.split(/[/\\]/).join("/"),
-      generator: "asset_tilemap_editor.mjs --make-selftest-map",
+      generator: "asset-tilemap-editor.mjs --make-selftest-map",
     },
     data,
   };

@@ -187,7 +187,7 @@ quality bar for material/lighting passes — defer them at blockout/structural.
 run forge/stage3_build/generate_threejs_factory.py spec.json \
     --out src/model/<name>-factory.generated.ts --pass-id blockout --force
 
-node $SKILL/scripts/normalize_factory.mjs \
+node $SKILL/scripts/normalize-factory.mjs \
     src/model/<name>-factory.generated.ts
 
 uv run --python 3.12 --no-project $SKILL/scripts/render_model.py \

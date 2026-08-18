@@ -501,7 +501,7 @@ test("every skill script declares the boolean flags it reads", () => {
  * The check above only sees flags a script *reads*. A flag that is accepted and
  * ignored — kept because the Python original took it — is advertised in the
  * usage text, never passed to `getFlag`, and so was invisible: that is how
- * `aseprite_inspect.mjs --json file.ase` kept eating its filename after the
+ * `aseprite-inspect.mjs --json file.ase` kept eating its filename after the
  * first fix. Anything a script's own text spells as `--flag` must therefore be
  * declared, read as a value, or visibly take one.
  */

@@ -98,6 +98,93 @@ setInterval(() => {
 
 ---
 
+## Auditing a scene you didn't just write
+
+Debugging starts from a symptom. An audit doesn't: nothing is obviously broken, so the failure mode is fixing whatever you happened to read first. Rank by **where the code runs**.
+
+**Severity follows the render loop.** A line inside `setAnimationLoop`, a RAF callback, or an R3F `useFrame` runs 60 times a second; the same line in a menu handler runs once. Before judging anything, build a **hot-path map** — every frame-loop body, every pointer-move handler, and every function they call. A finding inside that map outranks a worse-looking one outside it.
+
+```bash
+rg -n 'setAnimationLoop|requestAnimationFrame|useFrame|frameloop=' src/   # where the loop lives
+rg -n 'new (THREE\.)?(Vector[234]|Quaternion|Matrix4|Euler|Color|Raycaster)\(' src/
+rg -n 'new (THREE\.)?\w*(Geometry|Material|Texture|RenderTarget)\(' src/  # each needs a dispose()
+```
+
+A grep hit is a lead, not a finding — confirm each at its `file:line`. Inside the hot-path map it's HIGH; outside it's usually noise.
+
+**HIGH — runs every frame, or leaks GPU memory**
+
+- Allocation inside the loop — hoist a module-scope scratch object and mutate it in place (§ Performance, "GC stutter")
+- Undisposed geometry / material / texture / render target, **including objects replaced mid-game**, not just torn down at exit (§ Memory leaks)
+- `scene.traverse` every frame, or raycasting the whole scene on every pointer move — cache the list, raycast a filtered target array
+- Physics bodies that outlive the entity that owned them (§ Physics & collision, #6)
+
+**MEDIUM — per-render or per-interaction waste**
+
+- Identical meshes drawn individually instead of through `InstancedMesh` (§ Performance, fixes table)
+- Uncapped device pixel ratio (§ Mobile-specific)
+- Assets loaded per instance instead of through one shared, cached loader ([`gltf-loading-guide.md`](gltf-loading-guide.md))
+- Debug tooling still in the production bundle — the `vg new --engine threejs` template ships `lil-gui` and `stats.js` on purpose, and shipping them is easy to miss
+
+**What no tool will flag — check these by hand**
+
+- `dispose()` coverage for every imperatively created GPU resource
+- Event listeners and `ResizeObserver`s on the canvas or window with no cleanup
+- Color space set on the renderer _and_ on every color texture ([`advanced-topics.md`](advanced-topics.md))
+- Shadows or post-processing enabled globally when only part of the scene needs them
+
+Do not "fix" authored feel. A camera that lags on purpose, a deliberately flat-lit style, a capped frame budget — those are design decisions. If it looks wrong but reads as deliberate, raise it as a question rather than patching it.
+
+### React Three Fiber
+
+`vg new --engine react-r3f` scaffolds R3F, where the same failures wear different clothes:
+
+| Vanilla Three.js                           | React Three Fiber                                                                                     |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| Allocation inside `setAnimationLoop`       | Allocation inside `useFrame` — hoist to `useMemo` or module scope                                     |
+| _(no equivalent)_                          | `setState` inside `useFrame` re-renders the tree 60×/s — mutate refs, keep state for discrete changes |
+| Every `dispose()` is manual                | R3F owns anything in the declarative tree; imperatively created objects are still yours               |
+| Rebuilding a geometry each frame           | Geometry/material without `useMemo`, or inline `args` whose identity changes each render              |
+| `InstancedMesh`                            | `<Instances>`                                                                                         |
+| One shared, cached loader                  | `useLoader` / `useTexture` / `useGLTF`                                                                |
+| Stop calling `render()` when nothing moves | `frameloop="demand"` + `invalidate()` — for showcases and viewers, not games                          |
+
+Plain-array props (`position={[x, y, z]}`) are fine — R3F handles them. A fresh object as a prop (`new THREE.Vector3()` inline) is not.
+
+For the React half of an R3F app — the component tree outside the canvas — `npx react-doctor@latest --verbose` scans read-only and reports React-level problems. It sees nothing Three.js-specific, so it complements the list above rather than replacing it.
+
+---
+
+## Visual defects — sweep with evidence
+
+A scene can render, hit every budget, and still look wrong. These defects never reach the console, so hunt them deliberately — and against **frames**, never against source. `vg playtest` (see the `playtest` skill) drives a real browser:
+
+```bash
+vg playtest open http://localhost:5173
+vg playtest screenshot /tmp/first.png
+```
+
+Capture the first stable frame, then capture again after moving the camera and interacting: several rows below only fail at a grazing angle or after a transition. With no browser available, check the causes from source and label each finding **inferred, not observed** — reading code and guessing is how you "fix" a defect that was never there.
+
+A row fails only when the evidence shows the failure condition.
+
+| Area                   | Exercise it like this                                         | Fails when                                                                              | Usual cause                                                            |
+| ---------------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Render sanity          | Load, wait for a stable frame                                 | Black canvas, WebGL context error, or content that never appears                        | § Black screen                                                         |
+| Geometry               | Move along seams, edges, boundaries                           | Gaps, missing faces, visible backfaces, two surfaces flickering at one depth            | Z-fighting → `graphics-recipes.md`; backfaces → material `side`        |
+| Transparency and depth | Cross depth order with overlapping or transmissive surfaces   | Wrong sort order, halos, flicker at grazing angles                                      | `depthWrite: false` + `renderOrder` (`graphics-recipes.md`)            |
+| Textures               | View mapped surfaces close, far, and at a grazing angle       | Missing, stretched, seams, moiré, or washed-out color                                   | Color space (`advanced-topics.md`); moiré → anisotropy                 |
+| Materials and lighting | Change light direction and view direction on lit surfaces     | Surfaces that ignore light direction; metals with nothing to reflect                    | `metalness: 1` needs `scene.environment` (`advanced-topics.md`)        |
+| Shadows                | Move casters, receivers, and the light through their range    | Acne, detached or floating shadows, flicker at rest, shadows outliving their caster     | `graphics-recipes.md` § Shadow Acne                                    |
+| Camera                 | Follow the subject through movement and transitions           | Subject leaves frame, camera clips into geometry, foreground blocks the play area       | [`controllers-and-camera.md`](controllers-and-camera.md)               |
+| Scale and contact      | Compare object scale and resting contact against surroundings | Objects float above, sink into, or intersect their support, or sit at implausible scale | Model normalization ([`gltf-loading-guide.md`](gltf-loading-guide.md)) |
+| Image stability        | Pan the camera slowly at the resolutions you support          | Silhouettes, thin geometry, or highlights that crawl, sparkle, or ghost                 | `graphics-recipes.md` § Texture Shimmer                                |
+| Resize and DPR         | Change viewport size, zoom, and device pixel ratio            | Distortion, blur, stretched output, or content leaving the viewport                     | Resize handler + `updateProjectionMatrix` (§ Mobile-specific)          |
+
+After fixing, re-shoot every failed row **from the same viewpoint and interaction** as the original evidence — a different angle proves nothing about the defect you were chasing.
+
+---
+
 ## Memory leaks
 
 Three.js does **not** garbage-collect GPU resources when you `scene.remove()`. Removing a mesh leaves its geometry, material, and textures resident. Watch `renderer.info.memory` climb across level reloads — if `geometries`/`textures` only ever grow, you're leaking.

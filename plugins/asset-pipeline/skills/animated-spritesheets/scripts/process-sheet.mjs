@@ -22,7 +22,7 @@
  * spawning a subprocess per step, so there is no `uv` and no process overhead.
  *
  * Example:
- *   node process_sheet.mjs board.png --action attack --rows 2 --cols 2 \
+ *   node process-sheet.mjs board.png --action attack --rows 2 --cols 2 \
  *     --out-dir runs/hero-attack-img
  */
 import { existsSync, mkdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
