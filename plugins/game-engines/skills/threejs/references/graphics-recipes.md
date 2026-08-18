@@ -348,3 +348,56 @@ Two surfaces at the same depth (road markings on a road, a rug on a floor, poste
 4. **Fix depth precision itself** — if surfaces that aren't even coplanar shimmer at distance, the near/far ratio is the problem. Depth precision is spent overwhelmingly near the `near` plane: raising `near` from `0.01` to `0.5` buys far more precision than shrinking `far` ever will. Never set `near: 0` (breaks the depth buffer entirely). `logarithmicDepthBuffer: true` on the renderer is the last resort for huge view distances — it costs performance and breaks materials that read the depth buffer (soft particles, some post-processing).
 
 Debugging tip: if the flicker only happens while the camera is moving and far from the surfaces, it's precision (#4). If it's stable-distance and always the same pair of surfaces, they're coplanar (#1–#3).
+
+---
+
+## Shadow Acne, Peter-Panning & Shadow Flicker
+
+Shadows have three distinct failure looks, and they pull in opposite directions — fixing one by feel usually creates another.
+
+1. **Acne** — dark stripes or moiré crawling across lit surfaces. The surface is shadowing itself: its depth and the shadow map's depth land within one texel of each other. Raise `bias` slightly negative, or better, use `normalBias`, which offsets along the surface normal and doesn't detach contact:
+
+   ```javascript
+   light.shadow.bias = -0.0005; // tiny — -0.01 is already far too much
+   light.shadow.normalBias = 0.02; // scale to world units; the better first knob
+   ```
+
+2. **Peter-panning** — the shadow detaches and the object looks like it floats. This is over-corrected acne: `bias` pushed too far negative. Back it off and lean on `normalBias` instead. If you must keep a large bias, thicken thin casters — a plane casts a shadow no thicker than its geometry.
+
+3. **Flicker at rest, or shadows that swim as the camera moves** — the shadow camera frustum is far larger than what it needs to cover, so each texel spans too much world space. Shrink the directional light's orthographic frustum to the play area, not the whole world:
+
+   ```javascript
+   const c = light.shadow.camera; // OrthographicCamera for DirectionalLight
+   c.left = -20;
+   c.right = 20;
+   c.top = 20;
+   c.bottom = -20;
+   c.near = 1;
+   c.far = 60;
+   c.updateProjectionMatrix();
+   light.shadow.mapSize.set(2048, 2048);
+   ```
+
+   Halving the frustum buys the same sharpness as doubling `mapSize`, and costs nothing. Use `CameraHelper(light.shadow.camera)` to see what you're actually covering — most "blurry shadows" are a frustum ten times bigger than the scene.
+
+A shadow that outlives the object casting it is not a shadow bug: the mesh was removed from the scene graph but its geometry was never disposed, or a pooled object was hidden with `visible = false` (which still casts). Set `castShadow = false` when parking a pooled object.
+
+---
+
+## Texture Shimmer, Crawl & Moiré
+
+Surfaces that sparkle or crawl while the camera pans — tiled floors, distant detail, thin railings, specular highlights on edges. Three separate causes:
+
+1. **Missing anisotropy** — the default is `1`, which blurs and aliases any texture viewed at a grazing angle. Ground planes and roads are the usual victims:
+
+   ```javascript
+   texture.anisotropy = renderer.capabilities.getMaxAnisotropy(); // clamp to 4–8 on mobile
+   ```
+
+   Set it on every texture of a surface the camera sees edge-on. It is nearly free compared to how much aliasing it removes.
+
+2. **Antialiasing off** — `new THREE.WebGLRenderer({ antialias: true })`. Note that `antialias` is ignored once you render through an `EffectComposer`; a post chain needs its own AA pass (SMAA/FXAA) instead, and losing edge AA the moment post-processing was added is a common regression.
+
+3. **Geometry too thin to survive rasterization** — a railing one pixel wide at distance will sparkle no matter the texture settings, because it lands on a different pixel each frame. Thicken the form, or swap to a LOD that removes it entirely past a distance.
+
+Highlights that crawl on curved surfaces are usually neither: they're a too-smooth `roughness` on low-poly geometry. Raise `roughness` slightly or add normal-map detail to break the specular up.

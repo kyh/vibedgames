@@ -1,6 +1,6 @@
 ---
 name: threejs
-description: "Build 3D browser apps AND games with Three.js (r150+, ES modules): scene setup, geometries, materials, lighting, animation, GLTF models, physics (Rapier/cannon-es/arcade), character controllers, follow/third-person cameras, fixed-timestep loops, post-processing, and performance/debugging. Use for 'create a three.js scene/app/showcase', any 3D web content, and turning a scene into a game — 'add physics to my three.js game', 'third-person/character controller', 'follow camera', 'jump and gravity', 'collide with / pick up objects', 'structure my 3d game'. Trigger: threejs, three.js, 3D scene, WebGL scene, GLTF/GLB, OrbitControls, Rapier, cannon-es, 3D game, third-person controller. For 2D games use `phaser`; for engine-agnostic feel/balance/level craft use the game-craft skills."
+description: "Build 3D browser apps AND games with Three.js (r150+, ES modules): scene setup, geometries, materials, lighting, animation, GLTF models, physics (Rapier/cannon-es/arcade), character controllers, follow/third-person cameras, fixed-timestep loops, post-processing, and performance/debugging. Use for 'create a three.js scene/app/showcase', any 3D web content, and turning a scene into a game — 'add physics to my three.js game', 'third-person/character controller', 'follow camera', 'jump and gravity', 'collide with / pick up objects', 'structure my 3d game'. Also for auditing a 3D scene that already exists — 'my three.js game is slow', 'the framerate drops the longer I play', 'memory keeps climbing', 'why does it look washed out', 'the shadows are wrong', 'the canvas is blurry on mobile'. Trigger: threejs, three.js, React Three Fiber, R3F, react-three-fiber, drei, 3D scene, WebGL scene, GLTF/GLB, OrbitControls, Rapier, cannon-es, 3D game, third-person controller. For 2D games use `phaser`; for engine-agnostic feel/balance/level craft use the game-craft skills."
 ---
 
 # Three.js
@@ -27,18 +27,19 @@ Everything else — camera rigs, enemy waves, pathfinding, steering, minimaps, i
 
 Scene setup is inline below. Read the relevant reference before working on that area:
 
-| When you're working on...                                                          | Read first                              |
-| ---------------------------------------------------------------------------------- | --------------------------------------- |
-| Character locomotion / Rapier character collision / smoothing / seeded RNG         | `modules/summary.md`                    |
-| Turning a scene into a playable game (fixed-timestep loop, structure)              | `references/gameplay-systems.md`        |
-| Physics or collision (Rapier / cannon-es / arcade overlap)                         | `references/physics.md`                 |
-| Movement controllers + follow/third-person camera                                  | `references/controllers-and-camera.md`  |
-| Loading/caching/normalizing GLTF/GLB models                                        | `references/gltf-loading-guide.md`      |
-| Game loop, state machine, object pooling, screen effects                           | `references/game-patterns.md`           |
-| Dropping generated GLB models / SFX into a running scene                           | `references/generated-assets.md`        |
-| Post-processing, shaders, instancing, env maps, color management                   | `references/advanced-topics.md`         |
-| Material values, shader injection (onBeforeCompile), sky, cheap tricks, z-fighting | `references/graphics-recipes.md`        |
-| Black screen, low FPS, mobile issues, memory leaks, physics debugging              | `references/debugging-and-profiling.md` |
+| When you're working on...                                                                                        | Read first                              |
+| ---------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| Character locomotion / Rapier character collision / smoothing / seeded RNG                                       | `modules/summary.md`                    |
+| Turning a scene into a playable game (fixed-timestep loop, structure)                                            | `references/gameplay-systems.md`        |
+| Physics or collision (Rapier / cannon-es / arcade overlap)                                                       | `references/physics.md`                 |
+| Movement controllers + follow/third-person camera                                                                | `references/controllers-and-camera.md`  |
+| Loading/caching/normalizing GLTF/GLB models                                                                      | `references/gltf-loading-guide.md`      |
+| Game loop, state machine, object pooling, screen effects                                                         | `references/game-patterns.md`           |
+| Dropping generated GLB models / SFX into a running scene                                                         | `references/generated-assets.md`        |
+| Post-processing, shaders, instancing, env maps, color management                                                 | `references/advanced-topics.md`         |
+| Material values, shader injection (onBeforeCompile), sky, cheap tricks, z-fighting, shadow acne, texture shimmer | `references/graphics-recipes.md`        |
+| Black screen, low FPS, mobile issues, memory leaks, physics debugging                                            | `references/debugging-and-profiling.md` |
+| Auditing a scene you didn't write, visual-defect sweeps, React Three Fiber (R3F)                                 | `references/debugging-and-profiling.md` |
 
 **Verify it actually renders.** `scripts/check-canvas.mjs` loads a build in headless Chromium and fails on a blank canvas or uncaught page error — run it in CI / before `vg deploy` (details in `references/debugging-and-profiling.md`).
 
