@@ -16,8 +16,8 @@
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",
     "@types/node": "catalog:",
-    "esbuild": "^0.28.1",
-    "tsx": "^4.20.6",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.12",
     "typescript": "catalog:"
   }
 }
