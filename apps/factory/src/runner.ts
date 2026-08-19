@@ -10,7 +10,7 @@ export type Runner = "claude" | "codex";
 
 export const RUNNERS: readonly Runner[] = ["claude", "codex"];
 
-export const isRunner = (v: string): v is Runner => (RUNNERS as readonly string[]).includes(v);
+export const isRunner = (v: string): v is Runner => RUNNERS.some((runner) => runner === v);
 
 export type RunOptions = {
   /** The task prompt (the "user" turn). */

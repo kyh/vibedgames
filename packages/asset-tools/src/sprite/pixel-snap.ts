@@ -159,8 +159,10 @@ export function quantize(image: Bitmap, config: SnapConfig): Bitmap {
   return out;
 }
 
+export type AxisProfiles = { columns: Float64Array; rows: Float64Array };
+
 /** Per-column and per-row edge-gradient sums; transparent pixels weigh zero. */
-export function computeProfiles(image: Bitmap): { columns: Float64Array; rows: Float64Array } {
+export function computeProfiles(image: Bitmap): AxisProfiles {
   const { width: w, height: h } = image;
   if (w < 3 || h < 3) throw new Error("Image too small (minimum 3x3)");
 
@@ -405,6 +407,8 @@ export type SheetSnapInfo = {
   outputDims: [number, number];
 };
 
+export type SheetSnapResult = { image: Bitmap; info: SheetSnapInfo };
+
 /**
  * Spritesheet-aware snapping: crop the sheet into frames, snap them all to ONE
  * shared pixel grid, and reassemble.
@@ -420,7 +424,7 @@ export function snapSheet(
   cols: number,
   rows: number,
   config: SnapConfig,
-): { image: Bitmap; info: SheetSnapInfo } {
+): SheetSnapResult {
   const { width: W, height: H } = image;
   if (W % cols !== 0 || H % rows !== 0) {
     throw new Error(

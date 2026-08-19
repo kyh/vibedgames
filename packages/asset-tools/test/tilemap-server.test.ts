@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
@@ -67,6 +68,9 @@ function writeFixture(root: string) {
   return { manifestPath };
 }
 
+const isAddressInfo = (value: string | AddressInfo | null): value is AddressInfo =>
+  Object(value) === value;
+
 let root: string;
 let manifestPath: string;
 let base: string;
@@ -85,7 +89,7 @@ before(async () => {
   token = editor.token;
   await new Promise<void>((done) => editor.server.listen(0, "127.0.0.1", done));
   const address = editor.server.address();
-  base = `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}`;
+  base = `http://127.0.0.1:${isAddressInfo(address) ? address.port : 0}`;
 });
 
 after(() => {
@@ -124,6 +128,8 @@ type MapBody = {
 type ErrorBody = { error: string };
 
 async function body<T>(response: Response): Promise<T> {
+  // SAFETY: test-only boundary — each call site names the shape the route under
+  // test must return, and the assertions that follow fail loudly on a mismatch.
   return (await response.json()) as T;
 }
 

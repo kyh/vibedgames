@@ -92,7 +92,7 @@ const swing = (clip: string, o: Partial<Omit<Swing, "dmg">>): Swing => {
   };
 };
 
-export const HEROES: Record<HeroName, HeroDef> = {
+export const HEROES = {
   axion: {
     name: "axion",
     title: "AXION",
@@ -239,6 +239,6 @@ export const HEROES: Record<HeroName, HeroDef> = {
       },
     },
   },
-};
+} satisfies Record<HeroName, HeroDef>;
 
 export const HERO_ORDER: HeroName[] = ["axion", "reaper", "riven", "mooni", "salamander"];

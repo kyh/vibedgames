@@ -228,7 +228,7 @@ export class HudScene extends Phaser.Scene {
 
   /** Center of hotbar slot `i`. Slots wrap into rows on narrow screens, first
    *  row on top so the 1–9 order still reads left to right, top to bottom. */
-  private slotPos(i: number, W: number, H: number): { x: number; y: number } {
+  private slotPos(i: number, W: number, H: number) {
     const pitch = this.slot + PAD;
     const total = this.perRow * pitch - PAD;
     const rows = Math.ceil(HOTBAR / this.perRow);

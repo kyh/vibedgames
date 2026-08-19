@@ -23,6 +23,8 @@ import { Door } from "../entities/door";
 import { Enemy } from "../entities/enemy";
 import { Player } from "../entities/player";
 import { rectsOverlap } from "../entities/player-body";
+import { isJsonObject, isJsonString } from "../net/json";
+import type { JsonValue } from "../net/json";
 import { Reconciler } from "../net/predict";
 import { NetSession } from "../net/session";
 import {
@@ -151,13 +153,12 @@ const NEUTRAL_INPUT: InputState = {
   specialPressed: false,
 };
 
-// Boundary parsers — validate untyped wire values into our types without casts.
-const num = (v: unknown): v is number => typeof v === "number";
-const bool = (v: unknown): v is boolean => typeof v === "boolean";
-function readNetInput(v: unknown): NetInput | null {
-  if (typeof v !== "object" || v === null) return null;
-  const o: Record<string, unknown> = {};
-  for (const [k, val] of Object.entries(v)) o[k] = val;
+// Boundary parsers — validate wire JSON values into our types without casts.
+const num = (v: JsonValue | undefined): v is number => Number.isFinite(v);
+const bool = (v: JsonValue | undefined): v is boolean => v === true || v === false;
+function readNetInput(v: JsonValue | undefined): NetInput | null {
+  if (!isJsonObject(v)) return null;
+  const o = v;
   if (!bool(o.left) || !bool(o.right) || !bool(o.up) || !bool(o.down) || !bool(o.jumpHeld))
     return null;
   if (!num(o.j) || !num(o.d) || !num(o.a) || !num(o.s)) return null;
@@ -173,28 +174,26 @@ function readNetInput(v: unknown): NetInput | null {
     s: o.s,
   };
 }
-const parseHero = (v: unknown): HeroName | null =>
-  typeof v === "string" ? (HERO_NAMES.find((h) => h === v) ?? null) : null;
+const parseHero = (v: JsonValue | undefined): HeroName | null =>
+  HERO_NAMES.find((h) => h === v) ?? null;
 const parseEnemy = (v: string): EnemyName => ENEMY_NAMES.find((e) => e === v) ?? "warrior";
-const readRoom = (shared: Record<string, unknown> | null): NetRoom | null => {
+const readRoom = (shared: Record<string, JsonValue> | null): NetRoom | null => {
   const r = shared?.room;
   return isRoom(r) ? r : null;
 };
-const readSnapshot = (shared: Record<string, unknown> | null): Snapshot | null => {
+const readSnapshot = (shared: Record<string, JsonValue> | null): Snapshot | null => {
   const s = shared?.snap;
   return isSnapshot(s) ? s : null;
 };
 
 // Themed animated prop per non-combat room type. ox/oy = frame-fractional origin
 // aligning the art's bottom-centre to the floor; scale shrinks the 144px canvases.
-const ROOM_PROPS: Partial<
-  Record<RoomType, { key: string; ox: number; oy: number; scale: number }>
-> = {
-  start: { key: "blue-flag", ox: 0.5, oy: 0.66, scale: 0.7 },
-  rest: { key: "blue-fountain", ox: 0.49, oy: 0.77, scale: 0.5 },
-  merchant: { key: "blue-campfire", ox: 0.52, oy: 0.73, scale: 1.2 },
-  treasure: { key: "blue-columnfire", ox: 0.5, oy: 0.66, scale: 0.75 },
-};
+const ROOM_PROPS = new Map<RoomType, { key: string; ox: number; oy: number; scale: number }>([
+  ["start", { key: "blue-flag", ox: 0.5, oy: 0.66, scale: 0.7 }],
+  ["rest", { key: "blue-fountain", ox: 0.49, oy: 0.77, scale: 0.5 }],
+  ["merchant", { key: "blue-campfire", ox: 0.52, oy: 0.73, scale: 1.2 }],
+  ["treasure", { key: "blue-columnfire", ox: 0.5, oy: 0.66, scale: 0.75 }],
+]);
 type SceneState = "active" | "dead" | "transition" | "connecting";
 
 // An on-screen action button — a ButtonOptions that definitely has a place and
@@ -205,7 +204,7 @@ type FixedButton = ButtonOptions & {
 };
 
 /** Top-left corner of the action cluster's bounding box, with thumb padding. */
-const clusterBounds = (buttons: FixedButton[], v: Viewport): { left: number; top: number } => {
+const clusterBounds = (buttons: FixedButton[], v: Viewport) => {
   let left = Number.POSITIVE_INFINITY;
   let top = Number.POSITIVE_INFINITY;
   for (const b of buttons) {
@@ -363,10 +362,10 @@ export class GameScene extends Phaser.Scene {
   create() {
     const params = new URLSearchParams(location.search);
     this.demo = params.get("demo") === "1";
-    const data = this.scene.settings.data as { hero?: HeroName } | undefined;
-    const wanted =
-      (params.get("hero") as HeroName | null) ?? data?.hero ?? this.registry.get("hero");
-    this.heroName = wanted && HEROES[wanted as HeroName] ? (wanted as HeroName) : "axion";
+    const data = this.scene.settings.data;
+    const dataHero = data instanceof Object && "hero" in data ? data.hero : undefined;
+    const wanted = params.get("hero") ?? dataHero ?? this.registry.get("hero");
+    this.heroName = HERO_NAMES.find((h) => h === wanted) ?? "axion";
     this.mods = baseMods();
     // Fold in permanent meta upgrades bought in the hub (host/solo; a guest's
     // hearts are then overwritten by the host snapshot).
@@ -488,10 +487,10 @@ export class GameScene extends Phaser.Scene {
       .setDepth(81)
       .setAlpha(0);
 
-    const regParty = this.registry.get("party");
-    const party = params.get("party") ?? (typeof regParty === "string" ? regParty : "");
-    const regMode = this.registry.get("mode");
-    const modeStr = params.get("mode") ?? (typeof regMode === "string" ? regMode : "");
+    const regParty: JsonValue = this.registry.get("party");
+    const party = params.get("party") ?? (isJsonString(regParty) ? regParty : "");
+    const regMode: JsonValue = this.registry.get("mode");
+    const modeStr = params.get("mode") ?? (isJsonString(regMode) ? regMode : "");
     if (party.length > 0 && modeStr === "vs") this.mode = "versus";
 
     // Touch controls: floating stick (movement + down-to-drop) on any free
@@ -580,7 +579,7 @@ export class GameScene extends Phaser.Scene {
       // Drop the socket when the scene tears down (death → hub), else it lingers.
       this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.session?.destroy());
     } else {
-      const roomParam = new URLSearchParams(location.search).get("room") as RoomType | null;
+      const roomParam = parseRoomType(new URLSearchParams(location.search).get("room") ?? "");
       const def = roomParam ? this.run.debugEnter(roomParam) : this.run.begin();
       // Dev: ?biome=N previews a deeper biome's palette + roster (debug rooms only).
       const biomeParam = Math.floor(Number(new URLSearchParams(location.search).get("biome")));
@@ -879,7 +878,7 @@ export class GameScene extends Phaser.Scene {
   // A themed animated prop dresses each non-combat room (fountain / campfire /
   // column fire / flag), placed to the side on the floor, behind the entities.
   private decorateRoom(def: RoomDef) {
-    const cfg = ROOM_PROPS[this.run.type];
+    const cfg = ROOM_PROPS.get(this.run.type);
     if (!cfg) return;
     this.roomProp = this.add
       .sprite(BASE_W * 0.17, def.playerSpawn.y, `prop:${cfg.key}`)
@@ -1631,7 +1630,7 @@ export class GameScene extends Phaser.Scene {
       spawnX: this.roomSpawn.x,
       spawnY: this.roomSpawn.y,
       doors,
-      propKey: this.mode === "versus" ? "" : (ROOM_PROPS[this.run.type]?.key ?? ""),
+      propKey: this.mode === "versus" ? "" : (ROOM_PROPS.get(this.run.type)?.key ?? ""),
       mustClear: this.mustClear,
     };
     this.session.patchShared({ room });
@@ -1650,7 +1649,7 @@ export class GameScene extends Phaser.Scene {
     this.roomLayer = drawRoom(this, g, pal).setDepth(0);
     const type = parseRoomType(room.type) ?? "combat";
     if (room.propKey) {
-      const cfg = ROOM_PROPS[type];
+      const cfg = ROOM_PROPS.get(type);
       this.roomProp = this.add
         .sprite(BASE_W * 0.17, room.spawnY, `prop:${room.propKey}`)
         .setOrigin(cfg?.ox ?? 0.5, cfg?.oy ?? 0.7)

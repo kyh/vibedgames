@@ -37,7 +37,7 @@ type Tile = { tx: number; ty: number };
  *  entity's tile each tick — null when the entity is gone. */
 type TileRef = Tile | (() => Tile | null);
 
-const resolveTile = (r: TileRef): Tile | null => (typeof r === "function" ? r() : r);
+const resolveTile = (r: TileRef): Tile | null => ("tx" in r ? r : r());
 
 // ---------------------------------------------------------------- scene access
 
@@ -200,8 +200,12 @@ function placeFeet(gs: GameScene, tx: number, ty: number): void {
  *  cross the threshold on camera. */
 type SkillStage = number | { level: number; xp: number };
 
+const isLevelOnly = (v: SkillStage): v is number => Number.isFinite(v);
+
 const skillState = (v: SkillStage | undefined): { xp: number; level: number } =>
-  typeof v === "number" ? { xp: 0, level: v } : { xp: v?.xp ?? 0, level: v?.level ?? 0 };
+  v !== undefined && isLevelOnly(v)
+    ? { xp: 0, level: v }
+    : { xp: v?.xp ?? 0, level: v?.level ?? 0 };
 
 function stageSkills(levels: Partial<Record<SkillId, SkillStage>>): void {
   const s: SkillsJSON = {

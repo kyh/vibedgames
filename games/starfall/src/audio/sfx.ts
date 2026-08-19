@@ -229,7 +229,7 @@ function makeFilteredNoise(rng: () => number): (cutoff01: number) => number {
 
 // ---- the 14 sounds (§10) ----------------------------------------------------------
 
-const RECIPES: Record<SfxName, Recipe> = {
+const RECIPES = {
   // 60ms square blip, 880→660Hz slide, light
   fire_pulse: {
     durMs: 60,
@@ -440,4 +440,4 @@ const RECIPES: Record<SfxName, Recipe> = {
     render: (t, dur) =>
       0.22 * (square(TAU * 520 * t) + square(TAU * 551 * t)) * env(t, dur, 0.003, 2),
   },
-};
+} satisfies Record<SfxName, Recipe>;

@@ -11,7 +11,7 @@ import { resolve } from "node:path";
 
 const GIT_TIMEOUT_MS = 60_000;
 
-const git = (cwd: string, args: string[]): { ok: boolean; out: string } => {
+const git = (cwd: string, args: string[]) => {
   try {
     const res = spawnSync(
       "git",

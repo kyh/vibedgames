@@ -6,6 +6,8 @@ export const HOTBAR = 12;
 export const STACK_MAX = 99;
 export const TOTAL = HOTBAR + BACKPACK;
 
+export type InventoryJSON = { slots: Slot[]; pack: Slot[]; selected: number };
+
 // Combined index space: 0..HOTBAR-1 = hotbar, HOTBAR..TOTAL-1 = backpack.
 export class Inventory {
   slots: Slot[] = new Array(HOTBAR).fill(null);
@@ -126,7 +128,7 @@ export class Inventory {
     this.set(b, sa);
   }
 
-  toJSON(): { slots: Slot[]; pack: Slot[]; selected: number } {
+  toJSON(): InventoryJSON {
     return { slots: this.slots, pack: this.pack, selected: this.selected };
   }
 

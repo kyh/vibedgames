@@ -13,11 +13,11 @@ export const formatUsd = (micro: number): string => {
 
 export const kindLabel = (kind: string, deltaMicro: number): string => {
   if (kind === "admin_grant") return deltaMicro < 0 ? "Adjustment" : "Credit grant";
-  const labels: Record<string, string> = {
-    signup_grant: "Welcome credits",
-    generation_hold: "Generation",
-    generation_settle: "Usage adjustment",
-    generation_release: "Refund — failed generation",
-  };
-  return labels[kind] ?? kind;
+  const labels = new Map([
+    ["signup_grant", "Welcome credits"],
+    ["generation_hold", "Generation"],
+    ["generation_settle", "Usage adjustment"],
+    ["generation_release", "Refund — failed generation"],
+  ]);
+  return labels.get(kind) ?? kind;
 };

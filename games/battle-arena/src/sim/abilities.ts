@@ -14,11 +14,11 @@ import { CHAMP_BY_ID, valAt, type AbilityDef } from "../data/champions";
 import { castStrikeMs } from "../data/clip-timing";
 import { HOP_HEIGHT } from "../data/config";
 import { ITEM_BY_ID } from "../data/items";
-import { angleDelta, angleOf, dist, norm } from "./math";
+import { angleDelta, angleOf, dist, norm, type Vec2 } from "./math";
 import { clampToArena, resolveObstacles } from "../data/map";
 import { addStatus, cleanseDisables, isDisabled, isSilenced, isUntargetable } from "./stats";
 import { applyKnockback, dealDamage, isEnemy, spawnProjectile } from "./combat";
-import { abilityShapes, type HitShape } from "./hit-shapes";
+import { abilityRegions, type HitRegion } from "./hit-shapes";
 import type { AbilityKey, GroundEffect, PendingStrike, Unit, World } from "./types";
 import { nextId } from "./types";
 
@@ -108,11 +108,7 @@ export function castAbility(w: World, caster: Unit, key: AbilityKey, ctx: CastCt
   return true;
 }
 
-function clampCastRange(
-  c: Unit,
-  p: { x: number; y: number },
-  range: number,
-): { x: number; y: number } {
+function clampCastRange(c: Unit, p: { x: number; y: number }, range: number): Vec2 {
   const dx = p.x - c.x;
   const dy = p.y - c.y;
   const d = Math.hypot(dx, dy);
@@ -188,41 +184,41 @@ function pushGround(w: World, g: Omit<GroundEffect, "id">): void {
 
 /** Enemies covered by an INSTANT shape (cone/corridor/self/at) anchored at
  *  (ox,oy) — the shared hit test for abilities whose geometry is defined in
- *  abilityShapes(). Projectiles and ground zones spawn their own entities. */
-function targetsInShape(
+ *  abilityRegions(). Projectiles and ground zones spawn their own entities. */
+function targetsInRegion(
   w: World,
   c: Unit,
-  shape: HitShape,
+  region: HitRegion,
   ox: number,
   oy: number,
   dir: { x: number; y: number },
   point: { x: number; y: number },
 ): Unit[] {
-  switch (shape.kind) {
+  switch (region.kind) {
     case "cone": {
       const ang = angleOf(dir.x, dir.y);
       const out: Unit[] = [];
       for (const t of w.units.values()) {
         if (t === c || !t.alive || !targetable(t) || !isEnemy(c, t)) continue;
-        if (Math.hypot(t.x - ox, t.y - oy) > shape.radius + t.radius) continue;
-        if (Math.abs(angleDelta(ang, angleOf(t.x - ox, t.y - oy))) > shape.half) continue;
+        if (Math.hypot(t.x - ox, t.y - oy) > region.radius + t.radius) continue;
+        if (Math.abs(angleDelta(ang, angleOf(t.x - ox, t.y - oy))) > region.half) continue;
         out.push(t);
       }
       return out;
     }
     case "corridor":
-      return corridorHits(w, c, ox, oy, dir, shape.length, shape.halfWidth);
+      return corridorHits(w, c, ox, oy, dir, region.length, region.halfWidth);
     case "circleSelf":
-      return aoeEnemies(w, c.team, ox, oy, shape.radius);
+      return aoeEnemies(w, c.team, ox, oy, region.radius);
     case "circleAt":
-      return aoeEnemies(w, c.team, point.x, point.y, shape.radius);
+      return aoeEnemies(w, c.team, point.x, point.y, region.radius);
     default:
       return []; // projectile — the sim spawns a projectile instead
   }
 }
 
 /** Enemies hit by an ability's (first) instant shape anchored at (ox,oy) —
- *  geometry sourced from abilityShapes() so the sim and the viewer never
+ *  geometry sourced from abilityRegions() so the sim and the viewer never
  *  disagree on the hit area. */
 function abilityTargets(
   w: World,
@@ -234,8 +230,8 @@ function abilityTargets(
   dir: { x: number; y: number },
   point: { x: number; y: number },
 ): Unit[] {
-  const [shape] = abilityShapes(def, rank);
-  return shape ? targetsInShape(w, c, shape, ox, oy, dir, point) : [];
+  const [region] = abilityRegions(def, rank);
+  return region ? targetsInRegion(w, c, region, ox, oy, dir, point) : [];
 }
 
 // ── Pending strikes ──────────────────────────────────────────────────────────
@@ -562,11 +558,7 @@ function applyStrike(w: World, c: Unit, s: PendingStrike): void {
 /** Direction + travel distance from the caster's CURRENT position to the
  *  strike's captured aim point — aim-point projectiles (fireball/hexbolt)
  *  detonate where the player aimed, not at a fixed max range. */
-function aimAtPoint(
-  c: Unit,
-  s: PendingStrike,
-  castRange: number,
-): { x: number; y: number; range: number } {
+function aimAtPoint(c: Unit, s: PendingStrike, castRange: number) {
   const dx = s.px - c.x;
   const dy = s.py - c.y;
   const d = Math.hypot(dx, dy) - (c.radius + 0.3); // spawnProjectile offsets the muzzle
@@ -830,7 +822,7 @@ function dispatch(
       return true;
     }
     case "rogue:R": {
-      // dash to nearest enemy in the front arc (abilityShapes cone); the
+      // dash to nearest enemy in the front arc (abilityRegions cone); the
       // execute lands on arrival, scaled by their hp THEN — not at cast
       let target: Unit | null = null;
       let bestD = Infinity;

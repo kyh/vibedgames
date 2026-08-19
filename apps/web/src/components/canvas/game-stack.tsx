@@ -157,7 +157,7 @@ const GameCard = ({
   // Only the front card of the stack is swipeable, and only on touch-sized screens.
   const isDraggable = isMobile && mode === "stack" && isActive && !!onSwipe;
 
-  const handleDragEnd = (_: unknown, info: PanInfo) => {
+  const handleDragEnd = (_: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
     swipedRef.current = Math.hypot(info.offset.x, info.offset.y) > TAP_SLOP;
 
     if (isSwipe(info)) onSwipe?.();

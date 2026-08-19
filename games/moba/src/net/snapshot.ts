@@ -2,6 +2,8 @@
 // rng closure, so encoding is just Map->record (+ drop rng); decoding rebuilds
 // the Maps into a guest's persistent World so the renderer can read it unchanged.
 
+import type { MultiplayerClient } from "@vibedgames/multiplayer";
+
 import type { FxEvent, GroundEffect, Mine, Projectile, Unit, World } from "../sim/types";
 
 export type Snapshot = {
@@ -84,13 +86,30 @@ function rebuildMap<T>(map: Map<string, T>, rec: Record<string, T>): void {
   for (const k of map.keys()) if (!seen.has(k)) map.delete(k);
 }
 
-/** Strip a snapshot down for the wire (it's already plain; this validates shape). */
-export function isSnapshot(v: unknown): v is Snapshot {
-  return typeof v === "object" && v !== null && "units" in v && "gameTime" in v;
+type SharedState = MultiplayerClient["sharedState"];
+
+/** The host-authored snapshot out of shared state, or null before the first
+ *  broadcast. Only the hosting peer writes `snap` (encodeWorld output); the
+ *  key-presence check filters empty rooms and foreign/stale documents. */
+export function sharedSnapshot(state: SharedState): Snapshot | null {
+  const snap = state["snap"];
+  if (!(snap instanceof Object) || !("units" in snap) || !("gameTime" in snap)) return null;
+  // SAFETY: `snap` is written exclusively by the trusted host via encodeWorld
+  // and transported as JSON, so an object carrying the units+gameTime
+  // discriminators is the host's Snapshot; guests only read it for rendering.
+  return snap as Snapshot;
+}
+
+const isFiniteNumber = (x: SharedState[string] | undefined): x is number => Number.isFinite(x);
+
+/** The fx-batch sequence number the host wrote alongside `fx`, or null. */
+export function sharedFxSeq(state: SharedState): number | null {
+  const v = state["fxSeq"];
+  return isFiniteNumber(v) ? v : null;
 }
 
 // Known one-shot fx tags, for validating a broadcast fx batch at ingest.
-const FX_TAGS = new Set<string>([
+const FX_TAGS = [
   "hit",
   "death",
   "explosion",
@@ -103,13 +122,13 @@ const FX_TAGS = new Set<string>([
   "kill",
   "notify",
   "ability",
-]);
-function isFxEvent(e: unknown): e is FxEvent {
-  return (
-    typeof e === "object" && e !== null && "t" in e && typeof e.t === "string" && FX_TAGS.has(e.t)
+];
+/** Validate the broadcast fx array in shared state into typed FxEvents,
+ *  dropping bad shapes. */
+export function sharedFxBatch(state: SharedState): FxEvent[] {
+  const v = state["fx"];
+  if (!Array.isArray(v)) return [];
+  return v.filter(
+    (e): e is FxEvent => e instanceof Object && "t" in e && FX_TAGS.some((tag) => tag === e.t),
   );
-}
-/** Validate an unknown broadcast fx array into typed FxEvents, dropping bad shapes. */
-export function parseFxBatch(v: unknown): FxEvent[] {
-  return Array.isArray(v) ? v.filter(isFxEvent) : [];
 }

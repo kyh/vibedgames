@@ -20,7 +20,7 @@ export type PadButton =
   | "left"
   | "right";
 
-const BUTTON_INDEX: Readonly<Record<PadButton, number>> = {
+const BUTTON_INDEX = {
   a: 0,
   b: 1,
   x: 2,
@@ -37,7 +37,7 @@ const BUTTON_INDEX: Readonly<Record<PadButton, number>> = {
   down: 13,
   left: 14,
   right: 15,
-};
+} satisfies Readonly<Record<PadButton, number>>;
 
 const PAD_BUTTONS: readonly PadButton[] = [
   "a",
@@ -101,7 +101,7 @@ const IDLE_STICK: StickState = {
 };
 
 function defaultPoll(): ReadonlyArray<Gamepad | null> {
-  return typeof navigator !== "undefined" && typeof navigator.getGamepads === "function"
+  return typeof navigator !== "undefined" && "getGamepads" in navigator
     ? navigator.getGamepads()
     : [];
 }

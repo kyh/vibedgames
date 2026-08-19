@@ -78,7 +78,7 @@ function legalMove(fromX: number, fromY: number, toX: number, toY: number): bool
 
 /** Apply a desired move with terrain collision: take it if legal, else slide along
  *  whichever axis is still legal, else stay put. Returns the resolved position. */
-function collide(u: Unit, toX: number, toY: number): { x: number; y: number } {
+function collide(u: Unit, toX: number, toY: number) {
   if (legalMove(u.x, u.y, toX, toY)) return { x: toX, y: toY };
   if (legalMove(u.x, u.y, toX, u.y)) return { x: toX, y: u.y };
   if (legalMove(u.x, u.y, u.x, toY)) return { x: u.x, y: toY };
@@ -350,12 +350,12 @@ function spawnWave(w: World): void {
 
 // ---- neutral jungle camps + Roshan -----------------------------------------
 const CAMP_ALIVE = -1; // sentinel in campRespawnAt: members still standing
-const CAMP_RESPAWN_SEC: Record<NeutralKind, number> = {
+const CAMP_RESPAWN_SEC = {
   small: 70,
   medium: 80,
   large: 90,
   roshan: 300,
-};
+} satisfies Record<NeutralKind, number>;
 
 type NeutralStat = {
   hp: number;
@@ -406,12 +406,12 @@ export const N_BOSS: NeutralStat = {
   radius: 56,
 };
 
-const CAMP_PACK: Record<NeutralKind, NeutralStat[]> = {
+const CAMP_PACK = {
   small: [N_SMALL, N_SMALL],
   medium: [N_LARGE, N_SMALL],
   large: [N_LARGE, N_SMALL, N_SMALL],
   roshan: [N_BOSS],
-};
+} satisfies Record<NeutralKind, NeutralStat[]>;
 
 function spawnNeutralUnit(
   w: World,

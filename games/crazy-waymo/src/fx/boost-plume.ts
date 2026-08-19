@@ -362,11 +362,11 @@ export class FxRings {
   readonly mesh: THREE.Mesh;
   private uTime = { value: 0 };
   private center: Float32Array;
-  private shape: Float32Array;
+  private profile: Float32Array;
   private color: Float32Array;
   private drift: Float32Array;
   private centerAttr: THREE.InstancedBufferAttribute;
-  private shapeAttr: THREE.InstancedBufferAttribute;
+  private profileAttr: THREE.InstancedBufferAttribute;
   private colorAttr: THREE.InstancedBufferAttribute;
   private driftAttr: THREE.InstancedBufferAttribute;
   private cursor = 0;
@@ -403,19 +403,19 @@ export class FxRings {
     geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
     geo.setIndex(new THREE.BufferAttribute(index, 1));
     this.center = new Float32Array(RING_COUNT * 4);
-    this.shape = new Float32Array(RING_COUNT * 4);
+    this.profile = new Float32Array(RING_COUNT * 4);
     this.color = new Float32Array(RING_COUNT * 4);
     this.drift = new Float32Array(RING_COUNT * 4);
     // Dead until spawned: birth 0 with life epsilon collapses in the VS.
     this.centerAttr = new THREE.InstancedBufferAttribute(this.center, 4);
-    this.shapeAttr = new THREE.InstancedBufferAttribute(this.shape, 4);
+    this.profileAttr = new THREE.InstancedBufferAttribute(this.profile, 4);
     this.colorAttr = new THREE.InstancedBufferAttribute(this.color, 4);
     this.driftAttr = new THREE.InstancedBufferAttribute(this.drift, 4);
-    for (const a of [this.centerAttr, this.shapeAttr, this.colorAttr, this.driftAttr]) {
+    for (const a of [this.centerAttr, this.profileAttr, this.colorAttr, this.driftAttr]) {
       a.setUsage(THREE.DynamicDrawUsage);
     }
     geo.setAttribute("aCenter", this.centerAttr);
-    geo.setAttribute("aShape", this.shapeAttr);
+    geo.setAttribute("aShape", this.profileAttr);
     geo.setAttribute("aColor", this.colorAttr);
     geo.setAttribute("aDrift", this.driftAttr);
     geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
@@ -457,10 +457,10 @@ export class FxRings {
     this.center[b + 1] = y;
     this.center[b + 2] = z;
     this.center[b + 3] = t;
-    this.shape[b] = r0;
-    this.shape[b + 1] = r1;
-    this.shape[b + 2] = life;
-    this.shape[b + 3] = thickness;
+    this.profile[b] = r0;
+    this.profile[b + 1] = r1;
+    this.profile[b + 2] = life;
+    this.profile[b + 3] = thickness;
     this.color[b] = color.r * intensity;
     this.color[b + 1] = color.g * intensity;
     this.color[b + 2] = color.b * intensity;
@@ -469,7 +469,7 @@ export class FxRings {
     this.drift[b + 1] = velZ;
     this.drift[b + 2] = drag;
     this.centerAttr.needsUpdate = true;
-    this.shapeAttr.needsUpdate = true;
+    this.profileAttr.needsUpdate = true;
     this.colorAttr.needsUpdate = true;
     this.driftAttr.needsUpdate = true;
     this.lastDeath = Math.max(this.lastDeath, t + life);

@@ -10,6 +10,7 @@ import type { PlayerMap } from "@vibedgames/multiplayer";
 
 import type { ModelCache } from "../assets/loader";
 
+import { isFiniteJsonNumber, isJsonObject, isJsonString, type JsonValue } from "../shared/json";
 import type { Surface } from "../vehicle/car";
 import { buildSkinBody, skinById, skinModelUrl } from "../vehicle/car";
 import { slopeQuaternion } from "../world/terrain";
@@ -39,28 +40,27 @@ export type RemoteTransform = {
   msgAt: number;
 };
 
-/** A finite number, or null. `typeof NaN === "number"`, so guard finiteness. */
-function finiteNum(v: unknown): number | null {
-  return typeof v === "number" && Number.isFinite(v) ? v : null;
+/** A finite number, or null — a bad/hostile peer must not feed NaN/Infinity
+ *  into slopeQuaternion and the Three.js transforms (which would freeze
+ *  rendering). */
+function finiteNum(v: JsonValue | undefined): number | null {
+  return isFiniteJsonNumber(v) ? v : null;
 }
 
-export function readTransform(state: unknown): RemoteTransform | null {
-  if (!state || typeof state !== "object") return null;
-  // Reject non-finite values so a bad/hostile peer can't feed NaN/Infinity into
-  // slopeQuaternion and the Three.js transforms (which would freeze rendering).
-  const x = finiteNum("x" in state ? state.x : null);
-  const z = finiteNum("z" in state ? state.z : null);
-  const h = finiteNum("h" in state ? state.h : null);
+export function readTransform(state: JsonValue | undefined): RemoteTransform | null {
+  if (!isJsonObject(state)) return null;
+  const x = finiteNum(state.x);
+  const z = finiteNum(state.z);
+  const h = finiteNum(state.h);
   if (x === null || z === null || h === null) return null;
-  const o = state as Record<string, unknown>;
   return {
     x,
-    y: finiteNum("y" in state ? state.y : null) ?? 0,
+    y: finiteNum(state.y) ?? 0,
     z,
     h,
-    skin: typeof o.skin === "string" ? o.skin : "waymo",
-    msg: typeof o.msg === "string" ? o.msg.slice(0, 90) : "",
-    msgAt: finiteNum(o.msgAt) ?? 0,
+    skin: isJsonString(state.skin) ? state.skin : "waymo",
+    msg: isJsonString(state.msg) ? state.msg.slice(0, 90) : "",
+    msgAt: finiteNum(state.msgAt) ?? 0,
   };
 }
 

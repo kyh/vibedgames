@@ -7,7 +7,7 @@ import type { RGB, RGBA } from "./raster.js";
  * `rgb()`/`rgba()`, and the handful of CSS names that show up in prompts.
  */
 
-const NAMED: Record<string, RGB> = {
+const NAMED = {
   black: [0, 0, 0],
   white: [255, 255, 255],
   red: [255, 0, 0],
@@ -31,14 +31,18 @@ const NAMED: Record<string, RGB> = {
   pink: [255, 192, 203],
   brown: [165, 42, 42],
   transparent: [0, 0, 0],
-};
+} satisfies Record<string, RGB>;
+
+const isNamedColor = (value: string): value is keyof typeof NAMED => Object.hasOwn(NAMED, value);
 
 export function parseColor(input: string): RGBA {
   const value = input.trim().toLowerCase();
 
   if (value === "transparent") return [0, 0, 0, 0];
-  const named = NAMED[value];
-  if (named) return [named[0], named[1], named[2], 255];
+  if (isNamedColor(value)) {
+    const named = NAMED[value];
+    return [named[0], named[1], named[2], 255];
+  }
 
   if (value.startsWith("#")) {
     const hex = value.slice(1);

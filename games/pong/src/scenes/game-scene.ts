@@ -9,7 +9,8 @@ import { inkChip } from "../pause-overlay";
 import { ParticlePool } from "../fx/particles";
 import { sfx } from "../fx/sfx";
 import { RingPool } from "../fx/shock-rings";
-import { NetSession } from "../net/session";
+import { NetSession, isJsonNumber, isJsonObject } from "../net/session";
+import type { JsonObject, JsonValue } from "../net/session";
 import {
   MP_ROOM,
   MP_MAX_PLAYERS,
@@ -686,7 +687,7 @@ export class GameScene {
   private smoothOppPaddle(dt: number): void {
     const other = this.net.otherPlayer();
     const raw = other?.state?.["paddle"];
-    if (typeof raw !== "number") return;
+    if (!isJsonNumber(raw)) return;
     const target = clamp(raw, -PADDLE_X_MAX, PADDLE_X_MAX);
     const next = this.oppPaddle + (target - this.oppPaddle) * frameLerp(0.5, dt);
     if (this.mySlotA) this.aiX = next;
@@ -879,12 +880,12 @@ export class GameScene {
 
   /** Emit a host→guest fx beat, but only when a remote guest is listening
    *  (solo/offline replays fx locally, so there is no beat to loop back). */
-  private emitBeat(event: string, payload: Record<string, unknown>): void {
+  private emitBeat(event: string, payload: JsonObject): void {
     if (this.net.offline || !this.net.isHost || !this.hasOpponent()) return;
     this.net.sendEvent(event, payload);
   }
 
-  private handleEvent(event: string, payload: unknown, _from: string): void {
+  private handleEvent(event: string, payload: JsonValue, _from: string): void {
     // Guest → host intent (serve / rematch). Only the host acts on it.
     if (event === "confirm") {
       if (!this.isGuest()) this.confirm();
@@ -892,11 +893,10 @@ export class GameScene {
     }
     // Host → guest fx beats — the host already ran these locally.
     if (!this.isGuest()) return;
-    const p: Record<string, unknown> = {};
-    if (payload && typeof payload === "object") Object.assign(p, payload);
+    const p = isJsonObject(payload) ? payload : {};
     const num = (k: string): number => {
       const v = p[k];
-      return typeof v === "number" ? v : 0;
+      return isJsonNumber(v) ? v : 0;
     };
     const bool = (k: string): boolean => p[k] === true;
     switch (event) {
@@ -1247,9 +1247,9 @@ function fovForAspect(aspect: number): number {
 }
 
 /** Read a numeric field from an opaque shared-state record, or null. */
-function numField(s: Record<string, unknown>, key: string): number | null {
+function numField(s: JsonObject, key: string): number | null {
   const v = s[key];
-  return typeof v === "number" ? v : null;
+  return isJsonNumber(v) ? v : null;
 }
 
 /** Convert a legacy per-frame (60fps) lerp factor into a dt-correct one. */
@@ -1264,13 +1264,7 @@ function frameLerp(perFrame: number, dt: number): number {
  * shared scratch object (no per-frame allocation) — consume before calling again.
  */
 const DAMP_OUT = { pos: 0, vel: 0 };
-function smoothDamp(
-  current: number,
-  target: number,
-  vel: number,
-  omega: number,
-  dt: number,
-): { pos: number; vel: number } {
+function smoothDamp(current: number, target: number, vel: number, omega: number, dt: number) {
   const x = omega * dt;
   const exp = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
   const change = current - target;

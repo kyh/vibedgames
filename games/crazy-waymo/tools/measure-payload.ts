@@ -29,9 +29,9 @@ for (const t of ground.children) {
   const g = t.geometry;
   for (const k of ["position", "normal", "color"]) {
     const a = g.getAttribute(k);
-    if (a) tileBytes += (a.array as Float32Array).byteLength;
+    if (a) tileBytes += a.array.byteLength;
   }
-  if (g.index) tileBytes += (g.index.array as Uint32Array).byteLength;
+  if (g.index) tileBytes += g.index.array.byteLength;
   tileVerts += g.getAttribute("position").count;
 }
 console.log(

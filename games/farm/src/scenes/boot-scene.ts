@@ -35,6 +35,8 @@ export class BootScene extends Phaser.Scene {
   }
 
   preload(): void {
+    // SAFETY: CHAR_FRAMES is a closed const record keyed by CharAction, so its
+    // runtime keys are exactly that union.
     for (const a of Object.keys(CHAR_FRAMES) as CharAction[]) {
       this.load.spritesheet(`p-${a}`, `assets/char/${a}.webp`, CHAR);
     }

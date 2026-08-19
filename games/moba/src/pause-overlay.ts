@@ -10,13 +10,13 @@ import type { ControlMethod } from "@repo/embed";
 
 import { CONTROLS } from "./controls";
 
-const GROUP_LABEL: Record<ControlMethod, string> = {
+const GROUP_LABEL = {
   keys: "Keyboard",
   mouse: "Mouse",
   touch: "Touch",
   camera: "Camera",
   controller: "Gamepad",
-};
+} satisfies Record<ControlMethod, string>;
 
 const STYLE_ID = "moba-pause-style";
 // Positioning/z-index/root fade live on the shell's root — visuals only here.

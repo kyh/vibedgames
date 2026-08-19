@@ -15,7 +15,9 @@ export type NpcDef = {
   react: (item: Item) => GiftReaction;
 };
 
-export const NPCS: Record<NpcId, NpcDef> = {
+export type NpcTable = { [K in NpcId]: NpcDef };
+
+export const NPCS: NpcTable = {
   willow: {
     id: "willow",
     name: "Willow",
@@ -86,18 +88,18 @@ export const NPCS: Record<NpcId, NpcDef> = {
 
 export const NPC_IDS = ["willow", "finn", "hazel"] as const satisfies readonly NpcId[];
 
-export const REACTION_DELTA: Record<GiftReaction, number> = {
+export const REACTION_DELTA = {
   love: 25,
   like: 12,
   neutral: 5,
   dislike: -8,
-};
-export const REACTION_LINE: Record<GiftReaction, string> = {
+} satisfies Record<GiftReaction, number>;
+export const REACTION_LINE = {
   love: "Oh, I LOVE this! Thank you!",
   like: "How thoughtful, thank you!",
   neutral: "Oh… thanks, I suppose.",
   dislike: "Hmph. Not really my thing.",
-};
+} satisfies Record<GiftReaction, string>;
 
 export function giftable(item: Item): boolean {
   return (

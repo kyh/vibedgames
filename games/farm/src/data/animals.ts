@@ -17,7 +17,9 @@ export type AnimalDef = {
   shadowScale: number;
 };
 
-export const ANIMALS: Record<AnimalKind, AnimalDef> = {
+export type AnimalTable = { [K in AnimalKind]: AnimalDef };
+
+export const ANIMALS: AnimalTable = {
   chicken: {
     kind: "chicken",
     name: "Chicken",

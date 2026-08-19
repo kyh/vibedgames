@@ -1,4 +1,9 @@
-import { isGamePausedMessage, isGameStartedMessage, requestGamePause } from "@repo/embed/host";
+import {
+  isGamePausedMessage,
+  isGameStartedMessage,
+  type MessageData,
+  requestGamePause,
+} from "@repo/embed/host";
 import { AnimatePresence, motion } from "motion/react";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
@@ -51,7 +56,7 @@ export const GameChrome = ({ children }: GameChromeProps) => {
 
   useEffect(() => {
     if (!playing) return;
-    const handleMessage = (event: MessageEvent<unknown>) => {
+    const handleMessage = (event: MessageEvent<MessageData>) => {
       const localDevGame =
         event.origin.startsWith("http://localhost:") ||
         event.origin.startsWith("http://127.0.0.1:");

@@ -7,6 +7,7 @@ import spawn from "cross-spawn";
 
 import { readExplicitLocalFile } from "./media-args.js";
 import { disambiguateTargets } from "./media-download.js";
+import { isJsonNumber, isJsonString, type JsonObject } from "./types.js";
 
 // `vg generate run` can execute against the vibedgames model runner
 // (default) or delegate image generation to a locally-installed Codex
@@ -81,11 +82,11 @@ export type CodexInput = {
  * no filesystem access, so the reference values are returned verbatim and
  * resolved to local files later.
  */
-export function parseCodexInput(input: Record<string, unknown>): CodexInput {
+export function parseCodexInput(input: JsonObject): CodexInput {
   let prompt = "";
   for (const key of PROMPT_KEYS) {
     const v = input[key];
-    if (typeof v === "string" && v.trim().length > 0) {
+    if (isJsonString(v) && v.trim().length > 0) {
       prompt = v.trim();
       break;
     }
@@ -94,7 +95,7 @@ export function parseCodexInput(input: Record<string, unknown>): CodexInput {
   let count = 1;
   for (const key of COUNT_KEYS) {
     const v = input[key];
-    if (typeof v === "number" && Number.isFinite(v)) {
+    if (isJsonNumber(v)) {
       count = Math.max(1, Math.min(MAX_IMAGES, Math.floor(v)));
       break;
     }
@@ -103,26 +104,26 @@ export function parseCodexInput(input: Record<string, unknown>): CodexInput {
   const referenceCandidates: string[] = [];
   for (const key of REF_KEYS) {
     const v = input[key];
-    if (typeof v === "string") referenceCandidates.push(v);
+    if (isJsonString(v)) referenceCandidates.push(v);
     else if (Array.isArray(v)) {
-      for (const item of v) if (typeof item === "string") referenceCandidates.push(item);
+      for (const item of v) if (isJsonString(item)) referenceCandidates.push(item);
     }
   }
 
   return { prompt, count, sizeHint: buildSizeHint(input), referenceCandidates };
 }
 
-function buildSizeHint(input: Record<string, unknown>): string | undefined {
+function buildSizeHint(input: JsonObject): string | undefined {
   const parts: string[] = [];
   const size = input.image_size ?? input.size;
-  if (typeof size === "string" && size.trim().length > 0) parts.push(size.trim());
+  if (isJsonString(size) && size.trim().length > 0) parts.push(size.trim());
   const aspect = input.aspect_ratio;
-  if (typeof aspect === "string" && aspect.trim().length > 0) {
+  if (isJsonString(aspect) && aspect.trim().length > 0) {
     parts.push(`aspect ratio ${aspect.trim()}`);
   }
   const w = input.width;
   const h = input.height;
-  if (typeof w === "number" && typeof h === "number") parts.push(`${w}x${h}px`);
+  if (isJsonNumber(w) && isJsonNumber(h)) parts.push(`${w}x${h}px`);
   return parts.length > 0 ? parts.join(", ") : undefined;
 }
 
@@ -252,9 +253,7 @@ function pickNewest(paths: string[], limit: number): string[] {
  * `generated_images` store). Throws with actionable guidance when Codex
  * is missing, fails, or produces nothing.
  */
-export async function generateImagesWithCodex(opts: {
-  input: Record<string, unknown>;
-}): Promise<CodexRun> {
+export async function generateImagesWithCodex(opts: { input: JsonObject }): Promise<CodexRun> {
   const parsed = parseCodexInput(opts.input);
   if (!parsed.prompt) {
     throw new CodexError("codex image generation requires a prompt (--prompt).");
@@ -353,7 +352,7 @@ export function placeCodexOutputs(
   rawFiles: string[],
   template: string | undefined,
   requestId: string,
-): { downloaded: string[]; failed: { url: string; error: string }[] } {
+) {
   const downloaded: string[] = [];
   // Keyed `url` (holding the source path) to match the shape the
   // vibedgames run/status paths use for `download_failures`, so agents

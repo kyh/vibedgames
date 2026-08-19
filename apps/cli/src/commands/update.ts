@@ -13,6 +13,8 @@ import { isMissingCommand, run } from "../lib/run.js";
 import { assertKnownFlags } from "../lib/strict-args.js";
 import { fetchLatestVersion, isNewerVersion } from "../lib/update.js";
 
+// SAFETY: this is the CLI's own package.json, shipped alongside dist — npm
+// refuses to publish a package without a string `version`.
 const pkg = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as {
   version: string;
 };

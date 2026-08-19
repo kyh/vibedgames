@@ -1,5 +1,5 @@
 // THE one definition of each ability's hit geometry, used by BOTH the sim's
-// hit test (abilities.ts → targetsInShape, for the instant AoE/cone/corridor
+// hit test (abilities.ts → targetsInRegion, for the instant AoE/cone/corridor
 // abilities) AND the viewer's hit-surface overlay (scenes/viewer-scene.ts).
 // Change a shape here once and the damage test + its visualisation both follow.
 //
@@ -18,7 +18,7 @@ import {
   WITCH_HEXBOLT_SPLASH,
 } from "./combat-geometry";
 
-export type HitShape =
+export type HitRegion =
   | { kind: "cone"; radius: number; half: number } // sector from the caster along aim
   | { kind: "corridor"; length: number; halfWidth: number } // rectangle from the caster along aim
   | { kind: "circleSelf"; radius: number } // circle centred on the caster
@@ -30,11 +30,11 @@ const deg2rad = (d: number): number => (d * Math.PI) / 180;
 /** Basic-attack hit shape(s) for a champ — the current swing decides which the
  *  caller shows (melee cleave cone; the spin's `aoe` whirl is a circleSelf).
  *  Ranged basics are a straight fat-line projectile; caster bolts splash. */
-export function basicAttackShape(
+export function basicAttackRegion(
   attackType: "melee" | "ranged",
   attackRange: number,
   basic?: { pierce?: boolean; splash?: number },
-): HitShape {
+): HitRegion {
   return attackType === "melee"
     ? { kind: "cone", radius: attackRange + MELEE_OVERREACH, half: MELEE_HALF_ANGLE }
     : {
@@ -47,9 +47,9 @@ export function basicAttackShape(
 
 /** The hit geometry of an ability at `rank`. [] for pure-utility abilities
  *  (dashes, shields, buffs, stealth). Instant AoE/cone/corridor shapes are also
- *  consumed by the sim via targetsInShape; projectiles/zones use their own
+ *  consumed by the sim via targetsInRegion; projectiles/zones use their own
  *  systems but their AREA is described here for the overlay. */
-export function abilityShapes(def: AbilityDef, rank: number): HitShape[] {
+export function abilityRegions(def: AbilityDef, rank: number): HitRegion[] {
   const v = (f: string): number => valAt(def.values[f], rank);
   switch (def.effect) {
     // frontal cones

@@ -37,7 +37,7 @@ export function energyBallMaterial(color: number): THREE.ShaderMaterial {
     depthWrite: false,
     blending: THREE.AdditiveBlending,
     uniforms: {
-      uTime: CLOCK as { value: number },
+      uTime: CLOCK,
       uColor: { value: new THREE.Color(color) },
     },
     vertexShader: /* glsl */ `
@@ -176,7 +176,7 @@ export function makeCrackMaterial(): THREE.ShaderMaterial {
     blending: THREE.NormalBlending,
     side: THREE.DoubleSide,
     uniforms: {
-      uTime: CLOCK as { value: number },
+      uTime: CLOCK,
       uColor: { value: new THREE.Color(0xff8040) }, // hot seam
       uT: { value: 0 }, // life progress 0→1
       uSeed: { value: 0 },
@@ -233,7 +233,7 @@ export function makeRuneMaterial(color: number): THREE.ShaderMaterial {
     blending: THREE.AdditiveBlending,
     side: THREE.DoubleSide,
     uniforms: {
-      uTime: CLOCK as { value: number },
+      uTime: CLOCK,
       uColor: { value: new THREE.Color(color) },
       uAlpha: { value: 1 },
     },
@@ -271,7 +271,7 @@ export function makeVortexMaterial(color: number, upward = false): THREE.ShaderM
     blending: THREE.AdditiveBlending,
     side: THREE.DoubleSide,
     uniforms: {
-      uTime: CLOCK as { value: number },
+      uTime: CLOCK,
       uColor: { value: new THREE.Color(color) },
       uAlpha: { value: 1 },
       uUp: { value: upward ? 1 : 0 },

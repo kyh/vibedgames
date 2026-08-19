@@ -5,6 +5,7 @@
 // client; in offline modes a localStorage draft (the editor's TEST loop) takes
 // precedence. Colliders are SIM state — online play only ever loads the
 // bundled file so every client simulates the same arena.
+import { isJsonNumber, isJsonObject, isJsonString, type JsonValue } from "./json";
 import { clampToArena } from "./map";
 
 /** Render-only prop placement (mirrors decor.ts's Decor shape). */
@@ -110,33 +111,25 @@ const MAX_FLOOR_CELLS = 4096;
 // trophies) legitimately sits a little proud of the playable boundary
 const POS_MARGIN = -3;
 
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null;
-}
-
-function isFiniteNumber(v: unknown): v is number {
-  return typeof v === "number" && Number.isFinite(v);
-}
-
 function clampNum(v: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, v));
 }
 
-function parseProp(v: unknown): MapProp | null {
-  if (!isRecord(v)) return null;
+function parseProp(v: JsonValue): MapProp | null {
+  if (!isJsonObject(v)) return null;
   const model = v["model"];
-  if (typeof model !== "string" || model.length === 0 || model.length > 64) return null;
+  if (!isJsonString(model) || model.length === 0 || model.length > 64) return null;
   if (
-    !isFiniteNumber(v["x"]) ||
-    !isFiniteNumber(v["y"]) ||
-    !isFiniteNumber(v["rot"]) ||
-    !isFiniteNumber(v["scale"])
+    !isJsonNumber(v["x"]) ||
+    !isJsonNumber(v["y"]) ||
+    !isJsonNumber(v["rot"]) ||
+    !isJsonNumber(v["scale"])
   )
     return null;
   const lie = v["lie"];
-  if (lie !== undefined && typeof lie !== "boolean") return null;
+  if (lie !== undefined && lie !== true && lie !== false) return null;
   const h = v["h"];
-  if (h !== undefined && !isFiniteNumber(h)) return null;
+  if (h !== undefined && !isJsonNumber(h)) return null;
   const pos = clampToArena(v["x"], v["y"], POS_MARGIN);
   const out: MapProp = {
     model,
@@ -150,17 +143,17 @@ function parseProp(v: unknown): MapProp | null {
   return out;
 }
 
-function parseCollider(v: unknown): MapCollider | null {
-  if (!isRecord(v)) return null;
+function parseCollider(v: JsonValue): MapCollider | null {
+  if (!isJsonObject(v)) return null;
   if (
-    !isFiniteNumber(v["x"]) ||
-    !isFiniteNumber(v["y"]) ||
-    !isFiniteNumber(v["radius"]) ||
-    !isFiniteNumber(v["height"])
+    !isJsonNumber(v["x"]) ||
+    !isJsonNumber(v["y"]) ||
+    !isJsonNumber(v["radius"]) ||
+    !isJsonNumber(v["height"])
   )
     return null;
   const model = v["model"];
-  if (model !== undefined && (typeof model !== "string" || model.length === 0 || model.length > 64))
+  if (model !== undefined && (!isJsonString(model) || model.length === 0 || model.length > 64))
     return null;
   const pos = clampToArena(v["x"], v["y"], POS_MARGIN);
   const out: MapCollider = {
@@ -173,16 +166,16 @@ function parseCollider(v: unknown): MapCollider | null {
   return out;
 }
 
-function isFloorType(v: unknown): v is FloorType {
-  return typeof v === "string" && (FLOOR_TYPES as readonly string[]).includes(v);
+function isFloorType(v: JsonValue | undefined): v is FloorType {
+  return FLOOR_TYPES.some((t) => t === v);
 }
 
 /** Snap to the 4u tile grid the floor builder walks. */
 const snapCell = (v: number): number => Math.round(v / 4) * 4;
 
-function parseFloorCell(v: unknown): MapFloorCell | null {
-  if (!isRecord(v)) return null;
-  if (!isFiniteNumber(v["x"]) || !isFiniteNumber(v["y"]) || !isFloorType(v["t"])) return null;
+function parseFloorCell(v: JsonValue): MapFloorCell | null {
+  if (!isJsonObject(v)) return null;
+  if (!isJsonNumber(v["x"]) || !isJsonNumber(v["y"]) || !isFloorType(v["t"])) return null;
   return {
     x: snapCell(clampNum(v["x"], -200, 200)),
     y: snapCell(clampNum(v["y"], -200, 200)),
@@ -194,15 +187,15 @@ function parseFloorCell(v: unknown): MapFloorCell | null {
  *  types, clamps numeric ranges, and clamps positions into the hex (+apron).
  *  Strict per-entry — one malformed prop rejects the whole map, so a bad file
  *  falls back to the procedural arena instead of half-loading. */
-export function parseMapData(raw: unknown): MapData | null {
-  if (!isRecord(raw)) return null;
+export function parseMapData(raw: JsonValue): MapData | null {
+  if (!isJsonObject(raw)) return null;
   if (raw["version"] !== 1) return null;
   const rawProps = raw["props"];
   const rawColliders = raw["colliders"];
   if (!Array.isArray(rawProps) || !Array.isArray(rawColliders)) return null;
   if (rawProps.length > MAX_PROPS || rawColliders.length > MAX_COLLIDERS) return null;
-  const propList: unknown[] = rawProps;
-  const colliderList: unknown[] = rawColliders;
+  const propList = rawProps;
+  const colliderList = rawColliders;
   const props: MapProp[] = [];
   for (const p of propList) {
     const parsed = parseProp(p);
@@ -220,7 +213,7 @@ export function parseMapData(raw: unknown): MapData | null {
   const rawFloor = raw["floor"];
   if (rawFloor !== undefined) {
     if (!Array.isArray(rawFloor) || rawFloor.length > MAX_FLOOR_CELLS) return null;
-    const floorList: unknown[] = rawFloor;
+    const floorList = rawFloor;
     const floor: MapFloorCell[] = [];
     for (const f of floorList) {
       const parsed = parseFloorCell(f);

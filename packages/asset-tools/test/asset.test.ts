@@ -6,6 +6,7 @@ import { basename, join } from "node:path";
 import { test } from "node:test";
 
 import { getAll, getFlag, getString, parseArgs } from "../src/args.js";
+import { isJsonObject, type JsonValue } from "../src/asset/json.js";
 import { LuaParseError, parseLua } from "../src/asset/lua.js";
 import { checkManifest, exportManifest } from "../src/asset/manifest.js";
 import { parseFrame, prettyPath, walkFiles } from "../src/asset/paths.js";
@@ -17,6 +18,7 @@ import { createZip } from "../src/skill/zip.js";
 import { frameGeometry, runQc } from "../src/sprite/qc.js";
 import {
   cellSizeOf,
+  DEFAULT_TOLERANCES,
   FRAME_HEIGHT,
   FRAME_WIDTH,
   loadSizeContract,
@@ -32,6 +34,17 @@ import { roundHalfToEven } from "../src/pymath.js";
 
 function workspace(): string {
   return mkdtempSync(join(tmpdir(), "vg-asset-"));
+}
+
+/** Narrow a parsed manifest value to a table, failing the test loudly otherwise. */
+function asTable(value: JsonValue | undefined) {
+  if (!isJsonObject(value)) throw new Error(`expected a table, got ${JSON.stringify(value)}`);
+  return value;
+}
+
+function asList(value: JsonValue | undefined) {
+  if (!Array.isArray(value)) throw new Error(`expected a list, got ${JSON.stringify(value)}`);
+  return value;
 }
 
 /**
@@ -255,13 +268,13 @@ test("parses Lua manifests into JSON-shaped data", () => {
       escaped = "a\\tb",
     }
   `);
-  const root = parsed as Record<string, unknown>;
+  const root = asTable(parsed);
   assert.deepEqual(root.meta, { root: "assets", version: 2 });
   // 1..n keys collapse to an array; a gap keeps it an object.
   assert.ok(Array.isArray(root.sprites));
   assert.deepEqual(root.flags, [true, false, null]);
   assert.equal(root.escaped, "a\tb");
-  assert.equal((root as Record<string, unknown>)["3"], "sparse");
+  assert.equal(root["3"], "sparse");
 });
 
 test("reports Lua syntax errors instead of silently returning junk", () => {
@@ -282,8 +295,8 @@ test("manifest-export renames terse keys and rebases paths", () => {
   );
   buildSheet(join(dir, "hero.png"), 1, 1, 8);
 
-  const exported = exportManifest(manifest, true) as Record<string, unknown>;
-  const sprite = (exported.sprites as Record<string, unknown>[])[0]!;
+  const exported = asTable(exportManifest(manifest, true));
+  const sprite = asTable(asList(exported.sprites)[0]);
   assert.deepEqual(Object.keys(sprite).sort(), [
     "frameHeight",
     "frameWidth",
@@ -294,11 +307,7 @@ test("manifest-export renames terse keys and rebases paths", () => {
     "width",
   ]);
   assert.equal(sprite.path, "hero.png", "path rebased onto the manifest folder");
-  assert.equal(
-    (exported.meta as Record<string, unknown>).root,
-    ".",
-    "root reset once paths are relative",
-  );
+  assert.equal(asTable(exported.meta).root, ".", "root reset once paths are relative");
 });
 
 test("manifest-check separates undeclared art from missing art", () => {
@@ -364,14 +373,14 @@ test("manifest-export resolves relative paths through meta.root, not the cwd", (
      }`,
   );
 
-  const exported = exportManifest(manifest, true) as Record<string, unknown>;
-  const desert = (exported.tilesets as Record<string, Record<string, unknown>>).desert!;
+  const exported = asTable(exportManifest(manifest, true));
+  const desert = asTable(asTable(exported.tilesets).desert);
   assert.equal(
     desert.path,
     "assets/Tilesets/desert.png",
     "meta.root is folded into the path, so root can become '.'",
   );
-  assert.equal((exported.meta as Record<string, unknown>).root, ".");
+  assert.equal(asTable(exported.meta).root, ".");
 });
 
 test("manifest-export rebases onto the output folder when one is given", () => {
@@ -385,11 +394,8 @@ test("manifest-export rebases onto the output folder when one is given", () => {
     `return { meta = { root = "assets" }, sprites = { { path = "hero.png" } } }`,
   );
 
-  const exported = exportManifest(manifest, true, join(dir, "tmp", "assets_index.json")) as Record<
-    string,
-    unknown
-  >;
-  const sprite = (exported.sprites as Record<string, unknown>[])[0]!;
+  const exported = asTable(exportManifest(manifest, true, join(dir, "tmp", "assets_index.json")));
+  const sprite = asTable(asList(exported.sprites)[0]);
   assert.equal(sprite.path, "../assets/hero.png", "relative to the output folder, as documented");
 });
 
@@ -589,7 +595,7 @@ test("a non-object tolerances is rejected rather than spread", () => {
     { kind: "sprite-size-contract", tolerances: { visibleHeightPx: 9 } },
     "c.json",
   );
-  assert.equal((merged.tolerances as Record<string, number>).visibleHeightPx, 9);
+  assert.deepEqual(merged.tolerances, { ...DEFAULT_TOLERANCES, visibleHeightPx: 9 });
 });
 
 test("cellSizeOf falls back rather than producing NaN", () => {

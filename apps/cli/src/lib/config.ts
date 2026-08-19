@@ -2,6 +2,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import { isJsonObject, isJsonString, type JsonValue } from "./types.js";
+
 type Config = {
   token: string;
   baseUrl: string;
@@ -20,11 +22,18 @@ function getConfigPath(): string {
 export function getConfig(): Config | null {
   const path = getConfigPath();
   if (!existsSync(path)) return null;
+  let raw: JsonValue;
   try {
-    return JSON.parse(readFileSync(path, "utf-8")) as Config;
+    raw = JSON.parse(readFileSync(path, "utf-8"));
   } catch {
     return null;
   }
+  // auth.json is only ever written by saveConfig, so both fields are present
+  // in practice; a hand-corrupted file reads as "not logged in".
+  if (!isJsonObject(raw)) return null;
+  const { token, baseUrl } = raw;
+  if (!isJsonString(token) || !isJsonString(baseUrl)) return null;
+  return { token, baseUrl };
 }
 
 export function saveConfig(config: Config): void {

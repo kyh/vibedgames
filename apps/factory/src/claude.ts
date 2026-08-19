@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 
+import { asJsonObject, asString, asNumber, isJsonString, parseJson } from "./json.ts";
+import type { JsonObject, JsonValue } from "./json.ts";
 import type { Activity } from "./reporter.ts";
 import type { RunOptions, RunResult } from "./runner.ts";
 
@@ -123,7 +125,7 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
     // accepts the literal "1" (a stray IS_SANDBOX=yes in the env still gets
     // rejected), so force that value rather than preserving whatever's there.
     const env: NodeJS.ProcessEnv = { ...process.env };
-    const isRoot = typeof process.getuid === "function" && process.getuid() === 0;
+    const isRoot = process.getuid?.() === 0;
     if (opts.skipPermissions && isRoot && env.IS_SANDBOX !== "1") {
       env.IS_SANDBOX = "1";
     }
@@ -170,12 +172,8 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
       pokeIdle(); // any output is a sign of life
       const trimmed = line.trim();
       if (!trimmed) return;
-      let evt: StreamEvent;
-      try {
-        evt = JSON.parse(trimmed) as StreamEvent;
-      } catch {
-        return; // ignore non-JSON noise
-      }
+      const evt = parseStreamEvent(trimmed);
+      if (evt === null) return; // ignore non-JSON noise and unknown event types
       emitActivity(opts.onActivity, evt);
       if (evt.type === "system" && evt.subtype === "init" && evt.session_id) {
         sessionId = evt.session_id;
@@ -193,7 +191,7 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
         if (sessionTimer) clearTimeout(sessionTimer);
         final = {
           ok: evt.subtype === "success" && !evt.is_error,
-          result: typeof evt.result === "string" ? evt.result : "",
+          result: evt.result ?? "",
           sessionId: evt.session_id ?? sessionId,
           costUsd: evt.total_cost_usd,
           numTurns: evt.num_turns,
@@ -254,7 +252,7 @@ function describeError(
   stderr: string,
 ): string {
   const parts: string[] = [];
-  if (typeof evt.result === "string" && evt.result.trim()) parts.push(evt.result.trim());
+  if (evt.result?.trim()) parts.push(evt.result.trim());
   else if (evt.subtype && evt.subtype !== "success") parts.push(`agent error (${evt.subtype})`);
   else parts.push("agent reported an error");
   if (lastText) parts.push(`last agent message: "${clip(lastText, 400)}"`);
@@ -270,8 +268,8 @@ const clip = (s: string, n: number): string => {
 
 type StreamEvent =
   | { type: "system"; subtype?: string; model?: string; tools?: string[]; session_id?: string }
-  | { type: "assistant"; message?: { content?: ContentBlock[] } }
-  | { type: "user"; message?: { content?: ContentBlock[] } }
+  | { type: "assistant"; message?: { content: ContentBlock[] } }
+  | { type: "user"; message?: { content: ContentBlock[] } }
   | {
       type: "result";
       subtype?: string;
@@ -282,10 +280,62 @@ type StreamEvent =
       num_turns?: number;
     };
 
+// tool_result blocks carry nothing this view renders, so decoding drops them.
 type ContentBlock =
   | { type: "text"; text?: string }
-  | { type: "tool_use"; name?: string; input?: Record<string, unknown> }
-  | { type: "tool_result"; [k: string]: unknown };
+  | { type: "tool_use"; name?: string; input?: JsonObject };
+
+/**
+ * Decode one stream-json line into a typed event at the process boundary —
+ * the CLI's output is untrusted bytes until each used field is validated.
+ * Null for non-JSON noise and event types this view doesn't consume.
+ */
+function parseStreamEvent(text: string): StreamEvent | null {
+  const evt = asJsonObject(parseJson(text));
+  if (!evt) return null;
+  switch (evt.type) {
+    case "system":
+      return {
+        type: "system",
+        subtype: asString(evt.subtype),
+        model: asString(evt.model),
+        tools: Array.isArray(evt.tools) ? evt.tools.filter(isJsonString) : undefined,
+        session_id: asString(evt.session_id),
+      };
+    case "assistant":
+    case "user":
+      return { type: evt.type, message: parseMessage(evt.message) };
+    case "result":
+      return {
+        type: "result",
+        subtype: asString(evt.subtype),
+        is_error: evt.is_error === true,
+        result: asString(evt.result),
+        session_id: asString(evt.session_id),
+        total_cost_usd: asNumber(evt.total_cost_usd),
+        num_turns: asNumber(evt.num_turns),
+      };
+    default:
+      return null;
+  }
+}
+
+function parseMessage(value: JsonValue | undefined): { content: ContentBlock[] } | undefined {
+  const message = asJsonObject(value);
+  if (!message) return undefined;
+  const content = Array.isArray(message.content) ? message.content : [];
+  return {
+    content: content.flatMap((block): ContentBlock[] => {
+      const b = asJsonObject(block);
+      if (!b) return [];
+      if (b.type === "text") return [{ type: "text", text: asString(b.text) }];
+      if (b.type === "tool_use") {
+        return [{ type: "tool_use", name: asString(b.name), input: asJsonObject(b.input) }];
+      }
+      return [];
+    }),
+  };
+}
 
 /** Decode a stream-json event into the Activity view the reporter renders. */
 function emitActivity(onActivity: (activity: Activity) => void, evt: StreamEvent): void {
@@ -308,10 +358,10 @@ function emitActivity(onActivity: (activity: Activity) => void, evt: StreamEvent
   }
 }
 
-function summarizeTool(input?: Record<string, unknown>): string {
+function summarizeTool(input?: JsonObject): string {
   if (!input) return "";
   const cmd = input.command ?? input.file_path ?? input.path ?? input.pattern ?? input.prompt;
-  if (typeof cmd !== "string") return "";
+  if (!isJsonString(cmd)) return "";
   const oneLine = cmd.replace(/\s+/g, " ").trim();
   return oneLine.length > 80 ? `${oneLine.slice(0, 80)}…` : oneLine;
 }

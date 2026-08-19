@@ -15,6 +15,9 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { asJsonObject, isJsonString } from "../src/json.ts";
+import type { JsonValue } from "../src/json.ts";
+
 type Target = {
   os: "darwin" | "linux" | "win32";
   cpu: "x64" | "arm64";
@@ -42,16 +45,11 @@ if (targets.length === 0) {
 const rootDir = join(import.meta.dirname, "..");
 const outDir = join(rootDir, "dist", "npm");
 
-const manifest: unknown = JSON.parse(readFileSync(join(rootDir, "package.json"), "utf8"));
-if (
-  typeof manifest !== "object" ||
-  manifest === null ||
-  !("version" in manifest) ||
-  typeof manifest.version !== "string"
-) {
+const manifest: JsonValue = JSON.parse(readFileSync(join(rootDir, "package.json"), "utf8"));
+const version = asJsonObject(manifest)?.version;
+if (!isJsonString(version)) {
   throw new Error("apps/factory/package.json is missing a string version");
 }
-const { version } = manifest;
 const description = "vibedgames factory — an autonomous agent that builds and runs browser games";
 
 rmSync(outDir, { recursive: true, force: true });

@@ -41,12 +41,12 @@ const BUS_GAIN = 0.32; // musicBus baseline (duck target 0.19, restored +0.4s)
 
 type LayerName = "drone" | "pulse" | "kit" | "lead";
 const LAYER_NAMES: LayerName[] = ["drone", "pulse", "kit", "lead"];
-const LAYER_MIN: Record<LayerName, number> = { drone: 0, pulse: 1, kit: 1, lead: 2 };
+const LAYER_MIN = { drone: 0, pulse: 1, kit: 1, lead: 2 } satisfies Record<LayerName, number>;
 
 export class Music {
   private gains: Record<LayerName, GainNode> | null = null;
-  private targets: Record<LayerName, number> = { drone: 1, pulse: 0, kit: 0, lead: 0 };
-  private fadeEnds: Record<LayerName, number> = { drone: 0, pulse: 0, kit: 0, lead: 0 };
+  private targets = { drone: 1, pulse: 0, kit: 0, lead: 0 } satisfies Record<LayerName, number>;
+  private fadeEnds = { drone: 0, pulse: 0, kit: 0, lead: 0 } satisfies Record<LayerName, number>;
   private droneOscs: OscillatorNode[] = [];
   private noiseBuf: AudioBuffer | null = null;
   private timer: number | null = null;
@@ -67,12 +67,12 @@ export class Music {
     this.running = true;
     this.ensureNoise();
     const t = this.ctx.currentTime;
-    const gains: Record<LayerName, GainNode> = {
+    const gains = {
       drone: this.ctx.createGain(),
       pulse: this.ctx.createGain(),
       kit: this.ctx.createGain(),
       lead: this.ctx.createGain(),
-    };
+    } satisfies Record<LayerName, GainNode>;
     for (const name of LAYER_NAMES) {
       gains[name].gain.value = this.targets[name];
       gains[name].connect(this.bus);

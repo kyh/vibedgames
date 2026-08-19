@@ -191,7 +191,8 @@ export function attachVirtualGamepad(
  */
 export function cameraView(camera: Phaser.Cameras.Scene2D.Camera): CameraView {
   const probe: object = camera;
-  const rotation = "rotation" in probe && typeof probe.rotation === "number" ? probe.rotation : 0;
+  const raw = "rotation" in probe ? Number(probe.rotation) : 0;
+  const rotation = Number.isFinite(raw) ? raw : 0;
   return {
     width: camera.width,
     height: camera.height,

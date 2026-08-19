@@ -61,6 +61,7 @@ import {
   WORLD_HALF_Z,
   WORLD_W,
 } from "../shared/constants";
+import { isJsonString, parseJsonText } from "../shared/json";
 import type { GameMode } from "../shared/types";
 import { STAGE_MARGIN } from "../trailer/scout";
 import { GaragePreview } from "../ui/garage-preview";
@@ -1232,7 +1233,12 @@ vec3 ocGerstner(vec2 p, float t) {
     this.hud.setOperator(skinById(this.skinId).label, skinById(this.skinId).accent);
     try {
       const raw = storageGet("crazy-waymo:skins-owned");
-      if (raw) for (const id of JSON.parse(raw) as string[]) this.ownedSkins.add(id);
+      if (raw) {
+        const parsed = parseJsonText(raw);
+        if (Array.isArray(parsed)) {
+          for (const id of parsed) if (isJsonString(id)) this.ownedSkins.add(id);
+        }
+      }
     } catch {
       // corrupt storage — start with the default fleet
     }
@@ -1541,13 +1547,7 @@ vec3 ocGerstner(vec2 p, float t) {
 
   // A random spot ON a network edge (off the map rim), nose along the street
   // — every run starts in a fresh neighborhood, always on real asphalt.
-  private computeSpawn(city: CityModel): {
-    x: number;
-    z: number;
-    yaw: number;
-    gx: number;
-    gz: number;
-  } {
+  private computeSpawn(city: CityModel) {
     const edges = city.network.edges;
     for (let attempt = 0; attempt < 32; attempt++) {
       const e = edges[Math.floor(Math.random() * edges.length)];
@@ -2336,7 +2336,7 @@ vec3 ocGerstner(vec2 p, float t) {
           x: g.padX,
           z: g.padZ,
           color: "#ffa63d",
-          shape: "square",
+          glyph: "square",
           edgeClamp: g === nearest,
         });
       }
@@ -2346,7 +2346,7 @@ vec3 ocGerstner(vec2 p, float t) {
     for (const [id, p] of Object.entries(this.net.players)) {
       if (id === this.net.playerId) continue;
       const t = readTransform(p.state);
-      if (t) markers.push({ x: t.x, z: t.z, color: "#ffffff", shape: "player" });
+      if (t) markers.push({ x: t.x, z: t.z, color: "#ffffff", glyph: "player" });
     }
     const carrying = fares.carryingInfo();
     if (carrying) {

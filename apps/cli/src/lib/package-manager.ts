@@ -56,7 +56,7 @@ export function detectPackageManager(
     if (signature.test(installPath)) return manager;
   }
   // Bun reports itself in versions; running under it means `bun add` works.
-  if (typeof (globalThis as { Bun?: unknown }).Bun !== "undefined") return "bun";
+  if ("Bun" in globalThis) return "bun";
   return fromUserAgent(env.npm_config_user_agent) ?? "npm";
 }
 

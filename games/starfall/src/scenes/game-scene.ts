@@ -576,16 +576,14 @@ function emptyShared(): SharedState {
   };
 }
 
-function isShared(v: unknown): v is SharedState {
-  return (
-    typeof v === "object" && v !== null && Array.isArray((v as { asteroids?: unknown }).asteroids)
-  );
+function isShared(v: MultiplayerClient["sharedState"]): v is SharedState {
+  return Array.isArray(v["asteroids"]);
 }
 
 /** A SharedState as a shallow-merge patch object — field by field, no cast.
  *  Quantized at this boundary (shared/wire.ts): the working copy keeps full
  *  precision; only the serialized snapshot is rounded. */
-function sharedToPatch(s: SharedState): Record<string, unknown> {
+function sharedToPatch(s: SharedState) {
   return {
     asteroids: s.asteroids.map(asteroidToWire),
     ufo: s.ufo ? ufoToWire(s.ufo) : null,
@@ -620,7 +618,7 @@ export class GameScene extends Phaser.Scene {
    * motion smooth at 60fps despite the 20Hz wire rate.
    */
   private world: SharedState = emptyShared();
-  private lastSharedRef: unknown = null;
+  private lastSharedRef: MultiplayerClient["sharedState"] | null = null;
 
   // my ship + weapon
   private spawned = false;
@@ -728,7 +726,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   /** Events loop straight back into the local host when offline. */
-  private netSendEvent(event: string, payload: Record<string, unknown>): void {
+  private netSendEvent(event: string, payload: WireRecord): void {
     if (this.offline) this.handleEvent(event, payload, "solo");
     else this.client.sendEvent(event, payload);
   }
@@ -833,7 +831,7 @@ export class GameScene extends Phaser.Scene {
   private debuted = new Set<EnemyKind>();
   private debutSuppressUntil = 0;
   /** Per-class pity counters (host-local, lost on migration — acceptable). */
-  private lootPity: Record<LootClass, number> = { shield: 0, booster: 0, weapon: 0 };
+  private lootPity = { shield: 0, booster: 0, weapon: 0 } satisfies Record<LootClass, number>;
   /** BEACON cadence clock (host-local): last beacon START. A promoted host
    *  re-derives it from a live beacon's timestamps, or stamps `now` when none
    *  is live (worst case one trough of extra delay after a migration). */
@@ -3334,7 +3332,7 @@ export class GameScene extends Phaser.Scene {
     this.deathCause = cause;
     const count = (this.deathCounts.get(cause) ?? 0) + 1;
     this.deathCounts.set(cause, count);
-    this.deathHint = count >= 3 ? (DEATH_HINTS[cause] ?? "") : "";
+    this.deathHint = count >= 3 ? (DEATH_HINTS.get(cause) ?? "") : "";
     const myId = this.myId;
     if (killerId && myId) {
       this.netSendEvent("player_killed", { killerId, victimId: myId, cause });
@@ -3573,8 +3571,8 @@ export class GameScene extends Phaser.Scene {
 
   // ---- connection callbacks ----------------------------------------------------
 
-  private handleEvent(event: string, payload: unknown, _from: string): void {
-    const p = asRecord(payload);
+  private handleEvent(event: string, payload: WireValue, _from: string): void {
+    const p = asWireRecord(payload);
     if (event === "player_killed") {
       // The killer awards itself: every client hears the victim's report.
       if (p && p["killerId"] === this.myId) {
@@ -3584,41 +3582,41 @@ export class GameScene extends Phaser.Scene {
     }
     if (!this.amHost || !p) return;
     if (event === "asteroid_hit") {
-      const id = p["asteroidId"];
-      const damage = p["damage"];
-      if (typeof id === "string" && typeof damage === "number") {
+      const id = wireStr(p["asteroidId"]);
+      const damage = wireNum(p["damage"]);
+      if (id !== null && damage !== null) {
         this.hostDamageAsteroid(id, damage);
       }
     } else if (event === "ufo_hit") {
-      const damage = p["damage"];
-      if (typeof damage === "number") this.hostDamageUfo(damage);
+      const damage = wireNum(p["damage"]);
+      if (damage !== null) this.hostDamageUfo(damage);
     } else if (event === "enemy_hit") {
-      const id = p["enemyId"];
-      const damage = p["damage"];
-      if (typeof id === "string" && typeof damage === "number") {
-        const kx = typeof p["kx"] === "number" ? p["kx"] : 0;
-        const ky = typeof p["ky"] === "number" ? p["ky"] : 0;
+      const id = wireStr(p["enemyId"]);
+      const damage = wireNum(p["damage"]);
+      if (id !== null && damage !== null) {
+        const kx = wireNum(p["kx"]) ?? 0;
+        const ky = wireNum(p["ky"]) ?? 0;
         this.hostDamageEnemy(id, damage, kx, ky);
       }
     } else if (event === "proj_consumed") {
-      const id = p["shotId"];
-      if (typeof id !== "string") return;
+      const id = wireStr(p["shotId"]);
+      if (id === null) return;
       const idx = this.world.enemyShots.findIndex((s) => s.id === id);
       if (idx !== -1) {
         this.world.enemyShots.splice(idx, 1);
         this.dirty.enemyShots = true;
       }
     } else if (event === "item_pickup") {
-      const id = p["itemId"];
-      if (typeof id !== "string") return;
+      const id = wireStr(p["itemId"]);
+      if (id === null) return;
       const idx = this.world.items.findIndex((it) => it.id === id);
       if (idx !== -1) {
         this.world.items.splice(idx, 1);
         this.dirty.items = true;
       }
     } else if (event === "shard_pickup") {
-      const id = p["shardId"];
-      if (typeof id !== "string") return;
+      const id = wireStr(p["shardId"]);
+      if (id === null) return;
       const idx = this.world.shards.findIndex((s) => s.id === id);
       if (idx !== -1) {
         this.world.shards.splice(idx, 1);
@@ -3627,10 +3625,10 @@ export class GameScene extends Phaser.Scene {
     } else if (event === "singularity") {
       // SINGULARITY collapse: one shared pull entry; hostApplyPulls drags
       // enemies/asteroids until it expires (pruned in hostTick).
-      const x = p["x"];
-      const y = p["y"];
-      const until = p["until"];
-      if (typeof x === "number" && typeof y === "number" && typeof until === "number") {
+      const x = wireNum(p["x"]);
+      const y = wireNum(p["y"]);
+      const until = wireNum(p["until"]);
+      if (x !== null && y !== null && until !== null) {
         this.world.pulls.push({ id: entityId(), x, y, until });
         this.dirty.pulls = true;
       }
@@ -3694,13 +3692,13 @@ export class GameScene extends Phaser.Scene {
     const s = this.shared();
     if (!s) return;
     const w = this.world;
-    if (typeof s.arenaEpoch === "number") w.arenaEpoch = s.arenaEpoch;
+    if (Number.isFinite(s.arenaEpoch)) w.arenaEpoch = s.arenaEpoch;
     // Boss-guarantee marker (dir-006): adopt like the epoch so a promoted
     // host never double-guarantees. Legacy snapshots omit it → keep local.
-    if (typeof s.sectorBossIdx === "number") w.sectorBossIdx = s.sectorBossIdx;
+    if (Number.isFinite(s.sectorBossIdx)) w.sectorBossIdx = s.sectorBossIdx;
     // Clamp to valid bounds — never trust an out-of-range value from the host.
-    if (typeof s.playW === "number") w.playW = Phaser.Math.Clamp(s.playW, BASE_WORLD_W, WORLD_W);
-    if (typeof s.playH === "number") w.playH = Phaser.Math.Clamp(s.playH, BASE_WORLD_H, WORLD_H);
+    if (Number.isFinite(s.playW)) w.playW = Phaser.Math.Clamp(s.playW, BASE_WORLD_W, WORLD_W);
+    if (Number.isFinite(s.playH)) w.playH = Phaser.Math.Clamp(s.playH, BASE_WORLD_H, WORLD_H);
 
     const localAsteroids = indexById(w.asteroids);
     const asteroidIds = new Set<string>();
@@ -3979,7 +3977,7 @@ export class GameScene extends Phaser.Scene {
     this.shareAcc = 0;
     // Quantize at the serialization boundary (shared/wire.ts) — the working
     // arrays keep full precision, only the outgoing snapshot is rounded.
-    const patch: Record<string, unknown> = {};
+    const patch: Partial<ReturnType<typeof sharedToPatch>> = {};
     if (d.asteroids) patch["asteroids"] = w.asteroids.map(asteroidToWire);
     if (d.ufo) patch["ufo"] = w.ufo ? ufoToWire(w.ufo) : null;
     if (d.items) patch["items"] = w.items.map(itemToWire);
@@ -4320,7 +4318,7 @@ export class GameScene extends Phaser.Scene {
    *  A Lv1 room pays exactly the pre-retune numbers by construction. */
   private enemyKillXp(kind: EnemyKind): number {
     const base = ENEMY_SPECS[kind].xp;
-    if (ELITE_HP_BASE[kind] === undefined) return base;
+    if (!ELITE_HP_BASE.has(kind)) return base;
     return Math.round(base * eliteHpMult(this.maxPresentLevel()));
   }
 
@@ -4408,7 +4406,7 @@ export class GameScene extends Phaser.Scene {
     // qa-018: elites are stamped to the room's beam-DPS ceiling at spawn (the
     // exact bossHp pattern). Stamped ONCE — leveling never retro-buffs a live
     // elite. Fodder, sniper and the boss keep their spec hp.
-    if (ELITE_HP_BASE[kind] !== undefined) {
+    if (ELITE_HP_BASE.has(kind)) {
       e.hp = eliteHp(kind, this.maxPresentLevel());
       e.maxHp = e.hp;
     }
@@ -6038,9 +6036,9 @@ export class GameScene extends Phaser.Scene {
     }
     const targets: PipTarget[] = [];
     const b = this.world.beacon;
-    if (b && now < b.diesAt) targets.push({ x: b.x, y: b.y, tint: BEACON_TINT, shape: "diamond" });
+    if (b && now < b.diesAt) targets.push({ x: b.x, y: b.y, tint: BEACON_TINT, glyph: "diamond" });
     const u = this.world.ufo;
-    if (u) targets.push({ x: u.x, y: u.y, tint: 0xffffff, shape: "circle", blink: true });
+    if (u) targets.push({ x: u.x, y: u.y, tint: 0xffffff, glyph: "circle", blink: true });
     const tSec = Math.max(0, (now - this.world.arenaEpoch) / 1000);
     if (tSec < EARLY_SPAWN_WINDOW_S && this.world.enemies.length > 0) {
       const view = this.cameras.main.worldView;
@@ -6054,7 +6052,7 @@ export class GameScene extends Phaser.Scene {
             Math.hypot(z.x - this.shipX, z.y - this.shipY),
         );
         for (const e of byDist.slice(0, DEBUT_PIP_MAX)) {
-          targets.push({ x: e.x, y: e.y, tint: ENEMY_SHOT_TINT, shape: "triangle" });
+          targets.push({ x: e.x, y: e.y, tint: ENEMY_SHOT_TINT, glyph: "triangle" });
         }
       }
     }
@@ -6906,7 +6904,7 @@ export class GameScene extends Phaser.Scene {
         if (kind === "dreadnought") {
           e.hp = bossHp(Math.max(1, Object.keys(this.peers).length));
           e.maxHp = e.hp;
-        } else if (ELITE_HP_BASE[kind] !== undefined) {
+        } else if (ELITE_HP_BASE.has(kind)) {
           e.hp = eliteHp(kind, this.maxPresentLevel());
           e.maxHp = e.hp;
         }
@@ -6988,7 +6986,7 @@ export class GameScene extends Phaser.Scene {
       spawnEnemy: (kind: EnemyKind, x?: number, y?: number): string | null => {
         if (!this.amHost) return null;
         const e = spawnEnemyState(kind, x ?? this.shipX + 320, y ?? this.shipY);
-        if (ELITE_HP_BASE[kind] !== undefined) {
+        if (ELITE_HP_BASE.has(kind)) {
           e.hp = eliteHp(kind, this.maxPresentLevel());
           e.maxHp = e.hp;
         }
@@ -7039,10 +7037,9 @@ export class GameScene extends Phaser.Scene {
       damage: (amount: number): string =>
         this.applyDamage(amount, this.shipX + 12, this.shipY, "DEV", null, simNow()),
       grantWeapon: (ref: number | string): void => {
-        const weapon =
-          typeof ref === "number"
-            ? WEAPONS_SPECIAL[ref]
-            : WEAPONS_SPECIAL.find((w) => w.name === ref);
+        // One pass covers both call shapes: a number ref matches its index
+        // (never a name), a string ref matches its name (never an index).
+        const weapon = WEAPONS_SPECIAL.find((w, i) => w.name === ref || i === ref);
         if (!weapon) return;
         this.specialBase = weapon;
         this.weapon = scaleWeaponForLevel(weapon, this.level);
@@ -7093,7 +7090,7 @@ export class GameScene extends Phaser.Scene {
       },
       intensity: (): number =>
         arenaIntensity(Math.max(0, (simNow() - this.world.arenaEpoch) / 1000)),
-      summary: (): Record<string, unknown> => ({
+      summary: (): StarfallSummary => ({
         alive: this.alive,
         level: this.level,
         xp: this.xp,
@@ -7132,6 +7129,37 @@ export class GameScene extends Phaser.Scene {
   }
 }
 
+/** Diag snapshot surfaced to headless reviewers via `__starfall.summary()`. */
+type StarfallSummary = {
+  alive: boolean;
+  level: number;
+  xp: number;
+  runXp: number;
+  xpToNext: number;
+  streak: number;
+  weapon: string;
+  weaponUntil: number;
+  windup: number;
+  shieldHp: number;
+  overHp: number;
+  regen: boolean;
+  mod: { kind: ShieldModKind; until: number } | null;
+  boosts: BoostNetState[];
+  mines: number;
+  sentry: { x: number; y: number } | null;
+  pulls: number;
+  enemies: EnemyKind[];
+  enemyShots: number;
+  asteroids: number;
+  items: ItemState["kind"][];
+  shards: number;
+  beams: number;
+  isHost: boolean;
+  intensity: number;
+  now: number;
+  sector: { idx: number; rel: number; score: number; best: number; bossIdx: number };
+};
+
 /** The dev-only driving hooks installed on `window.__starfall` (DEV builds
  *  only — headless reviewers poke the game through these). */
 type StarfallDevHooks = {
@@ -7150,7 +7178,7 @@ type StarfallDevHooks = {
   spawnBeacon: (x?: number, y?: number, chargeS?: number, activeS?: number) => boolean;
   setArenaEpoch: (epochMs: number) => void;
   intensity: () => number;
-  summary: () => Record<string, unknown>;
+  summary: () => StarfallSummary;
 };
 
 declare global {
@@ -7195,17 +7223,19 @@ const GLAIVE_TRI: ReadonlyArray<Vec> = [0, 1, 2].map((i) => {
 });
 
 /** Counter-hints surfaced after 3 deaths to the same cause (≤8 words). */
-const DEATH_HINTS: Record<string, string> = {
-  LANCER: "it can't turn while charging",
-  DRONE: "its shots are slow — sidestep",
-  WASP: "break the orbit before the burst",
-  SPLITTER: "back away when it dies",
-  ASTEROID: "small rocks move fastest",
-  UFO: "shoot it — never touch it",
-  PLAYER: "keep moving, use your drift",
-};
+const DEATH_HINTS: ReadonlyMap<string, string> = new Map([
+  ["LANCER", "it can't turn while charging"],
+  ["DRONE", "its shots are slow — sidestep"],
+  ["WASP", "break the orbit before the burst"],
+  ["SPLITTER", "back away when it dies"],
+  ["ASTEROID", "small rocks move fastest"],
+  ["UFO", "shoot it — never touch it"],
+  ["PLAYER", "keep moving, use your drift"],
+]);
 
-function weaponSound(kind: WeaponSfx): { name: SfxName; gain: number; rate?: number } {
+type WeaponSoundSpec = { name: SfxName; gain: number; rate?: number };
+
+function weaponSound(kind: WeaponSfx): WeaponSoundSpec {
   switch (kind) {
     case "pulse":
       return { name: "fire_pulse", gain: 1 };
@@ -7477,33 +7507,32 @@ function serializeBeam(b: Beam): SerializedBeam {
 function readNetState(player: Player | undefined): PlayerNetState | null {
   const s = player?.state;
   if (!s) return null;
-  const x = s["x"];
-  const y = s["y"];
-  const angle = s["angle"];
-  if (typeof x !== "number" || typeof y !== "number" || typeof angle !== "number") return null;
+  const x = wireNum(s["x"]);
+  const y = wireNum(s["y"]);
+  const angle = wireNum(s["angle"]);
+  if (x === null || y === null || angle === null) return null;
   const beams: SerializedBeam[] = [];
   const raw = s["beams"];
   if (Array.isArray(raw)) {
     for (const entry of raw) {
-      const b = asRecord(entry);
+      const b = asWireRecord(entry);
       if (!b) continue;
-      const hx = b["hx"];
-      const hy = b["hy"];
-      const tx = b["tx"];
-      const ty = b["ty"];
-      const tint = b["tint"];
-      const width = b["width"];
+      const hx = wireNum(b["hx"]);
+      const hy = wireNum(b["hy"]);
+      const tx = wireNum(b["tx"]);
+      const ty = wireNum(b["ty"]);
+      const tint = wireNum(b["tint"]);
+      const width = wireNum(b["width"]);
       if (
-        typeof hx !== "number" ||
-        typeof hy !== "number" ||
-        typeof tx !== "number" ||
-        typeof ty !== "number" ||
-        typeof tint !== "number" ||
-        typeof width !== "number"
+        hx === null ||
+        hy === null ||
+        tx === null ||
+        ty === null ||
+        tint === null ||
+        width === null
       ) {
         continue;
       }
-      const er = b["explosionRadius"];
       const beam: SerializedBeam = {
         hx,
         hy,
@@ -7512,41 +7541,36 @@ function readNetState(player: Player | undefined): PlayerNetState | null {
         tint,
         width,
         exploding: b["exploding"] === true,
-        explosionRadius: typeof er === "number" ? er : 0,
+        explosionRadius: wireNum(b["explosionRadius"]) ?? 0,
       };
       const chainRaw = b["chain"];
       if (Array.isArray(chainRaw)) {
         const pts: Vec[] = [];
         for (const pt of chainRaw) {
-          const r = asRecord(pt);
-          if (r && typeof r["x"] === "number" && typeof r["y"] === "number") {
-            pts.push({ x: r["x"], y: r["y"] });
-          }
+          const r = asWireRecord(pt);
+          if (!r) continue;
+          const px = wireNum(r["x"]);
+          const py = wireNum(r["y"]);
+          if (px !== null && py !== null) pts.push({ x: px, y: py });
         }
         if (pts.length >= 2) beam.chain = pts;
       }
       if (b["glaive"] === true) beam.glaive = true;
       if (b["mine"] === true) beam.mine = true;
       if (b["orb"] === true) beam.orb = true;
-      if (typeof b["power"] === "number") beam.power = b["power"];
+      const power = wireNum(b["power"]);
+      if (power !== null) beam.power = power;
       beams.push(beam);
     }
   }
-  const level = s["level"];
-  const xp = s["xp"];
-  const streak = s["streak"];
-  const sectorScore = s["sectorScore"];
-  const weaponName = s["weaponName"];
-  const vx = s["vx"];
-  const vy = s["vy"];
   let shieldMod: ShieldModNetState | null = null;
-  const modRaw = asRecord(s["shieldMod"]);
+  const modRaw = asWireRecord(s["shieldMod"]);
   if (modRaw) {
     const kind = SHIELD_MOD_KINDS.find((k) => k === modRaw["kind"]);
     if (kind) {
       shieldMod = {
         kind,
-        until: typeof modRaw["until"] === "number" ? modRaw["until"] : 0,
+        until: wireNum(modRaw["until"]) ?? 0,
         active: modRaw["active"] === true,
         phased: modRaw["phased"] === true,
       };
@@ -7556,56 +7580,74 @@ function readNetState(player: Player | undefined): PlayerNetState | null {
   const boostsRaw = s["boosts"];
   if (Array.isArray(boostsRaw)) {
     for (const entry of boostsRaw) {
-      const r = asRecord(entry);
+      const r = asWireRecord(entry);
       if (!r) continue;
       const kind = BOOSTER_KINDS.find((k) => k === r["kind"]);
-      if (kind && typeof r["until"] === "number") boosts.push({ kind, until: r["until"] });
+      const until = wireNum(r["until"]);
+      if (kind && until !== null) boosts.push({ kind, until });
     }
   }
-  const shieldHp = s["shieldHp"];
-  const overHp = s["overHp"];
-  const windup = s["windup"];
   let sentry: PlayerNetState["sentry"] = null;
-  const sentryRaw = asRecord(s["sentry"]);
-  if (
-    sentryRaw &&
-    typeof sentryRaw["x"] === "number" &&
-    typeof sentryRaw["y"] === "number" &&
-    typeof sentryRaw["until"] === "number"
-  ) {
-    sentry = { x: sentryRaw["x"], y: sentryRaw["y"], until: sentryRaw["until"] };
+  const sentryRaw = asWireRecord(s["sentry"]);
+  if (sentryRaw) {
+    const sx = wireNum(sentryRaw["x"]);
+    const sy = wireNum(sentryRaw["y"]);
+    const sUntil = wireNum(sentryRaw["until"]);
+    if (sx !== null && sy !== null && sUntil !== null) {
+      sentry = { x: sx, y: sy, until: sUntil };
+    }
   }
   return {
     x,
     y,
     angle,
-    vx: typeof vx === "number" ? vx : 0,
-    vy: typeof vy === "number" ? vy : 0,
+    vx: wireNum(s["vx"]) ?? 0,
+    vy: wireNum(s["vy"]) ?? 0,
     alive: s["alive"] !== false,
     present: s["present"] !== false,
     invuln: s["invuln"] === true,
-    level: typeof level === "number" ? level : 1,
-    xp: typeof xp === "number" ? xp : 0,
-    streak: typeof streak === "number" ? streak : 0,
-    sectorScore: typeof sectorScore === "number" ? sectorScore : 0,
-    weaponName: typeof weaponName === "string" ? weaponName : "",
-    shieldHp: typeof shieldHp === "number" ? shieldHp : SHIELD_MAX,
-    overHp: typeof overHp === "number" ? overHp : 0,
+    level: wireNum(s["level"]) ?? 1,
+    xp: wireNum(s["xp"]) ?? 0,
+    streak: wireNum(s["streak"]) ?? 0,
+    sectorScore: wireNum(s["sectorScore"]) ?? 0,
+    weaponName: wireStr(s["weaponName"]) ?? "",
+    shieldHp: wireNum(s["shieldHp"]) ?? SHIELD_MAX,
+    overHp: wireNum(s["overHp"]) ?? 0,
     shieldMod,
     boosts,
-    windup: typeof windup === "number" ? windup : 0,
+    windup: wireNum(s["windup"]) ?? 0,
     tesla: s["tesla"] === true,
     sentry,
     beams,
   };
 }
 
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null;
+/** One entry of a peer's wire-state record — the multiplayer owner contract
+ *  leaves entries undecoded; the wire* helpers below parse them into domain
+ *  values. Wire traffic is JSON, so plain records, arrays and primitives are
+ *  the whole vocabulary. */
+type WireValue = NonNullable<Player["state"]>[string];
+/** A JSON record off the wire, entries not yet decoded. */
+type WireRecord = Record<string, WireValue>;
+
+function isWireRecord(v: WireValue | undefined): v is WireRecord {
+  return v instanceof Object;
 }
 
-function asRecord(v: unknown): Record<string, unknown> | null {
-  return isRecord(v) ? v : null;
+function asWireRecord(v: WireValue | undefined): WireRecord | null {
+  return isWireRecord(v) ? v : null;
+}
+
+/** Decode a wire number. NaN never appears in legal traffic, and `n === v`
+ *  rejects it along with every non-number, so the copy-compare is exact. */
+function wireNum(v: WireValue | undefined): number | null {
+  const n = Number(v);
+  return n === v ? n : null;
+}
+
+function wireStr(v: WireValue | undefined): string | null {
+  const s = String(v);
+  return s === v ? s : null;
 }
 
 /** Index an entity array by id (reconcile does many find-by-id lookups). */

@@ -52,7 +52,9 @@ function readBounded(path: string, maxBytes: number): string {
  * isn't an existing path is treated as literal brief text. A path that exists
  * but can't be read is a hard error (don't silently treat it as text).
  */
-function resolveContext(raw: string | undefined): { context?: string; contextDir?: string } {
+type ResolvedContext = { context?: string; contextDir?: string };
+
+function resolveContext(raw: string | undefined): ResolvedContext {
   const value = (raw ?? "").trim();
   if (!value) return {};
   const p = resolve(process.cwd(), value);
@@ -61,10 +63,12 @@ function resolveContext(raw: string | undefined): { context?: string; contextDir
   try {
     stat = statSync(p);
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+    if (err instanceof Error && "code" in err && err.code === "ENOENT") {
       return { context: value }; // not a path — a literal brief
     }
-    consola.error(`Could not access --context path ${p}: ${(err as Error).message}`);
+    consola.error(
+      `Could not access --context path ${p}: ${err instanceof Error ? err.message : String(err)}`,
+    );
     process.exit(1);
   }
 
@@ -78,7 +82,9 @@ function resolveContext(raw: string | undefined): { context?: string; contextDir
     try {
       return { context: readBounded(p, MAX_CONTEXT_BYTES) };
     } catch (err) {
-      consola.error(`Could not read --context file ${p}: ${(err as Error).message}`);
+      consola.error(
+        `Could not read --context file ${p}: ${err instanceof Error ? err.message : String(err)}`,
+      );
       process.exit(1);
     }
   }

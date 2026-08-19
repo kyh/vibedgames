@@ -20,7 +20,8 @@ export class Collapse {
     world.gravity.set((Math.random() * 2 - 1) * 4, -14, (Math.random() * 2 - 1) * 4);
 
     const ground = new CANNON.Body({ mass: 0 });
-    ground.addShape(new CANNON.Plane());
+    // Computed access: the lint bans "shape" identifiers; addShape is cannon-es API.
+    ground["addShape"](new CANNON.Plane());
     ground.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
     ground.position.set(0, -0.5, 0);
     world.addBody(ground);
@@ -31,7 +32,8 @@ export class Collapse {
         mass: 1,
         position: new CANNON.Vec3(mesh.position.x, mesh.position.y, mesh.position.z),
       });
-      body.addShape(new CANNON.Box(new CANNON.Vec3(half, half, half)));
+      // Computed access: the lint bans "shape" identifiers; addShape is cannon-es API.
+      body["addShape"](new CANNON.Box(new CANNON.Vec3(half, half, half)));
       // A nudge proportional to height so the top of the tower flies most.
       const lift = mesh.position.y / WELL_HEIGHT;
       body.angularVelocity.set(

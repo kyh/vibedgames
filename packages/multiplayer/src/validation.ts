@@ -14,6 +14,7 @@
  *    (https://standardschema.dev), so zod v3.24+, valibot, arktype, or any
  *    compliant validator plugs in without this package depending on one.
  */
+import type { JsonRecord, JsonValue } from "./types.js";
 
 /**
  * Minimal vendored Standard Schema v1 interface (the spec is designed to be
@@ -24,7 +25,7 @@ export type StandardSchemaV1<Input = unknown, Output = Input> = {
     readonly version: 1;
     readonly vendor: string;
     readonly validate: (
-      value: unknown,
+      value: Input,
     ) => StandardSchemaResult<Output> | Promise<StandardSchemaResult<Output>>;
   };
 };
@@ -56,30 +57,27 @@ export const MAX_STATE_DEPTH = 32;
 /** Keys that could poison prototypes when patches are merged downstream. */
 const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
 // This runs on every state/player patch (the server's per-tick hot path), so
 // it iterates keys without the tuple-array allocations of Object.entries and
-// never recurses into primitives — a big array of numbers costs one typeof
-// per element, keeping the walk proportional to container count, not payload
-// size. The 1 MiB message cap bounds total work.
-const walk = (value: unknown, depth: number): string | null => {
+// never recurses into primitives — a big array of numbers costs one container
+// check per element, keeping the walk proportional to container count, not
+// payload size. The 1 MiB message cap bounds total work.
+const walk = (value: JsonValue, depth: number): string | null => {
   if (depth > MAX_STATE_DEPTH) return `nesting exceeds ${MAX_STATE_DEPTH} levels`;
   if (Array.isArray(value)) {
     for (const item of value) {
-      if (typeof item !== "object" || item === null) continue;
+      if (!(item instanceof Object)) continue;
       const issue = walk(item, depth + 1);
       if (issue) return issue;
     }
     return null;
   }
-  if (isRecord(value)) {
+  if (value instanceof Object) {
     for (const key in value) {
       if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
       if (FORBIDDEN_KEYS.has(key)) return `forbidden key "${key}"`;
       const child = value[key];
-      if (typeof child !== "object" || child === null) continue;
+      if (child === undefined || !(child instanceof Object)) continue;
       const issue = walk(child, depth + 1);
       if (issue) return issue;
     }
@@ -94,8 +92,10 @@ const walk = (value: unknown, depth: number): string | null => {
  * or null when the patch is acceptable. The party server runs this on every
  * `state_patch` / `player_state_patch` before merging.
  */
-export const findStructuralIssue = (data: unknown): string | null => {
-  if (!isRecord(data)) return "patch must be a plain object";
+export const findStructuralIssue = (data: JsonValue): string | null => {
+  if (data === null || Array.isArray(data) || !(data instanceof Object)) {
+    return "patch must be a plain object";
+  }
   return walk(data, 1);
 };
 
@@ -108,7 +108,7 @@ export type SchemaViolation = {
   from?: string;
   issues: ReadonlyArray<StandardSchemaIssue>;
   /** The full candidate state that failed (post-merge, not the raw patch). */
-  data: Record<string, unknown>;
+  data: JsonRecord;
 };
 
 export type MultiplayerSchemas = {
@@ -118,9 +118,9 @@ export type MultiplayerSchemas = {
    * empty, so empty objects bypass validation — model required fields
    * accordingly or seed them via `initialState`.
    */
-  sharedState?: StandardSchemaV1<unknown, Record<string, unknown>>;
+  sharedState?: StandardSchemaV1<unknown, JsonRecord>;
   /** Validated against a single player's full state. Same empty-object bypass. */
-  playerState?: StandardSchemaV1<unknown, Record<string, unknown>>;
+  playerState?: StandardSchemaV1<unknown, JsonRecord>;
   /** Observe violations (metrics, dev overlays). Default logs a console.warn. */
   onViolation?: (violation: SchemaViolation) => void;
 };

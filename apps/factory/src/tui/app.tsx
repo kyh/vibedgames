@@ -69,7 +69,7 @@ const MODEL_CHOICES: {
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
 
-const toneColor: Record<Tone, string> = {
+const toneColor = {
   marker: color.accent,
   text: color.text,
   tool: color.dim,
@@ -77,7 +77,7 @@ const toneColor: Record<Tone, string> = {
   warn: color.warn,
   error: color.err,
   success: color.ok,
-};
+} satisfies Record<Tone, string>;
 
 const truncate = (s: string, width: number): string =>
   width <= 0 ? "" : s.length > width ? `${s.slice(0, Math.max(0, width - 1))}…` : s;
@@ -210,7 +210,7 @@ function usePong(
       anticipation: 0.35,
       idleFreq: 0.55,
       idlePhase: 0.8,
-    } as PaddleAi,
+    } satisfies PaddleAi,
     right: {
       y: 9,
       v: 0,
@@ -219,7 +219,7 @@ function usePong(
       anticipation: 0.12,
       idleFreq: 0.4,
       idlePhase: 3.7,
-    } as PaddleAi,
+    } satisfies PaddleAi,
   });
   const [state, setState] = useState<PongState | null>(null);
   const playable = width >= 50 && height >= 16;

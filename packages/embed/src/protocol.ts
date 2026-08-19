@@ -21,17 +21,26 @@ export type GamePausedMessage = {
   readonly type: typeof GAME_PAUSED_MESSAGE;
 };
 
-const hasType = (value: unknown, type: string): boolean =>
-  typeof value === "object" && value !== null && "type" in value && value.type === type;
+/** What `MessageEvent.data` can carry over this protocol — plain JSON. */
+export type MessageData =
+  | string
+  | number
+  | boolean
+  | null
+  | MessageData[]
+  | { [key: string]: MessageData };
 
-export function isGameStartedMessage(value: unknown): value is GameStartedMessage {
+const hasType = (value: MessageData, type: string): boolean =>
+  value instanceof Object && !Array.isArray(value) && value.type === type;
+
+export function isGameStartedMessage(value: MessageData): value is GameStartedMessage {
   return hasType(value, GAME_STARTED_MESSAGE);
 }
 
-export function isPauseGameMessage(value: unknown): value is PauseGameMessage {
+export function isPauseGameMessage(value: MessageData): value is PauseGameMessage {
   return hasType(value, PAUSE_GAME_MESSAGE);
 }
 
-export function isGamePausedMessage(value: unknown): value is GamePausedMessage {
+export function isGamePausedMessage(value: MessageData): value is GamePausedMessage {
   return hasType(value, GAME_PAUSED_MESSAGE);
 }

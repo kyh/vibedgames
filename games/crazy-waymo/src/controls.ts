@@ -23,13 +23,13 @@ export const CONTROLS: ControlsManifest = [
 
 /** Group captions, in the game's clipped arcade register — shared by the
  *  landing banner and the pause overlay. */
-export const METHOD_TAG: Record<ControlMethod, string> = {
+export const METHOD_TAG = {
   keys: "KEYS",
   mouse: "MOUSE",
   touch: "TOUCH",
   camera: "CAM",
   controller: "PAD",
-};
+} satisfies Record<ControlMethod, string>;
 
 /** Landing-banner keycap rows: just the verbs (no mute), grouped per visible
  *  input method under the pause overlay's KEYS/TOUCH/PAD tags. */

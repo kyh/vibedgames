@@ -25,16 +25,24 @@ import { HDR_BRIGHT, ParticlePools, type SpawnOptions } from "./fx-particles";
 import { Telegraphs, groundFxColor } from "./telegraph";
 import type { View } from "./view";
 
+// SAFETY: every FX ShaderMaterial in this file declares its uColor uniform
+// with a THREE.Color value (see the material definitions below).
+const uniformColor = (u: THREE.IUniform): THREE.Color => u.value as THREE.Color;
+// SAFETY: likewise, the uUVOff/uUVScale uniforms are created with Vector2s.
+const uniformVec2 = (u: THREE.IUniform): THREE.Vector2 => u.value as THREE.Vector2;
+
 // ── champion effect palettes (one dominant hue per champ — instant attribution)
 export type FxPalette = { primary: number; secondary: number; accent: number };
-export const CHAMP_FX: Record<string, FxPalette> = {
-  knight: { primary: 0x8fd0ff, secondary: 0xeaf2ff, accent: 0xffd24a }, // steel / white / gold-trim
-  ranger: { primary: 0x7dffb0, secondary: 0xffe6a0, accent: 0x2c8f5e }, // verdant / gold-arrow / deep-green
-  mage: { primary: 0xff8040, secondary: 0xffd060, accent: 0x9a7bff }, // ember / flare / arcane
-  rogue: { primary: 0xff3060, secondary: 0x6a5a9a, accent: 0x7fff8e }, // crimson / shadow-violet / poison
-  blackknight: { primary: 0xffd76a, secondary: 0xfff2c0, accent: 0xffe6a0 }, // dawn-gold / white-gold / halo
-  witch: { primary: 0x7fe08a, secondary: 0xb98ae0, accent: 0x4a7a3a }, // bog-green / hex-violet / moss
-};
+export const CHAMP_FX = new Map<string, FxPalette>(
+  Object.entries({
+    knight: { primary: 0x8fd0ff, secondary: 0xeaf2ff, accent: 0xffd24a }, // steel / white / gold-trim
+    ranger: { primary: 0x7dffb0, secondary: 0xffe6a0, accent: 0x2c8f5e }, // verdant / gold-arrow / deep-green
+    mage: { primary: 0xff8040, secondary: 0xffd060, accent: 0x9a7bff }, // ember / flare / arcane
+    rogue: { primary: 0xff3060, secondary: 0x6a5a9a, accent: 0x7fff8e }, // crimson / shadow-violet / poison
+    blackknight: { primary: 0xffd76a, secondary: 0xfff2c0, accent: 0xffe6a0 }, // dawn-gold / white-gold / halo
+    witch: { primary: 0x7fe08a, secondary: 0xb98ae0, accent: 0x4a7a3a }, // bog-green / hex-violet / moss
+  } satisfies Record<string, FxPalette>),
+);
 
 // ── mesh-pool sizing (transient draw-call budget: 16+4+8+4+10 = 42 worst case) ──
 const RING_POOL = 16;
@@ -2184,7 +2192,7 @@ export class Fx {
     r.maxR = maxR;
     r.opacity = opacity;
     const u = r.mat.uniforms;
-    (u["uColor"]!.value as THREE.Color).setHex(color);
+    uniformColor(u["uColor"]!).setHex(color);
     u["uT"]!.value = 0;
     u["uAlpha"]!.value = opacity * this.flashGain;
     u["uSeed"]!.value = Math.random() * 20;
@@ -2358,14 +2366,14 @@ export class Fx {
     const reg = SLASH_SPRITES[tex];
     s.life = s.maxLife = life;
     const u = s.mat.uniforms;
-    (u["uColor"]!.value as THREE.Color).setHex(color);
+    uniformColor(u["uColor"]!).setHex(color);
     u["uT"]!.value = 0;
     u["uSpan"]!.value = span;
     u["uSeed"]!.value = Math.random() * 20;
     u["uDir"]!.value = dir;
     u["uMap"]!.value = fxTex(reg.tex, tex === "wind" ? { srgb: true } : {});
-    (u["uUVOff"]!.value as THREE.Vector2).set(reg.off[0], reg.off[1]);
-    (u["uUVScale"]!.value as THREE.Vector2).set(reg.scale[0], reg.scale[1]);
+    uniformVec2(u["uUVOff"]!).set(reg.off[0], reg.off[1]);
+    uniformVec2(u["uUVScale"]!).set(reg.scale[0], reg.scale[1]);
     u["uRot"]!.value = reg.rot;
     // pivot yaw points the quad's local +X along the sim facing; the mesh then
     // tilts around that axis so the crescent leans toward the chase camera
@@ -2405,7 +2413,7 @@ export class Fx {
     if (!c) return;
     c.life = c.maxLife = life;
     const u = c.mat.uniforms;
-    (u["uColor"]!.value as THREE.Color).setHex(color);
+    uniformColor(u["uColor"]!).setHex(color);
     u["uT"]!.value = 0;
     u["uSeed"]!.value = Math.random() * 40;
     u["uPulse"]!.value = pulse;

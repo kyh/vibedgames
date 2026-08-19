@@ -25,13 +25,13 @@ export type PauseOverlayOpts = {
   isLive?: () => boolean;
 };
 
-const METHOD_LABEL: Record<ControlMethod, string> = {
+const METHOD_LABEL = {
   keys: "KEYBOARD",
   mouse: "MOUSE",
   touch: "TOUCH",
   camera: "CAMERA",
   controller: "CONTROLLER",
-};
+} satisfies Record<ControlMethod, string>;
 
 // The control-card language shared by BOTH instruction surfaces — the pause
 // tablet and the lobby's help block: gold keycap chips, method headers, the

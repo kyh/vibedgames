@@ -343,13 +343,7 @@ function clamp8(value: number): number {
  * `support` is the half-width of the kernel in source pixels before the
  * downscale widening is applied.
  */
-const FILTERS: Record<
-  Exclude<ResampleMode, "nearest">,
-  {
-    kernel: (x: number) => number;
-    support: number;
-  }
-> = {
+const FILTERS = {
   bilinear: {
     support: 1,
     kernel: (x) => {
@@ -379,7 +373,10 @@ const FILTERS: Record<
       return (3 * Math.sin(pix) * Math.sin(pix / 3)) / (pix * pix);
     },
   },
-};
+} satisfies Record<
+  Exclude<ResampleMode, "nearest">,
+  { kernel: (x: number) => number; support: number }
+>;
 
 /**
  * Multiply by 255 with round-to-nearest using only integer ops — Pillow's

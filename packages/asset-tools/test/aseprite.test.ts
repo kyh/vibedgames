@@ -87,12 +87,12 @@ test("reads every cel type", () => {
 
   const compressed = cels[0]!.data;
   assert.deepEqual([compressed.x, compressed.y, compressed.w, compressed.h], [2, 1, 4, 4]);
-  assert.equal(typeof compressed.compressedBytes, "number");
+  assert.equal(Number.isFinite(compressed.compressedBytes), true);
 
   // Raw pixels are measured, never copied into the report.
   const raw = cels[3]!.data;
   assert.equal(raw.rawBytes, 2 * 2 * 4);
-  assert.equal(raw.pixels, undefined);
+  assert.equal(Object.hasOwn(raw, "pixels"), false);
 
   const tilemap = cels[1]!.data;
   assert.equal(tilemap.wTiles, 2);
@@ -173,7 +173,9 @@ test("a fully transparent cel has no bounds", () => {
     ],
   });
   const report = inspectAseprite("blank.aseprite", empty, { decodeCels: true });
-  assert.equal(report.frames[0]!.chunks[0]!.data.decodedBounds, null);
+  const chunk = report.frames[0]!.chunks[0]!;
+  if (chunk.type !== "cel") throw new Error("expected a cel chunk");
+  assert.equal(chunk.data.decodedBounds, null);
 });
 
 test("palette entries are previewed but all are consumed", () => {

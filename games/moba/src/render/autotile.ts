@@ -28,35 +28,35 @@ export function autotileMask(
 }
 
 // Flat-grass autotile: neighbour mask → tileset frame index (centre/interior = 10).
-export const FLAT_AUTOTILE: Record<number, number> = {
-  0: 10,
-  8: 1,
-  4: 11,
-  2: 19,
-  1: 9,
-  9: 0,
-  12: 2,
-  3: 18,
-  6: 20,
-  5: 12,
-  10: 28,
-  13: 3,
-  7: 21,
-  11: 27,
-  14: 29,
-  15: 30,
-};
+export const FLAT_AUTOTILE = new Map<number, number>([
+  [0, 10],
+  [8, 1],
+  [4, 11],
+  [2, 19],
+  [1, 9],
+  [9, 0],
+  [12, 2],
+  [3, 18],
+  [6, 20],
+  [5, 12],
+  [10, 28],
+  [13, 3],
+  [7, 21],
+  [11, 27],
+  [14, 29],
+  [15, 30],
+]);
 
 // Elevated grass is the identical autotile shifted 5 columns right (+5 per frame),
 // so it can never disagree with the flat table — derived, not a second literal.
-export const ELEV_AUTOTILE: Record<number, number> = Object.fromEntries(
-  Object.entries(FLAT_AUTOTILE).map(([k, v]) => [Number(k), v + 5]),
+export const ELEV_AUTOTILE = new Map<number, number>(
+  [...FLAT_AUTOTILE].map(([k, v]) => [k, v + 5]),
 );
 
 /** Grass frame for a neighbour mask on the flat or elevated layer (falls back to
  *  the interior tile, which is what an absent key would have rendered anyway). */
 export function autotileFrame(elevated: boolean, mask: number): number {
-  return (elevated ? ELEV_AUTOTILE : FLAT_AUTOTILE)[mask] ?? (elevated ? 15 : 10);
+  return (elevated ? ELEV_AUTOTILE : FLAT_AUTOTILE).get(mask) ?? (elevated ? 15 : 10);
 }
 
 // Stone cliff-face frames under a plateau's south edge. The gallery draws the full

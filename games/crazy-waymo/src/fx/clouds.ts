@@ -272,7 +272,7 @@ class CloudLayer {
 
   readonly sizes: Float32Array;
   readonly seeds: Float32Array;
-  dimUniform: { value: number } = { value: 1 };
+  dimUniform = { value: 1 };
   // Live sun feed (SkyClouds writes the high layer's each frame; the marine
   // layer keeps the defaults — its shader never reads them).
   readonly sunDirU = { value: new THREE.Vector3(0, 1, 0) };

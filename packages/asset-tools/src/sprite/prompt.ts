@@ -1,4 +1,5 @@
 import { roundHalfToEven } from "../pymath.js";
+import { lookup } from "./json.js";
 
 /**
  * Prompt builders for the two generation steps: a single directional *anchor*
@@ -19,7 +20,7 @@ export type Direction = {
   screenFacing: string;
 };
 
-export const DIRECTIONS: Record<string, Direction> = {
+export const DIRECTIONS = {
   n: {
     id: "n",
     label: "North",
@@ -72,7 +73,7 @@ export const DIRECTIONS: Record<string, Direction> = {
 
 export function getDirection(directionId: string): Direction {
   const resolved = (directionId || "").trim().toLowerCase();
-  const direction = DIRECTIONS[resolved];
+  const direction = lookup(DIRECTIONS, resolved);
   if (!direction) {
     throw new Error(
       `unknown direction '${directionId}'; expected one of: ${Object.keys(DIRECTIONS).join(", ")}`,
@@ -81,7 +82,7 @@ export function getDirection(directionId: string): Direction {
   return direction;
 }
 
-export const ANCHOR_GAME_VIEWS: Record<string, string> = {
+export const ANCHOR_GAME_VIEWS = {
   platformer: "side-scrolling / side-view platformer or action game",
   adventure: "point-and-click adventure character view",
   "point-and-click": "point-and-click adventure character view",
@@ -91,7 +92,7 @@ export const ANCHOR_GAME_VIEWS: Record<string, string> = {
   generic: "generic 2D game asset pipeline",
 };
 
-export const ANCHOR_ROLES: Record<string, string> = {
+export const ANCHOR_ROLES = {
   character: "playable or NPC character",
   enemy: "enemy or creature",
   prop: "small interactive or decorative prop",
@@ -99,7 +100,7 @@ export const ANCHOR_ROLES: Record<string, string> = {
   object: "non-character game object",
 };
 
-const VIEW_ALIASES: Record<string, string> = {
+const VIEW_ALIASES = {
   "side-scroller": "platformer",
   "point-and-click": "adventure",
   point_and_click: "adventure",
@@ -118,7 +119,7 @@ const VIEW_ALIASES: Record<string, string> = {
 
 export function resolveAnchorGameView(gameView: string | null): string {
   let resolved = (gameView || "platformer").trim().toLowerCase();
-  resolved = VIEW_ALIASES[resolved] ?? resolved;
+  resolved = lookup(VIEW_ALIASES, resolved) ?? resolved;
   if (!(resolved in ANCHOR_GAME_VIEWS)) {
     const known = Object.keys(ANCHOR_GAME_VIEWS).sort().join(", ");
     throw new Error(`unknown anchor game view '${gameView}'; expected one of: ${known}`);
@@ -221,27 +222,27 @@ export function withStyle(prompt: string, style: string | null): string {
 }
 
 function chromaPhrase(chroma: string): string {
-  const names: Record<string, string> = {
+  const names = {
     "#00FF00": "chroma green #00FF00",
     "#FF00FF": "chroma magenta #FF00FF",
     "#0000FF": "chroma blue #0000FF",
   };
-  return names[chroma.toUpperCase()] ?? `chroma color ${chroma}`;
+  return lookup(names, chroma.toUpperCase()) ?? `chroma color ${chroma}`;
 }
 
 /** The colour's name alone, for a line that states the hex separately. */
 function chromaName(chroma: string): string {
-  const names: Record<string, string> = {
+  const names = {
     "#00FF00": "chroma green",
     "#FF00FF": "chroma magenta",
     "#0000FF": "chroma blue",
   };
-  return names[chroma.toUpperCase()] ?? "chroma color";
+  return lookup(names, chroma.toUpperCase()) ?? "chroma color";
 }
 
 function directionLine(direction: Direction, gameView: string): string {
   if (gameView === "adventure") {
-    const lines: Record<string, string> = {
+    const lines = {
       s: "south / front-facing adventure standing view",
       se: "south-east / front-right three-quarter adventure view",
       sw: "south-west / front-left three-quarter adventure view",
@@ -251,10 +252,10 @@ function directionLine(direction: Direction, gameView: string): string {
       ne: "north-east / back-right three-quarter adventure view",
       nw: "north-west / back-left three-quarter adventure view",
     };
-    return lines[direction.id] ?? direction.screenFacing;
+    return lookup(lines, direction.id) ?? direction.screenFacing;
   }
   if (gameView === "rts-oblique") {
-    const lines: Record<string, string> = {
+    const lines = {
       n: "north / back-facing as a compact unit rotated on an oblique RTS ground plane",
       ne: "north-east / back-right-facing as a compact unit rotated on an oblique RTS ground plane",
       e: "east / screen-right-facing from the fixed elevated RTS camera, not a pure side profile",
@@ -264,7 +265,7 @@ function directionLine(direction: Direction, gameView: string): string {
       w: "west / screen-left-facing from the fixed elevated RTS camera, not a pure side profile",
       nw: "north-west / back-left-facing as a compact unit rotated on an oblique RTS ground plane",
     };
-    return lines[direction.id] ?? direction.screenFacing;
+    return lookup(lines, direction.id) ?? direction.screenFacing;
   }
   return direction.screenFacing;
 }
@@ -415,8 +416,8 @@ export function renderAnchorPrompt(
 
   return `Intended use: a reusable single-frame directional anchor sprite for a 2D game asset pipeline.
 
-Game view: ${ANCHOR_GAME_VIEWS[resolvedView]}.
-Asset role: ${ANCHOR_ROLES[resolvedRole]}.
+Game view: ${lookup(ANCHOR_GAME_VIEWS, resolvedView)}.
+Asset role: ${lookup(ANCHOR_ROLES, resolvedRole)}.
 ${anchorContextGuidance(anchorContext)}
 
 Image 1 role: identity anchor. Preserve the exact approved asset identity, silhouette, proportions, palette blocks, and pixel-art readability from this reference image.${
@@ -471,7 +472,7 @@ export type PoseBoardPreset = {
   rows: number;
 };
 
-export const POSE_BOARD_PRESETS: Record<string, PoseBoardPreset> = {
+export const POSE_BOARD_PRESETS = {
   standard: { id: "standard", width: 1536, height: 1152, columns: 4, rows: 3 },
   hires: { id: "hires", width: 2048, height: 1536, columns: 4, rows: 3 },
 };
@@ -482,7 +483,7 @@ export const totalCells = (p: PoseBoardPreset) => p.columns * p.rows;
 
 export function resolvePoseBoardPreset(presetId: string | null): PoseBoardPreset {
   const resolved = presetId || "standard";
-  const preset = POSE_BOARD_PRESETS[resolved];
+  const preset = lookup(POSE_BOARD_PRESETS, resolved);
   if (!preset) {
     const known = Object.keys(POSE_BOARD_PRESETS).sort().join(", ");
     throw new Error(`unknown pose board preset '${resolved}'; expected one of: ${known}`);
@@ -504,7 +505,7 @@ function labelForIndex(labels: string[], index: number, frameCount: number): str
   return labels[roundHalfToEven(((index - 1) * (labels.length - 1)) / (frameCount - 1))]!;
 }
 
-const LABELS: Record<string, string[]> = {
+const LABELS = {
   idle: [
     "settled idle",
     "tiny breathing rise",
@@ -653,14 +654,14 @@ const LABELS: Record<string, string[]> = {
     "settle",
     "return to idle",
   ],
-};
+} satisfies Record<string, string[]>;
 
 export function frameLabel(action: string, index: number, frameCount: number): string {
-  if (action === "knockdown") return labelForIndex(LABELS.death!, index, frameCount);
+  if (action === "knockdown") return labelForIndex(LABELS.death, index, frameCount);
   if (action === "light_attack" || action === "heavy_attack") {
-    return labelForIndex(LABELS.attack!, index, frameCount);
+    return labelForIndex(LABELS.attack, index, frameCount);
   }
-  const labels = LABELS[action];
+  const labels = lookup(LABELS, action);
   if (labels) return labelForIndex(labels, index, frameCount);
   return `${action} pose ${index}`;
 }

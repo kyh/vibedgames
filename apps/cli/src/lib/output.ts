@@ -10,11 +10,32 @@
 
 export type OutputArgs = { json?: boolean; field?: string };
 
+/**
+ * What the commands hand to stdout: JSON, plus `undefined` so payload types
+ * can carry optional members (JSON.stringify drops them, and `--field`
+ * reports them as missing).
+ */
+export type OutputValue =
+  | string
+  | number
+  | boolean
+  | null
+  | undefined
+  | OutputValue[]
+  | { [key: string]: OutputValue };
+
+type OutputObject = { [key: string]: OutputValue };
+
+function isOutputObject(value: OutputValue): value is OutputObject {
+  // Object() is the identity only on objects; arrays are split off explicitly.
+  return Object(value) === value && !Array.isArray(value);
+}
+
 export function isJsonOutput(args: OutputArgs): boolean {
   return Boolean(args.json) || process.env.VG_JSON_OUTPUT === "1";
 }
 
-export function writeJson(value: unknown): void {
+export function writeJson(value: OutputValue): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
 }
 
@@ -23,13 +44,13 @@ export function writeJson(value: unknown): void {
  * in both `items[0]` and `items.0` spellings, since agents write both.
  * Returns `undefined` for any path that doesn't resolve.
  */
-export function selectField(value: unknown, path: string): unknown {
+export function selectField(value: OutputValue, path: string): OutputValue {
   const segments = path
     .replace(/\[(-?\d+)\]/g, ".$1")
     .split(".")
     .filter(Boolean);
 
-  let current = value;
+  let current: OutputValue = value;
   for (const segment of segments) {
     if (current === null || current === undefined) return undefined;
     if (Array.isArray(current)) {
@@ -40,10 +61,15 @@ export function selectField(value: unknown, path: string): unknown {
       current = current.at(index);
       continue;
     }
-    if (typeof current !== "object") return undefined;
-    current = (current as Record<string, unknown>)[segment];
+    if (!isOutputObject(current)) return undefined;
+    current = current[segment];
   }
   return current;
+}
+
+// A value that prints as one bare token: null or a primitive.
+function isScalarEntry(value: OutputValue): boolean {
+  return value === null || (value !== undefined && Object(value) !== value);
 }
 
 /**
@@ -51,15 +77,15 @@ export function selectField(value: unknown, path: string): unknown {
  * `$(vg ... --field url)` needs no unquoting; arrays of scalars print one per
  * line so they can be looped over; anything structural falls back to JSON.
  */
-export function formatField(value: unknown): string {
+export function formatField(value: OutputValue): string {
   if (value === null || value === undefined) return "";
   if (Array.isArray(value)) {
-    if (value.every((v) => v === null || ["string", "number", "boolean"].includes(typeof v))) {
+    if (value.every(isScalarEntry)) {
       return value.map((v) => (v === null ? "" : String(v))).join("\n");
     }
     return JSON.stringify(value, null, 2);
   }
-  if (typeof value === "object") return JSON.stringify(value, null, 2);
+  if (isOutputObject(value)) return JSON.stringify(value, null, 2);
   return String(value);
 }
 
@@ -69,7 +95,7 @@ export function formatField(value: unknown): string {
  * value is the more specific request. Returns false when neither flag was
  * given, so the caller can fall through to its human-readable rendering.
  */
-export function writeStructured(value: unknown, args: OutputArgs): boolean {
+export function writeStructured(value: OutputValue, args: OutputArgs): boolean {
   if (args.field) {
     const selected = selectField(value, args.field);
     if (selected === undefined) {

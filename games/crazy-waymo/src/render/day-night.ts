@@ -331,24 +331,24 @@ function hourToPhase(hour: number): number {
 // ?time= override: pins the cycle to a chosen hour instead of the SF clock.
 // Presets are HOURS (not phases) so `?time=sunset` and `?time=18:30` are the
 // same thing by construction — both go through hourToPhase.
-const TIME_PRESETS: Readonly<Record<string, number>> = {
-  dawn: 6,
-  sunrise: 6.75,
-  morning: 8,
-  noon: 12,
-  afternoon: 15,
-  golden: 17,
-  sunset: 18.5,
-  dusk: 19.5,
-  night: 22,
-  midnight: 0,
-};
+const TIME_PRESETS: ReadonlyMap<string, number> = new Map([
+  ["dawn", 6],
+  ["sunrise", 6.75],
+  ["morning", 8],
+  ["noon", 12],
+  ["afternoon", 15],
+  ["golden", 17],
+  ["sunset", 18.5],
+  ["dusk", 19.5],
+  ["night", 22],
+  ["midnight", 0],
+]);
 
 // Accepts a preset name, "HH:MM", "7pm"/"7:30pm", or a fractional hour 0-24.
 // Returns the hour, or null if the string parses as none of them.
 export function parseTimeParam(raw: string): number | null {
   const s = raw.trim().toLowerCase();
-  const preset = TIME_PRESETS[s];
+  const preset = TIME_PRESETS.get(s);
   if (preset !== undefined) return preset;
   const ampm = /^(\d{1,2})(?::([0-5]\d))?(am|pm)$/.exec(s);
   if (ampm) {
@@ -410,7 +410,7 @@ export class DayNight {
       this.override = hourToPhase(hour);
     } else {
       console.warn(
-        `?time=${raw}: expected a preset (${Object.keys(TIME_PRESETS).join(", ")}), "HH:MM", "7pm", or an hour 0-24`,
+        `?time=${raw}: expected a preset (${[...TIME_PRESETS.keys()].join(", ")}), "HH:MM", "7pm", or an hour 0-24`,
       );
     }
   }

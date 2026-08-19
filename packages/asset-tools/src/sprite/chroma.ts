@@ -15,12 +15,14 @@ export function colorDistance(a: RGB, b: RGB): number {
   return Math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2);
 }
 
+export type FringeChannels = { dominant: number[]; suppressed: number[] };
+
 /**
  * Split RGB channel indices into matte-dominant and matte-suppressed groups.
  * Throws when the matte cannot be split (grey or white), because fringe
  * detection needs at least one high and one low channel.
  */
-export function chromaFringeChannels(chroma: RGB): { dominant: number[]; suppressed: number[] } {
+export function chromaFringeChannels(chroma: RGB): FringeChannels {
   const dominant = [0, 1, 2].filter((i) => chroma[i]! >= 128);
   const suppressed = [0, 1, 2].filter((i) => chroma[i]! < 128);
   if (dominant.length === 0 || suppressed.length === 0) {
@@ -186,6 +188,8 @@ export type KeyRecord = {
   bbox: number[] | null;
 };
 
+export type KeyMatteResult = { image: Bitmap; record: KeyRecord };
+
 /**
  * Key a flat chroma matte to transparency.
  *
@@ -196,7 +200,7 @@ export type KeyRecord = {
 export function keyMatte(
   image: Bitmap,
   options: { chroma: RGB; tolerance?: number; keepLargest?: boolean; minComponentArea?: number },
-): { image: Bitmap; record: KeyRecord } {
+): KeyMatteResult {
   const { chroma, tolerance = 90, keepLargest = false, minComponentArea = 80 } = options;
   const { width, height } = image;
 
@@ -266,6 +270,8 @@ export type FringeRecord = {
   warning: string | null;
 };
 
+export type FringeCleanResult = { image: Bitmap; record: FringeRecord };
+
 /**
  * Remove matte-tinted fringe pixels that touch background-reachable
  * transparency — the antialiased halo left where the sprite met the matte.
@@ -277,7 +283,7 @@ export type FringeRecord = {
 export function removeChromaFringe(
   image: Bitmap,
   options: { chroma: RGB; minLevel?: number; dominance?: number; edgeRadius?: number },
-): { image: Bitmap; record: FringeRecord } {
+): FringeCleanResult {
   const { chroma, minLevel = 70, dominance = 24, edgeRadius = 1 } = options;
   const { dominant, suppressed } = chromaFringeChannels(chroma);
   const { width, height } = image;
@@ -359,6 +365,8 @@ export type DespillRecord = {
   spillRemoved: number;
 };
 
+export type DespillResult = { image: Bitmap; record: DespillRecord };
+
 /**
  * Neutralize matte-colour spill by clamping matte-dominant channels down to
  * the suppressed level — for a green matte, the classic `g = min(g, max(r,b))`.
@@ -370,7 +378,7 @@ export type DespillRecord = {
 export function despillChroma(
   image: Bitmap,
   options: { chroma: RGB; edgeRadius?: number; bandOnly?: boolean },
-): { image: Bitmap; record: DespillRecord } {
+): DespillResult {
   const { chroma, edgeRadius = 2, bandOnly = true } = options;
   const { dominant, suppressed } = chromaFringeChannels(chroma);
   const out = image.copy();
@@ -414,6 +422,9 @@ export function despillChroma(
   };
 }
 
+export type DecontamRecord = { specksRemoved: number };
+export type DecontamResult = { image: Bitmap; record: DecontamRecord };
+
 /**
  * Drop leftover near-pure-matte specks anywhere on the sprite, not just the
  * edge band.
@@ -425,7 +436,7 @@ export function despillChroma(
 export function decontaminateMatte(
   image: Bitmap,
   options: { chroma: RGB; excess?: number; minLevel?: number },
-): { image: Bitmap; record: { specksRemoved: number } } {
+): DecontamResult {
   const { chroma, excess = 50, minLevel = 100 } = options;
   const { dominant, suppressed } = chromaFringeChannels(chroma);
   const out = image.copy();
@@ -444,6 +455,14 @@ export function decontaminateMatte(
   return { image: out, record: { specksRemoved: removed } };
 }
 
+export type ChromaCleanResult = {
+  image: Bitmap;
+  key: KeyRecord;
+  fringe: FringeRecord;
+  despill: DespillRecord;
+  decontam: DecontamRecord | { skipped: true };
+};
+
 /** Key, then de-fringe, then despill, then decontaminate — the full path. */
 export function cleanChroma(
   image: Bitmap,
@@ -454,13 +473,7 @@ export function cleanChroma(
     despillRadius?: number;
     decontam?: boolean;
   },
-): {
-  image: Bitmap;
-  key: KeyRecord;
-  fringe: FringeRecord;
-  despill: DespillRecord;
-  decontam: { specksRemoved: number } | { skipped: true };
-} {
+): ChromaCleanResult {
   const { chroma, tolerance = 90, fringeRadius = 1, despillRadius = 2, decontam = true } = options;
 
   const keyed = keyMatte(image, { chroma, tolerance });

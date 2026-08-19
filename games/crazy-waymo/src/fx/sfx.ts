@@ -90,12 +90,12 @@ const AMBIENT_EVENTS = ["foghorn", "gulls", "siren", "bell"] as const;
 type AmbientEvent = (typeof AMBIENT_EVENTS)[number];
 
 /** Seconds between rolls per event: [minimum, random span]. */
-const AMBIENT_GAPS: Record<AmbientEvent, readonly [number, number]> = {
+const AMBIENT_GAPS = {
   foghorn: [26, 45],
   gulls: [6, 13],
   siren: [45, 95],
   bell: [34, 70],
-};
+} satisfies Record<AmbientEvent, readonly [number, number]>;
 
 /** Foghorn spectrum: a low fundamental with a fifth and an octave over it. */
 const FOGHORN_PARTIALS: readonly (readonly [number, number])[] = [
@@ -203,7 +203,7 @@ export class Sfx {
   private surfGain: GainNode | null = null;
   private ambientTimer: number | null = null;
   private ambience: AmbienceEnv = { exposure: 0, shore: 0, night: 0, gatePan: 0 };
-  private ambientDue: Record<AmbientEvent, number> = {
+  private ambientDue = {
     foghorn: 12,
     gulls: 5,
     siren: 30,
@@ -366,7 +366,7 @@ export class Sfx {
     type: BiquadFilterType,
     freq: number,
     q: number,
-  ): { gain: GainNode; filter: BiquadFilterNode } {
+  ) {
     const src = ctx.createBufferSource();
     if (this.noise) src.buffer = this.noise;
     src.loop = true;
@@ -460,7 +460,7 @@ export class Sfx {
   setScreech(slip: number | boolean, speedFrac = 1): void {
     const ctx = this.ctx;
     if (!ctx || !this.screechGain || !this.screechFilter) return;
-    const s = typeof slip === "boolean" ? (slip ? 1 : 0) : Math.max(0, Math.min(1, slip));
+    const s = slip === true ? 1 : slip === false ? 0 : Math.max(0, Math.min(1, slip));
     const t = ctx.currentTime;
     this.screechFilter.frequency.setTargetAtTime(1100 + s * 1400, t, 0.05);
     const speedScale = Math.min(1, Math.max(0, speedFrac) * 2 + 0.15);

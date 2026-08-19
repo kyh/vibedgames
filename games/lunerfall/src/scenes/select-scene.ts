@@ -531,13 +531,13 @@ export class SelectScene extends Phaser.Scene {
   // within a group ("J / X" attack), the pause panel's voice. Lives in the sky
   // band under CHOOSE YOUR WARRIOR; wrapped rows shrink to fit the band.
   private renderControls(): void {
-    const LABELS: Record<ControlMethod, string> = {
+    const LABELS = {
       keys: "KEYBOARD",
       mouse: "MOUSE",
       touch: "TOUCH",
       camera: "CAMERA",
       controller: "GAMEPAD",
-    };
+    } satisfies Record<ControlMethod, string>;
     const blocks = controlGroups(CONTROLS, { coarse: this.touch }).map((group) => {
       const byAction = new Map<string, string[]>();
       for (const entry of group.entries) {

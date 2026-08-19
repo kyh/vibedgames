@@ -20,6 +20,8 @@ import {
 } from "../sim/world";
 import { INTENT_EVENT, MULTIPLAYER_HOST, PARTY, type Intent } from "../net/protocol";
 import { applySnapshot, emptyGuestWorld, encodeWorld, isSnapshot } from "../net/snapshot";
+import type { Vec2 } from "../sim/math";
+import { isJsonNumber, isJsonObject, isJsonString, type JsonValue } from "../data/json";
 import { SNAPSHOT_HZ } from "../data/config";
 import { Controls } from "../input/controls";
 import { TouchControls } from "../input/touch";
@@ -72,14 +74,14 @@ export class GameScene {
   private musicLowSince = -1;
   // touch integration (change-gated per-frame feeds)
   private boundChamp = "";
-  private readonly touchCdLast: Record<AbilityKey, number> = {
+  private readonly touchCdLast = {
     Q: -1,
     W: -1,
     E: -1,
     R: -1,
     DASH: -1,
     JUMP: -1,
-  };
+  } satisfies Record<AbilityKey, number>;
 
   // online state
   private picks: Record<string, { champId: string; name: string }> = {};
@@ -444,17 +446,22 @@ export class GameScene {
       const snap = net.sharedState["snap"];
       if (isSnapshot(snap)) applySnapshot(this.world, snap);
       const fxSeq = net.sharedState["fxSeq"];
-      if (typeof fxSeq === "number" && fxSeq !== this.lastFxSeq) {
+      if (isJsonNumber(fxSeq) && fxSeq !== this.lastFxSeq) {
         this.lastFxSeq = fxSeq;
         const fx = net.sharedState["fx"];
-        if (Array.isArray(fx)) this.world.fx.push(...(fx as World["fx"]));
+        if (Array.isArray(fx)) {
+          // SAFETY: sharedState.fx is written only by the host's broadcast
+          // (this same build serializing this.netFx), so its entries are FX
+          // events; they are render-only and never feed back into the sim.
+          this.world.fx.push(...(fx as World["fx"]));
+        }
       }
     }
   }
 
   /** Compose forward/strafe into a world-space vector relative to the aim
    *  ((-aimY, aimX) is screen-right when looking along the aim). */
-  private rotateToAim(fwd: number, strafe: number): { x: number; y: number } {
+  private rotateToAim(fwd: number, strafe: number): Vec2 {
     return {
       x: this.aimX * fwd - this.aimY * strafe,
       y: this.aimY * fwd + this.aimX * strafe,
@@ -470,9 +477,9 @@ export class GameScene {
       if (host) setHeroInput(me, 0, 0, this.aimX, this.aimY, false);
       return;
     }
-    let mv: { x: number; y: number };
+    let mv: Vec2;
     let attack: boolean;
-    let castPoint: { x: number; y: number };
+    let castPoint: Vec2;
 
     // FPS-centered aim for EVERY input source: heading comes from mouse turn,
     // pad stick, or the touch look stick; the crosshair is dead center. The
@@ -627,45 +634,55 @@ export class GameScene {
   }
 
   // ── host: receive intents ──
-  private onNetEvent(event: string, payload: unknown, from: string): void {
+  private onNetEvent(event: string, payload: JsonValue, from: string): void {
     if (event !== INTENT_EVENT) return;
-    const intent = payload as Intent;
-    if (intent.kind === "join") {
-      this.picks[from] = { champId: intent.champId, name: intent.name };
+    // Parse the wire intent field-by-field — a malformed/malicious client must
+    // not inject NaN/Inf or spoofed shapes into the authoritative sim.
+    if (!isJsonObject(payload)) return;
+    const intent = payload;
+    if (intent["kind"] === "join") {
+      const champId = intent["champId"];
+      const name = intent["name"];
+      if (isJsonString(champId) && isJsonString(name)) this.picks[from] = { champId, name };
       return;
     }
     if (!this.amHost) return;
     const u = this.world.units.get(`h-${from}`);
     if (!u || !u.alive) return;
-    // sanitize guest-supplied numbers — a malformed/malicious client must not
-    // inject NaN/Inf into the authoritative sim (it would spread via separation)
-    const f = (n: unknown): number => (typeof n === "number" && Number.isFinite(n) ? n : 0);
-    const fc = (n: unknown): number => clampArena(f(n));
-    switch (intent.kind) {
+    const f = (n: JsonValue | undefined): number => (isJsonNumber(n) ? n : 0);
+    const fc = (n: JsonValue | undefined): number => clampArena(f(n));
+    switch (intent["kind"]) {
       case "input":
         setHeroInput(
           u,
-          clamp1(f(intent.mx)),
-          clamp1(f(intent.my)),
-          clamp1(f(intent.ax)),
-          clamp1(f(intent.ay)),
-          intent.attack === true,
+          clamp1(f(intent["mx"])),
+          clamp1(f(intent["my"])),
+          clamp1(f(intent["ax"])),
+          clamp1(f(intent["ay"])),
+          intent["attack"] === true,
         );
         break;
-      case "cast":
+      case "cast": {
         // reject a bad/spoofed key before it reaches the sim; requestCast so
         // guests get the same host-side input buffer as locals
-        if (!ALL_ABILITY_KEYS.includes(intent.key)) break;
-        requestCast(this.world, u, intent.key, {
-          point: { x: fc(intent.px), y: fc(intent.py) },
-          dir: { x: clamp1(f(intent.ax)), y: clamp1(f(intent.ay)) },
+        const key = ALL_ABILITY_KEYS.find((k) => k === intent["key"]);
+        if (!key) break;
+        requestCast(this.world, u, key, {
+          point: { x: fc(intent["px"]), y: fc(intent["py"]) },
+          dir: { x: clamp1(f(intent["ax"])), y: clamp1(f(intent["ay"])) },
         });
         break;
-      case "buy":
-        if (typeof intent.itemId === "string") buyItem(this.world, u, intent.itemId);
+      }
+      case "buy": {
+        const itemId = intent["itemId"];
+        if (isJsonString(itemId)) buyItem(this.world, u, itemId);
         break;
+      }
       case "useItem":
-        useItemActive(this.world, u, f(intent.slot), { x: fc(intent.px), y: fc(intent.py) });
+        useItemActive(this.world, u, f(intent["slot"]), {
+          x: fc(intent["px"]),
+          y: fc(intent["py"]),
+        });
         break;
       case "jump":
         tryJump(this.world, u);

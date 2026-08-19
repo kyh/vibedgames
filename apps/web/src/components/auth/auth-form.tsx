@@ -323,7 +323,7 @@ const RegisterCredentialsStep = ({
     submit={async (credentials) => {
       const emailPrefix = credentials.email.split("@")[0];
       let result: SubmitResult = UNREPORTED;
-      // `inviteCode` is an extra body field consumed by the server-side
+      // SAFETY: `inviteCode` is an extra body field consumed by the server-side
       // `user.create.before` hook to validate + atomically redeem the invite.
       // It isn't part of better-auth's typed signup payload, so we cast.
       await authClient.signUp.email({

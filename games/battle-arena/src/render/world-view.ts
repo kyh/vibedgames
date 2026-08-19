@@ -27,10 +27,10 @@ import { LOCAL_COLOR, teamColor } from "./palette";
 // wider than the shaft, so the ribbon sweeps sideways off the head instead of
 // tracing the swing). Force the swing axis + blade extents so the arc reads.
 // `base` = fraction up the weapon where the ribbon starts (skip the handle).
-const TRAIL_OVERRIDE: Record<string, TrailOverride> = {
-  paladin_hammer: { axis: "y", base: 0.48, tip: 1.15, opacity: 0.62 }, // thin head — runs a touch hotter
-  sword_2handed: { axis: "y", base: 0.34, tip: 1.05 },
-};
+const TRAIL_OVERRIDE = new Map<string, TrailOverride>([
+  ["paladin_hammer", { axis: "y", base: 0.48, tip: 1.15, opacity: 0.62 }], // thin head — runs a touch hotter
+  ["sword_2handed", { axis: "y", base: 0.34, tip: 1.05 }],
+]);
 
 // KayKit medium characters face +Z; sim aim is (cos facing, sin facing) on (x,z).
 const MODEL_YAW = 0;
@@ -38,14 +38,14 @@ const MODEL_YAW = 0;
 // Per-weapon mount corrections (radians), applied to the instance before it
 // parents to the handslot bone. Most KayKit weapons are authored to sit right
 // in the hand as-is; the bow ships pointing backwards.
-const WEAPON_MOUNT: Record<string, { rx?: number; ry?: number; rz?: number }> = {
-  bow: { ry: Math.PI },
-  paladin_hammer: { ry: Math.PI / 2 }, // ships head-sideways; face the head forward
-};
+const WEAPON_MOUNT = new Map<string, { rx?: number; ry?: number; rz?: number }>([
+  ["bow", { ry: Math.PI }],
+  ["paladin_hammer", { ry: Math.PI / 2 }], // ships head-sideways; face the head forward
+]);
 
 /** Apply a weapon's mount correction (no-op for unlisted weapons). */
 function mountWeapon(obj: THREE.Object3D, name: string): void {
-  const m = WEAPON_MOUNT[name];
+  const m = WEAPON_MOUNT.get(name);
   if (!m) return;
   obj.rotation.set(m.rx ?? 0, m.ry ?? 0, m.rz ?? 0);
 }
@@ -87,36 +87,38 @@ type ViewDef = {
   twoHanded?: boolean; // rests + idles holding a 2H weapon (Melee_2H_Idle)
 };
 
-const CREEP_VIEW: Record<string, ViewDef> = {
-  skwarrior: {
-    id: "skwarrior",
-    model: "Skeleton_Warrior",
-    attackType: "melee",
-    attackDamageType: "physical",
-  },
-  skmage: {
-    id: "skmage",
-    model: "Skeleton_Mage",
-    attackType: "ranged",
-    attackDamageType: "magic",
-    weaponR: "Skeleton_Staff",
-  },
-  skminion: {
-    id: "skminion",
-    model: "Skeleton_Minion",
-    attackType: "melee",
-    attackDamageType: "physical",
-  },
-  frostgolem: {
-    id: "frostgolem",
-    model: "FrostGolem",
-    attackType: "melee",
-    attackDamageType: "physical",
-    weaponR: "FrostGolem_Axe_Large",
-    rig: "large",
-    scale: 1.45,
-  },
-};
+const CREEP_VIEW = new Map<string, ViewDef>(
+  Object.entries({
+    skwarrior: {
+      id: "skwarrior",
+      model: "Skeleton_Warrior",
+      attackType: "melee",
+      attackDamageType: "physical",
+    },
+    skmage: {
+      id: "skmage",
+      model: "Skeleton_Mage",
+      attackType: "ranged",
+      attackDamageType: "magic",
+      weaponR: "Skeleton_Staff",
+    },
+    skminion: {
+      id: "skminion",
+      model: "Skeleton_Minion",
+      attackType: "melee",
+      attackDamageType: "physical",
+    },
+    frostgolem: {
+      id: "frostgolem",
+      model: "FrostGolem",
+      attackType: "melee",
+      attackDamageType: "physical",
+      weaponR: "FrostGolem_Axe_Large",
+      rig: "large",
+      scale: 1.45,
+    },
+  } satisfies Record<string, ViewDef>),
+);
 
 // ── creep loot pickups (Fantasy Weapons Bits) ────────────────────────────────
 // A creep drop (coin.loot) renders as a spinning weapon piece instead of a boss
@@ -291,7 +293,7 @@ class UnitView {
               : 0x9fb8e0; // creeps — cold bone-steel
       const trail =
         def.attackType === "melee"
-          ? new WeaponTrail(wr, trailColor, TRAIL_OVERRIDE[def.weaponR])
+          ? new WeaponTrail(wr, trailColor, TRAIL_OVERRIDE.get(def.weaponR))
           : null;
       if (this.char.attach(wr, "handslot.r")) {
         this.weapons.push(wr);
@@ -311,7 +313,7 @@ class UnitView {
           ? new WeaponTrail(
               wl,
               def.id === "rogue" ? 0xff7090 : 0x9fb8e0,
-              TRAIL_OVERRIDE[def.weaponL],
+              TRAIL_OVERRIDE.get(def.weaponL),
             )
           : null;
       if (this.char.attach(wl, "handslot.l")) {
@@ -500,7 +502,7 @@ class UnitView {
       this.lastCastShown = u.lastCastAt;
       if (now - u.lastCastAt < CAST_ANIM_MS) {
         const clip =
-          (u.lastCastKey ? ABILITY_CLIPS[this.def.id]?.[u.lastCastKey] : undefined) ??
+          (u.lastCastKey ? ABILITY_CLIPS.get(this.def.id)?.[u.lastCastKey] : undefined) ??
           castClip(this.def);
         // The whirlwind's clip is a LOOP (the `spinning` branch drives it) — don't
         // fire it as a one-shot here or it plays once and freezes.
@@ -628,7 +630,7 @@ class UnitView {
     // ── dash trail: afterimages + streaks + dust shed behind any ability dash ──
     const dashing = now < u.dashUntil;
     if (dashing && fx) {
-      const primary = CHAMP_FX[this.def.id]?.primary ?? 0x9fd0ff;
+      const primary = CHAMP_FX.get(this.def.id)?.primary ?? 0x9fd0ff;
       if (now - this.lastDashTrailAt > 40) {
         this.lastDashTrailAt = now;
         fx.castStreak(u.x, u.y, -u.dashVx, -u.dashVy, primary, 6, 2, 0.35);
@@ -645,7 +647,7 @@ class UnitView {
       }
     }
     if (this.wasDashing && !dashing && fx) {
-      fx.impactRing(u.x, u.y, CHAMP_FX[this.def.id]?.primary ?? 0x9fd0ff, 1.6); // dash-expiry pop
+      fx.impactRing(u.x, u.y, CHAMP_FX.get(this.def.id)?.primary ?? 0x9fd0ff, 1.6); // dash-expiry pop
     }
     this.wasDashing = dashing;
 
@@ -697,7 +699,7 @@ class UnitView {
           group: this.group,
           bodyMats: this.mats,
           weaponMats: this.weaponMats,
-          accent: CHAMP_FX[this.def.id]?.accent ?? 0x9fd0ff,
+          accent: CHAMP_FX.get(this.def.id)?.accent ?? 0x9fd0ff,
           isLocal: this.isLocal,
         },
         fx.pools,
@@ -896,7 +898,7 @@ export class WorldView {
       if (!view) {
         const isCreep = u.kind === "creep";
         const def =
-          (isCreep ? CREEP_VIEW[u.champId] : CHAMP_BY_ID[u.champId]) ?? CHAMP_BY_ID["knight"]!;
+          (isCreep ? CREEP_VIEW.get(u.champId) : CHAMP_BY_ID[u.champId]) ?? CHAMP_BY_ID["knight"]!;
         const color = isCreep ? 0x9aa3b5 : teamColor(u.team);
         view = new UnitView(
           this.scene,

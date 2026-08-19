@@ -30,8 +30,20 @@ const ADAM7 = [
   { xStart: 0, yStart: 1, xStep: 1, yStep: 2 },
 ] as const;
 
-/** Channel count per PNG colour type, indexed by the colour type itself. */
-const CHANNELS: Record<number, number> = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 };
+/** Channel count per PNG colour type, keyed by the colour type itself. */
+const CHANNELS = new Map<number, number>([
+  [0, 1],
+  [2, 3],
+  [3, 1],
+  [4, 2],
+  [6, 4],
+]);
+
+function channelsFor(colorType: number): number {
+  const channels = CHANNELS.get(colorType);
+  if (channels === undefined) throw new Error(`PNG: unsupported colour type ${colorType}`);
+  return channels;
+}
 
 /**
  * Pixel ceiling for a decoded image, ~256 MB of RGBA.
@@ -149,7 +161,7 @@ function expandPass(
   out: Uint8Array,
 ): number {
   const { width, bitDepth, colorType } = header;
-  const channels = CHANNELS[colorType]!;
+  const channels = channelsFor(colorType);
   const bpp = Math.max(1, Math.ceil((channels * bitDepth) / 8));
   const lineBytes = Math.ceil((channels * bitDepth * passWidth) / 8);
   let prev = new Uint8Array(lineBytes);
@@ -219,7 +231,7 @@ function expandPass(
  * into seven passes, each with its own rows and its own filter bytes.
  */
 function expectedRawBytes(header: Header): number {
-  const channels = CHANNELS[header.colorType]!;
+  const channels = channelsFor(header.colorType);
   const rowBytes = (w: number) => Math.ceil((channels * header.bitDepth * w) / 8);
 
   if (header.interlace === 0) {
@@ -275,7 +287,7 @@ export function decodePng(buffer: Uint8Array): DecodedPng {
       };
       if (buffer[pos + 18] !== 0) throw new Error("PNG: unsupported compression method");
       if (buffer[pos + 19] !== 0) throw new Error("PNG: unsupported filter method");
-      if (!(header.colorType in CHANNELS)) {
+      if (!CHANNELS.has(header.colorType)) {
         throw new Error(`PNG: unsupported colour type ${header.colorType}`);
       }
       // The dimensions come straight off the file, and the RGBA buffer is sized
@@ -468,7 +480,7 @@ export function encodePng(image: DecodedPng): Buffer {
  * Read just the dimensions from a PNG header without inflating pixel data —
  * the fast path for `vg asset sizes`, which probes hundreds of files.
  */
-export function readPngSize(buffer: Uint8Array): { width: number; height: number } {
+export function readPngSize(buffer: Uint8Array) {
   for (let i = 0; i < SIGNATURE.length; i += 1) {
     if (buffer[i] !== SIGNATURE[i]) throw new Error("Not a PNG file (bad signature)");
   }

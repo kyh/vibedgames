@@ -18,12 +18,12 @@ export const GROUND_RING_LIFT = STREET_SURFACE_MAX + 0.13; // 0.4
 // Trip tiers: how far the customer wants to go — pay and beacon color follow.
 export type FareTier = "short" | "medium" | "long";
 
-const TIER_COLOR: Record<FareTier, number> = {
+const TIER_COLOR = {
   short: 0x6bff8e, // green $
   medium: 0xffb64d, // amber $$
   long: 0xff5d5d, // red $$$
-};
-const TIER_PAY: Record<FareTier, number> = { short: 1, medium: 1.2, long: 1.5 };
+} satisfies Record<FareTier, number>;
+const TIER_PAY = { short: 1, medium: 1.2, long: 1.5 } satisfies Record<FareTier, number>;
 const CARRY_COLOR = 0x49e0ff;
 
 export function tierColor(t: FareTier): number {
@@ -63,7 +63,7 @@ const PASSENGER_HEIGHT = 1.5;
 
 // Floating $-tag above each pickup beam — the tier legend, in-world. One
 // shared canvas texture + sprite material per tier (never disposed).
-const TAG_TEXT: Record<FareTier, string> = { short: "$", medium: "$$", long: "$$$" };
+const TAG_TEXT = { short: "$", medium: "$$", long: "$$$" } satisfies Record<FareTier, string>;
 const tagMaterials = new Map<FareTier, THREE.SpriteMaterial>();
 function tagMaterial(tier: FareTier): THREE.SpriteMaterial {
   const cached = tagMaterials.get(tier);

@@ -24,13 +24,14 @@ import { abilityIcon, attackIcon, champSigil } from "../data/icons";
 import { CAMPS } from "../data/map";
 import { terrainHeight } from "../data/terrain";
 import { castAbility } from "../sim/abilities";
-import { abilityShapes, basicAttackShape, type HitShape } from "../sim/hit-shapes";
+import { abilityRegions, basicAttackRegion, type HitRegion } from "../sim/hit-shapes";
 import { dist, norm } from "../sim/math";
 import { recomputeStats } from "../sim/stats";
 import { ALL_ABILITY_KEYS, type AbilityKey, type Unit, type World } from "../sim/types";
 
 /** Key label for the ability row (⇧ dash / ␣ jump; number keys otherwise). */
-const VIEWER_KEYCAP: Partial<Record<AbilityKey, string>> = { DASH: "⇧", JUMP: "␣" };
+type ViewerKeycaps = { [K in AbilityKey]?: string };
+const VIEWER_KEYCAP: ViewerKeycaps = { DASH: "⇧", JUMP: "␣" };
 import { createWorld, spawnHero, step, syncAbilityRanks } from "../sim/world";
 import { Fx } from "../render/fx";
 import { AnimatedCharacter, type ModelLibrary } from "../render/models";
@@ -58,8 +59,8 @@ const LOOK_H = 1.2;
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 
 // hit-surface overlay geometry, positioned in the hero's local frame (forward =
-// +Z) ready to draw — derived from the sim's abilityShapes() by placeShape().
-type DrawShape =
+// +Z) ready to draw — derived from the sim's abilityRegions() by placeRegion().
+type DrawRegion =
   | { kind: "cone"; radius: number; half: number }
   | { kind: "corridor"; length: number; halfWidth: number }
   | { kind: "circle"; radius: number; forward: number };
@@ -107,7 +108,7 @@ const CREEPS: RosterEntry[] = [
     sub: "camp creep",
     kind: "creep",
     model: "Skeleton_Warrior",
-    attackClips: ATTACK_SETS["skwarrior"] ?? [],
+    attackClips: ATTACK_SETS.get("skwarrior") ?? [],
   },
   {
     id: "skmage",
@@ -116,7 +117,7 @@ const CREEPS: RosterEntry[] = [
     kind: "creep",
     model: "Skeleton_Mage",
     weaponR: "Skeleton_Staff",
-    attackClips: ATTACK_SETS["skmage"] ?? [],
+    attackClips: ATTACK_SETS.get("skmage") ?? [],
   },
   {
     id: "skminion",
@@ -124,7 +125,7 @@ const CREEPS: RosterEntry[] = [
     sub: "camp creep",
     kind: "creep",
     model: "Skeleton_Minion",
-    attackClips: ATTACK_SETS["skminion"] ?? [],
+    attackClips: ATTACK_SETS.get("skminion") ?? [],
   },
   {
     id: "frostgolem",
@@ -135,7 +136,7 @@ const CREEPS: RosterEntry[] = [
     weaponR: "FrostGolem_Axe_Large",
     rig: "large",
     scale: 1.45,
-    attackClips: ATTACK_SETS["frostgolem"] ?? [],
+    attackClips: ATTACK_SETS.get("frostgolem") ?? [],
   },
   {
     id: "boss",
@@ -514,17 +515,7 @@ export class ViewerScene {
   }
 
   /** Dev-handle snapshot for headless verification. */
-  state(): {
-    selected: string;
-    tab: string;
-    simMode: boolean;
-    action: string;
-    castCount: number;
-    activeClip: string;
-    playing: string;
-    heroPos: { x: number; y: number } | null;
-    dummyStatuses: string[];
-  } {
+  state() {
     const h = this.hero();
     const d = this.dummy();
     return {
@@ -712,9 +703,9 @@ export class ViewerScene {
   private static readonly HIT_TARGET_R = 0.6;
 
   /** Damage shapes of the action the character is CURRENTLY doing, ready to draw.
-   *  Geometry comes straight from the sim's abilityShapes()/basicAttackShape() —
+   *  Geometry comes straight from the sim's abilityRegions()/basicAttackRegion() —
    *  the same definition the hit test uses — so the overlay can't drift. */
-  private hitShapesFor(): DrawShape[] {
+  private hitRegionsFor(): DrawRegion[] {
     const champ = this.selected.champ;
     const me = this.hero();
     if (!champ || !me) return [];
@@ -728,8 +719,8 @@ export class ViewerScene {
           ? rhythm[Math.max(0, me.swingCount - 1) % rhythm.length]
           : undefined;
       if (step?.aoe) return [{ kind: "circle", radius: step.aoe, forward: 0 }]; // spin whirl
-      return this.placeShape(
-        basicAttackShape(champ.attackType, me.attackRange, champ.basic),
+      return this.placeRegion(
+        basicAttackRegion(champ.attackType, me.attackRange, champ.basic),
         me.attackRange + 5,
       );
     }
@@ -737,13 +728,13 @@ export class ViewerScene {
     const def = champ.abilities[act];
     if (!def) return [];
     const rank = Math.max(1, me.abilities[act]?.rank ?? def.maxRank);
-    return abilityShapes(def, rank).flatMap((s) => this.placeShape(s, def.castRange));
+    return abilityRegions(def, rank).flatMap((s) => this.placeRegion(s, def.castRange));
   }
 
-  /** Position a sim HitShape in the hero's local frame for drawing: cone/corridor
+  /** Position a sim HitRegion in the hero's local frame for drawing: cone/corridor
    *  widen by the target-radius margin; circleAt/projectile land ahead at the
    *  cast point (toward the dummy); a projectile also draws its splash. */
-  private placeShape(s: HitShape, range: number): DrawShape[] {
+  private placeRegion(s: HitRegion, range: number): DrawRegion[] {
     const TR = ViewerScene.HIT_TARGET_R;
     switch (s.kind) {
       case "cone":
@@ -755,7 +746,7 @@ export class ViewerScene {
       case "circleAt":
         return [{ kind: "circle", radius: s.radius, forward: this.castForward(range) }];
       case "projectile": {
-        const out: DrawShape[] = [{ kind: "corridor", length: s.length, halfWidth: 0.5 }];
+        const out: DrawRegion[] = [{ kind: "corridor", length: s.length, halfWidth: 0.5 }];
         if (s.splash > 0)
           out.push({ kind: "circle", radius: s.splash, forward: this.castForward(range) });
         return out;
@@ -773,12 +764,12 @@ export class ViewerScene {
   /** Draw/position the hit-surface overlay flat under the hero, oriented to aim. */
   private updateHitViz(): void {
     const me = this.hero();
-    const shapes = this.showHitViz && me ? this.hitShapesFor() : [];
-    if (shapes.length === 0) {
+    const regions = this.showHitViz && me ? this.hitRegionsFor() : [];
+    if (regions.length === 0) {
       if (this.hitVizGroup) this.hitVizGroup.visible = false;
       return;
     }
-    const key = shapes
+    const key = regions
       .map((s) =>
         s.kind === "cone"
           ? `co${s.radius.toFixed(1)},${s.half.toFixed(2)}`
@@ -799,7 +790,7 @@ export class ViewerScene {
         if (c instanceof THREE.Mesh) c.geometry.dispose();
         g.remove(c);
       }
-      for (const s of shapes) {
+      for (const s of regions) {
         let geo: THREE.BufferGeometry;
         if (s.kind === "cone") {
           geo = new THREE.CircleGeometry(s.radius, 40, Math.PI / 2 - s.half, 2 * s.half); // sector centered on +Y

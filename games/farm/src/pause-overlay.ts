@@ -16,13 +16,13 @@ import type { ControlMethod } from "@repo/embed";
 
 import { CONTROLS } from "./controls";
 
-const METHOD_LABELS: Record<ControlMethod, string> = {
+const METHOD_LABELS = {
   keys: "keyboard",
   mouse: "mouse",
   touch: "touch",
   camera: "camera",
   controller: "controller",
-};
+} satisfies Record<ControlMethod, string>;
 
 /** One section of the "how to play" modal. */
 type HelpSection = { readonly title: string; readonly body: string };

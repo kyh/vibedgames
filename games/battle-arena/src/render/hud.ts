@@ -19,7 +19,14 @@ import { LOCAL_COLOR, teamColor } from "./palette";
 import type { View } from "./view";
 
 // Q/W/E/R map to number keys 1-4; DASH/JUMP are the flat util pair (Shift/Space).
-const KEYCAP: Record<AbilityKey, string> = { Q: "1", W: "2", E: "3", R: "4", DASH: "⇧", JUMP: "␣" };
+const KEYCAP = {
+  Q: "1",
+  W: "2",
+  E: "3",
+  R: "4",
+  DASH: "⇧",
+  JUMP: "␣",
+} satisfies Record<AbilityKey, string>;
 /** The flat, always-unlocked mobility pair — no rank pips, no level lock. */
 const UTIL_KEYS = new Set<AbilityKey>(["DASH", "JUMP"]);
 // .ba-plate is centred on its anchor: 12px name line + 5px bar + 2px gap, and
@@ -281,6 +288,7 @@ export class Hud {
     this.respawnTimer = query(this.respawnEl, ".ba-rtimer");
     this.respawnTip = query(this.respawnEl, ".ba-rtip");
     this.itemsEl = byId("ba-items");
+    // SAFETY: #ba-minimap is the <canvas> in this HUD's own template markup.
     this.minimap = byId("ba-minimap") as HTMLCanvasElement;
     this.mmCtx = this.minimap.getContext("2d")!;
     this.shopEl = byId("ba-shop");
@@ -659,6 +667,7 @@ export class Hud {
         const name = u.kind === "creep" ? "" : u.name;
         wrap.innerHTML = `<div class="ba-pname" style="color:${col}">${name}</div><div class="ba-php"><div class="ba-phpfill" style="background:${u.kind === "creep" ? "#c8a0a0" : u.team === me.team ? "#5dd66b" : "#ff5a52"}"></div></div>`;
         byId("ba-plates").appendChild(wrap);
+        // SAFETY: both divs were just created by the innerHTML assignment above.
         plate = {
           wrap,
           fill: wrap.querySelector(".ba-phpfill") as HTMLDivElement,
@@ -1179,8 +1188,8 @@ export class Hud {
       const k = this.fx.feed.shift()!;
       const row = document.createElement("div");
       row.className = "ba-kill" + (k.leader ? " leader" : "");
-      const ku = typeof k.killer === "string" ? w.units.get(k.killer) : undefined;
-      const vu = typeof k.victim === "string" ? w.units.get(k.victim) : undefined;
+      const ku = w.units.get(k.killer);
+      const vu = w.units.get(k.victim);
       const weapon = `<img class="ba-kw" src="${attackIcon(ku?.attackKind ?? "melee")}" alt="">`;
       row.innerHTML = `${feedSigil(ku)}<b>${k.killerName}</b>${weapon}${feedSigil(vu)}<span>${k.victimName}</span>`;
       this.feedEl.appendChild(row);

@@ -142,7 +142,9 @@ export class ChunkPool {
 
   dispose(): void {
     this.mesh.geometry.dispose();
-    (this.mesh.material as THREE.Material).dispose();
+    const material = this.mesh.material;
+    if (Array.isArray(material)) for (const m of material) m.dispose();
+    else material.dispose();
     this.mesh.removeFromParent();
     this.mesh.dispose();
   }

@@ -36,12 +36,12 @@ export function isCoarsePointer(): boolean {
 }
 
 /** Stick dir4 (screen-space, +y down) → the game's screen-relative steer. */
-const SCREEN_DIR: Record<Dir4, ScreenDir> = {
+const SCREEN_DIR = {
   up: "away",
   down: "near",
   left: "left",
   right: "right",
-};
+} satisfies Record<Dir4, ScreenDir>;
 
 /** Slot → grid cell, counted from the bottom-right safe-area corner: column 0
  *  is the screen edge (primary verbs), rows stack upward. Six buttons are two
@@ -67,7 +67,7 @@ const SHORT_GRID = [
   [2, 1],
 ] as const;
 
-function cluster(v: Viewport, slot: Slot): { x: number; y: number } {
+function cluster(v: Viewport, slot: Slot) {
   const [col, row] = (v.height < 500 ? SHORT_GRID : TALL_GRID)[slot];
   return {
     x: v.width - v.inset.right - 58 - col * 94,

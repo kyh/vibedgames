@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import type { IncomingMessage } from "node:http";
 import { join, resolve } from "node:path";
 import { afterEach, test } from "node:test";
 
@@ -140,7 +141,7 @@ test("extractMediaRefs handles a nested array of frames", () => {
 // Tiny PNG handler that every download test reuses. Real fetch + write
 // path exercises renderTemplate / disambiguateTargets end-to-end.
 function servePng(
-  _: unknown,
+  _: IncomingMessage,
   res: { setHeader: (k: string, v: string) => void; end: (b: Buffer) => void },
 ) {
   res.setHeader("content-type", "image/png");

@@ -4,6 +4,13 @@
 
 const SOUND_KEY = "farm:sound";
 
+declare global {
+  interface Window {
+    /** Safari's prefixed constructor, absent everywhere else. */
+    webkitAudioContext?: typeof AudioContext;
+  }
+}
+
 // localStorage throws in some embeds (sandboxed iframes, blocked cookies,
 // private modes). The game must boot and run without persistence.
 function storageGet(key: string): string | null {
@@ -30,9 +37,8 @@ class SoundEngine {
   private ensure(): AudioContext | null {
     if (this.ctx) return this.ctx;
     try {
-      const Ctx =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return null;
       this.ctx = new Ctx();
       this.master = this.ctx.createGain();
       this.master.gain.value = 0.5;

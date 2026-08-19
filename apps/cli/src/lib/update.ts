@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
 import { getConfigDir } from "./config.js";
+import { isJsonNumber, isJsonObject, isJsonString, type JsonValue } from "./types.js";
 import { join } from "node:path";
 
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -15,10 +16,10 @@ function getLastCheckedAt(): number {
   const path = getCachePath();
   if (!existsSync(path)) return 0;
   try {
-    const data: unknown = JSON.parse(readFileSync(path, "utf-8"));
-    if (typeof data === "object" && data !== null && "lastCheckedAt" in data) {
+    const data: JsonValue = JSON.parse(readFileSync(path, "utf-8"));
+    if (isJsonObject(data)) {
       const ts = data.lastCheckedAt;
-      if (typeof ts === "number") return ts;
+      if (isJsonNumber(ts)) return ts;
     }
   } catch {
     // corrupt cache — treat as never checked
@@ -56,10 +57,12 @@ export async function fetchLatestVersion(): Promise<string | null> {
       signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) return null;
-    const data: unknown = await res.json();
-    if (typeof data === "object" && data !== null && "version" in data) {
+    // SAFETY: res.json() is JSON.parse of the response body, which is
+    // structurally JsonValue.
+    const data = (await res.json()) as JsonValue;
+    if (isJsonObject(data)) {
       const version = data.version;
-      if (typeof version === "string") return version;
+      if (isJsonString(version)) return version;
     }
   } catch {
     // offline or registry down — skip this round

@@ -115,7 +115,7 @@ test("rejects a manifest without a usable tilesets block", () => {
 test("the self-test map places every non-empty tile at its own coordinate", () => {
   const m = meta(workspace());
   const nonEmpty = nonEmptyTileIds(m);
-  const map = makeSelftestMap(m) as { meta: Record<string, unknown>; data: number[][] };
+  const map = makeSelftestMap(m);
 
   assert.equal(map.meta.width, COLS);
   assert.equal(map.meta.height, ROWS);

@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, extname, resolve } from "node:path";
 
-import { isRecord } from "./types.js";
+import { isJsonObject, isJsonString, type JsonValue } from "./types.js";
 
 // Lowercase file extensions we recognize as media when sniffing fal
 // response payloads where `content_type` is missing (some endpoints
@@ -39,7 +39,7 @@ type MediaRef = {
  * content types and also fall back to URL extension when content_type is
  * absent (some endpoints omit it).
  */
-export function extractMediaRefs(result: unknown): MediaRef[] {
+export function extractMediaRefs(result: JsonValue): MediaRef[] {
   const seen = new Set<string>();
   const refs: MediaRef[] = [];
   visit(result, refs, seen);
@@ -68,18 +68,16 @@ function isTrustedFalContentHost(url: string): boolean {
   return TRUSTED_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix));
 }
 
-function visit(value: unknown, refs: MediaRef[], seen: Set<string>): void {
+function visit(value: JsonValue, refs: MediaRef[], seen: Set<string>): void {
   if (Array.isArray(value)) {
     for (const v of value) visit(v, refs, seen);
     return;
   }
-  if (!isRecord(value)) return;
+  if (!isJsonObject(value)) return;
   const url = value.url;
-  if (typeof url === "string" && isTrustedFalContentHost(url) && !seen.has(url)) {
-    const contentType =
-      typeof value.content_type === "string" ? value.content_type.toLowerCase() : null;
-    const filenameField =
-      typeof value.file_name === "string" ? sanitizeFilename(value.file_name) : null;
+  if (isJsonString(url) && isTrustedFalContentHost(url) && !seen.has(url)) {
+    const contentType = isJsonString(value.content_type) ? value.content_type.toLowerCase() : null;
+    const filenameField = isJsonString(value.file_name) ? sanitizeFilename(value.file_name) : null;
     const ext = filenameField ? extname(filenameField).slice(1).toLowerCase() : extFromUrl(url);
     const looksMedia =
       contentType !== null ? /^(image|video|audio)\//.test(contentType) : MEDIA_EXT.has(ext);
@@ -114,28 +112,32 @@ type DownloadResult = {
 // The extension each content type genuinely is. Only formats an agent is
 // likely to hand to a decoder afterwards need an entry; anything absent is
 // left alone rather than guessed at.
-const EXT_FOR_CONTENT_TYPE: Record<string, string> = {
-  "image/png": "png",
-  "image/jpeg": "jpg",
-  "image/webp": "webp",
-  "image/gif": "gif",
-  "image/avif": "avif",
-  "video/mp4": "mp4",
-  "video/webm": "webm",
-  "video/quicktime": "mov",
-  "audio/mpeg": "mp3",
-  "audio/wav": "wav",
-  "audio/ogg": "ogg",
-};
+const EXT_FOR_CONTENT_TYPE = new Map(
+  Object.entries({
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/webp": "webp",
+    "image/gif": "gif",
+    "image/avif": "avif",
+    "video/mp4": "mp4",
+    "video/webm": "webm",
+    "video/quicktime": "mov",
+    "audio/mpeg": "mp3",
+    "audio/wav": "wav",
+    "audio/ogg": "ogg",
+  }),
+);
 
 // Extensions that name the same format, so `.jpg` for `image/jpeg` is not a lie.
-const EXT_ALIASES: Record<string, string> = {
-  jpeg: "jpg",
-  tif: "tiff",
-  htm: "html",
-};
+const EXT_ALIASES = new Map(
+  Object.entries({
+    jpeg: "jpg",
+    tif: "tiff",
+    htm: "html",
+  }),
+);
 
-const canonicalExt = (ext: string) => EXT_ALIASES[ext] ?? ext;
+const canonicalExt = (ext: string) => EXT_ALIASES.get(ext) ?? ext;
 
 /**
  * The extension the caller asked for versus the bytes actually served.
@@ -148,7 +150,7 @@ const canonicalExt = (ext: string) => EXT_ALIASES[ext] ?? ext;
 function mislabelOf(target: string, ref: MediaRef): { path: string; actual: string } | null {
   const asked = canonicalExt(extname(target).slice(1).toLowerCase());
   if (!asked) return null;
-  const actual = ref.contentType ? EXT_FOR_CONTENT_TYPE[ref.contentType] : undefined;
+  const actual = ref.contentType ? EXT_FOR_CONTENT_TYPE.get(ref.contentType) : undefined;
   if (!actual || canonicalExt(actual) === asked) return null;
   return { path: target, actual };
 }

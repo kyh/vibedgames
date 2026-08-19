@@ -42,7 +42,7 @@ const SPELL_ICON_FRAME: Record<string, number> = Object.fromEntries(
 );
 
 /** 64px HUD icon for every ability slot, keyed by effect id. */
-export const ABILITY_ICON: Record<string, string> = {
+export const ABILITY_ICON = {
   "ironvow:Q": "ic-light",
   "ironvow:W": "ic-shield",
   "ironvow:E": "ic-nature",
@@ -67,11 +67,13 @@ export const ABILITY_ICON: Record<string, string> = {
   "brewkeeper:W": "ic-gypno",
   "brewkeeper:E": "ic-shield",
   "brewkeeper:R": "ic-nature",
-};
+} satisfies Record<string, string>;
+
+const ABILITY_ICON_LOOKUP = new Map<string, string>(Object.entries(ABILITY_ICON));
 
 /** Frame in the packed spell-icon sheet for an ability's HUD icon. */
 export function abilityIconFrame(effect: string): number | null {
-  const name = ABILITY_ICON[effect];
+  const name = ABILITY_ICON_LOOKUP.get(effect);
   return name === undefined ? null : (SPELL_ICON_FRAME[name] ?? null);
 }
 
@@ -84,7 +86,7 @@ export type SpellCastFx = {
   tint?: number;
 };
 
-export const ABILITY_CAST_FX: Record<string, SpellCastFx> = {
+export const ABILITY_CAST_FX = {
   "ironvow:Q": { sheet: "sp-light", at: "target", scale: 0.9 },
   "ironvow:W": { sheet: "sp-light", at: "caster", scale: 1.3, tint: 0xbcd6ff },
   "ironvow:R": { sheet: "sp-light", at: "caster", scale: 2.6, tint: 0xbcd6ff },
@@ -106,10 +108,12 @@ export const ABILITY_CAST_FX: Record<string, SpellCastFx> = {
   "brewkeeper:W": { sheet: "sp-gypno", at: "target", scale: 1.9, tint: 0xc78bff },
   "brewkeeper:E": { sheet: "sp-light", at: "caster", scale: 1.5, tint: 0x9bf0b0 },
   "brewkeeper:R": { sheet: "sp-light", at: "caster", scale: 2.3, tint: 0x9bf0b0 }, // last call
-};
+} satisfies Record<string, SpellCastFx>;
+
+const CAST_FX_LOOKUP = new Map<string, SpellCastFx>(Object.entries(ABILITY_CAST_FX));
 
 export function abilityCastFx(effect: string): SpellCastFx | null {
-  return ABILITY_CAST_FX[effect] ?? null;
+  return CAST_FX_LOOKUP.get(effect) ?? null;
 }
 
 /** Persistent zone visuals for ground effects, keyed off the GroundEffect.effect.

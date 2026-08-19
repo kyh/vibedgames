@@ -213,7 +213,7 @@ export const LANE_IDS: LaneId[] = ["top", "bottom"];
 // Radiant creeps walk these west -> east; dire creeps walk the reverse. The two
 // middle waypoints are the bridge mouths so the straight segment between them
 // crosses on the planks.
-const RADIANT_LANES: Record<LaneId, Vec2[]> = {
+const RADIANT_LANES = {
   top: [
     { x: 704, y: 1280 },
     { x: 560, y: 1056 },
@@ -242,7 +242,7 @@ const RADIANT_LANES: Record<LaneId, Vec2[]> = {
     { x: 3536, y: 2016 },
     { x: 3392, y: 1792 },
   ],
-};
+} satisfies Record<LaneId, Vec2[]>;
 
 export function lanePath(lane: LaneId, team: Team): Vec2[] {
   const base = RADIANT_LANES[lane];
@@ -274,7 +274,7 @@ const RADIANT_TOWERS: Array<{ lane: LaneId | "base"; tier: StructTier; x: number
 
 function buildTowers(): TowerSpec[] {
   const out: TowerSpec[] = [];
-  for (const team of ["radiant", "dire"] as Team[]) {
+  for (const team of ["radiant", "dire"] satisfies Team[]) {
     const p = team === "radiant" ? "r" : "d";
     let baseIdx = 0;
     for (const t of RADIANT_TOWERS) {
@@ -302,7 +302,7 @@ export type BaseSpec = {
   creepSpawn: Vec2;
 };
 
-export const BASES: Record<Team, BaseSpec> = {
+export const BASES = {
   radiant: {
     team: "radiant",
     ancient: { x: 480, y: 1536 },
@@ -321,7 +321,7 @@ export const BASES: Record<Team, BaseSpec> = {
     shopRadius: 420,
     creepSpawn: { x: 3392, y: 1536 },
   },
-};
+} satisfies Record<Team, BaseSpec>;
 
 // ---- neutral jungle camps + Roshan ----------------------------------------
 // Camps sit in jungle pockets between the lanes; Roshan holds the centre island

@@ -4,6 +4,7 @@ import { basename } from "node:path";
 import { Bitmap } from "../image/raster.js";
 import { roundHalfToEven } from "../pymath.js";
 import { globFrames, median } from "./frames.js";
+import { isFiniteNumber, isJsonComposite, isJsonObject, isString, type JsonValue } from "./json.js";
 
 /**
  * A size contract pins how big a character should appear and where it should
@@ -48,7 +49,77 @@ export type Measurement = {
   visibleBottomY?: number;
 };
 
-export type Summary = Record<string, unknown>;
+/** No visible pixels anywhere — nothing to measure beyond the frame count. */
+export type EmptySummary = {
+  frames: number;
+  nonEmptyFrames: 0;
+  frameSize: null;
+};
+
+export type PopulatedSummary = {
+  frames: number;
+  nonEmptyFrames: number;
+  frameSize: [number, number] | null;
+  visibleWidthRange: [number, number];
+  visibleHeightRange: [number, number];
+  visibleBottomYRange: [number, number];
+  visibleCenterXRange: [number, number];
+  medianVisibleWidth: number;
+  medianVisibleHeight: number;
+  medianBottomY: number;
+  medianCenterX: number;
+  maxVisibleWidth: number;
+  maxVisibleHeight: number;
+  intraHeightDriftPct: number | null;
+};
+
+export type Summary = EmptySummary | PopulatedSummary;
+
+/** `nonEmptyFrames === 0` and the missing measurement fields coincide by construction. */
+function isEmptySummary(summary: Summary): summary is EmptySummary {
+  return summary.nonEmptyFrames === 0;
+}
+
+/**
+ * A size contract is a hand-edited JSON file, so beyond the keys
+ * `loadSizeContract` actually validates, fields stay `JsonValue` and readers
+ * coerce them defensively.
+ */
+export type SizeContract = {
+  version?: JsonValue;
+  kind?: JsonValue;
+  name?: JsonValue;
+  source?: JsonValue;
+  sourceKind?: JsonValue;
+  action?: JsonValue;
+  direction?: JsonValue;
+  runtimeCell?: JsonValue;
+  sourceCanvas?: JsonValue;
+  anchorPolicy?: JsonValue;
+  pivot?: JsonValue;
+  targetVisibleHeight?: JsonValue;
+  targetVisibleWidth?: JsonValue;
+  maxVisibleWidth?: JsonValue;
+  targetBottomY?: JsonValue;
+  targetCenterX?: JsonValue;
+  tolerances?: Tolerances;
+  measurementsSummary?: JsonValue;
+  measurements?: JsonValue;
+  promptGuidance?: JsonValue;
+};
+
+export type SizeContractAudit = {
+  version: number;
+  kind: string;
+  stage: string;
+  source: string;
+  contract: SizeContract;
+  status: "pass" | "warn";
+  passed: boolean;
+  summary: Summary;
+  checks: Check[];
+  measurements: Measurement[];
+};
 
 /** Python's `format(x, ".1%")` / `".0f"`, which round half to even. */
 function percent(value: number, digits = 1): string {
@@ -60,7 +131,7 @@ function fixed0(value: number): string {
   return roundHalfToEven(value).toFixed(0);
 }
 
-function optionalNumber(value: unknown): number | null {
+function optionalNumber(value: JsonValue | undefined): number | null {
   if (value === null || value === undefined) return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
@@ -154,7 +225,7 @@ export function summarizeMeasurements(measurements: Measurement[]): Summary {
   return {
     frames: measurements.length,
     nonEmptyFrames: live.length,
-    frameSize: uniform ? first : null,
+    frameSize: uniform && first !== undefined ? first : null,
     visibleWidthRange: [Math.min(...widths), Math.max(...widths)],
     visibleHeightRange: [Math.min(...heights), Math.max(...heights)],
     visibleBottomYRange: [Math.min(...bottoms), Math.max(...bottoms)],
@@ -172,11 +243,12 @@ export function summarizeMeasurements(measurements: Measurement[]): Summary {
 }
 
 /** Prompt text that keeps a generated clip on-scale for the runtime cell. */
-export function promptGuidanceForContract(contract: Record<string, unknown>): string[] {
-  const runtimeCell = (contract.runtimeCell as number[]) ?? [FRAME_WIDTH, FRAME_HEIGHT];
-  const targetHeight = contract.targetVisibleHeight as number | undefined;
-  const bottomY = contract.targetBottomY as number | undefined;
-  const pivot = (contract.pivot as string) || "base-center";
+export function promptGuidanceForContract(contract: SizeContract): string[] {
+  const runtimeCell = asCellPair(contract.runtimeCell) ?? [FRAME_WIDTH, FRAME_HEIGHT];
+  const targetHeight = optionalNumber(contract.targetVisibleHeight);
+  const bottomY = optionalNumber(contract.targetBottomY);
+  const pivotValue = contract.pivot;
+  const pivot = isString(pivotValue) && pivotValue !== "" ? pivotValue : "base-center";
 
   const guidance = [
     "Use a locked camera: no zoom, pan, crop, or camera push-in/out.",
@@ -189,7 +261,7 @@ export function promptGuidanceForContract(contract: Record<string, unknown>): st
       `After processing, the sprite should remain about ${targetHeight}px tall inside a ${runtimeCell[0]}x${runtimeCell[1]} runtime cell; treat this as scale guidance, not visible text.`,
     );
   }
-  if (bottomY !== undefined && bottomY !== null) {
+  if (bottomY !== null) {
     guidance.push(
       `Keep the contact/base point visually stable; the intended runtime bottom anchor is y=${bottomY}.`,
     );
@@ -210,8 +282,8 @@ function check(
   passed: boolean,
   passMessage: string,
   warnMessage: string,
-  observed: unknown,
-  target: unknown,
+  observed: number | [number, number],
+  target: number | [number, number],
 ): Check {
   return {
     name,
@@ -222,12 +294,12 @@ function check(
   };
 }
 
-export function contractChecks(summary: Summary, contract: Record<string, unknown>): Check[] {
+export function contractChecks(summary: Summary, contract: SizeContract): Check[] {
   const tolerances = {
     ...DEFAULT_TOLERANCES,
-    ...((contract.tolerances as Partial<Tolerances>) ?? {}),
+    ...(contract.tolerances ?? {}),
   };
-  if ((summary.nonEmptyFrames as number) === 0) {
+  if (isEmptySummary(summary)) {
     return [
       { name: "non-empty-frames", status: "warn", message: "No non-empty frames were found." },
     ];
@@ -239,7 +311,7 @@ export function contractChecks(summary: Summary, contract: Record<string, unknow
   const medianHeight = optionalNumber(summary.medianVisibleHeight);
   const maxHeightDrift = optionalNumber(tolerances.maxTargetHeightDriftPct);
   if (targetHeight && medianHeight && maxHeightDrift !== null) {
-    const range = summary.visibleHeightRange as [number, number];
+    const range = summary.visibleHeightRange;
     const drift =
       Math.max(Math.abs(range[0] - targetHeight), Math.abs(range[1] - targetHeight)) / targetHeight;
     checks.push(
@@ -272,7 +344,7 @@ export function contractChecks(summary: Summary, contract: Record<string, unknow
   const targetBottom = optionalNumber(contract.targetBottomY);
   const maxBottomDrift = optionalNumber(tolerances.maxBottomDriftPx);
   if (targetBottom !== null && maxBottomDrift !== null) {
-    const range = summary.visibleBottomYRange as [number, number];
+    const range = summary.visibleBottomYRange;
     const drift = Math.max(Math.abs(range[0] - targetBottom), Math.abs(range[1] - targetBottom));
     checks.push(
       check(
@@ -306,7 +378,7 @@ export function contractChecks(summary: Summary, contract: Record<string, unknow
   const targetCenter = optionalNumber(contract.targetCenterX);
   const maxCenterDrift = optionalNumber(tolerances.maxCenterDriftPx);
   if (targetCenter !== null && maxCenterDrift !== null) {
-    const range = summary.visibleCenterXRange as [number, number];
+    const range = summary.visibleCenterXRange;
     const drift = Math.max(Math.abs(range[0] - targetCenter), Math.abs(range[1] - targetCenter));
     checks.push(
       check(
@@ -323,7 +395,7 @@ export function contractChecks(summary: Summary, contract: Record<string, unknow
   return checks;
 }
 
-const BRIEF_KEYS = [
+const BRIEF_KEYS: readonly (keyof SizeContract)[] = [
   "name",
   "source",
   "runtimeCell",
@@ -337,9 +409,17 @@ const BRIEF_KEYS = [
   "tolerances",
 ];
 
-function contractBrief(contract: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const key of BRIEF_KEYS) if (key in contract) out[key] = contract[key];
+function copyBriefKey<K extends keyof SizeContract>(
+  contract: SizeContract,
+  out: SizeContract,
+  key: K,
+): void {
+  if (key in contract) out[key] = contract[key];
+}
+
+function contractBrief(contract: SizeContract): SizeContract {
+  const out: SizeContract = {};
+  for (const key of BRIEF_KEYS) copyBriefKey(contract, out, key);
   return out;
 }
 
@@ -351,26 +431,25 @@ function contractBrief(contract: Record<string, unknown>): Record<string, unknow
  * turns `"64x64"` or `[64]` into `NaN` that only surfaces later as a sprite
  * scaled to nothing.
  */
-function asCellPair(value: unknown): [number, number] | null {
+function asCellPair(value: JsonValue | undefined): [number, number] | null {
   if (!Array.isArray(value) || value.length !== 2) return null;
   const [w, h] = value;
-  if (typeof w !== "number" || typeof h !== "number") return null;
-  if (!Number.isFinite(w) || !Number.isFinite(h)) return null;
+  if (!isFiniteNumber(w) || !isFiniteNumber(h)) return null;
   // A zero cell is not a cell. It passed as a pair, then made the whole sheet
   // one frame and audited `pass` against a grid that does not exist.
   if (w < 1 || h < 1) return null;
   return [Math.trunc(w), Math.trunc(h)];
 }
 
-export function cellSizeOf(contract: Record<string, unknown>): [number, number] {
+export function cellSizeOf(contract: SizeContract): [number, number] {
   return asCellPair(contract.runtimeCell) ?? [FRAME_WIDTH, FRAME_HEIGHT];
 }
 
-export function loadSizeContract(payload: unknown, source: string): Record<string, unknown> {
-  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+export function loadSizeContract(payload: JsonValue, source: string): SizeContract {
+  if (!isJsonObject(payload)) {
     throw new Error(`size contract must be a JSON object: ${source}`);
   }
-  const data = payload as Record<string, unknown>;
+  const data = payload;
   if (data.kind !== "sprite-size-contract")
     throw new Error(`not a sprite size contract: ${source}`);
 
@@ -384,16 +463,20 @@ export function loadSizeContract(payload: unknown, source: string): Record<strin
     );
   }
   const tolerances = data.tolerances;
-  if (tolerances !== undefined && (typeof tolerances !== "object" || tolerances === null)) {
+  if (tolerances !== undefined && !isJsonComposite(tolerances)) {
     throw new Error(`tolerances must be an object, got ${JSON.stringify(tolerances)}: ${source}`);
   }
+  // Defaults first, then the file's own keys — including ones this module does
+  // not know about, which round-trip into audit reports.
+  const mergedTolerances: Tolerances = { ...DEFAULT_TOLERANCES };
+  if (tolerances !== undefined) Object.assign(mergedTolerances, tolerances);
 
   return {
     ...data,
     runtimeCell,
     anchorPolicy: data.anchorPolicy ?? "grounded",
     pivot: data.pivot ?? "base-center",
-    tolerances: { ...DEFAULT_TOLERANCES, ...tolerances },
+    tolerances: mergedTolerances,
   };
 }
 
@@ -410,7 +493,7 @@ export function deriveSizeContract(
     sourceCanvas?: [number, number] | null;
     tolerances?: Partial<Tolerances>;
   } = {},
-): Record<string, unknown> {
+): SizeContract {
   const {
     cellSize = [FRAME_WIDTH, FRAME_HEIGHT],
     frameGlob = "frame-*.png",
@@ -425,12 +508,12 @@ export function deriveSizeContract(
 
   const measurements = measureSource(source, cellSize, frameGlob);
   const summary = summarizeMeasurements(measurements);
-  if ((summary.nonEmptyFrames as number) === 0) {
+  if (isEmptySummary(summary)) {
     throw new Error(`cannot derive size contract from empty source: ${source}`);
   }
 
-  const targetVisibleHeight = roundHalfToEven(summary.medianVisibleHeight as number);
-  const targetBottomY = roundHalfToEven(summary.medianBottomY as number);
+  const targetVisibleHeight = roundHalfToEven(summary.medianVisibleHeight);
+  const targetBottomY = roundHalfToEven(summary.medianBottomY);
   const isDir = existsSync(source) && statSync(source).isDirectory();
 
   return {
@@ -446,10 +529,10 @@ export function deriveSizeContract(
     anchorPolicy,
     pivot,
     targetVisibleHeight,
-    targetVisibleWidth: roundHalfToEven(summary.medianVisibleWidth as number),
+    targetVisibleWidth: roundHalfToEven(summary.medianVisibleWidth),
     maxVisibleWidth: summary.maxVisibleWidth,
     targetBottomY,
-    targetCenterX: roundHalfToEven(summary.medianCenterX as number),
+    targetCenterX: roundHalfToEven(summary.medianCenterX),
     tolerances: { ...DEFAULT_TOLERANCES, ...tolerances },
     measurementsSummary: summary,
     measurements,
@@ -464,9 +547,9 @@ export function deriveSizeContract(
 
 export function auditSizeContract(
   source: string,
-  contract: Record<string, unknown>,
+  contract: SizeContract,
   options: { cellSize?: [number, number] | null; frameGlob?: string; stage?: string } = {},
-): Record<string, unknown> {
+): SizeContractAudit {
   const { cellSize = null, frameGlob = "frame-*.png", stage = "runtime" } = options;
   const measurements = measureSource(source, cellSize ?? cellSizeOf(contract), frameGlob);
   const summary = summarizeMeasurements(measurements);

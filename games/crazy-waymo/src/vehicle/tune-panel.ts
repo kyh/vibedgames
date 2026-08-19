@@ -4,7 +4,14 @@ import type { RaycastVehicle, VehicleParams } from "./raycast-vehicle";
 // zero-dependency DOM strip. Numeric params get sliders, booleans checkboxes;
 // wheel-level params re-apply to the controller on change.
 
-type NumSpec = { key: keyof VehicleParams; min: number; max: number; step: number };
+type NumericVehicleParam = {
+  [K in keyof VehicleParams]: VehicleParams[K] extends number ? K : never;
+}[keyof VehicleParams];
+type BooleanVehicleParam = {
+  [K in keyof VehicleParams]: VehicleParams[K] extends boolean ? K : never;
+}[keyof VehicleParams];
+
+type NumSpec = { key: NumericVehicleParam; min: number; max: number; step: number };
 
 const NUMS: NumSpec[] = [
   { key: "engineForce", min: 1000, max: 12000, step: 100 },
@@ -38,7 +45,7 @@ const NUMS: NumSpec[] = [
   { key: "landingGripFactor", min: 0, max: 1, step: 0.05 },
 ];
 
-const BOOLS: (keyof VehicleParams)[] = ["antiWheelie", "uprightAssist"];
+const BOOLS: BooleanVehicleParam[] = ["antiWheelie", "uprightAssist"];
 
 export function mountTunePanel(vehicle: RaycastVehicle): void {
   const wrap = document.createElement("div");
@@ -71,7 +78,7 @@ export function mountTunePanel(vehicle: RaycastVehicle): void {
     input.style.width = "100%";
     input.addEventListener("input", () => {
       const v = Number(input.value);
-      (vehicle.params as Record<string, number | boolean>)[spec.key] = v;
+      vehicle.params[spec.key] = v;
       name.textContent = `${spec.key}: ${v}`;
       reapply();
     });
@@ -85,7 +92,7 @@ export function mountTunePanel(vehicle: RaycastVehicle): void {
     input.type = "checkbox";
     input.checked = vehicle.params[key] === true;
     input.addEventListener("change", () => {
-      (vehicle.params as Record<string, number | boolean>)[key] = input.checked;
+      vehicle.params[key] = input.checked;
     });
     row.append(input, document.createTextNode(String(key)));
     wrap.appendChild(row);

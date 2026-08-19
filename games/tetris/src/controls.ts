@@ -39,13 +39,13 @@ export const CONTROLS: ControlsManifest = [
 
 /** Display name per input method — shared by the title legend and the pause
  *  overlay so every instruction surface speaks the same words. */
-export const METHOD_LABEL: Record<ControlMethod, string> = {
+export const METHOD_LABEL = {
   keys: "keys",
   mouse: "mouse",
   touch: "touch",
   camera: "webcam",
   controller: "pad",
-};
+} satisfies Record<ControlMethod, string>;
 
 function say(entry: ControlEntry): string {
   return `${entry.input} to ${entry.action}`;

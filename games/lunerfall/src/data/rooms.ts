@@ -142,7 +142,7 @@ export const BOSS = (): RoomDef =>
     .boss(25, RH - 2)
     .door(43, RH - 6);
 
-export const ROOM_ICON: Record<RoomType, string> = {
+export const ROOM_ICON = {
   start: "◆",
   combat: "⚔",
   elite: "☠",
@@ -150,9 +150,9 @@ export const ROOM_ICON: Record<RoomType, string> = {
   rest: "✚",
   treasure: "◇",
   boss: "✦",
-};
+} satisfies Record<RoomType, string>;
 
-export const ROOM_LABEL: Record<RoomType, string> = {
+export const ROOM_LABEL = {
   start: "START",
   combat: "FIGHT",
   elite: "ELITE",
@@ -160,4 +160,4 @@ export const ROOM_LABEL: Record<RoomType, string> = {
   rest: "REST",
   treasure: "CACHE",
   boss: "BOSS",
-};
+} satisfies Record<RoomType, string>;

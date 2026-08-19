@@ -11,13 +11,13 @@ import type { ControlMethod, PauseOverlay } from "@repo/embed";
 import { CONTROLS } from "./controls";
 
 /** Section headers for the grouped control rows, in HUD voice. */
-const METHOD_LABELS: Record<ControlMethod, string> = {
+const METHOD_LABELS = {
   keys: "keyboard",
   mouse: "mouse",
   touch: "touch",
   camera: "camera",
   controller: "gamepad",
-};
+} satisfies Record<ControlMethod, string>;
 
 const STYLE_ID = "sf-pause-style";
 

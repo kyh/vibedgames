@@ -42,9 +42,9 @@ function sampleBackground(image: Bitmap): [number, number, number] {
     image.getPixel(0, image.height - 1),
     image.getPixel(image.width - 1, image.height - 1),
   ];
-  return [0, 1, 2].map((channel) =>
-    Math.round(corners.reduce((sum, c) => sum + c[channel]!, 0) / corners.length),
-  ) as [number, number, number];
+  const average = (channel: 0 | 1 | 2): number =>
+    Math.round(corners.reduce((sum, c) => sum + c[channel], 0) / corners.length);
+  return [average(0), average(1), average(2)];
 }
 
 /**
@@ -132,6 +132,8 @@ export function findComponents(
   return components;
 }
 
+export type RecoverOutput = { result: RecoverResult; crops: { index: number; image: Bitmap }[] };
+
 /**
  * Assign recovered blobs to grid cells and crop each to its own bounds.
  *
@@ -142,7 +144,7 @@ export function findComponents(
 export function recoverFrames(
   sheetPath: string,
   options: { rows: number; cols: number; frames: number | null; threshold: number },
-): { result: RecoverResult; crops: { index: number; image: Bitmap }[] } {
+): RecoverOutput {
   const { rows, cols, frames, threshold } = options;
   if (rows <= 0 || cols <= 0) throw new Error("--rows and --cols must be positive integers");
   if (frames !== null && frames <= 0) throw new Error("--frames must be a positive integer");

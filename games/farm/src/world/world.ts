@@ -81,6 +81,8 @@ export class World {
 
   cellKind(tx: number, ty: number): Cell {
     const v = this.kind[this.idx(tx, ty)] ?? CELL.void;
+    // SAFETY: `kind` bytes are only ever written from CELL constants (the
+    // buildSemantics classifiers), so every stored value is a Cell member.
     return v as Cell;
   }
 

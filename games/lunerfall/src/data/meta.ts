@@ -1,5 +1,7 @@
 // Persistent meta-progress (localStorage). Runs bank "shards"; shards unlock the
 // locked warriors in the hub. Parsed defensively at the boundary.
+import { isJsonNumber, isJsonObject, isJsonString } from "../net/json";
+import type { JsonValue } from "../net/json";
 import type { HeroName } from "./animations";
 
 export type MetaState = {
@@ -67,13 +69,13 @@ export function buyUpgrade(m: MetaState, id: string): boolean {
 }
 
 // Warrior unlock costs in shards (0 = free from the start).
-export const UNLOCK_COST: Record<HeroName, number> = {
+export const UNLOCK_COST = {
   axion: 0,
   reaper: 0,
   riven: 20,
   mooni: 35,
   salamander: 45,
-};
+} satisfies Record<HeroName, number>;
 
 const fresh = (): MetaState => ({
   shards: 0,
@@ -87,23 +89,23 @@ export function loadMeta(): MetaState {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return fresh();
-    const p: unknown = JSON.parse(raw);
-    const o = typeof p === "object" && p !== null ? (p as Record<string, unknown>) : {};
+    const p: JsonValue = JSON.parse(raw);
+    const o = isJsonObject(p) ? p : {};
     const unlocked = Array.isArray(o.unlocked)
-      ? o.unlocked.filter((x): x is string => typeof x === "string")
+      ? o.unlocked.filter(isJsonString)
       : [...DEFAULT_UNLOCKED];
     const upgrades: Record<string, number> = {};
     const rawUp = o.upgrades;
-    if (typeof rawUp === "object" && rawUp !== null) {
+    if (isJsonObject(rawUp)) {
       for (const [k, v] of Object.entries(rawUp)) {
-        if (typeof v === "number" && Number.isFinite(v)) upgrades[k] = Math.max(0, Math.floor(v));
+        if (isJsonNumber(v)) upgrades[k] = Math.max(0, Math.floor(v));
       }
     }
     return {
-      shards: typeof o.shards === "number" ? o.shards : 0,
+      shards: isJsonNumber(o.shards) ? o.shards : 0,
       unlocked: unlocked.length > 0 ? unlocked : [...DEFAULT_UNLOCKED],
-      bestDepth: typeof o.bestDepth === "number" ? o.bestDepth : 0,
-      runs: typeof o.runs === "number" ? o.runs : 0,
+      bestDepth: isJsonNumber(o.bestDepth) ? o.bestDepth : 0,
+      runs: isJsonNumber(o.runs) ? o.runs : 0,
       upgrades,
     };
   } catch {

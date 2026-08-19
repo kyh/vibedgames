@@ -47,7 +47,7 @@ export type TransitCorridor = {
  * Take the slice for trolleybus: all of it is 11% of the network and reads as
  * clutter.
  */
-export const SF_TRANSIT: Readonly<Record<TransitMode, readonly TransitCorridor[]>> = {
+export const SF_TRANSIT = {
   cable: [
     {
       street: "California Street",
@@ -506,7 +506,7 @@ export const SF_TRANSIT: Readonly<Record<TransitMode, readonly TransitCorridor[]
     { street: "Prosper Street", lengthU: 13, edges: [4965] },
     { street: "Sanchez Street", lengthU: 13, edges: [4964] },
   ],
-};
+} satisfies Readonly<Record<TransitMode, readonly TransitCorridor[]>>;
 
 /** Flat edge list for a mode, ascending — the "paint all of it" case. */
 export function transitEdges(mode: TransitMode): readonly number[] {

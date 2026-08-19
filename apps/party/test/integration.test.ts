@@ -168,20 +168,28 @@ test("per-player state propagates to other clients", async () => {
 // pre-delta clients, abrupt non-1000 closes, a chosen reconnect token). A
 // minimal raw-WebSocket client covers those; everything else uses the real SDK.
 
-/** Structural record view of an unknown value; throws when it isn't one. */
-const toRecord = (value: unknown): Record<string, unknown> => {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+/** JSON off the wire, typed as data rather than left `unknown`. */
+type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+type JsonRecord = { [key: string]: JsonValue };
+
+// `String(v) === v` holds exactly for primitive strings (strict equality
+// never coerces), so this predicate is sound without a runtime `typeof`.
+const isJsonString = (value: JsonValue | undefined): value is string => String(value) === value;
+
+/** Structural record view of a JSON value; throws when it isn't one. */
+const toRecord = (value: JsonValue | undefined): JsonRecord => {
+  if (!(value instanceof Object) || Array.isArray(value)) {
     throw new Error(`expected a plain object, got: ${JSON.stringify(value)}`);
   }
   return Object.fromEntries(Object.entries(value));
 };
 
-type WireMessage = { type: string; data: unknown };
+type WireMessage = { type: string; data: JsonValue | undefined };
 
 const parseWireMessage = (raw: string): WireMessage => {
   const record = toRecord(JSON.parse(raw));
   const { type } = record;
-  if (typeof type !== "string") throw new Error(`message without a type: ${raw}`);
+  if (!isJsonString(type)) throw new Error(`message without a type: ${raw}`);
   return { type, data: record.data };
 };
 
@@ -209,17 +217,19 @@ class RawClient {
       this.closed = true;
     });
     this.ws.addEventListener("message", (event) => {
-      if (typeof event.data !== "string") return;
-      const message = parseWireMessage(event.data);
-      if (message.type === "ping") {
-        this.ws.send(JSON.stringify({ type: "pong" }));
-        return;
+      const text = event.data;
+      if (String(text) === text) {
+        const message = parseWireMessage(text);
+        if (message.type === "ping") {
+          this.ws.send(JSON.stringify({ type: "pong" }));
+          return;
+        }
+        this.messages.push(message);
       }
-      this.messages.push(message);
     });
   }
 
-  send(message: Record<string, unknown>): void {
+  send(message: JsonRecord): void {
     this.ws.send(JSON.stringify(message));
   }
 
@@ -232,7 +242,7 @@ class RawClient {
   }
 
   /** All received messages of one type, data coerced to a record. */
-  received(type: string): Record<string, unknown>[] {
+  received(type: string): JsonRecord[] {
     return this.messages
       .filter((message) => message.type === type)
       .map((message) => toRecord(message.data));
@@ -399,7 +409,7 @@ test("delta-capable clients get keyed deltas; legacy clients get full snapshots 
     sdk.updateMyState({ x: 1, y: 2 });
     sdk.updateMyState({ y: 3 });
 
-    const statesFor = (client: RawClient): Record<string, unknown>[] =>
+    const statesFor = (client: RawClient): JsonRecord[] =>
       client
         .received("player_state")
         .filter((data) => data.id === sdkId)

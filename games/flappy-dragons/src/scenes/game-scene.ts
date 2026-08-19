@@ -6,7 +6,9 @@ import { PhysicalGamepad, safeAreaInset } from "@vibedgames/gamepad";
 import { CONTROLS } from "../controls";
 import { buildControls, ensureStyle as ensureControlsStyle } from "../pause-overlay";
 import { isCoarsePointer, recalibratePose, setPoseLocked } from "../input/camera";
-import { NetSession } from "../net/session";
+import { NetSession, isJsonNumber } from "../net/session";
+import type { JsonObject } from "../net/session";
+import type { Player } from "@vibedgames/multiplayer";
 import {
   ART_SCALE,
   BEST_KEY,
@@ -1133,7 +1135,7 @@ function randomSeed(): number {
 function prefersReducedMotion(): boolean {
   return (
     typeof window !== "undefined" &&
-    typeof window.matchMedia === "function" &&
+    "matchMedia" in window &&
     window.matchMedia("(prefers-reduced-motion: reduce)").matches
   );
 }
@@ -1148,25 +1150,24 @@ function hashId(id: string, salt: number): number {
   return ((h >>> 0) % 100000) / 100000;
 }
 
-function numField(s: Record<string, unknown>, key: string): number | null {
+function numField(s: JsonObject, key: string): number | null {
   const v = s[key];
-  return typeof v === "number" ? v : null;
+  return isJsonNumber(v) ? v : null;
 }
 
-function readPeer(state: unknown): PeerState | null {
-  if (!state || typeof state !== "object") return null;
-  const yf = "yf" in state ? state.yf : null;
-  const skin = "skin" in state ? state.skin : null;
-  if (typeof yf !== "number" || typeof skin !== "number") return null;
-  const live = "live" in state ? state.live : null;
-  const score = "score" in state ? state.score : null;
-  const rot = "rot" in state ? state.rot : null;
+function readPeer(state: Player["state"]): PeerState | null {
+  if (!state) return null;
+  const yf = state["yf"];
+  const skin = state["skin"];
+  if (!isJsonNumber(yf) || !isJsonNumber(skin)) return null;
+  const score = state["score"];
+  const rot = state["rot"];
   return {
     yf,
-    live: live === true,
-    score: typeof score === "number" ? score : 0,
+    live: state["live"] === true,
+    score: isJsonNumber(score) ? score : 0,
     skin,
-    rot: typeof rot === "number" ? rot : 0,
+    rot: isJsonNumber(rot) ? rot : 0,
   };
 }
 

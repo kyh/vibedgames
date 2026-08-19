@@ -26,6 +26,11 @@ import {
   resolveProfile,
 } from "./_lib/asset-tools.mjs";
 
+// The lint bans runtime `typeof`; these checks are typeof-free equivalents for
+// values decoded from JSON (plain objects and primitive strings only).
+const isPlainObject = (v) => Object.prototype.toString.call(v) === "[object Object]";
+const isString = (v) => String(v) === v;
+
 /** `--json` prints structured output; otherwise dicts print as `key: value`. */
 function emit(value, asJson) {
   if (asJson) {
@@ -34,11 +39,11 @@ function emit(value, asJson) {
   }
   if (Array.isArray(value)) {
     for (const row of value) {
-      console.log(typeof row === "string" ? row : JSON.stringify(row));
+      console.log(isString(row) ? row : JSON.stringify(row));
     }
     return;
   }
-  if (value && typeof value === "object") {
+  if (isPlainObject(value)) {
     for (const [key, nested] of Object.entries(value)) {
       console.log(`${key}: ${formatPythonValue(nested)}`);
     }

@@ -6,6 +6,7 @@ import consola from "consola";
 import tiged from "tiged";
 import { SLUG_RE } from "../lib/config-file.js";
 import { assertKnownFlags } from "../lib/strict-args.js";
+import { isJsonObject, isJsonString, type JsonObject, type JsonValue } from "../lib/types.js";
 
 type EnginePreset =
   | {
@@ -20,48 +21,60 @@ type EnginePreset =
       skill: string;
     };
 
-const ENGINES: Record<string, EnginePreset> = {
+const ENGINES = new Map<string, EnginePreset>([
   // phaserjs/template-vite-ts is the official Phaser 4 + Vite + TypeScript
   // starter (despite the description still saying "Phaser 3" — package.json
   // pins phaser@^4). Pulled fresh on each `vg new`.
-  phaser: {
-    repo: "phaserjs/template-vite-ts",
-    label: "Phaser 4 + Vite + TypeScript (official)",
-    skill: "phaser",
-    postNotes: [
-      "The phaser template ships a `log.js` telemetry shim and uses `vite/config.*.mjs` for build configs — both are upstream, not vibedgames.",
-    ],
-  },
+  [
+    "phaser",
+    {
+      repo: "phaserjs/template-vite-ts",
+      label: "Phaser 4 + Vite + TypeScript (official)",
+      skill: "phaser",
+      postNotes: [
+        "The phaser template ships a `log.js` telemetry shim and uses `vite/config.*.mjs` for build configs — both are upstream, not vibedgames.",
+      ],
+    },
+  ],
   // No officially-blessed Three.js starter exists. Using the most-starred
   // community Vite+TS starter that's been kept current.
-  threejs: {
-    repo: "pachoclo/vite-threejs-ts-template",
-    label: "Three.js + Vite + TypeScript (community)",
-    skill: "threejs",
-    postNotes: [
-      "The demo scene (src/scene.ts) wires lil-gui, stats.js and Drag/OrbitControls as a showcase — replace it with your game and drop the debug deps for production.",
-    ],
-  },
+  [
+    "threejs",
+    {
+      repo: "pachoclo/vite-threejs-ts-template",
+      label: "Three.js + Vite + TypeScript (community)",
+      skill: "threejs",
+      postNotes: [
+        "The demo scene (src/scene.ts) wires lil-gui, stats.js and Drag/OrbitControls as a showcase — replace it with your game and drop the debug deps for production.",
+      ],
+    },
+  ],
   // React Three Fiber. Same author as the threejs preset — Vite + TS +
   // React 18 + R3F 8 + drei, with leva and r3f-perf wired up for debug.
   // The pmndrs org doesn't ship an official R3F starter (its templates
   // are all Next.js-based), and the highest-starred R3F template on
   // GitHub is still on CRA + React 17, so this is the cleanest current
   // option for an agent.
-  "react-r3f": {
-    repo: "pachoclo/vite-r3f-ts-template",
-    label: "React + React Three Fiber + Vite + TypeScript (community)",
-    skill: "threejs",
-  },
+  [
+    "react-r3f",
+    {
+      repo: "pachoclo/vite-r3f-ts-template",
+      label: "React + React Three Fiber + Vite + TypeScript (community)",
+      skill: "threejs",
+    },
+  ],
   // Engine-agnostic fallback for "I'll wire it up myself" / non-canvas
   // games. Stays inline so we don't get blocked on a network fetch when
   // the user explicitly asked for a minimal start.
-  none: {
-    inline: true,
-    label: "minimal Vite + TypeScript canvas",
-    skill: "deploy",
-  },
-};
+  [
+    "none",
+    {
+      inline: true,
+      label: "minimal Vite + TypeScript canvas",
+      skill: "deploy",
+    },
+  ],
+]);
 
 const NONE_FILES: ReadonlyArray<{ path: string; content: (slug: string) => string }> = [
   {
@@ -127,7 +140,7 @@ const NONE_FILES: ReadonlyArray<{ path: string; content: (slug: string) => strin
 ];
 
 // Derived so `--help` and the error message can't drift from the presets again.
-const ENGINE_IDS = Object.keys(ENGINES);
+const ENGINE_IDS = [...ENGINES.keys()];
 
 const newArgs = {
   slug: {
@@ -175,13 +188,13 @@ export const newCommand = defineCommand({
       process.exit(1);
     }
 
-    const preset = args.template
-      ? ({
+    const preset: EnginePreset | undefined = args.template
+      ? {
           repo: args.template,
           label: `custom: ${args.template}`,
           skill: "deploy",
-        } as EnginePreset)
-      : ENGINES[args.engine];
+        }
+      : ENGINES.get(args.engine);
     if (!preset) {
       consola.error(`Unknown engine: ${args.engine}. Use one of: ${ENGINE_IDS.join(", ")}.`);
       process.exit(1);
@@ -282,12 +295,10 @@ function ensureTypecheckScript(target: string): void {
   const pkgPath = resolve(target, "package.json");
   if (!existsSync(pkgPath)) return;
   try {
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as Record<string, unknown>;
-    const scripts =
-      typeof pkg.scripts === "object" && pkg.scripts !== null
-        ? (pkg.scripts as Record<string, unknown>)
-        : {};
-    if (typeof scripts.typecheck === "string") return;
+    const pkg: JsonValue = JSON.parse(readFileSync(pkgPath, "utf8"));
+    if (!isJsonObject(pkg)) return;
+    const scripts: JsonObject = isJsonObject(pkg.scripts) ? pkg.scripts : {};
+    if (isJsonString(scripts.typecheck)) return;
     scripts.typecheck = "tsc --noEmit";
     pkg.scripts = scripts;
     writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
@@ -310,7 +321,8 @@ function rewritePackageName(target: string, slug: string): void {
   if (!existsSync(pkgPath)) return;
   try {
     const raw = readFileSync(pkgPath, "utf8");
-    const pkg = JSON.parse(raw) as Record<string, unknown>;
+    const pkg: JsonValue = JSON.parse(raw);
+    if (!isJsonObject(pkg)) throw new Error("package.json is not a JSON object");
     pkg.name = slug;
     delete pkg.repository;
     delete pkg.bugs;

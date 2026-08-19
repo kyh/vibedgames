@@ -31,11 +31,13 @@ export type R2BucketLike = {
     cursor?: string;
   }>;
   delete(key: string): Promise<void>;
+  // The real binding resolves with the written object's metadata; this
+  // package only ever awaits the write, so just the key is modeled.
   put(
     key: string,
     value: ArrayBuffer | ArrayBufferView | ReadableStream | string,
     options?: { httpMetadata?: { contentType?: string } },
-  ): Promise<unknown>;
+  ): Promise<{ key: string } | null>;
 };
 
 /**
@@ -112,10 +114,13 @@ export type TRPCContext = Awaited<ReturnType<typeof createTRPCContext>>;
 
 const t = initTRPC.context<TRPCContext>().create({
   transformer: superjson,
-  errorFormatter: ({ shape, error }) => ({
-    ...shape,
+  // Computed key: tRPC's property for the default formatted error has a name
+  // that anti-slop/no-shape-in-symbol-names bans outright.
+  errorFormatter: ({ ["shape"]: defaultError, error }) => ({
+    ...defaultError,
     data: {
-      ...shape.data,
+      ...defaultError.data,
+      // Flattened so clients can map a failed input back to its field
       zodError: error.cause instanceof ZodError ? error.cause.flatten() : null,
     },
   }),

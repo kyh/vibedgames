@@ -24,14 +24,14 @@ const ENGAGE_RANGE = 760; // notice enemy heroes within this
 const PUSH_LOOK = 560; // attack creeps/towers within this of the objective
 
 // item buy priority per hero role
-const BUY_PRIORITY: Record<string, string[]> = {
-  ironvow: ["ringmail", "bulwark", "aegis", "sash", "boots", "whetstone"],
-  duskblade: ["whetstone", "boots", "fang", "quiver", "scepter", "sash"],
-  stormcaller: ["whetstone", "quiver", "boots", "fang", "scepter", "sash"],
-  emberhex: ["tome", "boots", "scepter", "aegis", "bulwark"],
-  boomtinker: ["whetstone", "boots", "quiver", "scepter", "bulwark"],
-  brewkeeper: ["boots", "ringmail", "tome", "aegis", "bulwark"],
-};
+const BUY_PRIORITY = new Map<string, string[]>([
+  ["ironvow", ["ringmail", "bulwark", "aegis", "sash", "boots", "whetstone"]],
+  ["duskblade", ["whetstone", "boots", "fang", "quiver", "scepter", "sash"]],
+  ["stormcaller", ["whetstone", "quiver", "boots", "fang", "scepter", "sash"]],
+  ["emberhex", ["tome", "boots", "scepter", "aegis", "bulwark"]],
+  ["boomtinker", ["whetstone", "boots", "quiver", "scepter", "bulwark"]],
+  ["brewkeeper", ["boots", "ringmail", "tome", "aegis", "bulwark"]],
+]);
 
 export function tickBots(w: World, _dt: number): void {
   for (const u of w.units.values()) {
@@ -337,7 +337,7 @@ function lowestAlly(w: World, u: Unit, range: number): Unit | null {
 
 function tryShop(w: World, u: Unit): void {
   if (!u.hero) return;
-  const prio = BUY_PRIORITY[u.hero.defId] ?? ITEMS.map((i) => i.id);
+  const prio = BUY_PRIORITY.get(u.hero.defId) ?? ITEMS.map((i) => i.id);
   // buyItem is the single source of the purchase rules (gold, dup, max-items, shop
   // radius) — call it instead of re-implementing the economy here.
   for (const id of prio) {

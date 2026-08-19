@@ -148,7 +148,7 @@ const RollingColumn = ({
   // size) — jump straight to the new width, no roll.
   useEffect(() => {
     const sizer = sizerRef.current;
-    if (!sizer || typeof ResizeObserver === "undefined") return;
+    if (!sizer || !("ResizeObserver" in window)) return;
     const observer = new ResizeObserver(() => {
       const target = measureChar(candidateEls.current, char);
       if (target !== null) width.set(target);

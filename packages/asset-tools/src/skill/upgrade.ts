@@ -6,6 +6,9 @@
  * author can paste and edit rather than a number to chase.
  */
 
+import { isJsonString } from "../asset/json.js";
+import type { YamlValue } from "./frontmatter.js";
+
 export type Suggestion = {
   category: string;
   priority: "HIGH" | "MEDIUM" | "LOW";
@@ -14,7 +17,7 @@ export type Suggestion = {
 };
 
 export function generateSuggestions(
-  frontmatter: Record<string, unknown>,
+  frontmatter: Record<string, YamlValue>,
   body: string,
 ): Suggestion[] {
   const suggestions: Suggestion[] = [];
@@ -74,7 +77,7 @@ Claude is capable of extraordinary work in this domain. These guidelines unlock 
     });
   }
 
-  const description = typeof frontmatter.description === "string" ? frontmatter.description : "";
+  const description = isJsonString(frontmatter.description) ? frontmatter.description : "";
   if (description.length < 100) {
     suggestions.push({
       category: "Description",

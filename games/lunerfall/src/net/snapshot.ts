@@ -5,6 +5,9 @@
 // guest's OWN player, which is locally predicted and reconciled against its
 // snapshot copy (net/predict.ts). Everything here is plain JSON.
 
+import { isJsonObject } from "./json";
+import type { JsonValue } from "./json";
+
 export type NetPlayer = {
   id: string;
   hero: string;
@@ -124,22 +127,10 @@ export type NetRoom = {
   mustClear: boolean;
 };
 
-export function isSnapshot(v: unknown): v is Snapshot {
-  return (
-    typeof v === "object" &&
-    v !== null &&
-    "players" in v &&
-    "t" in v &&
-    Array.isArray((v as { players?: unknown }).players)
-  );
+export function isSnapshot(v: JsonValue | undefined): v is Snapshot {
+  return isJsonObject(v) && "players" in v && "t" in v && Array.isArray(v.players);
 }
 
-export function isRoom(v: unknown): v is NetRoom {
-  return (
-    typeof v === "object" &&
-    v !== null &&
-    "cells" in v &&
-    "seq" in v &&
-    Array.isArray((v as { cells?: unknown }).cells)
-  );
+export function isRoom(v: JsonValue | undefined): v is NetRoom {
+  return isJsonObject(v) && "cells" in v && "seq" in v && Array.isArray(v.cells);
 }

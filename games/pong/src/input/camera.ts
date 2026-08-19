@@ -125,8 +125,8 @@ export function createHandCamera(onWristX: (x: number) => void, onFist?: () => v
   let drawingUtils: DrawingUtils | null = null;
   let vision: typeof import("@mediapipe/tasks-vision") | null = null;
 
-  const fail = (error: unknown): void => {
-    console.error("Error starting hand tracking:", error);
+  const fail = (cause: unknown): void => {
+    console.error("Error starting hand tracking:", cause);
     status.textContent = COARSE_INPUT
       ? "no signal — drag a finger to steer"
       : "no signal — the mouse controls the paddle";

@@ -42,8 +42,8 @@ export const classifyQueueCall = (method: string, path: string): QueueCall => {
 };
 
 /** Terminal queue statuses that fal does not bill for. */
-export const isUnbilledTerminalStatus = (status: unknown): boolean =>
-  typeof status === "string" && ["FAILED", "CANCELLED"].includes(status.toUpperCase());
+export const isUnbilledTerminalStatus = (status: string | null): boolean =>
+  status !== null && ["FAILED", "CANCELLED"].includes(status.toUpperCase());
 
 /**
  * Actual usage reported by fal on a result fetch. Units are fractional in

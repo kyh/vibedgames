@@ -24,6 +24,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { dirname, extname, isAbsolute, relative, resolve } from "node:path";
 
+import { isJsonObject, isJsonString, type JsonValue, parseJsonText } from "./json.js";
 import {
   loadManifestJson,
   newMap,
@@ -37,13 +38,13 @@ import {
 export const DEFAULT_MAP_WIDTH = 64;
 export const DEFAULT_MAP_HEIGHT = 36;
 
-const CONTENT_TYPES: Record<string, string> = {
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".webp": "image/webp",
-};
+const CONTENT_TYPES = new Map([
+  [".png", "image/png"],
+  [".jpg", "image/jpeg"],
+  [".jpeg", "image/jpeg"],
+  [".gif", "image/gif"],
+  [".webp", "image/webp"],
+]);
 
 /**
  * True when `candidate` is `root` or sits inside it.
@@ -76,9 +77,7 @@ export type EditorHandle = {
   url: (port: number, host?: string) => string;
 };
 
-type Json = Record<string, unknown>;
-
-function sendJson(res: ServerResponse, status: number, body: unknown): void {
+function sendJson(res: ServerResponse, status: number, body: JsonValue): void {
   const payload = JSON.stringify(body);
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
@@ -150,83 +149,97 @@ export function createTilemapEditor(options: EditorOptions): EditorHandle {
     return target;
   };
 
-  const handlers: Record<string, (url: URL, req: IncomingMessage) => Promise<unknown>> = {
-    async "/api/state"() {
-      const { tilesets } = readTilesets();
-      const names = Object.keys(tilesets).sort();
-      const selected =
-        options.tileset && names.includes(options.tileset) ? options.tileset : names[0]!;
+  const handlers = new Map<string, (url: URL, req: IncomingMessage) => Promise<JsonValue>>([
+    [
+      "/api/state",
+      async () => {
+        const { tilesets } = readTilesets();
+        const names = Object.keys(tilesets).sort();
+        const selected =
+          options.tileset && names.includes(options.tileset) ? options.tileset : names[0]!;
 
-      let map: { width: number; height: number; data: number[][]; tileset: string | null } = {
-        width: DEFAULT_MAP_WIDTH,
-        height: DEFAULT_MAP_HEIGHT,
-        data: newMap(DEFAULT_MAP_WIDTH, DEFAULT_MAP_HEIGHT),
-        tileset: null,
-      };
-      if (options.mapPath && existsSync(options.mapPath)) {
-        map = parseTilemap(JSON.parse(readFileSync(options.mapPath, "utf8")), {
-          width: DEFAULT_MAP_WIDTH,
-          height: DEFAULT_MAP_HEIGHT,
-        });
-      }
+        const map =
+          options.mapPath && existsSync(options.mapPath)
+            ? parseTilemap(parseJsonText(readFileSync(options.mapPath, "utf8")), {
+                width: DEFAULT_MAP_WIDTH,
+                height: DEFAULT_MAP_HEIGHT,
+              })
+            : {
+                width: DEFAULT_MAP_WIDTH,
+                height: DEFAULT_MAP_HEIGHT,
+                data: newMap(DEFAULT_MAP_WIDTH, DEFAULT_MAP_HEIGHT),
+                tileset: null,
+              };
 
-      const initial = map.tileset && names.includes(map.tileset) ? map.tileset : selected;
-      return {
-        manifestPath,
-        mapPath: options.mapPath ?? null,
-        writeRoot,
-        tilesetNames: names,
-        tileset: tilesetSummary(metaFor(initial)),
-        map,
-      };
-    },
+        const initial = map.tileset && names.includes(map.tileset) ? map.tileset : selected;
+        return {
+          manifestPath,
+          mapPath: options.mapPath ?? null,
+          writeRoot,
+          tilesetNames: names,
+          tileset: tilesetSummary(metaFor(initial)),
+          map,
+        };
+      },
+    ],
 
-    async "/api/tileset"(url) {
-      const name = url.searchParams.get("name");
-      if (!name) throw new Error("name is required");
-      return tilesetSummary(metaFor(name));
-    },
+    [
+      "/api/tileset",
+      async (url) => {
+        const name = url.searchParams.get("name");
+        if (!name) throw new Error("name is required");
+        return tilesetSummary(metaFor(name));
+      },
+    ],
 
-    async "/api/load"(url) {
-      const path = url.searchParams.get("path");
-      if (!path) throw new Error("path is required");
-      const target = resolveWritable(path);
-      if (!existsSync(target)) throw new Error(`Map not found: ${path}`);
-      return {
-        path: target,
-        ...parseTilemap(JSON.parse(readFileSync(target, "utf8")), {
-          width: DEFAULT_MAP_WIDTH,
-          height: DEFAULT_MAP_HEIGHT,
-        }),
-      };
-    },
+    [
+      "/api/load",
+      async (url) => {
+        const path = url.searchParams.get("path");
+        if (!path) throw new Error("path is required");
+        const target = resolveWritable(path);
+        if (!existsSync(target)) throw new Error(`Map not found: ${path}`);
+        return {
+          path: target,
+          ...parseTilemap(parseJsonText(readFileSync(target, "utf8")), {
+            width: DEFAULT_MAP_WIDTH,
+            height: DEFAULT_MAP_HEIGHT,
+          }),
+        };
+      },
+    ],
 
-    async "/api/save"(url, req) {
-      const body: unknown = JSON.parse(await readBody(req));
-      if (body === null || typeof body !== "object") throw new Error("Body must be an object.");
-      const doc = body as Json;
-      const raw = typeof doc.path === "string" && doc.path ? doc.path : options.mapPath;
-      if (!raw) throw new Error("No path given and no --map to fall back on.");
-      const target = resolveWritable(raw);
+    [
+      "/api/save",
+      async (url, req) => {
+        const body = parseJsonText(await readBody(req));
+        if (!isJsonObject(body)) throw new Error("Body must be an object.");
+        const raw = isJsonString(body.path) && body.path ? body.path : options.mapPath;
+        if (!raw) throw new Error("No path given and no --map to fall back on.");
+        const target = resolveWritable(raw);
 
-      if (typeof doc.tileset !== "string") throw new Error("tileset is required");
-      const meta = metaFor(doc.tileset);
-      // Round-trip through the same reader the load path uses, so a bad
-      // payload from the page is clamped and squared off exactly like a bad
-      // file on disk rather than written through verbatim.
-      const parsed = parseTilemap(
-        { meta: { width: doc.width, height: doc.height }, data: doc.data },
-        { width: DEFAULT_MAP_WIDTH, height: DEFAULT_MAP_HEIGHT },
-      );
+        if (!isJsonString(body.tileset)) throw new Error("tileset is required");
+        const meta = metaFor(body.tileset);
+        // Round-trip through the same reader the load path uses, so a bad
+        // payload from the page is clamped and squared off exactly like a bad
+        // file on disk rather than written through verbatim.
+        const parsed = parseTilemap(
+          {
+            meta: { width: body.width ?? null, height: body.height ?? null },
+            data: body.data ?? null,
+          },
+          { width: DEFAULT_MAP_WIDTH, height: DEFAULT_MAP_HEIGHT },
+        );
 
-      mkdirSync(dirname(target), { recursive: true });
-      writeFileSync(
-        target,
-        `${JSON.stringify(tilemapPayload(meta, parsed.width, parsed.height, parsed.data), null, 2)}\n`,
-      );
-      return { path: target, width: parsed.width, height: parsed.height };
-    },
-  };
+        mkdirSync(dirname(target), { recursive: true });
+        writeFileSync(
+          target,
+          `${JSON.stringify(tilemapPayload(meta, parsed.width, parsed.height, parsed.data), null, 2)}\n`,
+        );
+        return { path: target, width: parsed.width, height: parsed.height };
+      },
+    ],
+  ]);
 
   const server = createServer((req, res) => {
     void (async () => {
@@ -256,7 +269,7 @@ export function createTilemapEditor(options: EditorOptions): EditorHandle {
           const meta = metaFor(name);
           const bytes = readFileSync(meta.path);
           res.writeHead(200, {
-            "content-type": CONTENT_TYPES[extname(meta.path).toLowerCase()] ?? "image/png",
+            "content-type": CONTENT_TYPES.get(extname(meta.path).toLowerCase()) ?? "image/png",
             "content-length": bytes.length,
             "cache-control": "no-store",
           });
@@ -267,7 +280,7 @@ export function createTilemapEditor(options: EditorOptions): EditorHandle {
         return;
       }
 
-      const handler = handlers[url.pathname];
+      const handler = handlers.get(url.pathname);
       if (!handler) {
         sendJson(res, 404, { error: `No such endpoint: ${url.pathname}` });
         return;

@@ -10,6 +10,7 @@ import { extractSource } from "../lib/archive.js";
 import { SLUG_RE } from "../lib/config-file.js";
 import { isJsonOutput, outputArgs, writeStructured } from "../lib/output.js";
 import { assertKnownFlags } from "../lib/strict-args.js";
+import { isJsonObject, type JsonValue } from "../lib/types.js";
 
 const forkArgs = {
   slug: {
@@ -115,7 +116,8 @@ function rewritePackageName(dir: string, slug: string): void {
   const pkgPath = resolve(dir, "package.json");
   if (!existsSync(pkgPath)) return;
   try {
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as Record<string, unknown>;
+    const pkg: JsonValue = JSON.parse(readFileSync(pkgPath, "utf8"));
+    if (!isJsonObject(pkg)) throw new Error("package.json is not a JSON object");
     pkg.name = slug;
     delete pkg.repository;
     delete pkg.bugs;

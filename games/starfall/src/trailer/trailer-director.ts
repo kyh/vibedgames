@@ -82,9 +82,26 @@ type Bolt = { x: number; y: number; vx: number; vy: number; traveled: number };
 
 type CrewMode = "idle" | "combat" | "duel";
 
+/** The peer-state keys a real client serializes — what readNetState consumes. */
+type PeerNetState = {
+  x: number;
+  y: number;
+  angle: number;
+  vx: number;
+  vy: number;
+  alive: boolean;
+  present: boolean;
+  level: number;
+  shieldHp: number;
+  sectorScore: number;
+  weaponName: string;
+  beams: SerializedBeam[];
+  shieldMod?: { kind: ShieldModKind; until: number; active: boolean; phased: boolean };
+};
+
 type FakePeer = {
   player: Player;
-  state: Record<string, unknown>;
+  state: PeerNetState;
   post: Vec;
   /** When set, the orbit POST glides here at postSpeed — a wingmate breaking
    *  into the beacon zone, or a RAM rival committing to its run. */
@@ -278,7 +295,7 @@ function direct(scene: GameScene): void {
   };
   /** The shot's own half-frame in world px. Every composition measurement below
    *  is expressed in these units so it survives the per-shot zoom. */
-  const halfFrame = (): { hw: number; hh: number } => ({ hw: 800 / cam.zoom, hh: 450 / cam.zoom });
+  const halfFrame = () => ({ hw: 800 / cam.zoom, hh: 450 / cam.zoom });
 
   /** A circle the rock field must not land in — the pilot's working area, a
    *  firing lane, a crowd the shot is composed around. */
@@ -287,6 +304,9 @@ function direct(scene: GameScene): void {
   /** Half-frame coordinates: (0,0) is the frame centre, (±1,±1) the corners,
    *  anything past 1 is cropped by the frame edge. */
   type UV = { u: number; v: number };
+
+  /** A layout's candidate sampler plus the half-frame² area it covers. */
+  type RockPlan = { coverage: number; sample: (i: number, count: number) => UV };
 
   /**
    * Where a field puts its rocks.
@@ -381,7 +401,7 @@ function direct(scene: GameScene): void {
     // band. The field has to reach INSIDE the frame whatever the shape: rock
     // parked out at 0.7-1.2 half-frames measured almost nothing, because at
     // those radii most of it is behind the letterbox.
-    const plan = ((): { coverage: number; sample: (i: number, count: number) => UV } => {
+    const plan = ((): RockPlan => {
       switch (layout.kind) {
         case "arc": {
           const inner = layout.inner ?? 0.3;
@@ -543,7 +563,7 @@ function direct(scene: GameScene): void {
       mod?: ShieldModKind;
     },
   ): FakePeer => {
-    const state: Record<string, unknown> = {
+    const state: PeerNetState = {
       x: post.x,
       y: post.y,
       angle: opts.baseAim,
@@ -560,7 +580,7 @@ function direct(scene: GameScene): void {
     if (opts.mod) {
       // Serialized exactly as a real client would: the victim reads kind+active
       // and runs its own RAM / TESLA adjudication off it.
-      state["shieldMod"] = {
+      state.shieldMod = {
         kind: opts.mod,
         until: Date.now() + 20_000,
         active: true,
@@ -2920,7 +2940,7 @@ function direct(scene: GameScene): void {
   const inGameLoop = (s: TrailerScene): TrailerScene => {
     const body = s.run;
     const setup = s.setup;
-    return {
+    const wrapped: TrailerScene = {
       ...s,
       // Drop the outgoing scene's queued body: it would otherwise fire once
       // against the incoming scene's freshly staged world.
@@ -2928,8 +2948,9 @@ function direct(scene: GameScene): void {
         pending = null;
         return setup();
       },
-      ...(body ? { run: (t: number, dt: number) => void (pending = () => body(t, dt)) } : {}),
     };
+    if (body) wrapped.run = (t: number, dt: number) => void (pending = () => body(t, dt));
+    return wrapped;
   };
 
   runTrailer({

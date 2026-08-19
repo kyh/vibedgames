@@ -452,7 +452,7 @@ export function planFabricRow(
   const end = edge.len - trimB;
   if (end - trimA < 5) return lots;
   const frontOff = facadeOffset(edge.half);
-  const face = (s: number, off: number): { readonly x: number; readonly z: number } => {
+  const face = (s: number, off: number) => {
     const smp = network.sample(edge, s);
     return { x: smp.x - smp.tz * off * side, z: smp.z + smp.tx * off * side };
   };
@@ -814,15 +814,17 @@ async function buildMergedChunkGroups(options: {
   return [...groups.values()];
 }
 
+type BatchItem = {
+  geo: THREE.BufferGeometry;
+  matrix: THREE.Matrix4;
+  tint?: THREE.Color;
+  src?: { url: string; idx: number };
+};
+
 type BatchBucket = {
   material: THREE.Material;
   geoVerts: Map<THREE.BufferGeometry, number>;
-  items: {
-    geo: THREE.BufferGeometry;
-    matrix: THREE.Matrix4;
-    tint?: THREE.Color;
-    src?: { url: string; idx: number };
-  }[];
+  items: BatchItem[];
   verts: number;
   indices: number;
 };
@@ -969,10 +971,13 @@ const atlasPixelCache = new Map<string, AtlasPixels | null>();
 const meanAlbedoCache = new Map<string, AlbedoParts | null>();
 const ALBEDO_N = new THREE.Vector3();
 
-function drawableImage(img: unknown): ImageBitmap | HTMLImageElement | HTMLCanvasElement | null {
-  if (typeof ImageBitmap !== "undefined" && img instanceof ImageBitmap) return img;
-  if (typeof HTMLImageElement !== "undefined" && img instanceof HTMLImageElement) return img;
-  if (typeof HTMLCanvasElement !== "undefined" && img instanceof HTMLCanvasElement) return img;
+function drawableImage(
+  tex: THREE.Texture,
+): ImageBitmap | HTMLImageElement | HTMLCanvasElement | null {
+  const img: unknown = tex.image;
+  if (globalThis.ImageBitmap !== undefined && img instanceof ImageBitmap) return img;
+  if (globalThis.HTMLImageElement !== undefined && img instanceof HTMLImageElement) return img;
+  if (globalThis.HTMLCanvasElement !== undefined && img instanceof HTMLCanvasElement) return img;
   return null;
 }
 
@@ -982,7 +987,7 @@ function atlasPixels(tex: THREE.Texture): AtlasPixels | null {
   const cached = atlasPixelCache.get(tex.uuid);
   if (cached !== undefined) return cached;
   let out: AtlasPixels | null = null;
-  const img = drawableImage(tex.image);
+  const img = drawableImage(tex);
   if (img) {
     try {
       const w = Math.max(1, Math.min(ATLAS_SAMPLE, img.width));
@@ -1357,6 +1362,8 @@ export class CityModel {
     const geo = mesh.geometry;
     const mat = mesh.material;
     if (Array.isArray(mat) || !(mat instanceof THREE.MeshStandardMaterial)) return null;
+    // SAFETY: userData.srcMat is written in exactly one place (furniture.ts,
+    // copied from the loader's userData.src model tag) and is always { url, idx }.
     const srcMat =
       (mesh.userData.srcMat as { url: string; idx: number } | undefined) ??
       (mat.map ? this.cache.srcOfMaterial(mat) : null);
@@ -1385,6 +1392,9 @@ export class CityModel {
     const nor = geo.getAttribute("normal");
     const uv = geo.getAttribute("uv");
     const col = geo.getAttribute("color");
+    // SAFETY: merged chunk geometry is built by this file's batcher from
+    // Float32Array attributes with Uint16/Uint32 indices; BufferAttribute.array
+    // only remembers TypedArray.
     const rec: MergedChunkRec = {
       cx,
       cz,
@@ -2525,7 +2535,7 @@ export class CityModel {
           let obbLen = 0;
           let ex = 1;
           let ez = 0;
-          const ringEdge = (i: number): { dx: number; dz: number; len: number } => {
+          const ringEdge = (i: number) => {
             const j = (i + 1) % nPts;
             const dx = (rel[j * 2] ?? 0) - (rel[i * 2] ?? 0);
             const dz = (rel[j * 2 + 1] ?? 0) - (rel[i * 2 + 1] ?? 0);
@@ -3108,13 +3118,12 @@ export class CityModel {
           bucket.indices += geo.index ? geo.index.count : vCount;
         }
         const tint = mesh.userData.tint instanceof THREE.Color ? mesh.userData.tint : undefined;
+        // SAFETY: userData.src is the loader's model tag, always { url, idx }.
         const src = mesh.userData.src as { url: string; idx: number } | undefined;
-        bucket.items.push({
-          geo,
-          matrix: mesh.matrixWorld.clone(),
-          ...(tint ? { tint } : {}),
-          ...(src ? { src } : {}),
-        });
+        const item: BatchItem = { geo, matrix: mesh.matrixWorld.clone() };
+        if (tint) item.tint = tint;
+        if (src) item.src = src;
+        bucket.items.push(item);
       }
 
       // Chunked merges (roads + drapes). Thin paint (markings, curb lips) is
@@ -3306,12 +3315,10 @@ export class CityModel {
         bucket.verts += vCount;
         bucket.indices += geo.index ? geo.index.count : vCount;
       }
-      bucket.items.push({
-        geo,
-        matrix: new THREE.Matrix4().fromArray(rec.m),
-        ...(rec.tint !== null ? { tint: new THREE.Color(rec.tint) } : {}),
-        ...(rec.url !== null ? { src: { url: rec.url, idx: rec.idx } } : {}),
-      });
+      const item: BatchItem = { geo, matrix: new THREE.Matrix4().fromArray(rec.m) };
+      if (rec.tint !== null) item.tint = new THREE.Color(rec.tint);
+      if (rec.url !== null) item.src = { url: rec.url, idx: rec.idx };
+      bucket.items.push(item);
     }
     console.log(`[city] rest items ok ${okN} dropSrc ${dropSrc} dropRaw ${dropRaw}`);
     await this.buildBatchesFrom(buckets, (f) => onProgress?.(0.55 + f * 0.4));
@@ -3471,6 +3478,9 @@ export class CityModel {
               const uv2 = item.geo.getAttribute("uv");
               rawId = this.rawGeos.length;
               this.rawGeoIds.set(item.geo.uuid, rawId);
+              // SAFETY: raw prop geometry comes from the GLTF loader / this
+              // file's builders, all Float32Array attributes with Uint16/Uint32
+              // indices; BufferAttribute.array only remembers TypedArray.
               this.rawGeos.push({
                 position: pos2.array as Float32Array,
                 normal: nor2 ? (nor2.array as Float32Array) : null,

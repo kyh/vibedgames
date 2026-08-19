@@ -1,6 +1,13 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 
+import {
+  isJsonObject,
+  isJsonString,
+  type JsonObject,
+  type JsonValue,
+  parseJsonText,
+} from "./json.js";
 import { type LuaValue, parseLua } from "./lua.js";
 import { prettyPath, walkFiles } from "./paths.js";
 
@@ -34,25 +41,25 @@ function resolveManifestPath(raw: string, manifestDir: string, root: string | nu
 }
 
 /** `meta.root` — the folder every relative `path` in the manifest hangs off. */
-function metaRootOf(payload: unknown): string | null {
-  if (payload === null || typeof payload !== "object") return null;
-  const meta = (payload as Record<string, unknown>).meta;
-  if (meta === null || typeof meta !== "object") return null;
-  const root = (meta as Record<string, unknown>).root;
-  return typeof root === "string" && root ? root : null;
+function metaRootOf(payload: JsonValue): string | null {
+  if (!isJsonObject(payload)) return null;
+  const meta = payload.meta;
+  if (!isJsonObject(meta)) return null;
+  const root = meta.root;
+  return isJsonString(root) && root ? root : null;
 }
 
 /** Collect every `.png` value stored under a `path` key, at any depth. */
-function collectJsonPaths(payload: unknown): string[] {
+function collectJsonPaths(payload: JsonValue): string[] {
   const paths: string[] = [];
-  const visit = (node: unknown) => {
+  const visit = (node: JsonValue) => {
     if (Array.isArray(node)) {
       for (const item of node) visit(item);
       return;
     }
-    if (node === null || typeof node !== "object") return;
+    if (!isJsonObject(node)) return;
     for (const [key, value] of Object.entries(node)) {
-      if (key === "path" && typeof value === "string" && value.toLowerCase().endsWith(".png")) {
+      if (key === "path" && isJsonString(value) && value.toLowerCase().endsWith(".png")) {
         paths.push(value);
       } else {
         visit(value);
@@ -68,8 +75,8 @@ export function extractManifestPaths(manifestPath: string): Set<string> {
   const manifestDir = resolve(dirname(manifestPath));
 
   if (manifestPath.toLowerCase().endsWith(".json")) {
-    const payload: unknown = JSON.parse(readFileSync(manifestPath, "utf8"));
-    if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+    const payload = parseJsonText(readFileSync(manifestPath, "utf8"));
+    if (!isJsonObject(payload)) {
       throw new Error("JSON manifest must be an object at top-level.");
     }
     const jsonRoot = metaRootOf(payload);
@@ -123,23 +130,27 @@ export function autoDetectManifest(): string | null {
 }
 
 // Lua manifests use terse keys; JSON consumers get the spelled-out ones.
-const KEY_RENAMES: Record<string, string> = {
-  w: "width",
-  h: "height",
-  tileW: "tileWidth",
-  tileH: "tileHeight",
-  frameW: "frameWidth",
-  frameH: "frameHeight",
-};
+const KEY_RENAMES = new Map([
+  ["w", "width"],
+  ["h", "height"],
+  ["tileW", "tileWidth"],
+  ["tileH", "tileHeight"],
+  ["frameW", "frameWidth"],
+  ["frameH", "frameHeight"],
+]);
+
+function renameTableKeys(table: JsonObject): JsonObject {
+  const out: Record<string, LuaValue> = {};
+  for (const [key, nested] of Object.entries(table)) {
+    out[KEY_RENAMES.get(key) ?? key] = renameKeys(nested);
+  }
+  return out;
+}
 
 function renameKeys(value: LuaValue): LuaValue {
   if (Array.isArray(value)) return value.map(renameKeys);
-  if (value === null || typeof value !== "object") return value;
-  const out: Record<string, LuaValue> = {};
-  for (const [key, nested] of Object.entries(value)) {
-    out[KEY_RENAMES[key] ?? key] = renameKeys(nested);
-  }
-  return out;
+  if (!isJsonObject(value)) return value;
+  return renameTableKeys(value);
 }
 
 /**
@@ -153,13 +164,10 @@ function renameKeys(value: LuaValue): LuaValue {
  * is still a true path, whereas leaving the original in place next to
  * `meta.root = "."` silently points the manifest at files that aren't there.
  */
-function rewritePaths(base: string, sourceRoot: string, value: LuaValue): LuaValue {
-  if (Array.isArray(value)) return value.map((item) => rewritePaths(base, sourceRoot, item));
-  if (value === null || typeof value !== "object") return value;
-
+function rewriteTablePaths(base: string, sourceRoot: string, table: JsonObject): JsonObject {
   const out: Record<string, LuaValue> = {};
-  for (const [key, nested] of Object.entries(value)) {
-    if (key === "path" && typeof nested === "string" && nested.toLowerCase().endsWith(".png")) {
+  for (const [key, nested] of Object.entries(table)) {
+    if (key === "path" && isJsonString(nested) && nested.toLowerCase().endsWith(".png")) {
       const absolute = isAbsolute(nested) ? resolve(nested) : resolve(sourceRoot, nested);
       const rel = relative(resolve(base), absolute);
       out[key] = rel ? rel.split(/[/\\]/).join("/") : nested;
@@ -168,6 +176,12 @@ function rewritePaths(base: string, sourceRoot: string, value: LuaValue): LuaVal
     }
   }
   return out;
+}
+
+function rewritePaths(base: string, sourceRoot: string, value: LuaValue): LuaValue {
+  if (Array.isArray(value)) return value.map((item) => rewritePaths(base, sourceRoot, item));
+  if (!isJsonObject(value)) return value;
+  return rewriteTablePaths(base, sourceRoot, value);
 }
 
 /**
@@ -183,27 +197,27 @@ export function exportManifest(
   outPath?: string,
 ): LuaValue {
   if (manifestPath.toLowerCase().endsWith(".json")) {
-    const payload: unknown = JSON.parse(readFileSync(manifestPath, "utf8"));
-    if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+    const payload = parseJsonText(readFileSync(manifestPath, "utf8"));
+    if (!isJsonObject(payload)) {
       throw new Error("JSON manifest must be an object at top-level.");
     }
-    return payload as LuaValue;
+    return payload;
   }
 
   const parsed = parseLua(readFileSync(manifestPath, "utf8"));
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+  if (!isJsonObject(parsed)) {
     throw new Error("Lua manifest must return a table/object.");
   }
 
-  let normalized = renameKeys(parsed) as Record<string, LuaValue>;
+  let normalized = renameTableKeys(parsed);
   if (packRelative) {
     const manifestDir = resolve(dirname(manifestPath));
     const sourceRoot = resolve(manifestDir, metaRootOf(normalized) ?? ".");
     const base = outPath ? resolve(dirname(outPath)) : manifestDir;
-    normalized = rewritePaths(base, sourceRoot, normalized) as Record<string, LuaValue>;
+    normalized = rewriteTablePaths(base, sourceRoot, normalized);
     const meta = normalized.meta;
-    if (meta !== null && typeof meta === "object" && !Array.isArray(meta)) {
-      (meta as Record<string, LuaValue>).root = ".";
+    if (isJsonObject(meta)) {
+      meta.root = ".";
     } else {
       normalized.meta = { root: "." };
     }

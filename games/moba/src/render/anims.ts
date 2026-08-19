@@ -20,7 +20,7 @@ type AnimRange = {
   loop: boolean;
 };
 
-const UNIT_ANIMS: Record<string, AnimRange[]> = {
+const UNIT_ANIMS = {
   warrior: [
     { name: "idle", start: 0, end: 5, fps: 8, loop: true },
     { name: "walk", start: 6, end: 11, fps: 10, loop: true },
@@ -57,7 +57,7 @@ const UNIT_ANIMS: Record<string, AnimRange[]> = {
     { name: "attack", start: 30, end: 32, fps: 12, loop: false },
     { name: "death", start: 30, end: 32, fps: 14, loop: false },
   ],
-};
+} satisfies Record<string, AnimRange[]>;
 
 const COLORS = ["blue", "red"];
 

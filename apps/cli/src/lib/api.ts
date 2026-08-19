@@ -1,9 +1,16 @@
 import type { AppRouter } from "@repo/api";
 import type { TRPCClient } from "@trpc/client";
-import { createTRPCClient, httpBatchLink, httpLink, splitLink } from "@trpc/client";
+import {
+  createTRPCClient,
+  httpBatchLink,
+  httpLink,
+  splitLink,
+  TRPCClientError,
+} from "@trpc/client";
 import superjson from "superjson";
 
 import { getBaseUrl, getToken } from "./config.js";
+import { isJsonString, type JsonValue } from "./types.js";
 
 /** Authenticated client — requires a saved session token. */
 export function createClient(): TRPCClient<AppRouter> {
@@ -28,6 +35,32 @@ export function createClient(): TRPCClient<AppRouter> {
       }),
     ],
   });
+}
+
+/** The tRPC error code on a failed call, or null for non-tRPC failures. */
+export function authErrorCode(cause: unknown): string | null {
+  if (!(cause instanceof TRPCClientError)) return null;
+  const code = cause.data?.code;
+  return isJsonString(code) ? code : null;
+}
+
+type ForwardInput = Parameters<TRPCClient<AppRouter>["generate"]["forward"]["mutate"]>[0];
+
+/**
+ * The single boundary where fal payloads enter the CLI. `generate.forward`
+ * is deliberately untyped per endpoint, so this is where its output gets
+ * its JSON contract; everything downstream narrows with the guards in
+ * `types.ts` instead of re-deriving it.
+ */
+export async function forwardJson(
+  client: TRPCClient<AppRouter>,
+  input: ForwardInput,
+): Promise<JsonValue> {
+  const body = await client.generate.forward.mutate(input);
+  // SAFETY: `generate.forward` returns the parsed JSON body of the upstream
+  // response (readJsonBounded/readSseJson in packages/api), so the resolved
+  // value is structurally JsonValue.
+  return body as JsonValue;
 }
 
 /** Unauthenticated client — for login flow. */

@@ -46,7 +46,7 @@ export function toggleMute(): boolean {
 let ctx: AudioContext | null = null;
 
 function audio(): AudioContext | null {
-  if (ctx === null && typeof AudioContext === "function") ctx = new AudioContext();
+  if (ctx === null && "AudioContext" in window) ctx = new AudioContext();
   if (ctx !== null && ctx.state === "suspended") void ctx.resume();
   return ctx;
 }

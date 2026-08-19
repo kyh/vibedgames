@@ -153,7 +153,7 @@ class TrailerStage extends Phaser.Scene {
   // ---- camera -------------------------------------------------------------------
 
   /** The visible 16:9 stage (the shell letterboxes the page to this crop). */
-  private stageSize(): { w: number; h: number } {
+  private stageSize() {
     const sw = Math.min(this.scale.width, (this.scale.height * 16) / 9);
     return { w: sw, h: (sw * 9) / 16 };
   }

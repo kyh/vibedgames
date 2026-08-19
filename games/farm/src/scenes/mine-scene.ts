@@ -276,7 +276,7 @@ export class MineScene extends Phaser.Scene {
   }
 
   /** The floor's descent ladder, for scripted choreography. */
-  trailerLadderDown(): { tx: number; ty: number } {
+  trailerLadderDown() {
     return { tx: this.ladderDown.tx, ty: this.ladderDown.ty };
   }
 
@@ -497,7 +497,7 @@ export class MineScene extends Phaser.Scene {
     if (!hit(this.player.x, ny)) this.player.y = ny;
   }
 
-  private feetTile(): { tx: number; ty: number } {
+  private feetTile() {
     return { tx: Math.floor(this.player.x / TILE), ty: Math.floor((this.player.y - 1) / TILE) };
   }
 

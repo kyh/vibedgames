@@ -31,6 +31,8 @@ export type PackResult = SpritesheetManifest & {
   _sheetPath: string;
 };
 
+export type PackedSheet = { manifest: SpritesheetManifest; sheet: Bitmap };
+
 export function packSpritesheet(
   inputDir: string,
   out: string,
@@ -40,7 +42,7 @@ export function packSpritesheet(
     fps?: number;
     action?: string;
   } = {},
-): { manifest: SpritesheetManifest; sheet: Bitmap } {
+): PackedSheet {
   const { glob = "frame-*.png", columns = null, fps = 10, action = "anim" } = options;
   const frames = loadFrames(inputDir, glob);
 

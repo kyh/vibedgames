@@ -135,7 +135,20 @@ export const WORLD_REV = 81;
 export type Typed = Float32Array | Uint16Array | Uint32Array | Int8Array | Uint8Array | Int32Array;
 export type BufRef = { $buf: number; $type: "f32" | "u16" | "u32" | "i8" | "u8" | "i32" };
 
-export function isTyped(v: unknown): v is Typed {
+/** A serialization-tree node: JSON structure with typed arrays at the leaves
+ *  (runtime side) or `$buf` refs in their place (wire side). */
+export type BinTree =
+  | string
+  | number
+  | boolean
+  | null
+  | undefined
+  | Typed
+  | BufRef
+  | readonly BinTree[]
+  | { readonly [key: string]: BinTree };
+
+export function isTyped(v: BinTree): v is Typed {
   return (
     v instanceof Float32Array ||
     v instanceof Uint16Array ||
@@ -155,38 +168,43 @@ export function typeTag(v: Typed): BufRef["$type"] {
   return "i32";
 }
 
-const BYTES: Record<BufRef["$type"], number> = { f32: 4, u32: 4, i32: 4, u16: 2, i8: 1, u8: 1 };
-const CTOR: Record<BufRef["$type"], new (b: ArrayBuffer, o: number, l: number) => Typed> = {
+const BYTES = { f32: 4, u32: 4, i32: 4, u16: 2, i8: 1, u8: 1 } satisfies Record<
+  BufRef["$type"],
+  number
+>;
+const CTOR = {
   f32: Float32Array,
   u32: Uint32Array,
   i32: Int32Array,
   u16: Uint16Array,
   i8: Int8Array,
   u8: Uint8Array,
-};
+} satisfies Record<BufRef["$type"], new (b: ArrayBuffer, o: number, l: number) => Typed>;
 
-function hydrate(value: unknown, views: Typed[]): unknown {
-  if (value && typeof value === "object") {
+function hydrate(value: BinTree, views: Typed[]): BinTree {
+  if (value instanceof Object) {
     if ("$buf" in value && "$type" in value) {
-      return views[(value as BufRef).$buf];
+      // SAFETY: only the pack side's strip() writes $buf/$type objects into the
+      // tree, always as a BufRef.
+      const ref = value as BufRef;
+      return views[ref.$buf];
     }
     if (Array.isArray(value)) return value.map((v) => hydrate(v, views));
-    const out: Record<string, unknown> = {};
+    const out: Record<string, BinTree> = {};
     for (const [k, v] of Object.entries(value)) out[k] = hydrate(v, views);
     return out;
   }
   return value;
 }
 
-export function deserializeWorldBin(bytes: ArrayBuffer): {
-  rev: number;
-  world?: unknown;
-  rest?: unknown;
-} {
+export function deserializeWorldBin(bytes: ArrayBuffer): WorldBinPayload {
   const view = new DataView(bytes);
   const headerLen = view.getUint32(0, true);
+  // SAFETY: bins are produced only by serializeWorldBin (world-bin-pack.ts),
+  // which writes exactly { tree, buffers } — and a foreign/stale artifact is
+  // rejected by the WORLD_REV check before its contents are used.
   const header = JSON.parse(new TextDecoder().decode(new Uint8Array(bytes, 4, headerLen))) as {
-    tree: unknown;
+    tree: BinTree;
     buffers: { type: BufRef["$type"]; length: number }[];
   };
   const views: Typed[] = [];
@@ -196,11 +214,9 @@ export function deserializeWorldBin(bytes: ArrayBuffer): {
     views.push(new CTOR[b.type](bytes, cursor, b.length));
     cursor += b.length * BYTES[b.type];
   }
-  return hydrate(header.tree, views) as {
-    rev: number;
-    world?: unknown;
-    rest?: unknown;
-  };
+  // SAFETY: hydrate undoes strip() 1:1 — the tree is the WorldBinPayload that
+  // serializeWorldBin consumed, with each $buf ref swapped back for its view.
+  return hydrate(header.tree, views) as WorldBinPayload;
 }
 
 // ---------------------------------------------------------------------------
@@ -250,17 +266,62 @@ function dqCol(q: Uint8Array): Float32Array {
   return out;
 }
 
-export function unpackWorld(packed: unknown): CityGenPayload {
-  const p = packed as {
-    tiles: {
-      pos: QPos;
-      nor: Int8Array | null;
-      col: Uint8Array | null;
-      index: Uint16Array | Uint32Array | null;
-      x: number;
-      z: number;
-    }[];
-  };
+// The packed payload shapes are the contract between the pack side
+// (./world-bin-pack.ts) and this unpack side — packWorld/packRest construct
+// them, serialize/hydrate round-trip them structurally, unpack consumes them.
+export type PackedTile = {
+  pos: QPos;
+  nor: Int8Array | null;
+  col: Uint8Array | null;
+  index: Uint16Array | Uint32Array | null;
+  x: number;
+  z: number;
+};
+export type PackedWorld = { tiles: PackedTile[] };
+
+export type PackedMergedChunk = {
+  cx: number;
+  cz: number;
+  dist: number;
+  pos: QPos;
+  nor: Int8Array | null;
+  uv: QUv | null;
+  col: Uint8Array | null;
+  index: Uint16Array | Uint32Array | null;
+  mat: CityRestPayload["mergedChunks"][number]["mat"];
+  srcMat: { url: string; idx: number } | null;
+};
+export type PackedRawGeo = {
+  pos: QPos;
+  nor: Int8Array | null;
+  uv: null;
+  index: Uint16Array | Uint32Array | null;
+  mat: CityRestPayload["rawGeos"][number]["mat"];
+};
+export type PackedBatchItems = {
+  urls: string[];
+  urlIdx: Int32Array;
+  rawIdx: Int32Array;
+  trs: Float32Array;
+  scales: Uint16Array;
+  exactIdx: Int32Array;
+  exactMats: Float32Array;
+  tints: Int32Array;
+  count: number;
+};
+export type PackedRest = {
+  mergedChunks: PackedMergedChunk[];
+  rawGeos: PackedRawGeo[];
+  items: PackedBatchItems;
+  solids: PackedSolids;
+  parkedCars: CityRestPayload["parkedCars"];
+  lampHeads: CityRestPayload["lampHeads"];
+  decks: CityRestPayload["decks"];
+};
+
+export type WorldBinPayload = { rev: number; world?: PackedWorld; rest?: PackedRest };
+
+export function unpackWorld(p: PackedWorld): CityGenPayload {
   return {
     roadParts: [], // rest.bin's merged chunks carry the roads
     tiles: p.tiles.map((t) => ({
@@ -283,43 +344,7 @@ async function unpackYield(): Promise<void> {
   lastUnpackYield = performance.now();
 }
 
-export async function unpackRest(packed: unknown): Promise<CityRestPayload> {
-  const p = packed as {
-    mergedChunks: {
-      cx: number;
-      cz: number;
-      dist: number;
-      pos: QPos;
-      nor: Int8Array | null;
-      uv: QUv | null;
-      col: Uint8Array | null;
-      index: Uint16Array | Uint32Array | null;
-      mat: CityRestPayload["mergedChunks"][number]["mat"];
-      srcMat: { url: string; idx: number } | null;
-    }[];
-    rawGeos: {
-      pos: QPos;
-      nor: Int8Array | null;
-      uv: null;
-      index: Uint16Array | Uint32Array | null;
-      mat: CityRestPayload["rawGeos"][number]["mat"];
-    }[];
-    items: {
-      urls: string[];
-      urlIdx: Int32Array;
-      rawIdx: Int32Array;
-      trs: Float32Array;
-      scales: Uint16Array;
-      exactIdx: Int32Array;
-      exactMats: Float32Array;
-      tints: Int32Array;
-      count: number;
-    };
-    solids: PackedSolids;
-    parkedCars: CityRestPayload["parkedCars"];
-    lampHeads: CityRestPayload["lampHeads"];
-    decks: CityRestPayload["decks"];
-  };
+export async function unpackRest(p: PackedRest): Promise<CityRestPayload> {
   const exactBy = new Map<number, number>();
   for (let e = 0; e < p.items.exactIdx.length; e++) {
     const idx = p.items.exactIdx[e];
@@ -395,20 +420,34 @@ export async function unpackRest(packed: unknown): Promise<CityRestPayload> {
 
 export type PackedSolids = { data: Float32Array; flags: Uint8Array; count: number };
 
+// Mutable staging shape for Solid: the flag-gated fields are added one
+// statement at a time, and Solid itself is readonly.
+type UnpackedSolid = {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+  maxY?: number;
+  yaw?: number;
+  noBody?: boolean;
+  unseen?: string;
+};
+
 function unpackSolids(p: PackedSolids): CityRestPayload["solids"] {
   const out: CityRestPayload["solids"] = [];
   for (let i = 0; i < p.count; i++) {
     const f = p.flags[i] ?? 0;
-    out.push({
+    const solid: UnpackedSolid = {
       minX: p.data[i * 6] ?? 0,
       maxX: p.data[i * 6 + 1] ?? 0,
       minZ: p.data[i * 6 + 2] ?? 0,
       maxZ: p.data[i * 6 + 3] ?? 0,
-      ...(f & 1 ? { maxY: p.data[i * 6 + 4] ?? 0 } : {}),
-      ...(f & 8 ? { unseen: "baked" } : {}),
-      ...(f & 2 ? { yaw: p.data[i * 6 + 5] ?? 0 } : {}),
-      ...(f & 4 ? { noBody: true } : {}),
-    });
+    };
+    if (f & 1) solid.maxY = p.data[i * 6 + 4] ?? 0;
+    if (f & 8) solid.unseen = "baked";
+    if (f & 2) solid.yaw = p.data[i * 6 + 5] ?? 0;
+    if (f & 4) solid.noBody = true;
+    out.push(solid);
   }
   return out;
 }

@@ -45,22 +45,20 @@ export function getServerContext() {
   // proxy URL is HMAC-signed with BETTER_AUTH_SECRET; the S3 keys are still kept
   // for the `deletePrefix` and read paths (those go through the binding,
   // which is local-safe).
-  const r2: R2Config | undefined =
-    env.GAMES_BUCKET && env.R2_ACCOUNT_ID && env.R2_ACCESS_KEY_ID && env.R2_SECRET_ACCESS_KEY
-      ? {
-          bucket: env.GAMES_BUCKET,
-          bucketName: env.R2_BUCKET_NAME,
-          accountId: env.R2_ACCOUNT_ID,
-          accessKeyId: env.R2_ACCESS_KEY_ID,
-          secretAccessKey: env.R2_SECRET_ACCESS_KEY,
-          ...(isLocalhost
-            ? {
-                proxyUploadBaseUrl: baseUrl,
-                proxyUploadSecret: env.BETTER_AUTH_SECRET,
-              }
-            : {}),
-        }
-      : undefined;
+  let r2: R2Config | undefined;
+  if (env.GAMES_BUCKET && env.R2_ACCOUNT_ID && env.R2_ACCESS_KEY_ID && env.R2_SECRET_ACCESS_KEY) {
+    r2 = {
+      bucket: env.GAMES_BUCKET,
+      bucketName: env.R2_BUCKET_NAME,
+      accountId: env.R2_ACCOUNT_ID,
+      accessKeyId: env.R2_ACCESS_KEY_ID,
+      secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+    };
+    if (isLocalhost) {
+      r2.proxyUploadBaseUrl = baseUrl;
+      r2.proxyUploadSecret = env.BETTER_AUTH_SECRET;
+    }
+  }
 
   const media: MediaProviderConfig = {
     fal: env.FAL_API_KEY,

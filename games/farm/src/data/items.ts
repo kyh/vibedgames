@@ -22,73 +22,78 @@ export type Item =
 
 export type Slot = { item: Item; qty: number } | null;
 
-export const TOOL_NAMES: Record<ToolId, string> = {
+export const TOOL_NAMES = {
   hoe: "Hoe",
   can: "Watering Can",
   axe: "Axe",
   pickaxe: "Pickaxe",
   rod: "Fishing Rod",
   sword: "Sword",
-};
+} satisfies Record<ToolId, string>;
 
-const TOOL_ICON: Record<ToolId, string> = {
+const TOOL_ICON = {
   hoe: "ui-shovel",
   can: "ui-water",
   axe: "ui-axe",
   pickaxe: "ui-pickaxe",
   rod: "ui-rod",
   sword: "ui-sword",
-};
+} satisfies Record<ToolId, string>;
 
-const RES_ICON: Record<ResourceId, string> = {
+const RES_ICON = {
   wood: "obj-wood",
   stone: "obj-stone",
   coal: "obj-ore-coal",
   copper: "obj-ore-copper",
   crystal: "obj-ore-crystal",
-};
+} satisfies Record<ResourceId, string>;
 
-const RES_NAME: Record<ResourceId, string> = {
+const RES_NAME = {
   wood: "Wood",
   stone: "Stone",
   coal: "Coal",
   copper: "Copper",
   crystal: "Crystal",
-};
+} satisfies Record<ResourceId, string>;
 
-const RES_VALUE: Record<ResourceId, number> = {
+const RES_VALUE = {
   wood: 4,
   stone: 6,
   coal: 16,
   copper: 28,
   crystal: 75,
-};
+} satisfies Record<ResourceId, number>;
 
-const AP_ICON: Record<AnimalProductId, string> = {
+const AP_ICON = {
   egg: "obj-egg",
   milk: "obj-milk",
   wool: "icon-wool",
   truffle: "icon-truffle",
-};
-const AP_NAME: Record<AnimalProductId, string> = {
+} satisfies Record<AnimalProductId, string>;
+const AP_NAME = {
   egg: "Egg",
   milk: "Milk",
   wool: "Wool",
   truffle: "Truffle",
-};
-const AP_VALUE: Record<AnimalProductId, number> = { egg: 22, milk: 55, wool: 120, truffle: 180 };
+} satisfies Record<AnimalProductId, string>;
+const AP_VALUE = { egg: 22, milk: 55, wool: 120, truffle: 180 } satisfies Record<
+  AnimalProductId,
+  number
+>;
 
-const FORAGE_ICON: Record<ForageId, string> = {
+const FORAGE_ICON = {
   mushroom_red: "obj-mushroom-red",
   mushroom_blue: "obj-mushroom-blue",
-};
-const FORAGE_NAME: Record<ForageId, string> = {
+} satisfies Record<ForageId, string>;
+const FORAGE_NAME = {
   mushroom_red: "Red Mushroom",
   mushroom_blue: "Blue Mushroom",
-};
-const FORAGE_VALUE: Record<ForageId, number> = { mushroom_red: 45, mushroom_blue: 70 };
+} satisfies Record<ForageId, string>;
+const FORAGE_VALUE = { mushroom_red: 45, mushroom_blue: 70 } satisfies Record<ForageId, number>;
 
-export function itemIcon(item: Item): { key: string; frame?: number } {
+export type ItemIcon = { key: string; frame?: number };
+
+export function itemIcon(item: Item): ItemIcon {
   switch (item.kind) {
     case "tool":
       return { key: TOOL_ICON[item.tool] };

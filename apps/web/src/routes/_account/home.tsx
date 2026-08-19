@@ -141,7 +141,9 @@ function GamesPage() {
         "This takes the game offline and permanently deletes its files and source. There is no undo.",
       action: {
         label: "Delete",
-        onClick: () => remove.mutateAsync({ gameId: game.id }),
+        onClick: async () => {
+          await remove.mutateAsync({ gameId: game.id });
+        },
       },
     });
   };

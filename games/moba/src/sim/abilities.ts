@@ -906,7 +906,7 @@ export function autoLevel(w: World, u: Unit): void {
   while (u.hero.abilityPoints > 0 && guard++ < 8) {
     if (levelAbility(u, "R")) continue;
     let did = false;
-    for (const k of ["Q", "W", "E"] as AbilityKey[]) {
+    for (const k of ["Q", "W", "E"] satisfies AbilityKey[]) {
       if (levelAbility(u, k)) {
         did = true;
         break;

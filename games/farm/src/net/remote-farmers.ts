@@ -3,6 +3,8 @@ import Phaser from "phaser";
 import type { PlayerMap } from "@vibedgames/multiplayer";
 
 import { CHAR_ORIGIN_Y, DEPTH } from "../config";
+import { isJsonNumber, isJsonObject } from "../json";
+import type { JsonValue } from "../json";
 
 // Renders the other players' farmers in the shared co-op world. They're the
 // same character sprite as the local player, name-tagged and depth-sorted with
@@ -10,17 +12,12 @@ import { CHAR_ORIGIN_Y, DEPTH } from "../config";
 
 export type FarmerState = { x: number; y: number; f: boolean; m: boolean };
 
-export function readFarmer(state: unknown): FarmerState | null {
-  if (!state || typeof state !== "object") return null;
-  const x = "x" in state ? state.x : null;
-  const y = "y" in state ? state.y : null;
-  if (typeof x !== "number" || typeof y !== "number") return null;
-  return {
-    x,
-    y,
-    f: ("f" in state ? state.f : null) === true,
-    m: ("m" in state ? state.m : null) === true,
-  };
+export function readFarmer(state: JsonValue | undefined): FarmerState | null {
+  if (!isJsonObject(state)) return null;
+  const x = state["x"];
+  const y = state["y"];
+  if (!isJsonNumber(x) || !isJsonNumber(y)) return null;
+  return { x, y, f: state["f"] === true, m: state["m"] === true };
 }
 
 type Farmer = {
@@ -44,7 +41,9 @@ export class RemoteFarmers {
     const seen = new Set<string>();
     for (const [id, player] of Object.entries(players)) {
       if (id === myId) continue;
-      const st = readFarmer(player.state);
+      // SAFETY: player state is decoded JSON off the wire; the package types it
+      // `Record<string, unknown>` only because it cannot know game schemas.
+      const st = readFarmer(player.state as JsonValue | undefined);
       if (!st) continue;
       seen.add(id);
       let f = this.farmers.get(id);

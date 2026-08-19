@@ -438,7 +438,7 @@ export class GalleryScene extends Phaser.Scene {
             [1, -1],
             [-1, 1],
             [1, 1],
-          ] as Array<[number, number]>
+          ] satisfies Array<[number, number]>
         ).some(([dx, dy]) => this.land(cx + dx, cy + dy));
         if (!touches) continue;
         const f = this.add
@@ -567,7 +567,7 @@ export class GalleryScene extends Phaser.Scene {
       [6.6, 2.8],
       [7.5, 3.2],
       [6.0, 2.4],
-    ] as Array<[number, number]>)
+    ] satisfies Array<[number, number]>)
       unit("sc-lancer", tx, ty);
     unit("sc-warrior", 7.2, 5.2);
     unit("sc-warrior", 4.2, 13.2);
@@ -599,7 +599,7 @@ export class GalleryScene extends Phaser.Scene {
       [17.4, 0.8],
       [18.3, 1.6],
       [19.0, 0.7],
-    ] as Array<[number, number]>)
+    ] satisfies Array<[number, number]>)
       tree(tx, ty, 1.15);
     // autumn (warm-tinted) trees down the flanks & corners
     const AUTUMN = [0xf4d24a, 0xe9a23a, 0xf2c14e, 0xe6b34a];
@@ -615,7 +615,7 @@ export class GalleryScene extends Phaser.Scene {
       [13.0, 16.0, 0],
       [4.6, 16.2, 1],
       [22.0, 8.4, 2],
-    ] as Array<[number, number, number]>)
+    ] satisfies Array<[number, number, number]>)
       tree(tx, ty, 1.0, AUTUMN[n % AUTUMN.length]);
 
     // sheep grazing near the village
@@ -625,7 +625,7 @@ export class GalleryScene extends Phaser.Scene {
       [16.2, 8.6],
       [12.8, 9.6],
       [15.0, 13.0],
-    ] as Array<[number, number]>) {
+    ] satisfies Array<[number, number]>) {
       if (!this.textures.exists("sheep")) break;
       const [x, y] = P(tx, ty);
       const spr = this.placed(
@@ -642,7 +642,7 @@ export class GalleryScene extends Phaser.Scene {
       [2.5, 16.0, 3],
       [23.0, 9.0, 4],
       [10.5, 9.5, 1],
-    ] as Array<[number, number, number]>) {
+    ] satisfies Array<[number, number, number]>) {
       const tex = `deco-rock${n}`;
       if (!this.textures.exists(tex)) continue;
       const [x, y] = P(tx, ty);

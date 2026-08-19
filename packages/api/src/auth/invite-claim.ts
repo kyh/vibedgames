@@ -3,7 +3,12 @@ import { and, eq, gt, isNull, lt, or, sql } from "@repo/db";
 import { inviteCode } from "@repo/db/drizzle-schema";
 import { APIError } from "better-auth/api";
 
-export const normalizeInviteCode = (raw: unknown) =>
+import type { JsonValue } from "../json";
+
+// Accepts the raw signup-body value (any JSON), coercing non-strings the way
+// the signup form's stringification would — codes only ever match after
+// trim + uppercase against the stored charset anyway.
+export const normalizeInviteCode = (raw: JsonValue | undefined) =>
   String(raw ?? "")
     .trim()
     .toUpperCase();
@@ -25,7 +30,10 @@ export const inviteCodeAvailabilityClause = (now: Date) =>
  * Splitting validate/claim means a downstream user-create failure (e.g.
  * duplicate email) won't burn a single-use code.
  */
-export const validateInviteCode = async (db: Db, rawCode: unknown): Promise<string> => {
+export const validateInviteCode = async (
+  db: Db,
+  rawCode: JsonValue | undefined,
+): Promise<string> => {
   const code = normalizeInviteCode(rawCode);
   if (!code) {
     throw new APIError("BAD_REQUEST", { message: "Invite code is required." });

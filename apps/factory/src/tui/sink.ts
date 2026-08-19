@@ -9,7 +9,7 @@ import type {
 import type { AgentState } from "../state.ts";
 import type { TuiStore } from "./store.ts";
 
-const costNote = (c?: number): string => (typeof c === "number" ? ` ($${c.toFixed(2)})` : "");
+const costNote = (c?: number): string => (c === undefined ? "" : ` ($${c.toFixed(2)})`);
 
 /**
  * The dashboard reporter: a pure sink that translates orchestrator events into

@@ -476,7 +476,7 @@ function imageDataFor(tex: THREE.Texture): ImageData | null {
   if (
     img instanceof HTMLImageElement ||
     img instanceof ImageBitmap ||
-    (typeof HTMLCanvasElement !== "undefined" && img instanceof HTMLCanvasElement)
+    (globalThis.HTMLCanvasElement !== undefined && img instanceof HTMLCanvasElement)
   ) {
     const canvas = document.createElement("canvas");
     canvas.width = img.width;
@@ -1000,7 +1000,7 @@ function collectBuildings(items: readonly BatchItemRec[], cache: ModelCache): In
   return out;
 }
 
-function gridFor(b: Instance): { floors: number; colsX: number; colsZ: number } {
+function gridFor(b: Instance) {
   return {
     floors: Math.max(0, Math.floor((b.height - SILL_START - 1.0) / FLOOR_STEP)),
     colsX: Math.max(0, Math.floor((b.hx * 2 - FACE_MARGIN * 2) / COL_STEP)),

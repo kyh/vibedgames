@@ -1,7 +1,7 @@
 import type { Connection, ConnectionContext } from "partyserver";
 import { routePartykitRequest, Server } from "partyserver";
 
-import type { ClientMessage, Player, PlayerMap, ServerMessage } from "@vibedgames/multiplayer";
+import type { Player, PlayerMap, ServerMessage } from "@vibedgames/multiplayer";
 import {
   EVICTION_TIMEOUT_MS,
   findStructuralIssue,
@@ -18,6 +18,76 @@ import { getColorById } from "./color";
 type Env = {
   VgServer: DurableObjectNamespace<VgServer>;
   DB: D1Database;
+};
+
+/**
+ * Boundary types for untrusted client JSON. `JSON.parse` gives back `any`;
+ * everything read off the wire funnels through these so game state stays a
+ * concrete JSON shape instead of `unknown`.
+ */
+type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+
+/** A state patch / snapshot: a plain JSON object keyed by game-owned fields. */
+type StateMap = { [key: string]: JsonValue };
+
+// `String(v) === v` holds exactly for primitive strings (strict equality
+// never coerces), so this predicate is sound without a runtime `typeof`.
+const isJsonString = (value: JsonValue | undefined): value is string => String(value) === value;
+
+const asStateMap = (value: JsonValue | undefined): StateMap | undefined =>
+  value instanceof Object && !Array.isArray(value) ? value : undefined;
+
+/**
+ * A client message decoded at the wire boundary. Patch payloads stay raw
+ * (`JsonValue`) here — the structural guard that accepts or drops them runs in
+ * the handler so its logging stays with the decision. Unrecognized frames
+ * still count as liveness, mirroring the historical behavior.
+ */
+type IncomingMessage =
+  | { type: "state_patch"; data: JsonValue | undefined }
+  | { type: "player_state_patch"; data: JsonValue | undefined }
+  | {
+      type: "emit";
+      data: {
+        event: string;
+        payload: JsonValue;
+        to: JsonValue | undefined;
+        except: JsonValue | undefined;
+      };
+    }
+  | { type: "heartbeat" }
+  | { type: "pong" }
+  | { type: "unrecognized" };
+
+const decodeIncoming = (raw: JsonValue): IncomingMessage => {
+  const message = asStateMap(raw);
+  if (!message) return { type: "unrecognized" };
+  switch (message.type) {
+    case "state_patch":
+    case "player_state_patch":
+      return { type: message.type, data: message.data };
+    case "emit": {
+      const data = asStateMap(message.data);
+      if (!data || !isJsonString(data.event)) return { type: "unrecognized" };
+      return {
+        type: "emit",
+        // The SDK always sends a payload; only a hand-rolled client can omit
+        // it, and the wire contract types payload as required JSON, so a
+        // missing one relays as null.
+        data: {
+          event: data.event,
+          payload: data.payload ?? null,
+          to: data.to,
+          except: data.except,
+        },
+      };
+    }
+    case "heartbeat":
+    case "pong":
+      return { type: message.type };
+    default:
+      return { type: "unrecognized" };
+  }
 };
 
 /**
@@ -62,7 +132,7 @@ type GraceEntry = {
   id: string;
   color: string;
   hue: string;
-  state: Record<string, unknown>;
+  state: StateMap;
   disconnectedAt: number;
   expiresAt: number;
 };
@@ -105,9 +175,9 @@ const nextOverflowRoom = (room: string): string => {
  * array counts (null = field absent or malformed), and non-string entries are
  * dropped rather than failing the whole event.
  */
-const readIdList = (value: string[] | undefined): string[] | null => {
+const readIdList = (value: JsonValue | undefined): string[] | null => {
   if (!Array.isArray(value)) return null;
-  return value.filter((id) => typeof id === "string");
+  return value.filter(isJsonString);
 };
 
 /** A single query param off the connect request (untrusted client input).
@@ -162,8 +232,8 @@ export class VgServer extends Server {
    *   silently forget a seat the alarm was scheduled to expire. Mirrored in
    *   memory, rehydrated in `onStart()`.
    */
-  private shared: Record<string, unknown> = {};
-  private snapshots = new Map<string, Record<string, unknown>>();
+  private shared: StateMap = {};
+  private snapshots = new Map<string, StateMap>();
   private hostId: string | null = null;
   private cap: number | null = null;
   private grace = new Map<string, GraceEntry>();
@@ -295,15 +365,22 @@ export class VgServer extends Server {
   }
 
   /**
-   * Structural guard for an untrusted patch payload; true means drop the
-   * message. Shared by both patch handlers so the check and its logging can't
-   * drift apart.
+   * Structural guard for an untrusted patch payload: the typed patch when it
+   * passes, or null to drop the message. Shared by both patch handlers so the
+   * check and its logging can't drift apart.
    */
-  private rejectMalformed(sender: Connection<Presence>, data: unknown, label: string): boolean {
-    const issue = findStructuralIssue(data);
-    if (issue === null) return false;
-    console.warn(`Dropping ${label} from ${sender.id}: ${issue}`);
-    return true;
+  private parsePatch(
+    sender: Connection<Presence>,
+    data: JsonValue | undefined,
+    label: string,
+  ): StateMap | null {
+    const issue = findStructuralIssue(data ?? null);
+    if (issue !== null) {
+      console.warn(`Dropping ${label} from ${sender.id}: ${issue}`);
+      return null;
+    }
+    // findStructuralIssue === null guarantees a plain object root.
+    return asStateMap(data) ?? null;
   }
 
   /**
@@ -467,14 +544,15 @@ export class VgServer extends Server {
         return;
       }
 
-      const message = JSON.parse(rawMessage) as ClientMessage;
+      const message = decodeIncoming(JSON.parse(rawMessage));
 
       switch (message.type) {
         case "player_state_patch": {
           // Hot path: snapshot + broadcast only. Liveness rides the heartbeat/
           // pong keepalive channel, so a per-tick stream costs no attachment write.
-          if (this.rejectMalformed(sender, message.data, "player_state_patch")) break;
-          const next = { ...(this.snapshots.get(sender.id) ?? {}), ...message.data };
+          const patch = this.parsePatch(sender, message.data, "player_state_patch");
+          if (patch === null) break;
+          const next = { ...(this.snapshots.get(sender.id) ?? {}), ...patch };
           this.snapshots.set(sender.id, next);
           // Fan out per recipient capability: delta-capable clients
           // shallow-merge `player_state`, so they only need the keys this
@@ -487,7 +565,7 @@ export class VgServer extends Server {
             return connection.state?.delta
               ? (deltaMessage ??= JSON.stringify({
                   type: "player_state",
-                  data: { id: sender.id, state: message.data },
+                  data: { id: sender.id, state: patch },
                 } satisfies ServerMessage))
               : (fullMessage ??= JSON.stringify({
                   type: "player_state",
@@ -512,14 +590,15 @@ export class VgServer extends Server {
           // The merge below spreads `data` into shared state, so a non-object
           // root (string/array) would scatter index keys into every room's
           // state; depth/forbidden-key checks bound what untrusted games store.
-          if (this.rejectMalformed(sender, message.data, "state_patch")) break;
+          const patch = this.parsePatch(sender, message.data, "state_patch");
+          if (patch === null) break;
           this.shared = {
             ...this.shared,
-            ...message.data,
+            ...patch,
           };
           const broadcastMessage: ServerMessage = {
             type: "state_patch",
-            data: message.data,
+            data: patch,
           };
           this.broadcast(JSON.stringify(broadcastMessage), []);
           break;

@@ -130,6 +130,10 @@ export class WeaponTrail {
   private ageAttr: THREE.BufferAttribute;
   private acrossAttr: THREE.BufferAttribute;
   private alongAttr: THREE.BufferAttribute;
+  private readonly posArr = new Float32Array(MAX_ROWS * 2 * 3);
+  private readonly ageArr = new Float32Array(MAX_ROWS * 2);
+  private readonly acrossArr = new Float32Array(MAX_ROWS * 2);
+  private readonly alongArr = new Float32Array(MAX_ROWS * 2);
   private segs: {
     bx: number;
     by: number;
@@ -179,18 +183,10 @@ export class WeaponTrail {
     this.tipLocal[axis] = ctr[axis] + half * (1 + tipExt);
 
     this.geom = new THREE.BufferGeometry();
-    this.posAttr = new THREE.BufferAttribute(new Float32Array(MAX_ROWS * 2 * 3), 3).setUsage(
-      THREE.DynamicDrawUsage,
-    );
-    this.ageAttr = new THREE.BufferAttribute(new Float32Array(MAX_ROWS * 2), 1).setUsage(
-      THREE.DynamicDrawUsage,
-    );
-    this.acrossAttr = new THREE.BufferAttribute(new Float32Array(MAX_ROWS * 2), 1).setUsage(
-      THREE.DynamicDrawUsage,
-    );
-    this.alongAttr = new THREE.BufferAttribute(new Float32Array(MAX_ROWS * 2), 1).setUsage(
-      THREE.DynamicDrawUsage,
-    );
+    this.posAttr = new THREE.BufferAttribute(this.posArr, 3).setUsage(THREE.DynamicDrawUsage);
+    this.ageAttr = new THREE.BufferAttribute(this.ageArr, 1).setUsage(THREE.DynamicDrawUsage);
+    this.acrossAttr = new THREE.BufferAttribute(this.acrossArr, 1).setUsage(THREE.DynamicDrawUsage);
+    this.alongAttr = new THREE.BufferAttribute(this.alongArr, 1).setUsage(THREE.DynamicDrawUsage);
     this.geom.setAttribute("position", this.posAttr);
     this.geom.setAttribute("aAge", this.ageAttr);
     this.geom.setAttribute("aAcross", this.acrossAttr);
@@ -285,10 +281,10 @@ export class WeaponTrail {
     // Catmull-Rom through the raw samples: a fast swing can sweep 20°+ between
     // frames, and a straight quad per frame reads as a fan of disconnected
     // petals. Subdividing along the spline keeps the crescent one smooth sheet.
-    const pos = this.posAttr.array as Float32Array;
-    const age = this.ageAttr.array as Float32Array;
-    const across = this.acrossAttr.array as Float32Array;
-    const along = this.alongAttr.array as Float32Array;
+    const pos = this.posArr;
+    const age = this.ageArr;
+    const across = this.acrossArr;
+    const along = this.alongArr;
     let row = 0;
     const segs = this.segs;
     const putRow = (
@@ -322,18 +318,7 @@ export class WeaponTrail {
     // 3-tap smoothing of the control points before splining — swing clips pump
     // the blade radius slightly every pose sample, and Catmull-Rom faithfully
     // reproduces each wobble as a radial ridge on fast spins
-    const sm = (
-      i: number,
-    ): {
-      bx: number;
-      by: number;
-      bz: number;
-      tx: number;
-      ty: number;
-      tz: number;
-      t: number;
-      s: number;
-    } => {
+    const sm = (i: number) => {
       const p = segs[Math.max(0, i - 1)]!;
       const c = segs[Math.min(n - 1, Math.max(0, i))]!;
       const q = segs[Math.min(n - 1, i + 1)]!;

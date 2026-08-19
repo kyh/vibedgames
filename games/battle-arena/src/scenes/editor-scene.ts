@@ -37,13 +37,13 @@ const POS_MARGIN = -3; // hex clamp apron (matches map-format's parser)
 const FLOOR_TILE = 4; // the floor builder's cell size
 
 /** Floor-palette swatch colors (hover highlight + UI chips). */
-const FLOOR_COLORS: Record<FloorType | "auto", number> = {
+const FLOOR_COLORS = {
   flag: 0x9aa3b8,
   worn: 0x7d8894,
   dirt: 0x8a6a4a,
   grate: 0xb0703a,
   auto: 0xffffff,
-};
+} satisfies Record<FloorType | "auto", number>;
 
 /** One editable placement: a prop (model name), a wall stub (WALL_RUN), or a
  *  pure collider (model ""). Collidable items carry the MapCollider fields. */
@@ -229,7 +229,7 @@ export class EditorScene {
       }
       const model =
         o.model ?? (i % 3 === 0 ? "pillar_decorated" : i % 3 === 1 ? "column" : "pillar");
-      const tall = TALL_TARGET[model] ?? o.height;
+      const tall = TALL_TARGET.get(model) ?? o.height;
       props.push({
         model,
         x: o.x,
@@ -299,7 +299,7 @@ export class EditorScene {
         });
       } else if (c.model !== undefined) {
         // hand-authored modeled collider — edit it as a collidable prop
-        const tall = TALL_TARGET[c.model];
+        const tall = TALL_TARGET.get(c.model);
         this.makeItem({
           model: c.model,
           x: c.x,
@@ -436,7 +436,7 @@ export class EditorScene {
         Math.max(0.1, spec.radius),
       );
     else {
-      const tall = spec.lie ? undefined : TALL_TARGET[spec.model];
+      const tall = spec.lie ? undefined : TALL_TARGET.get(spec.model);
       obj.scale.setScalar(
         tall === undefined ? spec.scale : (tall * spec.scale) / this.nativeHeight(spec.model),
       );
@@ -1211,8 +1211,8 @@ export class EditorScene {
     ui.querySelectorAll<HTMLButtonElement>(".edf").forEach((btn) => {
       btn.addEventListener("click", () => {
         const t = btn.dataset["floor"];
-        if (t === "auto" || (FLOOR_TYPES as readonly string[]).includes(t ?? ""))
-          this.setFloorType(t as FloorType | "auto");
+        const floor = t === "auto" ? t : FLOOR_TYPES.find((f) => f === t);
+        if (floor) this.setFloorType(floor);
       });
     });
     this.setFloorType(this.floorType);

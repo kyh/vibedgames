@@ -11,21 +11,21 @@ export const SKILL_IDS: readonly SkillId[] = [
   "combat",
 ] as const;
 
-export const SKILL_NAMES: Record<SkillId, string> = {
+export const SKILL_NAMES = {
   farming: "Farming",
   mining: "Mining",
   fishing: "Fishing",
   foraging: "Foraging",
   combat: "Combat",
-};
+} satisfies Record<SkillId, string>;
 
-export const SKILL_ICON: Record<SkillId, string> = {
+export const SKILL_ICON = {
   farming: "🌾",
   mining: "⛏",
   fishing: "🎣",
   foraging: "🍄",
   combat: "⚔",
-};
+} satisfies Record<SkillId, string>;
 
 // XP needed to advance FROM `level` to level+1. Level SKILL_MAX_LEVEL is the cap.
 export function xpToNext(level: number): number {
@@ -34,9 +34,9 @@ export function xpToNext(level: number): number {
 }
 
 export type SkillState = { xp: number; level: number };
-export type SkillsJSON = Record<SkillId, SkillState>;
+export type SkillsJSON = { [K in SkillId]: SkillState };
 
-function freshState(): Record<SkillId, SkillState> {
+function freshState(): SkillsJSON {
   return {
     farming: { xp: 0, level: 0 },
     mining: { xp: 0, level: 0 },

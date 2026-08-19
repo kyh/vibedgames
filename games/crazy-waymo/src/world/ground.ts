@@ -34,7 +34,7 @@ import type { Terrain } from "./terrain";
 // they were already the darkest band and are what the districts read by). This
 // changes VERTEX OUTPUT: it is baked, and needs a WORLD_REV bump plus
 // `pnpm bake:world`.
-const COVER_COLOR: Readonly<Record<GroundCover, THREE.Color>> = {
+const COVER_COLOR = {
   pavement: new THREE.Color(0x8b887c),
   yard: new THREE.Color(0x86816f),
   rearYard: new THREE.Color(0x757161),
@@ -56,7 +56,7 @@ const COVER_COLOR: Readonly<Record<GroundCover, THREE.Color>> = {
   sand: new THREE.Color(0xc7b78e),
   dune: new THREE.Color(0xb5a87b),
   water: new THREE.Color(0x2f4d5c),
-};
+} satisfies Readonly<Record<GroundCover, THREE.Color>>;
 
 const WET_SAND = new THREE.Color(0xa9946b); // darker band right at the waterline
 const TURF_SUN = new THREE.Color(0x9caa66); // sunlit two-tone partner for turf
@@ -65,11 +65,11 @@ const STRAW_DAMP = new THREE.Color(0x94955e); // the gullies that stay green
 
 // Editor "Floor" paint. Hand-painted cells win outright — no shore, no flank,
 // no patches — so what the editor shows is what ships.
-const PAINTED_FLOOR: Readonly<Record<FloorKind, THREE.Color>> = {
+const PAINTED_FLOOR = {
   plaza: COVER_COLOR.plaza,
   grass: COVER_COLOR.lawn,
   sand: COVER_COLOR.sand,
-};
+} satisfies Readonly<Record<FloorKind, THREE.Color>>;
 
 // How a cover varies across a patch: irrigated turf drifts toward sunlit
 // yellow-green, dry ground between bleached crest and damp gully.

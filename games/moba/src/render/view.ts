@@ -335,7 +335,7 @@ export class WorldView {
             [1, -1],
             [-1, 1],
             [1, 1],
-          ] as Array<[number, number]>
+          ] satisfies Array<[number, number]>
         ).some(([dx, dy]) => isLandCell(cx + dx, cy + dy));
         if (!touches) continue;
         const x = cx * CELL + CELL / 2;
@@ -429,7 +429,7 @@ export class WorldView {
   private buildRamps(): void {
     const s = this.scene;
     if (!s.textures.exists("tiles-img") || !s.textures.exists("tiles")) return;
-    const FILL = FLAT_AUTOTILE[0] ?? 10; // grass interior, to back-fill the slope
+    const FILL = FLAT_AUTOTILE.get(0) ?? 10; // grass interior, to back-fill the slope
     for (let cy = 0; cy < ROWS; cy++) {
       for (let cx = 0; cx < COLS; cx++) {
         const r = rampAt(cx, cy);
@@ -2137,13 +2137,13 @@ function groundColor(g: GroundEffect): number {
   return 0xff6a2a;
 }
 function shortName(defId: string): string {
-  const m: Record<string, string> = {
-    ironvow: "Garran",
-    duskblade: "Vesper",
-    stormcaller: "Aelwyn",
-    emberhex: "Grix",
-    boomtinker: "Fizzle",
-    brewkeeper: "Bramble",
-  };
-  return m[defId] ?? defId;
+  const m = new Map([
+    ["ironvow", "Garran"],
+    ["duskblade", "Vesper"],
+    ["stormcaller", "Aelwyn"],
+    ["emberhex", "Grix"],
+    ["boomtinker", "Fizzle"],
+    ["brewkeeper", "Bramble"],
+  ]);
+  return m.get(defId) ?? defId;
 }

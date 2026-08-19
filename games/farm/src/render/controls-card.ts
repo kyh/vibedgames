@@ -11,13 +11,13 @@ import type { ControlEntry, ControlMethod } from "@repo/embed";
 
 import { CONTROLS } from "../controls";
 
-const METHOD_LABELS: Record<ControlMethod, string> = {
+const METHOD_LABELS = {
   keys: "KEYBOARD",
   mouse: "MOUSE",
   touch: "TOUCH",
   camera: "CAMERA",
   controller: "CONTROLLER",
-};
+} satisfies Record<ControlMethod, string>;
 
 // Palette lifted from the pause sign: parchment #f4ecd6 chips bordered and
 // dropped in #6b3f16, chip lettering #4a3010, cream actions #f8f0da, and the
@@ -155,11 +155,7 @@ function columnWidth(rows: readonly Row[]): number {
   return Math.max(...rows.map((r) => r.chipW)) + GUTTER + Math.max(...rows.map((r) => r.actionW));
 }
 
-function cardSize(
-  measured: readonly Group[],
-  perColumn: number,
-  headerH: number,
-): { width: number; height: number; columns: number } {
+function cardSize(measured: readonly Group[], perColumn: number, headerH: number) {
   let width = 0;
   let columns = 0;
   let tallest = 0;

@@ -2,6 +2,7 @@ import type { Db } from "@repo/db/drizzle-client";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
+import type { JsonValue } from "../json";
 import type { MediaProviderConfig } from "../trpc";
 import {
   formatUsd,
@@ -51,7 +52,7 @@ function trimSlash(url: string): string {
 }
 
 function nonBlank(value: string | undefined): string | undefined {
-  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+  return value !== undefined && value.trim().length > 0 ? value : undefined;
 }
 
 function targetBase(target: Target, media: MediaProviderConfig): string {
@@ -131,10 +132,7 @@ const forwardInput = z.object({
 
 // ---- Helpers ---------------------------------------------------------------
 
-function pickFalKey(media: MediaProviderConfig | undefined): {
-  apiKey: string;
-  config: MediaProviderConfig;
-} {
+function pickFalKey(media: MediaProviderConfig | undefined) {
   if (!media?.fal) {
     throw new TRPCError({
       code: "PRECONDITION_FAILED",
@@ -154,17 +152,6 @@ const FAL_STATIC_HEADERS = {
   "x-app-fal-disable-fallback": "true",
 } as const;
 
-function serializeBody(value: unknown): string {
-  try {
-    return JSON.stringify(value);
-  } catch {
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message: "body must be JSON-serializable.",
-    });
-  }
-}
-
 // ---- credit accounting ------------------------------------------------------
 
 /**
@@ -177,17 +164,17 @@ function platformFetchJson(apiKey: string, config: MediaProviderConfig) {
     method: "GET" | "POST";
     path: string;
     query?: Record<string, string>;
-    body?: unknown;
-  }): Promise<unknown> => {
+    body?: JsonValue;
+  }): Promise<JsonValue> => {
     const url = buildUrl(targetBase("platform", config), req.path, req.query);
-    const headers: Record<string, string> = {
+    const headers = new Headers({
       Accept: "application/json",
       Authorization: `Key ${apiKey}`,
-    };
+    });
     let body: string | undefined;
     if (req.body !== undefined) {
       body = JSON.stringify(req.body);
-      headers["Content-Type"] = "application/json";
+      headers.set("Content-Type", "application/json");
     }
     const res = await fetchProviderResponse({
       url,
@@ -217,17 +204,18 @@ async function requirePositiveBalance(db: Db, userId: string): Promise<void> {
   });
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+const submitResponse = z.looseObject({ request_id: z.string().min(1) });
+
+function readRequestId(body: JsonValue): string | null {
+  const parsed = submitResponse.safeParse(body);
+  return parsed.success ? parsed.data.request_id : null;
 }
 
-function readRequestId(body: unknown): string | null {
-  if (!isRecord(body)) return null;
-  return typeof body.request_id === "string" && body.request_id.length > 0 ? body.request_id : null;
-}
+const statusResponse = z.looseObject({ status: z.string() });
 
-function readQueueStatus(body: unknown): unknown {
-  return isRecord(body) ? body.status : null;
+function readQueueStatus(body: JsonValue): string | null {
+  const parsed = statusResponse.safeParse(body);
+  return parsed.success ? parsed.data.status : null;
 }
 
 // ---- Router ----------------------------------------------------------------
@@ -264,7 +252,14 @@ export const generateRouter = createTRPCRouter({
 
     let serialized: string | undefined;
     if (input.body !== undefined) {
-      serialized = serializeBody(input.body);
+      try {
+        serialized = JSON.stringify(input.body);
+      } catch {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "body must be JSON-serializable.",
+        });
+      }
       const bytes = new TextEncoder().encode(serialized).byteLength;
       if (bytes > MAX_PARAMS_BYTES) {
         throw new TRPCError({
@@ -277,14 +272,14 @@ export const generateRouter = createTRPCRouter({
     const base = targetBase(input.target, config);
     const url = buildUrl(base, input.path, input.query);
 
-    const headers: Record<string, string> = {
+    const headers = new Headers({
       ...FAL_STATIC_HEADERS,
       Authorization: `Key ${apiKey}`,
-    };
-    if (serialized !== undefined) headers["Content-Type"] = "application/json";
+    });
+    if (serialized !== undefined) headers.set("Content-Type", "application/json");
     // The docs MCP server answers with an SSE stream and 406s unless the
     // client advertises it accepts text/event-stream.
-    if (input.target === "docs") headers.Accept = "application/json, text/event-stream";
+    if (input.target === "docs") headers.set("Accept", "application/json, text/event-stream");
 
     const fetchLabel = `fal ${input.target} ${input.method} ${input.path}`;
     const res = await fetchProviderResponse({

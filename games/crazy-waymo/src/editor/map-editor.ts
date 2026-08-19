@@ -61,12 +61,12 @@ const CATEGORIES: readonly { label: string; cat: string; names: readonly string[
   { label: "people", cat: "characters", names: CHARACTERS },
 ];
 
-const FLOOR_COLORS: Record<FloorKind | "erase", number> = {
+const FLOOR_COLORS = {
   plaza: 0xcfd2cc,
   grass: 0x63a860,
   sand: 0xd9c489,
   erase: 0x333344,
-};
+} satisfies Record<FloorKind | "erase", number>;
 
 // Kit models arrive at wildly different native sizes — normalize each pick to
 // a sensible in-world default (adjust after with [ ] or the inspector).
@@ -119,18 +119,11 @@ export async function startEditor(game: GameScene, renderer: THREE.WebGLRenderer
   // --- State ---
   let tab: Tab = "props";
   let streetErase = false;
-  const placed: Placed[] = [...CUSTOM_PROPS, ...loadLocalProps()].map((p) => ({
-    entry: {
-      model: p.model,
-      u: p.u,
-      v: p.v,
-      yaw: p.yaw,
-      s: p.s,
-      ...(p.solid ? { solid: true } : {}),
-    },
-    node: null,
-    baked: true,
-  }));
+  const placed: Placed[] = [...CUSTOM_PROPS, ...loadLocalProps()].map((p) => {
+    const entry: Entry = { model: p.model, u: p.u, v: p.v, yaw: p.yaw, s: p.s };
+    if (p.solid) entry.solid = true;
+    return { entry, node: null, baked: true };
+  });
   let selected: Placed | null = null;
   let selectedBox: THREE.BoxHelper | null = null;
   let palette: { cat: string; name: string } | null = null;
@@ -173,7 +166,7 @@ export async function startEditor(game: GameScene, renderer: THREE.WebGLRenderer
   };
 
   // --- Cell preview quads (streets + floors) ---
-  const quads = new Map<string, THREE.Mesh>();
+  const quads = new Map<string, THREE.Object3D>();
   const quadGeo = new THREE.PlaneGeometry(ROAD_TILE * 0.94, ROAD_TILE * 0.94).rotateX(-Math.PI / 2);
   const quadMats = new Map<string, THREE.MeshBasicMaterial>();
   const quadMat = (hex: number, opacity: number): THREE.MeshBasicMaterial => {
@@ -232,7 +225,7 @@ export async function startEditor(game: GameScene, renderer: THREE.WebGLRenderer
       m = quad;
     }
     game.scene.add(m);
-    quads.set(k, m as THREE.Mesh);
+    quads.set(k, m);
   };
   for (const k of addSet) {
     const [gx, gz] = k.split(",").map(Number);
@@ -315,6 +308,11 @@ export async function startEditor(game: GameScene, renderer: THREE.WebGLRenderer
     if (!(el instanceof HTMLElement)) throw new Error(`editor: missing #${id}`);
     return el;
   };
+  const $input = (id: string): HTMLInputElement => {
+    const el = $(id);
+    if (!(el instanceof HTMLInputElement)) throw new Error(`editor: #${id} is not an input`);
+    return el;
+  };
 
   const inspector = $("ed-inspector");
   const refreshInspector = (): void => {
@@ -324,11 +322,9 @@ export async function startEditor(game: GameScene, renderer: THREE.WebGLRenderer
     }
     inspector.style.display = "flex";
     $("ed-i-model").textContent = selected.entry.model;
-    ($("ed-irot") as HTMLInputElement).value = String(
-      Math.round((selected.entry.yaw * 180) / Math.PI),
-    );
-    ($("ed-iscale") as HTMLInputElement).value = String(selected.entry.s);
-    ($("ed-icol") as HTMLInputElement).checked = selected.entry.solid === true;
+    $input("ed-irot").value = String(Math.round((selected.entry.yaw * 180) / Math.PI));
+    $input("ed-iscale").value = String(selected.entry.s);
+    $input("ed-icol").checked = selected.entry.solid === true;
   };
   const refreshStatus = (): void => {
     const st = [];
@@ -379,7 +375,7 @@ export async function startEditor(game: GameScene, renderer: THREE.WebGLRenderer
   // Inspector bindings
   $("ed-irot").addEventListener("input", () => {
     if (!selected?.node) return;
-    const deg = Number(($("ed-irot") as HTMLInputElement).value) || 0;
+    const deg = Number($input("ed-irot").value) || 0;
     selected.entry.yaw = Math.round(((deg * Math.PI) / 180) * 1000) / 1000;
     selected.node.rotation.y = selected.entry.yaw;
     selected.node.updateMatrixWorld(true);
@@ -388,7 +384,7 @@ export async function startEditor(game: GameScene, renderer: THREE.WebGLRenderer
   });
   $("ed-iscale").addEventListener("input", () => {
     if (!selected?.node) return;
-    const v = Number(($("ed-iscale") as HTMLInputElement).value);
+    const v = Number($input("ed-iscale").value);
     if (!Number.isFinite(v) || v <= 0) return;
     selected.entry.s = Math.round(v * 100) / 100;
     selected.node.scale.setScalar(selected.entry.s);
@@ -398,7 +394,7 @@ export async function startEditor(game: GameScene, renderer: THREE.WebGLRenderer
   });
   $("ed-icol").addEventListener("change", () => {
     if (!selected) return;
-    if (($("ed-icol") as HTMLInputElement).checked) selected.entry.solid = true;
+    if ($input("ed-icol").checked) selected.entry.solid = true;
     else delete selected.entry.solid;
     saveNow();
   });
@@ -431,7 +427,7 @@ export async function startEditor(game: GameScene, renderer: THREE.WebGLRenderer
     ghost.rotation.y = ghostYaw;
     game.scene.add(ghost);
     ui.querySelectorAll(".edp").forEach((b) => {
-      b.classList.toggle("on", (b as HTMLElement).dataset["model"] === `${cat}/${name}`);
+      b.classList.toggle("on", b instanceof HTMLElement && b.dataset["model"] === `${cat}/${name}`);
     });
   };
 
@@ -473,7 +469,7 @@ export async function startEditor(game: GameScene, renderer: THREE.WebGLRenderer
     list.replaceChildren();
     const c = CATEGORIES[activeCat];
     if (!c) return;
-    const q = (($("ed-search") as HTMLInputElement).value ?? "").trim().toLowerCase();
+    const q = ($input("ed-search").value ?? "").trim().toLowerCase();
     for (const name of c.names) {
       if (q && !name.toLowerCase().includes(q)) continue;
       const btn = document.createElement("button");
@@ -516,7 +512,10 @@ export async function startEditor(game: GameScene, renderer: THREE.WebGLRenderer
     hoverQuad.visible = false;
   };
   ui.querySelectorAll<HTMLButtonElement>(".edt").forEach((btn) => {
-    btn.addEventListener("click", () => setTab((btn.dataset["tab"] as Tab) ?? "props"));
+    btn.addEventListener("click", () => {
+      const t = btn.dataset["tab"];
+      setTab(t === "props" || t === "streets" || t === "floor" || t === "clear" ? t : "props");
+    });
   });
   $("ed-st-paint").addEventListener("click", () => {
     streetErase = false;
@@ -534,7 +533,8 @@ export async function startEditor(game: GameScene, renderer: THREE.WebGLRenderer
   });
   ui.querySelectorAll<HTMLButtonElement>(".edf").forEach((btn) => {
     btn.addEventListener("click", () => {
-      floorKind = (btn.dataset["floor"] as FloorKind | "erase") ?? "plaza";
+      const f = btn.dataset["floor"];
+      floorKind = f === "plaza" || f === "grass" || f === "sand" || f === "erase" ? f : "plaza";
       ui.querySelectorAll(".edf").forEach((b) => b.classList.toggle("on", b === btn));
     });
   });
@@ -697,11 +697,11 @@ export async function startEditor(game: GameScene, renderer: THREE.WebGLRenderer
   };
 
   // --- Live floor recolor: paint terrain vertex colors in-place ---
-  const floorPaintColors: Record<FloorKind, number> = {
+  const floorPaintColors = {
     plaza: 0xd8dad2,
     grass: 0x67a86b,
     sand: 0xd9c489,
-  };
+  } satisfies Record<FloorKind, number>;
   type GroundGeo = { geo: THREE.BufferGeometry; original: Float32Array };
   const groundGeos: GroundGeo[] = [];
   {
@@ -985,9 +985,10 @@ export async function startEditor(game: GameScene, renderer: THREE.WebGLRenderer
 
   // --- Minimap: plan overview, camera marker, click to jump ---
   {
-    const mm = $("ed-minimap") as HTMLCanvasElement;
-    const mctx = mm.getContext("2d");
-    if (mctx) {
+    const mmEl = $("ed-minimap");
+    const mm = mmEl instanceof HTMLCanvasElement ? mmEl : null;
+    const mctx = mm ? mm.getContext("2d") : null;
+    if (mm && mctx) {
       const cells = city.plan.cells;
       const nx = cells.length;
       const nz = cells[0]?.length ?? 0;

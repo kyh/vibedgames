@@ -25,8 +25,8 @@ function declaredNames(argsDef: Record<string, ArgSpec>): Set<string> {
     // citty accepts a camelCase arg under its kebab spelling too.
     names.add(name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`));
     const alias = spec.alias;
-    if (typeof alias === "string") names.add(alias);
-    else if (Array.isArray(alias)) for (const a of alias) names.add(a);
+    if (Array.isArray(alias)) for (const a of alias) names.add(a);
+    else if (alias !== undefined) names.add(alias);
   }
   // citty answers these itself; they never reach a command's `args`.
   names.add("help");

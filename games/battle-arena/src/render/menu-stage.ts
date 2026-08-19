@@ -21,7 +21,7 @@ type Slot = {
   tint: number;
   char: AnimatedCharacter;
   group: THREE.Group;
-  ring: THREE.Mesh;
+  ring: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
   mats: THREE.MeshStandardMaterial[];
   baseYaw: number; // resting turn toward the camera (arc lineup look)
   baseZ: number; // resting depth on the arc (selected steps forward from here)
@@ -152,7 +152,10 @@ export class MenuStage {
     );
     this.raycaster.setFromCamera(ndc, this.camera);
     const hit = this.raycaster.intersectObjects(this.picks, false)[0];
-    return hit ? (hit.object.userData["champId"] as string) : null;
+    if (!hit) return null;
+    // SAFETY: only the pick proxies are raycast here, and each one is tagged
+    // userData.champId = <champ id string> when the slots are built above.
+    return hit.object.userData["champId"] as string;
   }
 
   onPointerMove(clientX: number, clientY: number): void {
@@ -182,7 +185,7 @@ export class MenuStage {
       const sc = s.group.scale.x + (targetScale - s.group.scale.x) * Math.min(1, 8 * dt);
       s.group.scale.setScalar(sc);
       s.group.rotation.y = s.baseYaw + (selected ? Math.sin(this.t * 0.6) * 0.25 : 0);
-      const ringMat = s.ring.material as THREE.MeshBasicMaterial;
+      const ringMat = s.ring.material;
       const targetOp = selected ? 0.85 + Math.sin(this.t * 4) * 0.15 : hovered ? 0.4 : 0;
       ringMat.opacity += (targetOp - ringMat.opacity) * Math.min(1, 10 * dt);
       s.ring.rotation.z += (selected ? 1.4 : 0.3) * dt;
@@ -206,12 +209,11 @@ export class MenuStage {
   dispose(): void {
     for (const s of this.slots) s.char.dispose();
     this.scene.traverse((o) => {
-      const m = o as THREE.Mesh;
-      if (m.isMesh) {
-        m.geometry?.dispose();
-        const mat = m.material;
+      if (o instanceof THREE.Mesh) {
+        o.geometry.dispose();
+        const mat = o.material;
         if (Array.isArray(mat)) mat.forEach((x) => x.dispose());
-        else mat?.dispose();
+        else mat.dispose();
       }
     });
   }

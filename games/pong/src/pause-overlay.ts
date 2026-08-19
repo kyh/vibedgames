@@ -32,13 +32,13 @@ const SCRIM =
   `radial-gradient(circle, ${INK} 0 1.3px, transparent 1.3px) 0 0 / 6px 6px,` +
   `radial-gradient(circle, ${INK} 0 1.3px, transparent 1.3px) 3px 3px / 6px 6px`;
 
-const GROUP_LABELS: Readonly<Record<ControlMethod, string>> = {
+const GROUP_LABELS = {
   keys: "KEYS",
   mouse: "MOUSE",
   touch: "TOUCH",
   camera: "HAND CAM",
   controller: "PAD",
-};
+} satisfies Readonly<Record<ControlMethod, string>>;
 
 /** The pause card's ink keycap chip — hard border + offset shadow on paper.
  *  Shared with the serve/rematch banner so both instruction surfaces speak

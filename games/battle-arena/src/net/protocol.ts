@@ -9,7 +9,7 @@ import type { AbilityKey } from "../sim/types";
  */
 function devPartyHost(): string {
   const fallback = "http://localhost:8787";
-  if (typeof location === "undefined") return fallback;
+  if (typeof window === "undefined") return fallback;
   const p = new URLSearchParams(location.search).get("party");
   if (!p) return fallback;
   return /^https?:\/\//.test(p) ? p : `http://localhost:${p}`;

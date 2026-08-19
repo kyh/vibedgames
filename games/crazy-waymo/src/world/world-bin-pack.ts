@@ -3,32 +3,38 @@ import * as THREE from "three";
 import type { CityRestPayload } from "./city";
 import type { CityGenPayload } from "./gen-worker";
 import { isTyped, typeTag } from "./world-bin";
-import type { BufRef, PackedSolids, QPos, QUv, Typed } from "./world-bin";
+import type {
+  BinTree,
+  BufRef,
+  PackedRest,
+  PackedSolids,
+  PackedWorld,
+  QPos,
+  QUv,
+  Typed,
+  WorldBinPayload,
+} from "./world-bin";
 
 // WRITE side of the world-bin split (bake-only, lazy-loaded): pack/serialize
 // must mirror the unpack side in ./world-bin.ts exactly — change them together.
 
 // Walk the payload, swap typed arrays for refs, collect buffers.
-function strip(value: unknown, bufs: Typed[]): unknown {
+function strip(value: BinTree, bufs: Typed[]): BinTree {
   if (isTyped(value)) {
     const ref: BufRef = { $buf: bufs.length, $type: typeTag(value) };
     bufs.push(value);
     return ref;
   }
   if (Array.isArray(value)) return value.map((v) => strip(v, bufs));
-  if (value && typeof value === "object") {
-    const out: Record<string, unknown> = {};
+  if (value instanceof Object) {
+    const out: Record<string, BinTree> = {};
     for (const [k, v] of Object.entries(value)) out[k] = strip(v, bufs);
     return out;
   }
   return value;
 }
 
-export function serializeWorldBin(payload: {
-  rev: number;
-  world?: unknown;
-  rest?: unknown;
-}): Uint8Array {
+export function serializeWorldBin(payload: WorldBinPayload): Uint8Array {
   const bufs: Typed[] = [];
   const tree = strip(payload, bufs);
   const header = JSON.stringify({
@@ -147,7 +153,7 @@ function qCol(a: Float32Array): Uint8Array {
 // Terrain-only world payload. Normals ship as Int8 (rev 19+): they gzip to
 // almost nothing and their absence forced a computeVertexNormals pass over
 // the whole map on EVERY visit — a main-thread freeze on phones.
-export function packWorld(world: CityGenPayload): unknown {
+export function packWorld(world: CityGenPayload): PackedWorld {
   return {
     tiles: world.tiles.map((t) => ({
       pos: qPos(t.position),
@@ -160,7 +166,7 @@ export function packWorld(world: CityGenPayload): unknown {
   };
 }
 
-export function packRest(rest: CityRestPayload): unknown {
+export function packRest(rest: CityRestPayload): PackedRest {
   const urls: string[] = [];
   const urlId = new Map<string, number>();
   const n = rest.batchItems.length;

@@ -1,3 +1,15 @@
+/** A JSON-parseable wire value — everything a multiplayer message can carry. */
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+/** A JSON object map — the shape of shared/player state and their patches. */
+export type JsonRecord = { [key: string]: JsonValue };
+
 export type MultiplayerOptions = {
   host: string;
   party: string;
@@ -11,7 +23,7 @@ export type MultiplayerOptions = {
    * ceiling regardless of what the client requests.
    */
   maxPlayers?: number;
-  onEvent?: (event: string, payload: unknown, from: string) => void;
+  onEvent?: (event: string, payload: JsonValue, from: string) => void;
 };
 
 /**
@@ -53,7 +65,7 @@ export const DELTA_PATCH_QUERY_PARAM = "_delta";
 
 export type MultiplayerConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
 
-export type PlayerState<T = Record<string, unknown>> = T;
+export type PlayerState<T = JsonRecord> = T;
 
 export type Player = {
   id: string;
@@ -97,11 +109,11 @@ export type SendEventOptions = {
 };
 
 export type ClientMessage =
-  | { type: "state_patch"; data: Record<string, unknown> }
-  | { type: "player_state_patch"; data: Record<string, unknown> }
+  | { type: "state_patch"; data: JsonRecord }
+  | { type: "player_state_patch"; data: JsonRecord }
   // `to`/`except` are additive so servers and clients on either side of the
   // targeting feature interoperate: absent fields mean broadcast-to-all.
-  | { type: "emit"; data: { event: string; payload: unknown; to?: string[]; except?: string[] } }
+  | { type: "emit"; data: { event: string; payload: JsonValue; to?: string[]; except?: string[] } }
   // Liveness ping sent on an interval so the server can detect a host that has
   // gone away ungracefully (laptop sleep, crashed tab, dropped network) without
   // waiting for the WebSocket's much-longer TCP timeout, and migrate host.
@@ -134,17 +146,17 @@ export const PING_INTERVAL_MS = 30_000;
 export const EVICTION_TIMEOUT_MS = 75_000;
 
 export type ServerMessage =
-  | { type: "sync"; data: { players: PlayerMap; state: Record<string, unknown>; hostId: string } }
+  | { type: "sync"; data: { players: PlayerMap; state: JsonRecord; hostId: string } }
   | { type: "player_joined"; data: Player }
   | { type: "player_left"; data: { id: string } }
   | { type: "host"; data: { id: string } }
-  | { type: "state_patch"; data: Record<string, unknown> }
-  | { type: "player_state"; data: { id: string; state: Record<string, unknown> } }
+  | { type: "state_patch"; data: JsonRecord }
+  | { type: "player_state"; data: { id: string; state: JsonRecord } }
   // A player's transport dropped (connected: false — seat held for the grace
   // window) or came back (connected: true). Pre-grace clients ignore this and
   // simply see the player leave when the window lapses.
   | { type: "player_connection"; data: { id: string; connected: boolean } }
-  | { type: "event"; data: { event: string; payload: unknown; from: string } }
+  | { type: "event"; data: { event: string; payload: JsonValue; from: string } }
   // Sent (then the socket is closed) when a player connects to a room that is
   // already at capacity. `room` is the sibling room the client should retry.
   | { type: "room_full"; data: { room: string; capacity: number } }
@@ -155,6 +167,6 @@ export type MultiplayerRoomState = {
   connectionStatus: MultiplayerConnectionStatus;
   playerId: string | null;
   hostId: string | null;
-  sharedState: Record<string, unknown>;
+  sharedState: JsonRecord;
   players: PlayerMap;
 };

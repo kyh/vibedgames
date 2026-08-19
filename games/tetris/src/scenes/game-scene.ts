@@ -65,6 +65,8 @@ function el(id: string): HTMLElement | null {
   return document.getElementById(id);
 }
 
+type Steer = { horiz: -1 | 0 | 1; depth: -1 | 0 | 1 };
+
 export class GameScene {
   readonly scene = new Scene();
   private readonly rig: CameraRig;
@@ -473,7 +475,7 @@ export class GameScene {
 
   /** Held pad steer (d-pad first, then left stick) on the same screen-relative
    *  axes as the keyboard, so it feeds the shared DAS/ARR repeat state. */
-  private padSteer(): { horiz: -1 | 0 | 1; depth: -1 | 0 | 1 } {
+  private padSteer(): Steer {
     if (!this.pad.connected) return { horiz: 0, depth: 0 };
     let horiz: -1 | 0 | 1 = this.pad.isButtonDown("left")
       ? -1
@@ -606,14 +608,14 @@ export class GameScene {
       this.hudNextIdx = this.engine.nextIndex;
       const cv = el("next-canvas");
       const def = PIECES[this.engine.nextIndex];
-      if (cv instanceof HTMLCanvasElement && def) drawPiecePreview(cv, def.shape, def.color);
+      if (cv instanceof HTMLCanvasElement && def) drawPiecePreview(cv, def.footprint, def.color);
     }
     if (this.engine.holdIndex !== this.hudHoldIdx) {
       this.hudHoldIdx = this.engine.holdIndex;
       const cv = el("hold-canvas");
       if (cv instanceof HTMLCanvasElement) {
         const def = this.engine.holdIndex === null ? null : PIECES[this.engine.holdIndex];
-        drawPiecePreview(cv, def?.shape ?? null, def?.color ?? 0);
+        drawPiecePreview(cv, def?.footprint ?? null, def?.color ?? 0);
       }
     }
     const charge = Math.round(this.engine.charge * 100);
@@ -670,7 +672,7 @@ export class GameScene {
   }
 }
 
-function centroid(cells: Cell[]): { x: number; y: number; z: number } {
+function centroid(cells: Cell[]) {
   if (cells.length === 0) return { x: 0, y: 0, z: 0 };
   let x = 0;
   let y = 0;

@@ -51,19 +51,18 @@ export class ModelLibrary {
           if (opts.tint !== undefined) m.color.setHex(opts.tint);
         }
       }
-      const mesh = o as THREE.Mesh;
-      if (mesh.isMesh) {
+      if (o instanceof THREE.Mesh) {
         // characters ground themselves with blob shadows — keeping them out of
         // the shadow map lets the whole map render its shadows ONCE (static)
-        mesh.castShadow = false;
-        mesh.receiveShadow = true;
+        o.castShadow = false;
+        o.receiveShadow = true;
         // skinned bounds are bind-pose; inflate them generously so real frustum
         // culling is safe (233 skinned meshes × no culling was the #1 call sink)
-        const geo = mesh.geometry;
+        const geo = o.geometry;
         if (!geo.boundingSphere) geo.computeBoundingSphere();
         if (geo.boundingSphere)
           geo.boundingSphere.radius = Math.max(geo.boundingSphere.radius * 2.5, 2.5);
-        mesh.frustumCulled = true;
+        o.frustumCulled = true;
       }
     });
     this.templates.set(name, scene);
@@ -106,43 +105,45 @@ export class ModelLibrary {
 // The Rig_Large library is much smaller than Rig_Medium's — map the Medium
 // clip names the game plays onto their closest Large equivalent. A fallback
 // must resolve to a LARGE clip (never cross-rig: the rest proportions differ).
-const RIG_LARGE_FALLBACK: Record<string, string> = {
-  Hit_B: "Hit_A",
-  Death_B: "Death_A",
-  Dodge_Backward: "Dodge_Backwards", // Large lib pluralizes this one clip name
-  Jump_Full_Long: "Dodge_Forward",
-  Jump_Full_Short: "Dodge_Forward",
-  Walking_B: "Walking_A",
-  Walking_C: "Walking_A",
-  Running_B: "Running_A",
-  Idle_B: "Idle_A",
-  Spawn_Ground: "Idle_A",
-  Spawn_Air: "Idle_A",
-  PickUp: "Idle_A",
-  Interact: "Idle_A",
-  Use_Item: "Melee_Block",
-  Throw: "Melee_2H_Attack",
-  Melee_1H_Attack_Chop: "Melee_1H_Slash",
-  Melee_1H_Attack_Slice_Horizontal: "Melee_1H_Slash",
-  Melee_1H_Attack_Slice_Diagonal: "Melee_1H_Slash",
-  Melee_1H_Attack_Stab: "Melee_1H_Stab",
-  Melee_1H_Attack_Jump_Chop: "Melee_1H_Slash",
-  Melee_2H_Attack_Chop: "Melee_2H_Attack",
-  Melee_2H_Attack_Slice: "Melee_2H_Attack",
-  Melee_2H_Attack_Stab: "Melee_2H_Attack",
-  Melee_2H_Attack_Spin: "Melee_2H_Slam",
-  Melee_2H_Attack_Spinning: "Melee_2H_Slam",
-  Melee_Unarmed_Attack_Punch_A: "Melee_Unarmed_Punch",
-  Melee_Unarmed_Attack_Kick: "Melee_Unarmed_Kick",
-  Ranged_Magic_Spellcasting: "Melee_2H_Attack",
-  Ranged_Magic_Shoot: "Melee_2H_Attack",
-  Skeletons_Taunt: "Flexing",
-  Skeletons_Idle: "Idle_B",
-  // camp-creep spawn path: Large bodies (frostgolem elite) have no skeleton
-  // rise-from-the-ground clip — resolve to idle instead of T-posing (a play()
-  // miss no-ops and HOLDS whatever pose the rig is in)
-  Skeletons_Spawn_Ground: "Idle_B",
-};
+const RIG_LARGE_FALLBACK = new Map<string, string>(
+  Object.entries({
+    Hit_B: "Hit_A",
+    Death_B: "Death_A",
+    Dodge_Backward: "Dodge_Backwards", // Large lib pluralizes this one clip name
+    Jump_Full_Long: "Dodge_Forward",
+    Jump_Full_Short: "Dodge_Forward",
+    Walking_B: "Walking_A",
+    Walking_C: "Walking_A",
+    Running_B: "Running_A",
+    Idle_B: "Idle_A",
+    Spawn_Ground: "Idle_A",
+    Spawn_Air: "Idle_A",
+    PickUp: "Idle_A",
+    Interact: "Idle_A",
+    Use_Item: "Melee_Block",
+    Throw: "Melee_2H_Attack",
+    Melee_1H_Attack_Chop: "Melee_1H_Slash",
+    Melee_1H_Attack_Slice_Horizontal: "Melee_1H_Slash",
+    Melee_1H_Attack_Slice_Diagonal: "Melee_1H_Slash",
+    Melee_1H_Attack_Stab: "Melee_1H_Stab",
+    Melee_1H_Attack_Jump_Chop: "Melee_1H_Slash",
+    Melee_2H_Attack_Chop: "Melee_2H_Attack",
+    Melee_2H_Attack_Slice: "Melee_2H_Attack",
+    Melee_2H_Attack_Stab: "Melee_2H_Attack",
+    Melee_2H_Attack_Spin: "Melee_2H_Slam",
+    Melee_2H_Attack_Spinning: "Melee_2H_Slam",
+    Melee_Unarmed_Attack_Punch_A: "Melee_Unarmed_Punch",
+    Melee_Unarmed_Attack_Kick: "Melee_Unarmed_Kick",
+    Ranged_Magic_Spellcasting: "Melee_2H_Attack",
+    Ranged_Magic_Shoot: "Melee_2H_Attack",
+    Skeletons_Taunt: "Flexing",
+    Skeletons_Idle: "Idle_B",
+    // camp-creep spawn path: Large bodies (frostgolem elite) have no skeleton
+    // rise-from-the-ground clip — resolve to idle instead of T-posing (a play()
+    // miss no-ops and HOLDS whatever pose the rig is in)
+    Skeletons_Spawn_Ground: "Idle_B",
+  } satisfies Record<string, string>),
+);
 
 export type PlayOpts = {
   fade?: number;
@@ -185,7 +186,7 @@ export class AnimatedCharacter {
     return (
       this.lib.getClip(this.clipPrefix + clipName) ??
       (this.clipPrefix
-        ? this.lib.getClip(this.clipPrefix + (RIG_LARGE_FALLBACK[clipName] ?? ""))
+        ? this.lib.getClip(this.clipPrefix + (RIG_LARGE_FALLBACK.get(clipName) ?? ""))
         : this.lib.getClip(clipName))
     );
   }
@@ -254,10 +255,9 @@ export class AnimatedCharacter {
     const bone = found[0];
     if (!bone) return false;
     obj.traverse((c) => {
-      const m = c as THREE.Mesh;
-      if (m.isMesh) {
-        m.castShadow = true;
-        m.frustumCulled = false;
+      if (c instanceof THREE.Mesh) {
+        c.castShadow = true;
+        c.frustumCulled = false;
       }
     });
     bone.add(obj);

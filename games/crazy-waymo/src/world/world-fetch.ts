@@ -1,6 +1,7 @@
 import type { CityRestPayload } from "./city";
 import type { CityGenPayload } from "./gen-worker";
 import { deserializeWorldBin, unpackRest, unpackWorld, WORLD_REV } from "./world-bin";
+import type { WorldBinPayload } from "./world-bin";
 
 // Loader for the pre-baked world shipped as static assets (public/world/*.bin,
 // gzipped by the bake). First visits skip ALL generation: the title needs only
@@ -53,9 +54,7 @@ async function fetchMaybeParts(path: string): Promise<ArrayBuffer | null> {
   return out.buffer;
 }
 
-async function fetchBin(
-  path: string,
-): Promise<{ rev: number; world?: unknown; rest?: unknown } | null> {
+async function fetchBin(path: string): Promise<WorldBinPayload | null> {
   try {
     const gz = await fetchMaybeParts(path);
     if (!gz) return null;

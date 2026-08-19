@@ -22,7 +22,7 @@ export function smoothDamp(
   vel: number,
   omega: number,
   dt: number,
-): { pos: number; vel: number } {
+) {
   const x = omega * dt;
   const exp = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
   const change = current - target;

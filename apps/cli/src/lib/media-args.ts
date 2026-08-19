@@ -2,6 +2,8 @@ import { statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, extname, isAbsolute, join, resolve } from "node:path";
 
+import type { JsonObject, JsonValue } from "./types.js";
+
 // `--json`/`--help`/`--quiet` are global; `--async` switches the run path
 // in citty; `--download` takes an optional template. None of them should
 // leak through to fal as model parameters. `--logs` is intentionally NOT
@@ -28,8 +30,8 @@ const RUN_RESERVED_FLAGS = new Set([
  * `"prompt=hello"` upstream, and `--async=true` would slip past the
  * RUN_RESERVED_FLAGS guard as a bogus model param.
  */
-export function parseRunInput(argv: string[]): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
+export function parseRunInput(argv: string[]) {
+  const out: JsonObject = {};
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (!arg || !arg.startsWith("--")) continue;
@@ -66,9 +68,9 @@ export function parseRunInput(argv: string[]): Record<string, unknown> {
   return out;
 }
 
-function assign(out: Record<string, unknown>, key: string, value: unknown): void {
-  if (key in out) {
-    const existing = out[key];
+function assign(out: JsonObject, key: string, value: JsonValue): void {
+  const existing = out[key];
+  if (existing !== undefined) {
     if (Array.isArray(existing)) existing.push(value);
     else out[key] = [existing, value];
     return;
@@ -76,13 +78,14 @@ function assign(out: Record<string, unknown>, key: string, value: unknown): void
   out[key] = value;
 }
 
-function parseValue(raw: string): unknown {
+function parseValue(raw: string): JsonValue {
   if (raw === "true") return true;
   if (raw === "false") return false;
   if (raw === "null") return null;
   if (raw.length > 0 && (raw[0] === "{" || raw[0] === "[")) {
     try {
-      return JSON.parse(raw);
+      // SAFETY: JSON.parse output is structurally JsonValue.
+      return JSON.parse(raw) as JsonValue;
     } catch {
       return raw;
     }
@@ -141,31 +144,35 @@ function contentTypeForPath(path: string): string {
   // "/home/user/my.project/texture" correctly yields "" instead of
   // mistaking "project/texture" for the extension.
   const ext = extname(path).slice(1).toLowerCase();
-  const map: Record<string, string> = {
-    png: "image/png",
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    webp: "image/webp",
-    gif: "image/gif",
-    bmp: "image/bmp",
-    tif: "image/tiff",
-    tiff: "image/tiff",
-    avif: "image/avif",
-    mp4: "video/mp4",
-    mov: "video/quicktime",
-    webm: "video/webm",
-    mp3: "audio/mpeg",
-    wav: "audio/wav",
-    ogg: "audio/ogg",
-    flac: "audio/flac",
-    m4a: "audio/mp4",
-    txt: "text/plain",
-    json: "application/json",
-  };
-  return map[ext] ?? "application/octet-stream";
+  const map = new Map(
+    Object.entries({
+      png: "image/png",
+      jpg: "image/jpeg",
+      jpeg: "image/jpeg",
+      webp: "image/webp",
+      gif: "image/gif",
+      bmp: "image/bmp",
+      tif: "image/tiff",
+      tiff: "image/tiff",
+      avif: "image/avif",
+      mp4: "video/mp4",
+      mov: "video/quicktime",
+      webm: "video/webm",
+      mp3: "audio/mpeg",
+      wav: "audio/wav",
+      ogg: "audio/ogg",
+      flac: "audio/flac",
+      m4a: "audio/mp4",
+      txt: "text/plain",
+      json: "application/json",
+    }),
+  );
+  return map.get(ext) ?? "application/octet-stream";
 }
 
-export function parseDownloadFlag(argv: string[]): { mode: "off" | "on"; template?: string } {
+export type DownloadFlag = { mode: "off" | "on"; template?: string };
+
+export function parseDownloadFlag(argv: string[]): DownloadFlag {
   let lastIdx = -1;
   let inlineValue: string | undefined;
   for (let i = 0; i < argv.length; i++) {

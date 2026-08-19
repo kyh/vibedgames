@@ -41,14 +41,14 @@ export type Relic = {
 };
 
 // How often each rarity surfaces in an offer (relative weights).
-const RARITY_WEIGHT: Record<Rarity, number> = { common: 60, rare: 28, legendary: 10 };
+const RARITY_WEIGHT = { common: 60, rare: 28, legendary: 10 } satisfies Record<Rarity, number>;
 
 // Shop colour per rarity, so value reads at a glance (grey / blue / gold).
-export const RARITY_COLOR: Record<Rarity, number> = {
+export const RARITY_COLOR = {
   common: 0x9fb0c4,
   rare: 0x5ca8ff,
   legendary: 0xffb43c,
-};
+} satisfies Record<Rarity, number>;
 
 export const RELICS: Relic[] = [
   // ── common ──────────────────────────────────────────────────────────────

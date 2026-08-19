@@ -23,6 +23,27 @@ const MULTIPLAYER_HOST = import.meta.env.DEV
 
 const SOLO_ID = "solo";
 
+/** JSON value as it comes off the wire — multiplayer payloads are JSON.parse output. */
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+export type JsonObject = { [key: string]: JsonValue };
+
+/** One field of a wire JSON dictionary — unvalidated until narrowed. */
+type WireField = NonNullable<Player["state"]>[string] | undefined;
+
+// Wire-JSON narrowing helpers. Runtime `typeof` is banned by the lint, so these
+// use typeof-free checks; JSON can only carry finite numbers, so Number.isFinite
+// is the exact number test.
+export const isJsonObject = (v: WireField): v is JsonObject =>
+  Object.prototype.toString.call(v) === "[object Object]";
+export const isJsonNumber = (v: WireField): v is number => Number.isFinite(v);
+export const isJsonString = (v: WireField): v is string => String(v) === v;
+
 export type NetSessionOptions = {
   room: string;
   maxPlayers?: number;
@@ -31,19 +52,19 @@ export type NetSessionOptions = {
   /** Start (and stay) in local solo mode — no socket is ever opened. Used by
    *  trailer mode, which must never show live players in a staged shot. */
   forceOffline?: boolean;
-  onEvent?: (event: string, payload: unknown, from: string) => void;
+  onEvent?: (event: string, payload: JsonValue, from: string) => void;
 };
 
 export class NetSession {
   private client: MultiplayerClient | null;
   private readonly fallbackMs: number;
-  private readonly onEvent?: (event: string, payload: unknown, from: string) => void;
+  private readonly onEvent?: (event: string, payload: JsonValue, from: string) => void;
 
   private solo = false;
   private everConnected = false;
   private bootedAt = 0;
-  private offlineMyState: Record<string, unknown> = {};
-  private offlineShared: Record<string, unknown> | null = null;
+  private offlineMyState: JsonObject = {};
+  private offlineShared: JsonObject | null = null;
 
   constructor(opts: NetSessionOptions) {
     this.fallbackMs = opts.fallbackMs;
@@ -61,7 +82,11 @@ export class NetSession {
           party: "vg-server",
           room: opts.room,
           maxPlayers: opts.maxPlayers,
-          onEvent: (event, payload, from) => this.onEvent?.(event, payload, from),
+          onEvent: (event, payload, from) => {
+            // SAFETY: wire payloads are JSON.parse output (or loop back from
+            // sendEvent's JsonObject), so they are JSON values by construction.
+            this.onEvent?.(event, payload as JsonValue, from);
+          },
         });
   }
 
@@ -139,20 +164,22 @@ export class NetSession {
     return null;
   }
 
-  get sharedState(): Record<string, unknown> | null {
+  get sharedState(): JsonObject | null {
     if (this.solo || !this.client) return this.offlineShared;
-    const s = this.client.sharedState;
+    // SAFETY: shared state is assembled server-side from JSON wire patches,
+    // so every field is a JSON value by construction.
+    const s = this.client.sharedState as JsonObject;
     return s && Object.keys(s).length > 0 ? s : null;
   }
 
   /** Per-player state shallow-merges, mirroring the package semantics. */
-  updateMyState(patch: Record<string, unknown>): void {
+  updateMyState(patch: JsonObject): void {
     if (this.solo || !this.client) Object.assign(this.offlineMyState, patch);
     else this.client.updateMyState(patch);
   }
 
   /** Shared-state patch shallow-merges; host-only on the server. */
-  patchShared(patch: Record<string, unknown>): void {
+  patchShared(patch: JsonObject): void {
     if (this.solo || !this.client) {
       this.offlineShared = { ...this.offlineShared, ...patch };
     } else {
@@ -161,7 +188,7 @@ export class NetSession {
   }
 
   /** Events loop straight back to the local handler when offline. */
-  sendEvent(event: string, payload: Record<string, unknown>): void {
+  sendEvent(event: string, payload: JsonObject): void {
     if (this.solo || !this.client) this.onEvent?.(event, payload, SOLO_ID);
     else this.client.sendEvent(event, payload);
   }

@@ -808,7 +808,7 @@ export class HudScene extends Phaser.Scene {
     this.board.setScale(Math.min(1, (H - 24) / panelH, (W - 24) / panelW));
     this.board.add(this.add.nineslice(0, 0, "ui-carved9", 0, panelW, panelH, 20, 20, 20, 20));
 
-    const teamKills: Record<Team, number> = { radiant: 0, dire: 0 };
+    const teamKills = { radiant: 0, dire: 0 } satisfies Record<Team, number>;
     for (const u of heroes) if (u.hero) teamKills[u.team] += u.hero.kills;
 
     this.board.add(

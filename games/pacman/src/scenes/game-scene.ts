@@ -30,7 +30,8 @@ import type { PelletCell } from "../render/pellet-field";
 import { PelletField } from "../render/pellet-field";
 import { TraumaCamera } from "../render/trauma-camera";
 import { RemotePacs } from "../net/remote-pacs";
-import { NetSession } from "../net/session";
+import { NetSession, isJsonNumber, isJsonObject, isJsonString } from "../net/session";
+import type { JsonValue } from "../net/session";
 import type { Dir } from "../shared/constants";
 import {
   MP_ROOM,
@@ -119,6 +120,14 @@ import {
 
 type Phase = "title" | "ready" | "playing" | "win" | "gameover";
 
+type PacBody = {
+  x: number;
+  z: number;
+  dir: Dir;
+  isMoving: boolean;
+  target: { x: number; z: number };
+};
+
 type Ghost = {
   x: number;
   z: number;
@@ -184,13 +193,7 @@ export class GameScene {
 
   // ---- simulation state ------------------------------------------------------
   private phase: Phase = "title";
-  private pac: {
-    x: number;
-    z: number;
-    dir: Dir;
-    isMoving: boolean;
-    target: { x: number; z: number };
-  } = {
+  private pac: PacBody = {
     x: PACMAN_SPAWN.col,
     z: PACMAN_SPAWN.row,
     dir: "right",
@@ -220,7 +223,7 @@ export class GameScene {
   private hostEaten = new Set<string>(); // host: authoritative eaten cells
   private appliedEaten = new Set<string>(); // cells already removed locally
   /** Last shared board object reconciled (patches replace it, so `===` detects change). */
-  private lastBoardRef: unknown = null;
+  private lastBoardRef: JsonValue | undefined = null;
   /** Whether we were host when lastBoardRef was reconciled — a promotion must re-adopt. */
   private lastBoardAsHost = false;
   private netInfoText = "";
@@ -365,16 +368,15 @@ export class GameScene {
     return this.net.otherPlayer() !== null;
   }
 
-  private handleNetEvent(event: string, payload: unknown, from: string): void {
-    const p: Record<string, unknown> = {};
-    if (payload && typeof payload === "object") Object.assign(p, payload);
+  private handleNetEvent(event: string, payload: JsonValue, from: string): void {
+    const p = isJsonObject(payload) ? payload : {};
     // Host arbitrates pellet eats: the first valid claim on a cell wins.
     if (event === "eat" && this.net.isHost) {
       // Stale claims (buffered during connect, or from a previous round) must
       // not chew pellets out of the current board.
       if (p["round"] !== this.boardRound) return;
       const key = p["key"];
-      if (typeof key === "string") this.hostArbitrate(key, from);
+      if (isJsonString(key)) this.hostArbitrate(key, from);
       return;
     }
     // Loser of a contested cell rolls back the points it awarded optimistically.
@@ -383,12 +385,7 @@ export class GameScene {
     if (event === "reject" && from === this.net.hostId) {
       const key = p["key"];
       const amount = p["amount"];
-      if (
-        p["to"] === this.net.playerId &&
-        typeof key === "string" &&
-        typeof amount === "number" &&
-        Number.isFinite(amount)
-      ) {
+      if (p["to"] === this.net.playerId && isJsonString(key) && isJsonNumber(amount)) {
         // Clamp to the max a legitimate cell is worth (defence-in-depth).
         this.addScore(-Math.max(0, Math.min(SCORE_POWER, amount)));
       }
@@ -467,7 +464,7 @@ export class GameScene {
     // Patches REPLACE the board object, so reference equality means nothing
     // changed — skip the re-parse + eaten loop (60 Hz otherwise). A host
     // promotion re-runs once so the new host adopts the accumulated set.
-    const raw: unknown = this.net.sharedState?.["board"];
+    const raw = this.net.sharedState?.["board"];
     if (raw === this.lastBoardRef && this.net.isHost === this.lastBoardAsHost) {
       // The win check still runs: it depends on local phase, which can flip
       // between board updates (e.g. rivals emptied the maze during READY).
@@ -504,12 +501,9 @@ export class GameScene {
   private sharedBoard(): { round: number; eaten: ReadonlySet<string> } | null {
     const s = this.net.sharedState;
     const b = s?.["board"];
-    if (!b || typeof b !== "object") return null;
-    const roundRaw = "round" in b ? b.round : null;
-    const eatenRaw = "eaten" in b ? b.eaten : null;
-    const round = typeof roundRaw === "number" ? roundRaw : 0;
-    const eaten =
-      eatenRaw && typeof eatenRaw === "object" ? new Set(Object.keys(eatenRaw)) : new Set<string>();
+    if (!isJsonObject(b)) return null;
+    const round = isJsonNumber(b["round"]) ? b["round"] : 0;
+    const eaten = isJsonObject(b["eaten"]) ? new Set(Object.keys(b["eaten"])) : new Set<string>();
     return { round, eaten };
   }
 
@@ -604,9 +598,8 @@ export class GameScene {
     for (const [id, player] of Object.entries(this.net.players)) {
       if (id === me) rows.push({ id, score: this.score, me: true });
       else {
-        const st: unknown = player.state;
-        const sc = st && typeof st === "object" && "score" in st ? st.score : null;
-        rows.push({ id, score: typeof sc === "number" ? sc : 0, me: false });
+        const sc = player.state?.["score"];
+        rows.push({ id, score: isJsonNumber(sc) ? sc : 0, me: false });
       }
     }
     rows.sort((a, b) => b.score - a.score);
@@ -1227,13 +1220,13 @@ export class GameScene {
    *  overlay renders (../pause-overlay buildControls); win/gameover keep their
    *  short prose state lines. */
   private renderBanner(): void {
-    const texts: Record<Phase, readonly [string, string]> = {
+    const texts = {
       title: ["PAC·MAN", ""],
       ready: ["READY?", ""],
       playing: ["", ""],
       win: ["MAZE CLEAR!", `every crumb tidied up ♥ chomp or ${restartHint()} to play again`],
       gameover: ["OHH NO…", `you did your best ♥ chomp or ${restartHint()} to try again`],
-    };
+    } satisfies Record<Phase, readonly [string, string]>;
     const [title, sub] = texts[this.phase];
     this.bannerTitleEl.textContent = title;
     this.bannerSubEl.textContent = sub;
@@ -1493,12 +1486,7 @@ function buildPacman(): THREE.Group {
  * joined by a thin line, blush cheeks, and a hidden worried "o" mouth that
  * appears while scared. Face is on -z; the bob group yaws toward travel.
  */
-function buildGhost(color: number): {
-  group: THREE.Group;
-  bob: THREE.Group;
-  bodyMat: THREE.MeshStandardMaterial;
-  worry: THREE.Mesh;
-} {
+function buildGhost(color: number) {
   const group = new THREE.Group();
   const bob = new THREE.Group();
   group.add(bob);

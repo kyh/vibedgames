@@ -222,16 +222,16 @@ function patchNoise(x: number, z: number, scale: number): number {
 // of meadow, grove and lawn (it read as one flat checkerboard of turf tiles);
 // the Presidio is 1,267 cells of dark cypress-eucalyptus canopy, NOT lawn;
 // Twin Peaks and McLaren are dry coastal scrub over grass.
-const PARK_CANOPY: Readonly<Record<string, ParkCanopy>> = {
-  "Golden Gate Park": "mosaic",
-  "the Presidio": "conifer",
-  "the Panhandle": "grove",
-  "Buena Vista Park": "conifer",
-  "Mount Davidson Park": "conifer",
-  "McLaren Park": "chaparral",
-  "Twin Peaks": "chaparral",
-  "Dolores Park": "lawn",
-};
+const PARK_CANOPY: ReadonlyMap<string, ParkCanopy> = new Map([
+  ["Golden Gate Park", "mosaic"],
+  ["the Presidio", "conifer"],
+  ["the Panhandle", "grove"],
+  ["Buena Vista Park", "conifer"],
+  ["Mount Davidson Park", "conifer"],
+  ["McLaren Park", "chaparral"],
+  ["Twin Peaks", "chaparral"],
+  ["Dolores Park", "lawn"],
+]);
 
 // Park districts with a real street network through them — parkland, but never
 // car-free. The Presidio is the only one.
@@ -258,7 +258,7 @@ export function parklandAt(gx: number, gz: number): Parkland {
   if (gx < 0 || gz < 0 || gx >= GRID_X || gz >= GRID_Z) return NOT_PARKLAND;
   const d = districtAt(gx, gz);
   if (d.character === "park") {
-    const canopy = PARK_CANOPY[d.name] ?? "mosaic";
+    const canopy = PARK_CANOPY.get(d.name) ?? "mosaic";
     return STREETED_PARKS.has(d.name)
       ? { kind: "openSpace", source: "district", carFree: false, canopy, name: d.name }
       : { kind: "park", source: "district", carFree: true, canopy };
