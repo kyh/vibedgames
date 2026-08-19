@@ -12,8 +12,7 @@
     ".output",
     "out",
     "games/farm/public/assets",
-    "**/scripts/_lib/**",
-    "tools/oxlint/anti-slop"
+    "**/scripts/_lib/**"
   ],
   "experimentalSortPackageJson": {}
 }
