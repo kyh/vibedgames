@@ -23,7 +23,7 @@ function DiscoverPage() {
       <RegisterLink />
       <header className="fixed bottom-16 left-0 z-10 flex max-w-dvw flex-col px-4">
         <FadeInBlur>
-          <ScrollArea viewportClassName="scroll-fade flex max-h-[70vh] gap-4 pb-2 sm:flex-col-reverse">
+          <ScrollArea viewportClassName="scroll-area-fade flex max-h-[70vh] gap-4 pb-2 sm:flex-col">
             {featuredGames.map((game) => (
               <button
                 type="button"

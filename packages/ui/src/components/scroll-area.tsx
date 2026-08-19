@@ -18,8 +18,9 @@ function ScrollArea({
     >
       <ScrollAreaPrimitive.Viewport
         data-slot="scroll-area-viewport"
-        // The viewport is the scroll container (`overflow: scroll`), so the
-        // `scroll-fade` mask and its `scroll(self …)` timeline must live here.
+        // The viewport is the scroll container and the element Base UI writes
+        // its `--scroll-area-overflow-*` values to, so a `scroll-area-fade`
+        // mask must live here — those variables don't inherit.
         className={cn("size-full", viewportClassName)}
       >
         {children}

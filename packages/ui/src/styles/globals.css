@@ -125,72 +125,51 @@
 }
 
 /*
- * Scroll-driven edge fades (progressive enhancement).
+ * Edge fades for a Base UI `ScrollArea`, driven by the viewport's own overflow
+ * variables rather than a scroll-driven animation: each fade scales with how
+ * much content is actually hidden past that edge, so it works in every browser
+ * and never lingers at an end of the scroll range. Prefer this over shadcn's
+ * `scroll-fade*` utilities, which need `animation-timeline: scroll()` and invert
+ * under a reversed flex container.
  *
- * A masked gradient fades a scroll container's leading/trailing edge. Two
- * scroll-driven animations grow each fade in only once there's content hidden
- * past that edge, so the fade disappears when scrolled fully to that end (and
- * when the content isn't scrollable at all). Browsers without scroll-driven
- * animations fall back to no fade — the registered custom properties stay at 0.
- *
- * Horizontal by default; switches to vertical at the `sm` breakpoint, matching
- * the sole consumer (the discover header). That container is `column-reverse`
- * (bottom-anchored), which reverses the scroll timeline — so the vertical mask
- * fades `to top` (not `to bottom`) to keep the leading fade on the edge with
- * hidden content. Flip back to `to bottom` only if used on a normal-flow column.
+ * Both axes are composited so one class covers a row and a column; an axis that
+ * doesn't overflow reports 0 and leaves its gradient fully opaque. The `-end`
+ * fallbacks keep the trailing fade painted through SSR, before the variables
+ * hydrate. The variables don't inherit — this must sit on the viewport itself.
  */
-@property --scroll-fade-start {
-  syntax: "<length-percentage>";
-  inherits: false;
-  initial-value: 0%;
-}
-@property --scroll-fade-end {
-  syntax: "<length-percentage>";
-  inherits: false;
-  initial-value: 0%;
-}
-
-@layer components {
-  .scroll-fade {
-    mask: linear-gradient(
+@utility scroll-area-fade {
+  --_scroll-area-fade: var(--scroll-area-fade-size, calc(var(--spacing) * 10));
+  mask-image:
+    linear-gradient(
+      to bottom,
+      transparent 0,
+      #000 min(var(--_scroll-area-fade), var(--scroll-area-overflow-y-start, 0px)),
+      #000
+        calc(
+          100% -
+            min(
+              var(--_scroll-area-fade),
+              var(--scroll-area-overflow-y-end, var(--_scroll-area-fade))
+            )
+        ),
+      transparent 100%
+    ),
+    linear-gradient(
       to right,
-      transparent,
-      black var(--scroll-fade-start),
-      black calc(100% - var(--scroll-fade-end)),
-      transparent
+      transparent 0,
+      #000 min(var(--_scroll-area-fade), var(--scroll-area-overflow-x-start, 0px)),
+      #000
+        calc(
+          100% -
+            min(
+              var(--_scroll-area-fade),
+              var(--scroll-area-overflow-x-end, var(--_scroll-area-fade))
+            )
+        ),
+      transparent 100%
     );
-  }
-
-  @media (width >= 40rem) {
-    .scroll-fade {
-      mask: linear-gradient(
-        to top,
-        transparent,
-        black var(--scroll-fade-start),
-        black calc(100% - var(--scroll-fade-end)),
-        transparent
-      );
-    }
-  }
-
-  @supports (animation-timeline: scroll()) {
-    .scroll-fade {
-      animation:
-        scroll-fade-in linear,
-        scroll-fade-out linear;
-      animation-timeline: scroll(self x), scroll(self x);
-      animation-range:
-        0 2.5rem,
-        calc(100% - 2.5rem) 100%;
-      animation-fill-mode: both;
-    }
-
-    @media (width >= 40rem) {
-      .scroll-fade {
-        animation-timeline: scroll(self y), scroll(self y);
-      }
-    }
-  }
+  mask-composite: intersect;
+  mask-repeat: no-repeat;
 }
 
 /* An autofilled input gets an opaque background and a forced
@@ -224,22 +203,5 @@
   50.01%,
   100% {
     opacity: 0;
-  }
-}
-
-@keyframes scroll-fade-in {
-  from {
-    --scroll-fade-start: 0%;
-  }
-  to {
-    --scroll-fade-start: 2.5rem;
-  }
-}
-@keyframes scroll-fade-out {
-  from {
-    --scroll-fade-end: 2.5rem;
-  }
-  to {
-    --scroll-fade-end: 0%;
   }
 }
