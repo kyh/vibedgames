@@ -144,11 +144,14 @@ var NAMED = {
   brown: [165, 42, 42],
   transparent: [0, 0, 0]
 };
+var isNamedColor = (value) => Object.hasOwn(NAMED, value);
 function parseColor(input) {
   const value = input.trim().toLowerCase();
   if (value === "transparent") return [0, 0, 0, 0];
-  const named = NAMED[value];
-  if (named) return [named[0], named[1], named[2], 255];
+  if (isNamedColor(value)) {
+    const named = NAMED[value];
+    return [named[0], named[1], named[2], 255];
+  }
   if (value.startsWith("#")) {
     const hex = value.slice(1);
     if (!/^(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/.test(hex)) {
@@ -193,7 +196,18 @@ var ADAM7 = [
   { xStart: 1, yStart: 0, xStep: 2, yStep: 2 },
   { xStart: 0, yStart: 1, xStep: 1, yStep: 2 }
 ];
-var CHANNELS = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 };
+var CHANNELS = /* @__PURE__ */ new Map([
+  [0, 1],
+  [2, 3],
+  [3, 1],
+  [4, 2],
+  [6, 4]
+]);
+function channelsFor(colorType) {
+  const channels = CHANNELS.get(colorType);
+  if (channels === void 0) throw new Error(`PNG: unsupported colour type ${colorType}`);
+  return channels;
+}
 var MAX_PIXELS = 64e6;
 var crcTable = (() => {
   const table = new Int32Array(256);
@@ -260,7 +274,7 @@ function scaleTo8(value, bitDepth) {
 }
 function expandPass(raw, offset, passWidth, passHeight, geom, header, palette, transparency, out) {
   const { width, bitDepth, colorType } = header;
-  const channels = CHANNELS[colorType];
+  const channels = channelsFor(colorType);
   const bpp = Math.max(1, Math.ceil(channels * bitDepth / 8));
   const lineBytes = Math.ceil(channels * bitDepth * passWidth / 8);
   let prev = new Uint8Array(lineBytes);
@@ -314,7 +328,7 @@ function expandPass(raw, offset, passWidth, passHeight, geom, header, palette, t
   return cursor;
 }
 function expectedRawBytes(header) {
-  const channels = CHANNELS[header.colorType];
+  const channels = channelsFor(header.colorType);
   const rowBytes = (w) => Math.ceil(channels * header.bitDepth * w / 8);
   if (header.interlace === 0) {
     return header.height === 0 ? 0 : header.height * (1 + rowBytes(header.width));
@@ -361,7 +375,7 @@ function decodePng(buffer) {
       };
       if (buffer[pos + 18] !== 0) throw new Error("PNG: unsupported compression method");
       if (buffer[pos + 19] !== 0) throw new Error("PNG: unsupported filter method");
-      if (!(header.colorType in CHANNELS)) {
+      if (!CHANNELS.has(header.colorType)) {
         throw new Error(`PNG: unsupported colour type ${header.colorType}`);
       }
       if (header.width < 1 || header.height < 1) {
@@ -1544,6 +1558,23 @@ function normalizeCanvas(inputDir, outDir, options = {}) {
   return written;
 }
 
+// src/sprite/json.ts
+function isFiniteNumber(value) {
+  return Number.isFinite(value);
+}
+function isString(value) {
+  return String(value) === value;
+}
+function isJsonObject2(value) {
+  return Object(value) === value && !Array.isArray(value);
+}
+function isJsonComposite(value) {
+  return Object(value) === value;
+}
+function lookup(table, key) {
+  return table[key];
+}
+
 // src/sprite/presets.ts
 var action = (name, defaultFrames, recommendedFrames, fps, timing, loopable, selectionPolicy) => ({
   action: name,
@@ -1645,12 +1676,20 @@ var PROFILES = {
   adventure: POINT_AND_CLICK
 };
 var PROFILE_ALIASES = /* @__PURE__ */ new Set(["adventure"]);
+function presetOf(actionId) {
+  const preset = lookup(ACTIONS, actionId);
+  if (!preset) {
+    const known = Object.keys(ACTIONS).sort().join(", ");
+    throw new Error(`unknown action '${actionId}'; expected one of: ${known}`);
+  }
+  return preset;
+}
 function canonicalProfiles() {
   return Object.keys(PROFILES).filter((key) => !PROFILE_ALIASES.has(key));
 }
 function resolveProfile(profileId) {
   const key = profileId ?? "platformer";
-  const profile = PROFILES[key];
+  const profile = lookup(PROFILES, key);
   if (!profile) {
     const known = canonicalProfiles().sort().join(", ");
     throw new Error(`unknown profile '${key}'; expected one of: ${known}`);
@@ -1658,11 +1697,7 @@ function resolveProfile(profileId) {
   return profile;
 }
 function actionFacts(actionId, profile = null) {
-  const preset = ACTIONS[actionId];
-  if (!preset) {
-    const known = Object.keys(ACTIONS).sort().join(", ");
-    throw new Error(`unknown action '${actionId}'; expected one of: ${known}`);
-  }
+  const preset = presetOf(actionId);
   const facts = {
     ...preset,
     recommendedFrames: [...preset.recommendedFrames],
@@ -1678,7 +1713,7 @@ function actionFacts(actionId, profile = null) {
   return facts;
 }
 function coerceFrameCount(actionId, requested) {
-  const recommended = ACTIONS[actionId].recommendedFrames;
+  const recommended = presetOf(actionId).recommendedFrames;
   if (recommended.includes(requested)) return { frames: requested, warning: null };
   let nearest2 = recommended[0];
   for (const value of recommended) {
@@ -1691,7 +1726,8 @@ function coerceFrameCount(actionId, requested) {
   };
 }
 function formatPythonValue(value) {
-  if (typeof value === "boolean") return value ? "True" : "False";
+  if (value === true) return "True";
+  if (value === false) return "False";
   if (value === null || value === void 0) return "None";
   if (Array.isArray(value)) return `[${value.map(formatPythonValue).join(", ")}]`;
   return String(value);
@@ -1705,9 +1741,8 @@ function sampleBackground(image) {
     image.getPixel(0, image.height - 1),
     image.getPixel(image.width - 1, image.height - 1)
   ];
-  return [0, 1, 2].map(
-    (channel) => Math.round(corners.reduce((sum, c) => sum + c[channel], 0) / corners.length)
-  );
+  const average = (channel) => Math.round(corners.reduce((sum, c) => sum + c[channel], 0) / corners.length);
+  return [average(0), average(1), average(2)];
 }
 function findComponents(image, background, threshold) {
   const { width, height } = image;
@@ -1880,13 +1915,13 @@ function frameGeometry(sheet, sheetPath, frameWidth, frameHeight) {
   const manifestPath = sheetPath.replace(/\.[^./\\]+$/, ".json");
   if (existsSync2(manifestPath)) {
     const parsed = JSON.parse(readFileSync3(manifestPath, "utf8"));
-    if (parsed === null || typeof parsed !== "object") {
+    if (!isJsonObject2(parsed)) {
       throw new Error(`${manifestPath}: expected an object`);
     }
     const m = parsed;
     const required = (key) => {
       const value = m[key];
-      if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+      if (!isFiniteNumber(value) || value <= 0) {
         throw new Error(
           `${manifestPath}: "${key}" must be a positive number, got ${String(value)}`
         );
@@ -1896,7 +1931,7 @@ function frameGeometry(sheet, sheetPath, frameWidth, frameHeight) {
     const optional = (key, fallback) => {
       const value = m[key];
       if (value === void 0) return fallback;
-      if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+      if (!isFiniteNumber(value) || value <= 0) {
         throw new Error(
           `${manifestPath}: "${key}" must be a positive number, got ${String(value)}`
         );
@@ -2399,6 +2434,9 @@ var DEFAULT_TOLERANCES = {
   maxWidthOverflowPct: 0.12,
   maxCenterDriftPx: null
 };
+function isEmptySummary(summary) {
+  return summary.nonEmptyFrames === 0;
+}
 function percent2(value, digits = 1) {
   const factor = 10 ** digits;
   return `${(roundHalfToEven(value * 100 * factor) / factor).toFixed(digits)}%`;
@@ -2474,7 +2512,7 @@ function summarizeMeasurements(measurements) {
   return {
     frames: measurements.length,
     nonEmptyFrames: live.length,
-    frameSize: uniform ? first : null,
+    frameSize: uniform && first !== void 0 ? first : null,
     visibleWidthRange: [Math.min(...widths), Math.max(...widths)],
     visibleHeightRange: [Math.min(...heights), Math.max(...heights)],
     visibleBottomYRange: [Math.min(...bottoms), Math.max(...bottoms)],
@@ -2489,10 +2527,11 @@ function summarizeMeasurements(measurements) {
   };
 }
 function promptGuidanceForContract(contract) {
-  const runtimeCell = contract.runtimeCell ?? [FRAME_WIDTH, FRAME_HEIGHT];
-  const targetHeight = contract.targetVisibleHeight;
-  const bottomY = contract.targetBottomY;
-  const pivot = contract.pivot || "base-center";
+  const runtimeCell = asCellPair(contract.runtimeCell) ?? [FRAME_WIDTH, FRAME_HEIGHT];
+  const targetHeight = optionalNumber(contract.targetVisibleHeight);
+  const bottomY = optionalNumber(contract.targetBottomY);
+  const pivotValue = contract.pivot;
+  const pivot = isString(pivotValue) && pivotValue !== "" ? pivotValue : "base-center";
   const guidance = [
     "Use a locked camera: no zoom, pan, crop, or camera push-in/out.",
     "Keep the same apparent sprite scale as the input reference for the whole clip.",
@@ -2504,7 +2543,7 @@ function promptGuidanceForContract(contract) {
       `After processing, the sprite should remain about ${targetHeight}px tall inside a ${runtimeCell[0]}x${runtimeCell[1]} runtime cell; treat this as scale guidance, not visible text.`
     );
   }
-  if (bottomY !== void 0 && bottomY !== null) {
+  if (bottomY !== null) {
     guidance.push(
       `Keep the contact/base point visually stable; the intended runtime bottom anchor is y=${bottomY}.`
     );
@@ -2525,7 +2564,7 @@ function contractChecks(summary, contract) {
     ...DEFAULT_TOLERANCES,
     ...contract.tolerances ?? {}
   };
-  if (summary.nonEmptyFrames === 0) {
+  if (isEmptySummary(summary)) {
     return [
       { name: "non-empty-frames", status: "warn", message: "No non-empty frames were found." }
     ];
@@ -2625,16 +2664,18 @@ var BRIEF_KEYS = [
   "targetCenterX",
   "tolerances"
 ];
+function copyBriefKey(contract, out, key) {
+  if (key in contract) out[key] = contract[key];
+}
 function contractBrief(contract) {
   const out = {};
-  for (const key of BRIEF_KEYS) if (key in contract) out[key] = contract[key];
+  for (const key of BRIEF_KEYS) copyBriefKey(contract, out, key);
   return out;
 }
 function asCellPair(value) {
   if (!Array.isArray(value) || value.length !== 2) return null;
   const [w, h] = value;
-  if (typeof w !== "number" || typeof h !== "number") return null;
-  if (!Number.isFinite(w) || !Number.isFinite(h)) return null;
+  if (!isFiniteNumber(w) || !isFiniteNumber(h)) return null;
   if (w < 1 || h < 1) return null;
   return [Math.trunc(w), Math.trunc(h)];
 }
@@ -2642,7 +2683,7 @@ function cellSizeOf(contract) {
   return asCellPair(contract.runtimeCell) ?? [FRAME_WIDTH, FRAME_HEIGHT];
 }
 function loadSizeContract(payload, source) {
-  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+  if (!isJsonObject2(payload)) {
     throw new Error(`size contract must be a JSON object: ${source}`);
   }
   const data = payload;
@@ -2655,15 +2696,17 @@ function loadSizeContract(payload, source) {
     );
   }
   const tolerances = data.tolerances;
-  if (tolerances !== void 0 && (typeof tolerances !== "object" || tolerances === null)) {
+  if (tolerances !== void 0 && !isJsonComposite(tolerances)) {
     throw new Error(`tolerances must be an object, got ${JSON.stringify(tolerances)}: ${source}`);
   }
+  const mergedTolerances = { ...DEFAULT_TOLERANCES };
+  if (tolerances !== void 0) Object.assign(mergedTolerances, tolerances);
   return {
     ...data,
     runtimeCell,
     anchorPolicy: data.anchorPolicy ?? "grounded",
     pivot: data.pivot ?? "base-center",
-    tolerances: { ...DEFAULT_TOLERANCES, ...tolerances }
+    tolerances: mergedTolerances
   };
 }
 function deriveSizeContract(source, options = {}) {
@@ -2680,7 +2723,7 @@ function deriveSizeContract(source, options = {}) {
   } = options;
   const measurements = measureSource(source, cellSize, frameGlob);
   const summary = summarizeMeasurements(measurements);
-  if (summary.nonEmptyFrames === 0) {
+  if (isEmptySummary(summary)) {
     throw new Error(`cannot derive size contract from empty source: ${source}`);
   }
   const targetVisibleHeight = roundHalfToEven(summary.medianVisibleHeight);
@@ -2787,7 +2830,7 @@ var DIRECTIONS = {
 };
 function getDirection(directionId) {
   const resolved = (directionId || "").trim().toLowerCase();
-  const direction = DIRECTIONS[resolved];
+  const direction = lookup(DIRECTIONS, resolved);
   if (!direction) {
     throw new Error(
       `unknown direction '${directionId}'; expected one of: ${Object.keys(DIRECTIONS).join(", ")}`
@@ -2829,7 +2872,7 @@ var VIEW_ALIASES = {
 };
 function resolveAnchorGameView(gameView) {
   let resolved = (gameView || "platformer").trim().toLowerCase();
-  resolved = VIEW_ALIASES[resolved] ?? resolved;
+  resolved = lookup(VIEW_ALIASES, resolved) ?? resolved;
   if (!(resolved in ANCHOR_GAME_VIEWS)) {
     const known = Object.keys(ANCHOR_GAME_VIEWS).sort().join(", ");
     throw new Error(`unknown anchor game view '${gameView}'; expected one of: ${known}`);
@@ -2894,7 +2937,7 @@ function chromaPhrase(chroma) {
     "#FF00FF": "chroma magenta #FF00FF",
     "#0000FF": "chroma blue #0000FF"
   };
-  return names[chroma.toUpperCase()] ?? `chroma color ${chroma}`;
+  return lookup(names, chroma.toUpperCase()) ?? `chroma color ${chroma}`;
 }
 function chromaName(chroma) {
   const names = {
@@ -2902,7 +2945,7 @@ function chromaName(chroma) {
     "#FF00FF": "chroma magenta",
     "#0000FF": "chroma blue"
   };
-  return names[chroma.toUpperCase()] ?? "chroma color";
+  return lookup(names, chroma.toUpperCase()) ?? "chroma color";
 }
 function directionLine(direction, gameView) {
   if (gameView === "adventure") {
@@ -2916,7 +2959,7 @@ function directionLine(direction, gameView) {
       ne: "north-east / back-right three-quarter adventure view",
       nw: "north-west / back-left three-quarter adventure view"
     };
-    return lines[direction.id] ?? direction.screenFacing;
+    return lookup(lines, direction.id) ?? direction.screenFacing;
   }
   if (gameView === "rts-oblique") {
     const lines = {
@@ -2929,7 +2972,7 @@ function directionLine(direction, gameView) {
       w: "west / screen-left-facing from the fixed elevated RTS camera, not a pure side profile",
       nw: "north-west / back-left-facing as a compact unit rotated on an oblique RTS ground plane"
     };
-    return lines[direction.id] ?? direction.screenFacing;
+    return lookup(lines, direction.id) ?? direction.screenFacing;
   }
   return direction.screenFacing;
 }
@@ -3062,8 +3105,8 @@ function renderAnchorPrompt(direction, options = {}) {
   const resolvedRole = resolveAnchorRole(anchorRole);
   return `Intended use: a reusable single-frame directional anchor sprite for a 2D game asset pipeline.
 
-Game view: ${ANCHOR_GAME_VIEWS[resolvedView]}.
-Asset role: ${ANCHOR_ROLES[resolvedRole]}.
+Game view: ${lookup(ANCHOR_GAME_VIEWS, resolvedView)}.
+Asset role: ${lookup(ANCHOR_ROLES, resolvedRole)}.
 ${anchorContextGuidance(anchorContext)}
 
 Image 1 role: identity anchor. Preserve the exact approved asset identity, silhouette, proportions, palette blocks, and pixel-art readability from this reference image.${guideImage ? "\nImage 2 role: pixel-style guide. Use this only to reinforce the crisp pixelated treatment, chunky pixel texture, square canvas discipline, and sprite readability. Do not copy guide pixels, checker patterns, borders, labels, or layout marks into the output." : ""}
@@ -3114,7 +3157,7 @@ var cellHeight = (p) => Math.floor(p.height / p.rows);
 var totalCells = (p) => p.columns * p.rows;
 function resolvePoseBoardPreset(presetId) {
   const resolved = presetId || "standard";
-  const preset = POSE_BOARD_PRESETS[resolved];
+  const preset = lookup(POSE_BOARD_PRESETS, resolved);
   if (!preset) {
     const known = Object.keys(POSE_BOARD_PRESETS).sort().join(", ");
     throw new Error(`unknown pose board preset '${resolved}'; expected one of: ${known}`);
@@ -3284,7 +3327,7 @@ function frameLabel(action2, index, frameCount) {
   if (action2 === "light_attack" || action2 === "heavy_attack") {
     return labelForIndex(LABELS.attack, index, frameCount);
   }
-  const labels = LABELS[action2];
+  const labels = lookup(LABELS, action2);
   if (labels) return labelForIndex(labels, index, frameCount);
   return `${action2} pose ${index}`;
 }

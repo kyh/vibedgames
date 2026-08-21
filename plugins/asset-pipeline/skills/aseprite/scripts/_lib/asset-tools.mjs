@@ -218,9 +218,11 @@ function decompressLimited(data, limitBytes) {
         finishFlush: zlibConstants.Z_SYNC_FLUSH
       })
     );
-  } catch (error) {
-    if (error.code === "ERR_BUFFER_TOO_LARGE") throw tooLarge();
-    throw error;
+  } catch (cause) {
+    if (cause instanceof Error && "code" in cause && cause.code === "ERR_BUFFER_TOO_LARGE") {
+      throw tooLarge();
+    }
+    throw cause;
   }
   if (out.length > limitBytes) throw tooLarge();
   return out;
@@ -749,9 +751,8 @@ function inspectAseprite(path, bytes, options = {}) {
         if (chunk.type !== "cel") continue;
         const cel = chunk.data;
         if (cel.celType !== 1) continue;
-        const targetFrame = typeof cel.linkFrame === "number" ? cel.linkFrame : -1;
-        const layerIndex = cel.layerIndex;
-        const k = key(targetFrame, layerIndex);
+        const targetFrame = cel.linkFrame ?? -1;
+        const k = key(targetFrame, cel.layerIndex);
         if (decodedCelBounds.has(k)) {
           cel.decodedBounds = decodedCelBounds.get(k);
           const dims = decodedCelDims.get(k);

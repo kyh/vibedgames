@@ -127,7 +127,18 @@ var ADAM7 = [
   { xStart: 1, yStart: 0, xStep: 2, yStep: 2 },
   { xStart: 0, yStart: 1, xStep: 1, yStep: 2 }
 ];
-var CHANNELS = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 };
+var CHANNELS = /* @__PURE__ */ new Map([
+  [0, 1],
+  [2, 3],
+  [3, 1],
+  [4, 2],
+  [6, 4]
+]);
+function channelsFor(colorType) {
+  const channels = CHANNELS.get(colorType);
+  if (channels === void 0) throw new Error(`PNG: unsupported colour type ${colorType}`);
+  return channels;
+}
 var MAX_PIXELS = 64e6;
 var crcTable = (() => {
   const table = new Int32Array(256);
@@ -194,7 +205,7 @@ function scaleTo8(value, bitDepth) {
 }
 function expandPass(raw, offset, passWidth, passHeight, geom, header, palette, transparency, out) {
   const { width, bitDepth, colorType } = header;
-  const channels = CHANNELS[colorType];
+  const channels = channelsFor(colorType);
   const bpp = Math.max(1, Math.ceil(channels * bitDepth / 8));
   const lineBytes = Math.ceil(channels * bitDepth * passWidth / 8);
   let prev = new Uint8Array(lineBytes);
@@ -248,7 +259,7 @@ function expandPass(raw, offset, passWidth, passHeight, geom, header, palette, t
   return cursor;
 }
 function expectedRawBytes(header) {
-  const channels = CHANNELS[header.colorType];
+  const channels = channelsFor(header.colorType);
   const rowBytes = (w) => Math.ceil(channels * header.bitDepth * w / 8);
   if (header.interlace === 0) {
     return header.height === 0 ? 0 : header.height * (1 + rowBytes(header.width));
@@ -295,7 +306,7 @@ function decodePng(buffer) {
       };
       if (buffer[pos + 18] !== 0) throw new Error("PNG: unsupported compression method");
       if (buffer[pos + 19] !== 0) throw new Error("PNG: unsupported filter method");
-      if (!(header.colorType in CHANNELS)) {
+      if (!CHANNELS.has(header.colorType)) {
         throw new Error(`PNG: unsupported colour type ${header.colorType}`);
       }
       if (header.width < 1 || header.height < 1) {
