@@ -111,15 +111,15 @@ const fmtElapsed = (ms: number): string => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 };
 
-// Elapsed-time driver for the spinner / turn clock, ~4 fps.
-function useTick(): number {
-  const [elapsed, setElapsed] = useState(0);
-  const [start] = useState(() => Date.now());
+// Clock driver for the spinner / turn timers, ~4 fps. Handing frames the wall
+// clock they were drawn at keeps the time-derived text a pure function of props.
+function useNow(): number {
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    const id = setInterval(() => setElapsed(Date.now() - start), 250);
+    const id = setInterval(() => setNow(Date.now()), 250);
     return () => clearInterval(id);
-  }, [start]);
-  return elapsed;
+  }, []);
+  return now;
 }
 
 function KeyHint({ keys, label }: { keys: string; label: string }) {
@@ -225,10 +225,7 @@ function usePong(
   const playable = width >= 50 && height >= 16;
 
   useEffect(() => {
-    if (!playable) {
-      setState(null);
-      return;
-    }
+    if (!playable) return;
     let last = Date.now();
     const id = setInterval(() => {
       const now = Date.now();
@@ -944,8 +941,14 @@ function DirectiveRow({ directive }: { directive: string | null }) {
   );
 }
 
-function CheckpointBar({ checkpoint }: { checkpoint: { message: string; deadline: number } }) {
-  const left = Math.max(0, Math.ceil((checkpoint.deadline - Date.now()) / 1000));
+function CheckpointBar({
+  checkpoint,
+  now,
+}: {
+  checkpoint: { message: string; deadline: number };
+  now: number;
+}) {
+  const left = Math.max(0, Math.ceil((checkpoint.deadline - now) / 1000));
   return (
     <box flexDirection="row" paddingLeft={1} paddingRight={1}>
       <text attributes={TextAttributes.BOLD} fg={color.warn}>
@@ -959,7 +962,7 @@ function CheckpointBar({ checkpoint }: { checkpoint: { message: string; deadline
   );
 }
 
-function TurnBar({ snapshot, tick }: { snapshot: Snapshot; tick: number }) {
+function TurnBar({ snapshot, now }: { snapshot: Snapshot; now: number }) {
   const { turn, running, stopping } = snapshot;
   if (!turn) {
     const msg = running
@@ -973,7 +976,7 @@ function TurnBar({ snapshot, tick }: { snapshot: Snapshot; tick: number }) {
       </box>
     );
   }
-  const spinner = SPINNER[Math.floor(tick / 250) % SPINNER.length];
+  const spinner = SPINNER[Math.floor(now / 250) % SPINNER.length];
   return (
     <box flexDirection="row" paddingLeft={1} paddingRight={1}>
       <text fg={color.accent}>{`${spinner} `}</text>
@@ -984,9 +987,7 @@ function TurnBar({ snapshot, tick }: { snapshot: Snapshot; tick: number }) {
         turn.iteration !== null ? ` · iteration ${turn.iteration}` : ""
       }`}</text>
       <box flexGrow={1} />
-      <text
-        fg={color.dim}
-      >{`${fmtElapsed(Date.now() - turn.startedAt)} · ${turn.events} events`}</text>
+      <text fg={color.dim}>{`${fmtElapsed(now - turn.startedAt)} · ${turn.events} events`}</text>
     </box>
   );
 }
@@ -1002,7 +1003,7 @@ function Dashboard({
   width: number;
   height: number;
 }) {
-  const tick = useTick();
+  const now = useNow();
   const [steering, setSteering] = useState(false);
   const [steerText, setSteerText] = useState("");
 
@@ -1074,9 +1075,9 @@ function Dashboard({
       </box>
       <DirectiveRow directive={snapshot.directive} />
       {snapshot.checkpoint ? (
-        <CheckpointBar checkpoint={snapshot.checkpoint} />
+        <CheckpointBar checkpoint={snapshot.checkpoint} now={now} />
       ) : (
-        <TurnBar snapshot={snapshot} tick={tick} />
+        <TurnBar snapshot={snapshot} now={now} />
       )}
       <KeyBar keys={keys} right={live ? truncate(`LIVE ▸ ${live}`, 40) : undefined} />
       {steering ? (

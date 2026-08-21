@@ -4,10 +4,6 @@ import { resolve } from "node:path";
 
 import { asJsonObject, isJsonString, parseJson } from "./json.ts";
 
-// runScript resolves exactly once via a `done`-guarded finish() helper;
-// oxlint's static check can't see the guard (same pattern as claude.ts).
-/* oxlint-disable promise/no-multiple-resolved */
-
 /**
  * The harness-enforced quality gate. Subagents are TOLD to verify their work,
  * but a forever-loop can't run on claims — after engineering phases the

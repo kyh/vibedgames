@@ -6,12 +6,6 @@ import type { JsonValue } from "./json.ts";
 import type { Activity } from "./reporter.ts";
 import type { RunOptions, RunResult } from "./runner.ts";
 
-// Every resolution path funnels through the `settle()` helper below, which is
-// guarded by a `settled` flag so it resolves exactly once. oxlint's static
-// check can't see that guard and flags each settle() caller, so disable the
-// rule for this file.
-/* oxlint-disable promise/no-multiple-resolved */
-
 /** Keep only the tail of stderr — it's used solely for final error reporting. */
 const STDERR_TAIL_MAX = 16_000;
 

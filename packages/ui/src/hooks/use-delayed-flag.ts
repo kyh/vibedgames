@@ -16,16 +16,19 @@ import { useEffect, useState } from "react";
  * landed and the UI has moved on.
  */
 export const useDelayedFlag = (active: boolean, ms: number) => {
-  const [shown, setShown] = useState(false);
+  const [elapsed, setElapsed] = useState(false);
+  const [armedFor, setArmedFor] = useState(active);
+
+  if (armedFor !== active) {
+    setArmedFor(active);
+    setElapsed(false);
+  }
 
   useEffect(() => {
-    if (!active) {
-      setShown(false);
-      return undefined;
-    }
-    const timer = window.setTimeout(() => setShown(true), ms);
+    if (!active) return undefined;
+    const timer = window.setTimeout(() => setElapsed(true), ms);
     return () => window.clearTimeout(timer);
   }, [active, ms]);
 
-  return shown;
+  return active && elapsed;
 };

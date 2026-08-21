@@ -136,12 +136,11 @@ const GameCard = ({
   );
 
   // Re-arm the exit whenever the deck comes back on screen.
-  // Note: This effect synchronizes animation state with prop changes
-  useEffect(() => {
-    if (mode === "stack") {
-      setHasCompletedExit(false);
-    }
-  }, [mode]);
+  const [armedFor, setArmedFor] = useState(mode);
+  if (armedFor !== mode) {
+    setArmedFor(mode);
+    if (mode === "stack") setHasCompletedExit(false);
+  }
 
   const handleAnimationComplete = () => {
     if (mode !== "stack") {

@@ -6,12 +6,6 @@ import type { JsonObject, JsonValue } from "./json.ts";
 import type { Activity } from "./reporter.ts";
 import type { RunOptions, RunResult } from "./runner.ts";
 
-// Every resolution path funnels through the `settle()` helper below, which is
-// guarded by a `settled` flag so it resolves exactly once. oxlint's static
-// check can't see that guard and flags each settle() caller, so disable the
-// rule for this file.
-/* oxlint-disable promise/no-multiple-resolved */
-
 /**
  * After the stream-json `result` event arrives we already have the outcome.
  * Normally the CLI exits right after, but stream-json has a known failure mode

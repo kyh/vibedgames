@@ -32,8 +32,19 @@ export const SkeletonReveal = ({
   children: React.ReactNode;
   className?: string;
 }) => {
-  const [retired, setRetired] = useState(ready);
+  const [wipeDone, setWipeDone] = useState(ready);
   const prefersReducedMotion = useReducedMotion();
+
+  // Falling back to loading re-arms the reveal for the next `ready`.
+  const [revealedFor, setRevealedFor] = useState(ready);
+  if (revealedFor !== ready) {
+    setRevealedFor(ready);
+    if (!ready) setWipeDone(false);
+  }
+
+  // Reduced motion still needs the skeleton to get out of the way — it just
+  // shouldn't travel to do it.
+  const retired = wipeDone || (ready && prefersReducedMotion === true);
 
   // -100 → content fully masked out (skeleton fully visible); 100 → content
   // fully revealed. The soft edge spans the whole frame, so this reads as a
@@ -51,23 +62,16 @@ export const SkeletonReveal = ({
   useEffect(() => {
     if (!ready) {
       progress.set(-100);
-      setRetired(false);
       return;
     }
     if (retired) return;
-    // Reduced motion still needs the skeleton to get out of the way — it
-    // just shouldn't travel to do it.
-    if (prefersReducedMotion) {
-      setRetired(true);
-      return;
-    }
     const controls = animate(progress, 100, {
       duration: WIPE_DURATION,
       ease: "easeInOut",
-      onComplete: () => setRetired(true),
+      onComplete: () => setWipeDone(true),
     });
     return () => controls.stop();
-  }, [ready, retired, progress, prefersReducedMotion]);
+  }, [ready, retired, progress]);
 
   return (
     <div className={cn("relative", className)}>

@@ -2,10 +2,6 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
-// runInit resolves exactly once via a `settled`-guarded settle() helper;
-// oxlint's static check can't see the guard (same pattern as claude.ts).
-/* oxlint-disable promise/no-multiple-resolved */
-
 import { claudeBin, codexBin, findRepoRoot } from "./config.ts";
 import type { Reporter } from "./reporter.ts";
 import type { Runner } from "./runner.ts";
