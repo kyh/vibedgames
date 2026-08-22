@@ -9,6 +9,7 @@
   },
   "scripts": {
     "clean": "rm -rf .cache .turbo dist node_modules",
+    "test": "node --import tsx --test 'src/**/*.test.ts'",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -27,6 +28,8 @@
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
+    "drizzle-orm": "^0.45.2",
+    "tsx": "^4.23.12",
     "typescript": "catalog:"
   }
 }
