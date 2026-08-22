@@ -1,28 +1,34 @@
-// Freeze-frame FX capture harness.
+// Freeze-frame FX capture.
 //
-// Drives ?viewer=1 in a real Chrome, loops each ability through the
-// actual sim, and freezes the instant a chosen object appears — then parks the
-// camera on it and saves a PNG. The freeze is `setAnimationLoop(null)`: sim
-// time only ever advances inside that loop, so nothing unwinds and the canvas
-// keeps the last presented frame.
+// Drives ?viewer=1 through agent-browser, loops each ability through the actual
+// sim, and freezes the instant a chosen object appears — then parks the camera
+// on it and saves a PNG. The freeze is `setAnimationLoop(null)`: sim time only
+// ever advances inside that loop, so nothing unwinds and the canvas keeps the
+// last presented frame for the screenshot.
 //
-// Without this every capture is a coin flip — a meteor is only in the air for
-// 650ms of a multi-second cast loop, and a screenshot round-trip is ~1s.
+// Without the freeze every capture is a coin flip — a meteor is only in the air
+// for 650ms of a multi-second cast loop.
 //
 //   node tools/fx-shots.mjs [outDir]
-import { mkdir } from "node:fs/promises";
-import { chromium } from "playwright-core";
+import { mkdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 
 const URL = process.env.VG_URL ?? "http://localhost:5194/?viewer=1";
 const OUT = process.argv[2] ?? "fx-shots";
+const SESSION = "battle-arena-fx";
 
 /**
- * Each shot names a champion, an ability, and what to wait for. `find` runs in
- * the page against every object in the scene; the first match freezes it.
- * `cam` is an offset from the point the shot aims at, or null to keep the live
- * camera. `aim` overrides where that point is — needed for anything built in
- * world space by a vertex shader, whose mesh never leaves the origin.
+ * Each shot names a champion, an ability, and what to wait for. `find` is a JS
+ * expression run against every object in the scene; the first match freezes it.
+ * `cam` is an offset from the point the shot aims at. `aim` overrides where
+ * that point is — needed for anything built in world space by a vertex shader,
+ * whose mesh never leaves the origin.
  */
+const ERUPTION =
+  "o.isInstancedMesh && o.count > 0 && o.geometry.attributes.aBirth && " +
+  // birth decays over rise*2.2, so this window lands just after the blades top out
+  "[...o.geometry.attributes.aBirth.array].some((v) => v > 0.35 && v < 0.72)";
+
 const SHOTS = [
   {
     name: "meteor-rock",
@@ -42,21 +48,21 @@ const SHOTS = [
     name: "frost-nova",
     champ: "V-yx",
     ability: "Frost Nova",
-    find: "o.isInstancedMesh && o.count > 0 && o.geometry.attributes.aBirth && [...o.geometry.attributes.aBirth.array].some((v) => v > 0.35 && v < 0.72)",
+    find: ERUPTION,
     cam: [5.5, 3.4, 6.5],
   },
   {
     name: "bog-grasp",
     champ: "Grimelda",
     ability: "Bog Grasp",
-    find: "o.isInstancedMesh && o.count > 0 && o.geometry.attributes.aBirth && [...o.geometry.attributes.aBirth.array].some((v) => v > 0.35 && v < 0.72)",
+    find: ERUPTION,
     cam: [5.5, 3.4, 6.5],
   },
   {
     name: "snare-trap",
     champ: "Sylva",
     ability: "Snare Trap",
-    find: "o.isInstancedMesh && o.count > 0 && o.geometry.attributes.aBirth && [...o.geometry.attributes.aBirth.array].some((v) => v > 0.35 && v < 0.72)",
+    find: ERUPTION,
     cam: [5.5, 3.4, 6.5],
   },
   {
@@ -76,105 +82,128 @@ const SHOTS = [
   },
 ];
 
-const PAGE_HELPERS = () => {
-  const w = /** @type {any} */ (window);
-  w.__pick = (t) => {
-    const el = [...document.querySelectorAll("*")].find(
-      (e) => e.children.length === 0 && (e.textContent || "").trim().startsWith(t),
-    );
-    if (el) (el.closest("button") || el.parentElement || el).click();
-    return !!el;
-  };
-  w.__armFreeze = (findSrc, cam, aimSrc) => {
-    const view = w.__view;
-    const scene = view.scene;
-    const test = new Function("o", `try { return (${findSrc}); } catch (e) { return false; }`);
-    const aim = aimSrc ? new Function("o", `return (${aimSrc});`) : null;
-    w.__hit = null;
-    const tick = () => {
-      if (w.__hit) return;
-      let found = null;
-      scene.traverse((o) => {
-        if (!found && test(o)) found = o;
-      });
-      if (found) {
-        found.updateWorldMatrix(true, false);
-        const p = found.position.clone().setFromMatrixPosition(found.matrixWorld);
-        if (aim) p.copy(aim(found));
-        // An InstancedMesh sits at the origin — the eruption is in the instance
-        // matrices. Aim at the first live instance instead, or the camera parks
-        // in the middle of the arena looking at nothing.
-        if (!aim && found.isInstancedMesh) {
-          const m = new found.matrixWorld.constructor();
-          for (let i = 0; i < found.count; i++) {
-            found.getMatrixAt(i, m);
-            const q = p.clone().setFromMatrixPosition(m);
-            if (q.y > -50) {
-              p.copy(q);
-              break;
-            }
-          }
-        }
-        w.__hit = { x: p.x, y: p.y, z: p.z };
-        if (cam) {
-          const c = view.camera;
-          c.position.set(p.x + cam[0], p.y + cam[1], p.z + cam[2]);
-          c.lookAt(p.x, p.y, p.z);
-          c.updateMatrixWorld();
-          view.renderer.render(scene, c);
-        }
-        view.renderer.setAnimationLoop(null);
-        return;
-      }
-      requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
-  };
+const ab = (...args) =>
+  execFileSync("agent-browser", [...args, "--session", SESSION], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
+
+/**
+ * Run JS in the page and parse what it returned.
+ *
+ * agent-browser prints its own status lines ("[agent-browser] launched
+ * browser") ahead of the value on a cold session, so those are stripped before
+ * parsing or the first call of a run comes back as an unparsed string.
+ */
+const evalJs = (js) => {
+  const out = ab("eval", js)
+    .split("\n")
+    .filter((line) => !line.startsWith("[agent-browser]"))
+    .join("\n")
+    .trim();
+  try {
+    return JSON.parse(out);
+  } catch {
+    return out;
+  }
 };
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Click the first leaf element whose text starts with `label`. */
+const clickByText = (label) =>
+  evalJs(
+    `(() => { const el = [...document.querySelectorAll("*")].find((e) => e.children.length === 0 && (e.textContent || "").trim().startsWith(${JSON.stringify(label)})); if (el) (el.closest("button") || el.parentElement || el).click(); return !!el; })()`,
+  );
+
+const armFreeze = (shot) =>
+  evalJs(`(() => {
+  const w = window;
+  const test = (o) => { try { return (${shot.find}); } catch { return false; } };
+  const aim = ${shot.aim ? `(o) => (${shot.aim})` : "null"};
+  const cam = ${JSON.stringify(shot.cam)};
+  const view = w.__view;
+  const scene = view.scene;
+  w.__hit = null;
+  const tick = () => {
+    if (w.__hit) return;
+    let found = null;
+    scene.traverse((o) => { if (!found && test(o)) found = o; });
+    if (found) {
+      found.updateWorldMatrix(true, false);
+      const p = found.position.clone().setFromMatrixPosition(found.matrixWorld);
+      if (aim) p.copy(aim(found));
+      // An InstancedMesh sits at the origin — the eruption is in the instance
+      // matrices. Aim at the first live instance instead, or the camera parks
+      // in the middle of the arena looking at nothing.
+      else if (found.isInstancedMesh) {
+        const m = new found.matrixWorld.constructor();
+        for (let i = 0; i < found.count; i++) {
+          found.getMatrixAt(i, m);
+          const q = p.clone().setFromMatrixPosition(m);
+          if (q.y > -50) { p.copy(q); break; }
+        }
+      }
+      w.__hit = { x: p.x, y: p.y, z: p.z };
+      const c = view.camera;
+      c.position.set(p.x + cam[0], p.y + cam[1], p.z + cam[2]);
+      c.lookAt(p.x, p.y, p.z);
+      c.updateMatrixWorld();
+      // Draw one frame by hand: the loop is about to stop, so nothing else will.
+      view.renderer.render(scene, c);
+      view.renderer.setAnimationLoop(null);
+      return;
+    }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+  return "armed";
+})()`);
+
 const main = async () => {
-  await mkdir(OUT, { recursive: true });
-  // Headed + real Chrome: the same requirement the waymo harnesses have. A
-  // headless GL stack renders these shaders, but not at a framerate the 650ms
-  // capture windows survive.
-  const browser = await chromium.launch({ headless: false, channel: "chrome" });
-  const results = [];
-  for (const shot of SHOTS) {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  mkdirSync(OUT, { recursive: true });
+  // Headed: a software GL stack renders these shaders, but not at a framerate
+  // the sub-second capture windows survive.
+  //
+  // Retried because this script closes its session on the way out: run it twice
+  // in a row and the relaunch races the previous browser's teardown, which
+  // surfaces as "Failed to connect" on the very next command.
+  for (let i = 0; ; i++) {
     try {
-      await page.goto(URL, { waitUntil: "domcontentloaded" });
-      await page.waitForFunction("!!window.__view", null, { timeout: 60_000 });
-      await page.waitForTimeout(6000);
-      await page.evaluate(PAGE_HELPERS);
-      const picked = await page.evaluate(
-        ([champ, ability]) => {
-          const w = /** @type {any} */ (window);
-          const c = w.__pick(champ);
-          return new Promise((res) =>
-            setTimeout(() => res({ champ: c, ability: w.__pick(ability) }), 600),
-          );
-        },
-        [shot.champ, shot.ability],
-      );
-      await page.evaluate(
-        ([findSrc, cam, aimSrc]) => /** @type {any} */ (window).__armFreeze(findSrc, cam, aimSrc),
-        [shot.find, shot.cam, shot.aim ?? null],
-      );
-      const hit = await page
-        .waitForFunction("window.__hit", null, { timeout: 25_000, polling: 100 })
-        .then((h) => h.jsonValue())
-        .catch(() => null);
-      await page.screenshot({ path: `${OUT}/${shot.name}.png` });
-      results.push({ shot: shot.name, ...picked, frozen: !!hit });
-      console.log(`${hit ? "✓" : "✗"} ${shot.name}`, picked, hit ?? "");
+      ab("open", URL, "--headed");
+      ab("set", "viewport", "1280", "800");
+      break;
     } catch (err) {
-      console.log(`✗ ${shot.name}`, err.message);
-      results.push({ shot: shot.name, error: err.message });
-    } finally {
-      await page.close();
+      if (i === 2) throw err;
+      await sleep(2000);
     }
   }
-  await browser.close();
+
+  const results = [];
+  for (const shot of SHOTS) {
+    // Fresh page per shot — the previous freeze left the render loop stopped.
+    ab("navigate", URL);
+    for (let i = 0; i < 60 && evalJs("!!window.__view") !== true; i++) await sleep(500);
+    await sleep(6000); // models and the arena finish loading
+
+    const champ = clickByText(shot.champ);
+    await sleep(600);
+    const ability = clickByText(shot.ability);
+    armFreeze(shot);
+
+    // agent-browser serialises a returned object as JSON, so evalJs hands back
+    // the point directly — no second decode step to get wrong.
+    let hit = null;
+    for (let i = 0; i < 50 && !hit; i++) {
+      await sleep(500);
+      hit = evalJs("window.__hit ?? null");
+    }
+    ab("screenshot", `${OUT}/${shot.name}.png`);
+    results.push({ shot: shot.name, frozen: !!hit });
+    console.log(`${hit ? "✓" : "✗"} ${shot.name}`, { champ, ability }, hit ?? "");
+  }
+  ab("close");
+
   const missed = results.filter((r) => !r.frozen);
   console.log(`\n${results.length - missed.length}/${results.length} frozen → ${OUT}/`);
   if (missed.length) console.log("missed:", missed.map((m) => m.shot).join(", "));

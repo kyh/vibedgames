@@ -7,7 +7,6 @@
     "build": "vite build",
     "clean": "rm -rf .turbo dist node_modules",
     "dev": "vite",
-    "fx:perf": "node tools/fx-perf.mjs",
     "fx:shots": "node tools/fx-shots.mjs",
     "preview": "vite preview",
     "test": "tsx tools/verify-timing.mts",
@@ -23,7 +22,6 @@
     "@kyh/tsconfig": "catalog:",
     "@types/node": "catalog:",
     "@types/three": "^0.185.4",
-    "playwright-core": "^1.62.1",
     "tsx": "^4.23.12",
     "typescript": "catalog:",
     "vite": "catalog:"
