@@ -28,7 +28,7 @@
     "@trpc/client": "catalog:",
     "@trpc/server": "catalog:",
     "@trpc/tanstack-react-query": "catalog:",
-    "better-auth": "~1.6.29",
+    "better-auth": "^1.7.1",
     "lucide-react": "^1.33.0",
     "motion": "^13.1.1",
     "react": "catalog:",
