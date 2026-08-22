@@ -26,12 +26,6 @@ float nhash11(float p) {
   return fract(p);
 }
 
-vec2 nhash21(float p) {
-  vec3 p3 = fract(vec3(p) * vec3(0.1031, 0.1030, 0.0973));
-  p3 += dot(p3, p3.yzx + 33.33);
-  return fract((p3.xx + p3.yz) * p3.zy);
-}
-
 float nhash13(vec3 p3) {
   p3 = fract(p3 * 0.1031);
   p3 += dot(p3, p3.zyx + 31.32);
@@ -95,22 +89,9 @@ float snoise(vec3 v) {
   return 42.0 * dot(m * m, vec4(dot(p0, x0), dot(p1, x1), dot(p2, x2), dot(p3, x3)));
 }
 
-float snoise01(vec3 p) { return snoise(p) * 0.5 + 0.5; }
-
 /** Two octaves — the toon default. Broad masses, no grain. */
 float fbm2(vec3 p) {
   return 0.65 * snoise(p) + 0.35 * snoise(p * 2.03 + vec3(17.3, 5.1, 9.7));
-}
-
-float fbm3(vec3 p) {
-  float v = 0.0;
-  float a = 0.5;
-  for (int i = 0; i < 3; i++) {
-    v += a * snoise(p);
-    p *= 2.02;
-    a *= 0.5;
-  }
-  return v;
 }
 
 /** Ridged multifractal — sharp filaments; cracks, seams, arcs. */
@@ -133,18 +114,16 @@ float seam(vec3 p, float width) {
   return 1.0 - smoothstep(0.0, width, abs(fbm2(p)));
 }
 
-mat2 rot2(float a) {
-  float s = sin(a), c = cos(a);
-  return mat2(c, -s, s, c);
-}
-
 /**
  * Posterise to N bands. The toon grade's workhorse: it turns a smooth shader
  * gradient into the flat stepped masses the KayKit models are lit with, so the
  * spell FX and the characters read as the same material world.
  */
 float bands(float x, float n) {
-  return floor(clamp(x, 0.0, 1.0) * n) / max(n - 1.0, 1.0);
+  // The top bucket has to be clamped: at x == 1 the floor lands on n, and the
+  // result leaves 0..1 (4/3 at n = 4). Callers use this as a mix factor and as
+  // a brightness multiplier, so overshoot shows up as blown-out facets.
+  return min(floor(clamp(x, 0.0, 1.0) * n), n - 1.0) / max(n - 1.0, 1.0);
 }
 
 #endif

@@ -13,7 +13,11 @@ const pending: Promise<void>[] = [];
 /** Options: `wrap` for tiling erosion/noise maps; `srgb` for COLORED sprites
  *  (grayscale masks sample raw — sRGB would gamma-crush the erosion ramps). */
 export function fxTex(name: string, opts: { wrap?: boolean; srgb?: boolean } = {}): THREE.Texture {
-  const cached = cache.get(name);
+  // Keyed on the options, not just the name: three's own texture cache keys on
+  // wrapS/wrapT, so a wrapped and an unwrapped copy are two GPU textures. One
+  // cache slot per name handed whichever variant loaded first to every caller.
+  const key = `${name}|${opts.wrap ? "w" : ""}${opts.srgb ? "s" : ""}`;
+  const cached = cache.get(key);
   if (cached) return cached;
   let settle = (): void => {};
   pending.push(new Promise<void>((resolve) => (settle = resolve)));
@@ -27,7 +31,7 @@ export function fxTex(name: string, opts: { wrap?: boolean; srgb?: boolean } = {
   );
   if (opts.wrap) t.wrapS = t.wrapT = THREE.RepeatWrapping;
   if (opts.srgb) t.colorSpace = THREE.SRGBColorSpace;
-  cache.set(name, t);
+  cache.set(key, t);
   return t;
 }
 
@@ -56,6 +60,10 @@ export function uploadFxTextures(renderer: THREE.WebGLRenderer): void {
 /** Warm every texture the FX layer uses at runtime. */
 export function preloadFxTextures(): void {
   for (const n of ["noise-streak", "noise-caustic"]) fxTex(n, { wrap: true });
+  // texShell clones these with RepeatWrapping, and wrap mode IS part of three's
+  // texture cache key — so the wrapped copy is a second GPU texture and needs
+  // warming in its own right.
+  for (const n of ["hex-shield", "electro-ball"]) fxTex(n, { wrap: true });
   for (const n of [
     "shockwave",
     "slash-white",

@@ -155,7 +155,9 @@ export class ChunkPool {
       const shrink = t > 0.7 ? 1 - (t - 0.7) / 0.3 : 1;
       this.dummy.position.set(c.x, c.y, c.z);
       this.dummy.rotation.set(c.rx, c.rx * 0.7, c.rz);
-      const sz = c.size * shrink;
+      // 0.5: the rock is a unit-RADIUS ball where the box it replaced was a
+      // unit-WIDTH box, so the same `size` would throw shards twice as large.
+      const sz = c.size * shrink * 0.5;
       this.dummy.scale.set(sz, sz * c.squashY, sz * c.squashZ);
       this.dummy.updateMatrix();
       this.mesh.setMatrixAt(c.idx, this.dummy.matrix);

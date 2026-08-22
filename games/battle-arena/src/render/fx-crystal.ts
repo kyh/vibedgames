@@ -62,7 +62,10 @@ export function createCrystalMaterial(clock: { value: number }): THREE.MeshStand
 
   const uniforms = {
     uTime: clock,
-    uDeep: { value: new THREE.Color(0x2f6f9e) },
+    // The colour a facet reaches at full thickness. Darker than it looks: the
+    // banded mix runs all the way to it now, where it used to overshoot past a
+    // lighter value and land here anyway.
+    uDeep: { value: new THREE.Color(0x135c91) },
     uRim: { value: new THREE.Color(0xdff2ff) },
     uCore: { value: new THREE.Color(0xa8e6ff) },
     uDensity: { value: ICE.depthTint },
@@ -169,12 +172,12 @@ export function createCrystalMaterial(clock: { value: number }): THREE.MeshStand
 
           // The toon step. diffuseColor.rgb already carries the instance tint,
           // so shading here is a multiplier and one material serves every hue.
-          vec3 body = mix(vec3(1.0), uDeep, bands(thickness, uFacetBands) * 0.85);
+          vec3 body = mix(vec3(1.0), uDeep, bands(thickness, uFacetBands));
           body = mix(body, uRim, veins * uVeins * 0.5);
           body = mix(body, uRim, cracks * uFracture * 0.4);
 
           // Rime gathers where the crystal left the floor.
-          float rime = smoothstep(0.55, 0.0, vCrystalLocal.y) *
+          float rime = (1.0 - smoothstep(0.0, 0.55, vCrystalLocal.y)) *
                        (0.55 + 0.45 * fbm2(vCrystalLocal * 7.0 + vCrystalSeed * 5.0));
           body = mix(body, uRim, clamp(rime, 0.0, 1.0) * uFrostLine);
 

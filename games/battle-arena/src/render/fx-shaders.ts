@@ -215,10 +215,13 @@ export function makeCrackMaterial(): CrackMaterial {
         if (r > 1.0) discard;
         float ang = atan(p.y, p.x);
 
-        // Polar sampling with the angle stretched hard against the radius: the
-        // field varies fast around the impact and slowly along a ray, so its
+        // Sampled on a RING, not on the raw angle: atan jumps by 2*pi across
+        // the -X ray, and feeding that straight to the noise put a hard seam
+        // down every decal. Riding cos/sin instead makes the field periodic, so
+        // it closes on itself. Radius goes in z, which keeps the property that
+        // matters — fast variation around the impact, slow along a ray, so the
         // zero crossings are arms that RUN OUTWARD and fork on the way.
-        vec3 q = vec3(ang * 1.9, r * 2.2, uSeed);
+        vec3 q = vec3(cos(ang) * 1.9, sin(ang) * 1.9, r * 2.2 + uSeed);
         float arms  = seam(q, 0.16);
         float twigs = seam(q * 2.7 + 11.0, 0.1) * 0.55; // the branches off them
         float net = clamp(arms + twigs, 0.0, 1.0);
@@ -296,11 +299,11 @@ export function makeRuneMaterial(color: number): THREE.ShaderMaterial {
         if (r > 1.0) discard;
         float th = atan(p.y, p.x);
         // outer band (solid) + mid band (dashed, counter-rotating) + 4 ticks
-        float outer = smoothstep(0.045, 0.02, abs(r - 0.93));
+        float outer = 1.0 - smoothstep(0.02, 0.045, abs(r - 0.93));
         float dash = step(0.5, fract((th + uTime * 0.9) * 2.5464)); // 16 dashes
-        float mid = smoothstep(0.05, 0.02, abs(r - 0.74)) * dash;
+        float mid = (1.0 - smoothstep(0.02, 0.05, abs(r - 0.74))) * dash;
         float tickA = cos((th - uTime * 0.45) * 4.0);
-        float ticks = smoothstep(0.965, 0.995, tickA) * smoothstep(0.62, 0.5, abs(r - 0.45) / 0.45);
+        float ticks = smoothstep(0.965, 0.995, tickA) * (1.0 - smoothstep(0.5, 0.62, abs(r - 0.45) / 0.45));
         float a = (outer * 0.85 + mid * 0.6 + ticks * 0.7) * uAlpha;
         if (a < 0.01) discard;
         gl_FragColor = vec4(uColor * 1.3, a);
@@ -334,7 +337,7 @@ export function makeVortexMaterial(color: number, upward = false): THREE.ShaderM
         // diagonal stripes racing around the drum
         float stripes = 0.5 + 0.5*sin((vUv.x*6.0 + vUv.y*2.0) * 6.2831 - uTime*9.0);
         float rough = 0.7 + 0.3*vnoise(vec2(vUv.x*8.0, vUv.y*3.0 - uTime*2.0));
-        float hfade = mix(smoothstep(1.0, 0.15, vUv.y), smoothstep(0.0, 0.85, vUv.y), uUp);
+        float hfade = mix(1.0 - smoothstep(0.15, 1.0, vUv.y), smoothstep(0.0, 0.85, vUv.y), uUp);
         float band = stripes * rough;
         float a = band * hfade * uAlpha * 0.16;
         vec3 c = mix(uColor, vec3(1.0), band*0.25);

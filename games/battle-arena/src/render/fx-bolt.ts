@@ -227,7 +227,7 @@ void main() {
   // Ahead of the strike front there is no bolt yet. The ribbon is drawn whole
   // and CLIPPED here rather than scaled, so the shape never changes as the
   // front travels — only how much of it exists.
-  float drawn = smoothstep(uProgress, uProgress - ${BOLT.tipLength.toFixed(3)}, vT);
+  float drawn = 1.0 - smoothstep(uProgress - ${BOLT.tipLength.toFixed(3)}, uProgress, vT);
   if (drawn <= 0.002) discard;
 
   float v = clamp(abs(vSide), 0.0, 1.0);

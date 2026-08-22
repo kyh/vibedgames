@@ -15,7 +15,10 @@ import { execFileSync } from "node:child_process";
 
 const URL = process.env.VG_URL ?? "http://localhost:5194/?viewer=1";
 const OUT = process.argv[2] ?? "fx-shots";
-const SESSION = "battle-arena-fx";
+// Per-process by default: two overlapping runs sharing one session would drive
+// the same browser, so one run's navigate lands mid-capture in the other.
+// Override to reuse a warm browser across runs when nothing else is running.
+const SESSION = process.env.VG_SESSION ?? `battle-arena-fx-${process.pid}`;
 
 /**
  * Each shot names a champion, an ability, and what to wait for. `find` is a JS
@@ -180,29 +183,49 @@ const main = async () => {
   }
 
   const results = [];
-  for (const shot of SHOTS) {
-    // Fresh page per shot — the previous freeze left the render loop stopped.
-    ab("navigate", URL);
-    for (let i = 0; i < 60 && evalJs("!!window.__view") !== true; i++) await sleep(500);
-    await sleep(6000); // models and the arena finish loading
+  try {
+    for (const shot of SHOTS) {
+      // Fresh page per shot — the previous freeze left the render loop stopped.
+      ab("navigate", URL);
+      let booted = false;
+      for (let i = 0; i < 60 && !booted; i++) {
+        booted = evalJs("!!window.__view") === true;
+        if (!booted) await sleep(500);
+      }
+      // A shot whose viewer never booted is reported as missed rather than
+      // thrown: one bad boot must not abort every remaining capture.
+      if (!booted) {
+        results.push({ shot: shot.name, frozen: false });
+        console.log(`✗ ${shot.name} — viewer never published window.__view`);
+        continue;
+      }
+      await sleep(6000); // models and the arena finish loading
 
-    const champ = clickByText(shot.champ);
-    await sleep(600);
-    const ability = clickByText(shot.ability);
-    armFreeze(shot);
+      const champ = clickByText(shot.champ);
+      await sleep(600);
+      const ability = clickByText(shot.ability);
+      armFreeze(shot);
 
-    // agent-browser serialises a returned object as JSON, so evalJs hands back
-    // the point directly — no second decode step to get wrong.
-    let hit = null;
-    for (let i = 0; i < 50 && !hit; i++) {
-      await sleep(500);
-      hit = evalJs("window.__hit ?? null");
+      // agent-browser serialises a returned object as JSON, so evalJs hands
+      // back the point directly — no second decode step to get wrong.
+      let hit = null;
+      for (let i = 0; i < 50 && !hit; i++) {
+        await sleep(500);
+        hit = evalJs("window.__hit ?? null");
+      }
+      ab("screenshot", `${OUT}/${shot.name}.png`);
+      results.push({ shot: shot.name, frozen: !!hit });
+      console.log(`${hit ? "✓" : "✗"} ${shot.name}`, { champ, ability }, hit ?? "");
     }
-    ab("screenshot", `${OUT}/${shot.name}.png`);
-    results.push({ shot: shot.name, frozen: !!hit });
-    console.log(`${hit ? "✓" : "✗"} ${shot.name}`, { champ, ability }, hit ?? "");
+  } finally {
+    // Always: a throw that leaks a headed session is exactly the relaunch race
+    // the open-retry above exists to survive.
+    try {
+      ab("close");
+    } catch {
+      // already gone
+    }
   }
-  ab("close");
 
   const missed = results.filter((r) => !r.frozen);
   console.log(`\n${results.length - missed.length}/${results.length} frozen → ${OUT}/`);

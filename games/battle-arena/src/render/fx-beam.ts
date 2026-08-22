@@ -63,8 +63,8 @@ void main() {
   // silhouette closes into a hard-edged cone and the whole thing stops reading
   // as light and starts reading as a solid.
   float taper = mix(1.0, 0.4, smoothstep(0.0, 0.8, vUv.y));
-  float cap = smoothstep(1.0, 0.62, vUv.y);
-  float foot = smoothstep(0.3, 0.0, vUv.y);
+  float cap = 1.0 - smoothstep(0.62, 1.0, vUv.y);
+  float foot = 1.0 - smoothstep(0.0, 0.3, vUv.y);
 
   vec3 color = mix(uShell, uCore, axis * axis);
   color += uCore * (coil * 0.3 + disc * 0.55 + foot * 0.8);

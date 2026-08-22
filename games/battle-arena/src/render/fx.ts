@@ -2093,8 +2093,11 @@ export class Fx {
     } = {},
   ): void {
     const { r = 1.9, color = 0xffffff, life = 1.6, repeat = [3, 2], scrollY = 0 } = opts;
-    const map = fxTex(tex).clone();
-    map.wrapS = map.wrapT = THREE.RepeatWrapping;
+    // Cloned from the WRAPPED variant: only `repeat` differs per shell, and
+    // repeat is not part of three's texture cache key, so the clone rides the
+    // upload the warm pass already did. Flipping wrap on the clone instead
+    // would key a fresh GPU texture and stall on the first cast.
+    const map = fxTex(tex, { wrap: true }).clone();
     map.repeat.set(repeat[0], repeat[1]);
     const mat = new THREE.MeshBasicMaterial({
       map,
