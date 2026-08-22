@@ -18,7 +18,8 @@ const OUT = process.argv[2] ?? "fx-shots";
 // Per-process by default: two overlapping runs sharing one session would drive
 // the same browser, so one run's navigate lands mid-capture in the other.
 // Override to reuse a warm browser across runs when nothing else is running.
-const SESSION = process.env.VG_SESSION ?? `battle-arena-fx-${process.pid}`;
+const SHARED_SESSION = process.env.VG_SESSION;
+const SESSION = SHARED_SESSION ?? `battle-arena-fx-${process.pid}`;
 
 /**
  * Each shot names a champion, an ability, and what to wait for. `find` is a JS
@@ -165,25 +166,25 @@ const armFreeze = (shot) =>
 
 const main = async () => {
   mkdirSync(OUT, { recursive: true });
-  // Headed: a software GL stack renders these shaders, but not at a framerate
-  // the sub-second capture windows survive.
-  //
-  // Retried because this script closes its session on the way out: run it twice
-  // in a row and the relaunch races the previous browser's teardown, which
-  // surfaces as "Failed to connect" on the very next command.
-  for (let i = 0; ; i++) {
-    try {
-      ab("open", URL, "--headed");
-      ab("set", "viewport", "1280", "800");
-      break;
-    } catch (err) {
-      if (i === 2) throw err;
-      await sleep(2000);
-    }
-  }
-
   const results = [];
   try {
+    // Headed: a software GL stack renders these shaders, but not at a framerate
+    // the sub-second capture windows survive.
+    //
+    // Retried because a run that owns its session closes it on the way out: two
+    // runs back to back race the previous browser's teardown, which surfaces as
+    // "Failed to connect" on the very next command.
+    for (let i = 0; ; i++) {
+      try {
+        ab("open", URL, "--headed");
+        ab("set", "viewport", "1280", "800");
+        break;
+      } catch (err) {
+        if (i === 2) throw err;
+        await sleep(2000);
+      }
+    }
+
     for (const shot of SHOTS) {
       // Fresh page per shot — the previous freeze left the render loop stopped.
       ab("navigate", URL);
@@ -192,10 +193,12 @@ const main = async () => {
         booted = evalJs("!!window.__view") === true;
         if (!booted) await sleep(500);
       }
-      // A shot whose viewer never booted is reported as missed rather than
-      // thrown: one bad boot must not abort every remaining capture.
+      // A shot whose viewer never booted is reported rather than thrown: one
+      // bad boot must not abort every remaining capture. It is tagged
+      // separately from a freeze miss, because the two point at completely
+      // different problems — a dead dev server versus a stale `find`.
       if (!booted) {
-        results.push({ shot: shot.name, frozen: false });
+        results.push({ shot: shot.name, frozen: false, reason: "no-boot" });
         console.log(`✗ ${shot.name} — viewer never published window.__view`);
         continue;
       }
@@ -214,22 +217,27 @@ const main = async () => {
         hit = evalJs("window.__hit ?? null");
       }
       ab("screenshot", `${OUT}/${shot.name}.png`);
-      results.push({ shot: shot.name, frozen: !!hit });
+      results.push({ shot: shot.name, frozen: !!hit, reason: hit ? null : "no-freeze" });
       console.log(`${hit ? "✓" : "✗"} ${shot.name}`, { champ, ability }, hit ?? "");
     }
   } finally {
-    // Always: a throw that leaks a headed session is exactly the relaunch race
-    // the open-retry above exists to survive.
-    try {
-      ab("close");
-    } catch {
-      // already gone
+    // Only a session this run created: an explicitly named one is the caller's
+    // warm browser to reuse, and closing it would defeat the point of naming it.
+    if (!SHARED_SESSION) {
+      try {
+        ab("close");
+      } catch {
+        // already gone
+      }
     }
   }
 
   const missed = results.filter((r) => !r.frozen);
   console.log(`\n${results.length - missed.length}/${results.length} frozen → ${OUT}/`);
-  if (missed.length) console.log("missed:", missed.map((m) => m.shot).join(", "));
+  for (const reason of ["no-boot", "no-freeze"]) {
+    const hits = missed.filter((m) => m.reason === reason).map((m) => m.shot);
+    if (hits.length) console.log(`${reason}: ${hits.join(", ")}`);
+  }
 };
 
 main();
