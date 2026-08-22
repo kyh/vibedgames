@@ -1,15 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 
+import { SITEMAP_PATHS } from "@/content/site-map";
 import { siteConfig } from "@/lib/site-config";
-
-// Public, crawlable apex pages. User games live on `{slug}.vibedgames.com`
-// subdomains served by a separate worker and are not listed here.
-const PATHS = ["/", "/discover", "/build", "/install"];
 
 const body = [
   '<?xml version="1.0" encoding="UTF-8"?>',
   '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
-  ...PATHS.map((path) => `  <url><loc>${siteConfig.url}${path}</loc></url>`),
+  ...SITEMAP_PATHS.map((path) => `  <url><loc>${siteConfig.url}${path}</loc></url>`),
   "</urlset>",
   "",
 ].join("\n");

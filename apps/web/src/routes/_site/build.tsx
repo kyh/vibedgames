@@ -6,6 +6,9 @@ import { CheckIcon, ChevronRightIcon, CopyIcon } from "lucide-react";
 import { Button } from "@repo/ui/components/button";
 
 import { GitHubLink, RegisterLink } from "@/components/auth/register-link";
+import type { Offering } from "@/content/build";
+import { buildDoc, OFFERINGS } from "@/content/build";
+import { docHandler, docHead, varyHeaders } from "@/lib/doc-route";
 import { ClaudeIcon, CodexIcon, CursorIcon } from "@/components/ui/brand-icons";
 import { FadeInBlur } from "@/components/ui/fade-in-blur";
 import { chromatic, RollingLabel, RollingText } from "@/components/ui/rolling-text";
@@ -44,64 +47,14 @@ function InstallPrompt() {
 }
 
 export const Route = createFileRoute("/_site/build")({
-  head: () => ({ meta: [{ title: "Build — Vibedgames" }] }),
+  server: { handlers: { GET: docHandler(buildDoc) } },
+  headers: varyHeaders(),
+  head: () => docHead(buildDoc),
   component: BuildPage,
 });
 
-type Offering = {
-  index: string;
-  title: string;
-  tag: string;
-  desc: string;
-  color: string;
-  zIndex: number;
-};
-
-const OFFERINGS: Offering[] = [
-  {
-    index: "01",
-    title: "Just Chat",
-    tag: "use vibedgames.com to help me build my game",
-    desc: "Build, tweak, ship, all from prompting.",
-    color: "#F59279",
-    zIndex: 2,
-  },
-  {
-    index: "02",
-    title: "Build studio grade games",
-    tag: "make a pixel art top down slasher",
-    desc: "Sprites, samples, soundtracks. All generated.",
-    color: "#F9B060",
-    zIndex: 5,
-  },
-  {
-    index: "03",
-    title: "Big features, simple prompts",
-    tag: "add real-time multiplayer",
-    desc: "Multiplayer, physics, camera tracking. Just ask.",
-    color: "#F5D84A",
-    zIndex: 1,
-  },
-  {
-    index: "04",
-    title: "Live in seconds",
-    tag: "deploy my game",
-    desc: "Just say deploy and share your game with the world.",
-    color: "#80D487",
-    zIndex: 4,
-  },
-  {
-    index: "05",
-    title: "Learn as you build",
-    tag: "/teach-me how to build a platformer",
-    desc: "A built-in tutor. Learn gamedev by shipping real games.",
-    color: "#73B7E5",
-    zIndex: 3,
-  },
-];
-
-// The card pastels above, saturated a touch so the chromatic flash still reads
-// once the letters settle into the muted heading color.
+// The `OFFERINGS` card pastels, saturated a touch so the chromatic flash still
+// reads once the letters settle into the muted heading color.
 const ROLL_PALETTE = [
   "hsl(12 90% 66%)", // #F59279
   "hsl(31 95% 62%)", // #F9B060

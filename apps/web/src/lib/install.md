@@ -36,4 +36,7 @@ game"_. The `deploy` skill will prompt the user to authenticate
 (`vg login`, device-code flow) the first time they ship something — no
 need to log in now.
 
-Docs: https://vibedgames.com/docs
+Docs: https://vibedgames.com/docs — the full CLI, API and package
+reference. https://vibedgames.com/llms.txt says when to reach for
+vibedgames and what to run first. Every page on the apex domain also
+answers `Accept: text/markdown`.
