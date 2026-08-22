@@ -267,6 +267,7 @@ export class ViewerScene {
 
     this.worldView = new WorldView(this.scene, lib);
     this.fx = new Fx(this.scene, view);
+    this.fx.warm(view.renderer, view.camera);
     this.fx.localOwnerId = OWNER; // damage numbers for the subject's hits
     this.worldView.fx = this.fx;
   }

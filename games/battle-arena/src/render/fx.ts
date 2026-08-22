@@ -12,15 +12,20 @@ import { Audio } from "./audio";
 import { ChunkPool } from "./fx-chunks";
 import { DamageNumbers } from "./damage-numbers";
 import {
-  energyBallMaterial,
   makeCrackMaterial,
+  type CrackMaterial,
   makeRingMaterial,
   makeSlashMaterial,
   makeVortexMaterial,
+  fxClock,
   tickFxShaders,
 } from "./fx-shaders";
-import { fxTex, preloadFxTextures } from "./fx-textures";
+import { fxTex, preloadFxTextures, uploadFxTextures, whenFxTexturesReady } from "./fx-textures";
+import { createRockGeometry } from "./fx-geometry";
+import { createBurningRockMaterial } from "./fx-rock";
+import { createBeamMaterial, type BeamMaterial } from "./fx-beam";
 import { SpikePool } from "./fx-spikes";
+import { BoltPool } from "./fx-bolt";
 import { HDR_BRIGHT, ParticlePools, type SpawnOptions } from "./fx-particles";
 import { Telegraphs, groundFxColor } from "./telegraph";
 import type { View } from "./view";
@@ -78,7 +83,7 @@ type Ring = {
 type ZonePiece = { obj: THREE.Object3D; ownMat: THREE.Material | null; seenAt: number };
 type Beam = {
   mesh: THREE.Mesh;
-  mat: THREE.MeshBasicMaterial;
+  mat: BeamMaterial;
   life: number;
   maxLife: number;
   h: number;
@@ -109,7 +114,7 @@ type Slash = {
   life: number;
   maxLife: number;
 };
-type Crack = { mesh: THREE.Mesh; mat: THREE.ShaderMaterial; life: number; maxLife: number };
+type Crack = { mesh: THREE.Mesh; mat: CrackMaterial; life: number; maxLife: number };
 type Delayed = { at: number; run: () => void };
 type ZoneAnim = { next: number; next2: number; phase: number; seenAt: number; born: boolean };
 
@@ -142,6 +147,7 @@ export class Fx {
   readonly telegraphs: Telegraphs;
   readonly chunks: ChunkPool;
   readonly spikes: SpikePool;
+  readonly bolts: BoltPool;
   private rings: Ring[] = [];
   private beams: Beam[] = [];
   private cones: ConeDecal[] = [];
@@ -161,7 +167,12 @@ export class Fx {
   private ringPlane = new THREE.PlaneGeometry(2, 2);
   private zonePieces = new Map<string, ZonePiece>();
   private vortexGeo = new THREE.CylinderGeometry(1, 0.72, 1, 20, 1, true);
-  private cometGeo = new THREE.SphereGeometry(1, 12, 12);
+  private cometGeo = createRockGeometry({ seed: 4, detail: 2, craters: 6, cuts: 8 });
+  private rockMat = createBurningRockMaterial(fxClock);
+  private pendingWarm: { renderer: THREE.WebGLRenderer; camera: THREE.Camera } | null = null;
+  private texturesReady = false;
+  private boltFrom = new THREE.Vector3();
+  private boltTo = new THREE.Vector3();
   private delayed: Delayed[] = [];
   private clock = 0; // accumulated REAL seconds (drives the delay queue)
   private nowMs = 0; // last-seen sim clock (w.now)
@@ -208,6 +219,7 @@ export class Fx {
     this.telegraphs = new Telegraphs(scene);
     this.chunks = new ChunkPool(scene);
     this.spikes = new SpikePool(scene);
+    this.bolts = new BoltPool(scene, fxClock);
 
     for (let i = 0; i < RING_POOL; i++) {
       // shader annulus: noise-broken rim + hot edge (see fx-shaders makeRingMaterial)
@@ -218,15 +230,11 @@ export class Fx {
       scene.add(mesh);
       this.rings.push({ mesh, mat, life: 0, maxLife: 1, maxR: 1, opacity: 1 });
     }
-    const beamGeo = new THREE.CylinderGeometry(0.55, 0.9, BEAM_H, 12, 1, true);
+    // Segmented along its length: the shader's coils and shock discs are driven
+    // off uv.y, and a 1-segment tube has nothing to interpolate them across.
+    const beamGeo = new THREE.CylinderGeometry(0.55, 0.9, BEAM_H, 16, 12, true);
     for (let i = 0; i < BEAM_POOL; i++) {
-      const mat = new THREE.MeshBasicMaterial({
-        color: 0xffffff,
-        transparent: true,
-        blending: THREE.AdditiveBlending,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-      });
+      const mat = createBeamMaterial(fxClock);
       const mesh = new THREE.Mesh(beamGeo, mat);
       mesh.visible = false;
       scene.add(mesh);
@@ -257,6 +265,7 @@ export class Fx {
       this.slashes.push({ pivot, mesh, mat, life: 0, maxLife: 1 });
     }
     preloadFxTextures();
+    this.warmRig(scene);
     for (let i = 0; i < FLARE_POOL; i++) {
       const mat = new THREE.SpriteMaterial({
         map: fxTex("flare-star"),
@@ -313,12 +322,88 @@ export class Fx {
    * Applies from the next spawn onward (already-live FX keep the gain they were
    * born with), which is what a per-scene trailer stop wants.
    */
+  /**
+   * Compile every pooled FX program before a match starts.
+   *
+   * Three's `compile()` walks the whole graph, not just what is visible, so one
+   * call warms all of these pools while they sit parked. Without it the first
+   * frost nova of a match cost a 416ms hard freeze on this machine (measured —
+   * tools/fx-perf.mjs) while the crystal shader compiled mid-fight; the same
+   * program costs ~6ms once warm.
+   *
+   * Fire-and-forget: with KHR_parallel_shader_compile the work is off-thread,
+   * and anything still compiling when the match starts is no worse off than it
+   * would have been without this.
+   */
+  warm(renderer: THREE.WebGLRenderer, camera: THREE.Camera): void {
+    // Deferred to the first update(), NOT run here. A program's cache key
+    // includes the light and shadow setup it was compiled against, so compiling
+    // before the caller has finished building its scene produces programs the
+    // real render then throws away and rebuilds — mid-fight, which is the exact
+    // stall this exists to prevent. By the first frame everything is final.
+    this.pendingWarm = { renderer, camera };
+    void whenFxTexturesReady().then(() => {
+      uploadFxTextures(renderer);
+      // Only NOW is a compile worth doing. A material whose map has not decoded
+      // yet compiles without USE_MAP, and three throws that program away the
+      // first time the texture actually arrives — so warming any earlier warms
+      // the wrong programs and the stall survives.
+      this.texturesReady = true;
+    });
+  }
+
+  private flushWarm(): void {
+    const w = this.pendingWarm;
+    if (!w || !this.texturesReady) return;
+    this.pendingWarm = null;
+    void w.renderer.compileAsync(this.scene, w.camera).catch(() => {
+      // A driver without parallel compile still compiles lazily; nothing to do.
+    });
+  }
+
+  /**
+   * A parked, never-drawn mesh whose only job is to give the burning-rock
+   * material scene presence.
+   *
+   * `compile()` walks OBJECTS, not materials, and the meteor builds its rock on
+   * the first cast — so without this the warm pass skipped that program and the
+   * first meteor of a match stalled ~310ms (measured, tools/fx-perf.mjs).
+   * Invisible costs nothing to render and still compiles.
+   */
+  private warmRig(scene: THREE.Scene): void {
+    const park = (mesh: THREE.Mesh) => {
+      mesh.visible = false;
+      mesh.frustumCulled = false;
+      mesh.position.set(0, -1000, 0);
+      scene.add(mesh);
+    };
+    park(new THREE.Mesh(this.cometGeo, this.rockMat));
+    // The tex* helpers build a fresh MeshBasicMaterial per call, so their
+    // programs are never in the scene at warm time either. One stand-in per
+    // blend mode covers every one of them — the program key is the same.
+    for (const blending of [THREE.AdditiveBlending, THREE.NormalBlending]) {
+      park(
+        new THREE.Mesh(
+          this.texQuad,
+          new THREE.MeshBasicMaterial({
+            map: fxTex("glow-soft"),
+            transparent: true,
+            blending,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+          }),
+        ),
+      );
+    }
+  }
+
   setFlashGain(gain: number): void {
     this.flashGain = gain;
     this.pools.setAddGain(gain);
   }
 
   update(w: World, dt: number): void {
+    this.flushWarm();
     this.nowMs = w.now;
     const me = w.units.get(this.localId);
     if (me) {
@@ -363,6 +448,7 @@ export class Fx {
     this.pools.update(vdt);
     this.chunks.update(vdt);
     this.spikes.update(vdt);
+    this.bolts.update(vdt);
     this.stepRings(vdt);
     this.stepBeams(vdt);
     this.stepCones(vdt);
@@ -543,11 +629,12 @@ export class Fx {
           case "nova": {
             // frost detonation: a RING OF ICE SPIKES erupts, holds frozen,
             // then shatters into crystal debris — the ARPG frost-nova image
-            this.spikes.ring(e.x, e.y, e.radius * 0.7, 10, 0xbfe8ff, {
+            this.spikes.erupt(e.x, e.y, e.radius * 0.7, 11, 0xbfe8ff, {
               h: 1.5,
-              w: 0.42,
+              w: 0.62,
               holdMs: 1050,
               exitMs: 180,
+              tiltOut: 0.3,
             });
             this.fountain(e.x, e.y, 10, 0x9fe8ff);
             this.telegraphs.spawnResidue(e.x, e.y, e.radius * 0.85, 0x7fd4ff, 1.6);
@@ -584,9 +671,9 @@ export class Fx {
             break;
           }
           case "vines": // bog grasp: a jaw of vines SNAPS shut around the point
-            this.spikes.ring(e.x, e.y, e.radius * 0.8, 9, 0x3a6a2a, {
+            this.spikes.erupt(e.x, e.y, e.radius * 0.8, 9, 0x3a6a2a, {
               h: 1.6,
-              w: 0.34,
+              w: 0.46,
               holdMs: 1000,
               exitMs: 350,
               tiltOut: -0.45,
@@ -610,8 +697,7 @@ export class Fx {
             });
             break;
           case "smite": // consecrating smite: heaven ANSWERS — bolt + cracked earth
-            this.texBolt("lightning-arc", e.x, e.y, { h: 11, w: 3.2, color: 0xffe6a0, life: 0.3 });
-            this.texBolt("lightning-arc", e.x, e.y, { h: 11, w: 1.8, color: 0xffffff, life: 0.42 });
+            this.strikeDown(e.x, e.y, 12, 0xffe6a0, 0xff9a2e, { life: 0.42, scale: 1.5 });
             this.texDecal("ground-crack", e.x, e.y, { size: 4.4, life: 1.8, additive: false });
             this.texSprite("electric-splat", e.x, 0.8, e.y, {
               size: 3.2,
@@ -1405,13 +1491,20 @@ export class Fx {
         const remain = (g.detonateAt ?? now) - now;
         if (remain > 0 && remain < 650) {
           const c = this.zonePiece(g.id, () => {
-            const mesh = new THREE.Mesh(this.cometGeo, energyBallMaterial(0xff5a2c)); // shared mat — never disposed here
+            const mesh = new THREE.Mesh(this.cometGeo, this.rockMat); // shared mat — never disposed here
             mesh.scale.setScalar(Math.min(1.4, r * 0.28));
+            mesh.castShadow = true;
+            this.rockMat.setHeading(-5, -17, 2.5); // the descent vector of the arc above
             return { obj: mesh, ownMat: null };
           });
           c.seenAt = now;
           const k = remain / 650; // 1 → far, 0 → impact
           c.obj.position.set(g.x + k * 5, terrainHeight(g.x, g.y) + k * 17, g.y - k * 2.5); // altitude above the impact ground
+          // It tumbles, and the seams heat as it bears down — the impact is
+          // something you watched arrive, not something that just happened.
+          c.obj.rotation.x += 0.055;
+          c.obj.rotation.z += 0.031;
+          this.rockMat.setCharge(1 - k);
           this.trailAt(c.obj.position.x, c.obj.position.y, c.obj.position.z, 0xff8040, 0.8);
           this.trailAt(c.obj.position.x, c.obj.position.y + 0.6, c.obj.position.z, 0x804030, 0.5);
         }
@@ -1934,37 +2027,23 @@ export class Fx {
     });
   }
 
-  /** Vertical crossed-plane bolt (lightning columns). */
-  texBolt(
-    tex: string,
+  /** A bolt out of the sky onto (x,z) — smites, storm calls, spawn strikes. */
+  strikeDown(
     x: number,
     z: number,
-    opts: { h?: number; w?: number; color?: number; life?: number } = {},
+    height: number,
+    color: number,
+    haloColor: number,
+    opts: { life?: number; scale?: number } = {},
   ): void {
-    const { h = 9, w = 2.2, color = 0xffffff, life = 0.32 } = opts;
-    const group = new THREE.Group();
-    const mats: THREE.Material[] = [];
-    for (const ry of [0, Math.PI / 2]) {
-      const mat = new THREE.MeshBasicMaterial({
-        map: fxTex(tex),
-        color,
-        transparent: true,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-      });
-      const m = new THREE.Mesh(this.texQuad, mat);
-      m.scale.set(w, h, 1);
-      m.position.y = h / 2;
-      m.rotation.y = ry;
-      group.add(m);
-      mats.push(mat);
-    }
-    group.position.set(x, terrainHeight(x, z), z);
-    this.texActor(group, mats, life, (k) => {
-      const o = (Math.random() < 0.5 ? 1 : 0.5) * (1 - k);
-      for (const mt of mats) if (mt instanceof THREE.MeshBasicMaterial) mt.opacity = o;
-    });
+    const gy = terrainHeight(x, z);
+    this.boltFrom.set(
+      x + (Math.random() - 0.5) * 1.2,
+      gy + height,
+      z + (Math.random() - 0.5) * 1.2,
+    );
+    this.boltTo.set(x, gy + 0.1, z);
+    this.bolts.strike(this.boltFrom, this.boltTo, { ...opts, color, haloColor });
   }
 
   /** Flipbook sprite (grid sheet) played once (flames, puffs). */
@@ -2014,8 +2093,11 @@ export class Fx {
     } = {},
   ): void {
     const { r = 1.9, color = 0xffffff, life = 1.6, repeat = [3, 2], scrollY = 0 } = opts;
-    const map = fxTex(tex).clone();
-    map.wrapS = map.wrapT = THREE.RepeatWrapping;
+    // Cloned from the WRAPPED variant: only `repeat` differs per shell, and
+    // repeat is not part of three's texture cache key, so the clone rides the
+    // upload the warm pass already did. Flipping wrap on the clone instead
+    // would key a fresh GPU texture and stall on the first cast.
+    const map = fxTex(tex, { wrap: true }).clone();
     map.repeat.set(repeat[0], repeat[1]);
     const mat = new THREE.MeshBasicMaterial({
       map,
@@ -2228,9 +2310,11 @@ export class Fx {
     b.life = b.maxLife = 0.5;
     b.h = h;
     b.r = r;
-    // color carries the gain: stepBeams rewrites opacity every frame, color never
-    b.mat.color.setHex(color).multiplyScalar(1.5 * this.flashGain);
-    b.mat.opacity = 0.8;
+    // A white-hot middle inside a sheath of the effect's own colour — the core
+    // never takes the tint, or the column stops reading as light.
+    b.mat.setColor(0xffffff, color);
+    b.mat.setOpacity(0.8 * this.flashGain);
+    b.mat.reseed();
     b.mesh.position.set(x, terrainHeight(x, y) + (h / BEAM_H) * 3.2, y);
     b.mesh.scale.set(r, h / BEAM_H, r);
     b.mesh.visible = true;
@@ -2247,7 +2331,7 @@ export class Fx {
       const t = b.life / b.maxLife;
       const g = 1 + (1 - t) * 0.6; // grows ~1.6× while it fades
       b.mesh.scale.set(b.r * g, (b.h / BEAM_H) * (1 + (1 - t) * 0.5), b.r * g);
-      b.mat.opacity = 0.8 * t;
+      b.mat.setOpacity(0.8 * t * this.flashGain);
     }
   }
 
@@ -2412,11 +2496,7 @@ export class Fx {
     const c = this.cracks.find((e) => e.life <= 0);
     if (!c) return;
     c.life = c.maxLife = life;
-    const u = c.mat.uniforms;
-    uniformColor(u["uColor"]!).setHex(color);
-    u["uT"]!.value = 0;
-    u["uSeed"]!.value = Math.random() * 40;
-    u["uPulse"]!.value = pulse;
+    c.mat.arm(color, pulse);
     c.mesh.position.set(x, terrainHeight(x, y) + 0.09, y);
     c.mesh.rotation.z = -ang; // plane lies flat (X −90°); −ang maps local +x onto the sim aim
     c.mesh.scale.set(len, wid, 1);
@@ -2431,7 +2511,9 @@ export class Fx {
         c.mesh.visible = false;
         continue;
       }
-      c.mat.uniforms["uT"]!.value = 1 - c.life / c.maxLife;
+      const elapsed = c.maxLife - c.life;
+      // 0.13s to tear fully open, whatever the decal's lifetime is
+      c.mat.step(elapsed / c.maxLife, Math.min(1.15, elapsed / 0.13));
     }
   }
 
@@ -2574,6 +2656,7 @@ export class Fx {
       c.mat.dispose();
     }
     this.spikes.dispose();
+    this.bolts.dispose();
     for (const [, p] of this.zonePieces) {
       this.scene.remove(p.obj);
       p.ownMat?.dispose();
@@ -2584,5 +2667,6 @@ export class Fx {
     this.ringPlane.dispose();
     this.vortexGeo.dispose();
     this.cometGeo.dispose();
+    this.rockMat.dispose();
   }
 }

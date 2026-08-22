@@ -18,6 +18,8 @@ import * as THREE from "three";
 import type { Team } from "../data/config";
 import { terrainHeight } from "../data/terrain";
 import type { GroundEffect } from "../sim/types";
+import { NOISE_GLSL } from "./fx-noise";
+import { fxClock } from "./fx-shaders";
 
 /** Detonate-telegraph durations by effect (ms). Anything else falls back to 1200. */
 export const TELEGRAPH_MS = new Map<string, number>([
@@ -55,6 +57,13 @@ const MAX_DECALS = 8;
 //   uAlpha — interior disc alpha
 //   uPulse — rim band alpha
 //   uColor — interior color · uRim — rim color
+//   uSeed  — per-decal noise offset, so two zones never stamp identically
+//   uStain — 0 for a zone, 1 for residue: swaps the crisp fill for an eroded
+//            stain with a ragged boundary
+//
+// The RIM is deliberately left crisp and un-eroded. It is the only thing
+// telling a player where a hostile zone stops, and breaking its edge to match
+// the interior costs more in readability than it buys in texture.
 const VERT = /* glsl */ `
 varying vec2 vUv;
 void main() {
@@ -67,12 +76,29 @@ uniform vec3 uRim;
 uniform float uFill;
 uniform float uPulse;
 uniform float uAlpha;
+uniform float uTime;
+uniform float uSeed;
+uniform float uStain;
 varying vec2 vUv;
+${NOISE_GLSL}
 void main() {
-  float d = length(vUv * 2.0 - 1.0);
+  vec2 p = vUv * 2.0 - 1.0;
+  float d = length(p);
   if (d > 1.0) discard;
+
+  vec3 np = vec3(p * 2.6, uSeed);
+  float grain = fbm2(np);                       // -1..1, the boundary chew
+  float mottle = 0.72 + 0.28 * fbm2(np * 2.3 + vec3(0.0, 0.0, uTime * 0.08));
+
   float rim = (smoothstep(0.90, 0.955, d) - smoothstep(0.97, 1.0, d)) * uPulse;
-  float interior = step(d, uFill) * uAlpha;
+
+  // The fill edge is a FRONT, not a step: it advances with a chewed, feathered
+  // leading edge, which is what makes a detonation fuse read as something
+  // spreading across the floor rather than a disc being scaled up.
+  float edge = d + grain * 0.07 * mix(0.35, 1.0, uStain);
+  float interior = (1.0 - smoothstep(uFill - 0.08, uFill + 0.015, edge)) * uAlpha;
+  interior *= mix(1.0, mottle, uStain);
+
   float base = (1.0 - d) * 0.10 * max(uPulse, uAlpha);
   float a = rim + interior + base;
   if (a <= 0.004) discard;
@@ -86,6 +112,9 @@ type DecalUniforms = {
   uFill: THREE.IUniform<number>;
   uPulse: THREE.IUniform<number>;
   uAlpha: THREE.IUniform<number>;
+  uTime: THREE.IUniform<number>;
+  uSeed: THREE.IUniform<number>;
+  uStain: THREE.IUniform<number>;
 };
 
 type Decal = {
@@ -113,6 +142,9 @@ export class Telegraphs {
         uFill: { value: 0 },
         uPulse: { value: 0 },
         uAlpha: { value: 0 },
+        uTime: fxClock,
+        uSeed: { value: i * 13.77 },
+        uStain: { value: 0 },
       };
       const mat = new THREE.ShaderMaterial({
         uniforms: uni,
@@ -186,6 +218,7 @@ export class Telegraphs {
     this.place(d, x, y, radius);
     d.uni.uColor.value.setHex(color);
     d.uni.uRim.value.setHex(color);
+    d.uni.uStain.value = 0;
     d.uni.uFill.value = Math.min(1, Math.max(0, fill));
     d.uni.uAlpha.value = 0.24;
     d.uni.uPulse.value =
@@ -204,9 +237,11 @@ export class Telegraphs {
     d.residueLife = life * 1000;
     this.place(d, x, y, r);
     d.uni.uColor.value.setHex(color);
-    d.uni.uFill.value = 1;
+    d.uni.uFill.value = 0;
     d.uni.uPulse.value = 0; // no rim
     d.uni.uAlpha.value = 0.3;
+    d.uni.uStain.value = 1;
+    d.uni.uSeed.value = Math.random() * 50;
   }
 
   /** Step residue fades. `now` = the same ms clock passed to sync (w.now). */
@@ -220,6 +255,10 @@ export class Telegraphs {
         this.release(i);
         continue;
       }
+      // The stain races out to full radius over the opening beat, then fades.
+      // A frost floor or a scorch that arrives already at full size reads as a
+      // sticker; one that spreads reads as the floor being changed.
+      d.uni.uFill.value = Math.min(1, k / 0.18);
       d.uni.uAlpha.value = 0.3 * (1 - k); // linear 0.3 → 0
     }
   }
@@ -251,6 +290,7 @@ export class Telegraphs {
   private styleZone(d: Decal, g: GroundEffect, localTeam: Team, now: number): void {
     const color = groundFxColor(g.effect);
     const hostile = g.team !== localTeam;
+    d.uni.uStain.value = 0;
     d.uni.uColor.value.setHex(color);
     if (hostile) d.uni.uRim.value.setHex(HOSTILE_RIM);
     else d.uni.uRim.value.setHex(color).multiplyScalar(0.45);

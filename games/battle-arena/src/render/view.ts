@@ -230,6 +230,14 @@ export class View {
     // scenery, so the shadow map renders ONCE (refreshShadows() re-arms it).
     // Touch devices skip shadows entirely — biggest single mobile win.
     const coarse = "matchMedia" in window && window.matchMedia("(pointer:coarse)").matches;
+    // Three checks every program's info log as it links, which is a synchronous
+    // stall on the driver — measured at ~200ms of a ~300ms first-cast hitch
+    // (tools/fx-stall.mjs). Worth paying in dev, where a broken shader would
+    // otherwise fail silently; never worth paying in a shipped match.
+    // `?fastshaders` turns it off in dev so the perf harness can measure the
+    // shipped behaviour against a build that still exposes its debug handles.
+    this.renderer.debug.checkShaderErrors =
+      import.meta.env.DEV && !new URLSearchParams(location.search).has("fastshaders");
     this.renderer.shadowMap.enabled = !coarse;
     this.renderer.shadowMap.type = THREE.PCFShadowMap; // + shadow.radius softens
     this.renderer.shadowMap.autoUpdate = false;

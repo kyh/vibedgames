@@ -7,6 +7,7 @@
     "build": "vite build",
     "clean": "rm -rf .turbo dist node_modules",
     "dev": "vite",
+    "fx:shots": "node tools/fx-shots.mjs",
     "preview": "vite preview",
     "test": "tsx tools/verify-timing.mts",
     "typecheck": "tsc --noEmit"
