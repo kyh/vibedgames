@@ -76,25 +76,25 @@ type Fighter = {
   order: number;
 };
 
-const DIR_VECT: Record<Dir, [number, number]> = {
+const DIR_VECT = {
   up: [0, -1],
   down: [0, 1],
   left: [-1, 0],
   right: [1, 0],
-};
+} satisfies Record<Dir, [number, number]>;
 const DIRS: Dir[] = ["up", "down", "left", "right"];
 
 const POWERUP_KINDS: PowerupKind[] = ["bomb", "fire", "speed"];
-const POWERUP_TEX: Record<PowerupKind, string> = {
+const POWERUP_TEX = {
   bomb: "pow-bomb",
   fire: "pow-fire",
   speed: "pow-speed",
-};
-const POWERUP_GLOW: Record<PowerupKind, number> = {
+} satisfies Record<PowerupKind, string>;
+const POWERUP_GLOW = {
   bomb: 0xffe14a,
   fire: 0xff7a2a,
   speed: 0x5db8ff,
-};
+} satisfies Record<PowerupKind, number>;
 
 const MULTIPLAYER_HOST = import.meta.env.DEV
   ? "http://localhost:8787"
@@ -125,8 +125,21 @@ function emptyShared(): SharedState {
   };
 }
 
-function isShared(v: unknown): v is SharedState {
-  return typeof v === "object" && v !== null && "grid" in v && Array.isArray(v.grid);
+/** JSON value as it comes off the wire — multiplayer payloads are JSON.parse output. */
+type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+type JsonObject = { [key: string]: JsonValue };
+/** One field of a wire JSON dictionary — unvalidated until narrowed. */
+type WireField = NonNullable<Player["state"]>[string] | undefined;
+
+// Wire-JSON narrowing helpers. Runtime `typeof` is banned by the lint, so these
+// use typeof-free checks; JSON can only carry finite numbers, so Number.isFinite
+// is the exact number test.
+const isJsonObject = (v: WireField): v is JsonObject =>
+  Object.prototype.toString.call(v) === "[object Object]";
+const isJsonNumber = (v: WireField): v is number => Number.isFinite(v);
+
+function isShared(v: MultiplayerClient["sharedState"]): v is SharedState {
+  return isJsonObject(v) && Array.isArray(v["grid"]);
 }
 
 type PartialPS = { col?: number; row?: number; colorIdx?: number; dir?: Dir; moving?: boolean };
@@ -136,7 +149,7 @@ function readPlayerState(player: Player | undefined): PartialPS {
   if (!s) return {};
   const num = (k: string): number | undefined => {
     const v = s[k];
-    return typeof v === "number" ? v : undefined;
+    return isJsonNumber(v) ? v : undefined;
   };
   const dv = s["dir"];
   const dir: Dir | undefined =
@@ -147,7 +160,7 @@ function readPlayerState(player: Player | undefined): PartialPS {
     row: num("row"),
     colorIdx: num("colorIdx"),
     dir,
-    moving: typeof mv === "boolean" ? mv : undefined,
+    moving: mv === true || mv === false ? mv : undefined,
   };
 }
 
@@ -216,7 +229,7 @@ export class GameScene extends Phaser.Scene {
   /** Stamped on the first update() tick (not create()) — see maybeGoOffline. */
   private bootedAt = 0;
   private offlineShared: SharedState | null = null;
-  private offlineMyState: Record<string, unknown> = {};
+  private offlineMyState: JsonObject = {};
 
   /** Connected to the room, or running the solo offline fallback. */
   private get live(): boolean {
@@ -248,13 +261,13 @@ export class GameScene extends Phaser.Scene {
   }
 
   /** Events loop straight back into the local host when offline. */
-  private netSendEvent(event: string, payload: Record<string, unknown>): void {
+  private netSendEvent(event: string, payload: JsonObject): void {
     if (this.offline) this.handleEvent(event, payload, "solo");
     else this.client.sendEvent(event, payload);
   }
 
   /** Per-player state shallow-merges, mirroring the package's semantics. */
-  private netUpdateMyState(patch: Record<string, unknown>): void {
+  private netUpdateMyState(patch: JsonObject): void {
     this.netDirty = true;
     if (this.offline) Object.assign(this.offlineMyState, patch);
     else this.client.updateMyState(patch);
@@ -351,7 +364,11 @@ export class GameScene extends Phaser.Scene {
         host: MULTIPLAYER_HOST,
         party: "vg-server",
         room: ROOM,
-        onEvent: (event, payload, from) => this.handleEvent(event, payload, from),
+        onEvent: (event, payload, from) => {
+          // SAFETY: wire payloads are JSON.parse output (or loop back from
+          // netSendEvent's JsonObject), so they are JSON values by construction.
+          this.handleEvent(event, payload as JsonValue, from);
+        },
       });
       this.client.subscribe(() => {
         this.netDirty = true;
@@ -623,22 +640,18 @@ export class GameScene extends Phaser.Scene {
 
   // ---- connection callbacks ------------------------------------------------
 
-  private handleEvent(event: string, payload: unknown, from: string): void {
+  private handleEvent(event: string, payload: JsonValue, from: string): void {
     if (event === "round_restart") {
       this.respawnSelf();
       return;
     }
     if (!this.amHost) return;
     if (event === "place_bomb") {
-      if (
-        typeof payload === "object" &&
-        payload !== null &&
-        "col" in payload &&
-        "row" in payload &&
-        typeof payload.col === "number" &&
-        typeof payload.row === "number"
-      ) {
-        this.hostPlaceBomb(from, payload.col, payload.row);
+      const p = isJsonObject(payload) ? payload : null;
+      const col = p?.["col"];
+      const row = p?.["row"];
+      if (isJsonNumber(col) && isJsonNumber(row)) {
+        this.hostPlaceBomb(from, col, row);
       }
     } else if (event === "request_restart") {
       this.writeShared(emptyShared());
@@ -1599,7 +1612,7 @@ function manhattan(c1: number, r1: number, c2: number, r2: number): number {
   return Math.abs(c1 - c2) + Math.abs(r1 - r2);
 }
 
-function structuredCloneBots(bots: Record<string, Bot>): Record<string, Bot> {
+function structuredCloneBots(bots: Record<string, Bot>) {
   const out: Record<string, Bot> = {};
   for (const [id, b] of Object.entries(bots)) out[id] = { ...b };
   return out;
@@ -1630,10 +1643,7 @@ function grantPowerup(stats: PlayerStats, kind: PowerupKind): PlayerStats {
   }
 }
 
-function computeBlastTiles(
-  grid: Cell[][],
-  bomb: Bomb,
-): { tiles: Array<{ col: number; row: number }>; crates: Array<{ col: number; row: number }> } {
+function computeBlastTiles(grid: Cell[][], bomb: Bomb) {
   const tiles: Array<{ col: number; row: number }> = [{ col: bomb.col, row: bomb.row }];
   const crates: Array<{ col: number; row: number }> = [];
   for (const [dc, dr] of [

@@ -326,7 +326,7 @@ float conLine(float d, float w, float px) {
 type Line = {
   readonly half: number;
   readonly pts: readonly (readonly [number, number])[]; // resampled
-  readonly ys: readonly number[]; // deck TOP height per sample
+  readonly ys: number[]; // deck TOP height per sample; co-planarized in place
   readonly ramp: boolean;
   /** cumulative arclength per sample (barrier/lip feathering, dash phase) */
   readonly cum: readonly number[];
@@ -601,7 +601,7 @@ function buildData(terrain: Terrain, network?: RoadNetwork): FreewayBuild {
   // and skirt ridges across the roadway — the braid rides as one surface.
   for (const line of lines) {
     if (!line.ramp) continue;
-    const ys = line.ys as number[];
+    const ys = line.ys;
     let snapped = false;
     for (let i = 0; i < line.pts.length; i++) {
       const [x, z] = line.pts[i] ?? [0, 0];

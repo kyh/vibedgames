@@ -15,13 +15,13 @@ import type { ControlMethod, PauseOverlay } from "@repo/embed";
 import { CONTROLS } from "./controls";
 
 /** Section headers for the grouped control rows, in hub voice. */
-const METHOD_LABELS: Record<ControlMethod, string> = {
+const METHOD_LABELS = {
   keys: "keyboard",
   mouse: "mouse",
   touch: "touch",
   camera: "camera",
   controller: "gamepad",
-};
+} satisfies Record<ControlMethod, string>;
 
 // Pixel-art crescent (12×12 grid, 1em = one moon pixel) drawn entirely with
 // box-shadow squares — no image assets, crisp at any integer scale.

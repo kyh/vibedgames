@@ -255,13 +255,30 @@ void main() {
   gl_FragColor = vec4(color, alpha);
 }`;
 
+/** One pass's uniform block. Named rather than an open dictionary so the
+ *  colour and vector values keep their types all the way to the write site. */
+type BoltUniforms = {
+  uTime: { value: number };
+  uOrigin: { value: THREE.Vector3 };
+  uTarget: { value: THREE.Vector3 };
+  uSeed: { value: number };
+  uFade: { value: number };
+  uProgress: { value: number };
+  uOpacity: { value: number };
+  uWidthScale: { value: number };
+  uGlowPass: { value: number };
+  uCore: { value: THREE.Color };
+  uInner: { value: THREE.Color };
+  uOuter: { value: THREE.Color };
+  uHalo: { value: THREE.Color };
+};
+
+type BoltMesh = THREE.Mesh<THREE.InstancedBufferGeometry, THREE.ShaderMaterial>;
+
 type Bolt = {
-  core: THREE.Mesh;
-  glow: THREE.Mesh;
-  uni: {
-    core: Record<string, THREE.IUniform>;
-    glow: Record<string, THREE.IUniform>;
-  };
+  core: BoltMesh;
+  glow: BoltMesh;
+  uni: { core: BoltUniforms; glow: BoltUniforms };
   life: number;
   maxLife: number;
   strikeTime: number; // seconds the front takes to travel origin → target
@@ -279,6 +296,8 @@ export type BoltOpts = {
 };
 
 const POOL = 4;
+/** Reused by the inner-colour lerp — allocating a Color per strike is churn. */
+const WHITE = new THREE.Color(0xffffff);
 
 /** Pooled lightning bolts. Two draw calls each: a hot core and a wide halo. */
 export class BoltPool {
@@ -288,7 +307,7 @@ export class BoltPool {
   constructor(scene: THREE.Scene, clock: { value: number }) {
     for (let i = 0; i < POOL; i++) {
       const mk = (glowPass: boolean) => {
-        const uni: Record<string, THREE.IUniform> = {
+        const uni: BoltUniforms = {
           uTime: clock,
           uOrigin: { value: new THREE.Vector3() },
           uTarget: { value: new THREE.Vector3() },
@@ -342,20 +361,20 @@ export class BoltPool {
     b.core.visible = true;
     b.glow.visible = true;
     const seed = Math.random() * 100;
-    for (const [pass, uni] of Object.entries(b.uni)) {
-      const isGlow = pass === "glow";
-      (uni.uOrigin?.value as THREE.Vector3).set(from.x, from.y, from.z);
-      (uni.uTarget?.value as THREE.Vector3).set(to.x, to.y, to.z);
-      if (uni.uSeed) uni.uSeed.value = seed;
-      if (uni.uWidthScale) uni.uWidthScale.value = scale * (isGlow ? BOLT.glowWidth : 1);
-      (uni.uOuter?.value as THREE.Color).setHex(color);
-      (uni.uHalo?.value as THREE.Color).setHex(haloColor);
-      (uni.uInner?.value as THREE.Color).setHex(color).lerp(new THREE.Color(0xffffff), 0.6);
+    for (const [uni, widthGain] of [
+      [b.uni.core, 1],
+      [b.uni.glow, BOLT.glowWidth],
+    ] as const) {
+      uni.uOrigin.value.set(from.x, from.y, from.z);
+      uni.uTarget.value.set(to.x, to.y, to.z);
+      uni.uSeed.value = seed;
+      uni.uWidthScale.value = scale * widthGain;
+      uni.uOuter.value.setHex(color);
+      uni.uHalo.value.setHex(haloColor);
+      uni.uInner.value.setHex(color).lerp(WHITE, 0.6);
+      uni.uProgress.value = 0;
     }
     b.strikeTime = opts.strikeTime ?? Math.min(0.09, life * 0.35);
-    for (const uni of [b.uni.core, b.uni.glow]) {
-      if (uni.uProgress) uni.uProgress.value = 0;
-    }
   }
 
   update(dt: number): void {
@@ -373,8 +392,8 @@ export class BoltPool {
       const k = elapsed / b.maxLife;
       const fade = k < 0.45 ? 1 : 1 - (k - 0.45) / 0.55;
       for (const uni of [b.uni.core, b.uni.glow]) {
-        if (uni.uProgress) uni.uProgress.value = front;
-        if (uni.uFade) uni.uFade.value = fade;
+        uni.uProgress.value = front;
+        uni.uFade.value = fade;
       }
     }
   }
@@ -382,7 +401,7 @@ export class BoltPool {
   dispose(): void {
     for (const b of this.bolts) {
       for (const m of [b.core, b.glow]) {
-        (m.material as THREE.Material).dispose();
+        m.material.dispose();
         m.removeFromParent();
       }
     }

@@ -7,10 +7,7 @@ import { join } from "node:path";
  * Tiny tmpdir harness shared between the media test files. Tests
  * register cleanup callbacks; the harness drains them on teardown.
  */
-export function makeCleanups(): {
-  cleanups: (() => void)[];
-  drain: () => void;
-} {
+export function makeCleanups() {
   const cleanups: (() => void)[] = [];
   return {
     cleanups,
@@ -42,7 +39,7 @@ export async function makeTestServer(
   const port: number = await new Promise((r) => {
     server.listen(0, () => {
       const addr = server.address();
-      r(typeof addr === "object" && addr ? addr.port : 0);
+      r(addr instanceof Object ? addr.port : 0);
     });
   });
   cleanups.push(() => server.close());

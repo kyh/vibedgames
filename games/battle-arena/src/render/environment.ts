@@ -41,13 +41,13 @@ import { teamColor } from "./palette";
 /** Standing-tall models scale-to-height (target × decor scale) so they match
  *  the arena pillars; everything else keeps native size × scale. (Exported for
  *  the map editor, which replicates this planting math for pickable props.) */
-export const TALL_TARGET: Record<string, number> = {
-  pillar: 3.8,
-  column: 3.8,
-  pillar_decorated: 3.8,
-  vampire_throne: 2.6,
-  paladin_statue: 2.6,
-};
+export const TALL_TARGET = new Map<string, number>([
+  ["pillar", 3.8],
+  ["column", 3.8],
+  ["pillar_decorated", 3.8],
+  ["vampire_throne", 2.6],
+  ["paladin_statue", 2.6],
+]);
 
 const TAU = Math.PI * 2;
 const WARN_R = 7; // enemy-fountain guard radius (mirrors SPAWN_GUARD_RADIUS)
@@ -214,8 +214,8 @@ export class Environment {
 
     // perimeter architecture (both stories) + partition walls need the extra
     // pieces — load them, build, then re-bake the static shadow map.
-    void this.initArchitecture().catch((err: unknown) => {
-      console.error("[environment] architecture load failed", err);
+    void this.initArchitecture().catch((cause: unknown) => {
+      console.error("[environment] architecture load failed", cause);
     });
   }
 
@@ -365,7 +365,7 @@ export class Environment {
    *  tall models scale-to-height, lie topples 90° on Z, base planted at
    *  terrainHeight − rotated-box min.y, plus the optional `h` lift. */
   private decorMatrix(d: Decor, box: THREE.Box3): THREE.Matrix4 {
-    const tall = d.lie ? undefined : TALL_TARGET[d.model];
+    const tall = d.lie ? undefined : TALL_TARGET.get(d.model);
     const bh = Math.max(0.01, box.max.y - box.min.y);
     const s = tall !== undefined ? (tall * d.scale) / bh : d.scale;
     E_ROT.set(0, d.rot, d.lie ? Math.PI / 2 : 0);
@@ -624,8 +624,7 @@ export class Environment {
     this.add(this.goldMotes);
 
     // ── dust motes (window-shaft dust — the dungeon breathes) ──
-    const coarse =
-      typeof window.matchMedia === "function" && window.matchMedia("(pointer:coarse)").matches;
+    const coarse = "matchMedia" in window && window.matchMedia("(pointer:coarse)").matches;
     if (coarse || window.devicePixelRatio < 1.3) return;
     const MN = 180;
     this.motePos = new Float32Array(MN * 3);
@@ -736,7 +735,8 @@ export class Environment {
     }
     const tile = 4;
     type Cell = [number, number, number, number]; // x, z, y, rotY
-    const cells: Record<"flag" | "worn" | "dirt" | "grate", Cell[]> = {
+    type CellBuckets = { [K in "flag" | "worn" | "dirt" | "grate"]: Cell[] };
+    const cells: CellBuckets = {
       flag: [],
       worn: [],
       dirt: [],
@@ -1245,7 +1245,7 @@ export class Environment {
    *  standing pieces scale-to-height; low/toppled pieces keep native size ×
    *  scale. Both sit on the terrain, plus the optional `h` lift. */
   private placeScaled(d: Decor): THREE.Object3D {
-    const tall = d.lie ? undefined : TALL_TARGET[d.model];
+    const tall = d.lie ? undefined : TALL_TARGET.get(d.model);
     if (tall !== undefined) {
       const obj = this.place(d.model, d.x, d.y, tall * d.scale, d.rot);
       obj.position.y += d.h ?? 0;
@@ -1290,7 +1290,7 @@ export class Environment {
   }
 
   // expose for callers that want the dais center
-  static get throneCenter(): { x: number; y: number; r: number } {
+  static get throneCenter() {
     return { x: BOSS_POS.x, y: BOSS_POS.y, r: ARENA.throne.radius };
   }
 }

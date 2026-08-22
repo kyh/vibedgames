@@ -1,6 +1,11 @@
-import { isGamePausedMessage, isGameStartedMessage, requestGamePause } from "@repo/embed/host";
+import {
+  isGamePausedMessage,
+  isGameStartedMessage,
+  type MessageData,
+  requestGamePause,
+} from "@repo/embed/host";
 import { AnimatePresence, motion } from "motion/react";
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 import { featuredGames, gameUrl } from "@/components/game/data";
 import { useGameParam, usePathname } from "@/lib/use-game-param";
@@ -45,13 +50,17 @@ export const GameChrome = ({ children }: GameChromeProps) => {
     [],
   );
 
-  useEffect(() => {
+  // Navigating to another game (or away from one) re-shows the chrome.
+  const screen = `${pathname}:${game}`;
+  const [shownFor, setShownFor] = useState(screen);
+  if (shownFor !== screen) {
+    setShownFor(screen);
     setHidden(false);
-  }, [game, pathname]);
+  }
 
   useEffect(() => {
     if (!playing) return;
-    const handleMessage = (event: MessageEvent<unknown>) => {
+    const handleMessage = (event: MessageEvent<MessageData>) => {
       const localDevGame =
         event.origin.startsWith("http://localhost:") ||
         event.origin.startsWith("http://127.0.0.1:");
@@ -65,11 +74,11 @@ export const GameChrome = ({ children }: GameChromeProps) => {
     return () => window.removeEventListener("message", handleMessage);
   }, [gameOrigins, playing]);
 
-  const pause = () => {
+  const pause = useCallback(() => {
     const frame = document.querySelector<HTMLIFrameElement>("iframe[title='Game']");
     if (frame?.contentWindow) requestGamePause(frame.contentWindow);
     setHidden(false);
-  };
+  }, []);
 
   // Escape with wrapper focus mirrors Escape inside the game: pause + chrome.
   useEffect(() => {
@@ -79,7 +88,7 @@ export const GameChrome = ({ children }: GameChromeProps) => {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [hidden]);
+  }, [hidden, pause]);
 
   return (
     <GameChromeHiddenContext.Provider value={hidden}>

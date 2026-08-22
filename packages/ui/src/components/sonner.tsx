@@ -22,7 +22,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
         loading: <Loader2Icon className="size-4 animate-spin" />,
       }}
       style={
-        // oxlint-disable-next-line typescript/consistent-type-assertions -- CSS custom properties aren't in the CSSProperties index type
+        // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: only `--*` custom properties, which the DOM style API accepts but the CSSProperties index type omits
         {
           "--normal-bg": "var(--popover)",
           "--normal-text": "var(--popover-foreground)",

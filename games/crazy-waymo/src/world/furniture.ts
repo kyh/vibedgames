@@ -572,48 +572,50 @@ const palmKit = lazyKit(() => {
 // atlas: the baked world drops UVs on procedural geometry, so a textured sign
 // could not survive the bake at all.
 // ---------------------------------------------------------------------------
-const GLYPHS: Readonly<Record<string, readonly [number, number, number, number, number]>> = {
-  A: [0b0110, 0b1001, 0b1111, 0b1001, 0b1001],
-  B: [0b1110, 0b1001, 0b1110, 0b1001, 0b1110],
-  C: [0b0111, 0b1000, 0b1000, 0b1000, 0b0111],
-  D: [0b1110, 0b1001, 0b1001, 0b1001, 0b1110],
-  E: [0b1111, 0b1000, 0b1110, 0b1000, 0b1111],
-  F: [0b1111, 0b1000, 0b1110, 0b1000, 0b1000],
-  G: [0b0111, 0b1000, 0b1011, 0b1001, 0b0111],
-  H: [0b1001, 0b1001, 0b1111, 0b1001, 0b1001],
-  I: [0b1111, 0b0110, 0b0110, 0b0110, 0b1111],
-  J: [0b0011, 0b0001, 0b0001, 0b1001, 0b0110],
-  K: [0b1001, 0b1010, 0b1100, 0b1010, 0b1001],
-  L: [0b1000, 0b1000, 0b1000, 0b1000, 0b1111],
-  M: [0b1001, 0b1111, 0b1111, 0b1001, 0b1001],
-  N: [0b1001, 0b1101, 0b1111, 0b1011, 0b1001],
-  O: [0b0110, 0b1001, 0b1001, 0b1001, 0b0110],
-  P: [0b1110, 0b1001, 0b1110, 0b1000, 0b1000],
-  Q: [0b0110, 0b1001, 0b1001, 0b1011, 0b0111],
-  R: [0b1110, 0b1001, 0b1110, 0b1010, 0b1001],
-  S: [0b0111, 0b1000, 0b0110, 0b0001, 0b1110],
-  T: [0b1111, 0b0110, 0b0110, 0b0110, 0b0110],
-  U: [0b1001, 0b1001, 0b1001, 0b1001, 0b0110],
-  V: [0b1001, 0b1001, 0b1001, 0b0110, 0b0110],
-  W: [0b1001, 0b1001, 0b1111, 0b1111, 0b1001],
-  X: [0b1001, 0b1001, 0b0110, 0b1001, 0b1001],
-  Y: [0b1001, 0b1001, 0b0110, 0b0110, 0b0110],
-  Z: [0b1111, 0b0011, 0b0110, 0b1100, 0b1111],
-  "0": [0b0110, 0b1011, 0b1101, 0b1001, 0b0110],
-  "1": [0b0010, 0b0110, 0b0010, 0b0010, 0b0111],
-  "2": [0b1110, 0b0001, 0b0110, 0b1000, 0b1111],
-  "3": [0b1110, 0b0001, 0b0110, 0b0001, 0b1110],
-  "4": [0b1010, 0b1010, 0b1111, 0b0010, 0b0010],
-  "5": [0b1111, 0b1000, 0b1110, 0b0001, 0b1110],
-  "6": [0b0111, 0b1000, 0b1110, 0b1001, 0b0110],
-  "7": [0b1111, 0b0001, 0b0010, 0b0100, 0b0100],
-  "8": [0b0110, 0b1001, 0b0110, 0b1001, 0b0110],
-  "9": [0b0110, 0b1001, 0b0111, 0b0001, 0b1110],
-  "-": [0b0000, 0b0000, 0b1110, 0b0000, 0b0000],
-  ".": [0b0000, 0b0000, 0b0000, 0b0000, 0b0100],
-  "'": [0b0100, 0b0100, 0b0000, 0b0000, 0b0000],
-  " ": [0, 0, 0, 0, 0],
-};
+const GLYPHS: ReadonlyMap<string, readonly [number, number, number, number, number]> = new Map(
+  Object.entries({
+    A: [0b0110, 0b1001, 0b1111, 0b1001, 0b1001],
+    B: [0b1110, 0b1001, 0b1110, 0b1001, 0b1110],
+    C: [0b0111, 0b1000, 0b1000, 0b1000, 0b0111],
+    D: [0b1110, 0b1001, 0b1001, 0b1001, 0b1110],
+    E: [0b1111, 0b1000, 0b1110, 0b1000, 0b1111],
+    F: [0b1111, 0b1000, 0b1110, 0b1000, 0b1000],
+    G: [0b0111, 0b1000, 0b1011, 0b1001, 0b0111],
+    H: [0b1001, 0b1001, 0b1111, 0b1001, 0b1001],
+    I: [0b1111, 0b0110, 0b0110, 0b0110, 0b1111],
+    J: [0b0011, 0b0001, 0b0001, 0b1001, 0b0110],
+    K: [0b1001, 0b1010, 0b1100, 0b1010, 0b1001],
+    L: [0b1000, 0b1000, 0b1000, 0b1000, 0b1111],
+    M: [0b1001, 0b1111, 0b1111, 0b1001, 0b1001],
+    N: [0b1001, 0b1101, 0b1111, 0b1011, 0b1001],
+    O: [0b0110, 0b1001, 0b1001, 0b1001, 0b0110],
+    P: [0b1110, 0b1001, 0b1110, 0b1000, 0b1000],
+    Q: [0b0110, 0b1001, 0b1001, 0b1011, 0b0111],
+    R: [0b1110, 0b1001, 0b1110, 0b1010, 0b1001],
+    S: [0b0111, 0b1000, 0b0110, 0b0001, 0b1110],
+    T: [0b1111, 0b0110, 0b0110, 0b0110, 0b0110],
+    U: [0b1001, 0b1001, 0b1001, 0b1001, 0b0110],
+    V: [0b1001, 0b1001, 0b1001, 0b0110, 0b0110],
+    W: [0b1001, 0b1001, 0b1111, 0b1111, 0b1001],
+    X: [0b1001, 0b1001, 0b0110, 0b1001, 0b1001],
+    Y: [0b1001, 0b1001, 0b0110, 0b0110, 0b0110],
+    Z: [0b1111, 0b0011, 0b0110, 0b1100, 0b1111],
+    "0": [0b0110, 0b1011, 0b1101, 0b1001, 0b0110],
+    "1": [0b0010, 0b0110, 0b0010, 0b0010, 0b0111],
+    "2": [0b1110, 0b0001, 0b0110, 0b1000, 0b1111],
+    "3": [0b1110, 0b0001, 0b0110, 0b0001, 0b1110],
+    "4": [0b1010, 0b1010, 0b1111, 0b0010, 0b0010],
+    "5": [0b1111, 0b1000, 0b1110, 0b0001, 0b1110],
+    "6": [0b0111, 0b1000, 0b1110, 0b1001, 0b0110],
+    "7": [0b1111, 0b0001, 0b0010, 0b0100, 0b0100],
+    "8": [0b0110, 0b1001, 0b0110, 0b1001, 0b0110],
+    "9": [0b0110, 0b1001, 0b0111, 0b0001, 0b1110],
+    "-": [0b0000, 0b0000, 0b1110, 0b0000, 0b0000],
+    ".": [0b0000, 0b0000, 0b0000, 0b0000, 0b0100],
+    "'": [0b0100, 0b0100, 0b0000, 0b0000, 0b0000],
+    " ": [0, 0, 0, 0, 0],
+  } satisfies Record<string, readonly [number, number, number, number, number]>),
+);
 const GLYPH_PX = 0.075; // world units per font pixel
 const GLYPH_ADVANCE = 5 * GLYPH_PX; // 4-wide cell + 1 gap
 const GLYPH_H = 5 * GLYPH_PX;
@@ -637,7 +639,7 @@ function labelGeo(text: string): THREE.BufferGeometry | null {
   const quads: THREE.BufferGeometry[] = [];
   const m = new THREE.Matrix4();
   for (let c = 0; c < text.length; c++) {
-    const rows = GLYPHS[text.charAt(c)];
+    const rows = GLYPHS.get(text.charAt(c));
     if (!rows) continue;
     const x0 = -w / 2 + c * GLYPH_ADVANCE;
     for (let r = 0; r < 5; r++) {
@@ -679,7 +681,7 @@ function bladeText(street: string): string | null {
     .replace(/ TERRACE$/, " TER");
   t = t.replace(/[^A-Z0-9'. -]/g, "");
   if (t.length === 0 || t.length > 13) return null;
-  for (const ch of t) if (!GLYPHS[ch]) return null;
+  for (const ch of t) if (!GLYPHS.has(ch)) return null;
   return t;
 }
 
@@ -1287,7 +1289,7 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       if (reserved.has(cellKey(gx, gz)) || nearCentre(gx, gz, 3)) continue;
       const side: 1 | -1 = rng.chance(0.5) ? 1 : -1;
       // Diagonal from the lane edge in to the centreline — a chicane.
-      const at = (t: number): { x: number; z: number } => {
+      const at = (t: number) => {
         const p2 = network.sample(edge, s0 + (t - 0.5) * 8);
         const lat = side * (edge.half - 1) * (1 - t);
         return { x: p2.x - p2.tz * lat, z: p2.z + p2.tx * lat };
@@ -2193,28 +2195,30 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
   const STOP_PITCH = 92; // ~3 SF blocks
   // Real route numbers for the corridors a player will recognise. Anything else
   // gets the system mark rather than a made-up number.
-  const ROUTE_FOR: Readonly<Record<string, string>> = {
-    "Market Street": "F",
-    "Mission Street": "14",
-    "Divisadero Street": "24",
-    "Fillmore Street": "22",
-    "Sutter Street": "2",
-    "Sacramento Street": "1",
-    "Clay Street": "1",
-    "Union Street": "45",
-    "Castro Street": "24",
-    "16th Street": "22",
-    "Eddy Street": "31",
-    "3rd Street": "T",
-    "The Embarcadero": "E",
-    "California Street": "1",
-    "Hyde Street": "PH",
-    "Powell Street": "PM",
-    "Mason Street": "PM",
-    "Columbus Avenue": "30",
-    "Van Ness Avenue": "49",
-    "Geary Street": "38",
-  };
+  const ROUTE_FOR: ReadonlyMap<string, string> = new Map(
+    Object.entries({
+      "Market Street": "F",
+      "Mission Street": "14",
+      "Divisadero Street": "24",
+      "Fillmore Street": "22",
+      "Sutter Street": "2",
+      "Sacramento Street": "1",
+      "Clay Street": "1",
+      "Union Street": "45",
+      "Castro Street": "24",
+      "16th Street": "22",
+      "Eddy Street": "31",
+      "3rd Street": "T",
+      "The Embarcadero": "E",
+      "California Street": "1",
+      "Hyde Street": "PH",
+      "Powell Street": "PM",
+      "Mason Street": "PM",
+      "Columbus Avenue": "30",
+      "Van Ness Avenue": "49",
+      "Geary Street": "38",
+    } satisfies Record<string, string>),
+  );
   {
     let shelters = 0;
     let stops = 0;
@@ -2229,7 +2233,7 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
         served.add(edge.id);
         await breathe();
         const street = edgeStreet.get(edge.id) ?? "";
-        const route = ROUTE_FOR[street] ?? "MUNI";
+        const route = ROUTE_FOR.get(street) ?? "MUNI";
         const routeGeo = labelGeo(route);
         kerbWalk(edge, STOP_PITCH, 1.4, (p) => {
           if (stops >= STOP_CAP) return;
@@ -2433,75 +2437,72 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
     | "scaffold";
   // Per-character weights, summed to pick. Downtown is metered and racked,
   // residential is cabinets and bins, wharf is A-boards and planters.
-  const CLUTTER_MIX: Readonly<Record<DistrictChar, ReadonlyArray<readonly [ClutterKind, number]>>> =
-    {
-      downtown: [
-        ["meter", 5],
-        ["news", 3],
-        ["bike", 3],
-        ["scooter", 3],
-        ["cabinet", 2],
-        ["mailbox", 2],
-        ["aboard", 1],
-        ["scaffold", 1],
-      ],
-      highrise: [
-        ["meter", 4],
-        ["news", 2],
-        ["bike", 3],
-        ["scooter", 3],
-        ["cabinet", 3],
-        ["scaffold", 2],
-        ["mailbox", 1],
-      ],
-      commercial: [
-        ["meter", 5],
-        ["aboard", 4],
-        ["news", 3],
-        ["planter", 3],
-        ["bike", 2],
-        ["scooter", 2],
-        ["dumpster", 2],
-        ["mailbox", 1],
-      ],
-      wharf: [
-        ["aboard", 4],
-        ["planter", 4],
-        ["bike", 3],
-        ["news", 2],
-        ["meter", 2],
-        ["dumpster", 1],
-      ],
-      residential: [
-        ["cabinet", 4],
-        ["meter", 3],
-        ["mailbox", 2],
-        ["bike", 2],
-        ["scooter", 1],
-        ["planter", 2],
-        ["dumpster", 1],
-      ],
-      victorian: [
-        ["cabinet", 3],
-        ["meter", 4],
-        ["news", 2],
-        ["mailbox", 2],
-        ["bike", 2],
-        ["scooter", 2],
-        ["planter", 2],
-        ["aboard", 1],
-      ],
-      industrial: [
-        ["dumpster", 5],
-        ["cabinet", 3],
-        ["scaffold", 1],
-      ],
-      park: [],
-    };
+  const CLUTTER_MIX = {
+    downtown: [
+      ["meter", 5],
+      ["news", 3],
+      ["bike", 3],
+      ["scooter", 3],
+      ["cabinet", 2],
+      ["mailbox", 2],
+      ["aboard", 1],
+      ["scaffold", 1],
+    ],
+    highrise: [
+      ["meter", 4],
+      ["news", 2],
+      ["bike", 3],
+      ["scooter", 3],
+      ["cabinet", 3],
+      ["scaffold", 2],
+      ["mailbox", 1],
+    ],
+    commercial: [
+      ["meter", 5],
+      ["aboard", 4],
+      ["news", 3],
+      ["planter", 3],
+      ["bike", 2],
+      ["scooter", 2],
+      ["dumpster", 2],
+      ["mailbox", 1],
+    ],
+    wharf: [
+      ["aboard", 4],
+      ["planter", 4],
+      ["bike", 3],
+      ["news", 2],
+      ["meter", 2],
+      ["dumpster", 1],
+    ],
+    residential: [
+      ["cabinet", 4],
+      ["meter", 3],
+      ["mailbox", 2],
+      ["bike", 2],
+      ["scooter", 1],
+      ["planter", 2],
+      ["dumpster", 1],
+    ],
+    victorian: [
+      ["cabinet", 3],
+      ["meter", 4],
+      ["news", 2],
+      ["mailbox", 2],
+      ["bike", 2],
+      ["scooter", 2],
+      ["planter", 2],
+      ["aboard", 1],
+    ],
+    industrial: [
+      ["dumpster", 5],
+      ["cabinet", 3],
+      ["scaffold", 1],
+    ],
+    park: [],
+  } satisfies Record<DistrictChar, ReadonlyArray<readonly [ClutterKind, number]>>;
   {
-    const parts: Readonly<
-      Record<Exclude<ClutterKind, "planter" | "dumpster">, readonly KitPart[]>
-    > = {
+    const parts = {
       meter: meterKit(),
       news: newsBoxKit(),
       mailbox: mailboxKit(),

@@ -54,7 +54,7 @@ const defaultIgnore = (target: EventTarget | null): boolean =>
   target instanceof Element &&
   target.closest("button, a, input, select, textarea, [data-gamepad-ignore]") !== null;
 
-const placement = (x: number, y: number, r: number): Record<string, string> => ({
+const placement = (x: number, y: number, r: number) => ({
   transform: `translate(${x - r}px, ${y - r}px)`,
   width: `${r * 2}px`,
   height: `${r * 2}px`,

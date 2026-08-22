@@ -273,9 +273,9 @@ async function main() {
     const budget = rendererInfo
       ? Object.entries(RENDER_BUDGETS[tier]).map(([metric, limit]) => ({
           metric,
-          actual: typeof rendererInfo[metric] === "number" ? rendererInfo[metric] : null,
+          actual: Number.isFinite(rendererInfo[metric]) ? rendererInfo[metric] : null,
           limit,
-          ok: typeof rendererInfo[metric] === "number" ? rendererInfo[metric] <= limit : null,
+          ok: Number.isFinite(rendererInfo[metric]) ? rendererInfo[metric] <= limit : null,
         }))
       : null;
 

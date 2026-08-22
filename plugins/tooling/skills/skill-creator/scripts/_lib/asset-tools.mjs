@@ -15,6 +15,14 @@ var crcTable = (() => {
   return table;
 })();
 
+// src/asset/json.ts
+function isJsonString(value) {
+  return String(value) === value;
+}
+function isFiniteJsonNumber(value) {
+  return Number.isFinite(value);
+}
+
 // src/sprite/presets.ts
 var action = (name, defaultFrames, recommendedFrames, fps, timing, loopable, selectionPolicy) => ({
   action: name,
@@ -328,7 +336,7 @@ function checkEmpowerment(body) {
   return { category: "Empowerment", score, feedback };
 }
 function analyzeSkillBody(frontmatter, body) {
-  const description = typeof frontmatter.description === "string" ? frontmatter.description : "";
+  const description = isJsonString(frontmatter.description) ? frontmatter.description : "";
   const categories = [
     description.length > 50 ? { category: "Description", score: 5, feedback: ["\u2705 Comprehensive description"] } : { category: "Description", score: 0, feedback: ["\u274C Description too brief"] },
     checkPhilosophy(body),
@@ -338,7 +346,7 @@ function analyzeSkillBody(frontmatter, body) {
     checkEmpowerment(body)
   ];
   return {
-    name: typeof frontmatter.name === "string" ? frontmatter.name : "unknown",
+    name: isJsonString(frontmatter.name) ? frontmatter.name : "unknown",
     totalScore: categories.reduce((sum, c) => sum + c.score, 0),
     categories
   };
@@ -397,7 +405,7 @@ Common mistakes when [doing this task]:
 Claude is capable of extraordinary work in this domain. These guidelines unlock that potential\u2014they don't constrain it. Use judgment, adapt to context, and push boundaries when appropriate.`
     });
   }
-  const description = typeof frontmatter.description === "string" ? frontmatter.description : "";
+  const description = isJsonString(frontmatter.description) ? frontmatter.description : "";
   if (description.length < 100) {
     suggestions.push({
       category: "Description",
@@ -713,7 +721,7 @@ function validateSkill(skillPath) {
     return { valid: false, message: "Missing 'description' in frontmatter" };
   }
   const rawName = frontmatter.name;
-  if (typeof rawName !== "string") {
+  if (!isJsonString(rawName)) {
     return { valid: false, message: `Name must be a string, got ${typeName(rawName)}` };
   }
   const name = rawName.trim();
@@ -738,7 +746,7 @@ function validateSkill(skillPath) {
     }
   }
   const rawDescription = frontmatter.description;
-  if (typeof rawDescription !== "string") {
+  if (!isJsonString(rawDescription)) {
     return {
       valid: false,
       message: `Description must be a string, got ${typeName(rawDescription)}`
@@ -761,16 +769,10 @@ function validateSkill(skillPath) {
 function typeName(value) {
   if (value === null) return "NoneType";
   if (Array.isArray(value)) return "list";
-  switch (typeof value) {
-    case "string":
-      return "str";
-    case "boolean":
-      return "bool";
-    case "number":
-      return Number.isInteger(value) ? "int" : "float";
-    default:
-      return "dict";
-  }
+  if (isJsonString(value)) return "str";
+  if (value === true || value === false) return "bool";
+  if (isFiniteJsonNumber(value)) return Number.isInteger(value) ? "int" : "float";
+  return "dict";
 }
 
 // src/skill/zip.ts

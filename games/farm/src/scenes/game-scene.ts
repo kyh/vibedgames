@@ -25,6 +25,8 @@ import {
   CLOCK_TICK_HZ,
   FARM_SEED,
 } from "../config";
+import { isJsonNumber, isJsonObject, isJsonString } from "../json";
+import type { JsonValue } from "../json";
 import { NetSession } from "../net/session";
 import { RemoteFarmers } from "../net/remote-farmers";
 import { World, GROUND, inBounds, type WorldObject } from "../world/world";
@@ -80,16 +82,16 @@ type TileIntent = {
   crop?: CropId;
 };
 
-function isCropId(v: unknown): v is CropId {
-  return typeof v === "string" && v in CROPS;
+function isCropId(v: JsonValue | undefined): v is CropId {
+  return isJsonString(v) && v in CROPS;
 }
 
-function parseTileIntent(payload: unknown): TileIntent | null {
-  if (!payload || typeof payload !== "object") return null;
-  const idx = "idx" in payload ? payload.idx : null;
-  const action = "action" in payload ? payload.action : null;
-  const crop = "crop" in payload ? payload.crop : null;
-  if (typeof idx !== "number" || !Number.isInteger(idx) || idx < 0 || idx >= MAP_W * MAP_H) {
+function parseTileIntent(payload: JsonValue): TileIntent | null {
+  if (!isJsonObject(payload)) return null;
+  const idx = payload["idx"];
+  const action = payload["action"];
+  const crop = payload["crop"];
+  if (!isJsonNumber(idx) || !Number.isInteger(idx) || idx < 0 || idx >= MAP_W * MAP_H) {
     return null;
   }
   if (action === "till" || action === "water" || action === "harvest") return { idx, action };
@@ -98,13 +100,13 @@ function parseTileIntent(payload: unknown): TileIntent | null {
   if (action === "plant" && isCropId(crop)) return { idx, action, crop };
   return null;
 }
-const ACTION_TIMING: Record<CharAction, [number, number, number]> = {
+const ACTION_TIMING = {
   dig: [18, 13, 9],
   water: [9, 5, 3],
   axe: [16, 10, 7],
   mine: [16, 10, 7],
   doing: [14, 8, 4],
-};
+} satisfies Record<CharAction, [number, number, number]>;
 
 export class GameScene extends Phaser.Scene {
   world!: World;
@@ -176,7 +178,7 @@ export class GameScene extends Phaser.Scene {
   /** Host actions received while the scene was stopped (host in the mine). */
   private pendingTileIntents: TileIntent[] = [];
   /** Identity of the last-processed shared tiles blob (skip re-scans). */
-  private lastTilesRef: unknown = null;
+  private lastTilesRef: JsonValue | null = null;
   /** Host: authoritative per-tile edits (idx → packed state). */
   private tileEdits = new Map<number, TileEdit>();
   /** Signatures already applied locally, to skip redundant re-renders. */
@@ -423,9 +425,12 @@ export class GameScene extends Phaser.Scene {
     this.keys.I.on("down", () => this.toggleInventory());
     kb.on("keydown-T", () => this.toggleCollisionOverlay());
     // scroll wheel cycles the hotbar selection (documented in the help modal)
-    this.input.on("wheel", (_p: Phaser.Input.Pointer, _o: unknown, _dx: number, dy: number) => {
-      if (!this.uiOpen) store.inv.cycle(Math.sign(dy));
-    });
+    this.input.on(
+      "wheel",
+      (_p: Phaser.Input.Pointer, _o: Phaser.GameObjects.GameObject[], _dx: number, dy: number) => {
+        if (!this.uiOpen) store.inv.cycle(Math.sign(dy));
+      },
+    );
   }
 
   // debug aid (T): tint blocked cells — red solid, blue water/void (fishable)
@@ -636,7 +641,7 @@ export class GameScene extends Phaser.Scene {
     return this.net !== undefined && this.net.live && !this.net.offline;
   }
 
-  private handleNetEvent(event: string, payload: unknown, _from: string): void {
+  private handleNetEvent(event: string, payload: JsonValue, _from: string): void {
     // Host applies a guest's farming action to the authoritative world.
     if (event !== "tile" || !this.amHost) return;
     const intent = parseTileIntent(payload);
@@ -727,7 +732,7 @@ export class GameScene extends Phaser.Scene {
     if (this.amHost) return; // host owns the truth
     const s = this.net?.sharedState;
     const raw = s?.["tiles"];
-    if (!raw || typeof raw !== "object") return;
+    if (!isJsonObject(raw)) return;
     // The blob's identity only changes when a tiles patch arrives — skip the
     // full 60 Hz rescan (hundreds of tiles) in between.
     if (raw === this.lastTilesRef) return;
@@ -736,7 +741,7 @@ export class GameScene extends Phaser.Scene {
       if (!Array.isArray(packed)) continue;
       const idx = Number(key);
       if (!Number.isInteger(idx) || idx < 0 || idx >= MAP_W * MAP_H) continue;
-      const cropRaw: unknown = packed[2];
+      const cropRaw = packed[2];
       const e: TileEdit = {
         t: Number(packed[0]) || 0,
         w: Number(packed[1]) || 0,
@@ -791,15 +796,15 @@ export class GameScene extends Phaser.Scene {
     if (this.amHost) return;
     const s = this.net?.sharedState;
     const c = s?.["clock"];
-    if (!c || typeof c !== "object") return;
-    const time = "time" in c ? c.time : null;
-    const weather = "weather" in c ? c.weather : null;
-    const day = "day" in c ? c.day : null;
-    if (typeof time === "number") this.timeMin = time;
+    if (!isJsonObject(c)) return;
+    const time = c["time"];
+    const weather = c["weather"];
+    const day = c["day"];
+    if (isJsonNumber(time)) this.timeMin = time;
     if (weather === "sunny" || weather === "rain" || weather === "storm" || weather === "snow") {
       this.weather = weather;
     }
-    if (typeof day === "number" && day !== this.day) {
+    if (isJsonNumber(day) && day !== this.day) {
       this.day = day;
       this.events.emit("daybanner", this.day, seasonOfDay(this.day), this.weather);
     }
@@ -1045,10 +1050,10 @@ export class GameScene extends Phaser.Scene {
       this.player.play(key, true);
   }
 
-  feetTile(): { tx: number; ty: number } {
+  feetTile() {
     return { tx: Math.floor(this.player.x / TILE), ty: Math.floor((this.player.y - 1) / TILE) };
   }
-  targetTile(): { tx: number; ty: number } {
+  targetTile() {
     const f = this.feetTile();
     return { tx: f.tx + this.facing.x, ty: f.ty + this.facing.y };
   }
@@ -1669,12 +1674,14 @@ export class GameScene extends Phaser.Scene {
   }
 }
 
-function tintFor(timeMin: number, weather: Weather): { color: number; alpha: number } {
+type NightTint = { color: number; alpha: number };
+
+function tintFor(timeMin: number, weather: Weather): NightTint {
   const lerp = (a: number, b: number, t: number) => a + (b - a) * Phaser.Math.Clamp(t, 0, 1);
   // weather darkens the day a touch
   const wx = weather === "storm" ? 0.22 : weather === "rain" ? 0.12 : weather === "snow" ? 0.08 : 0;
   const wcol = isWet(weather) ? 0x2a3550 : 0x9fb6d8;
-  let base: { color: number; alpha: number };
+  let base: NightTint;
   if (timeMin < 9 * 60)
     base = { color: 0xffe2a8, alpha: lerp(0.16, 0, (timeMin - DAY_START_MIN) / (3 * 60)) };
   else if (timeMin < 17 * 60) base = { color: 0xffffff, alpha: 0 };

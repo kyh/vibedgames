@@ -1,7 +1,7 @@
 import consola from "consola";
 
-import type { createClient } from "./api.js";
-import { isRecord } from "./types.js";
+import { forwardJson, type createClient } from "./api.js";
+import { isJsonNumber, isJsonObject, isJsonString, type JsonValue } from "./types.js";
 
 type Client = ReturnType<typeof createClient>;
 
@@ -32,7 +32,7 @@ const POLL_TIMEOUT_MS = 30 * 60 * 1000;
 
 type CompletedResult = {
   request_id: string;
-  result: unknown;
+  result: JsonValue;
 };
 
 /**
@@ -58,17 +58,17 @@ export async function waitForCompletion(
           `Use \`vg generate status ${endpoint_id} ${request_id} --result\` to check later.`,
       );
     }
-    const raw = await client.generate.forward.mutate({
+    const raw = await forwardJson(client, {
       target: "queue",
       method: "GET",
       path: `/${ep}/requests/${request_id}/status`,
     });
-    const status = isRecord(raw) && typeof raw.status === "string" ? raw.status : "UNKNOWN";
+    const status = isJsonObject(raw) && isJsonString(raw.status) ? raw.status : "UNKNOWN";
     const upper = status.toUpperCase();
     if (!opts.quiet && upper !== lastStatus) {
       lastStatus = upper;
       const queuePos =
-        isRecord(raw) && typeof raw.queue_position === "number" ? raw.queue_position : null;
+        isJsonObject(raw) && isJsonNumber(raw.queue_position) ? raw.queue_position : null;
       const tag =
         queuePos !== null ? `${upper.toLowerCase()} (queue ${queuePos})` : upper.toLowerCase();
       consola.log(`  ${tag}`);
@@ -83,7 +83,7 @@ export async function waitForCompletion(
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
 
-  const result = await client.generate.forward.mutate({
+  const result = await forwardJson(client, {
     target: "queue",
     method: "GET",
     path: `/${ep}/requests/${request_id}`,
@@ -91,11 +91,11 @@ export async function waitForCompletion(
   return { request_id, result };
 }
 
-function pickErrorReason(value: unknown): string | null {
-  if (!isRecord(value)) return null;
-  if (typeof value.error === "string" && value.error.length > 0) return value.error;
-  if (typeof value.detail === "string" && value.detail.length > 0) return value.detail;
-  if (isRecord(value.error) && typeof value.error.message === "string") return value.error.message;
-  if (isRecord(value.response)) return pickErrorReason(value.response);
+function pickErrorReason(value: JsonValue): string | null {
+  if (!isJsonObject(value)) return null;
+  if (isJsonString(value.error) && value.error.length > 0) return value.error;
+  if (isJsonString(value.detail) && value.detail.length > 0) return value.detail;
+  if (isJsonObject(value.error) && isJsonString(value.error.message)) return value.error.message;
+  if (isJsonObject(value.response)) return pickErrorReason(value.response);
   return null;
 }

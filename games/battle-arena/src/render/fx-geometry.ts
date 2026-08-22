@@ -258,7 +258,6 @@ export function createRockGeometry({
   const base = new THREE.IcosahedronGeometry(1, clamp(Math.round(detail), 0, 3));
   const geometry = base.index ? base.toNonIndexed() : base;
   const posAttr = geometry.getAttribute("position");
-  const array = posAttr.array as Float32Array;
 
   /** A deterministic point on the unit sphere. */
   const direction = (a: number, b: number) => {
@@ -289,11 +288,11 @@ export function createRockGeometry({
     });
   }
 
-  for (let i = 0; i < array.length; i += 3) {
+  for (let v = 0; v < posAttr.count; v++) {
     // IcosahedronGeometry(1) hands us unit-length vertices already.
-    const x = array[i] ?? 0;
-    const y = array[i + 1] ?? 0;
-    const z = array[i + 2] ?? 0;
+    const x = posAttr.getX(v);
+    const y = posAttr.getY(v);
+    const z = posAttr.getZ(v);
 
     let radius = 1;
     radius += fbmValue(x * noiseScale, y * noiseScale, z * noiseScale, seed, 3) * lumpiness;
@@ -325,9 +324,7 @@ export function createRockGeometry({
       pz -= plane.z * over;
     }
 
-    array[i] = px;
-    array[i + 1] = py;
-    array[i + 2] = pz;
+    posAttr.setXYZ(v, px, py, pz);
   }
 
   posAttr.needsUpdate = true;

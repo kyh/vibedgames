@@ -1,6 +1,13 @@
 import type { CustomProp } from "./custom-props";
 import { CUSTOM_PROPS } from "./custom-props";
 import type { FloorKind } from "./custom-map";
+import {
+  isFiniteJsonNumber,
+  isJsonObject,
+  isJsonString,
+  type JsonValue,
+  parseJsonText,
+} from "../shared/json";
 
 // One-file map format (battle-arena style): streets + floors + props in a
 // single versioned JSON. The editor SAVEs it as a download; the game builds
@@ -24,54 +31,48 @@ export function getRuntimeMap(): MapFile | null {
   return runtimeMap;
 }
 
-const FLOOR_KINDS = new Set(["plaza", "grass", "sand"]);
+function floorKindOf(v: JsonValue | undefined): FloorKind | null {
+  return v === "plaza" || v === "grass" || v === "sand" ? v : null;
+}
 
-function pairList(v: unknown): [number, number][] {
+function pairList(v: JsonValue | undefined): [number, number][] {
   if (!Array.isArray(v)) return [];
   const out: [number, number][] = [];
   for (const p of v) {
-    if (Array.isArray(p) && typeof p[0] === "number" && typeof p[1] === "number") {
+    if (Array.isArray(p) && isFiniteJsonNumber(p[0]) && isFiniteJsonNumber(p[1])) {
       out.push([p[0], p[1]]);
     }
   }
   return out;
 }
 
-export function parseMapFile(raw: unknown): MapFile | null {
-  if (typeof raw !== "object" || raw === null) return null;
-  const o = raw as Record<string, unknown>;
-  if (o.version !== 1) return null;
-  const streets = (o.streets ?? {}) as Record<string, unknown>;
+export function parseMapFile(raw: JsonValue): MapFile | null {
+  if (!isJsonObject(raw)) return null;
+  if (raw.version !== 1) return null;
+  const streets = isJsonObject(raw.streets) ? raw.streets : {};
   const floor: [number, number, FloorKind][] = [];
-  if (Array.isArray(o.floor)) {
-    for (const f of o.floor) {
-      if (
-        Array.isArray(f) &&
-        typeof f[0] === "number" &&
-        typeof f[1] === "number" &&
-        typeof f[2] === "string" &&
-        FLOOR_KINDS.has(f[2])
-      ) {
-        floor.push([f[0], f[1], f[2] as FloorKind]);
-      }
+  if (Array.isArray(raw.floor)) {
+    for (const f of raw.floor) {
+      if (!Array.isArray(f) || !isFiniteJsonNumber(f[0]) || !isFiniteJsonNumber(f[1])) continue;
+      const kind = floorKindOf(f[2]);
+      if (kind !== null) floor.push([f[0], f[1], kind]);
     }
   }
   const props: CustomProp[] = [];
-  if (Array.isArray(o.props)) {
-    for (const p of o.props) {
-      if (typeof p !== "object" || p === null) continue;
-      const q = p as Record<string, unknown>;
-      if (typeof q.model !== "string" || typeof q.u !== "number" || typeof q.v !== "number") {
+  if (Array.isArray(raw.props)) {
+    for (const q of raw.props) {
+      if (!isJsonObject(q)) continue;
+      if (!isJsonString(q.model) || !isFiniteJsonNumber(q.u) || !isFiniteJsonNumber(q.v)) {
         continue;
       }
-      props.push({
+      const prop: CustomProp = {
         model: q.model,
         u: q.u,
         v: q.v,
-        yaw: typeof q.yaw === "number" ? q.yaw : 0,
-        s: typeof q.s === "number" ? q.s : 1,
-        ...(q.solid === true ? { solid: true } : {}),
-      });
+        yaw: isFiniteJsonNumber(q.yaw) ? q.yaw : 0,
+        s: isFiniteJsonNumber(q.s) ? q.s : 1,
+      };
+      props.push(q.solid === true ? { ...prop, solid: true } : prop);
     }
   }
   return {
@@ -79,7 +80,7 @@ export function parseMapFile(raw: unknown): MapFile | null {
     streets: { add: pairList(streets.add), remove: pairList(streets.remove) },
     floor,
     props,
-    clear: pairList(o.clear),
+    clear: pairList(raw.clear),
   };
 }
 
@@ -90,7 +91,7 @@ export function loadLocalProps(): CustomProp[] {
   try {
     const raw = localStorage.getItem(PROPS_KEY);
     if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
+    const parsed = parseJsonText(raw);
     const m = parseMapFile({ version: 1, streets: {}, floor: [], props: parsed });
     return m ? m.props : [];
   } catch {

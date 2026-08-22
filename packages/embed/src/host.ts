@@ -10,7 +10,7 @@ export {
   isGamePausedMessage,
   isGameStartedMessage,
 } from "./protocol";
-export type { GamePausedMessage, GameStartedMessage } from "./protocol";
+export type { GamePausedMessage, GameStartedMessage, MessageData } from "./protocol";
 
 /** Ask the embedded game to pause (it shows its own pause overlay). */
 export function requestGamePause(game: Window, targetOrigin = "*"): void {

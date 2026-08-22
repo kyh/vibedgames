@@ -229,10 +229,9 @@ export class View {
     // STATIC shadows: characters use blob shadows and every real caster is
     // scenery, so the shadow map renders ONCE (refreshShadows() re-arms it).
     // Touch devices skip shadows entirely — biggest single mobile win.
-    const coarse =
-      typeof window.matchMedia === "function" && window.matchMedia("(pointer:coarse)").matches;
+    const coarse = "matchMedia" in window && window.matchMedia("(pointer:coarse)").matches;
     // Three checks every program's info log as it links, which is a synchronous
-    // stall on the driver — measured at ~220ms of a ~300ms first-cast hitch
+    // stall on the driver — measured at ~200ms of a ~300ms first-cast hitch
     // (tools/fx-stall.mjs). Worth paying in dev, where a broken shader would
     // otherwise fail silently; never worth paying in a shipped match.
     // `?fastshaders` turns it off in dev so the perf harness can measure the
@@ -671,11 +670,13 @@ export class View {
 
   /** Pulse the throne aura + glow column. */
   tickAura(t: number): void {
+    // SAFETY: buildArena creates the aura mesh with a MeshBasicMaterial.
     const m = this.throneAura.material as THREE.MeshBasicMaterial;
     m.opacity = 0.35 + Math.sin(t * 2) * 0.15;
     if (this.throneColumn) {
       // faint breathing beacon — against the dark two-story backdrop anything
       // past ~0.05 reads as a giant ghost column over the throne
+      // SAFETY: the column mesh is created above with a MeshBasicMaterial.
       (this.throneColumn.material as THREE.MeshBasicMaterial).opacity =
         0.022 + Math.abs(Math.sin(t * 1.5)) * 0.022;
     }
@@ -686,8 +687,7 @@ export class View {
   private buildComposer(): void {
     const w = window.innerWidth;
     const h = window.innerHeight;
-    const coarse =
-      typeof window.matchMedia === "function" && window.matchMedia("(pointer:coarse)").matches;
+    const coarse = "matchMedia" in window && window.matchMedia("(pointer:coarse)").matches;
     this.quality = !coarse && this.prNow >= 1.5 ? "high" : "low";
 
     this.composer = new EffectComposer(this.renderer); // HalfFloat HDR targets
@@ -751,7 +751,7 @@ export class View {
    *  perspective divide would otherwise mirror to a wrong on-screen position). */
   /** Sim-plane (x, y) at height `h` → screen px. `h` defaults to chest height;
    *  floating damage numbers pass their own, since they arc through the air. */
-  worldToScreen(x: number, y: number, h = 1.4): { x: number; y: number; visible: boolean } {
+  worldToScreen(x: number, y: number, h = 1.4) {
     const p = this.scratchA.set(x, h, y);
     this.camera.getWorldDirection(this.scratchFwd);
     const toP = this.scratchB.copy(p).sub(this.camera.position);

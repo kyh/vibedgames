@@ -139,9 +139,11 @@ function decompressLimited(data: Uint8Array, limitBytes: number): Uint8Array {
         finishFlush: zlibConstants.Z_SYNC_FLUSH,
       }),
     );
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ERR_BUFFER_TOO_LARGE") throw tooLarge();
-    throw error;
+  } catch (cause) {
+    if (cause instanceof Error && "code" in cause && cause.code === "ERR_BUFFER_TOO_LARGE") {
+      throw tooLarge();
+    }
+    throw cause;
   }
   if (out.length > limitBytes) throw tooLarge();
   return out;
@@ -232,7 +234,7 @@ export type PropertyValue =
   | PropertyValue[]
   | { [key: string]: PropertyValue };
 
-function parsePropertiesMap(r: Reader): Record<string, PropertyValue> {
+function parsePropertiesMap(r: Reader) {
   const count = r.u32();
   const props: Record<string, PropertyValue> = {};
   for (let i = 0; i < count; i += 1) {
@@ -348,16 +350,47 @@ export type AsepriteCel = {
   opacity: number;
   celType: number;
   zIndex: number;
-  [key: string]: unknown;
+  w?: number;
+  h?: number;
+  rawBytes?: number;
+  linkFrame?: number;
+  compressedBytes?: number;
+  decodedBounds?: Bounds | null;
+  wTiles?: number;
+  hTiles?: number;
+  bitsPerTile?: number;
+  idMask?: number;
+  xFlipMask?: number;
+  yFlipMask?: number;
+  dFlipMask?: number;
+  decodedTilemapSummary?: { nonZeroUniqueTileIds: number; flippedTiles: number };
+  unparsedBytes?: number;
 };
 
-export type FrameChunk = {
-  type: "cel" | "celExtra";
-  data: Record<string, unknown>;
-  userData?: UserData;
+export type CelExtra = {
+  flags: number;
+  precise: { x: number; y: number; w: number; h: number };
 };
 
-export type ChunkSummary = { type: number; size: number; parsed?: Record<string, unknown> };
+export type FrameChunk =
+  | { type: "cel"; data: AsepriteCel; userData?: UserData }
+  | { type: "celExtra"; data: CelExtra; userData?: UserData };
+
+export type UserDataAttachment = { kind: string | null; index: number | null };
+
+export type ChunkParsedSummary =
+  | { layerIndex: number; name: string }
+  | { layerIndex: number; celType: number }
+  | { flags: number }
+  | { type: number }
+  | { entries: number }
+  | { tags: number }
+  | { changedCount: number }
+  | { attachedTo: UserDataAttachment }
+  | { id: number; name: string }
+  | { name: string; keys: number };
+
+export type ChunkSummary = { type: number; size: number; parsed?: ChunkParsedSummary };
 
 export type AsepriteFrame = {
   bytesInFrame: number;
@@ -366,20 +399,80 @@ export type AsepriteFrame = {
   chunkSummaries?: ChunkSummary[];
 };
 
+export type AsepriteHeader = {
+  fileSize: number;
+  frames: number;
+  width: number;
+  height: number;
+  colorDepthBpp: number;
+  flags: number;
+  speedDeprecatedMs: number;
+  transparentIndex: number;
+  numColors: number;
+  pixelRatio: { w: number; h: number };
+  grid: { x: number; y: number; w: number; h: number };
+};
+
+export type AsepriteSliceKey = {
+  frame: number;
+  bounds: Bounds;
+  center?: Bounds;
+  pivot?: { x: number; y: number };
+};
+
+export type AsepriteSlice = { name: string; flags: number; keys: AsepriteSliceKey[] };
+
+export type AsepriteTileset = {
+  id: number;
+  flags: number;
+  numTiles: number;
+  tileW: number;
+  tileH: number;
+  baseIndex: number;
+  name: string;
+  external?: { fileId: number; tilesetId: number };
+  embeddedImageCompressedBytes?: number;
+};
+
+export type AsepriteExternalFile = { id: number; type: number; name: string };
+
+export type PaletteEntryPreview = { rgba: number[]; name?: string };
+
+export type AsepritePalette = {
+  paletteSize: number;
+  first: number;
+  last: number;
+  entriesPreview: PaletteEntryPreview[];
+  entriesPreviewCount: number;
+  changedCount: number;
+};
+
+export type AsepriteColorProfile = {
+  type: number;
+  flags: number;
+  gamma: number;
+  iccBytes: number;
+};
+
 export type AsepriteInspection = {
   path: string;
-  header: Record<string, unknown>;
+  header: AsepriteHeader;
   timeline: { frameMs: number[]; totalMs: number };
   layers: AsepriteLayer[];
   tags: AsepriteTag[];
-  slices: Record<string, unknown>[];
-  tilesets: Record<string, unknown>[];
-  externalFiles: Record<string, unknown>[];
-  palettes: Record<string, unknown>[];
-  colorProfile: Record<string, unknown> | null;
+  slices: AsepriteSlice[];
+  tilesets: AsepriteTileset[];
+  externalFiles: AsepriteExternalFile[];
+  palettes: AsepritePalette[];
+  colorProfile: AsepriteColorProfile | null;
   frames: AsepriteFrame[];
   unknownChunks: { type: number; size: number }[];
-  notes: Record<string, unknown>;
+  notes: {
+    specExtensions: string[];
+    commonTypos: string[];
+    decodeCels: boolean;
+    indexedTransparency: { transparentIndex: number; treatIndex0Transparent: boolean };
+  };
 };
 
 export type InspectOptions = {
@@ -460,11 +553,11 @@ export function inspectAseprite(
 
   const layers: AsepriteLayer[] = [];
   const tags: AsepriteTag[] = [];
-  const slices: Record<string, unknown>[] = [];
-  const tilesets: Record<string, unknown>[] = [];
-  const palettes: Record<string, unknown>[] = [];
-  const externalFiles: Record<string, unknown>[] = [];
-  let colorProfile: Record<string, unknown> | null = null;
+  const slices: AsepriteSlice[] = [];
+  const tilesets: AsepriteTileset[] = [];
+  const palettes: AsepritePalette[] = [];
+  const externalFiles: AsepriteExternalFile[] = [];
+  let colorProfile: AsepriteColorProfile | null = null;
   const unknownChunks: { type: number; size: number }[] = [];
   const framesOut: AsepriteFrame[] = [];
 
@@ -548,7 +641,7 @@ export function inspectAseprite(
         const zIndex = r.s16();
         r.take(5);
 
-        const cel: Record<string, unknown> = {
+        const cel: AsepriteCel = {
           layerIndex,
           x,
           y,
@@ -712,14 +805,14 @@ export function inspectAseprite(
         const last = r.u32();
         r.take(8);
         const count = last >= first ? last - first + 1 : 0;
-        const entriesPreview: Record<string, unknown>[] = [];
+        const entriesPreview: PaletteEntryPreview[] = [];
         for (let i = 0; i < count; i += 1) {
           const entryFlags = r.u16();
           const rgba = [...r.take(4)];
           // A named entry must be consumed whether or not it is previewed.
           const name = entryFlags & 1 ? r.string() : null;
           if (i < paletteEntries) {
-            const entry: Record<string, unknown> = { rgba };
+            const entry: PaletteEntryPreview = { rgba };
             if (name !== null) entry.name = name;
             entriesPreview.push(entry);
           }
@@ -750,7 +843,7 @@ export function inspectAseprite(
           ud.properties = { declaredBytes: totalSize, maps: propsMaps };
         }
 
-        let attached: { kind: string | null; index: number | null } = { kind: null, index: null };
+        let attached: UserDataAttachment = { kind: null, index: null };
         if (pendingTagUserData.length > 0) {
           const tagIndex = pendingTagUserData.shift()!;
           tags[tagIndex]!.userData = ud;
@@ -768,14 +861,14 @@ export function inspectAseprite(
         const sflags = r.u32();
         r.u32(); // reserved
         const name = r.string();
-        const keys: Record<string, unknown>[] = [];
+        const keys: AsepriteSliceKey[] = [];
         for (let i = 0; i < n; i += 1) {
           const frameNumber = r.u32();
           const sx = r.s32();
           const sy = r.s32();
           const sw = r.u32();
           const sh = r.u32();
-          const sliceKey: Record<string, unknown> = {
+          const sliceKey: AsepriteSliceKey = {
             frame: frameNumber,
             bounds: { x: sx, y: sy, w: sw, h: sh },
           };
@@ -801,7 +894,7 @@ export function inspectAseprite(
         const baseIndex = r.s16();
         r.take(14);
         const name = r.string();
-        const ts: Record<string, unknown> = {
+        const ts: AsepriteTileset = {
           id: tsId,
           flags: tsFlags,
           numTiles,
@@ -840,9 +933,8 @@ export function inspectAseprite(
         if (chunk.type !== "cel") continue;
         const cel = chunk.data;
         if (cel.celType !== 1) continue;
-        const targetFrame = typeof cel.linkFrame === "number" ? cel.linkFrame : -1;
-        const layerIndex = cel.layerIndex as number;
-        const k = key(targetFrame, layerIndex);
+        const targetFrame = cel.linkFrame ?? -1;
+        const k = key(targetFrame, cel.layerIndex);
         if (decodedCelBounds.has(k)) {
           cel.decodedBounds = decodedCelBounds.get(k)!;
           const dims = decodedCelDims.get(k);

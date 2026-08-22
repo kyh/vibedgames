@@ -3,6 +3,14 @@ import { dirname, isAbsolute, resolve } from "node:path";
 
 import { drawDigits, drawLine, fillRect, strokeRect } from "../image/draw.js";
 import { Bitmap, type RGBA, readImageSize } from "../image/raster.js";
+import {
+  isFiniteJsonNumber,
+  isJsonObject,
+  isJsonString,
+  type JsonObject,
+  type JsonValue,
+  parseJsonText,
+} from "./json.js";
 
 /**
  * Headless tileset and tilemap exports, ported from the export half of
@@ -35,32 +43,34 @@ export const MANIFEST_JSON_CANDIDATES = [
   "assets/asset_index.json",
 ];
 
-type Json = Record<string, unknown>;
+/** A tileset entry that passed sanitizing: definitely has a string `path`. */
+export type TilesetEntry = { [key: string]: JsonValue; path: string };
 
 /** Coerce a manifest number the way the Python `_int` helper did. */
-function asInt(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) ? Math.trunc(value) : fallback;
+function asInt(value: JsonValue | undefined, fallback: number): number {
+  return isFiniteJsonNumber(value) ? Math.trunc(value) : fallback;
 }
 
-export function loadManifestJson(path: string): Json {
-  const payload: unknown = JSON.parse(readFileSync(path, "utf8"));
-  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+export function loadManifestJson(path: string): JsonObject {
+  const payload = parseJsonText(readFileSync(path, "utf8"));
+  if (!isJsonObject(payload)) {
     throw new Error("Manifest JSON must be an object at top-level.");
   }
-  return payload as Json;
+  return payload;
 }
 
 /** Tilesets that are usable: an object with a string `path`. */
-export function sanitizeTilesets(manifest: Json): Record<string, Json> {
+export function sanitizeTilesets(manifest: JsonObject) {
   const tilesets = manifest.tilesets;
-  if (tilesets === null || typeof tilesets !== "object" || Array.isArray(tilesets)) {
+  if (!isJsonObject(tilesets)) {
     throw new Error("Manifest missing `tilesets` object.");
   }
-  const out: Record<string, Json> = {};
-  for (const [name, entry] of Object.entries(tilesets as Json)) {
-    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) continue;
-    if (typeof (entry as Json).path !== "string") continue;
-    out[name] = entry as Json;
+  const out: Record<string, TilesetEntry> = {};
+  for (const [name, entry] of Object.entries(tilesets)) {
+    if (!isJsonObject(entry)) continue;
+    const path = entry.path;
+    if (!isJsonString(path)) continue;
+    out[name] = { ...entry, path };
   }
   if (Object.keys(out).length === 0) {
     throw new Error("Manifest has no usable tilesets (each needs a string `path`).");
@@ -73,13 +83,10 @@ export function sanitizeTilesets(manifest: Json): Record<string, Json> {
  * folder, then the cwd — first hit wins, and the `meta.root` candidate is the
  * fallback when nothing exists so the error names the expected location.
  */
-function resolveAssetPath(manifestPath: string, manifest: Json, rel: string): string {
+function resolveAssetPath(manifestPath: string, manifest: JsonObject, rel: string): string {
   const manifestDir = resolve(dirname(manifestPath));
   const meta = manifest.meta;
-  const root =
-    meta !== null && typeof meta === "object" && typeof (meta as Json).root === "string"
-      ? ((meta as Json).root as string)
-      : null;
+  const root = isJsonObject(meta) && isJsonString(meta.root) ? meta.root : null;
   const base = root === null ? manifestDir : resolve(manifestDir, root);
 
   if (isAbsolute(rel)) return resolve(rel);
@@ -89,14 +96,14 @@ function resolveAssetPath(manifestPath: string, manifest: Json, rel: string): st
 
 export function tilesetMetaFromManifest(
   manifestPath: string,
-  manifest: Json,
+  manifest: JsonObject,
   name: string,
 ): TilesetMeta {
   const tilesets = sanitizeTilesets(manifest);
   const entry = tilesets[name];
   if (!entry) throw new Error(`Tileset not found in manifest: ${name}`);
 
-  const path = resolveAssetPath(manifestPath, manifest, entry.path as string);
+  const path = resolveAssetPath(manifestPath, manifest, entry.path);
   if (!existsSync(path)) throw new Error(`Tileset file not found: ${path}`);
 
   const tileW = asInt(entry.tileWidth ?? entry.tileW, 16);
@@ -222,7 +229,7 @@ export function exportMapRender(
   meta: TilesetMeta,
   outPath: string,
   options: {
-    mapPayload: Json;
+    mapPayload: JsonObject;
     scale: number;
     background: RGBA | null;
     fills: FillRect[];
@@ -234,9 +241,8 @@ export function exportMapRender(
   if (!Array.isArray(data)) throw new Error("Map JSON must have `data` as a 2D array.");
 
   const mapMeta = options.mapPayload.meta;
-  const hasMeta = mapMeta !== null && typeof mapMeta === "object" && !Array.isArray(mapMeta);
-  let width = hasMeta ? asInt((mapMeta as Json).width, 0) : 0;
-  let height = hasMeta ? asInt((mapMeta as Json).height, 0) : 0;
+  let width = isJsonObject(mapMeta) ? asInt(mapMeta.width, 0) : 0;
+  let height = isJsonObject(mapMeta) ? asInt(mapMeta.height, 0) : 0;
   if (width <= 0) {
     width = data.reduce<number>(
       (max, row) => (Array.isArray(row) ? Math.max(max, row.length) : max),
@@ -315,15 +321,15 @@ export function newMap(width: number, height: number): number[][] {
  * non-numbers; rather than reject it, pad and truncate to the declared size so
  * the file stays openable and the damage is visible on screen.
  */
-export function normalizeMapData(data: unknown, width: number, height: number): number[][] {
+export function normalizeMapData(data: JsonValue, width: number, height: number): number[][] {
   const rows = Array.isArray(data) ? data : [];
   const out = newMap(width, height);
   for (let y = 0; y < height; y += 1) {
-    const row: unknown = rows[y];
+    const row = rows[y];
     if (!Array.isArray(row)) continue;
     for (let x = 0; x < width; x += 1) {
-      const cell: unknown = row[x];
-      out[y]![x] = typeof cell === "number" && Number.isFinite(cell) ? Math.trunc(cell) : 0;
+      const cell = row[x];
+      out[y]![x] = isFiniteJsonNumber(cell) ? Math.trunc(cell) : 0;
     }
   }
   return out;
@@ -355,32 +361,22 @@ export function tilemapPayload(
  * `tileset` is passed through when the file names one, so the editor can
  * follow a map back to the tileset it was drawn with.
  */
-export function parseTilemap(
-  payload: unknown,
-  fallback: { width: number; height: number },
-): { width: number; height: number; data: number[][]; tileset: string | null } {
-  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+export function parseTilemap(payload: JsonValue, fallback: { width: number; height: number }) {
+  if (!isJsonObject(payload)) {
     throw new Error("Map JSON must be an object.");
   }
-  const doc = payload as Json;
-  const meta = doc.meta;
-  if (
-    meta === null ||
-    typeof meta !== "object" ||
-    Array.isArray(meta) ||
-    !Array.isArray(doc.data)
-  ) {
+  const meta = payload.meta;
+  if (!isJsonObject(meta) || !Array.isArray(payload.data)) {
     throw new Error("Map JSON must have a `meta` object and a `data` array.");
   }
-  const metaObj = meta as Json;
   const clamp = (value: number) => Math.max(MAP_MIN, Math.min(MAP_MAX, value));
-  const width = clamp(asInt(metaObj.width, fallback.width));
-  const height = clamp(asInt(metaObj.height, fallback.height));
+  const width = clamp(asInt(meta.width, fallback.width));
+  const height = clamp(asInt(meta.height, fallback.height));
   return {
     width,
     height,
-    data: normalizeMapData(doc.data, width, height),
-    tileset: typeof metaObj.tileset === "string" ? metaObj.tileset : null,
+    data: normalizeMapData(payload.data, width, height),
+    tileset: isJsonString(meta.tileset) ? meta.tileset : null,
   };
 }
 
@@ -389,7 +385,7 @@ export function parseTilemap(
  * Rendering it should reproduce the tileset exactly — if it doesn't, the
  * grid metadata is wrong.
  */
-export function makeSelftestMap(meta: TilesetMeta): Json {
+export function makeSelftestMap(meta: TilesetMeta) {
   const nonEmpty = nonEmptyTileIds(meta);
   const data: number[][] = [];
   for (let r = 0; r < meta.rows; r += 1) {

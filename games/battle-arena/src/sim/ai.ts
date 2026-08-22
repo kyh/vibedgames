@@ -14,11 +14,11 @@ import { isDisabled, isUntargetable } from "./stats";
 import { ALL_ABILITY_KEYS, type Unit, type World } from "./types";
 import { buyItem, inOwnBase } from "./world";
 
-const BUY_LISTS: Record<string, string[]> = {
-  int: ["tome", "arcaneorb", "vitality", "wardstone", "phaseband", "elixir"],
-  str: ["vitality", "ringmail", "bulwark", "whetstone", "swiftboots"],
-  agi: ["whetstone", "quiver", "reaver", "vampiric", "boots", "swiftboots"],
-};
+const BUY_LISTS = new Map<string, string[]>([
+  ["int", ["tome", "arcaneorb", "vitality", "wardstone", "phaseband", "elixir"]],
+  ["str", ["vitality", "ringmail", "bulwark", "whetstone", "swiftboots"]],
+  ["agi", ["whetstone", "quiver", "reaver", "vampiric", "boots", "swiftboots"]],
+]);
 
 /** Steering direction from u toward a goal, routed via the nearest stair when
  *  the goal is on the other side of the throne-plateau edge (so bots take the
@@ -81,7 +81,7 @@ export function tickBots(w: World): void {
 
     // ── economy: shop while home ──
     if (inOwnBase(u)) {
-      const list = BUY_LISTS[def.primary] ?? [];
+      const list = BUY_LISTS.get(def.primary) ?? [];
       for (const id of list) {
         const it = ITEM_BY_ID[id];
         if (it && u.gold >= it.cost && !u.items.includes(id)) {

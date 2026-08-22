@@ -2,9 +2,10 @@ import PartySocket from "partysocket";
 
 import type {
   ClientMessage,
+  JsonRecord,
+  JsonValue,
   MultiplayerConnectionStatus,
   MultiplayerOptions,
-  Player,
   PlayerMap,
   SendEventOptions,
   ServerMessage,
@@ -27,25 +28,27 @@ const normalizeIds = (ids: string | string[] | undefined): string[] | undefined 
 /** A coalesced event waiting for the next microtask flush. */
 type PendingEvent = {
   event: string;
-  payload: unknown;
+  payload: JsonValue;
   to?: string[];
   except?: string[];
 };
+
+type EmitData = { event: string; payload: JsonValue; to?: string[]; except?: string[] };
 
 /** Emit-message data with targeting fields omitted (not undefined) when
  *  untargeted, so plain broadcasts stay byte-identical to the pre-targeting
  *  wire protocol. */
 const emitData = (
   event: string,
-  payload: unknown,
+  payload: JsonValue,
   to: string[] | undefined,
   except: string[] | undefined,
-): { event: string; payload: unknown; to?: string[]; except?: string[] } => ({
-  event,
-  payload,
-  ...(to ? { to } : {}),
-  ...(except ? { except } : {}),
-});
+): EmitData => {
+  const data: EmitData = { event, payload };
+  if (to) data.to = to;
+  if (except) data.except = except;
+  return data;
+};
 
 export type MultiplayerClientOptions = MultiplayerOptions & {
   /**
@@ -56,7 +59,7 @@ export type MultiplayerClientOptions = MultiplayerOptions & {
    * already have shared state (observed via `sync` or any `state_patch`) are
    * never re-seeded.
    */
-  initialState?: Record<string, unknown>;
+  initialState?: JsonRecord;
   /**
    * Optional state schemas (Standard Schema — zod v3.24+, valibot, arktype…).
    * Outgoing updates that fail validation are blocked before send; incoming
@@ -69,7 +72,7 @@ export type MultiplayerSnapshot = {
   connectionStatus: MultiplayerConnectionStatus;
   playerId: string | null;
   hostId: string | null;
-  sharedState: Record<string, unknown>;
+  sharedState: JsonRecord;
   players: PlayerMap;
   /**
    * The room the client is actually connected to. Equals the configured
@@ -109,8 +112,7 @@ const generateReconnectToken = (): string => {
 };
 
 /** True for immutable JSON values (primitives), where `Object.is` equality proves "unchanged". */
-const isPrimitive = (value: unknown): boolean =>
-  value === null || (typeof value !== "object" && typeof value !== "function");
+const isPrimitive = (value: JsonValue | undefined): boolean => !(value instanceof Object);
 
 /**
  * The keyed delta of `candidate` against `prev`: the keys actually worth
@@ -123,19 +125,26 @@ const isPrimitive = (value: unknown): boolean =>
  * arrays are always included: a same-reference value may have been mutated in
  * place, and dropping it would lose the update.
  */
-const changedKeys = (
-  prev: Record<string, unknown>,
-  candidate: Record<string, unknown>,
-): Record<string, unknown> | null => {
-  let delta: Record<string, unknown> | null = null;
+const changedKeys = (prev: JsonRecord, candidate: JsonRecord): JsonRecord | null => {
+  let delta: JsonRecord | null = null;
   for (const key of Object.keys(candidate)) {
     const value = candidate[key];
+    // A runtime `undefined` can't ride JSON — stringify would drop the key.
+    if (value === undefined) continue;
     if (isPrimitive(value) && isPrimitive(prev[key]) && Object.is(prev[key], value)) continue;
     delta ??= {};
     delta[key] = value;
   }
   return delta;
 };
+
+/** Functional-updater form accepted by the state setters. */
+type StateUpdater = (prev: JsonRecord) => JsonRecord;
+
+// instanceof rather than typeof (banned): updaters are always constructed in
+// the caller's realm alongside the client, so the realm caveat doesn't bite.
+const isUpdaterFn = (updater: JsonRecord | StateUpdater): updater is StateUpdater =>
+  updater instanceof Function;
 
 /**
  * Framework-agnostic multiplayer client.
@@ -181,14 +190,14 @@ export class MultiplayerClient {
   private _connectionStatus: MultiplayerConnectionStatus = "connecting";
   private _playerId: string | null = null;
   private _hostId: string | null = null;
-  private _sharedState: Record<string, unknown>;
+  private _sharedState: JsonRecord;
   private _players: PlayerMap = {};
   private _room: string;
   private _onEvent: MultiplayerOptions["onEvent"];
   /** Our own player state, held outside `_players` so it survives a reconnect
    *  (which replaces `_players` wholesale and hands us a new player id) and can
    *  be re-announced to the fresh server-side connection. */
-  private _myState: Record<string, unknown> = {};
+  private _myState: JsonRecord = {};
 
   constructor(options: MultiplayerClientOptions) {
     this.options = options;
@@ -249,13 +258,12 @@ export class MultiplayerClient {
 
   /** Query params sent on every (re)connect: reconnect token, capability
    *  flags, and the effective cap. */
-  private connectionQuery(): Record<string, string> {
-    const query: Record<string, string> = {
+  private connectionQuery() {
+    const base = {
       [RECONNECT_TOKEN_QUERY_PARAM]: this.reconnectToken,
       [DELTA_PATCH_QUERY_PARAM]: "1",
     };
-    if (this.cap !== null) query[ROOM_CAP_QUERY_PARAM] = String(this.cap);
-    return query;
+    return this.cap === null ? base : { ...base, [ROOM_CAP_QUERY_PARAM]: String(this.cap) };
   }
 
   /**
@@ -342,11 +350,9 @@ export class MultiplayerClient {
   }
 
   /** Update shared state (merged with current). Only changed keys ride the wire. */
-  updateSharedState(
-    updater: Record<string, unknown> | ((prev: Record<string, unknown>) => Record<string, unknown>),
-  ): void {
+  updateSharedState(updater: JsonRecord | StateUpdater): void {
     const prev = this._sharedState;
-    const next = typeof updater === "function" ? updater(prev) : { ...prev, ...updater };
+    const next = isUpdaterFn(updater) ? updater(prev) : { ...prev, ...updater };
     if (!this.passesSchema("sharedState", "outgoing", next)) return;
     this._sharedState = next;
     // Flush unconditionally — coalesced events must precede whatever state
@@ -355,18 +361,16 @@ export class MultiplayerClient {
     // Every hop shallow-merges patches, so unchanged keys can stay local. For
     // the object form the game already named the keys it means to write; for
     // the function form, diff the returned state against the previous one.
-    const delta = changedKeys(prev, typeof updater === "function" ? next : updater);
+    const delta = changedKeys(prev, isUpdaterFn(updater) ? next : updater);
     if (delta) this.send({ type: "state_patch", data: delta });
     this.notify();
   }
 
   /** Update this player's state (merged with current). Only changed keys ride the wire. */
-  updateMyState(
-    updater: Record<string, unknown> | ((prev: Record<string, unknown>) => Record<string, unknown>),
-  ): void {
+  updateMyState(updater: JsonRecord | StateUpdater): void {
     if (!this._playerId) return;
     const current = this._players[this._playerId]?.state ?? {};
-    const next = typeof updater === "function" ? updater(current) : { ...current, ...updater };
+    const next = isUpdaterFn(updater) ? updater(current) : { ...current, ...updater };
     if (!this.passesSchema("playerState", "outgoing", next)) return;
 
     const existing = this._players[this._playerId] ?? { id: this._playerId };
@@ -377,7 +381,7 @@ export class MultiplayerClient {
     this._myState = next;
 
     this.flushCoalescedEvents();
-    const delta = changedKeys(current, typeof updater === "function" ? next : updater);
+    const delta = changedKeys(current, isUpdaterFn(updater) ? next : updater);
     if (delta) this.send({ type: "player_state_patch", data: delta });
     this.notify();
   }
@@ -396,7 +400,7 @@ export class MultiplayerClient {
    * Coalescing composes with targeting: same-type events aimed at different
    * recipients coalesce independently, each keeping its own audience.
    */
-  sendEvent(event: string, payload: unknown, options?: SendEventOptions): void {
+  sendEvent(event: string, payload: JsonValue, options?: SendEventOptions): void {
     const to = normalizeIds(options?.to);
     const except = normalizeIds(options?.except);
     if (options?.coalesce) {
@@ -468,7 +472,7 @@ export class MultiplayerClient {
   private passesSchema(
     channel: SchemaViolation["channel"],
     direction: SchemaViolation["direction"],
-    state: Record<string, unknown>,
+    state: JsonRecord,
     from?: string,
   ): boolean {
     const schemas = this.options.schemas;
@@ -493,8 +497,8 @@ export class MultiplayerClient {
       direction,
       issues: result.issues,
       data: state,
-      ...(from !== undefined ? { from } : {}),
     };
+    if (from !== undefined) violation.from = from;
     if (schemas?.onViolation) {
       schemas.onViolation(violation);
     } else {
@@ -553,6 +557,9 @@ export class MultiplayerClient {
 
   private handleMessage = (event: MessageEvent): void => {
     try {
+      // SAFETY: the party server is the only peer on this socket and speaks
+      // exactly this protocol; unknown `type` values fall through the switch
+      // untouched, and a malformed `data` throws inside this try and is logged.
       const message = JSON.parse(event.data) as ServerMessage;
 
       switch (message.type) {
@@ -606,7 +613,7 @@ export class MultiplayerClient {
           break;
         }
         case "player_joined": {
-          this._players = { ...this._players, [message.data.id]: message.data as Player };
+          this._players = { ...this._players, [message.data.id]: message.data };
           break;
         }
         case "player_left": {

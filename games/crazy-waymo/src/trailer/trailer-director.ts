@@ -92,7 +92,7 @@ const RIVAL_SKINS: readonly string[] = SKIN_IDS.filter((id) => id !== HERO_SKIN)
  *  length × width score kept handing the biggest beats to Dogpatch warehouse
  *  walls and the China Basin pier apron — the two characters with the least
  *  San Francisco in them. */
-const DISTRICT_WEIGHT: Partial<Record<DistrictChar, number>> = {
+const DISTRICT_WEIGHT = {
   downtown: 1.35,
   highrise: 1.35,
   commercial: 1.35,
@@ -101,7 +101,7 @@ const DISTRICT_WEIGHT: Partial<Record<DistrictChar, number>> = {
   park: 0.9,
   industrial: 0.5,
   wharf: 0.5,
-};
+} satisfies Record<DistrictChar, number>;
 
 /** Named-hill district boxes (world/sf-map.ts), in preference order for the
  *  launch beat. The beat anchors to a PLACE — the steepest crest in the bake
@@ -169,7 +169,7 @@ class Path {
     return this;
   }
 
-  at(s: number): { x: number; z: number; tx: number; tz: number } {
+  at(s: number) {
     const sc = clamp(s, 0, this.length);
     let i = 1;
     while (i < this.pts.length - 1 && (this.cum[i] ?? 0) < sc) i++;
@@ -684,7 +684,7 @@ class Director {
   /** Horizontal direction TOWARD the sun at a pinned day phase. Tracks the
    *  day-night azimuth ramp over the trailer's daylight span (STOPS 0.25
    *  az150° → 0.40 az235° → 0.47 az248° — see render/day-night.ts). */
-  private sunHorizontal(phase: number): { x: number; z: number } {
+  private sunHorizontal(phase: number) {
     const az =
       phase <= 0.4
         ? 150 + ((clamp(phase, 0.25, 0.4) - 0.25) / 0.15) * 85

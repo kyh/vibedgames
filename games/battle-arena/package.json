@@ -9,7 +9,6 @@
     "dev": "vite",
     "fx:perf": "node tools/fx-perf.mjs",
     "fx:shots": "node tools/fx-shots.mjs",
-    "fx:stall": "node tools/fx-stall.mjs",
     "preview": "vite preview",
     "test": "tsx tools/verify-timing.mts",
     "typecheck": "tsc --noEmit"

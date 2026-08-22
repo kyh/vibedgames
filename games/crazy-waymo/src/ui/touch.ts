@@ -5,10 +5,10 @@ import type { InputState } from "../input/keyboard";
 type Btn = "gas" | "brake" | "boost";
 
 // No gas pedal on touch: a finger on the screen IS the throttle (see update()).
-const MAP: Record<string, Btn> = {
+const MAP = {
   "t-brake": "brake",
   "t-boost": "boost",
-};
+} satisfies Record<string, Btn>;
 
 /** Drag distance that maps to full lock. Matches the stick's own radius. */
 const STICK_RADIUS = 62;

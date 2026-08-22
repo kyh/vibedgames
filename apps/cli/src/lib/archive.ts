@@ -15,6 +15,8 @@ import { dirname, join, relative, sep } from "node:path";
 import ignore from "ignore";
 import { create as tarCreate, extract as tarExtract } from "tar";
 
+import { isJsonObject, isJsonString, type JsonValue } from "./types.js";
+
 /**
  * Patterns ALWAYS excluded from a source archive, regardless of .gitignore —
  * build output, VCS internals, and (critically) secrets. Source upload is a
@@ -155,22 +157,23 @@ const DEP_FIELDS = ["dependencies", "devDependencies", "peerDependencies", "opti
  * string, or null if there's nothing to change (the common standalone case).
  */
 function rewriteWorkspaceProtocols(root: string): string | null {
-  let pkg: Record<string, unknown>;
+  let pkg: JsonValue;
   try {
     pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
   } catch {
     return null;
   }
+  if (!isJsonObject(pkg)) return null;
   let changed = false;
   for (const field of DEP_FIELDS) {
     const deps = pkg[field];
-    if (!deps || typeof deps !== "object") continue;
-    for (const [name, spec] of Object.entries(deps as Record<string, unknown>)) {
-      if (typeof spec !== "string") continue;
+    if (!isJsonObject(deps)) continue;
+    for (const [name, spec] of Object.entries(deps)) {
+      if (!isJsonString(spec)) continue;
       if (!spec.startsWith("workspace:") && !spec.startsWith("catalog:")) continue;
       const resolved = resolveSpec(root, name, spec);
       if (resolved && resolved !== spec) {
-        (deps as Record<string, string>)[name] = resolved;
+        deps[name] = resolved;
         changed = true;
       }
     }
@@ -201,8 +204,9 @@ function installedVersion(root: string, name: string): string | null {
     const p = join(dir, "node_modules", name, "package.json");
     if (existsSync(p)) {
       try {
-        const v = (JSON.parse(readFileSync(p, "utf8")) as { version?: unknown }).version;
-        if (typeof v === "string") return v;
+        const pkg: JsonValue = JSON.parse(readFileSync(p, "utf8"));
+        const v = isJsonObject(pkg) ? pkg.version : undefined;
+        if (isJsonString(v)) return v;
       } catch {
         /* fall through to parent */
       }

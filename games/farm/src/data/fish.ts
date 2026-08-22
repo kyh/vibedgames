@@ -22,7 +22,9 @@ export type FishDef = {
   weight: number; // relative spawn weight before season/skill modifiers
 };
 
-export const FISH: Record<FishId, FishDef> = {
+export type FishTable = { [K in FishId]: FishDef };
+
+export const FISH: FishTable = {
   sardine: { id: "sardine", name: "Sardine", value: 18, difficulty: 1, seasons: "all", weight: 10 },
   carp: { id: "carp", name: "Carp", value: 22, difficulty: 1, seasons: "all", weight: 9 },
   bream: {

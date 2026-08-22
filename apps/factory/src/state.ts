@@ -10,6 +10,9 @@ import {
 } from "node:fs";
 import { resolve } from "node:path";
 
+import { asJsonObject, asNumber } from "./json.ts";
+import type { JsonValue } from "./json.ts";
+
 /**
  * The agent advances a single game through a fixed phase machine — a durable,
  * checkpointed loop. The first pass (spec → scaffold → assets → build →
@@ -175,6 +178,9 @@ export function initWorkspace(bb: Blackboard, seed: AgentState): AgentState {
 }
 
 export function loadState(bb: Blackboard): AgentState {
+  // SAFETY: state.json is this tool's own checkpoint, written only by
+  // saveState from a typed AgentState — a trusted same-process round-trip,
+  // not external input (runAgent re-backfills fields older files predate).
   return JSON.parse(readFileSync(bb.state, "utf8")) as AgentState;
 }
 
@@ -302,6 +308,22 @@ type LockStatus =
   | { state: "stale" } // dead owner, our own prior pid, or junk contents — reclaimable
   | { state: "unknown" }; // exists but couldn't be read (transient IO) — do NOT reclaim
 
+/** The `code` of a thrown filesystem/process error, or undefined. */
+function errnoCode(cause: unknown): string | undefined {
+  if (!(cause instanceof Error) || !("code" in cause)) return undefined;
+  const { code } = cause;
+  // Strict equality with the coerced copy never coerces, so it holds exactly
+  // for primitive strings — a typeof-free narrowing.
+  return String(code) === code ? code : undefined;
+}
+
+/** The owning pid recorded in a lock payload, or undefined for junk contents. */
+function lockOwnerPid(raw: string): number | undefined {
+  const parsed: JsonValue = JSON.parse(raw);
+  const pid = asNumber(asJsonObject(parsed)?.pid);
+  return pid !== undefined && Number.isFinite(pid) ? pid : undefined;
+}
+
 /** Inspect the lock file without mutating it. */
 function readLock(bb: Blackboard): LockStatus {
   let raw: string;
@@ -310,26 +332,22 @@ function readLock(bb: Blackboard): LockStatus {
   } catch (err) {
     // Gone => free to take. Any other read error (e.g. transient EACCES) is
     // ambiguous; treat as held so we never delete a possibly-live lock.
-    return (err as NodeJS.ErrnoException).code === "ENOENT"
-      ? { state: "free" }
-      : { state: "unknown" };
+    return errnoCode(err) === "ENOENT" ? { state: "free" } : { state: "unknown" };
   }
   let pid: number | undefined;
   try {
-    pid = (JSON.parse(raw) as { pid?: number }).pid;
+    pid = lockOwnerPid(raw);
   } catch {
     return { state: "stale" }; // corrupt contents — safe to reclaim
   }
-  if (typeof pid !== "number" || !Number.isFinite(pid)) return { state: "stale" };
+  if (pid === undefined) return { state: "stale" };
   if (pid === process.pid) return { state: "stale" }; // our own lock from a prior run
   try {
     process.kill(pid, 0); // probe liveness without signalling
     return { state: "alive", pid };
   } catch (err) {
     // EPERM => the process exists but isn't ours (alive); ESRCH => gone (stale).
-    return (err as NodeJS.ErrnoException).code === "EPERM"
-      ? { state: "alive", pid }
-      : { state: "stale" };
+    return errnoCode(err) === "EPERM" ? { state: "alive", pid } : { state: "stale" };
   }
 }
 
@@ -352,7 +370,7 @@ export function acquireLock(bb: Blackboard): number | null {
       writeFileSync(bb.lock, payload, { flag: "wx" });
       return null;
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+      if (errnoCode(err) !== "EEXIST") throw err;
       const status = readLock(bb);
       if (status.state === "alive") return status.pid;
       if (status.state === "unknown") return LOCK_BUSY_UNKNOWN; // don't reclaim a lock we can't read
@@ -371,8 +389,7 @@ export function acquireLock(bb: Blackboard): number | null {
 /** Release the lock if (and only if) we own it. */
 export function releaseLock(bb: Blackboard): void {
   try {
-    const { pid } = JSON.parse(readFileSync(bb.lock, "utf8")) as { pid?: number };
-    if (pid === process.pid) rmSync(bb.lock);
+    if (lockOwnerPid(readFileSync(bb.lock, "utf8")) === process.pid) rmSync(bb.lock);
   } catch {
     /* ignore */
   }

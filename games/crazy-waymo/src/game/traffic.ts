@@ -17,6 +17,9 @@ import { slopeQuaternion } from "../world/terrain";
 // short quadratic bezier around the node — real cornering — onto the next
 // edge, chosen with a keep-straight bias. There is no grid in this file.
 
+// An outgoing junction choice: the edge to drive and which way along it.
+type NextLeg = { edge: NetEdge; dir: 1 | -1 };
+
 const MODEL_YAW_OFFSET = 0; // Kenney cars face +Z
 const SCRATCH_N = new THREE.Vector3();
 const CAR_M4 = new THREE.Matrix4();
@@ -219,12 +222,7 @@ export class TrafficCar {
 
   // Pick the outgoing edge at `node`, arriving along (tx, tz). Straightest
   // arm preferred; never the arriving edge unless it's a dead end.
-  private pickNext(
-    node: number,
-    fromEdge: NetEdge,
-    tx: number,
-    tz: number,
-  ): { edge: NetEdge; dir: 1 | -1 } {
+  private pickNext(node: number, fromEdge: NetEdge, tx: number, tz: number): NextLeg {
     const candidates: { edge: NetEdge; dir: 1 | -1; dot: number }[] = [];
     for (const id of this.network.nodeEdges[node] ?? []) {
       const e = this.network.edges[id];

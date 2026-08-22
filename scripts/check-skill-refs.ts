@@ -14,12 +14,11 @@ import { fileURLToPath } from "node:url";
 
 export type SkillRefIssue = { file: string; ref: string; why: string };
 
+export type SkillRefReport = { issues: SkillRefIssue[]; fileCount: number };
+
 const DEFAULT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-export function checkSkillRefs(root: string = DEFAULT_ROOT): {
-  issues: SkillRefIssue[];
-  fileCount: number;
-} {
+export function checkSkillRefs(root: string = DEFAULT_ROOT): SkillRefReport {
   const plugins = join(root, "plugins");
 
   // Real skill names, e.g. "aseprite", "model-catalog".
@@ -80,10 +79,7 @@ export function checkSkillRefs(root: string = DEFAULT_ROOT): {
 }
 
 /** Pretty-print issues relative to `root`. Returns true when clean. */
-export function reportSkillRefs(
-  result: { issues: SkillRefIssue[]; fileCount: number },
-  root: string = DEFAULT_ROOT,
-): boolean {
+export function reportSkillRefs(result: SkillRefReport, root: string = DEFAULT_ROOT): boolean {
   if (result.issues.length === 0) {
     console.log(`✓ skill references OK (${result.fileCount} markdown files checked)`);
     return true;

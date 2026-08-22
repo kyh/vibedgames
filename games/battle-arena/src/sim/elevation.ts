@@ -52,7 +52,7 @@ function smoothstep(t: number): number {
 
 /** Signed angular distance from `ang` to the nearest stair centreline, and that
  *  centreline. Positive `delta` means `ang` sits counter-clockwise of the stair. */
-function nearestStairAngle(ang: number): { center: number; delta: number } {
+function nearestStairAngle(ang: number) {
   let center = STAIR_ANGLES[0] ?? 0;
   let delta = Infinity;
   for (const s of STAIR_ANGLES) {

@@ -38,9 +38,7 @@ export function resumeOnPadPress(): () => void {
   let prev: readonly boolean[] | null = null;
   const poll = (): void => {
     const pads =
-      typeof navigator !== "undefined" && typeof navigator.getGamepads === "function"
-        ? navigator.getGamepads()
-        : [];
+      typeof navigator !== "undefined" && navigator.getGamepads ? navigator.getGamepads() : [];
     let pad: Gamepad | null = null;
     for (const candidate of pads) {
       if (candidate?.connected) {

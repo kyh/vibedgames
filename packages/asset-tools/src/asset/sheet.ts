@@ -17,7 +17,7 @@ export type ProbeResult = {
 };
 
 /** Split `size` into a `frame`-sized grid, or explain why it doesn't divide. */
-function gridFor(path: string, size: Size, frame: Size): { columns: number; rows: number } {
+function gridFor(path: string, size: Size, frame: Size) {
   if (size.width % frame.width !== 0 || size.height % frame.height !== 0) {
     throw new Error(
       `${path} size ${size.width}x${size.height} not divisible by ${frame.width}x${frame.height}`,

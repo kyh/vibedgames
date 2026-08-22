@@ -3,6 +3,8 @@
 // invariants that every screenshot bug so far has violated. Fails loudly —
 // run it before deploying street changes.
 
+import * as THREE from "three";
+
 import { generateCity } from "../src/world/grid";
 import { buildGridNetwork } from "../src/world/grid-network";
 import { RoadNetwork } from "../src/world/network";
@@ -158,8 +160,8 @@ check(
     const mat = m.material;
     return (
       !Array.isArray(mat) &&
-      "color" in mat &&
-      (mat as { color: { getHexString(): string } }).color.getHexString() === "d8a23c"
+      mat instanceof THREE.MeshStandardMaterial &&
+      mat.color.getHexString() === "d8a23c"
     );
   });
   for (const mesh of yellow) {

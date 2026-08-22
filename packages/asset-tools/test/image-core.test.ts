@@ -228,10 +228,10 @@ test("a corrupt header is a message, not an allocation failure", () => {
   for (let cut = 8; cut < good.length; cut += 1) {
     try {
       decodePng(good.subarray(0, cut));
-    } catch (error) {
+    } catch (cause) {
       assert.ok(
-        !(error instanceof RangeError),
-        `truncating to ${cut} bytes raised a RangeError: ${(error as Error).message}`,
+        !(cause instanceof RangeError),
+        `truncating to ${cut} bytes raised a RangeError: ${cause instanceof Error ? cause.message : String(cause)}`,
       );
     }
   }

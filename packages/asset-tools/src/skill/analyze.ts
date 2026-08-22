@@ -8,6 +8,9 @@
  * from one that just narrows it.
  */
 
+import { isJsonString } from "../asset/json.js";
+import type { YamlValue } from "./frontmatter.js";
+
 export type CategoryResult = { category: string; score: number; feedback: string[] };
 
 /** Count regex matches without materialising them. */
@@ -199,8 +202,8 @@ export type Analysis = {
   categories: CategoryResult[];
 };
 
-export function analyzeSkillBody(frontmatter: Record<string, unknown>, body: string): Analysis {
-  const description = typeof frontmatter.description === "string" ? frontmatter.description : "";
+export function analyzeSkillBody(frontmatter: Record<string, YamlValue>, body: string): Analysis {
+  const description = isJsonString(frontmatter.description) ? frontmatter.description : "";
   const categories: CategoryResult[] = [
     description.length > 50
       ? { category: "Description", score: 5, feedback: ["✅ Comprehensive description"] }
@@ -213,7 +216,7 @@ export function analyzeSkillBody(frontmatter: Record<string, unknown>, body: str
   ];
 
   return {
-    name: typeof frontmatter.name === "string" ? frontmatter.name : "unknown",
+    name: isJsonString(frontmatter.name) ? frontmatter.name : "unknown",
     totalScore: categories.reduce((sum, c) => sum + c.score, 0),
     categories,
   };

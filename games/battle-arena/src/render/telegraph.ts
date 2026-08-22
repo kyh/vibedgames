@@ -22,29 +22,31 @@ import { NOISE_GLSL } from "./fx-noise";
 import { fxClock } from "./fx-shaders";
 
 /** Detonate-telegraph durations by effect (ms). Anything else falls back to 1200. */
-export const TELEGRAPH_MS: Record<string, number> = {
-  meteor: 1200,
-  smite: 450,
-  nova: 400,
-  vines: 500,
-  hexring: 500,
-};
+export const TELEGRAPH_MS = new Map<string, number>([
+  ["meteor", 1200],
+  ["smite", 450],
+  ["nova", 400],
+  ["vines", 500],
+  ["hexring", 500],
+]);
 
-const GROUND_COLORS: Record<string, number> = {
-  meteor: 0xff4422,
-  nova: 0x7fd4ff, // mage W — frost detonation
-  trap: 0x9affc0,
-  rain: 0xffe08a,
-  whirlwind: 0xffffff,
-  smite: 0xffd76a, // paladin W — the pillar's landing mark
-  brew: 0x7fe08a, // witch W — bubbling bog-green
-  vines: 0x6ab04a, // witch E — bog eruption
-  hexring: 0xb98ae0, // witch R — the sealing hex circle
-};
+const GROUND_COLORS = new Map<string, number>(
+  Object.entries({
+    meteor: 0xff4422,
+    nova: 0x7fd4ff, // mage W — frost detonation
+    trap: 0x9affc0,
+    rain: 0xffe08a,
+    whirlwind: 0xffffff,
+    smite: 0xffd76a, // paladin W — the pillar's landing mark
+    brew: 0x7fe08a, // witch W — bubbling bog-green
+    vines: 0x6ab04a, // witch E — bog eruption
+    hexring: 0xb98ae0, // witch R — the sealing hex circle
+  } satisfies Record<string, number>),
+);
 
 /** Interior color for a ground-effect tag (shared with any zone-ambient fx). */
 export function groundFxColor(effect: string): number {
-  return GROUND_COLORS[effect] ?? 0xffaa44;
+  return GROUND_COLORS.get(effect) ?? 0xffaa44;
 }
 
 const HOSTILE_RIM = 0xff4030;
@@ -295,7 +297,7 @@ export class Telegraphs {
 
     if (g.detonateAt !== undefined) {
       // fill-sweep: interior disc races the fuse; rim panics at 6Hz for 400ms
-      const total = TELEGRAPH_MS[g.effect] ?? 1200;
+      const total = TELEGRAPH_MS.get(g.effect) ?? 1200;
       const remaining = g.detonateAt - now;
       d.uni.uFill.value = Math.min(1, Math.max(0, 1 - remaining / total));
       d.uni.uAlpha.value = 0.28;

@@ -2,9 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-// runScript resolves exactly once via a `done`-guarded finish() helper;
-// oxlint's static check can't see the guard (same pattern as claude.ts).
-/* oxlint-disable promise/no-multiple-resolved */
+import { asJsonObject, isJsonString, parseJson } from "./json.ts";
 
 /**
  * The harness-enforced quality gate. Subagents are TOLD to verify their work,
@@ -24,15 +22,18 @@ export type GateResult = {
   detail: string;
 };
 
-function readScripts(workspace: string): Record<string, unknown> {
+/** Names of package.json scripts whose values are actual command strings. */
+function readScriptNames(workspace: string): Set<string> {
+  let text: string;
   try {
-    const pkg = JSON.parse(readFileSync(resolve(workspace, "package.json"), "utf8")) as {
-      scripts?: Record<string, unknown>;
-    };
-    return pkg.scripts ?? {};
+    text = readFileSync(resolve(workspace, "package.json"), "utf8");
   } catch {
-    return {};
+    return new Set();
   }
+  const pkg = asJsonObject(parseJson(text));
+  const scripts = asJsonObject(pkg?.scripts);
+  if (!scripts) return new Set();
+  return new Set(Object.keys(scripts).filter((name) => isJsonString(scripts[name])));
 }
 
 function runScript(workspace: string, script: string): Promise<{ ok: boolean; tail: string }> {
@@ -76,8 +77,8 @@ export async function runGate(workspace: string): Promise<GateResult> {
   if (!existsSync(resolve(workspace, "package.json"))) {
     return { ok: true, skipped: true, detail: "no package.json yet" };
   }
-  const scripts = readScripts(workspace);
-  const steps = ["typecheck", "build"].filter((s) => typeof scripts[s] === "string");
+  const scripts = readScriptNames(workspace);
+  const steps = ["typecheck", "build"].filter((s) => scripts.has(s));
   if (steps.length === 0) {
     return { ok: true, skipped: true, detail: "no typecheck/build scripts" };
   }

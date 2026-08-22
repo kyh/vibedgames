@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, test } from "node:test";
 
 import { makeCleanups, makeTmpDir } from "./_helpers.js";
+import type { JsonValue } from "../src/lib/types.js";
 
 /**
  * `scripts/bot-playtest.mjs` ships with the playtest skill rather than this
@@ -26,7 +27,7 @@ const BOT = fileURLToPath(
 /** Exit code the script uses for "the harness itself failed". */
 const HARNESS_FAILURE = 2;
 
-function run(args: string[]): { status: number; output: string } {
+function run(args: string[]) {
   const res = spawnSync(process.execPath, [BOT, ...args], {
     encoding: "utf8",
     timeout: 30_000,
@@ -40,7 +41,7 @@ function run(args: string[]): { status: number; output: string } {
 const { cleanups, drain } = makeCleanups();
 afterEach(drain);
 
-function scriptFile(steps: unknown): string {
+function scriptFile(steps: JsonValue): string {
   const path = join(makeTmpDir(cleanups, "bot-playtest-"), "sweep.json");
   writeFileSync(path, JSON.stringify(steps));
   return path;

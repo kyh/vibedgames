@@ -12,13 +12,13 @@ import type { ControlMethod } from "@repo/embed";
 
 import { CONTROLS } from "./controls";
 
-const METHOD_LABELS: Record<ControlMethod, string> = {
+const METHOD_LABELS = {
   keys: "keys",
   mouse: "mouse",
   touch: "touch",
   camera: "face cam",
   controller: "controller",
-};
+} satisfies Record<ControlMethod, string>;
 
 const STYLE_ID = "pacman-pause-style";
 

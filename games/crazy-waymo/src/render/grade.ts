@@ -49,6 +49,6 @@ export function setGradeMotion(speedFrac: number, boosting: boolean): void {
   motionBoost = boosting;
 }
 
-export function gradeMotion(): { speed: number; boost: boolean } {
+export function gradeMotion() {
   return { speed: motionSpeed, boost: motionBoost };
 }

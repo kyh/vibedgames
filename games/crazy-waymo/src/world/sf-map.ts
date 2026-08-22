@@ -447,7 +447,7 @@ export type District = {
 // OTHER, which is the part that makes crossing a district line read as a key
 // change: victorian is warm red-to-plum, residential is cool cream-to-sea,
 // commercial is ochre-to-rust, industrial is oxide-to-slate.
-const PALETTES: Record<DistrictChar, readonly number[]> = {
+const PALETTES = {
   // Stone and glass. Kept nearly as-is; downtown's job is to be the neutral
   // everything else is colourful against.
   downtown: [0xbfc4c9, 0xa2adb6, 0xd0cabd, 0x8b98a4, 0xdbd5c6],
@@ -465,13 +465,13 @@ const PALETTES: Record<DistrictChar, readonly number[]> = {
   // Oxide → slate.
   industrial: [0xa8623e, 0x8a6a4c, 0xb08968, 0x6f7c84, 0x9a8f7c],
   park: [0xe8e0cc, 0xd8cfb8, 0xcfc4a8],
-};
+} satisfies Record<DistrictChar, readonly number[]>;
 
 // Tint strength per character — victorians get bold paint, glass stays subtle.
 // Victorian came down from 0.62: with the palette now ramped by value instead
 // of scattered by hue, the same 0.62 pushed the deep end almost to flat colour
 // and cost the kit models their own shading.
-const TINT_AMOUNT: Record<DistrictChar, number> = {
+const TINT_AMOUNT = {
   downtown: 0.28,
   highrise: 0.22,
   commercial: 0.5,
@@ -480,7 +480,7 @@ const TINT_AMOUNT: Record<DistrictChar, number> = {
   victorian: 0.54,
   industrial: 0.4,
   park: 0.35,
-};
+} satisfies Record<DistrictChar, number>;
 
 export function paletteFor(d: District): readonly number[] {
   return PALETTES[d.character];

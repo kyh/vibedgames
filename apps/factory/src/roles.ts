@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 
 import type { RoleName } from "./agents.ts";
 import { headCommit } from "./git.ts";
+import { asJsonObject, asString, parseJson } from "./json.ts";
 import { readDirective, type AgentState, type Blackboard, type Phase } from "./state.ts";
 
 export { ROLES } from "./agents.ts";
@@ -32,10 +33,12 @@ type NextAssignment = { role: RoleName; type?: string; task: string };
 
 function readNext(bb: Blackboard): NextAssignment {
   try {
-    const parsed = JSON.parse(readFileSync(bb.next, "utf8")) as Partial<NextAssignment>;
-    const role = parsed.role;
-    if (role === "designer" || role === "engineer" || role === "artist" || role === "qa") {
-      return { role, type: parsed.type, task: parsed.task ?? "" };
+    const parsed = asJsonObject(parseJson(readFileSync(bb.next, "utf8")));
+    if (parsed) {
+      const role = parsed.role;
+      if (role === "designer" || role === "engineer" || role === "artist" || role === "qa") {
+        return { role, type: asString(parsed.type), task: asString(parsed.task) ?? "" };
+      }
     }
   } catch {
     // fall through to default
@@ -111,14 +114,14 @@ function phaseTask(phase: Phase, state: AgentState, bb: Blackboard): string {
       const kind = next.type ? ` [${next.type}]` : "";
       // The closing instruction must match the assigned subagent — engineer-only
       // guidance (fix the bug, mark the item done) would contradict QA/artist/designer.
-      const close: Record<RoleName, string> = {
+      const close = {
         engineer: `If it's a bug, reproduce it and fix the root cause; verify with typecheck + build. When done, set the item's status to "done" in backlog.json and append a 2–3 line note to journal.md.`,
         artist: `Generate/update the assets, place them where the game loads them, and record file paths + exact frame sizes. When done, set the item's status to "done" in backlog.json and append a note to journal.md naming the files.`,
         designer: `Append the design to the "Features & iterations" section of spec.md with crisp acceptance criteria. When done, set the item's status to "done" in backlog.json and append a note to journal.md.`,
         qa: `Playtest as described, record findings in ./.vgfactory/playtest.md, and file/triage concrete items in backlog.json. Do NOT change game code — your output is findings; leave status updates to the director.`,
         director: "",
         shipper: "",
-      };
+      } satisfies Record<RoleName, string>;
       return `Current assignment from the director (./.vgfactory/next.json)${kind}:\n\n${next.task}\n\nDo exactly this for "${slug}". ${close[next.role]}`;
     }
   }

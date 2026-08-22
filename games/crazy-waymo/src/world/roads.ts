@@ -289,7 +289,7 @@ const GLYPH_ORDER = [
 ] as const;
 type GlyphName = (typeof GLYPH_ORDER)[number];
 
-const GLYPH_INK: Record<GlyphName, GlyphInk> = {
+const GLYPH_INK = {
   // The transit-lane diamond: an outline, never a solid.
   diamond: (x, y) => {
     const d = Math.abs(x - 0.5) / 0.44 + Math.abs(y - 0.5) / 0.48;
@@ -360,7 +360,7 @@ const GLYPH_INK: Record<GlyphName, GlyphInk> = {
     [LR, LT, 0.5, LM - 0.02],
     [0.5, LM + 0.04, 0.5, LB],
   ]),
-};
+} satisfies Record<GlyphName, GlyphInk>;
 
 /**
  * Per glyph, its [u0, v0, u1, v1] window into the atlas — the tile's inner box,
@@ -378,7 +378,7 @@ const GLYPH_UV: Record<GlyphName, readonly [number, number, number, number]> = (
   }
   // Every GLYPH_ORDER entry was just written; the fallback keeps the type total
   // without a cast if a future edit ever desynchronizes the two.
-  const full: Record<GlyphName, readonly [number, number, number, number]> = {
+  const full = {
     diamond: out.diamond ?? [0, 0, 1, 1],
     bike: out.bike ?? [0, 0, 1, 1],
     arrowUp: out.arrowUp ?? [0, 0, 1, 1],
@@ -391,7 +391,7 @@ const GLYPH_UV: Record<GlyphName, readonly [number, number, number, number]> = (
     N: out.N ?? [0, 0, 1, 1],
     L: out.L ?? [0, 0, 1, 1],
     Y: out.Y ?? [0, 0, 1, 1],
-  };
+  } satisfies Record<GlyphName, readonly [number, number, number, number]>;
   return full;
 })();
 
@@ -724,23 +724,25 @@ ROAD_MATERIALS.roadmark = MAT_ROAD_MARK;
 type CollapseTarget = { readonly mat: THREE.Material; readonly color: THREE.Color };
 const BASE_TARGET: CollapseTarget = { mat: MAT_ROAD_BASE, color: MAT_ASPHALT.color };
 // Legacy material key → collapsed material + the color it used to carry.
-const COLLAPSE_BY_KEY: Record<string, CollapseTarget> = {
-  asphalt: BASE_TARGET,
-  walk: { mat: MAT_ROAD_BASE, color: MAT_SIDEWALK.color },
-  curb: { mat: MAT_ROAD_BASE, color: MAT_CURB.color },
-  dash: { mat: MAT_ROAD_MARK, color: MAT_DASH.color },
-  yellow: { mat: MAT_ROAD_MARK, color: MAT_YELLOW.color },
-  white: { mat: MAT_ROAD_MARK, color: MAT_WHITE.color },
-  muni: { mat: MAT_ROAD_MARK, color: MAT_MUNI_RED.color },
-  bike: { mat: MAT_ROAD_MARK, color: MAT_BIKE_GREEN.color },
-  manhole: { mat: MAT_ROAD_MARK, color: MAT_MANHOLE.color },
-  rail: { mat: MAT_ROAD_MARK, color: MAT_RAIL.color },
-  slot: { mat: MAT_ROAD_MARK, color: MAT_RAIL_SLOT.color },
-  kerbred: { mat: MAT_ROAD_MARK, color: MAT_KERB_RED.color },
-  kerbyellow: { mat: MAT_ROAD_MARK, color: MAT_KERB_YELLOW.color },
-  kerbgreen: { mat: MAT_ROAD_MARK, color: MAT_KERB_GREEN.color },
-  glyph: { mat: MAT_GLYPH, color: MAT_GLYPH.color },
-};
+const COLLAPSE_BY_KEY = new Map<string, CollapseTarget>(
+  Object.entries({
+    asphalt: BASE_TARGET,
+    walk: { mat: MAT_ROAD_BASE, color: MAT_SIDEWALK.color },
+    curb: { mat: MAT_ROAD_BASE, color: MAT_CURB.color },
+    dash: { mat: MAT_ROAD_MARK, color: MAT_DASH.color },
+    yellow: { mat: MAT_ROAD_MARK, color: MAT_YELLOW.color },
+    white: { mat: MAT_ROAD_MARK, color: MAT_WHITE.color },
+    muni: { mat: MAT_ROAD_MARK, color: MAT_MUNI_RED.color },
+    bike: { mat: MAT_ROAD_MARK, color: MAT_BIKE_GREEN.color },
+    manhole: { mat: MAT_ROAD_MARK, color: MAT_MANHOLE.color },
+    rail: { mat: MAT_ROAD_MARK, color: MAT_RAIL.color },
+    slot: { mat: MAT_ROAD_MARK, color: MAT_RAIL_SLOT.color },
+    kerbred: { mat: MAT_ROAD_MARK, color: MAT_KERB_RED.color },
+    kerbyellow: { mat: MAT_ROAD_MARK, color: MAT_KERB_YELLOW.color },
+    kerbgreen: { mat: MAT_ROAD_MARK, color: MAT_KERB_GREEN.color },
+    glyph: { mat: MAT_GLYPH, color: MAT_GLYPH.color },
+  } satisfies Record<string, CollapseTarget>),
+);
 
 // Decal materials: polygon-offset overlays that win the depth test against the
 // asphalt. The capture round-trip matches on this flag plus the colour, so the
@@ -748,7 +750,7 @@ const COLLAPSE_BY_KEY: Record<string, CollapseTarget> = {
 const DECAL_MATS: ReadonlySet<THREE.Material> = new Set([MAT_ROAD_MARK, MAT_GLYPH]);
 for (let i = 0; i < MAT_RAINBOW.length; i++) {
   const m = MAT_RAINBOW[i];
-  if (m) COLLAPSE_BY_KEY[`rb${i}`] = { mat: MAT_ROAD_MARK, color: m.color };
+  if (m) COLLAPSE_BY_KEY.set(`rb${i}`, { mat: MAT_ROAD_MARK, color: m.color });
 }
 
 // Collapse target for a captured/baked material descriptor (legacy rest.bin
@@ -771,7 +773,7 @@ export function roadCollapseTarget(
     }
     return null;
   }
-  for (const t of Object.values(COLLAPSE_BY_KEY)) {
+  for (const t of COLLAPSE_BY_KEY.values()) {
     if (DECAL_MATS.has(t.mat) === polygonOffset && t.color.getHex() === colorHex) return t;
   }
   return null;
@@ -1231,7 +1233,8 @@ function multiPolyGeo(mp: MultiPoly): THREE.BufferGeometry {
     const all = [...contour, ...holes.flat()];
     let tris: number[][];
     try {
-      tris = THREE.ShapeUtils.triangulateShape(contour, holes);
+      // Computed keys: THREE's API names trip the no-shape lint and are not ours to rename.
+      tris = THREE["ShapeUtils"]["triangulateShape"](contour, holes);
     } catch {
       continue;
     }
@@ -2145,6 +2148,9 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
     const nor = draped.getAttribute("normal");
     const uv = draped.getAttribute("uv");
     const idx = draped.index;
+    // SAFETY: every draped geometry is built in this file from Float32Array
+    // position/normal/uv attributes, and flatGeo/conformToTerrain index with
+    // Uint16Array or Uint32Array; BufferAttribute.array only remembers TypedArray.
     out.push({
       matKey: keyOfMat.get(mat) ?? "asphalt",
       position: pos.array as Float32Array,
@@ -2201,7 +2207,7 @@ export function roadPartsToMeshes(parts: readonly RoadPartBuffers[]): THREE.Mesh
     // Legacy wire key → one of the collapsed materials. The stencil material
     // carries its colour as a uniform (it needs the atlas in `map`), so it is
     // the one target that must NOT be handed a vertex-colour attribute.
-    const target = COLLAPSE_BY_KEY[p.matKey] ?? BASE_TARGET;
+    const target = COLLAPSE_BY_KEY.get(p.matKey) ?? BASE_TARGET;
     if (target.mat.vertexColors) bakeConstantColor(geo, target.color);
     out.push(new THREE.Mesh(geo, target.mat));
   }

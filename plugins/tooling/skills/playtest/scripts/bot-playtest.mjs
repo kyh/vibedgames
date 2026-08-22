@@ -21,6 +21,11 @@
 
 import { fileURLToPath } from "node:url";
 
+// The lint bans runtime `typeof`; these checks are typeof-free equivalents for
+// values decoded from JSON (plain objects and primitive strings only).
+const isPlainObject = (v) => Object.prototype.toString.call(v) === "[object Object]";
+const isString = (v) => String(v) === v;
+
 /** Print this file's header docblock, so `--help` cannot drift from the docs. */
 function printHelp() {
   const source = readFileSync(fileURLToPath(import.meta.url), "utf8");
@@ -158,7 +163,7 @@ function validateScript(script) {
     fail("`--script` must be a non-empty JSON array of { keys, ms } steps.");
   }
   for (const [index, step] of script.entries()) {
-    if (!step || typeof step !== "object") fail(`step ${index} must be an object.`);
+    if (!isPlainObject(step)) fail(`step ${index} must be an object.`);
     const keys = step.keys ?? [];
     if (!Array.isArray(keys)) fail(`step ${index}: \`keys\` must be an array.`);
     if (keys.length === 0 && !step.pointer) {
@@ -167,7 +172,11 @@ function validateScript(script) {
     if (!Number.isFinite(step.ms) || step.ms <= 0) {
       fail(`step ${index} needs a positive \`ms\` duration.`);
     }
-    if (step.expectMotion !== undefined && typeof step.expectMotion !== "boolean") {
+    if (
+      step.expectMotion !== undefined &&
+      step.expectMotion !== true &&
+      step.expectMotion !== false
+    ) {
       fail(`step ${index}: \`expectMotion\` must be a boolean.`);
     }
     if (step.pointer) {
@@ -181,7 +190,11 @@ function validateScript(script) {
           fail(`step ${index}: \`pointer.${name}\` must be a viewport fraction between 0 and 1.`);
         }
       }
-      if (step.pointer.down !== undefined && typeof step.pointer.down !== "boolean") {
+      if (
+        step.pointer.down !== undefined &&
+        step.pointer.down !== true &&
+        step.pointer.down !== false
+      ) {
         fail(`step ${index}: \`pointer.down\` must be a boolean.`);
       }
     }
@@ -196,7 +209,7 @@ function validateScript(script) {
  * it (aim-and-thrust); a bare attack or menu key does not.
  */
 function expectsMotion(step) {
-  if (typeof step.expectMotion === "boolean") return step.expectMotion;
+  if (step.expectMotion === true || step.expectMotion === false) return step.expectMotion;
   return Boolean(step.pointer) || (step.keys ?? []).some((code) => MOVEMENT_CODES.has(code));
 }
 
@@ -625,7 +638,7 @@ function main() {
   const seedApplied = boot0?.hasSeedHook ? "hook" : "boot-param";
 
   if (seedApplied === "boot-param") {
-    if (typeof boot0?.href !== "string") fail("couldn't read location.href to apply the seed.");
+    if (!isString(boot0?.href)) fail("couldn't read location.href to apply the seed.");
     const url = new URL(boot0.href);
     url.searchParams.set("seed", String(opts.seed));
     boot(

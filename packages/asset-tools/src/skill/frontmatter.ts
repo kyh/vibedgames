@@ -89,7 +89,7 @@ function joinBlockScalar(lines: string[], style: string): string {
 
 /** Parse frontmatter YAML into an object. Throws `FrontmatterError` on input
  * this subset cannot represent, rather than silently returning something wrong. */
-export function parseFrontmatter(text: string): Record<string, YamlValue> {
+export function parseFrontmatter(text: string) {
   const out: Record<string, YamlValue> = {};
   let currentKey: string | null = null;
   let nested: Record<string, YamlValue> | null = null;

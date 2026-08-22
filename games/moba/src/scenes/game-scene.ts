@@ -13,6 +13,7 @@ import { ELEV_LIFT, WORLD, elevationFrac } from "../data/map";
 import { autoLevel, castAbility, levelAbility, useItem } from "../sim/abilities";
 import { dealDamage, isEnemy } from "../sim/combat";
 import { dist2 } from "../sim/math";
+import type { Vec2 } from "../sim/math";
 import { buyItem, createWorld, dashHero, issueOrder, spawnHero, step } from "../sim/world";
 import type { Order, Unit, World } from "../sim/types";
 import { isMuted, resumeAudio, setMuted, sfx, toggleMute } from "../render/audio";
@@ -24,9 +25,11 @@ import {
   applySnapshot,
   emptyGuestWorld,
   encodeWorld,
-  isSnapshot,
-  parseFxBatch,
+  sharedFxBatch,
+  sharedFxSeq,
+  sharedSnapshot,
 } from "../net/snapshot";
+import type { JsonValue } from "../net/json";
 
 const TEAM_SIZE = 3;
 
@@ -54,7 +57,7 @@ const TOUCH_CONTROLS_CSS = `
 // keys (right hand), ABILITIES on Q/W/E/R (left hand), F = dash, Space = attack.
 const ABILITY_KEYS: AbilityKey[] = ["Q", "W", "E", "R"];
 const DASH_KEY = "F";
-export const SLOT_LABEL: Record<AbilityKey, string> = { Q: "Q", W: "W", E: "E", R: "R" };
+export const SLOT_LABEL = { Q: "Q", W: "W", E: "E", R: "R" } satisfies Record<AbilityKey, string>;
 
 // Physical pad: face buttons cast (A is the attack button, so R lands on RB).
 const PAD_CAST: readonly (readonly [PadButton, AbilityKey])[] = [
@@ -242,7 +245,10 @@ export class GameScene extends Phaser.Scene {
       host: MULTIPLAYER_HOST,
       party: PARTY,
       room: ROOM,
-      onEvent: (event, payload, from) => this.onNetEvent(event, payload, from),
+      onEvent: (event, payload, from) =>
+        // SAFETY: event payloads arrive as JSON websocket frames (or a local
+        // echo of a JSON-safe send), so JsonValue covers every possible value.
+        this.onNetEvent(event, payload as JsonValue, from),
     });
   }
 
@@ -260,7 +266,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ---- networking ----------------------------------------------------------
-  private onNetEvent(event: string, payload: unknown, from: string): void {
+  private onNetEvent(event: string, payload: JsonValue, from: string): void {
     if (event !== INTENT_EVENT) return;
     const intent = parseIntent(payload);
     if (!intent) return; // drop malformed / version-skewed peer messages
@@ -315,7 +321,7 @@ export class GameScene extends Phaser.Scene {
     if (!this.net) return;
     const ids = Object.keys(this.net.players);
     const want = new Set<string>();
-    const teamUsed: Record<Team, number> = { radiant: 0, dire: 0 };
+    const teamUsed = { radiant: 0, dire: 0 } satisfies Record<Team, number>;
 
     // assign newcomers to the lighter team, stably
     for (const id of ids) {
@@ -662,7 +668,7 @@ export class GameScene extends Phaser.Scene {
       if (target) this.cmd({ kind: "cast", key, targetId: target.id });
     } else if (def.targeting === "point") {
       const r = def.castRange;
-      let point: { x: number; y: number };
+      let point: Vec2;
       if (r <= 0) {
         point = { x: me.x, y: me.y }; // self-centred (e.g. Last Call)
       } else if (fromHud) {
@@ -685,7 +691,7 @@ export class GameScene extends Phaser.Scene {
 
   /** Aim for HUD-tapped point casts: the nearest enemy hero in range, else any
    *  nearest enemy, else along the movement facing at full range. */
-  private touchAimPoint(me: Unit, r: number): { x: number; y: number } {
+  private touchAimPoint(me: Unit, r: number): Vec2 {
     const foe = this.nearestEnemyHero(me, r) ?? this.nearestEnemy(me, r);
     if (foe) return { x: foe.x, y: foe.y };
     return { x: me.x + this.aimDir.x * r, y: me.y + this.aimDir.y * r };
@@ -932,15 +938,15 @@ export class GameScene extends Phaser.Scene {
       this.broadcast(dt);
     } else {
       // guest: render the latest snapshot
-      const snap = net.sharedState["snap"];
-      if (isSnapshot(snap)) applySnapshot(this.world, snap);
+      const snap = sharedSnapshot(net.sharedState);
+      if (snap) applySnapshot(this.world, snap);
       // fx persists in sharedState between the host's ~15Hz broadcasts; ingest each
       // batch exactly once (the guest's update runs ~60fps) to avoid 4x-duplicated
       // hit numbers / explosions / kill-feed lines.
-      const fxSeq = net.sharedState["fxSeq"];
-      if (typeof fxSeq === "number" && fxSeq !== this.lastFxSeq) {
+      const fxSeq = sharedFxSeq(net.sharedState);
+      if (fxSeq !== null && fxSeq !== this.lastFxSeq) {
         this.lastFxSeq = fxSeq;
-        this.world.fx.push(...parseFxBatch(net.sharedState["fx"]));
+        this.world.fx.push(...sharedFxBatch(net.sharedState));
       }
       const me = this.player;
       if (me) this.view.playerTeam = me.team;
@@ -951,8 +957,8 @@ export class GameScene extends Phaser.Scene {
    *  advances gameTime at ~1×; a throttled/backgrounded one crawls (<0.5×) and an
    *  ended/frozen one is 0. Counts consecutive slow windows. */
   private sampleHostLiveness(net: MultiplayerClient): void {
-    const snap = net.sharedState["snap"];
-    if (!isSnapshot(snap)) return;
+    const snap = sharedSnapshot(net.sharedState);
+    if (!snap) return;
     const gt = snap.gameTime;
     const now = this.time.now;
     if (this.rateAt0 === 0) {
@@ -971,8 +977,8 @@ export class GameScene extends Phaser.Scene {
   /** Should we seize a stalled host's room? True when the snapshot is ended, or
    *  has run slow for two windows (~4s), AND we're the elected candidate. */
   private shouldTakeOverHost(net: MultiplayerClient): boolean {
-    const snap = net.sharedState["snap"];
-    const ended = isSnapshot(snap) && snap.phase === "ended";
+    const snap = sharedSnapshot(net.sharedState);
+    const ended = snap !== null && snap.phase === "ended";
     if (!ended && this.slowWindows < 2) return false;
     return this.isTakeoverCandidate(net);
   }

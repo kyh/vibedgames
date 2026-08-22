@@ -277,7 +277,7 @@ function pluck(t: number, freq: number, dur: number): number {
 }
 
 /** Evenly-spaced note sequence helper: returns the active note + local time. */
-function step(t: number, dur: number, notes: ReadonlyArray<number>): { f: number; local: number } {
+function step(t: number, dur: number, notes: ReadonlyArray<number>) {
   const slice = dur / notes.length;
   const idx = Math.min(notes.length - 1, Math.floor(t / slice));
   return { f: notes[idx] ?? 440, local: t - idx * slice };
@@ -285,7 +285,7 @@ function step(t: number, dur: number, notes: ReadonlyArray<number>): { f: number
 
 // ---- the sounds -----------------------------------------------------------------
 
-const RECIPES: Record<SfxName, Recipe> = {
+const RECIPES = {
   // 70ms soft "boop" — fires on every step, so it stays tiny and round.
   chomp: {
     durMs: 70,
@@ -364,4 +364,4 @@ const RECIPES: Record<SfxName, Recipe> = {
       return 0.26 * pluck(local, f, dur / 2);
     },
   },
-};
+} satisfies Record<SfxName, Recipe>;

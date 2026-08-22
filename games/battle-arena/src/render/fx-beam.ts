@@ -99,17 +99,18 @@ export function createBeamMaterial(clock: { value: number }): BeamMaterial {
     depthWrite: false,
     blending: THREE.AdditiveBlending,
     side: THREE.DoubleSide,
-  }) as BeamMaterial;
+  });
 
-  mat.setColor = (core, shell) => {
-    uniforms.uCore.value.setHex(core);
-    uniforms.uShell.value.setHex(shell);
-  };
-  mat.setOpacity = (o) => {
-    uniforms.uOpacity.value = o;
-  };
-  mat.reseed = () => {
-    uniforms.uSeed.value = Math.random() * 50;
-  };
-  return mat;
+  return Object.assign(mat, {
+    setColor: (core: number, shell: number) => {
+      uniforms.uCore.value.setHex(core);
+      uniforms.uShell.value.setHex(shell);
+    },
+    setOpacity: (o: number) => {
+      uniforms.uOpacity.value = o;
+    },
+    reseed: () => {
+      uniforms.uSeed.value = Math.random() * 50;
+    },
+  });
 }

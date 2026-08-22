@@ -76,7 +76,7 @@ export type Reporter = {
   runEnded(summary: RunSummary): void;
 };
 
-const costNote = (c?: number): string => (typeof c === "number" ? ` ($${c.toFixed(2)})` : "");
+const costNote = (c?: number): string => (c === undefined ? "" : ` ($${c.toFixed(2)})`);
 
 /** Plain streamed logs — the original output, kept for non-TTY runs and --no-tui. */
 export class ConsoleReporter implements Reporter {

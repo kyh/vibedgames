@@ -166,13 +166,13 @@ const CSS = `
 }
 `;
 
-const METHOD_LABELS: Record<ControlMethod, string> = {
+const METHOD_LABELS = {
   keys: "KEYBOARD",
   mouse: "MOUSE",
   touch: "TOUCH",
   camera: "CAMERA",
   controller: "GAMEPAD",
-};
+} satisfies Record<ControlMethod, string>;
 
 /** Inject the shared control-card styles (pause overlay AND start screen). */
 export function ensureStyle(): void {

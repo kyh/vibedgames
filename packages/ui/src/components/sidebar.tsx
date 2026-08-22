@@ -71,7 +71,7 @@ function SidebarProvider({
   const open = openProp ?? _open;
   const setOpen = React.useCallback(
     (value: boolean | ((value: boolean) => boolean)) => {
-      const openState = typeof value === "function" ? value(open) : value;
+      const openState = value === true || value === false ? value : value(open);
       if (setOpenProp) {
         setOpenProp(openState);
       } else {
@@ -124,7 +124,7 @@ function SidebarProvider({
       <div
         data-slot="sidebar-wrapper"
         style={
-          // oxlint-disable-next-line typescript/consistent-type-assertions -- CSS custom properties aren't in the CSSProperties index type
+          // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: only `--*` custom properties, which the DOM style API accepts but the CSSProperties index type omits
           {
             "--sidebar-width": SIDEBAR_WIDTH,
             "--sidebar-width-icon": SIDEBAR_WIDTH_ICON,
@@ -183,7 +183,7 @@ function Sidebar({
           data-mobile="true"
           className="w-(--sidebar-width) bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
           style={
-            // oxlint-disable-next-line typescript/consistent-type-assertions -- CSS custom properties aren't in the CSSProperties index type
+            // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: only `--*` custom properties, which the DOM style API accepts but the CSSProperties index type omits
             {
               "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
             } as React.CSSProperties
@@ -513,7 +513,7 @@ function SidebarMenuButton({
     return comp;
   }
 
-  if (typeof tooltip === "string") {
+  if (!(tooltip instanceof Object)) {
     tooltip = {
       children: tooltip,
     };
@@ -600,7 +600,7 @@ function SidebarMenuSkeleton({
         className="h-4 max-w-(--skeleton-width) flex-1"
         data-sidebar="menu-skeleton-text"
         style={
-          // oxlint-disable-next-line typescript/consistent-type-assertions -- CSS custom properties aren't in the CSSProperties index type
+          // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: only `--*` custom properties, which the DOM style API accepts but the CSSProperties index type omits
           {
             "--skeleton-width": width,
           } as React.CSSProperties

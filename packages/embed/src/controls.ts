@@ -44,7 +44,7 @@ export function isCoarsePointer(): boolean {
 }
 
 function padConnectedNow(): boolean {
-  if (typeof navigator === "undefined" || typeof navigator.getGamepads !== "function") return false;
+  if (typeof navigator === "undefined" || !navigator.getGamepads) return false;
   return navigator.getGamepads().some((pad) => pad?.connected ?? false);
 }
 

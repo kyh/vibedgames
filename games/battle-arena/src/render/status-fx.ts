@@ -155,16 +155,18 @@ const scratchOpts: SpawnOptions = { x: 0, y: 0, z: 0, size: 0.3, life: 0.4 };
 /** The moment a debuff LANDS is the frame the player is actually looking at, so
  *  each kind announces itself with a one-shot burst in its own colour. Steady-state
  *  tells you it's still on; the burst tells you it just happened. */
-const ONSET: Record<string, { color: number; n: number; speed: number; size: number }> = {
-  stun: { color: 0xffd24a, n: 14, speed: 3.4, size: 0.3 },
-  root: { color: 0x9ad46a, n: 12, speed: 2.6, size: 0.28 },
-  slow: { color: 0x9fe8ff, n: 18, speed: 3.0, size: 0.3 },
-  silence: { color: 0xdbe4ff, n: 10, speed: 2.6, size: 0.26 },
-  hex: { color: 0xd07bff, n: 16, speed: 3.2, size: 0.3 },
-  dot: { color: 0xff7a2c, n: 12, speed: 2.6, size: 0.28 },
-  damageAmp: { color: 0x9a7bff, n: 12, speed: 2.8, size: 0.28 },
-  taunt: { color: 0xff5a3c, n: 12, speed: 2.8, size: 0.28 },
-};
+const ONSET = new Map<string, { color: number; n: number; speed: number; size: number }>(
+  Object.entries({
+    stun: { color: 0xffd24a, n: 14, speed: 3.4, size: 0.3 },
+    root: { color: 0x9ad46a, n: 12, speed: 2.6, size: 0.28 },
+    slow: { color: 0x9fe8ff, n: 18, speed: 3.0, size: 0.3 },
+    silence: { color: 0xdbe4ff, n: 10, speed: 2.6, size: 0.26 },
+    hex: { color: 0xd07bff, n: 16, speed: 3.2, size: 0.3 },
+    dot: { color: 0xff7a2c, n: 12, speed: 2.6, size: 0.28 },
+    damageAmp: { color: 0x9a7bff, n: 12, speed: 2.8, size: 0.28 },
+    taunt: { color: 0xff5a3c, n: 12, speed: 2.8, size: 0.28 },
+  } satisfies Record<string, { color: number; n: number; speed: number; size: number }>),
+);
 
 export class StatusFx {
   // lazily-built indicator objects
@@ -400,8 +402,10 @@ export class StatusFx {
       rune.visible = this.runeAlpha > 0.02;
       if (this.runeMat) {
         this.runeMat.uniforms["uAlpha"]!.value = this.runeAlpha;
-        if (runeColor !== 0)
+        if (runeColor !== 0) {
+          // SAFETY: makeRuneMaterial creates uColor with a THREE.Color value.
           (this.runeMat.uniforms["uColor"]!.value as THREE.Color).setHex(runeColor);
+        }
       }
     } else if (this.rune) {
       this.rune.visible = false;
@@ -679,7 +683,7 @@ export class StatusFx {
   /** Fire a one-shot burst for every debuff kind that JUST landed on this unit. */
   private onsets(statuses: Status[], px: number, py: number, pz: number): void {
     for (const s of statuses) {
-      const spec = ONSET[s.kind];
+      const spec = ONSET.get(s.kind);
       if (!spec || this.wasOn.has(s.kind)) continue;
       for (let i = 0; i < spec.n; i++) {
         // burst outward off the torso in a rough sphere
@@ -702,7 +706,7 @@ export class StatusFx {
       }
     }
     this.wasOn.clear();
-    for (const s of statuses) if (ONSET[s.kind]) this.wasOn.add(s.kind);
+    for (const s of statuses) if (ONSET.has(s.kind)) this.wasOn.add(s.kind);
   }
 
   /** Frost shell — scales on over ~120ms and holds while chilled. */

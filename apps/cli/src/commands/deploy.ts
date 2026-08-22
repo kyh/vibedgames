@@ -18,6 +18,7 @@ import {
 import { buildManifest } from "../lib/manifest.js";
 import { isJsonOutput, outputArgs, writeStructured } from "../lib/output.js";
 import { assertKnownFlags } from "../lib/strict-args.js";
+import { isJsonString } from "../lib/types.js";
 import { uploadAll } from "../lib/upload.js";
 
 const deployArgs = {
@@ -106,15 +107,18 @@ export const deployCommand = defineCommand({
         );
         process.exit(1);
       }
+      // isJsonString: consola.prompt is typed to resolve a string but can
+      // resolve a cancel sentinel at runtime, and a symbol would throw
+      // inside RegExp.test.
       const slug = await consola.prompt("Slug (e.g. pong):", { type: "text" });
-      if (typeof slug !== "string" || !SLUG_RE.test(slug)) {
+      if (!isJsonString(slug) || !SLUG_RE.test(slug)) {
         consola.error("Invalid slug. Use lowercase letters, digits, hyphens.");
         process.exit(1);
       }
       const name = await consola.prompt("Name (optional):", { type: "text" });
       config = {
         slug,
-        name: typeof name === "string" && name.length > 0 ? name : undefined,
+        name: isJsonString(name) && name.length > 0 ? name : undefined,
       };
       writeProjectConfig(dir, config);
       say(`Wrote ${projectConfigPath(dir)}`);

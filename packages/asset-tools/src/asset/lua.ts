@@ -23,7 +23,23 @@ type Token = { type: TokenType; value: string; pos: number };
 
 const IDENT_START = /[A-Za-z_]/;
 const IDENT_BODY = /[A-Za-z0-9_]/;
-const PUNCTUATION = new Set(["{", "}", "[", "]", "=", ",", ";"]);
+
+type Punctuation = "{" | "}" | "[" | "]" | "=" | "," | ";";
+
+function punctuationOf(ch: string): Punctuation | null {
+  switch (ch) {
+    case "{":
+    case "}":
+    case "[":
+    case "]":
+    case "=":
+    case ",":
+    case ";":
+      return ch;
+    default:
+      return null;
+  }
+}
 
 function isSpace(ch: string): boolean {
   return ch !== "" && /\s/.test(ch);
@@ -66,8 +82,9 @@ function tokenize(text: string): Token[] {
     const ch = peek();
     const pos = i;
 
-    if (PUNCTUATION.has(ch)) {
-      tokens.push({ type: ch as TokenType, value: ch, pos });
+    const punctuation = punctuationOf(ch);
+    if (punctuation !== null) {
+      tokens.push({ type: punctuation, value: punctuation, pos });
       i += 1;
       continue;
     }
@@ -123,6 +140,12 @@ function tokenize(text: string): Token[] {
   }
 }
 
+type TableKey = { kind: "index"; index: number } | { kind: "name"; name: string };
+
+function numberTokenValue(raw: string): number {
+  return raw.includes(".") ? Number.parseFloat(raw) : Number.parseInt(raw, 10);
+}
+
 /** Parse a Lua table literal (optionally `return`-prefixed) into JSON data. */
 export function parseLua(text: string): LuaValue {
   const tokens = tokenize(text);
@@ -148,9 +171,7 @@ export function parseLua(text: string): LuaValue {
     }
     if (token.type === "number") {
       eat("number");
-      return token.value.includes(".")
-        ? Number.parseFloat(token.value)
-        : Number.parseInt(token.value, 10);
+      return numberTokenValue(token.value);
     }
     if (token.type === "ident") {
       if (token.value === "true") {
@@ -172,25 +193,35 @@ export function parseLua(text: string): LuaValue {
 
   const parseTable = (): LuaValue => {
     eat("{");
-    const items: [string | number, LuaValue][] = [];
+    const items: [TableKey, LuaValue][] = [];
     let arrayIndex = 1;
 
     while (cur().type !== "}") {
       if (cur().type === "ident" && peek().type === "=") {
         const key = eat("ident").value;
         eat("=");
-        items.push([key, parseValue()]);
+        items.push([{ kind: "name", name: key }, parseValue()]);
       } else if (cur().type === "[") {
         eat("[");
-        const key = parseValue();
+        const keyToken = cur();
+        // The key expression is parsed (and discarded) even when its type is
+        // rejected, so malformed brackets still fail on `]`/`=` first, as the
+        // Python parser did.
+        parseValue();
         eat("]");
         eat("=");
-        if (typeof key !== "string" && typeof key !== "number") {
+        const key: TableKey | null =
+          keyToken.type === "string"
+            ? { kind: "name", name: keyToken.value }
+            : keyToken.type === "number"
+              ? { kind: "index", index: numberTokenValue(keyToken.value) }
+              : null;
+        if (key === null) {
           throw new LuaParseError("Only string/int table keys are supported");
         }
         items.push([key, parseValue()]);
       } else {
-        items.push([arrayIndex, parseValue()]);
+        items.push([{ kind: "index", index: arrayIndex }, parseValue()]);
         arrayIndex += 1;
       }
 
@@ -200,20 +231,24 @@ export function parseLua(text: string): LuaValue {
 
     // A table whose keys are exactly 1..n is a Lua array, and becomes a JSON
     // array. Anything else — string keys, or gaps — stays an object.
-    const keys = items.map(([key]) => key);
-    if (keys.length > 0 && keys.every((key) => typeof key === "number")) {
-      const numeric = keys as number[];
+    const numeric: number[] = [];
+    for (const [key] of items) if (key.kind === "index") numeric.push(key.index);
+    if (items.length > 0 && numeric.length === items.length) {
       const max = Math.max(...numeric);
       const dense = new Set(numeric).size === numeric.length && max === numeric.length;
       if (dense) {
         const out: LuaValue[] = Array.from({ length: max }, () => null);
-        for (const [key, value] of items) out[(key as number) - 1] = value;
+        for (const [key, value] of items) {
+          if (key.kind === "index") out[key.index - 1] = value;
+        }
         return out;
       }
     }
 
     const out: Record<string, LuaValue> = {};
-    for (const [key, value] of items) out[String(key)] = value;
+    for (const [key, value] of items) {
+      out[key.kind === "index" ? String(key.index) : key.name] = value;
+    }
     return out;
   };
 

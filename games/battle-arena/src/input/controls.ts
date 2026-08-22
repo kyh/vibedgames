@@ -217,7 +217,7 @@ export class Controls {
 
   /** Camera-relative move axes: forward (+W/-S), strafe (+D/-A). The scene
    *  composes these with the facing direction. */
-  moveAxes(): { fwd: number; strafe: number } {
+  moveAxes() {
     let fwd = this.padFwd;
     let strafe = this.padStrafe;
     if (this.keys.has("KeyW") || this.keys.has("ArrowUp")) fwd += 1;

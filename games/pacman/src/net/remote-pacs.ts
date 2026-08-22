@@ -4,15 +4,21 @@
 
 import * as THREE from "three";
 
-import type { PlayerMap } from "@vibedgames/multiplayer";
+import type { Player, PlayerMap } from "@vibedgames/multiplayer";
 
 export type RemotePacState = { x: number; z: number };
 
-function readPacState(state: unknown): RemotePacState | null {
-  if (!state || typeof state !== "object") return null;
-  const x = "x" in state ? state.x : null;
-  const z = "z" in state ? state.z : null;
-  if (typeof x !== "number" || typeof z !== "number") return null;
+/** One field of the wire player-state dictionary (parsed JSON). */
+type PlayerStateField = NonNullable<Player["state"]>[string] | undefined;
+
+// JSON numbers are always finite, so Number.isFinite is the exact check.
+const isFiniteNumber = (v: PlayerStateField): v is number => Number.isFinite(v);
+
+function readPacState(state: Player["state"]): RemotePacState | null {
+  if (!state) return null;
+  const x = state["x"];
+  const z = state["z"];
+  if (!isFiniteNumber(x) || !isFiniteNumber(z)) return null;
   return { x, z };
 }
 

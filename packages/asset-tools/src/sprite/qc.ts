@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { Bitmap } from "../image/raster.js";
 import { roundHalfToEven } from "../pymath.js";
 import { median } from "./frames.js";
+import { isFiniteNumber, isJsonObject, type JsonValue } from "./json.js";
 
 /**
  * Quality-control a packed spritesheet — the eval that tells an agent whether
@@ -106,6 +107,14 @@ function percent(value: number, digits = 0): string {
   return `${roundTo(value * 100, digits).toFixed(digits)}%`;
 }
 
+export type FrameGrid = {
+  frameWidth: number;
+  frameHeight: number;
+  count: number;
+  columns: number;
+  rows: number;
+};
+
 /**
  * Resolve the frame grid: an explicit override wins, then a sibling
  * `spritesheet.json` (which carries the real columns/rows for multi-row
@@ -116,7 +125,7 @@ export function frameGeometry(
   sheetPath: string,
   frameWidth: number | null,
   frameHeight: number | null,
-): { frameWidth: number; frameHeight: number; count: number; columns: number; rows: number } {
+): FrameGrid {
   if (frameWidth !== null && frameHeight !== null) {
     if (frameWidth <= 0 || frameHeight <= 0) {
       throw new Error("--frame-width and --frame-height must be positive");
@@ -131,16 +140,16 @@ export function frameGeometry(
 
   const manifestPath = sheetPath.replace(/\.[^./\\]+$/, ".json");
   if (existsSync(manifestPath)) {
-    const parsed: unknown = JSON.parse(readFileSync(manifestPath, "utf8"));
-    if (parsed === null || typeof parsed !== "object") {
+    const parsed: JsonValue = JSON.parse(readFileSync(manifestPath, "utf8"));
+    if (!isJsonObject(parsed)) {
       throw new Error(`${manifestPath}: expected an object`);
     }
-    const m = parsed as Record<string, unknown>;
+    const m = parsed;
     // Read these rather than assert them. A manifest missing `frameCount` used
     // to produce `NaN` frames, which inspected nothing and reported CLEAN.
     const required = (key: string): number => {
       const value = m[key];
-      if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+      if (!isFiniteNumber(value) || value <= 0) {
         throw new Error(
           `${manifestPath}: "${key}" must be a positive number, got ${String(value)}`,
         );
@@ -150,7 +159,7 @@ export function frameGeometry(
     const optional = (key: string, fallback: number): number => {
       const value = m[key];
       if (value === undefined) return fallback;
-      if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+      if (!isFiniteNumber(value) || value <= 0) {
         throw new Error(
           `${manifestPath}: "${key}" must be a positive number, got ${String(value)}`,
         );

@@ -21,7 +21,7 @@ const buildId = (): string => {
 };
 
 const enabled = (): boolean => {
-  if (typeof indexedDB === "undefined") return false;
+  if (globalThis.indexedDB === undefined) return false;
   if (!import.meta.env.DEV) return true;
   // Dev default: bypass (stale worlds while editing gen code). ?cache=1 opts
   // in so the cache path is debuggable with dev hooks available.
@@ -55,13 +55,14 @@ export async function readWorldCache(): Promise<CityGenPayload | null> {
     });
     db.close();
     if (
-      value &&
-      typeof value === "object" &&
+      value instanceof Object &&
       "version" in value &&
       "payload" in value &&
-      (value as { version: unknown }).version === buildId()
+      value.version === buildId()
     ) {
       console.log("[world-cache] hit");
+      // SAFETY: the version matched this build, so the record is the structured
+      // clone writeWorldCache stored — its payload is a CityGenPayload.
       return (value as { payload: CityGenPayload }).payload;
     }
     return null;
@@ -82,13 +83,14 @@ export async function readRestCache(): Promise<CityRestPayload | null> {
     });
     db.close();
     if (
-      value &&
-      typeof value === "object" &&
+      value instanceof Object &&
       "version" in value &&
       "payload" in value &&
-      (value as { version: unknown }).version === buildId()
+      value.version === buildId()
     ) {
       console.log("[world-cache] rest hit");
+      // SAFETY: the version matched this build, so the record is the structured
+      // clone writeRestCache stored — its payload is a CityRestPayload.
       return (value as { payload: CityRestPayload }).payload;
     }
     return null;

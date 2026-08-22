@@ -80,7 +80,7 @@ export type CreepDef = {
   incomingFromUnitsMult: number;
 };
 
-export const CREEPS: Record<CreepKind, CreepDef> = {
+export const CREEPS = {
   melee: {
     kind: "melee",
     hp: 280,
@@ -126,7 +126,7 @@ export const CREEPS: Record<CreepKind, CreepDef> = {
     structureDamageMult: 3.5,
     incomingFromUnitsMult: 0.4,
   },
-};
+} satisfies Record<CreepKind, CreepDef>;
 
 // Wave composition + cadence.
 export const WAVE = {
@@ -158,7 +158,7 @@ export type StructDef = {
   radius: number;
 };
 
-export const STRUCTS: Record<StructTier, StructDef> = {
+export const STRUCTS = {
   t1: {
     tier: "t1",
     hp: 1050,
@@ -213,7 +213,7 @@ export const STRUCTS: Record<StructTier, StructDef> = {
     regenPerSec: 20,
     radius: 170,
   },
-};
+} satisfies Record<StructTier, StructDef>;
 
 export const TOWER_RAMP_PER_HIT = 0.25; // +25% dmg per consecutive hit, resets on switch
 export const TOWER_RAMP_MAX = 4; // cap stacks

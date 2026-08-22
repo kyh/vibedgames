@@ -17,22 +17,22 @@ import { getWorldMap } from "../world/map-store";
 // deco sprite with its animation; character/animal/crop sheets. Click any
 // cell to pin its details in the top bar.
 
-const CLASS_COLOR: Record<Cell, number> = {
+const CLASS_COLOR = {
   [CELL.void]: 0x16324f,
   [CELL.grass]: 0x3fae49,
   [CELL.sand]: 0xe8d36a,
   [CELL.dirt]: 0xa9744a,
   [CELL.water]: 0x3fc6e8,
   [CELL.solid]: 0xe84a4a,
-};
-const CLASS_NAME: Record<Cell, string> = {
+} satisfies Record<Cell, number>;
+const CLASS_NAME = {
   [CELL.void]: "void",
   [CELL.grass]: "grass",
   [CELL.sand]: "sand",
   [CELL.dirt]: "dirt",
   [CELL.water]: "water",
   [CELL.solid]: "solid",
-};
+} satisfies Record<Cell, string>;
 const PATH_COLOR = { solid: 0xe84a4a, walk: 0xa9744a, overlay: 0x888888 } as const;
 
 export class GalleryScene extends Phaser.Scene {
@@ -82,9 +82,12 @@ export class GalleryScene extends Phaser.Scene {
 
     const maxScroll = Math.max(0, this.cursorY + 40 - this.scale.height);
     const cam = this.cameras.main;
-    this.input.on("wheel", (_p: unknown, _o: unknown, _dx: number, dy: number) => {
-      cam.scrollY = Phaser.Math.Clamp(cam.scrollY + dy, 0, maxScroll);
-    });
+    this.input.on(
+      "wheel",
+      (_p: Phaser.Input.Pointer, _o: Phaser.GameObjects.GameObject[], _dx: number, dy: number) => {
+        cam.scrollY = Phaser.Math.Clamp(cam.scrollY + dy, 0, maxScroll);
+      },
+    );
     const kb = this.input.keyboard;
     if (kb) {
       kb.on("keydown-UP", () => (cam.scrollY = Phaser.Math.Clamp(cam.scrollY - 60, 0, maxScroll)));

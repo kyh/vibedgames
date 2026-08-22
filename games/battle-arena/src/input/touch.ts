@@ -9,6 +9,7 @@
 // otherwise activates on first touch; idle on desktop. The full-screen layer is
 // pointer-events:none (sticks listen on window) so interactive HUD stays tappable.
 import { abilityIcon } from "../data/icons";
+import { ALL_ABILITY_KEYS } from "../sim/types";
 import type { AbilityKey } from "../sim/types";
 
 type Stick = { id: number; baseX: number; baseY: number; dx: number; dy: number };
@@ -20,7 +21,7 @@ const KNOB_R = 28;
 export function isTouchInput(): boolean {
   return (
     "ontouchstart" in window ||
-    (typeof window.matchMedia === "function" && window.matchMedia("(pointer:coarse)").matches)
+    ("matchMedia" in window && window.matchMedia("(pointer:coarse)").matches)
   );
 }
 
@@ -60,8 +61,8 @@ export class TouchControls {
   private dash = false; // cast DASH
   private jumpAttack = false; // cast JUMP (leaping strike)
   private layer: HTMLDivElement;
-  private moveEl: HTMLDivElement;
-  private aimEl: HTMLDivElement;
+  private moveEl: StickHandle;
+  private aimEl: StickHandle;
   private buttons = new Map<string, Btn>();
   private champBound = "";
 
@@ -78,7 +79,7 @@ export class TouchControls {
       "position:fixed;inset:0;z-index:4;display:none;touch-action:none;pointer-events:none";
     this.moveEl = stickEl();
     this.aimEl = stickEl();
-    this.layer.append(this.moveEl, this.aimEl);
+    this.layer.append(this.moveEl.el, this.aimEl.el);
 
     const pad = document.createElement("div");
     pad.style.cssText =
@@ -126,7 +127,7 @@ export class TouchControls {
 
     // pre-show on touch-first devices so the pad is visible from spawn and the
     // hint engine speaks touch from boot (not only after the first touch)
-    if (typeof window.matchMedia === "function" && window.matchMedia("(pointer:coarse)").matches) {
+    if ("matchMedia" in window && window.matchMedia("(pointer:coarse)").matches) {
       this.activate();
     }
   }
@@ -137,7 +138,7 @@ export class TouchControls {
   bindChamp(champId: string): void {
     if (champId === this.champBound) return;
     this.champBound = champId;
-    for (const key of ["Q", "W", "E", "R", "DASH", "JUMP"] as AbilityKey[]) {
+    for (const key of ALL_ABILITY_KEYS) {
       const btn = this.buttons.get(key);
       if (!btn) continue;
       btn.el.style.backgroundImage = `url("${abilityIcon(champId, key)}")`;
@@ -265,25 +266,27 @@ function injectTouchStyle(): void {
   document.head.appendChild(s);
 }
 
-function stickEl(): HTMLDivElement {
+type StickHandle = { el: HTMLDivElement; base: HTMLDivElement; knob: HTMLDivElement };
+
+function stickEl(): StickHandle {
   const el = document.createElement("div");
   el.style.cssText = `position:absolute;display:none;pointer-events:none`;
-  el.innerHTML = `<div class="base"></div><div class="knob"></div>`;
-  const base = el.querySelector(".base") as HTMLDivElement;
-  const knob = el.querySelector(".knob") as HTMLDivElement;
+  const base = document.createElement("div");
+  base.className = "base";
+  const knob = document.createElement("div");
+  knob.className = "knob";
+  el.append(base, knob);
   base.style.cssText = `position:absolute;width:${STICK_R * 2}px;height:${STICK_R * 2}px;border-radius:50%;background:rgba(255,255,255,.08);border:2px solid rgba(255,255,255,.2);transform:translate(-50%,-50%)`;
   knob.style.cssText = `position:absolute;width:${KNOB_R * 2}px;height:${KNOB_R * 2}px;border-radius:50%;background:rgba(255,255,255,.35);transform:translate(-50%,-50%)`;
-  return el;
+  return { el, base, knob };
 }
 
-function place(el: HTMLDivElement, s: Stick | null): void {
+function place({ el, base, knob }: StickHandle, s: Stick | null): void {
   if (!s) {
     el.style.display = "none";
     return;
   }
   el.style.display = "block";
-  const base = el.firstElementChild as HTMLDivElement;
-  const knob = el.lastElementChild as HTMLDivElement;
   base.style.left = `${s.baseX}px`;
   base.style.top = `${s.baseY}px`;
   knob.style.left = `${s.baseX + s.dx * STICK_R}px`;

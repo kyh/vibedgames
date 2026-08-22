@@ -1,13 +1,17 @@
 import { getRuntimeMap } from "./map-file";
+import { isFiniteJsonNumber, isJsonObject, parseJsonText } from "../shared/json";
+
 // Hand-edited street-grid overrides, exported from the map editor (?editor=1).
 // Cells are [gx, gz] grid coordinates. `add` turns a cell into road; `remove`
 // deletes a road cell. Applied in grid.ts on top of the baked OSM mask —
 // paint in the editor, Copy map JSON, paste here, reload/deploy.
-export const CUSTOM_MAP: {
+type CustomMapEdits = {
   add: readonly (readonly [number, number])[];
   remove: readonly (readonly [number, number])[];
   floor: readonly (readonly [number, number, FloorKind])[];
-} = {
+};
+
+export const CUSTOM_MAP: CustomMapEdits = {
   add: [],
   remove: [],
   floor: [],
@@ -55,27 +59,27 @@ export function loadLocalOverrides(): MapOverrides {
   try {
     const raw = window.localStorage.getItem(MAP_OVERRIDES_KEY);
     if (!raw) return { add: [], remove: [], floor: [] };
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== "object" || parsed === null) return { add: [], remove: [], floor: [] };
+    const parsed = parseJsonText(raw);
+    if (!isJsonObject(parsed)) return { add: [], remove: [], floor: [] };
     const pick = (k: "add" | "remove"): [number, number][] => {
-      const v = (parsed as Record<string, unknown>)[k];
+      const v = parsed[k];
       if (!Array.isArray(v)) return [];
       const out: [number, number][] = [];
       for (const c of v) {
-        if (Array.isArray(c) && typeof c[0] === "number" && typeof c[1] === "number") {
+        if (Array.isArray(c) && isFiniteJsonNumber(c[0]) && isFiniteJsonNumber(c[1])) {
           out.push([c[0], c[1]]);
         }
       }
       return out;
     };
     const floor: [number, number, FloorKind][] = [];
-    const fv = (parsed as Record<string, unknown>)["floor"];
+    const fv = parsed["floor"];
     if (Array.isArray(fv)) {
       for (const c of fv) {
         if (
           Array.isArray(c) &&
-          typeof c[0] === "number" &&
-          typeof c[1] === "number" &&
+          isFiniteJsonNumber(c[0]) &&
+          isFiniteJsonNumber(c[1]) &&
           (c[2] === "plaza" || c[2] === "grass" || c[2] === "sand")
         ) {
           floor.push([c[0], c[1], c[2]]);

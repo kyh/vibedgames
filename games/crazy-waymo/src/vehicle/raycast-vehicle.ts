@@ -238,7 +238,7 @@ export class RaycastVehicle {
     return n;
   }
 
-  wheelVisual(i: number): { steering: number; rotation: number; suspension: number } {
+  wheelVisual(i: number) {
     return {
       steering: this.controller.wheelSteering(i) ?? 0,
       rotation: this.controller.wheelRotation(i) ?? 0,

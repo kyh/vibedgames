@@ -486,7 +486,7 @@ export function scoutRunNear(
  *  Pure len × half hands the row to the Sunset's anonymous avenues; the same
  *  geometry through denser fabric reads as San Francisco, so character
  *  multiplies the score — geometry still gates, character only tips ties. */
-const PLOW_WEIGHT: Partial<Record<DistrictChar, number>> = {
+const PLOW_WEIGHT = {
   downtown: 1.4,
   highrise: 1.4,
   commercial: 1.4,
@@ -495,7 +495,7 @@ const PLOW_WEIGHT: Partial<Record<DistrictChar, number>> = {
   park: 0.8,
   industrial: 0.6,
   wharf: 0.6,
-};
+} satisfies Record<DistrictChar, number>;
 
 export function scoutPlowRun(ctx: ScoutCtx, minLen = 230): RunSpot | null {
   let best: RunSpot | null = null;

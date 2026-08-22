@@ -57,7 +57,7 @@ export function createBurningRockMaterial(clock: { value: number }): RockMateria
     // Faceted, like the crystals: it is what makes a low-poly rock read as rock
     // rather than as a smooth ball with a texture on it.
     flatShading: true,
-  }) as RockMaterial;
+  });
 
   const uniforms = {
     uTime: clock,
@@ -204,11 +204,12 @@ export function createBurningRockMaterial(clock: { value: number }): RockMateria
       );
   };
 
-  material.setCharge = (charge: number) => {
-    uniforms.uCharge.value = Math.min(1, Math.max(0, charge));
-  };
-  material.setHeading = (x: number, y: number, z: number) => {
-    uniforms.uHeading.value.set(x, y, z).normalize();
-  };
-  return material;
+  return Object.assign(material, {
+    setCharge: (charge: number) => {
+      uniforms.uCharge.value = Math.min(1, Math.max(0, charge));
+    },
+    setHeading: (x: number, y: number, z: number) => {
+      uniforms.uHeading.value.set(x, y, z).normalize();
+    },
+  });
 }

@@ -17,6 +17,8 @@ import { isOfflineRequested } from "@repo/embed";
 import { MultiplayerClient } from "@vibedgames/multiplayer";
 import type { Player, PlayerMap } from "@vibedgames/multiplayer";
 
+import type { JsonValue } from "./json";
+
 const MULTIPLAYER_HOST = import.meta.env.DEV
   ? "http://localhost:8787"
   : "https://vibedgames-party.kyh.workers.dev";
@@ -31,19 +33,19 @@ export type NetSessionOptions = {
   /** Start (and stay) in local solo mode — no socket is ever opened. Used by
    *  trailer mode, which must never show live players in a staged shot. */
   forceOffline?: boolean;
-  onEvent?: (event: string, payload: unknown, from: string) => void;
+  onEvent?: (event: string, payload: JsonValue, from: string) => void;
 };
 
 export class NetSession {
   private client: MultiplayerClient | null;
   private readonly fallbackMs: number;
-  private readonly onEvent?: (event: string, payload: unknown, from: string) => void;
+  private readonly onEvent?: (event: string, payload: JsonValue, from: string) => void;
 
   private solo = false;
   private everConnected = false;
   private bootedAt = 0;
-  private offlineMyState: Record<string, unknown> = {};
-  private offlineShared: Record<string, unknown> | null = null;
+  private offlineMyState: Record<string, JsonValue> = {};
+  private offlineShared: Record<string, JsonValue> | null = null;
 
   constructor(opts: NetSessionOptions) {
     this.fallbackMs = opts.fallbackMs;
@@ -61,7 +63,10 @@ export class NetSession {
           party: "vg-server",
           room: opts.room,
           maxPlayers: opts.maxPlayers,
-          onEvent: (event, payload, from) => this.onEvent?.(event, payload, from),
+          onEvent: (event, payload, from) =>
+            // SAFETY: event payloads arrive as JSON websocket frames, so
+            // JsonValue covers every possible value.
+            this.onEvent?.(event, payload as JsonValue, from),
         });
   }
 
@@ -139,20 +144,22 @@ export class NetSession {
     return null;
   }
 
-  get sharedState(): Record<string, unknown> | null {
+  get sharedState(): Record<string, JsonValue> | null {
     if (this.solo || !this.client) return this.offlineShared;
-    const s = this.client.sharedState;
+    // SAFETY: shared state is merged exclusively from JSON websocket frames
+    // (or local echoes of JSON-safe patches), so every stored value is JSON.
+    const s = this.client.sharedState as Record<string, JsonValue>;
     return s && Object.keys(s).length > 0 ? s : null;
   }
 
   /** Per-player state shallow-merges, mirroring the package semantics. */
-  updateMyState(patch: Record<string, unknown>): void {
+  updateMyState(patch: Record<string, JsonValue>): void {
     if (this.solo || !this.client) Object.assign(this.offlineMyState, patch);
     else this.client.updateMyState(patch);
   }
 
   /** Shared-state patch shallow-merges; host-only on the server. */
-  patchShared(patch: Record<string, unknown>): void {
+  patchShared(patch: Record<string, JsonValue>): void {
     if (this.solo || !this.client) {
       this.offlineShared = { ...this.offlineShared, ...patch };
     } else {
@@ -161,7 +168,7 @@ export class NetSession {
   }
 
   /** Events loop straight back to the local handler when offline. */
-  sendEvent(event: string, payload: Record<string, unknown>): void {
+  sendEvent(event: string, payload: Record<string, JsonValue>): void {
     if (this.solo || !this.client) this.onEvent?.(event, payload, SOLO_ID);
     else this.client.sendEvent(event, payload);
   }

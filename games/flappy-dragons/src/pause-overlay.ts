@@ -12,13 +12,13 @@
 import { controlGroups, createPauseShell } from "@repo/embed";
 import type { ControlMethod, ControlsManifest } from "@repo/embed";
 
-const METHOD_LABELS: Record<ControlMethod, string> = {
+const METHOD_LABELS = {
   keys: "keyboard",
   mouse: "mouse",
   touch: "touch",
   camera: "camera",
   controller: "controller",
-};
+} satisfies Record<ControlMethod, string>;
 
 const STYLE_ID = "fdp-style";
 // Positioning/z-index/fade live on the shell's root — visuals only here.

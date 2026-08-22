@@ -1,14 +1,10 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 
+import { asJsonObject, asString, parseJson } from "./json.ts";
+import type { JsonValue } from "./json.ts";
 import type { Activity } from "./reporter.ts";
 import type { RunOptions, RunResult } from "./runner.ts";
-
-// Every resolution path funnels through the `settle()` helper below, which is
-// guarded by a `settled` flag so it resolves exactly once. oxlint's static
-// check can't see that guard and flags each settle() caller, so disable the
-// rule for this file.
-/* oxlint-disable promise/no-multiple-resolved */
 
 /** Keep only the tail of stderr — it's used solely for final error reporting. */
 const STDERR_TAIL_MAX = 16_000;
@@ -124,12 +120,8 @@ export function runCodex(opts: RunOptions): Promise<RunResult> {
       pokeIdle(); // any output is a sign of life
       const trimmed = line.trim();
       if (!trimmed) return;
-      let evt: CodexEvent;
-      try {
-        evt = JSON.parse(trimmed) as CodexEvent;
-      } catch {
-        return; // ignore non-JSON noise
-      }
+      const evt = parseCodexEvent(trimmed);
+      if (evt === null) return; // ignore non-JSON noise and unknown event types
       switch (evt.type) {
         case "thread.started":
           sessionId = evt.thread_id;
@@ -192,7 +184,6 @@ type CodexItem = {
   text?: string;
   message?: string;
   command?: string;
-  status?: string;
   tool?: string;
   server?: string;
   query?: string;
@@ -202,10 +193,55 @@ type CodexItem = {
 type CodexEvent =
   | { type: "thread.started"; thread_id?: string }
   | { type: "turn.started" }
-  | { type: "turn.completed"; usage?: Record<string, number> }
+  | { type: "turn.completed" }
   | { type: "turn.failed"; error?: { message?: string } }
   | { type: "error"; message?: string }
   | { type: "item.started" | "item.completed"; item?: CodexItem };
+
+/**
+ * Decode one `codex exec --json` line into a typed event at the process
+ * boundary — the CLI's output is untrusted bytes until each used field is
+ * validated. Null for non-JSON noise and event types this view doesn't consume.
+ */
+function parseCodexEvent(text: string): CodexEvent | null {
+  const evt = asJsonObject(parseJson(text));
+  if (!evt) return null;
+  switch (evt.type) {
+    case "thread.started":
+      return { type: "thread.started", thread_id: asString(evt.thread_id) };
+    case "turn.started":
+    case "turn.completed":
+      return { type: evt.type };
+    case "turn.failed": {
+      const error = asJsonObject(evt.error);
+      return { type: "turn.failed", error: error && { message: asString(error.message) } };
+    }
+    case "error":
+      return { type: "error", message: asString(evt.message) };
+    case "item.started":
+    case "item.completed":
+      return { type: evt.type, item: parseCodexItem(evt.item) };
+    default:
+      return null;
+  }
+}
+
+function parseCodexItem(value: JsonValue | undefined): CodexItem | undefined {
+  const item = asJsonObject(value);
+  if (!item) return undefined;
+  return {
+    type: asString(item.type),
+    text: asString(item.text),
+    message: asString(item.message),
+    command: asString(item.command),
+    tool: asString(item.tool),
+    server: asString(item.server),
+    query: asString(item.query),
+    changes: Array.isArray(item.changes)
+      ? item.changes.map((change) => ({ path: asString(asJsonObject(change)?.path) }))
+      : undefined,
+  };
+}
 
 const oneLine = (s: string, max = 80): string => {
   const flat = s.replace(/\s+/g, " ").trim();

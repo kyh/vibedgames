@@ -9,9 +9,9 @@ export const iconUrl = (name: string): string => `./icons/${name}.webp`;
 
 // Champs whose icon files ship under a different prefix than their champ id
 // (identity reskins keep the id for sim/net compat but get fresh art).
-const ICON_PREFIX_ALIAS: Record<string, string> = {
-  blackknight: "paladin", // Aurelius the Dawnward — gold paladin icon set
-};
+const ICON_PREFIX_ALIAS = new Map<string, string>([
+  ["blackknight", "paladin"], // Aurelius the Dawnward — gold paladin icon set
+]);
 
 /** Ability tile icon. Q/W/E/R → per-champ `{prefix}-{q|w|e|r}.webp` (id →
  *  art-prefix aliased). DASH/JUMP are the flat util pair: they share one glyph
@@ -19,7 +19,7 @@ const ICON_PREFIX_ALIAS: Record<string, string> = {
 export const abilityIcon = (champId: string, key: AbilityKey): string =>
   key === "DASH" || key === "JUMP"
     ? iconUrl(`ability-${key.toLowerCase()}`)
-    : iconUrl(`${ICON_PREFIX_ALIAS[champId] ?? champId}-${key.toLowerCase()}`);
+    : iconUrl(`${ICON_PREFIX_ALIAS.get(champId) ?? champId}-${key.toLowerCase()}`);
 
 /** Basic-attack icon, keyed by ChampDef.attackKind (unknown kinds → melee). */
 export const attackIcon = (attackKind: string): string =>
@@ -34,23 +34,23 @@ export const attackIcon = (attackKind: string): string =>
 /** A champion's identity mark = their ult icon (kill feed, select cards). */
 export const champSigil = (champId: string): string => abilityIcon(champId, "R");
 
-const STATUS_ICONS: Record<string, string> = {
-  stun: "status-stun",
-  root: "status-root",
-  slow: "status-slow",
-  speed: "status-speed",
-  stealth: "status-stealth",
-  shield: "status-shield",
-  dot: "status-dot",
-  heal: "status-heal",
-  damageAmp: "status-damage-amp",
-  attackSpeed: "status-attack-speed",
-  armor: "status-armor",
-  empower: "status-empower",
-};
+const STATUS_ICONS = new Map<string, string>([
+  ["stun", "status-stun"],
+  ["root", "status-root"],
+  ["slow", "status-slow"],
+  ["speed", "status-speed"],
+  ["stealth", "status-stealth"],
+  ["shield", "status-shield"],
+  ["dot", "status-dot"],
+  ["heal", "status-heal"],
+  ["damageAmp", "status-damage-amp"],
+  ["attackSpeed", "status-attack-speed"],
+  ["armor", "status-armor"],
+  ["empower", "status-empower"],
+]);
 
 /** Buff-row chip icon; null = status kinds that get no chip (silence etc.). */
 export const statusIcon = (kind: string): string | null => {
-  const name = STATUS_ICONS[kind];
+  const name = STATUS_ICONS.get(kind);
   return name ? iconUrl(name) : null;
 };

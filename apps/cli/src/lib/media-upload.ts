@@ -1,8 +1,8 @@
 import { openAsBlob } from "node:fs";
 
-import type { createClient } from "./api.js";
+import { forwardJson, type createClient } from "./api.js";
 import type { LocalFile } from "./media-args.js";
-import { isRecord } from "./types.js";
+import { isJsonObject, isJsonString, type JsonValue } from "./types.js";
 
 type Client = ReturnType<typeof createClient>;
 
@@ -14,7 +14,7 @@ type Client = ReturnType<typeof createClient>;
  * that can be reused across runs without re-uploading.
  */
 export async function uploadFile(client: Client, file: LocalFile): Promise<string> {
-  const slot = await client.generate.forward.mutate({
+  const slot = await forwardJson(client, {
     target: "storage",
     method: "POST",
     path: "/storage/upload/initiate",
@@ -36,11 +36,11 @@ export async function uploadFile(client: Client, file: LocalFile): Promise<strin
   return fileUrl;
 }
 
-function pickUrl(slot: unknown, key: "upload_url" | "file_url"): string {
-  if (!isRecord(slot) || typeof slot[key] !== "string" || slot[key]!.length === 0) {
+function pickUrl(slot: JsonValue, key: "upload_url" | "file_url"): string {
+  const value = isJsonObject(slot) ? slot[key] : undefined;
+  if (!isJsonString(value) || value.length === 0) {
     throw new Error(`fal storage initiate response missing ${key}.`);
   }
-  const value = slot[key] as string;
   // Refuse any non-HTTPS URL even if it comes from a trusted server
   // response — a misconfigured response (or a downgrade attack on the
   // proxy hop) must not silently send user bytes over plain HTTP, and

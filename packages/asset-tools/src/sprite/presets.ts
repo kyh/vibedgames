@@ -16,6 +16,8 @@
  *                                 (crouch/block)
  */
 
+import { lookup } from "./json.js";
+
 export type Timing = "loop" | "one_shot" | "transition" | "hold";
 export type SelectionPolicy = "cycle" | "action_window" | "full_duration_include_end" | "hold_pose";
 
@@ -60,7 +62,7 @@ const action = (
  * heavy-kick) map onto these underlying motion contracts; the action ids stay
  * generic. Insertion order is the listing order.
  */
-export const ACTIONS: Record<string, ActionPreset> = {
+export const ACTIONS = {
   idle: action("idle", 10, [8, 10, 12], 6, "loop", true, "cycle"),
   hurt: action("hurt", 6, [4, 5, 6, 8], 8, "one_shot", false, "action_window"),
   jump: action("jump", 6, [6, 8, 10], 8, "transition", false, "full_duration_include_end"),
@@ -94,7 +96,7 @@ export const ACTIONS: Record<string, ActionPreset> = {
   get_up: action("get_up", 12, [6, 8, 10, 12], 8, "transition", false, "full_duration_include_end"),
   light_attack: action("light_attack", 8, [6, 8, 10, 12], 12, "one_shot", false, "action_window"),
   heavy_attack: action("heavy_attack", 12, [6, 8, 10, 12], 10, "one_shot", false, "action_window"),
-};
+} satisfies Record<string, ActionPreset>;
 
 export type Profile = {
   profile: string;
@@ -157,15 +159,24 @@ const POINT_AND_CLICK: Profile = {
   frameOverrides: {},
 };
 
-export const PROFILES: Record<string, Profile> = {
+export const PROFILES = {
   platformer: PLATFORMER,
   "fighting-game": FIGHTING,
   "point-and-click": POINT_AND_CLICK,
   // `adventure` is an alias and is hidden from listings.
   adventure: POINT_AND_CLICK,
-};
+} satisfies Record<string, Profile>;
 
 const PROFILE_ALIASES = new Set(["adventure"]);
+
+function presetOf(actionId: string): ActionPreset {
+  const preset = lookup(ACTIONS, actionId);
+  if (!preset) {
+    const known = Object.keys(ACTIONS).sort().join(", ");
+    throw new Error(`unknown action '${actionId}'; expected one of: ${known}`);
+  }
+  return preset;
+}
 
 /** Canonical profile ids, excluding aliases. */
 export function canonicalProfiles(): string[] {
@@ -174,7 +185,7 @@ export function canonicalProfiles(): string[] {
 
 export function resolveProfile(profileId: string | null): Profile {
   const key = profileId ?? "platformer";
-  const profile = PROFILES[key];
+  const profile = lookup(PROFILES, key);
   if (!profile) {
     const known = canonicalProfiles().sort().join(", ");
     throw new Error(`unknown profile '${key}'; expected one of: ${known}`);
@@ -183,11 +194,7 @@ export function resolveProfile(profileId: string | null): Profile {
 }
 
 export function actionFacts(actionId: string, profile: Profile | null = null): ActionFacts {
-  const preset = ACTIONS[actionId];
-  if (!preset) {
-    const known = Object.keys(ACTIONS).sort().join(", ");
-    throw new Error(`unknown action '${actionId}'; expected one of: ${known}`);
-  }
+  const preset = presetOf(actionId);
 
   const facts: ActionFacts = {
     ...preset,
@@ -205,16 +212,15 @@ export function actionFacts(actionId: string, profile: Profile | null = null): A
   return facts;
 }
 
+export type CoercedFrameCount = { frames: number; warning: string | null };
+
 /**
  * Snap an unsupported frame count to the nearest recommended value. On an
  * equidistant request the LARGER value wins — asking for 9 frames of walk
  * gives 10, not 8, because dropping motion is worse than paying for a frame.
  */
-export function coerceFrameCount(
-  actionId: string,
-  requested: number,
-): { frames: number; warning: string | null } {
-  const recommended = ACTIONS[actionId]!.recommendedFrames;
+export function coerceFrameCount(actionId: string, requested: number): CoercedFrameCount {
+  const recommended = presetOf(actionId).recommendedFrames;
   if (recommended.includes(requested)) return { frames: requested, warning: null };
 
   let nearest = recommended[0]!;
@@ -234,13 +240,17 @@ export function coerceFrameCount(
   };
 }
 
+/** An action-facts field value — what the preset listings print. */
+export type PresetFieldValue = string | number | boolean | null | undefined | PresetFieldValue[];
+
 /**
  * Render a value the way Python's `str()` would, so the human-readable
  * (non-`--json`) output of these scripts is unchanged: `True`/`False` rather
  * than `true`/`false`, and lists as `[8, 10, 12]`.
  */
-export function formatPythonValue(value: unknown): string {
-  if (typeof value === "boolean") return value ? "True" : "False";
+export function formatPythonValue(value: PresetFieldValue): string {
+  if (value === true) return "True";
+  if (value === false) return "False";
   if (value === null || value === undefined) return "None";
   if (Array.isArray(value)) return `[${value.map(formatPythonValue).join(", ")}]`;
   return String(value);

@@ -27,20 +27,20 @@ export const KIT_SUFFIX = "@kit";
 // Contact frame per attack clip, measured frame-by-frame from the Aseprite
 // exports (index is within the clip, not the atlas). If art is re-exported,
 // re-verify these against a contact sheet.
-export const STRIKE_FRAME: Record<HeroName, Record<string, number>> = {
-  axion: { "attack-3a": 3, "attack-3b": 2, "attack-3c": 0, "super-smash": 7 },
-  reaper: { slash: 5, "double-slash": 3, attack: 14, skill: 14 },
-  riven: { slash: 5, "double-slash": 4, "slash-heavy": 5 },
-  mooni: { thrust: 6, spin: 6, smash: 11 },
-  salamander: { "fire-punch": 6, "flame-slam": 11, "flame-wave": 7 },
-};
+export const STRIKE_FRAME = new Map<HeroName, Record<string, number>>([
+  ["axion", { "attack-3a": 3, "attack-3b": 2, "attack-3c": 0, "super-smash": 7 }],
+  ["reaper", { slash: 5, "double-slash": 3, attack: 14, skill: 14 }],
+  ["riven", { slash: 5, "double-slash": 4, "slash-heavy": 5 }],
+  ["mooni", { thrust: 6, spin: 6, smash: 11 }],
+  ["salamander", { "fire-punch": 6, "flame-slam": 11, "flame-wave": 7 }],
+]);
 
 // One retimed clip: windup → strike-at-hitbox → weighted recovery (see above).
 type ActionWindow = { a0: number; a1: number; dur: number };
 
 function retime(scene: Phaser.Scene, hero: HeroName, clip: string, w: ActionWindow) {
   const base = scene.anims.get(`${hero}:${clip}`);
-  const strike = STRIKE_FRAME[hero][clip];
+  const strike = STRIKE_FRAME.get(hero)?.[clip];
   if (!base || strike === undefined) return;
   const kitKey = `${hero}:${clip}${KIT_SUFFIX}`;
   if (scene.anims.exists(kitKey)) return;

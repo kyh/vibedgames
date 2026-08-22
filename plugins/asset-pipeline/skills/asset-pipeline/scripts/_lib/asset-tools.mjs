@@ -140,11 +140,14 @@ var NAMED = {
   brown: [165, 42, 42],
   transparent: [0, 0, 0]
 };
+var isNamedColor = (value) => Object.hasOwn(NAMED, value);
 function parseColor(input) {
   const value = input.trim().toLowerCase();
   if (value === "transparent") return [0, 0, 0, 0];
-  const named = NAMED[value];
-  if (named) return [named[0], named[1], named[2], 255];
+  if (isNamedColor(value)) {
+    const named = NAMED[value];
+    return [named[0], named[1], named[2], 255];
+  }
   if (value.startsWith("#")) {
     const hex = value.slice(1);
     if (!/^(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/.test(hex)) {
@@ -189,7 +192,18 @@ var ADAM7 = [
   { xStart: 1, yStart: 0, xStep: 2, yStep: 2 },
   { xStart: 0, yStart: 1, xStep: 1, yStep: 2 }
 ];
-var CHANNELS = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 };
+var CHANNELS = /* @__PURE__ */ new Map([
+  [0, 1],
+  [2, 3],
+  [3, 1],
+  [4, 2],
+  [6, 4]
+]);
+function channelsFor(colorType) {
+  const channels = CHANNELS.get(colorType);
+  if (channels === void 0) throw new Error(`PNG: unsupported colour type ${colorType}`);
+  return channels;
+}
 var MAX_PIXELS = 64e6;
 var crcTable = (() => {
   const table = new Int32Array(256);
@@ -256,7 +270,7 @@ function scaleTo8(value, bitDepth) {
 }
 function expandPass(raw, offset, passWidth, passHeight, geom, header, palette, transparency, out) {
   const { width, bitDepth, colorType } = header;
-  const channels = CHANNELS[colorType];
+  const channels = channelsFor(colorType);
   const bpp = Math.max(1, Math.ceil(channels * bitDepth / 8));
   const lineBytes = Math.ceil(channels * bitDepth * passWidth / 8);
   let prev = new Uint8Array(lineBytes);
@@ -310,7 +324,7 @@ function expandPass(raw, offset, passWidth, passHeight, geom, header, palette, t
   return cursor;
 }
 function expectedRawBytes(header) {
-  const channels = CHANNELS[header.colorType];
+  const channels = channelsFor(header.colorType);
   const rowBytes = (w) => Math.ceil(channels * header.bitDepth * w / 8);
   if (header.interlace === 0) {
     return header.height === 0 ? 0 : header.height * (1 + rowBytes(header.width));
@@ -357,7 +371,7 @@ function decodePng(buffer) {
       };
       if (buffer[pos + 18] !== 0) throw new Error("PNG: unsupported compression method");
       if (buffer[pos + 19] !== 0) throw new Error("PNG: unsupported filter method");
-      if (!(header.colorType in CHANNELS)) {
+      if (!CHANNELS.has(header.colorType)) {
         throw new Error(`PNG: unsupported colour type ${header.colorType}`);
       }
       if (header.width < 1 || header.height < 1) {
@@ -1077,7 +1091,20 @@ var LuaParseError = class extends Error {
 };
 var IDENT_START = /[A-Za-z_]/;
 var IDENT_BODY = /[A-Za-z0-9_]/;
-var PUNCTUATION = /* @__PURE__ */ new Set(["{", "}", "[", "]", "=", ",", ";"]);
+function punctuationOf(ch) {
+  switch (ch) {
+    case "{":
+    case "}":
+    case "[":
+    case "]":
+    case "=":
+    case ",":
+    case ";":
+      return ch;
+    default:
+      return null;
+  }
+}
 function isSpace(ch) {
   return ch !== "" && /\s/.test(ch);
 }
@@ -1110,8 +1137,9 @@ function tokenize(text) {
     }
     const ch = peek();
     const pos = i;
-    if (PUNCTUATION.has(ch)) {
-      tokens.push({ type: ch, value: ch, pos });
+    const punctuation = punctuationOf(ch);
+    if (punctuation !== null) {
+      tokens.push({ type: punctuation, value: punctuation, pos });
       i += 1;
       continue;
     }
@@ -1160,6 +1188,9 @@ function tokenize(text) {
     throw new LuaParseError(`Unexpected character at ${pos}: '${ch}'`);
   }
 }
+function numberTokenValue(raw) {
+  return raw.includes(".") ? Number.parseFloat(raw) : Number.parseInt(raw, 10);
+}
 function parseLua(text) {
   const tokens = tokenize(text);
   let k = 0;
@@ -1182,7 +1213,7 @@ function parseLua(text) {
     }
     if (token.type === "number") {
       eat("number");
-      return token.value.includes(".") ? Number.parseFloat(token.value) : Number.parseInt(token.value, 10);
+      return numberTokenValue(token.value);
     }
     if (token.type === "ident") {
       if (token.value === "true") {
@@ -1209,36 +1240,42 @@ function parseLua(text) {
       if (cur().type === "ident" && peek().type === "=") {
         const key = eat("ident").value;
         eat("=");
-        items.push([key, parseValue()]);
+        items.push([{ kind: "name", name: key }, parseValue()]);
       } else if (cur().type === "[") {
         eat("[");
-        const key = parseValue();
+        const keyToken = cur();
+        parseValue();
         eat("]");
         eat("=");
-        if (typeof key !== "string" && typeof key !== "number") {
+        const key = keyToken.type === "string" ? { kind: "name", name: keyToken.value } : keyToken.type === "number" ? { kind: "index", index: numberTokenValue(keyToken.value) } : null;
+        if (key === null) {
           throw new LuaParseError("Only string/int table keys are supported");
         }
         items.push([key, parseValue()]);
       } else {
-        items.push([arrayIndex, parseValue()]);
+        items.push([{ kind: "index", index: arrayIndex }, parseValue()]);
         arrayIndex += 1;
       }
       if (cur().type === "," || cur().type === ";") eat();
     }
     eat("}");
-    const keys = items.map(([key]) => key);
-    if (keys.length > 0 && keys.every((key) => typeof key === "number")) {
-      const numeric = keys;
+    const numeric = [];
+    for (const [key] of items) if (key.kind === "index") numeric.push(key.index);
+    if (items.length > 0 && numeric.length === items.length) {
       const max = Math.max(...numeric);
       const dense = new Set(numeric).size === numeric.length && max === numeric.length;
       if (dense) {
         const out2 = Array.from({ length: max }, () => null);
-        for (const [key, value2] of items) out2[key - 1] = value2;
+        for (const [key, value2] of items) {
+          if (key.kind === "index") out2[key.index - 1] = value2;
+        }
         return out2;
       }
     }
     const out = {};
-    for (const [key, value2] of items) out[String(key)] = value2;
+    for (const [key, value2] of items) {
+      out[key.kind === "index" ? String(key.index) : key.name] = value2;
+    }
     return out;
   };
   if (cur().type === "ident" && cur().value === "return") eat("ident");
@@ -1253,6 +1290,20 @@ import { existsSync as existsSync2, mkdirSync as mkdirSync2, readFileSync as rea
 import { createServer } from "node:http";
 import { dirname as dirname3, extname, isAbsolute as isAbsolute2, relative, resolve as resolve3 } from "node:path";
 
+// src/asset/json.ts
+function parseJsonText(text) {
+  return JSON.parse(text);
+}
+function isJsonObject(value) {
+  return Object(value) === value && !Array.isArray(value);
+}
+function isJsonString(value) {
+  return String(value) === value;
+}
+function isFiniteJsonNumber(value) {
+  return Number.isFinite(value);
+}
+
 // src/asset/tilemap.ts
 import { existsSync, readFileSync as readFileSync3 } from "node:fs";
 import { dirname as dirname2, isAbsolute, resolve as resolve2 } from "node:path";
@@ -1263,25 +1314,26 @@ var MANIFEST_JSON_CANDIDATES = [
   "assets/asset_index.json"
 ];
 function asInt(value, fallback) {
-  return typeof value === "number" && Number.isFinite(value) ? Math.trunc(value) : fallback;
+  return isFiniteJsonNumber(value) ? Math.trunc(value) : fallback;
 }
 function loadManifestJson(path) {
-  const payload = JSON.parse(readFileSync3(path, "utf8"));
-  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+  const payload = parseJsonText(readFileSync3(path, "utf8"));
+  if (!isJsonObject(payload)) {
     throw new Error("Manifest JSON must be an object at top-level.");
   }
   return payload;
 }
 function sanitizeTilesets(manifest) {
   const tilesets = manifest.tilesets;
-  if (tilesets === null || typeof tilesets !== "object" || Array.isArray(tilesets)) {
+  if (!isJsonObject(tilesets)) {
     throw new Error("Manifest missing `tilesets` object.");
   }
   const out = {};
   for (const [name, entry] of Object.entries(tilesets)) {
-    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) continue;
-    if (typeof entry.path !== "string") continue;
-    out[name] = entry;
+    if (!isJsonObject(entry)) continue;
+    const path = entry.path;
+    if (!isJsonString(path)) continue;
+    out[name] = { ...entry, path };
   }
   if (Object.keys(out).length === 0) {
     throw new Error("Manifest has no usable tilesets (each needs a string `path`).");
@@ -1291,7 +1343,7 @@ function sanitizeTilesets(manifest) {
 function resolveAssetPath(manifestPath, manifest, rel) {
   const manifestDir = resolve2(dirname2(manifestPath));
   const meta = manifest.meta;
-  const root = meta !== null && typeof meta === "object" && typeof meta.root === "string" ? meta.root : null;
+  const root = isJsonObject(meta) && isJsonString(meta.root) ? meta.root : null;
   const base = root === null ? manifestDir : resolve2(manifestDir, root);
   if (isAbsolute(rel)) return resolve2(rel);
   const candidates = [resolve2(base, rel), resolve2(manifestDir, rel), resolve2(process.cwd(), rel)];
@@ -1397,9 +1449,8 @@ function exportMapRender(meta, outPath, options) {
   const data = options.mapPayload.data;
   if (!Array.isArray(data)) throw new Error("Map JSON must have `data` as a 2D array.");
   const mapMeta = options.mapPayload.meta;
-  const hasMeta = mapMeta !== null && typeof mapMeta === "object" && !Array.isArray(mapMeta);
-  let width = hasMeta ? asInt(mapMeta.width, 0) : 0;
-  let height = hasMeta ? asInt(mapMeta.height, 0) : 0;
+  let width = isJsonObject(mapMeta) ? asInt(mapMeta.width, 0) : 0;
+  let height = isJsonObject(mapMeta) ? asInt(mapMeta.height, 0) : 0;
   if (width <= 0) {
     width = data.reduce(
       (max, row) => Array.isArray(row) ? Math.max(max, row.length) : max,
@@ -1456,7 +1507,7 @@ function normalizeMapData(data, width, height) {
     if (!Array.isArray(row)) continue;
     for (let x = 0; x < width; x += 1) {
       const cell = row[x];
-      out[y][x] = typeof cell === "number" && Number.isFinite(cell) ? Math.trunc(cell) : 0;
+      out[y][x] = isFiniteJsonNumber(cell) ? Math.trunc(cell) : 0;
     }
   }
   return out;
@@ -1475,23 +1526,21 @@ function tilemapPayload(meta, width, height, data) {
   };
 }
 function parseTilemap(payload, fallback) {
-  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+  if (!isJsonObject(payload)) {
     throw new Error("Map JSON must be an object.");
   }
-  const doc = payload;
-  const meta = doc.meta;
-  if (meta === null || typeof meta !== "object" || Array.isArray(meta) || !Array.isArray(doc.data)) {
+  const meta = payload.meta;
+  if (!isJsonObject(meta) || !Array.isArray(payload.data)) {
     throw new Error("Map JSON must have a `meta` object and a `data` array.");
   }
-  const metaObj = meta;
   const clamp = (value) => Math.max(MAP_MIN, Math.min(MAP_MAX, value));
-  const width = clamp(asInt(metaObj.width, fallback.width));
-  const height = clamp(asInt(metaObj.height, fallback.height));
+  const width = clamp(asInt(meta.width, fallback.width));
+  const height = clamp(asInt(meta.height, fallback.height));
   return {
     width,
     height,
-    data: normalizeMapData(doc.data, width, height),
-    tileset: typeof metaObj.tileset === "string" ? metaObj.tileset : null
+    data: normalizeMapData(payload.data, width, height),
+    tileset: isJsonString(meta.tileset) ? meta.tileset : null
   };
 }
 function makeSelftestMap(meta) {
@@ -1523,13 +1572,13 @@ function makeSelftestMap(meta) {
 // src/asset/tilemap-server.ts
 var DEFAULT_MAP_WIDTH = 64;
 var DEFAULT_MAP_HEIGHT = 36;
-var CONTENT_TYPES = {
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".webp": "image/webp"
-};
+var CONTENT_TYPES = /* @__PURE__ */ new Map([
+  [".png", "image/png"],
+  [".jpg", "image/jpeg"],
+  [".jpeg", "image/jpeg"],
+  [".gif", "image/gif"],
+  [".webp", "image/webp"]
+]);
 function isInside(root, candidate) {
   const rel = relative(resolve3(root), resolve3(candidate));
   return rel === "" || !rel.startsWith("..") && !isAbsolute2(rel);
@@ -1595,73 +1644,84 @@ function createTilemapEditor(options) {
     }
     return target;
   };
-  const handlers = {
-    async "/api/state"() {
-      const { tilesets } = readTilesets();
-      const names = Object.keys(tilesets).sort();
-      const selected = options.tileset && names.includes(options.tileset) ? options.tileset : names[0];
-      let map = {
-        width: DEFAULT_MAP_WIDTH,
-        height: DEFAULT_MAP_HEIGHT,
-        data: newMap(DEFAULT_MAP_WIDTH, DEFAULT_MAP_HEIGHT),
-        tileset: null
-      };
-      if (options.mapPath && existsSync2(options.mapPath)) {
-        map = parseTilemap(JSON.parse(readFileSync4(options.mapPath, "utf8")), {
+  const handlers = /* @__PURE__ */ new Map([
+    [
+      "/api/state",
+      async () => {
+        const { tilesets } = readTilesets();
+        const names = Object.keys(tilesets).sort();
+        const selected = options.tileset && names.includes(options.tileset) ? options.tileset : names[0];
+        const map = options.mapPath && existsSync2(options.mapPath) ? parseTilemap(parseJsonText(readFileSync4(options.mapPath, "utf8")), {
           width: DEFAULT_MAP_WIDTH,
           height: DEFAULT_MAP_HEIGHT
-        });
+        }) : {
+          width: DEFAULT_MAP_WIDTH,
+          height: DEFAULT_MAP_HEIGHT,
+          data: newMap(DEFAULT_MAP_WIDTH, DEFAULT_MAP_HEIGHT),
+          tileset: null
+        };
+        const initial = map.tileset && names.includes(map.tileset) ? map.tileset : selected;
+        return {
+          manifestPath,
+          mapPath: options.mapPath ?? null,
+          writeRoot,
+          tilesetNames: names,
+          tileset: tilesetSummary(metaFor(initial)),
+          map
+        };
       }
-      const initial = map.tileset && names.includes(map.tileset) ? map.tileset : selected;
-      return {
-        manifestPath,
-        mapPath: options.mapPath ?? null,
-        writeRoot,
-        tilesetNames: names,
-        tileset: tilesetSummary(metaFor(initial)),
-        map
-      };
-    },
-    async "/api/tileset"(url) {
-      const name = url.searchParams.get("name");
-      if (!name) throw new Error("name is required");
-      return tilesetSummary(metaFor(name));
-    },
-    async "/api/load"(url) {
-      const path = url.searchParams.get("path");
-      if (!path) throw new Error("path is required");
-      const target = resolveWritable(path);
-      if (!existsSync2(target)) throw new Error(`Map not found: ${path}`);
-      return {
-        path: target,
-        ...parseTilemap(JSON.parse(readFileSync4(target, "utf8")), {
-          width: DEFAULT_MAP_WIDTH,
-          height: DEFAULT_MAP_HEIGHT
-        })
-      };
-    },
-    async "/api/save"(url, req) {
-      const body = JSON.parse(await readBody(req));
-      if (body === null || typeof body !== "object") throw new Error("Body must be an object.");
-      const doc = body;
-      const raw = typeof doc.path === "string" && doc.path ? doc.path : options.mapPath;
-      if (!raw) throw new Error("No path given and no --map to fall back on.");
-      const target = resolveWritable(raw);
-      if (typeof doc.tileset !== "string") throw new Error("tileset is required");
-      const meta = metaFor(doc.tileset);
-      const parsed = parseTilemap(
-        { meta: { width: doc.width, height: doc.height }, data: doc.data },
-        { width: DEFAULT_MAP_WIDTH, height: DEFAULT_MAP_HEIGHT }
-      );
-      mkdirSync2(dirname3(target), { recursive: true });
-      writeFileSync2(
-        target,
-        `${JSON.stringify(tilemapPayload(meta, parsed.width, parsed.height, parsed.data), null, 2)}
+    ],
+    [
+      "/api/tileset",
+      async (url) => {
+        const name = url.searchParams.get("name");
+        if (!name) throw new Error("name is required");
+        return tilesetSummary(metaFor(name));
+      }
+    ],
+    [
+      "/api/load",
+      async (url) => {
+        const path = url.searchParams.get("path");
+        if (!path) throw new Error("path is required");
+        const target = resolveWritable(path);
+        if (!existsSync2(target)) throw new Error(`Map not found: ${path}`);
+        return {
+          path: target,
+          ...parseTilemap(parseJsonText(readFileSync4(target, "utf8")), {
+            width: DEFAULT_MAP_WIDTH,
+            height: DEFAULT_MAP_HEIGHT
+          })
+        };
+      }
+    ],
+    [
+      "/api/save",
+      async (url, req) => {
+        const body = parseJsonText(await readBody(req));
+        if (!isJsonObject(body)) throw new Error("Body must be an object.");
+        const raw = isJsonString(body.path) && body.path ? body.path : options.mapPath;
+        if (!raw) throw new Error("No path given and no --map to fall back on.");
+        const target = resolveWritable(raw);
+        if (!isJsonString(body.tileset)) throw new Error("tileset is required");
+        const meta = metaFor(body.tileset);
+        const parsed = parseTilemap(
+          {
+            meta: { width: body.width ?? null, height: body.height ?? null },
+            data: body.data ?? null
+          },
+          { width: DEFAULT_MAP_WIDTH, height: DEFAULT_MAP_HEIGHT }
+        );
+        mkdirSync2(dirname3(target), { recursive: true });
+        writeFileSync2(
+          target,
+          `${JSON.stringify(tilemapPayload(meta, parsed.width, parsed.height, parsed.data), null, 2)}
 `
-      );
-      return { path: target, width: parsed.width, height: parsed.height };
-    }
-  };
+        );
+        return { path: target, width: parsed.width, height: parsed.height };
+      }
+    ]
+  ]);
   const server = createServer((req, res) => {
     void (async () => {
       const url = new URL(req.url ?? "/", "http://localhost");
@@ -1686,7 +1746,7 @@ function createTilemapEditor(options) {
           const meta = metaFor(name);
           const bytes = readFileSync4(meta.path);
           res.writeHead(200, {
-            "content-type": CONTENT_TYPES[extname(meta.path).toLowerCase()] ?? "image/png",
+            "content-type": CONTENT_TYPES.get(extname(meta.path).toLowerCase()) ?? "image/png",
             "content-length": bytes.length,
             "cache-control": "no-store"
           });
@@ -1696,7 +1756,7 @@ function createTilemapEditor(options) {
         }
         return;
       }
-      const handler = handlers[url.pathname];
+      const handler = handlers.get(url.pathname);
       if (!handler) {
         sendJson(res, 404, { error: `No such endpoint: ${url.pathname}` });
         return;
@@ -1791,11 +1851,11 @@ function resolveManifestPath(raw, manifestDir, root) {
   return root ? resolve5(manifestDir, root, raw) : resolve5(manifestDir, raw);
 }
 function metaRootOf(payload) {
-  if (payload === null || typeof payload !== "object") return null;
+  if (!isJsonObject(payload)) return null;
   const meta = payload.meta;
-  if (meta === null || typeof meta !== "object") return null;
+  if (!isJsonObject(meta)) return null;
   const root = meta.root;
-  return typeof root === "string" && root ? root : null;
+  return isJsonString(root) && root ? root : null;
 }
 function collectJsonPaths(payload) {
   const paths = [];
@@ -1804,9 +1864,9 @@ function collectJsonPaths(payload) {
       for (const item of node) visit(item);
       return;
     }
-    if (node === null || typeof node !== "object") return;
+    if (!isJsonObject(node)) return;
     for (const [key, value] of Object.entries(node)) {
-      if (key === "path" && typeof value === "string" && value.toLowerCase().endsWith(".png")) {
+      if (key === "path" && isJsonString(value) && value.toLowerCase().endsWith(".png")) {
         paths.push(value);
       } else {
         visit(value);
@@ -1819,8 +1879,8 @@ function collectJsonPaths(payload) {
 function extractManifestPaths(manifestPath) {
   const manifestDir = resolve5(dirname5(manifestPath));
   if (manifestPath.toLowerCase().endsWith(".json")) {
-    const payload = JSON.parse(readFileSync5(manifestPath, "utf8"));
-    if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+    const payload = parseJsonText(readFileSync5(manifestPath, "utf8"));
+    if (!isJsonObject(payload)) {
       throw new Error("JSON manifest must be an object at top-level.");
     }
     const jsonRoot = metaRootOf(payload);
@@ -1852,29 +1912,30 @@ function checkManifest(manifestPath, root) {
 function autoDetectManifest() {
   return MANIFEST_CANDIDATES.find((p) => existsSync4(p)) ?? null;
 }
-var KEY_RENAMES = {
-  w: "width",
-  h: "height",
-  tileW: "tileWidth",
-  tileH: "tileHeight",
-  frameW: "frameWidth",
-  frameH: "frameHeight"
-};
-function renameKeys(value) {
-  if (Array.isArray(value)) return value.map(renameKeys);
-  if (value === null || typeof value !== "object") return value;
+var KEY_RENAMES = /* @__PURE__ */ new Map([
+  ["w", "width"],
+  ["h", "height"],
+  ["tileW", "tileWidth"],
+  ["tileH", "tileHeight"],
+  ["frameW", "frameWidth"],
+  ["frameH", "frameHeight"]
+]);
+function renameTableKeys(table) {
   const out = {};
-  for (const [key, nested] of Object.entries(value)) {
-    out[KEY_RENAMES[key] ?? key] = renameKeys(nested);
+  for (const [key, nested] of Object.entries(table)) {
+    out[KEY_RENAMES.get(key) ?? key] = renameKeys(nested);
   }
   return out;
 }
-function rewritePaths(base, sourceRoot, value) {
-  if (Array.isArray(value)) return value.map((item) => rewritePaths(base, sourceRoot, item));
-  if (value === null || typeof value !== "object") return value;
+function renameKeys(value) {
+  if (Array.isArray(value)) return value.map(renameKeys);
+  if (!isJsonObject(value)) return value;
+  return renameTableKeys(value);
+}
+function rewriteTablePaths(base, sourceRoot, table) {
   const out = {};
-  for (const [key, nested] of Object.entries(value)) {
-    if (key === "path" && typeof nested === "string" && nested.toLowerCase().endsWith(".png")) {
+  for (const [key, nested] of Object.entries(table)) {
+    if (key === "path" && isJsonString(nested) && nested.toLowerCase().endsWith(".png")) {
       const absolute = isAbsolute3(nested) ? resolve5(nested) : resolve5(sourceRoot, nested);
       const rel = relative3(resolve5(base), absolute);
       out[key] = rel ? rel.split(/[/\\]/).join("/") : nested;
@@ -1884,26 +1945,31 @@ function rewritePaths(base, sourceRoot, value) {
   }
   return out;
 }
+function rewritePaths(base, sourceRoot, value) {
+  if (Array.isArray(value)) return value.map((item) => rewritePaths(base, sourceRoot, item));
+  if (!isJsonObject(value)) return value;
+  return rewriteTablePaths(base, sourceRoot, value);
+}
 function exportManifest(manifestPath, packRelative, outPath) {
   if (manifestPath.toLowerCase().endsWith(".json")) {
-    const payload = JSON.parse(readFileSync5(manifestPath, "utf8"));
-    if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+    const payload = parseJsonText(readFileSync5(manifestPath, "utf8"));
+    if (!isJsonObject(payload)) {
       throw new Error("JSON manifest must be an object at top-level.");
     }
     return payload;
   }
   const parsed = parseLua(readFileSync5(manifestPath, "utf8"));
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+  if (!isJsonObject(parsed)) {
     throw new Error("Lua manifest must return a table/object.");
   }
-  let normalized = renameKeys(parsed);
+  let normalized = renameTableKeys(parsed);
   if (packRelative) {
     const manifestDir = resolve5(dirname5(manifestPath));
     const sourceRoot = resolve5(manifestDir, metaRootOf(normalized) ?? ".");
     const base = outPath ? resolve5(dirname5(outPath)) : manifestDir;
-    normalized = rewritePaths(base, sourceRoot, normalized);
+    normalized = rewriteTablePaths(base, sourceRoot, normalized);
     const meta = normalized.meta;
-    if (meta !== null && typeof meta === "object" && !Array.isArray(meta)) {
+    if (isJsonObject(meta)) {
       meta.root = ".";
     } else {
       normalized.meta = { root: "." };

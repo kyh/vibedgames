@@ -17,7 +17,7 @@ export type MinimapMarker = {
   readonly ring?: boolean; // destination gets a pulsing ring
   // "player" = outlined dot (plain white was invisible on road-grey);
   // "square" = garage pad. Default: the plain objective dot.
-  readonly shape?: "player" | "square";
+  readonly glyph?: "player" | "square";
   // false = draw only inside the window (no edge pin). Default true.
   readonly edgeClamp?: boolean;
 };
@@ -144,7 +144,7 @@ export class Minimap {
         ctx.arc(mx, mz, pulse, 0, Math.PI * 2);
         ctx.stroke();
       }
-      if (m.shape === "square") {
+      if (m.glyph === "square") {
         const s = clamped ? 2.8 : 3.6;
         ctx.fillStyle = m.color;
         ctx.strokeStyle = "#14111a";
@@ -157,9 +157,9 @@ export class Minimap {
       }
       ctx.fillStyle = m.color;
       ctx.beginPath();
-      ctx.arc(mx, mz, clamped ? 3.2 : m.shape === "player" ? 3.4 : 2.8, 0, Math.PI * 2);
+      ctx.arc(mx, mz, clamped ? 3.2 : m.glyph === "player" ? 3.4 : 2.8, 0, Math.PI * 2);
       ctx.fill();
-      if (m.shape === "player") {
+      if (m.glyph === "player") {
         ctx.strokeStyle = "#14111a";
         ctx.lineWidth = 1.2;
         ctx.stroke();

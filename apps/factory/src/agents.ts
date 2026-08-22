@@ -24,23 +24,25 @@ export type Role = {
   system: string;
 };
 
-const ROLE_SOURCES: Record<RoleName, string> = {
+const ROLE_SOURCES = {
   director: directorMd,
   designer: designerMd,
   engineer: engineerMd,
   artist: artistMd,
   qa: qaMd,
   shipper: shipperMd,
-};
+} satisfies Record<RoleName, string>;
 
 type FrontMatter = { emoji?: string };
+
+type ParsedAgentFile = { meta: FrontMatter; body: string };
 
 /**
  * Split a markdown file into its leading `--- … ---` frontmatter and body.
  * Frontmatter is a few `key: value` lines. Dependency-free on purpose — the
  * only field we read is a simple scalar.
  */
-function parseAgentFile(raw: string): { meta: FrontMatter; body: string } {
+function parseAgentFile(raw: string): ParsedAgentFile {
   const normalized = raw.replace(/^﻿/, "");
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(normalized);
   if (!match) return { meta: {}, body: normalized.trim() };
@@ -58,18 +60,24 @@ function parseAgentFile(raw: string): { meta: FrontMatter; body: string } {
  * Compose each subagent's system prompt as `charter + role body`, built once
  * at startup from the bundled definitions.
  */
-export function loadRoles(): Record<RoleName, Role> {
+export function loadRoles() {
   const charter = charterMd.trim();
-  const roles = {} as Record<RoleName, Role>;
-  for (const name of Object.keys(ROLE_SOURCES) as RoleName[]) {
+  const build = (name: RoleName): Role => {
     const { meta, body } = parseAgentFile(ROLE_SOURCES[name]);
-    roles[name] = {
+    return {
       name,
       emoji: meta.emoji ?? "🤖",
       system: `${charter}\n\n${body}`,
     };
-  }
-  return roles;
+  };
+  return {
+    director: build("director"),
+    designer: build("designer"),
+    engineer: build("engineer"),
+    artist: build("artist"),
+    qa: build("qa"),
+    shipper: build("shipper"),
+  } satisfies Record<RoleName, Role>;
 }
 
 /** The subagent roster, loaded from the filesystem-first definitions. */

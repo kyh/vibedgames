@@ -14,13 +14,13 @@ import Phaser from "phaser";
 
 import { PIP_EDGE_MARGIN, PIP_SIZE } from "../shared/constants";
 
-export type PipShape = "diamond" | "triangle" | "circle";
+export type PipGlyph = "diamond" | "triangle" | "circle";
 
 export type PipTarget = {
   x: number;
   y: number;
   tint: number;
-  shape: PipShape;
+  glyph: PipGlyph;
   /** 2Hz blink (UFO marker language). */
   blink?: boolean;
 };
@@ -56,7 +56,7 @@ export class EdgePips {
       const px = Phaser.Math.Clamp(t.x, view.x + margin, view.right - margin);
       const py = Phaser.Math.Clamp(t.y, view.y + margin, view.bottom - margin);
       const ang = Math.atan2(t.y - py, t.x - px);
-      if (t.shape === "triangle") {
+      if (t.glyph === "triangle") {
         // Filled arrowhead pointing at the target.
         const cos = Math.cos(ang);
         const sin = Math.sin(ang);
@@ -73,7 +73,7 @@ export class EdgePips {
         );
         g.closePath();
         g.fillPath();
-      } else if (t.shape === "diamond") {
+      } else if (t.glyph === "diamond") {
         // Hollow diamond + a tick toward the target (beacon language).
         g.lineStyle(2 * s, t.tint, 0.9);
         g.beginPath();

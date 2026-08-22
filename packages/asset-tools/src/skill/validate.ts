@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { FrontmatterError, parseFrontmatter } from "./frontmatter.js";
+import { isFiniteJsonNumber, isJsonString } from "../asset/json.js";
+import { FrontmatterError, parseFrontmatter, type YamlValue } from "./frontmatter.js";
 
 /**
  * Structural validation of a skill directory — the checks that decide whether
@@ -18,7 +19,9 @@ const ALLOWED_PROPERTIES = [
   "metadata",
 ];
 
-export function validateSkill(skillPath: string): { valid: boolean; message: string } {
+export type SkillValidation = { valid: boolean; message: string };
+
+export function validateSkill(skillPath: string): SkillValidation {
   const skillMd = join(skillPath, "SKILL.md");
   if (!existsSync(skillMd)) return { valid: false, message: "SKILL.md not found" };
 
@@ -57,7 +60,7 @@ export function validateSkill(skillPath: string): { valid: boolean; message: str
     }
   }
 
-  let frontmatter: Record<string, unknown>;
+  let frontmatter: Record<string, YamlValue>;
   try {
     frontmatter = parseFrontmatter(frontmatterText);
   } catch (error) {
@@ -83,7 +86,7 @@ export function validateSkill(skillPath: string): { valid: boolean; message: str
   }
 
   const rawName = frontmatter.name;
-  if (typeof rawName !== "string") {
+  if (!isJsonString(rawName)) {
     return { valid: false, message: `Name must be a string, got ${typeName(rawName)}` };
   }
   const name = rawName.trim();
@@ -109,7 +112,7 @@ export function validateSkill(skillPath: string): { valid: boolean; message: str
   }
 
   const rawDescription = frontmatter.description;
-  if (typeof rawDescription !== "string") {
+  if (!isJsonString(rawDescription)) {
     return {
       valid: false,
       message: `Description must be a string, got ${typeName(rawDescription)}`,
@@ -133,17 +136,11 @@ export function validateSkill(skillPath: string): { valid: boolean; message: str
 }
 
 /** Python's `type(x).__name__` for the types frontmatter can produce. */
-function typeName(value: unknown): string {
+function typeName(value: YamlValue | undefined): string {
   if (value === null) return "NoneType";
   if (Array.isArray(value)) return "list";
-  switch (typeof value) {
-    case "string":
-      return "str";
-    case "boolean":
-      return "bool";
-    case "number":
-      return Number.isInteger(value) ? "int" : "float";
-    default:
-      return "dict";
-  }
+  if (isJsonString(value)) return "str";
+  if (value === true || value === false) return "bool";
+  if (isFiniteJsonNumber(value)) return Number.isInteger(value) ? "int" : "float";
+  return "dict";
 }

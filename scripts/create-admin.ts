@@ -30,12 +30,14 @@ type Args = {
 };
 
 const parseArgs = (argv: string[]): Args => {
-  const out: Partial<Args> = { remote: false };
+  let email: string | undefined;
+  let name: string | undefined;
+  let remote = false;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === "--remote") out.remote = true;
-    else if (arg === "--email") out.email = argv[++i];
-    else if (arg === "--name") out.name = argv[++i];
+    if (arg === "--remote") remote = true;
+    else if (arg === "--email") email = argv[++i];
+    else if (arg === "--name") name = argv[++i];
     else if (arg === "--help" || arg === "-h") {
       console.log(
         "Usage: ADMIN_PASSWORD='...' pnpm admin:create -- --email <email> --name <name> [--remote]\n" +
@@ -44,11 +46,11 @@ const parseArgs = (argv: string[]): Args => {
       process.exit(0);
     }
   }
-  if (!out.email || !out.name) {
+  if (!email || !name) {
     console.error("Missing required flags. Use --help for usage.");
     process.exit(1);
   }
-  return out as Args;
+  return { email, name, remote };
 };
 
 /**
@@ -68,10 +70,10 @@ const readPassword = async (): Promise<string> => {
   const writeOriginal = process.stdout.write.bind(process.stdout);
   if (stdin.isTTY) {
     muted = true;
-    process.stdout.write = ((chunk: string | Uint8Array) => {
-      if (muted && typeof chunk === "string" && chunk !== "Password: ") return true;
+    process.stdout.write = (chunk: string | Uint8Array) => {
+      if (muted && !(chunk instanceof Uint8Array) && chunk !== "Password: ") return true;
       return writeOriginal(chunk);
-    }) as typeof process.stdout.write;
+    };
   }
 
   const password = await new Promise<string>((resolve) => rl.question("", resolve));

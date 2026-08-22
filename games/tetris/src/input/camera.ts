@@ -50,31 +50,31 @@ export type Pose = {
 export type PoseHandler = (pose: Pose, overlay: CanvasRenderingContext2D | null) => void;
 
 /** MediaPipe Pose landmark indices → human-readable names (MoveNet-compatible) */
-const LANDMARK_NAMES: Record<number, string> = {
-  0: "nose",
-  1: "left_eye_inner",
-  2: "left_eye",
-  3: "left_eye_outer",
-  4: "right_eye_inner",
-  5: "right_eye",
-  6: "right_eye_outer",
-  7: "left_ear",
-  8: "right_ear",
-  9: "mouth_left",
-  10: "mouth_right",
-  11: "left_shoulder",
-  12: "right_shoulder",
-  13: "left_elbow",
-  14: "right_elbow",
-  15: "left_wrist",
-  16: "right_wrist",
-  23: "left_hip",
-  24: "right_hip",
-  25: "left_knee",
-  26: "right_knee",
-  27: "left_ankle",
-  28: "right_ankle",
-};
+const LANDMARK_NAMES = new Map<number, string>([
+  [0, "nose"],
+  [1, "left_eye_inner"],
+  [2, "left_eye"],
+  [3, "left_eye_outer"],
+  [4, "right_eye_inner"],
+  [5, "right_eye"],
+  [6, "right_eye_outer"],
+  [7, "left_ear"],
+  [8, "right_ear"],
+  [9, "mouth_left"],
+  [10, "mouth_right"],
+  [11, "left_shoulder"],
+  [12, "right_shoulder"],
+  [13, "left_elbow"],
+  [14, "right_elbow"],
+  [15, "left_wrist"],
+  [16, "right_wrist"],
+  [23, "left_hip"],
+  [24, "right_hip"],
+  [25, "left_knee"],
+  [26, "right_knee"],
+  [27, "left_ankle"],
+  [28, "right_ankle"],
+]);
 
 /** Convert MediaPipe normalized landmarks to pixel-coordinate keypoints. */
 function landmarksToKeypoints(
@@ -84,7 +84,7 @@ function landmarksToKeypoints(
 ): Keypoint[] {
   return landmarks
     .map((lm, i) => {
-      const name = LANDMARK_NAMES[i];
+      const name = LANDMARK_NAMES.get(i);
       if (!name) return null;
       return { name, x: lm.x * width, y: lm.y * height, score: lm.visibility };
     })

@@ -6,12 +6,12 @@ export const S: Dir = 2;
 export const W: Dir = 3;
 
 // Grid delta (dx, dz) for each direction.
-export const DIR_DELTA: Record<Dir, readonly [number, number]> = {
+export const DIR_DELTA = {
   0: [0, -1],
   1: [1, 0],
   2: [0, 1],
   3: [-1, 0],
-};
+} satisfies Record<Dir, readonly [number, number]>;
 
 // A connection mask is a 4-bit set: bit d (1<<d) means "connected toward Dir d".
 export type Mask = number;

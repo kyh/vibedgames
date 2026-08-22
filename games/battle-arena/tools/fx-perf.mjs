@@ -61,7 +61,7 @@ const PAGE_HELPERS = () => {
           // Drop the first few: the ability click and the shader compile it may
           // trigger both land there, and a one-off compile stall is not a
           // per-frame cost.
-          const s = gaps.slice(5).sort((a, b) => a - b);
+          const s = gaps.slice(5).toSorted((a, b) => a - b);
           const at = (q) => s[Math.min(s.length - 1, Math.floor(s.length * q))] ?? 0;
           resolve({ frames: s.length, p50: at(0.5), p95: at(0.95), max: s[s.length - 1] ?? 0 });
         }

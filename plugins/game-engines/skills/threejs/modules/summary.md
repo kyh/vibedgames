@@ -25,7 +25,7 @@ import { KinematicResolver } from "./modules/kinematic-resolver";
 const resolver = new KinematicResolver(world, RAPIER); // world + rapier are yours, already initialized
 const actor = resolver.createActor({
   position: new Vector3(0, 1, 0),
-  colliderShape: { type: "capsule", halfHeight: 0.5, radius: 0.4 },
+  colliderGeometry: { type: "capsule", halfHeight: 0.5, radius: 0.4 },
   controllerOptions: { snapToGround: 0.2 },
   groundedProbeDistance: 0.1,
 });

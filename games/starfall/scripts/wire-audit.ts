@@ -277,7 +277,7 @@ function makePlayer(): PlayerNetState {
   };
 }
 
-const bytes = (v: unknown): number => Buffer.byteLength(JSON.stringify(v));
+const bytes = <T>(v: T): number => Buffer.byteLength(JSON.stringify(v));
 const sharedMsg = (data: SharedLike): number => bytes({ type: "state_patch", data });
 const playerMsg = (state: PlayerNetState): number =>
   bytes({ type: "player_state", data: { playerId: uuid(7000), state } });

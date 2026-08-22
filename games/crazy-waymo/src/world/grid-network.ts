@@ -17,7 +17,7 @@ export function buildGridNetwork(
   plan: CityPlan,
   worldX: (gx: number) => number,
   worldZ: (gz: number) => number,
-): { nodes: [number, number][]; edges: RawEdge[] } {
+) {
   const nodes: [number, number][] = [];
   const nodeAt = new Map<string, number>();
   const isRoad = (gx: number, gz: number): boolean =>

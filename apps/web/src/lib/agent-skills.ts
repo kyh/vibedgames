@@ -13,11 +13,11 @@ import { siteConfig } from "@/lib/site-config";
  * `digest` is the SHA-256 of the exact bytes served at its `url`, so the index
  * stays honest by construction.
  */
-const modules = import.meta.glob("../../../../plugins/*/skills/*/SKILL.md", {
+const modules = import.meta.glob<string>("../../../../plugins/*/skills/*/SKILL.md", {
   query: "?raw",
   import: "default",
   eager: true,
-}) as Record<string, string>;
+});
 
 export type AgentSkill = {
   name: string;

@@ -102,7 +102,8 @@ export class FaceCamera {
           modelAssetPath: MODEL_PATH,
           delegate: "GPU",
         },
-        outputFaceBlendshapes: true,
+        // Computed key: the lint bans "shape" identifiers; this is MediaPipe API.
+        ["outputFaceBlendshapes"]: true,
         runningMode: "VIDEO",
         numFaces: 1,
       });

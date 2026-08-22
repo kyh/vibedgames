@@ -70,8 +70,10 @@ test("formatField falls back to JSON for structural values", () => {
 function captureStdout(body: () => void): string {
   const original = process.stdout.write.bind(process.stdout);
   let captured = "";
+  // SAFETY: test double for the write overloads; the code under test only
+  // ever calls the single-chunk form.
   process.stdout.write = ((chunk: string | Uint8Array) => {
-    captured += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
+    captured += chunk instanceof Uint8Array ? Buffer.from(chunk).toString("utf8") : chunk;
     return true;
   }) as typeof process.stdout.write;
   try {
@@ -121,10 +123,14 @@ test("a field that does not resolve exits non-zero rather than printing nothing"
   const originalErr = process.stderr.write.bind(process.stderr);
   let code: number | undefined;
   let message = "";
+  // SAFETY: test double for process.exit; the code under test only ever
+  // passes a numeric code.
   process.exit = ((c?: number) => {
     code = c;
     throw new Error("exit");
   }) as typeof process.exit;
+  // SAFETY: test double for the write overloads; the code under test only
+  // ever calls the single-chunk string form.
   process.stderr.write = ((chunk: string) => {
     message += chunk;
     return true;

@@ -1,6 +1,8 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
+import { isJsonObject, isJsonString, type JsonValue } from "./types.js";
+
 export type ProjectConfig = {
   slug: string;
   name?: string;
@@ -40,16 +42,13 @@ export function readProjectConfig(dir: string): ProjectConfig | null {
   const path = findConfigPath(dir);
   if (!path) return null;
   const raw = readFileSync(path, "utf-8");
-  const parsed: unknown = JSON.parse(raw);
-  if (
-    !parsed ||
-    typeof parsed !== "object" ||
-    !("slug" in parsed) ||
-    typeof (parsed as { slug: unknown }).slug !== "string"
-  ) {
+  const parsed: JsonValue = JSON.parse(raw);
+  if (!isJsonObject(parsed) || !isJsonString(parsed.slug)) {
     throw new Error(`${FILENAME} is malformed — missing "slug".`);
   }
-  return parsed as ProjectConfig;
+  const config: ProjectConfig = { slug: parsed.slug };
+  if (isJsonString(parsed.name)) config.name = parsed.name;
+  return config;
 }
 
 export function writeProjectConfig(dir: string, config: ProjectConfig): void {

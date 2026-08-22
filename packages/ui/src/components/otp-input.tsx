@@ -58,23 +58,23 @@ const OTP_VARS: React.CSSProperties & Record<`--${string}`, string> = {
   "--otp-gap": "0.5rem",
 };
 
-const SANITIZE: Record<"numeric" | "alphanumeric", RegExp> = {
+const SANITIZE = {
   numeric: /[^0-9]/g,
   alphanumeric: /[^a-zA-Z0-9]/g,
-};
+} satisfies Record<"numeric" | "alphanumeric", RegExp>;
 
 type VerifyState = "idle" | "success" | "error";
 
 // Ring + invalid values mirror `inputVariants` (input.tsx) so the cells stay
 // in step with the system focus/error treatment.
-const CELL_TONE: Record<"idle" | "active" | "selected" | VerifyState, string> = {
+const CELL_TONE = {
   idle: "border-input bg-input/40 text-foreground",
   active: "border-ring bg-input/40 text-foreground ring-3 ring-ring/50",
   // a selection RANGE maps to a cell range — one input
   selected: "border-input bg-primary/25 text-foreground",
   error: "border-destructive/50 bg-input/40 text-destructive",
   success: "border-success/60 bg-success/10 text-success",
-};
+} satisfies Record<"idle" | "active" | "selected" | VerifyState, string>;
 
 /**
  * A character enters by rising into its cell, which is why the cells clip:
@@ -233,7 +233,7 @@ function OTPInput({
       // Let the cascade play before the parent moves on.
       const successDelay = reducedMotion ? 0 : length * FILL_S * 1000 + 500;
       settleTimerRef.current = window.setTimeout(
-        () => onSuccess?.(typeof result === "string" ? result : candidate),
+        () => onSuccess?.(result === true ? candidate : result),
         successDelay,
       );
     }

@@ -1,7 +1,7 @@
 import { defineCommand } from "citty";
 import consola from "consola";
 
-import { createClient } from "../lib/api.js";
+import { authErrorCode, createClient } from "../lib/api.js";
 import { getToken } from "../lib/config.js";
 import { outputArgs, writeStructured } from "../lib/output.js";
 import { assertKnownFlags } from "../lib/strict-args.js";
@@ -35,7 +35,7 @@ export const whoamiCommand = defineCommand({
     } catch (err) {
       // Only an auth error means "log in"; surface network/server failures as
       // themselves so they aren't mistaken for a bad credential.
-      const code = (err as { data?: { code?: string } } | null)?.data?.code;
+      const code = authErrorCode(err);
       if (code === "UNAUTHORIZED" || code === "FORBIDDEN") {
         consola.warn("Not authenticated. Run `vg login`, or check your VG_TOKEN / API key.");
       } else {

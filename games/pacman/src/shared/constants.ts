@@ -239,31 +239,31 @@ export const BEST_KEY = "pacman-best";
 export type Dir = "up" | "down" | "left" | "right";
 export const DIRS: ReadonlyArray<Dir> = ["up", "down", "left", "right"];
 /** [dCol, dRow] = [dWorldX, dWorldZ]; up = -z, matching legacy Vector3(0,0,-1). */
-export const DIR_VECT: Record<Dir, readonly [number, number]> = {
+export const DIR_VECT = {
   up: [0, -1],
   down: [0, 1],
   left: [-1, 0],
   right: [1, 0],
-};
-export const OPPOSITE: Record<Dir, Dir> = {
+} satisfies Record<Dir, readonly [number, number]>;
+export const OPPOSITE = {
   up: "down",
   down: "up",
   left: "right",
   right: "left",
-};
+} satisfies Record<Dir, Dir>;
 /** Relative 90° turns (legacy ArrowLeft/ArrowRight semantics). */
-export const TURN_LEFT: Record<Dir, Dir> = {
+export const TURN_LEFT = {
   up: "left",
   left: "down",
   down: "right",
   right: "up",
-};
-export const TURN_RIGHT: Record<Dir, Dir> = {
+} satisfies Record<Dir, Dir>;
+export const TURN_RIGHT = {
   up: "right",
   right: "down",
   down: "left",
   left: "up",
-};
+} satisfies Record<Dir, Dir>;
 
 // ---- grid helpers -------------------------------------------------------------
 

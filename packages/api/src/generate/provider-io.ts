@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 
+import type { JsonValue } from "../json";
 import { MAX_FAL_PLATFORM_JSON_BYTES } from "./limits";
 
 function parseContentLength(response: Response): number | null {
@@ -69,7 +70,7 @@ export async function readJsonBounded(
   response: Response,
   label: string,
   maxBytes = MAX_FAL_PLATFORM_JSON_BYTES,
-): Promise<unknown> {
+): Promise<JsonValue> {
   const text = await readTextBounded(response, label, maxBytes);
   try {
     return JSON.parse(text);
@@ -91,7 +92,7 @@ export async function readSseJson(
   response: Response,
   label: string,
   maxBytes = MAX_FAL_PLATFORM_JSON_BYTES,
-): Promise<unknown> {
+): Promise<JsonValue> {
   const text = await readTextBounded(response, label, maxBytes);
   const events: string[] = [];
   let dataBuf: string[] = [];
@@ -118,7 +119,7 @@ export async function readSseJson(
     }
   }
 
-  let last: unknown;
+  let last: JsonValue = null;
   let parsedAny = false;
   for (const event of events) {
     try {

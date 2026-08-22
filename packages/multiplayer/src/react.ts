@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 
-import type { MultiplayerOptions, PlayerMap, SendEventOptions } from "./types.js";
+import type {
+  JsonRecord,
+  JsonValue,
+  MultiplayerOptions,
+  PlayerMap,
+  SendEventOptions,
+} from "./types.js";
 import { MultiplayerClient } from "./client.js";
 import type { MultiplayerClientOptions, MultiplayerSnapshot } from "./client.js";
 
@@ -8,29 +14,31 @@ import type { MultiplayerClientOptions, MultiplayerSnapshot } from "./client.js"
 // Core room hook
 // ---------------------------------------------------------------------------
 
-export type MultiplayerRoom<TShared = Record<string, unknown>> = MultiplayerSnapshot & {
+/** Functional-updater forms accepted by `updateSharedState`. */
+type SharedUpdaterFn<TShared> =
+  | ((previous: TShared) => TShared)
+  | ((previous: TShared) => Partial<TShared>);
+
+// instanceof rather than typeof (banned): updaters are always constructed in
+// the caller's realm alongside the hook, so the realm caveat doesn't bite.
+const isSharedUpdaterFn = <TShared>(
+  updater: Partial<TShared> | SharedUpdaterFn<TShared>,
+): updater is SharedUpdaterFn<TShared> => updater instanceof Function;
+
+export type MultiplayerRoom<TShared = JsonRecord> = MultiplayerSnapshot & {
   sharedState: TShared;
-  updateSharedState: (
-    updater:
-      | Partial<TShared>
-      | ((previous: TShared) => TShared)
-      | ((previous: TShared) => Partial<TShared>),
-  ) => void;
-  updateMyState: (
-    updater:
-      | Record<string, unknown>
-      | ((previous: Record<string, unknown>) => Record<string, unknown>),
-  ) => void;
-  sendEvent: (event: string, payload: unknown, options?: SendEventOptions) => void;
+  updateSharedState: (updater: Partial<TShared> | SharedUpdaterFn<TShared>) => void;
+  updateMyState: (updater: JsonRecord | ((previous: JsonRecord) => JsonRecord)) => void;
+  sendEvent: (event: string, payload: JsonValue, options?: SendEventOptions) => void;
 };
 
 export type UseMultiplayerRoomConfig<TShared> = MultiplayerOptions & {
   initialState?: TShared;
 };
 
-export function useMultiplayerRoom<
-  TShared extends Record<string, unknown> = Record<string, unknown>,
->(config: UseMultiplayerRoomConfig<TShared>): MultiplayerRoom<TShared> {
+export function useMultiplayerRoom<TShared extends JsonRecord = JsonRecord>(
+  config: UseMultiplayerRoomConfig<TShared>,
+): MultiplayerRoom<TShared> {
   const onEventRef = useRef(config.onEvent);
   onEventRef.current = config.onEvent;
 
@@ -47,7 +55,7 @@ export function useMultiplayerRoom<
       party: config.party,
       room: config.room,
       maxPlayers: config.maxPlayers,
-      initialState: config.initialState as Record<string, unknown>,
+      initialState: config.initialState,
       onEvent: (event, payload, from) => onEventRef.current?.(event, payload, from),
     });
   }
@@ -73,36 +81,30 @@ export function useMultiplayerRoom<
   const snapshot = useSyncExternalStore(subscribe, getSnapshot);
 
   const updateSharedState = useCallback(
-    (
-      updater:
-        | Partial<TShared>
-        | ((previous: TShared) => TShared)
-        | ((previous: TShared) => Partial<TShared>),
-    ) => {
-      if (typeof updater === "function") {
-        client.updateSharedState((prev) =>
-          (updater as (p: TShared) => Record<string, unknown>)(prev as TShared),
-        );
+    (updater: Partial<TShared> | SharedUpdaterFn<TShared>) => {
+      if (isSharedUpdaterFn(updater)) {
+        // SAFETY: the room's shared state is written and read solely through
+        // this hook's TShared-typed API — the untyped client only relays it,
+        // so the stored JsonRecord is the TShared the game last produced.
+        client.updateSharedState((prev) => (updater as (p: TShared) => TShared)(prev as TShared));
       } else {
-        client.updateSharedState(updater as Record<string, unknown>);
+        // SAFETY: a Partial<TShared> patch is shallow-merged into the current
+        // TShared; `undefined` values are dropped key-wise by JSON on send.
+        client.updateSharedState(updater as TShared);
       }
     },
     [client],
   );
 
   const updateMyState = useCallback(
-    (
-      updater:
-        | Record<string, unknown>
-        | ((previous: Record<string, unknown>) => Record<string, unknown>),
-    ) => {
+    (updater: JsonRecord | ((previous: JsonRecord) => JsonRecord)) => {
       client.updateMyState(updater);
     },
     [client],
   );
 
   const sendEvent = useCallback(
-    (event: string, payload: unknown, options?: SendEventOptions) =>
+    (event: string, payload: JsonValue, options?: SendEventOptions) =>
       client.sendEvent(event, payload, options),
     [client],
   );
@@ -110,6 +112,8 @@ export function useMultiplayerRoom<
   return useMemo(
     () => ({
       ...snapshot,
+      // SAFETY: same invariant as updateSharedState — the stored JsonRecord is
+      // whatever TShared the game seeded and last wrote.
       sharedState: snapshot.sharedState as TShared,
       updateSharedState,
       updateMyState,
@@ -123,9 +127,7 @@ export function useMultiplayerRoom<
 // Convenience hooks
 // ---------------------------------------------------------------------------
 
-export function useMultiplayerState<
-  TShared extends Record<string, unknown> = Record<string, unknown>,
->(
+export function useMultiplayerState<TShared extends JsonRecord = JsonRecord>(
   roomOrConfig: MultiplayerRoom<TShared> | (MultiplayerOptions & { initialState?: TShared }),
   initialState?: TShared,
 ): readonly [TShared, MultiplayerRoom<TShared>["updateSharedState"], MultiplayerRoom<TShared>] {
@@ -148,35 +150,32 @@ export function useMultiplayerState<
     }
   }, [room.hostId, room.playerId, room.updateSharedState, initialState]);
 
-  return useMemo(
-    () => [room.sharedState as TShared, room.updateSharedState, room] as const,
-    [room],
-  );
+  return useMemo(() => [room.sharedState, room.updateSharedState, room] as const, [room]);
 }
 
-export function usePlayerState<TPlayerState = Record<string, unknown>>(
-  roomOrConfig: MultiplayerRoom | (MultiplayerOptions & { initialState?: Record<string, unknown> }),
+export function usePlayerState<TPlayerState extends JsonRecord = JsonRecord>(
+  roomOrConfig: MultiplayerRoom | (MultiplayerOptions & { initialState?: JsonRecord }),
   initialState?: TPlayerState,
-): readonly [
-  TPlayerState,
-  MultiplayerRoom["updateMyState"],
-  MultiplayerRoom<Record<string, unknown>>,
-] {
+): readonly [TPlayerState, MultiplayerRoom["updateMyState"], MultiplayerRoom<JsonRecord>] {
   const room = useRoom(roomOrConfig, undefined);
   // Per-player-identity seeding, same as useMultiplayerState above.
   const seededForPlayer = useRef<string | null>(null);
 
   const playerState = useMemo(() => {
+    // SAFETY: a player's state is only ever written through this hook's
+    // TPlayerState-typed setter — the untyped client just relays it.
     const state = room.playerId
       ? (room.players[room.playerId]?.state as TPlayerState | undefined)
       : undefined;
+    // SAFETY: `{}` is the documented empty-room starting state for any
+    // player-state shape (states start empty by protocol).
     return state ?? initialState ?? ({} as TPlayerState);
   }, [initialState, room.playerId, room.players]);
 
   useEffect(() => {
     if (initialState && room.playerId && seededForPlayer.current !== room.playerId) {
       seededForPlayer.current = room.playerId;
-      room.updateMyState((prev) => ({ ...(initialState as Record<string, unknown>), ...prev }));
+      room.updateMyState((prev) => ({ ...initialState, ...prev }));
     }
   }, [room.playerId, room.updateMyState, initialState]);
 
@@ -184,7 +183,7 @@ export function usePlayerState<TPlayerState = Record<string, unknown>>(
 }
 
 export function useIsHost(
-  roomOrConfig: MultiplayerRoom | (MultiplayerOptions & { initialState?: Record<string, unknown> }),
+  roomOrConfig: MultiplayerRoom | (MultiplayerOptions & { initialState?: JsonRecord }),
 ): boolean {
   const room = useRoom(roomOrConfig, undefined);
   return room.hostId !== null && room.hostId === room.playerId;
@@ -194,7 +193,7 @@ export function useIsHost(
 // Internal
 // ---------------------------------------------------------------------------
 
-function useRoom<TShared extends Record<string, unknown> = Record<string, unknown>>(
+function useRoom<TShared extends JsonRecord = JsonRecord>(
   roomOrConfig: MultiplayerRoom<TShared> | (MultiplayerOptions & { initialState?: TShared }),
   initialState?: TShared,
 ): MultiplayerRoom<TShared> {

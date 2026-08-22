@@ -5,7 +5,12 @@
 // game's business: wire onPause/onResume via setPauseHandlers and render your
 // own UI there (or compose the stock overlay from ./overlay).
 
-import { GAME_PAUSED_MESSAGE, GAME_STARTED_MESSAGE, isPauseGameMessage } from "./protocol";
+import {
+  GAME_PAUSED_MESSAGE,
+  GAME_STARTED_MESSAGE,
+  isPauseGameMessage,
+  type MessageData,
+} from "./protocol";
 
 export type PauseHandlers = {
   /**
@@ -69,7 +74,7 @@ function setKeyGate(on: boolean): void {
 function ensureListener(): void {
   if (listening || typeof window === "undefined") return;
   listening = true;
-  window.addEventListener("message", (event: MessageEvent<unknown>) => {
+  window.addEventListener("message", (event: MessageEvent<MessageData>) => {
     if (event.source !== window.parent) return;
     if (isPauseGameMessage(event.data)) pauseGame();
   });

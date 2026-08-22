@@ -61,6 +61,9 @@ function run(): void {
     const nor = tile.geometry.getAttribute("normal");
     const col = tile.geometry.getAttribute("color");
     const idx = tile.geometry.index;
+    // SAFETY: terrain tiles are built by Terrain.buildMesh from Float32Array
+    // attributes with Uint16/Uint32 indices; BufferAttribute.array only
+    // remembers TypedArray.
     tiles.push({
       position: pos.array as Float32Array,
       normal: nor.array as Float32Array,
@@ -73,16 +76,21 @@ function run(): void {
 
   const payload: CityGenPayload = { roadParts, tiles };
   const transfer: ArrayBuffer[] = [];
+  // SAFETY: every payload TypedArray was allocated in this worker over a plain
+  // ArrayBuffer (never a SharedArrayBuffer); `.buffer` only widens to
+  // ArrayBufferLike.
+  const transferable = (view: Float32Array | Uint16Array | Uint32Array): ArrayBuffer =>
+    view.buffer as ArrayBuffer;
   for (const p of roadParts) {
-    transfer.push(p.position.buffer as ArrayBuffer, p.normal.buffer as ArrayBuffer);
-    if (p.uv) transfer.push(p.uv.buffer as ArrayBuffer);
-    if (p.index) transfer.push(p.index.buffer as ArrayBuffer);
+    transfer.push(transferable(p.position), transferable(p.normal));
+    if (p.uv) transfer.push(transferable(p.uv));
+    if (p.index) transfer.push(transferable(p.index));
   }
   for (const t of tiles) {
-    transfer.push(t.position.buffer as ArrayBuffer);
-    if (t.normal) transfer.push(t.normal.buffer as ArrayBuffer);
-    if (t.color) transfer.push(t.color.buffer as ArrayBuffer);
-    if (t.index) transfer.push(t.index.buffer as ArrayBuffer);
+    transfer.push(transferable(t.position));
+    if (t.normal) transfer.push(transferable(t.normal));
+    if (t.color) transfer.push(transferable(t.color));
+    if (t.index) transfer.push(transferable(t.index));
   }
   console.log(`[gen-worker] world built in ${Math.round(performance.now() - t0)}ms`);
   postMessage(payload, { transfer });

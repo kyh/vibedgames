@@ -20,7 +20,7 @@ export class Piece {
     this.index = index;
     this.colorIndex = index + 1;
     const def = PIECES[index];
-    this.matrix = (def?.shape ?? [[1]]).map((row) => [...row]);
+    this.matrix = (def?.footprint ?? [[1]]).map((row) => [...row]);
     const cols = this.matrix[0]?.length ?? 1;
     const rows = this.matrix.length;
     this.ox = Math.floor((board.width - cols) / 2);

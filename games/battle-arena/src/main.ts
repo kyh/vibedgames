@@ -27,6 +27,14 @@ import { DUNGEON_MODELS, MAP_STORAGE_KEY, parseMapData, type MapData } from "./d
 import { applyMapData } from "./data/map";
 import { setDecorOverride } from "./data/decor";
 
+// Dev-console handles (assigned only in DEV builds).
+declare global {
+  interface Window {
+    __ba?: GameScene;
+    __view?: View;
+  }
+}
+
 const container = document.getElementById("game")!;
 const loadingEl = document.getElementById("loading");
 const barFill = document.getElementById("bar-fill");
@@ -131,13 +139,13 @@ function showLoading(on: boolean): void {
 
 /** A load that never resolves leaves the veil up forever, so both the boot and
  *  the deferred arena load report through here instead. */
-function showFailure(e: unknown): void {
-  console.error(e);
+function showFailure(cause: unknown): void {
+  console.error(cause);
   if (!loadingEl) return;
   // Trailer mode hides the veil via html.trailer; an inline display beats that
   // rule, so a failed load still surfaces instead of dying to a black frame.
   loadingEl.style.display = "flex";
-  loadingEl.innerHTML = `<div style="color:#ff6a6a;font:14px monospace;padding:20px;text-align:center">Failed to load:<br>${e instanceof Error ? e.message : String(e)}</div>`;
+  loadingEl.innerHTML = `<div style="color:#ff6a6a;font:14px monospace;padding:20px;text-align:center">Failed to load:<br>${cause instanceof Error ? cause.message : String(cause)}</div>`;
 }
 
 async function main(): Promise<void> {
@@ -273,8 +281,8 @@ async function main(): Promise<void> {
       mute: { get: () => scene.audio.isMuted, set: (next) => scene.audio.setMuted(next) },
     });
     if (import.meta.env.DEV) {
-      (window as unknown as { __ba: GameScene }).__ba = scene;
-      (window as unknown as { __view: View }).__view = view;
+      window.__ba = scene;
+      window.__view = view;
     }
     view.renderer.setAnimationLoop(matchLoop);
   };

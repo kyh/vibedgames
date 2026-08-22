@@ -53,7 +53,7 @@ function bodySizeError(
   };
   const url = new URL(req.url);
   const isBatch = url.searchParams.has("batch");
-  let body: unknown = errorObj;
+  let body: typeof errorObj | Array<typeof errorObj> = errorObj;
   if (isBatch) {
     // tRPC batch URLs encode procedures as a comma-separated path
     // segment (e.g. /api/trpc/x.a,y.b). httpBatchLink expects one

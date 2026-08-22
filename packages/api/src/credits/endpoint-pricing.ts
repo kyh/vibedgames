@@ -1,3 +1,6 @@
+import { z } from "zod";
+
+import type { JsonValue } from "../json";
 import { MICRO_PER_USD, usdToMicro } from "./credit-ledger";
 
 /**
@@ -36,33 +39,45 @@ type FetchJson = (input: {
   method: "GET" | "POST";
   path: string;
   query?: Record<string, string>;
-  body?: unknown;
-}) => Promise<unknown>;
+  body?: JsonValue;
+}) => Promise<JsonValue>;
 
-const isRecord = (v: unknown): v is Record<string, unknown> =>
-  typeof v === "object" && v !== null && !Array.isArray(v);
+// Entries that don't fit (wrong types, non-finite price) collapse to null and
+// are skipped, matching a per-entry "ignore what we can't read" posture —
+// pricing responses must never make a submit throw.
+const priceEntry = z
+  .looseObject({
+    endpoint_id: z.string(),
+    unit_price: z.number().finite(),
+    unit: z.string().nullable().catch(null),
+  })
+  .nullable()
+  .catch(null);
+
+const pricingPayload = z.looseObject({ prices: z.array(priceEntry) });
 
 const readUnitPrice = (
-  payload: unknown,
+  payload: JsonValue,
   endpointId: string,
 ): { unitPriceMicro: number; unit: string | null } | null => {
-  if (!isRecord(payload) || !Array.isArray(payload.prices)) return null;
-  for (const price of payload.prices) {
-    if (!isRecord(price)) continue;
-    if (price.endpoint_id !== endpointId) continue;
-    if (typeof price.unit_price !== "number" || !Number.isFinite(price.unit_price)) continue;
+  const parsed = pricingPayload.safeParse(payload);
+  if (!parsed.success) return null;
+  for (const price of parsed.data.prices) {
+    if (price === null || price.endpoint_id !== endpointId) continue;
     return {
       unitPriceMicro: usdToMicro(price.unit_price),
-      unit: typeof price.unit === "string" ? price.unit : null,
+      unit: price.unit,
     };
   }
   return null;
 };
 
-const readEstimate = (payload: unknown): number | null => {
-  if (!isRecord(payload)) return null;
-  if (typeof payload.total_cost !== "number" || !Number.isFinite(payload.total_cost)) return null;
-  return payload.total_cost > 0 ? usdToMicro(payload.total_cost) : null;
+const estimatePayload = z.looseObject({ total_cost: z.number().finite() });
+
+const readEstimate = (payload: JsonValue): number | null => {
+  const parsed = estimatePayload.safeParse(payload);
+  if (!parsed.success) return null;
+  return parsed.data.total_cost > 0 ? usdToMicro(parsed.data.total_cost) : null;
 };
 
 /**

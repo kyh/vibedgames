@@ -1,35 +1,53 @@
 import { defineCommand } from "citty";
 import consola from "consola";
 
-import { createClient } from "../lib/api.js";
+import { createClient, forwardJson } from "../lib/api.js";
 import {
   CodexError,
   generateImagesWithCodex,
   placeCodexOutputs,
   resolveProvider,
 } from "../lib/codex.js";
-import { parseDownloadFlag, parseRunInput, readExplicitLocalFile } from "../lib/media-args.js";
+import {
+  parseDownloadFlag,
+  parseRunInput,
+  readExplicitLocalFile,
+  type DownloadFlag,
+} from "../lib/media-args.js";
 import { downloadMedia, extractMediaRefs } from "../lib/media-download.js";
 import { endpointPath, queueAppId, waitForCompletion } from "../lib/media-poll.js";
 import { uploadFile } from "../lib/media-upload.js";
 import { isJsonOutput, outputArgs, writeJson, writeStructured } from "../lib/output.js";
-import { isRecord } from "../lib/types.js";
+import {
+  isJsonNumber,
+  isJsonObject,
+  isJsonString,
+  type JsonObject,
+  type JsonValue,
+} from "../lib/types.js";
+
+type DownloadFailure = { url: string; error: string };
+type FormatMismatch = { path: string; actual: string };
 
 // Action-specific fields for the status-command payload. `result` wraps
 // the raw fal payload under `result:` so fal's own keys can't clobber
 // our top-level (action / endpoint_id / request_id). `status` cherry-
 // picks known fields for the same reason.
-function buildActionFields(
-  action: "status" | "result" | "cancel",
-  data: unknown,
-): Record<string, unknown> {
+type ActionFields = {
+  status?: string;
+  queue_position?: number;
+  logs?: JsonValue;
+  result?: JsonValue;
+};
+
+function buildActionFields(action: "status" | "result" | "cancel", data: JsonValue): ActionFields {
   if (action === "result") return { result: data };
-  if (action === "status" && isRecord(data)) {
-    return {
-      status: typeof data.status === "string" ? data.status : undefined,
-      queue_position: typeof data.queue_position === "number" ? data.queue_position : undefined,
-      logs: data.logs,
-    };
+  if (action === "status" && isJsonObject(data)) {
+    const fields: ActionFields = {};
+    if (isJsonString(data.status)) fields.status = data.status;
+    if (isJsonNumber(data.queue_position)) fields.queue_position = data.queue_position;
+    if (data.logs !== undefined) fields.logs = data.logs;
+    return fields;
   }
   return {};
 }
@@ -43,7 +61,7 @@ function isStructuredOutput(args: { json?: boolean; field?: string }): boolean {
   return isJsonOutput(args) || Boolean(args.field);
 }
 
-function extractMediaUrls(result: unknown): string[] {
+function extractMediaUrls(result: JsonValue): string[] {
   return extractMediaRefs(result).map((r) => r.url);
 }
 
@@ -89,14 +107,14 @@ const runCommand = defineCommand({
 
     const client = createClient();
 
-    const submission = await client.generate.forward.mutate({
+    const submission = await forwardJson(client, {
       target: "queue",
       method: "POST",
       path: `/${endpointPath(endpoint_id)}`,
       body: finalInput,
     });
     const requestId =
-      isRecord(submission) && typeof submission.request_id === "string"
+      isJsonObject(submission) && isJsonString(submission.request_id)
         ? submission.request_id
         : null;
     if (!requestId) {
@@ -131,19 +149,19 @@ const runCommand = defineCommand({
       });
     }
 
-    const payload = {
+    const payload: RunCompletedPayload = {
       status: "completed",
       endpoint_id,
       request_id: completed.request_id,
       result: completed.result,
-      ...(downloaded ? { downloaded_files: downloaded.downloaded } : {}),
-      ...(downloaded && downloaded.failed.length > 0
-        ? { download_failures: downloaded.failed }
-        : {}),
-      ...(downloaded && downloaded.mislabeled.length > 0
-        ? { download_format_mismatches: downloaded.mislabeled }
-        : {}),
     };
+    if (downloaded) {
+      payload.downloaded_files = downloaded.downloaded;
+      if (downloaded.failed.length > 0) payload.download_failures = downloaded.failed;
+      if (downloaded.mislabeled.length > 0) {
+        payload.download_format_mismatches = downloaded.mislabeled;
+      }
+    }
 
     if (!writeStructured(payload, args)) {
       consola.success(`Run completed (${completed.request_id})`);
@@ -163,6 +181,16 @@ const runCommand = defineCommand({
   },
 });
 
+type RunCompletedPayload = {
+  status: string;
+  endpoint_id: string;
+  request_id: string;
+  result: JsonValue;
+  downloaded_files?: string[];
+  download_failures?: DownloadFailure[];
+  download_format_mismatches?: FormatMismatch[];
+};
+
 /**
  * A downloaded file whose extension does not match the bytes inside it.
  *
@@ -171,7 +199,7 @@ const runCommand = defineCommand({
  * tool in the pipeline reports "bad signature" with no hint of where it came
  * from, so name it here while the cause is still on screen.
  */
-function warnMislabeled(mislabeled: { path: string; actual: string }[]): void {
+function warnMislabeled(mislabeled: FormatMismatch[]): void {
   for (const m of mislabeled) {
     consola.warn(`  ${m.path} holds ${m.actual.toUpperCase()} data, not what its extension says`);
   }
@@ -184,8 +212,8 @@ function warnMislabeled(mislabeled: { path: string; actual: string }[]): void {
 // without it we default to cwd.
 async function runViaCodex(opts: {
   args: { async?: boolean; json?: boolean; field?: string; quiet?: boolean };
-  finalInput: Record<string, unknown>;
-  downloadFlag: { mode: "off" | "on"; template?: string };
+  finalInput: JsonObject;
+  downloadFlag: DownloadFlag;
   endpoint_id: string;
 }): Promise<void> {
   const { args, finalInput, downloadFlag, endpoint_id } = opts;
@@ -221,16 +249,16 @@ async function runViaCodex(opts: {
   const template = downloadFlag.mode === "on" ? downloadFlag.template : undefined;
   const { downloaded, failed } = placeCodexOutputs(rawFiles, template, requestId);
 
-  const payload = {
+  const payload: CodexRunPayload = {
     status: "completed",
     provider: "codex",
     endpoint_id,
     request_id: requestId,
     result: { provider: "codex", prompt, images: downloaded.map((path) => ({ path })) },
     downloaded_files: downloaded,
-    ...(failed.length > 0 ? { download_failures: failed } : {}),
-    ...(ignoredReferences.length > 0 ? { ignored_references: ignoredReferences } : {}),
   };
+  if (failed.length > 0) payload.download_failures = failed;
+  if (ignoredReferences.length > 0) payload.ignored_references = ignoredReferences;
 
   if (!writeStructured(payload, args)) {
     consola.success(`Codex generated ${downloaded.length} image(s) (${requestId})`);
@@ -240,6 +268,17 @@ async function runViaCodex(opts: {
 
   if (failed.length > 0 && downloaded.length === 0) process.exit(1);
 }
+
+type CodexRunPayload = {
+  status: string;
+  provider: string;
+  endpoint_id: string;
+  request_id: string;
+  result: { provider: string; prompt: string; images: { path: string }[] };
+  downloaded_files: string[];
+  download_failures?: DownloadFailure[];
+  ignored_references?: string[];
+};
 
 // ---- status -----------------------------------------------------------------
 
@@ -281,7 +320,7 @@ const statusCommand = defineCommand({
         : action === "result"
           ? `/${ep}/requests/${args.request_id}`
           : `/${ep}/requests/${args.request_id}/status`;
-    const data = await client.generate.forward.mutate({
+    const data = await forwardJson(client, {
       target: "queue",
       method: action === "cancel" ? "PUT" : "GET",
       path,
@@ -297,13 +336,13 @@ const statusCommand = defineCommand({
       for (let attempt = 0; attempt < 3; attempt++) {
         await new Promise((resolve) => setTimeout(resolve, 1_000));
         try {
-          const poll = await client.generate.forward.mutate({
+          const poll = await forwardJson(client, {
             target: "queue",
             method: "GET",
             path: statusPath,
           });
           const status =
-            isRecord(poll) && typeof poll.status === "string" ? poll.status.toUpperCase() : "";
+            isJsonObject(poll) && isJsonString(poll.status) ? poll.status.toUpperCase() : "";
           if (["CANCELLED", "FAILED", "COMPLETED"].includes(status)) break;
         } catch {
           break;
@@ -321,26 +360,25 @@ const statusCommand = defineCommand({
       });
     }
 
-    const actionFields = buildActionFields(action, data);
-    const payload = {
+    const payload: StatusPayload = {
       action,
       endpoint_id: args.endpoint_id,
       request_id: args.request_id,
-      ...actionFields,
-      ...(downloaded ? { downloaded_files: downloaded.downloaded } : {}),
-      ...(downloaded && downloaded.failed.length > 0
-        ? { download_failures: downloaded.failed }
-        : {}),
-      ...(downloaded && downloaded.mislabeled.length > 0
-        ? { download_format_mismatches: downloaded.mislabeled }
-        : {}),
+      ...buildActionFields(action, data),
     };
+    if (downloaded) {
+      payload.downloaded_files = downloaded.downloaded;
+      if (downloaded.failed.length > 0) payload.download_failures = downloaded.failed;
+      if (downloaded.mislabeled.length > 0) {
+        payload.download_format_mismatches = downloaded.mislabeled;
+      }
+    }
 
     if (!writeStructured(payload, args)) {
       if (action === "status") {
-        const status = isRecord(data) && typeof data.status === "string" ? data.status : "?";
+        const status = isJsonObject(data) && isJsonString(data.status) ? data.status : "?";
         consola.log(`status: ${status}`);
-        if (isRecord(data) && typeof data.queue_position === "number") {
+        if (isJsonObject(data) && isJsonNumber(data.queue_position)) {
           consola.log(`queue_position: ${data.queue_position}`);
         }
       } else {
@@ -361,6 +399,15 @@ const statusCommand = defineCommand({
     }
   },
 });
+
+type StatusPayload = ActionFields & {
+  action: "status" | "result" | "cancel";
+  endpoint_id: string;
+  request_id: string;
+  downloaded_files?: string[];
+  download_failures?: DownloadFailure[];
+  download_format_mismatches?: FormatMismatch[];
+};
 
 // ---- models -----------------------------------------------------------------
 
@@ -395,7 +442,7 @@ const modelsCommand = defineCommand({
     if (expand.length > 0) query.expand = expand;
 
     const client = createClient();
-    const data = await client.generate.forward.mutate({
+    const data = await forwardJson(client, {
       target: "platform",
       method: "GET",
       path: "/v1/models",
@@ -413,18 +460,18 @@ function splitList(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
-function printModels(data: unknown): void {
-  const models = isRecord(data) && Array.isArray(data.models) ? data.models : [];
+function printModels(data: JsonValue): void {
+  const models = isJsonObject(data) && Array.isArray(data.models) ? data.models : [];
   for (const m of models) {
-    if (!isRecord(m)) continue;
+    if (!isJsonObject(m)) continue;
     const id = String(m.endpoint_id ?? "?");
-    const meta = isRecord(m.metadata) ? m.metadata : {};
+    const meta: JsonObject = isJsonObject(m.metadata) ? m.metadata : {};
     const tags: string[] = [];
     if (meta.category) tags.push(String(meta.category));
     if (meta.status) tags.push(String(meta.status));
     consola.log(`${id}${tags.length > 0 ? `  [${tags.join(", ")}]` : ""}`);
   }
-  if (isRecord(data) && data.next_cursor) {
+  if (isJsonObject(data) && data.next_cursor) {
     consola.log(`\nnext_cursor: ${String(data.next_cursor)}`);
   }
 }
@@ -441,15 +488,15 @@ const schemaCommand = defineCommand({
   run: async ({ args }) => {
     const expand = args.format === "openapi" ? ["openapi-3.0"] : [];
     const client = createClient();
-    const data = await client.generate.forward.mutate({
+    const query: Record<string, string | string[]> = {};
+    query.endpoint_id = args.endpoint_id;
+    query.limit = "1";
+    if (expand.length > 0) query.expand = expand;
+    const data = await forwardJson(client, {
       target: "platform",
       method: "GET",
       path: "/v1/models",
-      query: {
-        endpoint_id: args.endpoint_id,
-        limit: "1",
-        ...(expand.length > 0 ? { expand } : {}),
-      },
+      query,
     });
     if (!writeStructured(data, args)) writeJson(data);
   },
@@ -465,7 +512,7 @@ const pricingCommand = defineCommand({
   },
   run: async ({ args }) => {
     const client = createClient();
-    const data = await client.generate.forward.mutate({
+    const data = await forwardJson(client, {
       target: "platform",
       method: "GET",
       path: "/v1/models/pricing",
@@ -485,7 +532,7 @@ const docsCommand = defineCommand({
   },
   run: async ({ args }) => {
     const client = createClient();
-    const data = await client.generate.forward.mutate({
+    const data = await forwardJson(client, {
       target: "docs",
       method: "POST",
       path: "/docs/mcp",

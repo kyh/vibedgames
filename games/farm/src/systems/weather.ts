@@ -2,19 +2,19 @@ import { seasonOfDay } from "../data/calendar";
 
 export type Weather = "sunny" | "rain" | "storm" | "snow";
 
-export const WEATHER_NAME: Record<Weather, string> = {
+export const WEATHER_NAME = {
   sunny: "Clear",
   rain: "Rainy",
   storm: "Stormy",
   snow: "Snowy",
-};
+} satisfies Record<Weather, string>;
 
-export const WEATHER_ICON: Record<Weather, string> = {
+export const WEATHER_ICON = {
   sunny: "☀",
   rain: "🌧",
   storm: "⛈",
   snow: "❄",
-};
+} satisfies Record<Weather, string>;
 
 function hash(seed: number, day: number): number {
   let t = (seed ^ (day * 0x9e3779b1)) >>> 0;

@@ -58,6 +58,9 @@ export const ApiKeySettings = () => {
   const [expiresInDays, setExpiresInDays] = useState<number | "">("");
   const [newKey, setNewKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // Read the clock once so the rendered expiry badges don't shift under React
+  // between two renders of the same list.
+  const [openedAt] = useState(() => Date.now());
 
   const copyKey = () => {
     if (!newKey) return;
@@ -158,8 +161,7 @@ export const ApiKeySettings = () => {
             {list.data && list.data.keys.length > 0 && (
               <ul className="divide-y divide-white/10 border-t border-white/10">
                 {list.data.keys.map((k) => {
-                  const expired =
-                    k.expiresAt != null && new Date(k.expiresAt).getTime() < Date.now();
+                  const expired = k.expiresAt != null && new Date(k.expiresAt).getTime() < openedAt;
                   return (
                     <li key={k.id} className="flex items-center gap-3 py-4 text-sm">
                       <div className="min-w-0">

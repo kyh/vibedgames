@@ -1,6 +1,9 @@
 // Typed access to the world map (public/assets/map.json) plus the gameplay
 // classification of its tile indices: which cells walk, till, fish, and collide.
 
+import { isJsonNumber, isJsonObject, isJsonString } from "../json";
+import type { JsonValue } from "../json";
+
 export type WorldMapTileLayer = {
   name: string;
   w: number;
@@ -44,66 +47,84 @@ export const tileFlipY = (v: number): boolean => ((v >> 21) & 1) === 1;
 // 90° clockwise, applied after flips.
 export const tileRotate = (v: number): boolean => ((v >> 22) & 1) === 1;
 
-function isNumberArray(v: unknown): v is number[] {
-  return Array.isArray(v) && v.every((n) => typeof n === "number");
-}
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null;
+function isNumberArray(v: JsonValue | undefined): v is number[] {
+  return Array.isArray(v) && v.every(isJsonNumber);
 }
 
 // Narrow the fetched JSON. The file is produced by our own tool, so checks are
 // structural rather than exhaustive.
-export function parseWorldMap(v: unknown): WorldMap {
-  if (!isRecord(v)) throw new Error("map.json: not an object");
+export function parseWorldMap(v: JsonValue): WorldMap {
+  if (!isJsonObject(v)) throw new Error("map.json: not an object");
   const o = v;
   const w = o["w"];
   const h = o["h"];
-  if (typeof w !== "number" || typeof h !== "number") throw new Error("map.json: bad size");
+  if (!isJsonNumber(w) || !isJsonNumber(h)) throw new Error("map.json: bad size");
   const tileLayers: WorldMapTileLayer[] = [];
   if (!Array.isArray(o["tileLayers"])) throw new Error("map.json: bad tileLayers");
   for (const l of o["tileLayers"]) {
-    if (!isRecord(l)) throw new Error("map.json: bad layer");
+    if (!isJsonObject(l)) throw new Error("map.json: bad layer");
     const lo = l;
-    if (typeof lo["name"] !== "string" || !isNumberArray(lo["grid"]))
-      throw new Error("map.json: bad layer");
-    tileLayers.push({ name: lo["name"], w, h, grid: lo["grid"] });
+    const name = lo["name"];
+    const grid = lo["grid"];
+    if (!isJsonString(name) || !isNumberArray(grid)) throw new Error("map.json: bad layer");
+    tileLayers.push({ name, w, h, grid });
   }
   const sprites: WorldMapSprite[] = [];
   if (!Array.isArray(o["sprites"])) throw new Error("map.json: bad sprites");
   for (const s of o["sprites"]) {
-    if (!isRecord(s)) continue;
+    if (!isJsonObject(s)) continue;
     const so = s;
-    if (typeof so["sprite"] !== "string" || typeof so["x"] !== "number") continue;
+    const sprite = so["sprite"];
+    const x = so["x"];
+    if (!isJsonString(sprite) || !isJsonNumber(x)) continue;
+    const layer = so["layer"];
+    const y = so["y"];
+    const sx = so["sx"];
+    const sy = so["sy"];
+    const speed = so["speed"];
     sprites.push({
-      layer: typeof so["layer"] === "string" ? so["layer"] : "Assets_1",
-      sprite: so["sprite"],
-      x: so["x"],
-      y: typeof so["y"] === "number" ? so["y"] : 0,
-      sx: typeof so["sx"] === "number" ? so["sx"] : 1,
-      sy: typeof so["sy"] === "number" ? so["sy"] : 1,
-      speed: typeof so["speed"] === "number" ? so["speed"] : 1,
+      layer: isJsonString(layer) ? layer : "Assets_1",
+      sprite,
+      x,
+      y: isJsonNumber(y) ? y : 0,
+      sx: isJsonNumber(sx) ? sx : 1,
+      sy: isJsonNumber(sy) ? sy : 1,
+      speed: isJsonNumber(speed) ? speed : 1,
     });
   }
   const deco: Record<string, DecoDef> = {};
   const decoRaw = o["deco"];
-  if (isRecord(decoRaw)) {
+  if (isJsonObject(decoRaw)) {
     for (const [k, d] of Object.entries(decoRaw)) {
-      if (!isRecord(d)) continue;
+      if (!isJsonObject(d)) continue;
       const dd = d;
+      const frames = dd["frames"];
+      const fw = dd["fw"];
+      const fh = dd["fh"];
+      const ox = dd["ox"];
+      const oy = dd["oy"];
+      const fps = dd["fps"];
       deco[k] = {
-        frames: typeof dd["frames"] === "number" ? dd["frames"] : 1,
-        fw: typeof dd["fw"] === "number" ? dd["fw"] : 16,
-        fh: typeof dd["fh"] === "number" ? dd["fh"] : 16,
-        ox: typeof dd["ox"] === "number" ? dd["ox"] : 0,
-        oy: typeof dd["oy"] === "number" ? dd["oy"] : 0,
-        fps: typeof dd["fps"] === "number" ? dd["fps"] : 8,
+        frames: isJsonNumber(frames) ? frames : 1,
+        fw: isJsonNumber(fw) ? fw : 16,
+        fh: isJsonNumber(fh) ? fh : 16,
+        ox: isJsonNumber(ox) ? ox : 0,
+        oy: isJsonNumber(oy) ? oy : 0,
+        fps: isJsonNumber(fps) ? fps : 8,
       };
     }
   }
   const animations = Array.isArray(o["animations"]) ? o["animations"].filter(isNumberArray) : [];
-  const animationFps = typeof o["animationFps"] === "number" ? o["animationFps"] : 5;
-  return { w, h, tileLayers, sprites, deco, animations, animationFps };
+  const animationFps = o["animationFps"];
+  return {
+    w,
+    h,
+    tileLayers,
+    sprites,
+    deco,
+    animations,
+    animationFps: isJsonNumber(animationFps) ? animationFps : 5,
+  };
 }
 
 export function layerByName(map: WorldMap, name: string): WorldMapTileLayer | null {

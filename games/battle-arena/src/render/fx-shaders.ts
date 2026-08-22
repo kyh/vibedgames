@@ -11,7 +11,7 @@ const CLOCK = { value: 0 };
 
 /** The shared clock, for materials built outside this module (crystals, bolts,
  *  beams). Handing out the same box means they freeze with everything else. */
-export const fxClock: { value: number } = CLOCK;
+export const fxClock = CLOCK;
 
 /** Advance the global shader clock (call once per frame with the fx dt). */
 export function tickFxShaders(dt: number): void {
@@ -42,7 +42,7 @@ export function energyBallMaterial(color: number): THREE.ShaderMaterial {
     depthWrite: false,
     blending: THREE.AdditiveBlending,
     uniforms: {
-      uTime: CLOCK as { value: number },
+      uTime: CLOCK,
       uColor: { value: new THREE.Color(color) },
     },
     vertexShader: /* glsl */ `
@@ -189,7 +189,7 @@ export type CrackMaterial = THREE.ShaderMaterial & {
 
 export function makeCrackMaterial(): CrackMaterial {
   const uniforms = {
-    uTime: CLOCK as { value: number },
+    uTime: CLOCK,
     uColor: { value: new THREE.Color(0xff8040) }, // hot seam
     uT: { value: 0 }, // life progress 0→1
     uSeed: { value: 0 },
@@ -252,20 +252,21 @@ export function makeCrackMaterial(): CrackMaterial {
         if (a < 0.01) discard;
         gl_FragColor = vec4(c, min(a, 1.0));
       }`,
-  }) as CrackMaterial;
+  });
 
-  mat.arm = (color, pulse) => {
-    uniforms.uColor.value.setHex(color);
-    uniforms.uSeed.value = Math.random() * 40;
-    uniforms.uPulse.value = pulse;
-    uniforms.uT.value = 0;
-    uniforms.uGrow.value = 0;
-  };
-  mat.step = (t, grow) => {
-    uniforms.uT.value = t;
-    uniforms.uGrow.value = grow;
-  };
-  return mat;
+  return Object.assign(mat, {
+    arm: (color: number, pulse: number) => {
+      uniforms.uColor.value.setHex(color);
+      uniforms.uSeed.value = Math.random() * 40;
+      uniforms.uPulse.value = pulse;
+      uniforms.uT.value = 0;
+      uniforms.uGrow.value = 0;
+    },
+    step: (t: number, grow: number) => {
+      uniforms.uT.value = t;
+      uniforms.uGrow.value = grow;
+    },
+  });
 }
 
 // ── Rune circle ──────────────────────────────────────────────────────────────
@@ -279,7 +280,7 @@ export function makeRuneMaterial(color: number): THREE.ShaderMaterial {
     blending: THREE.AdditiveBlending,
     side: THREE.DoubleSide,
     uniforms: {
-      uTime: CLOCK as { value: number },
+      uTime: CLOCK,
       uColor: { value: new THREE.Color(color) },
       uAlpha: { value: 1 },
     },
@@ -317,7 +318,7 @@ export function makeVortexMaterial(color: number, upward = false): THREE.ShaderM
     blending: THREE.AdditiveBlending,
     side: THREE.DoubleSide,
     uniforms: {
-      uTime: CLOCK as { value: number },
+      uTime: CLOCK,
       uColor: { value: new THREE.Color(color) },
       uAlpha: { value: 1 },
       uUp: { value: upward ? 1 : 0 },

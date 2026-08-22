@@ -29,8 +29,8 @@ export class VersusMatch {
   phase: VsPhase = "waiting";
   round = 0;
   t = 0;
-  hp: Record<VsSide, number> = { host: VS_HEARTS, guest: VS_HEARTS };
-  score: Record<VsSide, number> = { host: 0, guest: 0 };
+  hp = { host: VS_HEARTS, guest: VS_HEARTS } satisfies Record<VsSide, number>;
+  score = { host: 0, guest: 0 } satisfies Record<VsSide, number>;
   winner: VsSide | null = null; // round winner in roundEnd, match in matchEnd
 
   /** Both duelists present (or a rematch): scores wiped, round 1 countdown. */

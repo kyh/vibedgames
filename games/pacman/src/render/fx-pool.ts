@@ -334,7 +334,7 @@ function scaleCurve(t: number): number {
 }
 
 /** Ambient dust motes drifting up through the maze air — quiet, constant. */
-function makeMotes(): { points: THREE.Points; velocities: Float32Array } {
+function makeMotes() {
   const positions = new Float32Array(MOTE_COUNT * 3);
   const velocities = new Float32Array(MOTE_COUNT * 2); // [vx, vy] per mote
   for (let i = 0; i < MOTE_COUNT; i++) {

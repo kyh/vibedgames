@@ -27,7 +27,9 @@ export type CropDef = {
   seasons: readonly Season[]; // seasons this crop can be planted/grow
 };
 
-export const CROPS: Record<CropId, CropDef> = {
+export type CropTable = { [K in CropId]: CropDef };
+
+export const CROPS: CropTable = {
   parsnip: {
     id: "parsnip",
     name: "Parsnip",

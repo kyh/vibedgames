@@ -16,7 +16,7 @@ class Sfx {
     if (!this.ctx) {
       const AC = window.AudioContext;
       if (!AC) return null;
-      this.ctx = new AC() as Ctx;
+      this.ctx = new AC();
       this.master = this.ctx.createGain();
       this.master.gain.value = 0.5;
       this.master.connect(this.ctx.destination);

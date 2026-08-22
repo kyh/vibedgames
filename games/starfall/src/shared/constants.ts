@@ -912,7 +912,7 @@ export const BOSS_LANCE_SHOT_SPEED = 820;
 /** Enemy shots aren't source-tagged on the wire — speed identifies the kind, so
  *  each kind's shot damage and death cause are recovered from its bolt speed.
  *  (Both host and victim run this on the same serialized vx/vy, so they agree.) */
-export function enemyShotHit(speed: number): { cause: string; dmg: number } {
+export function enemyShotHit(speed: number) {
   if (speed >= 800) return { cause: "DREADNOUGHT", dmg: DMG.BOSS_LANCE }; // boss lance (820)
   if (speed >= 600) return { cause: "SNIPER", dmg: DMG.SNIPER_BOLT }; // sniper (720)
   if (speed <= 270) return { cause: "DRONE", dmg: DMG.DRONE_SHOT }; // drone, warden, boss plasma/nova
@@ -961,7 +961,7 @@ export const SHIELD_MOD_KINDS: readonly ShieldModKind[] = [
 
 export type ShieldModSpec = { name: string; tint: number };
 
-export const SHIELD_MOD_SPECS: Record<ShieldModKind, ShieldModSpec> = {
+export const SHIELD_MOD_SPECS = {
   overshield: { name: "OVERSHIELD", tint: 0x7dd3fc },
   reflect: { name: "REFLECT", tint: 0xc084fc },
   ram: { name: "RAM", tint: 0xffb454 },
@@ -970,7 +970,7 @@ export const SHIELD_MOD_SPECS: Record<ShieldModKind, ShieldModSpec> = {
   aegis: { name: "AEGIS", tint: 0xfacc15 },
   bulwark: { name: "BULWARK", tint: 0x94a3b8 },
   leech: { name: "LEECH FIELD", tint: 0x4ade80 },
-};
+} satisfies Record<ShieldModKind, ShieldModSpec>;
 
 /** BULWARK: incoming hits inside a frontal cone take BULWARK_FRONT_MULT damage;
  *  the rear is exposed (positional play). */
@@ -1050,14 +1050,14 @@ export const BOOSTER_KINDS: readonly BoosterKind[] = [
 
 export type BoosterSpec = { name: string; tint: number; durationMs: number };
 
-export const BOOSTER_SPECS: Record<BoosterKind, BoosterSpec> = {
+export const BOOSTER_SPECS = {
   overdrive: { name: "OVERDRIVE", tint: 0xfacc15, durationMs: 15_000 },
   nitro: { name: "NITRO", tint: 0xf97316, durationMs: 15_000 },
   repair: { name: "REPAIR", tint: 0x4ade80, durationMs: 0 }, // instant
   twin: { name: "TWIN", tint: 0xa78bfa, durationMs: 20_000 },
   magnet: { name: "MAGNET", tint: 0x38bdf8, durationMs: 25_000 },
   salvage: { name: "SALVAGE", tint: 0xfbbf24, durationMs: 20_000 },
-};
+} satisfies Record<BoosterKind, BoosterSpec>;
 
 /** SALVAGE: XP-orb pickups are worth this multiple while held. */
 export const SALVAGE_MULT = 2;
@@ -1119,7 +1119,7 @@ export const LOOT_BOOSTER_WEIGHTS: ReadonlyArray<readonly [BoosterKind, number]>
 
 /** Per-class pity: a kill that doesn't drop class X increments X's counter;
  *  at threshold the next roll forces it (ripe-priority shield > booster > weapon). */
-export const LOOT_PITY: Record<LootClass, number> = { shield: 8, booster: 9, weapon: 12 };
+export const LOOT_PITY = { shield: 8, booster: 9, weapon: 12 } satisfies Record<LootClass, number>;
 
 /** Loot rolls that would exceed this many items in flight are skipped (UFO bypasses). */
 export const ITEMS_MAX_LIVE = 6;
@@ -1177,7 +1177,7 @@ export type EnemySpec = {
  *  The v2 F.2 invariant is untouched by hp tuning: a lone DRONE still can't
  *  kill a dodging full-shield player (30 dmg / 2.8s cooldown vs 2.5s regen
  *  delay). */
-export const ENEMY_SPECS: Record<EnemyKind, EnemySpec> = {
+export const ENEMY_SPECS = {
   drone: { name: "DRONE", tint: 0xff7a6b, hitRadius: 7, hp: 20, xp: 5 },
   wasp: { name: "WASP", tint: 0xff4757, hitRadius: 8, hp: 25, xp: 12 },
   lancer: { name: "LANCER", tint: 0xd90429, hitRadius: 9, hp: 160, xp: 20 },
@@ -1188,7 +1188,7 @@ export const ENEMY_SPECS: Record<EnemyKind, EnemySpec> = {
   // hp is a placeholder (keep = BOSS_HP_BASE); the host overwrites
   // e.hp = bossHp(players) at spawn.
   dreadnought: { name: "DREADNOUGHT", tint: 0xff2d2d, hitRadius: 60, hp: 14_000, xp: 600 },
-};
+} satisfies Record<EnemyKind, EnemySpec>;
 
 // ---- elite durability (qa-018): elite HP tracks the room's beam-DPS ceiling ------
 // Winning players hit Lv3 (~606 sustained DPS, a 6.06x jump over Lv1) by t≈30;
@@ -1214,19 +1214,19 @@ export function eliteHpMult(maxLevel: number): number {
 
 /** Lv1-room elite HP (mirrors ENEMY_SPECS hp for these kinds). Kinds absent
  *  here (fodder, sniper, dreadnought) never route through eliteHp(). */
-export const ELITE_HP_BASE: Partial<Record<EnemyKind, number>> = {
-  lancer: 160,
-  splitter: 240,
-  warden: 520,
-  spawner: 500,
-};
+export const ELITE_HP_BASE: ReadonlyMap<EnemyKind, number> = new Map([
+  ["lancer", 160],
+  ["splitter", 240],
+  ["warden", 520],
+  ["spawner", 500],
+]);
 
 /** HP the host stamps on an elite at spawn (the bossHp pattern): base × the
  *  room's beam-DPS multiplier. Stamped once — a mid-fight level-up never
  *  retro-buffs a live elite. Lv3 room: lancer 970 / splitter 1,455 /
  *  warden 3,152 / hive 3,030. */
 export function eliteHp(kind: EnemyKind, maxLevel: number): number {
-  const base = ELITE_HP_BASE[kind] ?? ENEMY_SPECS[kind].hp;
+  const base = ELITE_HP_BASE.get(kind) ?? ENEMY_SPECS[kind].hp;
   return Math.round(base * eliteHpMult(maxLevel));
 }
 
@@ -1849,11 +1849,7 @@ export function entityId(): string {
 }
 
 /** Pick a point just past a random play-area edge, plus an inward heading. */
-export function edgeSpawn(
-  margin: number,
-  w = BASE_WORLD_W,
-  h = BASE_WORLD_H,
-): { x: number; y: number; ang: number } {
+export function edgeSpawn(margin: number, w = BASE_WORLD_W, h = BASE_WORLD_H) {
   const side = Math.floor(rand() * 4);
   const spread = rand() * (Math.PI / 2); // 90° fan, aimed inward below
   if (side <= 1) {
@@ -1881,7 +1877,7 @@ export function ringSpawnPoint(
   w = BASE_WORLD_W,
   h = BASE_WORLD_H,
   margin = 40,
-): { x: number; y: number; ang: number } {
+) {
   const a = rand() * Math.PI * 2;
   const r = minR + rand() * (maxR - minR);
   const x = Math.min(w - margin, Math.max(margin, px + Math.cos(a) * r));

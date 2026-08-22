@@ -18,6 +18,8 @@ import { updateCommand } from "./commands/update.js";
 import { whoamiCommand } from "./commands/whoami.js";
 import { maybeScheduleAutoUpdate } from "./lib/update.js";
 
+// SAFETY: this is the CLI's own package.json, shipped alongside dist — npm
+// refuses to publish a package without a string `version`.
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
   version: string;
 };

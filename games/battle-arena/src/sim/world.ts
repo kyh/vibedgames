@@ -247,74 +247,85 @@ type CreepStat = {
   hpRegen?: number; // hp/s (default 6; the golem regens hard between fights)
 };
 
-const CREEP_STATS: Record<string, CreepStat> = {
-  skwarrior: {
-    model: "Skeleton_Warrior",
-    attackType: "melee",
-    attackDamageType: "physical",
-    attackKind: "melee",
-    hp: 340,
-    damage: 34,
-    armor: 3,
-    attackRange: 2.2,
-    attackSpeed: 0.8,
-    moveSpeed: 5,
-    projectileSpeed: 0,
-    radius: 0.6,
-    bounty: 55,
-    xp: 50,
-  },
-  skmage: {
-    model: "Skeleton_Mage",
-    attackType: "ranged",
-    attackDamageType: "magic",
-    attackKind: "bolt",
-    hp: 230,
-    damage: 30,
-    armor: 1,
-    attackRange: 8,
-    attackSpeed: 0.7,
-    moveSpeed: 4.6,
-    projectileSpeed: 16,
-    radius: 0.55,
-    bounty: 70,
-    xp: 60,
-  },
-  skminion: {
-    model: "Skeleton_Minion",
-    attackType: "melee",
-    attackDamageType: "physical",
-    attackKind: "melee",
-    hp: 200,
-    damage: 24,
-    armor: 1,
-    attackRange: 2,
-    attackSpeed: 0.95,
-    moveSpeed: 5.4,
-    projectileSpeed: 0,
-    radius: 0.52,
-    bounty: 35,
-    xp: 32,
-  },
-  frostgolem: {
-    model: "FrostGolem",
-    attackType: "melee",
-    attackDamageType: "physical",
-    attackKind: "melee",
-    hp: 2400,
-    damage: 95,
-    armor: 8,
-    attackRange: 3.2,
-    attackSpeed: 0.6,
-    moveSpeed: 4.4,
-    projectileSpeed: 0,
-    radius: 1.25,
-    bounty: 500,
-    xp: 350,
-    name: "Frost Golem",
-    hpRegen: 20,
-  },
-};
+const CREEP_STATS = new Map<string, CreepStat>(
+  Object.entries({
+    skwarrior: {
+      model: "Skeleton_Warrior",
+      attackType: "melee",
+      attackDamageType: "physical",
+      attackKind: "melee",
+      hp: 340,
+      damage: 34,
+      armor: 3,
+      attackRange: 2.2,
+      attackSpeed: 0.8,
+      moveSpeed: 5,
+      projectileSpeed: 0,
+      radius: 0.6,
+      bounty: 55,
+      xp: 50,
+    },
+    skmage: {
+      model: "Skeleton_Mage",
+      attackType: "ranged",
+      attackDamageType: "magic",
+      attackKind: "bolt",
+      hp: 230,
+      damage: 30,
+      armor: 1,
+      attackRange: 8,
+      attackSpeed: 0.7,
+      moveSpeed: 4.6,
+      projectileSpeed: 16,
+      radius: 0.55,
+      bounty: 70,
+      xp: 60,
+    },
+    skminion: {
+      model: "Skeleton_Minion",
+      attackType: "melee",
+      attackDamageType: "physical",
+      attackKind: "melee",
+      hp: 200,
+      damage: 24,
+      armor: 1,
+      attackRange: 2,
+      attackSpeed: 0.95,
+      moveSpeed: 5.4,
+      projectileSpeed: 0,
+      radius: 0.52,
+      bounty: 35,
+      xp: 32,
+    },
+    frostgolem: {
+      model: "FrostGolem",
+      attackType: "melee",
+      attackDamageType: "physical",
+      attackKind: "melee",
+      hp: 2400,
+      damage: 95,
+      armor: 8,
+      attackRange: 3.2,
+      attackSpeed: 0.6,
+      moveSpeed: 4.4,
+      projectileSpeed: 0,
+      radius: 1.25,
+      bounty: 500,
+      xp: 350,
+      name: "Frost Golem",
+      hpRegen: 20,
+    },
+  } satisfies Record<string, CreepStat>),
+);
+
+// Fallback for unknown creep types.
+const DEFAULT_CREEP = mustGetCreep("skwarrior");
+
+function mustGetCreep(id: string): CreepStat {
+  const stat = CREEP_STATS.get(id);
+  if (!stat) throw new Error(`unknown creep: ${id}`);
+  return stat;
+}
 
 export function spawnCreep(
   w: World,
@@ -323,7 +334,7 @@ export function spawnCreep(
   y: number,
   camp: { id: string; x: number; y: number },
 ): void {
-  const s = CREEP_STATS[type] ?? CREEP_STATS["skwarrior"]!;
+  const s = CREEP_STATS.get(type) ?? DEFAULT_CREEP;
   const u: Unit = {
     ...blankCombatant(nextId(w, "c"), "creep", NEUTRAL_TEAM, "neutral", type, s.name ?? "Skeleton"),
     campId: camp.id,
@@ -350,21 +361,21 @@ export function spawnCreep(
 }
 
 /** Look up a creep's bounty/xp for the economy on kill. */
-export function creepReward(type: string): { bounty: number; xp: number } {
-  const s = CREEP_STATS[type] ?? CREEP_STATS["skwarrior"]!;
+export function creepReward(type: string) {
+  const s = CREEP_STATS.get(type) ?? DEFAULT_CREEP;
   return { bounty: s.bounty, xp: s.xp };
 }
 
 // Themed lineups per camp (camp0 = Armory runs warrior-heavy, camp3 = Cellar
 // runs a minion swarm); the default pack is a balanced mix.
-const CAMP_PACKS: Record<string, string[]> = {
-  camp0: ["skwarrior", "skwarrior", "skmage", "skminion"],
-  camp3: ["skwarrior", "skmage", "skminion", "skminion"],
-};
+const CAMP_PACKS = new Map<string, string[]>([
+  ["camp0", ["skwarrior", "skwarrior", "skmage", "skminion"]],
+  ["camp3", ["skwarrior", "skmage", "skminion", "skminion"]],
+]);
 const DEFAULT_PACK = ["skwarrior", "skmage", "skminion", "skminion"];
 
 function spawnCampPack(w: World, camp: CampSpec): void {
-  const pack = camp.pack ?? CAMP_PACKS[camp.id] ?? DEFAULT_PACK;
+  const pack = camp.pack ?? CAMP_PACKS.get(camp.id) ?? DEFAULT_PACK;
   if (pack.length === 1) {
     // a lone elite (the Frost Golem) holds the center of its lair
     spawnCreep(w, pack[0]!, camp.x, camp.y, camp);

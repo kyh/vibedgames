@@ -49,7 +49,7 @@ export const POWER_SCORE_PER_CUBE = 5;
 // ---- pieces -----------------------------------------------------------------
 
 export type Footprint = number[][];
-export type PieceDef = { name: string; color: number; shape: Footprint };
+export type PieceDef = { name: string; color: number; footprint: Footprint };
 
 /**
  * The 7 tetrominoes as flat XZ footprints (rows = Z, cols = X). Order is the
@@ -57,11 +57,11 @@ export type PieceDef = { name: string; color: number; shape: Footprint };
  * straight to an index. Rotation is rotateCW in the XZ plane (see board.ts).
  */
 export const PIECES: PieceDef[] = [
-  { name: "I", color: 0x00e5ff, shape: [[1, 1, 1, 1]] },
+  { name: "I", color: 0x00e5ff, footprint: [[1, 1, 1, 1]] },
   {
     name: "O",
     color: 0xffd500,
-    shape: [
+    footprint: [
       [1, 1],
       [1, 1],
     ],
@@ -69,7 +69,7 @@ export const PIECES: PieceDef[] = [
   {
     name: "T",
     color: 0xb15dff,
-    shape: [
+    footprint: [
       [0, 1, 0],
       [1, 1, 1],
     ],
@@ -77,7 +77,7 @@ export const PIECES: PieceDef[] = [
   {
     name: "S",
     color: 0x32d74b,
-    shape: [
+    footprint: [
       [1, 1, 0],
       [0, 1, 1],
     ],
@@ -85,7 +85,7 @@ export const PIECES: PieceDef[] = [
   {
     name: "Z",
     color: 0xff453a,
-    shape: [
+    footprint: [
       [0, 1, 1],
       [1, 1, 0],
     ],
@@ -93,7 +93,7 @@ export const PIECES: PieceDef[] = [
   {
     name: "L",
     color: 0xff9f0a,
-    shape: [
+    footprint: [
       [1, 1, 1],
       [1, 0, 0],
     ],
@@ -101,7 +101,7 @@ export const PIECES: PieceDef[] = [
   {
     name: "J",
     color: 0x4d7cff,
-    shape: [
+    footprint: [
       [1, 1, 1],
       [0, 0, 1],
     ],

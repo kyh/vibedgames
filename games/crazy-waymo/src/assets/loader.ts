@@ -80,9 +80,9 @@ export class ModelCache {
     const img: unknown = tex.image;
     const FP = 32;
     if (
-      (typeof ImageBitmap !== "undefined" && img instanceof ImageBitmap) ||
-      (typeof HTMLImageElement !== "undefined" && img instanceof HTMLImageElement) ||
-      (typeof HTMLCanvasElement !== "undefined" && img instanceof HTMLCanvasElement)
+      (globalThis.ImageBitmap !== undefined && img instanceof ImageBitmap) ||
+      (globalThis.HTMLImageElement !== undefined && img instanceof HTMLImageElement) ||
+      (globalThis.HTMLCanvasElement !== undefined && img instanceof HTMLCanvasElement)
     ) {
       try {
         if (!this.fpCtx) {
@@ -215,8 +215,8 @@ export class ModelCache {
     if (this.templates.has(url)) return Promise.resolve();
     const pending = this.inFlight.get(url);
     if (pending) return pending;
-    const load = this.loadOne(url).catch((e: unknown) => {
-      console.warn("[assets] failed to load", url, e);
+    const load = this.loadOne(url).catch((cause: unknown) => {
+      console.warn("[assets] failed to load", url, cause);
     });
     this.inFlight.set(url, load);
     return load;

@@ -127,7 +127,7 @@ export class NavGrid {
     return { x: (c + 0.5) * this.cell, y: (r + 0.5) * this.cell };
   }
 
-  worldToCell(x: number, y: number): { c: number; r: number } {
+  worldToCell(x: number, y: number) {
     return { c: Math.floor(x / this.cell), r: Math.floor(y / this.cell) };
   }
 

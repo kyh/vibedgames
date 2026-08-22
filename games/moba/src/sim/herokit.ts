@@ -40,7 +40,7 @@ function sumItems(itemIds: string[]) {
 }
 
 /** Recompute the unit's combat fields from def+level+items. Returns max deltas. */
-export function recomputeHeroStats(u: Unit): { hpDelta: number; mpDelta: number } {
+export function recomputeHeroStats(u: Unit) {
   const h = u.hero;
   if (!h) return { hpDelta: 0, mpDelta: 0 };
   const def = HERO_BY_ID[h.defId];

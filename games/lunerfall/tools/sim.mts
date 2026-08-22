@@ -17,6 +17,7 @@ import { VersusMatch, VS_HEARTS, VS_HIT_CAP, VS_WIN_SCORE } from "../src/sys/ver
 import { genAttempt, genCombatRoom, verifyRoom } from "../src/sys/gen.ts";
 import { BossBody } from "../src/entities/boss-body.ts";
 import { EnemyBody } from "../src/entities/enemy-body.ts";
+import type { Projectile } from "../src/entities/enemy-body.ts";
 import { BLEND_RATE, DEADZONE, Reconciler, SNAP_DIST } from "../src/net/predict.ts";
 import {
   PlayerBody,
@@ -308,12 +309,12 @@ console.log("lunerfall physics sim\n");
   const g = Grid.test();
   const a = new EnemyBody(ENEMIES.archer, g, 120, FLOOR_Y);
   const tx = 260;
-  let proj = null as ReturnType<EnemyBody["step"]> | { vx: number } | null;
+  let proj: Projectile | null = null;
   for (let f = 0; f < 120 && !proj; f++) {
     a.step(STEP, tx, FLOOR_Y);
     if (a.pendingProjectile) proj = a.pendingProjectile;
   }
-  check("archer fires toward target", !!proj && (proj as { vx: number }).vx > 0);
+  check("archer fires toward target", proj !== null && proj.vx > 0);
 }
 
 // 15. Bomber explodes near the target.

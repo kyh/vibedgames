@@ -23,5 +23,19 @@
       "Bash(pnpm -F db push:remote)",
       "Bash(pnpm -C packages/db exec drizzle-kit push:*)"
     ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"$CLAUDE_CODE_REMOTE\" = \"true\" ] && cd \"$CLAUDE_PROJECT_DIR\" && pnpm install || true",
+            "timeout": 600
+          }
+        ]
+      }
+    ]
   }
 }

@@ -35,7 +35,7 @@ export class AnimalManager {
     this.world = world;
   }
 
-  private homeOf(building: BuildingKind): { x: number; y: number } {
+  private homeOf(building: BuildingKind) {
     const o = this.world.objects.find((b) => b.type === building);
     if (o) return { x: o.tx * TILE + 8, y: (o.ty + 2) * TILE };
     return { x: 12 * TILE, y: 12 * TILE };

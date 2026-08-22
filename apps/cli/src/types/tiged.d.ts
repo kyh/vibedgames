@@ -14,7 +14,6 @@ declare module "tiged" {
 
   interface TigedEmitter {
     clone(target: string): Promise<void>;
-    on(event: string, listener: (info: unknown) => void): TigedEmitter;
   }
 
   function tiged(src: string, opts?: TigedOptions): TigedEmitter;

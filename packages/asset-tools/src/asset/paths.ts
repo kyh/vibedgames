@@ -1,6 +1,8 @@
 import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 
+import type { JsonValue } from "./json.js";
+
 /**
  * Filesystem helpers shared by the ported asset commands. The Python originals
  * leaned on `Path.rglob` and `Path.resolve`, so these keep the same ordering
@@ -74,7 +76,7 @@ export function prettyPath(path: string): string {
  * escape there, so byte-comparing reports against the Python originals fails
  * on content that is in fact identical.
  */
-export function toPythonJson(payload: unknown): string {
+export function toPythonJson(payload: JsonValue): string {
   return JSON.stringify(payload, null, 2).replace(
     /[\u007f-\uffff]/g,
     (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, "0")}`,
@@ -82,7 +84,7 @@ export function toPythonJson(payload: unknown): string {
 }
 
 /** Write JSON to a path, creating parent directories first. */
-export function writeJsonFile(path: string, payload: unknown): void {
+export function writeJsonFile(path: string, payload: JsonValue): void {
   mkdirSync(dirname(resolve(path)), { recursive: true });
   writeFileSync(path, `${toPythonJson(payload)}\n`);
 }

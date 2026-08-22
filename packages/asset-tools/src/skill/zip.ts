@@ -27,7 +27,7 @@ function crc32(bytes: Uint8Array): number {
 }
 
 /** Convert a JS date to the DOS date/time pair ZIP headers use. */
-function dosDateTime(date: Date): { time: number; date: number } {
+function dosDateTime(date: Date) {
   const time =
     (Math.floor(date.getSeconds() / 2) & 0x1f) |
     ((date.getMinutes() & 0x3f) << 5) |

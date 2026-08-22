@@ -22,11 +22,11 @@ const RAIL_RISE_LAMBDA = 22;
 const RAIL_FALL_LAMBDA = 8;
 /** The earning (next-tier) rail cap per held tier; index 2 is the violet
  *  release preview — never a holdable state, matching fx/tier.ts doctrine. */
-const RAIL_NEXT_COLOR: Record<0 | 1 | 2, string> = {
+const RAIL_NEXT_COLOR = {
   0: TIER_COLORS[0],
   1: TIER_COLORS[1],
   2: TIER_COLORS[2],
-};
+} satisfies Record<0 | 1 | 2, string>;
 
 // ---- Off-screen destination arrow -----------------------------------------
 /** HUD boxes the arrow must stay clear of, top band and bottom band alike. */
@@ -101,10 +101,12 @@ function sub(selector: string): HTMLElement {
 type BootBar = { stop(): void; at(): number };
 
 function boot(): BootBar | null {
-  const w: unknown = (globalThis as { __bootBar?: unknown }).__bootBar;
-  if (typeof w !== "object" || w === null) return null;
-  const c = w as Partial<BootBar>;
-  return typeof c.stop === "function" && typeof c.at === "function" ? (c as BootBar) : null;
+  // SAFETY: __bootBar is published only by the inline script in index.html,
+  // which sets it to { stop, at }; both members are verified callable below.
+  const c = (globalThis as { __bootBar?: Partial<BootBar> }).__bootBar;
+  if (!c || !(c.stop instanceof Function) || !(c.at instanceof Function)) return null;
+  // SAFETY: stop and at were just verified callable, so c is a working BootBar.
+  return c as BootBar;
 }
 
 /** One keycap group: the keys that do it, and what they do. */
@@ -645,7 +647,7 @@ export class Hud {
    * and the `(pointer: coarse)` rules. Re-read at ARROW_BOX_MS so a layout read
    * never lands in the per-frame path.
    */
-  arrowBounds(): { minX: number; maxX: number; minY: number; maxY: number } {
+  arrowBounds() {
     const now = performance.now();
     const cached = this.arrowBox;
     if (cached && now - this.arrowBoxAt < ARROW_BOX_MS) return cached;

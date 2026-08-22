@@ -1,7 +1,7 @@
 import { defineCommand } from "citty";
 import consola from "consola";
 
-import { createClient } from "../lib/api.js";
+import { authErrorCode, createClient } from "../lib/api.js";
 import { getToken } from "../lib/config.js";
 import { outputArgs, writeStructured } from "../lib/output.js";
 import { assertKnownFlags } from "../lib/strict-args.js";
@@ -54,21 +54,6 @@ function formatWhen(date: Date, now: Date): string {
   const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
   if (date.getFullYear() !== now.getFullYear()) opts.year = "numeric";
   return date.toLocaleDateString("en-US", opts);
-}
-
-function authErrorCode(err: unknown): string | null {
-  if (typeof err === "object" && err !== null && "data" in err) {
-    const data = err.data;
-    if (
-      typeof data === "object" &&
-      data !== null &&
-      "code" in data &&
-      typeof data.code === "string"
-    ) {
-      return data.code;
-    }
-  }
-  return null;
 }
 
 export const creditsCommand = defineCommand({

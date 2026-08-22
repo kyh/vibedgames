@@ -280,11 +280,7 @@ export async function runAgent(opts: AgentOptions, reporter: Reporter): Promise<
     // claude rejects --dangerously-skip-permissions under root unless the
     // environment is marked as a sandbox; we set IS_SANDBOX=1 for the children
     // so unattended container/CI runs (which are typically root) actually work.
-    if (
-      typeof process.getuid === "function" &&
-      process.getuid() === 0 &&
-      process.env.IS_SANDBOX !== "1"
-    ) {
+    if (process.getuid?.() === 0 && process.env.IS_SANDBOX !== "1") {
       reporter.info(
         "Detected root: setting IS_SANDBOX=1 for agents so skip-permissions is allowed.",
       );
@@ -474,7 +470,7 @@ export async function runAgent(opts: AgentOptions, reporter: Reporter): Promise<
     });
 
     state.cycle += 1;
-    if (typeof res.costUsd === "number") state.totalCostUsd += res.costUsd;
+    if (res.costUsd !== undefined) state.totalCostUsd += res.costUsd;
     saveState(bb, state);
     reporter.stateChanged(state, approvalPending(bb, state.lastApproval));
 
@@ -658,7 +654,7 @@ export async function runAgent(opts: AgentOptions, reporter: Reporter): Promise<
  * skipped (--no-ship) or abandoned after repeated failures.
  */
 function advance(state: AgentState): void {
-  const transitions: Record<Phase, Phase> = {
+  const transitions = {
     spec: "scaffold",
     scaffold: "assets",
     assets: "build",
@@ -667,7 +663,7 @@ function advance(state: AgentState): void {
     ship: "plan",
     plan: "work",
     work: "playtest",
-  };
+  } satisfies Record<Phase, Phase>;
   state.phase = transitions[state.phase];
 }
 
@@ -739,6 +735,6 @@ const truncate = (s: string, n = 240): string => {
   return flat.length > n ? `${flat.slice(0, n)}…` : flat;
 };
 
-const costNote = (c?: number): string => (typeof c === "number" ? ` ($${c.toFixed(2)})` : "");
+const costNote = (c?: number): string => (c === undefined ? "" : ` ($${c.toFixed(2)})`);
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));

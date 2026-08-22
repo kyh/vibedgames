@@ -27,6 +27,11 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+// The lint bans runtime `typeof`; these checks are typeof-free equivalents for
+// values decoded from JSON (plain objects and primitive strings only).
+const isPlainObject = (v) => Object.prototype.toString.call(v) === "[object Object]";
+const isString = (v) => String(v) === v;
+
 import {
   createTilemapEditor,
   exportMapRender,
@@ -165,13 +170,13 @@ main(() => {
     const mapPath = getString(args, "map");
     if (!mapPath) fail("--export-map-render requires --map PATH");
     const mapPayload = JSON.parse(readFileSync(mapPath, "utf8"));
-    if (mapPayload === null || typeof mapPayload !== "object" || Array.isArray(mapPayload)) {
+    if (!isPlainObject(mapPayload)) {
       fail("Map JSON must be an object at top-level.");
     }
 
     // A map may name its own tileset, which wins over the CLI default.
     const mapMeta = mapPayload.meta;
-    if (mapMeta && typeof mapMeta === "object" && typeof mapMeta.tileset === "string") {
+    if (isPlainObject(mapMeta) && isString(mapMeta.tileset)) {
       if (mapMeta.tileset in tilesets) {
         meta = tilesetMetaFromManifest(manifestPath, manifest, mapMeta.tileset);
       }

@@ -158,15 +158,17 @@ export class SpeechBubbles {
       if (!b) continue;
       b.age += dt;
       let anchored = false;
-      if (typeof b.anchor === "function") {
+      if (b.anchor instanceof THREE.Object3D) {
+        if (b.anchor.parent) {
+          b.anchor.getWorldPosition(pos);
+          anchored = true;
+        }
+      } else {
         const p = b.anchor();
         if (p) {
           pos.copy(p);
           anchored = true;
         }
-      } else if (b.anchor.parent) {
-        b.anchor.getWorldPosition(pos);
-        anchored = true;
       }
       if (!anchored || b.age >= b.dur) {
         this.dispose(b);

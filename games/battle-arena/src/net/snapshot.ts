@@ -2,6 +2,7 @@
 // encoding is just Map→record. rngState travels so a guest that takes over
 // hosting continues the exact deterministic stream. fx is broadcast separately
 // (fx/fxSeq), not in the snapshot.
+import type { JsonValue } from "../data/json";
 import { KILL_GOAL_FFA, MATCH_TIME } from "../data/config";
 import { BOSS_POS } from "../data/map";
 import type {
@@ -122,6 +123,6 @@ export function applySnapshot(w: World, s: Snapshot): void {
   w.boss = s.boss ?? w.boss;
 }
 
-export function isSnapshot(v: unknown): v is Snapshot {
-  return typeof v === "object" && v !== null && "units" in v && "gameTime" in v;
+export function isSnapshot(v: Snapshot | JsonValue | undefined): v is Snapshot {
+  return v instanceof Object && !Array.isArray(v) && "units" in v && "gameTime" in v;
 }

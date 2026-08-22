@@ -177,6 +177,8 @@ export function sumItemStats(items: string[]): Required<ItemStats> {
   for (const id of items) {
     const it = ITEM_BY_ID[id];
     if (!it) continue;
+    // SAFETY: acc is the literal built just above with exactly the ItemStats
+    // keys, so Object.keys over it is precisely keyof ItemStats.
     for (const k of Object.keys(acc) as (keyof ItemStats)[]) {
       acc[k] += it.stats[k] ?? 0;
     }

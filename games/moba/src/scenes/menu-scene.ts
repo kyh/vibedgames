@@ -15,13 +15,13 @@ import { FONT } from "../render/font";
 import { heroSheetTex } from "../render/sprites";
 
 // Section headers matching the pause plaque's GROUP_LABEL voice.
-const GROUP_LABEL: Record<ControlMethod, string> = {
+const GROUP_LABEL = {
   keys: "KEYBOARD",
   mouse: "MOUSE",
   touch: "TOUCH",
   camera: "CAMERA",
   controller: "GAMEPAD",
-};
+} satisfies Record<ControlMethod, string>;
 
 export class MenuScene extends Phaser.Scene {
   private selected = "ironvow";

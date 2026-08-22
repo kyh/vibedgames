@@ -31,7 +31,7 @@ export type EnemyKind = {
   blastDmg?: number;
 };
 
-export const ENEMIES: Record<EnemyName, EnemyKind> = {
+export const ENEMIES = {
   warrior: {
     name: "warrior",
     behavior: "melee",
@@ -95,4 +95,4 @@ export const ENEMIES: Record<EnemyName, EnemyKind> = {
     blastR: 34,
     blastDmg: 2,
   },
-};
+} satisfies Record<EnemyName, EnemyKind>;

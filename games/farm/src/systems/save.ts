@@ -1,5 +1,7 @@
+import { isJsonNumber, isJsonObject } from "../json";
 import { World } from "../world/world";
 import { Inventory } from "./inventory";
+import type { JsonValue } from "../json";
 import type { SkillsJSON } from "./skills";
 
 const KEY = "farm-rpg-save-v1";
@@ -36,10 +38,6 @@ export type SaveData = {
   npcFriendship?: Record<string, number>;
 };
 
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null;
-}
-
 // Trailer mode (src/trailer/): a staged demo run must neither read nor write
 // the player's real save. Set once by the trailer director; dead in normal play.
 let savesDisabled = false;
@@ -49,12 +47,15 @@ export function disableSaves(): void {
 
 // Structural check at the storage boundary: we only wrote v3 saves ourselves,
 // so verify the version tag plus the scalar/object skeleton (not every leaf).
-function isSaveData(v: unknown): v is SaveData {
-  if (!isRecord(v) || v["v"] !== 3) return false;
+function isSaveData(v: JsonValue): v is JsonValue & SaveData {
+  if (!isJsonObject(v) || v["v"] !== 3) return false;
   const nums = ["seed", "day", "timeMin", "gold", "energy", "hp", "canCharge"];
-  if (!nums.every((k) => typeof v[k] === "number")) return false;
+  if (!nums.every((k) => isJsonNumber(v[k]))) return false;
   return (
-    isRecord(v["player"]) && isRecord(v["world"]) && isRecord(v["inv"]) && isRecord(v["skills"])
+    isJsonObject(v["player"]) &&
+    isJsonObject(v["world"]) &&
+    isJsonObject(v["inv"]) &&
+    isJsonObject(v["skills"])
   );
 }
 
@@ -72,7 +73,7 @@ export function loadSave(): SaveData | null {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return null;
-    const d: unknown = JSON.parse(raw);
+    const d: JsonValue = JSON.parse(raw);
     return isSaveData(d) ? d : null;
   } catch {
     return null;

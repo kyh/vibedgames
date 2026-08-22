@@ -62,7 +62,8 @@ const C4 = 261.63;
 /** Key modifiers applied to each champ's base cast voice (result-05 A3). DASH =
  *  short + pitched-up zip (a whoosh layer rides on top); JUMP = longer + pitched-
  *  down heave (the landing thud is the explosion fx event). */
-const CAST_MOD: Record<AbilityKey, { d: number; p: number; ult?: boolean }> = {
+type CastMods = { [K in AbilityKey]: { d: number; p: number; ult?: boolean } };
+const CAST_MOD: CastMods = {
   Q: { d: 0.8, p: 1.0 },
   W: { d: 1.0, p: 1.15 },
   E: { d: 1.1, p: 0.85 },

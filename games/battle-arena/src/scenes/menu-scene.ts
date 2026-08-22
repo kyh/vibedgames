@@ -21,7 +21,14 @@ const esc = (s: string): string =>
 const dots = (difficulty: number): string =>
   "●".repeat(difficulty) + "○".repeat(Math.max(0, 3 - difficulty));
 // display keycaps match the actual binds (1-4 + Shift/Space), not QWER letters
-const KEYCAP: Record<AbilityKey, string> = { Q: "1", W: "2", E: "3", R: "4", DASH: "⇧", JUMP: "␣" };
+const KEYCAP = {
+  Q: "1",
+  W: "2",
+  E: "3",
+  R: "4",
+  DASH: "⇧",
+  JUMP: "␣",
+} satisfies Record<AbilityKey, string>;
 
 export type MenuOpts = {
   initial: string;
@@ -86,15 +93,19 @@ export class Menu {
       btn.addEventListener("click", () => this.opts.onSelect(btn.dataset["id"]!));
     });
 
-    const nameOf = (): string =>
-      (document.getElementById("ba-name") as HTMLInputElement).value.trim() || "Player";
+    const nameOf = (): string => {
+      const el = document.getElementById("ba-name");
+      return (el instanceof HTMLInputElement ? el.value.trim() : "") || "Player";
+    };
     const codeOf = (): string => {
       const el = document.getElementById("ba-room");
       return el instanceof HTMLInputElement ? el.value.trim() : "";
     };
-    (document.getElementById("ba-bots") as HTMLButtonElement).addEventListener("click", () =>
-      this.start({ champId: this.selected, name: nameOf(), online: false, room: "" }),
-    );
+    document
+      .getElementById("ba-bots")
+      ?.addEventListener("click", () =>
+        this.start({ champId: this.selected, name: nameOf(), online: false, room: "" }),
+      );
     document.getElementById("ba-online")?.addEventListener("click", () =>
       this.start({
         champId: this.selected,
