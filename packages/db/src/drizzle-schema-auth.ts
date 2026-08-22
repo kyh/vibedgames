@@ -72,7 +72,7 @@ export const account = sqliteTable(
       .notNull(),
   },
   (table) => ({
-    issuerAccountIdx: uniqueIndex("account_issuer_account_id_uidx").on(
+    issuerAccountIdx: uniqueIndex("account_issuer_accountId_uidx").on(
       table.issuer,
       table.accountId,
     ),
@@ -131,8 +131,8 @@ export const apikey = sqliteTable(
     metadata: text("metadata"),
   },
   (table) => ({
-    referenceIdx: index("apikey_reference_id_idx").on(table.referenceId),
-    configIdx: index("apikey_config_id_idx").on(table.configId),
+    referenceIdx: index("apikey_referenceId_idx").on(table.referenceId),
+    configIdx: index("apikey_configId_idx").on(table.configId),
     keyIdx: index("apikey_key_idx").on(table.key),
   }),
 );
