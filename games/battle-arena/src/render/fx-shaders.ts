@@ -4,9 +4,14 @@
 // adding a projectile never compiles a new program.
 import * as THREE from "three";
 import { fxTex } from "./fx-textures";
+import { NOISE_GLSL } from "./fx-noise";
 
 // one clock object referenced by every material — mutate, never reassign
 const CLOCK = { value: 0 };
+
+/** The shared clock, for materials built outside this module (crystals, bolts,
+ *  beams). Handing out the same box means they freeze with everything else. */
+export const fxClock: { value: number } = CLOCK;
 
 /** Advance the global shader clock (call once per frame with the fx dt). */
 export function tickFxShaders(dt: number): void {
@@ -14,7 +19,7 @@ export function tickFxShaders(dt: number): void {
 }
 
 // cheap value-ish noise, good enough for fire/energy wobble at game speed
-const NOISE_GLSL = /* glsl */ `
+const CHEAP_NOISE_GLSL = /* glsl */ `
 float hash21(vec2 p){ p = fract(p*vec2(234.34,435.345)); p += dot(p,p+34.23); return fract(p.x*p.y); }
 float vnoise(vec2 p){
   vec2 i = floor(p); vec2 f = fract(p); f = f*f*(3.0-2.0*f);
@@ -52,7 +57,7 @@ export function energyBallMaterial(color: number): THREE.ShaderMaterial {
     fragmentShader: /* glsl */ `
       uniform float uTime; uniform vec3 uColor;
       varying vec3 vN; varying vec3 vV; varying vec2 vUv;
-      ${NOISE_GLSL}
+      ${CHEAP_NOISE_GLSL}
       void main(){
         // boiling surface: two scroll directions so it churns, not slides
         float boil = fbm(vUv*4.0 + vec2(uTime*1.4, -uTime*0.9));
@@ -165,61 +170,102 @@ export function makeSlashMaterial(): THREE.ShaderMaterial {
 }
 
 // ── Ground cracks ────────────────────────────────────────────────────────────
-// Cellular-noise fissures: dark charcoal fractures with a hot glowing seam
-// that cools over the decal's life (the Diablo "the earth remembers the hit"
-// language). Unit quad, scale the pivot (uniform = radial star; stretched =
-// directional gash). uPulse > 0 re-heats the seam at ~2Hz (Vesper's bleed).
-export function makeCrackMaterial(): THREE.ShaderMaterial {
-  return new THREE.ShaderMaterial({
+// The earth torn open: a branching fissure network with a hot seam that cools
+// over the decal's life (the Diablo "the earth remembers the hit" language).
+// Unit quad, scale the pivot (uniform = radial star; stretched = directional
+// gash). uPulse > 0 re-heats the seam at ~2Hz (Vesper's bleed).
+//
+// Cracks are the ZERO CROSSING of an fbm field, not cell borders. A cell
+// pattern gives closed polygons — dried mud, not fracture. Where noise changes
+// sign you get a thin, meandering, forked sheet, which is what a real crack is.
+// Sampling that field in polar coordinates with the angle stretched makes the
+// arms run OUTWARD from the impact instead of wandering across it.
+export type CrackMaterial = THREE.ShaderMaterial & {
+  /** Arm a fresh decal: colour, noise offset, and whether the seam re-heats. */
+  arm(color: number, pulse: number): void;
+  /** `t` is life progress 0→1 (cooling); `grow` is the tear-open front 0→1. */
+  step(t: number, grow: number): void;
+};
+
+export function makeCrackMaterial(): CrackMaterial {
+  const uniforms = {
+    uTime: CLOCK as { value: number },
+    uColor: { value: new THREE.Color(0xff8040) }, // hot seam
+    uT: { value: 0 }, // life progress 0→1
+    uSeed: { value: 0 },
+    uPulse: { value: 0 },
+    uGrow: { value: 0 }, // 0→1 as the network tears open (real seconds)
+  };
+  const mat = new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
     blending: THREE.NormalBlending,
     side: THREE.DoubleSide,
-    uniforms: {
-      uTime: CLOCK as { value: number },
-      uColor: { value: new THREE.Color(0xff8040) }, // hot seam
-      uT: { value: 0 }, // life progress 0→1
-      uSeed: { value: 0 },
-      uPulse: { value: 0 },
-    },
+    uniforms,
     vertexShader: /* glsl */ `
       varying vec2 vUv;
       void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
     fragmentShader: /* glsl */ `
-      uniform float uTime; uniform vec3 uColor; uniform float uT; uniform float uSeed; uniform float uPulse;
+      uniform float uTime; uniform vec3 uColor; uniform float uT; uniform float uSeed; uniform float uPulse; uniform float uGrow;
       varying vec2 vUv;
-      vec2 hash22(vec2 p){
-        p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
-        return fract(sin(p) * 43758.5453);
-      }
+      ${NOISE_GLSL}
       void main(){
         vec2 p = (vUv - 0.5) * 2.0;
         float r = length(p);
         if (r > 1.0) discard;
-        // cellular F2-F1: thin ridges along cell borders = the fissures
-        vec2 q = p * 3.2 + uSeed;
-        vec2 iq = floor(q); vec2 fq = fract(q);
-        float f1 = 8.0; float f2 = 8.0;
-        for (int yy = -1; yy <= 1; yy++)
-        for (int xx = -1; xx <= 1; xx++){
-          vec2 g = vec2(float(xx), float(yy));
-          vec2 o = hash22(iq + g);
-          float d = length(g + o - fq);
-          if (d < f1) { f2 = f1; f1 = d; } else if (d < f2) { f2 = d; }
-        }
-        float ridge = 1.0 - smoothstep(0.0, 0.16, f2 - f1); // 1 on the fissure lines
-        float fall = 1.0 - smoothstep(0.45, 1.0, r);        // fade toward the rim
+        float ang = atan(p.y, p.x);
+
+        // Polar sampling with the angle stretched hard against the radius: the
+        // field varies fast around the impact and slowly along a ray, so its
+        // zero crossings are arms that RUN OUTWARD and fork on the way.
+        vec3 q = vec3(ang * 1.9, r * 2.2, uSeed);
+        float arms  = seam(q, 0.16);
+        float twigs = seam(q * 2.7 + 11.0, 0.1) * 0.55; // the branches off them
+        float net = clamp(arms + twigs, 0.0, 1.0);
+
+        // Arms are widest at the impact and taper to nothing at the rim, so the
+        // network reads as spreading FROM somewhere — but the taper only bites
+        // over the outer third, or the arms are gone before they get anywhere.
+        net *= 1.0 - smoothstep(0.62, 1.0, r);
+        // Cracks race out over the opening beat rather than appearing whole.
+        // uGrow is driven off REAL seconds, not uT: a 3s scorch and a 1.8s gash
+        // both have to tear open in the same instant, and keying the front to
+        // life fraction made the long ones crawl.
+        net *= 1.0 - smoothstep(uGrow, uGrow + 0.22, r);
+
         float lifeFade = 1.0 - smoothstep(0.55, 1.0, uT);
-        // seam heat cools over life; optional re-heat pulse
+        // Seam heat cools over life; optional re-heat pulse.
         float heat = (1.0 - smoothstep(0.0, 0.6, uT)) + uPulse * (0.5 + 0.5 * sin(uTime * 12.6)) * 0.6;
         heat = clamp(heat, 0.0, 1.0);
+
+        // Charred halo either side of every seam. Without it the glow reads as
+        // painted on top of the floor instead of coming out of a hole in it.
+        float soot = smoothstep(0.02, 0.5, net) * (1.0 - smoothstep(0.5, 1.0, r));
         vec3 charcoal = vec3(0.05, 0.045, 0.05);
-        vec3 c = mix(charcoal, uColor * 1.4, heat * ridge);
-        float a = ridge * fall * lifeFade * 0.85;
+        // A crack is a SHADOW first and a light second. Only the thin middle of
+        // the gap takes the effect colour; the rest stays charred. A pale tint
+        // (the knight's steel-blue) spread across the whole network vanished
+        // against the arena's light floor.
+        vec3 c = mix(charcoal, uColor * 1.6, heat * smoothstep(0.62, 0.95, net));
+
+        float a = max(net, soot * 0.7) * lifeFade;
         if (a < 0.01) discard;
-        gl_FragColor = vec4(c, a);
+        gl_FragColor = vec4(c, min(a, 1.0));
       }`,
-  });
+  }) as CrackMaterial;
+
+  mat.arm = (color, pulse) => {
+    uniforms.uColor.value.setHex(color);
+    uniforms.uSeed.value = Math.random() * 40;
+    uniforms.uPulse.value = pulse;
+    uniforms.uT.value = 0;
+    uniforms.uGrow.value = 0;
+  };
+  mat.step = (t, grow) => {
+    uniforms.uT.value = t;
+    uniforms.uGrow.value = grow;
+  };
+  return mat;
 }
 
 // ── Rune circle ──────────────────────────────────────────────────────────────
@@ -282,7 +328,7 @@ export function makeVortexMaterial(color: number, upward = false): THREE.ShaderM
     fragmentShader: /* glsl */ `
       uniform float uTime; uniform vec3 uColor; uniform float uAlpha; uniform float uUp;
       varying vec2 vUv;
-      ${NOISE_GLSL}
+      ${CHEAP_NOISE_GLSL}
       void main(){
         // diagonal stripes racing around the drum
         float stripes = 0.5 + 0.5*sin((vUv.x*6.0 + vUv.y*2.0) * 6.2831 - uTime*9.0);

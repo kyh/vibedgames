@@ -138,6 +138,7 @@ export class GameScene {
     this.environment.setup();
     view.refreshShadows(); // scenery is final — bake the static shadow map once
     this.fx = new Fx(view.scene, view);
+    this.fx.warm(view.renderer, view.camera); // compile the FX programs before the first cast
     this.fx.localId = this.localId;
     // ownerId flavor of the local identity ("local" offline, connId online —
     // refreshed per-frame in tickOnline once the connection knows itself)
