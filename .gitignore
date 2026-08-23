@@ -71,3 +71,4 @@ local.*
 
 # throwaway test beds for skills (not repo content)
 /sandbox/
+.vscode
