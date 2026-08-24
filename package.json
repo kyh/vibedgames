@@ -62,7 +62,7 @@
       "workerd"
     ],
     "overrides": {
-      "react-hook-form": "^7.72.1"
+      "react-hook-form": "^7.86.0"
     }
   }
 }

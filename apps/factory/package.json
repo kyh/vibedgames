@@ -22,8 +22,8 @@
     "build:npm": "bun scripts/build.ts"
   },
   "dependencies": {
-    "@opentui/core": "^0.5.6",
-    "@opentui/react": "^0.5.6",
+    "@opentui/core": "^0.5.7",
+    "@opentui/react": "^0.5.7",
     "citty": "^0.2.2",
     "consola": "^3.4.2",
     "react": "catalog:"
