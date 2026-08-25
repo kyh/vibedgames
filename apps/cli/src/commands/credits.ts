@@ -75,7 +75,7 @@ export const creditsCommand = defineCommand({
     const client = createClient();
 
     try {
-      const { balanceMicro, entries } = await client.credits.me.query();
+      const { balanceMicro, entries } = await client.credits.me();
 
       const payload = {
         balance_micro: balanceMicro,

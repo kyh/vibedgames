@@ -1,10 +1,10 @@
 import { and, eq, inArray } from "@repo/db";
 import { deployment, deploymentFile, game } from "@repo/db/drizzle-schema";
-import { TRPCError } from "@trpc/server";
+import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 
-import type { R2Config } from "../trpc";
-import { createTRPCRouter, protectedProcedure } from "../trpc";
+import type { R2Config } from "../orpc";
+import { protectedProcedure } from "../orpc";
 import { deletePrefix, presignGet, presignPut } from "./r2-presign";
 import { isSlugReserved } from "./reserved-slugs";
 
@@ -73,28 +73,26 @@ const deleteInput = z.object({
 
 function requireR2(r2: R2Config | undefined): R2Config {
   if (!r2) {
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
+    throw new ORPCError("INTERNAL_SERVER_ERROR", {
       message: "R2 is not configured on this worker.",
     });
   }
   return r2;
 }
 
-export const deployRouter = createTRPCRouter({
+export const deployRouter = {
   /**
    * Begin a new deployment. Validates the slug, overwrites any previous
    * deployment for this game (single-deploy MVP), and returns presigned PUT
    * URLs the client uses to upload each file directly to R2.
    */
-  create: protectedProcedure.input(createInput).mutation(async ({ ctx, input }) => {
-    const r2 = requireR2(ctx.r2);
-    const userId = ctx.session.user.id;
+  create: protectedProcedure.input(createInput).handler(async ({ context, input }) => {
+    const r2 = requireR2(context.r2);
+    const userId = context.session.user.id;
 
     // ---- Validate slug ------------------------------------------------------
     if (isSlugReserved(input.slug)) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
+      throw new ORPCError("BAD_REQUEST", {
         message: `Slug "${input.slug}" is reserved.`,
       });
     }
@@ -102,16 +100,14 @@ export const deployRouter = createTRPCRouter({
     // ---- Validate manifest --------------------------------------------------
     const hasIndex = input.files.some((f) => f.path === "index.html");
     if (!hasIndex) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
+      throw new ORPCError("BAD_REQUEST", {
         message: "Deployment must contain index.html at the root.",
       });
     }
 
     const totalBytes = input.files.reduce((acc, f) => acc + f.size, 0);
     if (totalBytes > MAX_TOTAL_SIZE) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
+      throw new ORPCError("BAD_REQUEST", {
         message: `Total deploy size ${totalBytes} exceeds limit ${MAX_TOTAL_SIZE}.`,
       });
     }
@@ -120,8 +116,7 @@ export const deployRouter = createTRPCRouter({
     const paths = new Set<string>();
     for (const f of input.files) {
       if (paths.has(f.path)) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
+        throw new ORPCError("BAD_REQUEST", {
           message: `Duplicate path "${f.path}" in manifest.`,
         });
       }
@@ -129,27 +124,26 @@ export const deployRouter = createTRPCRouter({
     }
 
     // ---- Resolve or create game row ----------------------------------------
-    const existing = await ctx.db.query.game.findFirst({
+    const existing = await context.db.query.game.findFirst({
       where: eq(game.slug, input.slug),
     });
 
     if (existing && existing.userId !== userId) {
-      throw new TRPCError({
-        code: "FORBIDDEN",
+      throw new ORPCError("FORBIDDEN", {
         message: `Slug "${input.slug}" is already taken.`,
       });
     }
 
     const gameId = existing?.id ?? crypto.randomUUID();
     if (!existing) {
-      await ctx.db.insert(game).values({
+      await context.db.insert(game).values({
         id: gameId,
         userId,
         slug: input.slug,
         name: input.name ?? null,
       });
     } else if (input.name && input.name !== existing.name) {
-      await ctx.db.update(game).set({ name: input.name }).where(eq(game.id, gameId));
+      await context.db.update(game).set({ name: input.name }).where(eq(game.id, gameId));
     }
 
     // ---- Wipe previous deployment (single-deploy MVP) ----------------------
@@ -159,14 +153,14 @@ export const deployRouter = createTRPCRouter({
     if (existing?.currentDeploymentId) {
       await deletePrefix({ r2, prefix: `games/${gameId}/` });
       await deletePrefix({ r2, prefix: `sources/${gameId}/` });
-      await ctx.db.update(game).set({ currentDeploymentId: null }).where(eq(game.id, gameId));
-      await ctx.db.delete(deployment).where(eq(deployment.gameId, gameId));
+      await context.db.update(game).set({ currentDeploymentId: null }).where(eq(game.id, gameId));
+      await context.db.delete(deployment).where(eq(deployment.gameId, gameId));
     }
 
     // ---- Create pending deployment -----------------------------------------
     const deploymentId = crypto.randomUUID();
     const sourceKey = input.source ? sourceKeyFor(gameId, deploymentId) : null;
-    await ctx.db.insert(deployment).values({
+    await context.db.insert(deployment).values({
       id: deploymentId,
       gameId,
       status: "pending",
@@ -187,7 +181,7 @@ export const deployRouter = createTRPCRouter({
     // D1 has a max SQL statement size — batch inserts in chunks
     const BATCH_SIZE = 10;
     for (let i = 0; i < fileRows.length; i += BATCH_SIZE) {
-      await ctx.db.insert(deploymentFile).values(fileRows.slice(i, i + BATCH_SIZE));
+      await context.db.insert(deploymentFile).values(fileRows.slice(i, i + BATCH_SIZE));
     }
 
     // ---- Mint presigned URLs -----------------------------------------------
@@ -223,35 +217,34 @@ export const deployRouter = createTRPCRouter({
    * Mark a pending deployment as ready and flip the game's current pointer.
    * After this call, `{slug}.vibedgames.com` serves the new files.
    */
-  finalize: protectedProcedure.input(finalizeInput).mutation(async ({ ctx, input }) => {
-    const userId = ctx.session.user.id;
+  finalize: protectedProcedure.input(finalizeInput).handler(async ({ context, input }) => {
+    const userId = context.session.user.id;
 
-    const dep = await ctx.db.query.deployment.findFirst({
+    const dep = await context.db.query.deployment.findFirst({
       where: eq(deployment.id, input.deploymentId),
     });
     if (!dep) {
-      throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found." });
+      throw new ORPCError("NOT_FOUND", { message: "Deployment not found." });
     }
 
-    const g = await ctx.db.query.game.findFirst({
+    const g = await context.db.query.game.findFirst({
       where: eq(game.id, dep.gameId),
     });
     if (!g || g.userId !== userId) {
-      throw new TRPCError({ code: "FORBIDDEN" });
+      throw new ORPCError("FORBIDDEN");
     }
 
     if (dep.status !== "pending") {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
+      throw new ORPCError("BAD_REQUEST", {
         message: `Deployment already ${dep.status}.`,
       });
     }
 
-    await ctx.db.update(deployment).set({ status: "ready" }).where(eq(deployment.id, dep.id));
+    await context.db.update(deployment).set({ status: "ready" }).where(eq(deployment.id, dep.id));
 
-    await ctx.db.update(game).set({ currentDeploymentId: dep.id }).where(eq(game.id, g.id));
+    await context.db.update(game).set({ currentDeploymentId: dep.id }).where(eq(game.id, g.id));
 
-    const base = new URL(ctx.productionURL ?? "https://vibedgames.com");
+    const base = new URL(context.productionURL ?? "https://vibedgames.com");
     return {
       url: `${base.protocol}//${g.slug}.${base.host}`,
       slug: g.slug,
@@ -266,25 +259,23 @@ export const deployRouter = createTRPCRouter({
    */
   getSource: protectedProcedure
     .input(z.object({ slug: slugSchema }))
-    .query(async ({ ctx, input }) => {
-      const r2 = requireR2(ctx.r2);
+    .handler(async ({ context, input }) => {
+      const r2 = requireR2(context.r2);
 
-      const g = await ctx.db.query.game.findFirst({
+      const g = await context.db.query.game.findFirst({
         where: eq(game.slug, input.slug),
       });
       if (!g?.currentDeploymentId) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
+        throw new ORPCError("NOT_FOUND", {
           message: `No live deployment for "${input.slug}".`,
         });
       }
 
-      const dep = await ctx.db.query.deployment.findFirst({
+      const dep = await context.db.query.deployment.findFirst({
         where: eq(deployment.id, g.currentDeploymentId),
       });
       if (!dep?.sourceKey) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
+        throw new ORPCError("NOT_FOUND", {
           message: `"${input.slug}" was deployed without source, so it can't be forked.`,
         });
       }
@@ -300,9 +291,9 @@ export const deployRouter = createTRPCRouter({
   /**
    * List the authenticated user's games.
    */
-  list: protectedProcedure.query(async ({ ctx }) => {
-    const games = await ctx.db.query.game.findMany({
-      where: eq(game.userId, ctx.session.user.id),
+  list: protectedProcedure.handler(async ({ context }) => {
+    const games = await context.db.query.game.findMany({
+      where: eq(game.userId, context.session.user.id),
       orderBy: (g, { desc }) => desc(g.updatedAt),
     });
 
@@ -314,7 +305,7 @@ export const deployRouter = createTRPCRouter({
       .filter((id): id is string => id !== null);
     const deployments =
       currentIds.length > 0
-        ? await ctx.db
+        ? await context.db
             .select({
               id: deployment.id,
               status: deployment.status,
@@ -341,21 +332,21 @@ export const deployRouter = createTRPCRouter({
    * Hard-delete a game: drop the game row (cascades to deployment +
    * deploymentFile) and clear its R2 prefix.
    */
-  delete: protectedProcedure.input(deleteInput).mutation(async ({ ctx, input }) => {
-    const r2 = requireR2(ctx.r2);
-    const userId = ctx.session.user.id;
+  delete: protectedProcedure.input(deleteInput).handler(async ({ context, input }) => {
+    const r2 = requireR2(context.r2);
+    const userId = context.session.user.id;
 
-    const g = await ctx.db.query.game.findFirst({
+    const g = await context.db.query.game.findFirst({
       where: and(eq(game.id, input.gameId), eq(game.userId, userId)),
     });
     if (!g) {
-      throw new TRPCError({ code: "NOT_FOUND" });
+      throw new ORPCError("NOT_FOUND");
     }
 
     await deletePrefix({ r2, prefix: `games/${g.id}/` });
     await deletePrefix({ r2, prefix: `sources/${g.id}/` });
-    await ctx.db.delete(game).where(eq(game.id, g.id));
+    await context.db.delete(game).where(eq(game.id, g.id));
 
     return { success: true };
   }),
-});
+};

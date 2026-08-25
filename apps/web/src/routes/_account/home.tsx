@@ -20,7 +20,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@repo/ui/components/too
 import { SkeletonReveal } from "@/components/ui/skeleton-reveal";
 import { formatDateCompact } from "@/lib/format";
 import { INSTALL_PROMPT } from "@/lib/install-prompt";
-import { useTRPC } from "@/lib/trpc";
+import { useORPC } from "@/lib/orpc";
 import { useCopyToClipboard } from "@/lib/use-copy-to-clipboard";
 
 export const Route = createFileRoute("/_account/home")({
@@ -117,7 +117,7 @@ function GamesSkeleton() {
 }
 
 function GamesPage() {
-  const trpc = useTRPC();
+  const orpc = useORPC();
   const qc = useQueryClient();
   // One shared row highlight that springs to the hovered row (motion
   // layoutId) instead of per-row hover backgrounds. Hover and focus-within
@@ -125,11 +125,11 @@ function GamesPage() {
   // recipe app-wide; keep them in lockstep.
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
 
-  const list = useQuery(trpc.deploy.list.queryOptions());
+  const list = useQuery(orpc.deploy.list.queryOptions());
   const remove = useMutation(
-    trpc.deploy.delete.mutationOptions({
+    orpc.deploy.delete.mutationOptions({
       onSuccess: () => {
-        qc.invalidateQueries({ queryKey: trpc.deploy.list.queryKey() });
+        qc.invalidateQueries({ queryKey: orpc.deploy.list.queryKey() });
         toast.success("Game deleted");
       },
     }),

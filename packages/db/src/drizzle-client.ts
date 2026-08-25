@@ -11,7 +11,7 @@ const combinedSchema = { ...schema, ...schemaAuth };
  *
  * Unlike the previous Turso (libsql) setup, D1 is bound per-request via the
  * Worker `env`, so callers must construct the client inside their request
- * handler / tRPC context — there is no module-level singleton.
+ * handler / oRPC context — there is no module-level singleton.
  */
 export const createDb = (d1: D1Database) =>
   drizzle(d1, {

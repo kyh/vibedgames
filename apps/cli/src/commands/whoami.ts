@@ -24,12 +24,12 @@ export const whoamiCommand = defineCommand({
       process.exit(1);
     }
 
-    // Goes through tRPC (not the raw better-auth endpoint) so it resolves
+    // Goes through the API (not the raw better-auth endpoint) so it resolves
     // both session tokens and `vg_…` API keys.
     const client = createClient();
 
     try {
-      const user = await client.auth.me.query();
+      const user = await client.auth.me();
       if (writeStructured({ id: user.id, name: user.name, email: user.email }, args)) return;
       consola.log(`${user.name} (${user.email})`);
     } catch (err) {

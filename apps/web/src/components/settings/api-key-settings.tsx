@@ -8,7 +8,7 @@ import { CheckIcon, CopyIcon } from "lucide-react";
 
 import { SkeletonReveal } from "@/components/ui/skeleton-reveal";
 import { formatDate } from "@/lib/format";
-import { useTRPC } from "@/lib/trpc";
+import { useORPC } from "@/lib/orpc";
 
 const fmt = (d: Date | null | undefined) => (d ? formatDate(d) : "never");
 
@@ -30,14 +30,14 @@ const KeysSkeleton = () => (
 );
 
 export const ApiKeySettings = () => {
-  const trpc = useTRPC();
+  const orpc = useORPC();
   const qc = useQueryClient();
 
-  const list = useQuery(trpc.apiKeys.list.queryOptions());
+  const list = useQuery(orpc.apiKeys.list.queryOptions());
   const create = useMutation(
-    trpc.apiKeys.create.mutationOptions({
+    orpc.apiKeys.create.mutationOptions({
       onSuccess: (data) => {
-        qc.invalidateQueries({ queryKey: trpc.apiKeys.list.queryKey() });
+        qc.invalidateQueries({ queryKey: orpc.apiKeys.list.queryKey() });
         setNewKey(data.key);
         setName("");
         setExpiresInDays("");
@@ -46,9 +46,9 @@ export const ApiKeySettings = () => {
     }),
   );
   const revoke = useMutation(
-    trpc.apiKeys.revoke.mutationOptions({
+    orpc.apiKeys.revoke.mutationOptions({
       onSuccess: () => {
-        qc.invalidateQueries({ queryKey: trpc.apiKeys.list.queryKey() });
+        qc.invalidateQueries({ queryKey: orpc.apiKeys.list.queryKey() });
         toast.success("Key revoked");
       },
     }),

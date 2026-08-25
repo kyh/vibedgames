@@ -1,4 +1,4 @@
-import type { MediaProviderConfig, R2Config } from "@repo/api/trpc";
+import type { MediaProviderConfig, R2Config } from "@repo/api/orpc";
 import { createAuth as initAuth } from "@repo/api/auth/auth";
 import { createDb } from "@repo/db/drizzle-client";
 import { getRequestHeaders } from "@tanstack/react-start/server";

@@ -36,9 +36,9 @@ export const createAuth = (opts: AuthOptions) => {
       expo(),
       admin(),
       // Long-lived API keys for CLI/CI. Keys carry the `vg_` prefix so the
-      // tRPC context can tell them apart from session tokens on the shared
+      // oRPC context can tell them apart from session tokens on the shared
       // `Authorization: Bearer` header. We do NOT enable session-mocking for
-      // keys (the plugin flags it as not production-safe); instead the tRPC
+      // keys (the plugin flags it as not production-safe); instead the oRPC
       // context resolves keys explicitly via `verifyApiKey`. Rate limiting is
       // off — these are deploy/automation keys, not public-facing.
       apiKey({

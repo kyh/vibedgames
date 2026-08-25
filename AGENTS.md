@@ -1,6 +1,6 @@
 # AGENTS.md
 
-**vibedgames** is an infrastructure platform for deploying, hosting and adding multiplayer to browser games: build a game locally, `vg deploy` it, and it is served at `{slug}.vibedgames.com`. The stack is a pnpm/Turborepo monorepo — TanStack Start (React 19 + Vite SSR) on Cloudflare Workers, tRPC + Drizzle on D1, better-auth, PartyServer on Durable Objects, R2 for game bundles.
+**vibedgames** is an infrastructure platform for deploying, hosting and adding multiplayer to browser games: build a game locally, `vg deploy` it, and it is served at `{slug}.vibedgames.com`. The stack is a pnpm/Turborepo monorepo — TanStack Start (React 19 + Vite SSR) on Cloudflare Workers, oRPC + Drizzle on D1, better-auth, PartyServer on Durable Objects, R2 for game bundles.
 
 This is the tool-agnostic guide for coding agents, and it is meant to be **run**, not just read. Claude also reads `CLAUDE.md` (product context, architectural decisions, conventions); both point back here.
 
@@ -51,9 +51,11 @@ Headless auth without a browser:
 # CLI — overrides the saved login without clobbering ~/.config/vg/auth.json
 VG_API_URL=http://localhost:5173 VG_TOKEN=dev-local-session-token-0000000000 vg whoami
 
-# raw tRPC
-curl -s 'http://localhost:5173/api/trpc/deploy.list' \
-  -H 'Authorization: Bearer dev-local-session-token-0000000000'
+# raw oRPC — POST, and the x-csrf-token header is required or the route answers 403
+curl -s -X POST 'http://localhost:5173/api/orpc/deploy/list' \
+  -H 'Authorization: Bearer dev-local-session-token-0000000000' \
+  -H 'content-type: application/json' -H 'x-csrf-token: orpc' \
+  -d '{"json":{}}'
 
 # a real session cookie, for handing to a browser context
 curl -s -i -X POST http://localhost:5173/api/auth/sign-in/email \
@@ -143,8 +145,8 @@ For the surfaces marked No, `pnpm typecheck` and `pnpm build` are the gate; a re
 
 ## Map
 
-- `apps/web` — the platform app (routes, auth, tRPC handler) · `apps/party` — multiplayer DO · `apps/games` — R2 game server · `apps/cli` — the published `vg` CLI · `apps/factory` — Bun/OpenTUI orchestrator
-- `packages/api` — tRPC routers, auth config, credits ledger · `packages/db` — Drizzle schema (source of truth for the data model) + `seed.sql` · `packages/ui`, `packages/multiplayer`, `packages/gamepad`, `packages/embed`
+- `apps/web` — the platform app (routes, auth, oRPC handler) · `apps/party` — multiplayer DO · `apps/games` — R2 game server · `apps/cli` — the published `vg` CLI · `apps/factory` — Bun/OpenTUI orchestrator
+- `packages/api` — oRPC routers, auth config, credits ledger · `packages/db` — Drizzle schema (source of truth for the data model) + `seed.sql` · `packages/ui`, `packages/multiplayer`, `packages/gamepad`, `packages/embed`
 - `games/*` — bundled example games, not platform code
 - `plugins/*/skills/*` — the skills shipped to end users; symlinked into `.claude/skills/` by `pnpm dogfood`
 - `CLAUDE.md` — product context, architectural decisions, command list

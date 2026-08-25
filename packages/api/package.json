@@ -15,11 +15,10 @@
   "dependencies": {
     "@better-auth/api-key": "^1.7.1",
     "@better-auth/expo": "^1.7.1",
+    "@orpc/server": "catalog:",
     "@repo/db": "workspace:^",
-    "@trpc/server": "catalog:",
     "aws4fetch": "^1.0.20",
     "better-auth": "^1.7.1",
-    "superjson": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {

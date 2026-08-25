@@ -1,6 +1,6 @@
 import { AwsClient } from "aws4fetch";
 
-import type { R2Config } from "../trpc";
+import type { R2Config } from "../orpc";
 
 /**
  * Mint a 15-minute S3 presigned PUT URL for a single R2 object. The returned
@@ -184,7 +184,7 @@ export async function verifyProxyDownloadUrl({
 /**
  * Mint a presigned GET URL for a single R2 object. Used to hand the CLI a
  * short-lived link to download a generated image or a source archive without
- * round-tripping bytes through the tRPC response.
+ * round-tripping bytes through the RPC response.
  *
  * When `r2.proxyUploadBaseUrl` is set (local dev), returns a worker-proxy URL
  * so the download reads from the Miniflare-simulated bucket binding rather

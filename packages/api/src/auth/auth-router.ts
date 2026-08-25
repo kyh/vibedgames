@@ -1,16 +1,10 @@
 import { and, desc, eq } from "@repo/db";
 import { inviteCode } from "@repo/db/drizzle-schema";
 import { user, verification } from "@repo/db/drizzle-schema-auth";
-import { TRPCError } from "@trpc/server";
+import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 
-import {
-  adminProcedure,
-  createTRPCRouter,
-  protectedProcedure,
-  publicProcedure,
-  sessionOnlyProcedure,
-} from "../trpc";
+import { adminProcedure, protectedProcedure, publicProcedure, sessionOnlyProcedure } from "../orpc";
 import { buildInviteRows, MAX_INVITE_BATCH } from "./invite-create";
 import { inviteCodeAvailabilityClause, normalizeInviteCode } from "./invite-claim";
 import { generateShortCode } from "./utils";
@@ -18,27 +12,27 @@ import { generateShortCode } from "./utils";
 const CLI_CODE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const CLI_IDENTIFIER_PREFIX = "cli-auth:";
 
-export const authRouter = createTRPCRouter({
+export const authRouter = {
   // Current authenticated identity. Works for both better-auth sessions and
-  // API keys (both resolve to `ctx.session` in the tRPC context), so the CLI
+  // API keys (both resolve to `context.session` in the oRPC context), so the CLI
   // can use it for `vg whoami` regardless of how it authenticated.
-  me: protectedProcedure.query(({ ctx }) => ({
-    id: ctx.session.user.id,
-    name: ctx.session.user.name,
-    email: ctx.session.user.email,
-    role: ctx.session.user.role ?? null,
+  me: protectedProcedure.handler(({ context }) => ({
+    id: context.session.user.id,
+    name: context.session.user.name,
+    email: context.session.user.email,
+    role: context.session.user.role ?? null,
   })),
 
   // ---------------------------------------------------------------------------
   // CLI device-code flow
   // ---------------------------------------------------------------------------
 
-  cliInit: publicProcedure.mutation(async ({ ctx }) => {
+  cliInit: publicProcedure.handler(async ({ context }) => {
     const code = generateShortCode();
     const id = crypto.randomUUID();
     const now = new Date();
 
-    await ctx.db.insert(verification).values({
+    await context.db.insert(verification).values({
       id,
       identifier: `${CLI_IDENTIFIER_PREFIX}${code}`,
       value: "",
@@ -51,14 +45,14 @@ export const authRouter = createTRPCRouter({
   }),
 
   // sessionOnlyProcedure (not protectedProcedure): this persists
-  // `ctx.session.session.token` as the CLI's login credential, so the caller
+  // `context.session.session.token` as the CLI's login credential, so the caller
   // must hold a real better-auth session. An API-key session's synthetic
   // `apikey:` token would be handed to the CLI and rejected by getSession.
   cliConfirm: sessionOnlyProcedure
     .input(z.object({ code: z.string() }))
-    .mutation(async ({ ctx, input }) => {
+    .handler(async ({ context, input }) => {
       const identifier = `${CLI_IDENTIFIER_PREFIX}${input.code}`;
-      const rows = await ctx.db
+      const rows = await context.db
         .select()
         .from(verification)
         .where(eq(verification.identifier, identifier))
@@ -66,43 +60,45 @@ export const authRouter = createTRPCRouter({
 
       const row = rows[0];
       if (!row || row.expiresAt < new Date()) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Code expired or invalid" });
+        throw new ORPCError("NOT_FOUND", { message: "Code expired or invalid" });
       }
       if (row.value !== "") {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Code already confirmed" });
+        throw new ORPCError("BAD_REQUEST", { message: "Code already confirmed" });
       }
 
       // Store the raw session token — the CLI uses it as a Bearer token
-      await ctx.db
+      await context.db
         .update(verification)
-        .set({ value: ctx.session.session.token, updatedAt: new Date() })
+        .set({ value: context.session.session.token, updatedAt: new Date() })
         .where(eq(verification.id, row.id));
 
       return { ok: true };
     }),
 
-  cliPoll: publicProcedure.input(z.object({ code: z.string() })).query(async ({ ctx, input }) => {
-    const identifier = `${CLI_IDENTIFIER_PREFIX}${input.code}`;
-    const rows = await ctx.db
-      .select()
-      .from(verification)
-      .where(eq(verification.identifier, identifier))
-      .limit(1);
+  cliPoll: publicProcedure
+    .input(z.object({ code: z.string() }))
+    .handler(async ({ context, input }) => {
+      const identifier = `${CLI_IDENTIFIER_PREFIX}${input.code}`;
+      const rows = await context.db
+        .select()
+        .from(verification)
+        .where(eq(verification.identifier, identifier))
+        .limit(1);
 
-    const row = rows[0];
-    if (!row || row.expiresAt < new Date()) {
-      return { status: "expired" as const };
-    }
+      const row = rows[0];
+      if (!row || row.expiresAt < new Date()) {
+        return { status: "expired" as const };
+      }
 
-    if (row.value === "") {
-      return { status: "pending" as const };
-    }
+      if (row.value === "") {
+        return { status: "pending" as const };
+      }
 
-    // Clean up after successful read
-    await ctx.db.delete(verification).where(eq(verification.id, row.id));
+      // Clean up after successful read
+      await context.db.delete(verification).where(eq(verification.id, row.id));
 
-    return { status: "confirmed" as const, token: row.value };
-  }),
+      return { status: "confirmed" as const, token: row.value };
+    }),
 
   // ---------------------------------------------------------------------------
   // Invite codes
@@ -117,27 +113,27 @@ export const authRouter = createTRPCRouter({
   // still happens inside the hook — success here does NOT reserve the code.
   validateInvite: publicProcedure
     .input(z.object({ code: z.string() }))
-    .mutation(async ({ ctx, input }) => {
+    .handler(async ({ context, input }) => {
       const code = normalizeInviteCode(input.code);
       if (!code) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Invite code is required." });
+        throw new ORPCError("BAD_REQUEST", { message: "Invite code is required." });
       }
 
-      const rows = await ctx.db
+      const rows = await context.db
         .select({ id: inviteCode.id })
         .from(inviteCode)
         .where(and(eq(inviteCode.code, code), inviteCodeAvailabilityClause(new Date())))
         .limit(1);
 
       if (rows.length === 0) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Invalid or expired invite code." });
+        throw new ORPCError("FORBIDDEN", { message: "Invalid or expired invite code." });
       }
 
       return { code };
     }),
 
-  listInvites: adminProcedure.query(async ({ ctx }) => {
-    const rows = await ctx.db
+  listInvites: adminProcedure.handler(async ({ context }) => {
+    const rows = await context.db
       .select({
         id: inviteCode.id,
         code: inviteCode.code,
@@ -168,7 +164,7 @@ export const authRouter = createTRPCRouter({
         code: z.string().max(50).nullable().default(null),
       }),
     )
-    .mutation(async ({ ctx, input }) => {
+    .handler(async ({ context, input }) => {
       let rows;
       try {
         rows = buildInviteRows({
@@ -177,26 +173,25 @@ export const authRouter = createTRPCRouter({
           expiresAt: input.expiresAt,
           note: input.note,
           code: input.code,
-          createdBy: ctx.session.user.id,
+          createdBy: context.session.user.id,
         });
       } catch (err) {
         // buildInviteRows throws on a malformed custom code — a caller
         // mistake, not a server fault.
-        throw new TRPCError({
-          code: "BAD_REQUEST",
+        throw new ORPCError("BAD_REQUEST", {
           message: err instanceof Error ? err.message : "Invalid invite code",
         });
       }
 
       try {
-        const created = await ctx.db.insert(inviteCode).values(rows).returning();
+        const created = await context.db.insert(inviteCode).values(rows).returning();
         return { codes: created };
       } catch (err) {
         // Drizzle wraps the D1 constraint failure; the "UNIQUE" detail sits
         // somewhere down the `cause` chain, not on the top-level message.
         for (let e: unknown = err; e instanceof Error; e = e.cause) {
           if (input.code != null && e.message.includes("UNIQUE")) {
-            throw new TRPCError({ code: "CONFLICT", message: "That invite code already exists." });
+            throw new ORPCError("CONFLICT", { message: "That invite code already exists." });
           }
         }
         throw err;
@@ -216,25 +211,25 @@ export const authRouter = createTRPCRouter({
         revoked: z.boolean().optional(),
       }),
     )
-    .mutation(async ({ ctx, input }) => {
+    .handler(async ({ context, input }) => {
       const patch: Partial<typeof inviteCode.$inferInsert> = {};
       if (input.maxUses !== undefined) patch.maxUses = input.maxUses;
       if (input.revoked !== undefined) patch.revokedAt = input.revoked ? new Date() : null;
 
       if (Object.keys(patch).length === 0) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Nothing to update" });
+        throw new ORPCError("BAD_REQUEST", { message: "Nothing to update" });
       }
 
-      const [updated] = await ctx.db
+      const [updated] = await context.db
         .update(inviteCode)
         .set(patch)
         .where(eq(inviteCode.id, input.id))
         .returning();
 
       if (!updated) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Code not found" });
+        throw new ORPCError("NOT_FOUND", { message: "Code not found" });
       }
 
       return { code: updated };
     }),
-});
+};

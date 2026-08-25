@@ -16,7 +16,7 @@ import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 
 import { authClient } from "@/auth/client";
-import { useTRPC } from "@/lib/trpc";
+import { useORPC } from "@/lib/orpc";
 
 const DEFAULT_NEXT_PATH = "/home";
 
@@ -128,8 +128,8 @@ const InviteCodeStep = ({
   onValidated: (code: string) => void;
   onVerifyingChange: (verifying: boolean) => void;
 }) => {
-  const trpc = useTRPC();
-  const validate = useMutation(trpc.auth.validateInvite.mutationOptions());
+  const orpc = useORPC();
+  const validate = useMutation(orpc.auth.validateInvite.mutationOptions());
 
   return (
     <Field className="items-center gap-3">

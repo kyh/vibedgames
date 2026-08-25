@@ -18,7 +18,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { SkeletonReveal } from "@/components/ui/skeleton-reveal";
 import { formatUsd } from "@/lib/credits-format";
 import { formatDate } from "@/lib/format";
-import { useTRPC } from "@/lib/trpc";
+import { useORPC } from "@/lib/orpc";
 
 type Role = "user" | "admin";
 
@@ -53,24 +53,24 @@ const UsersSkeleton = () => (
 );
 
 export const UserAdmin = () => {
-  const trpc = useTRPC();
+  const orpc = useORPC();
   const qc = useQueryClient();
 
-  const list = useQuery(trpc.admin.users.list.queryOptions());
-  const balances = useQuery(trpc.admin.credits.balances.queryOptions());
+  const list = useQuery(orpc.admin.users.list.queryOptions());
+  const balances = useQuery(orpc.admin.credits.balances.queryOptions());
   const create = useMutation(
-    trpc.admin.users.create.mutationOptions({
+    orpc.admin.users.create.mutationOptions({
       onSuccess: () => {
-        qc.invalidateQueries({ queryKey: trpc.admin.users.list.queryKey() });
+        qc.invalidateQueries({ queryKey: orpc.admin.users.list.queryKey() });
         setForm(initialForm);
         toast.success("User created");
       },
     }),
   );
   const grant = useMutation(
-    trpc.admin.credits.grant.mutationOptions({
+    orpc.admin.credits.grant.mutationOptions({
       onSuccess: ({ balanceMicro }) => {
-        qc.invalidateQueries({ queryKey: trpc.admin.credits.balances.queryKey() });
+        qc.invalidateQueries({ queryKey: orpc.admin.credits.balances.queryKey() });
         setGrantTarget(null);
         toast.success(`Credits updated — new balance ${formatUsd(balanceMicro)}`);
       },

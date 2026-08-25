@@ -1,53 +1,31 @@
-import { appRouter, createTRPCContext } from "@repo/api";
-import { MAX_TRPC_BODY_BYTES } from "@repo/api/generate/limits";
 import { createFileRoute } from "@tanstack/react-router";
-import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 
-import { getServerContext } from "@/auth/server";
+// Legacy endpoint for published CLI copies (<= 0.4.x) that still speak tRPC
+// here. The API now lives at /api/orpc; this stub exists only to tell those
+// installs to upgrade, in the one response shape their client can render.
+// Remove it once the hit logging below goes quiet.
 
-// Hard ceiling on tRPC request bodies, enforced before tRPC/Zod parse
-// the payload. The Worker memory ceiling is 128 MB and JSON.parse holds
-// the raw bytes, the decoded string, and the parsed object in memory at
-// once, so we have to reject pathologically large bodies up front
-// rather than relying on the per-field caps inside the procedure.
-const MAX_BODY_BYTES = MAX_TRPC_BODY_BYTES;
+const UPGRADE_MESSAGE = "Your vibedgames CLI is out of date — run `npm i -g vibedgames@latest`.";
 
-// JSON-RPC codes tRPC uses for these HTTP statuses. Inlined to avoid
-// importing from the `unstable-core-do-not-import` entry point.
-const TRPC_PAYLOAD_TOO_LARGE = -32013;
+// tRPC's JSON-RPC code for BAD_REQUEST. Inlined so this route needs no
+// @trpc/server dependency.
 const TRPC_BAD_REQUEST = -32600;
 
-// Codes that are ordinary control flow rather than incidents: an expired
-// session hitting `protectedProcedure`, a non-admin hitting
-// `adminProcedure`, a zod rejection, `auth.cliPoll` reporting "not
-// confirmed yet" to a CLI that polls it in a loop, and better-auth's
-// rate limiter (10 req/60s). Observability is enabled on this Worker, so
-// logging these is billable noise that buries the real errors.
-const EXPECTED_ERROR_CODES = new Set([
-  "UNAUTHORIZED",
-  "FORBIDDEN",
-  "NOT_FOUND",
-  "BAD_REQUEST",
-  "TOO_MANY_REQUESTS",
-]);
-
-function bodySizeError(
-  req: Request,
-  message: string,
-  httpStatus: number,
-  code: string,
-  rpcCode: number,
-): Response {
-  // Match tRPC's HTTP error shape so the client (httpBatchLink) can
-  // parse the JSON and surface the message instead of throwing
-  // "unable to transform response" on a plain-text body.
+function upgradeRequiredResponse(req: Request): Response {
+  // Match tRPC's HTTP error shape so the client (httpBatchLink) surfaces the
+  // message instead of throwing "unable to transform response". The CLI's
+  // links use the superjson transformer, which deserializes the `error`
+  // member expecting superjson's `{ json }` wrapper — omitting it reproduces
+  // exactly that transform error (verified against the published 0.4.1).
   const errorObj = {
     error: {
-      message,
-      code: rpcCode,
-      data: {
-        code,
-        httpStatus,
+      json: {
+        message: UPGRADE_MESSAGE,
+        code: TRPC_BAD_REQUEST,
+        data: {
+          code: "BAD_REQUEST",
+          httpStatus: 400,
+        },
       },
     },
   };
@@ -64,70 +42,15 @@ function bodySizeError(
     body = Array.from({ length: count }, () => errorObj);
   }
   return new Response(JSON.stringify(body), {
-    status: httpStatus,
+    status: 400,
     headers: { "content-type": "application/json" },
   });
 }
 
-function bodyTooLargeResponse(req: Request): Response {
-  return bodySizeError(
-    req,
-    `request body exceeds ${MAX_BODY_BYTES} bytes`,
-    413,
-    "PAYLOAD_TOO_LARGE",
-    TRPC_PAYLOAD_TOO_LARGE,
-  );
-}
-
-function lengthRequiredResponse(req: Request): Response {
-  return bodySizeError(
-    req,
-    "Content-Length header is required for requests with a body.",
-    411,
-    "LENGTH_REQUIRED",
-    TRPC_BAD_REQUEST,
-  );
-}
-
-const handler = async (req: Request): Promise<Response> => {
-  // Pre-parse body size guard. Requests without a body (GET/HEAD) are
-  // allowed straight through. For body-bearing methods we require a
-  // numeric Content-Length so chunked encoding or a missing header
-  // can't slip past the cap into tRPC's JSON.parse.
-  const method = req.method.toUpperCase();
-  const carriesBody = method !== "GET" && method !== "HEAD";
-  if (carriesBody) {
-    const declared = req.headers.get("content-length");
-    if (declared === null) {
-      return lengthRequiredResponse(req);
-    }
-    const length = Number(declared);
-    if (!Number.isFinite(length) || length < 0) {
-      return lengthRequiredResponse(req);
-    }
-    if (length > MAX_BODY_BYTES) {
-      return bodyTooLargeResponse(req);
-    }
-  }
-  const { db, auth, productionUrl, r2, media } = getServerContext();
-  return await fetchRequestHandler({
-    endpoint: "/api/trpc",
-    router: appRouter,
-    req,
-    createContext: () =>
-      createTRPCContext({
-        headers: req.headers,
-        db,
-        auth,
-        productionURL: productionUrl,
-        r2,
-        media,
-      }),
-    onError({ error, path }) {
-      if (EXPECTED_ERROR_CODES.has(error.code)) return;
-      console.error(`>>> tRPC Error on '${path}'`, error);
-    },
-  });
+const handler = (req: Request): Response => {
+  // Time this route's removal off real traffic.
+  console.log(`>>> legacy tRPC hit: ${new URL(req.url).pathname}`);
+  return upgradeRequiredResponse(req);
 };
 
 export const Route = createFileRoute("/api/trpc/$")({

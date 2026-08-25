@@ -1,9 +1,9 @@
 import type { Db } from "@repo/db/drizzle-client";
-import { TRPCError } from "@trpc/server";
+import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 
 import type { JsonValue } from "../json";
-import type { MediaProviderConfig } from "../trpc";
+import type { MediaProviderConfig } from "../orpc";
 import {
   formatUsd,
   getBalanceMicro,
@@ -17,7 +17,7 @@ import {
   isUnbilledTerminalStatus,
   parseBillableUnits,
 } from "../credits/queue-calls";
-import { createTRPCRouter, protectedProcedure } from "../trpc";
+import { protectedProcedure } from "../orpc";
 import { MAX_PARAMS_BYTES } from "./limits";
 import {
   fetchProviderResponse,
@@ -68,7 +68,7 @@ function targetBase(target: Target, media: MediaProviderConfig): string {
 }
 
 function badPath(reason: string): never {
-  throw new TRPCError({ code: "BAD_REQUEST", message: `path ${reason}.` });
+  throw new ORPCError("BAD_REQUEST", { message: `path ${reason}.` });
 }
 
 function rejectTraversal(path: string): void {
@@ -134,8 +134,7 @@ const forwardInput = z.object({
 
 function pickFalKey(media: MediaProviderConfig | undefined) {
   if (!media?.fal) {
-    throw new TRPCError({
-      code: "PRECONDITION_FAILED",
+    throw new ORPCError("PRECONDITION_FAILED", {
       message: "fal is not configured on the server (FAL_API_KEY missing).",
     });
   }
@@ -195,8 +194,7 @@ function platformFetchJson(apiKey: string, config: MediaProviderConfig) {
 async function requirePositiveBalance(db: Db, userId: string): Promise<void> {
   const balanceMicro = await getBalanceMicro(db, userId);
   if (balanceMicro > 0) return;
-  throw new TRPCError({
-    code: "FORBIDDEN",
+  throw new ORPCError("FORBIDDEN", {
     message:
       `insufficient_credits: your balance is ${formatUsd(balanceMicro)}. ` +
       "Generation is paused until an admin grants more credits " +
@@ -220,7 +218,7 @@ function readQueueStatus(body: JsonValue): string | null {
 
 // ---- Router ----------------------------------------------------------------
 
-export const generateRouter = createTRPCRouter({
+export const generateRouter = {
   /**
    * Single proxy hop to fal. The CLI builds the URL it wants, the
    * server attaches the FAL_KEY and the X-Fal-Store-IO directives,
@@ -229,9 +227,9 @@ export const generateRouter = createTRPCRouter({
    * client and in fal's docs, not in this layer. Per-user policy
    * (auth, quotas, allowlists, billing meters) hooks in here.
    */
-  forward: protectedProcedure.input(forwardInput).mutation(async ({ ctx, input }) => {
-    const { apiKey, config } = pickFalKey(ctx.media);
-    const userId = ctx.session.user.id;
+  forward: protectedProcedure.input(forwardInput).handler(async ({ context, input }) => {
+    const { apiKey, config } = pickFalKey(context.media);
+    const userId = context.session.user.id;
 
     // Credit gate + hold estimate happen before any fal spend. Everything
     // else about the hop is unchanged when the call isn't a queue submit.
@@ -244,8 +242,8 @@ export const generateRouter = createTRPCRouter({
         : { kind: "other" as const };
     let pricing: Awaited<ReturnType<typeof getEndpointPricing>> | null = null;
     if (queueCall.kind === "submit") {
-      if (ctx.session.user.role !== "admin") {
-        await requirePositiveBalance(ctx.db, userId);
+      if (context.session.user.role !== "admin") {
+        await requirePositiveBalance(context.db, userId);
       }
       pricing = await getEndpointPricing(queueCall.endpointId, platformFetchJson(apiKey, config));
     }
@@ -255,15 +253,13 @@ export const generateRouter = createTRPCRouter({
       try {
         serialized = JSON.stringify(input.body);
       } catch {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
+        throw new ORPCError("BAD_REQUEST", {
           message: "body must be JSON-serializable.",
         });
       }
       const bytes = new TextEncoder().encode(serialized).byteLength;
       if (bytes > MAX_PARAMS_BYTES) {
-        throw new TRPCError({
-          code: "PAYLOAD_TOO_LARGE",
+        throw new ORPCError("PAYLOAD_TOO_LARGE", {
           message: `body exceeds ${MAX_PARAMS_BYTES} bytes.`,
         });
       }
@@ -300,7 +296,7 @@ export const generateRouter = createTRPCRouter({
       const units = parseBillableUnits(res.headers.get("x-fal-billable-units"));
       if (queueCall.kind === "result" && units !== null) {
         try {
-          await settleGeneration(ctx.db, queueCall.requestId, units);
+          await settleGeneration(context.db, queueCall.requestId, units);
         } catch (err) {
           console.error(`credit settle failed for ${queueCall.requestId}`, err);
         }
@@ -325,7 +321,7 @@ export const generateRouter = createTRPCRouter({
       if (queueCall.kind === "submit" && pricing !== null) {
         const requestId = readRequestId(body);
         if (requestId !== null) {
-          await holdGeneration(ctx.db, {
+          await holdGeneration(context.db, {
             userId,
             requestId,
             endpointId: queueCall.endpointId,
@@ -338,13 +334,13 @@ export const generateRouter = createTRPCRouter({
         // fal reports actual usage on the result fetch; a missing header
         // settles at the hold so the books still close.
         await settleGeneration(
-          ctx.db,
+          context.db,
           queueCall.requestId,
           parseBillableUnits(res.headers.get("x-fal-billable-units")),
         );
       } else if (queueCall.kind === "status" && isUnbilledTerminalStatus(readQueueStatus(body))) {
         // fal doesn't bill failed/cancelled jobs — refund the hold.
-        await releaseGeneration(ctx.db, queueCall.requestId);
+        await releaseGeneration(context.db, queueCall.requestId);
       }
     } catch (err) {
       console.error(`credit accounting failed for ${fetchLabel}`, err);
@@ -352,4 +348,4 @@ export const generateRouter = createTRPCRouter({
 
     return body;
   }),
-});
+};
