@@ -4,7 +4,7 @@ import type { RouterUtils } from "@orpc/tanstack-query";
 import { appRouter } from "@repo/api";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
-import { BatchLinkPlugin, SimpleCsrfProtectionLinkPlugin } from "@orpc/client/plugins";
+import { BatchLinkPlugin } from "@orpc/client/plugins";
 import { createRouterClient } from "@orpc/server";
 import { createIsomorphicFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
@@ -22,9 +22,11 @@ export const makeORPCClient = createIsomorphicFn()
   })
   .client((): RouterClient<AppRouter> => {
     const link = new RPCLink({
-      url: `${window.location.origin}/api/orpc`,
+      // No `origin`: this branch only runs in the browser, where the app and
+      // the RPC route are served from the same origin, so the relative URL
+      // resolves against the page.
+      url: "/api/orpc",
       plugins: [
-        new SimpleCsrfProtectionLinkPlugin(),
         // Pages mount several queries at once (/admin alone opens three) and
         // every unbatched call costs a fresh Worker invocation: a new Drizzle
         // client, a new better-auth instance, and its own session read. One

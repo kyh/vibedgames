@@ -1,47 +1,29 @@
 import type { ORPCContext } from "@repo/api/orpc";
 import { appRouter } from "@repo/api";
 import { MAX_RPC_BODY_BYTES } from "@repo/api/generate/limits";
-import { onError, ORPCError } from "@orpc/server";
-import { BodyLimitPlugin, RPCHandler } from "@orpc/server/fetch";
-import { BatchHandlerPlugin, SimpleCsrfProtectionHandlerPlugin } from "@orpc/server/plugins";
+import { COMMON_ERROR_STATUS_MAP, onError, ORPCError } from "@orpc/server";
+import { RPCHandler } from "@orpc/server/fetch";
+import { BatchHandlerPlugin, RequestLimitHandlerPlugin } from "@orpc/server/plugins";
 
-// No CORS headers: every client reaches this route same-origin (the web app is
-// served from it) or from a non-browser runtime that doesn't enforce CORS (the
-// CLI). SimpleCsrfProtection requires an `x-csrf-token` header, which the
-// paired link plugin sends and an HTML form cannot set — and a cross-origin
-// fetch that tries to set it needs a preflight this route never answers. That
-// keeps a cross-origin multipart form POST from riding the session cookie into
-// a mutation. Adding permissive CORS headers here would let the preflight
-// succeed and undo it.
+// No CORS headers, and none belong here: every client reaches this route
+// same-origin (the web app is served from it) or from a non-browser runtime
+// that doesn't enforce CORS (the CLI). Cross-site protection is the session
+// cookie's SameSite=Lax (see packages/api/src/auth/auth.ts) — a forged
+// cross-site POST executes with no session and does nothing. Credentialed CORS
+// headers would hand a cross-origin page authenticated access and undo that.
+// GET, the one method a cookie-bearing navigation can reach, is refused by the
+// handler's default `allowMethods`.
 
-// Codes that are ordinary control flow rather than incidents: an expired
-// session hitting `protectedProcedure`, a non-admin hitting `adminProcedure`,
-// a zod rejection, `auth.cliPoll` reporting "not confirmed yet" to a CLI that
-// polls it in a loop, an admin re-using an existing invite code, better-auth's
-// rate limiter (10 req/60s), and requests the transport plugins turn away
-// (header-less CSRF probes, GETs on POST-only procedures, oversized bodies).
-// Observability is enabled on this Worker, so logging these is billable noise
-// that buries the real errors.
-//
-// PRECONDITION_FAILED and BAD_GATEWAY stay out deliberately: the first means
-// FAL_API_KEY is missing from the deploy, the second that fal answered with
-// something unusable. Both are the operator's problem, and the log line is how
-// they find out.
-const EXPECTED_ERROR_CODES = new Set([
-  "UNAUTHORIZED",
-  "FORBIDDEN",
-  "NOT_FOUND",
-  "BAD_REQUEST",
-  "CONFLICT",
-  "TOO_MANY_REQUESTS",
-  "CSRF_TOKEN_MISMATCH",
-  "METHOD_NOT_SUPPORTED",
-  "PAYLOAD_TOO_LARGE",
-]);
+// An unknown code has no entry and falls back to 500, so a code this app adds
+// later logs by default rather than disappearing.
+const ERROR_STATUS = new Map<string, number>(Object.entries(COMMON_ERROR_STATUS_MAP));
+
+// `pickFalKey` answers 412 because that is the honest code for the caller, but
+// a missing FAL_API_KEY is the deploy's fault, not the request's.
+const FAULTS_BELOW_500 = new Set(["PRECONDITION_FAILED"]);
 
 const handler = new RPCHandler(appRouter, {
   plugins: [
-    new SimpleCsrfProtectionHandlerPlugin(),
     // Paired with the link's `BatchLinkPlugin`. It re-dispatches each item
     // through this same `handle()` call, so a batch costs one context build
     // and one session read for the whole page, not one per query.
@@ -50,11 +32,18 @@ const handler = new RPCHandler(appRouter, {
     // the decoded string, and the parsed object in memory at once, so reject
     // pathologically large bodies up front rather than relying on the
     // per-field caps inside the procedures.
-    new BodyLimitPlugin({ maxBodySize: MAX_RPC_BODY_BYTES }),
+    new RequestLimitHandlerPlugin({ maxBodySize: MAX_RPC_BODY_BYTES }),
   ],
-  interceptors: [
+  clientInterceptors: [
     onError((error) => {
-      if (error instanceof ORPCError && EXPECTED_ERROR_CODES.has(error.code)) return;
+      if (error instanceof ORPCError) {
+        // Observability is billable on this Worker. A procedure answering
+        // deliberately — an expired session, a zod rejection, `auth.cliPoll`
+        // telling a polling CLI "not confirmed yet" — would bury the real
+        // errors, so only a fault gets a line.
+        const status = ERROR_STATUS.get(error.code) ?? 500;
+        if (status < 500 && !FAULTS_BELOW_500.has(error.code)) return;
+      }
       console.error(">>> oRPC Error", error);
     }),
   ],

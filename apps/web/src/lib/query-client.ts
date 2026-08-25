@@ -1,28 +1,17 @@
-import { StandardRPCJsonSerializer } from "@orpc/client/standard";
-import { hashKey, QueryClient } from "@tanstack/react-query";
+import { RPCSerializer } from "@orpc/client";
+import { QueryClient } from "@tanstack/react-query";
 
 import { toast } from "@repo/ui/components/sonner";
 
 // oRPC's own serializer, so dehydrated data round-trips every type the RPC
-// protocol supports (Date, Map, Set, BigInt, URL, RegExp).
-const serializer = new StandardRPCJsonSerializer();
+// protocol supports (Date, Map, Set, BigInt, URL, RegExp) — plain JSON would
+// hand the client a string where the server had a Date.
+const serializer = new RPCSerializer();
 
 export function createQueryClient() {
   return new QueryClient({
     defaultOptions: {
       queries: {
-        // Inputs can contain non-JSON values, so keys have to hash through the
-        // same serializer the data does. Two canonicalizations are needed, not
-        // one: `hashKey` sorts object keys but leaves array order alone, and the
-        // serializer emits one meta entry per rich value in traversal order. Sort
-        // the meta too, or `{ from: Date, to: Date }` and `{ to: Date, from: Date }`
-        // hash differently and each gets its own cache entry. The default sort is
-        // code-unit order — `localeCompare` would let a server and a browser on
-        // different locales disagree, and hydration would miss the server's key.
-        queryKeyHashFn: (queryKey) => {
-          const [json, meta] = serializer.serialize(queryKey);
-          return hashKey([json, meta.map(hashKey).toSorted()]);
-        },
         staleTime: 30 * 1000,
       },
       mutations: {
@@ -42,15 +31,14 @@ export function createQueryClient() {
         },
       },
       dehydrate: {
-        serializeData: (data) => {
-          const [json, meta] = serializer.serialize(data);
-          return { json, meta };
-        },
+        // FormData cannot ride the hydration payload into the browser, so keep
+        // blobs inline in the JSON.
+        serializeData: (data) => serializer.serialize(data, { useFormDataForBlobFields: false }),
         shouldDehydrateQuery: (query) =>
           query.state.status === "pending" || query.state.status === "success",
       },
       hydrate: {
-        deserializeData: (data) => serializer.deserialize(data.json, data.meta),
+        deserializeData: (data) => serializer.deserialize(data),
       },
     },
   });

@@ -51,10 +51,10 @@ Headless auth without a browser:
 # CLI — overrides the saved login without clobbering ~/.config/vg/auth.json
 VG_API_URL=http://localhost:5173 VG_TOKEN=dev-local-session-token-0000000000 vg whoami
 
-# raw oRPC — POST, and the x-csrf-token header is required or the route answers 403
+# raw oRPC — POST only; GET is not a supported method and 404s
 curl -s -X POST 'http://localhost:5173/api/orpc/deploy/list' \
   -H 'Authorization: Bearer dev-local-session-token-0000000000' \
-  -H 'content-type: application/json' -H 'x-csrf-token: orpc' \
+  -H 'content-type: application/json' \
   -d '{"json":{}}'
 
 # a real session cookie, for handing to a browser context

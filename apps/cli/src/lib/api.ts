@@ -2,7 +2,6 @@ import type { AppRouter, RouterInputs } from "@repo/api";
 import type { RouterClient } from "@orpc/server";
 import { createORPCClient, ORPCError } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
-import { SimpleCsrfProtectionLinkPlugin } from "@orpc/client/plugins";
 
 import { getBaseUrl, getToken } from "./config.js";
 import type { JsonValue } from "./types.js";
@@ -10,8 +9,8 @@ import type { JsonValue } from "./types.js";
 const makeClient = (baseUrl: string, token?: string): RouterClient<AppRouter> =>
   createORPCClient(
     new RPCLink({
-      url: `${baseUrl}/api/orpc`,
-      plugins: [new SimpleCsrfProtectionLinkPlugin()],
+      origin: baseUrl,
+      url: "/api/orpc",
       headers: () => (token ? { Authorization: `Bearer ${token}` } : {}),
     }),
   );
