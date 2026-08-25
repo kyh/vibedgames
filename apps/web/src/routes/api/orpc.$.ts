@@ -1,21 +1,10 @@
-import { createORPCContext } from "@repo/api";
 import { createFileRoute } from "@tanstack/react-router";
 
-import { getServerContext } from "@/auth/server";
+import { createRpcContext } from "@/auth/server";
 import { handleRpcRequest } from "@/lib/orpc-handler";
 
-const handler = async (req: Request): Promise<Response> => {
-  const { db, auth, productionUrl, r2, media } = getServerContext();
-  const context = await createORPCContext({
-    headers: req.headers,
-    db,
-    auth,
-    productionURL: productionUrl,
-    r2,
-    media,
-  });
-  return handleRpcRequest(req, context);
-};
+const handler = async (req: Request): Promise<Response> =>
+  handleRpcRequest(req, await createRpcContext(req.headers));
 
 export const Route = createFileRoute("/api/orpc/$")({
   server: {

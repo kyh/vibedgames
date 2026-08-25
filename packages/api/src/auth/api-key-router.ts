@@ -6,15 +6,18 @@ import { sessionOnlyProcedure } from "../orpc";
 
 const DAY_SECONDS = 24 * 60 * 60;
 
-// Map better-auth APIError statuses (HTTP-status name strings) to oRPC error
-// codes. Anything not listed falls back to INTERNAL_SERVER_ERROR.
-const API_ERROR_TO_ORPC = new Map<string, string>([
-  ["NOT_FOUND", "NOT_FOUND"],
-  ["UNAUTHORIZED", "UNAUTHORIZED"],
-  ["FORBIDDEN", "FORBIDDEN"],
-  ["BAD_REQUEST", "BAD_REQUEST"],
-  ["TOO_MANY_REQUESTS", "TOO_MANY_REQUESTS"],
-]);
+// better-auth APIError statuses (HTTP-status name strings) that name an oRPC
+// error code too, so they pass straight through. `as const` keeps the literal
+// union — `ORPCError` takes any string, so a typo here would otherwise compile
+// and quietly become an unknown code served as a 500. Anything not listed
+// falls back to INTERNAL_SERVER_ERROR.
+const PASSTHROUGH_API_ERROR_STATUSES = [
+  "NOT_FOUND",
+  "UNAUTHORIZED",
+  "FORBIDDEN",
+  "BAD_REQUEST",
+  "TOO_MANY_REQUESTS",
+] as const;
 
 // Thin oRPC wrappers over the @better-auth/api-key plugin's server API. They
 // use `sessionOnlyProcedure`, so managing keys requires a real session (web
@@ -84,11 +87,11 @@ export const apiKeyRouter = {
         // everything — so callers see the real failure. Unknown statuses fall
         // back to INTERNAL_SERVER_ERROR.
         if (err instanceof APIError) {
+          const status = String(err.status);
           throw new ORPCError(
-            API_ERROR_TO_ORPC.get(String(err.status)) ?? "INTERNAL_SERVER_ERROR",
-            {
-              message: err.message || "Failed to revoke key",
-            },
+            PASSTHROUGH_API_ERROR_STATUSES.find((code) => code === status) ??
+              "INTERNAL_SERVER_ERROR",
+            { message: err.message || "Failed to revoke key" },
           );
         }
         throw err;

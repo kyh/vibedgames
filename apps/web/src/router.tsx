@@ -12,7 +12,7 @@ export function getRouter() {
 
   const router = createRouter({
     routeTree,
-    context: { queryClient, orpc },
+    context: { queryClient },
     defaultPreload: "intent",
     Wrap: (props) => <ORPCProvider orpc={orpc} {...props} />,
   });

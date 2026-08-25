@@ -1,5 +1,6 @@
 import type { MediaProviderConfig, R2Config } from "@repo/api/orpc";
 import { createAuth as initAuth } from "@repo/api/auth/auth";
+import { createORPCContext } from "@repo/api/orpc";
 import { createDb } from "@repo/db/drizzle-client";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 
@@ -69,6 +70,25 @@ export function getServerContext() {
   };
 
   return { db, auth, baseUrl, productionUrl, r2, media };
+}
+
+/**
+ * The one place the Worker bindings are mapped onto the oRPC context.
+ *
+ * Both transports go through it — the `/api/orpc/$` route and the in-process
+ * SSR client in `lib/orpc.tsx` — so a binding added here can't reach one and
+ * silently miss the other.
+ */
+export function createRpcContext(headers: Headers) {
+  const { db, auth: betterAuth, productionUrl, r2, media } = getServerContext();
+  return createORPCContext({
+    headers,
+    db,
+    auth: betterAuth,
+    productionURL: productionUrl,
+    r2,
+    media,
+  });
 }
 
 /**

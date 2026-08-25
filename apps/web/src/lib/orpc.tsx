@@ -1,38 +1,37 @@
 import type { AppRouter } from "@repo/api";
 import type { RouterClient } from "@orpc/server";
 import type { RouterUtils } from "@orpc/tanstack-query";
-import { appRouter, createORPCContext } from "@repo/api";
+import { appRouter } from "@repo/api";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
-import { SimpleCsrfProtectionLinkPlugin } from "@orpc/client/plugins";
+import { BatchLinkPlugin, SimpleCsrfProtectionLinkPlugin } from "@orpc/client/plugins";
 import { createRouterClient } from "@orpc/server";
 import { createIsomorphicFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { createContext, use } from "react";
 
-import { getServerContext } from "@/auth/server";
+import { createRpcContext } from "@/auth/server";
 
 export const makeORPCClient = createIsomorphicFn()
   .server((): RouterClient<AppRouter> => {
     return createRouterClient(appRouter, {
       // Build server context per oRPC call (not at client creation)
       // because Cloudflare bindings are only available inside a request.
-      context: () => {
-        const { db, auth, productionUrl, r2 } = getServerContext();
-        return createORPCContext({
-          headers: new Headers(getRequestHeaders()),
-          db,
-          auth,
-          productionURL: productionUrl,
-          r2,
-        });
-      },
+      context: () => createRpcContext(new Headers(getRequestHeaders())),
     });
   })
   .client((): RouterClient<AppRouter> => {
     const link = new RPCLink({
       url: `${window.location.origin}/api/orpc`,
-      plugins: [new SimpleCsrfProtectionLinkPlugin()],
+      plugins: [
+        new SimpleCsrfProtectionLinkPlugin(),
+        // Pages mount several queries at once (/admin alone opens three) and
+        // every unbatched call costs a fresh Worker invocation: a new Drizzle
+        // client, a new better-auth instance, and its own session read. One
+        // batched POST shares all three. Requires `BatchHandlerPlugin` on the
+        // handler; blobs and event iterators opt themselves out.
+        new BatchLinkPlugin({ groups: [{ condition: () => true, context: {} }] }),
+      ],
     });
     return createORPCClient(link);
   });

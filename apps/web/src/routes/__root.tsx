@@ -5,14 +5,15 @@ import { TooltipProvider } from "@repo/ui/components/tooltip";
 import { cn } from "@repo/ui/lib/utils";
 import { createRootRouteWithContext, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
 
-import type { ORPCUtils } from "@/lib/orpc";
 import { siteConfig } from "@/lib/site-config";
 
 import appCss from "../styles/globals.css?url";
 
+// No `orpc` here: the utils reach components through `ORPCProvider` (see
+// lib/orpc.tsx). Carrying them in both channels means the next field lands in
+// one and not the other.
 interface RouterContext {
   queryClient: QueryClient;
-  orpc: ORPCUtils;
 }
 
 export const Route = createRootRouteWithContext<RouterContext>()({

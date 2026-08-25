@@ -91,4 +91,27 @@ describe("rpc endpoint", () => {
     const response = await post({});
     assert.strictEqual(response.headers.get("access-control-allow-origin"), null);
   });
+
+  // The browser link batches, so dropping `BatchHandlerPlugin` would 404 the
+  // `__batch__` path and break every multi-query page at once — nothing else in
+  // the build would notice. Buffered mode only so the body is plain JSON; the
+  // handler picks the mode off the header either way.
+  test("fans a batch out to its items, checking CSRF once for the batch", async () => {
+    const item = { url: "http://localhost:3000/api/orpc/auth/me", body: { json: {} } };
+    const request = new Request("http://localhost:3000/api/orpc/__batch__", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-csrf-token": "orpc",
+        "x-orpc-batch": "buffered",
+      },
+      body: JSON.stringify([item, item]),
+    });
+
+    const response = await handleRpcRequest(request, contextFor(request));
+    // 207, and both items answered 401 rather than 403: the CSRF check passed
+    // on the envelope and each item ran on to the protected procedure.
+    assert.strictEqual(response.status, 207);
+    assert.strictEqual((await response.text()).match(/UNAUTHORIZED/g)?.length, 2);
+  });
 });

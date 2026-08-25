@@ -7,6 +7,15 @@ import { SimpleCsrfProtectionLinkPlugin } from "@orpc/client/plugins";
 import { getBaseUrl, getToken } from "./config.js";
 import type { JsonValue } from "./types.js";
 
+const makeClient = (baseUrl: string, token?: string): RouterClient<AppRouter> =>
+  createORPCClient(
+    new RPCLink({
+      url: `${baseUrl}/api/orpc`,
+      plugins: [new SimpleCsrfProtectionLinkPlugin()],
+      headers: () => (token ? { Authorization: `Bearer ${token}` } : {}),
+    }),
+  );
+
 /** Authenticated client — requires a saved session token. */
 export function createClient(): RouterClient<AppRouter> {
   const token = getToken();
@@ -15,13 +24,7 @@ export function createClient(): RouterClient<AppRouter> {
     throw new Error("Not logged in. Run `vg login` to authenticate.");
   }
 
-  const link = new RPCLink({
-    url: `${getBaseUrl()}/api/orpc`,
-    plugins: [new SimpleCsrfProtectionLinkPlugin()],
-    headers: () => ({ Authorization: `Bearer ${token}` }),
-  });
-  const client: RouterClient<AppRouter> = createORPCClient(link);
-  return client;
+  return makeClient(getBaseUrl(), token);
 }
 
 /** The oRPC error code on a failed call, or null for non-oRPC failures. */
@@ -32,10 +35,10 @@ export function authErrorCode(cause: unknown): string | null {
 type ForwardInput = RouterInputs["generate"]["forward"];
 
 /**
- * The single boundary where fal payloads enter the CLI. `generate.forward`
- * is deliberately untyped per endpoint, so this is where its output gets
- * its JSON contract; everything downstream narrows with the guards in
- * `types.ts` instead of re-deriving it.
+ * The single boundary where fal payloads enter the CLI. `generate.forward` is
+ * deliberately untyped per endpoint — it resolves to bare `JsonValue` — so
+ * everything downstream narrows with the guards in `types.ts` rather than
+ * asserting a shape at the call site.
  */
 export async function forwardJson(
   client: RouterClient<AppRouter>,
@@ -46,10 +49,5 @@ export async function forwardJson(
 
 /** Unauthenticated client — for login flow. */
 export function createPublicClient(baseUrl: string): RouterClient<AppRouter> {
-  const link = new RPCLink({
-    url: `${baseUrl}/api/orpc`,
-    plugins: [new SimpleCsrfProtectionLinkPlugin()],
-  });
-  const client: RouterClient<AppRouter> = createORPCClient(link);
-  return client;
+  return makeClient(baseUrl);
 }

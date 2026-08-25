@@ -112,8 +112,8 @@ export const RegisterForm = ({
 /**
  * A full code auto-verifies (covers both typing and the `?invite=` prefill);
  * wrong codes shake + clear inside `OTPInput`, and the message comes from the
- * query client's default mutation `onError` (router.tsx) — toasting here too
- * would double it. Resolving `verify` to the server's canonical code makes
+ * query client's default mutation `onError` (lib/query-client.ts) — toasting
+ * here too would double it. Resolving `verify` to the server's canonical code makes
  * `onSuccess` receive it directly.
  *
  * `verifying` brackets the round trip only — it clears the moment a verdict
