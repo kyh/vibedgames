@@ -1259,6 +1259,8 @@ export class GameScene extends Phaser.Scene {
       controls.replaceChildren(...(card ? [card] : []));
     }
     if (go) go.textContent = touch ? "tap to start" : "press any key to start";
+    // Reveals the overlay on the first write — see #start in index.html.
+    this.startEl?.classList.add("ready");
   }
 
   private beginPlay(): void {

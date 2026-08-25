@@ -139,6 +139,14 @@
         -webkit-backdrop-filter: blur(2.5px) saturate(1.08);
         z-index: 10;
         transition: opacity 0.28s ease;
+        /* The keycap card below the wordmark is device-dependent, so the scene
+           writes it (buildStartScreen) long after this markup paints. Painting
+           the half-built column first made the centred title jump ~60px the
+           moment the card landed — hold the whole overlay until it is whole. */
+        opacity: 0;
+      }
+      #start.ready {
+        opacity: 1;
       }
       #start.hide {
         opacity: 0;
@@ -184,9 +192,15 @@
       #start h1 img {
         display: block;
         width: clamp(320px, 60vw, 700px);
+        height: auto;
         max-width: 88vw;
         filter: drop-shadow(0 0 30px rgba(255, 130, 50, 0.35));
-        animation: title-pop 0.6s cubic-bezier(0.2, 1.5, 0.35, 1) backwards;
+        /* Held at the `from` frame while the overlay is still hidden, so the
+           pop lands with the reveal instead of playing to no one. */
+        animation: title-pop 0.6s cubic-bezier(0.2, 1.5, 0.35, 1) backwards paused;
+      }
+      #start.ready h1 img {
+        animation-play-state: running;
       }
       @keyframes title-pop {
         from {
@@ -267,7 +281,7 @@
         <span style="left: 95%; animation-duration: 4.8s; animation-delay: 2.4s"></span>
       </div>
       <h1>
-        <img src="/title.webp" alt="Bomberman" />
+        <img src="/title.webp" width="1052" height="408" alt="Bomberman" />
       </h1>
       <div id="start-controls"></div>
       <div id="start-go"></div>

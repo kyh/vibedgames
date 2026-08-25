@@ -340,6 +340,14 @@
           ),
           radial-gradient(ellipse at 50% 50%, rgba(2, 4, 14, 0) 34%, rgba(2, 4, 14, 0.6) 100%);
         transition: opacity 0.28s ease;
+        /* The keycap card below the wordmark is device-dependent, so the scene
+           writes it (writeStartCopy) long after this markup paints. Painting
+           the half-built column first made the centred title jump ~80px the
+           moment the card landed — hold the whole overlay until it is whole. */
+        opacity: 0;
+      }
+      #start.ready {
+        opacity: 1;
       }
       #start.hide {
         opacity: 0;
@@ -351,6 +359,7 @@
       #start h1 img {
         display: block;
         width: clamp(300px, 58vw, 700px);
+        height: auto;
         max-width: 88vw;
         filter: drop-shadow(0 0 26px rgba(90, 160, 255, 0.5));
         animation: title-flicker 4.5s ease-in-out infinite;
@@ -472,7 +481,7 @@
       <div id="combobar"></div>
     </div>
     <div id="start">
-      <h1><img src="/title.webp" alt="STARFALL" /></h1>
+      <h1><img src="/title.webp" width="965" height="158" alt="STARFALL" /></h1>
       <div id="start-controls"></div>
       <div id="start-go"></div>
     </div>

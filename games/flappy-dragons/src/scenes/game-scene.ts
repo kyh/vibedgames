@@ -292,6 +292,8 @@ export class GameScene extends Phaser.Scene {
       if (!this.started) renderControls();
     });
     if (go) go.textContent = TOUCH ? "tap to start" : "press any key to start";
+    // Reveals the overlay now that the card is complete — see #start in index.html.
+    this.startEl?.classList.add("ready");
     this.input.keyboard?.once("keyup", () => this.beginPlay());
     this.startEl?.addEventListener("pointerup", () => this.beginPlay(), { once: true });
   }

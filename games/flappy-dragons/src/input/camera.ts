@@ -184,10 +184,10 @@ class PoseCamera {
     this.state = state;
     // The button exists only to retry after a startup failure; normal play is
     // clickless (the baseline locks itself at game-start).
-    this.ui.button.style.display = state === "idle" ? "" : "none";
+    this.ui.button.classList.toggle("fd-cam__btn--off", state !== "idle");
     // Recalibrate only makes sense once tracking is live.
     const tracking = state === "detecting" || state === "jumping";
-    this.ui.recal.style.display = tracking ? "" : "none";
+    this.ui.recal.classList.toggle("fd-cam__btn--off", !tracking);
   }
 
   /** Freeze the baseline for a run (true) / resume rolling between runs (false). */
@@ -637,6 +637,9 @@ function injectStyles(): void {
     }
     .fd-cam__btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.26); }
     .fd-cam__btn:disabled { opacity: 0.5; cursor: default; }
+    /* Hidden, not removed: the state machine swaps which button is showing and
+       display:none slid the status text sideways under the player. */
+    .fd-cam__btn--off { visibility: hidden; }
     .fd-cam__status {
       min-width: 0; letter-spacing: 0.5px;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -679,7 +682,7 @@ function buildPanel(parent: HTMLElement, collapsed: boolean): Panel {
   recal.className = "fd-cam__btn";
   recal.textContent = "Recalibrate";
   recal.title = "Re-capture your resting position";
-  recal.style.display = "none";
+  recal.classList.add("fd-cam__btn--off");
 
   const status = document.createElement("span");
   status.className = "fd-cam__status";

@@ -1503,6 +1503,8 @@ export class GameScene extends Phaser.Scene {
       if (!this.started) renderControls();
     });
     if (go) go.textContent = TOUCH_UI ? "tap to start" : "press any key to start";
+    // Reveals the overlay now that the column is complete — see #start in index.html.
+    this.startEl?.classList.add("ready");
     this.input.keyboard?.once("keyup", () => this.beginPlay());
     // The overlay covers the canvas, so Phaser's pointer input never sees the
     // tap — listen on the overlay element itself.
