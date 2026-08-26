@@ -1,14 +1,14 @@
 # @repo/web
 
 Main web app for vibedgames. Game hub, authentication, dashboard — and the host
-Worker for the tRPC API.
+Worker for the oRPC API.
 
 ## Stack
 
 - [TanStack Start](https://tanstack.com/start) + React 19
 - [Cloudflare Workers](https://workers.cloudflare.com) via `@cloudflare/vite-plugin`
 - [better-auth](https://better-auth.com) for authentication
-- [tRPC](https://trpc.io) for API layer ([`@repo/api`](../../packages/api) runs inside this Worker)
+- [oRPC](https://orpc.unnoq.com) for API layer ([`@repo/api`](../../packages/api) runs inside this Worker)
 - [Tailwind CSS 4](https://tailwindcss.com) + [`@repo/ui`](../../packages/ui)
 
 ## Surfaces
@@ -20,7 +20,7 @@ Worker for the tRPC API.
 | `/home`, `/settings`                       | signed-in dashboard: your games, account, credits                |
 | `/admin`                                   | admin-only: users, invites                                       |
 | `/auth/*`                                  | login, register, password reset, and `cli` (device-code confirm) |
-| `/api/trpc/*`, `/api/auth/*`               | tRPC + better-auth handlers                                      |
+| `/api/orpc/*`, `/api/auth/*`               | oRPC + better-auth handlers                                      |
 | `/api/r2-upload`, `/api/r2-download`       | local-dev R2 proxy (HMAC-signed, `localhost` Host only)          |
 | `/.well-known/agent-skills/*`              | the vibedgames skills, served for agents to fetch                |
 | `/llms.txt`, `/robots.txt`, `/sitemap.xml` | machine-readable site descriptions                               |

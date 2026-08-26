@@ -1,6 +1,6 @@
 {
   "name": "vibedgames",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "private": false,
   "bin": {
     "vg": "./dist/index.js"
@@ -17,20 +17,19 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@trpc/client": "catalog:",
+    "@orpc/client": "catalog:",
     "citty": "^0.2.2",
     "consola": "^3.4.2",
     "cross-spawn": "^7.0.6",
     "ignore": "^7.0.6",
-    "superjson": "catalog:",
     "tar": "^7.5.22",
     "tiged": "^2.12.8"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",
     "@kyh/tsconfig": "catalog:",
+    "@orpc/server": "catalog:",
     "@repo/api": "workspace:^",
-    "@trpc/server": "catalog:",
     "@types/cross-spawn": "^6.0.6",
     "@types/node": "catalog:",
     "typescript": "catalog:"

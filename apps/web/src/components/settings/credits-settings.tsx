@@ -5,7 +5,7 @@ import { Skeleton } from "@repo/ui/components/skeleton";
 import { SkeletonReveal } from "@/components/ui/skeleton-reveal";
 import { formatUsd, kindLabel } from "@/lib/credits-format";
 import { formatDate } from "@/lib/format";
-import { useTRPC } from "@/lib/trpc";
+import { useORPC } from "@/lib/orpc";
 
 const CreditsSkeleton = () => (
   <div className="space-y-8">
@@ -32,8 +32,8 @@ const CreditsSkeleton = () => (
 );
 
 export const CreditsSettings = () => {
-  const trpc = useTRPC();
-  const credits = useQuery(trpc.credits.me.queryOptions());
+  const orpc = useORPC();
+  const credits = useQuery(orpc.credits.me.queryOptions());
 
   return (
     <section

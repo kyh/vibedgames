@@ -3,7 +3,7 @@
  * Mint invite codes directly in the D1 database.
  *
  * Builds the rows with the shared `buildInviteRows` helper (the same one the
- * admin `createInvites` tRPC mutation uses, so they can't drift) and inserts
+ * admin `createInvites` mutation uses, so they can't drift) and inserts
  * them into the `invite_code` table via `wrangler d1 execute` — runnable from
  * the shell without an admin session, handy for seeding codes locally or in
  * production. Run it with `tsx`:

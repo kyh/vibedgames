@@ -8,7 +8,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckIcon, CopyIcon, PencilIcon } from "lucide-react";
 
 import { SkeletonReveal } from "@/components/ui/skeleton-reveal";
-import { useTRPC } from "@/lib/trpc";
+import { useORPC } from "@/lib/orpc";
 
 const buildInviteLink = (code: string) => {
   if (typeof window === "undefined") return `/auth/register?invite=${code}`;
@@ -41,22 +41,22 @@ const codeStatus = (row: {
 };
 
 export const InviteAdmin = () => {
-  const trpc = useTRPC();
+  const orpc = useORPC();
   const qc = useQueryClient();
 
-  const list = useQuery(trpc.auth.listInvites.queryOptions());
+  const list = useQuery(orpc.auth.listInvites.queryOptions());
   const create = useMutation(
-    trpc.auth.createInvites.mutationOptions({
+    orpc.auth.createInvites.mutationOptions({
       onSuccess: () => {
-        qc.invalidateQueries({ queryKey: trpc.auth.listInvites.queryKey() });
+        qc.invalidateQueries({ queryKey: orpc.auth.listInvites.queryKey() });
         toast.success("Invite codes created");
       },
     }),
   );
   const update = useMutation(
-    trpc.auth.updateInvite.mutationOptions({
+    orpc.auth.updateInvite.mutationOptions({
       onSuccess: (_data, variables) => {
-        qc.invalidateQueries({ queryKey: trpc.auth.listInvites.queryKey() });
+        qc.invalidateQueries({ queryKey: orpc.auth.listInvites.queryKey() });
         toast.success(
           variables.revoked === true
             ? "Code revoked"

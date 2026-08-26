@@ -71,7 +71,7 @@ export const forkCommand = defineCommand({
     if (!isJsonOutput(args) && !args.field) consola.start(`Forking ${source}`);
     let src;
     try {
-      src = await client.deploy.getSource.query({ slug: source });
+      src = await client.deploy.getSource({ slug: source });
     } catch (err) {
       consola.error(err instanceof Error ? err.message : String(err));
       process.exit(1);

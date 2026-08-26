@@ -1,80 +1,52 @@
-import type { AppRouter } from "@repo/api";
-import type { TRPCClient } from "@trpc/client";
-import {
-  createTRPCClient,
-  httpBatchLink,
-  httpLink,
-  splitLink,
-  TRPCClientError,
-} from "@trpc/client";
-import superjson from "superjson";
+import type { AppRouter, RouterInputs } from "@repo/api";
+import type { RouterClient } from "@orpc/server";
+import { createORPCClient, ORPCError } from "@orpc/client";
+import { RPCLink } from "@orpc/client/fetch";
 
 import { getBaseUrl, getToken } from "./config.js";
-import { isJsonString, type JsonValue } from "./types.js";
+import type { JsonValue } from "./types.js";
+
+const makeClient = (baseUrl: string, token?: string): RouterClient<AppRouter> =>
+  createORPCClient(
+    new RPCLink({
+      origin: baseUrl,
+      url: "/api/orpc",
+      headers: () => (token ? { Authorization: `Bearer ${token}` } : {}),
+    }),
+  );
 
 /** Authenticated client — requires a saved session token. */
-export function createClient(): TRPCClient<AppRouter> {
+export function createClient(): RouterClient<AppRouter> {
   const token = getToken();
 
   if (!token) {
     throw new Error("Not logged in. Run `vg login` to authenticate.");
   }
 
-  const url = `${getBaseUrl()}/api/trpc`;
-  const headers = () => ({ Authorization: `Bearer ${token}` });
-
-  return createTRPCClient<AppRouter>({
-    links: [
-      // Media input bytes use presigned uploads, but mutations can still
-      // carry model params. Keep writes off httpBatchLink so one batch
-      // body cannot grow with concurrent calls.
-      splitLink({
-        condition: (op) => op.type === "mutation",
-        true: httpLink({ url, transformer: superjson, headers }),
-        false: httpBatchLink({ url, transformer: superjson, headers }),
-      }),
-    ],
-  });
+  return makeClient(getBaseUrl(), token);
 }
 
-/** The tRPC error code on a failed call, or null for non-tRPC failures. */
+/** The oRPC error code on a failed call, or null for non-oRPC failures. */
 export function authErrorCode(cause: unknown): string | null {
-  if (!(cause instanceof TRPCClientError)) return null;
-  const code = cause.data?.code;
-  return isJsonString(code) ? code : null;
+  return cause instanceof ORPCError ? cause.code : null;
 }
 
-type ForwardInput = Parameters<TRPCClient<AppRouter>["generate"]["forward"]["mutate"]>[0];
+type ForwardInput = RouterInputs["generate"]["forward"];
 
 /**
- * The single boundary where fal payloads enter the CLI. `generate.forward`
- * is deliberately untyped per endpoint, so this is where its output gets
- * its JSON contract; everything downstream narrows with the guards in
- * `types.ts` instead of re-deriving it.
+ * The single boundary where fal payloads enter the CLI. `generate.forward` is
+ * deliberately untyped per endpoint — it resolves to bare `JsonValue` — so
+ * everything downstream narrows with the guards in `types.ts` rather than
+ * asserting a shape at the call site.
  */
 export async function forwardJson(
-  client: TRPCClient<AppRouter>,
+  client: RouterClient<AppRouter>,
   input: ForwardInput,
 ): Promise<JsonValue> {
-  const body = await client.generate.forward.mutate(input);
-  // SAFETY: `generate.forward` returns the parsed JSON body of the upstream
-  // response (readJsonBounded/readSseJson in packages/api), so the resolved
-  // value is structurally JsonValue.
-  return body as JsonValue;
+  return await client.generate.forward(input);
 }
 
 /** Unauthenticated client — for login flow. */
-export function createPublicClient(baseUrl: string): TRPCClient<AppRouter> {
-  // The login-flow procedures carry no large payloads, so the plain
-  // batch link is fine here — no need for the splitLink dance the
-  // authenticated client uses to keep `media.run` mutations off the
-  // batched path.
-  return createTRPCClient<AppRouter>({
-    links: [
-      httpBatchLink({
-        url: `${baseUrl}/api/trpc`,
-        transformer: superjson,
-      }),
-    ],
-  });
+export function createPublicClient(baseUrl: string): RouterClient<AppRouter> {
+  return makeClient(baseUrl);
 }

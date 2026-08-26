@@ -172,7 +172,7 @@ export const deployCommand = defineCommand({
 
     let created;
     try {
-      created = await client.deploy.create.mutate({
+      created = await client.deploy.create({
         slug: config.slug,
         name: config.name,
         files: manifest.map((f) => ({
@@ -233,7 +233,7 @@ export const deployCommand = defineCommand({
     // ---- Finalize -----------------------------------------------------------
     let finalized;
     try {
-      finalized = await client.deploy.finalize.mutate({
+      finalized = await client.deploy.finalize({
         deploymentId: created.deploymentId,
       });
     } catch (err) {

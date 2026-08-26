@@ -1,4 +1,4 @@
-import { TRPCError } from "@trpc/server";
+import { ORPCError } from "@orpc/server";
 
 import type { JsonValue } from "../json";
 import { MAX_FAL_PLATFORM_JSON_BYTES } from "./limits";
@@ -11,8 +11,7 @@ function parseContentLength(response: Response): number | null {
 }
 
 function rejectOversize(label: string, maxBytes: number): never {
-  throw new TRPCError({
-    code: "BAD_GATEWAY",
+  throw new ORPCError("BAD_GATEWAY", {
     message: `${label} exceeded ${maxBytes} bytes.`,
   });
 }
@@ -75,8 +74,7 @@ export async function readJsonBounded(
   try {
     return JSON.parse(text);
   } catch {
-    throw new TRPCError({
-      code: "BAD_GATEWAY",
+    throw new ORPCError("BAD_GATEWAY", {
       message: `${label} was not valid JSON.`,
     });
   }
@@ -112,8 +110,7 @@ export async function readSseJson(
     try {
       return JSON.parse(text);
     } catch {
-      throw new TRPCError({
-        code: "BAD_GATEWAY",
+      throw new ORPCError("BAD_GATEWAY", {
         message: `${label} had no SSE data payload.`,
       });
     }
@@ -130,8 +127,7 @@ export async function readSseJson(
     }
   }
   if (!parsedAny) {
-    throw new TRPCError({
-      code: "BAD_GATEWAY",
+    throw new ORPCError("BAD_GATEWAY", {
       message: `${label} SSE data was not valid JSON.`,
     });
   }
@@ -148,8 +144,7 @@ async function readErrorSnippet(response: Response, label: string): Promise<stri
 
 export async function throwProviderError(response: Response, label: string): Promise<never> {
   const text = await readErrorSnippet(response, `${label} error response`);
-  throw new TRPCError({
-    code: "BAD_GATEWAY",
+  throw new ORPCError("BAD_GATEWAY", {
     message: `${label} failed (${response.status}): ${text}`,
   });
 }
@@ -174,8 +169,7 @@ export async function fetchProviderResponse({
 }): Promise<Response> {
   const response = await fetch(url, { ...init, redirect: "manual" });
   if (response.status >= 300 && response.status < 400) {
-    throw new TRPCError({
-      code: "BAD_GATEWAY",
+    throw new ORPCError("BAD_GATEWAY", {
       message: `${label} returned a ${response.status} redirect; refusing to follow${
         credentialed ? " with credentials" : ""
       }.`,

@@ -1,11 +1,9 @@
 /**
- * tl;dr - this is where all the tRPC server stuff is created and plugged in.
+ * tl;dr - this is where all the oRPC server stuff is created and plugged in.
  */
 import type { Auth } from "./auth/auth";
 import type { Db } from "@repo/db/drizzle-client";
-import { initTRPC, TRPCError } from "@trpc/server";
-import superjson from "superjson";
-import { ZodError } from "zod";
+import { ORPCError, os } from "@orpc/server";
 
 import { API_KEY_SESSION_PREFIX, resolveApiKeySession } from "./auth/api-key";
 
@@ -82,7 +80,7 @@ export type MediaProviderConfig = {
  * the Worker `env` bindings, so the caller (route handler) builds them and
  * passes them in.
  */
-export type CreateTRPCContextOptions = {
+export type CreateORPCContextOptions = {
   headers: Headers;
   db: Db;
   auth: Auth;
@@ -91,7 +89,7 @@ export type CreateTRPCContextOptions = {
   media?: MediaProviderConfig;
 };
 
-export const createTRPCContext = async (opts: CreateTRPCContextOptions) => {
+export const createORPCContext = async (opts: CreateORPCContextOptions) => {
   // Try a normal better-auth session first (cookie or session bearer token).
   // Fall back to a long-lived API key (`vg_…`) so CLI/HTTP clients can
   // authenticate in CI; both resolve to the same `Session` shape.
@@ -110,33 +108,17 @@ export const createTRPCContext = async (opts: CreateTRPCContextOptions) => {
   };
 };
 
-export type TRPCContext = Awaited<ReturnType<typeof createTRPCContext>>;
+export type ORPCContext = Awaited<ReturnType<typeof createORPCContext>>;
 
-const t = initTRPC.context<TRPCContext>().create({
-  transformer: superjson,
-  // Computed key: tRPC's property for the default formatted error has a name
-  // that anti-slop/no-shape-in-symbol-names bans outright.
-  errorFormatter: ({ ["shape"]: defaultError, error }) => ({
-    ...defaultError,
-    data: {
-      ...defaultError.data,
-      // Flattened so clients can map a failed input back to its field
-      zodError: error.cause instanceof ZodError ? error.cause.flatten() : null,
-    },
-  }),
-});
+export const publicProcedure = os.$context<ORPCContext>();
 
-export const createCallerFactory = t.createCallerFactory;
-export const createTRPCRouter = t.router;
-export const publicProcedure = t.procedure;
-
-export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
-  if (!ctx.session?.user) {
-    throw new TRPCError({ code: "UNAUTHORIZED" });
+export const protectedProcedure = publicProcedure.use(({ context, next }) => {
+  if (!context.session?.user) {
+    throw new ORPCError("UNAUTHORIZED");
   }
   return next({
-    ctx: {
-      session: { ...ctx.session, user: ctx.session.user },
+    context: {
+      session: { ...context.session, user: context.session.user },
     },
   });
 });
@@ -147,10 +129,9 @@ export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
 // (deploy/generate) so a leaked key can't escalate. API-key sessions are
 // synthesized with a namespaced `apikey:` token (see `resolveApiKeySession`);
 // real better-auth tokens never collide with it.
-export const sessionOnlyProcedure = protectedProcedure.use(({ ctx, next }) => {
-  if (ctx.session.session.token.startsWith(API_KEY_SESSION_PREFIX)) {
-    throw new TRPCError({
-      code: "FORBIDDEN",
+export const sessionOnlyProcedure = protectedProcedure.use(({ context, next }) => {
+  if (context.session.session.token.startsWith(API_KEY_SESSION_PREFIX)) {
+    throw new ORPCError("FORBIDDEN", {
       message: "This action requires an interactive login, not an API key. Use the web app.",
     });
   }
@@ -160,9 +141,9 @@ export const sessionOnlyProcedure = protectedProcedure.use(({ ctx, next }) => {
 // Admin actions are interactive/web-only — build on `sessionOnlyProcedure` so
 // an admin's API key (which would otherwise pass the role check) can't reach
 // them.
-export const adminProcedure = sessionOnlyProcedure.use(({ ctx, next }) => {
-  if (ctx.session.user.role !== "admin") {
-    throw new TRPCError({ code: "FORBIDDEN" });
+export const adminProcedure = sessionOnlyProcedure.use(({ context, next }) => {
+  if (context.session.user.role !== "admin") {
+    throw new ORPCError("FORBIDDEN");
   }
   return next();
 });

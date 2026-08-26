@@ -4,10 +4,9 @@ import { authRouter } from "./auth/auth-router";
 import { creditsRouter } from "./credits/credits-router";
 import { deployRouter } from "./deploy/deploy-router";
 import { generateRouter } from "./generate/generate-router";
-import { createTRPCRouter } from "./trpc";
 import { waitlistRouter } from "./waitlist/waitlist-router";
 
-export const appRouter = createTRPCRouter({
+export const appRouter = {
   auth: authRouter,
   apiKeys: apiKeyRouter,
   waitlist: waitlistRouter,
@@ -15,7 +14,7 @@ export const appRouter = createTRPCRouter({
   generate: generateRouter,
   credits: creditsRouter,
   admin: adminRouter,
-});
+};
 
 // export type definition of API
 export type AppRouter = typeof appRouter;

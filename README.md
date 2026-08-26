@@ -48,7 +48,7 @@ apps/
   factory/       Autonomous agent that builds a game and runs it like a studio
 games/           Example games, all deployed and playable
 packages/
-  api/           tRPC routers + better-auth
+  api/           oRPC routers + better-auth
   db/            Drizzle ORM schema + Cloudflare D1
   multiplayer/   Multiplayer client + React hooks (npm: @vibedgames/multiplayer)
   gamepad/       Touch + physical controller input (npm: @vibedgames/gamepad)

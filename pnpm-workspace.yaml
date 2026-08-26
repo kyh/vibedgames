@@ -7,14 +7,14 @@ catalog:
   "@cloudflare/vite-plugin": ^1.53.1
   "@cloudflare/workers-types": ^5.20260821.1
   "@kyh/tsconfig": ^1.2.0
+  "@orpc/client": 2.0.0-beta.31
+  "@orpc/server": 2.0.0-beta.31
+  "@orpc/tanstack-query": 2.0.0-beta.31
   "@tailwindcss/vite": ^4.3.3
   "@tanstack/react-query": ^5.101.4
   "@tanstack/react-router": ^1.170.31
   "@tanstack/react-router-ssr-query": ^1.167.1
   "@tanstack/react-start": ^1.168.48
-  "@trpc/client": ^11.18.0
-  "@trpc/server": ^11.18.0
-  "@trpc/tanstack-react-query": ^11.18.0
   "@types/node": ^26.2.0
   "@types/react": ^19.2.18
   "@types/react-dom": ^19.2.4
@@ -23,7 +23,6 @@ catalog:
   globals: ^17.6.0
   react: ^19.2.8
   react-dom: ^19.2.8
-  superjson: ^2.2.6
   tailwindcss: ^4.3.3
   typescript: ^7.0.2
   vite: ^8.2.2

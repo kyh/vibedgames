@@ -1,19 +1,19 @@
 import type { QueryClient } from "@tanstack/react-query";
-import type { TRPCOptionsProxy } from "@trpc/tanstack-react-query";
 import { GlobalAlertDialog } from "@repo/ui/components/alert-dialog";
 import { Toaster } from "@repo/ui/components/sonner";
 import { TooltipProvider } from "@repo/ui/components/tooltip";
 import { cn } from "@repo/ui/lib/utils";
 import { createRootRouteWithContext, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
 
-import type { AppRouter } from "@repo/api";
 import { siteConfig } from "@/lib/site-config";
 
 import appCss from "../styles/globals.css?url";
 
+// No `orpc` here: the utils reach components through `ORPCProvider` (see
+// lib/orpc.tsx). Carrying them in both channels means the next field lands in
+// one and not the other.
 interface RouterContext {
   queryClient: QueryClient;
-  trpc: TRPCOptionsProxy<AppRouter>;
 }
 
 export const Route = createRootRouteWithContext<RouterContext>()({

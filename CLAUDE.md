@@ -24,14 +24,14 @@
 - **Multiplayer is host-authoritative, last-write-wins.** No conflict resolution. First player becomes host; if host leaves, reassigns. Good for turn-based and host-controlled games.
 - **Deploy on push to main.** GitHub Actions detects changed apps and deploys via wrangler. Never run `wrangler deploy` locally.
 - **Per-user generation credits (micro-USD ledger).** Every account gets a $20 signup grant, materialized lazily on first credit access. `credit_entry` is an append-only ledger of integer micro-USD deltas — balance is `SUM(delta_micro)`, there is no cached balance column, and idempotency lives in deterministic entry ids (`signup:{userId}`, `hold:{requestId}`, ...). `generation` tracks the per-request lifecycle: `generate.forward` blocks queue submits at balance ≤ 0, debits an estimated hold at submit (provider historical per-call estimate, clamped $0.01–$5), settles to actual cost from the `x-fal-billable-units` result-fetch header, and refunds holds when a status poll reports FAILED/CANCELLED. Only generation is metered; deploys/hosting are free. Never bypass the gate or write ledger rows outside `packages/api/src/credits/`.
-- **Media goes through fal (internal only).** `vg generate` exposes `run`, `models`, `schema`, `upload`, `pricing`, `status`, `docs`. The server holds `FAL_API_KEY`; the CLI proxies through tRPC. fal is a gateway to OpenAI, Veo, Sora, Kling, Flux, ElevenLabs, Retro Diffusion, etc. — there's no per-provider routing. **End-user-facing surfaces (the `vg generate` CLI help and the skills under `plugins/generate/skills/`) must not name fal as a brand.** To the user this is just a CLI that generates assets; "fal" stays an implementation detail. The one exception is model endpoint IDs: they're passed through verbatim (e.g. `fal-ai/flux/dev`, `bytedance/seedance-2.0/...`), exactly as the upstream API expects — the CLI does no id rewriting. Keep branding out of prose and help text, but never alter an endpoint ID.
+- **Media goes through fal (internal only).** `vg generate` exposes `run`, `models`, `schema`, `upload`, `pricing`, `status`, `docs`. The server holds `FAL_API_KEY`; the CLI proxies through the API. fal is a gateway to OpenAI, Veo, Sora, Kling, Flux, ElevenLabs, Retro Diffusion, etc. — there's no per-provider routing. **End-user-facing surfaces (the `vg generate` CLI help and the skills under `plugins/generate/skills/`) must not name fal as a brand.** To the user this is just a CLI that generates assets; "fal" stays an implementation detail. The one exception is model endpoint IDs: they're passed through verbatim (e.g. `fal-ai/flux/dev`, `bytedance/seedance-2.0/...`), exactly as the upstream API expects — the CLI does no id rewriting. Keep branding out of prose and help text, but never alter an endpoint ID.
 
 ## Tech Stack
 
 - **Monorepo**: pnpm workspaces + Turborepo
 - **Web app**: TanStack Start (React 19, Vite SSR) on Cloudflare Workers
 - **Styling**: Tailwind CSS 4 + Radix UI primitives
-- **Backend**: tRPC, Drizzle ORM, Cloudflare D1 (SQLite)
+- **Backend**: oRPC, Drizzle ORM, Cloudflare D1 (SQLite)
 - **Auth**: better-auth (manages user/session/account tables — don't modify directly)
 - **Multiplayer**: PartyServer (Cloudflare Durable Objects)
 - **Game hosting**: Cloudflare Worker + R2
@@ -51,7 +51,7 @@ games/         # Bundled example games (not platform code)
   pong/        # (@repo/pong)
   starfall/    # (@repo/starfall)
 packages/
-  api/         # tRPC routers (@repo/api)
+  api/         # oRPC routers (@repo/api)
   db/          # Drizzle schema + migrations (@repo/db) — source of truth for data model
   multiplayer/ # Shared multiplayer hooks (@vibedgames/multiplayer) — published to npm
   ui/          # Shared UI components (@repo/ui)

@@ -4,7 +4,7 @@
  * The @better-auth/api-key plugin owns key storage, hashing, validation, and
  * management. We don't enable its session-mocking (the plugin flags that as
  * not production-safe), so this module bridges a `vg_…` key on an incoming
- * request to the better-auth `Session` shape the tRPC context expects — by
+ * request to the better-auth `Session` shape the oRPC context expects — by
  * calling the plugin's `verifyApiKey` and loading the owning user.
  *
  * Keys ride the same `Authorization: Bearer` header the CLI uses for session
