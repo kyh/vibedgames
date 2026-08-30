@@ -2481,7 +2481,11 @@ export class CityModel {
         const reach = fl + 1.1;
         const tx = wx + (fx / fl) * reach + this.rng.range(-0.8, 0.8);
         const tz = wz + (fz / fl) * reach + this.rng.range(-0.8, 0.8);
-        if (!this.onAsphalt(tx, tz, 0.6)) {
+        // 1.2u of kerb clearance, not 0.6: the trunk box is ±0.5, so at 0.6
+        // its inner face already grazed the kerb line and the denser planting
+        // pushed the kerb-intrusion ratchet over. At 1.2 the box clears the
+        // kerb with the same 0.2-0.6u the other placement passes keep.
+        if (!this.onAsphalt(tx, tz, 1.2)) {
           tree.position.set(tx, this.standAt(tx, tz), tz);
           tree.rotation.y = this.rng.range(0, Math.PI * 2);
           collect(tree);

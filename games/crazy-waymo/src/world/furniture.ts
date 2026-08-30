@@ -2375,6 +2375,12 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
         if (trees >= TREE_CAP) return;
         if (!rng.chance(0.72)) return;
         if (!claimSeat(p.x, p.z, 3.2)) return;
+        // The walk offsets 1.5u outside ITS OWN kerb, but near a junction the
+        // spot can still sit inside a CROSSING street's asphalt — the seat must
+        // clear the nearest edge, whichever street that is, or the well lands
+        // in a travel lane (the kerb-intrusion ratchet counts exactly these).
+        const roadHit = network.nearest(p.x, p.z, ROAD_TILE * 1.4);
+        if (roadHit !== null && roadHit.dist < roadHit.edge.half + 0.9) return;
         const y = surfaceAt(p.x, p.z);
         const kind = treeKindAt(p.x, p.z, p.district, street);
         placeKit(wellParts, p.x, y, p.z, Math.atan2(p.tx, p.tz));
