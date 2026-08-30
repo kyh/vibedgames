@@ -4,21 +4,21 @@ packages:
   - packages/*
 
 catalog:
-  "@cloudflare/vite-plugin": ^1.53.1
-  "@cloudflare/workers-types": ^5.20260821.1
+  "@cloudflare/vite-plugin": ^1.54.2
+  "@cloudflare/workers-types": ^5.20260829.1
   "@kyh/tsconfig": ^1.2.0
   "@orpc/client": 2.0.0-beta.31
   "@orpc/server": 2.0.0-beta.31
   "@orpc/tanstack-query": 2.0.0-beta.31
   "@tailwindcss/vite": ^4.3.3
-  "@tanstack/react-query": ^5.101.4
-  "@tanstack/react-router": ^1.170.31
-  "@tanstack/react-router-ssr-query": ^1.167.1
-  "@tanstack/react-start": ^1.168.48
-  "@types/node": ^26.2.0
+  "@tanstack/react-query": ^5.102.8
+  "@tanstack/react-router": ^1.170.32
+  "@tanstack/react-router-ssr-query": ^1.167.2
+  "@tanstack/react-start": ^1.168.49
+  "@types/node": ^26.4.0
   "@types/react": ^19.2.18
-  "@types/react-dom": ^19.2.4
-  "@vitejs/plugin-react": ^6.1.0
+  "@types/react-dom": ^19.2.5
+  "@vitejs/plugin-react": ^6.1.1
   "@vitejs/plugin-react-swc": ^4.3.1
   globals: ^17.6.0
   react: ^19.2.8
@@ -27,8 +27,8 @@ catalog:
   typescript: ^7.0.2
   vite: ^8.2.2
   vite-tsconfig-paths: ^6.1.1
-  wrangler: ^4.125.0
-  zod: ^4.4.3
+  wrangler: ^4.127.1
+  zod: ^4.5.2
 
 linkWorkspacePackages: true
 
@@ -44,3 +44,21 @@ supportedArchitectures:
     - darwin
     - linux
     - win32
+
+allowBuilds:
+  "@swc/core": true
+  "@tailwindcss/oxide": true
+  core-js: true
+  esbuild: true
+  sharp: true
+  workerd: true
+
+overrides:
+  react-hook-form: "^7.72.1"
+
+# apps/games/tests/worker.mjs drives Miniflare through the top-level single-worker
+# options that 5.x replaces with a per-worker `config` object. npm's `latest` tag
+# already points at a 5.x alpha, so `pnpm up --latest` reaches it unless told not to.
+updateConfig:
+  ignoreDependencies:
+    - miniflare
