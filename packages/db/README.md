@@ -16,7 +16,7 @@ No SQL migration files — the TS schema is pushed directly with `drizzle-kit pu
 pnpm db:push-local   # push schema to the local Miniflare D1 (dev:web's D1)
 pnpm db:seed-local   # seed dev identity (seed.sql, idempotent)
 pnpm db:local        # both of the above
-pnpm db:push-remote  # push schema to prod D1 (.env.production)
+pnpm db:push-remote  # push schema to prod D1 (.env.production.local)
 ```
 
 Edit schema → `pnpm db:push-local` → restart `dev:web` if the change doesn't show.

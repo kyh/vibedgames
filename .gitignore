@@ -39,8 +39,7 @@ yarn-error.log*
 
 # local env files
 .env
-.env.*
-!.env.example
+.env*.local
 # wrangler prefers this over .env and would silently shadow it
 .dev.vars
 
