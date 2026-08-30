@@ -121,6 +121,39 @@ const KK_BUILDINGS_MID = KK_BUILDINGS.filter((k) => /[abef]$/.test(k));
 // the flat commercial blocks — the continuous cornice line IS the SF row read.
 const SUBURBAN_FLAT_TOP = BUILDINGS_SUBURBAN.filter((k) => /[brs]$/.test(k));
 
+// --- Roofscape ----------------------------------------------------------
+// The Kenney kits ship near-black roof swatches, and with per-instance tint
+// being one colour for the whole model, every aerial and every oblique chase
+// shot read as a field of dark caps — the loudest single tell against the
+// reference tile, whose roofs are mid-value tar, gravel and silver membrane
+// with furniture on top. The near meshes can't split roof from wall the way
+// the imposters do (one tint per instance), so the fix is geometry: a thin
+// roof-membrane cap on every FLAT-topped fabric model, tinted from a small
+// per-district family. Values sit mid-high (SF flat roofs are silvered or
+// pale tar, not asphalt-black) and each list stays a value ramp within one
+// family, same rule as the facade palettes. Caps ride the shared PLINTH_MAT
+// batch, so the whole roofscape costs zero extra draw calls.
+const ROOF_PALETTES = {
+  highrise: [0xb9bec4, 0xaab0b6, 0xc8ccd0, 0x9aa3a0],
+  downtown: [0xbab3a4, 0xa9a294, 0xcac3b2, 0x9b9488],
+  commercial: [0xb8ab94, 0xa79a85, 0xc4b79e, 0x8f9a8a],
+  industrial: [0x9aa0a4, 0x8c9296, 0xa8adb0],
+  wharf: [0xb5b0a4, 0xa39e92, 0xc0bbac],
+  // The pale membrane read of the avenues — this is what lifts the Sunset
+  // and Richmond aerials out of the mud.
+  residential: [0xd8d5cc, 0xc9c6bd, 0xbfbcb3],
+  victorian: [0xd4cfc4, 0xc6c1b6, 0xb9b4a9],
+} satisfies Record<FabricChar, readonly number[]>;
+// Flat-topped Kenney fabric (kk-* keep their authored roofs; ind-building-s
+// is the garage and never appears as fabric).
+function flatTopFabric(key: string): boolean {
+  return (
+    key.startsWith("com-building") ||
+    key.startsWith("ind-building") ||
+    SUBURBAN_FLAT_TOP.some((k) => k === key)
+  );
+}
+
 // --- Lot rhythm ---------------------------------------------------------
 // SF_LOT_RHYTHM (sf-adjacency.ts) is measured in REAL world units: the
 // citywide median lot is 3.15u = 14 m of frontage, a Castro lot 2.37u = 10.5 m.
@@ -1681,10 +1714,20 @@ export class CityModel {
 
   private storeysFor(c: FabricChar): number {
     switch (c) {
-      case "highrise":
-        return 7 + this.rng.int(4);
+      case "highrise": {
+        // A fat-tailed mix instead of the old flat 7-10: the uniform band made
+        // every FiDi block the same squat slab against an 11u street, and the
+        // skyline read as a bar chart with one bar. Most lots stay mid-rise,
+        // a quarter push to real tower height, and one in ten goes tall enough
+        // to give the district a silhouette the way the reference tile's
+        // supertalls do — heights VARY per lot, which is the actual fix.
+        const r = this.rng.range(0, 1);
+        if (r < 0.62) return 8 + this.rng.int(6);
+        if (r < 0.9) return 14 + this.rng.int(8);
+        return 22 + this.rng.int(9);
+      }
       case "downtown":
-        return 6 + this.rng.int(3);
+        return this.rng.chance(0.75) ? 6 + this.rng.int(5) : 11 + this.rng.int(6);
       case "commercial":
         return 4 + this.rng.int(3);
       case "industrial":
@@ -2316,6 +2359,73 @@ export class CityModel {
         collect(crown);
       }
 
+      // Roofscape: a membrane cap plus light plant on every flat-topped
+      // fabric model (see ROOF_PALETTES above). This runs before the dressing
+      // gate on purpose — the aerial reads the WHOLE roof plane, back rows
+      // included, and a frontage-only roofscape would checkerboard it.
+      if (flatTopFabric(key)) {
+        node.updateMatrixWorld(true);
+        const roofTop = new THREE.Box3().setFromObject(node).max.y;
+        const rpal = ROOF_PALETTES[lot.character];
+        const rh = blockHash(wx, wz);
+        const base = rpal[(rh >> 2) % rpal.length] ?? 0xb3aca0;
+        // Mostly one membrane per block (a roofer does a row at a time),
+        // with the occasional relaid outlier so the field never tiles.
+        const roofColor = this.rng.chance(0.78)
+          ? base
+          : (rpal[(rh + 1 + this.rng.int(rpal.length - 1)) % rpal.length] ?? base);
+        const cap = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
+        cap.scale.set(lot.width * inset * 0.94, 0.12, depth * inset * 0.94);
+        cap.rotation.y = lot.yaw;
+        cap.position.set(wx, roofTop + 0.05, wz);
+        cap.updateMatrixWorld(true);
+        this.tintNode(cap, roofColor, 0.95);
+        collect(cap);
+        // Bulkheads and AC plant on the downtown family only — a Sunset row
+        // roof is bare membrane, a commercial one carries its stair head.
+        const plant =
+          lot.character === "commercial" ||
+          lot.character === "downtown" ||
+          lot.character === "highrise";
+        const planHalfW = (lot.width * inset) / 2;
+        const planHalfD = (depth * inset) / 2;
+        const roofSpot = (ox: number, oz: number): readonly [number, number] => [
+          wx + ox * cos - oz * sin,
+          wz + ox * sin + oz * cos,
+        ];
+        if (plant && planHalfW > 2.6 && planHalfD > 2.6 && this.rng.chance(0.42)) {
+          const bh = this.rng.range(1.1, 1.7);
+          const [bx, bz] = roofSpot(
+            this.rng.range(-planHalfW * 0.45, planHalfW * 0.45),
+            this.rng.range(-planHalfD * 0.45, planHalfD * 0.45),
+          );
+          const bulk = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
+          bulk.scale.set(this.rng.range(1.6, 2.6), bh, this.rng.range(1.4, 2.2));
+          bulk.rotation.y = lot.yaw;
+          bulk.position.set(bx, roofTop + bh / 2, bz);
+          bulk.updateMatrixWorld(true);
+          this.tintNode(bulk, 0x8d8a82, 0.9);
+          collect(bulk);
+        }
+        if (plant && planHalfW > 2.2 && planHalfD > 2.2 && this.rng.chance(0.4)) {
+          for (let ac = this.rng.chance(0.5) ? 2 : 1; ac > 0; ac--) {
+            const aw = this.rng.range(0.6, 1.0);
+            const ah = this.rng.range(0.4, 0.7);
+            const [ax, az] = roofSpot(
+              this.rng.range(-planHalfW * 0.6, planHalfW * 0.6),
+              this.rng.range(-planHalfD * 0.6, planHalfD * 0.6),
+            );
+            const unit = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
+            unit.scale.set(aw, ah, aw);
+            unit.rotation.y = lot.yaw + this.rng.range(-0.3, 0.3);
+            unit.position.set(ax, roofTop + ah / 2, az);
+            unit.updateMatrixWorld(true);
+            this.tintNode(unit, 0xc4c8cb, 0.9);
+            collect(unit);
+          }
+        }
+      }
+
       // Solid footprint (a touch smaller than the visual so curbs are
       // forgiving), carried as an OBB so rotated rows collide truthfully.
       this.solids.push({
@@ -2330,10 +2440,12 @@ export class CityModel {
       if (!dressing) return seated;
 
       // Rooftop watertower — the classic city-builder silhouette — on some
-      // mid-rise commercial roofs.
+      // mid-rise commercial and tower roofs.
       if (
-        (district.character === "commercial" || district.character === "downtown") &&
-        this.rng.chance(0.09)
+        (district.character === "commercial" ||
+          district.character === "downtown" ||
+          district.character === "highrise") &&
+        this.rng.chance(0.13)
       ) {
         const towerUrl = modelUrl("props", "kk-watertower");
         const twb = this.cache.bounds(towerUrl);
@@ -2351,17 +2463,19 @@ export class CityModel {
         collect(tower);
       }
 
-      // Occasional curbside tree, in front of the facade. The old version
-      // stepped along DIR_DELTA[faceDir], which every frontage row passed as
-      // north — so half of them planted their street tree in the back yard.
-      if (this.rng.chance(0.3)) {
+      // Curbside tree, in front of the facade. The old version stepped along
+      // DIR_DELTA[faceDir], which every frontage row passed as north — so half
+      // of them planted their street tree in the back yard. A tree at every
+      // second house (not "occasional") is what makes a row read planted from
+      // the chase cam; height jitter so it never reads as a hedge of clones.
+      if (this.rng.chance(0.55)) {
         const fx = (lot.x0 + lot.x1) / 2 - wx;
         const fz = (lot.z0 + lot.z1) / 2 - wz;
         const fl = Math.max(Math.hypot(fx, fz), 0.001);
         const large = this.rng.chance(0.5);
         const treeUrl = modelUrl("props", large ? TREE_LARGE : TREE_SMALL);
         const tb = this.cache.bounds(treeUrl);
-        const ts = (ROAD_TILE * 0.32) / Math.max(tb.size.y, 0.001);
+        const ts = (ROAD_TILE * this.rng.range(0.34, 0.46)) / Math.max(tb.size.y, 0.001);
         const tree = this.cache.instance(treeUrl);
         tree.scale.setScalar(ts);
         const reach = fl + 1.1;

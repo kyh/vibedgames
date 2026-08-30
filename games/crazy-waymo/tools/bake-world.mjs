@@ -90,7 +90,14 @@ let failed = false;
 // HEADED on purpose: headless tabs rAF-throttle (~4fps), and the world has
 // grown (real-footprint prisms, piers, freeways) past what that budget bakes
 // inside the 30-minute cap. A headed window bakes in a few minutes.
-const browser = await chromium.launch({ headless: false, channel: "chrome" });
+// BAKE_BROWSER points the same headed launch at another binary for machines
+// without branded Chrome (a remote container: run under `xvfb-run -a` with
+// BAKE_BROWSER=/opt/pw-browsers/chromium-*/chrome-linux/chrome).
+const browser = await chromium.launch(
+  process.env.BAKE_BROWSER
+    ? { headless: false, executablePath: process.env.BAKE_BROWSER }
+    : { headless: false, channel: "chrome" },
+);
 try {
   const page = await browser.newPage({ acceptDownloads: true });
   page.on("console", (msg) => {
