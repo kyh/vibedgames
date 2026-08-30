@@ -2336,8 +2336,15 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
   // Heights / Alamo Square), so it gets its own u/v box, calibrated the same
   // way the shoreline trace is.
   const JAPANTOWN = { uMin: 0.5, uMax: 0.565, vMin: 0.222, vMax: 0.268 } as const;
-  const TREE_CAP = 1500;
-  const TREE_PITCH = ROAD_TILE * 2.1;
+  // The cap is a runaway guard, not the planting plan. At 1500 it WAS the
+  // plan: the walk fills in edge-array order, so the first districts in the
+  // list got a full canopy and everything after (most of the grid — the
+  // Mission read completely bare) got none. The NYC street-tree census our
+  // reference tile draws from plants ~1000 trees per km²; this map is ~8 km².
+  // The pitch/chance below yield ~7k trees network-wide, comfortably under the
+  // cap, so coverage is decided by geometry again instead of iteration order.
+  const TREE_CAP = 9000;
+  const TREE_PITCH = ROAD_TILE * 1.8;
   type TreeKind = "cypress" | "eucalyptus" | "palm" | "plane" | "cherry" | "mixed";
   const treeKindAt = (x: number, z: number, district: District, street: string): TreeKind => {
     if (district.name === "the Presidio") return rng.chance(0.5) ? "eucalyptus" : "cypress";
@@ -2366,8 +2373,14 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       const street = edgeStreet.get(edge.id) ?? "";
       kerbWalk(edge, TREE_PITCH, 1.5, (p) => {
         if (trees >= TREE_CAP) return;
-        if (!rng.chance(0.6)) return;
+        if (!rng.chance(0.72)) return;
         if (!claimSeat(p.x, p.z, 3.2)) return;
+        // The walk offsets 1.5u outside ITS OWN kerb, but near a junction the
+        // spot can still sit inside a CROSSING street's asphalt — the seat must
+        // clear the nearest edge, whichever street that is, or the well lands
+        // in a travel lane (the kerb-intrusion ratchet counts exactly these).
+        const roadHit = network.nearest(p.x, p.z, ROAD_TILE * 1.4);
+        if (roadHit !== null && roadHit.dist < roadHit.edge.half + 0.9) return;
         const y = surfaceAt(p.x, p.z);
         const kind = treeKindAt(p.x, p.z, p.district, street);
         placeKit(wellParts, p.x, y, p.z, Math.atan2(p.tx, p.tz));
