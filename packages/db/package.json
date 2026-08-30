@@ -10,12 +10,11 @@
   "scripts": {
     "clean": "rm -rf .cache .turbo dist node_modules",
     "typecheck": "tsc --noEmit",
-    "studio": "pnpm with-env drizzle-kit studio",
-    "push": "pnpm with-env drizzle-kit push",
+    "studio": "drizzle-kit studio --config drizzle.config.local.ts",
+    "push": "drizzle-kit push --config drizzle.config.local.ts --force",
     "generate": "pnpm with-env drizzle-kit generate",
     "generate:auth-schema": "echo 'Disabled. @better-auth/cli is stuck at 1.4.21: it emits no account.issuer (required since better-auth 1.7) and strips hand-added indexes, RLS, and the rate_limit table. Running it silently breaks auth. Maintain src/drizzle-schema-auth.ts by hand until the CLI supports 1.7.' && exit 1",
     "push:remote": "dotenv -e ../../.env.production.local -- drizzle-kit push",
-    "push:local": "drizzle-kit push --config drizzle.config.local.ts --force",
     "with-env": "dotenv -e ../../.env --"
   },
   "dependencies": {

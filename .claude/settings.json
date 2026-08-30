@@ -1,11 +1,11 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "prompt": "vibedgames is agent-driven — read AGENTS.md first. Local stack: `pnpm install`, copy the env template (`.env.example` -> `.env`), run `pnpm dev:web` once so the Miniflare D1 exists, then `pnpm db:local`. Seeded browser login: user@vibedgames.com / password123 (admin@vibedgames.com for admin). Gate every change with `pnpm verify`. Never run `wrangler deploy`, `pnpm db:push` or `pnpm db:push-remote` — those hit production. `vg deploy` against `http://localhost:5173` is safe: uploads proxy into the local Miniflare R2 bucket. `http://127.0.0.1:5173` is not — that host skips the proxy and writes to production R2.",
+  "prompt": "vibedgames is agent-driven — read AGENTS.md first. Local stack: `pnpm install`, copy the env template (`.env.example` -> `.env`), run `pnpm dev:web` once so the Miniflare D1 exists, then `pnpm db:local`. Seeded browser login: user@vibedgames.com / password123 (admin@vibedgames.com for admin). Gate every change with `pnpm verify`. Never run `wrangler deploy` or `pnpm db:push-remote` — those hit production. `pnpm db:push` and `pnpm db:studio` are local-only and safe. `vg deploy` against `http://localhost:5173` is safe: uploads proxy into the local Miniflare R2 bucket. `http://127.0.0.1:5173` is not — that host skips the proxy and writes to production R2.",
   "permissions": {
     "allow": [
       "Bash(pnpm verify:*)",
       "Bash(pnpm db:local:*)",
-      "Bash(pnpm db:push-local:*)",
+      "Bash(pnpm db:push:*)",
       "Bash(pnpm db:seed-local:*)",
       "Bash(pnpm dogfood:*)",
       "Bash(pnpm dev:web:*)",

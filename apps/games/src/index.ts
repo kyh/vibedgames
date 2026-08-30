@@ -1,6 +1,6 @@
 import { createDb } from "@repo/db/drizzle-client";
 import { deploymentFile, game } from "@repo/db/drizzle-schema";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "@repo/db";
 
 import { contentTypeForPath } from "./content-type";
 import { injectFreshness, VERSION_PATH, versionResponse } from "./freshness";

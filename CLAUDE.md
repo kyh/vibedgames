@@ -78,8 +78,8 @@ pnpm test             # Run all tests (turbo run test)
 pnpm format           # Format check (oxfmt --check)
 pnpm format:fix       # Format + write
 pnpm db:push          # Push schema (drizzle-kit push) to REMOTE prod D1
+pnpm db:push          # Push schema to local D1 (Miniflare file)
 pnpm db:push-remote   # Push schema to prod (.env.production.local)
-pnpm db:push-local    # Push schema to the local Miniflare D1 (dev:web's D1)
 pnpm db:seed-local    # Seed local dev identity (wrangler d1 execute seed.sql)
 pnpm db:local         # push-local + seed-local (one-shot local DB setup)
 pnpm dogfood          # Link local vg CLI + sync plugin skills into .claude/skills/
@@ -95,9 +95,9 @@ One file, two consumers: root `.env` feeds anything reading `process.env` (drizz
 
 Setup, seeded logins and the headless auth recipes live in `AGENTS.md`. What matters architecturally:
 
-The dev Worker (`pnpm dev:web`, http://localhost:5173) binds to a **local** Miniflare D1 — separate from prod, isolated, starts empty. Schema management is `drizzle-kit push` (TS schema is the source of truth, no SQL migration files): `db:push`/`db:push-remote` push to remote prod; `db:push-local` pushes the same schema to the local D1 (via `drizzle.config.local.ts`, which resolves the Miniflare SQLite path).
+The dev Worker (`pnpm dev:web`, http://localhost:5173) binds to a **local** Miniflare D1 — separate from prod, isolated, starts empty. Schema management is `drizzle-kit push` (TS schema is the source of truth, no SQL migration files). Following the fleet convention: `db:push` and `db:studio` target the local D1 via `drizzle.config.local.ts` (which resolves the Miniflare SQLite path); `db:push-remote` is the only command that reaches prod, and the only one that reads `.env.production.local`.
 
-Schema workflow: edit `packages/db/src/drizzle-schema*.ts` → `pnpm db:push-local` (local) / `pnpm db:push-remote` (prod). No migration files. Re-run `pnpm db:seed-local` anytime (idempotent); re-run `db:push-local` after schema changes, and restart `dev:web` if a change doesn't show.
+Schema workflow: edit `packages/db/src/drizzle-schema*.ts` → `pnpm db:push` (local) / `pnpm db:push-remote` (prod). No migration files. Re-run `pnpm db:seed-local` anytime (idempotent); re-run `db:push` after schema changes, and restart `dev:web` if a change doesn't show.
 
 **Local R2 is isolated too, and the isolation keys off the literal hostname.** `getServerContext` (`apps/web/src/auth/server.ts`) sets `proxyUploadBaseUrl`/`proxyUploadSecret` only when the Host header is `localhost` or `localhost:<port>`. With those set, `presignPut`/`presignGet` return HMAC-signed `/api/r2-upload` and `/api/r2-download` URLs instead of S3 presigned ones, so bytes flow through the `GAMES_BUCKET` binding — Miniflare-simulated locally. `deletePrefix` always uses the binding. Net: `vg deploy` against `http://localhost:5173` is fully local and the `R2_*` values in `.env` only need to be non-empty. `http://127.0.0.1:5173` misses the host check and presigns against **production** R2 — always address the dev worker as `localhost`.
 

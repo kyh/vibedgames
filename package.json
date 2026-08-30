@@ -8,9 +8,8 @@
     "deploy:games": "turbo run build --filter=./games/* --filter=vibedgames && for d in games/*/; do node apps/cli/dist/index.js deploy \"$d\" || exit 1; done",
     "db:push": "pnpm -F db push",
     "db:push-remote": "pnpm -F db push:remote",
-    "db:push-local": "pnpm -F db push:local",
     "db:seed-local": "pnpm -C apps/web exec wrangler d1 execute vibedgames --local --file=../../packages/db/seed.sql",
-    "db:local": "pnpm db:push-local && pnpm db:seed-local",
+    "db:local": "pnpm db:push && pnpm db:seed-local",
     "admin:create": "tsx scripts/create-admin.ts",
     "dogfood": "tsx scripts/dogfood.ts",
     "dogfood:reset": "tsx scripts/dogfood-reset.ts",
@@ -41,6 +40,7 @@
   },
   "devDependencies": {
     "@kyh/oxlint": "^0.2.0",
+    "@libsql/client": "^0.17.4",
     "dotenv-cli": "^11.0.0",
     "oxfmt": "^0.65.0",
     "oxlint": "^1.80.0",

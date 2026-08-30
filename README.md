@@ -67,7 +67,7 @@ example games, [`plugins/`](./plugins) for the skills, and
 pnpm install
 cp .env.example .env  # every credential, CLI and Worker alike
 pnpm dev:web          # run once, then stop — creates the local D1
-pnpm db:local         # push schema + seed dev logins
+pnpm db:local         # db:push + db:seed-local
 pnpm dev              # http://localhost:5173
 ```
 
@@ -85,7 +85,8 @@ pnpm dev:<game>       # one example game (see games/README.md)
 pnpm build            # build everything
 pnpm typecheck        # type check all packages
 pnpm verify           # typecheck + lint + format + test (run before every commit)
-pnpm db:local         # push schema to local D1 + seed dev identity
+pnpm db:push          # push schema to local D1
+pnpm db:local         # db:push + seed dev identity
 pnpm db:push-remote   # push schema to production
 pnpm dogfood          # link the local vg CLI + sync plugin skills into .claude/skills
 ```

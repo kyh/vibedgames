@@ -10,7 +10,7 @@ This is the tool-agnostic guide for coding agents, and it is meant to be **run**
 pnpm install
 cp .env.example .env  # every credential, CLI and Worker alike (see Environment)
 pnpm dev:web          # ← run once, then stop it
-pnpm db:local         # push schema + seed dev identities
+pnpm db:local         # db:push + seed dev identities
 pnpm dev:web          # http://localhost:5173
 ```
 
@@ -138,7 +138,7 @@ For the surfaces marked No, `pnpm typecheck` and `pnpm build` are the gate; a re
 
 - **Never `wrangler deploy` locally.** Deploys happen from GitHub Actions on push to `main`.
 - **`vg deploy` against `localhost` is safe — but only `localhost`.** When the Host header is `localhost[:port]`, `presignPut`/`presignGet` hand back HMAC-signed `/api/r2-upload` and `/api/r2-download` proxy URLs, so bytes land in the Miniflare-simulated `GAMES_BUCKET`, not prod R2 (`packages/api/src/deploy/r2-presign.ts`); `deletePrefix` always goes through the binding. The `R2_*` values in the root `.env` only need to be non-empty for the config to be constructed — dummies work. The check is on the literal host string, so pointing the CLI at `http://127.0.0.1:5173` bypasses the proxy and presigns against **production** R2.
-- **Never push schema to remote.** `pnpm db:push` and `pnpm db:push-remote` both target production D1. Local work is `pnpm db:push-local` / `pnpm db:local`.
+- **Never push schema to remote.** `pnpm db:push-remote` is the only command that touches production D1; it is the only one that reads `.env.production.local`. `pnpm db:push`, `db:studio` and `db:local` are local-only.
 - **Every mutation invalidates exactly the query keys it touches**, in its own `onSuccess`. There is no blanket invalidation in the query client; if a write should refresh a list, say so at the call site.
 - **No `any`, no non-null `!`, no `as` casts. Kebab-case filenames.** Make illegal states unrepresentable.
 - **Render dates through `apps/web/src/lib/format.ts`.** The Worker renders in UTC and the browser doesn't; an unpinned `toLocaleDateString()` is a hydration mismatch.
