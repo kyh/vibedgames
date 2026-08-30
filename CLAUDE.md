@@ -78,7 +78,7 @@ pnpm test             # Run all tests (turbo run test)
 pnpm format           # Format check (oxfmt --check)
 pnpm format:fix       # Format + write
 pnpm db:push          # Push schema (drizzle-kit push) to REMOTE prod D1
-pnpm db:push-remote   # Push schema to prod (.env.production.local)
+pnpm db:push-remote   # Push schema to prod (.env.production)
 pnpm db:push-local    # Push schema to the local Miniflare D1 (dev:web's D1)
 pnpm db:seed-local    # Seed local dev identity (wrangler d1 execute seed.sql)
 pnpm db:local         # push-local + seed-local (one-shot local DB setup)
@@ -89,7 +89,7 @@ pnpm verify           # typecheck + lint + format + test (run before every commi
 
 ## Environment
 
-Two files, two runtimes: root `.env` feeds anything reading `process.env` (drizzle-kit, the wrangler CLI); `apps/web/.dev.vars` feeds the dev Worker through the Cloudflare `env` binding. `BETTER_AUTH_SECRET` and the R2/fal keys only work in the second one. Full table + templates in `AGENTS.md` → Environment.
+One file, two consumers: root `.env` feeds anything reading `process.env` (drizzle-kit, the wrangler CLI) _and_ the dev Worker's `env` binding, because `apps/web/wrangler.jsonc` declares `secrets.required` — which makes wrangler fold `process.env` in, filtered to the declared names. A secret missing from that list never reaches the Worker. Creating `apps/web/.dev.vars` takes precedence and silently kills the root file; don't. Full table in `AGENTS.md` → Environment.
 
 ## Local development & headless verification
 
@@ -99,7 +99,7 @@ The dev Worker (`pnpm dev:web`, http://localhost:5173) binds to a **local** Mini
 
 Schema workflow: edit `packages/db/src/drizzle-schema*.ts` → `pnpm db:push-local` (local) / `pnpm db:push-remote` (prod). No migration files. Re-run `pnpm db:seed-local` anytime (idempotent); re-run `db:push-local` after schema changes, and restart `dev:web` if a change doesn't show.
 
-**Local R2 is isolated too, and the isolation keys off the literal hostname.** `getServerContext` (`apps/web/src/auth/server.ts`) sets `proxyUploadBaseUrl`/`proxyUploadSecret` only when the Host header is `localhost` or `localhost:<port>`. With those set, `presignPut`/`presignGet` return HMAC-signed `/api/r2-upload` and `/api/r2-download` URLs instead of S3 presigned ones, so bytes flow through the `GAMES_BUCKET` binding — Miniflare-simulated locally. `deletePrefix` always uses the binding. Net: `vg deploy` against `http://localhost:5173` is fully local and the `R2_*` values in `.dev.vars` only need to be non-empty. `http://127.0.0.1:5173` misses the host check and presigns against **production** R2 — always address the dev worker as `localhost`.
+**Local R2 is isolated too, and the isolation keys off the literal hostname.** `getServerContext` (`apps/web/src/auth/server.ts`) sets `proxyUploadBaseUrl`/`proxyUploadSecret` only when the Host header is `localhost` or `localhost:<port>`. With those set, `presignPut`/`presignGet` return HMAC-signed `/api/r2-upload` and `/api/r2-download` URLs instead of S3 presigned ones, so bytes flow through the `GAMES_BUCKET` binding — Miniflare-simulated locally. `deletePrefix` always uses the binding. Net: `vg deploy` against `http://localhost:5173` is fully local and the `R2_*` values in `.env` only need to be non-empty. `http://127.0.0.1:5173` misses the host check and presigns against **production** R2 — always address the dev worker as `localhost`.
 
 ## Dogfooding (build games in ./games using local CLI + skills)
 

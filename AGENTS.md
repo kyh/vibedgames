@@ -8,11 +8,10 @@ This is the tool-agnostic guide for coding agents, and it is meant to be **run**
 
 ```sh
 pnpm install
-cp .env.example .env                              # drizzle-kit + wrangler CLI creds
-cp apps/web/.dev.vars.example apps/web/.dev.vars  # Worker secrets (see Environment)
-pnpm dev:web                                      # ← run once, then stop it
-pnpm db:local                                     # push schema + seed dev identities
-pnpm dev:web                                      # http://localhost:5173
+cp .env.example .env  # every credential, CLI and Worker alike (see Environment)
+pnpm dev:web          # ← run once, then stop it
+pnpm db:local         # push schema + seed dev identities
+pnpm dev:web          # http://localhost:5173
 ```
 
 **The double `dev:web` is not a typo.** `packages/db/drizzle.config.local.ts` resolves the Miniflare SQLite file out of `apps/web/.wrangler/state/v3/d1/miniflare-D1DatabaseObject/`, and that directory only exists after the dev Worker has booted once. Skip the first run and `pnpm db:local` dies with `Local D1 not found. Run 'pnpm dev:web' once to initialize it.`
@@ -23,14 +22,16 @@ There is no bootstrap script; the five commands above _are_ the provisioning ste
 
 ## Environment
 
-Two files, two different runtimes. Getting this wrong is the most common way to end up with an app that boots but can't authenticate.
+One file, two consumers. Everything lives in the repo-root `.env`; template is `.env.example`.
 
-| File                 | Read by                                                | Holds                                                                 |
-| -------------------- | ------------------------------------------------------ | --------------------------------------------------------------------- |
-| `.env` (repo root)   | anything reading `process.env` — drizzle-kit, wrangler | `CLOUDFLARE_ACCOUNT_ID` / `_DATABASE_ID` / `_D1_TOKEN` / `_API_TOKEN` |
-| `apps/web/.dev.vars` | the dev Worker, via the Cloudflare `env` binding       | `BETTER_AUTH_SECRET`, `R2_*`, `FAL_API_KEY` (optional)                |
+| Consumer                                         | Reaches it via                                                  | Holds                                                                 |
+| ------------------------------------------------ | --------------------------------------------------------------- | --------------------------------------------------------------------- |
+| drizzle-kit, the wrangler CLI                    | `process.env`, loaded by each package's `with-env` (dotenv-cli) | `CLOUDFLARE_ACCOUNT_ID` / `_DATABASE_ID` / `_D1_TOKEN` / `_API_TOKEN` |
+| the dev Worker, via the Cloudflare `env` binding | `secrets.required` in `apps/web/wrangler.jsonc`                 | `BETTER_AUTH_SECRET`, `R2_*`, `FAL_API_KEY`                           |
 
-The Worker never sees `process.env` — putting `BETTER_AUTH_SECRET` in `.env` silently does nothing. In production the same names are `wrangler secret put`. Templates: `.env.example`, `apps/web/.dev.vars.example`.
+**`secrets.required` is the whole mechanism.** Declaring a name there makes wrangler fold `process.env` into the Worker binding and filter it down to exactly the declared names — so a secret that is in `.env` but not in `secrets.required` silently never reaches the Worker. Adding one means editing three places: `.env.example`, `secrets.required`, and `apps/web/env.d.ts`.
+
+Do not reintroduce `apps/web/.dev.vars`. Wrangler prefers it and stops reading `.env`/`process.env` the moment it exists, so the root file goes quietly dead. In production the same names are `wrangler secret put`.
 
 ## Seeded logins
 
@@ -136,7 +137,7 @@ For the surfaces marked No, `pnpm typecheck` and `pnpm build` are the gate; a re
 ## Rules that matter
 
 - **Never `wrangler deploy` locally.** Deploys happen from GitHub Actions on push to `main`.
-- **`vg deploy` against `localhost` is safe — but only `localhost`.** When the Host header is `localhost[:port]`, `presignPut`/`presignGet` hand back HMAC-signed `/api/r2-upload` and `/api/r2-download` proxy URLs, so bytes land in the Miniflare-simulated `GAMES_BUCKET`, not prod R2 (`packages/api/src/deploy/r2-presign.ts`); `deletePrefix` always goes through the binding. The `R2_*` values in `apps/web/.dev.vars` only need to be non-empty for the config to be constructed — dummies work. The check is on the literal host string, so pointing the CLI at `http://127.0.0.1:5173` bypasses the proxy and presigns against **production** R2.
+- **`vg deploy` against `localhost` is safe — but only `localhost`.** When the Host header is `localhost[:port]`, `presignPut`/`presignGet` hand back HMAC-signed `/api/r2-upload` and `/api/r2-download` proxy URLs, so bytes land in the Miniflare-simulated `GAMES_BUCKET`, not prod R2 (`packages/api/src/deploy/r2-presign.ts`); `deletePrefix` always goes through the binding. The `R2_*` values in the root `.env` only need to be non-empty for the config to be constructed — dummies work. The check is on the literal host string, so pointing the CLI at `http://127.0.0.1:5173` bypasses the proxy and presigns against **production** R2.
 - **Never push schema to remote.** `pnpm db:push` and `pnpm db:push-remote` both target production D1. Local work is `pnpm db:push-local` / `pnpm db:local`.
 - **Every mutation invalidates exactly the query keys it touches**, in its own `onSuccess`. There is no blanket invalidation in the query client; if a write should refresh a list, say so at the call site.
 - **No `any`, no non-null `!`, no `as` casts. Kebab-case filenames.** Make illegal states unrepresentable.

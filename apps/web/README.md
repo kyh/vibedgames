@@ -49,6 +49,9 @@ featured game). Seeded logins and headless auth recipes:
 
 ## Environment
 
-Worker secrets (`BETTER_AUTH_SECRET`, `R2_*`, `FAL_API_KEY`) go in
-`apps/web/.dev.vars` — the Worker never reads `process.env`, so putting them in
-the root `.env` silently does nothing. Bindings are declared in `wrangler.jsonc`.
+Worker secrets (`BETTER_AUTH_SECRET`, `R2_*`, `FAL_API_KEY`) go in the
+repo-root `.env`, alongside the CLI credentials. They reach the Worker because
+`wrangler.jsonc` lists them under `secrets.required`, which makes wrangler fold
+`process.env` into the binding and filter it to those names — so a secret that
+is not listed there never arrives. Other bindings are declared in
+`wrangler.jsonc` as usual.

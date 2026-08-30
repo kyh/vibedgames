@@ -65,11 +65,10 @@ example games, [`plugins/`](./plugins) for the skills, and
 
 ```sh
 pnpm install
-cp .env.example .env                              # drizzle-kit + wrangler CLI creds
-cp apps/web/.dev.vars.example apps/web/.dev.vars  # Worker secrets (BETTER_AUTH_SECRET, R2, fal)
-pnpm dev:web                                      # run once, then stop — creates the local D1
-pnpm db:local                                     # push schema + seed dev logins
-pnpm dev                                          # http://localhost:5173
+cp .env.example .env  # every credential, CLI and Worker alike
+pnpm dev:web          # run once, then stop — creates the local D1
+pnpm db:local         # push schema + seed dev logins
+pnpm dev              # http://localhost:5173
 ```
 
 The first `dev:web` is not a typo — the Miniflare D1 file has to exist before

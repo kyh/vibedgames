@@ -14,11 +14,18 @@
     "PRODUCTION_URL": "https://vibedgames.com",
     "R2_BUCKET_NAME": "vibedgames-games",
   },
-  // Set with: wrangler secret put BETTER_AUTH_SECRET
-  //           wrangler secret put R2_ACCOUNT_ID
-  //           wrangler secret put R2_ACCESS_KEY_ID
-  //           wrangler secret put R2_SECRET_ACCESS_KEY
-  //           wrangler secret put FAL_API_KEY   (optional — enables `vg generate`)
+  // Locally these are read from the repo-root `.env` (process.env, loaded by
+  // the `with-env` script); declaring them here is what lets wrangler fold
+  // process.env into the Worker binding. In production: `wrangler secret put`.
+  "secrets": {
+    "required": [
+      "BETTER_AUTH_SECRET",
+      "R2_ACCOUNT_ID",
+      "R2_ACCESS_KEY_ID",
+      "R2_SECRET_ACCESS_KEY",
+      "FAL_API_KEY",
+    ],
+  },
   "d1_databases": [
     {
       "binding": "DB",
