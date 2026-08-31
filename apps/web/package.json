@@ -30,7 +30,7 @@
     "@tanstack/react-router-ssr-query": "catalog:",
     "@tanstack/react-start": "catalog:",
     "better-auth": "^1.7.2",
-    "lucide-react": "^1.35.0",
+    "lucide-react": "^1.37.0",
     "motion": "^13.1.1",
     "react": "catalog:",
     "react-dom": "catalog:",
@@ -50,7 +50,7 @@
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
     "tailwindcss": "catalog:",
-    "tsx": "^4.23.12",
+    "tsx": "^4.23.13",
     "typescript": "catalog:",
     "vite": "catalog:",
     "wrangler": "catalog:"
