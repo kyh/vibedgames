@@ -62,10 +62,20 @@ run() { uv run --python 3.12 --no-project python "$I2T/$@"; }
 SKILL=.claude/skills/image-to-threejs
 ```
 
+**Nothing updates the checkout for you.** This skill is verified against
+upstream **v1.5.1** (`version:` in `$I2T/SKILL.md`). Upstream ships breaking
+contract changes between minors (1.5 reversed how child transforms and sockets
+scale, and made the generator refuse specs the previous version accepted), so
+`git -C $I2T pull --ff-only` only when you are ready to re-check
+`references/spec-contract.md` against the new source — never mid-run.
+
 ## The loop
 
 `forge/next.py <spec>` always tells you the current pass and the exact next
-command. When lost, run it.
+command. When lost, run it. (Upstream also offers `forge/state.py init` +
+`next.py --state`, a resumable checklist whose steps are its own grimoire
+reads; it is optional — nothing in the pass gates consults it — and it is
+where the 3-corrections-per-pass / 6-total hard stops live if you want them.)
 
 ### 1. Reference image
 
@@ -106,6 +116,18 @@ supply every judgment.** Field shapes are strict (enums, integer 0–3 scores �
 see `references/spec-contract.md`). Then author `componentTree` and
 `materials` yourself.
 
+**The whole spec is due before the first factory.** The generator refuses to
+write anything while `validate_sculpt_spec.py --strict-quality` reports a
+single `quality:` warning — and a fresh scaffold carries 15 of them. There is
+no "fill materials at material-pass" any more: every material needs
+`referencePbr` extracted from reference crops, every component a
+`colorMaterialRecipe`, `lightingFromPhoto` needs ≥ 3 concrete lights,
+materials need wear/local-override entries, `detailInventory` must reach
+`targetMinDetails`, and the assessment's `unknownsToResolveBeforeImplementation`
+must be emptied (move each unknown into a `featureReviewTargets` entry or a
+review note — the list itself is the block). Budget intake accordingly; it is
+front-loaded work, not skipped work.
+
 > **Never re-run `new_sculpt_spec.py --force` on a live spec.** It reseeds the
 > file and wipes `reviewHistory`, which is what credits completed passes — you
 > silently drop back to blockout. Edit the spec in place instead.
@@ -123,31 +145,42 @@ block a flange sits under.
 **Geometry is driven by three mechanisms, and mixing them up is the single
 biggest time sink** (full contract: `references/spec-contract.md`):
 
-| Mechanism                        | When it applies                                   | What it makes                                  |
-| -------------------------------- | ------------------------------------------------- | ---------------------------------------------- |
-| `transform.scale`                | no `attachment` on the component                  | unit primitive scaled per axis                 |
-| `attachment.localStart/localEnd` | component has an `attachment`                     | oriented cylinder swept between the two points |
-| `geometryDescriptor` profiles    | `lathe`/`extrude`/`tube`/`curve-sweep` primitives | real profiles: barrel bellies, curved arms     |
+| Mechanism                        | When it applies                                                | What it makes                                  |
+| -------------------------------- | -------------------------------------------------------------- | ---------------------------------------------- |
+| `transform.scale`                | any primitive without a round-primitive attachment             | unit primitive, scale baked into its vertices  |
+| `attachment.localStart/localEnd` | `attachment` on a **round** primitive (cylinder/cone/capsule…) | oriented cylinder swept between the two points |
+| `geometryDescriptor` profiles    | `lathe`/`extrude`/`tube`/`curve-sweep`/`tapered-sweep`         | real profiles: bellies, curved arms, horns     |
 
 - Geometry is emitted as **unit** primitives. **`dimensions` is documentation
-  only** — it never sizes anything. `transform.scale` does.
+  only** — it never sizes anything. `transform.scale` does — and it is baked
+  into the geometry; the `__pivot` Group always carries scale `1`.
+- Consequence: **children and sockets live in the parent's _unscaled_ frame.**
+  A child at `[0.5, 0, 0]` under a parent scaled `[2, 1, 1]` sits 0.5 units
+  out, not 1.0; a socket's `localPosition` is in real units too. Do not divide
+  out a parent's scale — that was the pre-1.5 contract and now misplaces parts.
 - An `attachment` **replaces** the authored primitive with a swept cylinder
-  (`baseRadius` default `0.06`, tapering to `endRadius` = `0.55 × baseRadius`).
-  There is **no plate mode** — flat straps are a box component with no
-  attachment; untapered bands set `baseRadius === endRadius`.
+  only when the primitive is round (`cylinder, cone, capsule, tube,
+curve-sweep`); `baseRadius` default `0.06`, tapering to `endRadius` =
+  `0.55 × baseRadius`. On a `box`/`torus`/profile primitive the geometry is
+  kept and the attachment is just an anchor contract the review gates read.
+  There is **no plate mode** — flat straps are a box component; untapered
+  bands set `baseRadius === endRadius`.
 - Attachments are required only where the validator's role/**name-token**
   matching fires (`hinge`, `handle`, `arm`, `support`, …) or the primitive is
-  round (`cylinder, cone, capsule, tube, curve-sweep`) — NOT on every meso
-  child. Corollary: naming a part `hinge-upper` force-converts it to a rod.
-  A ring handle is a `torus` with role `pull-ring`, never "handle".
+  round — NOT on every meso child. Corollary: naming a round part
+  `hinge-upper` force-converts it to a rod, and its `__pivot` then sits at
+  `localStart` (a real joint) instead of `transform.position`. A ring handle
+  is a `torus` with role `pull-ring`, never "handle".
 - A swollen barrel is a **lathe**, not a scaled cylinder; an S-curved lever arm
-  is a `curve-sweep`. Reaching for scale tricks where a profile exists is how
-  the belly and the curve get lost.
-- Child transforms live in the **parent's scaled space**. Divide out the
-  parent's scale or a child of a squashed parent comes out squashed too.
+  is a `curve-sweep`; anything that comes to a point (horn, spike, tail) is a
+  `tapered-sweep` with per-station radii. Reaching for scale tricks where a
+  profile exists is how the belly and the curve get lost.
 - Multiple parentless macro parts are fine (they attach to an invisible
   Group). Only the scaffold's placeholder `root` **component** renders as a
   unit cube — delete or repurpose it; don't invent a giant carrier box.
+- `performanceBudget.targetTriangles` picks the tessellation tier for every
+  segmented primitive (≤ 6k low, ≤ 60k standard, else hero — and hero is
+  the old default, so an absent budget changes nothing).
 
 **The rig is where the token spend pays off — but know what is real:**
 
@@ -164,19 +197,23 @@ biggest time sink** (full contract: `references/spec-contract.md`):
 - **Prove the rig**: render the hinge carrier rotated to its open pose through
   the same camera into `runs/<pass>-pulled/`. An unpulled rig is unverified.
 
-Validate before generating:
+Validate before generating — strict is the gate the generator itself runs:
 
 ```bash
-run forge/stage2_spec/validate_sculpt_spec.py spec.json     # want: PASS
+run forge/stage2_spec/validate_sculpt_spec.py spec.json --strict-quality   # want: PASS
 ```
 
 Field shapes the validator rejects guesses on (enums, integer 0–3 scores,
-evidenceRefs as view IDs, the 14-value primitive enum) are catalogued in
+evidenceRefs as view IDs, the 15-value primitive enum) are catalogued in
 `references/spec-contract.md`; `validate_sculpt_spec.py` itself is the enum
 source of truth. Two errors bite every first run: `primitive` must come from
 the enum, and `materialLayers` must point at your material ids, not the seeded
-`"base"`. Warnings about `referencePbr`/`colorMaterialRecipe`/lighting are the
-quality bar for material/lighting passes — defer them at blockout/structural.
+`"base"`. Every `quality:` warning is a strict failure and blocks
+`generate_threejs_factory.py` (it prints a `BLOCKED` report and writes
+nothing). `--allow-nonstrict` emits byte-identical code but cannot take
+`--pass-id` (it builds whatever pass is currently unlocked) — use it for a
+throwaway proportion render while intake is still in progress, never to
+credit a pass.
 
 ### 4. Generate, normalize, render
 
@@ -210,7 +247,12 @@ mesh/material/geometry counts, socket and pivot names, and bounds.
 shots sit near 0–5°; the defaults are 12–22°) before any silhouette
 comparison, or IoU gates false-negative on framing alone. The `raking` view
 (azimuth 15°, elevation 3°) is for surface-pass evidence on flat props, where
-`side` is dead edge-on.
+`side` is dead edge-on. Every run also writes `parts.json`, the runtime part
+manifest `check_part_coverage.py --manifest` wants. For the off-axis gates:
+`--views az45,az135,az225,az315 --transparent` shoots a diagonal turntable
+ring (any `az<degrees>` is a view; `left` = 270° completes the named ring),
+and `--export-meshes` dumps world-space `meshes.json` for
+`swept_arc_gate.py` — upstream's own exporter script does not exist.
 
 Before any visual compare or tier-1 run, align framing with
 `scripts/align_framing.py align` (its `crop` mode is also the crop-zoom tool
@@ -256,13 +298,33 @@ run forge/stage4_review/append_review.py spec.json --in-place \
 
 Hard requirements on a visual-pass `continue` (full list:
 `references/spec-contract.md`): comparison image, score ≥ threshold, all five
-named layer scores, per-pass critical feature reviews ≥ 0.8, and — blockout
-only — a genuinely stripped render (`front-stripped.png`, not the lit one).
-Omit `--review-viewpoints-json`; it demands views the shared camera never
-produces. There is also a **tier-1 quantitative gate**
+layer scores (`silhouetteProportion, componentStructure, formDetail,
+materialSurface, lightingCamera`), per-pass critical feature reviews ≥ 0.8,
+and — blockout only — a genuinely stripped render (`front-stripped.png`, not
+the lit one). Omit `--review-viewpoints-json`; it demands views the shared
+camera never produces. There is also a **tier-1 quantitative gate**
 (`diagnose_render.py` → `orchestrate_passes.py check`) with a framing trap the
 contract file explains — normalize framing and match `--elevation` first, or a
 correct model fails on IoU alone.
+
+Two more pieces of evidence `orchestrate_passes.py status` now lists per
+visual pass, both cheap:
+
+```bash
+# Inside-the-silhouette change vs the previous pass (IoU reads ~11% of cells).
+run forge/stage4_review/interior_difference.py runs/<prev>/front.png runs/<pass>/front.png
+# Off-axis coverage + through-hole check. Diagonal ring for anything thin:
+# the gate zeroes any frame under 3.5% coverage, so an edge-on door/plate
+# at 90°/270° reads as a collapsed billboard no matter how it is lit.
+run forge/stage4_review/turntable_gate.py \
+    --capture 45=runs/<pass>-ring/az45.png --capture 135=... --capture 225=... --capture 315=... \
+    --required 45 --required 135 --required 225 --required 315
+```
+
+Skip `self_intersection.py` on primitive-assembled props: its ray-parity test
+assumes welded, watertight meshes and flags every unwelded `BoxGeometry`
+plank and `CylinderGeometry` rivet as self-intersecting (31 of 31 door parts).
+It is a character-mesh gate.
 
 **Look at the comparison sheet and score it honestly.** Critical features carry
 a hard minimum (0.8) and the gate will refuse you — that is the system working.
@@ -275,14 +337,19 @@ reads as rubber-stamping.
 
 Passes emit progressively: **blockout emits macro components only; meso parts
 (strapping, plates, fittings) appear at structural-pass.** Before crediting,
-run `check_part_coverage.py` — it reconciles spec-vs-built and catches parts
-the generator silently skipped.
+run `check_part_coverage.py --spec spec.json --manifest runs/<pass>/parts.json`
+— it reconciles spec-vs-built and catches parts the generator silently
+skipped. A hand-authored hinge carrier shows up as a `part-not-specified`
+note, which is correct: it is an armature, not a part.
 
 ## Rendering gotchas that read as broken models
 
 - **Metal renders pure black without an environment map.** A high-`metalness`
   PBR material has nothing to reflect. `render_model.py` supplies a
-  `RoomEnvironment`; a game scene must too, or keep `metalness` ≲ 0.55.
+  `RoomEnvironment`; a game scene must too. The generated material
+  **binarises metalness at 0.5** (`0.49 → 0`, `0.5 → 1`) and clamps albedo
+  channels to 30–240, so there is no "slightly metallic" — a dielectric with
+  a sheen is roughness + clearcoat, not `metalness: 0.4`.
 - **Cylinder end caps sample the procedural field in polar UV**, so a lively
   `colorVariation.amplitude` becomes a radial starburst on every flat cap. Keep
   variation low (~0.03) on any material with a visible cap.

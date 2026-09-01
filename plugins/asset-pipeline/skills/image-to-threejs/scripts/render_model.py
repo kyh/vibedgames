@@ -17,7 +17,9 @@ so two renders of the same spec differ only where the model changed.
         --factory src/model/chest-factory.generated.ts \
         --export createTreasureChestModel --out-dir runs/blockout
 
-Writes <out-dir>/<view>.png plus contact.json (mesh/material/geometry counts).
+Writes <out-dir>/<view>.png plus contact.json (mesh/material/geometry counts,
+socket + pivot names, bounds) and parts.json (the runtime part manifest
+check_part_coverage.py wants).
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ import argparse
 import glob
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -42,6 +45,8 @@ VIEWS: dict[str, tuple[float, float]] = {
     "front": (0.0, 12.0),
     "side": (90.0, 12.0),
     "back": (180.0, 12.0),
+    # Completes the 0/90/180/270 ring upstream's turntable_gate.py requires.
+    "left": (270.0, 12.0),
     "top": (35.0, 65.0),
     # Grazing view for flat props: surface-pass judges normal/height detail
     # under raking light, and "side" is dead edge-on for anything flat.
@@ -62,13 +67,17 @@ import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment
 import { %(export_name)s as factory } from "%(factory_import)s";
 
 const SIZE = %(size)d;
-const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, alpha: true });
 renderer.setPixelRatio(1);
 renderer.setSize(SIZE, SIZE);
 document.body.append(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xb8b8b8);
+// Turntable frames need an alpha channel: upstream's masker gives up on any
+// opaque frame where the subject covers < 3.5%% of the image (an edge-on flat
+// prop always does) but trusts alpha at any coverage.
+if (%(transparent)s) renderer.setClearColor(0x000000, 0);
+else scene.background = new THREE.Color(0xb8b8b8);
 
 const model = factory({ castShadow: false, receiveShadow: false });
 scene.add(model);
@@ -126,10 +135,16 @@ function shoot(azimuthDeg: number, elevationDeg: number) {
 const meshes: string[] = [];
 const materials = new Set<string>();
 const geometries = new Set<string>();
+const parts: { name: string; kind: string; module: string; triangles: number }[] = [];
+let unnamedMeshes = 0;
 model.traverse((o) => {
   const mesh = o as THREE.Mesh;
   if (!mesh.isMesh) return;
   meshes.push(mesh.name || "(unnamed)");
+  const index = mesh.geometry.getIndex();
+  const triangles = Math.floor((index ? index.count : mesh.geometry.getAttribute("position").count) / 3);
+  if (mesh.name) parts.push({ name: mesh.name, kind: "part", module: mesh.name, triangles });
+  else unnamedMeshes++;
   geometries.add(mesh.geometry.uuid);
   for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
     materials.add(m.uuid);
@@ -143,9 +158,34 @@ model.traverse((o) => {
   if (o.name.endsWith("__pivot")) pivots.push(o.name);
 });
 
+// World-space geometry dump in the shape forge's executed-geometry gates read
+// (self_intersection.py, swept_arc_gate.py, geometry_integrity). World space on
+// purpose: a parent transform can fold a mesh that is clean in local space.
+function exportMeshes() {
+  model.updateMatrixWorld(true);
+  const out: { name: string; vertices: number[][]; indices: number[] }[] = [];
+  const v = new THREE.Vector3();
+  model.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const pos = mesh.geometry.getAttribute("position");
+    const vertices: number[][] = [];
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
+      vertices.push([v.x, v.y, v.z]);
+    }
+    const index = mesh.geometry.getIndex();
+    const indices = index ? Array.from(index.array) : Array.from({ length: pos.count }, (_, i) => i);
+    out.push({ name: mesh.name || "(unnamed)", vertices, indices });
+  });
+  return out;
+}
+
 Object.assign(window, {
   __render: {
     shoot,
+    exportMeshes,
+    parts: { model: model.name || "model", parts, unnamedMeshes, integralMeshes: meshes.length },
     contact: {
       meshCount: meshes.length,
       meshNames: meshes,
@@ -184,6 +224,13 @@ const contact = await page.evaluate(() => window.__render.contact);
 // A stripped run overrides every material, so its counts describe the override,
 // not the model — keep its contact separate or run order decides what's recorded.
 fs.writeFileSync(`${outDir}/contact${suffix}.json`, JSON.stringify({ ...contact, problems }, null, 2));
+// Runtime part manifest in the shape forge's check_part_coverage.py --manifest reads.
+const parts = await page.evaluate(() => window.__render.parts);
+fs.writeFileSync(`${outDir}/parts${suffix}.json`, JSON.stringify(parts, null, 2));
+if (%(export_meshes)s) {
+  const meshes = await page.evaluate(() => window.__render.exportMeshes());
+  fs.writeFileSync(`${outDir}/meshes.json`, JSON.stringify({ meshes }));
+}
 console.log(JSON.stringify({ views: Object.keys(views), problems }));
 await browser.close();
 """
@@ -231,7 +278,12 @@ def main() -> int:
     ap.add_argument("--factory", required=True, help="Generated factory, relative to --project")
     ap.add_argument("--export", dest="export_name", required=True, help="Factory export, e.g. createFooModel")
     ap.add_argument("--out-dir", required=True)
-    ap.add_argument("--views", default="three-quarter,front,side", help=f"any of: {','.join(VIEWS)}")
+    ap.add_argument(
+        "--views",
+        default="three-quarter,front,side",
+        help=f"any of: {','.join(VIEWS)}, or az<degrees> for an arbitrary azimuth "
+        "(a 45/135/225/315 ring keeps thin props off their edge-on frames)",
+    )
     ap.add_argument("--size", type=int, default=768)
     ap.add_argument("--keep-harness", action="store_true", help="leave the temp Vite entry in place for debugging")
     ap.add_argument(
@@ -239,6 +291,18 @@ def main() -> int:
         action="store_true",
         help="override every material with a neutral matte and write <view>-stripped.png; "
         "the pass gate requires this as geometry evidence alongside the lit renders",
+    )
+    ap.add_argument(
+        "--transparent",
+        action="store_true",
+        help="render on a transparent backdrop (turntable_gate.py evidence; the default grey "
+        "backdrop is unsegmentable once a thin prop is edge-on)",
+    )
+    ap.add_argument(
+        "--export-meshes",
+        action="store_true",
+        help="also write meshes.json (world-space vertices+indices per mesh) — the input "
+        "forge's self_intersection.py / swept_arc_gate.py / turntable evidence gates read",
     )
     ap.add_argument(
         "--elevation",
@@ -256,9 +320,13 @@ def main() -> int:
 
     chosen = {}
     for name in [v.strip() for v in args.views.split(",") if v.strip()]:
-        if name not in VIEWS:
-            raise SystemExit(f"unknown view '{name}'; choose from {','.join(VIEWS)}")
-        az, el = VIEWS[name]
+        az_match = re.fullmatch(r"az(-?\d+(?:\.\d+)?)", name)
+        if az_match:
+            az, el = float(az_match.group(1)), 12.0
+        elif name in VIEWS:
+            az, el = VIEWS[name]
+        else:
+            raise SystemExit(f"unknown view '{name}'; choose from {','.join(VIEWS)} or az<degrees>")
         chosen[name] = (az, args.elevation if args.elevation is not None else el)
 
     out_dir = Path(args.out_dir).resolve()
@@ -277,6 +345,7 @@ def main() -> int:
             "factory_import": rel,
             "size": args.size,
             "map_stripped": "true" if args.map_stripped else "false",
+            "transparent": "true" if args.transparent else "false",
         }
     )
 
@@ -301,6 +370,7 @@ def main() -> int:
             "url": json.dumps(url),
             "size": args.size,
             "stripped_suffix": json.dumps("-stripped" if args.map_stripped else ""),
+            "export_meshes": "true" if args.export_meshes else "false",
         }
         shot = subprocess.run(
             ["node", "--input-type=module", "-e", script],
