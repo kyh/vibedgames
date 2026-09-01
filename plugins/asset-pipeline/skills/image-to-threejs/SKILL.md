@@ -58,9 +58,16 @@ Run everything through `uv`; system python is often 3.9 and it needs 3.10+.
 I2T=~/.local/share/img2threejs
 run() { uv run --python 3.12 --no-project python "$I2T/$@"; }
 
-# This skill's own directory, used by the commands further down.
-SKILL=.claude/skills/image-to-threejs
+# This skill's own directory, used by the commands further down. Works whether
+# the skill is the project's own or the one linked into ~/.claude/skills.
+SKILL=~/.claude/skills/image-to-threejs
+[ -d .claude/skills/image-to-threejs ] && SKILL=.claude/skills/image-to-threejs
 ```
+
+The target project needs `three`, `vite` **and `playwright`** installed —
+`render_model.py` drives a real browser and resolves playwright by walking up
+from `--project`, so a standalone project outside a monorepo that already has
+it needs its own `pnpm add -D playwright && pnpm exec playwright install chromium`.
 
 **Nothing updates the checkout for you.** This skill is verified against
 upstream **v1.5.1** (`version:` in `$I2T/SKILL.md`). Upstream ships breaking
@@ -215,10 +222,35 @@ nothing). `--allow-nonstrict` emits byte-identical code but cannot take
 throwaway proportion render while intake is still in progress, never to
 credit a pass.
 
+### 3b. Extract the material evidence (before the first factory)
+
+Strict quality blocks codegen until **every** material carries usable
+`referencePbr`, so this is loop work now, not material-pass work. One crop per
+material, taken off the part you think it is:
+
+```bash
+run forge/stage1_intake/analyze_texture.py crops/<mat>.png \
+    --spec spec.json --material-id <mat> --in-place
+run forge/stage1_intake/extract_pbr_evidence.py crops/<mat>.png \
+    --out-dir public/pbr/<mat> --url-prefix /pbr/<mat> \
+    --material-id <mat> --spec spec.json --in-place --allow-low-confidence
+```
+
+`--spec ... --in-place` is what actually writes `referencePbr` onto the
+material; without it the maps land on disk and strict still refuses.
+`--allow-low-confidence` is the normal path, not a shortcut: confidence caps
+around 0.6 on clean crops while the threshold is 0.7, and the script refuses
+to patch the spec otherwise.
+
+A material with no croppable pixels (a groove colour that exists only as 4px
+seam lines) still needs one — stitch the cleanest columns of that zone into a
+synthetic crop and extract from that. Then fix exposure: see the
+double-exposure trap in `references/spec-contract.md` before believing the
+first render.
+
 ### 4. Generate, normalize, render
 
-`$SKILL` below is this skill's directory
-(`plugins/asset-pipeline/skills/image-to-threejs`).
+`$SKILL` below is this skill's directory (set in [Setup](#setup)).
 
 ```bash
 run forge/stage3_build/generate_threejs_factory.py spec.json \

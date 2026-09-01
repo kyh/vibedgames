@@ -114,7 +114,7 @@ pulled is unverified.
 | `stage1_intake/build_detail_inventory.py`    | before spec authoring                | always pass `--out-dir` or crops land beside the reference                                                                                                                                                                                                                                                                                                                 |
 | `stage1_intake/solve_camera_pose.py`         | frontal/ambiguous references         | fills `referenceCamera`                                                                                                                                                                                                                                                                                                                                                    |
 | `stage1_intake/extract_part_color_recipe.py` | per material                         | confidence caps ~0.6 on clean crops while the threshold is 0.7 — `--allow-low-confidence` is the expected path; holed crops leak background color                                                                                                                                                                                                                          |
-| `stage1_intake/extract_pbr_evidence.py`      | before material-pass claims          | `--out-dir public/pbr/<id> --url-prefix /pbr/<id>` serves + rewrites in one step; an unloaded roughnessMap renders chrome                                                                                                                                                                                                                                                  |
+| `stage1_intake/extract_pbr_evidence.py`      | before the FIRST factory _(1.5)_     | needs `--spec spec.json --in-place` or the maps land on disk and strict still refuses; `--allow-low-confidence` is the normal path (confidence caps ~0.6 vs a 0.7 threshold); `--out-dir public/pbr/<id> --url-prefix /pbr/<id>` serves + rewrites in one step; an unloaded roughnessMap renders chrome                                                                    |
 | `stage4_review/check_part_coverage.py`       | before each pass credit              | `--manifest runs/<pass>/parts.json` — `render_model.py` writes it on every run (nothing upstream produces one); `--warn-only` at blockout (meso parts are correctly absent and hard-fail otherwise); `mapsTo` must target component ids — material-id refs validate clean but dangle here; a hand-authored hinge carrier reports as `part-not-specified`, which is correct |
 | `stage4_review/diagnose_render.py`           | before `orchestrate_passes.py check` | see the framing trap below; blockout hard-requires `--map-stripped-render`                                                                                                                                                                                                                                                                                                 |
 
@@ -220,10 +220,11 @@ disagree upstream. Run tier-1 when you want the quantitative silhouette
 evidence (it is the only number that catches a proportion drift eyeballs
 excuse), and say in the review notes which path credited the pass.
 
-## Material-pass: the referencePbr contract
+## The referencePbr contract
 
-`generate_threejs_factory.py` **hard-blocks material-pass emission until EVERY
-material has usable `referencePbr`** — including materials with no croppable
+`generate_threejs_factory.py` **hard-blocks EVERY pass, blockout included,
+until every material has usable `referencePbr`** _(1.5 — under 1.4 this bit
+only at material-pass)_ — including materials with no croppable
 pixels (a groove color that exists only as 4px seam lines). The escape is a
 synthesized crop from real pixels: stitch the darkest/cleanest columns of the
 relevant zone into a crop and extract from that. Undocumented upstream.
