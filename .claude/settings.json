@@ -30,7 +30,6 @@
       "Bash(pnpm * exec wrangler deploy:*)",
       "Bash(pnpm db:push-remote)",
       "Bash(pnpm run db:push-remote)",
-      "Bash(pnpm -F db push)",
       "Bash(pnpm -F db push:remote)",
       "Bash(pnpm -C packages/db exec drizzle-kit push:*)"
     ]
