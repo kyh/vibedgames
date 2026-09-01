@@ -30,7 +30,7 @@
     "@tanstack/react-router-ssr-query": "catalog:",
     "@tanstack/react-start": "catalog:",
     "better-auth": "^1.7.2",
-    "lucide-react": "^1.37.0",
+    "lucide-react": "^1.38.0",
     "motion": "^13.1.1",
     "react": "catalog:",
     "react-dom": "catalog:",
