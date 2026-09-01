@@ -107,6 +107,16 @@ Schema workflow: edit `packages/db/src/drizzle-schema*.ts` → `pnpm db:push` (l
 
 Re-run `pnpm dogfood` after adding or removing a skill, then commit the symlink change in `.claude/skills/`.
 
+### Using a skill outside this repo
+
+Skill docs resolve their scripts through a `SKILLS` (or `SKILL`) variable that prefers the project's own `.claude/skills/` and falls back to `~/.claude/skills/`. The fallback only resolves for a skill you have deliberately linked there — one per skill, per machine, exactly like the `vg` `npm link`:
+
+```bash
+ln -s "$PWD/plugins/<plugin>/skills/<name>" ~/.claude/skills/<name>
+```
+
+Linked so far: `image-to-threejs`, `generate`. Do **not** bulk-link all 35 — `~/.claude/skills/` is the global namespace shared with `~/.agents/skills`, and `skill-creator` already exists there as a different skill that a link would shadow. Scripts still need their own runtime deps in the target project (`image-to-threejs` also wants `three`, `vite` and `playwright` there).
+
 ## Claude Code on the web (remote sessions)
 
 A fresh remote clone resolves `.claude/skills/` automatically (the symlinks are committed), but `node_modules` and the `vg` CLI are not present and `vg` is not on PATH. Most sessions only need `pnpm install`; for end-to-end CLI testing (`vg deploy`/`generate`/`whoami`) run `pnpm install && pnpm dogfood` (see Dogfooding above). To reach the backend you also need:

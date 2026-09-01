@@ -35,25 +35,31 @@ Skip for: photographs / continuous-tone / vector art (no grid to recover); alrea
 Nothing to install — the scripts import a bundled `scripts/_lib/asset-tools.mjs` and need only Node:
 
 ```bash
-node .claude/skills/pixel-snapper/scripts/pixel-snapper.mjs input.png output.png --k-colors 256
+# Skills root: this project's own copy, else the one linked into ~/.claude/skills.
+SKILLS=~/.claude/skills
+[ -d .claude/skills/pixel-snapper ] && SKILLS=.claude/skills
+```
+
+```bash
+node $SKILLS/pixel-snapper/scripts/pixel-snapper.mjs input.png output.png --k-colors 256
 ```
 
 After `chmod +x`, the shebang `#!/usr/bin/env node` lets you call it directly:
 
 ```bash
-.claude/skills/pixel-snapper/scripts/pixel-snapper.mjs input.png output.png --k-colors 256
+$SKILLS/pixel-snapper/scripts/pixel-snapper.mjs input.png output.png --k-colors 256
 ```
 
 Output is one snapped PNG at the discovered native resolution. For inspection, follow up with an integer nearest-neighbour upscale — nearest at an integer factor keeps every pixel a hard square, so you judge the recovered art rather than a resampler's smoothing:
 
 ```bash
-node .claude/skills/pixel-snapper/scripts/image-util.mjs upscale snapped.png snapped-x8.png --factor 8
+node $SKILLS/pixel-snapper/scripts/image-util.mjs upscale snapped.png snapped-x8.png --factor 8
 ```
 
 For a known-layout spritesheet, snap every frame to one shared pixel grid:
 
 ```bash
-node .claude/skills/pixel-snapper/scripts/pixel-snapper-sheet.mjs \
+node $SKILLS/pixel-snapper/scripts/pixel-snapper-sheet.mjs \
   sheet.png sheet-snapped.png --cols 6 --rows 1 --k-colors 256
 ```
 
