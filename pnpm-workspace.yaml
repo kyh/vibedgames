@@ -57,12 +57,21 @@ overrides:
   react-hook-form: "^7.72.1"
   # tiged pins tar to ^6.1.11, which resolves to 6.2.1 — the newest 6.x, and still
   # inside a critical (decompression DoS) plus six high advisories, every one of
-  # them fixed only in 7.5.x. `vg new` feeds tiged a tarball fetched from whatever
-  # repo the user names, so those extraction bugs sit on attacker-supplied input.
-  # apps/cli already depends on tar ^7.5.22 directly, so this dedupes tiged onto
-  # the copy this package ships rather than adding a major. Drop it when tiged
-  # ships a 7.x-compatible release.
-  tar: "^7.5.22"
+  # them fixed only in 7.5.21+. `vg new` feeds tiged a tarball fetched from
+  # whatever repo the user names, so those extraction bugs sit on
+  # attacker-supplied input.
+  #
+  # SCOPED TO tiged, deliberately. An unscoped `tar` override would force any
+  # future dependency off its own declared 6.x range too, silently and
+  # workspace-wide; this forces exactly the one edge the advisories are about.
+  #
+  # WHAT THIS DOES NOT COVER: an override is a consumer-side resolution
+  # directive, so it governs THIS workspace — CI, and anyone building from
+  # source. It is NOT published with the `vibedgames` package, whose manifest
+  # still declares `tiged: ^2.12.8`. A user who installs the CLI from npm still
+  # gets tar 6.2.1 nested under tiged. Closing that needs a change to what the
+  # package depends on, not to how this repo resolves it — see the PR.
+  tiged>tar: "^7.5.22"
 
 # apps/games/tests/worker.mjs drives Miniflare through the top-level single-worker
 # options that 5.x replaces with a per-worker `config` object. npm's `latest` tag
