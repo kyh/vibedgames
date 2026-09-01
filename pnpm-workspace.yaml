@@ -55,6 +55,14 @@ allowBuilds:
 
 overrides:
   react-hook-form: "^7.72.1"
+  # tiged pins tar to ^6.1.11, which resolves to 6.2.1 — the newest 6.x, and still
+  # inside a critical (decompression DoS) plus six high advisories, every one of
+  # them fixed only in 7.5.x. `vg new` feeds tiged a tarball fetched from whatever
+  # repo the user names, so those extraction bugs sit on attacker-supplied input.
+  # apps/cli already depends on tar ^7.5.22 directly, so this dedupes tiged onto
+  # the copy this package ships rather than adding a major. Drop it when tiged
+  # ships a 7.x-compatible release.
+  tar: "^7.5.22"
 
 # apps/games/tests/worker.mjs drives Miniflare through the top-level single-worker
 # options that 5.x replaces with a per-worker `config` object. npm's `latest` tag
