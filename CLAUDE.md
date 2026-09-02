@@ -109,7 +109,7 @@ Re-run `pnpm dogfood` after adding or removing a skill, then commit the symlink 
 
 ### Using a skill outside this repo
 
-Skill docs resolve their scripts through a `SKILLS` (or `SKILL`) variable that prefers the project's own `.claude/skills/` and falls back to `~/.claude/skills/`. The fallback only resolves for a skill you have deliberately linked there — one per skill, per machine, exactly like the `vg` `npm link`:
+Skill docs resolve their scripts through a `SKILLS` (or `SKILL`) variable probed in order: `.agents/skills`, `.claude/skills`, `~/.agents/skills`, `~/.claude/skills` — every location `skills add` (what `vg init` runs) writes, project or global, any agent. In this repo the project probe hits the committed `.claude/skills/` symlinks; the home fallbacks only resolve for a skill you have deliberately linked there — one per skill, per machine, exactly like the `vg` `npm link`:
 
 ```bash
 ln -s "$PWD/plugins/<plugin>/skills/<name>" ~/.claude/skills/<name>

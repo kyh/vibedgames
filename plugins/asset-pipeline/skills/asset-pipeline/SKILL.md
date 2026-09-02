@@ -135,9 +135,10 @@ Verify every PNG on disk appears in the manifest and vice versa.
 Relative paths resolve through `meta.root`, in both Lua and JSON manifests.
 
 ```bash
-# Skills root: this project's own copy, else the one linked into ~/.claude/skills.
-SKILLS=~/.claude/skills
-[ -d .claude/skills/asset-pipeline ] && SKILLS=.claude/skills
+# Skills root: wherever `skills add` put asset-pipeline (project or global, any agent).
+for d in .agents/skills .claude/skills ~/.agents/skills ~/.claude/skills; do
+  [ -d "$d/asset-pipeline" ] && SKILLS=$d && break
+done
 ```
 
 ```bash

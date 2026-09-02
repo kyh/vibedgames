@@ -24,9 +24,10 @@ An `.ase`/`.aseprite` file is a structured timeline of layered pixel (or tilemap
 Turn a file into JSON — needs nothing but `node`:
 
 ```bash
-# Skills root: this project's own copy, else the one linked into ~/.claude/skills.
-SKILLS=~/.claude/skills
-[ -d .claude/skills/aseprite ] && SKILLS=.claude/skills
+# Skills root: wherever `skills add` put aseprite (project or global, any agent).
+for d in .agents/skills .claude/skills ~/.agents/skills ~/.claude/skills; do
+  [ -d "$d/aseprite" ] && SKILLS=$d && break
+done
 ```
 
 ```bash

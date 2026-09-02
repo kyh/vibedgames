@@ -123,9 +123,10 @@ See references/composability.md for designing skills that work well together.
 ### 4. Initialize the Skill
 
 ```bash
-# Skills root: this project's own copy, else the one linked into ~/.claude/skills.
-SKILLS=~/.claude/skills
-[ -d .claude/skills/skill-creator ] && SKILLS=.claude/skills
+# Skills root: wherever `skills add` put skill-creator (project or global, any agent).
+for d in .agents/skills .claude/skills ~/.agents/skills ~/.claude/skills; do
+  [ -d "$d/skill-creator" ] && SKILLS=$d && break
+done
 ```
 
 ```bash

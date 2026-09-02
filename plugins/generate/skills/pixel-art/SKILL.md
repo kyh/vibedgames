@@ -271,9 +271,10 @@ Then run it against `$VIDEO_URL` with your chosen frame rate and window,
 download the frames into one directory, and pack them locally:
 
 ```bash
-# Skills root: this project's own copy, else the one linked into ~/.claude/skills.
-SKILLS=~/.claude/skills
-[ -d .claude/skills/pixel-snapper ] && SKILLS=.claude/skills
+# Skills root: wherever `skills add` put pixel-snapper (project or global, any agent).
+for d in .agents/skills .claude/skills ~/.agents/skills ~/.claude/skills; do
+  [ -d "$d/pixel-snapper" ] && SKILLS=$d && break
+done
 ```
 
 ```bash

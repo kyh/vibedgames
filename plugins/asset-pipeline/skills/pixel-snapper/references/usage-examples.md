@@ -3,9 +3,10 @@
 Concrete invocation patterns. Run them from the project root.
 
 ```bash
-# Skills root: this project's own copy, else the one linked into ~/.claude/skills.
-SKILLS=~/.claude/skills
-[ -d .claude/skills/pixel-snapper ] && SKILLS=.claude/skills
+# Skills root: wherever `skills add` put pixel-snapper (project or global, any agent).
+for d in .agents/skills .claude/skills ~/.agents/skills ~/.claude/skills; do
+  [ -d "$d/pixel-snapper" ] && SKILLS=$d && break
+done
 ```
 
 ## Single Image — Default (k=16)

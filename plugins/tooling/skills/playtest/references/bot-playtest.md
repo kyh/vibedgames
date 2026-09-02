@@ -37,9 +37,10 @@ Rule: JSON-serializable primitives only, never raw engine objects — `vg playte
 Run from the project root:
 
 ```bash
-# Skills root: this project's own copy, else the one linked into ~/.claude/skills.
-SKILLS=~/.claude/skills
-[ -d .claude/skills/playtest ] && SKILLS=.claude/skills
+# Skills root: wherever `skills add` put playtest (project or global, any agent).
+for d in .agents/skills .claude/skills ~/.agents/skills ~/.claude/skills; do
+  [ -d "$d/playtest" ] && SKILLS=$d && break
+done
 ```
 
 ```sh

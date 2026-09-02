@@ -23,9 +23,10 @@ You are an agent. All scripts run with `node <script>` — no Python, no `uv`, a
 nothing to install: each imports a bundled, dependency-free `scripts/_lib/`.
 
 ```bash
-# Skills root: this project's own copy, else the one linked into ~/.claude/skills.
-SKILLS=~/.claude/skills
-[ -d .claude/skills/animated-spritesheets ] && SKILLS=.claude/skills
+# Skills root: wherever `skills add` put animated-spritesheets (project or global, any agent).
+for d in .agents/skills .claude/skills ~/.agents/skills ~/.claude/skills; do
+  [ -d "$d/animated-spritesheets" ] && SKILLS=$d && break
+done
 ```
 
 ```bash

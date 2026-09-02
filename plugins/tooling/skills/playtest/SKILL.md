@@ -86,9 +86,10 @@ Adding this contract to a game is a prerequisite, not an optional extra. Without
 A smoke check proves the game loads; a bot playtest proves it _plays_. It drives real held input and measures **progression**:
 
 ```bash
-# Skills root: this project's own copy, else the one linked into ~/.claude/skills.
-SKILLS=~/.claude/skills
-[ -d .claude/skills/playtest ] && SKILLS=.claude/skills
+# Skills root: wherever `skills add` put playtest (project or global, any agent).
+for d in .agents/skills .claude/skills ~/.agents/skills ~/.claude/skills; do
+  [ -d "$d/playtest" ] && SKILLS=$d && break
+done
 ```
 
 ```sh

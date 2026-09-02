@@ -58,10 +58,11 @@ Run everything through `uv`; system python is often 3.9 and it needs 3.10+.
 I2T=~/.local/share/img2threejs
 run() { uv run --python 3.12 --no-project python "$I2T/$@"; }
 
-# This skill's own directory, used by the commands further down. Works whether
-# the skill is the project's own or the one linked into ~/.claude/skills.
-SKILL=~/.claude/skills/image-to-threejs
-[ -d .claude/skills/image-to-threejs ] && SKILL=.claude/skills/image-to-threejs
+# This skill's own directory, used by the commands further down: wherever
+# `skills add` put it (project or global, any agent).
+for d in .agents/skills .claude/skills ~/.agents/skills ~/.claude/skills; do
+  [ -d "$d/image-to-threejs" ] && SKILL=$d/image-to-threejs && break
+done
 ```
 
 The target project needs `three`, `vite` **and `playwright`** installed —
