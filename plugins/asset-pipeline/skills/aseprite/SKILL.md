@@ -24,20 +24,22 @@ An `.ase`/`.aseprite` file is a structured timeline of layered pixel (or tilemap
 Turn a file into JSON — needs nothing but `node`:
 
 ```bash
-# Skills root: wherever `skills add` put aseprite (project or global, any agent).
-for d in .agents/skills .claude/skills ~/.agents/skills ~/.claude/skills; do
-  [ -d "$d/aseprite" ] && SKILLS=$d && break
+# This skill's directory. Claude Code substitutes CLAUDE_SKILL_DIR (project, global
+# or plugin install); other agents fall back to wherever `skills add` put it.
+SKILL="${CLAUDE_SKILL_DIR}"
+[ -d "$SKILL" ] || for d in .agents/skills .claude/skills ~/.agents/skills ~/.claude/skills; do
+  [ -d "$d/aseprite" ] && SKILL=$d/aseprite && break
 done
 ```
 
 ```bash
-node $SKILLS/aseprite/scripts/aseprite-inspect.mjs path/to/sprite.aseprite --json
+node $SKILL/scripts/aseprite-inspect.mjs path/to/sprite.aseprite --json
 ```
 
 Opt into pixel-derived inference (e.g. tight bounds):
 
 ```bash
-node $SKILLS/aseprite/scripts/aseprite-inspect.mjs path/to/sprite.aseprite --json --decode-cels
+node $SKILL/scripts/aseprite-inspect.mjs path/to/sprite.aseprite --json --decode-cels
 ```
 
 Add `--pretty` to indent the JSON. Decoding is capped by `--max-decompress-mib`

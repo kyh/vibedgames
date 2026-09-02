@@ -123,14 +123,16 @@ See references/composability.md for designing skills that work well together.
 ### 4. Initialize the Skill
 
 ```bash
-# Skills root: wherever `skills add` put skill-creator (project or global, any agent).
-for d in .agents/skills .claude/skills ~/.agents/skills ~/.claude/skills; do
-  [ -d "$d/skill-creator" ] && SKILLS=$d && break
+# This skill's directory. Claude Code substitutes CLAUDE_SKILL_DIR (project, global
+# or plugin install); other agents fall back to wherever `skills add` put it.
+SKILL="${CLAUDE_SKILL_DIR}"
+[ -d "$SKILL" ] || for d in .agents/skills .claude/skills ~/.agents/skills ~/.claude/skills; do
+  [ -d "$d/skill-creator" ] && SKILL=$d/skill-creator && break
 done
 ```
 
 ```bash
-node $SKILLS/skill-creator/scripts/init-skill.mjs <skill-name> --path <output-directory>
+node $SKILL/scripts/init-skill.mjs <skill-name> --path <output-directory>
 ```
 
 Creates skill directory with SKILL.md template and resource directories.
@@ -240,7 +242,7 @@ Delete unused example files from initialization.
 ### 6. Analyze Skill Quality
 
 ```bash
-node $SKILLS/skill-creator/scripts/analyze-skill.mjs <path/to/skill>
+node $SKILL/scripts/analyze-skill.mjs <path/to/skill>
 ```
 
 Scores your skill on:
@@ -256,7 +258,7 @@ Scores your skill on:
 If score is low, run upgrade suggestions:
 
 ```bash
-node $SKILLS/skill-creator/scripts/upgrade-skill.mjs <path/to/skill>
+node $SKILL/scripts/upgrade-skill.mjs <path/to/skill>
 ```
 
 Provides specific improvements with examples.
@@ -264,7 +266,7 @@ Provides specific improvements with examples.
 ### 7. Package the Skill
 
 ```bash
-node $SKILLS/skill-creator/scripts/package-skill.mjs <path/to/skill>
+node $SKILL/scripts/package-skill.mjs <path/to/skill>
 ```
 
 Validates and packages into `.skill` file for distribution.
@@ -391,7 +393,7 @@ These examples demonstrate the transformation pattern from basic to effective.
 Analyzes skill quality and scores on key dimensions.
 
 ```bash
-node $SKILLS/skill-creator/scripts/analyze-skill.mjs <path/to/skill>
+node $SKILL/scripts/analyze-skill.mjs <path/to/skill>
 ```
 
 **Output**:
@@ -413,7 +415,7 @@ node $SKILLS/skill-creator/scripts/analyze-skill.mjs <path/to/skill>
 Generates specific improvement suggestions.
 
 ```bash
-node $SKILLS/skill-creator/scripts/upgrade-skill.mjs <path/to/skill>
+node $SKILL/scripts/upgrade-skill.mjs <path/to/skill>
 ```
 
 **Output**:
@@ -433,7 +435,7 @@ node $SKILLS/skill-creator/scripts/upgrade-skill.mjs <path/to/skill>
 Validates YAML frontmatter and basic structure.
 
 ```bash
-node $SKILLS/skill-creator/scripts/quick-validate.mjs <path/to/skill>
+node $SKILL/scripts/quick-validate.mjs <path/to/skill>
 ```
 
 **Use when**:

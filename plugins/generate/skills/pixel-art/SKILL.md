@@ -271,20 +271,22 @@ Then run it against `$VIDEO_URL` with your chosen frame rate and window,
 download the frames into one directory, and pack them locally:
 
 ```bash
-# Skills root: wherever `skills add` put pixel-snapper (project or global, any agent).
+# These scripts ship with the pixel-snapper and animated-spritesheets skills.
+# Load each skill to get its resolved directory (SNAP / SHEETS), or find them
+# where `skills add` put them:
 for d in .agents/skills .claude/skills ~/.agents/skills ~/.claude/skills; do
-  [ -d "$d/pixel-snapper" ] && SKILLS=$d && break
+  [ -d "$d/pixel-snapper" ] && SNAP=$d/pixel-snapper && SHEETS=$d/animated-spritesheets && break
 done
 ```
 
 ```bash
 # scale each frame to the cell size (Lanczos, same filter ffmpeg would use)
 for f in ./fx-frames/frame-*.png; do
-  node $SKILLS/pixel-snapper/scripts/image-util.mjs resize "$f" "$f" --size 128x128
+  node $SNAP/scripts/image-util.mjs resize "$f" "$f" --size 128x128
 done
 
 # tile into a single-row strip + a manifest with the frame box
-node $SKILLS/animated-spritesheets/scripts/pack-spritesheet.mjs \
+node $SHEETS/scripts/pack-spritesheet.mjs \
   --input-dir ./fx-frames --out ./game-assets/<slug>/fx/explosion.png \
   --fps 32 --action explode --json-out ./game-assets/<slug>/fx/explosion.json
 ```

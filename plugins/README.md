@@ -6,8 +6,10 @@ The game studio, as skills. Six Claude Code plugins, listed in
 
 These are the product, not tooling for this repo: `vg init` installs them into a
 user's project (for Claude Code, Cursor and Codex), and `vg update` refreshes
-them. An agent that has them can do what a studio does — design, scaffold,
-generate art, add multiplayer, tune feel, ship.
+them. Claude Code users can also install straight from the marketplace:
+`claude plugin marketplace add kyh/vibedgames`, then
+`claude plugin install <plugin>@vibedgames`. An agent that has them can do what
+a studio does — design, scaffold, generate art, add multiplayer, tune feel, ship.
 
 | Plugin                               | Skills                                                                                                                                                                   |
 | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

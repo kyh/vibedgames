@@ -58,9 +58,11 @@ Run everything through `uv`; system python is often 3.9 and it needs 3.10+.
 I2T=~/.local/share/img2threejs
 run() { uv run --python 3.12 --no-project python "$I2T/$@"; }
 
-# This skill's own directory, used by the commands further down: wherever
-# `skills add` put it (project or global, any agent).
-for d in .agents/skills .claude/skills ~/.agents/skills ~/.claude/skills; do
+# This skill's own directory, used by the commands further down. Claude Code
+# substitutes CLAUDE_SKILL_DIR (project, global or plugin install); other agents
+# fall back to wherever `skills add` put it.
+SKILL="${CLAUDE_SKILL_DIR}"
+[ -d "$SKILL" ] || for d in .agents/skills .claude/skills ~/.agents/skills ~/.claude/skills; do
   [ -d "$d/image-to-threejs" ] && SKILL=$d/image-to-threejs && break
 done
 ```

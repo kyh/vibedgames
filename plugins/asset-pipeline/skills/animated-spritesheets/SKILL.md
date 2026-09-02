@@ -23,23 +23,25 @@ You are an agent. All scripts run with `node <script>` — no Python, no `uv`, a
 nothing to install: each imports a bundled, dependency-free `scripts/_lib/`.
 
 ```bash
-# Skills root: wherever `skills add` put animated-spritesheets (project or global, any agent).
-for d in .agents/skills .claude/skills ~/.agents/skills ~/.claude/skills; do
-  [ -d "$d/animated-spritesheets" ] && SKILLS=$d && break
+# This skill's directory. Claude Code substitutes CLAUDE_SKILL_DIR (project, global
+# or plugin install); other agents fall back to wherever `skills add` put it.
+SKILL="${CLAUDE_SKILL_DIR}"
+[ -d "$SKILL" ] || for d in .agents/skills .claude/skills ~/.agents/skills ~/.claude/skills; do
+  [ -d "$d/animated-spritesheets" ] && SKILL=$d/animated-spritesheets && break
 done
 ```
 
 ```bash
 # 0. (once) An approved character anchor PNG on a flat chroma matte (the identity
 #    reference). Make it via the pixel-art skill, or:
-node $SKILLS/animated-spritesheets/scripts/sprite-prompt.mjs anchor --direction e --chroma '#00FF00'   # -> vg generate run
+node $SKILL/scripts/sprite-prompt.mjs anchor --direction e --chroma '#00FF00'   # -> vg generate run
 
 # 1. ASK what the action needs (frame count / fps)
-node $SKILLS/animated-spritesheets/scripts/sprite-presets.mjs --action attack --json
+node $SKILL/scripts/sprite-presets.mjs --action attack --json
 
 # 2. PROMPT — get the labeled pose-board prompt (per-frame semantic poses on an
 #    implied 4x3 grid, identical-character + no-shadow litany, the craft):
-node $SKILLS/animated-spritesheets/scripts/sprite-prompt.mjs pose-board --action attack --direction e --frames 8 \
+node $SKILL/scripts/sprite-prompt.mjs pose-board --action attack --direction e --frames 8 \
   --frame-prompt-style specific --pose-board standard --style lobit-v1 --chroma '#00FF00'
 
 # 3. GENERATE the pose board with the anchor as the identity reference. The board
@@ -53,7 +55,7 @@ vg generate run fal-ai/nano-banana-pro/edit --prompt "<from step 2>" \
 # 4. PROCESS into runtime frames with ONE command. Default = naive uniform slice
 #    (the robust path). Add --recover to re-center a pose that drifted off its cell
 #    (it falls back to the uniform slice if it can't, so passing it is always safe):
-node $SKILLS/animated-spritesheets/scripts/process-sheet.mjs attack-board.png --action attack --rows 3 --cols 4 --frames 8 --out-dir runs/hero-attack
+node $SKILL/scripts/process-sheet.mjs attack-board.png --action attack --rows 3 --cols 4 --frames 8 --out-dir runs/hero-attack
 ```
 
 > **`--download x.png` does not make the file a PNG.** The model chooses the

@@ -135,17 +135,19 @@ Verify every PNG on disk appears in the manifest and vice versa.
 Relative paths resolve through `meta.root`, in both Lua and JSON manifests.
 
 ```bash
-# Skills root: wherever `skills add` put asset-pipeline (project or global, any agent).
-for d in .agents/skills .claude/skills ~/.agents/skills ~/.claude/skills; do
-  [ -d "$d/asset-pipeline" ] && SKILLS=$d && break
+# This skill's directory. Claude Code substitutes CLAUDE_SKILL_DIR (project, global
+# or plugin install); other agents fall back to wherever `skills add` put it.
+SKILL="${CLAUDE_SKILL_DIR}"
+[ -d "$SKILL" ] || for d in .agents/skills .claude/skills ~/.agents/skills ~/.claude/skills; do
+  [ -d "$d/asset-pipeline" ] && SKILL=$d/asset-pipeline && break
 done
 ```
 
 ```bash
-node $SKILLS/asset-pipeline/scripts/asset-manifest-check.mjs
-node $SKILLS/asset-pipeline/scripts/asset-manifest-check.mjs --manifest path/to/assets_index.lua --root assets
-node $SKILLS/asset-pipeline/scripts/asset-manifest-check.mjs --json tmp/coverage.json
-node $SKILLS/asset-pipeline/scripts/asset-manifest-check.mjs --strict   # exit 1 on any mismatch
+node $SKILL/scripts/asset-manifest-check.mjs
+node $SKILL/scripts/asset-manifest-check.mjs --manifest path/to/assets_index.lua --root assets
+node $SKILL/scripts/asset-manifest-check.mjs --json tmp/coverage.json
+node $SKILL/scripts/asset-manifest-check.mjs --strict   # exit 1 on any mismatch
 ```
 
 Pass `--strict` from a script or CI: without it the command reports the
@@ -156,7 +158,7 @@ mismatch and still exits 0, which reads as a pass.
 Export `assets_index.lua` (Love2D-style) to a portable `assets_index.json`. By default it folds `meta.root` into every `path`, rewrites them relative to `--out`'s folder, and sets `meta.root` to `"."` — so the JSON works from wherever it lands. Write it next to the assets it describes if you want the result copyable/zippable; exporting to a `tmp/` sibling gives correct-but-`../`-prefixed paths. `--keep-paths` leaves the manifest's own paths and root untouched.
 
 ```bash
-node $SKILLS/asset-pipeline/scripts/asset-manifest-export-json.mjs --manifest path/to/assets_index.lua --out path/to/assets_index.json
+node $SKILL/scripts/asset-manifest-export-json.mjs --manifest path/to/assets_index.lua --out path/to/assets_index.json
 ```
 
 ### Sprite-Sheet Probe (`asset-sheet-probe.mjs`)
@@ -164,8 +166,8 @@ node $SKILLS/asset-pipeline/scripts/asset-manifest-export-json.mjs --manifest pa
 Find non-empty cells in a sheet grid. Essential for building `frames` arrays.
 
 ```bash
-node $SKILLS/asset-pipeline/scripts/asset-sheet-probe.mjs image.png --frame 32x32
-node $SKILLS/asset-pipeline/scripts/asset-sheet-probe.mjs folder/ --frame 16x16 --list --json tmp/probe.json
+node $SKILL/scripts/asset-sheet-probe.mjs image.png --frame 32x32
+node $SKILL/scripts/asset-sheet-probe.mjs folder/ --frame 16x16 --list --json tmp/probe.json
 ```
 
 ### Sprite Baseline Audit/Fix (`asset-sprite-baseline.mjs`)
@@ -174,20 +176,20 @@ Audit visible alpha bounds inside a sheet grid and optionally write baseline-cor
 
 ```bash
 # Report per-frame alpha bounds, visible bottom pixel, required shift.
-node $SKILLS/asset-pipeline/scripts/asset-sprite-baseline.mjs public/assets/kaede --frame 256x256 --json tmp/kaede-baselines.json
+node $SKILL/scripts/asset-sprite-baseline.mjs public/assets/kaede --frame 256x256 --json tmp/kaede-baselines.json
 
 # Write fixed copies whose visible feet land on y=255.
-node $SKILLS/asset-pipeline/scripts/asset-sprite-baseline.mjs public/assets/kaede --frame 256x256 --target-bottom 255 --out-dir tmp/kaede-baseline-fixed
+node $SKILL/scripts/asset-sprite-baseline.mjs public/assets/kaede --frame 256x256 --target-bottom 255 --out-dir tmp/kaede-baseline-fixed
 
 # Also normalize horizontal center (for idle/standing sources).
-node $SKILLS/asset-pipeline/scripts/asset-sprite-baseline.mjs public/assets/kaede/idle-n.png --frame 256x256 --target-bottom 255 --target-center-x 128 --out tmp/idle-n-fixed.png
+node $SKILL/scripts/asset-sprite-baseline.mjs public/assets/kaede/idle-n.png --frame 256x256 --target-bottom 255 --target-center-x 128 --out tmp/idle-n-fixed.png
 ```
 
 ### PNG Dimension Listing (`asset-sizes.mjs`)
 
 ```bash
-node $SKILLS/asset-pipeline/scripts/asset-sizes.mjs
-node $SKILLS/asset-pipeline/scripts/asset-sizes.mjs --root assets/ --json tmp/sizes.json
+node $SKILL/scripts/asset-sizes.mjs
+node $SKILL/scripts/asset-sizes.mjs --root assets/ --json tmp/sizes.json
 ```
 
 ### Tileset/Tilemap Exports and Editor (`asset-tilemap-editor.mjs`)
@@ -198,20 +200,20 @@ Start with the self-test map: it places every non-empty tile at its own coordina
 
 ```bash
 # Grid-overlay PNG for a tileset
-node $SKILLS/asset-pipeline/scripts/asset-tilemap-editor.mjs \
+node $SKILL/scripts/asset-tilemap-editor.mjs \
   --manifest path/to/assets_index.json --tileset <tileset_name> \
   --export-tileset-grid tmp/tileset_grid.png --label-ids --scale 6 --trim
 
 # Self-test tilemap (all non-empty tiles in-place) and render it
-node $SKILLS/asset-pipeline/scripts/asset-tilemap-editor.mjs \
+node $SKILL/scripts/asset-tilemap-editor.mjs \
   --manifest path/to/assets_index.json --tileset <tileset_name> \
   --make-selftest-map tmp/selftest.json
-node $SKILLS/asset-pipeline/scripts/asset-tilemap-editor.mjs \
+node $SKILL/scripts/asset-tilemap-editor.mjs \
   --manifest path/to/assets_index.json --map tmp/selftest.json \
   --export-map-render tmp/selftest.png --scale 6 --trim
 
 # Background color + fill rectangles behind tiles (concept mockups)
-node $SKILLS/asset-pipeline/scripts/asset-tilemap-editor.mjs \
+node $SKILL/scripts/asset-tilemap-editor.mjs \
   --manifest path/to/assets_index.json --map tmp/selftest.json \
   --export-map-render tmp/selftest_bg.png --scale 6 --bg '#77cfd8' --fill-rect '0,40,24,6,#12a7d5'
 ```
@@ -225,7 +227,7 @@ WASD moves the palette selection, `[`/`]` switch tileset, `+`/`-` zoom, `G`
 toggles the grid, `Ctrl-S`/`F5` saves and `Ctrl-L`/`F9` reloads.
 
 ```bash
-node $SKILLS/asset-pipeline/scripts/asset-tilemap-editor.mjs \
+node $SKILL/scripts/asset-tilemap-editor.mjs \
   --manifest path/to/assets_index.json --map maps/level1.json --edit
 ```
 

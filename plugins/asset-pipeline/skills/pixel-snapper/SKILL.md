@@ -35,32 +35,34 @@ Skip for: photographs / continuous-tone / vector art (no grid to recover); alrea
 Nothing to install — the scripts import a bundled `scripts/_lib/asset-tools.mjs` and need only Node:
 
 ```bash
-# Skills root: wherever `skills add` put pixel-snapper (project or global, any agent).
-for d in .agents/skills .claude/skills ~/.agents/skills ~/.claude/skills; do
-  [ -d "$d/pixel-snapper" ] && SKILLS=$d && break
+# This skill's directory. Claude Code substitutes CLAUDE_SKILL_DIR (project, global
+# or plugin install); other agents fall back to wherever `skills add` put it.
+SKILL="${CLAUDE_SKILL_DIR}"
+[ -d "$SKILL" ] || for d in .agents/skills .claude/skills ~/.agents/skills ~/.claude/skills; do
+  [ -d "$d/pixel-snapper" ] && SKILL=$d/pixel-snapper && break
 done
 ```
 
 ```bash
-node $SKILLS/pixel-snapper/scripts/pixel-snapper.mjs input.png output.png --k-colors 256
+node $SKILL/scripts/pixel-snapper.mjs input.png output.png --k-colors 256
 ```
 
 After `chmod +x`, the shebang `#!/usr/bin/env node` lets you call it directly:
 
 ```bash
-$SKILLS/pixel-snapper/scripts/pixel-snapper.mjs input.png output.png --k-colors 256
+$SKILL/scripts/pixel-snapper.mjs input.png output.png --k-colors 256
 ```
 
 Output is one snapped PNG at the discovered native resolution. For inspection, follow up with an integer nearest-neighbour upscale — nearest at an integer factor keeps every pixel a hard square, so you judge the recovered art rather than a resampler's smoothing:
 
 ```bash
-node $SKILLS/pixel-snapper/scripts/image-util.mjs upscale snapped.png snapped-x8.png --factor 8
+node $SKILL/scripts/image-util.mjs upscale snapped.png snapped-x8.png --factor 8
 ```
 
 For a known-layout spritesheet, snap every frame to one shared pixel grid:
 
 ```bash
-node $SKILLS/pixel-snapper/scripts/pixel-snapper-sheet.mjs \
+node $SKILL/scripts/pixel-snapper-sheet.mjs \
   sheet.png sheet-snapped.png --cols 6 --rows 1 --k-colors 256
 ```
 

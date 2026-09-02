@@ -86,15 +86,17 @@ Adding this contract to a game is a prerequisite, not an optional extra. Without
 A smoke check proves the game loads; a bot playtest proves it _plays_. It drives real held input and measures **progression**:
 
 ```bash
-# Skills root: wherever `skills add` put playtest (project or global, any agent).
-for d in .agents/skills .claude/skills ~/.agents/skills ~/.claude/skills; do
-  [ -d "$d/playtest" ] && SKILLS=$d && break
+# This skill's directory. Claude Code substitutes CLAUDE_SKILL_DIR (project, global
+# or plugin install); other agents fall back to wherever `skills add` put it.
+SKILL="${CLAUDE_SKILL_DIR}"
+[ -d "$SKILL" ] || for d in .agents/skills .claude/skills ~/.agents/skills ~/.claude/skills; do
+  [ -d "$d/playtest" ] && SKILL=$d/playtest && break
 done
 ```
 
 ```sh
 # from the project root
-node $SKILLS/playtest/scripts/bot-playtest.mjs --url http://localhost:5173 --seed 12345
+node $SKILL/scripts/bot-playtest.mjs --url http://localhost:5173 --seed 12345
 ```
 
 The bundled script (zero dependencies — just Node and `vg`) drives a scripted sweep of held keys and pointer moves, samples diagnostics **during** each step, and prints a JSON report. It measures four things: the loop survived (`framesAdvanced`), input reaches the player (`distanceTravelled`), the objective is reachable (`scoreAfter` / `stepOfFirstScore`), and the player never wedged (`longestStuckRun`) — plus zero console and page errors. Exit `0` means it plays, `1` means it doesn't and the report names which check failed, `2` means the harness itself broke.
