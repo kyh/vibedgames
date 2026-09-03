@@ -9,15 +9,21 @@
 //     with `identity` still reaches the worker as gzip-capable. Whether a
 //     non-gzip client gets a plain body is negotiated by Cloudflare's edge and
 //     is not observable from inside Miniflare.
-//   * Miniflare strips `content-encoding` off the response it hands back
-//     without decoding the body, so compression is asserted on the bytes.
+//   * Miniflare's dispatchFetch behaves like a browser: it decodes exactly ONE
+//     `content-encoding` layer and strips the header. A correctly encoded
+//     body therefore arrives here as the ORIGINAL bytes, and gzip magic in a
+//     body means the worker wrapped it twice — which is exactly what the old
+//     assertions were passing on (the runtime re-encoded a body that already
+//     carried `content-encoding: gzip`, and the harness peeled one layer).
+//     That compression happens at all is asserted through `vary`; the wire
+//     bytes are checked against prod with
+//     `curl -sH 'Accept-Encoding: gzip' <glb> | gunzip | head -c4` → `glTF`.
 //
 // miniflare is held at 4.x on purpose. npm's `latest` is a 5.x -alpha that
 // replaces the top-level single-worker options below with a per-worker
 // `config` object; adopting it is a migration, not a version bump. Don't let a
 // blanket dependency update carry this one along.
 import { Miniflare } from "miniflare";
-import { gunzipSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -86,12 +92,16 @@ check(
   cold.headers.get("content-type") === "model/gltf-binary",
   cold.headers.get("content-type") ?? "none",
 );
-check("glb body gzipped", isGzip(coldBody));
 check("vary: accept-encoding set", (cold.headers.get("vary") ?? "").includes("accept-encoding"));
 check("cold request reports a cache miss", cold.headers.get("x-vg-cache") === "miss");
+// Regression: a Response built with `content-encoding: gzip` and no
+// `encodeBody: "manual"` is gzipped a second time by the runtime. The harness
+// peels one layer, so the bug shows up here as a gzip-magic body of the wrong
+// length rather than the model.
 check(
-  "gzip round-trips to the original bytes",
-  isGzip(coldBody) && gunzipSync(coldBody).equals(glb),
+  "glb arrives as the model, not a second gzip layer",
+  coldBody.equals(glb),
+  isGzip(coldBody) ? `double-encoded (${coldBody.length} bytes of gzip)` : `${coldBody.length} bytes`,
 );
 
 // ---- edge cache ------------------------------------------------------------
@@ -99,13 +109,13 @@ await new Promise((r) => setTimeout(r, 300));
 const warm = await get("/models/hero.glb");
 const warmBody = await body(warm);
 check("second request is an edge-cache hit", warm.headers.get("x-vg-cache") === "hit");
-// Regression: putting a self-compressed body into the Cache API with
-// content-encoding still set gets it encoded a second time, and every cached
-// model comes back as gzip-inside-gzip.
+// Regression: the cached copy is our own gzip stored as opaque octets; the
+// rebuilt Response must carry it out with the encoding declared AND marked
+// manual, or the hit path double-encodes even when the cold path is right.
 check(
-  "cache hit is not double-encoded",
-  isGzip(warmBody) && gunzipSync(warmBody).equals(glb),
-  `${coldBody.length} cold vs ${warmBody.length} warm bytes`,
+  "cache hit arrives as the model, not a second gzip layer",
+  warmBody.equals(glb),
+  isGzip(warmBody) ? `double-encoded (${warmBody.length} bytes of gzip)` : `${warmBody.length} bytes`,
 );
 
 // ---- payloads that must be left alone --------------------------------------
