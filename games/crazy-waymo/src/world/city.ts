@@ -69,9 +69,16 @@ import type { CityGenPayload } from "./gen-worker";
 import { buildFreeways, nearFreeway } from "./freeways";
 import { buildPiers } from "./piers";
 import { buildLandmarks, landmarkProtection } from "./landmarks";
-import { SF_FOOTPRINTS } from "./sf-footprints";
-import { frontEdgeOf, type LotRhythm, lotRhythmFor, parcelAt } from "./sf-adjacency";
-import { prismSpec } from "./sf-prisms";
+import { buildParcelFabric, parcelDetailLevel } from "./parcel-build";
+import {
+  blockHash,
+  cellKey,
+  frontSegment,
+  type ParcelPlanResult,
+  planParcels,
+} from "./parcel-plan";
+import { ROOF_PALETTES } from "./parcel-style";
+import { type LotRhythm, lotRhythmFor } from "./sf-adjacency";
 import {
   type District,
   type DistrictChar,
@@ -133,17 +140,6 @@ const SUBURBAN_FLAT_TOP = BUILDINGS_SUBURBAN.filter((k) => /[brs]$/.test(k));
 // pale tar, not asphalt-black) and each list stays a value ramp within one
 // family, same rule as the facade palettes. Caps ride the shared PLINTH_MAT
 // batch, so the whole roofscape costs zero extra draw calls.
-const ROOF_PALETTES = {
-  highrise: [0xb9bec4, 0xaab0b6, 0xc8ccd0, 0x9aa3a0],
-  downtown: [0xbab3a4, 0xa9a294, 0xcac3b2, 0x9b9488],
-  commercial: [0xb8ab94, 0xa79a85, 0xc4b79e, 0x8f9a8a],
-  industrial: [0x9aa0a4, 0x8c9296, 0xa8adb0],
-  wharf: [0xb5b0a4, 0xa39e92, 0xc0bbac],
-  // The pale membrane read of the avenues — this is what lifts the Sunset
-  // and Richmond aerials out of the mud.
-  residential: [0xd8d5cc, 0xc9c6bd, 0xbfbcb3],
-  victorian: [0xd4cfc4, 0xc6c1b6, 0xb9b4a9],
-} satisfies Record<FabricChar, readonly number[]>;
 // Flat-topped Kenney fabric (kk-* keep their authored roofs; ind-building-s
 // is the garage and never appears as fabric).
 function flatTopFabric(key: string): boolean {
@@ -217,9 +213,6 @@ const FALL_PER_STEP = 4.2;
  * with no fence, path or yard.
  */
 export const STEEP_CLIFF = 6.5;
-// The real-footprint pass sinks a prism's walls to its lowest ring vertex
-// instead of stepping it, so it tolerates more fall than a kit section can.
-const PRISM_CLIFF = 9;
 // Above this a building stops being one flat prism, measured on the source
 // model: the flat-prism share is 54.9% through the 9-20u band, 21.7% at 20-40u
 // and 0% above 40u, with the median plan tapering 1.00 -> 0.72 -> 0.57 up the
@@ -236,17 +229,6 @@ const TOWER_INSET = 0.78; // shaft plan against the lot line
 // itself. Note three.js lerps in LINEAR space, which washes a pastel further
 // than sRGB arithmetic suggests.
 const TINT_GAIN = 1.7;
-// One dominant facade colour and one roof family per BLOCK, not per building:
-// rng.pick is uniform, which gave every district the same average colour and no
-// block any identity. ~2 tiles is an SF block face.
-const BLOCK_SPAN = 26;
-function blockHash(x: number, z: number): number {
-  const bx = Math.floor((x + WORLD_HALF_X) / BLOCK_SPAN);
-  const bz = Math.floor((z + WORLD_HALF_Z) / BLOCK_SPAN);
-  let h = Math.imul(bx, 374761393) + Math.imul(bz, 668265263);
-  h = Math.imul(h ^ (h >>> 13), 1274126177);
-  return (h ^ (h >>> 16)) >>> 0;
-}
 
 function dirToYaw(d: Dir): number {
   // Yaw that points "toward" the given grid direction (about +Y).
@@ -1496,6 +1478,52 @@ export class CityModel {
   private chunkVisibleTall: Uint8Array | null = null;
 
   private restPayload: CityRestPayload | null = null;
+
+  // --- The parcel fabric ----------------------------------------------------
+  // Real footprints as procedural buildings (parcel-plan.ts / parcel-mesh.ts).
+  // The plan is pure and cached: phase 2 reads it to claim ground ahead of the
+  // kit walk, and BOTH load paths build its meshes and solids live at the end
+  // of their pass — nothing of it is captured into the bins.
+  private reservedCells: ReadonlySet<string> = new Set();
+  private parcelPlanCache: ParcelPlanResult | null = null;
+  private parcelPlan(): ParcelPlanResult {
+    if (!this.parcelPlanCache) {
+      const t0 = performance.now();
+      this.parcelPlanCache = planParcels({
+        network: this.network,
+        terrain: this.terrain,
+        reserved: this.reservedCells,
+      });
+      const s = this.parcelPlanCache.stats;
+      console.log(
+        `[city] parcels planned: ${s.built} built (${s.onRoad} in a lane, ${s.clipped} clipped away, ` +
+          `${s.stacked} stacked, ${s.park} park, ${s.reserved} reserved, ${s.freeway} freeway, ` +
+          `${s.folded} folded, ${s.straddle} straddling, ${s.cliff} cliff, ${s.water} water; ` +
+          `${s.movedVerts} verts moved, ${s.stretched} stretched) ` +
+          `${Math.round(performance.now() - t0)}ms`,
+      );
+    }
+    return this.parcelPlanCache;
+  }
+  private async buildParcels(): Promise<void> {
+    const t0 = performance.now();
+    const { plans } = this.parcelPlan();
+    const built = await buildParcelFabric(
+      plans,
+      { imposter: IMPOSTER_DISTANCE, midImposter: MID_IMPOSTER_DISTANCE, detail: DETAIL_DISTANCE },
+      parcelDetailLevel(),
+      () => this.breathe(),
+    );
+    for (const c of built.chunks) {
+      this.group.add(c.group);
+      this.chunks.push({ cx: c.cx, cz: c.cz, radius: c.radius, dist: c.dist, group: c.group });
+    }
+    for (const p of plans) for (const so of p.solids) this.solids.push(so);
+    console.log(
+      `[city] parcels built: ${plans.length} buildings, ${built.stats.vertices} verts, ` +
+        `${built.stats.buffers} buffers in ${Math.round(performance.now() - t0)}ms`,
+    );
+  }
   private lateRoadFallback: (() => void) | null = null;
 
   // The rest payload can arrive AFTER construction (it streams behind the
@@ -1927,6 +1955,7 @@ export class CityModel {
           const tz = wz + this.rng.range(-2.6, 2.6);
           if (this.onAsphalt(tx, tz, 0.6)) continue;
           if (nearFreeway(tx, tz, 0.5)) continue; // canopy pierces the deck
+          if (occupiedBy(occBox(tx, tz, 0.6, 0.6, 0, 0))) continue; // inside a parcel
           tree.position.set(tx, this.standAt(tx, tz), tz);
           tree.rotation.y = this.rng.range(0, Math.PI * 2);
           collect(tree);
@@ -2001,6 +2030,7 @@ export class CityModel {
       reservedAll.add(`${gridXOf(g.padX)},${gridZOf(g.padZ)}`);
     }
     const lm = { ...lmBase, reserved: reservedAll };
+    this.reservedCells = reservedAll;
     // Landmark monuments have visuals but are NOT batch items (built as
     // one-off meshes in buildLandmarks), so the e2e sightless census cannot
     // vouch for them — tag the reason instead of relying on batched
@@ -2114,7 +2144,7 @@ export class CityModel {
 
     // Why a planned lot did not get built — the fabric pass is the biggest
     // consumer of gen time and has no other visibility into its own losses.
-    const rejects = { freeway: 0, occupied: 0, cliff: 0, reserved: 0, road: 0 };
+    const rejects = { freeway: 0, occupied: 0, cliff: 0, reserved: 0, road: 0, covered: 0 };
 
     // WHERE A WALL ACTUALLY GOT BUILT. furniture.ts hangs awnings, shutters,
     // fire escapes and murals on `facadeOffset(edge.half)` — a plane it can
@@ -2129,13 +2159,14 @@ export class CityModel {
     const facadeKey = (x: number, z: number): number =>
       Math.floor((x + WORLD_HALF_X) / FACADE_CELL) * FACADE_STRIDE +
       Math.floor((z + WORLD_HALF_Z) / FACADE_CELL);
-    const stampFacade = (lot: FabricLot): void => {
-      const steps = Math.max(2, Math.ceil((lot.width * 2) / FACADE_CELL));
+    const stampSegment = (x0: number, z0: number, x1: number, z1: number): void => {
+      const steps = Math.max(2, Math.ceil((Math.hypot(x1 - x0, z1 - z0) * 2) / FACADE_CELL));
       for (let i = 0; i <= steps; i++) {
         const t = i / steps;
-        facadeCells.add(facadeKey(lot.x0 + (lot.x1 - lot.x0) * t, lot.z0 + (lot.z1 - lot.z0) * t));
+        facadeCells.add(facadeKey(x0 + (x1 - x0) * t, z0 + (z1 - z0) * t));
       }
     };
+    const stampFacade = (lot: FabricLot): void => stampSegment(lot.x0, lot.z0, lot.x1, lot.z1);
     this.facadeAt = (x: number, z: number): boolean => facadeCells.has(facadeKey(x, z));
 
     /**
@@ -2545,367 +2576,16 @@ export class CityModel {
     }
 
     this.phase2 = async () => {
-      // --- REAL downtown fabric: footprint POLYGONS + heights from the
-      // licensed SF model (tools/sf-data/extract-footprints.mjs), extruded as
-      // flat-shaded prisms — the actual massing at the actual addresses.
-      // Kit models only fill in where the real data thins out (occupancy
-      // marks make the frontage pass skip real parcels). ---
-      {
-        let placed = 0;
-        let roadSkip = 0;
-        let stackSkip = 0;
-        let parkSkip = 0;
-        let towers = 0;
-        for (let pid = 0; pid < SF_FOOTPRINTS.length; pid++) {
-          if (pid % 500 === 0) await this.breathe();
-          const flat = SF_FOOTPRINTS[pid];
-          if (flat === undefined) continue;
-          const spec = prismSpec(flat);
-          if (!spec) continue;
-          const { cx, cz, h: bh, rel } = spec;
-          const bgx = this.gridX(cx);
-          const bgz = this.gridZ(cz);
-          if (!isLandCell(bgx, bgz)) continue;
-          // Landmark parcel, asked of the whole RING and not just the centroid
-          // cell: a 12u cell is smaller than a parcel, so a centroid one cell
-          // outside still laid its footprint on the Ferry Building's apron.
-          let onReserved = lm.reserved.has(`${bgx},${bgz}`);
-          for (let i = 0; i < rel.length && !onReserved; i += 2) {
-            const rx = cx + (rel[i] ?? 0);
-            const rz = cz + (rel[i + 1] ?? 0);
-            if (lm.reserved.has(`${gridXOf(rx)},${gridZOf(rz)}`)) onReserved = true;
-          }
-          if (onReserved) continue;
-          // A parcel whose centroid falls inside another one is a height-band
-          // or building-part DUPLICATE of it (2,570 of them, measured in
-          // sf-adjacency.ts). Extruding both is what made downtown grey mush,
-          // and it is exactly what the old blanket 3.2u occupancy circle was
-          // really suppressing — at the cost of ~10k parcels whose only sin was
-          // standing next to their neighbour, which is what a party wall IS.
-          const parcel = parcelAt(pid);
-          if (parcel !== null && parcel.stacked) {
-            stackSkip++;
-            continue;
-          }
-          // Both fabric passes now agree on park LAND rather than on park
-          // NAMES: the frontage walk skips park-character districts, and this
-          // one used to skip nothing at all, so ~330 real parcels landed inside
-          // Dolores Park and the Panhandle. A real parcel in a park-named
-          // district box is real (it is the block across the street); a parcel
-          // standing on an actual park tile is not.
-          if (isParkLand(bgx, bgz)) {
-            parkSkip++;
-            continue;
-          }
-          // Real parcels + real streets agree to calibration error (~5u);
-          // only a parcel genuinely IN a lane gets skipped — nudging one
-          // building of a wall-to-wall row just makes it collide with the
-          // next one.
-          if (this.onAsphalt(cx, cz, 0.4)) {
-            roadSkip++;
-            continue;
-          }
-          // Corridor guard checks every ring vertex — a 30u building whose
-          // CENTROID clears the ramp can still lay a corner across the deck.
-          let fwHit = nearFreeway(cx, cz, 0.5);
-          for (let i = 0; i < rel.length && !fwHit; i += 2) {
-            if (nearFreeway(cx + (rel[i] ?? 0), cz + (rel[i + 1] ?? 0), 0.3)) fwHit = true;
-          }
-          if (fwHit) {
-            roadSkip++;
-            continue;
-          }
-          let deep = false;
-          for (let i = 0; i < rel.length && !deep; i += 2) {
-            if (this.onAsphalt(cx + (rel[i] ?? 0), cz + (rel[i + 1] ?? 0), -1.2)) deep = true;
-          }
-          if (deep) {
-            roadSkip++;
-            continue;
-          }
-          // Seat at the highest ring vertex; sink the walls to the lowest so
-          // hillside parcels never show open air under the low side.
-          let hiY = this.terrain.heightAt(cx, cz);
-          let loY = hiY;
-          for (let i = 0; i < rel.length; i += 2) {
-            const y = this.terrain.heightAt(cx + (rel[i] ?? 0), cz + (rel[i + 1] ?? 0));
-            if (y > hiY) hiY = y;
-            if (y < loY) loY = y;
-          }
-          const fall = hiY - loY;
-          if (fall > PRISM_CLIFF) continue; // cliff-steep — leave the face green
-          // Same rule as the kit fabric: cut into the uphill grade instead of
-          // floating the whole parcel at its high corner.
-          const seatY =
-            fall > 1.0 ? Math.max(loY + fall * STEP_INTO_SLOPE, hiY - STEP_BURY_MAX) : hiY;
-          const drop = seatY - loY;
-
-          // KIT MODELS fitted to the real parcel: bare extruded prisms read
-          // as colored blocks, not buildings. Fit the footprint's OBB; long
-          // parcels get a ROW of models (real blocks are several buildings,
-          // and one model stretched 5:1 is worse than none).
-          // The along-axis is the parcel's FRONTAGE — its longest edge that is
-          // not a party wall (sf-adjacency.ts). The plain longest edge often IS
-          // a party wall on an attached parcel, which turned the model (and its
-          // entrance) to face the neighbour it shares that wall with.
-          const nPts = rel.length / 2;
-          const front = frontEdgeOf(pid);
-          let obbLen = 0;
-          let ex = 1;
-          let ez = 0;
-          const ringEdge = (i: number) => {
-            const j = (i + 1) % nPts;
-            const dx = (rel[j * 2] ?? 0) - (rel[i * 2] ?? 0);
-            const dz = (rel[j * 2 + 1] ?? 0) - (rel[i * 2 + 1] ?? 0);
-            return { dx, dz, len: Math.hypot(dx, dz) };
-          };
-          const frontEdge = front === null ? null : ringEdge(front);
-          if (frontEdge !== null && frontEdge.len > 0.001) {
-            obbLen = frontEdge.len;
-            ex = frontEdge.dx / frontEdge.len;
-            ez = frontEdge.dz / frontEdge.len;
-          } else {
-            for (let i = 0; i < nPts; i++) {
-              const e = ringEdge(i);
-              if (e.len > obbLen) {
-                obbLen = e.len;
-                ex = e.dx / e.len;
-                ez = e.dz / e.len;
-              }
-            }
-          }
-          let minA = Infinity;
-          let maxA = -Infinity;
-          let minB = Infinity;
-          let maxB = -Infinity;
-          for (let i = 0; i < nPts; i++) {
-            const dx = rel[i * 2] ?? 0;
-            const dz = rel[i * 2 + 1] ?? 0;
-            const a = dx * ex + dz * ez;
-            const b = -dx * ez + dz * ex;
-            if (a < minA) minA = a;
-            if (a > maxA) maxA = a;
-            if (b < minB) minB = b;
-            if (b > maxB) maxB = b;
-          }
-          const lenA = maxA - minA;
-          const lenB = maxB - minB;
-          if (lenA < 2.6 || lenB < 2.6) continue; // sliver — nothing fits
-          const yaw = Math.atan2(-ez, ex);
-          // The parcel's own rectangle against everything already standing.
-          // The old test was a 3.2u circle on the centroid against a 5u circle
-          // per placed segment, which rejected any parcel within ~8u of a
-          // neighbour — i.e. every attached parcel in the city.
-          const midA = (minA + maxA) / 2;
-          const midB = (minB + maxB) / 2;
-          const obbX = cx + midA * ex - midB * ez;
-          const obbZ = cz + midA * ez + midB * ex;
-          const parcelRow = ++occRow;
-          if (occupiedBy(occBox(obbX, obbZ, lenA / 2, lenB / 2, yaw, parcelRow))) continue;
-          const bhV = Math.max(bh, 4.0); // below this the kit models squash into pancakes
-          const pool =
-            bhV > 28 ? BUILDINGS_SKYSCRAPER : bhV > 9 ? BUILDINGS_COMMERCIAL : BUILDINGS_SUBURBAN;
-          const district = districtAt(bgx, bgz);
-          // Towers own their whole parcel; low/mid parcels split into a grid
-          // of near-square cells — one model pancaked across a 25u lot reads
-          // as a squashed shed, a row of houses reads as a block.
-          const TARGET = 9;
-          const segA = bhV > 28 ? 1 : Math.min(6, Math.max(1, Math.round(lenA / TARGET)));
-          const segB = bhV > 28 ? 1 : Math.min(3, Math.max(1, Math.round(lenB / TARGET)));
-          // Podium + shaft + crown. The podium is emitted ONCE for the whole
-          // parcel and the shafts are inset about their own centres, so a long
-          // tall block reads as shafts standing on a shared podium rather than
-          // as a row of wedding cakes. Only a single-mass parcel gets a crown.
-          const tall = bhV >= TOWER_MIN_H;
-          const single = segA * segB === 1;
-          const segLen = lenA / segA;
-          const segWid = lenB / segB;
-          let placedSeg = 0;
-          for (let k = 0; k < segA * segB; k++) {
-            const ka = k % segA;
-            const kb = Math.floor(k / segA);
-            const a0 = minA + segLen * (ka + 0.5);
-            const bb0 = minB + segWid * (kb + 0.5);
-            const px = cx + a0 * ex - bb0 * ez;
-            const pz = cz + a0 * ez + bb0 * ex;
-            // The OBB covers more than an L-shaped ring: every segment
-            // re-checks itself against the streets (and shrinks once before
-            // giving up). Corners are not enough — a tower parcel is ONE
-            // segment up to 50u long, so it can lie along the street it
-            // swallows with both its corners on clear ground.
-            let fw = segLen * 0.94;
-            let fd = segWid * 0.92;
-            const cornersClear = (): boolean => {
-              for (const [sa, sb] of BOX_PROBES) {
-                const qx = px + ((sa * fw) / 2) * ex - ((sb * fd) / 2) * ez;
-                const qz = pz + ((sa * fw) / 2) * ez + ((sb * fd) / 2) * ex;
-                if (this.onAsphalt(qx, qz, 0.2)) return false;
-              }
-              return true;
-            };
-            if (!cornersClear()) {
-              fw *= 0.78;
-              fd *= 0.78;
-              if (fw < 2.4 || fd < 2.4 || !cornersClear()) continue;
-            }
-            const key = this.rng.pick(pool);
-            const url = modelUrl("buildings", key);
-            const bounds = this.cache.bounds(url);
-            const node = this.cache.instance(url);
-            // A tower is a PODIUM + SHAFT + CROWN, not one prism: measured on
-            // the source model, the flat-prism share collapses from 99.5% at
-            // 1-2u to 21.7% at 20-40u and 0% above 40u, with the median plan
-            // tapering 1.00 -> 0.72 -> 0.57 up the height. The shaft is inset
-            // about the parcel centre and the podium keeps the full lot line,
-            // which is what gives the street a continuous wall under a tower.
-            const podiumH = tall ? bhV * 0.22 : 0;
-            const shaftInset = tall ? 0.78 : 1;
-            const bodyBase = seatY + podiumH;
-            node.scale.set(
-              (fw * shaftInset) / Math.max(bounds.size.x, 0.001),
-              (bhV - podiumH) / Math.max(bounds.size.y, 0.001),
-              (fd * shaftInset) / Math.max(bounds.size.z, 0.001),
-            );
-            node.rotation.y = yaw + BUILDING_FRONT_OFFSET;
-            const bodyColor = this.blockColorAt(px, pz, district);
-            const bodyTint = Math.min(1, tintAmountFor(district) * TINT_GAIN);
-            if (tall && single) {
-              // Crown: the mechanical box every SF tower wears, at the measured
-              // taper for its band.
-              const crownTaper = bhV >= 40 ? 0.57 : 0.72;
-              const crownH = Math.min(2.4, bhV * 0.07);
-              const crown = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
-              crown.scale.set(fw * shaftInset * crownTaper, crownH, fd * shaftInset * crownTaper);
-              crown.rotation.y = yaw;
-              crown.position.set(px, seatY + bhV + crownH / 2 - 0.3, pz);
-              crown.updateMatrixWorld(true);
-              this.tintNode(crown, bodyColor, bodyTint * 0.8);
-              collect(crown);
-            }
-            if (drop > 0.7) {
-              const plinth = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
-              const ph = drop + 0.8;
-              plinth.scale.set(fw * 0.98, ph, fd * 0.98);
-              plinth.rotation.y = yaw;
-              plinth.position.set(px, seatY - 0.1 - ph / 2, pz);
-              plinth.updateMatrixWorld(true);
-              collect(plinth);
-            }
-            node.position.set(px, bodyBase - 0.15, pz);
-            this.tintNode(node, bodyColor, bodyTint);
-            collect(node);
-            occupy(occBox(px, pz, fw / 2, fd / 2, yaw, parcelRow));
-            placedSeg++;
-          }
-          if (placedSeg === 0) continue; // nothing fit — no solids either
-          if (tall) {
-            // One podium for the parcel: the continuous wall a tower needs at
-            // street level, under whichever shafts fitted above it. The SHAFTS
-            // re-test their own corners; the podium keeps the whole lot line
-            // and so is the one piece that can lie across a street — measured
-            // as a 50x39u blank slab over the Embarcadero. Pull its sides in.
-            const fit = this.fitRectOffAsphalt(
-              obbX,
-              obbZ,
-              ex,
-              ez,
-              (lenA * 0.96) / 2,
-              (lenB * 0.96) / 2,
-              0.2,
-              2.4,
-            );
-            if (fit) {
-              towers++;
-              const podiumH = bhV * 0.22;
-              const podium = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
-              podium.scale.set(fit.halfA * 2, podiumH, fit.halfB * 2);
-              podium.rotation.y = yaw;
-              podium.position.set(fit.cx, seatY + podiumH / 2 - 0.15, fit.cz);
-              podium.updateMatrixWorld(true);
-              this.tintNode(
-                podium,
-                this.blockColorAt(fit.cx, fit.cz, district),
-                Math.min(1, tintAmountFor(district) * TINT_GAIN) * 0.7,
-              );
-              collect(podium);
-            }
-          }
-
-          // Collision: rectangles get one OBB; complex outlines get one thin
-          // OBB per wall segment (an AABB over an L-shape or a diagonal row
-          // would wall off half a street corner).
-          const n = rel.length / 2;
-          const wallOBB = (x0: number, z0: number, x1: number, z1: number, t: number): void => {
-            const len = Math.hypot(x1 - x0, z1 - z0);
-            if (len < 2.2) return;
-            const ex = (x1 - x0) / len;
-            const ez = (z1 - z0) / len;
-            const mx = (x0 + x1) / 2;
-            const mz = (z0 + z1) / 2;
-            this.solids.push({
-              minX: mx - len / 2,
-              maxX: mx + len / 2,
-              minZ: mz - t / 2,
-              maxZ: mz + t / 2,
-              yaw: Math.atan2(-ez, ex),
-            });
-          };
-          if (n === 4) {
-            const ax = cx + (rel[0] ?? 0);
-            const az = cz + (rel[1] ?? 0);
-            const bx = cx + (rel[2] ?? 0);
-            const bz = cz + (rel[3] ?? 0);
-            const dxx = cx + (rel[4] ?? 0);
-            const dzz = cz + (rel[5] ?? 0);
-            const rectA = Math.hypot(bx - ax, bz - az);
-            const rectB = Math.hypot(dxx - bx, dzz - bz);
-            const rex = (bx - ax) / (rectA || 1);
-            const rez = (bz - az) / (rectA || 1);
-            // Only the ring VERTICES were ever tested against the streets, and
-            // one box over the whole rectangle is the biggest single collider
-            // this pass emits — a 50x39u wharf parcel laid an invisible wall
-            // across the road that crosses it. Fit it off the asphalt (and
-            // emit nothing at all rather than a wall in the lane).
-            const fit = this.fitRectOffAsphalt(
-              cx,
-              cz,
-              rex,
-              rez,
-              (rectA / 2) * 0.96,
-              (rectB / 2) * 0.96,
-              0.2,
-              2.2,
-            );
-            if (fit) {
-              this.solids.push({
-                minX: fit.cx - fit.halfA,
-                maxX: fit.cx + fit.halfA,
-                minZ: fit.cz - fit.halfB,
-                maxZ: fit.cz + fit.halfB,
-                yaw: Math.atan2(-rez, rex),
-              });
-            }
-          } else {
-            for (let i = 0; i < n; i++) {
-              const j = (i + 1) % n;
-              wallOBB(
-                cx + (rel[i * 2] ?? 0),
-                cz + (rel[i * 2 + 1] ?? 0),
-                cx + (rel[j * 2] ?? 0),
-                cz + (rel[j * 2 + 1] ?? 0),
-                1.6,
-              );
-            }
-          }
-          // Occupancy is claimed per placed SEGMENT above — ring-vertex
-          // claims over-blocked the frontage/infill passes around parcels
-          // whose corners didn't fit, leaving voids in the blocks.
-          placed++;
-        }
-        console.log(
-          `[city] real footprints placed: ${placed} (${roadSkip} on asphalt, ` +
-            `${stackSkip} stacked duplicates, ${parkSkip} on park land, ${towers} towers)`,
-        );
+      // --- REAL PARCELS: the procedural fabric (parcel-plan.ts) owns every
+      // block the licensed footprints cover. Planned here so it claims its
+      // ground before the kit walk; its geometry and collision are built live
+      // on BOTH load paths (buildParcels) and never enter the bins. ---
+      const { plans, covered } = this.parcelPlan();
+      for (const p of plans) {
+        const o = p.obb;
+        occupy(occBox(o.cx, o.cz, o.halfA, o.halfB, Math.atan2(-o.ez, o.ex), ++occRow));
+        const seg = frontSegment(p);
+        if (seg) stampSegment(seg[0], seg[1], seg[2], seg[3]);
       }
 
       // --- FRONTAGE ROWS along the network edges: a LOT-LINE walk down each
@@ -2926,6 +2606,12 @@ export class CityModel {
           for (const lot of lots) {
             if (lm.reserved.has(`${gridXOf(lot.x)},${gridZOf(lot.z)}`)) {
               rejects.reserved++;
+              continue;
+            }
+            // The parcel fabric owns every block the real footprints cover;
+            // a kit lot there would be a second building on someone's lot.
+            if (covered.has(cellKey(gridXOf(lot.x), gridZOf(lot.z)))) {
+              rejects.covered++;
               continue;
             }
             const cardinal = Math.abs(Math.sin(2 * lot.yaw)) < 0.18;
@@ -2983,7 +2669,8 @@ export class CityModel {
       console.log(
         `[city] frontage lots: ${lotsBuilt} built of ${lotsPlanned} planned ` +
           `(${rejects.occupied} occupied, ${rejects.reserved} reserved, ` +
-          `${rejects.cliff} cliff, ${rejects.freeway} freeway, ${rejects.road} roadway), ` +
+          `${rejects.cliff} cliff, ${rejects.freeway} freeway, ${rejects.road} roadway, ` +
+          `${rejects.covered} on a real parcel), ` +
           `${this.garageFronts} hill garages`,
       );
 
@@ -3006,7 +2693,7 @@ export class CityModel {
                 break;
               }
             }
-            if (face !== null && this.rng.chance(0.6)) {
+            if (face !== null && !covered.has(cellKey(g.gx, g.gz)) && this.rng.chance(0.6)) {
               const lot = fitCellLot(g.gx, g.gz, face, this.rng.range(0.6, 0.74));
               if (lot !== null && placeBuilding(lot, ++occRow, false) !== null) continue;
             }
@@ -3298,7 +2985,9 @@ export class CityModel {
           mergedChunks: this.capturedMerged,
           rawGeos: this.rawGeos,
           batchItems: [...this.restItems],
-          solids: this.solids,
+          // A COPY: the parcel fabric pushes its own solids after this, and
+          // those are rebuilt live on every load (see buildParcels).
+          solids: [...this.solids],
           parkedCars: [...this.parkedCarSpecs],
           lampHeads: [...this.lampHeads],
           decks: this.getDecks(),
@@ -3309,6 +2998,7 @@ export class CityModel {
       } else {
         console.log("[city] rest capture skipped: untagged batch items");
       }
+      await this.buildParcels();
     };
   }
 
@@ -3452,6 +3142,7 @@ export class CityModel {
     this.group.add(buildFreeways(this.terrain, this.network));
     this.group.add(buildPiers(this.terrain));
     this.lightGoldenGate();
+    await this.buildParcels();
   }
 
   // The Golden Gate's MESHES are baked (buildGoldenGate runs on cold gen only,

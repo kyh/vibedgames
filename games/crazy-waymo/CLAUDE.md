@@ -101,6 +101,25 @@ bake-network.mts`) from the same park-cleared polylines — car-free-park
   surface shader reads `v = 0` as its documented opt-out (no gutter grime, no
   wheel paths) and every stencil landed in the atlas's transparent padding and
   was deleted by `alphaTest`. Gate on the data, never on the material.
+- **The building fabric is PROCEDURAL and LIVE** (`world/parcel-plan.ts` →
+  `parcel-mesh.ts` → `parcel-build.ts`). Every real footprint in
+  `sf-footprints.ts` becomes a flat-shaded, vertex-coloured building in the SF
+  vocabulary (`parcel-style.ts`: row house with bays, stucco box, storefront
+  mid-rise, tower, warehouse, shed). The plan is pure and deterministic; both
+  load paths build its meshes AND its collision solids at the end of their pass
+  (`city.buildParcels`), and NOTHING of it is captured into the bins — the rest
+  capture copies `solids` before the parcels push theirs. So a change to the
+  generator or its palettes needs no rebake and shows in any dev tab; a change
+  that moves what the kit walk reads (coverage, occupancy, the clip) still
+  does. The kerb clip is why 15.9k of the 21k parcels build instead of 2.9k: a
+  vertex inside a street's setback is pushed to the setback line on the
+  parcel's side, a parcel entirely inside the band is slid back whole, and a
+  parcel the clip left shallower than 2.6u is stretched into its block.
+  `pnpm test` asserts determinism, the build count, walls off the asphalt,
+  solids out of lanes, the kind mix and the vertex budgets. The kit frontage
+  walk still fills the city OUTSIDE the surveyed footprints (west and south);
+  inside them it is skipped cell by cell (`covered`), so a rejected parcel
+  leaves a lot, never a kit house in the middle of a terrace.
 - **Two load paths, and only some builders run on both.** `buildLandmarks`,
   `buildFreeways` and `buildPiers` are rebuilt live on the cold-gen path AND
   the baked-rest path. `buildGoldenGate` runs on cold gen ONLY — its meshes go

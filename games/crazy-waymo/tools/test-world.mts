@@ -22,6 +22,9 @@ import {
   wheelSurface,
 } from "../src/world/land-class.ts";
 import { freewayPillars } from "../src/world/freeways.ts";
+import { landmarkProtection } from "../src/world/landmarks.ts";
+import { buildParcelGeometry } from "../src/world/parcel-mesh.ts";
+import { planParcels } from "../src/world/parcel-plan.ts";
 import { RoadNetwork } from "../src/world/network.ts";
 import { buildJunctionMap } from "../src/world/roads.ts";
 import { districtAt, makeTerrain } from "../src/world/sf-map.ts";
@@ -719,6 +722,95 @@ console.log(`  (plan + network in ${Math.round(performance.now() - t0)}ms)`);
     grade.worstChord < 0.78 && grade.overChord <= 180,
     `worst ${(grade.worstChord * 100).toFixed(1)}% @ ${grade.worstChordAt}, ` +
       `${grade.overChord} edges over 42%`,
+  );
+}
+
+// --- The parcel fabric: procedural buildings on the real footprints
+// (parcel-plan.ts / parcel-mesh.ts). It is built LIVE on both load paths and
+// never enters the bins, so it is audited from the plan itself — the same
+// pure function the game runs — rather than from rest.bin.
+{
+  const prot = landmarkProtection(plan, network);
+  const terrain = makeTerrain();
+  const t0 = performance.now();
+  const parcels = planParcels({ network, terrain, reserved: prot.reserved });
+  const planMs = Math.round(performance.now() - t0);
+  const again = planParcels({ network, terrain, reserved: prot.reserved });
+  const sig = (r: typeof parcels): string =>
+    r.plans
+      .map(
+        (p) => `${p.id}:${p.kind}:${p.units}:${(p.ring[0] ?? 0).toFixed(3)}:${p.height.toFixed(3)}`,
+      )
+      .join("|");
+  check(
+    "parcel plan is deterministic",
+    sig(parcels) === sig(again),
+    `${parcels.plans.length} parcels in ${planMs}ms`,
+  );
+  const s = parcels.stats;
+  // The old kit pass built 2,890 of these; the kerb clip is what lifts it.
+  check(
+    "real parcels build instead of being rejected",
+    s.built >= 15000 && s.onRoad + s.clipped <= 3000,
+    `${s.built} of ${SF_FOOTPRINTS.length} built (${s.onRoad} in a lane, ${s.clipped} clipped away, ` +
+      `${s.folded} folded, ${s.straddle} straddling, ${s.stacked} stacked, ${s.park} park, ` +
+      `${s.reserved} reserved, ${s.freeway} freeway, ${s.cliff} cliff, ${s.stretched} stretched)`,
+  );
+  // Every wall vertex clears the drawn asphalt — that is what the clip is for.
+  let pastKerb = 0;
+  let worst = 0;
+  let worstAt = "";
+  for (const p of parcels.plans) {
+    for (let i = 0; i < p.n; i++) {
+      const x = p.ring[i * 2] ?? 0;
+      const z = p.ring[i * 2 + 1] ?? 0;
+      const d = asphaltDepth(network, x, z);
+      if (d <= 0.5) continue;
+      pastKerb++;
+      if (d > worst) {
+        worst = d;
+        worstAt = uv(x, z);
+      }
+    }
+  }
+  check(
+    "parcel walls stay off the asphalt",
+    pastKerb === 0,
+    `${pastKerb} vertices past the kerb` +
+      (worst > 0 ? `, worst ${worst.toFixed(1)}u @ ${worstAt}` : ""),
+  );
+  const boxes = parcels.plans.flatMap((p) => p.solids).map(solidObb);
+  const inRoad = roadIntrusions(boxes, network, 0.5);
+  const deep = inRoad.filter((r) => r.depth > 3);
+  check(
+    "parcel solids stay out of the lanes",
+    inRoad.length <= 250 && deep.length === 0,
+    `${boxes.length} solids, ${inRoad.length} past the kerb, ${deep.length} over 3u deep` +
+      (deep[0] ? `, worst ${deep[0].depth.toFixed(1)}u @ ${uv(deep[0].x, deep[0].z)}` : ""),
+  );
+  const kinds = new Map<string, number>();
+  for (const p of parcels.plans) kinds.set(p.kind, (kinds.get(p.kind) ?? 0) + 1);
+  const k = (name: string): number => kinds.get(name) ?? 0;
+  check(
+    "the fabric has the San Francisco mix",
+    k("rowhouse") + k("stucco") >= 6000 && k("midrise") >= 1500 && k("tower") >= 60,
+    [...kinds.entries()].map(([n, c]) => `${n} ${c}`).join(", "),
+  );
+  // Vertex budget: the whole fabric lives on the GPU at once (chunks hide,
+  // they do not unload), so this is memory as much as it is draw time.
+  const t1 = performance.now();
+  const full = await buildParcelGeometry(parcels.plans, 2);
+  const fullMs = Math.round(performance.now() - t1);
+  check(
+    "parcel geometry fits the desktop budget",
+    full.stats.vertices <= 4_500_000,
+    `${full.stats.vertices} verts, ${Math.round(full.stats.triangles)} tris, ${full.stats.buffers} buffers in ${fullMs}ms`,
+  );
+  const phone = await buildParcelGeometry(parcels.plans, 1);
+  check(
+    "parcel geometry fits the phone budget",
+    phone.stats.vertices <= 2_600_000,
+    `${phone.stats.vertices} verts, ${phone.stats.buffers} buffers`,
   );
 }
 
