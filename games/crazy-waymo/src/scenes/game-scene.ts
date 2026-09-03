@@ -15,6 +15,7 @@ import type { SmashCones } from "../fx/cones";
 import type { Debris } from "../fx/debris";
 import type { LampGlow } from "../fx/lamp-glow";
 import type { NightWindows } from "../fx/night-windows";
+import { setParcelNight } from "../world/parcel-build";
 import { Fx } from "../fx/particles";
 import { Sfx } from "../fx/sfx";
 import { SignalLights } from "../fx/signal-lights";
@@ -1721,6 +1722,7 @@ vec3 ocGerstner(vec2 p, float t) {
     );
     this.lampGlow?.setIntensity(night);
     this.nightWindows?.setIntensity(night);
+    setParcelNight(night);
     this.lampGlow?.updateNear(this.rig.camera.position.x, this.rig.camera.position.z, dt);
     this.beacons?.setIntensity(night);
     this.beacons?.update(dt);

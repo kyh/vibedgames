@@ -442,14 +442,17 @@ function buildGlyphAtlas(): THREE.DataTexture {
 // rest.bin round-trip identifies a road material by the colour it serialized
 // (roadCollapseTarget), so the stencil material must not share a colour with
 // the flat paint or captured chunks would come back on the wrong one.
+// One step NEARER than the flat paint (-2/-4): a stencil sits ON a painted
+// lane — BUS ONLY and the diamond on the Muni red — and at the same offset the
+// two meshes tie on depth and shimmer against each other frame to frame.
 const MAT_GLYPH = new THREE.MeshStandardMaterial({
   color: 0xffffff,
   map: buildGlyphAtlas(),
   alphaTest: 0.45,
   roughness: 0.9,
   polygonOffset: true,
-  polygonOffsetFactor: -2,
-  polygonOffsetUnits: -4,
+  polygonOffsetFactor: -3,
+  polygonOffsetUnits: -8,
 });
 ROAD_MATERIALS.glyph = MAT_GLYPH;
 
