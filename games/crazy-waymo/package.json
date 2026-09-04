@@ -8,6 +8,7 @@
     "clean": "rm -rf .turbo dist node_modules",
     "dev": "vite",
     "bake:map": "vite-node tools/sf-data/bake-network.mts",
+    "bake:parcels": "vite-node tools/sf-data/bake-parcels.mts",
     "bake:world": "node tools/bake-world.mjs",
     "lint:streets": "vite-node tools/street-lint.ts",
     "recolor:atlas": "node tools/recolor-building-atlas.mjs",

@@ -30,8 +30,7 @@ import {
 import { freewayPillars } from "../src/world/freeways.ts";
 import { landmarkMarkers, landmarkProtection } from "../src/world/landmarks.ts";
 import { RoadNetwork } from "../src/world/network.ts";
-import { SF_FOOTPRINTS } from "../src/world/sf-footprints.ts";
-import { prismSpec } from "../src/world/sf-prisms.ts";
+import { decodeParcelSource, type ParcelSource } from "../src/world/parcel-source.ts";
 import { makeTerrain } from "../src/world/sf-map.ts";
 import type { Terrain } from "../src/world/terrain.ts";
 import { deserializeWorldBin, unpackRest, WORLD_REV } from "../src/world/world-bin.ts";
@@ -68,6 +67,11 @@ export async function loadBakedRest(): Promise<BakedRest> {
 }
 
 export const BAKED_WORLD_REV = WORLD_REV;
+
+/** The shipped parcel source (public/world/parcels.bin) — the plan's input on every load. */
+export function loadParcelSource(): ParcelSource {
+  return decodeParcelSource(readArtifact("parcels"));
+}
 
 // --- oriented boxes ---------------------------------------------------------
 
@@ -896,6 +900,7 @@ export function classifySolids(
   solids: readonly Solid[],
   world: AuditWorld,
   props: readonly PropInstance[],
+  source: ParcelSource,
 ): readonly SolidClass[] {
   const prot = landmarkProtection(world.plan, world.network);
   const landmarkBoxes = new Set<string>();
@@ -907,18 +912,25 @@ export function classifySolids(
   for (const p of freewayPillars(world.terrain, world.network)) pillars.add(p.x, p.z);
 
   // Real footprints: the rectangle case is one box on the parcel centroid, an
-  // irregular ring is one thin OBB per wall (city.ts wallOBB).
+  // irregular ring is one thin OBB per wall (parcel-plan.ts wallSolids).
   const parcels = new PointIndex(8);
-  for (const flat of SF_FOOTPRINTS) {
-    const spec = prismSpec(flat);
-    if (!spec) continue;
-    parcels.add(spec.cx, spec.cz);
-    const n = spec.rel.length / 2;
-    for (let i = 0; i < n; i++) {
-      const j = (i + 1) % n;
+  for (let i = 0; i < source.count; i++) {
+    const v0 = source.offsets[i] ?? 0;
+    const v1 = source.offsets[i + 1] ?? v0;
+    const n = v1 - v0;
+    if (n < 3) continue;
+    let cx = 0;
+    let cz = 0;
+    for (let k = 0; k < n; k++) {
+      cx += source.coords[(v0 + k) * 2] ?? 0;
+      cz += source.coords[(v0 + k) * 2 + 1] ?? 0;
+    }
+    parcels.add(cx / n, cz / n);
+    for (let k = 0; k < n; k++) {
+      const j = (k + 1) % n;
       parcels.add(
-        spec.cx + ((spec.rel[i * 2] ?? 0) + (spec.rel[j * 2] ?? 0)) / 2,
-        spec.cz + ((spec.rel[i * 2 + 1] ?? 0) + (spec.rel[j * 2 + 1] ?? 0)) / 2,
+        ((source.coords[(v0 + k) * 2] ?? 0) + (source.coords[(v0 + j) * 2] ?? 0)) / 2,
+        ((source.coords[(v0 + k) * 2 + 1] ?? 0) + (source.coords[(v0 + j) * 2 + 1] ?? 0)) / 2,
       );
     }
   }

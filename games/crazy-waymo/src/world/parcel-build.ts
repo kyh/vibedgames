@@ -5,6 +5,7 @@ import { isCoarsePointer, liveQuality } from "../render/quality";
 import {
   buildParcelGeometry,
   type DetailLevel,
+  FACADE_SCALE,
   type ParcelGeo,
   type ParcelGeoStats,
   type ParcelMaterial,
@@ -58,9 +59,139 @@ GLASS_LIT.name = "parcel-glass-lit";
 
 const NIGHT_EMISSIVE = 2.6;
 
+// --- The facade shader ------------------------------------------------------
+// The lean fabric's walls carry their storey rhythm per vertex (parcel-mesh.ts
+// FacadeBuf) and this material draws the openings: a window grid above the
+// ground floor with a lighter frame, and on the ground floor a shopfront
+// (SHOP), a garage door and a front door (HOUSE) or one roller door (SHED).
+// Windows light at night per cell from a hash, on the buildings the seed
+// says are lit. All of it in the fragment shader over the flat vertex colour,
+// so the breakup and the specular AA from material-breakup.ts still apply.
+const FACADE_NIGHT = { value: 0 };
+const FACADE = new THREE.MeshStandardMaterial({
+  color: 0xffffff,
+  vertexColors: true,
+  roughness: 0.92,
+  metalness: 0,
+});
+FACADE.name = "parcel-facade";
+applyMaterialBreakup(FACADE, CITY_BREAKUP);
+{
+  const prev = FACADE.onBeforeCompile;
+  // Lazy: the breakup's key reads the device class, which only exists in a
+  // window, and this module also loads in the harness and the workers.
+  const prevKey = FACADE.customProgramCacheKey.bind(FACADE);
+  FACADE.customProgramCacheKey = () => `${prevKey()}|facade`;
+  FACADE.onBeforeCompile = (shader, renderer) => {
+    prev.call(FACADE, shader, renderer);
+    shader.uniforms.uFacadeNight = FACADE_NIGHT;
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+attribute vec2 fuv;
+attribute vec4 facade;
+attribute vec4 facade2;
+varying vec2 vFuv;
+varying vec4 vFacade;
+varying vec4 vFacade2;`,
+      )
+      .replace(
+        "#include <begin_vertex>",
+        `#include <begin_vertex>
+vFuv = fuv;
+vFacade = facade;
+vFacade2 = facade2;`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+uniform float uFacadeNight;
+varying vec2 vFuv;
+varying vec4 vFacade;
+varying vec4 vFacade2;
+float facadeHash(vec3 p) {
+  return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453);
+}`,
+      )
+      .replace(
+        "#include <color_fragment>",
+        `#include <color_fragment>
+vec4 fF = vFacade * ${FACADE_SCALE.toFixed(1)};
+float fStoreys = vFacade2.x;
+float fSeed = vFacade2.y;
+float fFlags = vFacade2.z;
+bool fBlank = mod(floor(fFlags / 8.0), 2.0) > 0.5;
+bool fShop = mod(fFlags, 2.0) > 0.5;
+bool fHouse = mod(floor(fFlags / 2.0), 2.0) > 0.5;
+bool fShed = mod(floor(fFlags / 4.0), 2.0) > 0.5;
+float fu = vFuv.x - fF.w * 0.5;
+float fv = vFuv.y;
+vec3 fGlass = vec3(0.20, 0.26, 0.31);
+vec3 fFrame = min(diffuseColor.rgb * 1.22 + 0.06, vec3(1.0));
+float fLit = 0.0;
+float fOpen = 0.0;
+// Upper storeys: a window per cell, centred on the wall.
+if (!fBlank && fv > fF.z && fF.x > 0.2) {
+  float k = floor((fv - fF.z) / fF.x);
+  float sy = fract((fv - fF.z) / fF.x);
+  float span = fF.w - 0.4;
+  float cells = max(1.0, floor(span / fF.y + 0.35));
+  float cw = span / cells;
+  float uu = fu + span * 0.5;
+  float ci = floor(uu / cw);
+  float sx = fract(uu / cw);
+  bool fits = uu > 0.0 && uu < span && cw > 0.7;
+  if (k < fStoreys - 1.0 && fits) {
+    float ex = fF.y * 0.055;
+    float ey = fF.x * 0.045;
+    if (sx > 0.30 - ex && sx < 0.70 + ex && sy > 0.28 - ey && sy < 0.80 + ey) {
+      bool inner = sx > 0.30 && sx < 0.70 && sy > 0.28 && sy < 0.80;
+      diffuseColor.rgb = inner ? fGlass : fFrame;
+      if (inner) {
+        fOpen = 1.0;
+        float onBuilding = step(0.34, fSeed / 255.0);
+        fLit = onBuilding * step(0.62, facadeHash(vec3(ci, k, fSeed)));
+      }
+    }
+  }
+}
+// Ground floor.
+if (!fBlank && fv < fF.z) {
+  float fHalf = fF.w * 0.5;
+  if (fShop && fv > 0.12 && fv < fF.z - 0.42 && abs(fu) < fHalf - 0.25) {
+    diffuseColor.rgb = fGlass * 0.85;
+    fOpen = 1.0;
+    fLit = step(0.25, fSeed / 255.0);
+  } else if (fShop && fv >= fF.z - 0.42 && fv < fF.z - 0.1 && abs(fu) < fHalf - 0.2) {
+    diffuseColor.rgb = diffuseColor.rgb * 0.55;
+  } else if (fHouse && fHalf > 1.2) {
+    float garageW = min(1.5, fHalf * 0.9);
+    if (abs(fu - 0.45) < garageW * 0.5 && fv < 1.35) {
+      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.55, 0.56, 0.58), 0.8);
+      if (abs(fract(fv / 0.34) - 0.5) < 0.06) diffuseColor.rgb *= 0.85;
+    } else if (abs(fu + garageW * 0.5 + 0.6) < 0.27 && fv < 1.15) {
+      diffuseColor.rgb = diffuseColor.rgb * 0.35;
+    }
+  } else if (fShed && abs(fu) < min(0.85, fHalf * 0.6) && fv < min(1.45, fF.z - 0.2)) {
+    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.42, 0.44, 0.47), 0.85);
+  }
+}
+vec3 fEmit = vec3(1.0, 0.78, 0.47) * (2.4 * uFacadeNight * fLit * fOpen);`,
+      )
+      .replace(
+        "#include <emissivemap_fragment>",
+        `#include <emissivemap_fragment>
+totalEmissiveRadiance += fEmit;`,
+      );
+  };
+}
+
 /** Lamp factor 0 (day) .. 1 (night) — window glow tracks it. */
 export function setParcelNight(night: number): void {
   GLASS_LIT.emissiveIntensity = NIGHT_EMISSIVE * Math.max(0, Math.min(1, night));
+  FACADE_NIGHT.value = Math.max(0, Math.min(1, night));
 }
 
 function materialFor(mat: ParcelMaterial): THREE.MeshStandardMaterial {
@@ -71,6 +202,8 @@ function materialFor(mat: ParcelMaterial): THREE.MeshStandardMaterial {
       return GLASS_LIT;
     case "glassDark":
       return GLASS_DARK;
+    case "facade":
+      return FACADE;
   }
 }
 
@@ -107,6 +240,11 @@ function geometryOf(g: ParcelGeo): THREE.BufferGeometry {
   geo.setAttribute("normal", new THREE.BufferAttribute(g.normal, 3, true));
   geo.setAttribute("color", new THREE.BufferAttribute(g.color, 3, true));
   geo.setIndex(new THREE.BufferAttribute(g.index, 1));
+  if (g.fuv && g.facade && g.facade2) {
+    geo.setAttribute("fuv", new THREE.BufferAttribute(g.fuv, 2));
+    geo.setAttribute("facade", new THREE.BufferAttribute(g.facade, 4, true));
+    geo.setAttribute("facade2", new THREE.BufferAttribute(g.facade2, 4, false));
+  }
   geo.computeBoundingSphere();
   return geo;
 }

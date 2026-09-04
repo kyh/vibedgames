@@ -30,7 +30,10 @@ import {
   writeRestCache,
   writeWorldCache,
 } from "../world/world-cache";
-import { fetchBakedRest, fetchBakedWorld } from "../world/world-fetch";
+import type { ParcelPlanResult } from "../world/parcel-plan";
+import { decodeParcelSource, type ParcelSource } from "../world/parcel-source";
+import type { ParcelWorkerRequest, ParcelWorkerResponse } from "../world/parcel-worker";
+import { fetchBakedRest, fetchBakedWorld, fetchParcelSource } from "../world/world-fetch";
 import { Minimap } from "../ui/minimap";
 
 export type WorldSpawn = {
@@ -107,12 +110,51 @@ function cityEdited(): boolean {
   );
 }
 
+/** The worker's plan, or the decoded source for the city to plan from itself. */
+type ParcelResolved = {
+  readonly plan: ParcelPlanResult | null;
+  readonly source: ParcelSource | null;
+};
+
 function startGenWorker(): Promise<CityGenPayload | null> {
   if (cityEdited()) return Promise.resolve(null);
   // Repeat visits: the finished world is in IndexedDB — skip generation.
   return readWorldCache().then((cached) => {
     if (cached) return cached;
     return runGenWorker();
+  });
+}
+
+/**
+ * The parcel plan in its worker (world/parcel-worker.ts). Resolves null on
+ * any failure and the city plans on the main thread instead.
+ */
+function runParcelWorker(
+  source: ArrayBuffer,
+  reserved: readonly string[],
+): Promise<ParcelPlanResult | null> {
+  return new Promise((resolve) => {
+    try {
+      const worker = new Worker(new URL("../world/parcel-worker.ts", import.meta.url), {
+        type: "module",
+      });
+      worker.onmessage = (ev: MessageEvent<ParcelWorkerResponse>) => {
+        const r = ev.data;
+        console.log(`[parcel-worker] planned ${r.plans.length} parcels in ${r.ms}ms`);
+        resolve({ plans: r.plans, lots: r.lots, stats: r.stats, covered: new Set(r.covered) });
+        worker.terminate();
+      };
+      worker.onerror = (e) => {
+        console.log(`[parcel-worker] failed: ${e.message}`);
+        resolve(null);
+        worker.terminate();
+      };
+      const req: ParcelWorkerRequest = { source, reserved };
+      worker.postMessage(req, [source]);
+    } catch (e) {
+      console.log(`[parcel-worker] unavailable: ${e instanceof Error ? e.message : e}`);
+      resolve(null);
+    }
   });
 }
 
@@ -174,6 +216,10 @@ export async function loadWorld(deps: WorldLoaderDeps): Promise<WorldLoadResult>
   // worker + IndexedDB pipeline.
   const bakedWorldPromise = skipBaked ? Promise.resolve(null) : fetchBakedWorld();
   const bakedRestPromise = skipBaked ? Promise.resolve(null) : fetchBakedRest();
+  // The parcel source is an INPUT to the city, not a baked output: every
+  // path fetches it, bake mode included. Raw bytes, because the plan runs in
+  // a worker and the buffer is transferred there.
+  const parcelBytesPromise = fetchParcelSource();
   const genPromise = bakedWorldPromise.then((baked) => baked ?? startGenWorker());
   const restState: RestState = { fromBake: false };
   const restPromise = bakedRestPromise.then((baked) => {
@@ -227,7 +273,28 @@ export async function loadWorld(deps: WorldLoaderDeps): Promise<WorldLoadResult>
   deps.snapToCar(car);
   deps.hideLoading();
   deps.showTitle();
-  const ready = finishLoad(deps, city, car, spawn, restPromise, latePreload, payload, restState);
+  // The plan needs phase 1's reservation (initEarly above) and the baked
+  // network; an edited city has neither and plans itself.
+  const parcelPromise: Promise<ParcelResolved> = parcelBytesPromise.then(async (bytes) => {
+    if (!bytes) return { plan: null, source: null };
+    if (edited) return { plan: null, source: decodeParcelSource(bytes) };
+    const reserved = city.parcelReservation();
+    // Decode a copy for the fallback before the buffer is transferred away.
+    const copy = bytes.slice(0);
+    const plan = await runParcelWorker(bytes, reserved);
+    return { plan, source: plan ? null : decodeParcelSource(copy) };
+  });
+  const ready = finishLoad(
+    deps,
+    city,
+    car,
+    spawn,
+    restPromise,
+    parcelPromise,
+    latePreload,
+    payload,
+    restState,
+  );
   return {
     city,
     car,
@@ -248,6 +315,7 @@ async function finishLoad(
   car: Car,
   spawn: WorldSpawn,
   restPromise: Promise<CityRestPayload | null>,
+  parcelPromise: Promise<ParcelResolved>,
   latePreload: Promise<void>,
   bakePayload: CityGenPayload | null,
   restState: RestState,
@@ -255,8 +323,10 @@ async function finishLoad(
   const paint = (): Promise<void> =>
     new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
   deps.setStage("DOWNLOADING THE CITY…");
-  const [rest] = await Promise.all([restPromise, latePreload]);
+  const [rest, parcels] = await Promise.all([restPromise, parcelPromise, latePreload]);
   city.setRestPayload(rest);
+  city.setParcelPlan(parcels.plan);
+  city.setParcelSource(parcels.source);
   let lastPct = -1;
   await city.initLate((f) => {
     const pct = Math.min(99, Math.round(f * 100));

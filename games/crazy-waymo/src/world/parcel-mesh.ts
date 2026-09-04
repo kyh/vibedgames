@@ -28,7 +28,7 @@ import {
  */
 export type DetailLevel = 0 | 1 | 2;
 
-export type ParcelMaterial = "wall" | "glassLit" | "glassDark";
+export type ParcelMaterial = "wall" | "glassLit" | "glassDark" | "facade";
 
 /** Cull band of a buffer: bodies by silhouette height, detail on the near band. */
 export type MeshTier = "far" | "mid" | "near" | "detail";
@@ -43,6 +43,10 @@ export type ParcelGeo = {
   readonly normal: Int8Array;
   readonly color: Uint8Array;
   readonly index: Uint16Array | Uint32Array;
+  /** Facade-shader walls only (parcel-build.ts FACADE): see FacadeBuf. */
+  readonly fuv?: Float32Array;
+  readonly facade?: Uint16Array;
+  readonly facade2?: Uint8Array;
 };
 
 export type ParcelGeoStats = {
@@ -123,7 +127,7 @@ class GeoBuf {
   nv = 0;
   ni = 0;
 
-  private reserve(verts: number, indices: number): void {
+  protected reserve(verts: number, indices: number): void {
     if ((this.nv + verts) * 3 > this.pos.length) {
       const cap = Math.max(this.pos.length * 2, (this.nv + verts) * 3);
       const p = new Float32Array(cap);
@@ -143,7 +147,7 @@ class GeoBuf {
     }
   }
 
-  private vert(
+  protected vert(
     x: number,
     y: number,
     z: number,
@@ -271,7 +275,92 @@ class GeoBuf {
   }
 }
 
-type Bucket = { wall: GeoBuf; glassLit: GeoBuf; glassDark: GeoBuf };
+/**
+ * Walls the FACADE SHADER dresses (the lean, non-survey fabric): every vertex
+ * also carries its along-wall / above-seat coordinate and the wall's storey
+ * rhythm, and the shader draws the windows, doors and shopfronts from those.
+ * Zero extra geometry per opening — which is the only way 130k parcels fit.
+ *
+ * facade (u16 ×4, normalized, ×FACADE_SCALE): storeyH, pitch, groundH, wallLen
+ * facade2 (u8 ×4, raw): storeys, seed, flags, 0
+ */
+export const FACADE_SCALE = 512;
+export const FACADE_FLAG_SHOP = 1;
+export const FACADE_FLAG_HOUSE = 2;
+export const FACADE_FLAG_SHED = 4;
+export const FACADE_FLAG_BLANK = 8;
+
+export type FacadeParams = {
+  readonly storeyH: number;
+  readonly pitch: number;
+  readonly groundH: number;
+  readonly wallLen: number;
+  readonly storeys: number;
+  readonly seed: number;
+  readonly flags: number;
+};
+
+class FacadeBuf extends GeoBuf {
+  fuv = new Float32Array(2 * 1024);
+  fac = new Uint16Array(4 * 1024);
+  fac2 = new Uint8Array(4 * 1024);
+
+  protected override reserve(verts: number, indices: number): void {
+    super.reserve(verts, indices);
+    const cap = this.pos.length / 3;
+    if (cap * 2 > this.fuv.length) {
+      const u = new Float32Array(cap * 2);
+      u.set(this.fuv);
+      this.fuv = u;
+      const f = new Uint16Array(cap * 4);
+      f.set(this.fac);
+      this.fac = f;
+      const g = new Uint8Array(cap * 4);
+      g.set(this.fac2);
+      this.fac2 = g;
+    }
+  }
+
+  /** A wall quad from (x0, z0) along (tx, tz) for len, seat y0 to top y1, with its facade data. */
+  wall(
+    x0: number,
+    z0: number,
+    tx: number,
+    tz: number,
+    len: number,
+    y0: number,
+    y1: number,
+    nx: number,
+    nz: number,
+    color: number,
+    fp: FacadeParams,
+    vBase: number,
+  ): void {
+    const base = this.nv;
+    const x1 = x0 + tx * len;
+    const z1 = z0 + tz * len;
+    this.quad(x0, y0, z0, x1, y0, z1, x1, y1, z1, x0, y1, z0, nx, 0, nz, color);
+    const q = (v: number): number =>
+      Math.max(0, Math.min(65535, Math.round((v / FACADE_SCALE) * 65535)));
+    const us = [0, len, len, 0];
+    const vs = [vBase, vBase, vBase + (y1 - y0), vBase + (y1 - y0)];
+    for (let k = 0; k < 4; k++) {
+      const i = base + k;
+      this.fuv[i * 2] = us[k] ?? 0;
+      this.fuv[i * 2 + 1] = vs[k] ?? 0;
+      this.fac[i * 4] = q(fp.storeyH);
+      this.fac[i * 4 + 1] = q(fp.pitch);
+      this.fac[i * 4 + 2] = q(fp.groundH);
+      this.fac[i * 4 + 3] = q(fp.wallLen);
+      this.fac2[i * 4] = Math.min(255, fp.storeys);
+      this.fac2[i * 4 + 1] = fp.seed & 0xff;
+      this.fac2[i * 4 + 2] = fp.flags & 0xff;
+      this.fac2[i * 4 + 3] = 0;
+    }
+  }
+}
+
+type Bucket = { wall: GeoBuf; glassLit: GeoBuf; glassDark: GeoBuf; facade: FacadeBuf };
 
 class Buckets {
   private readonly map = new Map<number, Bucket>();
@@ -287,7 +376,12 @@ class Buckets {
     const k = this.key(tier, x, z);
     let b = this.map.get(k);
     if (!b) {
-      b = { wall: new GeoBuf(), glassLit: new GeoBuf(), glassDark: new GeoBuf() };
+      b = {
+        wall: new GeoBuf(),
+        glassLit: new GeoBuf(),
+        glassDark: new GeoBuf(),
+        facade: new FacadeBuf(),
+      };
       this.map.set(k, b);
     }
     return b;
@@ -308,7 +402,7 @@ class Buckets {
         if (g.nv === 0) return;
         vertices += g.nv;
         triangles += g.ni / 3;
-        geos.push({
+        const rec: ParcelGeo = {
           tier,
           mat,
           cx,
@@ -318,11 +412,22 @@ class Buckets {
           normal: g.nor.slice(0, g.nv * 3),
           color: g.col.slice(0, g.nv * 3),
           index: g.nv <= 65535 ? Uint16Array.from(g.idx.subarray(0, g.ni)) : g.idx.slice(0, g.ni),
-        });
+        };
+        geos.push(
+          g instanceof FacadeBuf
+            ? {
+                ...rec,
+                fuv: g.fuv.slice(0, g.nv * 2),
+                facade: g.fac.slice(0, g.nv * 4),
+                facade2: g.fac2.slice(0, g.nv * 4),
+              }
+            : rec,
+        );
       };
       push("wall", b.wall);
       push("glassLit", b.glassLit);
       push("glassDark", b.glassDark);
+      push("facade", b.facade);
     }
     return { geos, stats: { vertices, triangles, buffers: geos.length } };
   }
@@ -1442,7 +1547,114 @@ function buildLot(buckets: Buckets, lot: ParcelLot): void {
   }
 }
 
+// --- The lean fabric --------------------------------------------------------
+// Every parcel outside the downtown survey: walls on the facade shader, a
+// roof cap, nothing else. ~5 vertices per ring vertex against ~250 for a
+// survey parcel, and the shader draws what the survey gets as geometry.
+
+/** Window pitch per kind, in world units: the stucco box's wide band, the Victorian's sashes. */
+function leanPitch(kind: ParcelKind): number {
+  switch (kind) {
+    case "stucco":
+      return 2.0;
+    case "rowhouse":
+      return 1.25;
+    case "midrise":
+      return 1.5;
+    case "tower":
+      return 1.3;
+    case "warehouse":
+      return 2.6;
+    case "shed":
+      return 0;
+  }
+}
+
+function leanFlags(kind: ParcelKind): number {
+  switch (kind) {
+    case "stucco":
+    case "rowhouse":
+      return FACADE_FLAG_HOUSE;
+    case "midrise":
+    case "tower":
+      return FACADE_FLAG_SHOP;
+    case "warehouse":
+    case "shed":
+      return FACADE_FLAG_SHED;
+  }
+}
+
+function buildLean(buckets: Buckets, p: ParcelPlan): void {
+  const rng = new Rng(p.seed);
+  const walls = wallsOf(p);
+  if (walls.length < 3) return;
+  const st = storeysOf(p);
+  const topY = p.seatY + p.height;
+  const b = buckets.at(bodyTier(p.height), p.obb.cx, p.obb.cz);
+  const colors = colorsFor(p.kind, p.character, p.blockHash, rng.next());
+  const unitColors: number[] = [colors.body];
+  for (let u = 1; u < p.units; u++) {
+    unitColors.push(colorsFor(p.kind, p.character, p.blockHash, rng.next()).body);
+  }
+  const pitch = leanPitch(p.kind);
+  const flags = leanFlags(p.kind);
+  const seedByte = (p.seed >>> 3) & 0xff;
+  const y0 = p.footY;
+  for (const w of walls) {
+    const blank = w.blind || pitch === 0;
+    const fp: FacadeParams = {
+      storeyH: st.upperH,
+      pitch: pitch || 1,
+      groundH: st.groundH,
+      wallLen: w.len,
+      storeys: st.count,
+      seed: seedByte,
+      flags: blank ? FACADE_FLAG_BLANK | (w.blind ? 0 : flags) : w.front ? flags : 0,
+    };
+    if (w.front && p.units > 1) {
+      // The terrace: each unit its own colour, its own door.
+      const unitW = w.len / p.units;
+      for (let u = 0; u < p.units; u++) {
+        b.facade.wall(
+          w.x0 + w.tx * (u * unitW),
+          w.z0 + w.tz * (u * unitW),
+          w.tx,
+          w.tz,
+          unitW,
+          y0,
+          topY,
+          w.nx,
+          w.nz,
+          unitColors[u] ?? colors.body,
+          { ...fp, wallLen: unitW, seed: (seedByte + u * 37) & 0xff },
+          y0 - p.seatY,
+        );
+      }
+    } else {
+      b.facade.wall(
+        w.x0,
+        w.z0,
+        w.tx,
+        w.tz,
+        w.len,
+        y0,
+        topY,
+        w.nx,
+        w.nz,
+        w.blind ? shade(colors.body, 0.9) : colors.body,
+        fp,
+        y0 - p.seatY,
+      );
+    }
+  }
+  b.wall.cap(p.ring, p.n, topY, 1, colors.roof);
+}
+
 function buildOne(buckets: Buckets, p: ParcelPlan, detail: DetailLevel): void {
+  if (!p.hero) {
+    buildLean(buckets, p);
+    return;
+  }
   const rng = new Rng(p.seed);
   const walls = wallsOf(p);
   if (walls.length < 3) return;

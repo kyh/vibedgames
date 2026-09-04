@@ -11,6 +11,9 @@ pnpm dev            # dev server (repo root: pnpm dev:crazy-waymo)
 pnpm test           # world-gen invariant harness (~5s, headless, no browser)
 pnpm bake:world     # regenerate + install public/world/*.bin (headless chromium)
 pnpm bake:world -- 5193   # same, but attach to an already-running dev server
+pnpm bake:parcels   # re-bake public/world/parcels.bin from sf-buildings.raw.json (fetch-buildings.sh)
+                    # + the downtown survey. ANY change to it needs a WORLD_REV bump + bake:world:
+                    #   the bin is cache-busted by WORLD_REV, and the kit walk's coverage follows it.
 pnpm bake:map       # re-bake the OSM vector network + street mask (only after tools/sf-data changes)
                     # → it writes sf-network/sf-streets/sf-freeways UNFORMATTED. Run
                     #   node_modules/.bin/oxfmt --write on those three NEXT (never the repo-root
@@ -102,13 +105,26 @@ bake-network.mts`) from the same park-cleared polylines — car-free-park
   wheel paths) and every stencil landed in the atlas's transparent padding and
   was deleted by `alphaTest`. Gate on the data, never on the material.
 - **The building fabric is PROCEDURAL and LIVE** (`world/parcel-plan.ts` →
-  `parcel-mesh.ts` → `parcel-build.ts`). Every real footprint in
-  `sf-footprints.ts` becomes a flat-shaded, vertex-coloured building in the SF
-  vocabulary (`parcel-style.ts`: row house with bays, stucco box, storefront
-  mid-rise, tower, warehouse, shed). The plan is pure and deterministic; both
-  load paths build its meshes AND its collision solids at the end of their pass
-  (`city.buildParcels`), and NOTHING of it is captured into the bins — the rest
-  capture copies `solids` before the parcels push theirs. So a change to the
+  `parcel-mesh.ts` → `parcel-build.ts`). Its input is the PARCEL SOURCE,
+  `public/world/parcels.bin` (`parcel-source.ts` reads it, `tools/sf-data/
+bake-parcels.mts` writes it): ~147k footprints — the licensed downtown survey
+  (`hero`, LiDAR heights, exact party walls) merged with OpenStreetMap for the
+  rest of the peninsula (89% carry a height tag; the rest get a district-typical
+  storey count from `fallbackStoreys`). `sf-footprints.ts` / `sf-adjacency.ts`
+  are now BAKE INPUTS only — never import them at runtime again; they were
+  2.4 MB of the main bundle. Survey parcels get the full facade vocabulary
+  (`parcel-style.ts`: row house with bays, stucco box, storefront mid-rise,
+  tower, warehouse, shed); OSM parcels are built LEAN — walls on the FACADE
+  SHADER (`parcel-build.ts` FACADE: windows, doors, shopfronts and night
+  lighting drawn in the fragment shader from per-vertex storey data,
+  `parcel-mesh.ts` FacadeBuf) plus a roof cap, ~40 vertices against a survey
+  parcel's ~250. The plan is pure and deterministic and runs OFF THE MAIN
+  THREAD (`parcel-worker.ts`, started by `world-loader.ts` after phase 1 with
+  the city's reservation; ~3-4 s); an edited city or a worker failure plans on
+  the main thread from the decoded source. Both load paths build the meshes AND
+  the collision solids at the end of their pass (`city.buildParcels`), and
+  NOTHING of it is captured into the bins — the rest capture copies `solids`
+  before the parcels push theirs. So a change to the
   generator or its palettes needs no rebake and shows in any dev tab; a change
   that moves what the kit walk reads (coverage, occupancy, the clip) still
   does. The kerb clip is why 15.9k of the 21k parcels build instead of 2.9k: a
@@ -117,9 +133,10 @@ bake-network.mts`) from the same park-cleared polylines — car-free-park
   parcel the clip left shallower than 2.6u is stretched into its block.
   `pnpm test` asserts determinism, the build count, walls off the asphalt,
   solids out of lanes, the kind mix and the vertex budgets. The kit frontage
-  walk still fills the city OUTSIDE the surveyed footprints (west and south);
-  inside them it is skipped cell by cell (`covered`), so a rejected parcel
-  leaves a lot, never a kit house in the middle of a terrace. Rejection is
+  walk is gap-fill only now — ~1.3k lots outside every surveyed footprint
+  (Marin, the islands, the Daly City edge); inside coverage it is skipped cell
+  by cell (`covered`), so a rejected parcel leaves a lot, never a kit house in
+  the middle of a terrace. Rejection is
   the last resort: a folded ring is rebuilt as its own box, a ring that spans
   a street is cut at the kerb and the larger side kept, a parcel under a
   viaduct is built to the storeys that clear the soffit (`freewaySoffitAt`),
