@@ -25,8 +25,10 @@ import type { CityGenPayload } from "../world/gen-worker";
 import { getRuntimeMap, parseMapFile, setRuntimeMap } from "../world/map-file";
 import { SolidIndex } from "../world/solid-index";
 import {
+  readParcelPlanCache,
   readRestCache,
   readWorldCache,
+  writeParcelPlanCache,
   writeRestCache,
   writeWorldCache,
 } from "../world/world-cache";
@@ -110,6 +112,10 @@ function cityEdited(): boolean {
   );
 }
 
+function fromWorker(r: ParcelWorkerResponse): ParcelPlanResult {
+  return { plans: r.plans, lots: r.lots, stats: r.stats, covered: new Set(r.covered) };
+}
+
 /** The worker's plan, or the decoded source for the city to plan from itself. */
 type ParcelResolved = {
   readonly plan: ParcelPlanResult | null;
@@ -129,10 +135,8 @@ function startGenWorker(): Promise<CityGenPayload | null> {
  * The parcel plan in its worker (world/parcel-worker.ts). Resolves null on
  * any failure and the city plans on the main thread instead.
  */
-function runParcelWorker(
-  source: ArrayBuffer,
-  reserved: readonly string[],
-): Promise<ParcelPlanResult | null> {
+function runParcelWorker(source: ArrayBuffer): Promise<ParcelPlanResult | null> {
+  const bytes = source.byteLength;
   return new Promise((resolve) => {
     try {
       const worker = new Worker(new URL("../world/parcel-worker.ts", import.meta.url), {
@@ -141,7 +145,8 @@ function runParcelWorker(
       worker.onmessage = (ev: MessageEvent<ParcelWorkerResponse>) => {
         const r = ev.data;
         console.log(`[parcel-worker] planned ${r.plans.length} parcels in ${r.ms}ms`);
-        resolve({ plans: r.plans, lots: r.lots, stats: r.stats, covered: new Set(r.covered) });
+        writeParcelPlanCache(bytes, r);
+        resolve(fromWorker(r));
         worker.terminate();
       };
       worker.onerror = (e) => {
@@ -149,7 +154,7 @@ function runParcelWorker(
         resolve(null);
         worker.terminate();
       };
-      const req: ParcelWorkerRequest = { source, reserved };
+      const req: ParcelWorkerRequest = { source };
       worker.postMessage(req, [source]);
     } catch (e) {
       console.log(`[parcel-worker] unavailable: ${e instanceof Error ? e.message : e}`);
@@ -217,9 +222,26 @@ export async function loadWorld(deps: WorldLoaderDeps): Promise<WorldLoadResult>
   const bakedWorldPromise = skipBaked ? Promise.resolve(null) : fetchBakedWorld();
   const bakedRestPromise = skipBaked ? Promise.resolve(null) : fetchBakedRest();
   // The parcel source is an INPUT to the city, not a baked output: every
-  // path fetches it, bake mode included. Raw bytes, because the plan runs in
-  // a worker and the buffer is transferred there.
-  const parcelBytesPromise = fetchParcelSource();
+  // path fetches it, bake mode included. The plan starts in its worker the
+  // moment the bytes land — it assembles its own reservation — so it runs
+  // under the model download and the title screen rather than after them.
+  // An edited city has a grid-derived network the worker does not have and
+  // plans itself, later, from the decoded source.
+  const parcelPromise: Promise<ParcelResolved> = fetchParcelSource().then(async (bytes) => {
+    if (!bytes) return { plan: null, source: null };
+    if (edited) return { plan: null, source: decodeParcelSource(bytes) };
+    // A revisit has the plan already (world-cache.ts): the same build, rev
+    // and source bytes, so the worker would compute the identical result.
+    const cached = await readParcelPlanCache(bytes.byteLength);
+    if (cached) {
+      console.log(`[parcel-worker] plan from cache: ${cached.plans.length} parcels`);
+      return { plan: fromWorker(cached), source: null };
+    }
+    // Decode a copy for the fallback before the buffer is transferred away.
+    const copy = bytes.slice(0);
+    const plan = await runParcelWorker(bytes);
+    return { plan, source: plan ? null : decodeParcelSource(copy) };
+  });
   const genPromise = bakedWorldPromise.then((baked) => baked ?? startGenWorker());
   const restState: RestState = { fromBake: false };
   const restPromise = bakedRestPromise.then((baked) => {
@@ -273,17 +295,6 @@ export async function loadWorld(deps: WorldLoaderDeps): Promise<WorldLoadResult>
   deps.snapToCar(car);
   deps.hideLoading();
   deps.showTitle();
-  // The plan needs phase 1's reservation (initEarly above) and the baked
-  // network; an edited city has neither and plans itself.
-  const parcelPromise: Promise<ParcelResolved> = parcelBytesPromise.then(async (bytes) => {
-    if (!bytes) return { plan: null, source: null };
-    if (edited) return { plan: null, source: decodeParcelSource(bytes) };
-    const reserved = city.parcelReservation();
-    // Decode a copy for the fallback before the buffer is transferred away.
-    const copy = bytes.slice(0);
-    const plan = await runParcelWorker(bytes, reserved);
-    return { plan, source: plan ? null : decodeParcelSource(copy) };
-  });
   const ready = finishLoad(
     deps,
     city,
