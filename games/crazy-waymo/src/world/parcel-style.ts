@@ -1,3 +1,4 @@
+import type { ParcelHint } from "./parcel-source";
 import type { DistrictChar } from "./sf-map";
 
 // The building VOCABULARY of the procedural parcel fabric — what a parcel of a
@@ -81,6 +82,8 @@ const STUCCO_DISTRICTS: ReadonlySet<string> = new Set([
 export type StyleInput = {
   readonly character: FabricChar;
   readonly district: string;
+  /** What the map says the building is; "generic" for the survey. */
+  readonly hint: ParcelHint;
   readonly storeys: number;
   /** Plan area, u². */
   readonly area: number;
@@ -90,9 +93,53 @@ export type StyleInput = {
   readonly roll: number;
 };
 
+/**
+ * Storeys for a footprint the map gives no height for: what the district
+ * builds, nudged by the map's own word for it and one parcel's worth of
+ * variety. Real SF is two and three storeys almost everywhere outside the
+ * downtown core, and a citywide default of anything taller reads as Houston.
+ */
+export function fallbackStoreys(character: FabricChar, hint: ParcelHint, seed: number): number {
+  const roll = (seed >>> 8) % 100;
+  switch (hint) {
+    case "shed":
+      return 1;
+    case "apartments":
+      return 3 + (roll < 35 ? 1 : 0) + (roll < 8 ? 1 : 0);
+    case "industrial":
+      return roll < 70 ? 1 : 2;
+    case "public":
+      return 2 + (roll < 40 ? 1 : 0);
+    case "house":
+      return character === "victorian" ? (roll < 55 ? 3 : 2) : roll < 25 ? 3 : 2;
+    case "commercial":
+    case "generic":
+      break;
+  }
+  switch (character) {
+    case "highrise":
+      return roll < 50 ? 6 : roll < 85 ? 9 : 14;
+    case "downtown":
+      return roll < 55 ? 4 : roll < 90 ? 6 : 9;
+    case "commercial":
+      return roll < 60 ? 2 : roll < 92 ? 3 : 4;
+    case "industrial":
+      return roll < 75 ? 1 : 2;
+    case "wharf":
+      return roll < 70 ? 1 : 2;
+    case "victorian":
+      return roll < 55 ? 3 : 2;
+    case "residential":
+      return roll < 25 ? 3 : 2;
+  }
+}
+
 export function resolveKind(s: StyleInput): ParcelKind {
+  if (s.hint === "shed") return "shed";
   if (s.storeys <= 1 && (s.area < 9 || s.frontage < 1.6)) return "shed";
   if (s.storeys >= 8) return "tower";
+  if (s.hint === "industrial") return s.storeys <= 3 ? "warehouse" : "midrise";
+  if (s.hint === "commercial" || s.hint === "public" || s.hint === "apartments") return "midrise";
   switch (s.character) {
     case "industrial":
       return s.storeys <= 3 ? "warehouse" : "midrise";

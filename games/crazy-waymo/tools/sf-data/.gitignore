@@ -8,3 +8,5 @@ sf-piers.raw.json
 sf-osm-tags.raw.json
 # Widened landuse OSM dump (~14 MB) — regenerate with ./fetch-landuse.sh
 sf-landuse.raw.json
+# Raw OSM building footprints (~190 MB) — regenerate with ./fetch-buildings.sh
+sf-buildings.raw.json

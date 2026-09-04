@@ -4,21 +4,23 @@ import { CITY_SEED, ROAD_TILE, WORLD_HALF_X, WORLD_HALF_Z } from "../shared/cons
 import type { Solid } from "../shared/types";
 import { freewayPillars, freewaySoffitAt } from "./freeways";
 import { isParkLand } from "./land-class";
-import type { RoadNetwork } from "./network";
+import type { NetEdge, RoadNetwork } from "./network";
 import {
   type FabricChar,
+  fallbackStoreys,
   type ParcelKind,
   resolveKind,
   storeysOf,
   visualHeight,
 } from "./parcel-style";
 import { walkFor } from "./roads";
-import { lotRhythmFor, parcelAt } from "./sf-adjacency";
-import { SF_FOOTPRINTS } from "./sf-footprints";
+import { hintOf, type ParcelHint, type ParcelSource } from "./parcel-source";
+import { lotRhythmFor } from "./sf-adjacency";
 import { districtAt, isLandCell } from "./sf-map";
 import type { Terrain } from "./terrain";
 
-// THE PARCEL PLAN: every real footprint (sf-footprints.ts) resolved into a
+// THE PARCEL PLAN: every footprint in the parcel source (parcel-source.ts:
+// the downtown survey plus OpenStreetMap for the rest of the city) resolved into a
 // buildable lot — clipped back to the kerb, seated on its hill, given a kind,
 // a storey count and a terrace rhythm, and a collision box. Pure and
 // deterministic: no shared rng, no THREE, no dependence on what any other
@@ -72,7 +74,7 @@ const MIN_SIDE = 1.1;
  */
 const MIN_DEPTH = 2.6;
 /** Sample spacing for the wall-crosses-a-street test. */
-const STRADDLE_STEP = 1.5;
+const STRADDLE_STEP = 2.4;
 /** Consecutive ring vertices closer than this collapse into one after the clip. */
 const MERGE_EPS = 0.08;
 /** Collision wall thickness for a non-rectangular ring (city.ts wallOBB). */
@@ -113,8 +115,11 @@ export type Obb = {
 };
 
 export type ParcelPlan = {
-  /** Index into SF_FOOTPRINTS. */
+  /** Index into the parcel source. */
   readonly id: number;
+  /** From the downtown survey: full facade vocabulary. OSM parcels are built lean. */
+  readonly hero: boolean;
+  readonly hint: ParcelHint;
   readonly kind: ParcelKind;
   readonly character: FabricChar;
   readonly district: string;
@@ -186,6 +191,7 @@ export type ParcelPlanStats = {
 };
 
 export type ParcelPlanContext = {
+  readonly source: ParcelSource;
   readonly network: RoadNetwork;
   readonly terrain: Terrain;
   /** "gx,gz" cells no procedural mass may touch (landmarks, depots, editor clears). */
@@ -431,6 +437,64 @@ function setbackFor(half: number): number {
   return half + walkFor(half) + FACADE_MARGIN;
 }
 
+/** What the plan needs from a nearest-street query. */
+type Hit = {
+  readonly edge: NetEdge;
+  readonly dist: number;
+  readonly x: number;
+  readonly z: number;
+  readonly tx: number;
+  readonly tz: number;
+};
+type NearestFn = (x: number, z: number, maxDist: number) => Hit | null;
+
+/**
+ * The streets around ONE parcel, fetched once, so every query the parcel
+ * makes — some forty of them — walks a handful of edges instead of the
+ * network's bucket hash. Same answer as `RoadNetwork.nearest` for any point
+ * within the fetch radius of the centre.
+ */
+/** Closest point on one edge's polyline, with the tangent there. */
+function closestOnEdge(e: NetEdge, x: number, z: number): Hit {
+  let bd = Infinity;
+  let best: Hit = { edge: e, dist: Infinity, x, z, tx: 1, tz: 0 };
+  const pts = e.pts;
+  for (let k = 0; k + 2 < pts.length; k += 2) {
+    const ax = pts[k] ?? 0;
+    const az = pts[k + 1] ?? 0;
+    const dx = (pts[k + 2] ?? 0) - ax;
+    const dz = (pts[k + 3] ?? 0) - az;
+    const l2 = dx * dx + dz * dz;
+    const t = l2 > 1e-8 ? Math.min(Math.max(((x - ax) * dx + (z - az) * dz) / l2, 0), 1) : 0;
+    const px = ax + dx * t;
+    const pz = az + dz * t;
+    const d2 = (px - x) * (px - x) + (pz - z) * (pz - z);
+    if (d2 < bd) {
+      bd = d2;
+      const dl = Math.sqrt(l2) || 1;
+      best = { edge: e, dist: Math.sqrt(d2), x: px, z: pz, tx: dx / dl, tz: dz / dl };
+    }
+  }
+  return best;
+}
+
+type Nearby = { readonly edges: readonly NetEdge[]; readonly nearest: NearestFn };
+
+function nearbyStreets(network: RoadNetwork, cx: number, cz: number, r: number): Nearby {
+  const edges = network.edgesWithin(cx, cz, r);
+  return {
+    edges,
+    nearest: (x, z, maxDist) => {
+      let best: Hit | null = null;
+      for (const e of edges) {
+        const h = closestOnEdge(e, x, z);
+        if (h.dist < maxDist && (best === null || h.dist < best.dist)) best = h;
+      }
+      return best;
+    },
+  };
+}
+
 /**
  * Push every ring vertex inside a street's setback out to the setback line,
  * on the PARCEL'S side of that street — the side its centroid is on. A vertex
@@ -443,7 +507,7 @@ function setbackFor(half: number): number {
 function clipToKerb(
   ring: Float32Array,
   n: number,
-  network: RoadNetwork,
+  edges: readonly NetEdge[],
   cx: number,
   cz: number,
 ): number {
@@ -454,24 +518,32 @@ function clipToKerb(
     readonly pz: number;
     readonly setback: number;
   };
-  // One street per edge id the parcel's vertices are nearest to, with the
-  // parcel's side of it. Signed distance of any vertex to the street is then
-  // measured against that one local line — a street is straight over the
-  // ~10u a parcel spans.
-  const streets = new Map<number, Street>();
+  // EVERY street within reach, each as the local line through the centroid's
+  // projection onto it (a street is straight over the ~10u a parcel spans),
+  // with the parcel's side of it. Asking only each vertex's single nearest
+  // edge missed the boulevard at a corner: every vertex was nearer the side
+  // street, so the boulevard never entered the set and the ring stayed in
+  // its lane.
+  const streets: Street[] = [];
+  let reach = 0;
   for (let i = 0; i < n; i++) {
-    const hit = network.nearest(ring[i * 2] ?? 0, ring[i * 2 + 1] ?? 0, ROAD_TILE * 1.4);
-    if (hit === null || streets.has(hit.edge.id)) continue;
+    const d = Math.hypot((ring[i * 2] ?? 0) - cx, (ring[i * 2 + 1] ?? 0) - cz);
+    if (d > reach) reach = d;
+  }
+  for (const e of edges) {
+    const hit = closestOnEdge(e, cx, cz);
+    const setback = setbackFor(e.half);
+    if (hit.dist > setback + reach + 0.5) continue;
     let px = -hit.tz;
     let pz = hit.tx;
     if ((cx - hit.x) * px + (cz - hit.z) * pz < 0) {
       px = -px;
       pz = -pz;
     }
-    streets.set(hit.edge.id, { ox: hit.x, oz: hit.z, px, pz, setback: setbackFor(hit.edge.half) });
+    streets.push({ ox: hit.x, oz: hit.z, px, pz, setback });
   }
   let moved = 0;
-  for (const st of streets.values()) {
+  for (const st of streets) {
     let dMin = Infinity;
     let dMax = -Infinity;
     for (let i = 0; i < n; i++) {
@@ -537,7 +609,7 @@ function mergeClose(ring: Float32Array, n: number): number {
 }
 
 /** Ids of the streets whose asphalt a wall runs through between its (clear) endpoints. */
-function straddledStreets(ring: Float32Array, n: number, network: RoadNetwork): number[] {
+function straddledStreets(ring: Float32Array, n: number, nearest: NearestFn): number[] {
   const ids = new Set<number>();
   for (let i = 0; i < n; i++) {
     const j = (i + 1) % n;
@@ -549,7 +621,7 @@ function straddledStreets(ring: Float32Array, n: number, network: RoadNetwork): 
     const steps = Math.ceil(len / STRADDLE_STEP);
     for (let k = 1; k < steps; k++) {
       const t = k / steps;
-      const hit = network.nearest(x0 + (x1 - x0) * t, z0 + (z1 - z0) * t, ROAD_TILE);
+      const hit = nearest(x0 + (x1 - x0) * t, z0 + (z1 - z0) * t, ROAD_TILE);
       if (hit !== null && hit.dist < hit.edge.half - 0.15) ids.add(hit.edge.id);
     }
   }
@@ -702,7 +774,7 @@ class PillarIndex {
 }
 
 export function planParcels(ctx: ParcelPlanContext): ParcelPlanResult {
-  const { network, terrain, reserved, standAt } = ctx;
+  const { source, network, terrain, reserved, standAt } = ctx;
   const stats: ParcelPlanStats = {
     built: 0,
     water: 0,
@@ -726,8 +798,11 @@ export function planParcels(ctx: ParcelPlanContext): ParcelPlanResult {
   const lots: ParcelLot[] = [];
   const covered = new Set<number>();
   const pillars = new PillarIndex(freewayPillars(terrain, network));
+  // Rebound per parcel from the parcel's own street subset (nearbyStreets).
+  let nearest: NearestFn = (x, z, maxDist) => network.nearest(x, z, maxDist);
+  let nearEdges: readonly NetEdge[] = network.edges;
   const onAsphalt = (x: number, z: number, margin: number): boolean => {
-    const hit = network.nearest(x, z, ROAD_TILE * 1.4);
+    const hit = nearest(x, z, ROAD_TILE * 1.4);
     return hit !== null && hit.dist < hit.edge.half + margin;
   };
   const anyVertexInLane = (ring: Float32Array, n: number): boolean => {
@@ -763,26 +838,20 @@ export function planParcels(ctx: ParcelPlanContext): ParcelPlanResult {
     return true;
   };
 
-  for (let id = 0; id < SF_FOOTPRINTS.length; id++) {
-    const flat = SF_FOOTPRINTS[id];
-    if (flat === undefined) continue;
-    const realH = flat[0] ?? 0;
-    const n0 = (flat.length - 1) >> 1;
-    if (realH <= 0 || n0 < 3) continue;
-    const adjacency = parcelAt(id);
-    if (adjacency?.stacked === true) {
-      stats.stacked++;
-      continue;
-    }
+  for (let id = 0; id < source.count; id++) {
+    const v0 = source.offsets[id] ?? 0;
+    const v1 = source.offsets[id + 1] ?? v0;
+    const n0 = v1 - v0;
+    if (n0 < 3) continue;
+    const realH = source.heights[id] ?? 0;
+    const hint = hintOf(source, id);
+    const hero = (source.hero[id] ?? 0) === 1;
+    const blindMask = source.blind[id] ?? 0;
     // Orient positive (interior to the left of each edge) — party-wall edge
     // indices follow the reversal.
     let n = n0;
-    let ring: Float32Array = new Float32Array(n * 2);
+    let ring: Float32Array = source.coords.slice(v0 * 2, v1 * 2);
     let blind = new Uint8Array(n);
-    for (let i = 0; i < n; i++) {
-      ring[i * 2] = flat[1 + i * 2] ?? 0;
-      ring[i * 2 + 1] = flat[2 + i * 2] ?? 0;
-    }
     if (signedArea(ring, n) < 0) {
       const rev = new Float32Array(n * 2);
       for (let k = 0; k < n; k++) {
@@ -790,13 +859,28 @@ export function planParcels(ctx: ParcelPlanContext): ParcelPlanResult {
         rev[k * 2 + 1] = ring[(n - 1 - k) * 2 + 1] ?? 0;
       }
       ring.set(rev);
-      if (adjacency) for (const e of adjacency.blind) blind[(n - 2 - e + 2 * n) % n] = 1;
-    } else if (adjacency) {
-      for (const e of adjacency.blind) blind[e] = 1;
+      for (let e = 0; e < n && e < 32; e++) {
+        if (blindMask & (1 << e)) blind[(n - 2 - e + 2 * n) % n] = 1;
+      }
+    } else {
+      for (let e = 0; e < n && e < 32; e++) if (blindMask & (1 << e)) blind[e] = 1;
     }
     const original = Float32Array.from(ring);
     const area0 = signedArea(ring, n);
     let [cx, cz] = centroidOf(ring, n);
+    {
+      // Fetch radius: the ring's reach plus the widest query any step makes
+      // (the front-edge search at 1.6 tiles), so no answer below can differ
+      // from the network's own.
+      let reach = 0;
+      for (let i = 0; i < n; i++) {
+        const d = Math.hypot((ring[i * 2] ?? 0) - cx, (ring[i * 2 + 1] ?? 0) - cz);
+        if (d > reach) reach = d;
+      }
+      const near = nearbyStreets(network, cx, cz, reach + ROAD_TILE * 2.6 + MIN_DEPTH);
+      nearest = near.nearest;
+      nearEdges = near.edges;
+    }
     const gx = gridXOf(cx);
     const gz = gridZOf(cz);
     if (!isLandCell(gx, gz)) {
@@ -834,7 +918,7 @@ export function planParcels(ctx: ParcelPlanContext): ParcelPlanResult {
     let movedAny = false;
     const clip = (): void => {
       for (let iter = 0; iter < 3; iter++) {
-        const moved = clipToKerb(ring, n, network, cx, cz);
+        const moved = clipToKerb(ring, n, nearEdges, cx, cz);
         stats.movedVerts += moved;
         if (moved === 0) break;
         movedAny = true;
@@ -869,7 +953,7 @@ export function planParcels(ctx: ParcelPlanContext): ParcelPlanResult {
       blind = new Uint8Array(4);
       boxed = true;
     }
-    let crossing = straddledStreets(ring, n, network);
+    let crossing = straddledStreets(ring, n, nearest);
     for (let round = 0; crossing.length > 0 && round < 4; round++) {
       const piece = splitOffStreets(ring, n, crossing, network);
       if (piece === null) break;
@@ -887,7 +971,7 @@ export function planParcels(ctx: ParcelPlanContext): ParcelPlanResult {
         blind = new Uint8Array(4);
         boxed = true;
       }
-      crossing = n >= 3 ? straddledStreets(ring, n, network) : [];
+      crossing = n >= 3 ? straddledStreets(ring, n, nearest) : [];
     }
     if (crossing.length > 0) {
       stats.straddle++;
@@ -906,6 +990,9 @@ export function planParcels(ctx: ParcelPlanContext): ParcelPlanResult {
       continue;
     }
     [cx, cz] = centroidOf(ring, n);
+    // A recovered ring (boxed, split) is a new shape; its last word is the
+    // whole network's, not the subset fetched for the ring it replaced.
+    if (boxed || split) nearest = (x, z, maxDist) => network.nearest(x, z, maxDist);
     if (onAsphalt(cx, cz, 0.4) || anyVertexInLane(ring, n)) {
       // The clip works one street at a time; a vertex it moved clear of a
       // minor street can land inside the boulevard that street joins.
@@ -934,7 +1021,7 @@ export function planParcels(ctx: ParcelPlanContext): ParcelPlanResult {
         longest = e;
       }
       if (len < 1.0) continue;
-      const hit = network.nearest((x0 + x1) / 2, (z0 + z1) / 2, ROAD_TILE * 1.6);
+      const hit = nearest((x0 + x1) / 2, (z0 + z1) / 2, ROAD_TILE * 1.6);
       if (hit === null) continue;
       const d = hit.dist - hit.edge.half;
       if (d < frontDist - 0.3 || (Math.abs(d - frontDist) <= 0.3 && len > frontLen)) {
@@ -1026,7 +1113,7 @@ export function planParcels(ctx: ParcelPlanContext): ParcelPlanResult {
     const character: FabricChar =
       district.character === "park" ? "residential" : district.character;
     const seed = hash32(id * 2654435761 + CITY_SEED);
-    let storeys = storeysOf(realH);
+    let storeys = realH > 0 ? storeysOf(realH) : fallbackStoreys(character, hint, seed);
     if (split && area < area0 * SPLIT_KEEP_SHARE) storeys = Math.min(storeys, SPLIT_LOW_STOREYS);
     const soffit = soffitOver(ring, n, cx, cz);
     const pillarHits = pillars.inside(ring, n);
@@ -1049,6 +1136,7 @@ export function planParcels(ctx: ParcelPlanContext): ParcelPlanResult {
     const kind = resolveKind({
       character,
       district: district.name,
+      hint,
       storeys,
       area,
       frontage: frontLen,
@@ -1067,6 +1155,8 @@ export function planParcels(ctx: ParcelPlanContext): ParcelPlanResult {
 
     plans.push({
       id,
+      hero,
+      hint,
       kind,
       character,
       district: district.name,
@@ -1090,6 +1180,34 @@ export function planParcels(ctx: ParcelPlanContext): ParcelPlanResult {
     if (split) stats.split++;
   }
   return { plans, lots, stats, covered };
+}
+
+/** What a city without a parcel source gets: nothing, and every stat at zero. */
+export function emptyParcelPlan(): ParcelPlanResult {
+  return {
+    plans: [],
+    lots: [],
+    covered: new Set(),
+    stats: {
+      built: 0,
+      water: 0,
+      stacked: 0,
+      reserved: 0,
+      park: 0,
+      freeway: 0,
+      clipped: 0,
+      folded: 0,
+      straddle: 0,
+      onRoad: 0,
+      cliff: 0,
+      movedVerts: 0,
+      stretched: 0,
+      underDeck: 0,
+      boxed: 0,
+      split: 0,
+      lots: 0,
+    },
+  };
 }
 
 /** The front edge's endpoints, for the facade stamp furniture dresses. */

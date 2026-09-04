@@ -75,8 +75,10 @@ import {
   cellKey,
   frontSegment,
   type ParcelPlanResult,
+  emptyParcelPlan,
   planParcels,
 } from "./parcel-plan";
+import type { ParcelSource } from "./parcel-source";
 import { ROOF_PALETTES } from "./parcel-style";
 import { type LotRhythm, lotRhythmFor } from "./sf-adjacency";
 import {
@@ -1485,11 +1487,34 @@ export class CityModel {
   // kit walk, and BOTH load paths build its meshes and solids live at the end
   // of their pass — nothing of it is captured into the bins.
   private reservedCells: ReadonlySet<string> = new Set();
+  private parcelSource: ParcelSource | null = null;
+  /** The parcel source (world-fetch.ts fetchParcelSource) — the main-thread fallback's input. */
+  setParcelSource(src: ParcelSource | null): void {
+    this.parcelSource = src;
+  }
+  /** Cells no parcel may touch, as phase 1 assembled them — what the parcel worker plans against. */
+  parcelReservation(): string[] {
+    return [...this.reservedCells];
+  }
   private parcelPlanCache: ParcelPlanResult | null = null;
+  /** The plan, computed off-thread (parcel-worker.ts) — set before initLate(). */
+  setParcelPlan(plan: ParcelPlanResult | null): void {
+    this.parcelPlanCache = plan;
+  }
   private parcelPlan(): ParcelPlanResult {
     if (!this.parcelPlanCache) {
+      const source = this.parcelSource;
+      if (!source) {
+        // No source (fetch failed): no fabric, and the kit walk keeps every block.
+        this.parcelPlanCache = emptyParcelPlan();
+        console.log("[city] parcels: no source — kit fabric only");
+        return this.parcelPlanCache;
+      }
+      // Main-thread plan: edited cities (their network is not the baked one)
+      // and the worker having failed. Seconds of stall, so it is the fallback.
       const t0 = performance.now();
       this.parcelPlanCache = planParcels({
+        source,
         network: this.network,
         terrain: this.terrain,
         reserved: this.reservedCells,

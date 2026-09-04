@@ -191,6 +191,32 @@ export class RoadNetwork {
     return this.passThrough[node] === 1;
   }
 
+  /**
+   * Every edge with a segment bucketed within `r` of a point, deduped. A
+   * caller that asks `nearest` for many points in one neighbourhood (the
+   * parcel plan: ~40 queries per parcel over 147k parcels) fetches this once
+   * and answers the rest against the subset — the bucket walk and its string
+   * keys were most of that pass's time.
+   */
+  edgesWithin(x: number, z: number, r: number): NetEdge[] {
+    const out: NetEdge[] = [];
+    const n = Math.ceil(r / HASH_CELL);
+    const cbx = Math.floor(x / HASH_CELL);
+    const cbz = Math.floor(z / HASH_CELL);
+    const seen = new Set<number>();
+    for (let bx = cbx - n; bx <= cbx + n; bx++) {
+      for (let bz = cbz - n; bz <= cbz + n; bz++) {
+        for (const id of this.buckets.get(`${bx},${bz}`) ?? []) {
+          if (seen.has(id)) continue;
+          seen.add(id);
+          const e = this.edges[id];
+          if (e) out.push(e);
+        }
+      }
+    }
+    return out;
+  }
+
   // Nearest point on the network within maxDist (via the segment hash).
   nearest(x: number, z: number, maxDist: number): NearestHit | null {
     let best: NearestHit | null = null;
