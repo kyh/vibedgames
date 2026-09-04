@@ -6,6 +6,7 @@ import {
   buildParcelGeometry,
   type DetailLevel,
   FACADE_SCALE,
+  FUV_V_BIAS,
   type ParcelGeo,
   type ParcelGeoStats,
   type ParcelMaterial,
@@ -99,7 +100,7 @@ varying vec4 vFacade2;`,
       .replace(
         "#include <begin_vertex>",
         `#include <begin_vertex>
-vFuv = fuv;
+vFuv = fuv * 655.35 - vec2(0.0, ${FUV_V_BIAS.toFixed(1)});
 vFacade = facade;
 vFacade2 = facade2;`,
       );
@@ -241,7 +242,7 @@ function geometryOf(g: ParcelGeo): THREE.BufferGeometry {
   geo.setAttribute("color", new THREE.BufferAttribute(g.color, 3, true));
   geo.setIndex(new THREE.BufferAttribute(g.index, 1));
   if (g.fuv && g.facade && g.facade2) {
-    geo.setAttribute("fuv", new THREE.BufferAttribute(g.fuv, 2));
+    geo.setAttribute("fuv", new THREE.BufferAttribute(g.fuv, 2, true));
     geo.setAttribute("facade", new THREE.BufferAttribute(g.facade, 4, true));
     geo.setAttribute("facade2", new THREE.BufferAttribute(g.facade2, 4, false));
   }

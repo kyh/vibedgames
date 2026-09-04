@@ -2,14 +2,9 @@ import * as THREE from "three";
 import { MapControls } from "three/addons/controls/MapControls.js";
 
 import {
-  BUILDINGS_COMMERCIAL,
-  BUILDINGS_INDUSTRIAL,
-  BUILDINGS_SKYSCRAPER,
-  BUILDINGS_SUBURBAN,
   CHARACTERS,
   editorModelUrls,
   modelUrl,
-  KK_BUILDINGS,
   KK_CARS,
   KK_PROPS_EXTRA,
   PARK_TILES,
@@ -46,13 +41,6 @@ type Tab = "props" | "streets" | "floor" | "clear";
 const CATEGORIES: readonly { label: string; cat: string; names: readonly string[] }[] = [
   { label: "props", cat: "props", names: [...PROPS, ...KK_PROPS_EXTRA] },
   { label: "parks", cat: "parks", names: PARK_TILES },
-  { label: "houses", cat: "buildings", names: BUILDINGS_SUBURBAN },
-  {
-    label: "commercial",
-    cat: "buildings",
-    names: [...BUILDINGS_COMMERCIAL, ...BUILDINGS_SKYSCRAPER, ...KK_BUILDINGS],
-  },
-  { label: "industrial", cat: "buildings", names: BUILDINGS_INDUSTRIAL },
   {
     label: "cars",
     cat: "cars",

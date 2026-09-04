@@ -4,16 +4,7 @@
 // world exactly like gen-worker does (no browser, no THREE render) and
 // asserts the invariants that would have caught each drift class at build
 // time. Run: `pnpm test`.
-import {
-  CITY_SEED,
-  GRID_X,
-  GRID_Z,
-  ROAD_TILE,
-  WORLD_HALF_X,
-  WORLD_HALF_Z,
-} from "../src/shared/constants.ts";
-import { Rng } from "../src/shared/rng.ts";
-import { type FabricLot, planFabricRow } from "../src/world/city.ts";
+import { GRID_X, GRID_Z, ROAD_TILE, WORLD_HALF_X, WORLD_HALF_Z } from "../src/shared/constants.ts";
 import { generateCity } from "../src/world/grid.ts";
 import {
   dominantCover,
@@ -27,7 +18,7 @@ import { buildParcelGeometry } from "../src/world/parcel-mesh.ts";
 import { planParcels } from "../src/world/parcel-plan.ts";
 import { RoadNetwork } from "../src/world/network.ts";
 import { buildJunctionMap } from "../src/world/roads.ts";
-import { districtAt, makeTerrain } from "../src/world/sf-map.ts";
+import { makeTerrain } from "../src/world/sf-map.ts";
 import { parkCell } from "../src/world/park-clear.ts";
 import { NETWORK_GEN_ID, SF_BASE_NODES } from "../src/world/sf-network.ts";
 import { STREETS_GEN_ID } from "../src/world/sf-streets.ts";
@@ -391,109 +382,10 @@ console.log(`  (plan + network in ${Math.round(performance.now() - t0)}ms)`);
   }
 }
 
-// --- 11. The fabric LOT LINE. Frontage rows are the bulk of the city's
-// buildings, and the walk that lays them used to roll a lot width every
-// iteration while stepping by the PREVIOUS roll: consecutive lots gapped or
-// overlapped by half the difference of two draws, up to 1.3u (~6 m) of daylight
-// between walls that were meant to be attached. planFabricRow now walks a real
-// lot line and reports both front-face corners, so the invariant is checkable
-// without a browser: within a run, one lot's far corner IS the next one's near
-// corner. Curvature is the only slack (neighbours share an offset polyline, so
-// the two corners are literally the same sample) — the gate is 0.3u.
-{
-  const rng = new Rng(CITY_SEED);
-  let attachedPairs = 0;
-  let worstGap = 0;
-  let worstAt = "";
-  let denseBuilt = 0;
-  let denseWalk = 0;
-  let lots = 0;
-  for (const edge of network.edges) {
-    for (const side of [1, -1] as const) {
-      const row = planFabricRow(network, buildJunctionMap(network), edge, side, rng);
-      lots += row.length;
-      let prev: FabricLot | null = null;
-      for (const lot of row) {
-        if (lot.attached && prev) {
-          // The shared corner: prev's far front corner vs this lot's near one.
-          const gap = Math.min(
-            Math.hypot(lot.x0 - prev.x1, lot.z0 - prev.z1),
-            Math.hypot(lot.x1 - prev.x0, lot.z1 - prev.z0),
-          );
-          attachedPairs++;
-          if (gap > worstGap) {
-            worstGap = gap;
-            worstAt = `edge ${edge.id} side ${side} run ${lot.run}`;
-          }
-        }
-        prev = lot;
-      }
-      // Coverage on the rows that are supposed to read as wall-to-wall.
-      const smp = network.sample(edge, edge.len / 2);
-      const character = districtAt(
-        Math.floor((smp.x + WORLD_HALF_X) / ROAD_TILE),
-        Math.floor((smp.z + WORLD_HALF_Z) / ROAD_TILE),
-      ).character;
-      if (character !== "residential" && character !== "victorian") continue;
-      const trimA = Math.min(network.nodeTrim(edge.a) * 0.6 + 1.5, edge.len * 0.4);
-      const trimB = Math.min(network.nodeTrim(edge.b) * 0.6 + 1.5, edge.len * 0.4);
-      const walkable = edge.len - trimA - trimB;
-      if (walkable < 5) continue;
-      denseWalk += walkable;
-      for (const lot of row) denseBuilt += lot.width;
-    }
-  }
-  // The facade line moved in toward the kerb (a flat 2.4u became the street's
-  // own sidewalk width plus 0.45u), so the classic "buildings in the road" bug
-  // gets a hard gate: no planned lot may overlap asphalt or a junction patch.
-  // The junction patch is what a per-edge nearest() cannot see — it is wider
-  // than any of its arms.
-  {
-    const j = buildJunctionMap(network);
-    let onAsphalt = 0;
-    let inPatch = 0;
-    let worstAt = "";
-    const rng2 = new Rng(CITY_SEED);
-    for (const edge of network.edges) {
-      for (const side of [1, -1] as const) {
-        for (const lot of planFabricRow(network, j, edge, side, rng2)) {
-          for (const [x, z] of [
-            [lot.x0, lot.z0],
-            [lot.x1, lot.z1],
-          ] as const) {
-            const hit = network.nearest(x, z, ROAD_TILE * 1.6);
-            if (hit && hit.dist < hit.edge.half) {
-              onAsphalt++;
-              if (!worstAt) worstAt = `edge ${edge.id} side ${side}`;
-            } else if (j.near(x, z, 0)) {
-              inPatch++;
-            }
-          }
-        }
-      }
-    }
-    check(
-      "no fabric facade stands in the roadway",
-      onAsphalt === 0 && inPatch === 0,
-      `${onAsphalt} on asphalt${worstAt ? ` e.g. ${worstAt}` : ""}, ${inPatch} in a junction patch`,
-    );
-  }
-  check(
-    "attached lots leave no wall gap",
-    worstGap < 0.3,
-    `${attachedPairs} attached pairs, worst ${worstGap.toFixed(3)}u${worstAt ? ` @ ${worstAt}` : ""}`,
-  );
-  // What the walk can actually cover: runSize lots (median 3) shoulder to
-  // shoulder, then one 0.9-2.2u alley, is ~85% of a row; the rest goes to
-  // junction aprons, water, park land and cross-street shrinks. Below 0.7 the
-  // rhythm has stopped being wall-to-wall, which is the regression this catches.
-  const cov = denseBuilt / Math.max(1, denseWalk);
-  check(
-    "dense rows are built wall-to-wall",
-    cov > 0.7,
-    `${(cov * 100).toFixed(1)}% of ${Math.round(denseWalk)}u dense frontage, ${lots} lots total`,
-  );
-}
+// --- 11. Party walls. The kit lot-walk this used to audit is gone; the
+// fabric is the parcel plan, whose attached parcels share their wall by
+// construction (both rings carry the same edge) — the harness's parcel block
+// at the end asserts that on the plan itself.
 
 // --- 12. The resolved ground class (world/land-class.ts) is ONE rule shared by
 // the ground paint, the park furniture and the wheel-surface FX. Both of the
@@ -802,6 +694,22 @@ console.log(`  (plan + network in ${Math.round(performance.now() - t0)}ms)`);
     parcels.lots.length >= 80 && parcels.lots.length <= 4000,
     `${parcels.lots.length} lots`,
   );
+  let heroWalls = 0;
+  let heroCount = 0;
+  for (const p of parcels.plans) {
+    if (!p.hero) continue;
+    heroCount++;
+    for (let e = 0; e < p.n; e++)
+      if (p.blind[e] === 1) {
+        heroWalls++;
+        break;
+      }
+  }
+  check(
+    "survey parcels keep their party walls through the bake",
+    heroCount >= 15000 && heroWalls >= heroCount * 0.45,
+    `${heroWalls} of ${heroCount} survey parcels carry a party wall`,
+  );
   const kinds = new Map<string, number>();
   for (const p of parcels.plans) kinds.set(p.kind, (kinds.get(p.kind) ?? 0) + 1);
   const k = (name: string): number => kinds.get(name) ?? 0;
@@ -815,19 +723,31 @@ console.log(`  (plan + network in ${Math.round(performance.now() - t0)}ms)`);
   // survey parcels carry ~250 vertices each and the lean citywide fabric ~40;
   // the phone number waits on #304 (shader windows on the survey flanks and
   // quantized attributes) to come down.
+  // GPU bytes as three uploads them: f32 position, i8 normal, u8 colour, the
+  // facade walls' u16 fuv + u16 facade + u8 facade2, and the index.
+  const gpuBytes = (g: Awaited<ReturnType<typeof buildParcelGeometry>>): number => {
+    let b = 0;
+    for (const geo of g.geos) {
+      const v = geo.position.length / 3;
+      b += v * (12 + 3 + 3) + geo.index.byteLength;
+      if (geo.fuv) b += v * (4 + 8 + 4);
+    }
+    return b;
+  };
   const t1 = performance.now();
   const full = await buildParcelGeometry(parcels.plans, 2);
   const fullMs = Math.round(performance.now() - t1);
   check(
     "parcel geometry fits the desktop budget",
     full.stats.vertices <= 9_500_000,
-    `${full.stats.vertices} verts, ${Math.round(full.stats.triangles)} tris, ${full.stats.buffers} buffers in ${fullMs}ms`,
+    `${full.stats.vertices} verts, ${Math.round(full.stats.triangles)} tris, ${full.stats.buffers} buffers, ` +
+      `${(gpuBytes(full) / 1048576).toFixed(0)} MB on the GPU, in ${fullMs}ms`,
   );
   const phone = await buildParcelGeometry(parcels.plans, 1);
   check(
     "parcel geometry fits the phone budget",
     phone.stats.vertices <= 7_600_000,
-    `${phone.stats.vertices} verts, ${phone.stats.buffers} buffers`,
+    `${phone.stats.vertices} verts, ${phone.stats.buffers} buffers, ${(gpuBytes(phone) / 1048576).toFixed(0)} MB on the GPU`,
   );
 }
 
