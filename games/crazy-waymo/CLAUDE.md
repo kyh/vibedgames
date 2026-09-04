@@ -132,11 +132,15 @@ bake-parcels.mts` writes it): ~147k footprints — the licensed downtown survey
   parcel's side, a parcel entirely inside the band is slid back whole, and a
   parcel the clip left shallower than 2.6u is stretched into its block.
   `pnpm test` asserts determinism, the build count, walls off the asphalt,
-  solids out of lanes, the kind mix and the vertex budgets. The kit frontage
-  walk is gap-fill only now — ~1.3k lots outside every surveyed footprint
-  (Marin, the islands, the Daly City edge); inside coverage it is skipped cell
-  by cell (`covered`), so a rejected parcel leaves a lot, never a kit house in
-  the middle of a terrace. Rejection is
+  solids out of lanes, the party walls, the kind mix and the vertex + GPU
+  budgets. THERE IS NO KIT BUILDING FABRIC ANY MORE: the Kenney/KayKit
+  building GLBs, the lot-line walk, plinths, garage fronts and kit tints are
+  gone (`public/models/buildings` holds only the depot). Every building is a
+  parcel; ground the source does not cover stays green. Below the full detail
+  tier (phones: `parcelDetailLevel`) the survey parcels' flanks and rears also
+  go on the facade shader, so a phone still sees windows everywhere. What the
+  phone does NOT get yet is a smaller upload: the lean fabric is ~30 B/vertex
+  and the whole city is resident (see the harness's "MB on the GPU"). Rejection is
   the last resort: a folded ring is rebuilt as its own box, a ring that spans
   a street is cut at the kerb and the larger side kept, a parcel under a
   viaduct is built to the storeys that clear the soffit (`freewaySoffitAt`),
@@ -152,8 +156,8 @@ bake-parcels.mts` writes it): ~147k footprints — the licensed downtown survey
   beacons) has to come from `goldenGatePlan` + `goldenGateBeacons`, which
   `city.ts lightGoldenGate()` calls next to `buildLandmarks` on both paths.
   Registering beacons inside a gen-only builder lights the world for nobody.
-- **god objects**: `world/city.ts` (placement + render batching + rest
-  capture) and `scenes/game-scene.ts` (loop + modes + loading). Extract seams
+- **god objects**: `world/city.ts` (parks, depots, seawall, render batching +
+  rest capture) and `scenes/game-scene.ts` (loop + modes + loading). Extract seams
   opportunistically (surface.ts and fx/vehicle-fx.ts are the pattern), don't
   big-bang.
 

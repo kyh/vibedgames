@@ -44,7 +44,7 @@ export type ParcelGeo = {
   readonly color: Uint8Array;
   readonly index: Uint16Array | Uint32Array;
   /** Facade-shader walls only (parcel-build.ts FACADE): see FacadeBuf. */
-  readonly fuv?: Float32Array;
+  readonly fuv?: Uint16Array;
   readonly facade?: Uint16Array;
   readonly facade2?: Uint8Array;
 };
@@ -285,6 +285,8 @@ class GeoBuf {
  * facade2 (u8 ×4, raw): storeys, seed, flags, 0
  */
 export const FACADE_SCALE = 512;
+/** Metres the v coordinate is lifted by so a foundation band below the seat stays unsigned. */
+export const FUV_V_BIAS = 8;
 export const FACADE_FLAG_SHOP = 1;
 export const FACADE_FLAG_HOUSE = 2;
 export const FACADE_FLAG_SHED = 4;
@@ -301,7 +303,7 @@ export type FacadeParams = {
 };
 
 class FacadeBuf extends GeoBuf {
-  fuv = new Float32Array(2 * 1024);
+  fuv = new Uint16Array(2 * 1024);
   fac = new Uint16Array(4 * 1024);
   fac2 = new Uint8Array(4 * 1024);
 
@@ -309,7 +311,7 @@ class FacadeBuf extends GeoBuf {
     super.reserve(verts, indices);
     const cap = this.pos.length / 3;
     if (cap * 2 > this.fuv.length) {
-      const u = new Float32Array(cap * 2);
+      const u = new Uint16Array(cap * 2);
       u.set(this.fuv);
       this.fuv = u;
       const f = new Uint16Array(cap * 4);
@@ -346,8 +348,13 @@ class FacadeBuf extends GeoBuf {
     const vs = [vBase, vBase, vBase + (y1 - y0), vBase + (y1 - y0)];
     for (let k = 0; k < 4; k++) {
       const i = base + k;
-      this.fuv[i * 2] = us[k] ?? 0;
-      this.fuv[i * 2 + 1] = vs[k] ?? 0;
+      // Centimetres, unsigned: v is measured from the seat and the foundation
+      // band dips below it, so the shader subtracts FUV_V_BIAS back out.
+      this.fuv[i * 2] = Math.max(0, Math.min(65535, Math.round((us[k] ?? 0) * 100)));
+      this.fuv[i * 2 + 1] = Math.max(
+        0,
+        Math.min(65535, Math.round(((vs[k] ?? 0) + FUV_V_BIAS) * 100)),
+      );
       this.fac[i * 4] = q(fp.storeyH);
       this.fac[i * 4 + 1] = q(fp.pitch);
       this.fac[i * 4 + 2] = q(fp.groundH);
@@ -675,6 +682,35 @@ function body(
       );
     }
     const yb = foundation ? p.seatY : y0;
+    // Below the full detail tier the flanks and rears get no window geometry
+    // (windowGrid gates them) — on the facade shader they get their windows
+    // for the cost of the wall quad they already were. The street face keeps
+    // its bays and frames.
+    if (c.detail < 2 && !w.front && !w.blind && !ringOverride && p.kind !== "shed") {
+      c.bodyBucket.facade.wall(
+        w.x0,
+        w.z0,
+        w.tx,
+        w.tz,
+        w.len,
+        yb,
+        topY,
+        w.nx,
+        w.nz,
+        bodyColor,
+        {
+          storeyH: st.upperH,
+          pitch: leanPitch(p.kind) || 1.4,
+          groundH: st.groundH,
+          wallLen: w.len,
+          storeys: st.count,
+          seed: (p.seed >>> 3) & 0xff,
+          flags: 0,
+        },
+        yb - p.seatY,
+      );
+      continue;
+    }
     if (w.front && p.units > 1) {
       // The terrace: each unit its own colour on one continuous wall.
       const unitW = w.len / p.units;
