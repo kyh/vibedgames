@@ -1,6 +1,6 @@
 import { CHUNK, DRAW_DISTANCE, ROAD_TILE, WORLD_HALF_X, WORLD_HALF_Z } from "../shared/constants";
 import { Rng } from "../shared/rng";
-import type { ParcelPlan } from "./parcel-plan";
+import { type ParcelLot, type ParcelPlan, pointInRing } from "./parcel-plan";
 import {
   colorsFor,
   GROUND_MIN,
@@ -229,6 +229,23 @@ class GeoBuf {
       this.idx[i + 5] = base + 3;
     }
     this.ni += 6;
+  }
+
+  /** A polygon draped on per-vertex heights, facing up — the surface lots. */
+  capDraped(ring: Float32Array, n: number, ys: Float32Array, lift: number, color: number): void {
+    const tris = earClip(ring, n);
+    this.reserve(n, tris.length);
+    const base = this.nv;
+    for (let i = 0; i < n; i++) {
+      this.vert(ring[i * 2] ?? 0, (ys[i] ?? 0) + lift, ring[i * 2 + 1] ?? 0, 0, 1, 0, color);
+    }
+    for (let t = 0; t < tris.length; t += 3) {
+      const i = this.ni;
+      this.idx[i] = base + (tris[t] ?? 0);
+      this.idx[i + 1] = base + (tris[t + 2] ?? 0);
+      this.idx[i + 2] = base + (tris[t + 1] ?? 0);
+      this.ni += 3;
+    }
   }
 
   /** A horizontal polygon (positive-area xz ring at height y) facing up (+1) or down (-1). */
@@ -1220,6 +1237,7 @@ export async function buildParcelGeometry(
   plans: readonly ParcelPlan[],
   detail: DetailLevel,
   onBreathe?: () => Promise<void>,
+  lots: readonly ParcelLot[] = [],
 ): Promise<ParcelGeometry> {
   const buckets = new Buckets();
   let k = 0;
@@ -1227,7 +1245,77 @@ export async function buildParcelGeometry(
     if (onBreathe && ++k % 400 === 0) await onBreathe();
     buildOne(buckets, p, detail);
   }
+  for (const lot of lots) buildLot(buckets, lot);
   return buckets.flush();
+}
+
+// --- Surface lots ------------------------------------------------------------
+// A surveyed parcel with no building on it: asphalt draped on the ground with
+// bay lines, so a block face reads as parking rather than as a gap. Cars are
+// the build pass's (parcel-build.ts parkOnLots) — they are physics bodies.
+const LOT_ASPHALT = 0x4b5058;
+const LOT_LINE = 0xd6dad6;
+const LOT_LIFT = 0.06;
+const BAY_PITCH = 2.2;
+const BAY_DEPTH = 2.6;
+
+function buildLot(buckets: Buckets, lot: ParcelLot): void {
+  const g = buckets.at("near", lot.obb.cx, lot.obb.cz).wall;
+  g.capDraped(lot.ring, lot.n, lot.ys, LOT_LIFT, LOT_ASPHALT);
+  let lo = Infinity;
+  let hi = -Infinity;
+  let sum = 0;
+  for (let i = 0; i < lot.n; i++) {
+    const y = lot.ys[i] ?? 0;
+    if (y < lo) lo = y;
+    if (y > hi) hi = y;
+    sum += y;
+  }
+  // Bay lines are flat quads; on a lot that falls more than a kerb they would
+  // float or bury, and a sloped lot in SF has no bays painted anyway.
+  if (hi - lo > 1.2) return;
+  const y = sum / lot.n + LOT_LIFT + 0.02;
+  const o = lot.obb;
+  const long = o.halfA >= o.halfB;
+  const lx = long ? o.ex : -o.ez;
+  const lz = long ? o.ez : o.ex;
+  const sx = long ? -o.ez : o.ex;
+  const sz = long ? o.ex : o.ez;
+  const halfL = long ? o.halfA : o.halfB;
+  const halfS = long ? o.halfB : o.halfA;
+  if (halfS * 2 < 3.4) return;
+  const rows: number[] = halfS * 2 >= 5.6 ? [-1, 1] : [halfS > 0 ? -1 : 1];
+  for (const side of rows) {
+    const edge = side * (halfS - 0.5);
+    const inner = side * (halfS - 0.5 - Math.min(BAY_DEPTH, halfS - 0.6));
+    for (let a = -halfL + 1.2; a <= halfL - 1.2; a += BAY_PITCH) {
+      const ax = o.cx + lx * a + sx * edge;
+      const az = o.cz + lz * a + sz * edge;
+      const bx = o.cx + lx * a + sx * inner;
+      const bz = o.cz + lz * a + sz * inner;
+      if (!pointInRing(lot.ring, lot.n, ax, az) || !pointInRing(lot.ring, lot.n, bx, bz)) continue;
+      const wx = lx * 0.05;
+      const wz = lz * 0.05;
+      g.quad(
+        ax - wx,
+        y,
+        az - wz,
+        ax + wx,
+        y,
+        az + wz,
+        bx + wx,
+        y,
+        bz + wz,
+        bx - wx,
+        y,
+        bz - wz,
+        0,
+        1,
+        0,
+        LOT_LINE,
+      );
+    }
+  }
 }
 
 function buildOne(buckets: Buckets, p: ParcelPlan, detail: DetailLevel): void {
