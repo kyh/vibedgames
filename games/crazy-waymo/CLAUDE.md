@@ -138,9 +138,14 @@ bake-parcels.mts` writes it): ~147k footprints — the licensed downtown survey
   gone (`public/models/buildings` holds only the depot). Every building is a
   parcel; ground the source does not cover stays green. Below the full detail
   tier (phones: `parcelDetailLevel`) the survey parcels' flanks and rears also
-  go on the facade shader, so a phone still sees windows everywhere. What the
-  phone does NOT get yet is a smaller upload: the lean fabric is ~30 B/vertex
-  and the whole city is resident (see the harness's "MB on the GPU"). Rejection is
+  go on the facade shader, so a phone still sees windows everywhere. The
+  fabric STREAMS (`parcel-stream.ts`): the ~260 skyline parcels (≥ 13u) are
+  built once, everything else lives in 80u cells generated one per frame as
+  they come within the fog line + 60u of the camera and freed 180u past it —
+  ~95 MB resident at FiDi on desktop, ~50 MB at the phone radius, against
+  240 MB for the whole city. `city.parcelStreamStats()` (reachable as
+  `__taxi.game.city.parcelStreamStats()`) reports residency; `pnpm test`
+  budgets it at the densest probe. Rejection is
   the last resort: a folded ring is rebuilt as its own box, a ring that spans
   a street is cut at the kerb and the larger side kept, a parcel under a
   viaduct is built to the storeys that clear the soffit (`freewaySoffitAt`),

@@ -50,7 +50,8 @@ import type { CityGenPayload } from "./gen-worker";
 import { buildFreeways, nearFreeway } from "./freeways";
 import { buildPiers } from "./piers";
 import { buildLandmarks, landmarkProtection } from "./landmarks";
-import { buildParcelFabric, parcelDetailLevel } from "./parcel-build";
+import { buildParcelFabric, parcelDetailLevel, parkOnLots } from "./parcel-build";
+import { ParcelStreamer, type ParcelStreamStats, streamRadiusFor } from "./parcel-stream";
 import { frontSegment, type ParcelPlanResult, emptyParcelPlan, planParcels } from "./parcel-plan";
 import type { ParcelSource } from "./parcel-source";
 import { districtAt, makeTerrain } from "./sf-map";
@@ -1083,25 +1084,37 @@ export class CityModel {
     }
     return this.parcelPlanCache;
   }
+  // The skyline (parcel-stream.ts explains the split) is built once; the
+  // rest of the fabric streams around the camera in updateStreaming.
+  private parcelStreamer: ParcelStreamer | null = null;
+  parcelStreamStats(): ParcelStreamStats | null {
+    return this.parcelStreamer?.stats() ?? null;
+  }
   private async buildParcels(): Promise<void> {
     const t0 = performance.now();
     const { plans, lots } = this.parcelPlan();
+    const detail = parcelDetailLevel();
+    const skyline = plans.filter((p) => p.height >= BIG_SILHOUETTE_H);
+    const fabric = plans.filter((p) => p.height < BIG_SILHOUETTE_H);
     const built = await buildParcelFabric(
-      plans,
-      lots,
+      skyline,
+      [],
       { imposter: IMPOSTER_DISTANCE, midImposter: MID_IMPOSTER_DISTANCE, detail: DETAIL_DISTANCE },
-      parcelDetailLevel(),
+      detail,
       () => this.breathe(),
     );
     for (const c of built.chunks) {
       this.group.add(c.group);
       this.chunks.push({ cx: c.cx, cz: c.cz, radius: c.radius, dist: c.dist, group: c.group });
     }
+    this.parcelStreamer = new ParcelStreamer(this.group, fabric, lots, detail);
     for (const p of plans) for (const so of p.solids) this.solids.push(so);
-    this.parkedCarSpecs = [...this.parkedCarSpecs, ...built.parkedCars];
+    const cars = parkOnLots(lots, plans);
+    this.parkedCarSpecs = [...this.parkedCarSpecs, ...cars];
     console.log(
-      `[city] parcels built: ${plans.length} buildings, ${lots.length} lots (${built.parkedCars.length} cars), ${built.stats.vertices} verts, ` +
-        `${built.stats.buffers} buffers in ${Math.round(performance.now() - t0)}ms`,
+      `[city] parcels: ${skyline.length} skyline buildings static (${built.stats.vertices} verts), ` +
+        `${fabric.length} streamed over ${this.parcelStreamer.stats().cells} cells, ${lots.length} lots ` +
+        `(${cars.length} cars) in ${Math.round(performance.now() - t0)}ms`,
     );
   }
   private lateRoadFallback: (() => void) | null = null;
@@ -2366,6 +2379,11 @@ export class CityModel {
   updateStreaming(camera: THREE.Camera, showAll = false): void {
     const camX = camera.position.x;
     const camZ = camera.position.z;
+    this.parcelStreamer?.update(
+      camX,
+      camZ,
+      showAll ? Infinity : streamRadiusFor(liveQuality().detailScale),
+    );
     for (const c of this.chunks) {
       const d = Math.hypot(camX - c.cx, camZ - c.cz) - c.radius;
       const visible = showAll || d < c.dist;

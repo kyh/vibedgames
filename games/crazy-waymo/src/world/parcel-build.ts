@@ -195,7 +195,7 @@ export function setParcelNight(night: number): void {
   FACADE_NIGHT.value = Math.max(0, Math.min(1, night));
 }
 
-function materialFor(mat: ParcelMaterial): THREE.MeshStandardMaterial {
+export function materialFor(mat: ParcelMaterial): THREE.MeshStandardMaterial {
   switch (mat) {
     case "wall":
       return WALL;
@@ -235,7 +235,7 @@ export function parcelDetailLevel(): DetailLevel {
   return isCoarsePointer() ? 1 : 2;
 }
 
-function geometryOf(g: ParcelGeo): THREE.BufferGeometry {
+export function parcelGeometryOf(g: ParcelGeo): THREE.BufferGeometry {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.BufferAttribute(g.position, 3));
   geo.setAttribute("normal", new THREE.BufferAttribute(g.normal, 3, true));
@@ -273,7 +273,7 @@ export async function buildParcelFabric(
       chunk.group.name = `parcels-${g.tier}`;
       groups.set(key, chunk);
     }
-    const mesh = new THREE.Mesh(geometryOf(g), materialFor(g.mat));
+    const mesh = new THREE.Mesh(parcelGeometryOf(g), materialFor(g.mat));
     mesh.name = `parcel-${g.tier}-${g.mat}`;
     // Bodies throw the street shadows; the decals and ledges only catch them.
     mesh.castShadow = g.tier !== "detail";
@@ -333,7 +333,7 @@ class BuildingIndex {
   }
 }
 
-function parkOnLots(lots: readonly ParcelLot[], plans: readonly ParcelPlan[]): ParkedSpec[] {
+export function parkOnLots(lots: readonly ParcelLot[], plans: readonly ParcelPlan[]): ParkedSpec[] {
   const out: ParkedSpec[] = [];
   const buildings = new BuildingIndex(plans);
   for (const lot of lots) {
