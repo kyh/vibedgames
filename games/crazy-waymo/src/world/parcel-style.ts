@@ -198,18 +198,35 @@ export function mix(a: number, b: number, t: number): number {
 }
 
 const WHITE_TRIM = 0xf3efe6;
+const CREAM_TRIM = 0xf1e3c8;
 const GLASS_DAY = 0x34424f;
-const GLASS_TOWER = 0x6d8ba3;
+// Matte and a step darker than any tower body (parcel-build.ts glass is
+// roughness 0.78, metalness 0): the strips read as a darker band on the
+// shaft, the kart-racer read, instead of a lighter one catching the sky.
+const GLASS_TOWER = 0x45586a;
 const GLASS_SHOP = 0x2a3644;
+/**
+ * Trim per district, chosen per BLOCK: SF trim is not always white. The
+ * painted ladies wear dark green, near-black or cream against the body as
+ * often as white; the avenues' stucco takes cream; everything else takes a
+ * value step off its own body.
+ */
+const VICTORIAN_TRIMS: readonly number[] = [WHITE_TRIM, WHITE_TRIM, 0x2f3a36, 0x2b2b2b, CREAM_TRIM];
+const STUCCO_TRIMS: readonly number[] = [WHITE_TRIM, CREAM_TRIM, WHITE_TRIM];
 
 /** Perceived lightness 0..1. */
 function luma(c: number): number {
   return (0.299 * channel(c, 16) + 0.587 * channel(c, 8) + 0.114 * channel(c, 0)) / 255;
 }
 
-/** White trim on a coloured body; on a body already near white, a darker step so the frames still read. */
-function trimFor(body: number): number {
-  return luma(body) > 0.86 ? shade(body, 0.74) : WHITE_TRIM;
+/** The block's trim, unless the body is so pale the trim would vanish on it. */
+function trimFor(body: number, character: FabricChar, blockHash: number): number {
+  const pick =
+    character === "victorian"
+      ? VICTORIAN_TRIMS[(blockHash >> 9) % VICTORIAN_TRIMS.length]
+      : STUCCO_TRIMS[(blockHash >> 9) % STUCCO_TRIMS.length];
+  const trim = pick ?? WHITE_TRIM;
+  return Math.abs(luma(body) - luma(trim)) < 0.14 ? shade(body, 0.74) : trim;
 }
 
 export function colorsFor(
@@ -231,18 +248,21 @@ export function colorsFor(
     (character === "residential" || character === "victorian" || character === "commercial")
       ? (ROOF_ACCENTS[(blockHash >> 11) % ROOF_ACCENTS.length] ?? 0xb5654a)
       : (roofs[(blockHash >> 3) % roofs.length] ?? 0x9a9386);
-  const awning =
-    AWNING_COLORS[(blockHash + Math.floor(unitRoll * 5)) % AWNING_COLORS.length] ?? 0xc8433a;
+  // ONE accent per block for doors and awnings — a street reads as a set
+  // when its shops share a sign colour, and as a paint chart when they don't.
+  const awning = AWNING_COLORS[(blockHash >> 5) % AWNING_COLORS.length] ?? 0xc8433a;
   switch (kind) {
     case "rowhouse":
     case "stucco":
       return {
         body,
-        trim: trimFor(body),
+        trim: trimFor(body, character, blockHash),
         base: shade(body, 0.72),
         roof,
         glass: GLASS_DAY,
-        door: shade(mix(body, 0x3a2f2a, 0.7), 0.9),
+        // A painted front door in the block's accent — the Victorian's one
+        // saturated note; the stucco box keeps a plain dark door.
+        door: kind === "rowhouse" ? shade(awning, 0.85) : shade(mix(body, 0x3a2f2a, 0.7), 0.9),
         garage: mix(body, 0x8a8d90, 0.75),
         awning,
       };
@@ -262,10 +282,10 @@ export function colorsFor(
       const tb = glassTower ? mix(GLASS_TOWER, body, 0.35) : body;
       return {
         body: tb,
-        trim: glassTower ? shade(tb, 1.25) : shade(body, 0.82),
+        trim: glassTower ? shade(tb, 1.18) : shade(body, 0.82),
         base: shade(tb, 0.72),
         roof,
-        glass: glassTower ? shade(GLASS_TOWER, 0.8) : GLASS_DAY,
+        glass: glassTower ? GLASS_TOWER : GLASS_DAY,
         door: 0x2f3438,
         garage: 0x6b6f73,
         awning,

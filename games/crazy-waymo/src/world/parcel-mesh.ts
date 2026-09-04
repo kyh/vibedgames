@@ -496,6 +496,7 @@ function ledge(
 
 /** The chase camera's eye height: a ledge above it shows its underside. */
 const EYE_H = 6.5;
+const STOOP_RAIL = 0x2e3134;
 
 type Storeys = {
   readonly groundH: number;
@@ -725,6 +726,46 @@ function bay(c: Ctx, w: Wall, ac: number, bw: number, colors: ParcelColors): voi
   g.quad(flx, y0, flz, frx, y0, frz, frx, y1, frz, flx, y1, flz, w.nx, 0, w.nz, bodyCol);
   g.quad(frx, y0, frz, wrx, y0, wrz, wrx, y1, wrz, frx, y1, frz, rn.x, 0, rn.z, bodyCol);
   g.quad(wlx, y1, wlz, flx, y1, flz, frx, y1, frz, wrx, y1, wrz, 0, 1, 0, colors.trim);
+  // The bracketed base the bay stands on, and the cap it wears: a skirt
+  // under the footprint (sides only — its underside faces the stoop) and a
+  // lip proud of the top ribbon, two-sided so the chase cam sees it from the
+  // street. These are what separate a bay from a box glued to a wall.
+  {
+    const bcx = w.x0 + w.tx * ac + w.nx * (d / 2);
+    const bcz = w.z0 + w.tz * ac + w.nz * (d / 2);
+    box(g, bcx, bcz, w.tx, w.tz, bw / 2 + d * 0.7, d / 2 + 0.04, y0 - 0.32, y0, colors.trim, {
+      sides: true,
+    });
+    const o = 0.12;
+    const yl = y1 + 0.02;
+    const lx0 = wlx - w.tx * o;
+    const lz0 = wlz - w.tz * o;
+    const lx1 = flx + w.nx * o - w.tx * o;
+    const lz1 = flz + w.nz * o - w.tz * o;
+    const lx2 = frx + w.nx * o + w.tx * o;
+    const lz2 = frz + w.nz * o + w.tz * o;
+    const lx3 = wrx + w.tx * o;
+    const lz3 = wrz + w.tz * o;
+    g.quad(lx0, yl, lz0, lx1, yl, lz1, lx2, yl, lz2, lx3, yl, lz3, 0, 1, 0, colors.trim);
+    g.quad(
+      lx0,
+      yl - 0.06,
+      lz0,
+      lx1,
+      yl - 0.06,
+      lz1,
+      lx2,
+      yl - 0.06,
+      lz2,
+      lx3,
+      yl - 0.06,
+      lz3,
+      0,
+      -1,
+      0,
+      colors.trim,
+    );
+  }
   // Trim edge along the top of the bay, the ribbon a painted lady wears.
   g.quad(
     wlx,
@@ -869,6 +910,18 @@ function groundResidential(
     OFF2,
     shade(colors.garage, 0.8),
   );
+  if (c.detail >= 2) {
+    decal(
+      b.wall,
+      w,
+      a + 0.06,
+      garageW - 0.12,
+      y0 + garageH * 0.74,
+      0.05,
+      OFF2,
+      shade(colors.garage, 0.8),
+    );
+  }
   const da = a + garageW + gap;
   decal(b.wall, w, da, doorW, y0, doorH, OFF, colors.door);
   decal(b.wall, w, da - 0.05, doorW + 0.1, y0 + doorH, 0.1, OFF, colors.trim);
@@ -882,6 +935,10 @@ function groundResidential(
       top: true,
       sides: true,
     });
+    // Iron rail up the garage side of the stoop.
+    const rx = w.x0 + w.tx * (da - 0.04) + w.nx * 0.28;
+    const rz = w.z0 + w.tz * (da - 0.04) + w.nz * 0.28;
+    box(b.wall, rx, rz, w.tx, w.tz, 0.025, 0.26, y0 + 0.22, y0 + 0.92, STOOP_RAIL, { sides: true });
   }
 }
 
@@ -1047,6 +1104,56 @@ function buildRowhouse(c: Ctx, stucco: boolean): void {
       if (!w.blind && st.count >= 2) cornice(c, w, false);
     }
   }
+  roofClutter(c);
+}
+
+/** A skylight and the odd vent on a residential roof — the aerial reads the roof plane first. */
+function roofClutter(c: Ctx): void {
+  if (c.detail < 2) return;
+  const { p, rng } = c;
+  const col = c.colors[0];
+  if (col === undefined) return;
+  const o = p.obb;
+  if (o.halfA < 1.4 || o.halfB < 1.4) return;
+  const g = c.detailAt(o.cx, o.cz).wall;
+  const capY = c.topY - PARAPET;
+  const spot = (fa: number, fb: number): readonly [number, number] => [
+    o.cx + fa * o.halfA * o.ex - fb * o.halfB * o.ez,
+    o.cz + fa * o.halfA * o.ez + fb * o.halfB * o.ex,
+  ];
+  if (rng.chance(0.55)) {
+    const [sx, sz] = spot(rng.range(-0.45, 0.45), rng.range(-0.45, 0.45));
+    const hw = 0.45;
+    const hd = 0.3;
+    const y = capY + 0.03;
+    const ax = o.ex * hw;
+    const az = o.ez * hw;
+    const bx = -o.ez * hd;
+    const bz = o.ex * hd;
+    g.quad(
+      sx - ax - bx,
+      y,
+      sz - az - bz,
+      sx + ax - bx,
+      y,
+      sz + az - bz,
+      sx + ax + bx,
+      y,
+      sz + az + bz,
+      sx - ax + bx,
+      y,
+      sz - az + bz,
+      0,
+      1,
+      0,
+      col.glass,
+    );
+  }
+  if (rng.chance(0.3)) {
+    const [vx, vz] = spot(rng.range(-0.5, 0.5), rng.range(-0.5, 0.5));
+    const sz = rng.range(0.2, 0.3);
+    box(g, vx, vz, o.ex, o.ez, sz, sz, capY, capY + sz * 2.2, 0xb9bcbf, { top: true, sides: true });
+  }
 }
 
 function buildMidrise(c: Ctx): void {
@@ -1071,8 +1178,26 @@ function buildMidrise(c: Ctx): void {
   roofPlant(c, rng.chance(0.5) ? 2 : 1, rng.chance(0.55));
 }
 
+/**
+ * A tower's ground floor is shops, not a lobby band: SF keeps retail under
+ * its glass, and a street of blank podiums is what made downtown read as a
+ * model. Blind and short faces keep the strip.
+ */
+function podiumShops(c: Ctx, w: Wall): void {
+  const { p, st } = c;
+  const col = c.colors[0];
+  if (col === undefined) return;
+  if (w.blind || w.len < 3.2 || c.detail < 1) {
+    windowStrips(c, w, 0, 1, p.seatY + 0.1, st.groundH - 0.2, 0.4);
+    return;
+  }
+  const units = Math.max(1, Math.round(w.len / 4.5));
+  const unitW = w.len / units;
+  for (let u = 0; u < units; u++) storefront(c, w, u * unitW, unitW, col, c.rng.chance(0.6));
+}
+
 function buildTower(c: Ctx): void {
-  const { p, st, rng } = c;
+  const { p, st } = c;
   const col = c.colors[0];
   if (col === undefined) return;
   const o = p.obb;
@@ -1086,7 +1211,7 @@ function buildTower(c: Ctx): void {
     const podium: Ctx = { ...c, topY: podiumTop };
     body(podium);
     for (const w of c.walls) {
-      windowStrips(podium, w, 0, 1, p.seatY + 0.1, st.groundH - 0.2, 0.4);
+      podiumShops(podium, w);
       windowGrid(podium, w, 1.15, 0.6, 0);
       cornice(podium, w, false);
     }
@@ -1125,13 +1250,12 @@ function buildTower(c: Ctx): void {
   } else {
     body(c);
     for (const w of c.walls) {
-      windowStrips(c, w, 0, 1, p.seatY + 0.1, st.groundH - 0.2, 0.4);
+      podiumShops(c, w);
       windowStrips(c, w, 1, st.count, p.seatY + st.groundH, st.upperH);
     }
     crown(c, p.ring, o, 1);
   }
   roofPlant(c, 1, false);
-  void rng;
 }
 
 function crown(

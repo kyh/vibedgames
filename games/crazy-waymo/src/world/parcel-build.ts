@@ -38,8 +38,8 @@ applyMaterialBreakup(WALL, CITY_BREAKUP);
 const GLASS_DARK = new THREE.MeshStandardMaterial({
   color: 0xffffff,
   vertexColors: true,
-  roughness: 0.32,
-  metalness: 0.25,
+  roughness: 0.78,
+  metalness: 0,
 });
 GLASS_DARK.name = "parcel-glass";
 
@@ -49,8 +49,8 @@ GLASS_DARK.name = "parcel-glass";
 const GLASS_LIT = new THREE.MeshStandardMaterial({
   color: 0xffffff,
   vertexColors: true,
-  roughness: 0.32,
-  metalness: 0.25,
+  roughness: 0.78,
+  metalness: 0,
   emissive: new THREE.Color(0xffc978),
   emissiveIntensity: 0,
 });
