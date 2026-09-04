@@ -22,6 +22,9 @@ import { Rng } from "../shared/rng";
 import { DIR_DELTA, E, N, S, W } from "../shared/types";
 import { type DrapeField, toFloat32Attributes } from "./conform";
 import { activeMapProps } from "./map-file";
+import { type Garage, pickGarageSpots } from "./garages";
+export type { Garage } from "./garages";
+import { buildReservation } from "./reservation";
 import { buildFurniture, type LampHead, type ParkedSpec } from "./furniture";
 import type { GoldenGatePlan } from "./golden-gate";
 import { buildGoldenGate, goldenGateBeacons, goldenGatePlan } from "./golden-gate";
@@ -89,11 +92,6 @@ export function facadeOffset(half: number): number {
  * with no fence, path or yard.
  */
 export const STEEP_CLIFF = 6.5;
-
-// Grid cell of a world position. The City methods delegate here so the fabric
-// planner (module scope, no instance) and the class cannot drift.
-const gridXOf = (x: number): number => Math.floor((x + WORLD_HALF_X) / ROAD_TILE);
-const gridZOf = (z: number): number => Math.floor((z + WORLD_HALF_Z) / ROAD_TILE);
 
 // --- Occupancy: rotated RECTANGLES, and a row can never reject itself.
 // Buildings are boxes, and the circle this used to keep made a 6u-wide lot claim
@@ -737,93 +735,6 @@ function imposterBox(geo: THREE.BufferGeometry, mat: THREE.Material): THREE.Buff
   return box;
 }
 
-// A robotaxi garage: the depot building plus the drive-in pad in front where
-// the skin-swap UI opens. Spots are derived deterministically from the plan,
-// so BOTH the generated and the baked-artifact boot paths agree on them.
-export type Garage = { x: number; z: number; yaw: number; padX: number; padZ: number };
-
-const GARAGE_COUNT = 7;
-const GARAGE_MIN_DIST = 350;
-
-function pickGarageSpots(plan: CityPlan, terrain: Terrain, network: RoadNetwork): Garage[] {
-  const cells = plan.cells;
-  const dirs: readonly (readonly [number, number])[] = [
-    [1, 0],
-    [-1, 0],
-    [0, 1],
-    [0, -1],
-  ];
-  const cellAt = (gx: number, gz: number): string | undefined => cells[gx]?.[gz];
-  type Cand = { gx: number; gz: number; dx: number; dz: number };
-  const cands: Cand[] = [];
-  for (let gx = 4; gx < GRID_X - 4; gx += 2) {
-    for (let gz = 4; gz < GRID_Z - 4; gz += 2) {
-      if (cellAt(gx, gz) !== "lot") continue;
-      for (const [dx, dz] of dirs) {
-        if (cellAt(gx + dx, gz + dz) !== "road") continue;
-        // depth: the cell behind must be lot too (the depot is deep)
-        if (cellAt(gx - dx, gz - dz) !== "lot") continue;
-        const wx = (gx + 0.5) * ROAD_TILE - WORLD_HALF_X;
-        const wz = (gz + 0.5) * ROAD_TILE - WORLD_HALF_Z;
-        const r = ROAD_TILE;
-        const hs = [
-          terrain.heightAt(wx - r, wz - r),
-          terrain.heightAt(wx + r, wz - r),
-          terrain.heightAt(wx - r, wz + r),
-          terrain.heightAt(wx + r, wz + r),
-        ];
-        if (Math.max(...hs) - Math.min(...hs) > 1.4) continue; // flat pads only
-        cands.push({ gx, gz, dx, dz });
-        break;
-      }
-    }
-  }
-  // Seeded shuffle, then greedy max-spread accept.
-  const rng = new Rng(424242);
-  for (let i = cands.length - 1; i > 0; i--) {
-    const j = rng.int(i + 1);
-    const a = cands[i];
-    const b = cands[j];
-    if (a && b) {
-      cands[i] = b;
-      cands[j] = a;
-    }
-  }
-  const picked: Garage[] = [];
-  for (const c of cands) {
-    if (picked.length >= GARAGE_COUNT) break;
-    const wx = (c.gx + 0.5) * ROAD_TILE - WORLD_HALF_X;
-    const wz = (c.gz + 0.5) * ROAD_TILE - WORLD_HALF_Z;
-    if (picked.some((g) => Math.hypot(g.x - wx, g.z - wz) < GARAGE_MIN_DIST)) continue;
-    // Depot footprint must not clip a vector lane: the grid says "lot" but
-    // straightened OSM centrelines cut lot cells, and a depot corner in the
-    // roadway is an (invisible from the lane) wall.
-    const dh = ROAD_TILE * 0.42 + 0.3;
-    let clipsLane = false;
-    for (const [ox, oz] of [
-      [-dh, -dh],
-      [dh, -dh],
-      [-dh, dh],
-      [dh, dh],
-    ] as const) {
-      const hit = network.nearest(wx + ox, wz + oz, ROAD_TILE * 1.4);
-      if (hit && hit.dist < hit.edge.half + 0.2) {
-        clipsLane = true;
-        break;
-      }
-    }
-    if (clipsLane) continue;
-    picked.push({
-      x: wx,
-      z: wz,
-      yaw: Math.atan2(c.dx, c.dz), // model faces +Z — turn it toward the road
-      padX: wx + c.dx * ROAD_TILE * 1.15,
-      padZ: wz + c.dz * ROAD_TILE * 1.15,
-    });
-  }
-  return picked;
-}
-
 export class CityModel {
   readonly group = new THREE.Group();
   readonly solids: Solid[] = [];
@@ -1044,10 +955,6 @@ export class CityModel {
   /** The parcel source (world-fetch.ts fetchParcelSource) — the main-thread fallback's input. */
   setParcelSource(src: ParcelSource | null): void {
     this.parcelSource = src;
-  }
-  /** Cells no parcel may touch, as phase 1 assembled them — what the parcel worker plans against. */
-  parcelReservation(): string[] {
-    return [...this.reservedCells];
   }
   private parcelPlanCache: ParcelPlanResult | null = null;
   /** The plan, computed off-thread (parcel-worker.ts) — set before initLate(). */
@@ -1421,40 +1328,17 @@ export class CityModel {
     // --- Landmark footprints: cells the procedural city leaves alone.
     // Editor "clear" cells join the reservation, so every placement pass
     // (buildings, furniture, park tiles) skips them. ---
+    // Assembled by the ONE builder the parcel worker also uses
+    // (world/reservation.ts), so the plan it computes before this phase runs
+    // is against exactly this set.
     const lmBase = landmarkProtection(this.plan, this.network);
-    const reservedAll = new Set(lmBase.reserved);
-    for (const [cgx, cgz] of loadLocalOverrides().clear ?? []) {
-      reservedAll.add(`${cgx},${cgz}`);
-    }
-    // The Golden Gate corridor. buildGoldenGate runs LAST (phase 3), so its
-    // deck does not exist yet when the vegetation and furniture passes seat
-    // props — and the deck is not network asphalt, so `onAsphalt` cannot see it
-    // either. The result was a kit conifer planted on the deck centreline at
-    // the bridge axis, straddling both lanes. Reserving the corridor up front
-    // is the only place that knowledge can live for every later pass.
-    {
-      const gg = goldenGatePlan({
-        plan: this.plan,
-        terrain: this.terrain,
-        worldX: (g) => this.worldX(g),
-        worldZ: (g) => this.worldZ(g),
-      });
-      if (gg) {
-        const gx0 = gridXOf(gg.ax - gg.half - ROAD_TILE * 0.5);
-        const gx1 = gridXOf(gg.ax + gg.half + ROAD_TILE * 0.5);
-        const gz0 = gridZOf(Math.min(gg.northEndZ, gg.shoreZ));
-        const gz1 = gridZOf(Math.max(gg.northEndZ, gg.shoreZ));
-        for (let gx = gx0; gx <= gx1; gx++) {
-          for (let gz = gz0; gz <= gz1; gz++) reservedAll.add(`${gx},${gz}`);
-        }
-      }
-    }
-    // Garages claim their own cell AND their drive-in pad before anything else
-    // builds (or dresses) there.
-    for (const g of this.garages) {
-      reservedAll.add(`${gridXOf(g.x)},${gridZOf(g.z)}`);
-      reservedAll.add(`${gridXOf(g.padX)},${gridZOf(g.padZ)}`);
-    }
+    const reservedAll = buildReservation({
+      plan: this.plan,
+      terrain: this.terrain,
+      landmarks: lmBase.reserved,
+      garages: this.garages,
+      clears: loadLocalOverrides().clear ?? [],
+    });
     const lm = { ...lmBase, reserved: reservedAll };
     this.reservedCells = reservedAll;
     // Landmark monuments have visuals but are NOT batch items (built as
