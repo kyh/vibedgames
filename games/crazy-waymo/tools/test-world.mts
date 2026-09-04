@@ -15,6 +15,7 @@ import {
 import { freewayPillars } from "../src/world/freeways.ts";
 import { landmarkProtection } from "../src/world/landmarks.ts";
 import { buildParcelGeometry } from "../src/world/parcel-mesh.ts";
+import { geometryBytes, streamCellKey, streamRadiusFor } from "../src/world/parcel-stream.ts";
 import { planParcels } from "../src/world/parcel-plan.ts";
 import { RoadNetwork } from "../src/world/network.ts";
 import { buildJunctionMap } from "../src/world/roads.ts";
@@ -718,36 +719,47 @@ console.log(`  (plan + network in ${Math.round(performance.now() - t0)}ms)`);
     k("rowhouse") + k("stucco") >= 90000 && k("midrise") >= 8000 && k("tower") >= 300,
     [...kinds.entries()].map(([n, c]) => `${n} ${c}`).join(", "),
   );
-  // Vertex budget: the whole fabric lives on the GPU at once (chunks hide,
-  // they do not unload), so this is memory as much as it is draw time. The
-  // survey parcels carry ~250 vertices each and the lean citywide fabric ~40;
-  // the phone number waits on #304 (shader windows on the survey flanks and
-  // quantized attributes) to come down.
-  // GPU bytes as three uploads them: f32 position, i8 normal, u8 colour, the
-  // facade walls' u16 fuv + u16 facade + u8 facade2, and the index.
-  const gpuBytes = (g: Awaited<ReturnType<typeof buildParcelGeometry>>): number => {
-    let b = 0;
-    for (const geo of g.geos) {
-      const v = geo.position.length / 3;
-      b += v * (12 + 3 + 3) + geo.index.byteLength;
-      if (geo.fuv) b += v * (4 + 8 + 4);
-    }
-    return b;
+  // GPU budget. The skyline is resident everywhere; the rest of the fabric
+  // streams in 160u cells around the camera (parcel-stream.ts), so what
+  // matters is the WORST neighbourhood: the cells within the stream radius of
+  // the densest spot, FiDi, plus the skyline. Phones hold a shorter radius.
+  const bytesOf = (g: Awaited<ReturnType<typeof buildParcelGeometry>>): number => {
+    let facade = 0;
+    for (const geo of g.geos) if (geo.fuv) facade += geo.position.length / 3;
+    return geometryBytes(g.stats, facade);
   };
+  const skyline = parcels.plans.filter((p) => p.height >= 13);
+  const fabric = parcels.plans.filter((p) => p.height < 13);
   const t1 = performance.now();
-  const full = await buildParcelGeometry(parcels.plans, 2);
-  const fullMs = Math.round(performance.now() - t1);
+  const sky = await buildParcelGeometry(skyline, 2);
+  const skyMs = Math.round(performance.now() - t1);
   check(
-    "parcel geometry fits the desktop budget",
-    full.stats.vertices <= 9_500_000,
-    `${full.stats.vertices} verts, ${Math.round(full.stats.triangles)} tris, ${full.stats.buffers} buffers, ` +
-      `${(gpuBytes(full) / 1048576).toFixed(0)} MB on the GPU, in ${fullMs}ms`,
+    "the static skyline stays small",
+    skyline.length <= 1200 && bytesOf(sky) <= 20 * 1048576,
+    `${skyline.length} towers, ${sky.stats.vertices} verts, ${(bytesOf(sky) / 1048576).toFixed(1)} MB in ${skyMs}ms`,
   );
-  const phone = await buildParcelGeometry(parcels.plans, 1);
+  const resident = async (x: number, z: number, radius: number, detail: 1 | 2) => {
+    const keys = new Set<number>();
+    for (const p of fabric) {
+      if (Math.hypot(p.obb.cx - x, p.obb.cz - z) < radius + 120)
+        keys.add(streamCellKey(p.obb.cx, p.obb.cz));
+    }
+    const within = fabric.filter((p) => keys.has(streamCellKey(p.obb.cx, p.obb.cz)));
+    const lotsWithin = parcels.lots.filter((l) => keys.has(streamCellKey(l.obb.cx, l.obb.cz)));
+    const g = await buildParcelGeometry(within, detail, undefined, lotsWithin);
+    return { parcels: within.length, verts: g.stats.vertices, mb: bytesOf(g) / 1048576 };
+  };
+  const fidi = await resident(640, -830, streamRadiusFor(1), 2);
   check(
-    "parcel geometry fits the phone budget",
-    phone.stats.vertices <= 7_600_000,
-    `${phone.stats.vertices} verts, ${phone.stats.buffers} buffers, ${(gpuBytes(phone) / 1048576).toFixed(0)} MB on the GPU`,
+    "resident fabric at FiDi fits the desktop budget",
+    fidi.mb + bytesOf(sky) / 1048576 <= 110,
+    `${fidi.parcels} parcels, ${fidi.verts} verts, ${fidi.mb.toFixed(0)} MB + skyline`,
+  );
+  const fidiPhone = await resident(640, -830, streamRadiusFor(0.6), 1);
+  check(
+    "resident fabric at FiDi fits the phone budget",
+    fidiPhone.mb + bytesOf(sky) / 1048576 <= 70,
+    `${fidiPhone.parcels} parcels, ${fidiPhone.verts} verts, ${fidiPhone.mb.toFixed(0)} MB + skyline`,
   );
 }
 

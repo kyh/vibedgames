@@ -1514,6 +1514,18 @@ export async function buildParcelGeometry(
   return buckets.flush();
 }
 
+/** The same, synchronously — one stream cell's worth, inside a frame budget. */
+export function buildParcelGeometrySync(
+  plans: readonly ParcelPlan[],
+  detail: DetailLevel,
+  lots: readonly ParcelLot[] = [],
+): ParcelGeometry {
+  const buckets = new Buckets();
+  for (const p of plans) buildOne(buckets, p, detail);
+  for (const lot of lots) buildLot(buckets, lot);
+  return buckets.flush();
+}
+
 // --- Surface lots ------------------------------------------------------------
 // A surveyed parcel with no building on it: asphalt draped on the ground with
 // bay lines, so a block face reads as parking rather than as a gap. Cars are
