@@ -444,7 +444,7 @@ const BLOOM_NIGHT_RADIUS = 0.3;
 //     vibrance and split tone land on the source first and the bloom then adds
 //     on top of a lifted frame.
 // So the residual halo is the SOURCE's own billboard skirt, not the pyramid:
-// it is authored in fx/lamp-glow.ts and fx/night-windows.ts, and downtown it
+// it is authored in fx/lamp-glow.ts and fx/street-luminaires.ts, and downtown it
 // is the beacon layer's house gain (fx/beacon-lights.ts). Shrinking the two
 // constants this side owns (MAST_HALO 1.5 -> 1.0, HALO_GAIN 3.4 -> 2.6) moved
 // the facade mean 1.4% and the blown share 0.07pp and is invisible in a

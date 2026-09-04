@@ -259,7 +259,7 @@ const STOPS: readonly Stop[] = [
   // The fills are therefore roughly halved: the unlit side of the city now
   // lands under the night sky, and what you see at 10 metres has to be a
   // SOURCE — a lit window, a lamp pool, a headlight, a shop front. Those got
-  // brighter in the same pass (fx/night-windows.ts, fx/lamp-glow.ts) and the
+  // brighter in the same pass (world/parcel-build.ts setParcelNight, fx/lamp-glow.ts) and the
   // bloom threshold now ramps down after dark (render/post.ts), so the frame
   // keeps its total energy; it just moved from diffuse to emissive.
   //

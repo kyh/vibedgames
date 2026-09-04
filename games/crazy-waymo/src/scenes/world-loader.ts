@@ -6,7 +6,7 @@ import { AmbientLife } from "../fx/ambient-life";
 import { SmashCones } from "../fx/cones";
 import { Debris } from "../fx/debris";
 import { LampGlow, type LampGlowBudget } from "../fx/lamp-glow";
-import { NightWindows } from "../fx/night-windows";
+import { registerStreetLuminaires } from "../fx/street-luminaires";
 import { SkidMarks } from "../fx/skids";
 import { DriftTrails } from "../fx/trails";
 import { FareManager } from "../game/fares";
@@ -52,7 +52,6 @@ export type WorldCoreSystems = {
   readonly skids: SkidMarks;
   readonly trails: DriftTrails;
   readonly lampGlow: LampGlow;
-  readonly nightWindows: NightWindows | null;
   readonly minimap: Minimap;
 };
 
@@ -360,15 +359,13 @@ async function finishLoad(
   deps.scene.add(trails.mesh);
   const lampGlow = new LampGlow(city.lampHeads, deps.lampGlowBudget);
   deps.scene.add(lampGlow.group);
-  // Lit windows come from the batch records: the baked payload on the
-  // deployed path, the live capture on the generated/editor path.
-  const windowItems = rest?.batchItems ?? city.restCapture?.batchItems;
-  const nightWindows = windowItems
-    ? new NightWindows(windowItems, deps.cache, deps.lampGlowBudget ? 12000 : 32000)
-    : null;
-  if (nightWindows) deps.scene.add(nightWindows.mesh);
+  // Downtown's mast luminaires come from the batch records — the baked
+  // payload on the deployed path, the live capture on the generated/editor
+  // path — and must register before attachNightAndLife drains the beacons.
+  const propItems = rest?.batchItems ?? city.restCapture?.batchItems;
+  if (propItems) registerStreetLuminaires(propItems);
   const minimap = new Minimap(city.plan, city.getDecks());
-  deps.onCoreSystems({ solidIndex, fares, skids, trails, lampGlow, nightWindows, minimap });
+  deps.onCoreSystems({ solidIndex, fares, skids, trails, lampGlow, minimap });
 
   await paint();
 

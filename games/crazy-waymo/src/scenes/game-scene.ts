@@ -14,7 +14,6 @@ import { ImpactStars } from "../fx/impact-stars";
 import type { SmashCones } from "../fx/cones";
 import type { Debris } from "../fx/debris";
 import type { LampGlow } from "../fx/lamp-glow";
-import type { NightWindows } from "../fx/night-windows";
 import { setParcelNight } from "../world/parcel-build";
 import { Fx } from "../fx/particles";
 import { Sfx } from "../fx/sfx";
@@ -366,7 +365,6 @@ export class GameScene {
   private oceanTime = { value: 0 };
   private dayNight: DayNight;
   private lampGlow: LampGlow | null = null;
-  private nightWindows: NightWindows | null = null;
   private cones: SmashCones | null = null;
   private parked: ParkedCars | null = null;
   private minimap: Minimap | null = null;
@@ -1159,13 +1157,13 @@ vec3 ocGerstner(vec2 p, float t) {
     // registered while the world was being built (fx/beacon-lights.ts), plus a
     // scatter of parked cars that left a marker lamp on.
     //
-    // THIS DRAIN IS ONE-SHOT, AND IT IS ORDERED AFTER `NightWindows`. The
-    // registry hands over its whole list once and clears; NightWindows is
-    // constructed at world-loader's PLAYABLE gate and registers downtown's mast
-    // luminaires from there (fx/night-windows.ts, source "night-street"). Move
-    // this call ahead of that construction — or move NightWindows into the
-    // streamed tail — and the Financial District silently ships with no street
-    // light at all, which is exactly the defect those luminaires exist to fix.
+    // THIS DRAIN IS ONE-SHOT, AND IT IS ORDERED AFTER THE STREET LUMINAIRES.
+    // The registry hands over its whole list once and clears; world-loader
+    // registers downtown's mast luminaires at its PLAYABLE gate
+    // (fx/street-luminaires.ts, source "night-street"). Move this call ahead
+    // of that registration — or move the registration into the streamed tail
+    // — and the Financial District silently ships with no street light at
+    // all, which is exactly the defect those luminaires exist to fix.
     const beacons = new BeaconLights([...collectBeacons(), ...parkedMarkers(city)]);
     this.beacons = beacons;
     this.scene.add(beacons.group);
@@ -1183,7 +1181,6 @@ vec3 ocGerstner(vec2 p, float t) {
     this.skids = systems.skids;
     this.trails = systems.trails;
     this.lampGlow = systems.lampGlow;
-    this.nightWindows = systems.nightWindows;
     this.minimap = systems.minimap;
   }
 
@@ -1721,7 +1718,6 @@ vec3 ocGerstner(vec2 p, float t) {
       1 - night,
     );
     this.lampGlow?.setIntensity(night);
-    this.nightWindows?.setIntensity(night);
     setParcelNight(night);
     this.lampGlow?.updateNear(this.rig.camera.position.x, this.rig.camera.position.z, dt);
     this.beacons?.setIntensity(night);

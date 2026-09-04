@@ -119,9 +119,14 @@ bake-parcels.mts` writes it): ~147k footprints — the licensed downtown survey
   lighting drawn in the fragment shader from per-vertex storey data,
   `parcel-mesh.ts` FacadeBuf) plus a roof cap, ~40 vertices against a survey
   parcel's ~250. The plan is pure and deterministic and runs OFF THE MAIN
-  THREAD (`parcel-worker.ts`, started by `world-loader.ts` after phase 1 with
-  the city's reservation; ~3-4 s); an edited city or a worker failure plans on
-  the main thread from the decoded source. Both load paths build the meshes AND
+  THREAD (`parcel-worker.ts`, ~5 s): `world-loader.ts` starts it the moment
+  parcels.bin lands, and the worker assembles its own reservation through
+  `world/reservation.ts` — the ONE builder phase 1 also uses, with the depot
+  picker in `world/garages.ts` — so it never waits on the city. Revisits skip
+  it: the plan is cached in IndexedDB (`world-cache.ts`, keyed by build id +
+  WORLD_REV + source bytes; `?cache=1` opts a dev tab in), ready in ~4 s
+  against ~10 s on a miss. An edited city or a worker failure plans on the
+  main thread from the decoded source. Both load paths build the meshes AND
   the collision solids at the end of their pass (`city.buildParcels`), and
   NOTHING of it is captured into the bins — the rest capture copies `solids`
   before the parcels push theirs. So a change to the
@@ -161,6 +166,11 @@ bake-parcels.mts` writes it): ~147k footprints — the licensed downtown survey
   beacons) has to come from `goldenGatePlan` + `goldenGateBeacons`, which
   `city.ts lightGoldenGate()` calls next to `buildLandmarks` on both paths.
   Registering beacons inside a gen-only builder lights the world for nobody.
+- **Night light is two passes.** The parcel fabric lights its own windows
+  (survey glass through `GLASS_LIT`'s emissive, the lean fabric in the facade
+  shader, both driven by `setParcelNight`); `fx/street-luminaires.ts` puts the
+  luminaire on downtown's signal masts through the beacon registry. There is
+  no window-painting pass any more — `night-windows.ts` went with the kits.
 - **god objects**: `world/city.ts` (parks, depots, seawall, render batching +
   rest capture) and `scenes/game-scene.ts` (loop + modes + loading). Extract seams
   opportunistically (surface.ts and fx/vehicle-fx.ts are the pattern), don't
