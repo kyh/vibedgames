@@ -119,7 +119,15 @@ bake-network.mts`) from the same park-cleared polylines — car-free-park
   solids out of lanes, the kind mix and the vertex budgets. The kit frontage
   walk still fills the city OUTSIDE the surveyed footprints (west and south);
   inside them it is skipped cell by cell (`covered`), so a rejected parcel
-  leaves a lot, never a kit house in the middle of a terrace.
+  leaves a lot, never a kit house in the middle of a terrace. Rejection is
+  the last resort: a folded ring is rebuilt as its own box, a ring that spans
+  a street is cut at the kerb and the larger side kept, a parcel under a
+  viaduct is built to the storeys that clear the soffit (`freewaySoffitAt`),
+  and what still cannot stand — no room for one storey, a pillar in the plan
+  — is emitted as a surface lot (`ParcelLot`: draped asphalt, bay lines,
+  parked cars) so the survey never leaves raw ground. The ~500 that remain
+  are MEDIAN parcels between the two edges of a divided boulevard; the road
+  is drawn over them and `pnpm test` carries them as a baseline.
 - **Two load paths, and only some builders run on both.** `buildLandmarks`,
   `buildFreeways` and `buildPiers` are rebuilt live on the cold-gen path AND
   the baked-rest path. `buildGoldenGate` runs on cold gen ONLY — its meshes go

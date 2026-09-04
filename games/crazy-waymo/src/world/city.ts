@@ -1493,13 +1493,14 @@ export class CityModel {
         network: this.network,
         terrain: this.terrain,
         reserved: this.reservedCells,
+        standAt: (x, z) => this.standAt(x, z),
       });
       const s = this.parcelPlanCache.stats;
       console.log(
         `[city] parcels planned: ${s.built} built (${s.onRoad} in a lane, ${s.clipped} clipped away, ` +
           `${s.stacked} stacked, ${s.park} park, ${s.reserved} reserved, ${s.freeway} freeway, ` +
           `${s.folded} folded, ${s.straddle} straddling, ${s.cliff} cliff, ${s.water} water; ` +
-          `${s.movedVerts} verts moved, ${s.stretched} stretched) ` +
+          `${s.movedVerts} verts moved, ${s.stretched} stretched; ${s.underDeck} under a deck, ${s.boxed} boxed, ${s.split} split, ${s.lots} lots) ` +
           `${Math.round(performance.now() - t0)}ms`,
       );
     }
@@ -1507,9 +1508,10 @@ export class CityModel {
   }
   private async buildParcels(): Promise<void> {
     const t0 = performance.now();
-    const { plans } = this.parcelPlan();
+    const { plans, lots } = this.parcelPlan();
     const built = await buildParcelFabric(
       plans,
+      lots,
       { imposter: IMPOSTER_DISTANCE, midImposter: MID_IMPOSTER_DISTANCE, detail: DETAIL_DISTANCE },
       parcelDetailLevel(),
       () => this.breathe(),
@@ -1519,8 +1521,9 @@ export class CityModel {
       this.chunks.push({ cx: c.cx, cz: c.cz, radius: c.radius, dist: c.dist, group: c.group });
     }
     for (const p of plans) for (const so of p.solids) this.solids.push(so);
+    this.parkedCarSpecs = [...this.parkedCarSpecs, ...built.parkedCars];
     console.log(
-      `[city] parcels built: ${plans.length} buildings, ${built.stats.vertices} verts, ` +
+      `[city] parcels built: ${plans.length} buildings, ${lots.length} lots (${built.parkedCars.length} cars), ${built.stats.vertices} verts, ` +
         `${built.stats.buffers} buffers in ${Math.round(performance.now() - t0)}ms`,
     );
   }

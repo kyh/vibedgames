@@ -1,6 +1,8 @@
+import polygonClipping from "polygon-clipping";
+
 import { CITY_SEED, ROAD_TILE, WORLD_HALF_X, WORLD_HALF_Z } from "../shared/constants";
 import type { Solid } from "../shared/types";
-import { nearFreeway } from "./freeways";
+import { freewayPillars, freewaySoffitAt } from "./freeways";
 import { isParkLand } from "./land-class";
 import type { RoadNetwork } from "./network";
 import {
@@ -34,6 +36,23 @@ import type { Terrain } from "./terrain";
 // perpendicular from the centreline, which keeps party walls exactly
 // coincident (both neighbours push the shared vertex to the same point) and
 // keeps L-shapes L-shaped.
+//
+// WHAT STILL CANNOT BE A BUILDING BECOMES A LOT. A ring the clip folds, a
+// group ring that spans a street, a parcel under a viaduct too low for even
+// one storey, a parcel with a pillar in it — each used to leave bare ground,
+// and the kit walk that once filled those gaps no longer runs inside the
+// survey. They are recovered where geometry allows (a folded ring becomes its
+// own box, a street-spanning ring is cut at the street and the larger side
+// kept, a parcel under a deck is built to the storeys that fit) and the rest
+// are emitted as surface parking lots (`lots`), which the mesh pass paints
+// and parks cars on. Nothing in the survey is left as raw ground.
+//
+// The ~500 that still fail the straddle test are MEDIAN parcels: a divided
+// boulevard is two parallel edges in the network, and the game's arcade
+// widths cover the strip between them where the survey has a row of shops.
+// The clip slides such a ring out of one carriageway into the other, the cut
+// leaves nothing, and the road is drawn over the spot — there is no ground to
+// leave bare. `pnpm test` carries them as a baseline, not a defect.
 
 /** Facade to kerb: the sidewalk plus a stoop (city.ts FACADE_MARGIN). */
 const FACADE_MARGIN = 0.45;
@@ -60,6 +79,28 @@ const MERGE_EPS = 0.08;
 const WALL_T = 1.6;
 /** Blocks are ~2 tiles; one dominant colour per block (city.ts BLOCK_SPAN). */
 const BLOCK_SPAN = 26;
+/** A roof has to clear the deck underside by this much. */
+const DECK_CLEAR = 0.5;
+/** A pillar footing this close to a wall is inside the building. */
+const PILLAR_MARGIN = 0.3;
+/**
+ * Where a street CUTS a ring (splitOffStreets) the cut runs at the kerb plus
+ * this, not at the full sidewalk setback: the rings that need cutting are
+ * the ones wedged between two arcade-wide streets, and at the setback the
+ * second street's band swallows what the first one left. A building flush
+ * with the kerb is a thing San Francisco has.
+ */
+const KERB_STRIP = 0.9;
+/** A lot needs this much plan to read as parking rather than a gap. */
+const LOT_MIN_AREA = 6;
+const LOT_MIN_SIDE = 2.2;
+/**
+ * A piece the street cut left is a building only if it is still most of the
+ * ring: a sliver keeps the GROUP's surveyed height, and a 2u-wide piece of a
+ * 17u warehouse outline is a chimney. Below this share the piece is built low.
+ */
+const SPLIT_KEEP_SHARE = 0.4;
+const SPLIT_LOW_STOREYS = 2;
 
 export type Obb = {
   readonly cx: number;
@@ -100,26 +141,48 @@ export type ParcelPlan = {
   readonly solids: readonly Solid[];
 };
 
+/** A surveyed parcel that is a surface lot: asphalt, bay lines, parked cars. */
+export type ParcelLot = {
+  readonly id: number;
+  readonly seed: number;
+  readonly ring: Float32Array;
+  readonly n: number;
+  /** Terrain height under each ring vertex. */
+  readonly ys: Float32Array;
+  readonly obb: Obb;
+  /** Pillar footings standing in the lot — cars keep clear of them. */
+  readonly pillars: readonly { readonly x: number; readonly z: number; readonly half: number }[];
+};
+
 export type ParcelPlanStats = {
   built: number;
   water: number;
   stacked: number;
   reserved: number;
   park: number;
+  /** Under a deck with no room for even one storey, or a pillar in the plan — now a lot. */
   freeway: number;
   /** Rejected after the clip: too small or too thin to be a building. */
   clipped: number;
-  /** The clip folded the ring over itself (a rectangle drawn across a street). */
+  /** The clip folded the ring over itself and the box fallback could not stand either. */
   folded: number;
-  /** A wall still crosses a roadway — the ring spanned a street the clip could not resolve. */
+  /** A wall still crosses a roadway after the street split. */
   straddle: number;
-  /** Centroid still in a lane after the clip. */
+  /** Centroid or a vertex still in a lane after the clip. */
   onRoad: number;
   cliff: number;
   /** Ring vertices the clip moved. */
   movedVerts: number;
   /** Parcels stretched back into the block to keep MIN_DEPTH. */
   stretched: number;
+  /** Built with storeys capped to fit under a viaduct. */
+  underDeck: number;
+  /** Folded rings rebuilt as their own box. */
+  boxed: number;
+  /** Street-spanning rings cut at the street and kept. */
+  split: number;
+  /** Parcels emitted as surface lots. */
+  lots: number;
 };
 
 export type ParcelPlanContext = {
@@ -127,12 +190,21 @@ export type ParcelPlanContext = {
   readonly terrain: Terrain;
   /** "gx,gz" cells no procedural mass may touch (landmarks, depots, editor clears). */
   readonly reserved: ReadonlySet<string>;
+  /**
+   * Height of the ground AS DRAWN (ground.ts makeStandingSurface). Buildings
+   * seat on the raw field and sink their walls to it; a lot is a decal on the
+   * drawn surface and would be buried under the tessellated ground beside
+   * every kerb if it used the field (CLAUDE.md, "nothing sits on the raw
+   * height field").
+   */
+  readonly standAt: (x: number, z: number) => number;
   /** Why a footprint did not become a building — the harness tallies these. */
   readonly onReject?: (id: number, reason: keyof ParcelPlanStats, detail: string) => void;
 };
 
 export type ParcelPlanResult = {
   readonly plans: readonly ParcelPlan[];
+  readonly lots: readonly ParcelLot[];
   readonly stats: ParcelPlanStats;
   /** Grid cells (see cellKey) the SURVEYED parcels cover, dilated one cell — built or not. */
   readonly covered: ReadonlySet<number>;
@@ -164,6 +236,16 @@ function signedArea(ring: Float32Array, n: number): number {
     a += (ring[i * 2] ?? 0) * (ring[j * 2 + 1] ?? 0) - (ring[j * 2] ?? 0) * (ring[i * 2 + 1] ?? 0);
   }
   return a / 2;
+}
+
+function centroidOf(ring: Float32Array, n: number): readonly [number, number] {
+  let cx = 0;
+  let cz = 0;
+  for (let i = 0; i < n; i++) {
+    cx += ring[i * 2] ?? 0;
+    cz += ring[i * 2 + 1] ?? 0;
+  }
+  return [cx / n, cz / n];
 }
 
 function segmentsCross(
@@ -209,6 +291,36 @@ function isSimple(ring: Float32Array, n: number): boolean {
   return true;
 }
 
+export function pointInRing(ring: Float32Array, n: number, x: number, z: number): boolean {
+  let inside = false;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = ring[i * 2] ?? 0;
+    const zi = ring[i * 2 + 1] ?? 0;
+    const xj = ring[j * 2] ?? 0;
+    const zj = ring[j * 2 + 1] ?? 0;
+    if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+export function distToRing(ring: Float32Array, n: number, x: number, z: number): number {
+  let best = Infinity;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    const ax = ring[i * 2] ?? 0;
+    const az = ring[i * 2 + 1] ?? 0;
+    const bx = ring[j * 2] ?? 0;
+    const bz = ring[j * 2 + 1] ?? 0;
+    const dx = bx - ax;
+    const dz = bz - az;
+    const l2 = dx * dx + dz * dz;
+    const t = l2 > 1e-8 ? Math.min(Math.max(((x - ax) * dx + (z - az) * dz) / l2, 0), 1) : 0;
+    const d = Math.hypot(ax + dx * t - x, az + dz * t - z);
+    if (d < best) best = d;
+  }
+  return best;
+}
+
 function obbOf(ring: Float32Array, n: number, ex: number, ez: number): Obb {
   let minA = Infinity;
   let maxA = -Infinity;
@@ -234,6 +346,49 @@ function obbOf(ring: Float32Array, n: number, ex: number, ez: number): Obb {
     halfA: (maxA - minA) / 2,
     halfB: (maxB - minB) / 2,
   };
+}
+
+/** The OBB as a positive-area 4-ring. */
+function rectRing(o: Obb): Float32Array {
+  const ring = new Float32Array(8);
+  const corners: readonly (readonly [number, number])[] = [
+    [-1, -1],
+    [1, -1],
+    [1, 1],
+    [-1, 1],
+  ];
+  corners.forEach(([a, b], i) => {
+    ring[i * 2] = o.cx + a * o.halfA * o.ex - b * o.halfB * o.ez;
+    ring[i * 2 + 1] = o.cz + a * o.halfA * o.ez + b * o.halfB * o.ex;
+  });
+  if (signedArea(ring, 4) < 0) {
+    const rev = new Float32Array(8);
+    for (let k = 0; k < 4; k++) {
+      rev[k * 2] = ring[(3 - k) * 2] ?? 0;
+      rev[k * 2 + 1] = ring[(3 - k) * 2 + 1] ?? 0;
+    }
+    return rev;
+  }
+  return ring;
+}
+
+/** Frame of the ring's longest edge — the axis a box fallback is laid on. */
+function longestEdgeFrame(ring: Float32Array, n: number): readonly [number, number] {
+  let ex = 1;
+  let ez = 0;
+  let best = 0;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    const dx = (ring[j * 2] ?? 0) - (ring[i * 2] ?? 0);
+    const dz = (ring[j * 2 + 1] ?? 0) - (ring[i * 2 + 1] ?? 0);
+    const len = Math.hypot(dx, dz);
+    if (len > best) {
+      best = len;
+      ex = dx / len;
+      ez = dz / len;
+    }
+  }
+  return [ex, ez];
 }
 
 /** One solid per wall for an irregular ring — an AABB over an L walls off a street corner. */
@@ -270,6 +425,10 @@ function obbSolid(o: Obb, shrink: number): Solid {
     maxZ: o.cz + o.halfB * shrink,
     yaw: Math.atan2(-o.ez, o.ex),
   };
+}
+
+function setbackFor(half: number): number {
+  return half + walkFor(half) + FACADE_MARGIN;
 }
 
 /**
@@ -309,13 +468,7 @@ function clipToKerb(
       px = -px;
       pz = -pz;
     }
-    streets.set(hit.edge.id, {
-      ox: hit.x,
-      oz: hit.z,
-      px,
-      pz,
-      setback: hit.edge.half + walkFor(hit.edge.half) + FACADE_MARGIN,
-    });
+    streets.set(hit.edge.id, { ox: hit.x, oz: hit.z, px, pz, setback: setbackFor(hit.edge.half) });
   }
   let moved = 0;
   for (const st of streets.values()) {
@@ -383,8 +536,9 @@ function mergeClose(ring: Float32Array, n: number): number {
   return m;
 }
 
-/** Does any wall run through the drawn asphalt between its two (clear) endpoints? */
-function straddlesStreet(ring: Float32Array, n: number, network: RoadNetwork): boolean {
+/** Ids of the streets whose asphalt a wall runs through between its (clear) endpoints. */
+function straddledStreets(ring: Float32Array, n: number, network: RoadNetwork): number[] {
+  const ids = new Set<number>();
   for (let i = 0; i < n; i++) {
     const j = (i + 1) % n;
     const x0 = ring[i * 2] ?? 0;
@@ -396,14 +550,159 @@ function straddlesStreet(ring: Float32Array, n: number, network: RoadNetwork): b
     for (let k = 1; k < steps; k++) {
       const t = k / steps;
       const hit = network.nearest(x0 + (x1 - x0) * t, z0 + (z1 - z0) * t, ROAD_TILE);
-      if (hit !== null && hit.dist < hit.edge.half - 0.15) return true;
+      if (hit !== null && hit.dist < hit.edge.half - 0.15) ids.add(hit.edge.id);
     }
   }
-  return false;
+  return [...ids];
+}
+
+type PolyRing = [number, number][];
+
+/**
+ * Cut the streets out of a ring and keep the largest piece. A survey ring
+ * that spans a street is a GROUP outline (several buildings the extractor
+ * could not separate); the piece on the far side is another building's, and
+ * this parcel is the one its centroid is nearest.
+ */
+function splitOffStreets(
+  ring: Float32Array,
+  n: number,
+  edgeIds: readonly number[],
+  network: RoadNetwork,
+): Float32Array | null {
+  const strips: PolyRing[][] = [];
+  for (const id of edgeIds) {
+    const edge = network.edges.find((e) => e.id === id);
+    if (!edge) continue;
+    const w = edge.half + KERB_STRIP;
+    const pts = edge.pts;
+    for (let i = 0; i + 3 < pts.length; i += 2) {
+      const ax = pts[i] ?? 0;
+      const az = pts[i + 1] ?? 0;
+      const bx = pts[i + 2] ?? 0;
+      const bz = pts[i + 3] ?? 0;
+      const len = Math.hypot(bx - ax, bz - az);
+      if (len < 1e-3) continue;
+      const tx = (bx - ax) / len;
+      const tz = (bz - az) / len;
+      const nx = -tz;
+      const nz = tx;
+      // Extended by w along the tangent so consecutive quads overlap and the
+      // union has no notch at a bend.
+      const ax2 = ax - tx * w;
+      const az2 = az - tz * w;
+      const bx2 = bx + tx * w;
+      const bz2 = bz + tz * w;
+      strips.push([
+        [
+          [ax2 + nx * w, az2 + nz * w],
+          [bx2 + nx * w, bz2 + nz * w],
+          [bx2 - nx * w, bz2 - nz * w],
+          [ax2 - nx * w, az2 - nz * w],
+          [ax2 + nx * w, az2 + nz * w],
+        ],
+      ]);
+    }
+  }
+  if (strips.length === 0) return null;
+  const outline: PolyRing = [];
+  for (let i = 0; i < n; i++) outline.push([ring[i * 2] ?? 0, ring[i * 2 + 1] ?? 0]);
+  const first = outline[0];
+  if (first) outline.push([first[0], first[1]]);
+  let pieces: PolyRing[][];
+  try {
+    const cut = polygonClipping.union([], ...strips);
+    pieces = polygonClipping.difference([outline], cut);
+  } catch {
+    return null;
+  }
+  let best: PolyRing | null = null;
+  let bestArea = 0;
+  for (const poly of pieces) {
+    const outer = poly[0];
+    if (!outer) continue;
+    let a = 0;
+    for (let i = 0; i + 1 < outer.length; i++) {
+      const p = outer[i];
+      const q = outer[i + 1];
+      if (!p || !q) continue;
+      a += p[0] * q[1] - q[0] * p[1];
+    }
+    a = Math.abs(a) / 2;
+    if (a > bestArea) {
+      bestArea = a;
+      best = outer;
+    }
+  }
+  if (!best || bestArea < MIN_AREA) return null;
+  const m = best.length - 1; // closed ring
+  const out = new Float32Array(m * 2);
+  for (let i = 0; i < m; i++) {
+    const p = best[i];
+    out[i * 2] = p?.[0] ?? 0;
+    out[i * 2 + 1] = p?.[1] ?? 0;
+  }
+  if (signedArea(out, m) < 0) {
+    const rev = new Float32Array(m * 2);
+    for (let k = 0; k < m; k++) {
+      rev[k * 2] = out[(m - 1 - k) * 2] ?? 0;
+      rev[k * 2 + 1] = out[(m - 1 - k) * 2 + 1] ?? 0;
+    }
+    return rev;
+  }
+  return out;
+}
+
+type PillarSpot = { readonly x: number; readonly z: number; readonly half: number };
+
+/** Pillars bucketed on the block lattice, so a parcel asks only its own neighbourhood. */
+class PillarIndex {
+  private readonly cells = new Map<number, PillarSpot[]>();
+  constructor(spots: readonly PillarSpot[]) {
+    for (const p of spots) {
+      const k = cellKey(gridXOf(p.x), gridZOf(p.z));
+      const arr = this.cells.get(k);
+      if (arr) arr.push(p);
+      else this.cells.set(k, [p]);
+    }
+  }
+  /** Pillars whose footing touches the ring. */
+  inside(ring: Float32Array, n: number): PillarSpot[] {
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (let i = 0; i < n; i++) {
+      const x = ring[i * 2] ?? 0;
+      const z = ring[i * 2 + 1] ?? 0;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (z < minZ) minZ = z;
+      if (z > maxZ) maxZ = z;
+    }
+    const out: PillarSpot[] = [];
+    for (let gx = gridXOf(minX) - 1; gx <= gridXOf(maxX) + 1; gx++) {
+      for (let gz = gridZOf(minZ) - 1; gz <= gridZOf(maxZ) + 1; gz++) {
+        for (const p of this.cells.get(cellKey(gx, gz)) ?? []) {
+          const reach = p.half + PILLAR_MARGIN;
+          if (
+            p.x < minX - reach ||
+            p.x > maxX + reach ||
+            p.z < minZ - reach ||
+            p.z > maxZ + reach
+          ) {
+            continue;
+          }
+          if (pointInRing(ring, n, p.x, p.z) || distToRing(ring, n, p.x, p.z) < reach) out.push(p);
+        }
+      }
+    }
+    return out;
+  }
 }
 
 export function planParcels(ctx: ParcelPlanContext): ParcelPlanResult {
-  const { network, terrain, reserved } = ctx;
+  const { network, terrain, reserved, standAt } = ctx;
   const stats: ParcelPlanStats = {
     built: 0,
     water: 0,
@@ -418,12 +717,50 @@ export function planParcels(ctx: ParcelPlanContext): ParcelPlanResult {
     cliff: 0,
     movedVerts: 0,
     stretched: 0,
+    underDeck: 0,
+    boxed: 0,
+    split: 0,
+    lots: 0,
   };
   const plans: ParcelPlan[] = [];
+  const lots: ParcelLot[] = [];
   const covered = new Set<number>();
+  const pillars = new PillarIndex(freewayPillars(terrain, network));
   const onAsphalt = (x: number, z: number, margin: number): boolean => {
     const hit = network.nearest(x, z, ROAD_TILE * 1.4);
     return hit !== null && hit.dist < hit.edge.half + margin;
+  };
+  const anyVertexInLane = (ring: Float32Array, n: number): boolean => {
+    for (let i = 0; i < n; i++) {
+      if (onAsphalt(ring[i * 2] ?? 0, ring[i * 2 + 1] ?? 0, -0.45)) return true;
+    }
+    return false;
+  };
+  const soffitOver = (ring: Float32Array, n: number, cx: number, cz: number): number | null => {
+    let soffit = freewaySoffitAt(terrain, network, cx, cz, 0.5);
+    for (let i = 0; i < n; i++) {
+      const s = freewaySoffitAt(terrain, network, ring[i * 2] ?? 0, ring[i * 2 + 1] ?? 0, 0.3);
+      if (s !== null && (soffit === null || s < soffit)) soffit = s;
+    }
+    return soffit;
+  };
+  /** A parcel that cannot be a building but can be a lot: paint + cars. */
+  const emitLot = (
+    id: number,
+    seed: number,
+    ring: Float32Array,
+    n: number,
+    obb: Obb,
+    spots: readonly PillarSpot[],
+  ): boolean => {
+    if (Math.min(obb.halfA, obb.halfB) * 2 < LOT_MIN_SIDE || signedArea(ring, n) < LOT_MIN_AREA) {
+      return false;
+    }
+    const ys = new Float32Array(n);
+    for (let i = 0; i < n; i++) ys[i] = standAt(ring[i * 2] ?? 0, ring[i * 2 + 1] ?? 0);
+    lots.push({ id, seed, ring, n, ys, obb, pillars: spots });
+    stats.lots++;
+    return true;
   };
 
   for (let id = 0; id < SF_FOOTPRINTS.length; id++) {
@@ -440,7 +777,7 @@ export function planParcels(ctx: ParcelPlanContext): ParcelPlanResult {
     // Orient positive (interior to the left of each edge) — party-wall edge
     // indices follow the reversal.
     let n = n0;
-    let ring = new Float32Array(n * 2);
+    let ring: Float32Array = new Float32Array(n * 2);
     let blind = new Uint8Array(n);
     for (let i = 0; i < n; i++) {
       ring[i * 2] = flat[1 + i * 2] ?? 0;
@@ -458,14 +795,8 @@ export function planParcels(ctx: ParcelPlanContext): ParcelPlanResult {
       for (const e of adjacency.blind) blind[e] = 1;
     }
     const original = Float32Array.from(ring);
-    let cx = 0;
-    let cz = 0;
-    for (let i = 0; i < n; i++) {
-      cx += ring[i * 2] ?? 0;
-      cz += ring[i * 2 + 1] ?? 0;
-    }
-    cx /= n;
-    cz /= n;
+    const area0 = signedArea(ring, n);
+    let [cx, cz] = centroidOf(ring, n);
     const gx = gridXOf(cx);
     const gz = gridZOf(cz);
     if (!isLandCell(gx, gz)) {
@@ -474,8 +805,7 @@ export function planParcels(ctx: ParcelPlanContext): ParcelPlanResult {
     }
     // Coverage is the SOURCE data's footprint, not the built one: a block the
     // survey mapped is this fabric's to fill, and a parcel it then rejects
-    // (a freeway corridor, a ring across a street) leaves a lot, not a kit
-    // house in the middle of a real terrace.
+    // leaves a lot, not a kit house in the middle of a real terrace.
     for (let i = 0; i < n; i++) {
       const vgx = gridXOf(ring[i * 2] ?? 0);
       const vgz = gridZOf(ring[i * 2 + 1] ?? 0);
@@ -499,48 +829,75 @@ export function planParcels(ctx: ParcelPlanContext): ParcelPlanResult {
       stats.park++;
       continue;
     }
-    let fwHit = nearFreeway(cx, cz, 0.5);
-    for (let i = 0; i < n && !fwHit; i++) {
-      if (nearFreeway(ring[i * 2] ?? 0, ring[i * 2 + 1] ?? 0, 0.3)) fwHit = true;
-    }
-    if (fwHit) {
-      stats.freeway++;
-      continue;
-    }
 
     // --- The kerb clip ---
     let movedAny = false;
-    for (let iter = 0; iter < 3; iter++) {
-      const moved = clipToKerb(ring, n, network, cx, cz);
-      stats.movedVerts += moved;
-      if (moved === 0) break;
-      movedAny = true;
+    const clip = (): void => {
+      for (let iter = 0; iter < 3; iter++) {
+        const moved = clipToKerb(ring, n, network, cx, cz);
+        stats.movedVerts += moved;
+        if (moved === 0) break;
+        movedAny = true;
+      }
+      if (movedAny) {
+        // Stacked vertices change the ring's vertex count; the party-wall
+        // edge indices only survive if nothing merged, so a merge drops them
+        // (the walls are still coincident — only the window rule loses them).
+        const m = mergeClose(ring, n);
+        if (m !== n) {
+          n = m;
+          ring = ring.slice(0, n * 2);
+          blind = new Uint8Array(n);
+        }
+      }
+    };
+    clip();
+    if (n < 3) {
+      stats.clipped++;
+      ctx.onReject?.(id, "clipped", "n<3");
+      continue;
     }
-    if (movedAny) {
-      // Stacked vertices change the ring's vertex count; the party-wall edge
-      // indices only survive if nothing merged, so a merge drops them (the
-      // walls are still coincident — only the window rule loses them).
-      const m = mergeClose(ring, n);
-      if (m !== n) {
-        n = m;
-        ring = ring.slice(0, n * 2);
-        blind = new Uint8Array(n);
+    // --- Recovery: a folded ring becomes its box; a ring across a street is
+    // cut there and the larger side kept. Each recovery re-runs the tests
+    // that the previous shape failed.
+    let boxed = false;
+    let split = false;
+    if (!isSimple(ring, n)) {
+      const [ex, ez] = longestEdgeFrame(ring, n);
+      ring = rectRing(obbOf(ring, n, ex, ez));
+      n = 4;
+      blind = new Uint8Array(4);
+      boxed = true;
+    }
+    let crossing = straddledStreets(ring, n, network);
+    for (let round = 0; crossing.length > 0 && round < 4; round++) {
+      const piece = splitOffStreets(ring, n, crossing, network);
+      if (piece === null) break;
+      ring = piece;
+      n = piece.length / 2;
+      blind = new Uint8Array(n);
+      [cx, cz] = centroidOf(ring, n);
+      split = true;
+      // No re-clip: the clip would slide the piece back into the band it was
+      // just cut out of. The piece is clear of asphalt by construction.
+      if (n >= 3 && !isSimple(ring, n)) {
+        const [ex, ez] = longestEdgeFrame(ring, n);
+        ring = rectRing(obbOf(ring, n, ex, ez));
+        n = 4;
+        blind = new Uint8Array(4);
+        boxed = true;
       }
-      if (n < 3) {
-        stats.clipped++;
-        ctx.onReject?.(id, "clipped", "n<3");
-        continue;
-      }
-      if (!isSimple(ring, n)) {
-        stats.folded++;
-        ctx.onReject?.(id, "folded", `n=${n} n0=${n0}`);
-        continue;
-      }
-      if (straddlesStreet(ring, n, network)) {
-        stats.straddle++;
-        ctx.onReject?.(id, "straddle", `n=${n}`);
-        continue;
-      }
+      crossing = n >= 3 ? straddledStreets(ring, n, network) : [];
+    }
+    if (crossing.length > 0) {
+      stats.straddle++;
+      ctx.onReject?.(id, "straddle", `n=${n} split=${split} boxed=${boxed}`);
+      continue;
+    }
+    if (n < 3) {
+      stats.clipped++;
+      ctx.onReject?.(id, "clipped", "n<3 after split");
+      continue;
     }
     let area = signedArea(ring, n);
     if (area < 0.05) {
@@ -548,28 +905,13 @@ export function planParcels(ctx: ParcelPlanContext): ParcelPlanResult {
       ctx.onReject?.(id, "clipped", `area=${area.toFixed(2)} moved=${movedAny}`);
       continue;
     }
-    cx = 0;
-    cz = 0;
-    for (let i = 0; i < n; i++) {
-      cx += ring[i * 2] ?? 0;
-      cz += ring[i * 2 + 1] ?? 0;
-    }
-    cx /= n;
-    cz /= n;
-    if (onAsphalt(cx, cz, 0.4)) {
+    [cx, cz] = centroidOf(ring, n);
+    if (onAsphalt(cx, cz, 0.4) || anyVertexInLane(ring, n)) {
+      // The clip works one street at a time; a vertex it moved clear of a
+      // minor street can land inside the boulevard that street joins.
+      // Nothing here is allowed to stand in a lane.
       stats.onRoad++;
-      continue;
-    }
-    // The clip works one street at a time; a vertex it moved clear of a minor
-    // street can land inside the boulevard that street joins. Nothing here is
-    // allowed to stand in a lane, so the last word is a plain test of every
-    // vertex against the drawn asphalt.
-    let vertInLane = false;
-    for (let i = 0; i < n && !vertInLane; i++) {
-      if (onAsphalt(ring[i * 2] ?? 0, ring[i * 2 + 1] ?? 0, -0.45)) vertInLane = true;
-    }
-    if (vertInLane) {
-      stats.onRoad++;
+      ctx.onReject?.(id, "onRoad", `boxed=${boxed} split=${split}`);
       continue;
     }
 
@@ -679,12 +1021,31 @@ export function planParcels(ctx: ParcelPlanContext): ParcelPlanResult {
     const seatY = fall > 1.0 ? Math.max(loY + fall * STEP_INTO_SLOPE, hiY - STEP_BURY_MAX) : hiY;
     const footY = loY - 0.35;
 
-    // --- Kind, storeys, rhythm ---
+    // --- Storeys, capped under a viaduct; kind; rhythm ---
     const district = districtAt(gx, gz);
     const character: FabricChar =
       district.character === "park" ? "residential" : district.character;
     const seed = hash32(id * 2654435761 + CITY_SEED);
-    const storeys = storeysOf(realH);
+    let storeys = storeysOf(realH);
+    if (split && area < area0 * SPLIT_KEEP_SHARE) storeys = Math.min(storeys, SPLIT_LOW_STOREYS);
+    const soffit = soffitOver(ring, n, cx, cz);
+    const pillarHits = pillars.inside(ring, n);
+    if (soffit !== null) {
+      // Build what fits under the deck — SF's freeways run over two- and
+      // three-storey fabric for most of their length — and a parcel with no
+      // room for one storey, or a footing in its plan, is a lot.
+      while (storeys > 1 && seatY + visualHeight(storeys) > soffit - DECK_CLEAR) storeys--;
+      if (seatY + visualHeight(storeys) > soffit - DECK_CLEAR || pillarHits.length > 0) {
+        stats.freeway++;
+        emitLot(id, seed, ring, n, obb, pillarHits);
+        continue;
+      }
+      stats.underDeck++;
+    } else if (pillarHits.length > 0) {
+      stats.freeway++;
+      emitLot(id, seed, ring, n, obb, pillarHits);
+      continue;
+    }
     const kind = resolveKind({
       character,
       district: district.name,
@@ -725,8 +1086,10 @@ export function planParcels(ctx: ParcelPlanContext): ParcelPlanResult {
       solids,
     });
     stats.built++;
+    if (boxed) stats.boxed++;
+    if (split) stats.split++;
   }
-  return { plans, stats, covered };
+  return { plans, lots, stats, covered };
 }
 
 /** The front edge's endpoints, for the facade stamp furniture dresses. */

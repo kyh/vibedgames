@@ -1116,6 +1116,87 @@ export function nearFreeway(x: number, z: number, margin: number): boolean {
 // Deck + inner-barrier triangles for the static physics trimesh — the car
 // drives the exact rendered surface. Streets keep the heightfield below:
 // wheel rays cast from under the deck never reach it, so underpasses work.
+/**
+ * Height of the deck UNDERSIDE over a point, or null when no deck covers it
+ * (within `half + margin` of a centreline). The lowest covering deck wins,
+ * which is what a building's roof has to clear. Ramps descend to grade, so a
+ * parcel under a ramp mouth gets a soffit at ground level and nothing fits —
+ * the right answer, since that is where the ramp lands.
+ */
+type DeckSample = readonly [
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+  ya: number,
+  yb: number,
+  lim: number,
+];
+const soffitHash = new Map<string, DeckSample[]>();
+let soffitHashFor: FreewayBuild | null = null;
+const SOFFIT_CELL = 60;
+function buildSoffitHash(build: FreewayBuild): void {
+  if (soffitHashFor === build) return;
+  soffitHashFor = build;
+  soffitHash.clear();
+  for (const line of build.lines) {
+    const pts = line.pts;
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const [ax, az] = pts[i] ?? [0, 0];
+      const [bx, bz] = pts[i + 1] ?? [0, 0];
+      const s: DeckSample = [ax, az, bx, bz, line.ys[i] ?? 0, line.ys[i + 1] ?? 0, line.half + 1];
+      for (
+        let cx = Math.floor((Math.min(ax, bx) - 12) / SOFFIT_CELL);
+        cx <= Math.floor((Math.max(ax, bx) + 12) / SOFFIT_CELL);
+        cx++
+      ) {
+        for (
+          let cz = Math.floor((Math.min(az, bz) - 12) / SOFFIT_CELL);
+          cz <= Math.floor((Math.max(az, bz) + 12) / SOFFIT_CELL);
+          cz++
+        ) {
+          const k = `${cx},${cz}`;
+          const arr = soffitHash.get(k) ?? [];
+          arr.push(s);
+          soffitHash.set(k, arr);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Height of the deck UNDERSIDE over a point, or null when no deck covers it
+ * (within `half + margin` of a centreline, margin at most 1). The lowest
+ * covering deck wins, which is what a building's roof has to clear. Ramps
+ * descend to grade, so a parcel under a ramp mouth gets a soffit at ground
+ * level and nothing fits — the right answer, since that is where the ramp
+ * lands.
+ */
+export function freewaySoffitAt(
+  terrain: Terrain,
+  network: RoadNetwork | undefined,
+  x: number,
+  z: number,
+  margin: number,
+): number | null {
+  buildSoffitHash(buildData(terrain, network));
+  const segs = soffitHash.get(`${Math.floor(x / SOFFIT_CELL)},${Math.floor(z / SOFFIT_CELL)}`);
+  if (!segs) return null;
+  let soffit: number | null = null;
+  for (const [ax, az, bx, bz, ya, yb, lim0] of segs) {
+    const lim = lim0 - 1 + Math.min(margin, 1);
+    const dx = bx - ax;
+    const dz = bz - az;
+    const l2 = dx * dx + dz * dz;
+    const t = l2 > 1e-8 ? Math.min(Math.max(((x - ax) * dx + (z - az) * dz) / l2, 0), 1) : 0;
+    if (Math.hypot(ax + dx * t - x, az + dz * t - z) >= lim) continue;
+    const y = ya + (yb - ya) * t - DECK_T;
+    if (soffit === null || y < soffit) soffit = y;
+  }
+  return soffit;
+}
+
 /** Pillar footprints of the memoized build — `pnpm test` asserts none sit in a street. */
 export function freewayPillars(terrain: Terrain, network?: RoadNetwork): readonly PillarSpot[] {
   return buildData(terrain, network).pillars;

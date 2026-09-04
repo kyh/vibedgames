@@ -732,10 +732,11 @@ console.log(`  (plan + network in ${Math.round(performance.now() - t0)}ms)`);
 {
   const prot = landmarkProtection(plan, network);
   const terrain = makeTerrain();
+  const { standAt } = buildAuditWorld();
   const t0 = performance.now();
-  const parcels = planParcels({ network, terrain, reserved: prot.reserved });
+  const parcels = planParcels({ network, terrain, reserved: prot.reserved, standAt });
   const planMs = Math.round(performance.now() - t0);
-  const again = planParcels({ network, terrain, reserved: prot.reserved });
+  const again = planParcels({ network, terrain, reserved: prot.reserved, standAt });
   const sig = (r: typeof parcels): string =>
     r.plans
       .map(
@@ -751,10 +752,10 @@ console.log(`  (plan + network in ${Math.round(performance.now() - t0)}ms)`);
   // The old kit pass built 2,890 of these; the kerb clip is what lifts it.
   check(
     "real parcels build instead of being rejected",
-    s.built >= 15000 && s.onRoad + s.clipped <= 3000,
+    s.built >= 16500 && s.onRoad + s.clipped <= 3000 && s.straddle <= 600,
     `${s.built} of ${SF_FOOTPRINTS.length} built (${s.onRoad} in a lane, ${s.clipped} clipped away, ` +
       `${s.folded} folded, ${s.straddle} straddling, ${s.stacked} stacked, ${s.park} park, ` +
-      `${s.reserved} reserved, ${s.freeway} freeway, ${s.cliff} cliff, ${s.stretched} stretched)`,
+      `${s.reserved} reserved, ${s.freeway} freeway, ${s.cliff} cliff, ${s.stretched} stretched; ${s.underDeck} under a deck, ${s.boxed} boxed, ${s.split} split)`,
   );
   // Every wall vertex clears the drawn asphalt — that is what the clip is for.
   let pastKerb = 0;
@@ -787,6 +788,13 @@ console.log(`  (plan + network in ${Math.round(performance.now() - t0)}ms)`);
     inRoad.length <= 250 && deep.length === 0,
     `${boxes.length} solids, ${inRoad.length} past the kerb, ${deep.length} over 3u deep` +
       (deep[0] ? `, worst ${deep[0].depth.toFixed(1)}u @ ${uv(deep[0].x, deep[0].z)}` : ""),
+  );
+  // What the plan cannot build it hands over as a surface lot, so the survey
+  // never leaves bare ground (the kit walk no longer fills inside it).
+  check(
+    "unbuildable parcels become lots, not bare ground",
+    parcels.lots.length >= 60 && parcels.lots.length <= 2500,
+    `${parcels.lots.length} lots`,
   );
   const kinds = new Map<string, number>();
   for (const p of parcels.plans) kinds.set(p.kind, (kinds.get(p.kind) ?? 0) + 1);
