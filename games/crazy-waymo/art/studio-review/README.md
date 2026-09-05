@@ -9,13 +9,13 @@ An environment, rendering and driving overhaul. Generated references inform the 
 - Disjoint asphalt, curbs and sidewalks. Markings follow actual road triangles; terrain stays beneath the road. Nearby towers no longer draw two incompatible window patterns. Fully enclosed duplicate source buildings are filtered before streaming.
 - Image-referenced SF trees and red-canopy Muni shelters. Exact parcel clearance covers shelter geometry and full tree stems; park trees have colliders at their visible roots. Construction scaffolds align with the street and use open backing.
 - Rounded 3D clouds, readable night streets, restrained window light, grounded skid/smoke/boost effects, and road-seated lamp pools.
-- Hill parking, bridge-aware camera clearance, terrain framing, complete-scene startup readiness, portrait HUD spacing and real touch controls.
+- Hill parking, bridge-aware camera clearance, terrain framing, complete-scene startup readiness, portrait HUD spacing and real touch controls. Hidden title controls become inert so they cannot steal steering touches or keyboard focus.
 
 ## Verification
 
 **Revision 90 is installed.** All 153 game checks, all 11 repository test tasks, all 24 typecheck tasks, repository lint, formatting and the production build pass. The worker test formatting failure is fixed. [Release validation](release-validation.json). The earlier [140-check log](game-tests-90.log) records the environment pass before mobile cleanup.
 
-The final [desktop report](report.json) passes all nine checks; the [mobile report](mobile/report.json) passes all 12. Both report zero page errors. Current gameplay screenshots below are revision 90. Earlier production/reference evidence retains its own explicit revision label.
+The final [desktop report](report.json) passes all nine checks; the [mobile report](mobile/report.json) passes all 13. Both report zero page errors. Current gameplay screenshots below are revision 90. Earlier production/reference evidence retains its own explicit revision label.
 
 The desktop rehearsal uses held keyboard input and live Rapier physics for acceleration, braking, boost and drift. It stages real pickup/dropoff positions to verify fare payment; it does not claim autonomous route completion. It also checks pause/restart, hill parking and camera clearance.
 

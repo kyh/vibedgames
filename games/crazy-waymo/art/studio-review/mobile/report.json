@@ -1,6 +1,6 @@
 {
   "url": "http://localhost:5193/?time=night&offline=1",
-  "checkedAt": "2026-09-05T07:14:43.297Z",
+  "checkedAt": "2026-09-05T07:38:20.537Z",
   "checks": [
     {
       "name": "actual coarse-pointer path",
@@ -14,13 +14,27 @@
       }
     },
     {
-      "name": "touch accelerates and steers",
+      "name": "hidden start button cannot take focus or intercept steering",
+      "passed": true,
+      "evidence": {
+        "point": {
+          "x": 112.80414581298828,
+          "y": 452.89845275878906,
+          "id": 1
+        },
+        "focused": false,
+        "intercepts": false,
+        "hit": "CANVAS"
+      }
+    },
+    {
+      "name": "touch accelerates and steers from the former start-button bounds",
       "passed": true,
       "evidence": {
         "before": {
           "x": -396.5,
-          "z": -285.99999999999994,
-          "y": 4.328992683887481,
+          "z": -286,
+          "y": 5.082742576599121,
           "speed": 0,
           "heading": 0,
           "airborne": false,
@@ -28,22 +42,22 @@
           "boosting": false,
           "carrying": false,
           "objective": {
-            "u": 0.6536885245901639,
-            "v": 0.4864807692307692
+            "u": 0.42008196721311475,
+            "v": 0.42851923076923076
           },
           "wreckedCount": 0,
           "nearestTraffic": {
-            "dist": 191.8,
+            "dist": 97.5,
             "wrecked": false,
-            "y": 85.2
+            "y": 5.9
           }
         },
         "driven": {
           "x": -396.5,
-          "z": -281.1016845703125,
-          "y": 5.309922580718994,
-          "speed": 13.511519432304933,
-          "heading": 0.000006777160240289411,
+          "z": -282.04747827148435,
+          "y": 5.132695076942445,
+          "speed": 12.00260067002304,
+          "heading": 0.000006463776012250761,
           "airborne": false,
           "drifting": false,
           "boosting": false,
@@ -54,17 +68,17 @@
           },
           "wreckedCount": 0,
           "nearestTraffic": {
-            "dist": 113,
+            "dist": 85.2,
             "wrecked": false,
-            "y": 2.2
+            "y": 2.6
           }
         },
         "steered": {
-          "x": -398.4928076171875,
-          "z": -274.198564453125,
-          "y": 6.616282057762143,
-          "speed": 20.99953649101426,
-          "heading": -0.4757403762232833,
+          "x": -397.9472917480469,
+          "z": -275.53611730957033,
+          "y": 6.362823743820188,
+          "speed": 19.816502979048845,
+          "heading": -0.363839597831635,
           "airborne": false,
           "drifting": false,
           "boosting": false,
@@ -75,9 +89,9 @@
           },
           "wreckedCount": 0,
           "nearestTraffic": {
-            "dist": 86.7,
+            "dist": 89.4,
             "wrecked": false,
-            "y": 2.5
+            "y": 2.6
           }
         }
       }
@@ -87,10 +101,10 @@
       "passed": true,
       "evidence": {
         "x": -396.5,
-        "z": -279.6859011230469,
-        "y": 5.576704748153684,
-        "speed": 16.778589249108144,
-        "heading": 0.00000811848630568842,
+        "z": -279.59003399658206,
+        "y": 5.594872323989867,
+        "speed": 17.080032349118124,
+        "heading": 0.000008087207433359813,
         "airborne": false,
         "drifting": false,
         "boosting": true,
@@ -101,9 +115,9 @@
         },
         "wreckedCount": 0,
         "nearestTraffic": {
-          "dist": 61,
+          "dist": 86.8,
           "wrecked": false,
-          "y": 2.1
+          "y": 2.6
         }
       }
     },
@@ -111,11 +125,11 @@
       "name": "touch brake and steering drift",
       "passed": true,
       "evidence": {
-        "x": -396.2695102539063,
-        "z": -276.60241333007815,
-        "y": 6.16317478942871,
-        "speed": 18.728696338916578,
-        "heading": -0.2426989420545567,
+        "x": -396.2730708007812,
+        "z": -276.6753623046875,
+        "y": 6.149206504821775,
+        "speed": 18.527627719033102,
+        "heading": -0.24211223756135491,
         "airborne": false,
         "drifting": true,
         "boosting": true,
@@ -126,9 +140,9 @@
         },
         "wreckedCount": 0,
         "nearestTraffic": {
-          "dist": 64.5,
+          "dist": 87.6,
           "wrecked": false,
-          "y": 2.1
+          "y": 2.6
         }
       }
     },
@@ -136,13 +150,13 @@
       "name": "touch pedal reverses from stop",
       "passed": true,
       "evidence": {
-        "reverseDistance": -0.3483015136719132,
+        "reverseDistance": -0.29015649414066047,
         "reversed": {
           "x": -396.5,
-          "z": -286.34830151367186,
-          "y": 4.371380094528197,
-          "speed": 3.6378448025948056,
-          "heading": -8.782146508783432e-7,
+          "z": -286.2901564941406,
+          "y": 4.3591118469238275,
+          "speed": 3.349915744515011,
+          "heading": -9.740430693274546e-7,
           "airborne": false,
           "drifting": false,
           "boosting": false,
@@ -153,9 +167,9 @@
           },
           "wreckedCount": 0,
           "nearestTraffic": {
-            "dist": 60.2,
+            "dist": 84.7,
             "wrecked": false,
-            "y": 2.2
+            "y": 2.6
           }
         }
       }
@@ -166,10 +180,10 @@
       "evidence": {
         "parked": {
           "x": -396.5,
-          "z": -286.80858984375,
-          "y": 4.401651355743408,
-          "speed": 2.553911924384106,
-          "heading": -3.5072609279306517e-7,
+          "z": -286.7151112060547,
+          "y": 4.411245326995849,
+          "speed": 2.081493854574903,
+          "heading": 8.084985184470757e-8,
           "airborne": false,
           "drifting": false,
           "boosting": false,
@@ -180,17 +194,17 @@
           },
           "wreckedCount": 0,
           "nearestTraffic": {
-            "dist": 61,
+            "dist": 84.6,
             "wrecked": false,
-            "y": 2.2
+            "y": 2.6
           }
         },
         "paused": {
           "x": -396.5,
-          "z": -286.80858984375,
-          "y": 4.401651355743408,
-          "speed": 2.553911924384106,
-          "heading": -3.5072609279306517e-7,
+          "z": -286.7151112060547,
+          "y": 4.411245326995849,
+          "speed": 2.081493854574903,
+          "heading": 8.084985184470757e-8,
           "airborne": false,
           "drifting": false,
           "boosting": false,
@@ -201,9 +215,9 @@
           },
           "wreckedCount": 0,
           "nearestTraffic": {
-            "dist": 61,
+            "dist": 84.6,
             "wrecked": false,
-            "y": 2.2
+            "y": 2.6
           }
         }
       }
@@ -212,24 +226,24 @@
       "name": "touch resume and restart",
       "passed": true,
       "evidence": {
-        "x": -351,
-        "z": -547.978759765625,
-        "y": 44.90771200561524,
+        "x": -920.5647583007812,
+        "z": 448.5,
+        "y": 1.1486193838119512,
         "speed": 0,
-        "heading": 0,
+        "heading": -1.5707963267948968,
         "airborne": false,
         "drifting": false,
         "boosting": false,
         "carrying": false,
         "objective": {
-          "u": 0.4260876418663304,
-          "v": 0.27249999999999996
+          "u": 0.24795081967213117,
+          "v": 0.7295576923076923
         },
         "wreckedCount": 0,
         "nearestTraffic": {
-          "dist": 74.8,
+          "dist": 68,
           "wrecked": false,
-          "y": 24.9
+          "y": 1
         }
       }
     },
@@ -247,7 +261,7 @@
           "detailedCells": 15,
           "verts": 333485,
           "bytes": 8698248,
-          "builtMs": 1255.8999996185303
+          "builtMs": 1151.3999993801117
         }
       }
     },
@@ -270,7 +284,7 @@
           "detailedCells": 15,
           "verts": 1512402,
           "bytes": 39271572,
-          "builtMs": 1663.8999996185303
+          "builtMs": 1549.4999990463257
         }
       }
     },
@@ -288,7 +302,7 @@
           "detailedCells": 16,
           "verts": 1496245,
           "bytes": 38246386,
-          "builtMs": 1996.9999997615814
+          "builtMs": 1877.4999990463257
         }
       }
     },
@@ -311,7 +325,7 @@
         "detailedCells": 15,
         "verts": 333485,
         "bytes": 8698248,
-        "builtMs": 1255.8999996185303
+        "builtMs": 1151.3999993801117
       }
     },
     {
@@ -326,7 +340,7 @@
         "detailedCells": 15,
         "verts": 1512402,
         "bytes": 39271572,
-        "builtMs": 1663.8999996185303
+        "builtMs": 1549.4999990463257
       }
     },
     {
@@ -341,7 +355,7 @@
         "detailedCells": 16,
         "verts": 1496245,
         "bytes": 38246386,
-        "builtMs": 1996.9999997615814
+        "builtMs": 1877.4999990463257
       }
     }
   ],

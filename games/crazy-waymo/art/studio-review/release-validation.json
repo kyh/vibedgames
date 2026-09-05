@@ -1,7 +1,7 @@
 {
-  "checkedAt": "2026-09-05T07:12:11.817Z",
+  "checkedAt": "2026-09-05T07:41:38.175775Z",
   "worldRevision": 90,
-  "productionBundle": "index-BEEtAtzT.js",
+  "productionBundle": "index-WDUTpdm2.js",
   "verification": {
     "command": "pnpm verify",
     "exitCode": 0,
@@ -20,7 +20,9 @@
     "performance": "mobile-performance/README.md",
     "safari": "mobile-ios/README.md",
     "input": "mobile/report.json",
-    "scope": "DPR 3 coarse-pointer desktop stress tests and iOS simulator compatibility; no physical phone connected"
+    "scope": "DPR 3 coarse-pointer desktop stress tests and iOS simulator compatibility; no physical phone connected",
+    "inputChecksPassed": 13,
+    "regression": "Native steering starts inside the former Start-button bounds; hidden CTA cannot take focus or intercept touch."
   },
   "memory": {
     "scope": "Building geometry including skyline and shared sign atlas at audited sites; not total GPU memory",
