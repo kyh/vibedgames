@@ -1,0 +1,275 @@
+{
+  "url": "http://localhost:5193/?time=noon&offline=1",
+  "checkedAt": "2026-09-05T07:21:39.203Z",
+  "checks": [
+    {
+      "name": "live loop + keyboard acceleration",
+      "passed": true,
+      "evidence": {
+        "boosted": true,
+        "braked": {
+          "airborne": false,
+          "boosting": false,
+          "carrying": false,
+          "drifting": false,
+          "heading": 0.0003424929739295165,
+          "nearestTraffic": {
+            "dist": 78.7,
+            "wrecked": false,
+            "y": 8.8
+          },
+          "objective": {
+            "u": 0.4200819672131147,
+            "v": 0.4285192307692307
+          },
+          "speed": 1.1161323582848317,
+          "wreckedCount": 0,
+          "x": -396.50527856445314,
+          "y": 10.572431262969973,
+          "z": -252.1312286376953
+        },
+        "distance": 8.08917236328125,
+        "drifted": true,
+        "driven": {
+          "airborne": false,
+          "boosting": false,
+          "carrying": false,
+          "drifting": false,
+          "heading": 0.000007940975357366006,
+          "nearestTraffic": {
+            "dist": 105.9,
+            "wrecked": false,
+            "y": 1.9
+          },
+          "objective": {
+            "u": 0.4200819672131147,
+            "v": 0.4285192307692307
+          },
+          "speed": 17.30454635671769,
+          "wreckedCount": 0,
+          "x": -396.5,
+          "y": 5.91304290771485,
+          "z": -277.9108276367187
+        },
+        "first": {
+          "airborne": false,
+          "boosting": false,
+          "carrying": false,
+          "drifting": false,
+          "heading": 0,
+          "nearestTraffic": {
+            "dist": 225.5,
+            "wrecked": false,
+            "y": 0.4
+          },
+          "objective": {
+            "u": 0.6004098360655737,
+            "v": 0.32732692307692307
+          },
+          "speed": 0,
+          "wreckedCount": 0,
+          "x": -396.5,
+          "y": 4.328992683887481,
+          "z": -285.99999999999994
+        },
+        "frames": 214,
+        "peak": 29.150417329651923
+      }
+    },
+    {
+      "name": "boost and drift reach vehicle",
+      "passed": true,
+      "evidence": {
+        "boosted": true,
+        "drifted": true
+      }
+    },
+    {
+      "name": "brake reduces speed",
+      "passed": true,
+      "evidence": {
+        "peak": 29.150417329651923,
+        "speed": 1.1161323582848317
+      }
+    },
+    {
+      "name": "staged passenger pickup and delivery pay",
+      "passed": true,
+      "evidence": {
+        "completed": true,
+        "fares": 1,
+        "pickedUp": true,
+        "score": 704
+      }
+    },
+    {
+      "name": "pause freezes vehicle",
+      "passed": true,
+      "evidence": {
+        "distance": 0
+      }
+    },
+    {
+      "name": "R restarts a playable run",
+      "passed": true,
+      "evidence": {
+        "airborne": false,
+        "boosting": false,
+        "carrying": false,
+        "drifting": false,
+        "heading": -3.14159265322202,
+        "nearestTraffic": {
+          "dist": 64.4,
+          "wrecked": false,
+          "y": 0.3
+        },
+        "objective": {
+          "u": 0.3463114754098361,
+          "v": 0.28794230769230766
+        },
+        "speed": 0,
+        "wreckedCount": 0,
+        "x": -702,
+        "y": 0.31828913021087424,
+        "z": -563.2105102539062
+      }
+    },
+    {
+      "name": "parked taxi holds a city hill",
+      "passed": true,
+      "evidence": {
+        "clearance": 12.064024161085127,
+        "drift": 0.002029869196444845,
+        "speed": 0
+      }
+    },
+    {
+      "name": "hill camera clears the road",
+      "passed": true,
+      "evidence": {
+        "clearance": 12.064024161085127,
+        "drift": 0.002029869196444845,
+        "speed": 0
+      }
+    },
+    {
+      "name": "no page errors",
+      "passed": true,
+      "evidence": []
+    }
+  ],
+  "views": [
+    {
+      "name": "sunset-noon",
+      "u": 0.235,
+      "v": 0.674,
+      "phase": 0.25,
+      "file": "sunset-noon.png",
+      "stream": {
+        "builtMs": 3368.199999332428,
+        "bytes": 87375882,
+        "cells": 836,
+        "detailedCells": 22,
+        "resident": 323,
+        "verts": 3470266
+      }
+    },
+    {
+      "name": "haight-noon",
+      "u": 0.437,
+      "v": 0.401,
+      "phase": 0.25,
+      "file": "haight-noon.png",
+      "stream": {
+        "builtMs": 3905.0999994277954,
+        "bytes": 91967750,
+        "cells": 836,
+        "detailedCells": 26,
+        "resident": 397,
+        "verts": 3678590
+      }
+    },
+    {
+      "name": "chinatown-noon",
+      "u": 0.67,
+      "v": 0.167,
+      "phase": 0.25,
+      "file": "chinatown-noon.png",
+      "stream": {
+        "builtMs": 4028.899999380112,
+        "bytes": 38651008,
+        "cells": 836,
+        "detailedCells": 22,
+        "resident": 237,
+        "verts": 1612166
+      }
+    },
+    {
+      "name": "north-beach-golden",
+      "u": 0.675,
+      "v": 0.112,
+      "phase": 0.4,
+      "file": "north-beach-golden.png",
+      "stream": {
+        "builtMs": 4059.9999997615814,
+        "bytes": 39041042,
+        "cells": 836,
+        "detailedCells": 27,
+        "resident": 223,
+        "verts": 1648057
+      }
+    },
+    {
+      "name": "dogpatch-noon",
+      "u": 0.79,
+      "v": 0.51,
+      "phase": 0.25,
+      "file": "dogpatch-noon.png",
+      "stream": {
+        "builtMs": 4362.999999761581,
+        "bytes": 33021550,
+        "cells": 836,
+        "detailedCells": 18,
+        "resident": 263,
+        "verts": 1291122
+      }
+    },
+    {
+      "name": "downtown-noon",
+      "u": 0.738,
+      "v": 0.19,
+      "phase": 0.25,
+      "file": "downtown-noon.png",
+      "stream": {
+        "builtMs": 4478.999999761581,
+        "bytes": 24520664,
+        "cells": 836,
+        "detailedCells": 23,
+        "resident": 220,
+        "verts": 981651
+      }
+    },
+    {
+      "name": "downtown-night",
+      "u": 0.738,
+      "v": 0.19,
+      "phase": 0.7,
+      "file": "downtown-night.png",
+      "stream": {
+        "builtMs": 4478.999999761581,
+        "bytes": 24520664,
+        "cells": 836,
+        "detailedCells": 23,
+        "resident": 220,
+        "verts": 981651
+      }
+    }
+  ],
+  "worldRevision": 90,
+  "display": {
+    "coarsePointer": false,
+    "height": 900,
+    "pixelRatio": 1,
+    "width": 1440
+  }
+}

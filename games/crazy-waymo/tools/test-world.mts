@@ -1,3 +1,4 @@
+import { checkFrameTiming } from "./test-frame-timing.mts";
 // Headless world-gen invariant harness: the raster cell grid and the vector
 // road network are parallel representations of the same streets — every bug
 // in the 2026-07 park work was drift between them. This suite regenerates the
@@ -14,9 +15,20 @@ import {
 } from "../src/world/land-class.ts";
 import { freewayPillars } from "../src/world/freeways.ts";
 import { landmarkProtection } from "../src/world/landmarks.ts";
-import { buildParcelGeometry } from "../src/world/parcel-mesh.ts";
-import { geometryBytes, streamCellKey, streamRadiusFor } from "../src/world/parcel-stream.ts";
-import { planParcels } from "../src/world/parcel-plan.ts";
+import { buildParcelGeometry, buildParcelGeometrySync } from "../src/world/parcel-mesh.ts";
+import {
+  geometryBytes,
+  parcelDetailForDistance,
+  STREAM_CELL,
+  STREAM_HYSTERESIS,
+  streamCellKey,
+  streamCells,
+  streamRadiusFor,
+} from "../src/world/parcel-stream.ts";
+import { distToRing, planParcels, pointInRing } from "../src/world/parcel-plan.ts";
+import { visibleParcelPlans } from "../src/world/parcel-visibility.ts";
+import { SIGN_ATLAS_BYTES } from "../src/world/parcel-signs.ts";
+import { distantFootprint } from "../src/world/parcel-lod.ts";
 import { RoadNetwork } from "../src/world/network.ts";
 import { buildJunctionMap } from "../src/world/roads.ts";
 import { makeTerrain } from "../src/world/sf-map.ts";
@@ -31,6 +43,16 @@ import {
 } from "../src/world/sf-transit.ts";
 import { deserializeWorldBin, unpackWorld, WORLD_REV } from "../src/world/world-bin.ts";
 import { packWorld, serializeWorldBin } from "../src/world/world-bin-pack.ts";
+import { checkRoadSurfaces } from "./test-road-surfaces.mts";
+import { checkHistoricCorners, checkParcelFacades } from "./test-parcel-facades.mts";
+import { checkDrivingFx, checkWorldDrivingFx } from "./test-driving-fx.mts";
+import { checkTreeTemplates } from "./test-tree-templates.mts";
+import { checkBakedTreeClearance, checkTreeClearanceSources } from "./test-tree-clearance.mts";
+import { checkBakedShelterClearance, checkSfStreetKit } from "./test-sf-street-kit.mts";
+import { checkScaffoldKit } from "./test-scaffold-kit.mts";
+import { checkSalesforce } from "./test-sf-salesforce.mts";
+import { checkParcelClearance } from "./test-parcel-clearance.mts";
+import { checkVehicleParking } from "./test-vehicle-parking.mts";
 import {
   asphaltDepth,
   buildAuditWorld,
@@ -68,6 +90,11 @@ const t0 = performance.now();
 const plan = generateCity();
 const network = new RoadNetwork();
 console.log(`  (plan + network in ${Math.round(performance.now() - t0)}ms)`);
+checkRoadSurfaces(check, network);
+checkDrivingFx(check);
+await checkTreeTemplates(check);
+await checkTreeClearanceSources(check);
+await checkVehicleParking(check);
 
 // --- 1. Every road CELL is served by a vector edge. The buildings-in-streets
 // bug was exactly this failing: grid kept cells whose edge had been dropped,
@@ -460,6 +487,7 @@ console.log(`  (plan + network in ${Math.round(performance.now() - t0)}ms)`);
   check("baked rest.bin is at the code's world rev", rev === WORLD_REV, `bin ${rev}`);
 
   const auditWorld = buildAuditWorld();
+  checkWorldDrivingFx(check, auditWorld, rest);
   const props = propInstances(rest);
   const cls = classifySolids(rest.solids, auditWorld, props, loadParcelSource());
   const EMPTY_SOLID = { minX: 0, maxX: 0, minZ: 0, maxZ: 0 };
@@ -633,6 +661,10 @@ console.log(`  (plan + network in ${Math.round(performance.now() - t0)}ms)`);
   const source = loadParcelSource();
   const t0 = performance.now();
   const parcels = planParcels({ source, network, terrain, reserved: prot.reserved, standAt });
+  const { rest: bakedRest } = await loadBakedRest();
+  checkBakedShelterClearance(check, bakedRest, parcels.plans);
+  await checkBakedTreeClearance(check, bakedRest, parcels.plans);
+  checkHistoricCorners(check, parcels.plans);
   const planMs = Math.round(performance.now() - t0);
   const again = planParcels({ source, network, terrain, reserved: prot.reserved, standAt });
   const sig = (r: typeof parcels): string =>
@@ -719,17 +751,49 @@ console.log(`  (plan + network in ${Math.round(performance.now() - t0)}ms)`);
     k("rowhouse") + k("stucco") >= 90000 && k("midrise") >= 8000 && k("tower") >= 300,
     [...kinds.entries()].map(([n, c]) => `${n} ${c}`).join(", "),
   );
+  let simplified = 0;
+  let sourceCorners = 0;
+  let distantCorners = 0;
+  let escaped = 0;
+  for (const p of parcels.plans) {
+    if (p.hero) continue;
+    const lod = distantFootprint(p);
+    sourceCorners += p.n;
+    distantCorners += lod.n;
+    if (lod.ring === p.ring) continue;
+    simplified++;
+    for (let i = 0; i < lod.n; i++) {
+      const j = (i + 1) % lod.n;
+      for (const f of [0, 0.25, 0.5, 0.75]) {
+        const x = (lod.ring[i * 2] ?? 0) * (1 - f) + (lod.ring[j * 2] ?? 0) * f;
+        const z = (lod.ring[i * 2 + 1] ?? 0) * (1 - f) + (lod.ring[j * 2 + 1] ?? 0) * f;
+        if (!pointInRing(p.ring, p.n, x, z) && distToRing(p.ring, p.n, x, z) > 0.001) escaped++;
+      }
+    }
+  }
+  check(
+    "distant silhouettes stay inside their exact parcel footprints",
+    escaped === 0,
+    `${escaped} escaped probes across ${simplified} simplified footprints`,
+  );
+  check(
+    "distant OSM silhouettes discard subpixel footprint detail",
+    distantCorners < sourceCorners * 0.7,
+    `${sourceCorners} source / ${distantCorners} distant corners`,
+  );
   // GPU budget. The skyline is resident everywhere; the rest of the fabric
-  // streams in 160u cells around the camera (parcel-stream.ts), so what
-  // matters is the WORST neighbourhood: the cells within the stream radius of
-  // the densest spot, FiDi, plus the skyline. Phones hold a shorter radius.
-  const bytesOf = (g: Awaited<ReturnType<typeof buildParcelGeometry>>): number => {
-    let facade = 0;
-    for (const geo of g.geos) if (geo.fuv) facade += geo.position.length / 3;
-    return geometryBytes(g.stats, facade);
-  };
-  const skyline = parcels.plans.filter((p) => p.height >= 13);
-  const fabric = parcels.plans.filter((p) => p.height < 13);
+  // streams in 80u cells around the camera (parcel-stream.ts). Probe both the
+  // downtown skyline and dense central residential fabric, including retained
+  // cells and facade hysteresis. Phones hold a shorter radius.
+  const bytesOf = geometryBytes;
+  const visible = visibleParcelPlans(parcels.plans);
+  check(
+    "overlapping source volumes retain authoritative collision plans",
+    visible.length > 120000 && visible.length < parcels.plans.length,
+    `${parcels.plans.length - visible.length} enclosed render volumes suppressed; ${parcels.plans.length} collision parcels retained`,
+  );
+  const skyline = visible.filter((p) => p.height >= 13);
+  const fabric = visible.filter((p) => p.height < 13);
   const t1 = performance.now();
   const sky = await buildParcelGeometry(skyline, 2);
   const skyMs = Math.round(performance.now() - t1);
@@ -741,27 +805,64 @@ console.log(`  (plan + network in ${Math.round(performance.now() - t0)}ms)`);
   const resident = async (x: number, z: number, radius: number, detail: 1 | 2) => {
     const keys = new Set<number>();
     for (const p of fabric) {
-      if (Math.hypot(p.obb.cx - x, p.obb.cz - z) < radius + 120)
+      if (Math.hypot(p.obb.cx - x, p.obb.cz - z) < radius + STREAM_HYSTERESIS)
         keys.add(streamCellKey(p.obb.cx, p.obb.cz));
     }
     const within = fabric.filter((p) => keys.has(streamCellKey(p.obb.cx, p.obb.cz)));
     const lotsWithin = parcels.lots.filter((l) => keys.has(streamCellKey(l.obb.cx, l.obb.cz)));
-    const g = await buildParcelGeometry(within, detail, undefined, lotsWithin);
-    return { parcels: within.length, verts: g.stats.vertices, mb: bytesOf(g) / 1048576 };
+    let verts = 0;
+    let bytes = 0;
+    for (const [key, cell] of streamCells(within, lotsWithin)) {
+      const cx = (Math.floor(key / 4096) + 0.5) * STREAM_CELL - WORLD_HALF_X;
+      const cz = ((key % 4096) + 0.5) * STREAM_CELL - WORLD_HALF_Z;
+      // Include all retained cells and the complete detail hysteresis band.
+      // Build actual stream cells: merging the whole probe into a 320u batch
+      // would invent 32-bit index buffers the runtime's 80u cells never need.
+      const level = parcelDetailForDistance(Math.hypot(cx - x, cz - z), detail, detail);
+      const g = buildParcelGeometrySync(cell.plans, level, cell.lots);
+      verts += g.stats.vertices;
+      bytes += bytesOf(g);
+    }
+    return { parcels: within.length, verts, mb: bytes / 1048576 };
   };
   const fidi = await resident(640, -830, streamRadiusFor(1), 2);
   check(
     "resident fabric at FiDi fits the desktop budget",
-    fidi.mb + bytesOf(sky) / 1048576 <= 110,
-    `${fidi.parcels} parcels, ${fidi.verts} verts, ${fidi.mb.toFixed(0)} MB + skyline`,
+    fidi.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1048576 <= 110,
+    `${fidi.parcels} parcels, ${fidi.verts} verts, ${(fidi.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1048576).toFixed(2)} MiB total incl skyline + sign atlas`,
   );
   const fidiPhone = await resident(640, -830, streamRadiusFor(0.6), 1);
   check(
     "resident fabric at FiDi fits the phone budget",
-    fidiPhone.mb + bytesOf(sky) / 1048576 <= 70,
-    `${fidiPhone.parcels} parcels, ${fidiPhone.verts} verts, ${fidiPhone.mb.toFixed(0)} MB + skyline`,
+    fidiPhone.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1048576 <= 70,
+    `${fidiPhone.parcels} parcels, ${fidiPhone.verts} verts, ${(fidiPhone.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1048576).toFixed(2)} MiB total incl skyline + sign atlas`,
+  );
+  const richmond = await resident(-396, -260, streamRadiusFor(1), 2);
+  check(
+    "resident central-city fabric fits the desktop budget",
+    richmond.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1048576 <= 110,
+    `${richmond.parcels} Richmond parcels, ${richmond.verts} verts, ${(richmond.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1048576).toFixed(2)} MiB total incl skyline + sign atlas`,
+  );
+  const richmondPhoneFull = await resident(-396, -260, streamRadiusFor(1, 1), 1);
+  check(
+    "phone fabric stays within budget after earning maximum quality",
+    richmondPhoneFull.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1048576 <= 70,
+    `${(richmondPhoneFull.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1048576).toFixed(2)} MiB total`,
+  );
+  const richmondPhone = await resident(-396, -260, streamRadiusFor(0.6), 1);
+  check(
+    "resident central-city fabric fits the phone budget",
+    richmondPhone.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1048576 <= 70,
+    `${richmondPhone.parcels} Richmond parcels, ${richmondPhone.verts} verts, ${(richmondPhone.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1048576).toFixed(2)} MiB total incl skyline + sign atlas`,
   );
 }
+
+checkFrameTiming(check);
+checkParcelFacades(check);
+checkSfStreetKit(check);
+checkScaffoldKit(check);
+checkSalesforce(check);
+checkParcelClearance(check);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

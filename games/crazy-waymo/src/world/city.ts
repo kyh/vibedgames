@@ -54,9 +54,12 @@ import { buildFreeways, nearFreeway } from "./freeways";
 import { buildPiers } from "./piers";
 import { buildLandmarks, landmarkProtection } from "./landmarks";
 import { buildParcelFabric, parcelDetailLevel, parkOnLots } from "./parcel-build";
+import { visibleParcelPlans } from "./parcel-visibility";
 import { ParcelStreamer, type ParcelStreamStats, streamRadiusFor } from "./parcel-stream";
 import { frontSegment, type ParcelPlanResult, emptyParcelPlan, planParcels } from "./parcel-plan";
 import type { ParcelSource } from "./parcel-source";
+import { buildParcelClearance, type ParcelClearance } from "./parcel-clearance";
+import { buildTreeClearance } from "./tree-clearance";
 import { districtAt, makeTerrain } from "./sf-map";
 import type { Terrain } from "./terrain";
 import type { Solid, SurfaceDeck } from "../shared/types";
@@ -746,8 +749,8 @@ export class CityModel {
   readonly garages: readonly Garage[]; // robotaxi skin-swap depots (+ drive-in pads)
   lampHeads: readonly LampHead[] = []; // streetlight glow anchors (night pass)
   private chunks: Chunk[] = [];
-  // Road drape target (terrain + step-ladder street terrace), cached per
-  // network so live street edits rebuild it exactly once.
+  // Ground mesh offset (street depression, terrace and road-clearance cap),
+  // cached per network so live street edits rebuild it exactly once.
   // makeGroundOffset rasterizes a clearance field AND a full street terrace —
   // furniture and buildGround must share one, not build two.
   private groundOffsetCache: ((x: number, z: number) => number) | null = null;
@@ -1001,8 +1004,9 @@ export class CityModel {
     const t0 = performance.now();
     const { plans, lots } = this.parcelPlan();
     const detail = parcelDetailLevel();
-    const skyline = plans.filter((p) => p.height >= BIG_SILHOUETTE_H);
-    const fabric = plans.filter((p) => p.height < BIG_SILHOUETTE_H);
+    const visible = visibleParcelPlans(plans);
+    const skyline = visible.filter((p) => p.height >= BIG_SILHOUETTE_H);
+    const fabric = visible.filter((p) => p.height < BIG_SILHOUETTE_H);
     const built = await buildParcelFabric(
       skyline,
       [],
@@ -1250,6 +1254,14 @@ export class CityModel {
 
   private buildPhase1(): void {
     const staticMeshes: THREE.Mesh[] = [];
+    // Resolve lazily, after reservations exist. City scatter, furniture trees
+    // and shelters share this exact ring index for the whole generation run.
+    let parcelIndex: ParcelClearance | null = null;
+    const parcelClear: ParcelClearance = (footprint, margin) => {
+      parcelIndex ??= buildParcelClearance(this.parcelPlan().plans);
+      return parcelIndex(footprint, margin);
+    };
+    const treeClear = buildTreeClearance(this.cache, parcelClear);
     const collect = (obj: THREE.Object3D): void => {
       obj.updateMatrixWorld(true);
       obj.traverse((c) => {
@@ -1291,6 +1303,8 @@ export class CityModel {
           if (occupiedBy(occBox(tx, tz, 0.6, 0.6, 0, 0))) continue; // inside a parcel
           tree.position.set(tx, this.standAt(tx, tz), tz);
           tree.rotation.y = this.rng.range(0, Math.PI * 2);
+          if (!treeClear(treeUrl, { x: tx, z: tz, yaw: tree.rotation.y, scaleX: tsc, scaleZ: tsc }))
+            continue;
           collect(tree);
           if (large) treeSolid(tx, tz);
         }
@@ -1418,21 +1432,22 @@ export class CityModel {
     };
     this.facadeAt = (x: number, z: number): boolean => facadeCells.has(facadeKey(x, z));
 
-    // --- Buildings (district-driven pool, palette tint, height) ---
-    for (const b of this.plan.buildingCells) {
-      const cellId = `${b.gx},${b.gz}`;
-      if (lm.reserved.has(cellId)) continue; // a landmark stands here
-      if (districtAt(b.gx, b.gz).character === "park" || lm.parkGreen.has(cellId)) {
-        placeGreen(b.gx, b.gz); // park frontage → green, drivable (no solid)
-      }
-    }
-
     this.phase2 = async () => {
       // --- REAL PARCELS: the procedural fabric (parcel-plan.ts) owns every
       // block the licensed footprints cover. Planned here so it claims its
       // ground before the kit walk; its geometry and collision are built live
       // on BOTH load paths (buildParcels) and never enter the bins. ---
       const { plans } = this.parcelPlan();
+      // Frontage greenery needs the authoritative parcel plan, which arrives
+      // after initEarly. Run before parcel occupancy stamping to retain its
+      // original candidate/random sequence; exact trunk clearance rejects it.
+      for (const b of this.plan.buildingCells) {
+        const cellId = `${b.gx},${b.gz}`;
+        if (lm.reserved.has(cellId)) continue; // a landmark stands here
+        if (districtAt(b.gx, b.gz).character === "park" || lm.parkGreen.has(cellId)) {
+          placeGreen(b.gx, b.gz); // park frontage → green, drivable (no solid)
+        }
+      }
       for (const p of plans) {
         const o = p.obb;
         occupy(occBox(o.cx, o.cz, o.halfA, o.halfB, Math.atan2(-o.ez, o.ex), ++occRow));
@@ -1459,6 +1474,8 @@ export class CityModel {
         rng: this.rng,
         reserved: lm.reserved,
         facadeAt: (x, z) => this.facadeAt(x, z),
+        parcelClear,
+        treeClear,
         worldX: (g) => this.worldX(g),
         worldZ: (g) => this.worldZ(g),
       });
@@ -1968,6 +1985,11 @@ export class CityModel {
       await this.breathe();
       onProgress?.(batchN / batchBuckets.size);
       batchN++;
+      // Both live and baked props enter here. Translucent panes must blend
+      // with farther panes instead of writing an opaque depth silhouette;
+      // restoring this runtime rule here keeps old material records valid.
+      const translucent = bucket.material.transparent && bucket.material.opacity < 1;
+      if (translucent) bucket.material.depthWrite = false;
       // Whole-city macro breakup + specular AA on every batched lit material
       // (kit facades, plinths, prisms, props); idempotent across both load
       // paths, and a no-op on unlit/transparent/decal buckets.
@@ -1978,7 +2000,9 @@ export class CityModel {
         bucket.indices,
         bucket.material,
       );
-      batched.castShadow = true;
+      // Three's depth shadow material ignores opacity; the separate opaque
+      // frame and canopy cast the shelter shadow, never its glass panes.
+      batched.castShadow = !translucent;
       batched.receiveShadow = true;
       // Chunk streaming (below) is the coarse cull, but per-instance frustum
       // culling stays ON: BatchedMesh rebuilds its multidraw list per PASS
@@ -1989,10 +2013,9 @@ export class CityModel {
       // early-returns when culling is off and nothing changed, so the main
       // pass would reuse the shadow-culled list.)
       batched.perObjectFrustumCulled = true;
-      batched.sortObjects = false;
+      batched.sortObjects = bucket.material.transparent;
       const geoIds = new Map<THREE.BufferGeometry, number>();
       const chunkIds = new Uint16Array(bucket.items.length);
-      // no-op marker retained for rebuild parity
       for (let i = 0; i < bucket.items.length; i++) {
         // Buckets can hold thousands of instances — yield inside the loop too
         // (safe: the chunk grid publishes only at the very end, see below).
@@ -2132,6 +2155,13 @@ export class CityModel {
       }
       // Small-prop shadows don't read at chase-cam scale; skip their pass.
       if (!anyBig) batched.castShadow = false;
+      // Opaque props with no shadow pass use the chunk visibility list as-is.
+      // This lets Three reuse its indirect draw list between chunk changes;
+      // otherwise it scans every city instance on every rendered frame.
+      // Casters retain per-pass culling; transparent batches retain sorting.
+      if (!batched.castShadow && !bucket.material.transparent) {
+        batched.perObjectFrustumCulled = false;
+      }
     }
     if (imposters.length > 0) {
       // One box per distinct source model (see imposterBox) — a few dozen, so
@@ -2244,14 +2274,15 @@ export class CityModel {
 
   // The city never moves after build: compose every matrix once, then stop
   // the per-frame recompose (updateMatrixWorld still walks the subtree, but
-  // each visit is two boolean checks instead of a position/quat/scale
-  // compose). Chunk streaming only flips `visible`, and BatchedMesh instance
+  // each visit skips both local compose and forced parent-world multiply).
+  // Chunk streaming only flips `visible`, and BatchedMesh instance
   // matrices live in a texture — neither needs object matrices. Skipped in
   // editor mode, where props get dragged around live.
   freezeStatic(): void {
     this.group.updateMatrixWorld(true); // compose every local+world matrix once
     this.group.traverse((o) => {
       o.matrixAutoUpdate = false;
+      o.matrixWorldAutoUpdate = false;
     });
   }
 
@@ -2394,6 +2425,10 @@ export class CityModel {
 
   heightAt(x: number, z: number): number {
     return this.surface.heightAt(x, z);
+  }
+
+  cameraFloorAt(x: number, z: number, referenceY: number): number {
+    return this.surface.floorBelow(x, z, referenceY);
   }
 
   normalInto(out: THREE.Vector3, x: number, z: number): THREE.Vector3 {

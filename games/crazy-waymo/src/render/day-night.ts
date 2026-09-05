@@ -2,7 +2,6 @@ import * as THREE from "three";
 
 import { setGradeNight, setGradeWarmth } from "./grade";
 import { NightSky } from "./night-sky";
-import { nightFillScale } from "./quality";
 import type { Sky } from "./sky";
 
 // Keyframed day-night lighting driven by REAL San Francisco time: the game
@@ -235,41 +234,14 @@ const STOPS: readonly Stop[] = [
   // wait for the sun to reach the horizon.
   stop(0.40,   9,   235,   dir(9, 235),   0xffa860, 1.9,  0xffd6a6, 0x6b5c40, 0.48, 0.12, 0xfff2e2, 0xc49a80, 430, 940, 0.26, 0,    0.76, 1.0,  SKY_GOLDEN),
   stop(0.47,   2,   248,   dir(4, 248),   0xff9350, 1.25, 0xff9d70, 0x3e3a44, 0.36, 0.11, 0xe0dcf0, 0xac7160, 400, 900, 0.18, 0.62, 0.68, 1.0,  SKY_SUNSET),
-  // Night floors are tuned for PHONES: a desktop panel at full brightness can
-  // read a 0.3-fill scene, a dim phone outdoors cannot. Moonlight carries the
-  // shape of the city; streetlight glow carries the color. The night ambient
-  // intensities look large next to the daylight ones only because the tint
-  // they multiply is dark — they hold the same LUMINANCE the white fill had.
-  //
-  // Every night tint has RED at or above GREEN. That is the whole trick behind
-  // the desaturated parks: a plain blue moonlight (0x8aa0d0 and friends) still
-  // carries more green than red, so it AMPLIFIES a green albedo and the
-  // foliage stays as vivid at midnight as it is at noon — only darker. Sitting
-  // the fills on the green's complement instead pulls the grass and the trees
-  // toward a cool neutral while the hue of the scene stays night-blue.
-  //
-  // THE NIGHT FILLS ARE NOT A DIMMER, THEY ARE THE VALUE ORDER. Measured at
-  // 1280x720 before this pass: a SoMa chase frame read sky L15 / facade band
-  // L17 / ground band L23, and a Mission one sky L33 / L43 / L44. The largest
-  // surfaces in the frame were also its brightest and nothing above them was —
-  // the inversion the gate called out. A white kit facade is albedo ~0.85, so
-  // an omnidirectional fill of 0.49 hands it 0.4 linear all by itself, which is
-  // a LIT wall no matter what colour you tint it.
-  //
-  // The fills are therefore roughly halved: the unlit side of the city now
-  // lands under the night sky, and what you see at 10 metres has to be a
-  // SOURCE — a lit window, a lamp pool, a headlight, a shop front. Those got
-  // brighter in the same pass (world/parcel-build.ts setParcelNight, fx/lamp-glow.ts) and the
-  // bloom threshold now ramps down after dark (render/post.ts), so the frame
-  // keeps its total energy; it just moved from diffuse to emissive.
-  //
-  // Every night tint still keeps RED at or above GREEN (see above) and the
-  // moon stays the only directional — halving it costs shape, so it falls less
-  // than the fills do.
-  stop(0.53,  -3,   255,   MOON,          0x8d92c0, 0.28, 0x6e6398, 0x2a2d38, 0.17, 0.27, 0xc8b0c4, 0x35446a, 380, 900, 0.05, 1,    0.66, 0.3,  SKY_NIGHT),
-  stop(0.62, -30,   270,   MOON,          0x9b9ed6, 0.32, 0x5b4a80, 0x20242e, 0.18, 0.30, 0xc2a3bd, 0x1f2c52, 360, 880, 0.05, 1,    0.66, 0,    SKY_NIGHT),
-  stop(0.80, -30,    60,   MOON,          0x9b9ed6, 0.32, 0x5b4a80, 0x20242e, 0.18, 0.30, 0xc2a3bd, 0x1f2c52, 360, 880, 0.05, 1,    0.66, 0,    SKY_NIGHT),
-  stop(0.88,  -3,    95,   MOON,          0xc087a0, 0.30, 0x84719a, 0x2a2d38, 0.17, 0.27, 0xc9aabf, 0x4a4668, 380, 920, 0.05, 1,    0.66, 0.1,  SKY_NIGHT),
+  // Cool skylight makes the driving surface and unlit vehicles legible.
+  // Warm windows and local lamps remain the brightest elements. The same
+  // light rig serves both render paths; post processing already shapes the
+  // desktop night, so a second device-specific fill cut crushed its roads.
+  stop(0.53,  -3,   255,   MOON,          0x8d92c0, 0.48, 0x9dadd4, 0x384259, 0.52, 0.27, 0xc8b0c4, 0x35446a, 380, 900, 0.055, 1,   0.75, 0.3,  SKY_NIGHT),
+  stop(0.62, -30,   270,   MOON,          0x9b9ed6, 0.55, 0x9aadd8, 0x384259, 0.60, 0.30, 0xc2a3bd, 0x1f2c52, 360, 880, 0.055, 1,   0.78, 0,    SKY_NIGHT),
+  stop(0.80, -30,    60,   MOON,          0x9b9ed6, 0.55, 0x9aadd8, 0x384259, 0.60, 0.30, 0xc2a3bd, 0x1f2c52, 360, 880, 0.055, 1,   0.78, 0,    SKY_NIGHT),
+  stop(0.88,  -3,    95,   MOON,          0xc087a0, 0.48, 0xaaa4d0, 0x384259, 0.52, 0.27, 0xc9aabf, 0x4a4668, 380, 920, 0.055, 1,   0.75, 0.1,  SKY_NIGHT),
   stop(0.94,   4,   105,   dir(6, 105),   0xffb27a, 1.3,  0xffc9a0, 0x4a443c, 0.28, 0.10, 0xffffff, 0xba8f7a, 450, 980, 0.20, 0.45, 0.66, 0.8,  SKY_SUNSET),
 ];
 
@@ -483,17 +455,9 @@ export class DayNight {
     const disc = skyU.showSunDisc;
     if (disc) disc.value = sunDiscGain(this.scrSun.y);
 
-    // How far past the horizon the sun is, 0..1 — the "after dark" term. It
-    // swaps in the night sky dome (below) and scales the night fill (see
-    // NIGHT IS NOT A DIMMER, further down). Deliberately NOT the lamp factor:
-    // lamps come on at sunset, while a fill cut applied to a sunset would take
-    // the hour's own light with it.
+    // Swap the night dome only after sunset; the lamps start earlier while
+    // the physical sky still carries the sunset glow.
     const nightAmt = THREE.MathUtils.smoothstep(-this.scrSun.y, 0.02, 0.12);
-    // Device-class night fill (render/quality.ts). 1 by day at every hour and
-    // on every phone, so this multiplication is an identity everywhere except
-    // a desktop after dark.
-    const fill = 1 + (nightFillScale() - 1) * nightAmt;
-
     // Shadow light: direction, color, intensity. Shadows FADE via
     // shadow.intensity instead of toggling castShadow — flipping castShadow
     // at runtime (with shadowMap.autoUpdate managed manually) rebinds a stale
@@ -533,27 +497,7 @@ export class DayNight {
     hemi.color.lerpColors(a.hemiSky, b.hemiSky, t);
     hemi.groundColor.lerpColors(a.hemiGround, b.hemiGround, t);
     hemi.intensity = THREE.MathUtils.lerp(a.hemiInt, b.hemiInt, t);
-    // NIGHT IS NOT A DIMMER, PART TWO: the fill that survived the halving is
-    // still what paints a near wall. Measured through per-camera stencils
-    // (kit facades vs sky) on a FiDi chase frame at 1280x720: facade median
-    // 8.24 against a sky median of 4.71 — 1.75:1 the wrong way round, while
-    // the Richmond control reads 0.60:1. Zeroing the AmbientLight takes that
-    // 8.24 to 2.75; zeroing the environment takes it to 5.10; zeroing the
-    // hemisphere takes it to 7.84 and the moon moves it not at all. So the
-    // omnidirectional pair is the whole defect, and the environment half is
-    // literally a dimmed day — the env cube is a DAYLIGHT sky (game-scene
-    // applyEnvironment: #7fb2e0 zenith, #dde6ea horizon) still shining at
-    // midnight. Both get the same multiplier; the hemisphere keeps its full
-    // value because it is worth 0.4 of the 8.24 and it is the only fill that
-    // carries an up/down gradient at all.
-    //
-    // At quality.ts's desktop 0.45 the same frame reads 3.53 against 4.31 —
-    // 0.82:1, the inversion — Market goes 0.88:1 -> 0.39:1, and the two
-    // residential controls that were already right only get righter (Richmond
-    // 0.60 -> 0.20, Sunset 1.00 -> 0.45). The moon still carries the shape:
-    // what the cut takes away is the part of a wall that no light source in
-    // the frame accounts for.
-    ambient.intensity = THREE.MathUtils.lerp(a.ambInt, b.ambInt, t) * fill;
+    ambient.intensity = THREE.MathUtils.lerp(a.ambInt, b.ambInt, t);
     ambient.color.lerpColors(a.ambColor, b.ambColor, t);
 
     fog.color.copy(this.scrColor.lerpColors(a.fog, b.fog, t));
@@ -578,7 +522,7 @@ export class DayNight {
       scene.background = null;
     }
 
-    scene.environmentIntensity = THREE.MathUtils.lerp(a.env, b.env, t) * fill;
+    scene.environmentIntensity = THREE.MathUtils.lerp(a.env, b.env, t);
     if (this.renderer) {
       this.renderer.toneMappingExposure = THREE.MathUtils.lerp(a.exposure, b.exposure, t);
     }

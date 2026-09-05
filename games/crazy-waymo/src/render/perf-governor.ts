@@ -1,5 +1,7 @@
 import type * as THREE from "three";
 
+import { FrameTimingWindow } from "./frame-timing-window";
+
 import { FULL_QUALITY, isCoarsePointer, type QualityFeatures, setLiveQuality } from "./quality";
 
 // Adaptive quality: keeps the game at target frame rate by stepping render
@@ -18,8 +20,6 @@ import { FULL_QUALITY, isCoarsePointer, type QualityFeatures, setLiveQuality } f
 // slow. Downgrade on one bad window; upgrade only after several consecutive
 // fast ones so the tier never flaps at a boundary.
 
-const WINDOW_FRAMES = 120; // ~1.2s at 100fps, ~2.5s at 48fps
-const SPIKE_MS = 100; // tab-away / breakpoint frames: not evidence
 const SLOW_MS = 21; // median worse than ~48fps → step down
 // "Fast" must include a 60Hz vsync-locked median (~16.7ms) — with a 13ms bar a
 // 60Hz display could downgrade once and never climb back no matter how much
@@ -40,7 +40,7 @@ export class PerfGovernor {
   private readonly tiers: readonly Tier[];
   private tier = 0;
   private cooldown = 1.5; // grace at boot
-  private frames: number[] = [];
+  private readonly frames = new FrameTimingWindow();
   private fastWindows = 0;
   private upgradeCost = UPGRADE_WINDOWS;
   private sinceUpgrade = Infinity; // seconds since the last tier-up
@@ -150,18 +150,19 @@ export class PerfGovernor {
   // Feed the RAW frame delta (seconds) every frame, before render.
   update(dt: number): void {
     if (this.pinned !== null) return;
-    const ms = dt * 1000;
-    if (ms > SPIKE_MS) return;
+    if (document.hidden) {
+      this.frames.reset();
+      return;
+    }
+    if (!Number.isFinite(dt) || dt <= 0) return;
+    dt = Math.min(dt, 0.25);
     this.sinceUpgrade += dt;
     if (this.cooldown > 0) {
       this.cooldown -= dt;
       return;
     }
-    this.frames.push(ms);
-    if (this.frames.length < WINDOW_FRAMES) return;
-    const sorted = [...this.frames].sort((a, b) => a - b);
-    const median = sorted[sorted.length >> 1] ?? 1000 / 60;
-    this.frames.length = 0;
+    const median = this.frames.sample(dt);
+    if (median === null) return;
     if (median > SLOW_MS && this.tier < this.tiers.length - 1) {
       // Downgrading right after an upgrade means the upgrade was wrong —
       // make the next attempt exponentially more patient.
@@ -212,7 +213,7 @@ export class PerfGovernor {
     this.tier = tier;
     this.cooldown = COOLDOWN_S;
     this.fastWindows = 0;
-    this.frames.length = 0;
+    this.frames.reset();
     this.renderer.setPixelRatio(t.ratio);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     const shadow = this.sun.shadow;

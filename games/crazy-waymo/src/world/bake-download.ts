@@ -12,6 +12,9 @@ export async function downloadWorldArtifacts(
   bakePayload: CityGenPayload | null,
   restCapture: CityRestPayload | null,
 ): Promise<void> {
+  if (!bakePayload || !restCapture) {
+    throw new Error("World bake is incomplete: both terrain and city payloads are required");
+  }
   const gzip = async (bytes: Uint8Array): Promise<Blob> => {
     const stream = new Blob([new Uint8Array(bytes)])
       .stream()

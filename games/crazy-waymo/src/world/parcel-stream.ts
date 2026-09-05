@@ -1,8 +1,8 @@
 import * as THREE from "three";
 
 import { DRAW_DISTANCE, WORLD_HALF_X, WORLD_HALF_Z } from "../shared/constants";
-import { materialFor, parcelGeometryOf } from "./parcel-build";
-import { buildParcelGeometrySync, type DetailLevel, type ParcelGeoStats } from "./parcel-mesh";
+import { parcelMeshOf } from "./parcel-build";
+import { buildParcelGeometrySync, type DetailLevel, type ParcelGeometry } from "./parcel-mesh";
 import type { ParcelLot, ParcelPlan } from "./parcel-plan";
 
 // The parcel fabric, STREAMED. Nothing past the fog line is visible, so the
@@ -22,13 +22,27 @@ export const STREAM_CELL = 80;
 /** How far past the fog line cells are held: nothing pops inside it. */
 const STREAM_PAD = 60;
 /** A cell is freed this far beyond the build radius, so a U-turn does not thrash. */
-const STREAM_HYSTERESIS = 180;
+export const STREAM_HYSTERESIS = 80;
 /** Cells built per tick after the first fill. */
 const BUILDS_PER_TICK = 1;
+/** Dimensional facades are subpixel beyond this band; distant cells use shader walls. */
+const FACADE_RADIUS = 220;
+const FACADE_HYSTERESIS = 40;
+
+/** Shared with the residency harness so the memory gate measures the drawn LOD. */
+export function parcelDetailForDistance(
+  distance: number,
+  detail: DetailLevel,
+  previous: DetailLevel = 0,
+): DetailLevel {
+  if (detail === 0) return 0;
+  const radius = FACADE_RADIUS * (detail === 1 ? 0.8 : 1);
+  return distance <= radius + (previous > 0 ? FACADE_HYSTERESIS : 0) ? detail : 0;
+}
 
 /** Radius the fabric is held to, for a quality tier's model band. */
-export function streamRadiusFor(detailScale: number): number {
-  return (DRAW_DISTANCE + STREAM_PAD) * (detailScale < 1 ? 0.72 : 1);
+export function streamRadiusFor(detailScale: number, detail: DetailLevel = 2): number {
+  return (DRAW_DISTANCE + STREAM_PAD) * (detail === 1 || detailScale < 1 ? 0.72 : 1);
 }
 
 export const streamCellKey = (x: number, z: number): number =>
@@ -58,8 +72,20 @@ export function streamCells(
 }
 
 /** GPU bytes of built geometry, as three uploads it. */
-export function geometryBytes(stats: ParcelGeoStats, facadeVerts: number): number {
-  return stats.vertices * (12 + 3 + 3) + facadeVerts * (4 + 8 + 4) + stats.triangles * 3 * 2;
+export function geometryBytes(geometry: ParcelGeometry): number {
+  let bytes = 0;
+  for (const g of geometry.geos) {
+    bytes +=
+      g.position.byteLength +
+      g.normal.byteLength +
+      g.color.byteLength +
+      g.index.byteLength +
+      (g.fuv?.byteLength ?? 0) +
+      (g.facade?.byteLength ?? 0) +
+      (g.facade2?.byteLength ?? 0) +
+      (g.uv?.byteLength ?? 0);
+  }
+  return bytes;
 }
 
 type Cell = {
@@ -68,14 +94,21 @@ type Cell = {
   readonly cz: number;
   readonly plans: ParcelPlan[];
   readonly lots: ParcelLot[];
-  group: THREE.Group | null;
-  verts: number;
-  bytes: number;
+  residence:
+    | { readonly kind: "absent" }
+    | {
+        readonly kind: "resident";
+        readonly group: THREE.Group;
+        readonly detail: DetailLevel;
+        readonly verts: number;
+        readonly bytes: number;
+      };
 };
 
 export type ParcelStreamStats = {
   readonly cells: number;
   readonly resident: number;
+  readonly detailedCells: number;
   readonly verts: number;
   readonly bytes: number;
   readonly builtMs: number;
@@ -84,7 +117,7 @@ export type ParcelStreamStats = {
 export class ParcelStreamer {
   private readonly cells = new Map<number, Cell>();
   private readonly resident = new Set<number>();
-  private filled = false;
+  private view: { readonly x: number; readonly z: number } | null = null;
   private builtMs = 0;
 
   constructor(
@@ -102,9 +135,7 @@ export class ParcelStreamer {
         cz: (gz + 0.5) * STREAM_CELL - WORLD_HALF_Z,
         plans: c.plans,
         lots: c.lots,
-        group: null,
-        verts: 0,
-        bytes: 0,
+        residence: { kind: "absent" },
       });
     }
   }
@@ -112,15 +143,18 @@ export class ParcelStreamer {
   stats(): ParcelStreamStats {
     let verts = 0;
     let bytes = 0;
+    let detailedCells = 0;
     for (const k of this.resident) {
       const c = this.cells.get(k);
-      if (!c) continue;
-      verts += c.verts;
-      bytes += c.bytes;
+      if (!c || c.residence.kind === "absent") continue;
+      if (c.residence.detail > 0) detailedCells++;
+      verts += c.residence.verts;
+      bytes += c.residence.bytes;
     }
     return {
       cells: this.cells.size,
       resident: this.resident.size,
+      detailedCells,
       verts,
       bytes,
       builtMs: this.builtMs,
@@ -134,58 +168,80 @@ export class ParcelStreamer {
    * first, and frees cells that have fallen out of the hysteresis band.
    */
   update(x: number, z: number, radius: number): void {
-    const want: Cell[] = [];
-    const drop = radius + STREAM_HYSTERESIS;
+    // Earned pixel/shadow quality must not expand a phone's memory budget.
+    // Explicit show-all editor views still opt out with an infinite radius.
+    if (Number.isFinite(radius)) radius = Math.min(radius, streamRadiusFor(1, this.detail));
+    const want: { cell: Cell; distance: number; detail: DetailLevel }[] = [];
+    const jump =
+      this.view === null || Math.hypot(x - this.view.x, z - this.view.z) > STREAM_CELL * 2;
+    this.view = { x, z };
+    // Debug/garage teleports must reconcile immediately. Incremental updates
+    // would otherwise leave several old neighbourhoods at full detail while
+    // the new street takes seconds to appear, inflating GPU residency too.
+    const drop = radius + (jump ? 0 : STREAM_HYSTERESIS);
     for (const c of this.cells.values()) {
       const d = Math.hypot(c.cx - x, c.cz - z);
-      if (c.group === null) {
-        if (d < radius) want.push(c);
+      const oldDetail = c.residence.kind === "resident" ? c.residence.detail : 0;
+      const detail = parcelDetailForDistance(d, this.detail, jump ? 0 : oldDetail);
+      if (c.residence.kind === "absent") {
+        if (d < radius) want.push({ cell: c, distance: d, detail });
       } else if (d > drop) {
         this.free(c);
+      } else if (detail !== oldDetail) {
+        want.push({ cell: c, distance: d, detail });
       }
     }
     if (want.length === 0) return;
-    want.sort((a, b) => Math.hypot(a.cx - x, a.cz - z) - Math.hypot(b.cx - x, b.cz - z));
-    const budget = this.filled ? BUILDS_PER_TICK : want.length;
+    want.sort((a, b) => a.distance - b.distance);
+    const budget = jump ? want.length : BUILDS_PER_TICK;
     for (let i = 0; i < Math.min(budget, want.length); i++) {
-      const c = want[i];
-      if (c) this.build(c);
+      const next = want[i];
+      if (next) this.build(next.cell, next.detail);
     }
-    this.filled = true;
   }
 
-  private build(c: Cell): void {
+  private build(c: Cell, detail: DetailLevel): void {
     const t0 = performance.now();
-    const geometry = buildParcelGeometrySync(c.plans, this.detail, c.lots);
+    const geometry = buildParcelGeometrySync(c.plans, detail, c.lots);
     const group = new THREE.Group();
     group.name = "parcel-cell";
-    let facadeVerts = 0;
     for (const g of geometry.geos) {
-      const mesh = new THREE.Mesh(parcelGeometryOf(g), materialFor(g.mat));
+      const mesh = parcelMeshOf(g);
       mesh.name = `parcel-${g.tier}-${g.mat}`;
-      mesh.castShadow = g.tier !== "detail";
+      // Near bays, cornices and awnings need cast shadows to read as volumes.
+      mesh.castShadow = detail > 0 && (g.mat === "wall" || g.mat === "facade");
       mesh.receiveShadow = true;
       mesh.matrixAutoUpdate = false;
       group.add(mesh);
-      if (g.fuv) facadeVerts += g.position.length / 3;
     }
-    c.group = group;
-    c.verts = geometry.stats.vertices;
-    c.bytes = geometryBytes(geometry.stats, facadeVerts);
+    this.free(c);
+    c.residence = {
+      kind: "resident",
+      group,
+      detail,
+      verts: geometry.stats.vertices,
+      bytes: geometryBytes(geometry),
+    };
     this.root.add(group);
+    // Streamed cells arrive after City.freezeStatic. Compose their inherited
+    // transform once, then inherit the city's static-world contract. Editor
+    // roots retain live world transforms so moving a parent still works.
+    group.updateMatrixWorld(true);
+    group.traverse((object) => {
+      object.matrixAutoUpdate = false;
+      object.matrixWorldAutoUpdate = this.root.matrixWorldAutoUpdate;
+    });
     this.resident.add(c.key);
     this.builtMs += performance.now() - t0;
   }
 
   private free(c: Cell): void {
-    if (c.group === null) return;
-    for (const child of c.group.children) {
+    if (c.residence.kind === "absent") return;
+    for (const child of c.residence.group.children) {
       if (child instanceof THREE.Mesh) child.geometry.dispose();
     }
-    this.root.remove(c.group);
-    c.group = null;
-    c.verts = 0;
-    c.bytes = 0;
+    this.root.remove(c.residence.group);
+    c.residence = { kind: "absent" };
     this.resident.delete(c.key);
   }
 }

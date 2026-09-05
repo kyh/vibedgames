@@ -1,0 +1,9 @@
+{
+  "method": "uniform fit of whole subject; no model repainting or aspect distortion",
+  "referenceBounds": [120, 61, 1428, 990],
+  "renderBounds": [223, 275, 556, 519],
+  "renderScale": 3.807377049180328,
+  "placement": [140, 61],
+  "cameraSolved": false,
+  "limitation": "Camera yaw differs from reference. Comparison supports structure review, not pixel fidelity."
+}

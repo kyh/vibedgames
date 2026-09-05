@@ -163,7 +163,7 @@ const FinalGradeShader = {
     // x amount, y inner-edge radius
     uVignette: { value: new THREE.Vector2(0.18, 0.3) },
     uCA: { value: 0.0 },
-    uGrain: { value: 0.009 },
+    uGrain: { value: 0.0025 },
     uTime: { value: 0 },
     uAspect: { value: 16 / 9 },
     uTexel: { value: new THREE.Vector2(1 / 1920, 1 / 1080) },
@@ -461,7 +461,7 @@ const BLOOM_KICK_LIFT = 0.06;
 const BLOOM_IGNITE_LIFT = 0.09;
 
 // Chromatic aberration bounds (per-channel uv offset at |fromCentre| = 1).
-const CA_REST = 0.00045;
+const CA_REST = 0;
 const CA_BOOST = 0.0019;
 // Vignette speed language: amount rises, inner edge walks in.
 const VIGNETTE_BASE = 0.18;

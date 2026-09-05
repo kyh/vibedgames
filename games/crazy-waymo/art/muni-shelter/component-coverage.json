@@ -1,0 +1,46 @@
+{
+  "note": "Semantic mapping from spec components to the strict factory piece names. The raw upstream name-only gate reports 13 mismatches; those are retained in runs/production/part-coverage.json, not relabeled as a pass.",
+  "components": {
+    "canopy": ["canopy", "canopy-seam"],
+    "glass": ["glass"],
+    "glass-left": ["glass-return at x=-1.91"],
+    "glass-right": ["glass-return at x=1.91"],
+    "bench": ["bench-seat-slat", "bench-cheek", "bench-divider", "bench-leg", "bench-foot"],
+    "bench-back": ["bench-back-slat"],
+    "post-0-0": ["post at x=-1.91,z=-0.7"],
+    "post-0-1": ["post at x=-1.91,z=0.69"],
+    "post-1-0": ["post at x=1.91,z=-0.7"],
+    "post-1-1": ["post at x=1.91,z=0.69"],
+    "foot-plates": ["foot-plates at x=-1.91,z=-0.7"],
+    "foot-0-1": ["foot-plates at x=-1.91,z=0.69"],
+    "foot-1-0": ["foot-plates at x=1.91,z=-0.7"],
+    "foot-1-1": ["foot-plates at x=1.91,z=0.69"],
+    "mullion-0": ["rear-mullion at x=-0.645"],
+    "mullion-1": ["rear-mullion at x=0.645"],
+    "soffit": ["soffit", "soffit-rib"],
+    "route-panel": [
+      "route-panel-frame",
+      "route-panel",
+      "route-header",
+      "route-footer",
+      "route-line",
+      "route-stop",
+      "route-caption"
+    ],
+    "front-sign": [
+      "front-sign",
+      "front-sign-enamel",
+      "letter-M",
+      "letter-U",
+      "letter-N",
+      "letter-I",
+      "sign-fastener"
+    ]
+  },
+  "runtime": {
+    "mergedMaterials": 6,
+    "triangles": 9736,
+    "bounds": [4.400000095, 2.796557683, 1.899999976],
+    "namedReviewMeshes": 242
+  }
+}

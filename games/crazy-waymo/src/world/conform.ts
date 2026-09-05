@@ -7,10 +7,8 @@ import type { Terrain } from "./terrain";
 // underneath them, then every vertex is displaced by the terrain height. Since
 // the ground mesh samples the same field, roads hug the hills with no seams.
 
-// Coarser than the original 0.03/1.6/5: at the full-SF cell count the conform
-// output dominates heap (non-indexed verts x 16k road cells), and a 6cm bow
-// under a 13u-wide road is invisible. Markings float on a raised lift so the
-// looser tolerance can't tuck them under the asphalt.
+// Broad surfaces use a looser tolerance to bound the full city's vertex count.
+// Thin road markings request finer quality against the rendered asphalt.
 // Split a triangle when the surface bows past this. Exported as THE contract
 // for anything layered above a draped surface: an overlay's lift must exceed
 // the surface's own lift plus this bow, or the surface swallows it. Runtime
@@ -32,7 +30,7 @@ const UP_DOT = 0.8; // vertices at least this upright adopt the terrain normal
 // Baking world transforms writes float world coords back into those arrays —
 // which truncates them to garbage — so promote to plain Float32 first.
 export function toFloat32Attributes(geo: THREE.BufferGeometry): void {
-  for (const name of ["position", "normal", "uv"] as const) {
+  for (const name of ["position", "normal", "uv"]) {
     const a = geo.getAttribute(name);
     if (!a) continue;
     if (a instanceof THREE.BufferAttribute && a.array instanceof Float32Array && !a.normalized) {
@@ -69,6 +67,9 @@ function mid(a: Vert, b: Vert): Vert {
 // a wrapped field (terrain + street-terrace delta for the SF hill streets).
 export type DrapeField = Pick<Terrain, "heightAt" | "normalInto">;
 
+/** Thin decals need finer edges than the broad terrain surfaces. */
+export type DrapeQuality = { readonly minEdge: number; readonly maxDepth: number };
+
 // --- Layering a decal ON a draped surface ---
 // Two meshes draped over the same field still disagree: each is only within
 // its tolerance of the terrain, and the wide surface's chords cut corners the
@@ -78,6 +79,10 @@ export type DrapeField = Pick<Terrain, "heightAt" | "normalInto">;
 
 export type SurfaceSampler = (x: number, z: number) => number | null;
 
+function surfaceCellKey(cx: number, cz: number): number {
+  return (cx + 4096) * 16384 + (cz + 4096);
+}
+
 /** Point-in-triangle height lookup over a draped, world-space surface. */
 export function surfaceSampler(geo: THREE.BufferGeometry): SurfaceSampler {
   const pos = geo.getAttribute("position");
@@ -85,7 +90,6 @@ export function surfaceSampler(geo: THREE.BufferGeometry): SurfaceSampler {
   const triCount = (idx ? idx.count : pos.count) / 3;
   const CELL = 12;
   const grid = new Map<number, number[]>();
-  const cellKey = (cx: number, cz: number): number => (cx + 4096) * 16384 + (cz + 4096);
   const vi = (t: number, k: number): number => (idx ? idx.getX(t * 3 + k) : t * 3 + k);
   for (let t = 0; t < triCount; t++) {
     let x0 = Infinity;
@@ -103,7 +107,7 @@ export function surfaceSampler(geo: THREE.BufferGeometry): SurfaceSampler {
     }
     for (let cx = Math.floor(x0 / CELL); cx <= Math.floor(x1 / CELL); cx++) {
       for (let cz = Math.floor(z0 / CELL); cz <= Math.floor(z1 / CELL); cz++) {
-        const k = cellKey(cx, cz);
+        const k = surfaceCellKey(cx, cz);
         const arr = grid.get(k);
         if (arr) arr.push(t);
         else grid.set(k, [t]);
@@ -111,7 +115,7 @@ export function surfaceSampler(geo: THREE.BufferGeometry): SurfaceSampler {
     }
   }
   return (x: number, z: number): number | null => {
-    const bucket = grid.get(cellKey(Math.floor(x / CELL), Math.floor(z / CELL)));
+    const bucket = grid.get(surfaceCellKey(Math.floor(x / CELL), Math.floor(z / CELL)));
     if (!bucket) return null;
     let best: number | null = null;
     for (const t of bucket) {
@@ -139,35 +143,15 @@ export function surfaceSampler(geo: THREE.BufferGeometry): SurfaceSampler {
   };
 }
 
-/**
- * Re-seat a draped decal onto `sample`'s surface at `lift`. Vertices the
- * sampler doesn't cover (paint grazing past the asphalt boundary) keep their
- * own draped height plus `fallbackLift` — the old float, but only there.
- */
-export function seatOnSurface(
-  geo: THREE.BufferGeometry,
-  sample: SurfaceSampler | null,
-  lift: number,
-  fallbackLift: number,
-): void {
-  const pos = geo.getAttribute("position");
-  if (!(pos instanceof THREE.BufferAttribute)) return;
-  const arr = pos.array;
-  for (let i = 0; i < pos.count; i++) {
-    const y = sample ? sample(arr[i * 3] ?? 0, arr[i * 3 + 2] ?? 0) : null;
-    arr[i * 3 + 1] = y === null ? (arr[i * 3 + 1] ?? 0) + fallbackLift : y + lift;
-  }
-  pos.needsUpdate = true;
-}
-
 // The geometry must already be in world space (matrixWorld baked in).
-// `maxError` loosens the sag tolerance per call: thin decals on a raised lift
-// (road markings) tolerate a far bigger bow than the surfaces they sit on.
+// Callers can tune both the sag tolerance and minimum edge: broad terrain
+// surfaces keep the default, paint follows small changes in the drawn road.
 export function conformToTerrain(
   geo: THREE.BufferGeometry,
   terrain: DrapeField,
   lift: number,
   maxError: number = DRAPE_MAX_ERROR,
+  quality: DrapeQuality = { minEdge: MIN_EDGE, maxDepth: MAX_DEPTH },
 ): THREE.BufferGeometry {
   const src = geo.index ? geo.toNonIndexed() : geo;
   const pos = src.getAttribute("position");
@@ -218,7 +202,7 @@ export function conformToTerrain(
   const edgeNeeds = (p: Vert, q: Vert): boolean => {
     const dx = p[0] - q[0];
     const dz = p[2] - q[2];
-    if (Math.hypot(dx, dz) < MIN_EDGE) return false;
+    if (Math.hypot(dx, dz) < quality.minEdge) return false;
     const hA = terrain.heightAt(p[0], p[2]);
     const hB = terrain.heightAt(q[0], q[2]);
     // Probe at 1/4, 1/2 and 3/4 — not just the midpoint. The street terrace is
@@ -242,7 +226,7 @@ export function conformToTerrain(
   // edge (one split it, the other didn't) — the T-junction hairline cracks
   // visible as pale dotted lines across plazas at grazing angles.
   const split = (a: Vert, b: Vert, c: Vert, depth: number): void => {
-    if (depth >= MAX_DEPTH) {
+    if (depth >= quality.maxDepth) {
       emit(a, b, c);
       return;
     }

@@ -1,0 +1,99 @@
+{
+  "checkedAt": "2026-09-05T07:09:22.546Z",
+  "scope": "iOS Safari simulator compatibility; not physical iPhone performance evidence; full controls run predates final runtime caching and mobile memory-budget refinements",
+  "device": {
+    "model": "iPhone 17 Pro",
+    "runtime": "iOS 26.5",
+    "browser": "Mobile Safari 26.5",
+    "deviceScaleFactor": 3
+  },
+  "harness": {
+    "driver": "Appium 3.7.0 / XCUITest 12.10.0",
+    "input": "Native WDA touch events; event.isTrusted and pointerType verified",
+    "sourceChanges": "None; page-only observers capture rendered dash text, boost meter and runtime errors"
+  },
+  "url": "http://localhost:5199/?offline=1",
+  "controlsBundle": "index-DqNjIu5I.js",
+  "checks": [
+    {
+      "name": "Production world initializes and title renders",
+      "passed": true
+    },
+    {
+      "name": "Native Start reaches countdown and driving",
+      "passed": true
+    },
+    {
+      "name": "Native hold and drag drive and steer",
+      "passed": true,
+      "evidence": {
+        "trustedTouchEvents": 137,
+        "displayedMaximumMph": 67
+      }
+    },
+    {
+      "name": "Native pause, resume and restart",
+      "passed": true
+    },
+    {
+      "name": "Portrait fits viewport",
+      "passed": true,
+      "evidence": {
+        "width": 402,
+        "height": 714,
+        "dpr": 3,
+        "horizontalOverflow": false
+      }
+    },
+    {
+      "name": "Landscape fits viewport and safe areas",
+      "passed": true,
+      "evidence": {
+        "width": 874,
+        "height": 338,
+        "dpr": 3,
+        "horizontalOverflow": false,
+        "controlsInsideViewport": true
+      }
+    },
+    {
+      "name": "Native boost hold drains meter",
+      "passed": true,
+      "evidence": {
+        "durationMs": 2000,
+        "meterStartPercent": 100,
+        "meterMinimumPercent": 33
+      }
+    },
+    {
+      "name": "No captured runtime exceptions",
+      "passed": true,
+      "evidence": {
+        "runtimeErrors": 0
+      }
+    }
+  ],
+  "screenshots": [
+    {
+      "path": "portrait-drive.png",
+      "bundle": "index-DqNjIu5I.js",
+      "viewport": {
+        "width": 402,
+        "height": 714
+      }
+    },
+    {
+      "path": "landscape-drive.png",
+      "bundle": "index-DqNjIu5I.js",
+      "viewport": {
+        "width": 874,
+        "height": 338
+      }
+    }
+  ],
+  "limitations": [
+    "Simulator uses host hardware and is not physical-phone GPU, battery or thermal evidence.",
+    "Correctness checks ran while other local verification work was active; no simulator frame-rate conclusion.",
+    "Production build exposes no dev hook. Driving speed read from the actual dashboard canvas draw calls, without mutating game state."
+  ]
+}

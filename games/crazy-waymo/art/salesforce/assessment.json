@@ -1,0 +1,293 @@
+{
+  "targetName": "Salesforce Tower",
+  "sourceImage": "games/crazy-waymo/art/salesforce/reference.png",
+  "preSpecAssessment": {
+    "objectClass": {
+      "primaryType": "curving SF curtain-wall skyscraper",
+      "primaryDomain": "object",
+      "formLanguage": [
+        "rounded-square floor plate",
+        "gentle upper taper",
+        "woven silver grid",
+        "transparent broad crown"
+      ],
+      "structureKind": [
+        "curtain-wall shaft",
+        "continuous horizontal sunshades",
+        "vertical external fins",
+        "recessed lobby"
+      ],
+      "motionPotential": ["static landmark, night illumination only"],
+      "materialFamilies": [
+        "blue reflective glazing",
+        "silver aluminum fins",
+        "dark lobby glass",
+        "pale stone",
+        "cool crown light"
+      ],
+      "notes": "Generated isolated product view; two curved faces visible. Reference foreground silhouette spans about520px by1550px under perspective. Runtime envelope is fixed by existing local49.5u height and4.2u radius, so physical proportions follow the game contract rather than image perspective."
+    },
+    "complexity": {
+      "tier": "moderate",
+      "scores": {
+        "silhouetteComplexity": 2,
+        "componentCount": 2,
+        "hierarchyDepth": 1,
+        "repetitionDensity": 3,
+        "materialLayerCount": 2,
+        "localDetailDensity": 2,
+        "occlusionRisk": 1,
+        "actionReadinessNeed": 0
+      },
+      "estimatedCounts": {
+        "macroComponents": 3,
+        "mesoComponents": 4,
+        "microFeatureGroups": 3,
+        "materialLayers": 6,
+        "repetitionSystems": 3
+      },
+      "reasoning": [
+        "Curved silhouette and sunshade grid must be dimensional.",
+        "The upper crown continues the grid above occupied glass rather than ending in a cone.",
+        "A readable inset lobby and canopy anchor the tall shaft at street level."
+      ]
+    },
+    "specDepthDecision": {
+      "requiredDepth": "moderate",
+      "minimumComponentLevels": ["macro", "meso"],
+      "needsRepetitionSystems": true,
+      "needsMaterialLocalOverrides": true,
+      "needsMultipleReviewViews": true,
+      "needsActionReadyHierarchy": false,
+      "rationale": "One static hero landmark; shared merged materials and bounded tessellation replace per-window draw calls."
+    },
+    "unknownsToResolveBeforeImplementation": [],
+    "detailInventory": {
+      "scanMethod": "component-zones",
+      "targetMinDetails": 6,
+      "note": "Enumerate every identity-defining small detail before authoring the spec. Each detail must map to a component.localFeatures entry or material.localOverrides entry, never prose only. Use forge/stage1_intake/build_detail_inventory.py to scan zones.",
+      "details": [
+        {
+          "id": "floor-shades",
+          "name": "Deep continuous silver floor ledges",
+          "kind": "ridge",
+          "evidenceRefs": ["full-object"],
+          "mapsTo": {
+            "ref": "floor-shades"
+          }
+        },
+        {
+          "id": "vertical-fins",
+          "name": "Projected curved vertical fins",
+          "kind": "ridge",
+          "evidenceRefs": ["full-object"],
+          "mapsTo": {
+            "ref": "vertical-fins"
+          }
+        },
+        {
+          "id": "panel-joints",
+          "name": "Dark narrow pane seams",
+          "kind": "groove",
+          "evidenceRefs": ["full-object"],
+          "mapsTo": {
+            "ref": "panel-joints"
+          }
+        },
+        {
+          "id": "rounded-corners",
+          "name": "Continuously curving glass corners",
+          "kind": "ridge",
+          "evidenceRefs": ["full-object"],
+          "mapsTo": {
+            "ref": "rounded-corners"
+          }
+        },
+        {
+          "id": "open-crown",
+          "name": "Airy crown lattice above occupied floors",
+          "kind": "groove",
+          "evidenceRefs": ["full-object"],
+          "mapsTo": {
+            "ref": "open-crown"
+          }
+        },
+        {
+          "id": "entrance-canopy",
+          "name": "Pale shallow lobby canopy",
+          "kind": "ridge",
+          "evidenceRefs": ["full-object"],
+          "mapsTo": {
+            "ref": "entrance-canopy"
+          }
+        },
+        {
+          "id": "lobby-mullions",
+          "name": "Tall ground-floor glass divisions",
+          "kind": "ridge",
+          "evidenceRefs": ["full-object"],
+          "mapsTo": {
+            "ref": "lobby-mullions"
+          }
+        },
+        {
+          "id": "crown-lights",
+          "name": "Subtle cool crown LED lines",
+          "kind": "decal",
+          "evidenceRefs": ["full-object"],
+          "mapsTo": {
+            "ref": "crown-lights"
+          }
+        }
+      ]
+    },
+    "anatomy": {
+      "applies": false,
+      "styleHeads": 0.0,
+      "proportions": {
+        "headUnit": 0.0,
+        "torso": 0.0,
+        "legs": 0.0,
+        "shoulderWidth": 0.0,
+        "hipWidth": 0.0
+      },
+      "pose": {
+        "type": "not-applicable",
+        "jointAngles": {}
+      },
+      "faceLandmarks": {
+        "eyeLine": 0.0,
+        "eyeSpacing": 0.0,
+        "noseBase": 0.0,
+        "mouthLine": 0.0,
+        "hairline": 0.0
+      },
+      "features": [],
+      "confidence": 0.0,
+      "note": "Only meaningful when objectClass.primaryDomain is character or hybrid. Set applies=true and fill from forge/stage1_intake/extract_landmarks.py. See grimoire/character/reconstruction.md and grimoire/character/likeness_maximization.md."
+    },
+    "sourceImage": "games/crazy-waymo/art/salesforce/reference.png"
+  },
+  "qualityContract": {
+    "qualityBar": "moderate",
+    "definitionOfDone": [
+      "Recognizable curved taper, silver woven grid, blue panes, broad open crown and dimensional street lobby.",
+      "Every vertex within local y0..49.5 andradius4.2; existing placement, reservations and collision solids untouched.",
+      "Fewer than15000triangles, six merged cached materials; night windows and crown follow explicit0..1 update.",
+      "Actual neutral and stripped browser renders plus day/night in-game captures; no reference-fidelity pass claimed without evidence."
+    ],
+    "minimumSpecDepth": {
+      "macroComponents": 2,
+      "mesoComponents": 3,
+      "microFeatureGroups": 2,
+      "materialLayers": 2,
+      "repetitionSystems": 0,
+      "reviewViewpoints": 3
+    },
+    "featureGroups": [
+      {
+        "id": "overall-silhouette",
+        "name": "Overall silhouette and proportions",
+        "required": true,
+        "qualityCriteria": [
+          "Bounding shape, dominant curves, negative spaces, and scale relationships are explicitly described."
+        ],
+        "evidenceRefs": ["full-object"],
+        "failureModes": [
+          "model reads as a generic placeholder instead of the reference object",
+          "major proportions are guessed without evidence"
+        ]
+      },
+      {
+        "id": "primary-structure",
+        "name": "Primary structure and hierarchy",
+        "required": true,
+        "qualityCriteria": [
+          "Major parts, joints, seams, contact points, and parent-child relationships are named before code generation."
+        ],
+        "evidenceRefs": ["full-object"],
+        "failureModes": [
+          "large visible parts are merged into one mesh",
+          "component hierarchy is too shallow for the observed complexity"
+        ]
+      },
+      {
+        "id": "attachment-joint-correctness",
+        "name": "Attachment and joint correctness",
+        "required": true,
+        "qualityCriteria": [
+          "Every visible child appendage, branch, limb, handle, connector, tube, cable, horn, wing, leg, or hinged part has an attachment contract with parent socket, localStart/localEnd, contact type, embed/overlap, and gap tolerance."
+        ],
+        "evidenceRefs": ["full-object"],
+        "failureModes": [
+          "child part root floats away from the parent",
+          "branch/limb/tube is centered in space instead of pivoting from its root",
+          "parent-child transform mixes world and local coordinates"
+        ]
+      },
+      {
+        "id": "surface-material-response",
+        "name": "Surface material response",
+        "required": true,
+        "qualityCriteria": [
+          "Albedo zones, roughness, normal/bump/displacement intent, cavity dirt, edge wear, and local overrides are specified where visible.",
+          "Important materials define independent albedo, roughness, height/normal, and AO responses instead of reusing one texture for unrelated PBR channels.",
+          "Surface response is decomposed into macro, meso, and micro frequency bands with scale and amplitude tied to object scale."
+        ],
+        "evidenceRefs": ["full-object"],
+        "failureModes": [
+          "surface looks like flat plastic",
+          "local material variation is missing or not tied to image evidence"
+        ]
+      },
+      {
+        "id": "reference-lookdev",
+        "name": "Reference color, material, and lighting response",
+        "required": true,
+        "qualityCriteria": [
+          "Material-pass names the reference-derived albedo palette, roughness variation, tactile normal/bump/displacement response, and local masks.",
+          "When a source image is available, run reference PBR extraction and require confidence >= 0.7 before treating maps as implementation-ready.",
+          "Lighting-pass names key/fill/rim or environment light, exposure, tone mapping, background, and contact shadow behavior.",
+          "Neutral, grazing-angle, and reference-matched renders prove that surface relief survives relighting and is not painted into albedo."
+        ],
+        "evidenceRefs": ["full-object"],
+        "failureModes": [
+          "model has acceptable shape but reads as flat shaded or plastic",
+          "colors are a generic average instead of reference-observed local color zones",
+          "lighting is evenly ambient and cannot reproduce the source value range"
+        ]
+      }
+    ],
+    "visualDeltaChecks": [
+      "silhouette and negative-space delta",
+      "component hierarchy depth delta",
+      "repetition density and distribution delta",
+      "material albedo/roughness/normal response delta",
+      "local feature placement and scale delta"
+    ],
+    "antiShallowSpecRules": [
+      "Do not proceed to code if qualityContract.qualityBar is unassessed.",
+      "Do not proceed to code if the spec only contains a root component for a moderate or complex object.",
+      "Do not proceed to code if required featureGroups are not represented by componentTree, materials, or repetitionSystems.",
+      "Do not proceed to code if visible local features are described only in prose and not attached to components/materials/evidenceRefs.",
+      "Do not proceed past structural-pass if attached child parts lack attachment.parentSocket, localStart, localEnd, embedDepth/overlap, and gapTolerance.",
+      "Do not pass material look-dev when albedo is reused as roughness, height, normal, or AO.",
+      "Do not pass material look-dev without macro, meso, and micro surface frequency bands for close-up materials.",
+      "Do not pass reference-fidelity material look-dev from a source image without usable referencePbr maps or an explicit documented limitation.",
+      "Do not patch a spec with extracted PBR maps when extraction confidence is below the target threshold unless the user explicitly accepts lower fidelity.",
+      "Do not place adjacent separate-geometry parts below 0.02 world-unit seam overlap (source: grimoire/build/geometry_patterns.md).",
+      "Do not satisfy raised or recessed relief, fasteners, or grip structure with a map alone when the feature affects form; use geometry or displacement (source: grimoire/build/geometry_patterns.md)."
+    ]
+  },
+  "authoringInstruction": "Fill observed object class, complexity reasoning, featureGroups, visualDeltaChecks, and unknowns before generating or implementing ObjectSculptSpec.",
+  "localSpecSearch": {
+    "collection": "core_3d",
+    "query": "Salesforce Tower",
+    "index": {
+      "status": "hit",
+      "reason": "current",
+      "fingerprint": "6857e5ab528b42ac12f4f411f862610a0bffce8e47aee3610a7603c318072fe8"
+    },
+    "matches": []
+  }
+}

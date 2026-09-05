@@ -2,44 +2,57 @@ import { CHUNK, DRAW_DISTANCE, ROAD_TILE, WORLD_HALF_X, WORLD_HALF_Z } from "../
 import { Rng } from "../shared/rng";
 import { type ParcelLot, type ParcelPlan, pointInRing } from "./parcel-plan";
 import {
+  shopSignIndex,
+  SIGN_COLUMNS,
+  SIGN_ROWS,
+  SIGN_CROP_START,
+  SIGN_CROP_END,
+  SIGN_LABEL_ASPECT,
+} from "./parcel-signs";
+import { roofVariantOf, type RoofVariant } from "./parcel-roofs";
+import { distantFootprint } from "./parcel-lod";
+import {
   colorsFor,
   GROUND_MIN,
+  hasFireEscape,
   litShare,
   type ParcelColors,
   type ParcelKind,
   shade,
+  towerFacadeFor,
 } from "./parcel-style";
 
-// Facade geometry for the parcel fabric: flat-shaded, vertex-coloured, one
-// merged buffer per (stream tile, tier, material). No textures, no instancing,
-// no per-building objects — a row house is ~40 quads and downtown is ~15k of
-// them, and the whole thing regenerates in well under a second on every load,
-// which is what keeps it OUT of the world bins (see parcel-build.ts).
-//
-// Vertex budget is the design constraint. Windows are decals — a quad proud of
-// the wall — because a recessed window is five quads; towers get one strip per
-// storey per face instead of punched windows; the detail tier (everything but
-// the body and roof) culls at DETAIL_DISTANCE on a fine 160u grid, and the
-// mobile levels drop it further (see DetailLevel).
+// The parcel fabric uses merged vertex-coloured buffers, never one Object3D
+// per building. Near streets get real bays, frames, cornices and shop details;
+// distant cells retain their window rhythm on conservative simplified walls.
+// The streamer owns the distance policy, and source provenance never controls
+// art quality. Uniform 16-bit position quantization halves distant position
+// buffers without changing packed normals or facade coordinates.
 
-/**
- * 0 = bodies + storefront glass; 1 = + the street face's windows, cornice and
- * doors; 2 = + the flanks' and rears' windows, bays, awnings, stoops, roof plant.
- */
+/** 0 = distant shader silhouettes; 1 = street openings/cornices; 2 = full dimensional fronts. */
 export type DetailLevel = 0 | 1 | 2;
 
-export type ParcelMaterial = "wall" | "glassLit" | "glassDark" | "facade";
+export type ParcelMaterial = "wall" | "glassLit" | "glassDark" | "facade" | "sign";
 
 /** Cull band of a buffer: bodies by silhouette height, detail on the near band. */
 export type MeshTier = "far" | "mid" | "near" | "detail";
 
-export type ParcelGeo = {
+type ParcelPositions =
+  | { readonly encoding: "float"; readonly position: Float32Array }
+  | {
+      readonly encoding: "quantized";
+      readonly position: Uint16Array;
+      readonly origin: readonly [number, number, number];
+      /** Uniform scale preserves the original packed normals. */
+      readonly scale: number;
+    };
+
+export type ParcelGeo = ParcelPositions & {
   readonly tier: MeshTier;
   readonly mat: ParcelMaterial;
   readonly cx: number;
   readonly cz: number;
   readonly radius: number;
-  readonly position: Float32Array;
   readonly normal: Int8Array;
   readonly color: Uint8Array;
   readonly index: Uint16Array | Uint32Array;
@@ -47,6 +60,8 @@ export type ParcelGeo = {
   readonly fuv?: Uint16Array;
   readonly facade?: Uint16Array;
   readonly facade2?: Uint8Array;
+  /** Normalized shared-atlas coordinates for shop lettering only. */
+  readonly uv?: Uint16Array;
 };
 
 export type ParcelGeoStats = {
@@ -111,7 +126,7 @@ const OFF2 = 0.07; // glass over its frame
 const PARAPET = 0.24;
 const CORNICE_H = 0.3;
 const CORNICE_D = 0.24;
-const BAY_D = 0.32;
+const BAY_D = 0.48;
 const DETAIL_CELL = 160;
 /** Silhouette bands (city.ts): the skyline draws to the fog line, the fabric one ring less. */
 const BIG_H = 13;
@@ -235,6 +250,36 @@ class GeoBuf {
     this.ni += 6;
   }
 
+  triangle(
+    ax: number,
+    ay: number,
+    az: number,
+    bx: number,
+    by: number,
+    bz: number,
+    cx: number,
+    cy: number,
+    cz: number,
+    nx: number,
+    ny: number,
+    nz: number,
+    color: number,
+  ): void {
+    this.reserve(3, 3);
+    const base = this.nv;
+    const flip =
+      ((by - ay) * (cz - az) - (bz - az) * (cy - ay)) * nx +
+        ((bz - az) * (cx - ax) - (bx - ax) * (cz - az)) * ny +
+        ((bx - ax) * (cy - ay) - (by - ay) * (cx - ax)) * nz <
+      0;
+    this.vert(ax, ay, az, nx, ny, nz, color);
+    this.vert(bx, by, bz, nx, ny, nz, color);
+    this.vert(cx, cy, cz, nx, ny, nz, color);
+    this.idx[this.ni++] = base;
+    this.idx[this.ni++] = base + (flip ? 2 : 1);
+    this.idx[this.ni++] = base + (flip ? 1 : 2);
+  }
+
   /** A polygon draped on per-vertex heights, facing up — the surface lots. */
   capDraped(ring: Float32Array, n: number, ys: Float32Array, lift: number, color: number): void {
     const tris = earClip(ring, n);
@@ -282,7 +327,7 @@ class GeoBuf {
  * Zero extra geometry per opening — which is the only way 130k parcels fit.
  *
  * facade (u16 ×4, normalized, ×FACADE_SCALE): storeyH, pitch, groundH, wallLen
- * facade2 (u8 ×4, raw): storeys, seed, flags, 0
+ * facade2 (u8 ×3, raw): storeys, seed, flags
  */
 export const FACADE_SCALE = 512;
 /** Metres the v coordinate is lifted by so a foundation band below the seat stays unsigned. */
@@ -291,6 +336,8 @@ export const FACADE_FLAG_SHOP = 1;
 export const FACADE_FLAG_HOUSE = 2;
 export const FACADE_FLAG_SHED = 4;
 export const FACADE_FLAG_BLANK = 8;
+const FACADE_FLAG_BRICK = 16;
+const FACADE_FLAG_SIDING = 32;
 
 export type FacadeParams = {
   readonly storeyH: number;
@@ -305,7 +352,7 @@ export type FacadeParams = {
 class FacadeBuf extends GeoBuf {
   fuv = new Uint16Array(2 * 1024);
   fac = new Uint16Array(4 * 1024);
-  fac2 = new Uint8Array(4 * 1024);
+  fac2 = new Uint8Array(3 * 1024);
 
   protected override reserve(verts: number, indices: number): void {
     super.reserve(verts, indices);
@@ -317,7 +364,7 @@ class FacadeBuf extends GeoBuf {
       const f = new Uint16Array(cap * 4);
       f.set(this.fac);
       this.fac = f;
-      const g = new Uint8Array(cap * 4);
+      const g = new Uint8Array(cap * 3);
       g.set(this.fac2);
       this.fac2 = g;
     }
@@ -359,15 +406,36 @@ class FacadeBuf extends GeoBuf {
       this.fac[i * 4 + 1] = q(fp.pitch);
       this.fac[i * 4 + 2] = q(fp.groundH);
       this.fac[i * 4 + 3] = q(fp.wallLen);
-      this.fac2[i * 4] = Math.min(255, fp.storeys);
-      this.fac2[i * 4 + 1] = fp.seed & 0xff;
-      this.fac2[i * 4 + 2] = fp.flags & 0xff;
-      this.fac2[i * 4 + 3] = 0;
+      this.fac2[i * 3] = Math.min(255, fp.storeys);
+      this.fac2[i * 3 + 1] = fp.seed & 0xff;
+      this.fac2[i * 3 + 2] = fp.flags & 0xff;
     }
   }
 }
 
-type Bucket = { wall: GeoBuf; glassLit: GeoBuf; glassDark: GeoBuf; facade: FacadeBuf };
+class SignBuf extends GeoBuf {
+  readonly coordinates: number[] = [];
+
+  /** Atlas inset keeps filtering inside a label's transparent gutter. */
+  label(index: number): void {
+    const column = index % SIGN_COLUMNS;
+    const row = Math.floor(index / SIGN_COLUMNS);
+    const u0 = column / SIGN_COLUMNS;
+    const u1 = (column + 1) / SIGN_COLUMNS;
+    const v0 = 1 - (row + SIGN_CROP_END) / SIGN_ROWS;
+    const v1 = 1 - (row + SIGN_CROP_START) / SIGN_ROWS;
+    // Positive-area parcel walls run right-to-left when viewed from the street.
+    this.coordinates.push(u1, v0, u0, v0, u0, v1, u1, v1);
+  }
+}
+
+type Bucket = {
+  wall: GeoBuf;
+  glassLit: GeoBuf;
+  glassDark: GeoBuf;
+  facade: FacadeBuf;
+  sign: SignBuf;
+};
 
 class Buckets {
   private readonly map = new Map<number, Bucket>();
@@ -388,13 +456,14 @@ class Buckets {
         glassLit: new GeoBuf(),
         glassDark: new GeoBuf(),
         facade: new FacadeBuf(),
+        sign: new SignBuf(),
       };
       this.map.set(k, b);
     }
     return b;
   }
 
-  flush(): ParcelGeometry {
+  flush(quantize: boolean): ParcelGeometry {
     const geos: ParcelGeo[] = [];
     let vertices = 0;
     let triangles = 0;
@@ -415,7 +484,7 @@ class Buckets {
           cx,
           cz,
           radius,
-          position: g.pos.slice(0, g.nv * 3),
+          ...storePositions(g.pos, g.nv, quantize),
           normal: g.nor.slice(0, g.nv * 3),
           color: g.col.slice(0, g.nv * 3),
           index: g.nv <= 65535 ? Uint16Array.from(g.idx.subarray(0, g.ni)) : g.idx.slice(0, g.ni),
@@ -426,18 +495,54 @@ class Buckets {
                 ...rec,
                 fuv: g.fuv.slice(0, g.nv * 2),
                 facade: g.fac.slice(0, g.nv * 4),
-                facade2: g.fac2.slice(0, g.nv * 4),
+                facade2: g.fac2.slice(0, g.nv * 3),
               }
-            : rec,
+            : g instanceof SignBuf
+              ? {
+                  ...rec,
+                  uv: Uint16Array.from(g.coordinates, (value) => Math.round(value * 65535)),
+                }
+              : rec,
         );
       };
       push("wall", b.wall);
       push("glassLit", b.glassLit);
       push("glassDark", b.glassDark);
       push("facade", b.facade);
+      push("sign", b.sign);
     }
     return { geos, stats: { vertices, triangles, buffers: geos.length } };
   }
+}
+
+/** Distant cells store local positions at subpixel precision, halving their position buffer. */
+function storePositions(source: Float32Array, count: number, quantize: boolean): ParcelPositions {
+  if (!quantize) return { encoding: "float", position: source.slice(0, count * 3) };
+  let minX = Infinity;
+  let minY = Infinity;
+  let minZ = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  let maxZ = -Infinity;
+  for (let i = 0; i < count * 3; i += 3) {
+    const x = source[i] ?? 0;
+    const y = source[i + 1] ?? 0;
+    const z = source[i + 2] ?? 0;
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+    minZ = Math.min(minZ, z);
+    maxZ = Math.max(maxZ, z);
+  }
+  const scale = Math.max(maxX - minX, maxY - minY, maxZ - minZ, 1);
+  const position = new Uint16Array(count * 3);
+  for (let i = 0; i < count * 3; i += 3) {
+    position[i] = Math.round((((source[i] ?? 0) - minX) / scale) * 65535);
+    position[i + 1] = Math.round((((source[i + 1] ?? 0) - minY) / scale) * 65535);
+    position[i + 2] = Math.round((((source[i + 2] ?? 0) - minZ) / scale) * 65535);
+  }
+  return { encoding: "quantized", position, origin: [minX, minY, minZ], scale };
 }
 
 /** One wall of a parcel in world space: endpoints, unit along-vector, outward normal. */
@@ -478,7 +583,29 @@ function wallsOf(p: ParcelPlan): Wall[] {
       front: e === p.front,
     });
   }
-  return out;
+  // OSM often splits a straight frontage into several edges. Treat it as
+  // one architectural wall, otherwise a 1u fragment gets the only front door
+  // while the rest of the same facade is incorrectly dressed as a flank.
+  const canMerge = (a: Wall, b: Wall): boolean =>
+    a.blind === b.blind && a.tx * b.tx + a.tz * b.tz > 0.99999;
+  const merge = (a: Wall, b: Wall): Wall => ({
+    ...a,
+    len: a.len + b.len,
+    front: a.front || b.front,
+  });
+  const merged: Wall[] = [];
+  for (const w of out) {
+    const previous = merged[merged.length - 1];
+    if (previous && canMerge(previous, w)) merged[merged.length - 1] = merge(previous, w);
+    else merged.push(w);
+  }
+  const first = merged[0];
+  const last = merged[merged.length - 1];
+  if (merged.length > 2 && first && last && canMerge(last, first)) {
+    merged[0] = merge(last, first);
+    merged.pop();
+  }
+  return merged;
 }
 
 /** A rectangle on a wall: along [a, a+w], up [y0, y0+h], lifted `off` off the face. */
@@ -501,7 +628,7 @@ function decal(
   g.quad(ax, y0, az, bx, y0, bz, bx, y0 + h, bz, ax, y0 + h, az, w.nx, 0, w.nz, color);
 }
 
-/** A window: frame decal under a glass decal (frame skipped when `frame` is 0). */
+/** A recessed sash: projecting frame, shaded reveals, glass, and a real sill. */
 function windowOn(
   b: Bucket,
   w: Wall,
@@ -514,9 +641,54 @@ function windowOn(
   glass: number,
   lit: boolean,
 ): void {
-  if (frame > 0)
-    decal(b.wall, w, a - frame, width + frame * 2, y0 - frame, h + frame * 2, OFF, frameColor);
-  decal(lit ? b.glassLit : b.glassDark, w, a, width, y0, h, frame > 0 ? OFF2 : OFF, glass);
+  const paneOff = OFF;
+  if (frame > 0) {
+    const proud = 0.13;
+    const reveal = shade(frameColor, 0.7);
+    // Four border strips leave an actual opening: a solid frame decal would
+    // cover the glass once its frame projects farther out than the pane.
+    decal(b.wall, w, a - frame, frame, y0 - frame, h + frame * 2, proud, frameColor);
+    decal(b.wall, w, a + width, frame, y0 - frame, h + frame * 2, proud, frameColor);
+    decal(b.wall, w, a, width, y0 + h, frame, proud, frameColor);
+    decal(b.wall, w, a, width, y0 - frame, frame, proud, frameColor);
+    for (const edge of [a, a + width]) {
+      const x = w.x0 + w.tx * edge;
+      const z = w.z0 + w.tz * edge;
+      const dir = edge === a ? 1 : -1;
+      b.wall.quad(
+        x + w.nx * paneOff,
+        y0,
+        z + w.nz * paneOff,
+        x + w.nx * proud,
+        y0,
+        z + w.nz * proud,
+        x + w.nx * proud,
+        y0 + h,
+        z + w.nz * proud,
+        x + w.nx * paneOff,
+        y0 + h,
+        z + w.nz * paneOff,
+        w.tx * dir,
+        0,
+        w.tz * dir,
+        reveal,
+      );
+    }
+    ledge(
+      b.wall,
+      w,
+      a - frame * 1.6,
+      a + width + frame * 1.6,
+      y0 - frame - 0.035,
+      0.065,
+      0.18,
+      frameColor,
+      false,
+    );
+    // A central sash makes the tall Victorian opening read at driving speed.
+    decal(b.wall, w, a, width, y0 + h * 0.5 - 0.018, 0.036, paneOff + 0.018, frameColor);
+  }
+  decal(lit ? b.glassLit : b.glassDark, w, a, width, y0, h, paneOff, glass);
 }
 
 /**
@@ -682,11 +854,9 @@ function body(
       );
     }
     const yb = foundation ? p.seatY : y0;
-    // Below the full detail tier the flanks and rears get no window geometry
-    // (windowGrid gates them) — on the facade shader they get their windows
-    // for the cost of the wall quad they already were. The street face keeps
-    // its bays and frames.
-    if (c.detail < 2 && !w.front && !w.blind && !ringOverride && p.kind !== "shed") {
+    // Flanks and rears keep their window rhythm on the facade shader.
+    // Spend geometry on street-facing sashes, bays and cornices instead.
+    if (!w.blind && (!w.front || p.units === 1) && !ringOverride && p.kind !== "shed") {
       c.bodyBucket.facade.wall(
         w.x0,
         w.z0,
@@ -705,7 +875,9 @@ function body(
           wallLen: w.len,
           storeys: st.count,
           seed: (p.seed >>> 3) & 0xff,
-          flags: 0,
+          // Tower strips cover every exposed face. A second shader window
+          // grid underneath produced mismatched slits between the ribbons.
+          flags: (w.front || p.kind === "tower" ? FACADE_FLAG_BLANK : 0) | claddingFlags(p),
         },
         yb - p.seatY,
       );
@@ -777,6 +949,87 @@ function cornice(c: Ctx, w: Wall, double: boolean): void {
   }
 }
 
+/** Victorian pediments and bracket rhythm; the avenues keep a stepped stucco crown. */
+function residentialCrown(c: Ctx, w: Wall, stucco: boolean): void {
+  if (c.detail < 2 || w.blind || w.len < 1.1) return;
+  const col = c.colors[0];
+  if (!col) return;
+  const g = c.detailAt(w.x0, w.z0).wall;
+  const y = c.topY - 0.03;
+  const center = w.len / 2;
+  if (stucco) {
+    if (c.p.seed % 3 !== 0) return;
+    ledge(g, w, w.len * 0.18, w.len * 0.82, y, 0.16, 0.12, col.body, true);
+    ledge(g, w, w.len * 0.34, w.len * 0.66, y + 0.16, 0.11, 0.12, col.body, true);
+    return;
+  }
+  const brackets = Math.min(12, Math.max(2, Math.round(w.len / 0.65)));
+  for (let k = 0; k < brackets; k++) {
+    const a = 0.16 + ((w.len - 0.32) * k) / Math.max(1, brackets - 1);
+    const x = w.x0 + w.tx * a + w.nx * 0.1;
+    const z = w.z0 + w.tz * a + w.nz * 0.1;
+    box(g, x, z, w.tx, w.tz, 0.045, 0.11, y - 0.57, y - 0.27, col.trim, { sides: true });
+  }
+  if (c.p.seed % 3 === 0) return;
+  const half = Math.min(1.1, w.len * 0.35);
+  const peak = Math.min(0.5, half * 0.45);
+  const px = (a: number, d: number): number => w.x0 + w.tx * a + w.nx * d;
+  const pz = (a: number, d: number): number => w.z0 + w.tz * a + w.nz * d;
+  const left = center - half;
+  const right = center + half;
+  const d = 0.25;
+  g.triangle(
+    px(left, d),
+    y,
+    pz(left, d),
+    px(right, d),
+    y,
+    pz(right, d),
+    px(center, d),
+    y + peak,
+    pz(center, d),
+    w.nx,
+    0,
+    w.nz,
+    col.trim,
+  );
+  g.triangle(
+    px(left + 0.14, d + 0.006),
+    y + 0.05,
+    pz(left + 0.14, d + 0.006),
+    px(right - 0.14, d + 0.006),
+    y + 0.05,
+    pz(right - 0.14, d + 0.006),
+    px(center, d + 0.006),
+    y + peak * 0.72,
+    pz(center, d + 0.006),
+    w.nx,
+    0,
+    w.nz,
+    shade(col.body, 0.83),
+  );
+  for (const a of [left, right]) {
+    g.quad(
+      px(a, 0),
+      y,
+      pz(a, 0),
+      px(a, d),
+      y,
+      pz(a, d),
+      px(center, d),
+      y + peak,
+      pz(center, d),
+      px(center, 0),
+      y + peak,
+      pz(center, 0),
+      0,
+      1,
+      0,
+      col.trim,
+    );
+  }
+}
+
 /** Windows across a wall for every upper storey, at a pitch; frames on the hero faces only. */
 function windowGrid(
   c: Ctx,
@@ -786,7 +1039,7 @@ function windowGrid(
   frame: number,
   fromStorey = 1,
 ): void {
-  if (w.blind || c.detail < 1 || (!w.front && c.detail < 2)) return;
+  if (w.blind || c.detail < 1 || !w.front) return;
   const { st } = c;
   const col = c.colors[0];
   if (col === undefined) return;
@@ -822,12 +1075,14 @@ function windowStrips(
   if (w.blind || c.detail < 1 || w.len < inset * 2 + 0.6) return;
   const col = c.colors[0];
   if (col === undefined) return;
-  const stripH = storeyH * 0.5;
-  const sill = storeyH * 0.28;
+  const facade = towerFacadeFor(c.p.blockHash);
+  const stripH = storeyH * (facade === "curtain" ? 0.86 : facade === "ribbon" ? 0.42 : 0.62);
+  const sill = (storeyH - stripH) / 2;
   for (let s = fromStorey; s < toStorey; s++) {
     const y0 = y0Base + (s - fromStorey) * storeyH + sill;
-    const mid = w.len / 2;
-    const b = c.detailAt(w.x0 + w.tx * mid, w.z0 + w.tz * mid);
+    // Skyline parcels are static: their wall survives beyond the detail
+    // cutoff. Keep these cheap openings with it so distant towers stay lit.
+    const b = c.bodyBucket;
     decal(
       c.lit(s) ? b.glassLit : b.glassDark,
       w,
@@ -842,14 +1097,15 @@ function windowStrips(
 }
 
 /** The SF bay: three faces stacked from the first floor to just under the cornice, a window on each per storey. */
-function bay(c: Ctx, w: Wall, ac: number, bw: number, colors: ParcelColors): void {
+function bay(c: Ctx, w: Wall, ac: number, bw: number, colors: ParcelColors, depth = BAY_D): void {
   const { p, st } = c;
   const y0 = p.seatY + st.groundH;
-  const y1 = c.topY - CORNICE_H - 0.5;
+  const y1 = c.topY - CORNICE_H - 0.08;
   if (y1 - y0 < 0.8) return;
   const b = c.detailAt(w.x0 + w.tx * ac, w.z0 + w.tz * ac);
   const g = b.wall;
-  const d = BAY_D;
+  const d = Math.min(depth, ac - bw / 2 - 0.06, w.len - ac - bw / 2 - 0.06);
+  if (d < 0.06) return;
   // Wall points (left/right of the bay footprint) and the two front corners.
   const wlx = w.x0 + w.tx * (ac - bw / 2 - d);
   const wlz = w.z0 + w.tz * (ac - bw / 2 - d);
@@ -907,61 +1163,6 @@ function bay(c: Ctx, w: Wall, ac: number, bw: number, colors: ParcelColors): voi
       colors.trim,
     );
   }
-  // Trim edge along the top of the bay, the ribbon a painted lady wears.
-  g.quad(
-    wlx,
-    y1 - 0.14,
-    wlz,
-    flx,
-    y1 - 0.14,
-    flz,
-    flx,
-    y1,
-    flz,
-    wlx,
-    y1,
-    wlz,
-    ln.x,
-    0,
-    ln.z,
-    colors.trim,
-  );
-  g.quad(
-    flx,
-    y1 - 0.14,
-    flz,
-    frx,
-    y1 - 0.14,
-    frz,
-    frx,
-    y1,
-    frz,
-    flx,
-    y1,
-    flz,
-    w.nx,
-    0,
-    w.nz,
-    colors.trim,
-  );
-  g.quad(
-    frx,
-    y1 - 0.14,
-    frz,
-    wrx,
-    y1 - 0.14,
-    wrz,
-    wrx,
-    y1,
-    wrz,
-    frx,
-    y1,
-    frz,
-    rn.x,
-    0,
-    rn.z,
-    colors.trim,
-  );
   // Windows: the three bay faces as pseudo-walls.
   const sideLen = d * Math.SQRT2;
   const faces: Wall[] = [
@@ -999,11 +1200,16 @@ function bay(c: Ctx, w: Wall, ac: number, bw: number, colors: ParcelColors): voi
       front: false,
     },
   ];
-  const winH = st.upperH * 0.55;
-  const sill = st.upperH * 0.24;
+  // The top ribbon has its own surface offset. Painting it coplanar with
+  // the bay body caused the cornice to sparkle and flicker during a drive.
+  for (const f of faces) decal(b.wall, f, 0, f.len, y1 - 0.14, 0.14, OFF, colors.trim);
+  const sill = st.upperH * 0.2;
   for (let s = 1; s < st.count; s++) {
     const wy = p.seatY + st.groundH + (s - 1) * st.upperH + sill;
-    if (wy + winH > y1 - 0.2) break;
+    // The top storey shares space with the cornice. Fit its sash into the
+    // available opening; rejecting it used to leave two-storey bays blank.
+    const winH = Math.min(st.upperH * 0.56, y1 - 0.12 - wy);
+    if (winH < 0.25) continue;
     const lit = c.lit(s);
     for (const f of faces) {
       const ww = f.len - 0.24;
@@ -1027,11 +1233,11 @@ function groundResidential(
   const y0 = p.seatY;
   const garageW = Math.min(wideGarage ? 1.7 : 1.25, unitW * (wideGarage ? 0.58 : 0.5));
   const garageH = Math.min(st.groundH - 0.32, 1.35);
-  const doorW = 0.5;
+  const doorW = Math.min(0.5, Math.max(0.23, unitW * 0.21));
   const doorH = Math.min(st.groundH - 0.3, 1.15);
-  const gap = 0.14;
+  const gap = Math.min(0.14, unitW * 0.05);
   const total = garageW + gap + doorW;
-  if (total > unitW - 0.3) {
+  if (total > unitW - 0.16) {
     // Too narrow for both: a door only.
     decal(b.wall, w, a0 + (unitW - doorW) / 2, doorW, y0, doorH, OFF, colors.door);
     return;
@@ -1083,6 +1289,47 @@ function groundResidential(
   }
 }
 
+function shopLantern(g: GeoBuf, w: Wall, a: number, y: number, depth: number): void {
+  const cx = w.x0 + w.tx * a + w.nx * depth;
+  const cz = w.z0 + w.tz * a + w.nz * depth;
+  const profile: readonly (readonly [number, number])[] = [
+    [-0.19, 0.065],
+    [-0.12, 0.135],
+    [0.12, 0.135],
+    [0.19, 0.065],
+  ];
+  for (let ring = 0; ring < profile.length - 1; ring++) {
+    const lo = profile[ring];
+    const hi = profile[ring + 1];
+    if (!lo || !hi) continue;
+    for (let k = 0; k < 8; k++) {
+      const a0 = (k / 8) * Math.PI * 2;
+      const a1 = ((k + 1) / 8) * Math.PI * 2;
+      const color = k % 2 === 0 ? 0xcc3b24 : 0xe7542d;
+      g.quad(
+        cx + Math.cos(a0) * lo[1],
+        y + lo[0],
+        cz + Math.sin(a0) * lo[1],
+        cx + Math.cos(a1) * lo[1],
+        y + lo[0],
+        cz + Math.sin(a1) * lo[1],
+        cx + Math.cos(a1) * hi[1],
+        y + hi[0],
+        cz + Math.sin(a1) * hi[1],
+        cx + Math.cos(a0) * hi[1],
+        y + hi[0],
+        cz + Math.sin(a0) * hi[1],
+        Math.cos((a0 + a1) / 2),
+        0,
+        Math.sin((a0 + a1) / 2),
+        color,
+      );
+    }
+  }
+  box(g, cx, cz, w.tx, w.tz, 0.06, 0.06, y + 0.18, y + 0.23, 0xd8ae52, { top: true, sides: true });
+  box(g, cx, cz, w.tx, w.tz, 0.02, 0.02, y - 0.3, y - 0.18, 0xd8ae52, { sides: true });
+}
+
 function storefront(
   c: Ctx,
   w: Wall,
@@ -1106,25 +1353,98 @@ function storefront(
   for (let k = 1; k <= 2; k++) {
     decal(b.wall, w, a0 + margin + (glassW * k) / 3 - 0.03, 0.06, glassY0, glassH, OFF2, mullion);
   }
-  // Sign band.
-  decal(
-    b.wall,
-    w,
-    a0 + margin - 0.06,
-    glassW + 0.12,
-    glassY0 + glassH + 0.06,
-    signH,
-    OFF,
-    shade(colors.awning, 0.85),
-  );
+  // A shallow framed fascia stays within the existing facade projection.
+  const signY = glassY0 + glassH + 0.06;
+  const signWidth = glassW + 0.12;
+  const signStart = a0 + margin - 0.06;
+  if (c.detail >= 1 && signWidth >= 2.35) {
+    ledge(
+      b.wall,
+      w,
+      signStart,
+      signStart + signWidth,
+      signY,
+      signH,
+      0.11,
+      shade(colors.awning, 0.45),
+      true,
+    );
+    const labelWidth = Math.min(signWidth - 0.16, (signH - 0.05) * SIGN_LABEL_ASPECT);
+    decal(
+      b.sign,
+      w,
+      signStart + (signWidth - labelWidth) / 2,
+      labelWidth,
+      signY + 0.025,
+      signH - 0.05,
+      0.126,
+      0xffffff,
+    );
+    b.sign.label(shopSignIndex(p.district, p.seed, Math.round(a0 / unitW)));
+    decal(b.wall, w, signStart, signWidth, signY, 0.035, 0.13, colors.trim);
+    decal(b.wall, w, signStart, signWidth, signY + signH - 0.035, 0.035, 0.13, colors.trim);
+  } else {
+    decal(b.wall, w, signStart, signWidth, signY, signH, OFF, shade(colors.awning, 0.45));
+  }
   if (awning && c.detail >= 2) {
-    const ay = glassY0 + glassH + 0.02;
-    const cx = w.x0 + w.tx * (a0 + unitW / 2) + w.nx * 0.42;
-    const cz = w.z0 + w.tz * (a0 + unitW / 2) + w.nz * 0.42;
-    box(b.wall, cx, cz, w.tx, w.tz, glassW / 2 - 0.05, 0.42, ay - 0.1, ay, colors.awning, {
-      top: true,
-      sides: true,
-    });
+    const ay = glassY0 + glassH + 0.06;
+    const depth = Math.min(0.72, unitW * 0.24);
+    const start = a0 + margin;
+    const end = start + glassW;
+    const chinese = p.district === "Chinatown";
+    const stripes = chinese ? 1 : Math.max(4, Math.min(14, Math.round(glassW / 0.24)));
+    for (let k = 0; k < stripes; k++) {
+      const left = start + (glassW * k) / stripes;
+      const right = start + (glassW * (k + 1)) / stripes;
+      const color = chinese ? 0x28645b : k % 2 === 0 ? colors.awning : 0xeee2c1;
+      const ax = w.x0 + w.tx * left;
+      const az = w.z0 + w.tz * left;
+      const bx = w.x0 + w.tx * right;
+      const bz = w.z0 + w.tz * right;
+      b.wall.quad(
+        ax,
+        ay + 0.03,
+        az,
+        bx,
+        ay + 0.03,
+        bz,
+        bx + w.nx * depth,
+        ay - 0.12,
+        bz + w.nz * depth,
+        ax + w.nx * depth,
+        ay - 0.12,
+        az + w.nz * depth,
+        0,
+        1,
+        0,
+        color,
+      );
+      decal(b.wall, w, left, right - left, ay - 0.25, 0.13, depth, color);
+    }
+    if (chinese && unitW >= 1.6) {
+      for (const a of [start + glassW * 0.18, end - glassW * 0.18])
+        shopLantern(b.wall, w, a, ay - 0.46, depth * 0.8);
+    }
+    for (const a of [start, end]) {
+      const x = w.x0 + w.tx * a;
+      const z = w.z0 + w.tz * a;
+      const dir = a === start ? -1 : 1;
+      b.wall.triangle(
+        x,
+        ay - 0.12,
+        z,
+        x,
+        ay + 0.03,
+        z,
+        x + w.nx * depth,
+        ay - 0.12,
+        z + w.nz * depth,
+        w.tx * dir,
+        0,
+        w.tz * dir,
+        shade(colors.awning, 0.7),
+      );
+    }
   }
 }
 
@@ -1184,8 +1504,11 @@ function buildRowhouse(c: Ctx, stucco: boolean): void {
         const a0 = u * unitW;
         if (c.detail >= 1) groundResidential(c, w, a0, unitW, colors, stucco);
         if (st.count < 2) continue;
-        if (!stucco && unitW >= 1.5 && c.detail >= 2) {
-          bay(c, w, a0 + unitW / 2, Math.min(1.5, Math.max(0.8, unitW * 0.5)), colors);
+        if (unitW >= 1.1 && c.detail >= 2) {
+          // The avenues have shallow picture-window bays; Victorian districts
+          // have deep, three-sided sashes. Both need a real street silhouette.
+          const bayW = Math.min(stucco ? 2.2 : 1.5, unitW * (stucco ? 0.68 : 0.52));
+          bay(c, w, a0 + unitW / 2, bayW, colors, Math.min(stucco ? 0.18 : BAY_D, unitW * 0.2));
         } else if (c.detail >= 1) {
           // Flat front: one wide band per storey (stucco), or a pair of sashes.
           const b = c.detailAt(w.x0 + w.tx * (a0 + unitW / 2), w.z0 + w.tz * (a0 + unitW / 2));
@@ -1239,13 +1562,14 @@ function buildRowhouse(c: Ctx, stucco: boolean): void {
         }
       }
       cornice(c, w, !stucco);
+      residentialCrown(c, w, stucco);
     } else {
       // Rear and exposed flanks: plain sashes, no frames, no ledges.
       windowGrid(c, w, 1.25 + rng.range(0, 0.25), 0.62, 0);
       if (!w.blind && st.count >= 2) cornice(c, w, false);
     }
   }
-  roofClutter(c);
+  if (!roofVariantOf(p)) roofClutter(c);
 }
 
 /** A skylight and the odd vent on a residential roof — the aerial reads the roof plane first. */
@@ -1311,12 +1635,81 @@ function buildMidrise(c: Ctx): void {
         storefront(c, w, u * unitW, unitW, colors, rng.chance(0.7));
       }
       windowGrid(c, w, pitch, 0.82, c.detail >= 2 ? 0.05 : 0);
+      fireEscape(c, w);
     } else {
       windowGrid(c, w, pitch, 0.82, 0);
     }
     cornice(c, w, false);
   }
   roofPlant(c, rng.chance(0.5) ? 2 : 1, rng.chance(0.55));
+}
+
+/** Iron landings and alternating stair flights above historic storefronts. */
+function fireEscape(c: Ctx, w: Wall): void {
+  if (c.detail < 2 || !hasFireEscape(c.p.district, c.p.seed) || w.len < 3.2 || c.st.count < 3)
+    return;
+  const g = c.detailAt(w.x0, w.z0).wall;
+  const a0 = w.len * 0.5 - 0.7;
+  const a1 = a0 + 1.4;
+  const depth = 0.47;
+  const metal = 0x394440;
+  const x = (a: number, d: number): number => w.x0 + w.tx * a + w.nx * d;
+  const z = (a: number, d: number): number => w.z0 + w.tz * a + w.nz * d;
+  for (let s = 1; s < Math.min(c.st.count, 8); s++) {
+    const y = c.p.seatY + c.st.groundH + (s - 1) * c.st.upperH + 0.02;
+    ledge(g, w, a0, a1, y, 0.06, depth, metal, true);
+    decal(g, w, a0, a1 - a0, y + 0.47, 0.045, depth, metal);
+    for (let k = 0; k <= 5; k++) {
+      const a = a0 + ((a1 - a0) * k) / 5;
+      decal(g, w, a - 0.016, 0.032, y + 0.06, 0.42, depth, metal);
+    }
+    if (s >= c.st.count - 1) continue;
+    const start = s % 2 === 0 ? a0 + 0.1 : a1 - 0.1;
+    const end = s % 2 === 0 ? a1 - 0.1 : a0 + 0.1;
+    const rise = c.st.upperH;
+    for (const d of [0.16, depth - 0.04]) {
+      g.quad(
+        x(start, d),
+        y,
+        z(start, d),
+        x(end, d),
+        y + rise,
+        z(end, d),
+        x(end, d),
+        y + rise + 0.055,
+        z(end, d),
+        x(start, d),
+        y + 0.055,
+        z(start, d),
+        w.nx,
+        0,
+        w.nz,
+        metal,
+      );
+    }
+    for (let k = 1; k < 8; k++) {
+      const a = start + ((end - start) * k) / 8;
+      const sy = y + (rise * k) / 8;
+      g.quad(
+        x(a - 0.04, 0.16),
+        sy,
+        z(a - 0.04, 0.16),
+        x(a + 0.04, 0.16),
+        sy,
+        z(a + 0.04, 0.16),
+        x(a + 0.04, depth),
+        sy,
+        z(a + 0.04, depth),
+        x(a - 0.04, depth),
+        sy,
+        z(a - 0.04, depth),
+        0,
+        1,
+        0,
+        metal,
+      );
+    }
+  }
 }
 
 /**
@@ -1349,7 +1742,7 @@ function buildTower(c: Ctx): void {
     // the continuous street wall SF towers keep under their glass.
     const podiumTop = p.seatY + st.groundH + (podiumStoreys - 1) * st.upperH;
     const savedTop = c.topY;
-    const podium: Ctx = { ...c, topY: podiumTop };
+    const podium: Ctx = { ...c, st: { ...st, count: podiumStoreys }, topY: podiumTop };
     body(podium);
     for (const w of c.walls) {
       podiumShops(podium, w);
@@ -1385,18 +1778,40 @@ function buildTower(c: Ctx): void {
     const shaftWalls = wallsOf(shaftPlan);
     const shaft: Ctx = { ...c, topY: savedTop, walls: shaftWalls };
     body(shaft, { ring, n: 4, walls: shaftWalls });
-    for (const w of shaftWalls)
+    for (const w of shaftWalls) {
       windowStrips(shaft, w, podiumStoreys, st.count, podiumTop, st.upperH);
+      towerRibs(shaft, w, podiumTop);
+    }
     crown(shaft, ring, o, inset);
   } else {
     body(c);
     for (const w of c.walls) {
       podiumShops(c, w);
       windowStrips(c, w, 1, st.count, p.seatY + st.groundH, st.upperH);
+      towerRibs(c, w, p.seatY + st.groundH);
     }
     crown(c, p.ring, o, 1);
   }
   roofPlant(c, 1, false);
+}
+
+function towerRibs(c: Ctx, w: Wall, y0: number): void {
+  if (c.detail < 2 || w.blind || w.len < 2.5) return;
+  const col = c.colors[0];
+  if (!col) return;
+  const g = c.detailAt(w.x0, w.z0).wall;
+  const facade = towerFacadeFor(c.p.blockHash);
+  // Horizontal ribbon buildings retain only corner uprights.
+  const stone = facade === "masonry";
+  const columns = Math.max(2, Math.min(9, Math.round(w.len / (stone ? 2.4 : 1.7))));
+  const width = stone ? 0.13 : 0.045;
+  for (let k = 0; k <= columns; k++) {
+    if (facade === "ribbon" && k > 0 && k < columns) continue;
+    const a = 0.18 + ((w.len - 0.36) * k) / columns;
+    const x = w.x0 + w.tx * a + w.nx * 0.09;
+    const z = w.z0 + w.tz * a + w.nz * 0.09;
+    box(g, x, z, w.tx, w.tz, width, 0.09, y0, c.topY, col.trim, { sides: true });
+  }
 }
 
 function crown(
@@ -1427,6 +1842,100 @@ function crown(
       sides: true,
     },
   );
+  if (c.p.seed % 3 === 0 && c.p.height >= 20) {
+    box(
+      b.wall,
+      o.cx,
+      o.cz,
+      o.ex,
+      o.ez,
+      o.halfA * inset * taper * 0.66,
+      o.halfB * inset * taper * 0.66,
+      c.topY + crownH,
+      c.topY + crownH * 1.65,
+      col.body,
+      { top: true, sides: true },
+    );
+  }
+}
+
+function warehouseRoof(c: Ctx): void {
+  if (c.detail < 2) return;
+  const { p } = c;
+  const col = c.colors[0];
+  if (!col || p.obb.halfA < 2.2 || p.obb.halfB < 2.2) return;
+  const o = p.obb;
+  const halfA = o.halfA * 0.72;
+  const halfB = o.halfB * 0.72;
+  const px = (a: number, b: number): number => o.cx + a * o.ex - b * o.ez;
+  const pz = (a: number, b: number): number => o.cz + a * o.ez + b * o.ex;
+  for (const a of [-halfA, halfA])
+    for (const b of [-halfB, halfB]) {
+      if (!pointInRing(p.ring, p.n, px(a, b), pz(a, b))) return;
+    }
+  const bucket = c.detailAt(o.cx, o.cz);
+  const teeth = Math.max(2, Math.min(4, Math.floor(halfA / 1.5)));
+  const pitch = (halfA * 2) / teeth;
+  const y = c.topY - PARAPET + 0.02;
+  const h = Math.min(0.7, pitch * 0.38);
+  for (let k = 0; k < teeth; k++) {
+    const a0 = -halfA + k * pitch;
+    const a1 = a0 + pitch;
+    bucket.wall.quad(
+      px(a0, -halfB),
+      y + h,
+      pz(a0, -halfB),
+      px(a1, -halfB),
+      y,
+      pz(a1, -halfB),
+      px(a1, halfB),
+      y,
+      pz(a1, halfB),
+      px(a0, halfB),
+      y + h,
+      pz(a0, halfB),
+      0,
+      1,
+      0,
+      shade(col.roof, 0.76),
+    );
+    bucket.glassDark.quad(
+      px(a0, -halfB),
+      y,
+      pz(a0, -halfB),
+      px(a0, halfB),
+      y,
+      pz(a0, halfB),
+      px(a0, halfB),
+      y + h,
+      pz(a0, halfB),
+      px(a0, -halfB),
+      y + h,
+      pz(a0, -halfB),
+      -o.ex,
+      0,
+      -o.ez,
+      col.glass,
+    );
+    for (const b of [-halfB, halfB]) {
+      const side = b < 0 ? -1 : 1;
+      bucket.wall.triangle(
+        px(a0, b),
+        y,
+        pz(a0, b),
+        px(a1, b),
+        y,
+        pz(a1, b),
+        px(a0, b),
+        y + h,
+        pz(a0, b),
+        -o.ez * side,
+        0,
+        o.ex * side,
+        col.body,
+      );
+    }
+  }
 }
 
 function buildWarehouse(c: Ctx): void {
@@ -1465,6 +1974,7 @@ function buildWarehouse(c: Ctx): void {
       );
     }
   }
+  warehouseRoof(c);
   roofPlant(c, rng.chance(0.6) ? 2 : 1, false);
 }
 
@@ -1491,6 +2001,98 @@ function buildShed(c: Ctx): void {
   }
 }
 
+/** Architectural accents occupy the reserved upper volume, including their eaves. */
+function historicRoof(b: Bucket, p: ParcelPlan, roof: RoofVariant, detail: DetailLevel): void {
+  const top = p.seatY + p.height;
+  const base = top - roof.rise;
+  const colors = colorsFor(p.kind, p.character, p.blockHash, new Rng(p.seed).next(), p.district);
+  const slate = shade(colors.roof, 0.63);
+  if (roof.kind === "mansard") {
+    for (let i = 0; i < p.n; i++) {
+      const j = (i + 1) % p.n;
+      const ax = p.ring[i * 2] ?? 0;
+      const az = p.ring[i * 2 + 1] ?? 0;
+      const bx = p.ring[j * 2] ?? 0;
+      const bz = p.ring[j * 2 + 1] ?? 0;
+      b.wall.quad(
+        ax,
+        base,
+        az,
+        bx,
+        base,
+        bz,
+        roof.inset[j * 2] ?? 0,
+        top,
+        roof.inset[j * 2 + 1] ?? 0,
+        roof.inset[i * 2] ?? 0,
+        top,
+        roof.inset[i * 2 + 1] ?? 0,
+        bz - az,
+        1,
+        ax - bx,
+        slate,
+      );
+    }
+    b.wall.cap(roof.inset, p.n, top, 1, colors.roof);
+    return;
+  }
+  const count = 8;
+  const ring = new Float32Array(count * 2);
+  const drum = base + roof.rise * 0.48;
+  for (let i = 0; i < count; i++) {
+    const angle = (i * Math.PI * 2) / count;
+    ring[i * 2] = roof.cx + Math.cos(angle) * roof.radius;
+    ring[i * 2 + 1] = roof.cz + Math.sin(angle) * roof.radius;
+  }
+  for (let i = 0; i < count; i++) {
+    const j = (i + 1) % count;
+    const ax = ring[i * 2] ?? 0,
+      az = ring[i * 2 + 1] ?? 0;
+    const bx = ring[j * 2] ?? 0,
+      bz = ring[j * 2 + 1] ?? 0;
+    const length = Math.hypot(bx - ax, bz - az);
+    const w: Wall = {
+      x0: ax,
+      z0: az,
+      tx: (bx - ax) / length,
+      tz: (bz - az) / length,
+      nx: (bz - az) / length,
+      nz: (ax - bx) / length,
+      len: length,
+      blind: false,
+      front: false,
+    };
+    decal(b.wall, w, 0, length, base - 0.1, drum - base + 0.1, 0, colors.body);
+    decal(b.wall, w, 0, length, drum - 0.08, 0.08, 0.015, colors.trim);
+    if (detail > 0) {
+      windowOn(
+        b,
+        w,
+        length * 0.24,
+        length * 0.52,
+        base + 0.12,
+        drum - base - 0.24,
+        0.025,
+        colors.trim,
+        colors.glass,
+        false,
+      );
+    }
+    // A low eight-sided cap, not a needle spire. Flat summit preserves SF scale.
+    const inner = 0.09;
+    const iax = roof.cx + (ax - roof.cx) * inner,
+      iaz = roof.cz + (az - roof.cz) * inner;
+    const ibx = roof.cx + (bx - roof.cx) * inner,
+      ibz = roof.cz + (bz - roof.cz) * inner;
+    b.wall.quad(ax, drum, az, bx, drum, bz, ibx, top, ibz, iax, top, iaz, w.nx, 1, w.nz, slate);
+  }
+  const summit = ring.map((value, index) => {
+    const center = index % 2 === 0 ? roof.cx : roof.cz;
+    return center + (value - center) * 0.09;
+  });
+  b.wall.cap(summit, count, top, 1, slate);
+}
+
 // --- Entry ------------------------------------------------------------------------
 
 /**
@@ -1511,7 +2113,7 @@ export async function buildParcelGeometry(
     buildOne(buckets, p, detail);
   }
   for (const lot of lots) buildLot(buckets, lot);
-  return buckets.flush();
+  return buckets.flush(detail === 0);
 }
 
 /** The same, synchronously — one stream cell's worth, inside a frame budget. */
@@ -1523,7 +2125,7 @@ export function buildParcelGeometrySync(
   const buckets = new Buckets();
   for (const p of plans) buildOne(buckets, p, detail);
   for (const lot of lots) buildLot(buckets, lot);
-  return buckets.flush();
+  return buckets.flush(detail === 0);
 }
 
 // --- Surface lots ------------------------------------------------------------
@@ -1596,9 +2198,9 @@ function buildLot(buckets: Buckets, lot: ParcelLot): void {
 }
 
 // --- The lean fabric --------------------------------------------------------
-// Every parcel outside the downtown survey: walls on the facade shader, a
-// roof cap, nothing else. ~5 vertices per ring vertex against ~250 for a
-// survey parcel, and the shader draws what the survey gets as geometry.
+// Distant parcels, from either source, keep their windows on the facade
+// shader. The streamer promotes every neighbourhood to dimensional street
+// fronts near the camera; survey provenance no longer controls art quality.
 
 /** Window pitch per kind, in world units: the stucco box's wide band, the Victorian's sashes. */
 function leanPitch(kind: ParcelKind): number {
@@ -1618,6 +2220,26 @@ function leanPitch(kind: ParcelKind): number {
   }
 }
 
+function claddingFlags(p: ParcelPlan): number {
+  // The top two bits encode tower construction: no additional GPU attributes.
+  if (p.kind === "tower") {
+    const facade = towerFacadeFor(p.blockHash);
+    return facade === "curtain" ? 64 : facade === "ribbon" ? 128 : 192;
+  }
+  if (p.kind === "rowhouse") return FACADE_FLAG_SIDING;
+  if (
+    p.kind === "warehouse" ||
+    (p.kind === "midrise" &&
+      (p.district === "SoMa" ||
+        p.district === "Dogpatch" ||
+        p.district === "Jackson Square" ||
+        p.district === "North Beach" ||
+        p.district === "Chinatown"))
+  )
+    return FACADE_FLAG_BRICK;
+  return 0;
+}
+
 function leanFlags(kind: ParcelKind): number {
   switch (kind) {
     case "stucco":
@@ -1632,20 +2254,21 @@ function leanFlags(kind: ParcelKind): number {
   }
 }
 
-function buildLean(buckets: Buckets, p: ParcelPlan): void {
+function buildLean(buckets: Buckets, p: ParcelPlan, silhouetteHeight: number): void {
   const rng = new Rng(p.seed);
   const walls = wallsOf(p);
   if (walls.length < 3) return;
   const st = storeysOf(p);
   const topY = p.seatY + p.height;
-  const b = buckets.at(bodyTier(p.height), p.obb.cx, p.obb.cz);
-  const colors = colorsFor(p.kind, p.character, p.blockHash, rng.next());
+  const b = buckets.at(bodyTier(silhouetteHeight), p.obb.cx, p.obb.cz);
+  const colors = colorsFor(p.kind, p.character, p.blockHash, rng.next(), p.district);
   const unitColors: number[] = [colors.body];
   for (let u = 1; u < p.units; u++) {
-    unitColors.push(colorsFor(p.kind, p.character, p.blockHash, rng.next()).body);
+    unitColors.push(colorsFor(p.kind, p.character, p.blockHash, rng.next(), p.district).body);
   }
   const pitch = leanPitch(p.kind);
   const flags = leanFlags(p.kind);
+  const cladding = claddingFlags(p);
   const seedByte = (p.seed >>> 3) & 0xff;
   const y0 = p.footY;
   for (const w of walls) {
@@ -1657,7 +2280,7 @@ function buildLean(buckets: Buckets, p: ParcelPlan): void {
       wallLen: w.len,
       storeys: st.count,
       seed: seedByte,
-      flags: blank ? FACADE_FLAG_BLANK | (w.blind ? 0 : flags) : w.front ? flags : 0,
+      flags: (blank ? FACADE_FLAG_BLANK | (w.blind ? 0 : flags) : w.front ? flags : 0) | cladding,
     };
     if (w.front && p.units > 1) {
       // The terrace: each unit its own colour, its own door.
@@ -1698,9 +2321,13 @@ function buildLean(buckets: Buckets, p: ParcelPlan): void {
   b.wall.cap(p.ring, p.n, topY, 1, colors.roof);
 }
 
-function buildOne(buckets: Buckets, p: ParcelPlan, detail: DetailLevel): void {
-  if (!p.hero) {
-    buildLean(buckets, p);
+function buildOne(buckets: Buckets, source: ParcelPlan, detail: DetailLevel): void {
+  const roof = roofVariantOf(source);
+  const p = roof ? { ...source, height: source.height - roof.rise } : source;
+  if (detail === 0) {
+    buildLean(buckets, { ...p, ...distantFootprint(p) }, source.height);
+    if (roof)
+      historicRoof(buckets.at(bodyTier(source.height), p.obb.cx, p.obb.cz), source, roof, 0);
     return;
   }
   const rng = new Rng(p.seed);
@@ -1710,7 +2337,7 @@ function buildOne(buckets: Buckets, p: ParcelPlan, detail: DetailLevel): void {
   const topY = p.seatY + p.height;
   const colors: ParcelColors[] = [];
   for (let u = 0; u < p.units; u++) {
-    colors.push(colorsFor(p.kind, p.character, p.blockHash, rng.next()));
+    colors.push(colorsFor(p.kind, p.character, p.blockHash, rng.next(), p.district));
   }
   // Night: a third of buildings are dark, the rest light up by floor band —
   // office floors with the cleaners in, a dark storey between.
@@ -1719,7 +2346,7 @@ function buildOne(buckets: Buckets, p: ParcelPlan, detail: DetailLevel): void {
   for (let s = 0; s <= st.count; s++) litFloor.push(rng.chance(share > 0 ? 0.55 : 0));
   const perWindow = share > 0 ? Math.min(1, share * 1.4) : 0;
   const lit = (storey: number): boolean => litFloor[storey] === true && rng.chance(perWindow);
-  const bodyTierName = bodyTier(p.height);
+  const bodyTierName = bodyTier(source.height);
   const bodyBucket = buckets.at(bodyTierName, p.obb.cx, p.obb.cz);
   const c: Ctx = {
     p,
@@ -1735,6 +2362,7 @@ function buildOne(buckets: Buckets, p: ParcelPlan, detail: DetailLevel): void {
     lit,
   };
   const kind: ParcelKind = p.kind;
+  if (roof) historicRoof(bodyBucket, source, roof, detail);
   switch (kind) {
     case "rowhouse":
       buildRowhouse(c, false);

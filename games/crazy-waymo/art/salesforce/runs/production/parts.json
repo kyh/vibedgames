@@ -1,0 +1,43 @@
+{
+  "model": "salesforce-tower",
+  "parts": [
+    {
+      "name": "salesforce-glass",
+      "kind": "part",
+      "module": "salesforce-glass",
+      "triangles": 2132
+    },
+    {
+      "name": "salesforce-lit",
+      "kind": "part",
+      "module": "salesforce-lit",
+      "triangles": 440
+    },
+    {
+      "name": "salesforce-metal",
+      "kind": "part",
+      "module": "salesforce-metal",
+      "triangles": 10952
+    },
+    {
+      "name": "salesforce-crown",
+      "kind": "part",
+      "module": "salesforce-crown",
+      "triangles": 288
+    },
+    {
+      "name": "salesforce-stone",
+      "kind": "part",
+      "module": "salesforce-stone",
+      "triangles": 260
+    },
+    {
+      "name": "salesforce-dark",
+      "kind": "part",
+      "module": "salesforce-dark",
+      "triangles": 204
+    }
+  ],
+  "unnamedMeshes": 0,
+  "integralMeshes": 6
+}

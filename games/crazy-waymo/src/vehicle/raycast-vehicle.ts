@@ -146,7 +146,7 @@ export class RaycastVehicle {
   private v2 = new THREE.Vector3();
 
   constructor(
-    private readonly physics: PhysicsWorld,
+    private readonly physics: Pick<PhysicsWorld, "raw">,
     x: number,
     y: number,
     z: number,
@@ -380,6 +380,7 @@ export class RaycastVehicle {
 
     // --- Assists ---
     const grounded = this.groundedWheels();
+    const holding = mode === "coast" && grounded >= 2 && startPlanarSpeed < 0.8;
     if (grounded === 0) this.airborneTime += dt;
     else {
       if (this.airborneTime > 0.15) this.gripRecoveryT = 0; // just landed
@@ -532,6 +533,13 @@ export class RaycastVehicle {
         { x: Math.sin(heading) * speed, y: lv.y, z: Math.cos(heading) * speed },
         true,
       );
+    } else if (holding) {
+      const lv = this.chassis.linvel();
+      // Auto-hold at rest: suspension introduces downhill tire impulses even
+      // with rolling resistance. Remove those after the tires run, retaining
+      // vertical settling. Pedals, moving cars and airborne cars never enter
+      // this branch, so coasting/drift/landing behavior stays physical.
+      this.chassis.setLinvel({ x: 0, y: lv.y, z: 0 }, true);
     } else if (mode === "brake" && grounded > 0) {
       // Straight-line brake: shave planar speed at a capped rate along the
       // velocity's own direction (racing-game decel, never an anchor).

@@ -99,7 +99,9 @@ export const CAMERA = {
   fov: 58,
   fovBoost: 70, // widen FOV with speed for a rush
   distance: 13, // behind the car
-  height: 6.8,
+  // Street-facing frame: the old 6.8u perch looked down over two-storey SF
+  // roofs, hiding bay windows and making the city read as a model railway.
+  height: 5.2,
   lookHeight: 1.6,
   lookAhead: 12, // aim ahead of the car (see corners sooner)
   lookAheadSpeed: 9, // extra look-ahead at top speed (road opens up)

@@ -1058,6 +1058,18 @@
           top: calc(98px + env(safe-area-inset-top));
         }
       }
+      @media (pointer: coarse) and (max-width: 520px) {
+        #area {
+          max-width: calc(100vw - 232px);
+          padding: 6px 8px;
+          font-size: 11px;
+          line-height: 1.35;
+          letter-spacing: 1.4px;
+          white-space: normal;
+          text-align: center;
+          text-wrap: balance;
+        }
+      }
       /* Keycap legend, below the CTA. Chips read as keys, not prose; one row
          per input method under the pause overlay's KEYS/TOUCH/PAD tags. */
       #banner-controls {

@@ -21,6 +21,7 @@ const HALF_W = 0.26;
 // still well below the car body.
 const LIFT = SKID_LIFT + 0.04; // 0.22
 const MIN_STEP = 0.45; // world units between samples
+const MAX_STEP = 4; // teleports and physics corrections cannot join two streets
 // Ribbons cover big screen area, so they sit near the bottom of the 2.2-3.4
 // additive band — the shoulder still keeps stacked crossings from whiting out,
 // and only dense overlaps graze the day bloom gate.
@@ -33,17 +34,20 @@ type Sample = {
   y: number;
   px: number; // perpendicular (unit) at capture time
   pz: number;
+  sideRise: number;
   age: number;
   r: number;
   g: number;
   b: number;
   a: number;
+  /** This sample starts a stroke; previous samples may still be fading. */
+  startsStroke: boolean;
 };
 
 export class DriftTrails {
   readonly mesh: THREE.Mesh;
   private samples: Sample[][] = [];
-  private heads: { x: number; z: number }[] = [];
+  private heads: { x: number; z: number; connected: boolean }[] = [];
   private positions: Float32Array;
   private colors: Float32Array;
   private posAttr: THREE.BufferAttribute;
@@ -53,7 +57,7 @@ export class DriftTrails {
   constructor(private heightAt: (x: number, z: number) => number) {
     for (let r = 0; r < RIBBONS; r++) {
       this.samples.push([]);
-      this.heads.push({ x: 0, z: 0 });
+      this.heads.push({ x: 0, z: 0, connected: false });
     }
     const maxVerts = RIBBONS * SAMPLES * 2;
     const maxTris = RIBBONS * (SAMPLES - 1) * 2;
@@ -95,6 +99,11 @@ export class DriftTrails {
 
   private indexArray: Uint16Array;
 
+  /** Release the contact patch without erasing the previous stroke's fade. */
+  break(): void {
+    for (const head of this.heads) head.connected = false;
+  }
+
   // Feed wheel positions while a trail-worthy state is active. `heading` gives
   // the ribbon's cross axis; hue: 0 = slide white, 1 = charged cyan, 2 = boost.
   emit(
@@ -109,13 +118,14 @@ export class DriftTrails {
     const head = this.heads[ribbon];
     if (!list || !head) return;
     const step = Math.hypot(x - head.x, z - head.z);
-    if (list.length > 0 && step < MIN_STEP) return;
+    const connected = head.connected && list.length > 0 && step <= MAX_STEP;
+    if (connected && step < MIN_STEP) return;
     // Cross axis follows the MOTION direction, not the nose: during a drift
     // (and countersteer) the two diverge, and heading-aligned quads render as
     // a jagged zigzag instead of a smooth streak.
     let px: number;
     let pz: number;
-    if (list.length > 0 && step > 1e-4 && step < MIN_STEP * 8) {
+    if (connected && step > 1e-4) {
       px = (z - head.z) / step;
       pz = -(x - head.x) / step;
     } else {
@@ -124,6 +134,7 @@ export class DriftTrails {
     }
     head.x = x;
     head.z = z;
+    head.connected = true;
     if (kind === 2) this.tmp.set(TIER_COLORS[1]).multiplyScalar(TIER_INTENSITY);
     else if (kind === 1) this.tmp.set(TIER_COLORS[0]).multiplyScalar(TIER_INTENSITY);
     else this.tmp.setRGB(0.8, 0.88, 1.0).multiplyScalar(SLIDE_INTENSITY);
@@ -133,11 +144,16 @@ export class DriftTrails {
       y: this.heightAt(x, z) + LIFT,
       px,
       pz,
+      sideRise:
+        (this.heightAt(x + px * HALF_W, z + pz * HALF_W) -
+          this.heightAt(x - px * HALF_W, z - pz * HALF_W)) /
+        2,
       age: 0,
       r: this.tmp.r,
       g: this.tmp.g,
       b: this.tmp.b,
       a: (kind === 0 ? 0.45 : 0.75) * strength,
+      startsStroke: !connected,
     };
     list.push(sample);
     if (list.length > SAMPLES) list.shift();
@@ -168,10 +184,10 @@ export class DriftTrails {
         const wx = s.x - s.px * w;
         const wz = s.z - s.pz * w;
         this.positions[vi] = vx;
-        this.positions[vi + 1] = s.y;
+        this.positions[vi + 1] = s.y + s.sideRise * (w / HALF_W);
         this.positions[vi + 2] = vz;
         this.positions[vi + 3] = wx;
-        this.positions[vi + 4] = s.y;
+        this.positions[vi + 4] = s.y - s.sideRise * (w / HALF_W);
         this.positions[vi + 5] = wz;
         const ci = (vi / 3) * 4;
         const a = s.a * fade * fade;
@@ -183,7 +199,7 @@ export class DriftTrails {
         }
         vi += 6;
         // Stitch to the previous pair.
-        if (i > 0) {
+        if (i > 0 && !s.startsStroke) {
           const p = start + (i - 1);
           const c = start + i;
           this.indexArray[ii++] = p * 2;

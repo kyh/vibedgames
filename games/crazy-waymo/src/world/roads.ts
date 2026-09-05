@@ -6,7 +6,6 @@ import {
   conformToTerrain,
   DRAPE_MAX_ERROR,
   type DrapeField,
-  seatOnSurface,
   surfaceSampler,
   type SurfaceSampler,
 } from "./conform";
@@ -20,7 +19,7 @@ import { busLoadAt, SF_TRANSIT } from "./sf-transit";
 //
 //   asphalt  = union(edge strips, junction patches, dead-end caps)
 //   curb     = union(strips grown by CURB_W)  − asphalt
-//   sidewalk = union(strips grown by SIDEWALK_W) − asphalt
+//   sidewalk = union(strips grown by SIDEWALK_W) − asphalt − curb
 //
 // Overlap between independently generated pieces — the source of every
 // "sidewalk slicing across a road" bug — is dissolved by the union instead
@@ -46,15 +45,12 @@ const CURB_LIFT = SIDEWALK_LIFT + 0.03; // curb lip reads above the walk
 // beacon rings, garage pad rings) must clear this or the street depth-tests
 // them away / z-fights them at distance.
 export const STREET_SURFACE_MAX = CURB_LIFT + DRAPE_MAX_ERROR;
-// Markings drape at a looser sag tolerance than the asphalt (thin decals; the
-// vert savings across all of SF's paint is large). They no longer need a lift
-// that covers the worst relative bow between the two drapes: paint is SEATED
-// on the asphalt surface after it is draped (seatOnSurface), so PAINT_SEAT is
-// just enough to beat depth precision alongside the decals' polygon offset.
-// LINE_LIFT survives only as the fallback for the handful of marking vertices
-// that fall outside the asphalt shell.
-const MARKING_MAX_ERROR = DRAPE_MAX_ERROR;
-const PAINT_SEAT = 0.03;
+// Thin paint follows the asphalt's actual triangles with a tighter tolerance.
+// Its separation only needs to cover this residual bow; broad physical lifts
+// made markings float above the kerb. LINE_LIFT is the fallback for vertices
+// grazing outside the asphalt shell.
+const MARKING_MAX_ERROR = 0.008;
+const PAINT_SEAT = 0.028;
 const LINE_LIFT = ASPHALT_LIFT + MARKING_MAX_ERROR + DRAPE_MAX_ERROR + 0.03;
 // Same idea one layer up, for the kerb colour zones: they are seated on the
 // drawn KERB, and this is only the fallback for the vertices that graze off it.
@@ -795,9 +791,8 @@ export function bakeConstantColor(geo: THREE.BufferGeometry, color: THREE.Color)
   geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
 }
 
-// Which drawn surface a decal is re-seated onto (see seatOnSurface). Paint on
-// the roadway rides the asphalt; a kerb colour zone rides the kerb, which is
-// drawn 0.11u higher — seating it on the asphalt would bury it.
+// Which drawn surface supplies a decal's adaptive drape. Road paint follows
+// asphalt; kerb colour zones follow the kerb's higher surface.
 type PaintSeat = "asphalt" | "curb";
 
 type Part = {
@@ -807,6 +802,19 @@ type Part = {
   maxError?: number;
   seat?: PaintSeat;
 };
+
+// Physical layering survives the road batch merge and binary round-trip.
+// Lane fills sit below linework, embedded iron sits above the linework, and
+// stencils remain legible on all of them. Giving every decal the same depth
+// made Muni bounds, cable crossings and markings fight inside one draw call.
+function paintSeatLift(mat: THREE.Material): number {
+  if (mat === MAT_MUNI_RED || mat === MAT_BIKE_GREEN || MAT_RAINBOW.some((m) => m === mat)) {
+    return 0.012;
+  }
+  if (mat === MAT_RAIL || mat === MAT_RAIL_SLOT || mat === MAT_MANHOLE) return 0.048;
+  if (mat === MAT_GLYPH) return 0.068;
+  return PAINT_SEAT;
+}
 
 export type RoadPartBuffers = {
   matKey: string;
@@ -1128,9 +1136,8 @@ function ringSignedDist(ring: Ring, x: number, z: number): number {
 // The whole boolean pipeline runs PER SPATIAL TILE with bbox-filtered local
 // inputs. City-scale sweeps are both slow (the accumulator grows with every
 // chunk) and fragile (martinez corrupts on huge inputs); per-tile the inputs
-// are dozens of polygons, the work is linear in the city, and any failure
-// costs one tile. Adjacent tiles share exact snapped cut lines, so the seams
-// are invisible.
+// are dozens of polygons and the work is linear in the city. Adjacent tiles
+// share exact snapped cut lines. Failed booleans abort generation.
 type PlanarMap = { asphalt: MultiPoly; curb: MultiPoly; walk: MultiPoly };
 
 function bboxOf(poly: Poly): [number, number, number, number] {
@@ -1145,6 +1152,39 @@ function bboxOf(poly: Poly): [number, number, number, number] {
     z1 = Math.max(z1, z);
   }
   return [x0, z0, x1, z1];
+}
+
+// Boolean intersections introduce rational coordinates even though the input
+// rings use a binary-exact grid. Feeding those nearly coincident segments to
+// the next boolean can corrupt the sweep tree (a missing sidewalk tile at
+// Russian Hill). Reuse the authored precision between operations; collapsed
+// sliver rings have no drawable area and are discarded at this boundary.
+function snappedPolygons(polygons: MultiPoly): MultiPoly {
+  const out: MultiPoly = [];
+  for (const polygon of polygons) {
+    const rings: Poly = [];
+    for (let i = 0; i < polygon.length; i++) {
+      const ring = polygon[i];
+      if (!ring) continue;
+      const points: Ring = [];
+      for (const [x, z] of ring) {
+        const px = snap(x);
+        const pz = snap(z);
+        const previous = points[points.length - 1];
+        if (!previous || previous[0] !== px || previous[1] !== pz) points.push([px, pz]);
+      }
+      const first = points[0];
+      const last = points[points.length - 1];
+      if (first && last && first[0] === last[0] && first[1] === last[1]) points.pop();
+      if (points.length < 3) {
+        if (i === 0) break;
+        continue;
+      }
+      rings.push(points);
+    }
+    if (rings.length > 0) out.push(rings);
+  }
+  return out;
 }
 
 function tiledPlanarMap(asphaltPolys: Poly[], curbPolys: Poly[], pavePolys: Poly[]): PlanarMap {
@@ -1190,25 +1230,34 @@ function tiledPlanarMap(asphaltPolys: Poly[], curbPolys: Poly[], pavePolys: Poly
       const aLoc = local(asphaltPolys, boxes.a);
       if (aLoc.length === 0) continue;
       try {
-        const A = polygonClipping.intersection(polygonClipping.union([], ...aLoc), [rect]);
+        const A = snappedPolygons(
+          polygonClipping.intersection(polygonClipping.union([], ...aLoc), [rect]),
+        );
         if (A.length === 0) continue;
         out.asphalt.push(...A);
-        const C = polygonClipping.intersection(
-          polygonClipping.union([], ...local(curbPolys, boxes.c)),
-          [rect],
+        const C = snappedPolygons(
+          polygonClipping.intersection(polygonClipping.union([], ...local(curbPolys, boxes.c)), [
+            rect,
+          ]),
         );
         out.curb.push(...polygonClipping.difference(C, A));
-        const P = polygonClipping.intersection(
-          polygonClipping.union([], ...local(pavePolys, boxes.p)),
-          [rect],
+        const P = snappedPolygons(
+          polygonClipping.intersection(polygonClipping.union([], ...local(pavePolys, boxes.p)), [
+            rect,
+          ]),
         );
-        out.walk.push(...polygonClipping.difference(P, A));
-      } catch {
+        // These are adjacent surfaces, never stacked shells. A sidewalk
+        // beneath the curb put two independently draped faces 0.03u apart;
+        // either drape can bow 0.09u and cut through the other on a grade.
+        out.walk.push(...polygonClipping.difference(P, A, C));
+      } catch (error) {
+        console.warn(`[roads] tile ${ix},${iz} failed`, error);
         failed++;
       }
     }
   }
-  if (failed > 0) console.warn(`[roads] planar map: ${failed} tiles degraded`);
+  // An incomplete city must never be published as a successful bake.
+  if (failed > 0) throw new Error(`Street geometry failed in ${failed} tiles`);
   return out;
 }
 
@@ -2033,7 +2082,7 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
         const inner = 0.9;
         const outer = inner + (ladder ? 2.6 : 1.6);
         const usable = a.half - 0.8;
-        const count = Math.max(4, Math.floor(usable / 0.95));
+        const count = Math.max(rainbow ? MAT_RAINBOW.length : 4, Math.floor(usable / 0.95));
         crosswalkArms++;
         if (!ladder) {
           // Transverse crosswalk: two thin lines across the roadway instead of
@@ -2151,15 +2200,25 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
     const nor = draped.getAttribute("normal");
     const uv = draped.getAttribute("uv");
     const idx = draped.index;
-    // SAFETY: every draped geometry is built in this file from Float32Array
-    // position/normal/uv attributes, and flatGeo/conformToTerrain index with
-    // Uint16Array or Uint32Array; BufferAttribute.array only remembers TypedArray.
+    const position = pos.array;
+    const normal = nor.array;
+    const texcoord = uv?.array ?? null;
+    const index = idx?.array ?? null;
+    if (!(position instanceof Float32Array) || !(normal instanceof Float32Array)) {
+      throw new Error("Street geometry requires float positions and normals");
+    }
+    if (texcoord !== null && !(texcoord instanceof Float32Array)) {
+      throw new Error("Street geometry requires float texture coordinates");
+    }
+    if (index !== null && !(index instanceof Uint16Array) && !(index instanceof Uint32Array)) {
+      throw new Error("Street geometry requires unsigned triangle indices");
+    }
     out.push({
       matKey: keyOfMat.get(mat) ?? "asphalt",
-      position: pos.array as Float32Array,
-      normal: nor.array as Float32Array,
-      uv: uv ? (uv.array as Float32Array) : null,
-      index: idx ? (idx.array as Uint16Array | Uint32Array) : null,
+      position,
+      normal,
+      uv: texcoord,
+      index,
     });
   };
 
@@ -2176,22 +2235,26 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
     if (p.mat === MAT_CURB) curbSurface = surfaceSampler(draped);
     publish(p.mat, draped);
   }
-  // Paint is SEATED on the asphalt that was just draped, not draped on its own
-  // over the terrain. The two surfaces disagree (a 14u-wide roadway's chords
-  // cut corners a 0.24u line's don't, and the terrace field steps between
-  // them), which is why the lift had grown to 0.30u above the asphalt —
-  // higher than the kerb lip, so every marking parallaxed off the road.
-  // Kerb colour zones ride the KERB by the same argument: it is drawn 0.11u
-  // above the asphalt, so seating them on the roadway would bury them under it.
+  // Refine against the DRAWN surface, not just its vertex heights. Moving
+  // the vertices of a coarse decal onto asphalt still leaves its triangle
+  // chords cutting through the road between those vertices. Fine adaptive
+  // edges follow the asphalt triangles closely enough to keep each paint
+  // layer separated. Kerb zones use the kerb shell by the same contract.
+  const paintField = (sample: SurfaceSampler | null, fallback: number): DrapeField => ({
+    heightAt: (x, z) => sample?.(x, z) ?? terrain.heightAt(x, z) + fallback,
+    normalInto: (out, x, z) => terrain.normalInto(out, x, z),
+  });
+  const asphaltPaint = paintField(asphaltSurface, LINE_LIFT);
+  const curbPaint = paintField(curbSurface, KERB_PAINT_LIFT);
   const tPaint = performance.now();
   for (const p of markingParts) {
-    const draped = conformToTerrain(p.geo, terrain, 0, MARKING_MAX_ERROR);
     const onCurb = p.seat === "curb";
-    seatOnSurface(
-      draped,
-      onCurb ? curbSurface : asphaltSurface,
-      PAINT_SEAT,
-      onCurb ? KERB_PAINT_LIFT : LINE_LIFT,
+    const draped = conformToTerrain(
+      p.geo,
+      onCurb ? curbPaint : asphaltPaint,
+      paintSeatLift(p.mat),
+      MARKING_MAX_ERROR,
+      { minEdge: 0.4, maxDepth: 8 },
     );
     publish(p.mat, draped);
   }

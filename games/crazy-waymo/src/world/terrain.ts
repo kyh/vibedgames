@@ -29,6 +29,9 @@ export type LandFactor = (u: number, v: number) => number;
  */
 export type Flank = { height: number; slope: number; aspect: number };
 
+/** A visible surface the tessellated ground must remain below. */
+export type GroundCeiling = { readonly x: number; readonly z: number; readonly y: number };
+
 /** Reusable Flank for per-vertex loops (the ground painter runs ~100k times). */
 export function makeFlank(): Flank {
   return { height: 0, slope: 0, aspect: 0 };
@@ -212,6 +215,68 @@ export class Terrain {
     }
     const h = at(i + 1, j + 1);
     return h + (1 - u) * (at(i, j + 1) - h) + (1 - v) * (at(i + 1, j) - h);
+  }
+
+  /**
+   * Lower the ground's actual triangle vertices only where a road pierces it.
+   * Each ceiling lowers all three supporting corners by the same excess, so
+   * later samples cannot undo earlier clearance. This uses the buildMesh
+   * lattice, not a second approximate terrain field; standing props query the
+   * returned offset through renderedHeightAt and see the same correction.
+   */
+  capGroundOffset(
+    offsetAt: (x: number, z: number) => number,
+    ceilings: Iterable<GroundCeiling>,
+  ): (x: number, z: number) => number {
+    const width = GROUND_TILES_X * GROUND_SEGS_X + 1;
+    const depth = GROUND_TILES_Z * GROUND_SEGS_Z + 1;
+    const heights = new Float32Array(width * depth).fill(NaN);
+    const lower = new Float32Array(width * depth);
+    const key = (i: number, j: number): number => i * depth + j;
+    const height = (i: number, j: number): number => {
+      const k = key(i, j);
+      const cached = heights[k];
+      if (cached !== undefined && Number.isFinite(cached)) return cached;
+      const x = -GROUND_SPAN_X / 2 + i * GROUND_STEP_X;
+      const z = -GROUND_SPAN_Z / 2 + j * GROUND_STEP_Z;
+      const y = this.heightAt(x, z) + offsetAt(x, z);
+      heights[k] = y;
+      return y;
+    };
+    for (const p of ceilings) {
+      const fx = (p.x + GROUND_SPAN_X / 2) / GROUND_STEP_X;
+      const fz = (p.z + GROUND_SPAN_Z / 2) / GROUND_STEP_Z;
+      const i = Math.floor(fx);
+      const j = Math.floor(fz);
+      if (i < 0 || j < 0 || i >= width - 1 || j >= depth - 1) continue;
+      const u = fx - i;
+      const v = fz - j;
+      const near = u + v <= 1;
+      const a = near ? key(i, j) : key(i + 1, j + 1);
+      const b = key(i + 1, j);
+      const c = key(i, j + 1);
+      const h = near ? height(i, j) : height(i + 1, j + 1);
+      const y = near
+        ? h + u * (height(i + 1, j) - h) + v * (height(i, j + 1) - h)
+        : h + (1 - u) * (height(i, j + 1) - h) + (1 - v) * (height(i + 1, j) - h);
+      const excess = y - p.y;
+      if (excess <= 0) continue;
+      for (const k of [a, b, c]) lower[k] = Math.max(lower[k] ?? 0, excess);
+    }
+    return (x, z) => {
+      const fx = (x + GROUND_SPAN_X / 2) / GROUND_STEP_X;
+      const fz = (z + GROUND_SPAN_Z / 2) / GROUND_STEP_Z;
+      const i = Math.floor(fx);
+      const j = Math.floor(fz);
+      if (i < 0 || j < 0 || i >= width - 1 || j >= depth - 1) return offsetAt(x, z);
+      const u = fx - i;
+      const v = fz - j;
+      const a = lower[key(i, j)] ?? 0;
+      const b = lower[key(i + 1, j)] ?? 0;
+      const c = lower[key(i, j + 1)] ?? 0;
+      const d = lower[key(i + 1, j + 1)] ?? 0;
+      return offsetAt(x, z) - ((a * (1 - u) + b * u) * (1 - v) + (c * (1 - u) + d * u) * v);
+    };
   }
 
   // A displaced ground mesh covering the island (the ocean plane sits below

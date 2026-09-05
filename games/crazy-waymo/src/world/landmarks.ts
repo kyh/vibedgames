@@ -17,6 +17,7 @@ import type { CityPlan } from "./grid";
 import { arc, box, cyl, dome, facet, MAT, mesh, packLandmark, paint, strut } from "./landmark-geo";
 import { MASONRY, seatMasonry } from "./masonry";
 import type { RoadNetwork } from "./network";
+import { createSalesforceModel } from "./sf-salesforce";
 import type { Terrain } from "./terrain";
 
 // Iconic SF landmarks at traced (u,v) positions (from the sf-trace research).
@@ -151,15 +152,10 @@ function pyramid(ctx: LandmarkCtx): THREE.Group {
   return g;
 }
 
-// Salesforce Tower — the tallest, a tapered octagonal glass shaft. H matches
-// the real 326 m at world scale (45 × KIT_SCALE ≈ 73u) — the old 60 (97u)
-// washed into the fog as a featureless beam.
+// Shared curved curtain wall, sunshade grid, airy crown and recessed lobby.
+// Original local radius4.2/height49.5 and KIT_SCALE placement remain intact.
 function salesforce(): THREE.Group {
-  const g = new THREE.Group();
-  const H = 45;
-  g.add(cyl(2.3, 4.2, H, 10, MAT.towerGlass, 0, H / 2, 0));
-  g.add(cyl(0.1, 1.6, 5, 10, MAT.towerGlass, 0, H + 2, 0));
-  return g;
+  return createSalesforceModel();
 }
 
 // Coit Tower — fluted white column on the Telegraph Hill summit (its (u,v)
