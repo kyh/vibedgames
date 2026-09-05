@@ -6,6 +6,7 @@ import { modelUrl, TREE_LARGE, TREE_SMALL, GARAGE_MODEL } from "../assets/manife
 import { registerBeacons } from "../fx/beacon-lights";
 import { applyMaterialBreakup, CITY_BREAKUP } from "../render/material-breakup";
 import { createTerrainMaterial } from "../render/terrain-material";
+import { StaticWorldGroup } from "../render/static-world-group";
 import {
   propShadowPolicy,
   propShadowsDisabled,
@@ -758,7 +759,7 @@ function imposterBox(geo: THREE.BufferGeometry, mat: THREE.Material): THREE.Buff
 }
 
 export class CityModel {
-  readonly group = new THREE.Group();
+  readonly group = new StaticWorldGroup();
   readonly solids: Solid[] = [];
   private readonly landmarkWater: WaterBody[] = [];
   readonly roadCells: RoadCell[] = [];
@@ -1699,7 +1700,7 @@ export class CityModel {
       }
 
       console.log(`[city] merges ${Math.round(performance.now() - tMerge)}ms`);
-      await this.buildBatchesFrom(batchBuckets);
+      await this.buildBatchesFrom(batchBuckets, "capture");
 
       // --- Iconic landmarks (procedural; kept separate — always visible) ---
       this.group.add(resolveLandmarks());
@@ -1868,7 +1869,7 @@ export class CityModel {
       bucket.items.push(item);
     }
     console.log(`[city] rest items ok ${okN} dropSrc ${dropSrc} dropRaw ${dropRaw}`);
-    await this.buildBatchesFrom(buckets, (f) => onProgress?.(0.55 + f * 0.4));
+    await this.buildBatchesFrom(buckets, "restore", (f) => onProgress?.(0.55 + f * 0.4));
     // Game data.
     this.solids.length = 0;
     for (const so of rest.solids) this.solids.push(so);
@@ -1939,6 +1940,7 @@ export class CityModel {
   // rebuild (from serialized records).
   private async buildBatchesFrom(
     batchBuckets: Map<string, BatchBucket>,
+    mode: "capture" | "restore",
     onProgress?: (f: number) => void,
   ): Promise<void> {
     const multiDraw = renderCapabilities().multiDraw;
@@ -2014,7 +2016,9 @@ export class CityModel {
         }
         const iid = batched.addInstance(gid);
         batched.setMatrixAt(iid, item.matrix);
-        if (item.src) {
+        // A restored world already has its authoritative cache records.
+        // Recapturing them retained 64k matrix arrays with no later consumer.
+        if (mode === "capture" && item.src) {
           restItems.push({
             url: item.src.url,
             idx: item.src.idx,
@@ -2023,7 +2027,7 @@ export class CityModel {
             tint: item.tint ? item.tint.getHex() : null,
             big: false,
           });
-        } else {
+        } else if (mode === "capture") {
           const mat = bucket.material;
           const textured = mat instanceof THREE.MeshStandardMaterial && mat.map !== null;
           const rec = textured ? null : matRecOf(mat);
@@ -2262,18 +2266,12 @@ export class CityModel {
     console.log(`[city] batches ${Math.round(performance.now() - tBatch)}ms`);
   }
 
-  // The city never moves after build: compose every matrix once, then stop
-  // the per-frame recompose (updateMatrixWorld still walks the subtree, but
-  // each visit skips both local compose and forced parent-world multiply).
-  // Chunk streaming only flips `visible`, and BatchedMesh instance
-  // matrices live in a texture — neither needs object matrices. Skipped in
-  // editor mode, where props get dragged around live.
+  // The city never moves after build. Seal its transform subtree so the live
+  // scene cannot walk thousands of frozen descendants every frame. Streaming
+  // flips visibility/instance buffers; arriving parcel cells compose on attach.
+  // Editor sessions keep the ordinary live hierarchy.
   freezeStatic(): void {
-    this.group.updateMatrixWorld(true); // compose every local+world matrix once
-    this.group.traverse((o) => {
-      o.matrixAutoUpdate = false;
-      o.matrixWorldAutoUpdate = false;
-    });
+    this.group.seal();
   }
 
   // Chunked visibility: merged road/drape tiles show/hide as whole groups

@@ -236,6 +236,22 @@ and baked sky at every tier. These are desktop stress proxies, not physical-phon
 GPU benchmarks. Keep
 other browsers and build/test processes idle during timing runs.
 
+`node tools/verify-mobile-soak.mjs <dev-url> <output-dir> --minutes=5 --cpu=4`
+adds sustained repeated road drives across portrait/landscape and day/night.
+It records completed main-scene render submissions, bounded timing histograms,
+natural heap samples, stream residency and pause/resume checks. Default is the
+driver path without multi-draw; `--smoke` validates the harness in 28 timed seconds.
+Resets and collection overhead stay outside timing. An insufficient resource
+sample count is reported explicitly, never as proof of stable memory.
+`node tools/verify-native-soak.mjs <dev-url> <output-dir> 240` checks native
+Safari with one owned iPhone simulator; see `--help` for Appium setup. Run these
+serially. Neither simulator nor desktop throttling measures phone thermals.
+
+City transforms seal after load (`render/static-world-group.ts`); editor roots
+stay live. Late parcel cells must compose their world matrices after attachment
+before adopting frozen flags. Baked restoration skips cache recapture; the cold
+generation path still captures records for cache writes and world baking.
+
 Dev-only hooks on `window.__taxi`: `game`, `probe()` (pos/speed/state),
 `teleport(u, v)` (map fractions, 0-1 — snaps to the road CENTRELINE via
 `network.nearest`, NOT a road cell centre: a cell can be ~18u off its

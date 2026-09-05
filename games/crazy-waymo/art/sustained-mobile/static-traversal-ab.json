@@ -1,0 +1,162 @@
+{
+  "environment": "Headed desktop Chrome; coarse pointer, DPR 3, CPU throttle stress proxy. Not a physical-phone measurement.",
+  "checkedAt": "2026-09-05T21:30:30.040Z",
+  "route": {
+    "u": 0.2667087011349306,
+    "v": 0.7325,
+    "yaw": -1.5707963267948966,
+    "length": 275.69239044189453
+  },
+  "device": {
+    "coarse": true,
+    "touch": 5,
+    "dpr": 3,
+    "width": 390,
+    "height": 844,
+    "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M1 Max, Unspecified Version)",
+    "multiDraw": false,
+    "memory": {
+      "geometries": 533,
+      "textures": 54
+    },
+    "ratio": 1.1,
+    "post": false
+  },
+  "runs": [
+    {
+      "scenario": "baseline",
+      "rate": 4,
+      "noMultiDraw": true,
+      "movingFrames": {
+        "count": 431,
+        "median": 17.700000047683716,
+        "p95": 22.100000143051147,
+        "p99": 32.90000009536743,
+        "max": 35.59999990463257,
+        "over33": 3,
+        "over50": 0,
+        "over100": 0
+      },
+      "renderMs": {
+        "count": 445,
+        "median": 10.5,
+        "p95": 12.200000047683716,
+        "p99": 13.099999904632568,
+        "max": 14,
+        "over33": 0,
+        "over50": 0,
+        "over100": 0
+      },
+      "calls": {
+        "count": 445,
+        "median": 343,
+        "p95": 380,
+        "p99": 389,
+        "max": 390,
+        "over33": 445,
+        "over50": 445,
+        "over100": 445
+      },
+      "triangles": {
+        "count": 445,
+        "median": 482054,
+        "p95": 501565,
+        "p99": 504720,
+        "max": 506800,
+        "over33": 445,
+        "over50": 445,
+        "over100": 445
+      }
+    },
+    {
+      "scenario": "static-subtree-skip",
+      "rate": 4,
+      "noMultiDraw": true,
+      "movingFrames": {
+        "count": 463,
+        "median": 16.200000047683716,
+        "p95": 25.200000047683716,
+        "p99": 29.600000143051147,
+        "max": 34.5,
+        "over33": 2,
+        "over50": 0,
+        "over100": 0
+      },
+      "renderMs": {
+        "count": 478,
+        "median": 8.299999952316284,
+        "p95": 9.899999856948853,
+        "p99": 10.900000095367432,
+        "max": 12.200000047683716,
+        "over33": 0,
+        "over50": 0,
+        "over100": 0
+      },
+      "calls": {
+        "count": 478,
+        "median": 342,
+        "p95": 382,
+        "p99": 392,
+        "max": 394,
+        "over33": 478,
+        "over50": 478,
+        "over100": 478
+      },
+      "triangles": {
+        "count": 478,
+        "median": 481898,
+        "p95": 502192,
+        "p99": 505246,
+        "max": 506938,
+        "over33": 478,
+        "over50": 478,
+        "over100": 478
+      }
+    },
+    {
+      "scenario": "baseline-restored",
+      "rate": 4,
+      "noMultiDraw": true,
+      "movingFrames": {
+        "count": 460,
+        "median": 16.799999952316284,
+        "p95": 24.59999990463257,
+        "p99": 31.5,
+        "max": 34.700000047683716,
+        "over33": 2,
+        "over50": 0,
+        "over100": 0
+      },
+      "renderMs": {
+        "count": 474,
+        "median": 9,
+        "p95": 11.200000047683716,
+        "p99": 12.799999952316284,
+        "max": 14.099999904632568,
+        "over33": 0,
+        "over50": 0,
+        "over100": 0
+      },
+      "calls": {
+        "count": 474,
+        "median": 342,
+        "p95": 380,
+        "p99": 389,
+        "max": 390,
+        "over33": 474,
+        "over50": 474,
+        "over100": 474
+      },
+      "triangles": {
+        "count": 474,
+        "median": 481926,
+        "p95": 502309,
+        "p99": 505246,
+        "max": 506800,
+        "over33": 474,
+        "over50": 474,
+        "over100": 474
+      }
+    }
+  ]
+}
