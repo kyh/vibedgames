@@ -25,6 +25,9 @@ pnpm lint:streets   # street-mask sanity report
 pnpm typecheck
 node tools/verify-studio.mjs 'http://localhost:5193/?offline=1' /tmp/waymo-desktop
 node tools/verify-mobile.mjs 'http://localhost:5193/?offline=1' /tmp/waymo-mobile
+node tools/verify-water.mjs 'http://localhost:5193/?offline=1' /tmp/waymo-water
+node tools/verify-water-fx.mjs 'http://localhost:5193/?offline=1' /tmp/waymo-water-fx
+node tools/verify-menu-keyboard.mjs 'http://localhost:5193/?offline=1' /tmp/waymo-menu
 ```
 
 Browser checks use separate owned sessions. Run them serially: changing browser
@@ -74,6 +77,22 @@ bake-network.mts`) from the same park-cleared polylines — car-free-park
   the kinematic branch of `car.update` (that's only the pre-physics fallback).
 - **Drive surface** (`world/surface.ts`): terrain + street-depression offset,
   pier/bridge decks, park-tile terraces — behind `city.heightAt/normalInto`.
+  Deck interpolation and exact collision floors share `world/surface-decks.ts`.
+  Tire materials use actual contact height, so ground below a bridge stays ground.
+- **Water boundaries** (`world/shoreline.ts`): contour supported dry ground and
+  exact deck footprints. Seawalls, park fences and pier railings own matching
+  visible assemblies and explicit `Solid.minY/maxY` bounds. Intentional beach
+  and launch openings live in `SHORE_ACCESS_SITES`; do not grow barriers to
+  catch every airborne car. Palace/Sutro rims live in `world/landmarks.ts`.
+- **Water driving** (`vehicle/flotation.ts`): fixed-step buoyancy on the existing
+  Rapier chassis. `WaterContact` drives splash, wake, sound and tire-effect gates.
+  `world/water.ts` shares the ocean level and authored landmark footprints;
+  `world/lake.ts` owns Stow's level water and local terrain basin. Water access
+  must permit return to land with ordinary controls. Cold generation resolves
+  landmark water before planting; roots and reservation solids stay outside it.
+- **Terrain material** (`render/terrain-material.ts`): one semantic weight map
+  from the ground classifier, shared across tiles. Floor paint feeds both material
+  weights and tire effects. Phones omit fine grain and normal relief.
 - **Nothing sits on the raw height field.** Three surfaces get drawn and none
   of them is `terrain.heightAt`: the road drape (terrain + street terrace), the
   ground mesh as TESSELLATED (`terrain.renderedHeightAt` — its ~9u lattice
@@ -93,9 +112,9 @@ bake-network.mts`) from the same park-cleared polylines — car-free-park
   hill flank/OSM class) is resolved there and nowhere else; `ground.ts` only
   decides what each class LOOKS like, `park-clear.parkCell` and
   `land-class.isParkLand` are its two park questions, and `city.surfaceKindAt`
-  is `wheelSurface(landClassAt(...))` so the tyres cannot report concrete on
-  ground the painter drew as sand. Adding a fifth private copy of "is this
-  park/green" is how the paint, the props, the terraces and the FX drifted apart
+  resolves contact decks and floor paint before `wheelSurface(landClassAt(...))`,
+  so tires cannot report concrete on ground the painter drew as sand. Adding a
+  fifth private copy of "is this park/green" is how paint, props, terraces and FX drifted apart
   in the first place. `pnpm test` asserts no vegetation lands on a built cell.
 - **Road decal materials are identified by COLOUR on the bin round-trip.**
   `city.roadCollapseTarget` recognises a road material by the colour the capture

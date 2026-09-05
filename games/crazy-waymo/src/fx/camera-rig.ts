@@ -276,13 +276,13 @@ export class ChaseCamera {
       const f = i / steps;
       const px = carPos.x + dx * f;
       const pz = carPos.z + dz * f;
-      if (solids.hitAt(px, pz)) {
+      const rayY = originY + (endY - originY) * f;
+      if (solids.hitAt(px, pz, rayY)) {
         t = Math.max(0.28, (i - 1) / steps);
         break;
       }
       const c = this.ceilingOver(px, pz, carPos.y);
       if (c < soffit) soffit = c;
-      const rayY = originY + (endY - originY) * f;
       const floor = this.groundAt?.(px, pz, Math.max(carPos.y, rayY));
       if (floor !== undefined && floor < c && rayY < floor + GROUND_CLEARANCE) {
         // Lift the complete sightline over the crest. Pulling all the way

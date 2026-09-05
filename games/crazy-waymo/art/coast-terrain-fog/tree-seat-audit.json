@@ -1,0 +1,90 @@
+{
+  "revision": 93,
+  "scope": "Installed tree assets and baked instance transforms; measurement correction only, no tree placement changed.",
+  "instancesAudited": 16847,
+  "before": {
+    "floating": 464,
+    "buried": 209
+  },
+  "after": {
+    "floating": 32,
+    "buried": 0
+  },
+  "method": "Decode source GLB bark geometry, locate each ground-connected root, transform root centroid through the complete baked instance pose after removing source child transform. Multi-stem park tiles retain one sample per asset. Every tree instance remains in the statistical seat audit.",
+  "groups": [
+    {
+      "url": "/models/parks/park-base-decorated-trees.glb",
+      "count": 576,
+      "medianOffset": 0.06159066337750953,
+      "medianTerrainOffset": 0.06159105780348752,
+      "seatSpread": 0.00033578332521033786,
+      "scaleVariation": 0,
+      "seated": true,
+      "wrongSurface": false,
+      "floating": 28,
+      "buried": 0
+    },
+    {
+      "url": "/models/props/tree-large.glb",
+      "count": 6336,
+      "medianOffset": -8.143718599196562e-6,
+      "medianTerrainOffset": -8.143718599196562e-6,
+      "seatSpread": 0.00020534397276167351,
+      "scaleVariation": 0,
+      "seated": true,
+      "wrongSurface": false,
+      "floating": 4,
+      "buried": 0
+    },
+    {
+      "url": "/models/props/tree-small.glb",
+      "count": 3446,
+      "medianOffset": -8.143718599196562e-6,
+      "medianTerrainOffset": -7.732030175663129e-6,
+      "seatSpread": 8.501995640841743e-8,
+      "scaleVariation": 0,
+      "seated": true,
+      "wrongSurface": false,
+      "floating": 0,
+      "buried": 0
+    },
+    {
+      "url": "/models/props/kk-tree-a.glb",
+      "count": 2225,
+      "medianOffset": -1.5417940743180434e-6,
+      "medianTerrainOffset": -0.0008066613504910909,
+      "seatSpread": 0.0003988911100774028,
+      "scaleVariation": 0.10598203359282236,
+      "seated": true,
+      "wrongSurface": false,
+      "floating": 0,
+      "buried": 0
+    },
+    {
+      "url": "/models/props/kk-tree-b.glb",
+      "count": 2041,
+      "medianOffset": -0.0040802049703605875,
+      "medianTerrainOffset": -0.0059330063959168984,
+      "seatSpread": 0.005682830628312218,
+      "scaleVariation": 0.10964346995700548,
+      "seated": true,
+      "wrongSurface": false,
+      "floating": 0,
+      "buried": 0
+    },
+    {
+      "url": "/models/props/kk-tree-c.glb",
+      "count": 2223,
+      "medianOffset": -3.951520887808304e-5,
+      "medianTerrainOffset": -0.0022082673209142594,
+      "seatSpread": 0.000436859469408807,
+      "scaleVariation": 0.10882804100310246,
+      "seated": true,
+      "wrongSurface": false,
+      "floating": 0,
+      "buried": 0
+    }
+  ],
+  "regression": "Translated child mesh origins, with compensating geometry translation, cannot move the measured planted root under yaw and nonuniform instance scale. Passed.",
+  "interpretation": "The former 209 buried trees were displaced mesh-pivot samples on slopes. No tree burial remains under the same 0.6u statistical threshold. 32 floating outliers remain: 28 decorated park tiles and 4 cypress instances; this does not assert the whole world has zero seating defects."
+}

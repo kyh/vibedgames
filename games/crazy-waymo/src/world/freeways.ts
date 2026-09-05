@@ -1197,13 +1197,86 @@ export function freewaySoffitAt(
   return soffit;
 }
 
+const contactHash = new Map<string, number[]>();
+let contactHashFor: FreewayBuild | null = null;
+
+function indexFreewayContacts(build: FreewayBuild): void {
+  const positions = build.deckPos;
+  if (contactHashFor !== build) {
+    contactHashFor = build;
+    contactHash.clear();
+    for (let i = 0; i + 8 < positions.length; i += 9) {
+      const ax = positions[i] ?? 0,
+        az = positions[i + 2] ?? 0;
+      const bx = positions[i + 3] ?? 0,
+        bz = positions[i + 5] ?? 0;
+      const cx = positions[i + 6] ?? 0,
+        cz = positions[i + 8] ?? 0;
+      for (
+        let gx = Math.floor(Math.min(ax, bx, cx) / SOFFIT_CELL);
+        gx <= Math.floor(Math.max(ax, bx, cx) / SOFFIT_CELL);
+        gx++
+      ) {
+        for (
+          let gz = Math.floor(Math.min(az, bz, cz) / SOFFIT_CELL);
+          gz <= Math.floor(Math.max(az, bz, cz) / SOFFIT_CELL);
+          gz++
+        ) {
+          const key = `${gx},${gz}`;
+          const bucket = contactHash.get(key) ?? [];
+          bucket.push(i);
+          contactHash.set(key, bucket);
+        }
+      }
+    }
+  }
+}
+
+/** Wheel material follows the exact rendered/physical top triangles, including
+ * curved ramps and stacked spans. An underpass contact keeps its ground type. */
+export function isFreewayDeckContact(
+  terrain: Terrain,
+  network: RoadNetwork | undefined,
+  x: number,
+  z: number,
+  y: number,
+): boolean {
+  const build = buildData(terrain, network);
+  indexFreewayContacts(build);
+  const positions = build.deckPos;
+  const candidates = contactHash.get(
+    `${Math.floor(x / SOFFIT_CELL)},${Math.floor(z / SOFFIT_CELL)}`,
+  );
+  if (!candidates) return false;
+  for (const i of candidates) {
+    const ax = positions[i] ?? 0,
+      az = positions[i + 2] ?? 0;
+    const dx1 = (positions[i + 3] ?? 0) - ax;
+    const dz1 = (positions[i + 5] ?? 0) - az;
+    const dx2 = (positions[i + 6] ?? 0) - ax;
+    const dz2 = (positions[i + 8] ?? 0) - az;
+    const determinant = dx1 * dz2 - dx2 * dz1;
+    if (Math.abs(determinant) < 1e-8) continue;
+    const u = ((x - ax) * dz2 - (z - az) * dx2) / determinant;
+    const v = (dx1 * (z - az) - dz1 * (x - ax)) / determinant;
+    if (u < -1e-6 || v < -1e-6 || u + v > 1.000001) continue;
+    const ay = positions[i + 1] ?? 0;
+    const height = ay + u * ((positions[i + 4] ?? 0) - ay) + v * ((positions[i + 7] ?? 0) - ay);
+    if (Math.abs(y - height) <= 0.4) return true;
+  }
+  return false;
+}
+
 /** Pillar footprints of the memoized build — `pnpm test` asserts none sit in a street. */
 export function freewayPillars(terrain: Terrain, network?: RoadNetwork): readonly PillarSpot[] {
   return buildData(terrain, network).pillars;
 }
 
 export function freewayPhysics(terrain: Terrain, network?: RoadNetwork): Float32Array {
-  return new Float32Array(buildData(terrain, network).physPos);
+  const build = buildData(terrain, network);
+  // Prepare during the loading-screen collider phase, before the first tire query.
+  indexFreewayContacts(build);
+  return new Float32Array(build.physPos);
 }
 
 function pushQuad(

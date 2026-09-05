@@ -3,6 +3,9 @@ import * as THREE from "three";
 
 import type { PhysicsWorld } from "../physics/physics-world";
 import type { CarInput } from "./car";
+import { Flotation } from "./flotation";
+import type { WaterSampler } from "../world/water";
+import type { WaterContact } from "./water-contact";
 
 // Physics-driven car on Rapier's DynamicRayCastVehicleController — a port of
 // icurtis1/raycast-vehicle (cannon-es) onto our stack: the chassis is a rigid
@@ -126,6 +129,7 @@ export class RaycastVehicle {
   readonly chassis: RAPIER.RigidBody;
   readonly controller: RAPIER.DynamicRayCastVehicleController;
   readonly params: VehicleParams;
+  private readonly flotation: Flotation;
 
   private currentSteer = 0;
   private airborneTime = 0;
@@ -162,6 +166,7 @@ export class RaycastVehicle {
         .setAngularDamping(p.angularDamping)
         .setCcdEnabled(true),
     );
+    this.flotation = new Flotation(this.chassis);
     // Rounded corners (the reference uses corner spheres for the same reason):
     // the chassis slides over curb lips and debris instead of catching.
     world.createCollider(
@@ -232,6 +237,14 @@ export class RaycastVehicle {
     return Math.hypot(v.x, v.y, v.z);
   }
 
+  get waterContact(): WaterContact {
+    return this.flotation.waterContact;
+  }
+
+  setWaterSampler(sampler: WaterSampler | null): void {
+    this.flotation.setSampler(sampler);
+  }
+
   groundedWheels(): number {
     let n = 0;
     for (let i = 0; i < 4; i++) if (this.controller.wheelIsInContact(i)) n++;
@@ -283,6 +296,7 @@ export class RaycastVehicle {
   }
 
   teleport(x: number, y: number, z: number, yaw: number): void {
+    this.flotation.reset();
     this.chassis.setTranslation({ x, y, z }, true);
     this.chassis.setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) }, true);
     this.chassis.setLinvel({ x: 0, y: 0, z: 0 }, true);
@@ -302,6 +316,24 @@ export class RaycastVehicle {
   // Called from inside PhysicsWorld's fixed-step loop so suspension math
   // always runs at FIXED_DT, exactly like the reference.
   fixedStep(dt: number): void {
+    if (this.flotation.step(dt, this.throttle, this.brakeInput, this.steerInput, this.boosting)) {
+      this.driftDir = 0;
+      this.driftChargeT = 0;
+      this.turboFired = 0;
+      this.airborneTime = 0;
+      this.gripRecoveryT = 1;
+      this.stuckT = 0;
+      for (let i = 0; i < 4; i++) {
+        this.controller.setWheelEngineForce(i, 0);
+        this.controller.setWheelBrake(i, 0);
+        this.controller.setWheelFrictionSlip(i, 0.8);
+      }
+      // Shallow-water tires still find the bank and lift the hull before its
+      // centre leaves the water footprint. Freezing these rays beaches the
+      // low floating chassis on the shore during a reverse exit.
+      this.controller.updateVehicle(dt);
+      return;
+    }
     const p = this.params;
     const fwd = this.forwardDir(this.v);
     const vel = this.velocity(this.v2);

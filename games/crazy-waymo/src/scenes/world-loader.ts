@@ -20,6 +20,7 @@ import { RaycastVehicle } from "../vehicle/raycast-vehicle";
 import { CityModel, type CityRestPayload } from "../world/city";
 import { editorMode, loadLocalOverrides } from "../world/custom-map";
 import { freewayPhysics } from "../world/freeways";
+import { surfaceDeckPhysics } from "../world/surface-decks";
 import type { CityGenPayload } from "../world/gen-worker";
 import { getRuntimeMap, parseMapFile, setRuntimeMap } from "../world/map-file";
 import { SolidIndex } from "../world/solid-index";
@@ -387,6 +388,8 @@ async function finishLoad(
   await paint();
   // Freeway decks + barriers as a second drivable level over the streets.
   physics.addStaticTrimesh(freewayPhysics(city.terrain, city.network));
+  const deckFloor = surfaceDeckPhysics(city.getDecks());
+  if (deckFloor.length > 0) physics.addStaticTrimesh(deckFloor);
   lap("freeway collider");
   await paint();
   // Prewarm with the ground only — a small BVH builds fast. The 20k

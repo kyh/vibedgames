@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import type { WaterBody } from "./water";
 
 import { type Beacon, registerBeacons } from "../fx/beacon-lights";
 import type { ModelCache } from "../assets/loader";
@@ -62,6 +63,10 @@ export type LandmarkCtx = {
    * a world-space registry does (the night beacons in fx/beacon-lights.ts).
    */
   readonly worldPoint: (lx: number, ly: number, lz: number) => readonly [number, number, number];
+  /** Paired local water-wall geometry/collision. Cold generation captures the
+   * transformed solids; runtime landmark rebuilds reuse those baked solids. */
+  readonly addWaterWall: (wall: Solid & { readonly minY: number; readonly maxY: number }) => void;
+  readonly addWaterBody: (body: WaterBody) => void;
 };
 
 /**
@@ -1208,6 +1213,28 @@ function cityHall(ctx: LandmarkCtx): THREE.Group {
 
 // Palace of Fine Arts — the open rotunda and its curved colonnade. Sized
 // ~1.5× real so the rotunda still reads over the Marina's rooflines.
+function fitPalaceLagoon(ctx: LandmarkCtx): { x: number; z: number; scale: number } | null {
+  // The original oversized ellipse crossed three streets. Fit the complete
+  // water and rim together; skipping a road-facing wall would reopen the lake.
+  for (const scale of [1, 0.85, 0.7, 0.55, 0.4, 0.3]) {
+    for (const x of [2, -10, 14, -20, 20]) {
+      for (const z of [20, 14, 26, 0, -14, -20]) {
+        let clear = true;
+        for (const radius of [0, 0.5, 1]) {
+          for (let i = 0; i < 48; i++) {
+            const angle = (i * Math.PI * 2) / 48;
+            const px = x + Math.cos(angle) * 22.5 * scale * radius;
+            const pz = z + Math.sin(angle) * 10.8 * scale * radius;
+            if (ctx.onAsphalt(px, pz, 1.1) || Math.hypot(px, pz) < 9) clear = false;
+          }
+        }
+        if (clear) return { x, z, scale };
+      }
+    }
+  }
+  return null;
+}
+
 function palaceOfFineArts(ctx: LandmarkCtx): THREE.Group {
   const g = new THREE.Group();
   const foot = lowestUnder(ctx, 26, 26);
@@ -1224,15 +1251,48 @@ function palaceOfFineArts(ctx: LandmarkCtx): THREE.Group {
 
   // The lagoon. The reflection IS the picture everybody has of this building;
   // without it the rotunda stands on a khaki apron and only half the landmark
-  // is there. A shallow water disc east of the rotunda with a stone rim.
-  {
-    const lagY = lowestUnder(ctx, 15, 10, 2, 20);
-    const rim = cyl(15, 15, 1.2, 28, MAT.rock, 2, lagY + 0.1, 20);
-    rim.scale.set(1.5, 1, 0.72);
+  // is there. A shallow water disc beside the rotunda with a stone rim.
+  const lagoon = fitPalaceLagoon(ctx);
+  if (lagoon) {
+    const lagY = lowestUnder(ctx, 22.5 * lagoon.scale, 10.8 * lagoon.scale, lagoon.x, lagoon.z);
+    const rim = cyl(15, 15, 1.2, 28, MAT.rock, lagoon.x, lagY + 0.1, lagoon.z);
+    rim.scale.set(1.5 * lagoon.scale, 1, 0.72 * lagoon.scale);
     g.add(rim);
-    const water = cyl(13.4, 13.4, 1.2, 28, MAT.lagoon, 2, lagY + 0.34, 20);
-    water.scale.set(1.5, 1, 0.72);
+    const water = cyl(13.4, 13.4, 1.2, 28, MAT.lagoon, lagoon.x, lagY + 0.34, lagoon.z);
+    water.scale.set(1.5 * lagoon.scale, 1, 0.72 * lagoon.scale);
     g.add(water);
+    ctx.addWaterBody({
+      kind: "ellipse",
+      x: lagoon.x,
+      z: lagoon.z,
+      y: lagY + 0.94,
+      halfX: 13.4 * 1.5 * lagoon.scale,
+      halfZ: 13.4 * 0.72 * lagoon.scale,
+      yaw: 0,
+    });
+    // A visible parapet above the lagoon, rather than the old submerged rim.
+    for (let i = 0; i < 48; i++) {
+      const a = (i / 48) * Math.PI * 2,
+        b = ((i + 1) / 48) * Math.PI * 2;
+      const ax = lagoon.x + Math.cos(a) * 22.05 * lagoon.scale,
+        az = lagoon.z + Math.sin(a) * 10.584 * lagoon.scale;
+      const bx = lagoon.x + Math.cos(b) * 22.05 * lagoon.scale,
+        bz = lagoon.z + Math.sin(b) * 10.584 * lagoon.scale;
+      const x = (ax + bx) / 2,
+        z = (az + bz) / 2;
+      const length = Math.hypot(bx - ax, bz - az) + 0.3;
+      const yaw = Math.atan2(-(bz - az), bx - ax);
+      g.add(box(length, 2, 0.65, MAT.rock, x, lagY + 1.5, z, yaw));
+      ctx.addWaterWall({
+        minX: x - length / 2,
+        maxX: x + length / 2,
+        minZ: z - 0.325,
+        maxZ: z + 0.325,
+        minY: lagY + 0.5,
+        maxY: lagY + 2.5,
+        yaw,
+      });
+    }
   }
 
   // The two colonnade arcs sweeping away from the rotunda, each capped by a
@@ -1511,10 +1571,37 @@ function cliffHouse(ctx: LandmarkCtx): THREE.Group {
     g.add(box(bw, 1.8, 0.7, MAT.concrete, bx, y, bz + bd / 2));
     g.add(box(0.7, 1.8, bd, MAT.concrete, bx - bw / 2, y, bz));
     g.add(box(0.7, 1.8, bd, MAT.concrete, bx + bw / 2, y, bz));
+    for (const side of [-1, 1]) {
+      ctx.addWaterWall({
+        minX: bx - bw / 2,
+        maxX: bx + bw / 2,
+        minZ: bz + (side * bd) / 2 - 0.35,
+        maxZ: bz + (side * bd) / 2 + 0.35,
+        minY: y - 0.9,
+        maxY: y + 0.9,
+      });
+      ctx.addWaterWall({
+        minX: bx + (side * bw) / 2 - 0.35,
+        maxX: bx + (side * bw) / 2 + 0.35,
+        minZ: bz - bd / 2,
+        maxZ: bz + bd / 2,
+        minY: y - 0.9,
+        maxY: y + 0.9,
+      });
+    }
     // The basins are FLOODED — they are tidal pools, not foundations. Empty
     // rectangles lying on a lawn is exactly why the ruin read as a building
     // site rather than as Sutro Baths.
     g.add(box(bw - 0.9, 1.2, bd - 0.9, MAT.lagoon, bx, y - 0.1, bz));
+    ctx.addWaterBody({
+      kind: "rectangle",
+      x: bx,
+      z: bz,
+      y: y + 0.5,
+      halfX: (bw - 0.9) / 2,
+      halfZ: (bd - 0.9) / 2,
+      yaw: 0,
+    });
   }
   // Snapped columns and a stair down from the bluff.
   for (let i = 0; i < 6; i++) {
@@ -2237,6 +2324,8 @@ export function buildLandmarks(
   terrain: Terrain,
   cache: ModelCache,
   network: RoadNetwork | null = null,
+  collectWaterWall?: (solid: Solid) => void,
+  collectWaterBody?: (body: WaterBody) => void,
 ): THREE.Group {
   const root = new THREE.Group();
   const rng = new Rng(4242);
@@ -2272,6 +2361,32 @@ export function buildLandmarks(
       worldPoint: (lx, ly, lz) => {
         const [wx, wz] = worldOf(lx, lz);
         return [wx, y + ly * s, wz];
+      },
+      addWaterWall: (wall) => {
+        const [wx, wz] = worldOf((wall.minX + wall.maxX) / 2, (wall.minZ + wall.maxZ) / 2);
+        const hx = ((wall.maxX - wall.minX) * s) / 2,
+          hz = ((wall.maxZ - wall.minZ) * s) / 2;
+        collectWaterWall?.({
+          minX: wx - hx,
+          maxX: wx + hx,
+          minZ: wz - hz,
+          maxZ: wz + hz,
+          minY: y + wall.minY * s,
+          maxY: y + wall.maxY * s,
+          yaw: rot + (wall.yaw ?? 0),
+        });
+      },
+      addWaterBody: (body) => {
+        const [wx, wz] = worldOf(body.x, body.z);
+        collectWaterBody?.({
+          ...body,
+          x: wx,
+          z: wz,
+          y: y + body.y * s,
+          halfX: body.halfX * s,
+          halfZ: body.halfZ * s,
+          yaw: rot + body.yaw,
+        });
       },
     };
     const node = packLandmark(def.build(ctx), PL_MATS);

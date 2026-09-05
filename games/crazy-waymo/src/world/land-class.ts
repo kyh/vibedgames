@@ -10,6 +10,8 @@ import {
 import type { CityPlan } from "./grid";
 import { landuseClassAt, type LanduseClass, landuseGreenAt } from "./sf-landuse";
 import { districtAt, greenHillWeightAt, seawallShore } from "./sf-map";
+import { inLake } from "./lake";
+export { GGP_LAKE, inLake } from "./lake";
 import { parkPathMaskAt } from "./sf-streets";
 import { type Flank, makeFlank, type Terrain } from "./terrain";
 
@@ -288,19 +290,6 @@ export function isParkLand(gx: number, gz: number): boolean {
 export function isParkDistrictLand(gx: number, gz: number): boolean {
   const p = parklandAt(gx, gz);
   return p.kind !== "none" && p.source === "district";
-}
-
-// --- Stow Lake ---------------------------------------------------------------
-
-/** Golden Gate Park's lake, in map fractions with radii in world units. THE
- *  definition — furniture.ts draws its water mesh here and the ground paints
- *  water under it, so the two cannot drift apart. */
-export const GGP_LAKE = { u: 0.22, v: 0.4, ru: ROAD_TILE * 1.15, rv: ROAD_TILE * 0.75 } as const;
-
-function inLake(x: number, z: number): boolean {
-  const dx = (x - (GGP_LAKE.u - 0.5) * WORLD_W) / GGP_LAKE.ru;
-  const dz = (z - (GGP_LAKE.v - 0.5) * WORLD_H) / GGP_LAKE.rv;
-  return dx * dx + dz * dz < 1;
 }
 
 // --- Port apron --------------------------------------------------------------
@@ -673,7 +662,7 @@ function resolveFlank(
 /** What the wheels are running on — the off-road kick-up FX and the tyre audio.
  *  city.ts's own copy of this rule had no shore term, so Ocean Beach reported
  *  "concrete"; reading it off the resolved cover makes that impossible. */
-export type WheelSurface = "road" | "grass" | "sand" | "concrete";
+export type WheelSurface = "road" | "grass" | "sand" | "dirt" | "gravel" | "rock" | "concrete";
 
 /** Where a soft overlay stops being a tint and becomes the surface. */
 const COVER_DOMINANT = 0.5;
@@ -706,6 +695,13 @@ export function wheelSurface(land: LandClass): WheelSurface {
     case "grassland":
     case "cemetery":
       return "grass";
+    case "path":
+    case "railyard":
+      return "gravel";
+    case "industrial":
+      return "dirt";
+    case "rock":
+      return "rock";
     default:
       return "concrete";
   }

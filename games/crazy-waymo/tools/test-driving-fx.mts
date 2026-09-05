@@ -4,6 +4,8 @@ import { BoostPlume } from "../src/fx/boost-plume.ts";
 import { DriftTrails } from "../src/fx/trails.ts";
 import { ChaseCamera } from "../src/fx/camera-rig.ts";
 import { CAMERA } from "../src/shared/constants.ts";
+import { buildFreeways, isFreewayDeckContact } from "../src/world/freeways.ts";
+import { makeLandClassAt, wheelSurface } from "../src/world/land-class.ts";
 import { RoadNetwork } from "../src/world/network.ts";
 import { CeilingIndex, deckCeilings, SolidIndex } from "../src/world/solid-index.ts";
 import { DriveSurface } from "../src/world/surface.ts";
@@ -39,6 +41,7 @@ function hillHeight(_x: number, z: number): number {
 
 /** This shipped pier stands over a ground cut, below the uncorrected field. */
 export function checkWorldDrivingFx(check: Check, world: AuditWorld, rest: CityRestPayload): void {
+  checkFreewayContacts(check, world);
   const surface = new DriveSurface(world.terrain, world.plan, () => world.network);
   surface.addDecks(rest.decks);
   const x = 196.144;
@@ -120,6 +123,58 @@ export function checkWorldDrivingFx(check: Check, world: AuditWorld, rest: CityR
   check("hill framing changes smoothly while driving", step < 1, `${step.toFixed(3)}u max step`);
 }
 
+/** Sample the drawn triangles, independently of the contact query's index. */
+function checkFreewayContacts(check: Check, world: AuditWorld): void {
+  const group = buildFreeways(world.terrain, world.network);
+  const deck = group.getObjectByName("freeway-deck");
+  if (!(deck instanceof THREE.Mesh)) throw new Error("Freeway deck fixture missing");
+  const positions = deck.geometry.getAttribute("position");
+  const landAt = makeLandClassAt(world.plan, world.terrain);
+  const stride = Math.max(1, Math.floor(positions.count / (3 * 256))) * 3;
+  let samples = 0,
+    matched = 0,
+    slopes = 0;
+  let approach = "",
+    span = "";
+  let underpass: { x: number; y: number; z: number; kind: string } | null = null;
+  for (let i = 0; i + 2 < positions.count; i += stride) {
+    const x = (positions.getX(i) + positions.getX(i + 1) + positions.getX(i + 2)) / 3;
+    const y = (positions.getY(i) + positions.getY(i + 1) + positions.getY(i + 2)) / 3;
+    const z = (positions.getZ(i) + positions.getZ(i + 1) + positions.getZ(i + 2)) / 3;
+    const slope =
+      Math.max(positions.getY(i), positions.getY(i + 1), positions.getY(i + 2)) -
+      Math.min(positions.getY(i), positions.getY(i + 1), positions.getY(i + 2));
+    samples++;
+    if (isFreewayDeckContact(world.terrain, world.network, x, z, y + 0.03)) matched++;
+    if (slope > 0.03) slopes++;
+    const ground = world.terrain.heightAt(x, z);
+    const clearance = y - ground;
+    const coordinate = `${x.toFixed(2)},${y.toFixed(2)},${z.toFixed(2)}`;
+    if (!approach && slope > 0.03 && clearance > 0.5 && clearance < 3) approach = coordinate;
+    if (!span && clearance > 6) span = coordinate;
+    const kind = wheelSurface(landAt(x, z));
+    if (!underpass && clearance > 4 && kind !== "road" && kind !== "concrete") {
+      underpass = { x, y: ground, z, kind };
+    }
+  }
+  check(
+    "freeway tire material matches rendered mainline and sloped approach triangles",
+    samples >= 200 && matched === samples && slopes > 10 && approach !== "" && span !== "",
+    `${matched}/${samples} contacts; ${slopes} sloped; approach ${approach}; span ${span}`,
+  );
+  check(
+    "loose terrain beneath a freeway keeps its own tire material",
+    underpass !== null &&
+      !isFreewayDeckContact(world.terrain, world.network, underpass.x, underpass.z, underpass.y),
+    underpass === null
+      ? "missing underpass fixture"
+      : `${underpass.kind} at ${underpass.x.toFixed(2)},${underpass.y.toFixed(2)},${underpass.z.toFixed(2)}`,
+  );
+  group.traverse((object) => {
+    if (object instanceof THREE.Mesh) object.geometry.dispose();
+  });
+}
+
 /** Camera terrain/bridge clearance, interrupted ribbons and boost release. */
 export function checkDrivingFx(check: Check): void {
   const camera = new ChaseCamera(16 / 9);
@@ -160,6 +215,20 @@ export function checkDrivingFx(check: Check): void {
     surface.floorBelow(0, 0, 15) === 14,
   );
   check("camera floor stops at the bridge footprint", surface.floorBelow(20.01, 0, 15) === ground);
+  check(
+    "tire materials follow each sloped or stacked deck contact",
+    surface.isDeckContact(0, -10, 7.03) &&
+      surface.isDeckContact(0, 10, 9) &&
+      surface.isDeckContact(0, 0, 14),
+  );
+  check(
+    "terrain below bridges keeps its tire material",
+    !surface.isDeckContact(0, 0, ground) && !surface.isDeckContact(0, 0, 7),
+  );
+  check(
+    "deck tire material ends at the deck footprint and contact plane",
+    !surface.isDeckContact(20.01, 0, 8) && !surface.isDeckContact(0, 0, 8.5),
+  );
   camera.setGround((x, z, y) => surface.floorBelow(x, z, y));
   const ceilings = new CeilingIndex(deckCeilings(surface.getDecks()));
   camera.setCeilings(ceilings);

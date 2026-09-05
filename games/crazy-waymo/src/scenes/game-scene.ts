@@ -23,6 +23,8 @@ import { SignalLights } from "../fx/signal-lights";
 import type { SkidMarks } from "../fx/skids";
 import { SpeedLines } from "../fx/speedlines";
 import { VehicleFxRig } from "../fx/vehicle-fx";
+import type { WaterContact } from "../vehicle/water-contact";
+import { SEA_Y } from "../world/water";
 import { VehicleLights } from "../fx/vehicle-lights";
 import { Shockwaves } from "../fx/trails";
 import type { DriftTrails } from "../fx/trails";
@@ -41,6 +43,7 @@ import { NetSession } from "../net/session";
 import { readTransform, type RemoteCars } from "../net/remote-cars";
 import type { PhysicsWorld } from "../physics/physics-world";
 import { installAerialFog } from "../render/aerial-fog";
+import { MarineSky } from "../render/marine-sky";
 import { DayNight } from "../render/day-night";
 import { setGradeMotion } from "../render/grade";
 import { FarTerrain } from "../render/far-terrain";
@@ -51,8 +54,6 @@ import {
   CAMERA,
   CAR,
   FARE,
-  GRID_X,
-  GRID_Z,
   MP_MAX_PLAYERS,
   MP_ROOM,
   MPH_FACTOR,
@@ -350,12 +351,15 @@ export class GameScene {
   // shader's speed-line combs replace them (two vocabularies would double up).
   private speedLines = this.mobileUi ? new SpeedLines() : null;
   private clouds = new SkyClouds(this.mobileUi);
+  private marineSky = new MarineSky();
   private trails: DriftTrails | null = null;
   private vehicleFx = new VehicleFxRig(
     this.fx,
     () => this.trails,
     () => this.skids,
   );
+  private readonly wheelSurfaceAt = (x: number, z: number, y: number) =>
+    this.city?.surfaceKindAt(x, z, y) ?? "road";
   private shocks = new Shockwaves();
   private impactStars = new ImpactStars();
   private harbor = new Harbor();
@@ -486,6 +490,7 @@ export class GameScene {
   private flameAccum = 0;
   private scrapeFrames = 0;
   private wasBoosting = false;
+  private wasFloating = false;
   private lastDriftTier: 0 | 1 | 2 = 0;
   private countdownShown = -1;
   private camFrom = new THREE.Vector3();
@@ -831,7 +836,7 @@ vec3 ocGerstner(vec2 p, float t) {
     };
     const ocean = new THREE.Mesh(new THREE.PlaneGeometry(9000, 9000), oceanMat);
     ocean.rotation.x = -HALF_PI;
-    ocean.position.y = -0.5;
+    ocean.position.y = SEA_Y;
     // The sun path rides the LIVE cycle: direction from the day-night rig,
     // radiance from the key's color x intensity, held through sunset and
     // killed across dusk (the lamp ramp) so it never paints a moon lane.
@@ -849,6 +854,7 @@ vec3 ocGerstner(vec2 p, float t) {
     this.fx.addTo(this.scene);
     if (this.speedLines) this.scene.add(this.speedLines.object3D);
     this.scene.add(this.clouds.group);
+    this.scene.add(this.marineSky.mesh);
     this.scene.add(this.shocks.group);
     this.scene.add(this.impactStars.group);
     // The bay's traffic rides the ocean plane, so it goes in with it.
@@ -1489,6 +1495,8 @@ vec3 ocGerstner(vec2 p, float t) {
     const car = this.car;
     const fares = this.fares;
     if (!car || !fares) return;
+    this.wasFloating = false;
+    this.sfx.setWaterMotion(0);
     notifyGameStarted();
     const lapS = (() => {
       let t = performance.now();
@@ -1620,6 +1628,7 @@ vec3 ocGerstner(vec2 p, float t) {
     speed: number;
     heading: number;
     airborne: boolean;
+    waterContact: WaterContact;
     drifting: boolean;
     boosting: boolean;
     carrying: boolean;
@@ -1650,6 +1659,7 @@ vec3 ocGerstner(vec2 p, float t) {
       speed: car.speed,
       heading: car.heading,
       airborne: car.airborne,
+      waterContact: car.waterContact,
       drifting: car.isDrifting,
       boosting: car.isBoosting,
       carrying: this.fares?.carryingInfo() !== null && this.fares !== null,
@@ -1716,6 +1726,7 @@ vec3 ocGerstner(vec2 p, float t) {
       this.vehicleLights.update(this.traffic.cars, cam.x, cam.z);
     }
     this.farTerrain.update(this.sceneFog.color, night);
+    this.marineSky.update(this.sceneFog.color, !this.editorLighting);
     // The fog is a parameter: the stand-in has to age on the same aerial
     // perspective curve as the geometry it stands in for, and the day-night
     // grade owns fogNear/fogFar.
@@ -1907,21 +1918,23 @@ vec3 ocGerstner(vec2 p, float t) {
     this.state.update(dt, fares.carryingInfo() !== null);
 
     // Drift: score + screech + smoke + skid marks (slip-gated in the car).
-    const drifting = car.isDrifting && car.speed > 8;
+    const water = car.waterContact;
+    const floating = water.kind === "floating";
+    if (water.kind === "floating" && !this.wasFloating) {
+      this.sfx.waterSplash(water.entrySpeed, water.entryVerticalSpeed);
+    }
+    this.wasFloating = floating;
+    this.sfx.setWaterMotion(floating ? car.speed : 0);
+    const drifting = !floating && car.isDrifting && car.speed > 8;
     if (drifting) this.state.addDrift(dt);
     else this.state.endDrift();
     // Hard straight braking reads like the drift: streaks + smoke + screech.
-    const brakingHard = !drifting && !car.airborne && input.brake > 0.05 && car.forwardSpeed > 8;
+    const brakingHard =
+      !floating && !drifting && !car.airborne && input.brake > 0.05 && car.forwardSpeed > 8;
     const slipAmt = Math.min(1, Math.abs(car.slip) / 0.6);
     const screech = drifting && !car.airborne ? Math.max(0.25, slipAmt) : brakingHard ? 0.3 : 0;
     this.sfx.setScreech(screech, car.speed / CAR.maxSpeed);
-    this.vehicleFx.update(
-      dt,
-      car,
-      drifting,
-      brakingHard,
-      city.surfaceKindAt(car.position.x, car.position.z),
-    );
+    this.vehicleFx.update(dt, car, drifting, brakingHard, this.wheelSurfaceAt);
 
     // Mini-turbo tier tell (Mario Kart): a blip + spark flare each time the
     // charge steps up a tier — blue at tier 1, orange at tier 2.

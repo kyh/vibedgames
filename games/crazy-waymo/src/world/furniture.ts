@@ -43,7 +43,9 @@ import { GRID_X, GRID_Z, ROAD_TILE, ROAD_Y, WORLD_H, WORLD_W } from "../shared/c
 import type { Rng } from "../shared/rng";
 import { type Dir, DIR_DELTA, E, N, S, W } from "../shared/types";
 import { facadeOffset, type Solid, STEEP_CLIFF } from "./city";
+import type { SurfaceDeck } from "../shared/types";
 import { GGP_LAKE, isParkDistrictLand } from "./land-class";
+import { stowBasinOverlapsBox, STOW_WATER_SEGMENTS, STOW_WATER_Y } from "./lake";
 import { controlArms, junctionControl } from "./junction-control";
 import { conformToTerrain, DRAPE_MAX_ERROR, type DrapeField } from "./conform";
 
@@ -97,7 +99,6 @@ export type FurnitureCtx = {
   readonly worldZ: (gz: number) => number;
 };
 
-export type PierDeck = { minX: number; maxX: number; minZ: number; maxZ: number; y: number };
 export type ParkedSpec = { x: number; z: number; yaw: number; model: string };
 // World position of a lamp's light source + the pavement under it — the
 // night-time glow pass (fx/lamp-glow.ts) draws halos and light pools here.
@@ -106,8 +107,7 @@ export type LampHead = { x: number; y: number; z: number; ground: number };
 export type FurnitureResult = {
   readonly objects: THREE.Object3D[]; // static, world-transform set; caller merges
   readonly solids: Solid[]; // collision boxes to append
-  readonly openWaterCells: ReadonlySet<string>; // water cells the shoreline-wall pass must skip (piers)
-  readonly pierDecks: readonly PierDeck[]; // drivable flat decks (caller overrides surface height)
+  readonly pierDecks: readonly SurfaceDeck[]; // supported decks and continuous ramps
   readonly parkedCars: readonly ParkedSpec[]; // punt-able parked cars (physics, not static)
   readonly lampHeads: readonly LampHead[]; // streetlight glow anchors
 };
@@ -788,8 +788,7 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
   } = ctx;
   const objects: THREE.Object3D[] = [];
   const solids: Solid[] = [];
-  const openWaterCells = new Set<string>();
-  const pierDecks: PierDeck[] = [];
+  const pierDecks: SurfaceDeck[] = [];
   const parkedCars: ParkedSpec[] = [];
   const lampHeads: LampHead[] = [];
 
@@ -1409,18 +1408,18 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       }
     }
   }
-  // Stow Lake: a flat blue ellipse draped into the park bowl. Its extent comes
-  // from GGP_LAKE (world/land-class.ts), which is also the ellipse the ground
-  // painter fills with water — one definition, so the mesh and the paint cannot
-  // drift apart.
+  // Level water over the shared terrain basin. Draping this plane used to
+  // turn the lake into a sloping blue hill, impossible to float on.
   const lakeGx = Math.round(GGP_LAKE.u * GRID_X - 0.5);
   const lakeGz = Math.round(GGP_LAKE.v * GRID_Z - 0.5);
   if (isGGPark(lakeGx, lakeGz) && !reserved.has(cellKey(lakeGx, lakeGz))) {
-    const lake = new THREE.Mesh(new THREE.CircleGeometry(1, 48), LAKE_MAT);
+    const lake = new THREE.Mesh(new THREE.CircleGeometry(1, STOW_WATER_SEGMENTS), LAKE_MAT);
     lake.scale.set(GGP_LAKE.ru, GGP_LAKE.rv, 1);
     lake.rotation.x = -HALF_PI;
-    lake.position.set((GGP_LAKE.u - 0.5) * WORLD_W, 0, (GGP_LAKE.v - 0.5) * WORLD_H);
-    drape(lake, LOT_DECAL_LIFT);
+    lake.position.set((GGP_LAKE.u - 0.5) * WORLD_W, STOW_WATER_Y, (GGP_LAKE.v - 0.5) * WORLD_H);
+    lake.name = "stow-water";
+    lake.updateMatrixWorld(true);
+    objects.push(lake);
   }
 
   // ------------------------------------------------------------------
@@ -1500,6 +1499,17 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       if (reserved.has(cellKey(gx, gz))) continue;
       const wx = worldX(gx);
       const wz = worldZ(gz);
+      // A tile's centre can be dry while its lawn and skirt cover the basin.
+      // The closest point on its complete footprint tests ellipse overlap.
+      if (
+        stowBasinOverlapsBox(
+          wx - ROAD_TILE / 2,
+          wx + ROAD_TILE / 2,
+          wz - ROAD_TILE / 2,
+          wz + ROAD_TILE / 2,
+        )
+      )
+        continue;
       // Smoothed diagonals cut through raster park lots — leave those as lawn.
       if (onAsphalt(wx, wz, ROAD_TILE * 0.55)) continue;
 
@@ -1773,7 +1783,6 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
     // Deck tiles + stilts, one per water cell, flat at deck height.
     for (let i = 1; i <= len; i++) {
       const gz = pier.landGz - i;
-      openWaterCells.add(cellKey(pier.gx, gz));
       // Generated deck slab — top face exactly at deck height.
       const tile = new THREE.Mesh(
         new THREE.BoxGeometry(PIER_WIDTH, 0.5, PIER_WIDTH),
@@ -1795,8 +1804,7 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       pillar.updateMatrixWorld(true);
       objects.push(pillar);
     }
-    // Ramp slab connecting the shore grid to the deck (pitched box; the car
-    // rides the stepped surface rects below, the slab just has to match).
+    // Ramp slab and drive surface share one continuous incline.
     const shoreH = terrain.heightAt(px, boundary + PIER_RAMP_RUN) + ROAD_Y;
     const drop = deckY - shoreH;
     const rampLen = Math.hypot(PIER_RAMP_RUN, drop);
@@ -1807,31 +1815,21 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
     ramp.position.set(px, (deckY + shoreH) / 2 - 0.25, boundary + PIER_RAMP_RUN / 2);
     ramp.updateMatrixWorld(true);
     objects.push(ramp);
-    // Drivable surface rects: the flat deck plus stepped slices down the ramp
-    // (callers snap the car to rect y inside these).
+    // Real Rapier deck support cannot use the old three staircase samples:
+    // their vertical risers caught the chassis. Match the visible ramp plane.
     const halfW = PIER_WIDTH / 2;
     const zNorth = worldZ(pier.landGz - len) - PIER_WIDTH / 2;
     pierDecks.push({ minX: px - halfW, maxX: px + halfW, minZ: zNorth, maxZ: boundary, y: deckY });
-    const rampSteps = 3;
-    for (let i = 0; i < rampSteps; i++) {
-      pierDecks.push({
-        minX: px - halfW,
-        maxX: px + halfW,
-        minZ: boundary + (PIER_RAMP_RUN * i) / rampSteps,
-        maxZ: boundary + (PIER_RAMP_RUN * (i + 1)) / rampSteps,
-        y: deckY + (shoreH - deckY) * ((i + 0.5) / rampSteps),
-      });
-    }
-    // Wood railings (visual box + matching Solid): both sides + the far end.
-    const railLen = boundary - zNorth;
-    const railMidZ = (boundary + zNorth) / 2;
-    for (const sideSign of [1, -1] as const) {
-      const rx = px + sideSign * (halfW - 0.13);
-      box(RAIL_MAT, 0.26, 0.6, railLen, rx, deckY + 0.3, railMidZ);
-      solids.push({ minX: rx - 0.3, maxX: rx + 0.3, minZ: zNorth, maxZ: boundary });
-    }
-    box(RAIL_MAT, PIER_WIDTH, 0.6, 0.26, px, deckY + 0.3, zNorth + 0.13);
-    solids.push({ minX: px - halfW, maxX: px + halfW, minZ: zNorth - 0.1, maxZ: zNorth + 0.4 });
+    pierDecks.push({
+      minX: px - halfW,
+      maxX: px + halfW,
+      minZ: boundary,
+      maxZ: boundary + PIER_RAMP_RUN,
+      y: deckY,
+      y2: shoreH,
+    });
+    // The shared shoreline contour supplies matching rails after all deck
+    // footprints are known, including the ramp and open shore connection.
     // Pier 39: two tinted commercial buildings at the middle pier's end.
     if (pierIdx === 1) {
       for (let i = 0; i < PIER_END_BUILDINGS.length; i++) {
@@ -2995,5 +2993,5 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       .map(([k, n]) => `${k}=${n}`)
       .join(" ")}`,
   );
-  return { objects, solids, openWaterCells, pierDecks, parkedCars, lampHeads };
+  return { objects, solids, pierDecks, parkedCars, lampHeads };
 }

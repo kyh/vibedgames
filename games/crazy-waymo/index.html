@@ -735,6 +735,11 @@
         font-variant-numeric: tabular-nums;
       }
       #banner-cta {
+        appearance: none;
+        border: 0;
+        font-family: inherit;
+        font-weight: inherit;
+        line-height: inherit;
         margin-top: 26px;
         font-size: 15px;
         letter-spacing: 2px;
@@ -1340,7 +1345,7 @@
       <div id="banner-title">CRAZY WAYMO</div>
       <div id="banner-sub"></div>
       <div id="banner-stats"></div>
-      <div id="banner-cta" role="button" tabindex="0" aria-label="Start driving">START DRIVING</div>
+      <button id="banner-cta" type="button" aria-label="Start driving">START DRIVING</button>
       <div id="banner-controls"></div>
     </div>
 

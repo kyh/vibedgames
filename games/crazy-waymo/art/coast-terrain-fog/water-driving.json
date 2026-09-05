@@ -1,0 +1,2554 @@
+{
+  "url": "http://localhost:5193/?time=noon&offline=1",
+  "checkedAt": "2026-09-05T19:33:39.479Z",
+  "checks": [
+    {
+      "name": "revision95 includes bounded water walls",
+      "passed": true,
+      "detail": {
+        "boundedSolids": 5573,
+        "decks": [
+          {
+            "maxX": 208.195,
+            "maxZ": -1170,
+            "minX": 194.805,
+            "minZ": -1209.195,
+            "y": 0.55
+          },
+          {
+            "maxX": 208.195,
+            "maxZ": -1162.2,
+            "minX": 194.805,
+            "minZ": -1170,
+            "y": 0.55,
+            "y2": 2.158797923922537
+          },
+          {
+            "maxX": 403.195,
+            "maxZ": -1170,
+            "minX": 389.805,
+            "minZ": -1196.195,
+            "y": 0.5700000000000001
+          },
+          {
+            "maxX": 403.195,
+            "maxZ": -1162.2,
+            "minX": 389.805,
+            "minZ": -1170,
+            "y": 0.5700000000000001,
+            "y2": 6.056204028129571
+          },
+          {
+            "maxX": 598.195,
+            "maxZ": -1170,
+            "minX": 584.805,
+            "minZ": -1209.195,
+            "y": 0.5900000000000001
+          },
+          {
+            "maxX": 598.195,
+            "maxZ": -1162.2,
+            "minX": 584.805,
+            "minZ": -1170,
+            "y": 0.5900000000000001,
+            "y2": 10.548533124923692
+          },
+          {
+            "maxX": -495.5,
+            "maxZ": -1033.5,
+            "minX": -505.5,
+            "minZ": -1051.18,
+            "y": 5.668000260174275,
+            "y2": 0.3400013008713722
+          },
+          {
+            "maxX": -495.5,
+            "maxZ": -1051.18,
+            "minX": -505.5,
+            "minZ": -1059.5,
+            "y": 7,
+            "y2": 5.668000260174275
+          },
+          {
+            "maxX": -495.5,
+            "maxZ": -1251.5,
+            "minX": -505.5,
+            "minZ": -1277.5,
+            "y": 12.526963996887208,
+            "y2": 7
+          },
+          {
+            "maxX": -495.5,
+            "maxZ": -1059.5,
+            "minX": -505.5,
+            "minZ": -1251.5,
+            "y": 7
+          }
+        ],
+        "installedRevision": 95,
+        "revision": 95
+      }
+    },
+    {
+      "name": "golden-gate-left records live finite physics samples",
+      "passed": true,
+      "detail": {
+        "frames": 120,
+        "end": {
+          "airborne": false,
+          "bodyY": 8.365242958068848,
+          "drifting": false,
+          "floor": 7,
+          "heading": 0.18421278490075457,
+          "speed": 6.019249963660153,
+          "surface": "sand",
+          "vx": 0.5824589729309082,
+          "vz": 5.991002559661865,
+          "water": {
+            "kind": "dry"
+          },
+          "x": -496.5972392578125,
+          "y": 7.715734169006347,
+          "z": -1097.23469921875
+        }
+      }
+    },
+    {
+      "name": "GG left full-lock stays on deck",
+      "passed": true,
+      "detail": {
+        "maxLateral": 4.186469238281177,
+        "minY": 7.031129784584046
+      }
+    },
+    {
+      "name": "golden-gate-right records live finite physics samples",
+      "passed": true,
+      "detail": {
+        "frames": 120,
+        "end": {
+          "airborne": false,
+          "bodyY": 8.106233596801758,
+          "drifting": false,
+          "floor": 7,
+          "heading": -2.3654879445574415,
+          "speed": 1.910723816753436,
+          "surface": "sand",
+          "vx": -0.2992197275161743,
+          "vz": -1.887149453163147,
+          "water": {
+            "kind": "dry"
+          },
+          "x": -504.1126090698242,
+          "y": 7.473283512115477,
+          "z": -1130.974380859375
+        }
+      }
+    },
+    {
+      "name": "GG right full-lock stays on deck",
+      "passed": true,
+      "detail": {
+        "maxLateral": 4.030086364746069,
+        "minY": 7.014342164993287
+      }
+    },
+    {
+      "name": "pier-ramp-entry records live finite physics samples",
+      "passed": true,
+      "detail": {
+        "frames": 130,
+        "end": {
+          "airborne": false,
+          "bodyY": 1.205039381980896,
+          "drifting": false,
+          "floor": 0.55,
+          "heading": 3.1415573405989057,
+          "speed": 0.02155095195131361,
+          "surface": "road",
+          "vx": 0.02025446854531765,
+          "vz": 0.007362067233771086,
+          "water": {
+            "kind": "dry"
+          },
+          "x": 201.21368560791015,
+          "y": 0.5850176024436952,
+          "z": -1207.8758544921875
+        }
+      }
+    },
+    {
+      "name": "Wharf ramp reaches supported pier without stair snag",
+      "passed": true,
+      "detail": {
+        "start": {
+          "airborne": false,
+          "bodyY": 3.0538651943206787,
+          "drifting": false,
+          "floor": 2.369303477900946,
+          "heading": 3.140062710671999,
+          "speed": 12,
+          "surface": "road",
+          "vx": 0,
+          "vz": -12,
+          "water": {
+            "kind": "dry"
+          },
+          "x": 201.4839782714844,
+          "y": 2.4338651943206786,
+          "z": -1157.0111083984375
+        },
+        "finish": {
+          "airborne": false,
+          "bodyY": 1.205039381980896,
+          "drifting": false,
+          "floor": 0.55,
+          "heading": 3.1415573405989057,
+          "speed": 0.02155095195131361,
+          "surface": "road",
+          "vx": 0.02025446854531765,
+          "vz": 0.007362067233771086,
+          "water": {
+            "kind": "dry"
+          },
+          "x": 201.21368560791015,
+          "y": 0.5850176024436952,
+          "z": -1207.8758544921875
+        },
+        "minY": 0.4349320797920216
+      }
+    },
+    {
+      "name": "pier-edge-impact records live finite physics samples",
+      "passed": true,
+      "detail": {
+        "frames": 100,
+        "end": {
+          "airborne": false,
+          "bodyY": 1.1580754518508911,
+          "drifting": false,
+          "floor": 0.55,
+          "heading": 1.57081763435156,
+          "speed": 0.06491546464206427,
+          "surface": "road",
+          "vx": -0.03987257182598114,
+          "vz": 0.0512269027531147,
+          "water": {
+            "kind": "dry"
+          },
+          "x": 206.87521362304688,
+          "y": 0.538097631931305,
+          "z": -1189.4998388671877
+        }
+      }
+    },
+    {
+      "name": "Wharf edge holds boosted taxi above water",
+      "passed": true,
+      "detail": {
+        "maxX": 206.8754376220703,
+        "minY": 0.5175416491031636
+      }
+    },
+    {
+      "name": "beach and lake each expose intentional water access",
+      "passed": true,
+      "detail": [
+        {
+          "dry": {
+            "x": -1438,
+            "z": 200
+          },
+          "id": "ocean-beach",
+          "opening": {
+            "maxX": -1316.38,
+            "maxZ": 832,
+            "minX": -1586,
+            "minZ": -520
+          },
+          "region": "Ocean Beach",
+          "wet": {
+            "x": -1470,
+            "z": 200
+          },
+          "width": 1352
+        },
+        {
+          "dry": {
+            "x": -915.11,
+            "z": -259.99999999999994
+          },
+          "id": "stow-boat-launch",
+          "opening": {
+            "maxX": -894.1100000000001,
+            "maxZ": -255.99999999999991,
+            "minX": -917.11,
+            "minZ": -263.99999999999994
+          },
+          "region": "Golden Gate Park",
+          "wet": {
+            "x": -896.1100000000001,
+            "z": -259.99999999999994
+          },
+          "width": 8
+        }
+      ]
+    },
+    {
+      "name": "ocean-beach drives from land into water using held throttle",
+      "passed": true,
+      "detail": {
+        "before": {
+          "airborne": false,
+          "boosting": false,
+          "carrying": false,
+          "drifting": false,
+          "heading": -1.5707963267948968,
+          "nearestTraffic": {
+            "dist": 40.5,
+            "wrecked": false,
+            "y": 0.3
+          },
+          "objective": {
+            "u": 0.1077711223203026,
+            "v": 0.5225
+          },
+          "speed": 0,
+          "waterContact": {
+            "kind": "dry"
+          },
+          "wreckedCount": 0,
+          "x": -1438,
+          "y": 0.3623257923126221,
+          "z": 200
+        },
+        "end": {
+          "airborne": false,
+          "boosting": false,
+          "carrying": false,
+          "drifting": false,
+          "heading": -1.5707963265817322,
+          "nearestTraffic": {
+            "dist": 39.2,
+            "wrecked": false,
+            "y": 0.3
+          },
+          "objective": {
+            "u": 0.1077711223203026,
+            "v": 0.5225
+          },
+          "speed": 17.865589141845728,
+          "waterContact": {
+            "entrySpeed": 26.977115631103516,
+            "entryVerticalSpeed": 8.725810050964355,
+            "immersion": 0.5843518897891045,
+            "kind": "floating",
+            "waterY": -0.5
+          },
+          "wreckedCount": 0,
+          "x": -1468.5686635742184,
+          "y": -0.7868763636350705,
+          "z": 200
+        },
+        "frames": 103
+      }
+    },
+    {
+      "name": "ocean-beach settles afloat without sinking, drifting or airborne score",
+      "passed": true,
+      "detail": {
+        "end": {
+          "airborne": false,
+          "boosting": false,
+          "carrying": false,
+          "drifting": false,
+          "heading": -1.5707963267946703,
+          "nearestTraffic": {
+            "dist": 52.1,
+            "wrecked": false,
+            "y": 0.3
+          },
+          "objective": {
+            "u": 0.1077711223203026,
+            "v": 0.5225
+          },
+          "speed": 0.102748215198517,
+          "waterContact": {
+            "entrySpeed": 26.977115631103516,
+            "entryVerticalSpeed": 8.725810050964355,
+            "immersion": 0.4750003889203072,
+            "kind": "floating",
+            "waterY": -0.5
+          },
+          "wreckedCount": 0,
+          "x": -1478.8296669921874,
+          "y": -0.7000003111362457,
+          "z": 200
+        },
+        "minBodyY": -0.0800015777349472,
+        "maxBodyY": -0.08000031113624573
+      }
+    },
+    {
+      "name": "ocean-beach reverses back onto land through the same opening",
+      "passed": true,
+      "detail": {
+        "end": {
+          "airborne": false,
+          "boosting": false,
+          "carrying": false,
+          "drifting": false,
+          "heading": -1.5707963267934757,
+          "nearestTraffic": {
+            "dist": 20.8,
+            "wrecked": false,
+            "y": 0.3
+          },
+          "objective": {
+            "u": 0.1077711223203026,
+            "v": 0.5225
+          },
+          "speed": 12.238641738891602,
+          "waterContact": {
+            "kind": "dry"
+          },
+          "wreckedCount": 0,
+          "x": -1442.8449875488284,
+          "y": 0.36232127714157103,
+          "z": 200
+        },
+        "frames": 342
+      }
+    },
+    {
+      "name": "stow-boat-launch drives from land into water using held throttle",
+      "passed": true,
+      "detail": {
+        "before": {
+          "airborne": false,
+          "boosting": false,
+          "carrying": false,
+          "drifting": false,
+          "heading": 1.5688326091822693,
+          "nearestTraffic": {
+            "dist": 120.3,
+            "wrecked": false,
+            "y": 0.4
+          },
+          "objective": {
+            "u": 0.199984237074401,
+            "v": 0.4825
+          },
+          "speed": 0,
+          "waterContact": {
+            "kind": "dry"
+          },
+          "wreckedCount": 0,
+          "x": -915.1723022460938,
+          "y": 2.5413519191741942,
+          "z": -260.0057373046875
+        },
+        "end": {
+          "airborne": false,
+          "boosting": false,
+          "carrying": false,
+          "drifting": false,
+          "heading": 1.5781802423284137,
+          "nearestTraffic": {
+            "dist": 99.4,
+            "wrecked": false,
+            "y": 0.8
+          },
+          "objective": {
+            "u": 0.199984237074401,
+            "v": 0.4825
+          },
+          "speed": 14.227868641469344,
+          "waterContact": {
+            "entrySpeed": 20.1773243961104,
+            "entryVerticalSpeed": 4.716001987457275,
+            "immersion": 0.5825882554054262,
+            "kind": "floating",
+            "waterY": 3.4
+          },
+          "wreckedCount": 0,
+          "x": -891.2760158691409,
+          "y": 3.1168296546935967,
+          "z": -259.5925001220703
+        },
+        "frames": 94
+      }
+    },
+    {
+      "name": "stow-boat-launch settles afloat without sinking, drifting or airborne score",
+      "passed": true,
+      "detail": {
+        "end": {
+          "airborne": false,
+          "boosting": false,
+          "carrying": false,
+          "drifting": false,
+          "heading": 1.5829234914295585,
+          "nearestTraffic": {
+            "dist": 110.4,
+            "wrecked": false,
+            "y": 0.8
+          },
+          "objective": {
+            "u": 0.199984237074401,
+            "v": 0.4825
+          },
+          "speed": 0.07002250076541215,
+          "waterContact": {
+            "entrySpeed": 20.1773243961104,
+            "entryVerticalSpeed": 4.716001987457275,
+            "immersion": 0.47500455379486106,
+            "kind": "floating",
+            "waterY": 3.4
+          },
+          "wreckedCount": 0,
+          "x": -884.397197265625,
+          "y": 3.199996356964111,
+          "z": -259.594298828125
+        },
+        "minBodyY": 3.819996118545532,
+        "maxBodyY": 3.8199963569641113
+      }
+    },
+    {
+      "name": "stow-boat-launch reverses back onto land through the same opening",
+      "passed": true,
+      "detail": {
+        "end": {
+          "airborne": false,
+          "boosting": false,
+          "carrying": false,
+          "drifting": false,
+          "heading": 1.5816224080519512,
+          "nearestTraffic": {
+            "dist": 99.2,
+            "wrecked": false,
+            "y": 0.7
+          },
+          "objective": {
+            "u": 0.199984237074401,
+            "v": 0.4825
+          },
+          "speed": 11.860123086880026,
+          "waterContact": {
+            "kind": "dry"
+          },
+          "wreckedCount": 0,
+          "x": -910.3381652832028,
+          "y": 3.534207658767733,
+          "z": -259.1981719970703
+        },
+        "frames": 251
+      }
+    },
+    {
+      "name": "floating taxi accelerates and steers across open water",
+      "passed": true,
+      "detail": {
+        "start": {
+          "airborne": false,
+          "boosting": false,
+          "carrying": false,
+          "drifting": false,
+          "heading": 0,
+          "nearestTraffic": {
+            "dist": 74.4,
+            "wrecked": false,
+            "y": 0.3
+          },
+          "objective": {
+            "u": 0.07991803278688525,
+            "v": 0.5570192307692308
+          },
+          "speed": 0,
+          "waterContact": {
+            "entrySpeed": 0,
+            "entryVerticalSpeed": 0,
+            "immersion": 0.4757243804633618,
+            "kind": "floating",
+            "waterY": -0.5
+          },
+          "wreckedCount": 0,
+          "x": -1510,
+          "y": -0.7005613316297532,
+          "z": 200
+        },
+        "end": {
+          "airborne": false,
+          "boosting": false,
+          "carrying": false,
+          "drifting": false,
+          "heading": -2.364808049074969,
+          "nearestTraffic": {
+            "dist": 92.7,
+            "wrecked": false,
+            "y": 0.3
+          },
+          "objective": {
+            "u": 0.07991803278688525,
+            "v": 0.5570192307692308
+          },
+          "speed": 7.689926749285636,
+          "waterContact": {
+            "entrySpeed": 0,
+            "entryVerticalSpeed": 0,
+            "immersion": 0.4750006496906281,
+            "kind": "floating",
+            "waterY": -0.5
+          },
+          "wreckedCount": 0,
+          "x": -1530.0845495605467,
+          "y": -0.7000005197525024,
+          "z": 211.83844149780288
+        }
+      }
+    },
+    {
+      "name": "water catches a falling taxi and settles it at the surface",
+      "passed": true,
+      "detail": {
+        "minBodyY": -0.5788124799728394,
+        "end": {
+          "airborne": false,
+          "boosting": false,
+          "carrying": false,
+          "drifting": false,
+          "heading": 0,
+          "nearestTraffic": {
+            "dist": 72.5,
+            "wrecked": false,
+            "y": 0.3
+          },
+          "objective": {
+            "u": 0.07991803278688525,
+            "v": 0.5570192307692308
+          },
+          "speed": 0,
+          "waterContact": {
+            "entrySpeed": 0,
+            "entryVerticalSpeed": 41.29988861083984,
+            "immersion": 0.4750006310641766,
+            "kind": "floating",
+            "waterY": -0.5
+          },
+          "wreckedCount": 0,
+          "x": -1510,
+          "y": -0.7000005048513412,
+          "z": 200
+        }
+      }
+    },
+    {
+      "name": "Palace and all four Sutro pools publish water surfaces",
+      "passed": true
+    },
+    {
+      "name": "ornamental pool 1 floats without invisible reservation collisions",
+      "passed": true,
+      "detail": {
+        "pool": {
+          "halfX": 20.1,
+          "halfZ": 9.648,
+          "kind": "ellipse",
+          "x": -121.91898237505838,
+          "y": 1.269460482597351,
+          "yaw": 3.490658503988659,
+          "z": -1124.5221072976306
+        },
+        "end": {
+          "airborne": false,
+          "boosting": false,
+          "carrying": false,
+          "drifting": false,
+          "heading": -2.7925268053600725,
+          "nearestTraffic": {
+            "dist": 50.9,
+            "wrecked": false,
+            "y": 0.4
+          },
+          "objective": {
+            "u": 0.4936861163643027,
+            "v": 0.1677029380355507
+          },
+          "speed": 0,
+          "waterContact": {
+            "entrySpeed": 0,
+            "entryVerticalSpeed": 0,
+            "immersion": 0.4750026404857632,
+            "kind": "floating",
+            "waterY": 1.269460482597351
+          },
+          "wreckedCount": 0,
+          "x": -121.91898345947266,
+          "y": 1.06945837020874,
+          "z": -1124.5220947265625
+        }
+      }
+    },
+    {
+      "name": "ornamental pool 2 floats without invisible reservation collisions",
+      "passed": true,
+      "detail": {
+        "pool": {
+          "halfX": 5.05,
+          "halfZ": 3.55,
+          "kind": "rectangle",
+          "x": -1444.572,
+          "y": 1.7000000119209289,
+          "yaw": 0,
+          "z": -599.4
+        },
+        "end": {
+          "airborne": false,
+          "boosting": false,
+          "carrying": false,
+          "drifting": false,
+          "heading": 0,
+          "nearestTraffic": {
+            "dist": 114,
+            "wrecked": false,
+            "y": 0.3
+          },
+          "objective": {
+            "u": 0.1057219419924338,
+            "v": 0.3075
+          },
+          "speed": 0,
+          "waterContact": {
+            "entrySpeed": 0,
+            "entryVerticalSpeed": 0,
+            "immersion": 0.4750025421380999,
+            "kind": "floating",
+            "waterY": 1.7000000119209289
+          },
+          "wreckedCount": 0,
+          "x": -1444.572021484375,
+          "y": 1.4999979782104491,
+          "z": -599.4000244140625
+        }
+      }
+    },
+    {
+      "name": "ornamental pool 3 floats without invisible reservation collisions",
+      "passed": true,
+      "detail": {
+        "pool": {
+          "halfX": 4.05,
+          "halfZ": 3.05,
+          "kind": "rectangle",
+          "x": -1431.572,
+          "y": 1.7000000119209289,
+          "yaw": 0,
+          "z": -601.4
+        },
+        "end": {
+          "airborne": false,
+          "boosting": false,
+          "carrying": false,
+          "drifting": false,
+          "heading": 0,
+          "nearestTraffic": {
+            "dist": 99.4,
+            "wrecked": false,
+            "y": 0.3
+          },
+          "objective": {
+            "u": 0.1057219419924338,
+            "v": 0.3075
+          },
+          "speed": 0,
+          "waterContact": {
+            "entrySpeed": 0,
+            "entryVerticalSpeed": 0,
+            "immersion": 0.4750025421380999,
+            "kind": "floating",
+            "waterY": 1.7000000119209289
+          },
+          "wreckedCount": 0,
+          "x": -1431.572021484375,
+          "y": 1.4999979782104491,
+          "z": -601.4000244140625
+        }
+      }
+    },
+    {
+      "name": "ornamental pool 4 floats without invisible reservation collisions",
+      "passed": true,
+      "detail": {
+        "pool": {
+          "halfX": 3.55,
+          "halfZ": 2.55,
+          "kind": "rectangle",
+          "x": -1420.572,
+          "y": 1.7000000119209289,
+          "yaw": 0,
+          "z": -597.4
+        },
+        "end": {
+          "airborne": false,
+          "boosting": false,
+          "carrying": false,
+          "drifting": false,
+          "heading": 0,
+          "nearestTraffic": {
+            "dist": 91.2,
+            "wrecked": false,
+            "y": 0.3
+          },
+          "objective": {
+            "u": 0.1057219419924338,
+            "v": 0.3075
+          },
+          "speed": 0,
+          "waterContact": {
+            "entrySpeed": 0,
+            "entryVerticalSpeed": 0,
+            "immersion": 0.4750025421380999,
+            "kind": "floating",
+            "waterY": 1.7000000119209289
+          },
+          "wreckedCount": 0,
+          "x": -1420.572021484375,
+          "y": 1.4999979782104491,
+          "z": -597.4000244140625
+        }
+      }
+    },
+    {
+      "name": "ornamental pool 5 floats without invisible reservation collisions",
+      "passed": true,
+      "detail": {
+        "pool": {
+          "halfX": 4.55,
+          "halfZ": 2.55,
+          "kind": "rectangle",
+          "x": -1438.572,
+          "y": 1.7000000119209289,
+          "yaw": 0,
+          "z": -611.4
+        },
+        "end": {
+          "airborne": false,
+          "boosting": false,
+          "carrying": false,
+          "drifting": false,
+          "heading": 0,
+          "nearestTraffic": {
+            "dist": 123.3,
+            "wrecked": false,
+            "y": 0.3
+          },
+          "objective": {
+            "u": 0.1057219419924338,
+            "v": 0.3075
+          },
+          "speed": 0,
+          "waterContact": {
+            "entrySpeed": 0,
+            "entryVerticalSpeed": 0,
+            "immersion": 0.4750025421380999,
+            "kind": "floating",
+            "waterY": 1.7000000119209289
+          },
+          "wreckedCount": 0,
+          "x": -1438.572021484375,
+          "y": 1.4999979782104491,
+          "z": -611.4000244140625
+        }
+      }
+    },
+    {
+      "name": "all water trajectories remain finite",
+      "passed": true
+    },
+    {
+      "name": "no runtime errors",
+      "passed": true,
+      "detail": {
+        "errors": []
+      }
+    }
+  ],
+  "cases": [
+    {
+      "name": "golden-gate-left",
+      "spot": {
+        "x": -500.5,
+        "z": -1150,
+        "yaw": 0
+      },
+      "controls": {
+        "throttle": 1,
+        "brake": 0,
+        "steer": -1,
+        "boost": true
+      },
+      "pending": {
+        "builtMs": 1044.499997138977,
+        "bytes": 21533916,
+        "cells": 836,
+        "detailedCells": 0,
+        "pending": 0,
+        "resident": 159,
+        "verts": 792436
+      },
+      "probe": {
+        "airborne": false,
+        "boosting": true,
+        "carrying": false,
+        "drifting": false,
+        "heading": 0.18421278490075457,
+        "nearestTraffic": {
+          "dist": 441.9,
+          "wrecked": false,
+          "y": 0.3
+        },
+        "objective": {
+          "u": 0.34645722276205215,
+          "v": 0.17732218823029644
+        },
+        "speed": 6.019249963660153,
+        "waterContact": {
+          "kind": "dry"
+        },
+        "wreckedCount": 0,
+        "x": -496.5972392578125,
+        "y": 7.715734169006347,
+        "z": -1097.23469921875
+      },
+      "reached": false,
+      "trajectory": {
+        "count": 120,
+        "first": {
+          "airborne": false,
+          "bodyY": 7.685948848724365,
+          "drifting": false,
+          "floor": 7,
+          "heading": 0.017641851204096882,
+          "speed": 30.93841878746042,
+          "surface": "road",
+          "vx": 1.1064695119857788,
+          "vz": 30.91862678527832,
+          "water": {
+            "kind": "dry"
+          },
+          "x": -500.48445709228514,
+          "y": 7.065239109992981,
+          "z": -1149.240225341797
+        },
+        "last": {
+          "airborne": false,
+          "bodyY": 8.365242958068848,
+          "drifting": false,
+          "floor": 7,
+          "heading": 0.18421278490075457,
+          "speed": 6.019249963660153,
+          "surface": "sand",
+          "vx": 0.5824589729309082,
+          "vz": 5.991002559661865,
+          "water": {
+            "kind": "dry"
+          },
+          "x": -496.5972392578125,
+          "y": 7.715734169006347,
+          "z": -1097.23469921875
+        },
+        "minBodyY": 7.649857997894287,
+        "maxBodyY": 8.365242958068848,
+        "wetSamples": 0,
+        "maxSpeed": 43.806061261493845
+      }
+    },
+    {
+      "name": "golden-gate-right",
+      "spot": {
+        "x": -500.5,
+        "z": -1150,
+        "yaw": 0
+      },
+      "controls": {
+        "throttle": 1,
+        "brake": 0,
+        "steer": 1,
+        "boost": true
+      },
+      "pending": {
+        "builtMs": 1044.499997138977,
+        "bytes": 21533916,
+        "cells": 836,
+        "detailedCells": 0,
+        "pending": 0,
+        "resident": 159,
+        "verts": 792436
+      },
+      "probe": {
+        "airborne": false,
+        "boosting": true,
+        "carrying": false,
+        "drifting": false,
+        "heading": -2.3654879445574415,
+        "nearestTraffic": {
+          "dist": 108.2,
+          "wrecked": false,
+          "y": 0.3
+        },
+        "objective": {
+          "u": 0.34645722276205215,
+          "v": 0.17732218823029644
+        },
+        "speed": 1.910723816753436,
+        "waterContact": {
+          "kind": "dry"
+        },
+        "wreckedCount": 0,
+        "x": -504.1126090698242,
+        "y": 7.473283512115477,
+        "z": -1130.974380859375
+      },
+      "reached": false,
+      "trajectory": {
+        "count": 120,
+        "first": {
+          "airborne": false,
+          "bodyY": 7.685948848724365,
+          "drifting": false,
+          "floor": 7,
+          "heading": -0.01074901138979473,
+          "speed": 30.938418791723777,
+          "surface": "road",
+          "vx": -1.1064696311950684,
+          "vz": 30.91862678527832,
+          "water": {
+            "kind": "dry"
+          },
+          "x": -500.50795288085936,
+          "y": 7.064648132324218,
+          "z": -1149.4551953125
+        },
+        "last": {
+          "airborne": false,
+          "bodyY": 8.106233596801758,
+          "drifting": false,
+          "floor": 7,
+          "heading": -2.3654879445574415,
+          "speed": 1.910723816753436,
+          "surface": "sand",
+          "vx": -0.2992197275161743,
+          "vz": -1.887149453163147,
+          "water": {
+            "kind": "dry"
+          },
+          "x": -504.1126090698242,
+          "y": 7.473283512115477,
+          "z": -1130.974380859375
+        },
+        "minBodyY": 7.629232883453369,
+        "maxBodyY": 9.05129337310791,
+        "wetSamples": 0,
+        "maxSpeed": 43.80605600999616
+      }
+    },
+    {
+      "name": "pier-ramp-entry",
+      "spot": {
+        "x": 201.5,
+        "z": -1157,
+        "yaw": 3.141592653589793
+      },
+      "controls": {
+        "throttle": 0.8,
+        "brake": 0,
+        "steer": 0,
+        "boost": false
+      },
+      "pending": {
+        "builtMs": 1167.5999972820282,
+        "bytes": 34178340,
+        "cells": 836,
+        "detailedCells": 15,
+        "pending": 0,
+        "resident": 198,
+        "verts": 1398955
+      },
+      "probe": {
+        "airborne": false,
+        "boosting": false,
+        "carrying": false,
+        "drifting": false,
+        "heading": 3.1415573405989057,
+        "nearestTraffic": {
+          "dist": 61.7,
+          "wrecked": false,
+          "y": 3.4
+        },
+        "objective": {
+          "u": 0.518276280298729,
+          "v": 0.1127029380355507
+        },
+        "speed": 0.02155095195131361,
+        "waterContact": {
+          "kind": "dry"
+        },
+        "wreckedCount": 0,
+        "x": 201.21368560791015,
+        "y": 0.5850176024436952,
+        "z": -1207.8758544921875
+      },
+      "reached": false,
+      "trajectory": {
+        "count": 130,
+        "first": {
+          "airborne": false,
+          "bodyY": 3.0538651943206787,
+          "drifting": false,
+          "floor": 2.369303477900946,
+          "heading": 3.140062710671999,
+          "speed": 12,
+          "surface": "road",
+          "vx": 0,
+          "vz": -12,
+          "water": {
+            "kind": "dry"
+          },
+          "x": 201.4839782714844,
+          "y": 2.4338651943206786,
+          "z": -1157.0111083984375
+        },
+        "last": {
+          "airborne": false,
+          "bodyY": 1.205039381980896,
+          "drifting": false,
+          "floor": 0.55,
+          "heading": 3.1415573405989057,
+          "speed": 0.02155095195131361,
+          "surface": "road",
+          "vx": 0.02025446854531765,
+          "vz": 0.007362067233771086,
+          "water": {
+            "kind": "dry"
+          },
+          "x": 201.21368560791015,
+          "y": 0.5850176024436952,
+          "z": -1207.8758544921875
+        },
+        "minBodyY": 1.054371953010559,
+        "maxBodyY": 3.0538651943206787,
+        "wetSamples": 0,
+        "maxSpeed": 30.171590618079943
+      }
+    },
+    {
+      "name": "pier-edge-impact",
+      "spot": {
+        "x": 201.5,
+        "z": -1189.5974999999999,
+        "yaw": 1.5707963267948966
+      },
+      "controls": {
+        "throttle": 1,
+        "brake": 0,
+        "steer": 0,
+        "boost": true
+      },
+      "pending": {
+        "builtMs": 1170.4999973773956,
+        "bytes": 34769490,
+        "cells": 836,
+        "detailedCells": 16,
+        "pending": 0,
+        "resident": 198,
+        "verts": 1426463
+      },
+      "probe": {
+        "airborne": false,
+        "boosting": true,
+        "carrying": false,
+        "drifting": false,
+        "heading": 1.57081763435156,
+        "nearestTraffic": {
+          "dist": 39.6,
+          "wrecked": false,
+          "y": 4.6
+        },
+        "objective": {
+          "u": 0.518276280298729,
+          "v": 0.1127029380355507
+        },
+        "speed": 0.06491546464206427,
+        "waterContact": {
+          "kind": "dry"
+        },
+        "wreckedCount": 0,
+        "x": 206.87521362304688,
+        "y": 0.538097631931305,
+        "z": -1189.4998388671877
+      },
+      "reached": false,
+      "trajectory": {
+        "count": 100,
+        "first": {
+          "airborne": false,
+          "bodyY": 1.2345349788665771,
+          "drifting": false,
+          "floor": 0.55,
+          "heading": 1.570796326794897,
+          "speed": 36.25199890136719,
+          "surface": "road",
+          "vx": 36.25199890136719,
+          "vz": 0,
+          "water": {
+            "kind": "dry"
+          },
+          "x": 201.55073120117163,
+          "y": 0.6125114731788627,
+          "z": -1189.5975341796875
+        },
+        "last": {
+          "airborne": false,
+          "bodyY": 1.1580754518508911,
+          "drifting": false,
+          "floor": 0.55,
+          "heading": 1.57081763435156,
+          "speed": 0.06491546464206427,
+          "surface": "road",
+          "vx": -0.03987257182598114,
+          "vz": 0.0512269027531147,
+          "water": {
+            "kind": "dry"
+          },
+          "x": 206.87521362304688,
+          "y": 0.538097631931305,
+          "z": -1189.4998388671877
+        },
+        "minBodyY": 1.1374015808105469,
+        "maxBodyY": 1.2371454238891602,
+        "wetSamples": 0,
+        "maxSpeed": 41.856491088867195
+      }
+    },
+    {
+      "name": "ocean-beach-entry",
+      "pending": {
+        "builtMs": 1686.0999977588654,
+        "bytes": 54485996,
+        "cells": 836,
+        "detailedCells": 17,
+        "pending": 0,
+        "resident": 184,
+        "verts": 2152489
+      },
+      "probe": {
+        "airborne": false,
+        "boosting": false,
+        "carrying": false,
+        "drifting": false,
+        "heading": -1.5707963265817322,
+        "nearestTraffic": {
+          "dist": 39.2,
+          "wrecked": false,
+          "y": 0.3
+        },
+        "objective": {
+          "u": 0.1077711223203026,
+          "v": 0.5225
+        },
+        "speed": 17.865589141845728,
+        "waterContact": {
+          "entrySpeed": 26.977115631103516,
+          "entryVerticalSpeed": 8.725810050964355,
+          "immersion": 0.5843518897891045,
+          "kind": "floating",
+          "waterY": -0.5
+        },
+        "wreckedCount": 0,
+        "x": -1468.5686635742184,
+        "y": -0.7868763636350705,
+        "z": 200
+      },
+      "reached": true,
+      "trajectory": {
+        "count": 103,
+        "first": {
+          "airborne": false,
+          "bodyY": 0.982325792312622,
+          "drifting": false,
+          "floor": 0.30000001192092896,
+          "heading": -1.5707963267948968,
+          "speed": 0,
+          "surface": "road",
+          "vx": 0,
+          "vz": 0,
+          "water": {
+            "kind": "dry"
+          },
+          "x": -1438,
+          "y": 0.3623257923126221,
+          "z": 200
+        },
+        "last": {
+          "airborne": false,
+          "bodyY": -0.16130653023719788,
+          "drifting": false,
+          "floor": -4.15204108402898,
+          "heading": -1.5707963265817322,
+          "speed": 17.865589141845728,
+          "surface": "sand",
+          "vx": -17.865589141845703,
+          "vz": -9.638532674216549e-7,
+          "water": {
+            "entrySpeed": 26.977115631103516,
+            "entryVerticalSpeed": 8.725810050964355,
+            "immersion": 0.5843518897891045,
+            "kind": "floating",
+            "waterY": -0.5
+          },
+          "x": -1468.5686635742184,
+          "y": -0.7868763636350705,
+          "z": 200
+        },
+        "minBodyY": -0.25161489844322205,
+        "maxBodyY": 1.0423109531402588,
+        "wetSamples": 20,
+        "maxSpeed": 26.97711563110352
+      }
+    },
+    {
+      "name": "ocean-beach-float",
+      "pending": {
+        "builtMs": 1686.0999977588654,
+        "bytes": 54485996,
+        "cells": 836,
+        "detailedCells": 17,
+        "pending": 0,
+        "resident": 184,
+        "verts": 2152489
+      },
+      "probe": {
+        "airborne": false,
+        "boosting": false,
+        "carrying": false,
+        "drifting": false,
+        "heading": -1.5707963267946703,
+        "nearestTraffic": {
+          "dist": 52.1,
+          "wrecked": false,
+          "y": 0.3
+        },
+        "objective": {
+          "u": 0.1077711223203026,
+          "v": 0.5225
+        },
+        "speed": 0.102748215198517,
+        "waterContact": {
+          "entrySpeed": 26.977115631103516,
+          "entryVerticalSpeed": 8.725810050964355,
+          "immersion": 0.4750003889203072,
+          "kind": "floating",
+          "waterY": -0.5
+        },
+        "wreckedCount": 0,
+        "x": -1478.8296669921874,
+        "y": -0.7000003111362457,
+        "z": 200
+      },
+      "reached": false,
+      "trajectory": {
+        "count": 120,
+        "first": {
+          "airborne": false,
+          "bodyY": -0.08650849759578705,
+          "drifting": false,
+          "floor": -5,
+          "heading": -1.570796326689655,
+          "speed": 7.306873321533217,
+          "surface": "sand",
+          "vx": -7.306873321533203,
+          "vz": -4.526963266471285e-7,
+          "water": {
+            "entrySpeed": 26.977115631103516,
+            "entryVerticalSpeed": 8.725810050964355,
+            "immersion": 0.48388911783695226,
+            "kind": "floating",
+            "waterY": -0.5
+          },
+          "x": -1474.7963500976562,
+          "y": -0.7070510146021851,
+          "z": 200
+        },
+        "last": {
+          "airborne": false,
+          "bodyY": -0.08000031113624573,
+          "drifting": false,
+          "floor": -5,
+          "heading": -1.5707963267946703,
+          "speed": 0.102748215198517,
+          "surface": "sand",
+          "vx": -0.10274821519851685,
+          "vz": -5.662360358371643e-9,
+          "water": {
+            "entrySpeed": 26.977115631103516,
+            "entryVerticalSpeed": 8.725810050964355,
+            "immersion": 0.4750003889203072,
+            "kind": "floating",
+            "waterY": -0.5
+          },
+          "x": -1478.8296669921874,
+          "y": -0.7000003111362457,
+          "z": 200
+        },
+        "minBodyY": -0.08650849759578705,
+        "maxBodyY": -0.08000031113624573,
+        "wetSamples": 120,
+        "maxSpeed": 7.306873321533217
+      }
+    },
+    {
+      "name": "ocean-beach-exit",
+      "pending": {
+        "builtMs": 1686.0999977588654,
+        "bytes": 54485996,
+        "cells": 836,
+        "detailedCells": 17,
+        "pending": 0,
+        "resident": 184,
+        "verts": 2152489
+      },
+      "probe": {
+        "airborne": false,
+        "boosting": false,
+        "carrying": false,
+        "drifting": false,
+        "heading": -1.5707963267934757,
+        "nearestTraffic": {
+          "dist": 20.8,
+          "wrecked": false,
+          "y": 0.3
+        },
+        "objective": {
+          "u": 0.1077711223203026,
+          "v": 0.5225
+        },
+        "speed": 12.238641738891602,
+        "waterContact": {
+          "kind": "dry"
+        },
+        "wreckedCount": 0,
+        "x": -1442.8449875488284,
+        "y": 0.36232127714157103,
+        "z": 200
+      },
+      "reached": true,
+      "trajectory": {
+        "count": 342,
+        "first": {
+          "airborne": false,
+          "bodyY": -0.08000031113624573,
+          "drifting": false,
+          "floor": -5,
+          "heading": -1.570796326794865,
+          "speed": 2.8792045116424845,
+          "surface": "sand",
+          "vx": 2.879204511642456,
+          "vz": 4.0479793028680433e-7,
+          "water": {
+            "entrySpeed": 26.977115631103516,
+            "entryVerticalSpeed": 8.725810050964355,
+            "immersion": 0.4750003889203072,
+            "kind": "floating",
+            "waterY": -0.5
+          },
+          "x": -1478.085283203125,
+          "y": -0.7000003111362457,
+          "z": 200
+        },
+        "last": {
+          "airborne": false,
+          "bodyY": 0.9823256731033324,
+          "drifting": false,
+          "floor": 0.30000001192092896,
+          "heading": -1.5707963267934757,
+          "speed": 12.238641738891602,
+          "surface": "road",
+          "vx": 12.238641738891602,
+          "vz": -5.587508766780047e-8,
+          "water": {
+            "kind": "dry"
+          },
+          "x": -1442.8449875488284,
+          "y": 0.36232127714157103,
+          "z": 200
+        },
+        "minBodyY": -0.08000031113624573,
+        "maxBodyY": 1.0051910877227783,
+        "wetSamples": 278,
+        "maxSpeed": 12.238641738891602
+      }
+    },
+    {
+      "name": "stow-boat-launch-entry",
+      "pending": {
+        "builtMs": 2221.1999983787537,
+        "bytes": 76764310,
+        "cells": 836,
+        "detailedCells": 16,
+        "pending": 0,
+        "resident": 281,
+        "verts": 3053127
+      },
+      "probe": {
+        "airborne": false,
+        "boosting": false,
+        "carrying": false,
+        "drifting": false,
+        "heading": 1.5781802423284137,
+        "nearestTraffic": {
+          "dist": 99.4,
+          "wrecked": false,
+          "y": 0.8
+        },
+        "objective": {
+          "u": 0.199984237074401,
+          "v": 0.4825
+        },
+        "speed": 14.227868641469344,
+        "waterContact": {
+          "entrySpeed": 20.1773243961104,
+          "entryVerticalSpeed": 4.716001987457275,
+          "immersion": 0.5825882554054262,
+          "kind": "floating",
+          "waterY": 3.4
+        },
+        "wreckedCount": 0,
+        "x": -891.2760158691409,
+        "y": 3.1168296546935967,
+        "z": -259.5925001220703
+      },
+      "reached": true,
+      "trajectory": {
+        "count": 94,
+        "first": {
+          "airborne": false,
+          "bodyY": 3.1627464294433594,
+          "drifting": false,
+          "floor": 2.5234644890932683,
+          "heading": 1.5688678670933534,
+          "speed": 0.26742427359244936,
+          "surface": "grass",
+          "vx": 0.26729148626327515,
+          "vz": -0.008426356129348278,
+          "water": {
+            "kind": "dry"
+          },
+          "x": -915.168515625,
+          "y": 2.542662758827208,
+          "z": -260.00585205078124
+        },
+        "last": {
+          "airborne": false,
+          "bodyY": 3.739638566970825,
+          "drifting": false,
+          "floor": 1.5385383159444994,
+          "heading": 1.5781802423284137,
+          "speed": 14.227868641469344,
+          "surface": "concrete",
+          "vx": 14.227605819702148,
+          "vz": 0.08647958189249039,
+          "water": {
+            "entrySpeed": 20.1773243961104,
+            "entryVerticalSpeed": 4.716001987457275,
+            "immersion": 0.5825882554054262,
+            "kind": "floating",
+            "waterY": 3.4
+          },
+          "x": -891.2760158691409,
+          "y": 3.1168296546935967,
+          "z": -259.5925001220703
+        },
+        "minBodyY": 3.1627464294433594,
+        "maxBodyY": 4.403175354003906,
+        "wetSamples": 20,
+        "maxSpeed": 20.177324396110404
+      }
+    },
+    {
+      "name": "stow-boat-launch-float",
+      "pending": {
+        "builtMs": 2225.5999982357025,
+        "bytes": 77360422,
+        "cells": 836,
+        "detailedCells": 16,
+        "pending": 0,
+        "resident": 285,
+        "verts": 3075083
+      },
+      "probe": {
+        "airborne": false,
+        "boosting": false,
+        "carrying": false,
+        "drifting": false,
+        "heading": 1.5829234914295585,
+        "nearestTraffic": {
+          "dist": 110.4,
+          "wrecked": false,
+          "y": 0.8
+        },
+        "objective": {
+          "u": 0.199984237074401,
+          "v": 0.4825
+        },
+        "speed": 0.07002250076541215,
+        "waterContact": {
+          "entrySpeed": 20.1773243961104,
+          "entryVerticalSpeed": 4.716001987457275,
+          "immersion": 0.47500455379486106,
+          "kind": "floating",
+          "waterY": 3.4
+        },
+        "wreckedCount": 0,
+        "x": -884.397197265625,
+        "y": 3.199996356964111,
+        "z": -259.594298828125
+      },
+      "reached": false,
+      "trajectory": {
+        "count": 120,
+        "first": {
+          "airborne": false,
+          "bodyY": 3.814864158630371,
+          "drifting": false,
+          "floor": 1.560333835729708,
+          "heading": 1.5825565087371782,
+          "speed": 3.78577850377285,
+          "surface": "concrete",
+          "vx": 3.78574800491333,
+          "vz": -0.015196148306131365,
+          "water": {
+            "entrySpeed": 20.1773243961104,
+            "entryVerticalSpeed": 4.716001987457275,
+            "immersion": 0.4820143580436709,
+            "kind": "floating",
+            "waterY": 3.4
+          },
+          "x": -886.4543349609376,
+          "y": 3.194628238677978,
+          "z": -259.5831608886719
+        },
+        "last": {
+          "airborne": false,
+          "bodyY": 3.8199963569641113,
+          "drifting": false,
+          "floor": 1.5680820675192146,
+          "heading": 1.5829234914295585,
+          "speed": 0.07002250076541215,
+          "surface": "concrete",
+          "vx": 0.07001739740371704,
+          "vz": -0.0008453840855509043,
+          "water": {
+            "entrySpeed": 20.1773243961104,
+            "entryVerticalSpeed": 4.716001987457275,
+            "immersion": 0.47500455379486106,
+            "kind": "floating",
+            "waterY": 3.4
+          },
+          "x": -884.397197265625,
+          "y": 3.199996356964111,
+          "z": -259.594298828125
+        },
+        "minBodyY": 3.814864158630371,
+        "maxBodyY": 3.8199963569641113,
+        "wetSamples": 120,
+        "maxSpeed": 3.78577850377285
+      }
+    },
+    {
+      "name": "stow-boat-launch-exit",
+      "pending": {
+        "builtMs": 2225.5999982357025,
+        "bytes": 77360422,
+        "cells": 836,
+        "detailedCells": 16,
+        "pending": 0,
+        "resident": 285,
+        "verts": 3075083
+      },
+      "probe": {
+        "airborne": false,
+        "boosting": false,
+        "carrying": false,
+        "drifting": false,
+        "heading": 1.5816224080519512,
+        "nearestTraffic": {
+          "dist": 99.2,
+          "wrecked": false,
+          "y": 0.7
+        },
+        "objective": {
+          "u": 0.199984237074401,
+          "v": 0.4825
+        },
+        "speed": 11.860123086880026,
+        "waterContact": {
+          "kind": "dry"
+        },
+        "wreckedCount": 0,
+        "x": -910.3381652832028,
+        "y": 3.534207658767733,
+        "z": -259.1981719970703
+      },
+      "reached": true,
+      "trajectory": {
+        "count": 251,
+        "first": {
+          "airborne": false,
+          "bodyY": 3.8199963569641113,
+          "drifting": false,
+          "floor": 1.5649796713705295,
+          "heading": 1.5829234832069932,
+          "speed": 3.0803265730148897,
+          "surface": "concrete",
+          "vx": -3.0801000595092773,
+          "vz": 0.037355318665504456,
+          "water": {
+            "entrySpeed": 20.1773243961104,
+            "entryVerticalSpeed": 4.716001987457275,
+            "immersion": 0.47500455379486106,
+            "kind": "floating",
+            "waterY": 3.4
+          },
+          "x": -885.3183796386718,
+          "y": 3.199996356964111,
+          "z": -259.5830395507812
+        },
+        "last": {
+          "airborne": false,
+          "bodyY": 4.153270721435547,
+          "drifting": false,
+          "floor": 3.5911072796184076,
+          "heading": 1.5816224080519512,
+          "speed": 11.860123086880026,
+          "surface": "grass",
+          "vx": -11.859725952148438,
+          "vz": 0.0970565602183342,
+          "water": {
+            "kind": "dry"
+          },
+          "x": -910.3381652832028,
+          "y": 3.534207658767733,
+          "z": -259.1981719970703
+        },
+        "minBodyY": 3.8199963569641113,
+        "maxBodyY": 4.2570719718933105,
+        "wetSamples": 212,
+        "maxSpeed": 12.137383649750587
+      }
+    },
+    {
+      "name": "ocean-steering",
+      "pending": {
+        "builtMs": 2373.5999989509583,
+        "bytes": 43661084,
+        "cells": 836,
+        "detailedCells": 12,
+        "pending": 0,
+        "resident": 165,
+        "verts": 1704736
+      },
+      "probe": {
+        "airborne": false,
+        "boosting": false,
+        "carrying": false,
+        "drifting": false,
+        "heading": -2.364808049074969,
+        "nearestTraffic": {
+          "dist": 92.7,
+          "wrecked": false,
+          "y": 0.3
+        },
+        "objective": {
+          "u": 0.07991803278688525,
+          "v": 0.5570192307692308
+        },
+        "speed": 7.689926749285636,
+        "waterContact": {
+          "entrySpeed": 0,
+          "entryVerticalSpeed": 0,
+          "immersion": 0.4750006496906281,
+          "kind": "floating",
+          "waterY": -0.5
+        },
+        "wreckedCount": 0,
+        "x": -1530.0845495605467,
+        "y": -0.7000005197525024,
+        "z": 211.83844149780288
+      },
+      "reached": false,
+      "trajectory": {
+        "count": 240,
+        "first": {
+          "airborne": false,
+          "bodyY": -0.08021749556064606,
+          "drifting": false,
+          "floor": -5,
+          "heading": -0.0001794197255352255,
+          "speed": 0.11666667461395264,
+          "surface": "sand",
+          "vx": 0,
+          "vz": 0.11666667461395264,
+          "water": {
+            "entrySpeed": 0,
+            "entryVerticalSpeed": 0,
+            "immersion": 0.4752972014248372,
+            "kind": "floating",
+            "waterY": -0.5
+          },
+          "x": -1510,
+          "y": -0.7002204138040543,
+          "z": 200.001044921875
+        },
+        "last": {
+          "airborne": false,
+          "bodyY": -0.08000051975250244,
+          "drifting": false,
+          "floor": -5,
+          "heading": -2.364808049074969,
+          "speed": 7.689926749285636,
+          "surface": "sand",
+          "vx": -6.1698317527771,
+          "vz": -4.590005397796631,
+          "water": {
+            "entrySpeed": 0,
+            "entryVerticalSpeed": 0,
+            "immersion": 0.4750006496906281,
+            "kind": "floating",
+            "waterY": -0.5
+          },
+          "x": -1530.0845495605467,
+          "y": -0.7000005197525024,
+          "z": 211.83844149780288
+        },
+        "minBodyY": -0.08021749556064606,
+        "maxBodyY": -0.08000047504901886,
+        "wetSamples": 240,
+        "maxSpeed": 7.689926749285636
+      }
+    },
+    {
+      "name": "ocean-fall",
+      "pending": {
+        "builtMs": 2373.5999989509583,
+        "bytes": 43661084,
+        "cells": 836,
+        "detailedCells": 12,
+        "pending": 0,
+        "resident": 165,
+        "verts": 1704736
+      },
+      "probe": {
+        "airborne": false,
+        "boosting": false,
+        "carrying": false,
+        "drifting": false,
+        "heading": 0,
+        "nearestTraffic": {
+          "dist": 72.5,
+          "wrecked": false,
+          "y": 0.3
+        },
+        "objective": {
+          "u": 0.07991803278688525,
+          "v": 0.5570192307692308
+        },
+        "speed": 0,
+        "waterContact": {
+          "entrySpeed": 0,
+          "entryVerticalSpeed": 41.29988861083984,
+          "immersion": 0.4750006310641766,
+          "kind": "floating",
+          "waterY": -0.5
+        },
+        "wreckedCount": 0,
+        "x": -1510,
+        "y": -0.7000005048513412,
+        "z": 200
+      },
+      "reached": false,
+      "trajectory": {
+        "count": 240,
+        "first": {
+          "airborne": true,
+          "bodyY": 19.402084350585938,
+          "drifting": false,
+          "floor": -5,
+          "heading": 0,
+          "speed": 0,
+          "surface": "sand",
+          "vx": 0,
+          "vz": 0,
+          "water": {
+            "kind": "dry"
+          },
+          "x": -1510,
+          "y": 18.794885562896937,
+          "z": 200
+        },
+        "last": {
+          "airborne": false,
+          "bodyY": -0.08000050485134125,
+          "drifting": false,
+          "floor": -5,
+          "heading": 0,
+          "speed": 0,
+          "surface": "sand",
+          "vx": 0,
+          "vz": 0,
+          "water": {
+            "entrySpeed": 0,
+            "entryVerticalSpeed": 41.29988861083984,
+            "immersion": 0.4750006310641766,
+            "kind": "floating",
+            "waterY": -0.5
+          },
+          "x": -1510,
+          "y": -0.7000005048513412,
+          "z": 200
+        },
+        "minBodyY": -0.5788124799728394,
+        "maxBodyY": 19.402084350585938,
+        "wetSamples": 194,
+        "maxSpeed": 0
+      }
+    },
+    {
+      "name": "ornamental-pool-0",
+      "pending": {
+        "builtMs": 2695.5999987125397,
+        "bytes": 38441684,
+        "cells": 836,
+        "detailedCells": 17,
+        "pending": 0,
+        "resident": 197,
+        "verts": 1575983
+      },
+      "probe": {
+        "airborne": false,
+        "boosting": false,
+        "carrying": false,
+        "drifting": false,
+        "heading": -2.7925268053600725,
+        "nearestTraffic": {
+          "dist": 50.9,
+          "wrecked": false,
+          "y": 0.4
+        },
+        "objective": {
+          "u": 0.4936861163643027,
+          "v": 0.1677029380355507
+        },
+        "speed": 0,
+        "waterContact": {
+          "entrySpeed": 0,
+          "entryVerticalSpeed": 0,
+          "immersion": 0.4750026404857632,
+          "kind": "floating",
+          "waterY": 1.269460482597351
+        },
+        "wreckedCount": 0,
+        "x": -121.91898345947266,
+        "y": 1.06945837020874,
+        "z": -1124.5220947265625
+      },
+      "reached": false,
+      "trajectory": {
+        "count": 120,
+        "first": {
+          "airborne": false,
+          "bodyY": 1.6894160509109497,
+          "drifting": false,
+          "floor": -0.230539517402649,
+          "heading": -2.7925268053600725,
+          "speed": 0,
+          "surface": "concrete",
+          "vx": 0,
+          "vz": 0,
+          "water": {
+            "entrySpeed": 0,
+            "entryVerticalSpeed": 0,
+            "immersion": 0.4750607550144192,
+            "kind": "floating",
+            "waterY": 1.269460482597351
+          },
+          "x": -121.91898345947266,
+          "y": 1.0694150829315188,
+          "z": -1124.5220947265625
+        },
+        "last": {
+          "airborne": false,
+          "bodyY": 1.6894583702087402,
+          "drifting": false,
+          "floor": -0.230539517402649,
+          "heading": -2.7925268053600725,
+          "speed": 0,
+          "surface": "concrete",
+          "vx": 0,
+          "vz": 0,
+          "water": {
+            "entrySpeed": 0,
+            "entryVerticalSpeed": 0,
+            "immersion": 0.4750026404857632,
+            "kind": "floating",
+            "waterY": 1.269460482597351
+          },
+          "x": -121.91898345947266,
+          "y": 1.06945837020874,
+          "z": -1124.5220947265625
+        },
+        "minBodyY": 1.6894160509109497,
+        "maxBodyY": 1.6894583702087402,
+        "wetSamples": 120,
+        "maxSpeed": 0
+      }
+    },
+    {
+      "name": "ornamental-pool-1",
+      "pending": {
+        "builtMs": 2987.999997854233,
+        "bytes": 31059768,
+        "cells": 836,
+        "detailedCells": 8,
+        "pending": 0,
+        "resident": 119,
+        "verts": 1205602
+      },
+      "probe": {
+        "airborne": false,
+        "boosting": false,
+        "carrying": false,
+        "drifting": false,
+        "heading": 0,
+        "nearestTraffic": {
+          "dist": 114,
+          "wrecked": false,
+          "y": 0.3
+        },
+        "objective": {
+          "u": 0.1057219419924338,
+          "v": 0.3075
+        },
+        "speed": 0,
+        "waterContact": {
+          "entrySpeed": 0,
+          "entryVerticalSpeed": 0,
+          "immersion": 0.4750025421380999,
+          "kind": "floating",
+          "waterY": 1.7000000119209289
+        },
+        "wreckedCount": 0,
+        "x": -1444.572021484375,
+        "y": 1.4999979782104491,
+        "z": -599.4000244140625
+      },
+      "reached": false,
+      "trajectory": {
+        "count": 120,
+        "first": {
+          "airborne": false,
+          "bodyY": 2.119985580444336,
+          "drifting": false,
+          "floor": 0.20000001192092887,
+          "heading": 0,
+          "speed": 0,
+          "surface": "grass",
+          "vx": 0,
+          "vz": 0,
+          "water": {
+            "entrySpeed": 0,
+            "entryVerticalSpeed": 0,
+            "immersion": 0.4750198274850848,
+            "kind": "floating",
+            "waterY": 1.7000000119209289
+          },
+          "x": -1444.572021484375,
+          "y": 1.4999846019744871,
+          "z": -599.4000244140625
+        },
+        "last": {
+          "airborne": false,
+          "bodyY": 2.119997978210449,
+          "drifting": false,
+          "floor": 0.20000001192092887,
+          "heading": 0,
+          "speed": 0,
+          "surface": "grass",
+          "vx": 0,
+          "vz": 0,
+          "water": {
+            "entrySpeed": 0,
+            "entryVerticalSpeed": 0,
+            "immersion": 0.4750025421380999,
+            "kind": "floating",
+            "waterY": 1.7000000119209289
+          },
+          "x": -1444.572021484375,
+          "y": 1.4999979782104491,
+          "z": -599.4000244140625
+        },
+        "minBodyY": 2.119985580444336,
+        "maxBodyY": 2.119997978210449,
+        "wetSamples": 120,
+        "maxSpeed": 0
+      }
+    },
+    {
+      "name": "ornamental-pool-2",
+      "pending": {
+        "builtMs": 3001.699997663498,
+        "bytes": 33279258,
+        "cells": 836,
+        "detailedCells": 9,
+        "pending": 0,
+        "resident": 121,
+        "verts": 1304432
+      },
+      "probe": {
+        "airborne": false,
+        "boosting": false,
+        "carrying": false,
+        "drifting": false,
+        "heading": 0,
+        "nearestTraffic": {
+          "dist": 99.4,
+          "wrecked": false,
+          "y": 0.3
+        },
+        "objective": {
+          "u": 0.1057219419924338,
+          "v": 0.3075
+        },
+        "speed": 0,
+        "waterContact": {
+          "entrySpeed": 0,
+          "entryVerticalSpeed": 0,
+          "immersion": 0.4750025421380999,
+          "kind": "floating",
+          "waterY": 1.7000000119209289
+        },
+        "wreckedCount": 0,
+        "x": -1431.572021484375,
+        "y": 1.4999979782104491,
+        "z": -601.4000244140625
+      },
+      "reached": false,
+      "trajectory": {
+        "count": 120,
+        "first": {
+          "airborne": false,
+          "bodyY": 2.119987726211548,
+          "drifting": false,
+          "floor": 0.20000001192092887,
+          "heading": 0,
+          "speed": 0,
+          "surface": "grass",
+          "vx": 0,
+          "vz": 0,
+          "water": {
+            "entrySpeed": 0,
+            "entryVerticalSpeed": 0,
+            "immersion": 0.4750165492296221,
+            "kind": "floating",
+            "waterY": 1.7000000119209289
+          },
+          "x": -1431.572021484375,
+          "y": 1.499987117767334,
+          "z": -601.4000244140625
+        },
+        "last": {
+          "airborne": false,
+          "bodyY": 2.119997978210449,
+          "drifting": false,
+          "floor": 0.20000001192092887,
+          "heading": 0,
+          "speed": 0,
+          "surface": "grass",
+          "vx": 0,
+          "vz": 0,
+          "water": {
+            "entrySpeed": 0,
+            "entryVerticalSpeed": 0,
+            "immersion": 0.4750025421380999,
+            "kind": "floating",
+            "waterY": 1.7000000119209289
+          },
+          "x": -1431.572021484375,
+          "y": 1.4999979782104491,
+          "z": -601.4000244140625
+        },
+        "minBodyY": 2.119987726211548,
+        "maxBodyY": 2.119997978210449,
+        "wetSamples": 120,
+        "maxSpeed": 0
+      }
+    },
+    {
+      "name": "ornamental-pool-3",
+      "pending": {
+        "builtMs": 3006.1999974250793,
+        "bytes": 33417156,
+        "cells": 836,
+        "detailedCells": 9,
+        "pending": 0,
+        "resident": 122,
+        "verts": 1309514
+      },
+      "probe": {
+        "airborne": false,
+        "boosting": false,
+        "carrying": false,
+        "drifting": false,
+        "heading": 0,
+        "nearestTraffic": {
+          "dist": 91.2,
+          "wrecked": false,
+          "y": 0.3
+        },
+        "objective": {
+          "u": 0.1057219419924338,
+          "v": 0.3075
+        },
+        "speed": 0,
+        "waterContact": {
+          "entrySpeed": 0,
+          "entryVerticalSpeed": 0,
+          "immersion": 0.4750025421380999,
+          "kind": "floating",
+          "waterY": 1.7000000119209289
+        },
+        "wreckedCount": 0,
+        "x": -1420.572021484375,
+        "y": 1.4999979782104491,
+        "z": -597.4000244140625
+      },
+      "reached": false,
+      "trajectory": {
+        "count": 120,
+        "first": {
+          "airborne": false,
+          "bodyY": 2.1199774742126465,
+          "drifting": false,
+          "floor": 0.20000001192092887,
+          "heading": 0,
+          "speed": 0,
+          "surface": "concrete",
+          "vx": 0,
+          "vz": 0,
+          "water": {
+            "entrySpeed": 0,
+            "entryVerticalSpeed": 0,
+            "immersion": 0.4750305563211443,
+            "kind": "floating",
+            "waterY": 1.7000000119209289
+          },
+          "x": -1420.572021484375,
+          "y": 1.4999772262573243,
+          "z": -597.4000244140625
+        },
+        "last": {
+          "airborne": false,
+          "bodyY": 2.119997978210449,
+          "drifting": false,
+          "floor": 0.20000001192092887,
+          "heading": 0,
+          "speed": 0,
+          "surface": "concrete",
+          "vx": 0,
+          "vz": 0,
+          "water": {
+            "entrySpeed": 0,
+            "entryVerticalSpeed": 0,
+            "immersion": 0.4750025421380999,
+            "kind": "floating",
+            "waterY": 1.7000000119209289
+          },
+          "x": -1420.572021484375,
+          "y": 1.4999979782104491,
+          "z": -597.4000244140625
+        },
+        "minBodyY": 2.1199774742126465,
+        "maxBodyY": 2.119997978210449,
+        "wetSamples": 120,
+        "maxSpeed": 0
+      }
+    },
+    {
+      "name": "ornamental-pool-4",
+      "pending": {
+        "builtMs": 3006.1999974250793,
+        "bytes": 33417156,
+        "cells": 836,
+        "detailedCells": 9,
+        "pending": 0,
+        "resident": 122,
+        "verts": 1309514
+      },
+      "probe": {
+        "airborne": false,
+        "boosting": false,
+        "carrying": false,
+        "drifting": false,
+        "heading": 0,
+        "nearestTraffic": {
+          "dist": 123.3,
+          "wrecked": false,
+          "y": 0.3
+        },
+        "objective": {
+          "u": 0.1057219419924338,
+          "v": 0.3075
+        },
+        "speed": 0,
+        "waterContact": {
+          "entrySpeed": 0,
+          "entryVerticalSpeed": 0,
+          "immersion": 0.4750025421380999,
+          "kind": "floating",
+          "waterY": 1.7000000119209289
+        },
+        "wreckedCount": 0,
+        "x": -1438.572021484375,
+        "y": 1.4999979782104491,
+        "z": -611.4000244140625
+      },
+      "reached": false,
+      "trajectory": {
+        "count": 120,
+        "first": {
+          "airborne": false,
+          "bodyY": 2.1199731826782227,
+          "drifting": false,
+          "floor": 0.20000001192092887,
+          "heading": 0,
+          "speed": 0,
+          "surface": "grass",
+          "vx": 0,
+          "vz": 0,
+          "water": {
+            "entrySpeed": 0,
+            "entryVerticalSpeed": 0,
+            "immersion": 0.47503651678562187,
+            "kind": "floating",
+            "waterY": 1.7000000119209289
+          },
+          "x": -1438.572021484375,
+          "y": 1.4999728584289551,
+          "z": -611.4000244140625
+        },
+        "last": {
+          "airborne": false,
+          "bodyY": 2.119997978210449,
+          "drifting": false,
+          "floor": 0.20000001192092887,
+          "heading": 0,
+          "speed": 0,
+          "surface": "grass",
+          "vx": 0,
+          "vz": 0,
+          "water": {
+            "entrySpeed": 0,
+            "entryVerticalSpeed": 0,
+            "immersion": 0.4750025421380999,
+            "kind": "floating",
+            "waterY": 1.7000000119209289
+          },
+          "x": -1438.572021484375,
+          "y": 1.4999979782104491,
+          "z": -611.4000244140625
+        },
+        "minBodyY": 2.1199731826782227,
+        "maxBodyY": 2.119997978210449,
+        "wetSamples": 120,
+        "maxSpeed": 0
+      }
+    }
+  ],
+  "session": "crazy-waymo-water-33651-mtos6ion",
+  "expectedRevision": 95,
+  "world": {
+    "boundedSolids": 5573,
+    "decks": [
+      {
+        "maxX": 208.195,
+        "maxZ": -1170,
+        "minX": 194.805,
+        "minZ": -1209.195,
+        "y": 0.55
+      },
+      {
+        "maxX": 208.195,
+        "maxZ": -1162.2,
+        "minX": 194.805,
+        "minZ": -1170,
+        "y": 0.55,
+        "y2": 2.158797923922537
+      },
+      {
+        "maxX": 403.195,
+        "maxZ": -1170,
+        "minX": 389.805,
+        "minZ": -1196.195,
+        "y": 0.5700000000000001
+      },
+      {
+        "maxX": 403.195,
+        "maxZ": -1162.2,
+        "minX": 389.805,
+        "minZ": -1170,
+        "y": 0.5700000000000001,
+        "y2": 6.056204028129571
+      },
+      {
+        "maxX": 598.195,
+        "maxZ": -1170,
+        "minX": 584.805,
+        "minZ": -1209.195,
+        "y": 0.5900000000000001
+      },
+      {
+        "maxX": 598.195,
+        "maxZ": -1162.2,
+        "minX": 584.805,
+        "minZ": -1170,
+        "y": 0.5900000000000001,
+        "y2": 10.548533124923692
+      },
+      {
+        "maxX": -495.5,
+        "maxZ": -1033.5,
+        "minX": -505.5,
+        "minZ": -1051.18,
+        "y": 5.668000260174275,
+        "y2": 0.3400013008713722
+      },
+      {
+        "maxX": -495.5,
+        "maxZ": -1051.18,
+        "minX": -505.5,
+        "minZ": -1059.5,
+        "y": 7,
+        "y2": 5.668000260174275
+      },
+      {
+        "maxX": -495.5,
+        "maxZ": -1251.5,
+        "minX": -505.5,
+        "minZ": -1277.5,
+        "y": 12.526963996887208,
+        "y2": 7
+      },
+      {
+        "maxX": -495.5,
+        "maxZ": -1059.5,
+        "minX": -505.5,
+        "minZ": -1251.5,
+        "y": 7
+      }
+    ],
+    "installedRevision": 95,
+    "revision": 95
+  },
+  "access": [
+    {
+      "dry": {
+        "x": -1438,
+        "z": 200
+      },
+      "id": "ocean-beach",
+      "opening": {
+        "maxX": -1316.38,
+        "maxZ": 832,
+        "minX": -1586,
+        "minZ": -520
+      },
+      "region": "Ocean Beach",
+      "wet": {
+        "x": -1470,
+        "z": 200
+      },
+      "width": 1352
+    },
+    {
+      "dry": {
+        "x": -915.11,
+        "z": -259.99999999999994
+      },
+      "id": "stow-boat-launch",
+      "opening": {
+        "maxX": -894.1100000000001,
+        "maxZ": -255.99999999999991,
+        "minX": -917.11,
+        "minZ": -263.99999999999994
+      },
+      "region": "Golden Gate Park",
+      "wet": {
+        "x": -896.1100000000001,
+        "z": -259.99999999999994
+      },
+      "width": 8
+    }
+  ],
+  "pools": [
+    {
+      "halfX": 20.1,
+      "halfZ": 9.648,
+      "kind": "ellipse",
+      "x": -121.91898237505838,
+      "y": 1.269460482597351,
+      "yaw": 3.490658503988659,
+      "z": -1124.5221072976306
+    },
+    {
+      "halfX": 5.05,
+      "halfZ": 3.55,
+      "kind": "rectangle",
+      "x": -1444.572,
+      "y": 1.7000000119209289,
+      "yaw": 0,
+      "z": -599.4
+    },
+    {
+      "halfX": 4.05,
+      "halfZ": 3.05,
+      "kind": "rectangle",
+      "x": -1431.572,
+      "y": 1.7000000119209289,
+      "yaw": 0,
+      "z": -601.4
+    },
+    {
+      "halfX": 3.55,
+      "halfZ": 2.55,
+      "kind": "rectangle",
+      "x": -1420.572,
+      "y": 1.7000000119209289,
+      "yaw": 0,
+      "z": -597.4
+    },
+    {
+      "halfX": 4.55,
+      "halfZ": 2.55,
+      "kind": "rectangle",
+      "x": -1438.572,
+      "y": 1.7000000119209289,
+      "yaw": 0,
+      "z": -611.4
+    }
+  ],
+  "errors": {
+    "errors": []
+  },
+  "passed": true,
+  "samplesNote": "Full trajectories were verified; compact archive retains checks and trajectory bounds."
+}

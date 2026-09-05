@@ -1,0 +1,547 @@
+{
+  "url": "http://localhost:5193/?time=night&offline=1",
+  "checkedAt": "2026-09-05T19:39:29.307Z",
+  "checks": [
+    {
+      "name": "actual coarse-pointer path",
+      "passed": true,
+      "evidence": {
+        "coarse": true,
+        "touch": 5,
+        "dpr": 3,
+        "width": 390,
+        "height": 844
+      }
+    },
+    {
+      "name": "hidden start button cannot take focus or intercept steering",
+      "passed": true,
+      "evidence": {
+        "point": {
+          "x": 109.85688781738281,
+          "y": 452.89842224121094,
+          "id": 1
+        },
+        "focused": false,
+        "intercepts": false,
+        "hit": "CANVAS"
+      }
+    },
+    {
+      "name": "touch accelerates and steers from the former start-button bounds",
+      "passed": true,
+      "evidence": {
+        "before": {
+          "x": -396.5,
+          "z": -285.99999999999994,
+          "y": 4.328992683887481,
+          "speed": 0,
+          "heading": 0,
+          "airborne": false,
+          "waterContact": {
+            "kind": "dry"
+          },
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.663233920563108,
+            "v": 0.31914538308699175
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 217.4,
+            "wrecked": false,
+            "y": 3.4
+          }
+        },
+        "driven": {
+          "x": -396.5,
+          "z": -280.99498828125,
+          "y": 5.329959099769591,
+          "speed": 13.511519432304933,
+          "heading": 0.000006821705473214052,
+          "airborne": false,
+          "waterContact": {
+            "kind": "dry"
+          },
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.42008196721311475,
+            "v": 0.42851923076923076
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 113.7,
+            "wrecked": false,
+            "y": 2.2
+          }
+        },
+        "steered": {
+          "x": -398.13421240234373,
+          "z": -274.0599597167969,
+          "y": 6.642561880111689,
+          "speed": 21.024825819815323,
+          "heading": -0.37992876683641835,
+          "airborne": false,
+          "waterContact": {
+            "kind": "dry"
+          },
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.42008196721311475,
+            "v": 0.42851923076923076
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 99.7,
+            "wrecked": false,
+            "y": 11.5
+          }
+        }
+      }
+    },
+    {
+      "name": "touch nitro boost",
+      "passed": true,
+      "evidence": {
+        "x": -396.5,
+        "z": -280.3692938232422,
+        "y": 5.447701578140259,
+        "speed": 15.547339439757943,
+        "heading": 0.000007471163869231784,
+        "airborne": false,
+        "waterContact": {
+          "kind": "dry"
+        },
+        "drifting": false,
+        "boosting": true,
+        "carrying": false,
+        "objective": {
+          "u": 0.42008196721311475,
+          "v": 0.42851923076923076
+        },
+        "wreckedCount": 0,
+        "nearestTraffic": {
+          "dist": 102.5,
+          "wrecked": false,
+          "y": 8.6
+        }
+      }
+    },
+    {
+      "name": "touch brake and steering drift",
+      "passed": true,
+      "evidence": {
+        "x": -396.2953070068359,
+        "z": -277.0937503051758,
+        "y": 6.0701627349853515,
+        "speed": 18.2248700685282,
+        "heading": -0.22580233805445749,
+        "airborne": false,
+        "waterContact": {
+          "kind": "dry"
+        },
+        "drifting": true,
+        "boosting": true,
+        "carrying": false,
+        "objective": {
+          "u": 0.42008196721311475,
+          "v": 0.42851923076923076
+        },
+        "wreckedCount": 0,
+        "nearestTraffic": {
+          "dist": 99.7,
+          "wrecked": false,
+          "y": 8.5
+        }
+      }
+    },
+    {
+      "name": "touch pedal reverses from stop",
+      "passed": true,
+      "evidence": {
+        "reverseDistance": -0.3481799316406864,
+        "reversed": {
+          "x": -396.5,
+          "z": -286.34817993164063,
+          "y": 4.3713552856445315,
+          "speed": 3.6378448025948056,
+          "heading": -8.782083242180488e-7,
+          "airborne": false,
+          "waterContact": {
+            "kind": "dry"
+          },
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.42008196721311475,
+            "v": 0.42851923076923076
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 100.4,
+            "wrecked": false,
+            "y": 8.2
+          }
+        }
+      }
+    },
+    {
+      "name": "pause holds vehicle",
+      "passed": true,
+      "evidence": {
+        "parked": {
+          "x": -396.5,
+          "z": -286.6557978515625,
+          "y": 4.413520994186401,
+          "speed": 2.471734762569697,
+          "heading": -8.715514311349268e-9,
+          "airborne": false,
+          "waterContact": {
+            "kind": "dry"
+          },
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.42008196721311475,
+            "v": 0.42851923076923076
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 100.5,
+            "wrecked": false,
+            "y": 8.2
+          }
+        },
+        "paused": {
+          "x": -396.5,
+          "z": -286.6557978515625,
+          "y": 4.413520994186401,
+          "speed": 2.471734762569697,
+          "heading": -8.715514311349268e-9,
+          "airborne": false,
+          "waterContact": {
+            "kind": "dry"
+          },
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.42008196721311475,
+            "v": 0.42851923076923076
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 100.5,
+            "wrecked": false,
+            "y": 8.2
+          }
+        }
+      }
+    },
+    {
+      "name": "paused phone stops GPU and simulation work",
+      "passed": true,
+      "evidence": {
+        "idleBefore": {
+          "draws": 7,
+          "updates": 6,
+          "tier": 3
+        },
+        "idleAfter": {
+          "draws": 7,
+          "updates": 6,
+          "tier": 3
+        }
+      }
+    },
+    {
+      "name": "paused resize redraws once without advancing simulation",
+      "passed": true,
+      "evidence": {
+        "idleAfter": {
+          "draws": 7,
+          "updates": 6,
+          "tier": 3
+        },
+        "resized": {
+          "draws": 8,
+          "updates": 6,
+          "width": 844,
+          "height": 390
+        }
+      }
+    },
+    {
+      "name": "resumed phone renders at most 60 Hz",
+      "passed": true,
+      "evidence": {
+        "drawHz": 59.952038367400256,
+        "activeBefore": {
+          "draws": 9,
+          "updates": 6,
+          "at": 18396.10000014305
+        },
+        "activeAfter": {
+          "draws": 99,
+          "updates": 96,
+          "at": 19897.300000190735
+        }
+      }
+    },
+    {
+      "name": "touch resume and restart",
+      "passed": true,
+      "evidence": {
+        "x": 240.5,
+        "z": 129.38604736328125,
+        "y": 1.2109492611885182,
+        "speed": 0,
+        "heading": -3.141592653589793,
+        "airborne": false,
+        "waterContact": {
+          "kind": "dry"
+        },
+        "drifting": false,
+        "boosting": false,
+        "carrying": false,
+        "objective": {
+          "u": 0.49263871374527113,
+          "v": 0.5775
+        },
+        "wreckedCount": 0,
+        "nearestTraffic": {
+          "dist": 70.8,
+          "wrecked": false,
+          "y": 1.4
+        }
+      }
+    },
+    {
+      "name": "restart gives a drivable route and clear chase camera",
+      "passed": true,
+      "evidence": {
+        "start": {
+          "x": 240.5,
+          "z": 129.38604736328125,
+          "y": 1.159499711990367,
+          "speed": 0,
+          "heading": -3.141592653589793,
+          "airborne": false,
+          "waterContact": {
+            "kind": "dry"
+          },
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.49263871374527113,
+            "v": 0.5775
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 70.6,
+            "wrecked": false,
+            "y": 1.4
+          }
+        },
+        "probe": {
+          "x": 240.5003204345703,
+          "z": 98.22705166625983,
+          "y": 0.4709730417728425,
+          "speed": 30.05864720282004,
+          "heading": 3.1415673750230835,
+          "airborne": false,
+          "waterContact": {
+            "kind": "dry"
+          },
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.49263871374527113,
+            "v": 0.5775
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 97.8,
+            "wrecked": false,
+            "y": 1.8
+          }
+        },
+        "cameraDistance": 20.87032351041797
+      }
+    },
+    {
+      "name": "portrait-night fits viewport",
+      "passed": true,
+      "evidence": {
+        "coarse": true,
+        "width": 390,
+        "height": 844,
+        "overflow": false,
+        "stream": {
+          "cells": 836,
+          "resident": 133,
+          "detailedCells": 15,
+          "verts": 333485,
+          "bytes": 8698248,
+          "builtMs": 1551.600002527237,
+          "pending": 0
+        }
+      }
+    },
+    {
+      "name": "portrait district clears HUD controls",
+      "passed": true,
+      "evidence": []
+    },
+    {
+      "name": "landscape-night fits viewport",
+      "passed": true,
+      "evidence": {
+        "coarse": true,
+        "width": 844,
+        "height": 390,
+        "overflow": false,
+        "stream": {
+          "cells": 836,
+          "resident": 203,
+          "detailedCells": 15,
+          "verts": 1512402,
+          "bytes": 39271572,
+          "builtMs": 2003.5000035762787,
+          "pending": 0
+        }
+      }
+    },
+    {
+      "name": "landscape-noon fits viewport",
+      "passed": true,
+      "evidence": {
+        "coarse": true,
+        "width": 844,
+        "height": 390,
+        "overflow": false,
+        "stream": {
+          "cells": 836,
+          "resident": 214,
+          "detailedCells": 16,
+          "verts": 1496245,
+          "bytes": 38246386,
+          "builtMs": 2367.1000034809113,
+          "pending": 0
+        }
+      }
+    },
+    {
+      "name": "all phone tiers retain bounded shadows and baked sky",
+      "passed": true,
+      "evidence": [
+        {
+          "tier": 0,
+          "shadowWidth": 1024,
+          "shadowHeight": 1024,
+          "skyBake": true,
+          "shadowCast": true,
+          "ratio": 2
+        },
+        {
+          "tier": 1,
+          "shadowWidth": 1024,
+          "shadowHeight": 1024,
+          "skyBake": true,
+          "shadowCast": true,
+          "ratio": 1.6
+        },
+        {
+          "tier": 2,
+          "shadowWidth": 1024,
+          "shadowHeight": 1024,
+          "skyBake": true,
+          "shadowCast": true,
+          "ratio": 1.32
+        },
+        {
+          "tier": 3,
+          "shadowWidth": 1024,
+          "shadowHeight": 1024,
+          "skyBake": true,
+          "shadowCast": true,
+          "ratio": 1.1
+        },
+        {
+          "tier": 4,
+          "shadowWidth": 1024,
+          "shadowHeight": 1024,
+          "skyBake": true,
+          "shadowCast": false,
+          "ratio": 0.9
+        }
+      ]
+    },
+    {
+      "name": "no mobile page errors",
+      "passed": true,
+      "evidence": []
+    }
+  ],
+  "views": [
+    {
+      "name": "portrait-night",
+      "coarse": true,
+      "width": 390,
+      "height": 844,
+      "overflow": false,
+      "stream": {
+        "cells": 836,
+        "resident": 133,
+        "detailedCells": 15,
+        "verts": 333485,
+        "bytes": 8698248,
+        "builtMs": 1551.600002527237,
+        "pending": 0
+      }
+    },
+    {
+      "name": "landscape-night",
+      "coarse": true,
+      "width": 844,
+      "height": 390,
+      "overflow": false,
+      "stream": {
+        "cells": 836,
+        "resident": 203,
+        "detailedCells": 15,
+        "verts": 1512402,
+        "bytes": 39271572,
+        "builtMs": 2003.5000035762787,
+        "pending": 0
+      }
+    },
+    {
+      "name": "landscape-noon",
+      "coarse": true,
+      "width": 844,
+      "height": 390,
+      "overflow": false,
+      "stream": {
+        "cells": 836,
+        "resident": 214,
+        "detailedCells": 16,
+        "verts": 1496245,
+        "bytes": 38246386,
+        "builtMs": 2367.1000034809113,
+        "pending": 0
+      }
+    }
+  ],
+  "worldRevision": 95
+}

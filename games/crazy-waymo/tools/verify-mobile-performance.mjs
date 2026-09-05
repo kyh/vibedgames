@@ -48,7 +48,9 @@ const { call, evaluate, sleep, until, tap, screenshot, close, pageErrors } =
 const earlyMetrics = `(()=>{if(window.__mobileMetricsInstalled)return;window.__mobileMetricsInstalled=true;window.__mobileMph=0;const fillText=CanvasRenderingContext2D.prototype.fillText;CanvasRenderingContext2D.prototype.fillText=function(...args){const text=String(args[0]).trim(),value=Number(text);if(this.canvas.id==='dash-dial'&&text!==''&&Number.isFinite(value))window.__mobileMph=value;return fillText.apply(this,args);};window.__mobileCold={installedAt:performance.now(),longTasks:[]};new PerformanceObserver(list=>{for(const e of list.getEntries())window.__mobileCold.longTasks.push({start:e.startTime,duration:e.duration});}).observe({type:'longtask',buffered:true});})()`;
 let iteration = 0;
 async function productionSmoke(opened) {
-  await until("getComputedStyle(document.querySelector('#loading')).display === 'none'");
+  await until(
+    "(()=>{const loading=document.querySelector('#loading');return loading && getComputedStyle(loading).display === 'none';})()",
+  );
   report.readyMs = Date.now() - opened;
   await evaluate(earlyMetrics);
   await until("Number.isFinite(window.__mobileMph)");

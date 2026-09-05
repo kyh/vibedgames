@@ -1,5 +1,6 @@
 import { GRID_X, GRID_Z, WORLD_H, WORLD_W } from "../shared/constants";
 import { type Hill, type LandFactor, Terrain } from "./terrain";
+import { stowBasinHeight } from "./lake";
 
 // THE land mask lives here. tools/sf-data/bake-network.mts imports `landFactor`
 // from this file, so the vector street network, the rasterized street mask and
@@ -405,7 +406,7 @@ export function greenHillWeightAt(u: number, v: number): number {
 }
 
 export function makeTerrain(): Terrain {
-  return new Terrain(SF_HILLS, landFactor);
+  return new Terrain(SF_HILLS, landFactor, stowBasinHeight);
 }
 
 // --- Neighborhoods (traced (u,v) boxes from the research) ---

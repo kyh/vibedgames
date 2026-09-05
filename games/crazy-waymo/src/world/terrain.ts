@@ -109,6 +109,9 @@ export class Terrain {
   constructor(
     private hills: readonly Hill[],
     private land: LandFactor,
+    // Authored local landforms belong in the cached field, not a visual-only
+    // mesh offset. Omit for generic terrain fixtures.
+    private readonly heightPatch?: (x: number, z: number, height: number) => number,
   ) {
     this.minX = -WORLD_HALF_X - MARGIN;
     this.minZ = -WORLD_HALF_Z - MARGIN;
@@ -136,7 +139,7 @@ export class Terrain {
       const r = hl.radius * MAP_REF;
       h += hl.height * t * Math.exp(-(du * du + dv * dv) / (r * r * 0.5));
     }
-    return h;
+    return this.heightPatch ? this.heightPatch(x, z, h) : h;
   }
 
   private sample(ix: number, iz: number): number {
