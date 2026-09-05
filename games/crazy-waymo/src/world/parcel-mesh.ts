@@ -2116,16 +2116,34 @@ export async function buildParcelGeometry(
   return buckets.flush(detail === 0);
 }
 
-/** The same, synchronously — one stream cell's worth, inside a frame budget. */
+/** Resume between parcels; shared buckets preserve exactly the synchronous output. */
+export function* buildParcelGeometrySteps(
+  plans: readonly ParcelPlan[],
+  detail: DetailLevel,
+  lots: readonly ParcelLot[] = [],
+): Generator<void, ParcelGeometry> {
+  const buckets = new Buckets();
+  for (const p of plans) {
+    buildOne(buckets, p, detail);
+    yield;
+  }
+  for (const lot of lots) {
+    buildLot(buckets, lot);
+    yield;
+  }
+  return buckets.flush(detail === 0);
+}
+
+/** Loading/editor callers can drain the same construction without yielding. */
 export function buildParcelGeometrySync(
   plans: readonly ParcelPlan[],
   detail: DetailLevel,
   lots: readonly ParcelLot[] = [],
 ): ParcelGeometry {
-  const buckets = new Buckets();
-  for (const p of plans) buildOne(buckets, p, detail);
-  for (const lot of lots) buildLot(buckets, lot);
-  return buckets.flush(detail === 0);
+  const steps = buildParcelGeometrySteps(plans, detail, lots);
+  let next = steps.next();
+  while (!next.done) next = steps.next();
+  return next.value;
 }
 
 // --- Surface lots ------------------------------------------------------------

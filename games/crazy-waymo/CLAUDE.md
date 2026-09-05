@@ -161,10 +161,12 @@ bake-parcels.mts` writes it): ~147k footprints — the licensed downtown survey
   parcel; ground the source does not cover stays green. Phones keep
   street openings and cornices; desktop adds bays, awnings and roof details. The fabric
   STREAMS (`parcel-stream.ts`): the ~260 skyline parcels (≥ 13u) are built
-  once; everything else lives in 80u cells generated one per frame within
-  the fog line + 60u and freed 80u past it. Detail upgrades and downgrades
-  share that frame budget. Teleports reconcile the complete new radius and
-  discard old neighbourhood detail immediately. The GPU harness includes
+  once; everything else lives in 80u cells generated nearest-first within
+  a soft 3 ms frame budget, inside the fog line + 60u and freed 80u past it.
+  Construction yields between parcels; LOD replacements swap atomically.
+  Teleports discard departed cells immediately and fill the new radius over
+  subsequent frames. Initial loading and editor show-all still fill synchronously.
+  The GPU harness includes
   both retention and detail hysteresis. `city.parcelStreamStats()` (reachable as
   `__taxi.game.city.parcelStreamStats()`) reports residency; `pnpm test`
   budgets it at the densest probe. Rejection is
@@ -203,10 +205,16 @@ Fare positions are staged; this checks the real fare lifecycle, not route AI.
 
 `node tools/verify-mobile.mjs` checks coarse-pointer touch controls and both
 orientations. `node tools/verify-mobile-performance.mjs <dev-url> <output-dir> '2,4' 8000`
-measures a native touch drive at DPR 3 with CPU throttling. Add `--transition`
+measures actual presented gameplay frames during a native DPR 3 touch drive.
+Add `--no-multi-draw --tier=3` for a fixed fallback comparison. Repeated rates
+with `--keep-quality --memory` audit adaptation and retained allocations; forced
+collection runs outside timing windows. Steady samples wait for parcel convergence;
+cold destination fill is recorded separately. Add `--transition`
 to measure the first shadowless quality switch during driving, or use a
 production URL with `--production` for a smoke test without developer hooks.
-These are desktop stress proxies, not physical-phone GPU benchmarks. Keep
+Phones cap rendering at 60 Hz, stop work when paused/hidden, and retain 1024 shadows
+and baked sky at every tier. These are desktop stress proxies, not physical-phone
+GPU benchmarks. Keep
 other browsers and build/test processes idle during timing runs.
 
 Dev-only hooks on `window.__taxi`: `game`, `probe()` (pos/speed/state),

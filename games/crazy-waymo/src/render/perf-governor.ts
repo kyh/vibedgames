@@ -36,6 +36,66 @@ const SHADOW_LOW = 1024;
 
 type Tier = QualityFeatures & { readonly ratio: number; readonly shadow: number };
 
+/** Resolution and scene detail can improve without a fourfold phone shadow
+ * allocation or returning to the full sky shader. Desktop budgets stay intact. */
+export function qualityTiers(native: number, mobile: boolean): readonly Tier[] {
+  const ratios: readonly [number, number, number, number, number] = [
+    native,
+    Math.max(1, native * 0.8),
+    Math.max(0.9, native * 0.66),
+    Math.max(0.8, native * 0.55),
+    Math.max(0.7, native * 0.45), // floor for weak GPUs
+  ];
+  if (!mobile) {
+    return ratios.map((ratio, i) => ({
+      ratio,
+      shadow: i >= 3 ? SHADOW_LOW : SHADOW_FULL,
+      ...FULL_QUALITY,
+    }));
+  }
+  // Phones keep a stable shadow allocation and baked sky at every tier.
+  // Higher tiers still earn resolution, cloud density, and the full-model band.
+  return [
+    { ratio: ratios[0], shadow: SHADOW_LOW, ...FULL_QUALITY, skyBake: true },
+    {
+      ratio: ratios[1],
+      shadow: SHADOW_LOW,
+      shadowEvery: 1,
+      shadowCast: true,
+      skyBake: true,
+      clouds: 1,
+      detailScale: 0.9,
+    },
+    {
+      ratio: ratios[2],
+      shadow: SHADOW_LOW,
+      shadowEvery: 2,
+      shadowCast: true,
+      skyBake: true,
+      clouds: 1,
+      detailScale: 0.78,
+    },
+    {
+      ratio: ratios[3],
+      shadow: SHADOW_LOW,
+      shadowEvery: 3,
+      shadowCast: true,
+      skyBake: true,
+      clouds: 1,
+      detailScale: 0.66,
+    },
+    {
+      ratio: ratios[4],
+      shadow: SHADOW_LOW,
+      shadowEvery: 3,
+      shadowCast: false, // floor: no shadow pass, no receiver sampling
+      skyBake: true,
+      clouds: 0,
+      detailScale: 0.55,
+    },
+  ];
+}
+
 export class PerfGovernor {
   private readonly tiers: readonly Tier[];
   private tier = 0;
@@ -53,74 +113,15 @@ export class PerfGovernor {
     private onApply: (features: QualityFeatures) => void,
   ) {
     const native = Math.min(window.devicePixelRatio || 1, 2);
-    const ratios = [
-      native,
-      Math.max(1, native * 0.8),
-      Math.max(0.9, native * 0.66),
-      Math.max(0.8, native * 0.55),
-      Math.max(0.7, native * 0.45), // floor for weak GPUs
-    ] as const;
-    if (isCoarsePointer()) {
-      // Phone ladder: tier 0 is still the full desktop look (an iPad Pro can
-      // earn it), everything below trades per-fragment work for frame rate.
-      //
-      // …and, from this pass, per-VERTEX work: `detailScale` walks the city's
-      // full-model band in from 360u so the fabric turns into its box imposter
-      // sooner. Below tier 1 a phone is not resolving a row house's roof pitch
-      // at 250u anyway, and geometry was the one budget the ladder never
-      // touched (measured: the floor tier submitted 1.69M triangles against
-      // tier 0's 1.87M — a 10% cut for four steps of quality).
-      this.tiers = [
-        { ratio: ratios[0], shadow: SHADOW_FULL, ...FULL_QUALITY },
-        {
-          ratio: ratios[1],
-          shadow: SHADOW_FULL,
-          shadowEvery: 1,
-          shadowCast: true,
-          skyBake: true,
-          clouds: 1,
-          detailScale: 0.9,
-        },
-        {
-          ratio: ratios[2],
-          shadow: SHADOW_FULL,
-          shadowEvery: 2,
-          shadowCast: true,
-          skyBake: true,
-          clouds: 1,
-          detailScale: 0.78,
-        },
-        {
-          ratio: ratios[3],
-          shadow: SHADOW_LOW,
-          shadowEvery: 3,
-          shadowCast: true,
-          skyBake: true,
-          clouds: 1,
-          detailScale: 0.66,
-        },
-        {
-          ratio: ratios[4],
-          shadow: SHADOW_LOW,
-          shadowEvery: 3,
-          shadowCast: false, // floor: no shadow pass, no receiver sampling
-          skyBake: true,
-          clouds: 0,
-          detailScale: 0.55,
-        },
-      ];
+    const mobile = isCoarsePointer();
+    this.tiers = qualityTiers(native, mobile);
+    if (mobile) {
       // Boot LOW: the median-window logic needs ~10s to converge, and a phone
       // chugging through those first windows at desktop quality reads as a
       // broken game. Dense screens start at the deeper tier; upgrades are
       // cheap if the device turns out to have headroom.
       this.apply(native >= 2 ? 3 : 2);
       this.cooldown = 1.5;
-    } else {
-      // Desktop: resolution/shadow-size steps only — features stay at full on
-      // every tier, so nothing about the desktop look changes at any tier.
-      this.tiers = ratios.map((ratio, i) =>
-        Object.assign({ ratio, shadow: i >= 3 ? SHADOW_LOW : SHADOW_FULL }, FULL_QUALITY),
-      );
     }
     if (import.meta.env.DEV) installPerfDebug(this);
   }
@@ -135,6 +136,14 @@ export class PerfGovernor {
 
   get features(): QualityFeatures {
     return this.tiers[this.tier] ?? FULL_QUALITY;
+  }
+
+  /** A suspended scene has no useful performance history. Keep its tier, but
+   * require fresh active windows after resume instead of promoting from idle. */
+  resetTiming(): void {
+    this.frames.reset();
+    this.fastWindows = 0;
+    this.cooldown = COOLDOWN_S;
   }
 
   // DEV/headless only: pin a tier so a measurement run can walk the whole

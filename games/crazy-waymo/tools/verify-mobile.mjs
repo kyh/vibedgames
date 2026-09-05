@@ -101,17 +101,63 @@ try {
     (reversed.x - reverseStart.x) * Math.sin(reverseStart.heading) +
     (reversed.z - reverseStart.z) * Math.cos(reverseStart.heading);
   check("touch pedal reverses from stop", reverseDistance < -0.2, { reverseDistance, reversed });
+  await evaluate(`(()=>{const r=window.__renderer,render=r.render,g=window.__taxi.game,update=g.update;
+    window.__phoneWork={draws:0,updates:0};
+    r.render=function(...args){if(this.getRenderTarget()===null)window.__phoneWork.draws++;return render.apply(this,args);};
+    g.update=function(...args){window.__phoneWork.updates++;return update.apply(this,args);};})()`);
   await tap('[aria-label="Pause"]');
   await until("window.__taxi.game.paused === true");
+  await sleep(100); // Allow the single pause-entry redraw.
+  const idleBefore = await evaluate("({...window.__phoneWork,tier:window.__perf.tier()})");
   const parked = await evaluate("window.__taxi.probe()");
-  await sleep(350);
+  await sleep(1500);
   const paused = await evaluate("window.__taxi.probe()");
   check("pause holds vehicle", Math.hypot(parked.x - paused.x, parked.z - paused.z) < 0.001, {
     parked,
     paused,
   });
+  const idleAfter = await evaluate("({...window.__phoneWork,tier:window.__perf.tier()})");
+  check(
+    "paused phone stops GPU and simulation work",
+    idleAfter.draws === idleBefore.draws &&
+      idleAfter.updates === idleBefore.updates &&
+      idleAfter.tier === idleBefore.tier,
+    { idleBefore, idleAfter },
+  );
+  await call("Emulation.setDeviceMetricsOverride", {
+    width: 844,
+    height: 390,
+    deviceScaleFactor: 3,
+    mobile: true,
+  });
+  await sleep(350);
+  const resized = await evaluate("({...window.__phoneWork,width:innerWidth,height:innerHeight})");
+  check(
+    "paused resize redraws once without advancing simulation",
+    resized.draws - idleAfter.draws === 1 &&
+      resized.updates === idleAfter.updates &&
+      resized.width === 844,
+    { idleAfter, resized },
+  );
+  await call("Emulation.setDeviceMetricsOverride", {
+    width: 390,
+    height: 844,
+    deviceScaleFactor: 3,
+    mobile: true,
+  });
+  await sleep(350);
   await tap("#waymo-pause .pcta");
   await until("window.__taxi.game.paused === false");
+  const activeBefore = await evaluate("({...window.__phoneWork,at:performance.now()})");
+  await sleep(1500);
+  const activeAfter = await evaluate("({...window.__phoneWork,at:performance.now()})");
+  const drawHz =
+    ((activeAfter.draws - activeBefore.draws) * 1000) / (activeAfter.at - activeBefore.at);
+  check("resumed phone renders at most 60 Hz", drawHz > 10 && drawHz <= 61, {
+    drawHz,
+    activeBefore,
+    activeAfter,
+  });
   await tap('[aria-label="Pause"]');
   await until("window.__taxi.game.paused === true");
   await tap("#waymo-pause .prestart");
@@ -158,6 +204,28 @@ try {
       check("portrait district clears HUD controls", overlaps.length === 0, overlaps);
     }
   }
+  const tierBudget = [];
+  for (let tier = 0; tier < 5; tier++) {
+    await evaluate(`window.__perf.pin(${tier})`);
+    await sleep(200);
+    tierBudget.push(
+      await evaluate(
+        "(()=>{const g=window.__taxi.game,s=g.sunLight.shadow;return {tier:window.__perf.tier(),shadowWidth:s.mapSize.x,shadowHeight:s.mapSize.y,skyBake:g.quality.skyBake,shadowCast:g.quality.shadowCast,ratio:window.__renderer.getPixelRatio()}})()",
+      ),
+    );
+  }
+  check(
+    "all phone tiers retain bounded shadows and baked sky",
+    tierBudget.every(
+      (tier) =>
+        tier.shadowWidth === 1024 &&
+        tier.shadowHeight === 1024 &&
+        tier.skyBake &&
+        tier.shadowCast === (tier.tier !== 4),
+    ),
+    tierBudget,
+  );
+  await evaluate("window.__perf.pin(null)");
   check("no mobile page errors", pageErrors.length === 0, pageErrors);
   if (report.checks.some((entry) => !entry.passed)) process.exitCode = 1;
 } catch (error) {

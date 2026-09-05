@@ -1,0 +1,21 @@
+{
+  "scope": "Owned decoded index backing, not total runtime or GPU memory",
+  "records": [
+    {
+      "name": "world",
+      "downloadBackingBytes": 2951756,
+      "retainedIndexBackingBytes": 1437696,
+      "netBytesReleased": 1514060,
+      "pinsDownload": false,
+      "indexArrays": 48
+    },
+    {
+      "name": "rest",
+      "downloadBackingBytes": 40302878,
+      "retainedIndexBackingBytes": 14887908,
+      "netBytesReleased": 25414970,
+      "pinsDownload": false,
+      "indexArrays": 481
+    }
+  ]
+}

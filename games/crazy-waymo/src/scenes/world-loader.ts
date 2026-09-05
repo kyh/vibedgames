@@ -54,9 +54,6 @@ export type WorldLoadResult = {
   readonly car: Car;
   readonly spawn: WorldSpawn;
   readonly skinId: string;
-  readonly latePreload: Promise<void>;
-  readonly restPromise: Promise<CityRestPayload | null>;
-  readonly bakePayload: CityGenPayload | null;
   readonly ready: Promise<void>;
 };
 
@@ -305,9 +302,6 @@ export async function loadWorld(deps: WorldLoaderDeps): Promise<WorldLoadResult>
     car,
     spawn,
     skinId,
-    latePreload,
-    restPromise,
-    bakePayload: payload,
     ready,
   };
 }

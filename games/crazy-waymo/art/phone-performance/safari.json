@@ -1,0 +1,543 @@
+{
+  "checkedAt": "2026-09-05T14:14:39.357Z",
+  "url": "http://localhost:5199/?time=noon&offline=1",
+  "scope": "Native iOS26.5 Safari simulator release smoke; no physical phone performance conclusion",
+  "checks": [
+    {
+      "name": "Release title and world initialize in Safari",
+      "passed": true,
+      "evidence": {
+        "title": "Crazy Waymo",
+        "url": "http://localhost:5199/?time=noon&offline=1",
+        "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Mobile/15E148 Safari/604.1",
+        "width": 402,
+        "height": 714,
+        "dpr": 3,
+        "coarse": true,
+        "touch": 5,
+        "scripts": ["http://localhost:5199/assets/index-4v07mMOj.js"],
+        "devHook": "undefined"
+      }
+    },
+    {
+      "name": "Expected release bundle",
+      "passed": true,
+      "evidence": ["http://localhost:5199/assets/index-4v07mMOj.js"]
+    },
+    {
+      "name": "Production dev hook absent",
+      "passed": true,
+      "evidence": "undefined"
+    },
+    {
+      "name": "Native Start reaches driving controls",
+      "passed": true,
+      "evidence": [
+        {
+          "type": "pointerdown",
+          "trusted": true,
+          "pointer": "touch",
+          "id": -2093904721,
+          "boost": false,
+          "brake": false,
+          "target": "banner-cta",
+          "tag": "DIV",
+          "ignored": true,
+          "x": 201,
+          "y": 388.66666666666663
+        },
+        {
+          "type": "pointerup",
+          "trusted": true,
+          "pointer": "touch",
+          "id": -2093904721,
+          "boost": false,
+          "brake": false,
+          "target": "banner-cta",
+          "tag": "DIV",
+          "ignored": true,
+          "x": 201,
+          "y": 388.66666666666663
+        }
+      ]
+    },
+    {
+      "name": "Hidden Start no longer intercepts steering",
+      "passed": true,
+      "evidence": {
+        "hiddenCtaFocused": false,
+        "tag": "CANVAS",
+        "id": "",
+        "ignored": false,
+        "bannerInert": true
+      }
+    },
+    {
+      "name": "Native drive and drag at former hidden CTA",
+      "passed": true,
+      "evidence": {
+        "maximumMph": 64,
+        "events": [
+          {
+            "type": "pointerdown",
+            "trusted": true,
+            "pointer": "touch",
+            "id": -2093904721,
+            "boost": false,
+            "brake": false,
+            "target": "banner-cta",
+            "tag": "DIV",
+            "ignored": true,
+            "x": 201,
+            "y": 388.66666666666663
+          },
+          {
+            "type": "pointerup",
+            "trusted": true,
+            "pointer": "touch",
+            "id": -2093904721,
+            "boost": false,
+            "brake": false,
+            "target": "banner-cta",
+            "tag": "DIV",
+            "ignored": true,
+            "x": 201,
+            "y": 388.66666666666663
+          },
+          {
+            "type": "pointerdown",
+            "trusted": true,
+            "pointer": "touch",
+            "id": -2093904720,
+            "boost": false,
+            "brake": false,
+            "target": "",
+            "tag": "CANVAS",
+            "ignored": false,
+            "x": 120,
+            "y": 368
+          },
+          {
+            "type": "pointerup",
+            "trusted": true,
+            "pointer": "touch",
+            "id": -2093904720,
+            "boost": false,
+            "brake": false,
+            "target": "",
+            "tag": "CANVAS",
+            "ignored": false,
+            "x": 144,
+            "y": 368
+          }
+        ]
+      }
+    },
+    {
+      "name": "Native simultaneous steering and boost",
+      "passed": true,
+      "evidence": {
+        "startingMeter": 100,
+        "events": [
+          {
+            "type": "pointerdown",
+            "trusted": true,
+            "pointer": "touch",
+            "id": -2093904718,
+            "boost": true,
+            "brake": false,
+            "target": "",
+            "tag": "SPAN",
+            "ignored": true,
+            "x": 354,
+            "y": 544
+          },
+          {
+            "type": "pointerdown",
+            "trusted": true,
+            "pointer": "touch",
+            "id": -2093904719,
+            "boost": false,
+            "brake": false,
+            "target": "",
+            "tag": "CANVAS",
+            "ignored": false,
+            "x": 120,
+            "y": 368
+          },
+          {
+            "type": "pointerup",
+            "trusted": true,
+            "pointer": "touch",
+            "id": -2093904718,
+            "boost": true,
+            "brake": false,
+            "target": "",
+            "tag": "SPAN",
+            "ignored": true,
+            "x": 354,
+            "y": 544
+          },
+          {
+            "type": "pointerup",
+            "trusted": true,
+            "pointer": "touch",
+            "id": -2093904719,
+            "boost": false,
+            "brake": false,
+            "target": "",
+            "tag": "CANVAS",
+            "ignored": false,
+            "x": 120,
+            "y": 368
+          }
+        ],
+        "maxPointers": 2,
+        "minimumMeter": 45,
+        "minimumMeterWithTwoPointers": 45,
+        "errors": []
+      }
+    },
+    {
+      "name": "Live portrait layout fits",
+      "passed": true,
+      "evidence": {
+        "width": 402,
+        "height": 714,
+        "horizontalOverflow": false,
+        "controls": [
+          {
+            "id": "area",
+            "label": null,
+            "rect": {
+              "x": 159.3333282470703,
+              "y": 14,
+              "width": 83.46875,
+              "height": 26,
+              "top": 14,
+              "right": 242.8020782470703,
+              "bottom": 40,
+              "left": 159.3333282470703
+            }
+          },
+          {
+            "id": "score",
+            "label": null,
+            "rect": {
+              "x": 14,
+              "y": 14,
+              "width": 86.4375,
+              "height": 65,
+              "top": 14,
+              "right": 100.4375,
+              "bottom": 79,
+              "left": 14
+            }
+          },
+          {
+            "id": "t-brake",
+            "label": "Brake and reverse",
+            "rect": {
+              "x": 308,
+              "y": 584,
+              "width": 82,
+              "height": 116,
+              "top": 584,
+              "right": 390,
+              "bottom": 700,
+              "left": 308
+            }
+          },
+          {
+            "id": "t-boost",
+            "label": "Nitro boost",
+            "rect": {
+              "x": 326,
+              "y": 516,
+              "width": 56,
+              "height": 56,
+              "top": 516,
+              "right": 382,
+              "bottom": 572,
+              "left": 326
+            }
+          },
+          {
+            "id": "",
+            "label": "Pause",
+            "rect": {
+              "x": 346,
+              "y": 12,
+              "width": 44,
+              "height": 44,
+              "top": 12,
+              "right": 390,
+              "bottom": 56,
+              "left": 346
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "No Safari runtime exceptions or unexpected resource errors",
+      "passed": true,
+      "evidence": {
+        "entries": 23,
+        "errors": [],
+        "expectedSplitProbeErrors": [],
+        "warnings": []
+      }
+    },
+    {
+      "name": "Native Safari WebGL capabilities observed",
+      "passed": true,
+      "evidence": {
+        "webgl2": true,
+        "multiDraw": true,
+        "version": "WebGL 2.0",
+        "renderer": "WebKit WebGL"
+      }
+    },
+    {
+      "name": "Paused Safari submits no repeated WebGL draws or uploads",
+      "passed": true,
+      "evidence": {
+        "draws": 0,
+        "uploads": 0,
+        "callbacks": 73,
+        "paused": true,
+        "errors": []
+      }
+    },
+    {
+      "name": "Paused rotation redraws the scene and preserves pause",
+      "passed": true,
+      "evidence": {
+        "draws": 419,
+        "uploads": 349,
+        "callbacks": 106,
+        "width": 874,
+        "height": 338,
+        "paused": true,
+        "overflow": false
+      }
+    },
+    {
+      "name": "Rotated pause settles back to zero WebGL work",
+      "passed": true,
+      "evidence": {
+        "draws": 0,
+        "uploads": 0,
+        "callbacks": 72
+      }
+    },
+    {
+      "name": "Native landscape resume restores rendering and fitted controls",
+      "passed": true,
+      "evidence": {
+        "draws": 36297,
+        "uploads": 3756,
+        "callbacks": 234,
+        "width": 874,
+        "height": 338,
+        "overflow": false,
+        "controls": [
+          {
+            "id": "area",
+            "label": null,
+            "rect": {
+              "x": 378.66668701171875,
+              "y": 14,
+              "width": 116.71875,
+              "height": 29,
+              "top": 14,
+              "right": 495.38543701171875,
+              "bottom": 43,
+              "left": 378.66668701171875
+            }
+          },
+          {
+            "id": "score",
+            "label": null,
+            "rect": {
+              "x": 76,
+              "y": 14,
+              "width": 86.4375,
+              "height": 65,
+              "top": 14,
+              "right": 162.4375,
+              "bottom": 79,
+              "left": 76
+            }
+          },
+          {
+            "id": "t-brake",
+            "label": "Brake and reverse",
+            "rect": {
+              "x": 702,
+              "y": 192,
+              "width": 96,
+              "height": 112,
+              "top": 192,
+              "right": 798,
+              "bottom": 304,
+              "left": 702
+            }
+          },
+          {
+            "id": "t-boost",
+            "label": "Nitro boost",
+            "rect": {
+              "x": 726,
+              "y": 124,
+              "width": 56,
+              "height": 56,
+              "top": 124,
+              "right": 782,
+              "bottom": 180,
+              "left": 726
+            }
+          },
+          {
+            "id": "",
+            "label": "Pause",
+            "rect": {
+              "x": 756,
+              "y": 12,
+              "width": 44,
+              "height": 44,
+              "top": 12,
+              "right": 800,
+              "bottom": 56,
+              "left": 756
+            }
+          }
+        ],
+        "errors": []
+      }
+    },
+    {
+      "name": "Native pause-restart recovers and straight drive moves",
+      "passed": true,
+      "automatedControlsPassed": true,
+      "visualStatus": "Clear upright taxi and open road in The Richmond; landscape moving captures show 45 then 64 MPH.",
+      "evidence": {
+        "maximumMph": 65,
+        "events": [
+          {
+            "type": "pointerdown",
+            "trusted": true,
+            "pointer": "touch",
+            "id": -2093904711,
+            "boost": false,
+            "brake": false,
+            "target": "",
+            "tag": "CANVAS",
+            "ignored": false,
+            "x": 350,
+            "y": 186
+          },
+          {
+            "type": "pointerup",
+            "trusted": true,
+            "pointer": "touch",
+            "id": -2093904711,
+            "boost": false,
+            "brake": false,
+            "target": "",
+            "tag": "CANVAS",
+            "ignored": false,
+            "x": 350,
+            "y": 186
+          }
+        ],
+        "errors": []
+      },
+      "captures": [
+        "phone-preview-recovery-start.png",
+        "phone-preview-recovery-moving-1.png",
+        "phone-preview-recovery-moving-2.png"
+      ]
+    },
+    {
+      "name": "Native pause-restart recovers and straight drive moves",
+      "passed": true,
+      "automatedControlsPassed": true,
+      "visualStatus": "Clear upright taxi and open road in The Sunset; portrait moving captures show 48 then 64 MPH.",
+      "evidence": {
+        "maximumMph": 64,
+        "events": [
+          {
+            "type": "pointerdown",
+            "trusted": true,
+            "pointer": "touch",
+            "id": -2093904706,
+            "boost": false,
+            "brake": false,
+            "target": "",
+            "tag": "CANVAS",
+            "ignored": false,
+            "x": 120,
+            "y": 428
+          },
+          {
+            "type": "pointerup",
+            "trusted": true,
+            "pointer": "touch",
+            "id": -2093904706,
+            "boost": false,
+            "brake": false,
+            "target": "",
+            "tag": "CANVAS",
+            "ignored": false,
+            "x": 120,
+            "y": 428
+          }
+        ],
+        "errors": []
+      },
+      "captures": [
+        "phone-preview-portrait-recovery-start.png",
+        "phone-preview-portrait-recovery-moving-1.png",
+        "phone-preview-portrait-recovery-moving-2.png"
+      ]
+    }
+  ],
+  "environment": {
+    "title": "Crazy Waymo",
+    "url": "http://localhost:5199/?time=noon&offline=1",
+    "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Mobile/15E148 Safari/604.1",
+    "width": 402,
+    "height": 714,
+    "dpr": 3,
+    "coarse": true,
+    "touch": 5,
+    "scripts": ["http://localhost:5199/assets/index-4v07mMOj.js"],
+    "devHook": "undefined"
+  },
+  "console": {
+    "entries": 23,
+    "errors": [],
+    "expectedSplitProbeErrors": [],
+    "warnings": []
+  },
+  "passed": true,
+  "nativeStartClick": {
+    "id": "banner-cta",
+    "tag": "DIV",
+    "trusted": true
+  },
+  "consoleTail": [],
+  "tapInvestigation": {
+    "firstAttempt": "First navigation: trusted pointerdown/up hit the visible Start CTA, but play did not begin. Click emission was not instrumented; no errors or cancellation were observed.",
+    "followup": "Second native tap succeeded with trusted click. Fresh navigation using the same native helper then passed on its first tap, with trusted click recorded.",
+    "status": "Not reproduced on fresh navigation; cause unproven. Initial evidence preserved in /tmp."
+  },
+  "visualEvidence": {
+    "portrait": "phone-preview-portrait-recovery-moving-2.png",
+    "landscape": "phone-preview-recovery-moving-2.png",
+    "pausedLandscape": "phone-preview-landscape-paused.png",
+    "note": "Raw simctl landscape moving screenshot is stored sideways."
+  }
+}

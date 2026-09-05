@@ -1,4 +1,7 @@
 import { checkFrameTiming } from "./test-frame-timing.mts";
+import { checkInstancedProps } from "./test-instanced-props.mts";
+import { checkWorldBufferOwnership } from "./test-world-buffer-ownership.mts";
+import { checkParcelStreaming } from "./test-parcel-stream.mts";
 import { checkInstalledPlayerSpawns, checkPlayerSpawnFixtures } from "./test-player-spawn.mts";
 import { DriveSurface } from "../src/world/surface.ts";
 import { SolidIndex } from "../src/world/solid-index.ts";
@@ -873,6 +876,9 @@ await checkVehicleParking(check);
 }
 
 checkFrameTiming(check);
+checkInstancedProps(check);
+await checkWorldBufferOwnership(check);
+await checkParcelStreaming(check);
 checkParcelFacades(check);
 checkSfStreetKit(check);
 checkScaffoldKit(check);
