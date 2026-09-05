@@ -4,9 +4,15 @@ import { GRID_X, GRID_Z, ROAD_TILE, WORLD_HALF_X, WORLD_HALF_Z } from "../shared
 import { DRAPE_MAX_ERROR, type DrapeField } from "./conform";
 import { CUSTOM_MAP, type FloorKind, loadLocalOverrides } from "./custom-map";
 import type { CityPlan } from "./grid";
-import { dominantCover, type GroundCover, type LandClassAt, makeLandClassAt } from "./land-class";
+import {
+  dominantCover,
+  type GroundCover,
+  type LandClass,
+  type LandClassAt,
+  makeLandClassAt,
+} from "./land-class";
 import type { RoadNetwork } from "./network";
-import { lowDetailSurfaces, SIDEWALK_W, walkFor } from "./roads";
+import { SIDEWALK_W, walkFor } from "./roads";
 import type { GroundCeiling, Terrain } from "./terrain";
 
 // Ground shading + street-depression callbacks, extracted so the gen worker
@@ -101,203 +107,84 @@ function meadowPatch(x: number, z: number): number {
 const gridX = (x: number): number => Math.floor((x + WORLD_HALF_X) / ROAD_TILE);
 const gridZ = (z: number): number => Math.floor((z + WORLD_HALF_Z) / ROAD_TILE);
 
-// Ground grain: a runtime shader pass on the ground material (covers live AND
-// baked worlds — vertex colors stay untouched). Octaves of world-space
-// variation — fine grain, a smooth mid-scale value noise, broad patches, and
-// the PARCEL FIELD below — so the terrain reads as ground instead of flat fill.
-//
-// The octaves are applied to EVERY hue. Green-dominance now only selects the
-// TREATMENT on top: turf gets the olive/blue-green patch drift it always had,
-// hard ground gets aggregate grit and a warm/cool district shift, and sand
-// (warm, r >> b) gets wind ripples. The old code gated the whole pass on
-// green-dominance, which left every concrete and sand pixel in the city
-// perfectly flat AND would have zeroed the noise on any future non-green
-// palette (golden hills), so the gate was structurally trapping the ground in
-// green rather than describing it.
-//
-// THE PARCEL FIELD (2026-07-26) is what the noise octaves could not do. Noise
-// has no RUN-LENGTH: three smooth octaves over a 30u gap between two houses
-// average out to one tan value at any distance past a few metres, which is
-// exactly what every aerial showed. Ground in a city is not noise, it is a
-// mosaic of OWNED PATCHES — lot, yard, hardstand, apron — each a flat value
-// with a hard edge against its neighbour. `grCells` is that mosaic: one value
-// per cell plus the seam where two cells meet, over a lookup point warped by
-// `grWarp` so the mosaic is roughly rectilinear (which lots are) without being
-// a visible lattice (which they are not).
-//
-// It runs at THREE scales because each viewing range only resolves one of them:
-// block (~50u, value only) is all that survives an aerial, parcel (~10u) is the
-// low oblique, slab (~4u) is the windscreen. Both seam scales fade out with
-// pixel size, so nothing that would alias into a dark grid ever reaches an
-// aerial.
-//
-// The dominance test is RELATIVE (green over local brightness), not the
-// absolute difference it started as. Vertex colours reach the shader in linear
-// space, where a dark canopy green (conifer, g − r ≈ 0.04 linear) falls below
-// any absolute threshold that an open lawn (≈ 0.12) passes — the Presidio's
-// whole canopy was dropping out of the turf branch purely for being dark.
-//
-// Sand's ripple gate is the one hue test left and it asks for WARMTH. Measured
-// in linear: dry sand r − b ≈ 0.42, wet sand ≈ 0.33, straw ≈ 0.39. Straw and
-// wet sand are NOT separable on that axis at any threshold, so the straw hills
-// do pick up a faint (3.5%, ~4u) ripple — it reads as wind in dry grass, and
-// rfade kills it well before the hills are seen at distance. Sand also opts
-// OUT of the parcel field for the same reason it opts out of the district
-// drift: a beach has no lot lines.
-export function applyGrassMottle(mat: THREE.MeshStandardMaterial): void {
-  mat.onBeforeCompile = (shader) => {
-    shader.vertexShader = shader.vertexShader
-      .replace(
-        "#include <common>",
-        "#include <common>\nvarying vec3 vGroundPos;\nvarying vec3 vGroundNrm;",
-      )
-      .replace(
-        "#include <begin_vertex>",
-        `#include <begin_vertex>
-vGroundPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
-// World normal of the ground mesh, for the flank shading below. Length-guarded
-// so a geometry that ever shipped without normals cannot normalize a zero.
-vec3 gNrm = mat3(modelMatrix) * objectNormal;
-float gNrmL = length(gNrm);
-vGroundNrm = gNrmL > 1e-4 ? gNrm / gNrmL : vec3(0.0, 1.0, 0.0);`,
-      );
-    shader.fragmentShader = shader.fragmentShader
-      .replace(
-        "#include <common>",
-        `#include <common>
-${lowDetailSurfaces() ? "" : "#define GROUND_GRAIN_FULL 1"}
-varying vec3 vGroundPos;
-varying vec3 vGroundNrm;
-float grHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-float grNoise(vec2 p) {
-  vec2 i = floor(p);
-  vec2 f = p - i;
-  vec2 u = f * f * (3.0 - 2.0 * f);
-  return mix(
-    mix(grHash(i), grHash(i + vec2(1.0, 0.0)), u.x),
-    mix(grHash(i + vec2(0.0, 1.0)), grHash(i + vec2(1.0, 1.0)), u.x),
-    u.y);
+/** One floor-override lookup for both baked color and runtime material weights. */
+export function makePaintedFloorAt(): (x: number, z: number) => FloorKind | undefined {
+  const floorAt = new Map<string, FloorKind>();
+  const local = loadLocalOverrides();
+  for (const [gx, gz, kind] of [...CUSTOM_MAP.floor, ...local.floor]) {
+    floorAt.set(`${gx},${gz}`, kind);
+  }
+  return (x, z) => {
+    const gx = Math.min(GRID_X - 1, Math.max(0, gridX(x)));
+    const gz = Math.min(GRID_Z - 1, Math.max(0, gridZ(z)));
+    return floorAt.get(`${gx},${gz}`);
+  };
 }
-// Warp for the parcel mosaic below: two octaves, computed ONCE and shared by
-// every scale that reads it. The long octave (~48u) shears whole blocks; the
-// short one (~13u) is what stops the mosaic being a lattice — it distorts each
-// cell differently from its neighbour, so the field keeps the straight runs
-// that make ground read as parcelled without ever reading as tiling.
-vec2 grWarp(vec2 wp, float amt) {
-  return wp
-    + amt * (vec2(grNoise(wp * 0.021), grNoise(wp * 0.019 + 37.0)) - 0.5)
-    + amt * 0.5 * (vec2(grNoise(wp * 0.075 + 5.0), grNoise(wp * 0.081 + 11.0)) - 0.5);
+
+/** Non-color material weights. The unused remainder is paved ground. */
+export type GroundBlend = { turf: number; sand: number; stone: number; loose: number };
+export type GroundBlendAt = (x: number, z: number, into: GroundBlend) => void;
+const TURF_BLEND: Readonly<GroundBlend> = { turf: 1, sand: 0, stone: 0, loose: 0 };
+const SAND_BLEND: Readonly<GroundBlend> = { turf: 0, sand: 1, stone: 0, loose: 0 };
+const PAVED_BLEND: Readonly<GroundBlend> = { turf: 0, sand: 0, stone: 0, loose: 0 };
+const GRAVEL_BLEND: Readonly<GroundBlend> = { turf: 0, sand: 0, stone: 0.7, loose: 0.3 };
+
+const COVER_BLEND = {
+  pavement: PAVED_BLEND,
+  yard: PAVED_BLEND,
+  rearYard: PAVED_BLEND,
+  plaza: PAVED_BLEND,
+  parking: PAVED_BLEND,
+  court: PAVED_BLEND,
+  industrial: { turf: 0, sand: 0, stone: 0, loose: 1 },
+  railyard: GRAVEL_BLEND,
+  quay: PAVED_BLEND,
+  path: GRAVEL_BLEND,
+  lawn: TURF_BLEND,
+  meadow: TURF_BLEND,
+  grove: TURF_BLEND,
+  conifer: TURF_BLEND,
+  woodland: TURF_BLEND,
+  grassland: TURF_BLEND,
+  cemetery: TURF_BLEND,
+  rock: { turf: 0, sand: 0, stone: 1, loose: 0 },
+  sand: SAND_BLEND,
+  dune: { turf: 0.15, sand: 0.85, stone: 0, loose: 0 },
+  water: PAVED_BLEND,
+} satisfies Readonly<Record<GroundCover, Readonly<GroundBlend>>>;
+
+const FLOOR_BLEND = {
+  plaza: PAVED_BLEND,
+  grass: TURF_BLEND,
+  sand: SAND_BLEND,
+} satisfies Readonly<Record<FloorKind, Readonly<GroundBlend>>>;
+
+/** Match the painter's cover/under transition, independently of its palette. */
+export function groundBlendInto(land: LandClass, into: GroundBlend): void {
+  const under = COVER_BLEND[land.under];
+  const cover = COVER_BLEND[land.cover];
+  const weight = land.strength;
+  into.turf = under.turf + (cover.turf - under.turf) * weight;
+  into.sand = under.sand + (cover.sand - under.sand) * weight;
+  into.stone = under.stone + (cover.stone - under.stone) * weight;
+  into.loose = under.loose + (cover.loose - under.loose) * weight;
 }
-// The parcel mosaic. Returns (value in [-0.5, 0.5] for this cell, seam coverage
-// in [0, 1] at the boundary with its neighbours). Rows slide by a per-row hash
-// — a running bond, the way lots actually meet along a block face — so even the
-// unwarped low-detail variant never lines up into a checkerboard.
-//
-// \`px\` is the world size of a pixel. The seam is a fixed-width WORLD line, so
-// it has to be widened to a pixel up close and faded out once a pixel is wider
-// than the line is, or it aliases into a dark grid from the air. \`seamW\` = 0
-// asks for the value only — what the block scale wants, since blocks are
-// separated by streets and a line between them would sit on nothing.
-vec2 grCells(vec2 w, float px, vec2 cell, float seamW, float seed) {
-  vec2 g = w / cell;
-  float row = floor(g.y);
-  g.x += grHash(vec2(row, seed + 3.0)) * 2.7;
-  vec2 c = vec2(floor(g.x), row);
-  vec2 f = g - c;
-  float seam = 0.0;
-  if (seamW > 0.0) {
-    vec2 ed = min(f, 1.0 - f) * cell; // world units to this cell's edges
-    seam = (1.0 - smoothstep(0.0, seamW + px, min(ed.x, ed.y)))
-      * (1.0 - smoothstep(seamW * 2.0, seamW * 7.0, px));
-  }
-  return vec2(grHash(c + seed) - 0.5, seam);
-}`,
-      )
-      .replace(
-        "#include <color_fragment>",
-        `#include <color_fragment>
-{
-  vec2 wp = vGroundPos.xz;
-  // Derivatives stay in UNIFORM control flow: the grass/hard gate below splits
-  // quads wherever turf meets a beach or a plaza, and fwidth() inside a
-  // divergent branch is undefined.
-  vec2 dwp = fwidth(wp);
-  float px = max(dwp.x, dwp.y);
-  float grass = smoothstep(0.05, 0.25,
-    (diffuseColor.g - max(diffuseColor.r, diffuseColor.b)) / (diffuseColor.g + 0.05));
-  float fine = grHash(floor(wp * 2.1));
-  float broad = grNoise(wp * 0.045);
-  // Sand-ripple phase and its screen-space rate live outside the branches for
-  // the same reason dwp does.
-  float rphase = dot(wp, vec2(1.28, 0.79)) + broad * 7.0; // broad noise curves the bands
-  float rfade = 1.0 - smoothstep(0.9, 2.2, fwidth(rphase));
-  // THREE SCALES, because each range only sees one of them. From 250u a parcel
-  // is two pixels wide and averages away — which is why the noise octaves alone
-  // left every aerial as one flat tan sheet — so the BLOCK scale carries the
-  // read there. Lot carries the low oblique, slab carries the windscreen.
-  #ifdef GROUND_GRAIN_FULL
-    float mid = grNoise(wp * 0.16);
-    vec2 wq = grWarp(wp, 7.0);
-    vec2 blk = grCells(wq, px, vec2(55.0, 47.0), 0.0, 173.0);
-    vec2 lot = grCells(wq, px, vec2(8.0, 12.5), 0.32, 0.0);
-    vec2 slab = grCells(wq, px, vec2(4.2), 0.11, 61.0);
-    // A worn track: the thin ridge of a slow noise, so it wanders ACROSS the
-    // parcel mosaic the way a shortcut does instead of following it.
-    float trackN = grNoise(wp * 0.021 + 91.0);
-    float track = (1.0 - smoothstep(0.0, 0.055, abs(trackN - 0.5)))
-      * (1.0 - smoothstep(0.7, 1.8, px));
-  #else
-    // Phones keep the mid octave only where it does the most work — turf — and
-    // take the parcel field unwarped (four noise fetches saved on the largest
-    // fill in the frame). The running bond keeps it off a checkerboard even so.
-    float mid = 0.5;
-    if (grass > 0.01) mid = grNoise(wp * 0.16);
-    vec2 blk = grCells(wp, px, vec2(55.0, 47.0), 0.0, 173.0);
-    vec2 lot = grCells(wp, px, vec2(8.0, 12.5), 0.32, 0.0);
-    vec2 slab = vec2(0.0);
-    float track = 0.0;
-  #endif
-  // Hard ground still gets most of the octave amplitude; max() (not mix) is
-  // what keeps green ground identical to before.
-  float amp = max(grass, 0.55);
-  diffuseColor.rgb *= 1.0 + ((fine - 0.5) * 0.05 + (mid - 0.5) * 0.12 + (broad - 0.5) * 0.14) * amp;
-  // Unlit flank shading. The tessellated ground's normal is smooth over ~9u, so
-  // this is a broad form term rather than an edge: it keeps a hill reading as a
-  // hill on the side the sun is not on, which is most of Twin Peaks most of the
-  // day and every rooftop-height frame at dusk.
-  diffuseColor.rgb *= 1.0 - smoothstep(0.03, 0.5, 1.0 - clamp(vGroundNrm.y, 0.0, 1.0)) * 0.09;
-  if (grass > 0.01) {
-    // Broad patches drift warm (olive) or cool (blue-green) — turf, not paint.
-    float drift = (broad - 0.5) * 0.7 * grass;
-    diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.08, 1.0, 0.78), clamp(drift, 0.0, 1.0));
-    diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.88, 1.0, 1.05), clamp(-drift, 0.0, 1.0));
-    // Desire paths: turf worn through to the dirt under it.
-    diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.20, 1.02, 0.70),
-      track * grass * 0.45);
-  }
-  float hard = 1.0 - grass;
-  if (hard > 0.01) {
-    // Aggregate: concrete's chips and sand's tooth, an octave finer than the
-    // meadow grain.
-    float grit = grHash(floor(wp * 3.3)) - 0.5;
-    // Sand only — the one hue test left, and it asks for WARMTH rather than
-    // the absence of green, so a straw hill (r - b ~ 0.25) stays out of it.
-    float sand = smoothstep(0.30, 0.40, diffuseColor.r - diffuseColor.b);
-    float ripple = sin(rphase) * sand * rfade;
-    // The parcel mosaic is BUILT ground only: beaches and dunes keep the
-    // ripples and skip the lot lines.
-    float built = hard * (1.0 - sand);
-    float parcel = blk.x * 0.17 + lot.x * 0.13 - lot.y * 0.09
-      + slab.x * 0.035 - slab.y * 0.035;
-    vec3 grain = vec3(1.0 + hard * (grit * 0.05 + ripple * 0.035) + built * parcel);
-    // Concrete picks up the same warm/cool district drift the asphalt has.
-    grain += (broad - 0.5) * built * vec3(0.05, 0.015, -0.05);
-    // A track over hard ground is COMPACTED, not worn away: darker, not paler.
-    grain *= 1.0 - built * track * 0.11;
-    diffuseColor.rgb *= grain;
-  }
-}`,
-      );
+
+export function makeGroundBlendAt(
+  landClassAt: LandClassAt,
+  paintedFloorAt: (x: number, z: number) => FloorKind | undefined = makePaintedFloorAt(),
+): GroundBlendAt {
+  return (x, z, into) => {
+    const painted = paintedFloorAt(x, z);
+    if (painted === undefined) {
+      groundBlendInto(landClassAt(x, z), into);
+      return;
+    }
+    const blend = FLOOR_BLEND[painted];
+    into.turf = blend.turf;
+    into.sand = blend.sand;
+    into.stone = blend.stone;
+    into.loose = blend.loose;
   };
 }
 
@@ -311,16 +198,9 @@ export function makeGroundColorAt(
   terrain: Terrain,
   landClassAt: LandClassAt = makeLandClassAt(plan, terrain),
 ): (x: number, z: number, into: THREE.Color) => void {
-  // Painted floors (editor "Floor" mode): baked + this browser's local edits.
-  const floorAt = new Map<string, FloorKind>();
-  const local = loadLocalOverrides();
-  for (const [fgx, fgz, kind] of [...CUSTOM_MAP.floor, ...local.floor]) {
-    floorAt.set(`${fgx},${fgz}`, kind);
-  }
+  const paintedFloorAt = makePaintedFloorAt();
   return (x, z, into) => {
-    const gx = Math.min(GRID_X - 1, Math.max(0, gridX(x)));
-    const gz = Math.min(GRID_Z - 1, Math.max(0, gridZ(z)));
-    const painted = floorAt.get(`${gx},${gz}`);
+    const painted = paintedFloorAt(x, z);
     if (painted !== undefined) {
       into.copy(PAINTED_FLOOR[painted]);
       return;

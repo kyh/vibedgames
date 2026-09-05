@@ -750,7 +750,54 @@ export class Hud {
     this.bannerCta.textContent = text;
   }
   onCta(fn: () => void): void {
-    this.bannerCta.addEventListener("click", fn);
+    let touch: { id: number; x: number; y: number } | null = null;
+    let touchClickPending = false;
+    const cancel = (event: PointerEvent): void => {
+      if (touch?.id === event.pointerId) touch = null;
+    };
+    this.bannerCta.addEventListener("pointerdown", (event) => {
+      if (event.pointerType !== "touch") {
+        touchClickPending = false;
+        return;
+      }
+      if (!event.isPrimary || this.banner.inert) return;
+      touch = { id: event.pointerId, x: event.clientX, y: event.clientY };
+      touchClickPending = true;
+    });
+    this.bannerCta.addEventListener("pointermove", (event) => {
+      if (touch?.id !== event.pointerId) return;
+      if (Math.hypot(event.clientX - touch.x, event.clientY - touch.y) > 12) touch = null;
+    });
+    this.bannerCta.addEventListener("pointercancel", cancel);
+    this.bannerCta.addEventListener("lostpointercapture", cancel);
+    this.bannerCta.addEventListener("pointerup", (event) => {
+      const started = touch;
+      cancel(event);
+      if (!started || started.id !== event.pointerId || this.banner.inert) return;
+      const rect = this.bannerCta.getBoundingClientRect();
+      if (
+        Math.hypot(event.clientX - started.x, event.clientY - started.y) > 12 ||
+        event.clientX < rect.left ||
+        event.clientX > rect.right ||
+        event.clientY < rect.top ||
+        event.clientY > rect.bottom
+      ) {
+        return;
+      }
+      // Safari may omit the first touch's compatibility click entirely.
+      // A completed tap is authoritative; mouse and keyboard still use click.
+      fn();
+    });
+    this.bannerCta.addEventListener("click", (event) => {
+      // Some Safari clicks report pointerType="mouse" for a touch. A real
+      // mouse pointerdown clears this flag; keyboard/assistive clicks have 0 detail.
+      if (event.detail > 0 && touchClickPending) {
+        touchClickPending = false;
+        event.preventDefault();
+        return;
+      }
+      if (!this.banner.inert) fn();
+    });
   }
   flash(rgb: string, alpha: number): void {
     const a = this.reduceMotion ? Math.min(alpha, 0.1) : alpha;

@@ -4,11 +4,9 @@ import * as THREE from "three";
 import { WORLD_H, WORLD_HALF_X, WORLD_HALF_Z, WORLD_W } from "../shared/constants";
 import type { Solid } from "../world/city";
 import type { Terrain } from "../world/terrain";
+import { staticSolidBox, staticSolidCollider, type StaticSolidBox } from "./static-solid";
 
-// Rapier-backed rigid-body world for everything the taxi is NOT: traffic cars
-// become dynamic bodies when punted, and slide/tumble against the terrain and
-// the city's static colliders. The taxi itself stays on the custom arcade
-// controller — kinematic feel is the game — it just applies impulses here.
+// Rapier owns the player's raycast vehicle, traffic bodies and static scenery.
 
 const FIXED_DT = 1 / 60;
 // Per frame; time beyond this is dropped (tab-back spike guard). Phones and
@@ -23,7 +21,6 @@ const MAX_STEPS = window.matchMedia("(pointer: coarse)").matches ? 2 : 4;
 // on invisible chord ridges mid-street. A heightfield collider (no BVH,
 // O(1) queries) makes fine sampling affordable where a trimesh was not.
 const GROUND_SAMPLE = 4;
-const STATIC_HALF_HEIGHT = 6; // buildings/walls modeled as tall boxes
 
 // Static solids stream in around the taxi instead of living in the world all
 // at once: Rapier's step pays a ~linear per-resident-collider cost even when
@@ -41,14 +38,7 @@ const SOLID_STREAM_IN = 160; // boxes closer than this become colliders
 const SOLID_STREAM_OUT = 200; // resident boxes farther than this are removed
 const SOLID_RESTREAM_DIST = 24; // re-scan after the taxi moves this far
 
-type SolidBox = {
-  readonly x: number;
-  readonly y: number;
-  readonly z: number;
-  readonly hx: number;
-  readonly hy: number;
-  readonly hz: number;
-  readonly yaw: number;
+type SolidBox = StaticSolidBox & {
   readonly reach: number; // conservative footprint radius: max(hx, hz)
   collider: RAPIER.Collider | null;
 };
@@ -126,33 +116,10 @@ export class PhysicsWorld {
       const cx = (s.minX + s.maxX) / 2;
       const cz = (s.minZ + s.maxZ) / 2;
       if (Math.abs(cx) > WORLD_HALF_X + 30 || Math.abs(cz) > WORLD_HALF_Z + 30) continue;
-      const hx = Math.max(0.1, (s.maxX - s.minX) / 2);
-      const hz = Math.max(0.1, (s.maxZ - s.minZ) / 2);
-      // Ground-anchored, ALWAYS — which is wrong for anything standing on a
-      // drivable deck rather than on the terrain (see the Golden Gate's rails
-      // in world/golden-gate.ts: over water this puts the box on the seabed,
-      // 6u below the carriageway). Anchoring such a box to the deck instead
-      // was measured and is worse — Rapier then ejects the chassis out of the
-      // box's bottom face, because a SurfaceDeck is not a collider and nothing
-      // resists the push. Fixing that means giving the decks colliders or
-      // clamping the chassis to the drive surface after the step.
-      const base = terrain.heightAt(cx, cz);
-      // Height-capped solids (maxY — construction barriers etc) get a box of
-      // their REAL height: the default tall box walled off any drivable deck
-      // above them (a chicane under a freeway ramp blocked the ramp).
-      const hy =
-        s.maxY !== undefined
-          ? Math.min(STATIC_HALF_HEIGHT, Math.max(0.3, (s.maxY - base) / 2))
-          : STATIC_HALF_HEIGHT;
+      const box = staticSolidBox(s, (x, z) => terrain.heightAt(x, z));
       this.solidBoxes.push({
-        x: cx,
-        y: base + hy - 1,
-        z: cz,
-        hx,
-        hy,
-        hz,
-        yaw: s.yaw ?? 0,
-        reach: Math.max(hx, hz),
+        ...box,
+        reach: Math.max(box.hx, box.hz),
         collider: null,
       });
     }
@@ -171,12 +138,7 @@ export class PhysicsWorld {
     for (const box of this.solidBoxes) {
       const d = Math.hypot(x - box.x, z - box.z) - box.reach;
       if (box.collider === null && d < SOLID_STREAM_IN) {
-        const desc = RAPIER.ColliderDesc.cuboid(box.hx, box.hy, box.hz)
-          .setFriction(0.6)
-          .setTranslation(box.x, box.y, box.z);
-        if (box.yaw !== 0) {
-          desc.setRotation({ x: 0, y: Math.sin(box.yaw / 2), z: 0, w: Math.cos(box.yaw / 2) });
-        }
+        const desc = staticSolidCollider(box);
         box.collider = this.world.createCollider(desc);
       } else if (box.collider !== null && d > SOLID_STREAM_OUT) {
         this.world.removeCollider(box.collider, true);

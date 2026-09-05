@@ -2,7 +2,9 @@ import * as THREE from "three";
 
 import type { ModelCache } from "../assets/loader";
 import { PARK_TREES, TREE_LARGE, TREE_SMALL } from "../assets/manifest";
+import { inLake } from "./land-class";
 import type { ParcelClearance } from "./parcel-clearance";
+import { waterBodyContains, type WaterBody } from "./water";
 
 type TreePlacement = {
   readonly x: number;
@@ -155,7 +157,11 @@ export function getTreeTrunks(cache: ModelCache, url: string): readonly TreeTrun
 }
 
 /** All planting paths share one parcel index and one profile cache. */
-export function buildTreeClearance(cache: ModelCache, parcelClear: ParcelClearance): TreeClearance {
+export function buildTreeClearance(
+  cache: ModelCache,
+  parcelClear: ParcelClearance,
+  waterBodies: readonly WaterBody[] = [],
+): TreeClearance {
   return (url, placement) => {
     if (!treeSourceKind(url)) return true;
     const trunks = getTreeTrunks(cache, url);
@@ -164,6 +170,14 @@ export function buildTreeClearance(cache: ModelCache, parcelClear: ParcelClearan
     const cos = Math.cos(yaw);
     const sin = Math.sin(yaw);
     return trunks.every((profile) => {
+      // Test actual roots, not the model origin: decorated park tiles contain
+      // several offset trees. This gate runs after the planting RNG draws.
+      const rootX = profile.rootX * scaleX;
+      const rootZ = profile.rootZ * scaleZ;
+      const wx = x + rootX * cos + rootZ * sin;
+      const wz = z - rootX * sin + rootZ * cos;
+      if (inLake(wx, wz) || waterBodies.some((body) => waterBodyContains(body, wx, wz)))
+        return false;
       const dx = profile.x * scaleX;
       const dz = profile.z * scaleZ;
       return parcelClear(

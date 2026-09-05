@@ -5,6 +5,13 @@ import { geoLayoutKey, type ModelCache } from "../assets/loader";
 import { modelUrl, TREE_LARGE, TREE_SMALL, GARAGE_MODEL } from "../assets/manifest";
 import { registerBeacons } from "../fx/beacon-lights";
 import { applyMaterialBreakup, CITY_BREAKUP } from "../render/material-breakup";
+import { createTerrainMaterial } from "../render/terrain-material";
+import {
+  propShadowPolicy,
+  propShadowsDisabled,
+  setPropShadowPolicy,
+  type PropShadowPolicy,
+} from "../render/prop-shadow";
 import { liveQuality } from "../render/quality";
 import { renderCapabilities } from "../render/capabilities";
 import { compatiblePropBatch, type PropBatch, type PropInstance } from "./instanced-props";
@@ -21,7 +28,6 @@ import {
   WORLD_W,
 } from "../shared/constants";
 import { Rng } from "../shared/rng";
-import { DIR_DELTA, E, N, S, W } from "../shared/types";
 import { type DrapeField, toFloat32Attributes } from "./conform";
 import { activeMapProps } from "./map-file";
 import { type Garage, pickGarageSpots } from "./garages";
@@ -34,13 +40,14 @@ import { RoadNetwork } from "./network";
 import { type CityPlan, generateCity } from "./grid";
 import { CUSTOM_MAP, editorMode, loadLocalOverrides } from "./custom-map";
 import {
-  applyGrassMottle,
+  makeGroundBlendAt,
   makeGroundColorAt,
+  makePaintedFloorAt,
   makeGroundOffset,
   makeStandingSurface,
   makeTerracedDrapeField,
 } from "./ground";
-import { landuseSandAt } from "./sf-landuse";
+import { buildShoreline, planShoreline } from "./shoreline";
 import { type LandClassAt, makeLandClassAt, wheelSurface, type WheelSurface } from "./land-class";
 import { buildGridNetwork } from "./grid-network";
 import {
@@ -52,9 +59,13 @@ import {
   walkFor,
 } from "./roads";
 import type { CityGenPayload } from "./gen-worker";
-import { buildFreeways, nearFreeway } from "./freeways";
+import { buildFreeways, isFreewayDeckContact, nearFreeway } from "./freeways";
 import { buildPiers } from "./piers";
 import { buildLandmarks, landmarkProtection } from "./landmarks";
+import { SEA_Y, waterBodyContains, waterBedHeight, type WaterBody } from "./water";
+import { surfaceDeckAt } from "./surface-decks";
+import { carveWaterReservations } from "./water-reservations";
+import { stowWaterHeightAt } from "./lake";
 import { buildParcelFabric, parcelDetailLevel, parkOnLots } from "./parcel-build";
 import { visibleParcelPlans } from "./parcel-visibility";
 import { ParcelStreamer, type ParcelStreamStats, streamRadiusFor } from "./parcel-stream";
@@ -178,6 +189,7 @@ type MatRec = {
    */
   unlit?: boolean;
   toneMapped?: boolean;
+  propShadow?: PropShadowPolicy;
 };
 export type MergedChunkRec = {
   cx: number;
@@ -225,7 +237,7 @@ type ChunkMeshGroup = {
 
 type BakedMaterial = THREE.MeshStandardMaterial | THREE.MeshBasicMaterial;
 
-function materialFactory(): (m: MatRec) => BakedMaterial {
+export function materialFactory(): (m: MatRec) => BakedMaterial {
   // Material descriptors are the cache key. Omitting any field makes old rest
   // payloads alias materials that render differently.
   const mats = new Map<string, BakedMaterial>();
@@ -257,6 +269,7 @@ function materialFactory(): (m: MatRec) => BakedMaterial {
           });
       // Baked-path rebuilds of the live materials (plinths, seawall, prisms)
       // must carry the same surface breakup the cold-gen path gets below.
+      if (m.propShadow !== undefined) setPropShadowPolicy(mat, m.propShadow);
       applyMaterialBreakup(mat, CITY_BREAKUP);
       mats.set(k, mat);
     }
@@ -265,7 +278,7 @@ function materialFactory(): (m: MatRec) => BakedMaterial {
 }
 
 /** The MatRec for a material the capture understands, or null. */
-function matRecOf(mat: THREE.Material): MatRec | null {
+export function matRecOf(mat: THREE.Material): MatRec | null {
   if (mat instanceof THREE.MeshStandardMaterial) {
     return {
       color: mat.color.getHex(),
@@ -277,6 +290,7 @@ function matRecOf(mat: THREE.Material): MatRec | null {
       polygonOffsetUnits: mat.polygonOffsetUnits,
       transparent: mat.transparent,
       opacity: mat.opacity,
+      propShadow: propShadowPolicy(mat),
     };
   }
   if (mat instanceof THREE.MeshBasicMaterial) {
@@ -292,6 +306,7 @@ function matRecOf(mat: THREE.Material): MatRec | null {
       opacity: mat.opacity,
       unlit: true,
       toneMapped: mat.toneMapped,
+      propShadow: propShadowPolicy(mat),
     };
   }
   return null;
@@ -346,7 +361,7 @@ async function buildMergedChunkGroups(options: {
     const runtimeMat = options.runtimeMaterials?.get(rec);
     if (runtimeMat) {
       const mesh = new THREE.Mesh(geo, runtimeMat);
-      mesh.castShadow = true;
+      mesh.castShadow = !propShadowsDisabled(runtimeMat, renderCapabilities().multiDraw);
       mesh.receiveShadow = true;
       g.group.add(mesh);
       continue;
@@ -367,6 +382,8 @@ async function buildMergedChunkGroups(options: {
     const srcM = rec.srcMat ? options.cache.srcMesh(rec.srcMat.url, rec.srcMat.idx) : null;
     const srcMatOk = srcM && !Array.isArray(srcM.material) ? srcM.material : null;
     const mesh = new THREE.Mesh(geo, srcMatOk ?? options.materialFor(rec.mat));
+    if (propShadowPolicy(mesh.material) !== undefined)
+      mesh.castShadow = !propShadowsDisabled(mesh.material, renderCapabilities().multiDraw);
     mesh.receiveShadow = true;
     g.group.add(mesh);
   }
@@ -743,6 +760,7 @@ function imposterBox(geo: THREE.BufferGeometry, mat: THREE.Material): THREE.Buff
 export class CityModel {
   readonly group = new THREE.Group();
   readonly solids: Solid[] = [];
+  private readonly landmarkWater: WaterBody[] = [];
   readonly roadCells: RoadCell[] = [];
   plan: CityPlan; // mutable: live street rebuild replaces it
   readonly terrain: Terrain;
@@ -769,6 +787,7 @@ export class CityModel {
   // on a beach the painter drew as sand. Cached per PLAN — a live street edit
   // replaces the plan and the resolver reads its street/frontage fabric.
   private landClassCache: LandClassAt | null = null;
+  private paintedFloorAt = makePaintedFloorAt();
   private landClassPlan: CityPlan | null = null;
   private get landClassAt(): LandClassAt {
     if (!this.landClassCache || this.landClassPlan !== this.plan) {
@@ -900,6 +919,7 @@ export class CityModel {
         polygonOffsetUnits: mat.polygonOffsetUnits,
         transparent: mat.transparent,
         opacity: mat.opacity,
+        propShadow: propShadowPolicy(mat),
       },
       srcMat,
     };
@@ -1259,6 +1279,22 @@ export class CityModel {
 
   private buildPhase1(): void {
     const staticMeshes: THREE.Mesh[] = [];
+    // Cold generation resolves water before planting and reuses that landmark
+    // group in phase3. Baked loads skip both closures and build only in rebuildRest.
+    const landmarkWalls: Solid[] = [];
+    let landmarks: THREE.Group | null = null;
+    const resolveLandmarks = (): THREE.Group => {
+      if (landmarks) return landmarks;
+      this.landmarkWater.length = 0;
+      landmarks = buildLandmarks(
+        this.terrain,
+        this.cache,
+        this.network,
+        (wall) => landmarkWalls.push(wall),
+        (body) => this.landmarkWater.push(body),
+      );
+      return landmarks;
+    };
     // Resolve lazily, after reservations exist. City scatter, furniture trees
     // and shelters share this exact ring index for the whole generation run.
     let parcelIndex: ParcelClearance | null = null;
@@ -1266,7 +1302,7 @@ export class CityModel {
       parcelIndex ??= buildParcelClearance(this.parcelPlan().plans);
       return parcelIndex(footprint, margin);
     };
-    const treeClear = buildTreeClearance(this.cache, parcelClear);
+    const treeClear = buildTreeClearance(this.cache, parcelClear, this.landmarkWater);
     const collect = (obj: THREE.Object3D): void => {
       obj.updateMatrixWorld(true);
       obj.traverse((c) => {
@@ -1364,7 +1400,11 @@ export class CityModel {
     // one-off meshes in buildLandmarks), so the e2e sightless census cannot
     // vouch for them — tag the reason instead of relying on batched
     // neighbours to cover them by coincidence.
-    for (const s of lm.solids) this.solids.push({ ...s, unseen: "landmark (unbatched monument)" });
+    const landmarkReservations = lm.solids.map((s) => ({
+      ...s,
+      unseen: "landmark (unbatched monument)",
+    }));
+    this.solids.push(...landmarkReservations);
 
     const placedHash = new Map<number, OccBox[]>();
     let occRow = 0;
@@ -1438,6 +1478,7 @@ export class CityModel {
     this.facadeAt = (x: number, z: number): boolean => facadeCells.has(facadeKey(x, z));
 
     this.phase2 = async () => {
+      resolveLandmarks();
       // --- REAL PARCELS: the procedural fabric (parcel-plan.ts) owns every
       // block the licensed footprints cover. Planned here so it claims its
       // ground before the kit walk; its geometry and collision are built live
@@ -1505,93 +1546,17 @@ export class CityModel {
       for (const s of gg.solids) this.solids.push(s);
       this.addDecks(gg.decks);
 
-      // --- Shoreline: wall off each water cell that borders land, and emit
-      // the seawall VISUAL in the same breath — a wall the player can hit
-      // must be a wall they can see; pairing them in one loop makes the
-      // invisible-shore-wall class unrepresentable. Concrete lip on urban
-      // shores, low sand berm on beaches. ---
-      const seawallMat = new THREE.MeshStandardMaterial({ color: 0x9aa2a6, roughness: 1 });
-      const bermMat = new THREE.MeshStandardMaterial({ color: 0xcbb98d, roughness: 1 });
-      const lipGeo = new THREE.BoxGeometry(1, 1, 1);
-      // A landmark that reaches the water owns its own shore — the Bay Bridge
-      // anchorage, Fort Point's apron, the ballpark's bowl edge are all already
-      // standing on those cells. A generic full-cell box stacked inside the
-      // parcel is a squatter the landmark audit counts, and the player can only
-      // meet it as an invisible wall past the visible one, so the shore pass
-      // defers there. Twelve cells across three landmarks; measured, the drawn
-      // asphalt stops at least 1u short of every one of them, so no drivable
-      // approach loses a barrier it was relying on.
-      for (let gx = 0; gx < GRID_X; gx++) {
-        for (let gz = 0; gz < GRID_Z; gz++) {
-          if (this.plan.cells[gx]?.[gz] !== "water") continue;
-          const waterKey = `${gx},${gz}`;
-          if (fr.openWaterCells.has(waterKey)) continue; // pier runs out here
-          if (gg.openWaterCells.has(waterKey)) continue; // Golden Gate span
-          const wx = this.worldX(gx);
-          const wz = this.worldZ(gz);
-          let coastal = false;
-          for (const d of [N, E, S, W] as const) {
-            const [dx, dz] = DIR_DELTA[d];
-            const nb = this.plan.cells[gx + dx]?.[gz + dz];
-            if (nb !== "road" && nb !== "lot") continue;
-            coastal = true;
-            const ex = wx + dx * (ROAD_TILE / 2);
-            const ez = wz + dz * (ROAD_TILE / 2);
-            // OSM sand cells AND natural shore-gradient beaches (ground.ts
-            // paints sand where landAt < ~0.45) get the low berm; only truly
-            // urban hard shores keep the concrete seawall.
-            // Where a waterfront street is drawn OVER the cell boundary the lip
-            // is not a shore edge, it is a tan bar lying across the lane (24 of
-            // them, up to 7u in). The blocker behind it is fitted off the
-            // asphalt for the same reason, so dropping the visual here keeps
-            // the pair honest: no wall you can see, none you can hit.
-            if (this.onAsphalt(ex, ez, -0.6)) continue;
-            const beach = landuseSandAt(gx + dx, gz + dz) || this.terrain.landAt(ex, ez) < 0.45;
-            const h = beach ? 0.8 : 1.0;
-            const th = beach ? 1.6 : 0.6;
-            // NOTHING SITS ON THE RAW HEIGHT FIELD (CLAUDE.md). These two kinds
-            // were the last holdouts: 1,340 of 3,086 concrete lips and 330 of
-            // 1,061 sand berms sat >0.35u off their own baseline, and the berm
-            // tracked `terrain.heightAt` MORE tightly than the surface that is
-            // drawn — the wrong-surface signature in one number. Seat both
-            // through makeStandingSurface like every other static prop.
-            // …and seat it on ITS OWN footprint. The reference used to be
-            // 0.62 tiles out — 1.6u INLAND of a lip that is drawn at the cell
-            // boundary and is only ~1u thick. On a bluff shore the two differ
-            // by up to 6.8u, so 300 of these hung in the air at the inland
-            // height above the edge they cap. 0.52 tiles is inside the lip's
-            // own thickness; the skirt then reaches DOWN to the boundary
-            // itself so a cap on a bluff still meets the shore instead of
-            // hovering over it (bounded — this is a kerb, not a cliff face).
-            const groundY = this.standAt(wx + dx * ROAD_TILE * 0.52, wz + dz * ROAD_TILE * 0.52);
-            const topY = groundY + 0.15 + h / 2;
-            const botY = Math.max(this.standAt(ex, ez), groundY - 3) + 0.15 - h / 2;
-            const hh = Math.max(h, topY - botY);
-            const lip = new THREE.Mesh(lipGeo, beach ? bermMat : seawallMat);
-            if (dx !== 0) lip.scale.set(th, hh, ROAD_TILE);
-            else lip.scale.set(ROAD_TILE, hh, th);
-            lip.position.set(ex, topY - hh / 2, ez);
-            lip.updateMatrixWorld(true);
-            collect(lip);
-          }
-          if (!coastal) continue;
-          if (lm.reserved.has(waterKey)) continue;
-          // The blocker is a full CELL, but a waterfront street's asphalt is
-          // drawn over part of that cell — 52 of these reached up to 7u into a
-          // travel lane as an invisible wall six units past the lip you can
-          // see. Fit it back to the water it is there to keep you out of.
-          const half = ROAD_TILE * 0.46;
-          const fit = this.fitRectOffAsphalt(wx, wz, 1, 0, half, half, 0.2, 2.0);
-          if (fit) {
-            this.solids.push({
-              minX: fit.cx - fit.halfA,
-              maxX: fit.cx + fit.halfA,
-              minZ: fit.cz - fit.halfB,
-              maxZ: fit.cz + fit.halfB,
-            });
-          }
-        }
-      }
+      // The contour follows dry land and actual supported deck footprints.
+      // Each rendered wall carries the same explicit vertical collider span.
+      const shore = planShoreline({
+        landAt: (x, z) => this.terrain.landAt(x, z),
+        standingAt: (x, z) => this.standAt(x, z),
+        driveAt: (x, z) => this.heightAt(x, z),
+        onRoad: (x, z) => this.onAsphalt(x, z, 1.3),
+        decks: this.getDecks(),
+      });
+      for (const wall of buildShoreline(shore)) collect(wall);
+      for (const wall of shore) this.solids.push(wall.solid);
 
       // --- Outer border walls (close the south/inland map edge) ---
       const t = 3;
@@ -1737,7 +1702,18 @@ export class CityModel {
       await this.buildBatchesFrom(batchBuckets);
 
       // --- Iconic landmarks (procedural; kept separate — always visible) ---
-      this.group.add(buildLandmarks(this.terrain, this.cache, this.network));
+      this.group.add(resolveLandmarks());
+      this.solids.push(...landmarkWalls);
+      // The live builders publish actual pool footprints. Only the generic
+      // landmark reservation boxes are carved; real monument/rim solids keep
+      // their exact ownership. Cold capture records the corrected boxes.
+      const reservationSet = new Set<Solid>(landmarkReservations);
+      let solidCount = 0;
+      for (const solid of this.solids) {
+        if (!reservationSet.has(solid)) this.solids[solidCount++] = solid;
+      }
+      this.solids.length = solidCount;
+      this.solids.push(...carveWaterReservations(landmarkReservations, this.landmarkWater));
       this.group.add(buildFreeways(this.terrain, this.network));
       this.group.add(buildPiers(this.terrain));
       this.lightGoldenGate();
@@ -1774,12 +1750,10 @@ export class CityModel {
     // --- Displaced terrain ground (hills + island; ocean plane sits below),
     // vertex-graded: concrete in the city, Ocean Beach sand along the west
     // shore (half-strength on other shores), park green under the big parks. ---
-    const groundMat = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      vertexColors: true,
-      roughness: 1,
-    });
-    applyGrassMottle(groundMat);
+    this.paintedFloorAt = makePaintedFloorAt();
+    const groundMat = createTerrainMaterial(
+      makeGroundBlendAt(this.landClassAt, this.paintedFloorAt),
+    );
     let ground: THREE.Group;
     if (this.genPayload) {
       ground = new THREE.Group();
@@ -1903,7 +1877,12 @@ export class CityModel {
     this.addDecks(rest.decks);
     this.buildGround();
     // Landmarks are procedural + cheap — always rebuilt live.
-    this.group.add(buildLandmarks(this.terrain, this.cache, this.network));
+    this.landmarkWater.length = 0;
+    this.group.add(
+      buildLandmarks(this.terrain, this.cache, this.network, undefined, (body) =>
+        this.landmarkWater.push(body),
+      ),
+    );
     this.group.add(buildFreeways(this.terrain, this.network));
     this.group.add(buildPiers(this.terrain));
     this.lightGoldenGate();
@@ -2008,7 +1987,7 @@ export class CityModel {
       );
       // Three's depth shadow material ignores opacity; the separate opaque
       // frame and canopy cast the shelter shadow, never its glass panes.
-      batched.castShadow = !translucent;
+      batched.castShadow = !translucent && !propShadowsDisabled(bucket.material, multiDraw);
       batched.receiveShadow = true;
       // Chunk streaming (below) is the coarse cull, but per-instance frustum
       // culling stays ON: BatchedMesh rebuilds its multidraw list per PASS
@@ -2411,7 +2390,16 @@ export class CityModel {
   // with the ground paint (world/land-class.ts): this used to be a second,
   // drifting copy of the grading, which is how the tyres came to report
   // concrete on Ocean Beach.
-  surfaceKindAt(x: number, z: number): WheelSurface {
+  surfaceKindAt(x: number, z: number, y?: number): WheelSurface {
+    const contactY = y ?? this.heightAt(x, z);
+    if (
+      this.surface.isDeckContact(x, z, contactY) ||
+      isFreewayDeckContact(this.terrain, this.network, x, z, contactY)
+    )
+      return "road";
+    const painted = this.paintedFloorAt(x, z);
+    if (painted === "grass" || painted === "sand") return painted;
+    if (painted === "plaza") return "concrete";
     return wheelSurface(this.landClassAt(x, z));
   }
 
@@ -2435,7 +2423,22 @@ export class CityModel {
   }
 
   heightAt(x: number, z: number): number {
-    return this.surface.heightAt(x, z);
+    const floor = this.surface.heightAt(x, z);
+    if (surfaceDeckAt(this.getDecks(), x, z)) return floor;
+    return waterBedHeight(this.landmarkWater, x, z, floor);
+  }
+
+  getWaterBodies(): readonly WaterBody[] {
+    return this.landmarkWater;
+  }
+
+  waterHeightAt(x: number, z: number): number | null {
+    const lake = stowWaterHeightAt(x, z);
+    if (lake !== null) return lake;
+    for (const body of this.landmarkWater) if (waterBodyContains(body, x, z)) return body.y;
+    // The sea exists underneath supported bridges and piers too. Flotation
+    // checks hull height, so driving on a high deck never activates it.
+    return this.terrain.landAt(x, z) < 0.6 ? SEA_Y : null;
   }
 
   cameraFloorAt(x: number, z: number, referenceY: number): number {

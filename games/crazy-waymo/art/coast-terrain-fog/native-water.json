@@ -1,0 +1,1100 @@
+{
+  "checkedAt": "2026-09-05T19:36:46.532Z",
+  "url": "http://localhost:5193/?time=noon&offline=1",
+  "scope": "Native iOS Safari simulator first-touch, water physics and foam shader compatibility. Positions staged; propulsion and steering use trusted native touch. No physical-phone performance claim.",
+  "archiveNote": "Compact copy of the native run: duplicate event journals removed; each drive retains aggregate counts and first/last poses. Frames count accepted GameScene updates, not display requestAnimationFrame callbacks.",
+  "expectedRevision": 95,
+  "worldRevision": 95,
+  "installedRevision": 95,
+  "runtime": {
+    "name": "iOS 26.5",
+    "version": "26.5",
+    "device": "iPhone 17 Pro"
+  },
+  "checks": [
+    {
+      "name": "Native Safari initializes the coarse DPR3 phone render path",
+      "passed": true,
+      "evidence": {
+        "title": "Crazy Waymo",
+        "width": 402,
+        "height": 714,
+        "dpr": 3,
+        "coarse": true,
+        "post": false,
+        "renderer": "WebKit WebGL"
+      }
+    },
+    {
+      "name": "First native Start touch reaches play without retry",
+      "passed": true
+    },
+    {
+      "name": "Current water source and installed artifacts are revision95",
+      "passed": true,
+      "evidence": {
+        "revision": 95,
+        "installedRevision": 95,
+        "access": [
+          {
+            "id": "ocean-beach",
+            "region": "Ocean Beach",
+            "dry": {
+              "x": -1438,
+              "z": 200
+            },
+            "wet": {
+              "x": -1470,
+              "z": 200
+            },
+            "width": 1352,
+            "opening": {
+              "minX": -1586,
+              "maxX": -1316.3799999999999,
+              "minZ": -520,
+              "maxZ": 832
+            }
+          },
+          {
+            "id": "stow-boat-launch",
+            "region": "Golden Gate Park",
+            "dry": {
+              "x": -915.1100000000001,
+              "z": -259.99999999999994
+            },
+            "wet": {
+              "x": -896.1100000000001,
+              "z": -259.99999999999994
+            },
+            "width": 8,
+            "opening": {
+              "minX": -917.1100000000001,
+              "maxX": -894.1100000000001,
+              "minZ": -263.99999999999994,
+              "maxZ": -255.99999999999994
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Native held touch drives from beach into floating water",
+      "passed": true,
+      "evidence": {
+        "before": {
+          "x": -1438,
+          "z": 200,
+          "y": 0.3623257923126221,
+          "speed": 0,
+          "heading": -1.5707963267948968,
+          "airborne": false,
+          "waterContact": {
+            "kind": "dry"
+          },
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.10040983606557374,
+            "v": 0.5189807692307692
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 43.6,
+            "wrecked": false,
+            "y": 0.3
+          }
+        },
+        "end": {
+          "x": -1496.8492822265625,
+          "z": 200,
+          "y": -0.700000028014183,
+          "speed": 5.603151798248293,
+          "heading": -1.5707963267948968,
+          "airborne": false,
+          "waterContact": {
+            "kind": "floating",
+            "waterY": -0.5,
+            "immersion": 0.47500003501772886,
+            "entrySpeed": 26.993597030639652,
+            "entryVerticalSpeed": 8.92580795288086
+          },
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.10040983606557374,
+            "v": 0.5189807692307692
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 60.4,
+            "wrecked": false,
+            "y": 0.3
+          }
+        },
+        "frames": 286,
+        "wetFrames": 196,
+        "gesture": {
+          "webPoint": {
+            "x": 121,
+            "y": 414,
+            "tag": "CANVAS",
+            "id": ""
+          },
+          "nativePoint": {
+            "x": 121,
+            "y": 477
+          },
+          "dragX": 0,
+          "holdMs": 4500
+        }
+      }
+    },
+    {
+      "name": "Native water taxi remains buoyant without airborne or drift scoring",
+      "passed": true,
+      "evidence": {
+        "settled": [
+          {
+            "elapsedMs": 1044,
+            "x": -1499.4951171875,
+            "y": -0.6999999833106995,
+            "z": 200,
+            "bodyY": -0.07999998331069946,
+            "speed": 0.7976707220077579,
+            "heading": -1.5707963267948968,
+            "water": {
+              "kind": "floating",
+              "waterY": -0.5,
+              "immersion": 0.4749999791383744,
+              "entrySpeed": 26.993597030639652,
+              "entryVerticalSpeed": 8.92580795288086
+            },
+            "airborne": false,
+            "drifting": false,
+            "input": {
+              "throttle": 0,
+              "brake": 0,
+              "steer": 0,
+              "boost": false
+            }
+          },
+          {
+            "elapsedMs": 1144,
+            "x": -1499.568408203125,
+            "y": -0.6999999833106995,
+            "z": 200,
+            "bodyY": -0.07999998331069946,
+            "speed": 0.6644376516342219,
+            "heading": -1.5707963267948968,
+            "water": {
+              "kind": "floating",
+              "waterY": -0.5,
+              "immersion": 0.4749999791383744,
+              "entrySpeed": 26.993597030639652,
+              "entryVerticalSpeed": 8.92580795288086
+            },
+            "airborne": false,
+            "drifting": false,
+            "input": {
+              "throttle": 0,
+              "brake": 0,
+              "steer": 0,
+              "boost": false
+            }
+          },
+          {
+            "elapsedMs": 1244,
+            "x": -1499.628798828125,
+            "y": -0.6999999833106995,
+            "z": 200,
+            "bodyY": -0.07999998331069946,
+            "speed": 0.5534578561782884,
+            "heading": -1.5707963267948968,
+            "water": {
+              "kind": "floating",
+              "waterY": -0.5,
+              "immersion": 0.4749999791383744,
+              "entrySpeed": 26.993597030639652,
+              "entryVerticalSpeed": 8.92580795288086
+            },
+            "airborne": false,
+            "drifting": false,
+            "input": {
+              "throttle": 0,
+              "brake": 0,
+              "steer": 0,
+              "boost": false
+            }
+          },
+          {
+            "elapsedMs": 1344,
+            "x": -1499.6797705078125,
+            "y": -0.6999999833106995,
+            "z": 200,
+            "bodyY": -0.07999998331069946,
+            "speed": 0.46101495623588956,
+            "heading": -1.5707963267948968,
+            "water": {
+              "kind": "floating",
+              "waterY": -0.5,
+              "immersion": 0.4749999791383744,
+              "entrySpeed": 26.993597030639652,
+              "entryVerticalSpeed": 8.92580795288086
+            },
+            "airborne": false,
+            "drifting": false,
+            "input": {
+              "throttle": 0,
+              "brake": 0,
+              "steer": 0,
+              "boost": false
+            }
+          },
+          {
+            "elapsedMs": 1444,
+            "x": -1499.722197265625,
+            "y": -0.6999999833106995,
+            "z": 200,
+            "bodyY": -0.07999998331069946,
+            "speed": 0.3840124309062991,
+            "heading": -1.5707963267948968,
+            "water": {
+              "kind": "floating",
+              "waterY": -0.5,
+              "immersion": 0.4749999791383744,
+              "entrySpeed": 26.993597030639652,
+              "entryVerticalSpeed": 8.92580795288086
+            },
+            "airborne": false,
+            "drifting": false,
+            "input": {
+              "throttle": 0,
+              "brake": 0,
+              "steer": 0,
+              "boost": false
+            }
+          },
+          {
+            "elapsedMs": 1544,
+            "x": -1499.7576025390624,
+            "y": -0.6999999833106995,
+            "z": 200,
+            "bodyY": -0.07999998331069946,
+            "speed": 0.31987151503563205,
+            "heading": -1.5707963267948968,
+            "water": {
+              "kind": "floating",
+              "waterY": -0.5,
+              "immersion": 0.4749999791383744,
+              "entrySpeed": 26.993597030639652,
+              "entryVerticalSpeed": 8.92580795288086
+            },
+            "airborne": false,
+            "drifting": false,
+            "input": {
+              "throttle": 0,
+              "brake": 0,
+              "steer": 0,
+              "boost": false
+            }
+          },
+          {
+            "elapsedMs": 1660,
+            "x": -1499.791630859375,
+            "y": -0.6999999833106995,
+            "z": 200,
+            "bodyY": -0.07999998331069946,
+            "speed": 0.2584505975246452,
+            "heading": -1.5707963267948968,
+            "water": {
+              "kind": "floating",
+              "waterY": -0.5,
+              "immersion": 0.4749999791383744,
+              "entrySpeed": 26.993597030639652,
+              "entryVerticalSpeed": 8.92580795288086
+            },
+            "airborne": false,
+            "drifting": false,
+            "input": {
+              "throttle": 0,
+              "brake": 0,
+              "steer": 0,
+              "boost": false
+            }
+          },
+          {
+            "elapsedMs": 1760,
+            "x": -1499.815498046875,
+            "y": -0.6999999833106995,
+            "z": 200,
+            "bodyY": -0.07999998331069946,
+            "speed": 0.21528211236000253,
+            "heading": -1.5707963267948968,
+            "water": {
+              "kind": "floating",
+              "waterY": -0.5,
+              "immersion": 0.4749999791383744,
+              "entrySpeed": 26.993597030639652,
+              "entryVerticalSpeed": 8.92580795288086
+            },
+            "airborne": false,
+            "drifting": false,
+            "input": {
+              "throttle": 0,
+              "brake": 0,
+              "steer": 0,
+              "boost": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Native floating taxi accelerates and steers (day)",
+      "passed": true,
+      "evidence": {
+        "distance": 21.269634535969445,
+        "before": {
+          "x": -1510,
+          "z": 200,
+          "y": -0.7031538212299346,
+          "speed": 0,
+          "heading": 0,
+          "airborne": false,
+          "waterContact": {
+            "kind": "floating",
+            "waterY": -0.5,
+            "immersion": 0.4793014042079449,
+            "entrySpeed": 0,
+            "entryVerticalSpeed": 0
+          },
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.10040983606557374,
+            "v": 0.5189807692307692
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 82.9,
+            "wrecked": false,
+            "y": 0.3
+          }
+        },
+        "end": {
+          "x": -1515.7185913085937,
+          "z": 220.48646057128906,
+          "y": -0.7000005236268043,
+          "speed": 3.801661068127478,
+          "heading": -0.9477476700719262,
+          "airborne": false,
+          "waterContact": {
+            "kind": "floating",
+            "waterY": -0.5,
+            "immersion": 0.4750006310641766,
+            "entrySpeed": 0,
+            "entryVerticalSpeed": 0
+          },
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.10040983606557374,
+            "v": 0.5189807692307692
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 77.7,
+            "wrecked": false,
+            "y": 0.3
+          }
+        },
+        "frames": 225,
+        "wetFrames": 225,
+        "maxSteer": 0.6451612903225806,
+        "gesture": {
+          "webPoint": {
+            "x": 121,
+            "y": 414,
+            "tag": "CANVAS",
+            "id": ""
+          },
+          "nativePoint": {
+            "x": 121,
+            "y": 477
+          },
+          "dragX": 40,
+          "holdMs": 3000
+        }
+      }
+    },
+    {
+      "name": "Foam shader renders on native Safari (day)",
+      "passed": true,
+      "evidence": {
+        "maxFoamIndices": 2160,
+        "phase": 0.25,
+        "foam": {
+          "visible": true,
+          "indices": 1920,
+          "transparent": true,
+          "singlePass": true,
+          "color": [0.92, 0.97, 1]
+        },
+        "failedPrograms": 0,
+        "errors": []
+      }
+    },
+    {
+      "name": "Native floating taxi accelerates and steers (night)",
+      "passed": true,
+      "evidence": {
+        "distance": 21.52530294625221,
+        "before": {
+          "x": -1510,
+          "z": 200,
+          "y": -0.7111086803674698,
+          "speed": 0,
+          "heading": 0,
+          "airborne": false,
+          "waterContact": {
+            "kind": "floating",
+            "waterY": -0.5,
+            "immersion": 0.48995517566800123,
+            "entrySpeed": 0,
+            "entryVerticalSpeed": 0
+          },
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.10040983606557374,
+            "v": 0.5189807692307692
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 71.6,
+            "wrecked": false,
+            "y": 0.3
+          }
+        },
+        "end": {
+          "x": -1515.95095703125,
+          "z": 220.6863427734375,
+          "y": -0.7000005120038986,
+          "speed": 3.2563006733972912,
+          "heading": -0.9563301888015927,
+          "airborne": false,
+          "waterContact": {
+            "kind": "floating",
+            "waterY": -0.5,
+            "immersion": 0.4750006496906281,
+            "entrySpeed": 0,
+            "entryVerticalSpeed": 0
+          },
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.10040983606557374,
+            "v": 0.5189807692307692
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 78.7,
+            "wrecked": false,
+            "y": 0.3
+          }
+        },
+        "frames": 230,
+        "wetFrames": 230,
+        "maxSteer": 0.6451612903225806,
+        "gesture": {
+          "webPoint": {
+            "x": 121,
+            "y": 414,
+            "tag": "CANVAS",
+            "id": ""
+          },
+          "nativePoint": {
+            "x": 121,
+            "y": 477
+          },
+          "dragX": 40,
+          "holdMs": 3000
+        }
+      }
+    },
+    {
+      "name": "Foam shader renders on native Safari (night)",
+      "passed": true,
+      "evidence": {
+        "maxFoamIndices": 2160,
+        "phase": 0.7,
+        "foam": {
+          "visible": true,
+          "indices": 1920,
+          "transparent": true,
+          "singlePass": true,
+          "color": [0.276, 0.291, 0.3]
+        },
+        "failedPrograms": 0,
+        "errors": []
+      }
+    },
+    {
+      "name": "No Safari runtime or shader console errors",
+      "passed": true,
+      "evidence": []
+    },
+    {
+      "name": "Existing simulator states preserved",
+      "passed": true,
+      "evidence": ["Booted", "Booted"]
+    }
+  ],
+  "startAttempts": [
+    {
+      "attempt": 1,
+      "gesture": {
+        "method": "native-w3c-touch",
+        "duration": 100,
+        "nativeRect": {
+          "y": 427,
+          "x": 100,
+          "width": 202,
+          "height": 47
+        },
+        "nativeCenter": {
+          "x": 201,
+          "y": 451
+        },
+        "webCenter": {
+          "x": 200.99015045166016,
+          "y": 388.5
+        },
+        "offset": {
+          "x": 0.00984954833984375,
+          "y": 62.5
+        }
+      },
+      "beforeMode": "title",
+      "afterMode": "countdown",
+      "delivery": "trusted-cta-pointerup",
+      "completed": {
+        "mode": "playing",
+        "ready": true,
+        "focus": true,
+        "visibility": "visible",
+        "errors": []
+      },
+      "events": [
+        {
+          "type": "pointerdown",
+          "phase": "capture",
+          "time": 30909,
+          "trusted": true,
+          "pointer": "touch",
+          "pointerId": -366551487,
+          "mode": "title",
+          "id": "banner-cta",
+          "x": 201,
+          "y": 389,
+          "prevented": false
+        },
+        {
+          "type": "pointerdown",
+          "phase": "bubble",
+          "time": 30909,
+          "trusted": true,
+          "pointer": "touch",
+          "pointerId": -366551487,
+          "mode": "title",
+          "id": "banner-cta",
+          "x": 201,
+          "y": 389,
+          "prevented": false
+        },
+        {
+          "type": "touchstart",
+          "phase": "capture",
+          "time": 30910,
+          "trusted": true,
+          "pointer": "touch",
+          "pointerId": null,
+          "mode": "title",
+          "id": "banner-cta",
+          "x": 201,
+          "y": 389,
+          "prevented": false
+        },
+        {
+          "type": "touchstart",
+          "phase": "bubble",
+          "time": 30910,
+          "trusted": true,
+          "pointer": "touch",
+          "pointerId": null,
+          "mode": "title",
+          "id": "banner-cta",
+          "x": 201,
+          "y": 389,
+          "prevented": false
+        },
+        {
+          "type": "pointerup",
+          "phase": "capture",
+          "time": 31016,
+          "trusted": true,
+          "pointer": "touch",
+          "pointerId": -366551487,
+          "mode": "title",
+          "id": "banner-cta",
+          "x": 201,
+          "y": 389,
+          "prevented": false
+        },
+        {
+          "type": "pointerup",
+          "phase": "bubble",
+          "time": 31128,
+          "trusted": true,
+          "pointer": "touch",
+          "pointerId": -366551487,
+          "mode": "countdown",
+          "id": "banner-cta",
+          "x": 201,
+          "y": 389,
+          "prevented": false
+        },
+        {
+          "type": "touchend",
+          "phase": "capture",
+          "time": 31129,
+          "trusted": true,
+          "pointer": "touch",
+          "pointerId": null,
+          "mode": "countdown",
+          "id": "banner-cta",
+          "x": 201,
+          "y": 389,
+          "prevented": false
+        },
+        {
+          "type": "touchend",
+          "phase": "bubble",
+          "time": 31129,
+          "trusted": true,
+          "pointer": "touch",
+          "pointerId": null,
+          "mode": "countdown",
+          "id": "banner-cta",
+          "x": 201,
+          "y": 389,
+          "prevented": false
+        }
+      ],
+      "errors": []
+    }
+  ],
+  "cases": [
+    {
+      "name": "ocean-beach-native-entry",
+      "clock": "accepted GameScene.update calls; poses sampled at 100ms wall-time intervals",
+      "elapsedMs": 5058,
+      "frames": 286,
+      "wetFrames": 196,
+      "finite": true,
+      "maxFoamIndices": 2400,
+      "maxThrottle": 1,
+      "maxSteer": 0,
+      "gesture": {
+        "webPoint": {
+          "x": 121,
+          "y": 414,
+          "tag": "CANVAS",
+          "id": ""
+        },
+        "nativePoint": {
+          "x": 121,
+          "y": 477
+        },
+        "dragX": 0,
+        "holdMs": 4500
+      },
+      "recordedPoseCount": 47,
+      "firstPose": {
+        "elapsedMs": 10,
+        "x": -1438,
+        "y": 0.3623257923126221,
+        "z": 200,
+        "bodyY": 0.9823257923126221,
+        "speed": 0,
+        "heading": -1.5707963267948968,
+        "water": {
+          "kind": "dry"
+        },
+        "airborne": false,
+        "drifting": false,
+        "input": {
+          "throttle": 0,
+          "brake": 0,
+          "steer": 0,
+          "boost": false
+        }
+      },
+      "lastPose": {
+        "elapsedMs": 5030,
+        "x": -1496.6876220703125,
+        "y": -0.700000028014183,
+        "z": 200,
+        "bodyY": -0.08000002801418304,
+        "speed": 5.776445865631105,
+        "heading": -1.5707963267948966,
+        "water": {
+          "kind": "floating",
+          "waterY": -0.5,
+          "immersion": 0.47500003501772886,
+          "entrySpeed": 26.993597030639652,
+          "entryVerticalSpeed": 8.92580795288086
+        },
+        "airborne": false,
+        "drifting": false,
+        "input": {
+          "throttle": 0,
+          "brake": 0,
+          "steer": 0,
+          "boost": false
+        }
+      },
+      "finalProbe": {
+        "x": -1496.8492822265625,
+        "z": 200,
+        "y": -0.700000028014183,
+        "speed": 5.603151798248293,
+        "heading": -1.5707963267948968,
+        "airborne": false,
+        "waterContact": {
+          "kind": "floating",
+          "waterY": -0.5,
+          "immersion": 0.47500003501772886,
+          "entrySpeed": 26.993597030639652,
+          "entryVerticalSpeed": 8.92580795288086
+        },
+        "drifting": false,
+        "boosting": false,
+        "carrying": false,
+        "wreckedCount": 0
+      }
+    },
+    {
+      "name": "native-idle-float",
+      "clock": "accepted GameScene.update calls; poses sampled at 100ms wall-time intervals",
+      "elapsedMs": 1794,
+      "frames": 108,
+      "wetFrames": 108,
+      "finite": true,
+      "maxFoamIndices": 2160,
+      "maxThrottle": 0,
+      "maxSteer": 0,
+      "recordedPoseCount": 18,
+      "firstPose": {
+        "elapsedMs": 10,
+        "x": -1497.03517578125,
+        "y": -0.6999999958276748,
+        "z": 200,
+        "bodyY": -0.07999998331069946,
+        "speed": 5.272005558013917,
+        "heading": -1.5707963267948966,
+        "water": {
+          "kind": "floating",
+          "waterY": -0.5,
+          "immersion": 0.47500003501772886,
+          "entrySpeed": 26.993597030639652,
+          "entryVerticalSpeed": 8.92580795288086
+        },
+        "airborne": false,
+        "drifting": false,
+        "input": {
+          "throttle": 0,
+          "brake": 0,
+          "steer": 0,
+          "boost": false
+        }
+      },
+      "lastPose": {
+        "elapsedMs": 1760,
+        "x": -1499.815498046875,
+        "y": -0.6999999833106995,
+        "z": 200,
+        "bodyY": -0.07999998331069946,
+        "speed": 0.21528211236000253,
+        "heading": -1.5707963267948968,
+        "water": {
+          "kind": "floating",
+          "waterY": -0.5,
+          "immersion": 0.4749999791383744,
+          "entrySpeed": 26.993597030639652,
+          "entryVerticalSpeed": 8.92580795288086
+        },
+        "airborne": false,
+        "drifting": false,
+        "input": {
+          "throttle": 0,
+          "brake": 0,
+          "steer": 0,
+          "boost": false
+        }
+      },
+      "finalProbe": {
+        "x": -1499.8223095703124,
+        "z": 200,
+        "y": -0.6999999833106995,
+        "speed": 0.2025589644908923,
+        "heading": -1.5707963267948968,
+        "airborne": false,
+        "waterContact": {
+          "kind": "floating",
+          "waterY": -0.5,
+          "immersion": 0.4749999791383744,
+          "entrySpeed": 26.993597030639652,
+          "entryVerticalSpeed": 8.92580795288086
+        },
+        "drifting": false,
+        "boosting": false,
+        "carrying": false,
+        "wreckedCount": 0
+      }
+    },
+    {
+      "name": "native-water-steer-day",
+      "clock": "accepted GameScene.update calls; poses sampled at 100ms wall-time intervals",
+      "elapsedMs": 3741,
+      "frames": 225,
+      "wetFrames": 225,
+      "finite": true,
+      "maxFoamIndices": 2160,
+      "maxThrottle": 1,
+      "maxSteer": 0.6451612903225806,
+      "gesture": {
+        "webPoint": {
+          "x": 121,
+          "y": 414,
+          "tag": "CANVAS",
+          "id": ""
+        },
+        "nativePoint": {
+          "x": 121,
+          "y": 477
+        },
+        "dragX": 40,
+        "holdMs": 3000
+      },
+      "shaders": {
+        "phase": 0.25,
+        "foam": {
+          "visible": true,
+          "indices": 1920,
+          "transparent": true,
+          "singlePass": true,
+          "color": [0.92, 0.97, 1]
+        },
+        "failedPrograms": 0,
+        "errors": []
+      },
+      "recordedPoseCount": 36,
+      "firstPose": {
+        "elapsedMs": 6,
+        "x": -1510,
+        "y": -0.7028797370195389,
+        "z": 200,
+        "bodyY": -0.08263437449932098,
+        "speed": 0,
+        "heading": 0,
+        "water": {
+          "kind": "floating",
+          "waterY": -0.5,
+          "immersion": 0.47859967127442365,
+          "entrySpeed": 0,
+          "entryVerticalSpeed": 0
+        },
+        "airborne": false,
+        "drifting": false,
+        "input": {
+          "throttle": 0,
+          "brake": 0,
+          "steer": 0,
+          "boost": false
+        }
+      },
+      "lastPose": {
+        "elapsedMs": 3674,
+        "x": -1515.5217138671876,
+        "y": -0.7000005197525024,
+        "z": 220.30051483154298,
+        "bodyY": -0.08000051975250244,
+        "speed": 4.304952149738846,
+        "heading": -0.9391794975800764,
+        "water": {
+          "kind": "floating",
+          "waterY": -0.5,
+          "immersion": 0.4750006496906281,
+          "entrySpeed": 0,
+          "entryVerticalSpeed": 0
+        },
+        "airborne": false,
+        "drifting": false,
+        "input": {
+          "throttle": 0,
+          "brake": 0,
+          "steer": 0,
+          "boost": false
+        }
+      },
+      "finalProbe": {
+        "x": -1515.7185913085937,
+        "z": 220.48646057128906,
+        "y": -0.7000005236268043,
+        "speed": 3.801661068127478,
+        "heading": -0.9477476700719262,
+        "airborne": false,
+        "waterContact": {
+          "kind": "floating",
+          "waterY": -0.5,
+          "immersion": 0.4750006310641766,
+          "entrySpeed": 0,
+          "entryVerticalSpeed": 0
+        },
+        "drifting": false,
+        "boosting": false,
+        "carrying": false,
+        "wreckedCount": 0
+      }
+    },
+    {
+      "name": "native-water-steer-night",
+      "clock": "accepted GameScene.update calls; poses sampled at 100ms wall-time intervals",
+      "elapsedMs": 3820,
+      "frames": 230,
+      "wetFrames": 230,
+      "finite": true,
+      "maxFoamIndices": 2160,
+      "maxThrottle": 1,
+      "maxSteer": 0.6451612903225806,
+      "gesture": {
+        "webPoint": {
+          "x": 121,
+          "y": 414,
+          "tag": "CANVAS",
+          "id": ""
+        },
+        "nativePoint": {
+          "x": 121,
+          "y": 477
+        },
+        "dragX": 40,
+        "holdMs": 3000
+      },
+      "shaders": {
+        "phase": 0.7,
+        "foam": {
+          "visible": true,
+          "indices": 1920,
+          "transparent": true,
+          "singlePass": true,
+          "color": [0.276, 0.291, 0.3]
+        },
+        "failedPrograms": 0,
+        "errors": []
+      },
+      "recordedPoseCount": 36,
+      "firstPose": {
+        "elapsedMs": 3,
+        "x": -1510,
+        "y": -0.7101443880796432,
+        "z": 200,
+        "bodyY": -0.09001393616199493,
+        "speed": 0,
+        "heading": 0,
+        "water": {
+          "kind": "floating",
+          "waterY": -0.5,
+          "immersion": 0.4886821694672108,
+          "entrySpeed": 0,
+          "entryVerticalSpeed": 0
+        },
+        "airborne": false,
+        "drifting": false,
+        "input": {
+          "throttle": 0,
+          "brake": 0,
+          "steer": 0,
+          "boost": false
+        }
+      },
+      "lastPose": {
+        "elapsedMs": 3737,
+        "x": -1515.7289794921876,
+        "y": -0.7000005269050598,
+        "z": 220.4856103515625,
+        "bodyY": -0.08000053465366364,
+        "speed": 3.80160091765149,
+        "heading": -0.9485074768584474,
+        "water": {
+          "kind": "floating",
+          "waterY": -0.5,
+          "immersion": 0.4750006496906281,
+          "entrySpeed": 0,
+          "entryVerticalSpeed": 0
+        },
+        "airborne": false,
+        "drifting": false,
+        "input": {
+          "throttle": 0,
+          "brake": 0,
+          "steer": 0,
+          "boost": false
+        }
+      },
+      "finalProbe": {
+        "x": -1515.95095703125,
+        "z": 220.6863427734375,
+        "y": -0.7000005120038986,
+        "speed": 3.2563006733972912,
+        "heading": -0.9563301888015927,
+        "airborne": false,
+        "waterContact": {
+          "kind": "floating",
+          "waterY": -0.5,
+          "immersion": 0.4750006496906281,
+          "entrySpeed": 0,
+          "entryVerticalSpeed": 0
+        },
+        "drifting": false,
+        "boosting": false,
+        "carrying": false,
+        "wreckedCount": 0
+      }
+    }
+  ],
+  "cleanup": {
+    "ownedSimulator": "1BAE5F7F-49F0-473A-B73F-C443917F1408",
+    "ownedSimulatorDeleted": true,
+    "originalSimulators": [
+      {
+        "id": "184B86E3-D94A-414B-BB76-C0E0F605723A",
+        "state": "Booted",
+        "finalState": "Booted"
+      },
+      {
+        "id": "6B5804AB-1A79-46A5-A757-BCE0F9A8F57B",
+        "state": "Booted",
+        "finalState": "Booted"
+      }
+    ]
+  },
+  "passed": true
+}

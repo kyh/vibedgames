@@ -3,6 +3,8 @@ import * as THREE from "three";
 import { BoostPlume, FxRings } from "./boost-plume";
 import { REINHARD_GLSL } from "./reinhard";
 import { GRIND_COLOR } from "./tier";
+import { SURFACE_FX, type LooseProfile, type MatterRecipe, type PavedSurface } from "./surface-fx";
+import { WaterFx, type WaterSprayKind } from "./water-fx";
 
 type EmitOpts = {
   count: number;
@@ -25,6 +27,8 @@ type EmitOpts = {
   // Tier channel: the grain's color is uTierCol * intensity, re-read every
   // frame — a tier promotion repaints grains already in the air (sparks only).
   channel?: boolean;
+  // Inert chips share the lit, normal-blend pool but keep a sharp silhouette.
+  grain?: boolean;
 };
 
 // vAlpha = remaining life fraction (1 at birth -> 0 at death).
@@ -36,17 +40,20 @@ const VERT = `
   attribute float aSize;
   attribute vec3 aColor;
   attribute float aChannel;
+  attribute float aGrain;
   uniform float uScale;
   uniform float uGrow;
   uniform vec3 uTierCol;
   varying float vAlpha;
   varying vec3 vColor;
+  varying float vGrain;
   void main() {
+    vGrain = aGrain;
     vColor = aColor * mix(vec3(1.0), uTierCol, aChannel);
     vAlpha = clamp(aLife / max(aMax, 0.0001), 0.0, 1.0);
     float shrinkRamp = mix(0.6, 1.4, vAlpha);
     float growRamp = mix(1.5, 0.7, vAlpha);
-    float ramp = mix(shrinkRamp, growRamp, uGrow);
+    float ramp = mix(shrinkRamp, growRamp, uGrow * (1.0 - aGrain));
     vec4 mv = modelViewMatrix * vec4(position, 1.0);
     gl_Position = projectionMatrix * mv;
     gl_PointSize = (aLife <= 0.0) ? 0.0 : aSize * ramp * uScale / max(-mv.z, 0.1);
@@ -63,11 +70,14 @@ const FRAG_SMOKE = `
   uniform vec3 uAmbient;
   varying float vAlpha;
   varying vec3 vColor;
+  varying float vGrain;
   void main() {
     vec2 d = gl_PointCoord - vec2(0.5);
     float r = dot(d, d);
     if (r > 0.25) discard;
     float soft = smoothstep(0.25, 0.0, r);
+    float chip = 1.0 - smoothstep(0.29, 0.35, abs(d.x) + abs(d.y) * 0.7);
+    soft = mix(soft, chip, vGrain);
     vec3 color = mix(vColor * 0.35, vColor, pow(vAlpha, 0.6));
     float topLit = smoothstep(0.78, 0.18, gl_PointCoord.y);
     // Ceiling keeps a stack of overlapping lit puffs from blowing out to a
@@ -113,13 +123,14 @@ class ParticleField {
   private life: Float32Array;
   private max: Float32Array;
   private chan: Float32Array;
+  private grain: Float32Array;
   private vel: Float32Array;
   private grav: Float32Array;
   private drag: Float32Array;
   private cursor = 0;
   private wasEmpty = false;
   private mat: THREE.ShaderMaterial;
-  private scaleUniform = { value: window.innerHeight };
+  private scaleUniform = { value: typeof window === "undefined" ? 1 : window.innerHeight };
 
   constructor(
     private n: number,
@@ -134,6 +145,7 @@ class ParticleField {
     this.life = new Float32Array(n);
     this.max = new Float32Array(n);
     this.chan = new Float32Array(n);
+    this.grain = new Float32Array(n);
     this.vel = new Float32Array(n * 3);
     this.grav = new Float32Array(n);
     this.drag = new Float32Array(n);
@@ -145,6 +157,7 @@ class ParticleField {
     geo.setAttribute("aLife", new THREE.BufferAttribute(this.life, 1));
     geo.setAttribute("aMax", new THREE.BufferAttribute(this.max, 1));
     geo.setAttribute("aChannel", new THREE.BufferAttribute(this.chan, 1));
+    geo.setAttribute("aGrain", new THREE.BufferAttribute(this.grain, 1));
     geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
 
     this.mat = new THREE.ShaderMaterial({
@@ -188,6 +201,7 @@ class ParticleField {
       this.life[i] = o.life;
       this.max[i] = o.life;
       this.chan[i] = o.channel ? 1 : 0;
+      this.grain[i] = o.grain ? 1 : 0;
       this.grav[i] = o.gravity;
       this.drag[i] = o.drag;
     }
@@ -222,10 +236,9 @@ class ParticleField {
     geo.getAttribute("aLife").needsUpdate = true;
     geo.getAttribute("aMax").needsUpdate = true;
     geo.getAttribute("aChannel").needsUpdate = true;
+    geo.getAttribute("aGrain").needsUpdate = true;
   }
 }
-
-export type FxSurface = "road" | "grass" | "sand" | "concrete";
 
 export type FxTier = 0 | 1 | 2;
 
@@ -276,15 +289,33 @@ export class Fx {
   }); // shrinks over life
   readonly plume = new BoostPlume(this.fxGain);
   readonly rings = new FxRings(this.fxGain);
+  readonly water = new WaterFx((x, y, z, strength, velX, velZ, kind) =>
+    this.waterSpray(x, y, z, strength, velX, velZ, kind),
+  );
   private tmp = new THREE.Color();
   private white = new THREE.Color(1, 1, 1);
   private tmpDir = { x: 0, y: 0, z: 0 };
+  private waterDirection = { x: 0, y: 0, z: 0 };
+  private waterSprayOptions: EmitOpts = {
+    count: 0,
+    color: new THREE.Color(0.84, 0.94, 1),
+    speed: 0,
+    spread: 0,
+    up: 0,
+    size: 0,
+    life: 0,
+    gravity: 12,
+    drag: 1.8,
+    dir: this.waterDirection,
+    dirSpeed: 1,
+  };
 
   addTo(scene: THREE.Scene): void {
     scene.add(this.smoke.points);
     scene.add(this.sparks.points);
     scene.add(this.plume.mesh);
     scene.add(this.rings.mesh);
+    scene.add(this.water.mesh);
   }
   setScale(px: number): void {
     this.smoke.setScale(px);
@@ -321,6 +352,7 @@ export class Fx {
     this.smokeAmbient.value.copy(ambient).multiplyScalar(ambientIntensity).addScalar(0.12);
     this.fxDay = Math.min(1, Math.max(0, day));
     this.fxGain.value = (NIGHT_FX_SCALE + (1 - NIGHT_FX_SCALE) * this.fxDay) * this.fxDim;
+    this.water.setDay(this.fxDay);
   }
 
   /** Repaint the live tier channel (drift grains, jet, promotion layers). */
@@ -328,16 +360,17 @@ export class Fx {
     this.tierCol.value.set(css);
   }
 
-  // Tire smoke while drifting. `charged` is the Mario-Kart mini-turbo tell:
-  // sparks ride the live tier channel and the count jumps 2 -> 5. Smoke is
-  // tinted by the surface being torn up (same colors as kickup, so the two
-  // systems agree): road keeps grey rubber-smoke, off-road throws that
-  // surface's dust.
-  driftPuff(x: number, y: number, z: number, boosting: boolean, surface: FxSurface = "road"): void {
-    if (surface === "grass") this.tmp.setRGB(0.42, 0.36, 0.24);
-    else if (surface === "sand") this.tmp.setRGB(0.66, 0.57, 0.41);
-    else if (surface === "concrete") this.tmp.setRGB(0.8, 0.8, 0.78);
-    else this.tmp.setHSL(0, 0, boosting ? 0.85 : 0.72);
+  // Paved tires smoke under stress. Loose ground uses kickup exclusively, so
+  // drifting through sand cannot stack a second rubber-smoke cloud on it.
+  driftPuff(
+    x: number,
+    y: number,
+    z: number,
+    boosting: boolean,
+    surface: PavedSurface = "road",
+  ): void {
+    const profile = SURFACE_FX[surface];
+    this.tmp.setRGB(profile.color.r, profile.color.g, profile.color.b);
     this.smoke.emit(x, y + 0.3, z, {
       count: 2,
       color: this.tmp,
@@ -664,40 +697,70 @@ export class Fx {
     });
   }
 
-  // Off-road kick-up (the Mario Kart read): soft OPAQUE dust puffs in the
-  // surface's own color carry the effect; a few bright flecks (torn grass /
-  // sand grains) ride on top. The old version was all additive embers — off-
-  // road looked like the car was on fire, not tearing up ground.
-  kickup(x: number, y: number, z: number, surface: "grass" | "sand", power: number): void {
-    if (surface === "grass")
-      this.tmp.setRGB(0.42, 0.36, 0.24); // dry-dirt brown
-    // Beach tan, kept well under the old 0.82: the lit-smoke shader and the
-    // post S-curve sit on top now, and a bright tan stack read as fire.
-    else this.tmp.setRGB(0.66, 0.57, 0.41);
-    this.smoke.emit(x, y + 0.25, z, {
-      count: 2,
+  // Coherent low dust + short ballistic flecks. Both are normal-blend matter;
+  // they never borrow the additive drift channel or grow a glowing wake.
+  kickup(
+    x: number,
+    y: number,
+    z: number,
+    profile: LooseProfile,
+    direction: { x: number; y: number; z: number },
+    power: number,
+  ): void {
+    this.emitMatter(x, y, z, profile.dust, direction, power, false);
+    this.emitMatter(x, y, z, profile.debris, direction, power, true);
+  }
+
+  private waterSpray(
+    x: number,
+    y: number,
+    z: number,
+    strength: number,
+    velX: number,
+    velZ: number,
+    kind: WaterSprayKind,
+  ): void {
+    const options = this.waterSprayOptions;
+    const entry = kind === "entry";
+    const wake = kind === "wake";
+    options.count = entry ? 5 + Math.round(strength * 15) : wake ? 1 : 4;
+    options.speed = entry ? 0.8 + strength * 2 : 0.3;
+    options.spread = entry ? 0.8 : 0.4;
+    options.up = entry ? 1.7 + strength * 4 : wake ? 0.9 : 1.4;
+    options.size = entry ? 0.16 + strength * 0.1 : 0.13;
+    options.life = entry ? 0.35 + strength * 0.28 : 0.3;
+    this.waterDirection.x = velX * 0.2;
+    this.waterDirection.z = velZ * 0.2;
+    this.smoke.emit(x, y, z, options);
+  }
+
+  private emitMatter(
+    x: number,
+    y: number,
+    z: number,
+    recipe: MatterRecipe,
+    direction: { x: number; y: number; z: number },
+    power: number,
+    grain: boolean,
+  ): void {
+    const color = recipe.color;
+    this.tmp.setRGB(color.r, color.g, color.b);
+    // Camera-facing dust needs room above the contact plane: a low centre
+    // clips its soft circle into a hard horizontal stripe. Chips stay low.
+    const lift = grain ? 0.16 : 0.2 + recipe.size * 0.8;
+    this.smoke.emit(x, y + lift, z, {
+      count: recipe.count,
       color: this.tmp,
-      speed: power * 0.55,
-      spread: 0.9,
-      up: 1.6 + power * 0.3,
-      size: 1.6 + power * 0.25,
-      life: 0.55,
-      gravity: -0.8,
-      drag: 2.6,
-    });
-    if (surface === "grass") this.tmp.setHSL(0.29, 0.8, 0.42);
-    else this.tmp.setHSL(0.11, 0.7, 0.68);
-    // Inert debris: intensity stays at 1 (under the bloom gate by authoring).
-    this.sparks.emit(x, y + 0.3, z, {
-      count: 2,
-      color: this.tmp,
-      speed: power * (0.6 + Math.random() * 0.5),
-      spread: 1,
-      up: power * 0.8,
-      size: 0.8,
-      life: 0.5,
-      gravity: 9,
-      drag: 1.2,
+      speed: 0,
+      spread: recipe.spread,
+      up: recipe.up,
+      size: recipe.size,
+      life: recipe.life,
+      gravity: recipe.gravity,
+      drag: recipe.drag,
+      dir: direction,
+      dirSpeed: power * (grain ? 1 : 0.55),
+      grain,
     });
   }
 
@@ -774,5 +837,6 @@ export class Fx {
     this.sparks.update(dt);
     this.plume.update(dt);
     this.rings.update(dt);
+    this.water.update(dt);
   }
 }

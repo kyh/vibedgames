@@ -1,6 +1,19 @@
 import { checkFrameTiming } from "./test-frame-timing.mts";
 import { checkInstancedProps } from "./test-instanced-props.mts";
 import { checkWorldBufferOwnership } from "./test-world-buffer-ownership.mts";
+import { checkSurfaceFx } from "./test-surface-fx.mts";
+import { checkWaterFx } from "./test-water-fx.mts";
+import { checkWaterReservations } from "./test-water-reservations.mts";
+import { checkFlotation } from "./test-flotation.mts";
+import { checkLake } from "./test-lake.mts";
+import { checkMarineFog } from "./test-marine-fog.mts";
+import { checkTerrainMaterials } from "./test-terrain-material.mts";
+import { auditWaterBarriers } from "./water-barrier-audit.mts";
+import {
+  checkShoreline,
+  checkShorelinePhysics,
+  checkLandmarkWaterWalls,
+} from "./test-shoreline.mts";
 import { checkParcelStreaming } from "./test-parcel-stream.mts";
 import { checkInstalledPlayerSpawns, checkPlayerSpawnFixtures } from "./test-player-spawn.mts";
 import { DriveSurface } from "../src/world/surface.ts";
@@ -20,7 +33,9 @@ import {
   wheelSurface,
 } from "../src/world/land-class.ts";
 import { freewayPillars } from "../src/world/freeways.ts";
-import { landmarkProtection } from "../src/world/landmarks.ts";
+import { buildLandmarks, landmarkProtection } from "../src/world/landmarks.ts";
+import { ModelCache } from "../src/assets/loader.ts";
+import type { WaterBody } from "../src/world/water.ts";
 import { buildParcelGeometry, buildParcelGeometrySync } from "../src/world/parcel-mesh.ts";
 import {
   geometryBytes,
@@ -53,7 +68,11 @@ import { checkRoadSurfaces } from "./test-road-surfaces.mts";
 import { checkHistoricCorners, checkParcelFacades } from "./test-parcel-facades.mts";
 import { checkDrivingFx, checkWorldDrivingFx } from "./test-driving-fx.mts";
 import { checkTreeTemplates } from "./test-tree-templates.mts";
-import { checkBakedTreeClearance, checkTreeClearanceSources } from "./test-tree-clearance.mts";
+import {
+  checkBakedTreeClearance,
+  checkTreeClearanceSources,
+  treeRootSeatSamples,
+} from "./test-tree-clearance.mts";
 import { checkBakedShelterClearance, checkSfStreetKit } from "./test-sf-street-kit.mts";
 import { checkScaffoldKit } from "./test-scaffold-kit.mts";
 import { checkSalesforce } from "./test-sf-salesforce.mts";
@@ -94,6 +113,7 @@ const worldZ = (gz: number): number => (gz + 0.5) * ROAD_TILE - WORLD_HALF_Z;
 console.log("world-gen invariants");
 const t0 = performance.now();
 const plan = generateCity();
+checkTerrainMaterials(check, plan);
 const network = new RoadNetwork();
 console.log(`  (plan + network in ${Math.round(performance.now() - t0)}ms)`);
 checkRoadSurfaces(check, network);
@@ -493,13 +513,21 @@ await checkVehicleParking(check);
   check("baked rest.bin is at the code's world rev", rev === WORLD_REV, `bin ${rev}`);
 
   const auditWorld = buildAuditWorld();
+  checkLake(check, auditWorld, rest);
+  checkLandmarkWaterWalls(check, auditWorld.terrain, auditWorld.network);
+  checkWaterReservations(check, auditWorld, rest);
   checkWorldDrivingFx(check, auditWorld, rest);
   const props = propInstances(rest);
+  const waterBarriers = auditWaterBarriers(check, rest, auditWorld, props);
+  const groundProps = props.filter((prop) => !waterBarriers.props.has(prop));
+  const nonWaterSolids = rest.solids.filter((solid) => !waterBarriers.solids.has(solid));
   const cls = classifySolids(rest.solids, auditWorld, props, loadParcelSource());
   const EMPTY_SOLID = { minX: 0, maxX: 0, minZ: 0, maxZ: 0 };
   const massIdx: number[] = [];
   const furnIdx: number[] = [];
   for (let i = 0; i < rest.solids.length; i++) {
+    const solid = rest.solids[i];
+    if (solid && waterBarriers.solids.has(solid)) continue;
     const c = cls[i];
     if (c === "map-border") continue;
     if (c === "tree" || c === "furniture") furnIdx.push(i);
@@ -568,7 +596,7 @@ await checkVehicleParking(check);
     network,
     0.5,
   );
-  const inLane = propsInRoadway(props, network, auditWorld.standAt, 0.5);
+  const inLane = propsInRoadway(groundProps, network, auditWorld.standAt, 0.5);
   const propsDeep = inLane.filter((p) => p.depth > 2.5).length;
   let carsInLane = 0;
   let carWorst = 0;
@@ -590,31 +618,20 @@ await checkVehicleParking(check);
   // is per KIND against its own baseline — a model's origin is not its feet —
   // and only fixed-scale ground props qualify (a mass cuts into its own grade
   // and a plinth fills what is left, by design).
-  const seat = seatReport(props, auditWorld.standAt, auditWorld.terrainAt, {
+  const seat = seatReport(groundProps, auditWorld.standAt, auditWorld.terrainAt, {
     floatGap: 0.35,
     buryDepth: 0.6,
     minCount: 40,
     groundSpread: 0.3,
+    seatSamples: await treeRootSeatSamples(rest, props),
   });
   const wrongSurface = seat.groups.filter((g) => g.wrongSurface);
-  // Rev 70 halved this: the park gate pillars sampled ONE surface height for a
-  // pair standing 4.4u apart, the park walls seated on the LOWEST point under
-  // a 4.3u run (which sank 80 of them under the lawn), the tile skirt's height
-  // was a function of the terrain rather than a fixed size, and four unrelated
-  // props shared one BoxGeometry — and the rest capture keys raw geometry by
-  // identity, so all four were measured against one meaningless baseline.
-  // Rev 72 took the shore lip too (it sampled the surface 1.6u INLAND of a lip
-  // it draws on the cell boundary; on a bluff those differ by up to 6.8u):
-  // 1045 floating -> 745. What is left is almost entirely kk-tree-b and
-  // kk-trafficlight, whose GLBs carry the authoring offset in the mesh NODE,
-  // so the matrix the bake serializes is up to 1.7u from the trunk the prop
-  // actually stands on — their seat spread is 0.00 once that is taken back
-  // out, i.e. they are planted and this number is the MEASURE being wrong.
-  // Fixing that is a src/assets/loader.ts change, and it is worth doing before
-  // anyone spends more effort driving this count down.
+  // Rev94 measures decoded tree roots, not displaced GLB mesh pivots. The
+  // latter misclassified209 planted trees as buried on slopes; every tree
+  // remains in the audit. Non-tree props retain their per-kind baseline.
   check(
     "seated props stay on the drawn surface at their ratchet",
-    seat.floating <= 820 && seat.buried <= 285 && wrongSurface.length === 0,
+    seat.floating <= 280 && seat.buried <= 82 && wrongSurface.length === 0,
     `${seat.floating} floating, ${seat.buried} buried, ` +
       `${wrongSurface.length} kinds tracking the raw field` +
       (wrongSurface[0] ? ` (${wrongSurface[0].url})` : ""),
@@ -623,7 +640,7 @@ await checkVehicleParking(check);
   // Landmark parcels. Wave 0 shipped a skyscraper inside Oracle Park's bowl
   // because the reservations had not been re-baked; this asks the shipped
   // artifacts directly, for all 20 landmarks.
-  const lm = landmarkReport(props, rest.solids, network, plan);
+  const lm = landmarkReport(groundProps, nonWaterSolids, network, plan, auditWorld.terrain);
   const bowlSquatters = lm.intruders.filter((i) => i.landmark === "Oracle Park");
   check(
     "no procedural mass stands inside Oracle Park",
@@ -681,7 +698,9 @@ await checkVehicleParking(check);
     ]),
   });
   checkBakedShelterClearance(check, bakedRest, parcels.plans);
-  await checkBakedTreeClearance(check, bakedRest, parcels.plans);
+  const plantedWater: WaterBody[] = [];
+  buildLandmarks(terrain, new ModelCache(), network, undefined, (body) => plantedWater.push(body));
+  await checkBakedTreeClearance(check, bakedRest, parcels.plans, plantedWater);
   checkHistoricCorners(check, parcels.plans);
   const planMs = Math.round(performance.now() - t0);
   const again = planParcels({ source, network, terrain, reserved: prot.reserved, standAt });
@@ -876,6 +895,12 @@ await checkVehicleParking(check);
 }
 
 checkFrameTiming(check);
+checkSurfaceFx(check);
+checkWaterFx(check);
+await checkFlotation(check);
+checkMarineFog(check);
+await checkShoreline(check);
+await checkShorelinePhysics(check);
 checkInstancedProps(check);
 await checkWorldBufferOwnership(check);
 await checkParcelStreaming(check);
