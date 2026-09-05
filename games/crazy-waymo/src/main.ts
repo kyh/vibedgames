@@ -1,8 +1,10 @@
 import * as THREE from "three";
 import { setPauseHandlers } from "@repo/embed";
 
+import { FramePacer } from "./render/frame-pacer";
 import { PerfGovernor } from "./render/perf-governor";
 import { PostPipeline } from "./render/post";
+import { setRenderCapabilities } from "./render/capabilities";
 import { isCoarsePointer } from "./render/quality";
 import { GameScene } from "./scenes/game-scene";
 import { MAX_DT } from "./shared/constants";
@@ -48,12 +50,15 @@ container.appendChild(renderer.domElement);
 // and skips the landing screen; the director itself is a lazy chunk loaded
 // below — zero cost normally.
 const trailerMode = new URLSearchParams(window.location.search).has("trailer");
+setRenderCapabilities({ multiDraw: renderer.extensions.has("WEBGL_multi_draw") });
 const game = new GameScene(window.innerWidth / window.innerHeight, trailerMode);
 game.applyEnvironment(renderer);
 
 // Post chain (bloom + grade) is desktop-only; phones keep the single pass.
 const post = isCoarsePointer() ? null : new PostPipeline(renderer, game.scene, game.camera);
 post?.setSize(window.innerWidth, window.innerHeight, renderer.getPixelRatio());
+const framePacer = new FramePacer(isCoarsePointer() ? "60hz" : "display");
+framePacer.setHidden(document.hidden);
 
 // Wrapper pause: solo game, safe to fully freeze (see GameScene.requestPause).
 const pauseOverlay = createPauseOverlay(() => game.restartRun());
@@ -61,10 +66,14 @@ setPauseHandlers({
   onPause: () => {
     pauseOverlay.show();
     game.requestPause();
+    framePacer.setPaused(true);
+    governor.resetTiming();
   },
   onResume: () => {
     pauseOverlay.hide();
     game.requestResume();
+    framePacer.setPaused(false);
+    governor.resetTiming();
   },
 });
 
@@ -77,6 +86,7 @@ window.addEventListener("resize", () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
   post?.setSize(window.innerWidth, window.innerHeight, renderer.getPixelRatio());
   game.resize(window.innerWidth / window.innerHeight, renderHeightPx());
+  framePacer.invalidate();
 });
 
 // Adaptive quality: steps pixel ratio (and, on mobile, a feature tier —
@@ -88,17 +98,34 @@ const governor = new PerfGovernor(renderer, game.sunLight, (features) => {
   game.resize(window.innerWidth / window.innerHeight, renderHeightPx());
 });
 
+document.addEventListener("visibilitychange", () => {
+  framePacer.setHidden(document.hidden);
+  governor.resetTiming();
+});
+
 if (import.meta.env.DEV) {
   void import("./debug/dev-hooks").then(({ installDevHooks }) => installDevHooks(game, governor));
   Object.assign(window, { __renderer: renderer, __waymo: game, __post: post });
 }
 
-const timer = new THREE.Timer();
+function drawScene(): void {
+  if (post) post.render();
+  else renderer.render(game.scene, game.camera);
+}
+
 renderer.setAnimationLoop((t) => {
-  timer.update(t);
-  const raw = timer.getDelta();
-  if (game.isReady) governor.update(raw); // build-phase frames are not render cost
-  const dt = Math.min(raw, MAX_DT);
+  const frame = framePacer.next(t);
+  if (frame.kind === "skip") return;
+  if (frame.kind === "draw") {
+    drawScene();
+    return;
+  }
+  // Build/paused frames are not gameplay cost. Phone pairs normalize 90 Hz
+  // callback quantization while preserving the governor's elapsed wall time.
+  if (game.isReady && frame.timing) {
+    for (let i = 0; i < frame.timing.samples; i++) governor.update(frame.timing.dt);
+  }
+  const dt = Math.min(frame.dt, MAX_DT);
   const tU = performance.now();
   game.update(dt);
   // Mobile low tiers re-render the shadow map every Nth frame (no-op on
@@ -106,8 +133,7 @@ renderer.setAnimationLoop((t) => {
   // before render.
   governor.syncShadow(game.shadowsOn);
   const tR = performance.now();
-  if (post) post.render();
-  else renderer.render(game.scene, game.camera);
+  drawScene();
   const tEnd = performance.now();
   if (tEnd - tU > 1000) {
     console.log(`[slow-frame] update ${Math.round(tR - tU)}ms render ${Math.round(tEnd - tR)}ms`);

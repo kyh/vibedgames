@@ -6,6 +6,8 @@ import { modelUrl, TREE_LARGE, TREE_SMALL, GARAGE_MODEL } from "../assets/manife
 import { registerBeacons } from "../fx/beacon-lights";
 import { applyMaterialBreakup, CITY_BREAKUP } from "../render/material-breakup";
 import { liveQuality } from "../render/quality";
+import { renderCapabilities } from "../render/capabilities";
+import { compatiblePropBatch, type PropBatch, type PropInstance } from "./instanced-props";
 import {
   CHUNK,
   CITY_SEED,
@@ -801,7 +803,7 @@ export class CityModel {
     return this.roadDrapeCache;
   }
   // Global model batches; instances flip visibility by chunk on transitions.
-  private batches: { mesh: THREE.BatchedMesh; chunkIds: Uint16Array }[] = [];
+  private batches: { mesh: PropBatch; chunkIds: Uint16Array }[] = [];
   private batchChunkGrid = { nx: 1, nz: 1 };
   private chunkVisible: Uint8Array | null = null;
   // chunk key → [batchIndex, instanceId] pairs, so a chunk transition touches
@@ -824,7 +826,7 @@ export class CityModel {
   // ring less.
   private imposterInstances = new Map<number, number[]>();
   private imposterMidInstances = new Map<number, number[]>();
-  private imposterMesh: THREE.BatchedMesh | null = null;
+  private imposterMesh: PropBatch | null = null;
   private imposterVisible: Uint8Array | null = null;
   private imposterMidVisible: Uint8Array | null = null;
   // City-rest cache: everything phases 2+3 produce, in serializable form.
@@ -1223,6 +1225,9 @@ export class CityModel {
     if (this.restPayload) {
       const tR = performance.now();
       await this.rebuildRest(this.restPayload, onProgress);
+      // Runtime has copied the construction data. The loader retains its own
+      // reference for its last consumers; failed rebuilds keep this for retry.
+      this.restPayload = null;
       console.log(`[city] rest rebuild ${Math.round(performance.now() - tR)}ms`);
       await tick(0.97);
       return;
@@ -1957,6 +1962,7 @@ export class CityModel {
     batchBuckets: Map<string, BatchBucket>,
     onProgress?: (f: number) => void,
   ): Promise<void> {
+    const multiDraw = renderCapabilities().multiDraw;
     // Instances stream on the fine STREAM_CELL grid, not the merge CHUNK grid
     // the caller used for road tiles — see STREAM_CELL.
     const nx = Math.ceil(WORLD_W / STREAM_CELL);
@@ -2088,9 +2094,7 @@ export class CityModel {
         chunkIds[iid] = ccz * nx + ccx;
       }
       batched.computeBoundingSphere();
-      this.group.add(batched);
       const bIndex = this.batches.length;
-      this.batches.push({ mesh: batched, chunkIds });
       let anyBig = false;
       for (let iid = 0; iid < chunkIds.length; iid++) {
         const key = chunkIds[iid] ?? 0;
@@ -2162,6 +2166,9 @@ export class CityModel {
       if (!batched.castShadow && !bucket.material.transparent) {
         batched.perObjectFrustumCulled = false;
       }
+      const mesh = compatiblePropBatch(batched, bucket.items, multiDraw);
+      this.group.add(mesh);
+      this.batches.push({ mesh, chunkIds });
     }
     if (imposters.length > 0) {
       // One box per distinct source model (see imposterBox) — a few dozen, so
@@ -2191,6 +2198,7 @@ export class CityModel {
       imp.perObjectFrustumCulled = false;
       imp.sortObjects = false;
       const gids = new Map<THREE.BufferGeometry, number>();
+      const impItems: PropInstance[] = [];
       const m4 = new THREE.Matrix4();
       const box = new THREE.Box3();
       const sizeV = new THREE.Vector3();
@@ -2228,14 +2236,17 @@ export class CityModel {
         imp.setMatrixAt(iid, m4);
         imp.setColorAt(iid, imposterColorInto(IMPOSTER_COLOR, item.geo, mat, item.tint));
         imp.setVisibleAt(iid, false);
+        if (!multiDraw)
+          impItems.push({ geo: boxGeo, matrix: m4.clone(), tint: IMPOSTER_COLOR.clone() });
         const tier = mid ? this.imposterMidInstances : this.imposterInstances;
         const list = tier.get(key);
         if (list) list.push(iid);
         else tier.set(key, [iid]);
       }
       imp.computeBoundingSphere();
-      this.group.add(imp);
-      this.imposterMesh = imp;
+      const mesh = compatiblePropBatch(imp, impItems, multiDraw);
+      this.group.add(mesh);
+      this.imposterMesh = mesh;
       let midN = 0;
       for (const spec of imposters) if (spec.mid) midN++;
       console.log(`[city] imposters ${imposters.length} (mid ${midN})`);

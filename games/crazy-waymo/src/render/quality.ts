@@ -2,10 +2,9 @@
 //
 // Desktop is sacred: every feature here defaults to FULL_QUALITY and the
 // desktop tier table never deviates from it, so a mouse-and-keyboard machine
-// renders exactly what it rendered before this module existed. Phones (coarse
-// primary pointer) get a tiered feature ladder on top of the existing
-// resolution stepper — fill rate and per-fragment lighting are what melt
-// mobile GPUs, not draw calls.
+// retains its full feature set. Phones (coarse primary pointer) have a
+// tiered budget for resolution, geometry and lighting. Drivers without
+// multi-draw also use instanced props to reduce submission cost.
 //
 export function isCoarsePointer(): boolean {
   return window.matchMedia("(pointer: coarse)").matches;

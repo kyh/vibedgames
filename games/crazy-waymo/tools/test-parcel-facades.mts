@@ -300,10 +300,16 @@ export function checkParcelFacades(check: Check): void {
       renderedBounds.equals(firstBounds),
   );
   streamer.update(1000, 0, 300);
+  for (let frame = 0; frame < 20 && streamer.stats().pending > 0; frame++) {
+    streamer.update(1000, 0, 300);
+  }
   const arrived = streamer.stats();
   check(
-    "teleports reconcile every new facade cell immediately",
-    arrived.resident === 2 && arrived.detailedCells === 2 && root.children.length === 2,
+    "teleports finish every new facade cell within the streaming budget",
+    arrived.pending === 0 &&
+      arrived.resident === 2 &&
+      arrived.detailedCells === 2 &&
+      root.children.length === 2,
     `${arrived.resident} resident / ${arrived.detailedCells} detailed destination cells`,
   );
   streamer.update(2000, 0, 300);

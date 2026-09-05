@@ -334,7 +334,9 @@ export function unpackWorld(p: PackedWorld): CityGenPayload {
       position: dqPos(t.pos),
       normal: t.nor ? dqNor(t.nor) : null,
       color: t.col ? dqCol(t.col) : null,
-      index: t.index,
+      // Decoded views share the entire download. Keep only this geometry's
+      // indices so a small surviving mesh cannot pin megabytes of staging data.
+      index: t.index?.slice() ?? null,
       x: t.x,
       z: t.z,
     })),
@@ -402,7 +404,7 @@ export async function unpackRest(p: PackedRest): Promise<CityRestPayload> {
       normal: r.nor ? dqNor(r.nor) : null,
       uv: r.uv ? dqUv(r.uv) : null,
       color: r.col ? dqCol(r.col) : null,
-      index: r.index,
+      index: r.index?.slice() ?? null,
       mat: r.mat,
       srcMat: r.srcMat,
     });
@@ -413,7 +415,7 @@ export async function unpackRest(p: PackedRest): Promise<CityRestPayload> {
       position: dqPos(g.pos),
       normal: g.nor ? dqNor(g.nor) : null,
       uv: null,
-      index: g.index,
+      index: g.index?.slice() ?? null,
       mat: g.mat,
     })),
     batchItems,

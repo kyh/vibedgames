@@ -1,8 +1,44 @@
 import { FrameTimingWindow } from "../src/render/frame-timing-window";
+import { checkFramePacer } from "./test-frame-pacer.mts";
+import { qualityTiers } from "../src/render/perf-governor";
+import { FULL_QUALITY } from "../src/render/quality";
 
 type Check = (name: string, condition: boolean, detail?: string) => void;
 
 export function checkFrameTiming(check: Check): void {
+  checkFramePacer(check);
+  for (const native of [1, 2]) {
+    const phone = qualityTiers(native, true);
+    const desktop = qualityTiers(native, false);
+    check(
+      `all phone tiers retain baked sky and 1024 shadows at DPR ${native}`,
+      phone.length === 5 && phone.every((tier) => tier.shadow === 1024 && tier.skyBake),
+    );
+    check(
+      `desktop quality features and shadow ladder stay unchanged at DPR ${native}`,
+      desktop.length === 5 &&
+        desktop.every(
+          (tier, i) =>
+            tier.shadow === (i >= 3 ? 1024 : 2048) &&
+            tier.skyBake === FULL_QUALITY.skyBake &&
+            tier.clouds === FULL_QUALITY.clouds &&
+            tier.shadowEvery === FULL_QUALITY.shadowEvery &&
+            tier.shadowCast === FULL_QUALITY.shadowCast &&
+            tier.detailScale === FULL_QUALITY.detailScale,
+        ),
+    );
+    check(
+      `phone detail, clouds, cadence and render ratios survive the GPU budget at DPR ${native}`,
+      phone.every(
+        (tier, i) =>
+          tier.ratio === desktop[i]?.ratio &&
+          tier.clouds === [2, 1, 1, 1, 0][i] &&
+          tier.detailScale === [1, 0.9, 0.78, 0.66, 0.55][i] &&
+          tier.shadowEvery === [1, 1, 2, 3, 3][i] &&
+          tier.shadowCast === (i !== 4),
+      ),
+    );
+  }
   const elapsed: number[] = [];
   for (const fps of [8, 30, 60, 120]) {
     const window = new FrameTimingWindow();

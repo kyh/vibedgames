@@ -1108,15 +1108,16 @@ vec3 ocGerstner(vec2 p, float t) {
       },
       onPlayable: () => this.markLoadDone(),
     });
-    this.city = loaded.city;
+    const city = loaded.city;
+    this.city = city;
     this.spawn = loaded.spawn;
-    this.rig.setGround((x, z, y) => loaded.city.cameraFloorAt(x, z, y));
+    this.rig.setGround((x, z, y) => city.cameraFloorAt(x, z, y));
     this.skinId = loaded.skinId;
     this.car = loaded.car;
     // The early world lets streaming settle under the loading screen. The
     // finished promise includes traffic, parked cars, and collision setup.
     this.ready = loaded.ready;
-    void loaded.ready.then(() => this.buildCeilingIndex(loaded.city));
+    void loaded.ready.then(() => this.buildCeilingIndex(city));
   }
 
   /**

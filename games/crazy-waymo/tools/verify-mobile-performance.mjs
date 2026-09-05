@@ -1,6 +1,7 @@
 // Headed Chrome mobile stress proxy. Not a real-phone benchmark.
 // Usage: node tools/verify-mobile-performance.mjs [url] [output] [rates=1,2,4] [ms=8000]
-// Options: --transition (first shadowless tier), --production, --ab, --profile.
+// Options: --transition, --production, --ab, --profile, --no-multi-draw, --tier=0..4.
+// Repeated-route audit: --keep-quality preserves adaptation; --memory collects between samples.
 // CDP emulation stays attached for the entire run; disconnecting between
 // commands resets pointer emulation and silently tests the desktop renderer.
 import { writeFileSync } from "node:fs";
@@ -22,6 +23,17 @@ const ab = process.argv.includes("--ab");
 const profile = process.argv.includes("--profile");
 const production = process.argv.includes("--production");
 const transitionProbe = process.argv.includes("--transition");
+const noMultiDraw = process.argv.includes("--no-multi-draw");
+const keepQuality = process.argv.includes("--keep-quality");
+const memoryAudit = process.argv.includes("--memory");
+const tierOption = process.argv.find((argument) => argument.startsWith("--tier="));
+const fixedTier = tierOption === undefined ? null : Number(tierOption.slice(7));
+if (fixedTier !== null && (!Number.isInteger(fixedTier) || fixedTier < 0 || fixedTier > 4)) {
+  throw new Error("Fixed tier must be 0..4");
+}
+if (fixedTier !== null && (ab || transitionProbe || production)) {
+  throw new Error("Fixed tier is only supported by the standard drive benchmark");
+}
 if (rates.length === 0 || rates.some((rate) => !Number.isFinite(rate) || rate < 1 || rate > 20)) {
   throw new Error("CPU rates must be numbers from 1 to 20");
 }
@@ -96,6 +108,14 @@ try {
   });
   await call("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
   await call("Page.addScriptToEvaluateOnNewDocument", { source: earlyMetrics });
+  if (noMultiDraw) {
+    await call("Page.addScriptToEvaluateOnNewDocument", {
+      source: `const originalGetExtension = WebGL2RenderingContext.prototype.getExtension;
+        WebGL2RenderingContext.prototype.getExtension = function(name) {
+          return name === 'WEBGL_multi_draw' ? null : originalGetExtension.call(this, name);
+        };`,
+    });
+  }
   const opened = Date.now();
   await call("Page.navigate", { url });
   if (production) {
@@ -105,18 +125,37 @@ try {
     report.readyMs = Date.now() - opened;
     report.cold = await evaluate("window.__mobileCold");
     report.device = await evaluate(
-      `(()=>{const r=window.__renderer,g=r.getContext(),d=g.getExtension('WEBGL_debug_renderer_info');return {coarse:matchMedia('(pointer:coarse)').matches,touch:navigator.maxTouchPoints,dpr:devicePixelRatio,width:innerWidth,height:innerHeight,renderer:d?g.getParameter(d.UNMASKED_RENDERER_WEBGL):g.getParameter(g.RENDERER),ratio:r.getPixelRatio(),post:window.__post!==null}})()`,
+      `(()=>{const r=window.__renderer,g=r.getContext(),d=g.getExtension('WEBGL_debug_renderer_info');return {coarse:matchMedia('(pointer:coarse)').matches,touch:navigator.maxTouchPoints,dpr:devicePixelRatio,width:innerWidth,height:innerHeight,renderer:d?g.getParameter(d.UNMASKED_RENDERER_WEBGL):g.getParameter(g.RENDERER),multiDraw:!!g.getExtension('WEBGL_multi_draw'),memory:r.info.memory,ratio:r.getPixelRatio(),post:window.__post!==null}})()`,
     );
     if (!report.device.coarse || report.device.dpr !== 3 || report.device.post)
       throw new Error("Mobile render path not active");
     await tap("#banner-cta");
     await until('window.__taxi.game.mode.kind === "playing"');
     await evaluate(`(()=>{
-    const m=window.__mobilePerf={active:false,frames:[],update:[],stream:[],render:[],calls:[],triangles:[],trajectory:[],movingFrames:[],tiers:[],longTasks:[]};
+    const m=window.__mobilePerf={active:false,frames:[],update:[],stream:[],render:[],calls:[],triangles:[],trajectory:[],movingFrames:[],tiers:[],longTasks:[],previousRender:0};
     function wrap(object,key,bucket){const original=object[key];object[key]=function(...args){const start=performance.now();const result=original.apply(this,args);if(m.active)m[bucket].push(performance.now()-start);return result;}}
-    wrap(window.__taxi.game,'update','update');wrap(window.__taxi.game.city,'updateStreaming','stream');wrap(window.__renderer,'render','render');
+    wrap(window.__taxi.game,'update','update');
+    wrap(window.__taxi.game.city,'updateStreaming','stream');
+    const renderer=window.__renderer,render=renderer.render;
+    renderer.render=function(...args){
+      // Cube-map sky bakes are work, but not presented gameplay frames.
+      const presented=this.getRenderTarget()===null;
+      const start=performance.now(),result=render.apply(this,args);
+      if(m.active){
+        m.render.push(performance.now()-start);
+        if(presented){
+          const car=window.__taxi.probe();
+          if(m.previousRender){const elapsed=start-m.previousRender;m.frames.push(elapsed);if(car?.speed>5)m.movingFrames.push(elapsed);}
+          m.previousRender=start;
+          const tier=window.__perf.tier();
+          if(m.tiers.at(-1)?.tier!==tier)m.tiers.push({tier,time:start});
+          m.calls.push(this.info.render.calls);m.triangles.push(this.info.render.triangles);
+          if(m.frames.length%30===0)m.trajectory.push(car);
+        }
+      }else m.previousRender=0;
+      return result;
+    };
     new PerformanceObserver(list=>{if(m.active)for(const e of list.getEntries())m.longTasks.push({start:e.startTime,duration:e.duration});}).observe({type:'longtask'});
-    let previous=0;function frame(t){if(m.active){const car=window.__taxi.probe();if(previous){m.frames.push(t-previous);if(car?.speed>5)m.movingFrames.push(t-previous);}const tier=window.__perf.tier();if(m.tiers.at(-1)?.tier!==tier)m.tiers.push({tier,time:performance.now()});const r=window.__renderer.info.render;m.calls.push(r.calls);m.triangles.push(r.triangles);if(m.frames.length%30===0)m.trajectory.push(window.__taxi.probe());previous=t;}else previous=0;requestAnimationFrame(frame);}requestAnimationFrame(frame);
   })()`);
     await evaluate(
       `(()=>{const net=window.__taxi.game.city.network;const byId=new Map(net.edges.map(e=>[e.id,e]));let best=null;for(const first of net.edges){const mid=net.sample(first,first.len*.5);if(mid.x < -1150||mid.x > -650||mid.z<100||mid.z>650||first.half<3.5)continue;for(const direction of [1,-1]){let edge=first,dir=direction,length=0;const steps=[],seen=new Set();for(let count=0;count<30;count++){if(seen.has(edge.id))break;seen.add(edge.id);steps.push({edge,dir});length+=edge.len;const end=dir>0?edge.b:edge.a;const tangent=net.sample(edge,dir>0?edge.len:0);let next=null,score=.985;for(const id of net.nodeEdges[end]??[]){const candidate=byId.get(id);if(!candidate||seen.has(id))continue;const d=candidate.a===end?1:-1,p=net.sample(candidate,d>0?0:candidate.len),dot=tangent.tx*dir*p.tx*d+tangent.tz*dir*p.tz*d;if(dot>score){next={edge:candidate,dir:d};score=dot;}}if(!next)break;edge=next.edge;dir=next.dir;}if(length>240&&(!best||length>best.length))best={steps,length};}}if(!best)throw new Error('No 240-unit Sunset centreline route');const points=[];for(const {edge,dir}of best.steps)for(let s=0;s<edge.len;s+=6){const p=net.sample(edge,dir>0?s:edge.len-s);points.push({x:p.x,z:p.z});}const a=points[2],b=points[3];window.__mobileRoute={u:a.x/3172+.5,v:a.z/2600+.5,yaw:Math.atan2(b.x-a.x,b.z-a.z),points:points.slice(2),index:0,length:best.length};})()`,
@@ -128,19 +167,23 @@ try {
     for (const rate of rates) {
       await call("Emulation.setCPUThrottlingRate", { rate });
       await evaluate(
-        "(()=>{window.__perf.pin(3);window.__perf.pin(null);window.__taxi.setTime(300);window.__taxi.teleport(window.__mobileRoute.u,window.__mobileRoute.v,window.__mobileRoute.yaw);window.__mobileRoute.index=0;window.__taxi.setPhase(.25);const t=window.__taxi,p=t.probe();t.game.traffic.reset({gx:t.game.city.gridX(p.x),gz:t.game.city.gridZ(p.z)},70);t.game.traffic.setHoldRecycle(true)})()",
+        `(()=>{${keepQuality && iteration > 0 ? "" : "window.__perf.pin(3);window.__perf.pin(null);"}window.__taxi.setTime(300);window.__taxi.teleport(window.__mobileRoute.u,window.__mobileRoute.v,window.__mobileRoute.yaw);window.__mobileRoute.index=0;window.__taxi.setPhase(.25);const t=window.__taxi,p=t.probe();t.game.traffic.reset({gx:t.game.city.gridX(p.x),gz:t.game.city.gridZ(p.z)},70);t.game.traffic.setHoldRecycle(true)})()`,
       );
       if (ab)
         await evaluate(
           `window.__perf.pin(4);${iteration >= 1 ? "window.__taxi.game.city.group.updateMatrixWorld(true);window.__taxi.game.city.group.traverse(o=>{o.matrixWorldAutoUpdate=false})" : ""};${iteration >= 2 ? "window.__taxi.game.city.group.traverse(o=>{if(o.isBatchedMesh&&!o.castShadow&&!Array.isArray(o.material)&&!o.material.transparent)o.perObjectFrustumCulled=false})" : ""}`,
         );
+      if (fixedTier !== null) await evaluate(`window.__perf.pin(${fixedTier})`);
       if (transitionProbe) await evaluate("window.__perf.pin(3)");
       await sleep(3500);
+      // Compare steady driving only after destination geometry has converged.
+      // Budgeted cold fill is measured independently below.
+      await until("(window.__taxi.game.city.parcelStreamStats()?.pending ?? 0) === 0");
       const before = await evaluate(
         "({car:window.__taxi.probe(),tier:window.__perf.tier(),stream:window.__taxi.game.city.parcelStreamStats()})",
       );
       await evaluate(
-        "(()=>{const m=window.__mobilePerf;for(const k of Object.keys(m))if(Array.isArray(m[k]))m[k]=[];m.active=true;})()",
+        "(()=>{const m=window.__mobilePerf;for(const k of Object.keys(m))if(Array.isArray(m[k]))m[k]=[];m.previousRender=performance.now();m.active=true;})()",
       );
       if (rate === 4 && profile) {
         await call("Profiler.enable");
@@ -173,10 +216,12 @@ try {
         writeFileSync(path.join(output, "cpu-4x.json"), JSON.stringify(profile));
       }
       const result = await evaluate(
-        `(()=>{const m=window.__mobilePerf;m.active=false;const summary=(values)=>{const a=[...values].sort((a,b)=>a-b);const p=q=>a[Math.min(a.length-1,Math.floor(a.length*q))]??0;return {count:a.length,median:p(.5),p95:p(.95),p99:p(.99),max:p(1),over33:a.filter(v=>v>33.4).length,over50:a.filter(v=>v>50).length,over100:a.filter(v=>v>100).length};};return {frames:summary(m.frames),movingFrames:summary(m.movingFrames),tiers:m.tiers,updateMs:summary(m.update),streamMs:summary(m.stream),renderMs:summary(m.render),calls:summary(m.calls),triangles:summary(m.triangles),longTasks:m.longTasks,trajectory:m.trajectory,after:{car:window.__taxi.probe(),tier:window.__perf.tier(),ratio:window.__renderer.getPixelRatio(),stream:window.__taxi.game.city.parcelStreamStats()}}})()`,
+        `(()=>{const m=window.__mobilePerf;m.active=false;const summary=(values)=>{const a=[...values].sort((a,b)=>a-b);const p=q=>a[Math.min(a.length-1,Math.floor(a.length*q))]??0;return {count:a.length,median:p(.5),p95:p(.95),p99:p(.99),max:p(1),over33:a.filter(v=>v>33.4).length,over50:a.filter(v=>v>50).length,over100:a.filter(v=>v>100).length};};return {frames:summary(m.frames),movingFrames:summary(m.movingFrames),tiers:m.tiers,updateMs:summary(m.update),streamMs:summary(m.stream),renderMs:summary(m.render),calls:summary(m.calls),triangles:summary(m.triangles),longTasks:m.longTasks,trajectory:m.trajectory,after:{car:window.__taxi.probe(),tier:window.__perf.tier(),ratio:window.__renderer.getPixelRatio(),memory:window.__renderer.info.memory,stream:window.__taxi.game.city.parcelStreamStats()}}})()`,
       );
       const run = {
         rate,
+        fixedTier,
+        noMultiDraw,
         scenario: ab
           ? ["baseline", "static-world-matrices", "matrices-and-batch-cache"][iteration]
           : transitionProbe
@@ -201,14 +246,31 @@ try {
       // Reconciliation of a distant neighbourhood is deliberately reported
       // separately from continuous driving; teleports are a loading event.
       const change = await evaluate(
-        `(()=>{const m=window.__mobilePerf;m.active=true;m.frames=[];m.stream=[];m.update=[];m.render=[];const t=performance.now();window.__taxi.teleport(.738,.19);return {syncMs:performance.now()-t};})()`,
+        `(()=>{const m=window.__mobilePerf;m.active=true;m.frames=[];m.stream=[];m.update=[];m.render=[];m.previousRender=performance.now();const t=performance.now();window.__taxi.teleport(.738,.19);return {syncMs:performance.now()-t};})()`,
       );
-      await sleep(2500);
+      const fillStarted = Date.now();
+      const fill = [];
+      do {
+        await sleep(100);
+        const state = await evaluate("window.__taxi.game.city.parcelStreamStats()");
+        fill.push({ elapsedMs: Date.now() - fillStarted, ...state });
+        if ((state?.pending ?? 0) === 0) break;
+      } while (Date.now() - fillStarted < 90000);
+      if ((fill.at(-1)?.pending ?? 0) !== 0) throw new Error("Neighborhood failed to converge");
+      await sleep(500);
       const transition = await evaluate(
-        `(()=>{const m=window.__mobilePerf;m.active=false;return {frameMax:Math.max(0,...m.frames),streamMax:Math.max(0,...m.stream),longFrames:m.frames.filter(v=>v>50).length,stream:window.__taxi.game.city.parcelStreamStats()}})()`,
+        `(()=>{const m=window.__mobilePerf;m.active=false;return {frameMax:Math.max(0,...m.frames),streamMax:Math.max(0,...m.stream),updateMax:Math.max(0,...m.update),renderMax:Math.max(0,...m.render),longFrames:m.frames.filter(v=>v>50).length,stream:window.__taxi.game.city.parcelStreamStats()}})()`,
       );
-      run.transition = { ...change, ...transition };
-      console.log(`TRANSITION ${rate}x ${JSON.stringify(run.transition)}`);
+      run.transition = { ...change, ...transition, fill };
+      if (memoryAudit) {
+        // Collection runs outside every timing window. This audits retained
+        // allocations between repeated routes, not natural GC frame pacing.
+        await call("HeapProfiler.collectGarbage");
+        run.retainedHeap = await call("Runtime.getHeapUsage");
+      }
+      console.log(
+        `TRANSITION ${rate}x ${JSON.stringify({ ...run.transition, fill: { updates: fill.length, settledMs: fill.at(-1)?.elapsedMs } })}`,
+      );
     }
   }
   report.pageErrors = pageErrors;

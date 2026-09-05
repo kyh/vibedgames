@@ -1,0 +1,304 @@
+{
+  "streamBefore": [
+    {
+      "run": 0,
+      "firstMs": 114.11058299999968,
+      "first": {
+        "cells": 836,
+        "resident": 132,
+        "detailedCells": 14,
+        "verts": 318897,
+        "bytes": 8326404,
+        "builtMs": 553.9127440000284
+      },
+      "updates": {
+        "median": 0.02050000000053842,
+        "p95": 0.07862500000010186,
+        "max": 114.11058299999968
+      },
+      "settled": {
+        "cells": 836,
+        "resident": 132,
+        "detailedCells": 14,
+        "verts": 318897,
+        "bytes": 8326404,
+        "builtMs": 553.9127440000284
+      }
+    },
+    {
+      "run": 1,
+      "firstMs": 99.5877500000006,
+      "first": {
+        "cells": 836,
+        "resident": 132,
+        "detailedCells": 14,
+        "verts": 318897,
+        "bytes": 8326404,
+        "builtMs": 485.6925779999892
+      },
+      "updates": {
+        "median": 0.01508300000023155,
+        "p95": 0.01583299999947485,
+        "max": 99.5877500000006
+      },
+      "settled": {
+        "cells": 836,
+        "resident": 132,
+        "detailedCells": 14,
+        "verts": 318897,
+        "bytes": 8326404,
+        "builtMs": 485.6925779999892
+      }
+    },
+    {
+      "run": 2,
+      "firstMs": 92.83045800000036,
+      "first": {
+        "cells": 836,
+        "resident": 132,
+        "detailedCells": 14,
+        "verts": 318897,
+        "bytes": 8326404,
+        "builtMs": 466.95729100001336
+      },
+      "updates": {
+        "median": 0.015499999999519787,
+        "p95": 0.02520899999944959,
+        "max": 92.83045800000036
+      },
+      "settled": {
+        "cells": 836,
+        "resident": 132,
+        "detailedCells": 14,
+        "verts": 318897,
+        "bytes": 8326404,
+        "builtMs": 466.95729100001336
+      }
+    }
+  ],
+  "streamAfter": [
+    {
+      "run": 0,
+      "firstMs": 3.0109579999989364,
+      "first": {
+        "cells": 836,
+        "resident": 4,
+        "detailedCells": 4,
+        "verts": 12768,
+        "bytes": 287998,
+        "builtMs": 403.8984979999932,
+        "pending": 128
+      },
+      "updates": {
+        "median": 0.01958299999932933,
+        "p95": 3.168375000001106,
+        "max": 8.307000000000698
+      },
+      "detailedAt": 7,
+      "settledAt": 30,
+      "settled": {
+        "cells": 836,
+        "resident": 132,
+        "detailedCells": 14,
+        "verts": 318897,
+        "bytes": 8326404,
+        "builtMs": 501.09246000001076,
+        "pending": 0
+      }
+    },
+    {
+      "run": 1,
+      "firstMs": 3.020542000000205,
+      "first": {
+        "cells": 836,
+        "resident": 7,
+        "detailedCells": 7,
+        "verts": 25373,
+        "bytes": 574502,
+        "builtMs": 362.8744479999841,
+        "pending": 125
+      },
+      "updates": {
+        "median": 0.01525000000037835,
+        "p95": 3.1382919999996375,
+        "max": 4.153374999999869
+      },
+      "detailedAt": 7,
+      "settledAt": 27,
+      "settled": {
+        "cells": 836,
+        "resident": 132,
+        "detailedCells": 14,
+        "verts": 318897,
+        "bytes": 8326404,
+        "builtMs": 444.8235369999693,
+        "pending": 0
+      }
+    },
+    {
+      "run": 2,
+      "firstMs": 3.004124999999476,
+      "first": {
+        "cells": 836,
+        "resident": 7,
+        "detailedCells": 7,
+        "verts": 25373,
+        "bytes": 574502,
+        "builtMs": 352.1363340000207,
+        "pending": 125
+      },
+      "updates": {
+        "median": 0.01508300000023155,
+        "p95": 3.006459000000177,
+        "max": 8.174333999999362
+      },
+      "detailedAt": 3,
+      "settledAt": 27,
+      "settled": {
+        "cells": 836,
+        "resident": 132,
+        "detailedCells": 14,
+        "verts": 318897,
+        "bytes": 8326404,
+        "builtMs": 434.59350200001063,
+        "pending": 0
+      }
+    }
+  ],
+  "generatorCost": [
+    {
+      "round": 0,
+      "mode": "direct",
+      "elapsed": 394.80283299999974,
+      "vertices": 1334429
+    },
+    {
+      "round": 0,
+      "mode": "generator",
+      "elapsed": 342.43995800000084,
+      "vertices": 1334429
+    },
+    {
+      "round": 0,
+      "mode": "clock-per-parcel",
+      "elapsed": 334.6441250000007,
+      "vertices": 1334429
+    },
+    {
+      "round": 1,
+      "mode": "generator",
+      "elapsed": 332.6355829999993,
+      "vertices": 1334429
+    },
+    {
+      "round": 1,
+      "mode": "clock-per-parcel",
+      "elapsed": 333.46999999999935,
+      "vertices": 1334429
+    },
+    {
+      "round": 1,
+      "mode": "direct",
+      "elapsed": 335.11658400000124,
+      "vertices": 1334429
+    },
+    {
+      "round": 2,
+      "mode": "clock-per-parcel",
+      "elapsed": 338.3060000000005,
+      "vertices": 1334429
+    },
+    {
+      "round": 2,
+      "mode": "direct",
+      "elapsed": 329.33475,
+      "vertices": 1334429
+    },
+    {
+      "round": 2,
+      "mode": "generator",
+      "elapsed": 328.16662499999984,
+      "vertices": 1334429
+    },
+    {
+      "round": 3,
+      "mode": "direct",
+      "elapsed": 326.3122919999987,
+      "vertices": 1334429
+    },
+    {
+      "round": 3,
+      "mode": "generator",
+      "elapsed": 336.09712500000023,
+      "vertices": 1334429
+    },
+    {
+      "round": 3,
+      "mode": "clock-per-parcel",
+      "elapsed": 336.4480829999993,
+      "vertices": 1334429
+    },
+    {
+      "round": 4,
+      "mode": "generator",
+      "elapsed": 335.2024170000004,
+      "vertices": 1334429
+    },
+    {
+      "round": 4,
+      "mode": "clock-per-parcel",
+      "elapsed": 348.3147919999992,
+      "vertices": 1334429
+    },
+    {
+      "round": 4,
+      "mode": "direct",
+      "elapsed": 332.80741599999965,
+      "vertices": 1334429
+    },
+    {
+      "round": 5,
+      "mode": "clock-per-parcel",
+      "elapsed": 338.385542,
+      "vertices": 1334429
+    },
+    {
+      "round": 5,
+      "mode": "direct",
+      "elapsed": 362.1342910000003,
+      "vertices": 1334429
+    },
+    {
+      "round": 5,
+      "mode": "generator",
+      "elapsed": 322.7333749999998,
+      "vertices": 1334429
+    },
+    {
+      "cells": 205,
+      "parcels": 38440,
+      "near": 16,
+      "estimatedFirstMissingAfter44": 306.0657609076847,
+      "summary": [
+        {
+          "mode": "generator",
+          "median": 332.6355829999993,
+          "p95": 336.09712500000023,
+          "max": 336.09712500000023
+        },
+        {
+          "mode": "clock-per-parcel",
+          "median": 338.3060000000005,
+          "p95": 348.3147919999992,
+          "max": 348.3147919999992
+        },
+        {
+          "mode": "direct",
+          "median": 332.80741599999965,
+          "p95": 362.1342910000003,
+          "max": 362.1342910000003
+        }
+      ]
+    }
+  ]
+}

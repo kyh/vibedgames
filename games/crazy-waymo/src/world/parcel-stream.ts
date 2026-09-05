@@ -2,17 +2,16 @@ import * as THREE from "three";
 
 import { DRAW_DISTANCE, WORLD_HALF_X, WORLD_HALF_Z } from "../shared/constants";
 import { parcelMeshOf } from "./parcel-build";
-import { buildParcelGeometrySync, type DetailLevel, type ParcelGeometry } from "./parcel-mesh";
+import { buildParcelGeometrySteps, type DetailLevel, type ParcelGeometry } from "./parcel-mesh";
 import type { ParcelLot, ParcelPlan } from "./parcel-plan";
 
 // The parcel fabric, STREAMED. Nothing past the fog line is visible, so the
 // city's 130k buildings do not need to be on the GPU at once: the plan is
 // grouped into 80u cells, a cell's geometry is generated when it comes
 // within the stream radius and freed once it falls well outside it. A cell
-// is ~100 parcels and builds in about 2 ms, so the frontier keeps up with
-// the car at one cell a frame, nearest first (a 160u cell at two a frame was
-// a 37 ms hitch); the first tick after a load, and any teleport, fills the
-// whole radius at once.
+// can contain hundreds of parcels, so construction yields between parcels
+// within a small frame budget, nearest first. Only the first loading tick
+// and explicit editor show-all fill the whole radius synchronously.
 //
 // The skyline is the exception. Towers read from 1400u away and there are
 // only a few hundred, so they are built once, statically, by the city
@@ -23,8 +22,8 @@ export const STREAM_CELL = 80;
 const STREAM_PAD = 60;
 /** A cell is freed this far beyond the build radius, so a U-turn does not thrash. */
 export const STREAM_HYSTERESIS = 80;
-/** Cells built per tick after the first fill. */
-const BUILDS_PER_TICK = 1;
+/** Soft CPU budget: one parcel, buffer flush or cell attachment remains atomic. */
+const BUILD_BUDGET_MS = 3;
 /** Dimensional facades are subpixel beyond this band; distant cells use shader walls. */
 const FACADE_RADIUS = 220;
 const FACADE_HYSTERESIS = 40;
@@ -94,6 +93,8 @@ type Cell = {
   readonly cz: number;
   readonly plans: ParcelPlan[];
   readonly lots: ParcelLot[];
+  /** LOD hysteresis follows the requested level even while a replacement builds. */
+  targetDetail: DetailLevel;
   residence:
     | { readonly kind: "absent" }
     | {
@@ -112,6 +113,13 @@ export type ParcelStreamStats = {
   readonly verts: number;
   readonly bytes: number;
   readonly builtMs: number;
+  readonly pending: number;
+};
+
+type CellBuild = {
+  readonly cell: Cell;
+  readonly detail: DetailLevel;
+  readonly steps: Generator<void, ParcelGeometry>;
 };
 
 export class ParcelStreamer {
@@ -119,6 +127,8 @@ export class ParcelStreamer {
   private readonly resident = new Set<number>();
   private view: { readonly x: number; readonly z: number } | null = null;
   private builtMs = 0;
+  private pending = 0;
+  private building: CellBuild | null = null;
 
   constructor(
     private readonly root: THREE.Object3D,
@@ -135,6 +145,7 @@ export class ParcelStreamer {
         cz: (gz + 0.5) * STREAM_CELL - WORLD_HALF_Z,
         plans: c.plans,
         lots: c.lots,
+        targetDetail: 0,
         residence: { kind: "absent" },
       });
     }
@@ -158,16 +169,19 @@ export class ParcelStreamer {
       verts,
       bytes,
       builtMs: this.builtMs,
+      pending: this.pending,
     };
   }
 
   /**
    * Hold the fabric around (x, z) to `radius`. The first call fills the
-   * whole radius synchronously — it runs under the loading screen or a
-   * teleport — and every call after builds at most a few cells, nearest
-   * first, and frees cells that have fallen out of the hysteresis band.
+   * whole radius synchronously under the loading screen. Later calls yield
+   * between parcels, nearest first, and atomically replace completed cells.
+   * Editor show-all is explicit synchronous work, independent of the budget.
    */
   update(x: number, z: number, radius: number): void {
+    const started = performance.now();
+    const fill = this.view === null || radius === Infinity;
     // Earned pixel/shadow quality must not expand a phone's memory budget.
     // Explicit show-all editor views still opt out with an infinite radius.
     if (Number.isFinite(radius)) radius = Math.min(radius, streamRadiusFor(1, this.detail));
@@ -175,14 +189,14 @@ export class ParcelStreamer {
     const jump =
       this.view === null || Math.hypot(x - this.view.x, z - this.view.z) > STREAM_CELL * 2;
     this.view = { x, z };
-    // Debug/garage teleports must reconcile immediately. Incremental updates
-    // would otherwise leave several old neighbourhoods at full detail while
-    // the new street takes seconds to appear, inflating GPU residency too.
+    // Departed neighbourhoods release immediately after a teleport; building
+    // the destination is budgeted just like ordinary movement.
     const drop = radius + (jump ? 0 : STREAM_HYSTERESIS);
     for (const c of this.cells.values()) {
       const d = Math.hypot(c.cx - x, c.cz - z);
       const oldDetail = c.residence.kind === "resident" ? c.residence.detail : 0;
-      const detail = parcelDetailForDistance(d, this.detail, jump ? 0 : oldDetail);
+      const detail = parcelDetailForDistance(d, this.detail, jump ? 0 : c.targetDetail);
+      c.targetDetail = detail;
       if (c.residence.kind === "absent") {
         if (d < radius) want.push({ cell: c, distance: d, detail });
       } else if (d > drop) {
@@ -191,18 +205,52 @@ export class ParcelStreamer {
         want.push({ cell: c, distance: d, detail });
       }
     }
+    this.pending = want.length;
+    const building = this.building;
+    if (
+      building &&
+      (jump || !want.some((next) => next.cell === building.cell && next.detail === building.detail))
+    ) {
+      // Unattached typed arrays need no GPU disposal. Dropping the generator
+      // also drops its buckets, so abandoned teleports cannot leave queued work.
+      this.building = null;
+    }
     if (want.length === 0) return;
     want.sort((a, b) => a.distance - b.distance);
-    const budget = jump ? want.length : BUILDS_PER_TICK;
-    for (let i = 0; i < Math.min(budget, want.length); i++) {
-      const next = want[i];
-      if (next) this.build(next.cell, next.detail);
+    const deadline = fill ? Infinity : started + BUILD_BUDGET_MS;
+    // Even scanning/disposal can exhaust a weak device's slice. Always advance
+    // one parcel or flush so a populated frontier cannot starve indefinitely.
+    let advanced = false;
+    while (want.length > 0 && (!advanced || performance.now() < deadline)) {
+      const next = want[0];
+      if (!next) break;
+      // Finish a valid in-flight cell before starting another. During normal
+      // driving the camera barely moves within this short construction window.
+      if (!this.building) {
+        this.building = {
+          cell: next.cell,
+          detail: next.detail,
+          steps: buildParcelGeometrySteps(next.cell.plans, next.detail, next.cell.lots),
+        };
+      }
+      const job = this.building;
+      const t0 = performance.now();
+      let result = job.steps.next();
+      advanced = true;
+      while (!result.done && performance.now() < deadline) result = job.steps.next();
+      if (result.done) {
+        this.install(job.cell, job.detail, result.value);
+        this.building = null;
+        this.pending--;
+        const completed = want.findIndex((item) => item.cell === job.cell);
+        want.splice(completed, 1);
+      }
+      this.builtMs += performance.now() - t0;
+      if (!result.done) break;
     }
   }
 
-  private build(c: Cell, detail: DetailLevel): void {
-    const t0 = performance.now();
-    const geometry = buildParcelGeometrySync(c.plans, detail, c.lots);
+  private install(c: Cell, detail: DetailLevel, geometry: ParcelGeometry): void {
     const group = new THREE.Group();
     group.name = "parcel-cell";
     for (const g of geometry.geos) {
@@ -232,7 +280,6 @@ export class ParcelStreamer {
       object.matrixWorldAutoUpdate = this.root.matrixWorldAutoUpdate;
     });
     this.resident.add(c.key);
-    this.builtMs += performance.now() - t0;
   }
 
   private free(c: Cell): void {
