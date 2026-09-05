@@ -1,11 +1,11 @@
 {
-  "checkedAt": "2026-09-05T07:41:38.175775Z",
+  "checkedAt": "2026-09-05T08:19:20.876174Z",
   "worldRevision": 90,
-  "productionBundle": "index-WDUTpdm2.js",
+  "productionBundle": "index-DNNghrpq.js",
   "verification": {
     "command": "pnpm verify",
     "exitCode": 0,
-    "gameChecksPassed": 153,
+    "gameChecksPassed": 172,
     "repositoryTestTasksPassed": 11,
     "typecheckTasksPassed": 24,
     "lint": "pass; existing repository warnings remain",
@@ -21,8 +21,11 @@
     "safari": "mobile-ios/README.md",
     "input": "mobile/report.json",
     "scope": "DPR 3 coarse-pointer desktop stress tests and iOS simulator compatibility; no physical phone connected",
-    "inputChecksPassed": 13,
-    "regression": "Native steering starts inside the former Start-button bounds; hidden CTA cannot take focus or intercept touch."
+    "inputChecksPassed": 14,
+    "regression": "Hidden CTA rejects focus/touch; a native restart must drive more than 30u with speed above 15u/s and camera distance above 6u.",
+    "safariChecksPassed": 13,
+    "safariBundle": "index-DNNghrpq.js",
+    "safariScope": "Native Safari simulator production-preview controls, three restart drives and both orientations; same built bundle prepared for deployment."
   },
   "memory": {
     "scope": "Building geometry including skyline and shared sign atlas at audited sites; not total GPU memory",
@@ -40,5 +43,23 @@
     "Physical phone GPU performance remains unmeasured.",
     "Offline browser rehearsals do not verify multiplayer.",
     "Desktop fare lifecycle uses staged pickup and dropoff positions."
-  ]
+  ],
+  "recovery": {
+    "evidence": "recovery/README.md",
+    "safeSelections": 64,
+    "distinctOrigins": 59,
+    "selectedDistricts": 15,
+    "auditedCandidates": 181,
+    "auditedDistricts": 24,
+    "spawnChecks": 16,
+    "underpassCameraChecks": 3
+  },
+  "finalMobileStress": {
+    "scope": "8-second continuous native touch drive; coarse pointer DPR 3, Chrome desktop at 4x CPU slowdown, not physical phone GPU",
+    "movingFrameMedianMs": 16.1,
+    "movingFrameP95Ms": 24.4,
+    "movingFrameMaxMs": 33.8,
+    "framesOver50Ms": 0,
+    "evidence": "mobile-performance/recovery-drive.json"
+  }
 }

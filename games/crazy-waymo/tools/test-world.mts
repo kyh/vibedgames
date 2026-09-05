@@ -1,4 +1,7 @@
 import { checkFrameTiming } from "./test-frame-timing.mts";
+import { checkInstalledPlayerSpawns, checkPlayerSpawnFixtures } from "./test-player-spawn.mts";
+import { DriveSurface } from "../src/world/surface.ts";
+import { SolidIndex } from "../src/world/solid-index.ts";
 // Headless world-gen invariant harness: the raster cell grid and the vector
 // road network are parallel representations of the same streets — every bug
 // in the 2026-07 park work was drift between them. This suite regenerates the
@@ -662,6 +665,18 @@ await checkVehicleParking(check);
   const t0 = performance.now();
   const parcels = planParcels({ source, network, terrain, reserved: prot.reserved, standAt });
   const { rest: bakedRest } = await loadBakedRest();
+  checkPlayerSpawnFixtures(check);
+  const spawnSurface = new DriveSurface(terrain, plan, () => network);
+  spawnSurface.addDecks(bakedRest.decks);
+  checkInstalledPlayerSpawns(check, {
+    network,
+    decks: spawnSurface.getDecks(),
+    heightAt: (x, z) => spawnSurface.heightAt(x, z),
+    solids: new SolidIndex([
+      ...bakedRest.solids,
+      ...parcels.plans.flatMap((parcel) => parcel.solids),
+    ]),
+  });
   checkBakedShelterClearance(check, bakedRest, parcels.plans);
   await checkBakedTreeClearance(check, bakedRest, parcels.plans);
   checkHistoricCorners(check, parcels.plans);

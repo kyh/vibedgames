@@ -13,9 +13,9 @@ An environment, rendering and driving overhaul. Generated references inform the 
 
 ## Verification
 
-**Revision 90 is installed.** All 153 game checks, all 11 repository test tasks, all 24 typecheck tasks, repository lint, formatting and the production build pass. The worker test formatting failure is fixed. [Release validation](release-validation.json). The earlier [140-check log](game-tests-90.log) records the environment pass before mobile cleanup.
+**Revision 90 is installed.** All 172 game checks, all 11 repository test tasks, all 24 typecheck tasks, repository lint, formatting and the production build pass. The worker test formatting failure is fixed. [Release validation](release-validation.json). The earlier [140-check log](game-tests-90.log) records the environment pass before mobile cleanup.
 
-The final [desktop report](report.json) passes all nine checks; the [mobile report](mobile/report.json) passes all 13. Both report zero page errors. Current gameplay screenshots below are revision 90. Earlier production/reference evidence retains its own explicit revision label.
+The final [desktop report](report.json) passes all nine checks; the [mobile report](mobile/report.json) passes all 14. Both report zero page errors. Current gameplay screenshots below are revision 90. Earlier production/reference evidence retains its own explicit revision label.
 
 The desktop rehearsal uses held keyboard input and live Rapier physics for acceleration, braking, boost and drift. It stages real pickup/dropoff positions to verify fare payment; it does not claim autonomous route completion. It also checks pause/restart, hill parking and camera clearance.
 
@@ -30,6 +30,8 @@ Road fixture audit: zero terrain penetrations across 212,454 samples and zero bu
 Building allocations, including skyline and shared sign atlas: 44.17 MiB desktop / 22.92 MiB phone in Financial District; 108.95 MiB / 57.06 MiB in Richmond. These remain within the original 110 MiB / 70 MiB budgets. They are building allocations, not total GPU memory or frame-rate measurements.
 
 The phone's highest quality tier now respects its fabric budget; the previous expansion reached 81.18 MiB. Static city transforms and opaque prop draw lists are reused. Both shadow variants warm before play, removing a measured six-second first downgrade stall. Quality sampling uses a two-second window and retains sustained slow frames. Cleanup removed dead road seating code, fixed browser-session disposal, and trimmed 10.87 MiB of redundant art evidence.
+
+[Restart and underpass recovery](recovery/README.md): safe starts validate the full opening route; camera clearance traces toward the taxi body instead of its wheel contact point. Native restart verification requires actual movement and a clear chase camera.
 
 ## Visual evidence
 

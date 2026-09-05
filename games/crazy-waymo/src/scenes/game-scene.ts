@@ -1,3 +1,4 @@
+import { choosePlayerSpawn } from "../world/player-spawn";
 import * as THREE from "three";
 import { createTouchControls, notifyGameStarted, watchControlContext } from "@repo/embed";
 import type { TouchControls as EmbedTouchControls } from "@repo/embed";
@@ -74,12 +75,7 @@ import type { CityModel, Garage } from "../world/city";
 import { HECKLES, SpeechBubbles } from "../fx/speech-bubbles";
 import { ROBOTAXI_SKINS, skinById, skinModelUrl } from "../vehicle/car";
 import { districtAt, landFactor } from "../world/sf-map";
-import {
-  CeilingIndex,
-  deckCeilings,
-  harvestCeilingSpans,
-  type SolidIndex,
-} from "../world/solid-index";
+import { CeilingIndex, deckCeilings, harvestCeilingSpans, SolidIndex } from "../world/solid-index";
 import { loadWorld, type WorldCoreSystems, type WorldSpawn } from "./world-loader";
 
 const HALF_PI = Math.PI / 2;
@@ -1543,29 +1539,17 @@ vec3 ocGerstner(vec2 p, float t) {
     this.mode = { kind: "countdown", t: 0 };
   }
 
-  // A random spot ON a network edge (off the map rim), nose along the street
-  // — every run starts in a fresh neighborhood, always on real asphalt.
-  private computeSpawn(city: CityModel) {
-    const edges = city.network.edges;
-    for (let attempt = 0; attempt < 32; attempt++) {
-      const e = edges[Math.floor(Math.random() * edges.length)];
-      if (!e || e.len < 30) continue;
-      const s = e.len * (0.25 + Math.random() * 0.5);
-      const smp = city.network.sample(e, s);
-      const u = smp.x / WORLD_W + 0.5;
-      const v = smp.z / WORLD_H + 0.5;
-      if (u < 0.06 || u > 0.94 || v < 0.06 || v > 0.94) continue;
-      const sign = Math.random() < 0.5 ? 1 : -1;
-      return {
-        x: smp.x,
-        z: smp.z,
-        yaw: Math.atan2(smp.tx * sign, smp.tz * sign),
-        gx: city.gridX(smp.x),
-        gz: city.gridZ(smp.z),
-      };
-    }
-    const mid = { gx: Math.round((GRID_X - 1) / 2), gz: Math.round((GRID_Z - 1) / 2) };
-    return { x: city.worldX(mid.gx), z: city.worldZ(mid.gz), yaw: 0, gx: mid.gx, gz: mid.gz };
+  // Revalidated after full readiness on every start. The early loading pose
+  // uses available solids; actual play uses the complete static collision index.
+  private computeSpawn(city: CityModel): WorldSpawn {
+    const spawn = choosePlayerSpawn({
+      network: city.network,
+      solids: this.solidIndex ?? new SolidIndex(city.solids),
+      decks: city.getDecks(),
+      heightAt: (x, z) => city.heightAt(x, z),
+    });
+    if (!spawn) throw new Error("No safe player start exists in the street network");
+    return spawn;
   }
 
   // DEV-only: drop the taxi on the road CENTRELINE nearest to normalized map

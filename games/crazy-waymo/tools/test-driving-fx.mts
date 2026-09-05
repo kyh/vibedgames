@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { BoostPlume } from "../src/fx/boost-plume.ts";
 import { DriftTrails } from "../src/fx/trails.ts";
 import { ChaseCamera } from "../src/fx/camera-rig.ts";
+import { CAMERA } from "../src/shared/constants.ts";
 import { RoadNetwork } from "../src/world/network.ts";
 import { CeilingIndex, deckCeilings, SolidIndex } from "../src/world/solid-index.ts";
 import { DriveSurface } from "../src/world/surface.ts";
@@ -93,7 +94,10 @@ export function checkWorldDrivingFx(check: Check, world: AuditWorld, rest: CityR
   );
   let clearance = Infinity;
   for (let i = 1; i <= 12; i++) {
-    const point = downhill.position.clone().lerp(hill.camera.position, i / 12);
+    const point = downhill.position
+      .clone()
+      .add(new THREE.Vector3(0, CAMERA.lookHeight, 0))
+      .lerp(hill.camera.position, i / 12);
     clearance = Math.min(
       clearance,
       point.y - surface.floorBelow(point.x, point.z, Math.max(point.y, downhill.position.y)),
@@ -182,6 +186,24 @@ export function checkDrivingFx(check: Check): void {
   };
   hill.snapTo(parked);
   const solids = new SolidIndex([]);
+  // The physics root settles near the asphalt. It is not the point the
+  // camera needs to see: tracing from that root falsely blocks an otherwise
+  // clear, flat underpass and retracts the eye into the taxi's rear roof.
+  for (const rootHeight of [0.02, 0.1, 0.3]) {
+    const underpass = new ChaseCamera(390 / 844);
+    const car = { ...parked, position: new THREE.Vector3(0, rootHeight, 0) };
+    underpass.setGround(() => 0);
+    underpass.setCeilings(new CeilingIndex([{ minX: -30, maxX: 30, minZ: -30, maxZ: 30, y: 4.2 }]));
+    underpass.snapTo(car);
+    for (let i = 0; i < 240; i++) underpass.update(1 / 60, car, solids);
+    const eye = underpass.camera.position;
+    const boom = Math.hypot(eye.x - car.position.x, eye.z - car.position.z);
+    check(
+      `low underpass keeps the taxi outside the camera at root ${rootHeight}u`,
+      boom >= CAMERA.distance - 0.01 && eye.y >= 0.65 && eye.y <= 4.2 - CAMERA.ceilingClear + 0.01,
+      `${boom.toFixed(2)}u boom, eye ${eye.y.toFixed(2)}u`,
+    );
+  }
   for (let i = 0; i < 240; i++) hill.update(1 / 60, parked, solids);
   const hillEye = hill.camera.position;
   check(
@@ -193,7 +215,8 @@ export function checkDrivingFx(check: Check): void {
     const f = i / 12;
     const x = parked.position.x + (hillEye.x - parked.position.x) * f;
     const z = parked.position.z + (hillEye.z - parked.position.z) * f;
-    const y = parked.position.y + (hillEye.y - parked.position.y) * f;
+    const originY = parked.position.y + CAMERA.lookHeight;
+    const y = originY + (hillEye.y - originY) * f;
     sightlineClearance = Math.min(sightlineClearance, y - hillHeight(x, z));
   }
   check(

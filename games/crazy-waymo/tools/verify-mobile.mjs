@@ -117,6 +117,21 @@ try {
   await tap("#waymo-pause .prestart");
   await until('window.__taxi.game.mode.kind === "playing" && !window.__taxi.game.paused');
   check("touch resume and restart", true, await evaluate("window.__taxi.probe()"));
+  const restartStart = await evaluate("window.__taxi.probe()");
+  await call("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [stick] });
+  await until(
+    `(()=>{const p=window.__taxi.probe();return p.speed>15&&Math.hypot(p.x-(${restartStart.x}),p.z-(${restartStart.z}))>30})()`,
+    8000,
+  );
+  const restartDrive = await evaluate(
+    "(()=>{const t=window.__taxi;return {probe:t.probe(),cameraDistance:t.camera.position.distanceTo(t.game.car.position)}})()",
+  );
+  await call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  check(
+    "restart gives a drivable route and clear chase camera",
+    restartDrive.probe.speed > 15 && restartDrive.cameraDistance > 6,
+    { start: restartStart, ...restartDrive },
+  );
   for (const [name, width, height, u, v, phase] of [
     ["portrait-night", 390, 844, 0.738, 0.19, 0.7],
     ["landscape-night", 844, 390, 0.235, 0.674, 0.7],

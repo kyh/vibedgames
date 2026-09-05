@@ -32,18 +32,13 @@ import {
   writeWorldCache,
 } from "../world/world-cache";
 import type { ParcelPlanResult } from "../world/parcel-plan";
+import type { PlayerSpawn } from "../world/player-spawn";
 import { decodeParcelSource, type ParcelSource } from "../world/parcel-source";
 import type { ParcelWorkerRequest, ParcelWorkerResponse } from "../world/parcel-worker";
 import { fetchBakedRest, fetchBakedWorld, fetchParcelSource } from "../world/world-fetch";
 import { Minimap } from "../ui/minimap";
 
-export type WorldSpawn = {
-  readonly x: number;
-  readonly z: number;
-  readonly yaw: number;
-  readonly gx: number;
-  readonly gz: number;
-};
+export type WorldSpawn = PlayerSpawn;
 
 export type WorldCoreSystems = {
   readonly solidIndex: SolidIndex;

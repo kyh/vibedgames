@@ -1,99 +1,534 @@
 {
-  "checkedAt": "2026-09-05T07:09:22.546Z",
-  "scope": "iOS Safari simulator compatibility; not physical iPhone performance evidence; full controls run predates final runtime caching and mobile memory-budget refinements",
-  "device": {
-    "model": "iPhone 17 Pro",
-    "runtime": "iOS 26.5",
-    "browser": "Mobile Safari 26.5",
-    "deviceScaleFactor": 3
-  },
-  "harness": {
-    "driver": "Appium 3.7.0 / XCUITest 12.10.0",
-    "input": "Native WDA touch events; event.isTrusted and pointerType verified",
-    "sourceChanges": "None; page-only observers capture rendered dash text, boost meter and runtime errors"
-  },
-  "url": "http://localhost:5199/?offline=1",
-  "controlsBundle": "index-DqNjIu5I.js",
+  "checkedAt": "2026-09-05T08:19:37.895Z",
+  "url": "http://localhost:5199/?time=noon&offline=1",
+  "scope": "iOS 26.5 iPhone 17 Pro simulator Safari compatibility; not physical-device GPU performance",
   "checks": [
     {
-      "name": "Production world initializes and title renders",
-      "passed": true
-    },
-    {
-      "name": "Native Start reaches countdown and driving",
-      "passed": true
-    },
-    {
-      "name": "Native hold and drag drive and steer",
+      "name": "Release title and world initialize in Safari",
       "passed": true,
       "evidence": {
-        "trustedTouchEvents": 137,
-        "displayedMaximumMph": 67
+        "title": "Crazy Waymo",
+        "url": "http://localhost:5199/?time=noon&offline=1",
+        "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Mobile/15E148 Safari/604.1",
+        "width": 402,
+        "height": 714,
+        "dpr": 3,
+        "coarse": true,
+        "touch": 5,
+        "scripts": ["http://localhost:5199/assets/index-DNNghrpq.js"],
+        "devHook": "undefined"
       }
     },
     {
-      "name": "Native pause, resume and restart",
-      "passed": true
+      "name": "Expected release bundle",
+      "passed": true,
+      "evidence": ["http://localhost:5199/assets/index-DNNghrpq.js"]
     },
     {
-      "name": "Portrait fits viewport",
+      "name": "Production dev hook absent",
+      "passed": true,
+      "evidence": "undefined"
+    },
+    {
+      "name": "Native Start reaches driving controls",
+      "passed": true,
+      "evidence": [
+        {
+          "type": "pointerdown",
+          "trusted": true,
+          "pointer": "touch",
+          "id": 937149363,
+          "boost": false,
+          "brake": false,
+          "target": "banner-cta",
+          "tag": "DIV",
+          "ignored": true,
+          "x": 201,
+          "y": 388.66666666666663
+        },
+        {
+          "type": "pointerup",
+          "trusted": true,
+          "pointer": "touch",
+          "id": 937149363,
+          "boost": false,
+          "brake": false,
+          "target": "banner-cta",
+          "tag": "DIV",
+          "ignored": true,
+          "x": 201,
+          "y": 388.66666666666663
+        }
+      ]
+    },
+    {
+      "name": "Hidden Start no longer intercepts steering",
+      "passed": true,
+      "evidence": {
+        "hiddenCtaFocused": false,
+        "tag": "CANVAS",
+        "id": "",
+        "ignored": false,
+        "bannerInert": true
+      }
+    },
+    {
+      "name": "Native drive and drag at former hidden CTA",
+      "passed": true,
+      "evidence": {
+        "maximumMph": 64,
+        "events": [
+          {
+            "type": "pointerdown",
+            "trusted": true,
+            "pointer": "touch",
+            "id": 937149363,
+            "boost": false,
+            "brake": false,
+            "target": "banner-cta",
+            "tag": "DIV",
+            "ignored": true,
+            "x": 201,
+            "y": 388.66666666666663
+          },
+          {
+            "type": "pointerup",
+            "trusted": true,
+            "pointer": "touch",
+            "id": 937149363,
+            "boost": false,
+            "brake": false,
+            "target": "banner-cta",
+            "tag": "DIV",
+            "ignored": true,
+            "x": 201,
+            "y": 388.66666666666663
+          },
+          {
+            "type": "pointerdown",
+            "trusted": true,
+            "pointer": "touch",
+            "id": 937149364,
+            "boost": false,
+            "brake": false,
+            "target": "",
+            "tag": "CANVAS",
+            "ignored": false,
+            "x": 120,
+            "y": 368
+          },
+          {
+            "type": "pointerup",
+            "trusted": true,
+            "pointer": "touch",
+            "id": 937149364,
+            "boost": false,
+            "brake": false,
+            "target": "",
+            "tag": "CANVAS",
+            "ignored": false,
+            "x": 144,
+            "y": 368
+          }
+        ]
+      }
+    },
+    {
+      "name": "Native simultaneous steering and boost",
+      "passed": true,
+      "evidence": {
+        "startingMeter": 100,
+        "events": [
+          {
+            "type": "pointerdown",
+            "trusted": true,
+            "pointer": "touch",
+            "id": 937149365,
+            "boost": false,
+            "brake": false,
+            "target": "",
+            "tag": "CANVAS",
+            "ignored": false,
+            "x": 120,
+            "y": 368
+          },
+          {
+            "type": "pointerdown",
+            "trusted": true,
+            "pointer": "touch",
+            "id": 937149366,
+            "boost": true,
+            "brake": false,
+            "target": "",
+            "tag": "SPAN",
+            "ignored": true,
+            "x": 354,
+            "y": 544
+          },
+          {
+            "type": "pointerup",
+            "trusted": true,
+            "pointer": "touch",
+            "id": 937149365,
+            "boost": false,
+            "brake": false,
+            "target": "",
+            "tag": "CANVAS",
+            "ignored": false,
+            "x": 120,
+            "y": 368
+          },
+          {
+            "type": "pointerup",
+            "trusted": true,
+            "pointer": "touch",
+            "id": 937149366,
+            "boost": true,
+            "brake": false,
+            "target": "",
+            "tag": "SPAN",
+            "ignored": true,
+            "x": 354,
+            "y": 544
+          }
+        ],
+        "maxPointers": 2,
+        "minimumMeter": 45,
+        "minimumMeterWithTwoPointers": 45,
+        "errors": []
+      }
+    },
+    {
+      "name": "Live portrait layout fits",
       "passed": true,
       "evidence": {
         "width": 402,
         "height": 714,
-        "dpr": 3,
-        "horizontalOverflow": false
+        "horizontalOverflow": false,
+        "controls": [
+          {
+            "id": "area",
+            "label": null,
+            "rect": {
+              "x": 175.83334350585938,
+              "y": 14,
+              "width": 50.265625,
+              "height": 26,
+              "top": 14,
+              "right": 226.09896850585938,
+              "bottom": 40,
+              "left": 175.83334350585938
+            }
+          },
+          {
+            "id": "score",
+            "label": null,
+            "rect": {
+              "x": 14,
+              "y": 14,
+              "width": 86.4375,
+              "height": 65,
+              "top": 14,
+              "right": 100.4375,
+              "bottom": 79,
+              "left": 14
+            }
+          },
+          {
+            "id": "t-brake",
+            "label": "Brake and reverse",
+            "rect": {
+              "x": 308,
+              "y": 584,
+              "width": 82,
+              "height": 116,
+              "top": 584,
+              "right": 390,
+              "bottom": 700,
+              "left": 308
+            }
+          },
+          {
+            "id": "t-boost",
+            "label": "Nitro boost",
+            "rect": {
+              "x": 326,
+              "y": 516,
+              "width": 56,
+              "height": 56,
+              "top": 516,
+              "right": 382,
+              "bottom": 572,
+              "left": 326
+            }
+          },
+          {
+            "id": "",
+            "label": "Pause",
+            "rect": {
+              "x": 346,
+              "y": 12,
+              "width": 44,
+              "height": 44,
+              "top": 12,
+              "right": 390,
+              "bottom": 56,
+              "left": 346
+            }
+          }
+        ]
       }
     },
     {
-      "name": "Landscape fits viewport and safe areas",
+      "name": "No Safari runtime exceptions or unexpected resource errors",
       "passed": true,
       "evidence": {
+        "entries": 23,
+        "errors": [],
+        "expectedSplitProbeErrors": [],
+        "warnings": []
+      }
+    },
+    {
+      "name": "Native pause-restart recovers and straight drive moves",
+      "passed": true,
+      "automatedControlsPassed": true,
+      "visualStatus": "Clear upright car and unobstructed road; moving captures show 47 then 64 mph in Ingleside.",
+      "evidence": {
+        "maximumMph": 64,
+        "events": [
+          {
+            "type": "pointerdown",
+            "trusted": true,
+            "pointer": "touch",
+            "id": 937149369,
+            "boost": false,
+            "brake": false,
+            "target": "",
+            "tag": "CANVAS",
+            "ignored": false,
+            "x": 120,
+            "y": 428
+          },
+          {
+            "type": "pointerup",
+            "trusted": true,
+            "pointer": "touch",
+            "id": 937149369,
+            "boost": false,
+            "brake": false,
+            "target": "",
+            "tag": "CANVAS",
+            "ignored": false,
+            "x": 120,
+            "y": 428
+          }
+        ],
+        "errors": []
+      },
+      "captures": ["portrait-drive.png"]
+    },
+    {
+      "name": "Native pause-restart recovers and straight drive moves",
+      "passed": true,
+      "automatedControlsPassed": true,
+      "visualStatus": "Clear upright car and unobstructed road; moving captures show 42 then 64 mph in The Mission.",
+      "evidence": {
+        "maximumMph": 64,
+        "events": [
+          {
+            "type": "pointerdown",
+            "trusted": true,
+            "pointer": "touch",
+            "id": 937149372,
+            "boost": false,
+            "brake": false,
+            "target": "",
+            "tag": "CANVAS",
+            "ignored": false,
+            "x": 120,
+            "y": 428
+          },
+          {
+            "type": "pointerup",
+            "trusted": true,
+            "pointer": "touch",
+            "id": 937149372,
+            "boost": false,
+            "brake": false,
+            "target": "",
+            "tag": "CANVAS",
+            "ignored": false,
+            "x": 120,
+            "y": 428
+          }
+        ],
+        "errors": []
+      },
+      "captures": ["portrait-mission.png"]
+    },
+    {
+      "name": "Native pause-restart recovers and straight drive moves",
+      "passed": true,
+      "automatedControlsPassed": true,
+      "visualStatus": "Clear upright car and unobstructed road; moving captures show 42 then 63 mph in Hayes Valley (landscape).",
+      "evidence": {
+        "maximumMph": 64,
+        "events": [
+          {
+            "type": "pointerdown",
+            "trusted": true,
+            "pointer": "touch",
+            "id": 937149377,
+            "boost": false,
+            "brake": false,
+            "target": "",
+            "tag": "CANVAS",
+            "ignored": false,
+            "x": 350,
+            "y": 186
+          },
+          {
+            "type": "pointerup",
+            "trusted": true,
+            "pointer": "touch",
+            "id": 937149377,
+            "boost": false,
+            "brake": false,
+            "target": "",
+            "tag": "CANVAS",
+            "ignored": false,
+            "x": 350,
+            "y": 186
+          }
+        ],
+        "errors": []
+      },
+      "captures": ["landscape-drive.png"]
+    },
+    {
+      "name": "landscape layout and hidden CTA",
+      "passed": true,
+      "view": {
         "width": 874,
         "height": 338,
         "dpr": 3,
-        "horizontalOverflow": false,
-        "controlsInsideViewport": true
-      }
-    },
-    {
-      "name": "Native boost hold drains meter",
-      "passed": true,
-      "evidence": {
-        "durationMs": 2000,
-        "meterStartPercent": 100,
-        "meterMinimumPercent": 33
-      }
-    },
-    {
-      "name": "No captured runtime exceptions",
-      "passed": true,
-      "evidence": {
-        "runtimeErrors": 0
+        "overflow": false,
+        "bannerInert": true,
+        "hiddenCtaFocused": false,
+        "formerButtonHit": {
+          "tag": "CANVAS",
+          "id": "",
+          "ignored": false
+        },
+        "controls": [
+          {
+            "id": "area",
+            "label": null,
+            "rect": {
+              "x": 370.3333435058594,
+              "y": 14,
+              "width": 133.421875,
+              "height": 29,
+              "top": 14,
+              "right": 503.7552185058594,
+              "bottom": 43,
+              "left": 370.3333435058594
+            }
+          },
+          {
+            "id": "score",
+            "label": null,
+            "rect": {
+              "x": 76,
+              "y": 14,
+              "width": 86.4375,
+              "height": 65,
+              "top": 14,
+              "right": 162.4375,
+              "bottom": 79,
+              "left": 76
+            }
+          },
+          {
+            "id": "t-brake",
+            "label": "Brake and reverse",
+            "rect": {
+              "x": 702,
+              "y": 192,
+              "width": 96,
+              "height": 112,
+              "top": 192,
+              "right": 798,
+              "bottom": 304,
+              "left": 702
+            }
+          },
+          {
+            "id": "t-boost",
+            "label": "Nitro boost",
+            "rect": {
+              "x": 726,
+              "y": 124,
+              "width": 56,
+              "height": 56,
+              "top": 124,
+              "right": 782,
+              "bottom": 180,
+              "left": 726
+            }
+          },
+          {
+            "id": "",
+            "label": "Pause",
+            "rect": {
+              "x": 756,
+              "y": 12,
+              "width": 44,
+              "height": 44,
+              "top": 12,
+              "right": 800,
+              "bottom": 56,
+              "left": 756
+            }
+          }
+        ],
+        "errors": []
       }
     }
   ],
-  "screenshots": [
-    {
-      "path": "portrait-drive.png",
-      "bundle": "index-DqNjIu5I.js",
-      "viewport": {
-        "width": 402,
-        "height": 714
-      }
+  "environment": {
+    "title": "Crazy Waymo",
+    "url": "http://localhost:5199/?time=noon&offline=1",
+    "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Mobile/15E148 Safari/604.1",
+    "width": 402,
+    "height": 714,
+    "dpr": 3,
+    "coarse": true,
+    "touch": 5,
+    "scripts": ["http://localhost:5199/assets/index-DNNghrpq.js"],
+    "devHook": "undefined"
+  },
+  "console": {
+    "entries": 23,
+    "errors": [],
+    "expectedSplitProbeErrors": [],
+    "warnings": []
+  },
+  "passed": true,
+  "visualEvidence": {
+    "portrait": {
+      "file": "preview-safe-1-recovery-moving-2.png",
+      "district": "Ingleside",
+      "visibleMph": 64
     },
-    {
-      "path": "landscape-drive.png",
-      "bundle": "index-DqNjIu5I.js",
-      "viewport": {
-        "width": 874,
-        "height": 338
-      }
-    }
-  ],
-  "limitations": [
-    "Simulator uses host hardware and is not physical-phone GPU, battery or thermal evidence.",
-    "Correctness checks ran while other local verification work was active; no simulator frame-rate conclusion.",
-    "Production build exposes no dev hook. Driving speed read from the actual dashboard canvas draw calls, without mutating game state."
-  ]
+    "landscape": {
+      "file": "preview-safe-3-recovery-moving-2.png",
+      "district": "Hayes Valley",
+      "visibleMph": 63,
+      "note": "Raw simulator screenshot is stored sideways"
+    },
+    "layout": "preview-safe-landscape-layout.png"
+  },
+  "capturePolicy": "Selected final moving frame per recovery; raw simulator framebuffer orientation retained."
 }
