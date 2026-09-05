@@ -4,6 +4,12 @@ import { CAMERA, CAR } from "../shared/constants";
 import type { Car } from "../vehicle/car";
 import type { CeilingIndex, SolidIndex } from "../world/solid-index";
 
+/** Follow inputs only; the rig does not own or step the vehicle. */
+type ChaseTarget = Pick<
+  Car,
+  "heading" | "position" | "forwardSpeed" | "slip" | "velAngle" | "speed" | "steer" | "isBoosting"
+>;
+
 function lerpAngle(a: number, b: number, t: number): number {
   let d = ((b - a + Math.PI) % (Math.PI * 2)) - Math.PI;
   if (d < -Math.PI) d += Math.PI * 2;
@@ -16,6 +22,11 @@ const DESIGN_ASPECT = 16 / 9;
 /** Ceiling on the widened vertical angle. A portrait phone would otherwise
  *  solve past 130°, which fisheyes the hood and stretches the kerbs. */
 const MAX_VERTICAL_FOV = 96;
+// Clears the near plane and a small amount of camera shake on steep streets.
+const GROUND_CLEARANCE = 0.65;
+// Terrain can raise the eye far above the authored boom. Reclaim some of that
+// distance horizontally before accepting a small taxi in an aerial frame.
+const MIN_HILL_BOOM = 8.5;
 
 /**
  * Hor+ framing. THREE's `fov` is the VERTICAL angle, so holding it fixed makes
@@ -44,6 +55,7 @@ export class ChaseCamera {
   // soffit over the car), and the eased cap the camera is actually held under.
   // Null index = the harvest has not landed yet; the rig runs uncapped.
   private ceilings: CeilingIndex | null = null;
+  private groundAt: ((x: number, z: number, referenceY: number) => number) | null = null;
   private ceilY = Infinity;
   private ceilCap = Infinity;
   // Per-frame scratch — update() runs hot, never allocate in it.
@@ -53,10 +65,8 @@ export class ChaseCamera {
   private scrLook = new THREE.Vector3();
 
   constructor(aspect: number) {
-    // near 0.3 (not 0.1): the chase cam never gets closer than ~2u to any
-    // surface (avoidClip + minHeight), and tripling near triples depth-buffer
-    // precision everywhere — the draped road layers stop shimmering at the
-    // far end of long straights.
+    // The 0.3 near plane stays within the terrain/soffit clearance and gives
+    // the draped road layers enough depth precision on long straights.
     this.camera = new THREE.PerspectiveCamera(
       verticalFovFor(CAMERA.fov, aspect),
       aspect,
@@ -80,7 +90,12 @@ export class ChaseCamera {
     this.ceilings = ceilings;
   }
 
-  snapTo(car: Car): void {
+  /** Same road/terrain surface the vehicle follows, including hillside terraces. */
+  setGround(groundAt: (x: number, z: number, referenceY: number) => number): void {
+    this.groundAt = groundAt;
+  }
+
+  snapTo(car: Pick<Car, "heading" | "position">): void {
     this.camYaw = car.heading;
     const fwd = new THREE.Vector2(Math.sin(this.camYaw), Math.cos(this.camYaw));
     const x = car.position.x - fwd.x * CAMERA.distance;
@@ -91,6 +106,7 @@ export class ChaseCamera {
     this.ceilY = soffit;
     this.ceilCap = this.capFor(soffit, car.position.y, car.position.y + CAMERA.height);
     this.camera.position.set(x, Math.min(car.position.y + CAMERA.height, this.ceilCap), z);
+    this.clearGround(car.position.y);
     this.look.set(car.position.x, car.position.y + CAMERA.lookHeight, car.position.z);
     this.camera.lookAt(this.look);
   }
@@ -112,7 +128,7 @@ export class ChaseCamera {
     return Math.min(open, Math.max(carY + CAMERA.ceilingFloor, soffit - CAMERA.ceilingClear));
   }
 
-  update(dt: number, car: Car, solids: SolidIndex): void {
+  update(dt: number, car: ChaseTarget, solids: SolidIndex): void {
     // Drift swing: bias the follow yaw toward the velocity direction during a
     // slide so the camera lags to the outside and you see the taxi's flank.
     // Forward motion only: in reverse the velocity opposes the heading, so
@@ -140,10 +156,41 @@ export class ChaseCamera {
       car.position.z - fwd.y * distance,
     );
     this.avoidClip(car.position, desired, solids);
+    const authoredDistance = Math.hypot(distance, height);
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const dx = desired.x - car.position.x;
+      const dz = desired.z - car.position.z;
+      const rise = desired.y - car.position.y;
+      const horizontal = Math.hypot(dx, dz);
+      const stretch = Math.hypot(horizontal, rise) / authoredDistance;
+      if (rise <= height + 0.1 || horizontal <= MIN_HILL_BOOM || stretch <= 1.03) break;
+      const shorter = Math.max(MIN_HILL_BOOM, horizontal / stretch);
+      desired.set(
+        car.position.x + (dx * shorter) / horizontal,
+        car.position.y + height,
+        car.position.z + (dz * shorter) / horizontal,
+      );
+      // Re-test the complete shorter sightline, including soffits. Shortening
+      // the original lifted vector alone can put its midpoint inside a crest.
+      this.avoidClip(car.position, desired, solids);
+    }
     this.camera.position.lerp(desired, Math.min(1, CAMERA.posLerp * dt));
 
     // Look ahead along the camera yaw, biased into the corner being steered.
-    const la = CAMERA.lookAhead + CAMERA.lookAheadSpeed * speedFrac;
+    // A lifted, shorter boom looking the original 12u ahead pushes the taxi
+    // below a phone's bottom edge. Bring the aim nearer by the same proportion;
+    // reading the eased eye (not the target) preserves a continuous transition.
+    const eyeRise = this.camera.position.y - car.position.y;
+    const eyeRun = Math.hypot(
+      this.camera.position.x - car.position.x,
+      this.camera.position.z - car.position.z,
+    );
+    const hillAim = THREE.MathUtils.lerp(
+      1,
+      THREE.MathUtils.clamp((height * eyeRun) / (Math.max(height, eyeRise) * distance), 0.25, 1),
+      THREE.MathUtils.smoothstep(eyeRise - height, 0, 1),
+    );
+    const la = (CAMERA.lookAhead + CAMERA.lookAheadSpeed * speedFrac) * hillAim;
     const steerBias = car.steer * -4.5;
     const lookTarget = this.scrLook.set(
       car.position.x + fwd.x * la + perp.x * steerBias,
@@ -172,6 +219,10 @@ export class ChaseCamera {
     const rate = cap < this.ceilCap ? CAMERA.ceilingDuckRate : CAMERA.ceilingRiseRate;
     this.ceilCap += (cap - this.ceilCap) * Math.min(1, rate * dt);
     if (this.camera.position.y > this.ceilCap) this.camera.position.y = this.ceilCap;
+    // Follow lag and trauma are applied after avoidClip. The final position
+    // needs the same floor guarantee or a downhill cut puts the near plane
+    // inside the hill even while the desired position is clear.
+    this.clearGround(car.position.y);
 
     this.camera.lookAt(this.look);
 
@@ -193,6 +244,17 @@ export class ChaseCamera {
     this.camera.updateProjectionMatrix();
   }
 
+  private clearGround(carY: number): void {
+    const p = this.camera.position;
+    const floor = this.groundAt?.(p.x, p.z, Math.max(carY, p.y));
+    if (floor === undefined || !Number.isFinite(floor)) return;
+    // A reported deck above the current overhead cap is a ceiling, not the
+    // road beneath this camera. Keep the existing underpass constraint.
+    if (floor >= this.ceilY) return;
+    const ceiling = this.ceilY === Infinity ? Infinity : this.ceilCap;
+    p.y = Math.max(p.y, Math.min(floor + GROUND_CLEARANCE, ceiling));
+  }
+
   // March from the car to the desired camera spot; if the line crosses a
   // building footprint, pull the camera in so it never buries into a facade.
   // The same march reads the ceiling index — one walk, two answers, and taking
@@ -201,7 +263,7 @@ export class ChaseCamera {
   // the duck is always finished by the time the camera arrives.
   private avoidClip(carPos: THREE.Vector3, desired: THREE.Vector3, solids: SolidIndex): void {
     const dx = desired.x - carPos.x;
-    const dy = desired.y - carPos.y;
+    let endY = desired.y;
     const dz = desired.z - carPos.z;
     const steps = 12;
     let t = 1;
@@ -216,11 +278,24 @@ export class ChaseCamera {
       }
       const c = this.ceilingOver(px, pz, carPos.y);
       if (c < soffit) soffit = c;
+      const rayY = carPos.y + (endY - carPos.y) * f;
+      const floor = this.groundAt?.(px, pz, Math.max(carPos.y, rayY));
+      if (floor !== undefined && floor < c && rayY < floor + GROUND_CLEARANCE) {
+        // Lift the complete sightline over the crest. Pulling all the way
+        // toward the taxi on a downhill made its roof fill the frame.
+        const clearY = carPos.y + (floor + GROUND_CLEARANCE - carPos.y) / f;
+        if (clearY < soffit - CAMERA.ceilingClear) {
+          endY = Math.max(endY, clearY);
+        } else {
+          t = Math.max(0.16, (i - 1) / steps);
+          break;
+        }
+      }
     }
     this.ceilY = soffit;
     desired.set(
       carPos.x + dx * t,
-      Math.max(CAMERA.minHeight, carPos.y + dy * t),
+      Math.max(CAMERA.minHeight, carPos.y + (endY - carPos.y) * t),
       carPos.z + dz * t,
     );
   }

@@ -1,0 +1,61 @@
+{
+  "worldRevision": 89,
+  "bundle": "index-Vh5qfiE-.js",
+  "scope": "Production build after surface-normal correction, before the later Salesforce Tower visual revision.",
+  "method": "Headed agent-browser; real pointer and keyboard input through CDP; offline=1. MPH observed from the unchanged canvas fillText calls; boost, drift, countdown and pause observed from rendered DOM. No game developer hooks or staged game state.",
+  "developerHooksPresent": false,
+  "startup": {
+    "titleVisibleMs": 13845,
+    "loadingHiddenMs": 14304,
+    "status": "Ready to drive",
+    "worldRequests": ["world.bin?v=89", "rest.bin?v=89", "parcels.bin?v=89"],
+    "note": "Observed local load timing; not a performance benchmark. Traffic, static physics and warmup finished before the title."
+  },
+  "checks": [
+    {
+      "name": "Start driving and countdown",
+      "result": "pass",
+      "evidence": "Visible Start driving control starts native gameplay; GO countdown completes."
+    },
+    {
+      "name": "Acceleration and boost",
+      "result": "pass",
+      "evidence": "Pacific Heights: W reaches 33 MPH; Shift reaches 50 MPH and consumes boost from 100% to 92%."
+    },
+    {
+      "name": "Steering and drift",
+      "result": "pass",
+      "evidence": "W + S + D at speed: 54 MPH, visible drift rail opacity 0.67, fill translateY(33.33%)."
+    },
+    {
+      "name": "Pause and resume",
+      "result": "pass",
+      "evidence": "Pause overlay appears; 54 MPH and drift rail stay unchanged during a 400 ms no-input pause. Escape resumes."
+    },
+    {
+      "name": "Keyboard restart",
+      "result": "pass",
+      "evidence": "R resets the run and changes the neighborhood from Pacific Heights to Crocker-Amazon."
+    },
+    {
+      "name": "Clean braking",
+      "result": "pass",
+      "evidence": "Separate Bernal Heights run waits for GO and 0 MPH. W reaches 21 MPH; S reduces speed to 4 MPH; release settles at 0 MPH. Unpaused screenshot shows the taxi centered on clear asphalt with no impact."
+    },
+    {
+      "name": "Startup traffic clearance",
+      "result": "pass",
+      "evidence": "Revision 89: Pacific Heights and Bernal Heights starts both clear. Earlier checkpoint production runs also started clear in Presidio, Mission and Haight. The previously observed idle traffic pileup was not reproduced at run start."
+    },
+    {
+      "name": "Night visual readability",
+      "result": "pass",
+      "evidence": "Unpaused Bernal Heights frame retains visible road edges, markings, nearby facades and warm windows.",
+      "captureRetention": "The original revision 89 screenshot was reviewed during this run, then removed during artifact cleanup. The separately labeled production-night-90.png is the retained final production capture."
+    }
+  ],
+  "browserErrors": [],
+  "browserWarnings": [],
+  "cleanup": "Owned production browsers closed.",
+  "limits": "Real-input production fare pickup and delivery were not exercised here; the separate developer rehearsal checks the fare lifecycle. No frame-rate claims."
+}

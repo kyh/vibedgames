@@ -1,0 +1,10 @@
+{
+  "upstreamVersion": "1.5.1",
+  "passId": "blockout",
+  "normalizedFactorySha256": "20355e4f38cdc7f88881ba001a0ded26eda65d369c46cf71a07da0075f2565ac",
+  "retained": false,
+  "reason": "Unchecked generated internals conflict with project type safety. Production is a strict typed adaptation in src/world/sf-street-kit.ts.",
+  "pipelineCompleted": false,
+  "sourceReference": "reference.png",
+  "productionFactory": "../../src/world/sf-street-kit.ts"
+}

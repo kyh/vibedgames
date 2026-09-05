@@ -130,7 +130,13 @@ import type { CityGenPayload } from "./gen-worker";
 // span half-buried in the roadway. Green bike lanes also now need a street
 // wide enough to hold one (half >= 4.0): on the 3.2 residential class the band
 // landed mid travel-lane and read as loose green patches, not a lane.
-export const WORLD_REV = 86;
+// 87: disjoint road surfaces and paint layers, terrain clearance, and new
+// image-referenced tree templates and red-canopy Muni shelters.
+// 88: Muni shelters respect exact building footprints and search nearby curb
+// positions before falling back to a stop pole.
+// 89: Full tree-stem clearance and root colliders for embedded park trees.
+// 90: Open scaffold backing and correct along-street gantry orientation.
+export const WORLD_REV = 90;
 
 export type Typed = Float32Array | Uint16Array | Uint32Array | Int8Array | Uint8Array | Int32Array;
 export type BufRef = { $buf: number; $type: "f32" | "u16" | "u32" | "i8" | "u8" | "i32" };

@@ -69,6 +69,7 @@ export class VehicleLights {
   // Scratch — update runs every frame.
   private fwd = new THREE.Vector3();
   private right = new THREE.Vector3();
+  private up = new THREE.Vector3();
   private picks: { d2: number; car: LitVehicle }[] = [];
 
   constructor() {
@@ -120,32 +121,35 @@ export class VehicleLights {
     for (const { car } of picks) {
       const q = car.object3D.quaternion;
       const fwd = this.fwd.copy(FORWARD).applyQuaternion(q);
-      // Right-hand lateral in the ground plane; a car on a hill still wants its
-      // lamps level across the body, not tipped with the slope normal.
-      const right = this.right.set(fwd.z, 0, -fwd.x).normalize();
+      // Use the rendered chassis frame: a horizontal offset detaches lamps
+      // from bumpers on SF's grades and leaves the pool floating downhill.
+      const right = this.right.set(1, 0, 0).applyQuaternion(q);
+      const up = this.up.set(0, 1, 0).applyQuaternion(q);
       const p = car.position;
       for (const side of SIDES) {
         this.halo.push(
-          p.x + fwd.x * HEAD_FWD + right.x * LAMP_SIDE * side,
-          p.y + HEAD_UP,
-          p.z + fwd.z * HEAD_FWD + right.z * LAMP_SIDE * side,
+          p.x + fwd.x * HEAD_FWD + right.x * LAMP_SIDE * side + up.x * HEAD_UP,
+          p.y + fwd.y * HEAD_FWD + right.y * LAMP_SIDE * side + up.y * HEAD_UP,
+          p.z + fwd.z * HEAD_FWD + right.z * LAMP_SIDE * side + up.z * HEAD_UP,
           HEAD_COLOR,
           HEAD_SIZE,
         );
         this.halo.push(
-          p.x + fwd.x * TAIL_FWD + right.x * LAMP_SIDE * side,
-          p.y + TAIL_UP,
-          p.z + fwd.z * TAIL_FWD + right.z * LAMP_SIDE * side,
+          p.x + fwd.x * TAIL_FWD + right.x * LAMP_SIDE * side + up.x * TAIL_UP,
+          p.y + fwd.y * TAIL_FWD + right.y * LAMP_SIDE * side + up.y * TAIL_UP,
+          p.z + fwd.z * TAIL_FWD + right.z * LAMP_SIDE * side + up.z * TAIL_UP,
           TAIL_COLOR,
           TAIL_SIZE,
         );
       }
       this.pool.push(
-        p.x + fwd.x * POOL_FWD,
-        p.y + POOL_LIFT,
-        p.z + fwd.z * POOL_FWD,
+        p.x + fwd.x * POOL_FWD + up.x * POOL_LIFT,
+        p.y + fwd.y * POOL_FWD + up.y * POOL_LIFT,
+        p.z + fwd.z * POOL_FWD + up.z * POOL_LIFT,
         POOL_COLOR,
         POOL_SIZE,
+        0,
+        up,
       );
     }
     this.halo.commit();

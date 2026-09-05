@@ -16,8 +16,8 @@ import type { CityPlan } from "./grid";
 //   3. the terrain height field, plus the street-depression offset beside
 //      kerbs (the rendered ground drops −0.35 there; without the offset the
 //      car hovers on the invisible raw field).
-// Extracted from the 2k-line City god object — this is a self-contained
-// domain with a two-method surface (heightAt / normalInto).
+// Vehicle queries use heightAt / normalInto; the camera uses floorBelow to
+// distinguish the road beneath it from an overhead deck.
 export class DriveSurface {
   private decks: SurfaceDeck[] = [];
   private driveOffset: ((x: number, z: number) => number) | null = null;
@@ -57,6 +57,10 @@ export class DriveSurface {
     return this.driveOffset(x, z);
   }
 
+  private groundHeightAt(x: number, z: number): number {
+    return this.terrain.heightAt(x, z) + this.driveOffsetAt(x, z);
+  }
+
   // Park KayKit tiles are FLAT TERRACES seated at the cell's highest corner.
   // Driving into a park (the path entrances invite it) on the raw field sinks
   // the car into the tile. One O(1) lookup: cell index → terrace height,
@@ -91,11 +95,11 @@ export class DriveSurface {
     return this.terraces.get(gx * GRID_Z + gz);
   }
 
-  // Height of the RENDERED drivable surface: raw field on and beside streets
-  // (asphalt/curb/sidewalk band), street-depressed ground past the kerb,
+  // Height of the RENDERED drivable surface: street terraces within pavement,
+  // tessellated ground past the kerb,
   // deck height on piers and bridge spans, terrace height on park tiles.
   heightAt(x: number, z: number): number {
-    const ground = this.terrain.heightAt(x, z) + this.driveOffsetAt(x, z);
+    const ground = this.groundHeightAt(x, z);
     for (const d of this.decks) {
       if (x >= d.minX && x <= d.maxX && z >= d.minZ && z <= d.maxZ) {
         return Math.max(this.deckHeight(d, z), ground);
@@ -105,11 +109,24 @@ export class DriveSurface {
     return terrace !== undefined ? Math.max(terrace, ground) : ground;
   }
 
+  /** Camera floor: an elevated deck above the viewer belongs to the ceiling. */
+  floorBelow(x: number, z: number, referenceY: number): number {
+    let floor = this.groundHeightAt(x, z);
+    const terrace = this.terraceAt(x, z);
+    if (terrace !== undefined) floor = Math.max(floor, terrace);
+    for (const deck of this.decks) {
+      if (x < deck.minX || x > deck.maxX || z < deck.minZ || z > deck.maxZ) continue;
+      const y = this.deckHeight(deck, z);
+      if (y <= referenceY + 0.3) floor = Math.max(floor, y);
+    }
+    return floor;
+  }
+
   normalInto(out: THREE.Vector3, x: number, z: number): THREE.Vector3 {
     for (const d of this.decks) {
       if (x >= d.minX && x <= d.maxX && z >= d.minZ && z <= d.maxZ) {
         // Only take the deck normal where the deck actually IS the surface.
-        if (this.deckHeight(d, z) >= this.terrain.heightAt(x, z) - 0.05) {
+        if (this.deckHeight(d, z) >= this.groundHeightAt(x, z) - 0.05) {
           if (d.y2 === undefined || d.maxZ <= d.minZ) return out.set(0, 1, 0);
           const slope = (d.y2 - d.y) / (d.maxZ - d.minZ);
           return out.set(0, 1, -slope).normalize();
@@ -117,9 +134,19 @@ export class DriveSurface {
       }
     }
     const terrace = this.terraceAt(x, z);
-    if (terrace !== undefined && terrace >= this.terrain.heightAt(x, z) - 0.05) {
+    if (terrace !== undefined && terrace >= this.groundHeightAt(x, z) - 0.05) {
       return out.set(0, 1, 0); // park tiles are dead flat
     }
-    return this.terrain.normalInto(out, x, z);
+    // The rendered street terrace and exposed ground corrections both differ
+    // from the raw terrain. Their height and slope must describe one surface
+    // or traffic, camera banking and tyre FX tilt into a hill the car cleared.
+    const eps = 1.6;
+    return out
+      .set(
+        this.groundHeightAt(x - eps, z) - this.groundHeightAt(x + eps, z),
+        2 * eps,
+        this.groundHeightAt(x, z - eps) - this.groundHeightAt(x, z + eps),
+      )
+      .normalize();
   }
 }

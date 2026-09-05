@@ -1,0 +1,150 @@
+cache bypass, force executing 5132066ce38b3c1a
+$ vite-node tools/test-world.mts
+world-gen invariants
+  (plan + network in 100ms)
+[roads] crosswalk arms painted: 4
+[roads] planar map in 41ms
+[roads] lateral uv in 1ms
+[roads] paint seated in 32ms
+  ok   asphalt, kerb and sidewalk occupy disjoint footprints  (0 overlapping probes; 672 kerb, 1287 walk)
+  ok   paint triangle interiors remain above the draped road  (0/4753 buried, minimum clearance 0.0088u)
+  ok   rendered terrain stays beneath SF's travel lanes  (0/212454 penetrations, worst 0.0000u)
+  ok   downhill camera cut clears the uphill road behind the car
+  ok   overhead deck is never mistaken for the camera floor
+  ok   camera below stacked bridges keeps the ground floor
+  ok   camera on a sloping bridge keeps that deck below the upper bridge
+  ok   camera above stacked bridges selects the highest eligible deck
+  ok   camera floor stops at the bridge footprint
+  ok   camera cut under a real sloping deck clears ground and soffit
+  ok   downhill camera keeps enough boom to frame the whole taxi
+  ok   downhill camera sightline clears the entire convex crest  (0.650u minimum clearance)
+  ok   consecutive contact patches make one ribbon segment
+  ok   released drift does not reconnect a fading ribbon
+  ok   new drift resumes with its own segment
+  ok   teleport cannot stretch a ribbon across the city
+  ok   ribbon width follows a banked surface
+  ok   expired interrupted ribbons disappear
+  ok   boost plume fades below a tenth of burn before hiding
+  ok   tree template retains one baked mesh index: /models/props/tree-large.glb
+  ok   tree template retains source ground and height: /models/props/tree-large.glb
+  ok   tree template stays under 560 triangles: /models/props/tree-large.glb  (526 triangles)
+  ok   tree instances share geometry and material: /models/props/tree-large.glb
+  ok   tree material has a restorable source: /models/props/tree-large.glb
+  ok   tree template retains one baked mesh index: /models/props/tree-small.glb
+  ok   tree template retains source ground and height: /models/props/tree-small.glb
+  ok   tree template stays under 560 triangles: /models/props/tree-small.glb  (516 triangles)
+  ok   tree instances share geometry and material: /models/props/tree-small.glb
+  ok   tree material has a restorable source: /models/props/tree-small.glb
+  ok   tree source exposes each connected trunk: props/tree-large.glb  (1 stems)
+  ok   tree source exposes each connected trunk: props/tree-small.glb  (1 stems)
+  ok   tree source exposes each connected trunk: props/kk-tree-a.glb  (1 stems)
+  ok   tree source exposes each connected trunk: props/kk-tree-b.glb  (1 stems)
+  ok   tree source exposes each connected trunk: props/kk-tree-c.glb  (1 stems)
+  ok   tree source exposes each connected trunk: parks/park-base-decorated-trees.glb  (4 stems)
+  ok   tree gate keeps canopy overhang but rejects planted stems
+  ok   repeated tree placement decisions are deterministic
+  ok   idle taxi holds a 40% cross-slope  (0.000u drift in 8s)
+  ok   throttle immediately releases hill hold  (41.8u in 2s)
+  ok   every road cell has a nearby edge  (11195 cells, orphans 0)
+  ok   road-cell worst edge distance sane  (worst 18.4u)
+  ok   edge samples off road cells at baseline  (1760/7124 off-road (24.71%) e.g. edge 1 @ 177,68)
+  ok   road cells form one component  (11195/11195)
+  ok   street mask + network share a generation stamp  (2026-07-31T18:29:43.189Z)
+  ok   park road cells sit on a kept edge  (467 park road cells)
+  ok   clip cut-nodes stay degree-1  (92 cut nodes)
+  ok   bake rev survives  (rev 90)
+  ok   bake tile buffers survive quantization  (pos[3]=4.500 col[2]=0.600)
+  ok   world.bin carries no road parts (by design)
+  ok   generateCity is deterministic  (0 differing cells)
+  ok   centre-line paint covers most of the network  (75.7% of 125088u)
+  ok   few edges are fully unpainted  (1005/5806 bald)
+  ok   freeway pillars clear the street asphalt  (28/1039 on a street)
+  ok   no freeway pillar stands in a travel lane  (0 in-lane)
+  ok   transit coverage was built against this network  (transit 2026-07-31T18:29:43.189Z vs network 2026-07-31T18:29:43.189Z)
+  ok   every transit edge index is in range  (1033 covered, 0 out of range, 5806 vs 5806 edges)
+  ok   parcel source ships the survey plus the rest of the city  (146787 parcels, 18453 from the survey)
+  ok   no vegetation is painted on built ground  (0 cells)
+  ok   the beach apron never narrows  (8845 beach cells)
+  ok   sand is loose underfoot wherever it is painted  (8921 sand-underfoot vs 8845 beach cells)
+  ok   baked rest.bin is at the code's world rev  (bin 90)
+  ok   flat pier normal follows its deck above corrected ground  (surface 0.55u, raw 1.25u, normal 0.000,1.000,0.000)
+  ok   phone downhill framing preserves the taxi's apparent width  (99.6% of flat-road width)
+  ok   phone downhill taxi retains space below its wheels  (109.2px bottom margin)
+  ok   shorter hill boom retains its entire terrain sightline  (0.650u minimum clearance)
+  ok   hill framing changes smoothly while driving  (0.246u max step)
+  ok   solid interpenetration stays at its ratchet  (0 defects of 2 touching pairs)
+  ok   masses in the roadway stay at their ratchet  (13 past the kerb, 2 over 3u deep, worst 4.1u @ u0.5385 v0.7402)
+  ok   invisible landmark boxes in the roadway stay at their ratchet  (1 worst 1.6u @ u0.5141 v0.3400)
+  ok   kerb props and parked cars stay out of the lanes at their ratchet  (9 furniture solids, 4 ground-level instances past the kerb (3 over 2.5u), 1 parked cars out of the strip (worst 2.6u))
+  ok   seated props stay on the drawn surface at their ratchet  (702 floating, 280 buried, 0 kinds tracking the raw field)
+  ok   no procedural mass stands inside Oracle Park  (233 reserved cells across 20 landmarks)
+  ok   landmark-parcel squatters stay at their ratchet  (0 intruders)
+  ok   no street is steeper than the map already is  (worst 75.6% @ edge 5011 u0.4816 v0.4025 len 28u, 169 edges over 42%)
+  ok   installed world retains Muni shelters  (9 shelters)
+  ok   baked shelter envelopes clear parcel walls and projecting facades  (0/9 blocked)
+  ok   installed tree stems clear building walls  (0/18712 blocked; examples [])
+  ok   tree clearance preserves planted parks  (11833 park stems, 2288 embedded stems)
+  ok   tree clearance retains city planting  (16996 instances / 18712 stems)
+  ok   embedded park trees collide at their visible roots  (0/2288 missing root colliders)
+  ok   source historic corners remain rare and contain both roof families  (12 turrets, 13 mansards across 130800 parcels)
+  ok   every source corner roof preserves its height and footprint envelope  (0 high vertices, 0 escaped roof vertices)
+  ok   parcel plan is deterministic  (130800 parcels in 5175ms)
+  ok   real parcels build instead of being rejected  (130800 of 146787 built (2445 in a lane, 1008 clipped away, 0 folded, 3176 straddling, 0 stacked, 8278 park, 570 reserved, 147 freeway, 11 cliff, 24800 stretched; 1118 under a deck, 2401 boxed, 498 split))
+  ok   parcel walls stay off the asphalt  (0 vertices past the kerb)
+  ok   parcel solids stay out of the lanes  (229048 solids, 380 past the kerb, 1 over 3u deep, worst 3.1u @ u0.7471 v0.8594)
+  ok   unbuildable parcels become lots, not bare ground  (111 lots)
+  ok   survey parcels keep their party walls through the bake  (8284 of 15809 survey parcels carry a party wall)
+  ok   the fabric has the San Francisco mix  (rowhouse 33746, shed 3668, stucco 79001, warehouse 3478, tower 505, midrise 10402)
+  ok   distant silhouettes stay inside their exact parcel footprints  (0 escaped probes across 87402 simplified footprints)
+  ok   distant OSM silhouettes discard subpixel footprint detail  (923027 source / 617960 distant corners)
+  ok   overlapping source volumes retain authoritative collision plans  (667 enclosed render volumes suppressed; 130800 collision parcels retained)
+  ok   the static skyline stays small  (260 towers, 343285 verts, 7.0 MB in 32ms)
+  ok   resident fabric at FiDi fits the desktop budget  (27655 parcels, 1576954 verts, 44.17 MiB total incl skyline + sign atlas)
+  ok   resident fabric at FiDi fits the phone budget  (14522 parcels, 634763 verts, 22.92 MiB total incl skyline + sign atlas)
+  ok   resident central-city fabric fits the desktop budget  (83684 Richmond parcels, 4233065 verts, 108.95 MiB total incl skyline + sign atlas)
+  ok   resident central-city fabric fits the phone budget  (50188 Richmond parcels, 2007037 verts, 57.06 MiB total incl skyline + sign atlas)
+  ok   two-storey Victorian bays retain their top-floor glass  (8 projected upper-window vertices)
+  ok   OSM and survey homes receive the same dimensional facade  (404 OSM / 404 survey vertices)
+  ok   distant houses retain windows at a fraction of the geometry  (20 distant / 404 close vertices)
+  ok   near tower ribbons do not stack over a second shader window grid
+  ok   distant tower construction eras share the compact geometry budget
+  ok   facade LOD keeps a hysteresis band through a U-turn
+  ok   dimensional facade buffers contain finite, in-range geometry
+  ok   static skyline keeps upper windows beyond the detail cutoff
+  ok   podium windows stop below the tower setback instead of floating above it  (0 unsupported upper pane vertices)
+  ok   quantized distant vertices restore exact world bounds
+  ok   historic roof variants need exposed convex street corners
+  ok   corner roofs stay inside original parcel height and footprint
+  ok   corner roof silhouettes survive phone and distant LOD
+  ok   phone storefronts use compact correctly oriented sign atlas quads
+  ok   distant storefronts discard lettering geometry
+  ok   render visibility removes fully enclosed duplicate source volumes
+  ok   render visibility preserves partial overlaps, lower foundations and taller interiors
+  ok   duplicate visibility resolves before neighboring stream cells split
+  ok   render containment tests whole edges across concave notches
+  ok   setback towers cannot hide buildings in their upper footprint
+  ok   equal survey and OSM volumes keep one deterministic survey representative
+  ok   teleports reconcile every new facade cell immediately  (2 resident / 2 detailed destination cells)
+  ok   departed facade cells release their meshes
+  ok   shelters share six material batches
+  ok   shelter geometry stays below 10,000 triangles  (9736 triangles)
+  ok   shelter fits its placement envelope with finite geometry
+  ok   scaffold preserves its original placement and batching envelope  (784 triangles, 3 shared materials)
+  ok   scaffold rendered footprint matches kerb clearance on both sides of diagonal streets  (nearest vertex 1.835u off asphalt)
+  ok   scaffold backing remains visibly open instead of an opaque billboard  (4/128 view rays occluded)
+  ok   Salesforce preserves its circular placement and original height  (radius 4.1735, y 0.0000..49.4350)
+  ok   Salesforce keeps a bounded six-material shared kit  (14276 triangles, 0.573 MiB)
+  ok   Salesforce has no collapsed triangles  (0 degenerate)
+  ok   Salesforce placements share buffers but own scene nodes
+  ok   Salesforce translucent crown does not cast an opaque shadow
+  ok   Salesforce night emission is bounded and independent of albedo
+  ok   prop clearance rejects full containment in a building
+  ok   prop clearance rejects narrow walls between nine-point probes
+  ok   prop clearance rejects small parcels contained in the prop
+  ok   prop clearance handles a concave parcel finger
+  ok   prop clearance reserves the full facade margin
+  ok   prop clearance uses Three.js yaw orientation
+  ok   prop clearance checks parcels across spatial-cell boundaries
+  ok   prop clearance retains genuinely clear sites
+
+140 passed, 0 failed

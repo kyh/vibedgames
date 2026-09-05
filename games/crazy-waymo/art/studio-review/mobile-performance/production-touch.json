@@ -1,0 +1,110 @@
+{
+  "url": "http://localhost:5199/?time=noon&offline=1",
+  "checkedAt": "2026-09-05T07:17:36.894Z",
+  "environment": "Headed desktop Chrome; coarse pointer, DPR 3, CPU throttle stress proxy. Not a physical-phone measurement.",
+  "runs": [
+    {
+      "name": "portrait",
+      "rate": 2,
+      "median": 8.399999999997817,
+      "p95": 15.69999999999709,
+      "max": 226.5,
+      "over50": 1,
+      "frames": 925,
+      "maxMph": 65,
+      "movingFrames": 635,
+      "width": 390,
+      "height": 844,
+      "overflow": false,
+      "coarse": true
+    },
+    {
+      "name": "landscape",
+      "rate": 2,
+      "median": 8.5,
+      "p95": 16.900000000001455,
+      "max": 250.09999999999854,
+      "over50": 1,
+      "frames": 848,
+      "maxMph": 65,
+      "movingFrames": 385,
+      "width": 844,
+      "height": 390,
+      "overflow": false,
+      "coarse": true
+    }
+  ],
+  "readyMs": 10897,
+  "cold": {
+    "installedAt": 14.699999809265137,
+    "longTasks": [
+      {
+        "start": 180.29999995231628,
+        "duration": 188
+      },
+      {
+        "start": 368.89999985694885,
+        "duration": 122
+      },
+      {
+        "start": 577.5,
+        "duration": 1156
+      },
+      {
+        "start": 1733.6999998092651,
+        "duration": 216
+      },
+      {
+        "start": 1963.6999998092651,
+        "duration": 286
+      },
+      {
+        "start": 2268.2999999523163,
+        "duration": 88
+      },
+      {
+        "start": 2560.7999999523163,
+        "duration": 109
+      },
+      {
+        "start": 7937.099999904633,
+        "duration": 363
+      },
+      {
+        "start": 8301.899999856949,
+        "duration": 68
+      },
+      {
+        "start": 8370.399999856949,
+        "duration": 81
+      },
+      {
+        "start": 8451.399999856949,
+        "duration": 341
+      },
+      {
+        "start": 8973.399999856949,
+        "duration": 498
+      },
+      {
+        "start": 9471.899999856949,
+        "duration": 410
+      },
+      {
+        "start": 9956.5,
+        "duration": 155
+      },
+      {
+        "start": 10395.799999952316,
+        "duration": 71
+      }
+    ]
+  },
+  "device": {
+    "coarse": true,
+    "dpr": 3,
+    "touch": 5,
+    "debugHooks": "undefined"
+  },
+  "pageErrors": []
+}

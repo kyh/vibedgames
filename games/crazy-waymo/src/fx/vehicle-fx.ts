@@ -58,9 +58,14 @@ export class VehicleFxRig {
 
   // Scratch: rear-axle frame, recomputed once per update.
   private ax = 0;
+  private ay = 0;
   private az = 0;
   private px = 0;
+  private py = 0;
   private pz = 0;
+  private forward = new THREE.Vector3();
+  private left = new THREE.Vector3();
+  private up = new THREE.Vector3();
   private tmpColor = new THREE.Color();
   private tmpHot = new THREE.Color();
   private tmpScorch = new THREE.Color();
@@ -83,12 +88,16 @@ export class VehicleFxRig {
     brakingHard: boolean,
     surface: "road" | "grass" | "sand" | "concrete" = "road",
   ): void {
-    const fwdX = Math.sin(car.heading);
-    const fwdZ = Math.cos(car.heading);
-    this.ax = car.position.x - fwdX * 1.6; // rear axle centre
-    this.az = car.position.z - fwdZ * 1.6;
-    this.px = -fwdZ; // axle direction (perpendicular to heading)
-    this.pz = fwdX;
+    const q = car.object3D.quaternion;
+    const forward = this.forward.set(0, 0, 1).applyQuaternion(q);
+    const left = this.left.set(-1, 0, 0).applyQuaternion(q);
+    this.up.set(0, 1, 0).applyQuaternion(q);
+    this.ax = car.position.x - forward.x * 1.6;
+    this.ay = car.position.y - forward.y * 1.6;
+    this.az = car.position.z - forward.z * 1.6;
+    this.px = left.x;
+    this.py = left.y;
+    this.pz = left.z;
 
     // Promotion: every channel peaks on the raise frame — the in-flight
     // shower recolors, the ring/pool/flares/scorch all spawn in this call.
@@ -106,13 +115,21 @@ export class VehicleFxRig {
       this.igniteCooldown = IGNITE_DEDUPE;
       this.fireIgnition(car);
     }
-    this.drivePlume(dt, car, fwdX, fwdZ);
+    this.drivePlume(dt, car);
 
-    if (drifting || car.isBoosting || brakingHard) this.emitSmoke(dt, car, surface);
-    if ((drifting && !car.airborne) || brakingHard) this.stampSkids(car, drifting);
+    const grounded = !car.airborne;
+    const paved = surface === "road" || surface === "concrete";
+    if (grounded && (drifting || car.isBoosting || brakingHard)) this.emitSmoke(dt, car, surface);
+    else this.puffAccum = 0;
+    if (grounded && paved && (drifting || brakingHard)) this.stampSkids(car, drifting);
     else this.lastSkid = null; // next streak starts fresh, not joined to this one
     this.emitTrails(car, drifting);
-    if (drifting && !car.airborne) this.emitSparks(dt, car);
+    if (drifting && grounded && paved) this.emitSparks(dt, car);
+    else {
+      this.sparkCarry = 0;
+      this.jetCarry = 0;
+      this.pulseClock = 0;
+    }
     if ((surface === "grass" || surface === "sand") && !car.airborne && car.speed > 9) {
       this.emitKickup(dt, car, surface);
     }
@@ -126,18 +143,32 @@ export class VehicleFxRig {
     if (this.kickAccum < cadence) return;
     this.kickAccum = 0;
     const power = 1.6 + Math.min(2.2, car.speed * 0.05);
-    const y = car.position.y;
-    this.fx.kickup(this.ax + this.px * 0.7, y, this.az + this.pz * 0.7, surface, power);
-    this.fx.kickup(this.ax - this.px * 0.7, y, this.az - this.pz * 0.7, surface, power);
+    this.fx.kickup(
+      this.ax + this.px * 0.7,
+      this.ay + this.py * 0.7,
+      this.az + this.pz * 0.7,
+      surface,
+      power,
+    );
+    this.fx.kickup(
+      this.ax - this.px * 0.7,
+      this.ay - this.py * 0.7,
+      this.az - this.pz * 0.7,
+      surface,
+      power,
+    );
   }
 
   // Rear-wheel light ribbons: drift slides, charged drifts and boost runs each
   // get their own color; fast grip-cornering leaves a faint streak too.
   private emitTrails(car: Car, drifting: boolean): void {
     const trails = this.getTrails();
-    if (!trails || car.airborne) return;
+    if (!trails) return;
     const cornering = Math.abs(car.slip) > 0.12 && car.speed > 20;
-    if (!drifting && !car.isBoosting && !cornering) return;
+    if (car.airborne || (!drifting && !car.isBoosting && !cornering)) {
+      trails.break();
+      return;
+    }
     // Ribbon color follows the mini-turbo tier: white grind → blue → orange.
     const kind = car.isBoosting || car.driftTier === 2 ? 2 : car.driftTier === 1 ? 1 : 0;
     const strength = Math.min(1, car.speed / CAR.maxSpeed);
@@ -154,7 +185,7 @@ export class VehicleFxRig {
     const tier = car.driftTier;
     const t = TIER_FX[tier];
     this.fx.setTierChannel(tierColor(tier));
-    const y = car.position.y + 0.25;
+    const y = this.ay + 0.25;
 
     this.sparkCarry += dt * t.rate;
     let n = Math.floor(this.sparkCarry);
@@ -183,7 +214,7 @@ export class VehicleFxRig {
       const nr = Math.max(1, Math.round(n * (outerLeft ? 0.75 : 1.25)));
       this.fx.driftShower(
         this.ax + this.px * 0.8,
-        y,
+        y + this.py * 0.8,
         this.az + this.pz * 0.8,
         tier,
         nl,
@@ -193,7 +224,7 @@ export class VehicleFxRig {
       );
       this.fx.driftShower(
         this.ax - this.px * 0.8,
-        y,
+        y - this.py * 0.8,
         this.az - this.pz * 0.8,
         tier,
         nr,
@@ -368,7 +399,7 @@ export class VehicleFxRig {
   // hide when the boost ends. The axis leans with slip but is clamped into
   // the 18-degree cone about straight-back — the cone, not the length, keeps
   // the flame behind the car.
-  private drivePlume(dt: number, car: Car, fwdX: number, fwdZ: number): void {
+  private drivePlume(dt: number, car: Car): void {
     if (car.isBoosting) this.boostTime += dt;
     else this.boostTime = 0;
     // Speed-scaled: a standstill boost put the camera nearly inside the ribbon
@@ -379,25 +410,28 @@ export class VehicleFxRig {
     const burn = car.isBoosting
       ? Math.min(1, Math.max(BURN_FLOOR, this.boostTime / BURN_RAMP)) * spdScale
       : 0;
-    const bx = car.position.x - fwdX * (EXHAUST_BACK + PLUME_ROOT_BIAS);
-    const bz = car.position.z - fwdZ * (EXHAUST_BACK + PLUME_ROOT_BIAS);
-    const y = car.position.y + EXHAUST_UP;
+    const fwd = this.forward;
+    const up = this.up;
+    const back = EXHAUST_BACK + PLUME_ROOT_BIAS;
+    const bx = car.position.x - fwd.x * back + up.x * EXHAUST_UP;
+    const by = car.position.y - fwd.y * back + up.y * EXHAUST_UP;
+    const bz = car.position.z - fwd.z * back + up.z * EXHAUST_UP;
     const lat = Math.max(-0.45, Math.min(0.45, car.slip * PLUME_AXIS_SLIP));
-    let axx = -fwdX + this.px * lat;
-    let axy = PLUME_AXIS_UP;
-    let axz = -fwdZ + this.pz * lat;
+    let axx = -fwd.x + this.px * lat + up.x * PLUME_AXIS_UP;
+    let axy = -fwd.y + this.py * lat + up.y * PLUME_AXIS_UP;
+    let axz = -fwd.z + this.pz * lat + up.z * PLUME_AXIS_UP;
     const al = Math.hypot(axx, axy, axz);
     axx /= al;
     axy /= al;
     axz /= al;
-    clampAxisToCone(axx, axy, axz, -fwdX, 0, -fwdZ, this.cone);
+    clampAxisToCone(axx, axy, axz, -fwd.x, -fwd.y, -fwd.z, this.cone);
     this.fx.plume.drive(
-      bx - fwdZ * EXHAUST_SIDE,
-      y,
-      bz + fwdX * EXHAUST_SIDE,
-      bx + fwdZ * EXHAUST_SIDE,
-      y,
-      bz - fwdX * EXHAUST_SIDE,
+      bx + this.px * EXHAUST_SIDE,
+      by + this.py * EXHAUST_SIDE,
+      bz + this.pz * EXHAUST_SIDE,
+      bx - this.px * EXHAUST_SIDE,
+      by - this.py * EXHAUST_SIDE,
+      bz - this.pz * EXHAUST_SIDE,
       this.cone.x,
       this.cone.y,
       this.cone.z,
@@ -409,9 +443,20 @@ export class VehicleFxRig {
     this.puffAccum += dt;
     if (this.puffAccum < 0.03) return;
     this.puffAccum = 0;
-    const y = car.position.y;
-    this.fx.driftPuff(this.ax + this.px * 0.7, y, this.az + this.pz * 0.7, car.isBoosting, surface);
-    this.fx.driftPuff(this.ax - this.px * 0.7, y, this.az - this.pz * 0.7, car.isBoosting, surface);
+    this.fx.driftPuff(
+      this.ax + this.px * 0.7,
+      this.ay + this.py * 0.7,
+      this.az + this.pz * 0.7,
+      car.isBoosting,
+      surface,
+    );
+    this.fx.driftPuff(
+      this.ax - this.px * 0.7,
+      this.ay - this.py * 0.7,
+      this.az - this.pz * 0.7,
+      car.isBoosting,
+      surface,
+    );
   }
 
   // Drift streaks scorch in the tier's hue (via the multiply-decal tint);

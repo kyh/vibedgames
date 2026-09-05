@@ -1,13 +1,13 @@
 import * as THREE from "three";
 
 import { GRID_X, GRID_Z, ROAD_TILE, WORLD_HALF_X, WORLD_HALF_Z } from "../shared/constants";
-import { type DrapeField } from "./conform";
+import { DRAPE_MAX_ERROR, type DrapeField } from "./conform";
 import { CUSTOM_MAP, type FloorKind, loadLocalOverrides } from "./custom-map";
 import type { CityPlan } from "./grid";
 import { dominantCover, type GroundCover, type LandClassAt, makeLandClassAt } from "./land-class";
 import type { RoadNetwork } from "./network";
 import { lowDetailSurfaces, SIDEWALK_W, walkFor } from "./roads";
-import type { Terrain } from "./terrain";
+import type { GroundCeiling, Terrain } from "./terrain";
 
 // Ground shading + street-depression callbacks, extracted so the gen worker
 // and the main thread run EXACTLY the same code (a fork here would paint two
@@ -654,7 +654,7 @@ export function makeGroundOffset(
 ): (x: number, z: number) => number {
   const clearanceAt = makeClearanceAt(network);
   const terraceAt = terrain ? makeStreetTerrace(network, terrain) : null;
-  return (x, z) => {
+  const offsetAt = (x: number, z: number): number => {
     const v = clearanceAt(x, z);
     const t = terraceAt ? terraceAt(x, z) : 0;
     // Full burial mid-asphalt, tapering to zero at the sidewalk's outer edge
@@ -663,6 +663,33 @@ export function makeGroundOffset(
     const bury = 1.1 * cover * THREE.MathUtils.smoothstep(Math.abs(t), 0.05, 0.3);
     return streetDepression(v) + t - bury;
   };
+  if (!terrain) return offsetAt;
+  // A 9u ground triangle can bridge over the street trench even when every
+  // sampled offset is correct. Cap its supporting vertices against the road,
+  // leaving the rest of the terrain alone. The dense corridor probes include
+  // both kerbs and reserve the road drape's full sag tolerance.
+  function* ceilings(): Generator<GroundCeiling> {
+    if (!terrain) return;
+    for (const edge of network.edges) {
+      const half = edge.half + walkFor(edge.half);
+      const along = Math.max(1, Math.ceil(edge.len / 1.5));
+      const across = Math.max(1, Math.ceil((half * 2) / 1.5));
+      for (let i = 0; i <= along; i++) {
+        const p = network.sample(edge, (i / along) * edge.len);
+        for (let j = 0; j <= across; j++) {
+          const lateral = ((j / across) * 2 - 1) * half;
+          const x = p.x - p.tz * lateral;
+          const z = p.z + p.tx * lateral;
+          yield {
+            x,
+            z,
+            y: terrain.heightAt(x, z) + (terraceAt ? terraceAt(x, z) : 0) - DRAPE_MAX_ERROR,
+          };
+        }
+      }
+    }
+  }
+  return terrain.capGroundOffset(offsetAt, ceilings());
 }
 
 // Offset of the RENDERED top surface relative to the raw height field, for
@@ -679,10 +706,14 @@ export function makeDriveSurfaceOffset(
 ): (x: number, z: number) => number {
   const clearanceAt = makeClearanceAt(network);
   const terraceAt = terrain ? makeStreetTerrace(network, terrain) : null;
+  const groundOffset = terrain ? makeGroundOffset(network, terrain) : null;
   return (x, z) => {
     const t = terraceAt ? terraceAt(x, z) : 0;
     const v = clearanceAt(x, z);
     if (v <= SIDEWALK_W) return t; // asphalt / curb / sidewalk
+    if (terrain && groundOffset) {
+      return terrain.renderedHeightAt(x, z, groundOffset) - terrain.heightAt(x, z);
+    }
     return streetDepression(v) + t;
   };
 }

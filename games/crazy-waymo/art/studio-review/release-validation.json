@@ -1,0 +1,42 @@
+{
+  "checkedAt": "2026-09-05T07:12:11.817Z",
+  "worldRevision": 90,
+  "productionBundle": "index-BEEtAtzT.js",
+  "verification": {
+    "command": "pnpm verify",
+    "exitCode": 0,
+    "gameChecksPassed": 153,
+    "repositoryTestTasksPassed": 11,
+    "typecheckTasksPassed": 24,
+    "lint": "pass; existing repository warnings remain",
+    "format": "pass; worker test formatting corrected"
+  },
+  "productionBuild": {
+    "command": "pnpm -F @repo/crazy-waymo build",
+    "exitCode": 0,
+    "note": "Vite warns about the large main chunk"
+  },
+  "mobile": {
+    "performance": "mobile-performance/README.md",
+    "safari": "mobile-ios/README.md",
+    "input": "mobile/report.json",
+    "scope": "DPR 3 coarse-pointer desktop stress tests and iOS simulator compatibility; no physical phone connected"
+  },
+  "memory": {
+    "scope": "Building geometry including skyline and shared sign atlas at audited sites; not total GPU memory",
+    "phoneBudgetMiB": 70,
+    "phoneHighestQualityBeforeMiB": 81.18,
+    "phoneHighestQualityAfterMiB": 57.06
+  },
+  "qualityTransition": {
+    "scope": "First shadowed-to-shadowless switch during a sustained native touch drive at 4x CPU slowdown",
+    "oldRendererStallMs": 6051.2,
+    "afterMaxFrameMs": 34,
+    "afterFramesOver50Ms": 0
+  },
+  "limits": [
+    "Physical phone GPU performance remains unmeasured.",
+    "Offline browser rehearsals do not verify multiplayer.",
+    "Desktop fare lifecycle uses staged pickup and dropoff positions."
+  ]
+}

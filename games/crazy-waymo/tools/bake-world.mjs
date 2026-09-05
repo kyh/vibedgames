@@ -98,8 +98,13 @@ const browser = await chromium.launch(
     ? { headless: false, executablePath: process.env.BAKE_BROWSER }
     : { headless: false, channel: "chrome" },
 );
+let heartbeat;
 try {
   const page = await browser.newPage({ acceptDownloads: true });
+  const pageFailed = new Promise((_, reject) => {
+    page.on("pageerror", (error) => reject(new Error(`world page: ${error.message}`)));
+    page.on("crash", () => reject(new Error("world page crashed")));
+  });
   page.on("console", (msg) => {
     const t = msg.text();
     // [city] is in the filter because the ONE way this bake fails silently is a
@@ -111,7 +116,8 @@ try {
       t.startsWith("[bake]") ||
       t.startsWith("[world-bin]") ||
       t.startsWith("[gen-worker]") ||
-      t.startsWith("[city]")
+      t.startsWith("[city]") ||
+      msg.type() === "error"
     ) {
       console.log(`  page: ${t}`);
     }
@@ -149,11 +155,26 @@ try {
     });
   });
 
-  await page.goto(`http://localhost:${port}/?bake=1`, { waitUntil: "domcontentloaded" });
+  await page.goto(`http://localhost:${port}/?bake=1&offline=1`, { waitUntil: "domcontentloaded" });
+  await page.bringToFront();
+  let lastProgress = "";
+  heartbeat = setInterval(() => {
+    void page
+      .evaluate(() => document.body.innerText.trim().slice(0, 320))
+      .then((status) => {
+        if (status && status !== lastProgress) {
+          lastProgress = status;
+          console.log(`[bake] ${status.replace(/\s+/g, " ")}`);
+        }
+        return null;
+      })
+      .catch(() => {});
+  }, 15_000);
   console.log("[bake] generating world (cold build — takes ~30-60s)…");
   await Promise.race([
     gotBoth,
     restSkipped,
+    pageFailed,
     new Promise((_, reject) =>
       setTimeout(() => reject(new Error("bake downloads did not arrive in 30 minutes")), 1_800_000),
     ),
@@ -183,6 +204,7 @@ try {
   failed = true;
   console.error(`[bake] FAILED: ${err instanceof Error ? err.message : err}`);
 } finally {
+  clearInterval(heartbeat);
   await browser.close();
   if (server?.pid) {
     try {

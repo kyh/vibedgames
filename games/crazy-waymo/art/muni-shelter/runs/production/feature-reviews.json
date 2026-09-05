@@ -1,0 +1,22 @@
+[
+  {
+    "score": 0.82,
+    "notes": "Two waves, real fascia thickness and dark ribbed soffit. Crest spacing is a stylized approximation; camera remains unsolved.",
+    "id": "canopy-wave"
+  },
+  {
+    "score": 0.88,
+    "notes": "Three rear panes and two transparent returns. Four grounded posts leave front open.",
+    "id": "open-glazing"
+  },
+  {
+    "score": 0.82,
+    "notes": "Fourteen separated slats, curved cheeks, three tubular dividers. Bench leg style differs from reference.",
+    "id": "bench-slats"
+  },
+  {
+    "score": 0.62,
+    "notes": "Correct material families. Fixed review lighting washes enamel and steel; no photoreal grain or image-derived PBR maps claimed.",
+    "id": "municipal-palette"
+  }
+]

@@ -117,7 +117,7 @@ export type Obb = {
 export type ParcelPlan = {
   /** Index into the parcel source. */
   readonly id: number;
-  /** From the downtown survey: full facade vocabulary. OSM parcels are built lean. */
+  /** From the downtown survey: measured heights and exact party walls. */
   readonly hero: boolean;
   readonly hint: ParcelHint;
   readonly kind: ParcelKind;

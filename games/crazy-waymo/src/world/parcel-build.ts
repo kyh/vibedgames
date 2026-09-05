@@ -15,6 +15,13 @@ import {
 import { TRAFFIC_CARS } from "../assets/manifest";
 import { ROAD_TILE, WORLD_HALF_X, WORLD_HALF_Z } from "../shared/constants";
 import { Rng } from "../shared/rng";
+import {
+  SHOP_SIGNS,
+  SIGN_ATLAS_WIDTH,
+  SIGN_ATLAS_HEIGHT,
+  SIGN_COLUMNS,
+  SIGN_ROWS,
+} from "./parcel-signs";
 import type { ParkedSpec } from "./furniture";
 import { distToRing, type ParcelLot, type ParcelPlan, pointInRing } from "./parcel-plan";
 
@@ -40,8 +47,8 @@ applyMaterialBreakup(WALL, CITY_BREAKUP);
 const GLASS_DARK = new THREE.MeshStandardMaterial({
   color: 0xffffff,
   vertexColors: true,
-  roughness: 0.78,
-  metalness: 0,
+  roughness: 0.38,
+  metalness: 0.08,
 });
 GLASS_DARK.name = "parcel-glass";
 
@@ -51,14 +58,57 @@ GLASS_DARK.name = "parcel-glass";
 const GLASS_LIT = new THREE.MeshStandardMaterial({
   color: 0xffffff,
   vertexColors: true,
-  roughness: 0.78,
-  metalness: 0,
+  roughness: 0.38,
+  metalness: 0.08,
   emissive: new THREE.Color(0xffc978),
   emissiveIntensity: 0,
 });
 GLASS_LIT.name = "parcel-glass-lit";
 
-const NIGHT_EMISSIVE = 2.6;
+const SIGN = new THREE.MeshStandardMaterial({
+  color: 0xffffff,
+  roughness: 0.95,
+  metalness: 0,
+  emissive: 0xffecc5,
+  emissiveIntensity: 0,
+  alphaTest: 0.12,
+});
+SIGN.name = "parcel-shop-lettering";
+
+/** One small texture for the whole city, lazy so the pure generator also runs in node. */
+function signMaterial(): THREE.MeshStandardMaterial {
+  if (SIGN.map || typeof document === "undefined") return SIGN;
+  const canvas = document.createElement("canvas");
+  canvas.width = SIGN_ATLAS_WIDTH;
+  canvas.height = SIGN_ATLAS_HEIGHT;
+  const context = canvas.getContext("2d");
+  if (!context) return SIGN;
+  const cellWidth = SIGN_ATLAS_WIDTH / SIGN_COLUMNS;
+  const cellHeight = SIGN_ATLAS_HEIGHT / SIGN_ROWS;
+  context.fillStyle = "#fff0cf";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  for (const [index, name] of SHOP_SIGNS.entries()) {
+    const fontSize = name.length > 14 ? 12 : 14;
+    context.font = `900 ${fontSize}px Arial, sans-serif`;
+    context.fillText(
+      name,
+      ((index % SIGN_COLUMNS) + 0.5) * cellWidth,
+      (Math.floor(index / SIGN_COLUMNS) + 0.5) * cellHeight,
+      cellWidth - 12,
+    );
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  texture.name = "fictional-sf-shop-names";
+  SIGN.map = texture;
+  SIGN.emissiveMap = texture;
+  SIGN.needsUpdate = true;
+  return SIGN;
+}
+
+const NIGHT_EMISSIVE = 1.05;
 
 // --- The facade shader ------------------------------------------------------
 // The lean fabric's walls carry their storey rhythm per vertex (parcel-mesh.ts
@@ -82,7 +132,7 @@ applyMaterialBreakup(FACADE, CITY_BREAKUP);
   // Lazy: the breakup's key reads the device class, which only exists in a
   // window, and this module also loads in the harness and the workers.
   const prevKey = FACADE.customProgramCacheKey.bind(FACADE);
-  FACADE.customProgramCacheKey = () => `${prevKey()}|facade`;
+  FACADE.customProgramCacheKey = () => `${prevKey()}|facade-sashes-v2`;
   FACADE.onBeforeCompile = (shader, renderer) => {
     prev.call(FACADE, shader, renderer);
     shader.uniforms.uFacadeNight = FACADE_NIGHT;
@@ -92,10 +142,10 @@ applyMaterialBreakup(FACADE, CITY_BREAKUP);
         `#include <common>
 attribute vec2 fuv;
 attribute vec4 facade;
-attribute vec4 facade2;
+attribute vec3 facade2;
 varying vec2 vFuv;
 varying vec4 vFacade;
-varying vec4 vFacade2;`,
+varying vec3 vFacade2;`,
       )
       .replace(
         "#include <begin_vertex>",
@@ -111,7 +161,7 @@ vFacade2 = facade2;`,
 uniform float uFacadeNight;
 varying vec2 vFuv;
 varying vec4 vFacade;
-varying vec4 vFacade2;
+varying vec3 vFacade2;
 float facadeHash(vec3 p) {
   return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453);
 }`,
@@ -127,10 +177,32 @@ bool fBlank = mod(floor(fFlags / 8.0), 2.0) > 0.5;
 bool fShop = mod(fFlags, 2.0) > 0.5;
 bool fHouse = mod(floor(fFlags / 2.0), 2.0) > 0.5;
 bool fShed = mod(floor(fFlags / 4.0), 2.0) > 0.5;
+bool fBrick = mod(floor(fFlags / 16.0), 2.0) > 0.5;
+bool fSiding = mod(floor(fFlags / 32.0), 2.0) > 0.5;
+float fTower = floor(fFlags / 64.0);
 float fu = vFuv.x - fF.w * 0.5;
 float fv = vFuv.y;
-vec3 fGlass = vec3(0.20, 0.26, 0.31);
-vec3 fFrame = min(diffuseColor.rgb * 1.22 + 0.06, vec3(1.0));
+vec3 fGlass = vec3(0.16, 0.27, 0.34);
+vec3 fFrame = mix(diffuseColor.rgb, vec3(0.91, 0.87, 0.76), 0.70);
+vec3 fWall = diffuseColor.rgb;
+if (fBrick) {
+  float course = floor(fv / 0.18);
+  vec2 brickUv = vec2(vFuv.x / 0.42 + mod(course, 2.0) * 0.5, fv / 0.18);
+  vec2 brick = fract(brickUv);
+  vec2 aa = max(fwidth(brickUv), vec2(0.001));
+  vec2 joint = 1.0 - smoothstep(vec2(0.025) - aa, vec2(0.055) + aa, brick);
+  float variation = 0.94 + 0.10 * facadeHash(vec3(floor(brickUv), fSeed));
+  diffuseColor.rgb *= variation * (1.0 - 0.23 * max(joint.x, joint.y));
+} else if (fSiding) {
+  float board = fract(fv / 0.14);
+  float seam = 1.0 - smoothstep(0.035, 0.10 + fwidth(fv / 0.14), board);
+  diffuseColor.rgb *= 1.0 - seam * 0.17;
+}
+// A restrained foundation and cornice remain legible at the distant LOD.
+float fRoofY = fF.z + max(0.0, fStoreys - 1.0) * fF.x;
+if (fv < 0.12) diffuseColor.rgb *= 0.72;
+if (fv > fRoofY - 0.16) diffuseColor.rgb = fFrame;
+else if (fv > fRoofY - 0.23) diffuseColor.rgb *= 0.66;
 float fLit = 0.0;
 float fOpen = 0.0;
 // Upper storeys: a window per cell, centred on the wall.
@@ -145,25 +217,60 @@ if (!fBlank && fv > fF.z && fF.x > 0.2) {
   float sx = fract(uu / cw);
   bool fits = uu > 0.0 && uu < span && cw > 0.7;
   if (k < fStoreys - 1.0 && fits) {
-    float ex = fF.y * 0.055;
-    float ey = fF.x * 0.045;
-    if (sx > 0.30 - ex && sx < 0.70 + ex && sy > 0.28 - ey && sy < 0.80 + ey) {
-      bool inner = sx > 0.30 && sx < 0.70 && sy > 0.28 && sy < 0.80;
-      diffuseColor.rgb = inner ? fGlass : fFrame;
-      if (inner) {
-        fOpen = 1.0;
-        float onBuilding = step(0.34, fSeed / 255.0);
-        fLit = onBuilding * step(0.62, facadeHash(vec3(ci, k, fSeed)));
-      }
+    float ex = min(0.075, 0.065 / cw);
+    float ey = min(0.065, 0.07 / fF.x);
+    float aa = max(fwidth(sx), fwidth(sy));
+    vec2 opening = vec2(sx, sy);
+    vec2 glassLo = vec2(0.26, 0.23);
+    vec2 glassHi = vec2(0.74, 0.79);
+    if (fTower > 0.5) {
+      // Glass curtain wall, horizontal office ribbons, and punched stone
+      // remain distinct at distance without adding facade triangles.
+      glassLo = fTower < 1.5 ? vec2(0.035, 0.07)
+        : fTower < 2.5 ? vec2(0.015, 0.29) : vec2(0.16, 0.19);
+      glassHi = vec2(1.0) - glassLo;
+      ex = fTower < 2.5 ? 0.012 : ex;
+      ey = fTower < 2.5 ? 0.012 : ey;
     }
+    vec2 frameLo = glassLo - vec2(ex, ey);
+    vec2 frameHi = glassHi + vec2(ex, ey);
+    vec2 inFrame = smoothstep(frameLo - aa, frameLo + aa, opening)
+      * (1.0 - smoothstep(frameHi - aa, frameHi + aa, opening));
+    vec2 inGlass = smoothstep(glassLo - aa, glassLo + aa, opening)
+      * (1.0 - smoothstep(glassHi - aa, glassHi + aa, opening));
+    float frameMask = inFrame.x * inFrame.y;
+    float glassMask = inGlass.x * inGlass.y;
+    // Cool sky at the top, a dark room below. The diagonal glint and sash
+    // keep a block of windows from reading as black stickers.
+    float reflection = smoothstep(0.28, 0.82, sy);
+    vec3 pane = mix(fGlass * 0.50, vec3(0.33, 0.48, 0.52), reflection);
+    float glint = (1.0 - smoothstep(0.025, 0.07, abs(sx + sy * 0.43 - 0.78))) * 0.12;
+    pane += glint;
+    float sash = 1.0 - smoothstep(0.013, 0.025 + aa, abs(sy - 0.51));
+    if (fTower > 0.5) sash = 0.0;
+    pane = mix(pane, fFrame * 0.83, sash);
+    // A reveal shadow beneath the header and a bright projecting sill.
+    float reveal = 1.0 - smoothstep(0.73, 0.78, sy);
+    pane *= 0.67 + 0.33 * reveal;
+    diffuseColor.rgb = mix(diffuseColor.rgb, fFrame, frameMask);
+    diffuseColor.rgb = mix(diffuseColor.rgb, pane, glassMask);
+    float sillShadow = step(frameLo.x, sx) * step(sx, frameHi.x)
+      * step(frameLo.y - 0.045, sy) * step(sy, frameLo.y);
+    diffuseColor.rgb = mix(diffuseColor.rgb, fWall * 0.65, sillShadow * (1.0 - frameMask));
+    fOpen = glassMask * (1.0 - sash);
+    float onBuilding = step(0.34, fSeed / 255.0);
+    fLit = onBuilding * step(0.62, facadeHash(vec3(ci, k, fSeed)));
   }
 }
 // Ground floor.
 if (!fBlank && fv < fF.z) {
   float fHalf = fF.w * 0.5;
   if (fShop && fv > 0.12 && fv < fF.z - 0.42 && abs(fu) < fHalf - 0.25) {
-    diffuseColor.rgb = fGlass * 0.85;
-    fOpen = 1.0;
+    float shopPitch = max(0.7, fF.w / max(2.0, floor(fF.w / 1.25)));
+    float shopU = fract((fu + fHalf) / shopPitch);
+    float mullion = step(0.045, shopU) * step(shopU, 0.955);
+    diffuseColor.rgb = mix(fFrame * 0.52, fGlass * (0.55 + fv * 0.3), mullion);
+    fOpen = mullion;
     fLit = step(0.25, fSeed / 255.0);
   } else if (fShop && fv >= fF.z - 0.42 && fv < fF.z - 0.1 && abs(fu) < fHalf - 0.2) {
     diffuseColor.rgb = diffuseColor.rgb * 0.55;
@@ -179,7 +286,7 @@ if (!fBlank && fv < fF.z) {
     diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.42, 0.44, 0.47), 0.85);
   }
 }
-vec3 fEmit = vec3(1.0, 0.78, 0.47) * (2.4 * uFacadeNight * fLit * fOpen);`,
+vec3 fEmit = vec3(1.0, 0.78, 0.47) * (0.95 * uFacadeNight * fLit * fOpen);`,
       )
       .replace(
         "#include <emissivemap_fragment>",
@@ -193,6 +300,7 @@ totalEmissiveRadiance += fEmit;`,
 export function setParcelNight(night: number): void {
   GLASS_LIT.emissiveIntensity = NIGHT_EMISSIVE * Math.max(0, Math.min(1, night));
   FACADE_NIGHT.value = Math.max(0, Math.min(1, night));
+  SIGN.emissiveIntensity = FACADE_NIGHT.value * 0.38;
 }
 
 export function materialFor(mat: ParcelMaterial): THREE.MeshStandardMaterial {
@@ -205,6 +313,8 @@ export function materialFor(mat: ParcelMaterial): THREE.MeshStandardMaterial {
       return GLASS_DARK;
     case "facade":
       return FACADE;
+    case "sign":
+      return signMaterial();
   }
 }
 
@@ -229,7 +339,7 @@ export type ParcelBands = {
   readonly detail: number;
 };
 
-/** Device-class detail: phones skip the bays, awnings and roof plant. */
+/** Device-class near detail; the streamer separately selects distant shader walls. */
 export function parcelDetailLevel(): DetailLevel {
   if (typeof window === "undefined") return 2;
   return isCoarsePointer() ? 1 : 2;
@@ -237,17 +347,35 @@ export function parcelDetailLevel(): DetailLevel {
 
 export function parcelGeometryOf(g: ParcelGeo): THREE.BufferGeometry {
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.BufferAttribute(g.position, 3));
+  geo.setAttribute(
+    "position",
+    new THREE.BufferAttribute(g.position, 3, g.encoding === "quantized"),
+  );
   geo.setAttribute("normal", new THREE.BufferAttribute(g.normal, 3, true));
   geo.setAttribute("color", new THREE.BufferAttribute(g.color, 3, true));
   geo.setIndex(new THREE.BufferAttribute(g.index, 1));
   if (g.fuv && g.facade && g.facade2) {
     geo.setAttribute("fuv", new THREE.BufferAttribute(g.fuv, 2, true));
     geo.setAttribute("facade", new THREE.BufferAttribute(g.facade, 4, true));
-    geo.setAttribute("facade2", new THREE.BufferAttribute(g.facade2, 4, false));
+    geo.setAttribute("facade2", new THREE.BufferAttribute(g.facade2, 3, false));
   }
+  if (g.uv) geo.setAttribute("uv", new THREE.BufferAttribute(g.uv, 2, true));
   geo.computeBoundingSphere();
   return geo;
+}
+
+/** Both static and streamed callers restore the same quantized coordinate frame. */
+export function parcelMeshOf(
+  g: ParcelGeo,
+): THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial> {
+  const mesh = new THREE.Mesh(parcelGeometryOf(g), materialFor(g.mat));
+  if (g.encoding === "quantized") {
+    mesh.position.set(...g.origin);
+    mesh.scale.setScalar(g.scale);
+  }
+  mesh.updateMatrix();
+  mesh.matrixAutoUpdate = false;
+  return mesh;
 }
 
 /**
@@ -273,10 +401,10 @@ export async function buildParcelFabric(
       chunk.group.name = `parcels-${g.tier}`;
       groups.set(key, chunk);
     }
-    const mesh = new THREE.Mesh(parcelGeometryOf(g), materialFor(g.mat));
+    const mesh = parcelMeshOf(g);
     mesh.name = `parcel-${g.tier}-${g.mat}`;
     // Bodies throw the street shadows; the decals and ledges only catch them.
-    mesh.castShadow = g.tier !== "detail";
+    mesh.castShadow = g.tier !== "detail" && (g.mat === "wall" || g.mat === "facade");
     mesh.receiveShadow = true;
     mesh.matrixAutoUpdate = false;
     chunk.group.add(mesh);

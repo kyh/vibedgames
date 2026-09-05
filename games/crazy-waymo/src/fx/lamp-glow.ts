@@ -73,12 +73,14 @@ function gradientTexture(stops: readonly (readonly [number, number])[]): THREE.C
   return tex;
 }
 
-// The lamp-head halo and every other point source in the game (beacons,
-// headlights, the player's own rig): a bright core with a wide soft skirt.
+// A compact emitter with a faint skirt. A half-bright disc out to 35% of the
+// radius turned every lamp into bokeh even when the camera was in focus.
 export function radialGlowTexture(): THREE.CanvasTexture {
   return gradientTexture([
     [0, 1],
-    [0.35, 0.5],
+    [0.08, 0.9],
+    [0.22, 0.3],
+    [0.5, 0.06],
     [1, 0],
   ]);
 }
@@ -87,7 +89,7 @@ export function radialGlowTexture(): THREE.CanvasTexture {
 // the lamp and a long, fast-decaying tail, i.e. roughly inverse-square. The
 // halo's broad 0.5-at-35% skirt spread across a 17u quad reads as a uniform
 // warm haze on the asphalt — a fog, not a light with a source above it.
-function poolGlowTexture(): THREE.CanvasTexture {
+export function poolGlowTexture(): THREE.CanvasTexture {
   return gradientTexture([
     [0, 1],
     [0.12, 0.86],

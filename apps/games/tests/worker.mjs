@@ -101,7 +101,9 @@ check("cold request reports a cache miss", cold.headers.get("x-vg-cache") === "m
 check(
   "glb arrives as the model, not a second gzip layer",
   coldBody.equals(glb),
-  isGzip(coldBody) ? `double-encoded (${coldBody.length} bytes of gzip)` : `${coldBody.length} bytes`,
+  isGzip(coldBody)
+    ? `double-encoded (${coldBody.length} bytes of gzip)`
+    : `${coldBody.length} bytes`,
 );
 
 // ---- edge cache ------------------------------------------------------------
@@ -115,7 +117,9 @@ check("second request is an edge-cache hit", warm.headers.get("x-vg-cache") === 
 check(
   "cache hit arrives as the model, not a second gzip layer",
   warmBody.equals(glb),
-  isGzip(warmBody) ? `double-encoded (${warmBody.length} bytes of gzip)` : `${warmBody.length} bytes`,
+  isGzip(warmBody)
+    ? `double-encoded (${warmBody.length} bytes of gzip)`
+    : `${warmBody.length} bytes`,
 );
 
 // ---- payloads that must be left alone --------------------------------------

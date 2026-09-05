@@ -1,0 +1,286 @@
+{
+  "model": "Muni Shelter",
+  "specifiedComponents": 19,
+  "builtParts": 242,
+  "errors": 13,
+  "warnings": 0,
+  "result": "fail",
+  "findings": [
+    {
+      "check": "component-missing",
+      "severity": "error",
+      "subject": "glass-left",
+      "detail": "specified component 'glass-left' has no matching part in the built model"
+    },
+    {
+      "check": "component-missing",
+      "severity": "error",
+      "subject": "glass-right",
+      "detail": "specified component 'glass-right' has no matching part in the built model"
+    },
+    {
+      "check": "component-missing",
+      "severity": "error",
+      "subject": "bench",
+      "detail": "specified component 'bench' has no matching part in the built model"
+    },
+    {
+      "check": "component-missing",
+      "severity": "error",
+      "subject": "bench-back",
+      "detail": "specified component 'bench-back' has no matching part in the built model"
+    },
+    {
+      "check": "component-missing",
+      "severity": "error",
+      "subject": "post-0-0",
+      "detail": "specified component 'post-0-0' has no matching part in the built model"
+    },
+    {
+      "check": "component-missing",
+      "severity": "error",
+      "subject": "post-0-1",
+      "detail": "specified component 'post-0-1' has no matching part in the built model"
+    },
+    {
+      "check": "component-missing",
+      "severity": "error",
+      "subject": "foot-0-1",
+      "detail": "specified component 'foot-0-1' has no matching part in the built model"
+    },
+    {
+      "check": "component-missing",
+      "severity": "error",
+      "subject": "post-1-0",
+      "detail": "specified component 'post-1-0' has no matching part in the built model"
+    },
+    {
+      "check": "component-missing",
+      "severity": "error",
+      "subject": "foot-1-0",
+      "detail": "specified component 'foot-1-0' has no matching part in the built model"
+    },
+    {
+      "check": "component-missing",
+      "severity": "error",
+      "subject": "post-1-1",
+      "detail": "specified component 'post-1-1' has no matching part in the built model"
+    },
+    {
+      "check": "component-missing",
+      "severity": "error",
+      "subject": "foot-1-1",
+      "detail": "specified component 'foot-1-1' has no matching part in the built model"
+    },
+    {
+      "check": "component-missing",
+      "severity": "error",
+      "subject": "mullion-0",
+      "detail": "specified component 'mullion-0' has no matching part in the built model"
+    },
+    {
+      "check": "component-missing",
+      "severity": "error",
+      "subject": "mullion-1",
+      "detail": "specified component 'mullion-1' has no matching part in the built model"
+    },
+    {
+      "check": "part-not-specified",
+      "severity": "info",
+      "subject": "bench-back-slat",
+      "detail": "built part has no matching component in the spec (fine for detail groups; a sign of spec drift for anything larger)"
+    },
+    {
+      "check": "part-not-specified",
+      "severity": "info",
+      "subject": "bench-cheek",
+      "detail": "built part has no matching component in the spec (fine for detail groups; a sign of spec drift for anything larger)"
+    },
+    {
+      "check": "part-not-specified",
+      "severity": "info",
+      "subject": "bench-divider",
+      "detail": "built part has no matching component in the spec (fine for detail groups; a sign of spec drift for anything larger)"
+    },
+    {
+      "check": "part-not-specified",
+      "severity": "info",
+      "subject": "bench-foot",
+      "detail": "built part has no matching component in the spec (fine for detail groups; a sign of spec drift for anything larger)"
+    },
+    {
+      "check": "part-not-specified",
+      "severity": "info",
+      "subject": "bench-leg",
+      "detail": "built part has no matching component in the spec (fine for detail groups; a sign of spec drift for anything larger)"
+    },
+    {
+      "check": "part-not-specified",
+      "severity": "info",
+      "subject": "bench-seat-slat",
+      "detail": "built part has no matching component in the spec (fine for detail groups; a sign of spec drift for anything larger)"
+    },
+    {
+      "check": "part-not-specified",
+      "severity": "info",
+      "subject": "canopy-seam",
+      "detail": "built part has no matching component in the spec (fine for detail groups; a sign of spec drift for anything larger)"
+    },
+    {
+      "check": "part-not-specified",
+      "severity": "info",
+      "subject": "foot-collar",
+      "detail": "built part has no matching component in the spec (fine for detail groups; a sign of spec drift for anything larger)"
+    },
+    {
+      "check": "part-not-specified",
+      "severity": "info",
+      "subject": "foot-fastener",
+      "detail": "built part has no matching component in the spec (fine for detail groups; a sign of spec drift for anything larger)"
+    },
+    {
+      "check": "part-not-specified",
+      "severity": "info",
+      "subject": "front-sign-enamel",
+      "detail": "built part has no matching component in the spec (fine for detail groups; a sign of spec drift for anything larger)"
+    },
+    {
+      "check": "part-not-specified",
+      "severity": "info",
+      "subject": "glass-clamp",
+      "detail": "built part has no matching component in the spec (fine for detail groups; a sign of spec drift for anything larger)"
+    },
+    {
+      "check": "part-not-specified",
+      "severity": "info",
+      "subject": "glass-return",
+      "detail": "built part has no matching component in the spec (fine for detail groups; a sign of spec drift for anything larger)"
+    },
+    {
+      "check": "part-not-specified",
+      "severity": "info",
+      "subject": "letter-7",
+      "detail": "built part has no matching component in the spec (fine for detail groups; a sign of spec drift for anything larger)"
+    },
+    {
+      "check": "part-not-specified",
+      "severity": "info",
+      "subject": "letter-F",
+      "detail": "built part has no matching component in the spec (fine for detail groups; a sign of spec drift for anything larger)"
+    },
+    {
+      "check": "part-not-specified",
+      "severity": "info",
+      "subject": "letter-I",
+      "detail": "built part has no matching component in the spec (fine for detail groups; a sign of spec drift for anything larger)"
+    },
+    {
+      "check": "part-not-specified",
+      "severity": "info",
+      "subject": "letter-M",
+      "detail": "built part has no matching component in the spec (fine for detail groups; a sign of spec drift for anything larger)"
+    },
+    {
+      "check": "part-not-specified",
+      "severity": "info",
+      "subject": "letter-N",
+      "detail": "built part has no matching component in the spec (fine for detail groups; a sign of spec drift for anything larger)"
+    },
+    {
+      "check": "part-not-specified",
+      "severity": "info",
+      "subject": "letter-S",
+      "detail": "built part has no matching component in the spec (fine for detail groups; a sign of spec drift for anything larger)"
+    },
+    {
+      "check": "part-not-specified",
+      "severity": "info",
+      "subject": "letter-U",
+      "detail": "built part has no matching component in the spec (fine for detail groups; a sign of spec drift for anything larger)"
+    },
+    {
+      "check": "part-not-specified",
+      "severity": "info",
+      "subject": "post",
+      "detail": "built part has no matching component in the spec (fine for detail groups; a sign of spec drift for anything larger)"
+    },
+    {
+      "check": "part-not-specified",
+      "severity": "info",
+      "subject": "rear-bottom-rail",
+      "detail": "built part has no matching component in the spec (fine for detail groups; a sign of spec drift for anything larger)"
+    },
+    {
+      "check": "part-not-specified",
+      "severity": "info",
+      "subject": "rear-mullion",
+      "detail": "built part has no matching component in the spec (fine for detail groups; a sign of spec drift for anything larger)"
+    },
+    {
+      "check": "part-not-specified",
+      "severity": "info",
+      "subject": "rear-top-rail",
+      "detail": "built part has no matching component in the spec (fine for detail groups; a sign of spec drift for anything larger)"
+    },
+    {
+      "check": "part-not-specified",
+      "severity": "info",
+      "subject": "route-badge",
+      "detail": "built part has no matching component in the spec (fine for detail groups; a sign of spec drift for anything larger)"
+    },
+    {
+      "check": "part-not-specified",
+      "severity": "info",
+      "subject": "route-caption",
+      "detail": "built part has no matching component in the spec (fine for detail groups; a sign of spec drift for anything larger)"
+    },
+    {
+      "check": "part-not-specified",
+      "severity": "info",
+      "subject": "route-footer",
+      "detail": "built part has no matching component in the spec (fine for detail groups; a sign of spec drift for anything larger)"
+    },
+    {
+      "check": "part-not-specified",
+      "severity": "info",
+      "subject": "route-header",
+      "detail": "built part has no matching component in the spec (fine for detail groups; a sign of spec drift for anything larger)"
+    },
+    {
+      "check": "part-not-specified",
+      "severity": "info",
+      "subject": "route-line",
+      "detail": "built part has no matching component in the spec (fine for detail groups; a sign of spec drift for anything larger)"
+    },
+    {
+      "check": "part-not-specified",
+      "severity": "info",
+      "subject": "route-panel-frame",
+      "detail": "built part has no matching component in the spec (fine for detail groups; a sign of spec drift for anything larger)"
+    },
+    {
+      "check": "part-not-specified",
+      "severity": "info",
+      "subject": "route-stop",
+      "detail": "built part has no matching component in the spec (fine for detail groups; a sign of spec drift for anything larger)"
+    },
+    {
+      "check": "part-not-specified",
+      "severity": "info",
+      "subject": "side-rail",
+      "detail": "built part has no matching component in the spec (fine for detail groups; a sign of spec drift for anything larger)"
+    },
+    {
+      "check": "part-not-specified",
+      "severity": "info",
+      "subject": "sign-fastener",
+      "detail": "built part has no matching component in the spec (fine for detail groups; a sign of spec drift for anything larger)"
+    },
+    {
+      "check": "part-not-specified",
+      "severity": "info",
+      "subject": "soffit-rib",
+      "detail": "built part has no matching component in the spec (fine for detail groups; a sign of spec drift for anything larger)"
+    }
+  ]
+}

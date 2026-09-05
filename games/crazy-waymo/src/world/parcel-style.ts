@@ -11,8 +11,9 @@ import type { DistrictChar } from "./sf-map";
 // row houses with stacked bays and a white cornice, stucco boxes over a garage
 // on the avenues, storefront-and-awning mid-rises on the commercial streets,
 // punched-masonry and glass towers downtown, roll-up-door sheds in the yards.
-// Every one of those is a flat roof with a parapet — the gabled kit house was
-// the single loudest tell against SF, and it never appears here.
+// Residential roofs remain flat behind ornamental parapets and pediments;
+// industrial northlights and stepped tower crowns provide their own silhouettes.
+// The generic gabled kit house never appears here.
 
 export type FabricChar = Exclude<DistrictChar, "park">;
 
@@ -192,6 +193,41 @@ export const FABRIC_PALETTES = {
   industrial: [0xa8623e, 0x8a6a4c, 0xb08968, 0x6f7c84, 0x9a8f7c, 0xc2a37c],
 } satisfies Record<FabricChar, readonly number[]>;
 
+/** Local paint traditions sit over the building type, not over its source dataset. */
+function districtPalette(character: FabricChar, district: string): readonly number[] {
+  switch (district) {
+    case "Chinatown":
+      return [0xe6d2b0, 0xc4b692, 0xb76d51, 0xdbceb7, 0xa4b7a2, 0xe7ba75];
+    case "North Beach":
+    case "Russian Hill":
+      return [0xe8d8b7, 0xd1ae78, 0xb7c5ae, 0xe8c5a4, 0xbc8264, 0xe8e3cc];
+    case "the Richmond":
+      return [0xe6d6bf, 0xc6d3bf, 0xd5c7bd, 0xacbfcb, 0xe8d8a4, 0xc0b7c7];
+    case "SoMa":
+    case "Dogpatch":
+    case "Jackson Square":
+      return character === "highrise"
+        ? FABRIC_PALETTES.highrise
+        : [0xb77b5f, 0xa86249, 0xcb9975, 0xd9c6a7, 0x8f9294, 0xb29b80];
+    default:
+      return FABRIC_PALETTES[character];
+  }
+}
+
+/** Historic masonry districts keep their iron escape stairs above the shops. */
+export function hasFireEscape(district: string, seed: number): boolean {
+  switch (district) {
+    case "Chinatown":
+    case "North Beach":
+    case "the Tenderloin":
+    case "Union Square":
+    case "Nob Hill":
+      return seed % 3 !== 0;
+    default:
+      return false;
+  }
+}
+
 /** Flat-roof membrane per character: mid-value, one family per district. */
 export const ROOF_PALETTES = {
   highrise: [0x8e969c, 0x7f888e, 0x9aa2a8, 0x74807c],
@@ -252,6 +288,13 @@ const GLASS_DAY = 0x34424f;
 // shaft, the kart-racer read, instead of a lighter one catching the sky.
 const GLASS_TOWER = 0x45586a;
 const GLASS_SHOP = 0x2a3644;
+
+/** Different construction eras keep the downtown skyline from repeating one curtain wall. */
+export type TowerFacade = "curtain" | "ribbon" | "masonry";
+export function towerFacadeFor(blockHash: number): TowerFacade {
+  const era = (blockHash >>> 4) % 3;
+  return era === 0 ? "curtain" : era === 1 ? "ribbon" : "masonry";
+}
 /**
  * Trim per district, chosen per BLOCK: SF trim is not always white. The
  * painted ladies wear dark green, near-black or cream against the body as
@@ -281,8 +324,9 @@ export function colorsFor(
   character: FabricChar,
   blockHash: number,
   unitRoll: number,
+  district = "",
 ): ParcelColors {
-  const palette = FABRIC_PALETTES[character];
+  const palette = districtPalette(character, district);
   const dominant = palette[blockHash % palette.length] ?? 0xcccccc;
   // A terrace steps through its family: half the units wear the block's
   // colour, the rest one of its neighbours in the ramp.
@@ -297,7 +341,16 @@ export function colorsFor(
       : (roofs[(blockHash >> 3) % roofs.length] ?? 0x9a9386);
   // ONE accent per block for doors and awnings — a street reads as a set
   // when its shops share a sign colour, and as a paint chart when they don't.
-  const awning = AWNING_COLORS[(blockHash >> 5) % AWNING_COLORS.length] ?? 0xc8433a;
+  const awning =
+    district === "Chinatown"
+      ? blockHash % 3 === 0
+        ? 0x28655b
+        : 0xb7352b
+      : district === "North Beach"
+        ? blockHash % 2 === 0
+          ? 0x397359
+          : 0xb44b39
+        : (AWNING_COLORS[(blockHash >> 5) % AWNING_COLORS.length] ?? 0xc8433a);
   switch (kind) {
     case "rowhouse":
     case "stucco":
@@ -325,14 +378,19 @@ export function colorsFor(
         awning,
       };
     case "tower": {
-      const glassTower = character === "highrise" || unitRoll > 0.45;
-      const tb = glassTower ? mix(GLASS_TOWER, body, 0.35) : body;
+      const facade = towerFacadeFor(blockHash);
+      const tb =
+        facade === "masonry"
+          ? mix(body, 0xd4c4a6, 0.7)
+          : facade === "ribbon"
+            ? mix(body, 0x7b796f, 0.65)
+            : mix(GLASS_TOWER, body, 0.35);
       return {
         body: tb,
-        trim: glassTower ? shade(tb, 1.18) : shade(body, 0.82),
+        trim: facade === "masonry" ? shade(tb, 0.83) : shade(tb, 1.18),
         base: shade(tb, 0.72),
         roof,
-        glass: glassTower ? GLASS_TOWER : GLASS_DAY,
+        glass: facade === "ribbon" ? 0x394e50 : facade === "curtain" ? GLASS_TOWER : GLASS_DAY,
         door: 0x2f3438,
         garage: 0x6b6f73,
         awning,

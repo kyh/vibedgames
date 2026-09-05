@@ -15,6 +15,7 @@ import type { SmashCones } from "../fx/cones";
 import type { Debris } from "../fx/debris";
 import type { LampGlow } from "../fx/lamp-glow";
 import { setParcelNight } from "../world/parcel-build";
+import { setSalesforceNight } from "../world/sf-salesforce";
 import { Fx } from "../fx/particles";
 import { Sfx } from "../fx/sfx";
 import { SignalLights } from "../fx/signal-lights";
@@ -1080,6 +1081,7 @@ vec3 ocGerstner(vec2 p, float t) {
       remoteSay: (anchor, text) => this.bubbles.say(anchor, text, { lift: 3.0 }),
       getRenderer: () => this.renderer,
       getCamera: () => this.rig.camera,
+      shadowlessWarmup: this.mobileUi ? this.sun : null,
       onCoreSystems: (systems) => this.assignCoreSystems(systems),
       onRemoteCars: (remoteCars) => {
         this.remoteCars = remoteCars;
@@ -1101,26 +1103,24 @@ vec3 ocGerstner(vec2 p, float t) {
       onCones: (cones) => {
         this.cones = cones;
       },
-      onAmbient: (ambient) => {
+      onAmbient: (ambient, city) => {
         this.ambient = ambient;
+        this.attachNightAndLife(city);
+        // Deck guards exist before readiness; the later geometry harvest
+        // adds canopies and other overhead structures without delaying load.
+        this.rig.setCeilings(new CeilingIndex(deckCeilings(city.getDecks())));
       },
       onPlayable: () => this.markLoadDone(),
     });
     this.city = loaded.city;
     this.spawn = loaded.spawn;
+    this.rig.setGround((x, z, y) => loaded.city.cameraFloorAt(x, z, y));
     this.skinId = loaded.skinId;
     this.car = loaded.car;
-    // loadWorld resolves at the PLAYABLE gate; furniture, the ambient flock and
-    // the waterfront builders all land behind `ready`, so the systems that read
-    // their output wait for it.
+    // The early world lets streaming settle under the loading screen. The
+    // finished promise includes traffic, parked cars, and collision setup.
     this.ready = loaded.ready;
-    void loaded.ready.then(() => this.onWorldReady(loaded.city));
-  }
-
-  /** Everything that needs the FINISHED world, not just a playable one. */
-  private onWorldReady(city: CityModel): void {
-    this.attachNightAndLife(city);
-    void this.buildCeilingIndex(city);
+    void loaded.ready.then(() => this.buildCeilingIndex(loaded.city));
   }
 
   /**
@@ -1131,8 +1131,8 @@ vec3 ocGerstner(vec2 p, float t) {
    * approach, the freeway viaducts, pier bulkheads — none of which declares
    * anything a 2-D solids index can see.
    *
-   * Deliberately off the load path and time-sliced: until it lands the camera
-   * simply runs uncapped, which is exactly today's behaviour.
+   * Deliberately off the load path and time-sliced. Authoritative deck guards
+   * stay active while this harvest adds the remaining overhead geometry.
    */
   private async buildCeilingIndex(city: CityModel): Promise<void> {
     const t0 = performance.now();
@@ -1719,6 +1719,7 @@ vec3 ocGerstner(vec2 p, float t) {
     );
     this.lampGlow?.setIntensity(night);
     setParcelNight(night);
+    setSalesforceNight(night);
     this.lampGlow?.updateNear(this.rig.camera.position.x, this.rig.camera.position.z, dt);
     this.beacons?.setIntensity(night);
     this.beacons?.update(dt);
@@ -2084,10 +2085,6 @@ vec3 ocGerstner(vec2 p, float t) {
 
     if (!this.freecam) {
       this.rig.update(dt, car, solids);
-      // Keep the camera above the terrain (hills can rise behind the car).
-      const cam = this.rig.camera;
-      const minY = city.heightAt(cam.position.x, cam.position.z) + 2.5;
-      if (cam.position.y < minY) cam.position.y = minY;
     }
     // Speed streaks are a first-person effect glued to the chase camera —
     // under freecam (trailer fixed shots, DEV) feed 0 so leftovers fade out
