@@ -14,14 +14,13 @@ import { FULL_QUALITY, isCoarsePointer, type QualityFeatures, setLiveQuality } f
 // desktop table pins every tier to FULL_QUALITY so a desktop that steps down
 // only ever loses resolution, exactly as before.
 //
-// Decisions run on the MEDIAN frame time of ~2s windows: shader-compile and
-// GC bursts are outliers a mean/EMA would absorb into a false "slow" verdict,
-// but they can't move a median unless more than half the window is actually
-// slow. Downgrade on one bad window; upgrade only after several consecutive
-// fast ones so the tier never flaps at a boundary.
+// Decisions use sustained frame cost over ~2s windows. The sampler rejects
+// isolated shader/GC stalls, while recurrent missed refreshes still count even
+// when the median hits vsync. Downgrade on one bad window; upgrade only after
+// several consecutive fast ones so the tier never flaps at a boundary.
 
-const SLOW_MS = 21; // median worse than ~48fps → step down
-// "Fast" must include a 60Hz vsync-locked median (~16.7ms) — with a 13ms bar a
+const SLOW_MS = 21; // sustained worse than ~48fps → step down
+// "Fast" must include a 60Hz vsync-locked frame (~16.7ms) — with a 13ms bar a
 // 60Hz display could downgrade once and never climb back no matter how much
 // GPU headroom it has.
 const FAST_MS = 17;
@@ -116,7 +115,7 @@ export class PerfGovernor {
     const mobile = isCoarsePointer();
     this.tiers = qualityTiers(native, mobile);
     if (mobile) {
-      // Boot LOW: the median-window logic needs ~10s to converge, and a phone
+      // Boot LOW: the timing windows need ~10s to converge, and a phone
       // chugging through those first windows at desktop quality reads as a
       // broken game. Dense screens start at the deeper tier; upgrades are
       // cheap if the device turns out to have headroom.
@@ -148,7 +147,7 @@ export class PerfGovernor {
 
   // DEV/headless only: pin a tier so a measurement run can walk the whole
   // ladder. Without this the mobile tiers are unreachable from a scripted
-  // browser — the median-window logic owns the tier and moves it mid-capture,
+  // browser — the timing windows own the tier and move it mid-capture,
   // and no perf claim about "tier 3 on a phone" could ever be verified.
   // `null` hands control back to the governor. See installPerfDebug below.
   pinTier(tier: number | null): void {
@@ -170,16 +169,16 @@ export class PerfGovernor {
       this.cooldown -= dt;
       return;
     }
-    const median = this.frames.sample(dt);
-    if (median === null) return;
-    if (median > SLOW_MS && this.tier < this.tiers.length - 1) {
+    const frameMs = this.frames.sample(dt);
+    if (frameMs === null) return;
+    if (frameMs > SLOW_MS && this.tier < this.tiers.length - 1) {
       // Downgrading right after an upgrade means the upgrade was wrong —
       // make the next attempt exponentially more patient.
       if (this.sinceUpgrade < FLAP_WINDOW_S) {
         this.upgradeCost = Math.min(UPGRADE_WINDOWS_MAX, this.upgradeCost * 2);
       }
       this.apply(this.tier + 1);
-    } else if (median < FAST_MS && this.tier > 0) {
+    } else if (frameMs < FAST_MS && this.tier > 0) {
       this.fastWindows++;
       if (this.fastWindows >= this.upgradeCost) {
         this.sinceUpgrade = 0;
