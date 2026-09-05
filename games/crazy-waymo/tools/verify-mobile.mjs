@@ -37,27 +37,39 @@ try {
     device.coarse && device.touch > 0 && device.dpr === 3,
     device,
   );
+  // Use the former button's left-hand area: it overlaps the steering zone.
+  const formerCta = await evaluate(
+    "(()=>{const r=document.querySelector('#banner-cta').getBoundingClientRect();return {x:r.left+Math.min(12,r.width/4),y:r.top+r.height/2,id:1}})()",
+  );
   await tap("#banner-cta");
   await until('window.__taxi.game.mode.kind === "playing"');
   await evaluate(
     "(()=>{const t=window.__taxi;t.teleport(.37,.39);const p=t.probe();t.game.traffic.reset({gx:t.game.city.gridX(p.x),gz:t.game.city.gridZ(p.z)},7)})()",
   );
+  const hiddenBanner = await evaluate(
+    `(()=>{const cta=document.querySelector('#banner-cta');cta.focus();const hit=document.elementFromPoint(${formerCta.x},${formerCta.y});return {focused:document.activeElement===cta,intercepts:!!hit?.closest('#banner'),hit:hit?.id||hit?.tagName}})()`,
+  );
+  check(
+    "hidden start button cannot take focus or intercept steering",
+    !hiddenBanner.focused && !hiddenBanner.intercepts,
+    { point: formerCta, ...hiddenBanner },
+  );
   const before = await evaluate("window.__taxi.probe()");
   await call("Input.dispatchTouchEvent", {
     type: "touchStart",
-    touchPoints: [{ x: 100, y: 520, id: 1 }],
+    touchPoints: [formerCta],
   });
   await until("window.__taxi.probe().speed > 12", 10_000);
   const driven = await evaluate("window.__taxi.probe()");
   await call("Input.dispatchTouchEvent", {
     type: "touchMove",
-    touchPoints: [{ x: 145, y: 520, id: 1 }],
+    touchPoints: [{ ...formerCta, x: formerCta.x + 35 }],
   });
   await sleep(400);
   const steered = await evaluate("window.__taxi.probe()");
   await call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
   check(
-    "touch accelerates and steers",
+    "touch accelerates and steers from the former start-button bounds",
     driven.speed > 12 && Math.abs(steered.heading - before.heading) > 0.02,
     { before, driven, steered },
   );

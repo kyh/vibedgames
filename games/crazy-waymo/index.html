@@ -742,10 +742,13 @@
         background: linear-gradient(180deg, #fff3cc, #ffc84e 58%, #f09a1c);
         border-radius: 10px;
         padding: 12px 22px;
-        pointer-events: auto;
+        pointer-events: none;
         cursor: pointer;
         box-shadow: 0 5px 0 rgba(23, 11, 4, 0.4);
         animation: pulse 1.4s ease-in-out infinite;
+      }
+      #banner.show #banner-cta {
+        pointer-events: auto;
       }
       @keyframes pulse {
         50% {
@@ -1333,7 +1336,7 @@
       </div>
     </div>
 
-    <div id="banner" data-gamepad-ignore>
+    <div id="banner" data-gamepad-ignore inert>
       <div id="banner-title">CRAZY WAYMO</div>
       <div id="banner-sub"></div>
       <div id="banner-stats"></div>

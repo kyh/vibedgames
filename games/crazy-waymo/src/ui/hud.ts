@@ -699,6 +699,7 @@ export class Hud {
     this.bannerStats.textContent = spec.stats ?? "";
     this.bannerCta.textContent = spec.cta;
     this.renderControls(spec.controls ?? []);
+    this.banner.inert = false;
     this.banner.classList.add("show");
   }
 
@@ -733,6 +734,8 @@ export class Hud {
     );
   }
   hideBanner(): void {
+    // Opacity may still be fading, but gameplay owns focus and touch now.
+    this.banner.inert = true;
     this.banner.classList.remove("show");
   }
 

@@ -37,7 +37,7 @@ These eight-second drives crossed about 225 world units on a connected Sunset ce
 
 A distant FiDi teleport was measured separately: one 192 ms frame at 2× and one 316.6 ms frame at 4×. Synchronous parcel reconciliation accounted for 137.8 / 269.7 ms respectively. These are explicit neighborhood loading events, not continuous-drive frame rates. Sustained driving and quality changes produced no frames over 50 ms in the final runs.
 
-The separate [DPR 3 touch suite](../mobile/report.json) passed all 12 checks: acceleration, steering, nitro, drift, reverse, pause/resume/restart, portrait HUD clearance, both landscape lighting states and no page errors. Its [night landscape capture](../mobile/landscape-night.png) also shows the retained facade and street-light geometry after the culling changes.
+The separate [DPR 3 touch suite](../mobile/report.json) passed all 13 checks: acceleration, steering, nitro, drift, reverse, pause/resume/restart, portrait HUD clearance, both landscape lighting states and no page errors. Its [night landscape capture](../mobile/landscape-night.png) also shows the retained facade and street-light geometry after the culling changes.
 
 Production bundle `index-BEEtAtzT.js` passed native touch smoke at DPR 3, CPU 2×, both 390×844 and 844×390. The visible dashboard reached **65 MPH** in both orientations, with no overflow, no page errors and no development hooks. [Production report](production-touch.json), [portrait capture](production-portrait.png), [landscape capture](production-landscape.png).
 
