@@ -1,13 +1,19 @@
 # iOS Safari compatibility
 
-Tested Mobile Safari 26.5 in an isolated iPhone 17 Pro simulator. Native Appium/XCUITest touch input. This verifies the Safari engine, controls and layout. It does not establish physical iPhone GPU speed, battery use or thermal behavior.
+Production bundle **`index-DNNghrpq.js`** passed all **13 checks** in Mobile Safari 26.5, using an isolated iPhone 17 Pro simulator and native Appium/XCUITest input. These results cover the final touch, spawn and camera fixes. They establish Safari compatibility, not physical iPhone GPU speed, battery use or thermal behavior.
 
-`index-DqNjIu5I.js`: startup, Start/countdown, hold/drag driving, pause/resume/restart, boost, portrait and landscape all passed. Touch events were trusted. Dashboard reached 67 mph; a native boost hold drained the meter from 100% to 33%. No captured runtime exceptions. Production dev hook absent.
+Startup, native Start, trusted hold/drag driving, hidden-title focus/touch exclusion and simultaneous steering plus boost passed. Two touch pointers remained active while the boost meter drained from 100% to 45%. No captured JavaScript exceptions, resource errors or development hooks. [Structured results](report.json).
 
-- [Portrait driving](portrait-drive.png): 402 × 714 CSS viewport, DPR 3.
-- [Landscape driving](landscape-drive.png): 874 × 338 CSS viewport, DPR 3. Safari safe areas respected.
-- [Structured results](report.json).
+Three native pause → restart → straight-drive recoveries showed a clear, upright car and unobstructed road in screenshots captured during the held gesture:
 
-Both layouts fit without horizontal overflow. These captures include Safari browser chrome. Simulator startup ran alongside other verification work; no loading-time or frame-rate claim is made.
+| Restart      | Orientation | Visible speed progression | Selected moving frame                  |
+| ------------ | ----------- | ------------------------- | -------------------------------------- |
+| Ingleside    | Portrait    | 47 → 64 MPH               | [Portrait drive](portrait-drive.png)   |
+| The Mission  | Portrait    | 42 → 64 MPH               | [Mission drive](portrait-mission.png)  |
+| Hayes Valley | Landscape   | 42 → 63 MPH               | [Landscape drive](landscape-drive.png) |
 
-The full controls run above predates the final runtime caching and mobile memory-budget refinements. The deployed release receives a separate Safari startup smoke check.
+The raw simulator framebuffer retains its portrait pixel orientation, so the landscape driving capture appears sideways. It remains unedited. The separate [landscape layout capture](landscape-layout.png) is oriented by the native screenshot API after the gesture.
+
+Portrait is 402 × 714 CSS pixels; landscape is 874 × 338. Both use DPR 3, respect Safari safe areas and fit without horizontal overflow. These captures include browser chrome. No frame-rate claim is made for the simulator.
+
+The full suite ran against the local production preview. Deployment uploads that same built bundle, followed by a separate live Safari smoke check.

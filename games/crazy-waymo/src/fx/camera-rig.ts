@@ -263,6 +263,10 @@ export class ChaseCamera {
   // the duck is always finished by the time the camera arrives.
   private avoidClip(carPos: THREE.Vector3, desired: THREE.Vector3, solids: SolidIndex): void {
     const dx = desired.x - carPos.x;
+    // See the body, not the wheel contact point. A ray from the asphalt
+    // falsely demands a steep lift at its first sample; under a low soffit
+    // that lift is impossible and retracts the camera into the taxi's roof.
+    const originY = carPos.y + CAMERA.lookHeight;
     let endY = desired.y;
     const dz = desired.z - carPos.z;
     const steps = 12;
@@ -278,12 +282,12 @@ export class ChaseCamera {
       }
       const c = this.ceilingOver(px, pz, carPos.y);
       if (c < soffit) soffit = c;
-      const rayY = carPos.y + (endY - carPos.y) * f;
+      const rayY = originY + (endY - originY) * f;
       const floor = this.groundAt?.(px, pz, Math.max(carPos.y, rayY));
       if (floor !== undefined && floor < c && rayY < floor + GROUND_CLEARANCE) {
         // Lift the complete sightline over the crest. Pulling all the way
         // toward the taxi on a downhill made its roof fill the frame.
-        const clearY = carPos.y + (floor + GROUND_CLEARANCE - carPos.y) / f;
+        const clearY = originY + (floor + GROUND_CLEARANCE - originY) / f;
         if (clearY < soffit - CAMERA.ceilingClear) {
           endY = Math.max(endY, clearY);
         } else {
@@ -295,7 +299,7 @@ export class ChaseCamera {
     this.ceilY = soffit;
     desired.set(
       carPos.x + dx * t,
-      Math.max(CAMERA.minHeight, carPos.y + (endY - carPos.y) * t),
+      Math.max(CAMERA.minHeight, originY + (endY - originY) * t),
       carPos.z + dz * t,
     );
   }
