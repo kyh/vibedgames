@@ -78,6 +78,58 @@
         font-weight: 800;
         letter-spacing: 2px;
       }
+      #curve-teaching {
+        max-width: min(340px, 88vw);
+        margin-top: 8px;
+        padding: 6px 9px;
+        background: #d4d4d4;
+        font-size: 11px;
+        line-height: 1.45;
+        text-align: center;
+      }
+      #curve-teaching-title {
+        font-weight: 800;
+        letter-spacing: 0.5px;
+      }
+      #curve-teaching-hint:not(:empty) {
+        margin-top: 3px;
+      }
+      #practice-tools {
+        display: flex;
+        gap: 8px;
+        margin-top: 6px;
+        pointer-events: auto;
+      }
+      #practice-tools button,
+      #practice-choice {
+        min-height: 44px;
+        padding: 8px 12px;
+        border: 1px solid #000;
+        background: #d4d4d4;
+        color: #000;
+        font:
+          700 11px ui-monospace,
+          monospace;
+        letter-spacing: 0.5px;
+        cursor: pointer;
+        touch-action: manipulation;
+      }
+      #practice-choice {
+        width: 100%;
+        margin-top: 8px;
+      }
+      #curve-teaching[hidden],
+      #practice-tools[hidden],
+      #practice-choice[hidden] {
+        display: none;
+      }
+      .curve-practice #match-point,
+      .curve-practice #combo {
+        display: none;
+      }
+      .curve-practice #curve-teaching {
+        border-top: 1px solid #000;
+      }
       #shot-callout {
         position: fixed;
         bottom: calc(8% + env(safe-area-inset-bottom));
@@ -264,6 +316,21 @@
         }
       }
       @media (max-height: 500px) {
+        #curve-teaching {
+          max-width: 280px;
+          margin-top: 4px;
+          padding: 4px 6px;
+        }
+        .curve-practice #netinfo,
+        .curve-practice #curve-teaching-hint {
+          display: none;
+        }
+        #practice-tools {
+          margin-top: 4px;
+        }
+        #practice-tools button {
+          padding-inline: 8px;
+        }
         #banner {
           max-height: calc(100dvh - 30px);
           width: min(68vw, 480px);
@@ -299,6 +366,32 @@
         font-size: 14px;
         letter-spacing: 3px;
       }
+      @media (max-height: 500px) {
+        #sound-toggle {
+          left: auto;
+          right: calc(12px + env(safe-area-inset-right));
+        }
+      }
+      @media (pointer: coarse) {
+        #sound-toggle {
+          display: none;
+        }
+      }
+      @media (max-height: 300px) {
+        #hud {
+          padding-top: calc(18px + env(safe-area-inset-top));
+        }
+        #banner {
+          width: min(56vw, 480px);
+        }
+        #banner-controls,
+        #banner .spin-hint {
+          display: none;
+        }
+        #banner-detail {
+          margin-top: 8px;
+        }
+      }
 
       /* Ink-on-paper skin for @repo/embed's touch pause/mute cluster — the two
          controls that are keyboard-only everywhere else. */
@@ -318,6 +411,9 @@
          a grayscale feed so it sits in the ink-on-paper palette (the green/red
          hand skeleton on the canvas stays colored as the one live-data accent). */
       #camera-panel {
+        padding: 0;
+        color: inherit;
+        font: inherit;
         position: fixed;
         right: calc(14px + env(safe-area-inset-right));
         bottom: calc(14px + env(safe-area-inset-bottom));
@@ -331,6 +427,10 @@
         box-shadow: 5px 5px 0 rgba(0, 0, 0, 0.85);
         overflow: hidden;
         cursor: pointer;
+      }
+      #camera-panel:focus-visible {
+        outline: 3px solid #000;
+        outline-offset: 5px;
       }
       /* Narrow (portrait phone): sit above the #serve-meter zone. */
       @media (max-width: 480px) {
@@ -371,7 +471,7 @@
         display: none;
       }
       #camera-panel::before {
-        content: "HAND CONTROL";
+        content: attr(data-label);
         position: absolute;
         top: 0;
         left: 0;
@@ -382,13 +482,6 @@
         letter-spacing: 2px;
         padding: 3px 7px;
         pointer-events: none;
-      }
-      /* Tracking is opt-in on a phone (it costs ~17 MB and a camera prompt),
-         so there the idle pill has to say what tapping it does. */
-      @media (pointer: coarse) {
-        #camera-panel[data-state="off"]::before {
-          content: "✋ TAP FOR HAND CONTROL";
-        }
       }
       #camera-panel video {
         object-fit: fill; /* fill (not cover) so the whole frame shows and stays aligned with the skeleton canvas */
@@ -423,6 +516,22 @@
         color: #000;
         pointer-events: none;
       }
+      #camera-panel[data-state="live"] #camera-status {
+        top: auto;
+        padding: 5px;
+        background: #d4d4d4;
+        font-size: 10px;
+        letter-spacing: 0;
+      }
+      @media (max-height: 300px) {
+        #camera-panel[data-min="1"] {
+          width: 82px;
+          padding-inline: 4px;
+        }
+        #camera-panel[data-min="1"]::before {
+          letter-spacing: 1px;
+        }
+      }
     </style>
   </head>
   <body>
@@ -434,6 +543,14 @@
       </div>
       <div id="netinfo"></div>
       <div id="match-point" role="status"></div>
+      <div id="curve-teaching" role="status" hidden>
+        <div id="curve-teaching-title"></div>
+        <div id="curve-teaching-hint"></div>
+      </div>
+      <div id="practice-tools" hidden>
+        <button id="practice-restart" type="button">Restart practice</button>
+        <button id="practice-exit" type="button">Play match</button>
+      </div>
     </div>
     <button id="sound-toggle" type="button" aria-pressed="false">SOUND OFF</button>
     <div id="combo"></div>
@@ -446,6 +563,7 @@
       <div id="banner-controls"></div>
       <span id="banner-hint" class="spin-hint"></span>
       <button id="match-action" type="button">SERVE</button>
+      <button id="practice-choice" type="button" hidden>Practice curves</button>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

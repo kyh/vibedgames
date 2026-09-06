@@ -90,11 +90,15 @@ function linearLuminance(hex: number): number {
 }
 
 export class DitherPass {
+  private disposed = false;
   private readonly target: THREE.WebGLRenderTarget;
   private readonly quadScene = new THREE.Scene();
   private readonly quadCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   private readonly uSize: THREE.IUniform<THREE.Vector2>;
   private readonly uInvert: THREE.IUniform<number>;
+  private readonly bayer = bayerTexture();
+  private readonly geometry = new THREE.PlaneGeometry(2, 2);
+  private readonly material: THREE.ShaderMaterial;
 
   constructor(width: number, height: number) {
     const w = Math.max(1, Math.floor(width / DITHER_PIXEL));
@@ -106,10 +110,10 @@ export class DitherPass {
     this.uSize = { value: new THREE.Vector2(w, h) };
     this.uInvert = { value: 0 };
 
-    const material = new THREE.ShaderMaterial({
+    this.material = new THREE.ShaderMaterial({
       uniforms: {
         uScene: { value: this.target.texture },
-        uBayer: { value: bayerTexture() },
+        uBayer: { value: this.bayer },
         uSize: this.uSize,
         uInvert: this.uInvert,
         uInk: { value: rawColor(INK) },
@@ -123,10 +127,11 @@ export class DitherPass {
       depthTest: false,
       depthWrite: false,
     });
-    this.quadScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material));
+    this.quadScene.add(new THREE.Mesh(this.geometry, this.material));
   }
 
   setSize(width: number, height: number): void {
+    if (this.disposed) return;
     const w = Math.max(1, Math.floor(width / DITHER_PIXEL));
     const h = Math.max(1, Math.floor(height / DITHER_PIXEL));
     this.target.setSize(w, h);
@@ -134,13 +139,25 @@ export class DitherPass {
   }
 
   setInverted(on: boolean): void {
+    if (this.disposed) return;
     this.uInvert.value = on ? 1 : 0;
   }
 
   render(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera): void {
+    if (this.disposed) return;
     renderer.setRenderTarget(this.target);
     renderer.render(scene, camera);
     renderer.setRenderTarget(null);
     renderer.render(this.quadScene, this.quadCamera);
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.target.dispose();
+    this.bayer.dispose();
+    this.material.dispose();
+    this.geometry.dispose();
+    this.quadScene.clear();
   }
 }

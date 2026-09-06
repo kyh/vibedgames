@@ -10,13 +10,17 @@ export const CONTROLS: ControlsManifest = [
   { method: "keys", input: "M", action: "mute" },
   { method: "mouse", input: "MOUSE", action: "steer the paddle" },
   { method: "mouse", input: "CLICK", action: "serve · rematch" },
+  { method: "mouse", input: "SIDEWAYS FLICK", action: "curve at contact · button released" },
   { method: "touch", input: "FINGER", action: "steer the paddle" },
   { method: "touch", input: "TAP", action: "serve · rematch" },
+  { method: "touch", input: "SIDEWAYS DRAG", action: "curve at contact" },
   { method: "touch", input: "🔊", action: "mute" },
   { method: "camera", input: "✋ HAND", action: "steer the paddle" },
   { method: "camera", input: "✊ FIST", action: "serve · rematch" },
+  { method: "camera", input: "✋ SIDEWAYS FLICK", action: "curve at contact" },
   { method: "controller", input: "STICK", action: "steer the paddle" },
   { method: "controller", input: "A", action: "serve · rematch" },
+  { method: "controller", input: "STICK FLICK", action: "curve at contact" },
 ];
 
 /** The manifest as it applies right now. @repo/embed shows camera rows on
@@ -84,6 +88,12 @@ export function servePromptPhrases(): PromptPhrase[] {
 /** Win-banner note: "[✊ FIST] or [CLICK] for rematch". */
 export function rematchNotePhrases(): PromptPhrase[] {
   return [chipPhrase("serve · rematch", " for rematch")];
+}
+
+export function curveInstruction(): string {
+  return inputWords("steer the paddle").includes("MOUSE")
+    ? "Flick sideways at contact. Keep the mouse button released."
+    : "Flick sideways as the ball meets your paddle.";
 }
 
 /** Handshake note: the wait is not a dead end — "finding a match… · [TAP] to

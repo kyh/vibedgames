@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { createTouchControls, setPauseHandlers } from "@repo/embed";
 
-import { isMuted, setMuted, setSoundPaused } from "./fx/sfx";
+import { disposeSound, isMuted, setMuted, setSoundPaused } from "./fx/sfx";
 import { createHandCamera } from "./input/camera";
 import { createPongPauseOverlay } from "./pause-overlay";
 import { DitherPass } from "./render/dither-pass";
@@ -31,6 +31,7 @@ applyPixelRatio();
 renderer.setSize(window.innerWidth, window.innerHeight);
 container.appendChild(renderer.domElement);
 
+const inputOwner = new AbortController();
 const game = new GameScene();
 const dither = new DitherPass(window.innerWidth, window.innerHeight);
 
@@ -67,17 +68,29 @@ function changeSound(muted: boolean): void {
 const touchControls = createTouchControls({
   mute: { get: isMuted, set: changeSound },
 });
-soundButton.addEventListener("pointerdown", (event) => event.stopPropagation());
-soundButton.addEventListener("pointerup", (event) => event.stopPropagation());
-soundButton.addEventListener("click", () => {
-  changeSound(!isMuted());
-  touchControls.sync();
+soundButton.addEventListener("pointerdown", (event) => event.stopPropagation(), {
+  signal: inputOwner.signal,
 });
-window.addEventListener("keydown", (e) => {
-  if (e.code !== "KeyM" || e.repeat) return;
-  changeSound(!isMuted());
-  touchControls.sync();
+soundButton.addEventListener("pointerup", (event) => event.stopPropagation(), {
+  signal: inputOwner.signal,
 });
+soundButton.addEventListener(
+  "click",
+  () => {
+    changeSound(!isMuted());
+    touchControls.sync();
+  },
+  { signal: inputOwner.signal },
+);
+window.addEventListener(
+  "keydown",
+  (e) => {
+    if (e.code !== "KeyM" || e.repeat) return;
+    changeSound(!isMuted());
+    touchControls.sync();
+  },
+  { signal: inputOwner.signal },
+);
 syncSound();
 
 // Webcam hand tracking. On failure it shows a status in its panel and the
@@ -92,15 +105,22 @@ const handCamera = createHandCamera(
   () => game.handleGestureConfirm(),
 );
 if (!COARSE_INPUT) {
-  window.addEventListener("load", () => handCamera.enable(), { once: true });
+  window.addEventListener("load", () => handCamera.enable(), {
+    once: true,
+    signal: inputOwner.signal,
+  });
 }
 
-window.addEventListener("resize", () => {
-  game.resize(window.innerWidth / window.innerHeight);
-  applyPixelRatio();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  dither.setSize(window.innerWidth, window.innerHeight);
-});
+window.addEventListener(
+  "resize",
+  () => {
+    game.resize(window.innerWidth / window.innerHeight);
+    applyPixelRatio();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    dither.setSize(window.innerWidth, window.innerHeight);
+  },
+  { signal: inputOwner.signal },
+);
 
 const timer = new THREE.Timer();
 renderer.setAnimationLoop((time) => {
@@ -117,6 +137,27 @@ renderer.setAnimationLoop((time) => {
     },
   });
 });
+
+// Final owner only: visibility and BFCache leave the match recoverable.
+let disposed = false;
+function dispose(): void {
+  if (disposed) return;
+  disposed = true;
+  renderer.setAnimationLoop(null);
+  inputOwner.abort();
+  setPauseHandlers({});
+  pauseOverlay.hide();
+  touchControls.destroy();
+  handCamera.stop();
+  game.dispose();
+  disposeSound();
+  dither.dispose();
+  timer.dispose();
+  renderer.dispose();
+  renderer.forceContextLoss();
+  renderer.domElement.remove();
+}
+import.meta.hot?.dispose(dispose);
 
 // See plugins/tooling/skills/playtest/references/bot-playtest.md. State hooks
 // opt into a solo match, never write a staged score into a live room.
@@ -139,5 +180,6 @@ if (import.meta.env.DEV) {
     __pong: game,
     __pongHand: (x: number) => game.handleHandPosition(x),
     __pongCamera: handCamera,
+    __pongDispose: dispose,
   });
 }

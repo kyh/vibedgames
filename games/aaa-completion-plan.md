@@ -47,8 +47,8 @@ Each row includes the existing polish/graphics baseline plus the remaining work.
 | Starfall              | Authored battle escalation and quiet intervals; weapon-specific trials; dense-combat performance      | Battle score, real weapon trials, live recovery and hardware combat verified  |
 | Lunerfall             | Enemy anticipation/recovery; portrait hub composition; complete co-op expedition and boss pacing      | Original acting, responsive hub, live co-op/versus and hardware load verified |
 | Farm                  | Character/tool transition continuity; seasonal collection goals; complete day/mine/save pacing        | Original acting, journal, saves, live pause and hardware scenes verified      |
-| Pong                  | Spin teaching/practice; optional trick-shot mastery; full local/connected match feel                  | Camera/reconnect baseline and optional practice active                        |
-| Flappy Dragons        | Distinct forest landmarks; seeded challenge routes; pose recovery and full-flight pacing              | Queued                                                                        |
+| Pong                  | Spin teaching/practice; optional trick-shot mastery; full local/connected match feel                  | Practice, camera recovery, live matches and hardware rendering verified       |
+| Flappy Dragons        | Distinct forest landmarks; seeded challenge routes; pose recovery and full-flight pacing              | Camera/pause ownership and seeded-route completion next                       |
 | Pacman                | Musical escalation; optional maze challenges; camera recovery and complete chase pacing               | Queued                                                                        |
 | Tetris                | Advanced spatial teaching; seeded score challenges; camera recovery and full-run pacing               | Queued                                                                        |
 
@@ -120,6 +120,18 @@ Pong plan: preserve the ink-and-paper court and existing curve physics; teach
 accepted curves and add optional offline practice; repair camera retry/focus and
 final ownership; retain admitted guest orientation across transport gaps. Verify
 real local/connected contacts, results/rematches and original input paths.
+Unresolved questions: none blocking implementation.
+
+Pong's local pass is complete. [Evidence and captures](/Users/kyh/.codex/visualizations/2026/09/05/01a072e5-b121-77b0-b7f7-52a06ec3e9e2/aaa-completion/pong/README.md)
+cover native accepted curve practice, camera denial/retry and final ownership,
+all original input paths, actual two-client curves/results/three rematches and
+reconnect/election, four responsive sizes, matched Apple GPU frames and recorded
+audio. All 33 regressions pass; 4,822 simulation samples match the saved baseline.
+
+Flappy Dragons plan: preserve the four-frame dragon art, forest palette, all pose
+methods and original flap/race rules. Finish final scene/camera ownership and
+paused-controller fencing; verify real race recovery; add an optional fixed-seed
+solo route and sparse forest landmarks using the existing course generator.
 Unresolved questions: none blocking implementation.
 
 After individual work, compare the collection for quality consistency and close

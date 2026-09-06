@@ -2,12 +2,17 @@ import * as THREE from "three";
 import { notifyGameStarted, watchControlContext } from "@repo/embed";
 import { PhysicalGamepad } from "@vibedgames/gamepad";
 
-import { connectingPromptPhrases, rematchNotePhrases, servePromptPhrases } from "../controls";
+import {
+  connectingPromptPhrases,
+  curveInstruction,
+  rematchNotePhrases,
+  servePromptPhrases,
+} from "../controls";
 import type { PromptPhrase } from "../controls";
 import { watchHandCamera } from "../input/camera";
 import { inkChip } from "../pause-overlay";
 import { ParticlePool } from "../fx/particles";
-import { sfx } from "../fx/sfx";
+import { clearSound, sfx } from "../fx/sfx";
 import { RingPool } from "../fx/shock-rings";
 import { NetSession, isJsonNumber, isJsonObject } from "../net/session";
 import type { JsonObject, JsonValue } from "../net/session";
@@ -19,6 +24,8 @@ import {
   validatedRemoteStroke,
 } from "../shared/spin";
 import type { Spin } from "../shared/spin";
+import { advanceLesson, advancePractice, practiceObjective } from "../shared/practice";
+import type { CurveLesson, PlayMode } from "../shared/practice";
 import {
   MP_ROOM,
   MP_MAX_PLAYERS,
@@ -116,6 +123,7 @@ import {
 } from "../shared/constants";
 
 type Phase = "serving" | "rally" | "won";
+type AdmittedRole = "pending" | "solo" | "host" | "guest";
 
 /** Cosmetic hop: visual z parabola from the hit point to a landing y. */
 type Arc = { fromY: number; toY: number };
@@ -151,6 +159,9 @@ export class GameScene {
   private frame = 0;
   private spinShots = 0;
   private random = Math.random;
+  private playMode: PlayMode = { kind: "match" };
+  private curveLesson: CurveLesson = "return";
+  private lessonUntil = 0;
 
   // ---- multiplayer -----------------------------------------------------------
   private net: NetSession;
@@ -161,7 +172,9 @@ export class GameScene {
   private connectedBefore = false;
   private connWas = false; // tracks the connecting→live transition for the HUD
   private oppWas = false; // tracks opponent join/leave for the HUD
-  private roleWasGuest: boolean | null = null; // last role while live (host migration)
+  private role: AdmittedRole = "pending";
+  private disposed = false;
+  private sessionGeneration = 0;
 
   // ---- wrapper pause -----------------------------------------------------
   // Only frozen when it's safe: a live human opponent must never desync from
@@ -187,7 +200,8 @@ export class GameScene {
   private trailAcc = 0;
   private particles: ParticlePool;
   private rings: RingPool;
-  private reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  private readonly motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+  private reducedMotion = this.motionQuery.matches;
   private shotUntil = 0;
   private pointUntil = 0;
 
@@ -242,15 +256,29 @@ export class GameScene {
   private netInfoEl = el("netinfo");
   private shotEl = el("shot-callout");
   private matchPointEl = el("match-point");
+  private teachingEl = el("curve-teaching");
+  private teachingTitleEl = el("curve-teaching-title");
+  private teachingHintEl = el("curve-teaching-hint");
   private serveMeterShown = false; // cached so we only touch classList on transitions
+  private readonly containedPointerEvents = [
+    "pointerdown",
+    "pointermove",
+    "pointerup",
+    "pointercancel",
+  ];
+  private readonly stopPointer = (event: Event): void => event.stopPropagation();
+  private readonly onConfirm = (): void => this.confirm();
+  private readonly onMotionChange = (event: MediaQueryListEvent): void => {
+    if (!this.disposed) this.setReducedMotion(event.matches);
+  };
+  private readonly practiceChoiceEl = el("practice-choice");
+  private readonly practiceRestartEl = el("practice-restart");
+  private readonly practiceExitEl = el("practice-exit");
+  private readonly practiceToolsEl = el("practice-tools");
 
   constructor() {
-    this.net = new NetSession({
-      room: MP_ROOM,
-      maxPlayers: MP_MAX_PLAYERS,
-      fallbackMs: OFFLINE_FALLBACK_MS,
-      onEvent: (event, payload, from) => this.handleEvent(event, payload, from),
-    });
+    this.net = this.createSession(false);
+    this.admitRole();
 
     this.scene.background = new THREE.Color(BG);
 
@@ -275,10 +303,12 @@ export class GameScene {
     // Table: a single flat outline on the z=0 play plane (the old box edges
     // drew a second, lower rectangle that doubled every side line).
     const ink = new THREE.MeshBasicMaterial({ color: INK });
+    const tablePlane = new THREE.PlaneGeometry(COURT_W, COURT_D);
     const table = new THREE.LineSegments(
-      new THREE.EdgesGeometry(new THREE.PlaneGeometry(COURT_W, COURT_D)),
+      new THREE.EdgesGeometry(tablePlane),
       new THREE.LineBasicMaterial({ color: INK }),
     );
+    tablePlane.dispose(); // EdgesGeometry copied the source; it never joins the scene.
     this.scene.add(table);
 
     // Dashed net across mid-court — the classic Pong read, one InstancedMesh of
@@ -361,30 +391,88 @@ export class GameScene {
     window.addEventListener("pointerdown", this.onPointerDown);
     window.addEventListener("pointerup", this.onPointerUp);
     window.addEventListener("pointercancel", this.onPointerUp);
-    window.matchMedia("(prefers-reduced-motion: reduce)").addEventListener("change", (event) => {
-      this.setReducedMotion(event.matches);
-    });
+    this.motionQuery.addEventListener("change", this.onMotionChange);
     this.setReducedMotion(this.reducedMotion);
 
     // A scroll inside the instruction card must not become a canvas serve.
-    for (const eventName of ["pointerdown", "pointermove", "pointerup", "pointercancel"]) {
-      this.bannerEl.addEventListener(eventName, (event) => event.stopPropagation());
-    }
-    this.actionEl.addEventListener("click", () => this.confirm());
+    for (const target of [this.bannerEl, this.practiceToolsEl])
+      for (const eventName of this.containedPointerEvents)
+        target.addEventListener(eventName, this.stopPointer);
+    this.actionEl.addEventListener("click", this.onConfirm);
+    this.practiceChoiceEl.addEventListener("click", this.onPracticeChoice);
+    this.practiceRestartEl.addEventListener("click", this.onPracticeRestart);
+    this.practiceExitEl.addEventListener("click", this.onPracticeExit);
     this.syncHud();
   }
 
   resize(aspect: number): void {
+    if (this.disposed) return;
     this.camera.aspect = aspect;
     this.camera.fov = fovForAspect(aspect);
     this.camera.updateProjectionMatrix();
   }
 
+  /** Final app ownership. Shared mesh resources are released once, never per instance. */
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.sessionGeneration += 1;
+    this.net.destroy();
+    this.unwatchControls?.();
+    this.unwatchControls = null;
+    window.removeEventListener("blur", this.onBlur);
+    window.removeEventListener("pointermove", this.onPointerMove);
+    window.removeEventListener("pointerdown", this.onPointerDown);
+    window.removeEventListener("pointerup", this.onPointerUp);
+    window.removeEventListener("pointercancel", this.onPointerUp);
+    this.motionQuery.removeEventListener("change", this.onMotionChange);
+    for (const target of [this.bannerEl, this.practiceToolsEl])
+      for (const eventName of this.containedPointerEvents)
+        target.removeEventListener(eventName, this.stopPointer);
+    this.actionEl.removeEventListener("click", this.onConfirm);
+    this.practiceChoiceEl.removeEventListener("click", this.onPracticeChoice);
+    this.practiceRestartEl.removeEventListener("click", this.onPracticeRestart);
+    this.practiceExitEl.removeEventListener("click", this.onPracticeExit);
+    this.dragging = false;
+    this.resetStrokes();
+    this.particles.clear();
+    this.rings.clear();
+    const geometries = new Set<THREE.BufferGeometry>();
+    const materials = new Set<THREE.Material>();
+    const textures = new Set<THREE.Texture>();
+    this.scene.traverse((node) => {
+      if (!(node instanceof THREE.Mesh || node instanceof THREE.LineSegments)) return;
+      geometries.add(node.geometry);
+      for (const material of Array.isArray(node.material) ? node.material : [node.material]) {
+        materials.add(material);
+        if (
+          (material instanceof THREE.MeshBasicMaterial ||
+            material instanceof THREE.MeshPhongMaterial) &&
+          material.map
+        )
+          textures.add(material.map);
+      }
+      if (node instanceof THREE.InstancedMesh) node.dispose();
+    });
+    for (const texture of textures) texture.dispose();
+    for (const material of materials) material.dispose();
+    for (const geometry of geometries) geometry.dispose();
+    this.scene.clear();
+  }
+
   // ---- role / paddle ownership ---------------------------------------------
 
-  /** A guest (second player) is connected but not the host. */
+  /** A transport gap cannot change an admitted paddle's canonical ownership. */
   private isGuest(): boolean {
-    return this.net.live && !this.net.offline && !this.net.isHost;
+    return this.role === "guest";
+  }
+
+  private admitRole(): void {
+    if (!this.net.live) return;
+    const next: AdmittedRole = this.net.offline ? "solo" : this.net.isHost ? "host" : "guest";
+    const previous = this.role;
+    this.role = next;
+    if (previous === "guest" && next === "host") this.becomeHost();
   }
 
   /** True when the local player owns slot A (host or solo). Guest owns slot B. */
@@ -425,6 +513,7 @@ export class GameScene {
    *  connected — freezing here would desync the shared rally state; the
    *  wrapper's overlay still shows, the match just keeps running behind it. */
   requestPause(): void {
+    if (this.disposed) return;
     if (this.hasLiveOpponent()) return;
     this.froze = true;
     this.paused = true;
@@ -433,6 +522,7 @@ export class GameScene {
 
   /** Wrapper resume. Only unfreezes if requestPause() actually froze us. */
   requestResume(): void {
+    if (this.disposed) return;
     if (!this.froze) return;
     this.froze = false;
     this.paused = false;
@@ -480,7 +570,9 @@ export class GameScene {
 
   /** Wrist landmark x ∈ [0,1] from the webcam tracker (also the DEV hook). */
   handleHandPosition(x: number): void {
+    if (this.disposed) return;
     if (!Number.isFinite(x) || x < 0 || x > 1) return;
+    this.admitRole();
     if (!this.paused) {
       this.stroke.sample(
         this.flip * ((1 - x) * HAND_RANGE - PADDLE_X_MAX),
@@ -513,6 +605,8 @@ export class GameScene {
   // paddle ignores it; otherwise pointermove drives the paddle (unless a
   // hand currently owns it).
   private onPointerMove = (e: PointerEvent): void => {
+    if (this.disposed) return;
+    this.admitRole();
     if (this.dragging) {
       if (e.buttons === 0) {
         this.dragging = false; // button released outside the window
@@ -576,11 +670,12 @@ export class GameScene {
     // Frozen for the wrapper's pause overlay: the webcam hand loop keeps
     // running (per its own contract) but must not wake the sim through a
     // fist gesture while we're paused.
-    if (this.paused) return;
+    if (this.disposed || this.paused) return;
     // Still handshaking. A tap here is intent, not noise: rather than swallow
     // it and leave the player staring at "connecting" for the rest of the
     // fallback window, take it as "play now" and serve solo.
     if (!this.net.live) this.playSolo();
+    this.admitRole();
     // A guest can't touch the authoritative ball/score — forward the intent so
     // the host serves / rematches for both of us.
     if (this.isGuest()) {
@@ -597,18 +692,124 @@ export class GameScene {
     if (this.phase === "serving") this.serve();
   }
 
+  private onPracticeChoice = (): void => {
+    if (this.disposed || this.paused || this.hasLiveOpponent() || this.playMode.kind === "practice")
+      return;
+    this.playSolo();
+    this.playMode = { kind: "practice", progress: "return" };
+    this.resetPracticeRound();
+    this.serve();
+  };
+
+  private onPracticeRestart = (): void => {
+    if (this.disposed || this.paused || this.playMode.kind !== "practice") return;
+    this.playMode = { kind: "practice", progress: "return" };
+    this.resetPracticeRound();
+    this.serve();
+  };
+
+  private onPracticeExit = (): void => {
+    if (this.disposed || this.paused || this.playMode.kind !== "practice") return;
+    this.playMode = { kind: "match" };
+    this.replaceSession(false);
+    this.resetPracticeRound();
+    this.syncHud();
+  };
+
+  /** Explicit practice navigation starts a clean table; ordinary rematches retain their rules. */
+  private resetPracticeRound(): void {
+    clearSound();
+    this.scoreYou = 0;
+    this.scoreAi = 0;
+    this.longestRally = 0;
+    this.phase = "serving";
+    this.serveAt = null;
+    this.ballPos.set(0, 0);
+    this.ballVel.set(0, 0);
+    this.playerX = 0;
+    this.aiX = 0;
+    this.arc = null;
+    this.spin = null;
+    this.rallyHits = 0;
+    this.rallySpeed = RALLY_SPEED_BASE;
+    this.resetStrokes();
+    this.freeze = 0;
+    this.trauma = 0;
+    this.invertFlash = 0;
+    this.flashNear = 0;
+    this.flashFar = 0;
+    this.playerPulse = 0;
+    this.aiPulse = 0;
+    this.camKick.set(0, 0, 0);
+    this.trailAcc = 0;
+    this.particles.clear();
+    this.rings.clear();
+    this.pointUntil = 0;
+    this.pointEl.textContent = "";
+    this.shotUntil = 0;
+    this.shotEl.classList.remove("on");
+    this.comboEl.style.opacity = "0";
+    this.lessonUntil = 0;
+  }
+
+  /** Only callers that accepted a real contact may teach; guest callers are host-authenticated. */
+  private observeLocalContact(slotA: boolean, acceptedStrength: number): void {
+    if (slotA !== this.mySlotA) return;
+    const screenStrength = acceptedStrength * this.flip;
+    const lesson = advanceLesson(this.curveLesson, screenStrength);
+    if (lesson !== this.curveLesson) {
+      this.curveLesson = lesson;
+      if (lesson === "complete") this.lessonUntil = this.elapsed + 2;
+    }
+    if (this.playMode.kind === "practice") {
+      this.playMode = {
+        kind: "practice",
+        progress: advancePractice(this.playMode.progress, screenStrength),
+      };
+    }
+    this.syncTeaching();
+  }
+
   /** Abandon matchmaking for the local solo game. Replaces the session rather
    *  than mutating it: `forceOffline` is how the net layer says "never open a
    *  socket", and the shared session file is kept identical across games. */
   private playSolo(): void {
-    this.net.destroy();
-    this.net = new NetSession({
+    this.replaceSession(true);
+  }
+
+  private createSession(forceOffline: boolean): NetSession {
+    const generation = this.sessionGeneration;
+    return new NetSession({
       room: MP_ROOM,
       maxPlayers: MP_MAX_PLAYERS,
       fallbackMs: OFFLINE_FALLBACK_MS,
-      forceOffline: true,
-      onEvent: (event, payload, from) => this.handleEvent(event, payload, from),
+      forceOffline,
+      onEvent: (event, payload, from) => {
+        if (this.disposed || generation !== this.sessionGeneration || !this.net.live) return;
+        this.admitRole();
+        this.handleEvent(event, payload, from);
+      },
     });
+  }
+
+  /** Explicit mode changes own a new session. Reconnects keep their admitted seat. */
+  private replaceSession(forceOffline: boolean): void {
+    if (this.disposed) return;
+    this.sessionGeneration += 1;
+    this.net.destroy();
+    this.role = "pending";
+    this.net = this.createSession(forceOffline);
+    this.netAcc = 0;
+    this.paddleAcc = 0;
+    this.hostSeq = 0;
+    this.lastSeq = -1;
+    this.connectedBefore = false;
+    this.connWas = false;
+    this.oppWas = false;
+    this.remoteStrokeSeq = -1;
+    this.paddleSeq = 0;
+    this.resetStrokes();
+    this.admitRole();
   }
 
   private serve(): void {
@@ -633,9 +834,13 @@ export class GameScene {
   // ---- simulation ------------------------------------------------------------
 
   update(dt: number): void {
-    if (this.paused) return;
+    if (this.disposed || this.paused) return;
     this.frame += 1;
     this.elapsed += dt;
+    if (this.lessonUntil > 0 && this.elapsed >= this.lessonUntil) {
+      this.lessonUntil = 0;
+      this.syncTeaching();
+    }
     if (this.shotUntil > 0 && this.elapsed >= this.shotUntil) {
       this.shotUntil = 0;
       this.shotEl.classList.remove("on");
@@ -646,6 +851,7 @@ export class GameScene {
     }
     this.invertFlash = Math.max(0, this.invertFlash - dt);
     this.net.tick();
+    this.admitRole();
 
     // Poll the pad every non-paused frame — before the handshake/hit-stop
     // early returns, so A stays as responsive as a click (confirm() carries
@@ -666,13 +872,6 @@ export class GameScene {
       this.resetStrokes();
       this.remoteStrokeSeq = -1;
       this.syncHud();
-    }
-    if (this.net.live && !this.net.offline) {
-      // Host migration: the server elected us after the old host left (the
-      // check spans reconnect gaps, when `live` briefly drops).
-      const guestNow = this.isGuest();
-      if (this.roleWasGuest === true && !guestNow) this.becomeHost();
-      this.roleWasGuest = guestNow;
     }
     if (!this.net.live) {
       // Still handshaking with the party server: render an idle court rather
@@ -845,6 +1044,7 @@ export class GameScene {
           : 0;
     this.spin = Math.abs(strength) >= 0.15 ? { strength, left: SPIN_LIFE } : null;
     if (this.spin) this.spinShots += 1;
+    this.observeLocalContact(side === "player", this.spin?.strength ?? 0);
     this.stroke.reset();
     this.remoteStrokeIntent = 0;
     this.remoteStrokeUntil = 0;
@@ -1034,6 +1234,7 @@ export class GameScene {
     const bool = (k: string): boolean => p[k] === true;
     switch (event) {
       case "phit":
+        this.observeLocalContact(bool("a"), clamp(num("spin"), -1, 1));
         this.paddleHitFx(
           num("x"),
           num("y"),
@@ -1313,6 +1514,7 @@ export class GameScene {
   }
 
   setReducedMotion(enabled: boolean): void {
+    if (this.disposed) return;
     this.reducedMotion = enabled;
     document.documentElement.classList.toggle("reduced-motion", enabled);
     if (enabled) {
@@ -1346,6 +1548,8 @@ export class GameScene {
       rallyHits: this.rallyHits,
       longestRally: this.longestRally,
       spinShots: this.spinShots,
+      practice: this.playMode.kind === "practice" ? this.playMode.progress : null,
+      curveLesson: this.curveLesson,
       ball: {
         x: this.ballPos.x,
         y: this.ballPos.y,
@@ -1371,6 +1575,7 @@ export class GameScene {
   }
 
   setTestState(name: string): void {
+    if (this.disposed) return;
     if (name !== "active-play" && name !== "match-point" && name !== "fail") {
       throw new Error(`Unknown Pong playtest state: ${name}`);
     }
@@ -1406,6 +1611,7 @@ export class GameScene {
   // ---- HUD -----------------------------------------------------------------
 
   private syncHud(): void {
+    if (this.disposed) return;
     this.scoreYouEl.textContent = String(this.scoreYou);
     this.scoreAiEl.textContent = String(this.scoreAi);
     const human = this.net.live && this.hasOpponent();
@@ -1435,12 +1641,14 @@ export class GameScene {
         "PLAY AI",
       );
     } else if (this.phase === "serving" && this.serveAt === null) {
+      this.showBanner("PONG", "FIRST TO 7 WINS", servePromptPhrases(), curveInstruction(), "SERVE");
+    } else if (this.phase === "won" && this.playMode.kind === "practice") {
       this.showBanner(
-        "PONG",
-        "FIRST TO 7 WINS",
-        servePromptPhrases(),
-        "Flick sideways at contact to curve your return.",
-        "SERVE",
+        "PRACTICE",
+        `${this.scoreYou} — ${this.scoreAi} · LONGEST RALLY ${this.longestRally}`,
+        rematchNotePhrases(),
+        practiceObjective(this.playMode.progress),
+        "KEEP PRACTICING",
       );
     } else if (this.phase === "won") {
       const iWon = this.scoreYou > this.scoreAi;
@@ -1457,8 +1665,43 @@ export class GameScene {
       controlsCopy = false;
     }
     this.bannerEl.hidden = !controlsCopy;
+    this.practiceChoiceEl.hidden =
+      !controlsCopy || this.playMode.kind === "practice" || this.hasLiveOpponent();
+    this.practiceToolsEl.hidden = this.playMode.kind !== "practice";
+    document.documentElement.classList.toggle("curve-practice", this.playMode.kind === "practice");
     this.watchBannerControls(controlsCopy);
-    setText(this.netInfoEl, this.netInfoText());
+    setText(
+      this.netInfoEl,
+      this.playMode.kind === "practice" ? "CURVE PRACTICE · AI" : this.netInfoText(),
+    );
+    this.syncTeaching();
+  }
+
+  private syncTeaching(): void {
+    if (this.playMode.kind === "practice") {
+      this.teachingEl.hidden = false;
+      setText(this.teachingTitleEl, practiceObjective(this.playMode.progress));
+      setText(
+        this.teachingHintEl,
+        this.playMode.progress === "return"
+          ? "Meet the ball with your paddle."
+          : this.playMode.progress === "complete"
+            ? "Keep rallying or take it into a match."
+            : curveInstruction(),
+      );
+      return;
+    }
+    this.teachingEl.hidden =
+      !this.bannerEl.hidden || (this.curveLesson === "complete" && this.lessonUntil === 0);
+    setText(
+      this.teachingTitleEl,
+      this.curveLesson === "return"
+        ? "Meet the ball with your paddle"
+        : this.curveLesson === "curve"
+          ? "Flick sideways at contact to curve"
+          : "CURVE LANDED",
+    );
+    setText(this.teachingHintEl, "");
   }
 
   /** While the banner shows manifest-derived copy, watch for the things that

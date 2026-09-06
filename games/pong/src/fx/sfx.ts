@@ -28,6 +28,7 @@ function storageSet(key: string, value: string): void {
 }
 
 let muted = storageGet(SOUND_KEY) !== "1";
+let disposed = false;
 
 export function isMuted(): boolean {
   return muted;
@@ -37,6 +38,7 @@ export function isMuted(): boolean {
  *  button, so creating/resuming the context on unmute satisfies autoplay rules
  *  even when no sound has played yet. */
 export function setMuted(next: boolean): void {
+  if (disposed) return;
   muted = next;
   storageSet(SOUND_KEY, muted ? "0" : "1");
   if (muted) stopVoices();
@@ -45,23 +47,50 @@ export function setMuted(next: boolean): void {
 
 let ctx: AudioContext | null = null;
 let paused = false;
-const voices = new Set<OscillatorNode>();
+const voices = new Map<OscillatorNode, () => void>();
 
 function stopVoices(): void {
-  for (const voice of voices) voice.stop();
-  voices.clear();
+  for (const [voice, release] of voices) {
+    voice.stop();
+    release();
+  }
+}
+
+/** Explicit practice navigation drops old tails, preserving the sound preference. */
+export function clearSound(): void {
+  stopVoices();
 }
 
 /** Stop active and scheduled notes; resuming never replays an old score fanfare. */
 export function setSoundPaused(next: boolean): void {
+  if (disposed) return;
   paused = next;
   if (paused) stopVoices();
 }
 
 function audio(): AudioContext | null {
+  if (disposed) return null;
   if (ctx === null && "AudioContext" in window) ctx = new AudioContext();
-  if (ctx !== null && ctx.state === "suspended") void ctx.resume();
+  if (ctx !== null && ctx.state === "suspended") void ctx.resume().catch(() => {});
   return ctx;
+}
+
+/** Final app teardown. Pending notes and context operations cannot reopen it. */
+export function disposeSound(): void {
+  if (disposed) return;
+  disposed = true;
+  stopVoices();
+  if (ctx && ctx.state !== "closed") void ctx.close().catch(() => {});
+}
+
+export function soundDiagnostics() {
+  return Object.freeze({
+    disposed,
+    muted,
+    paused,
+    ownedVoices: voices.size,
+    context: ctx?.state ?? "uncreated",
+  });
 }
 
 type Blip = {
@@ -76,7 +105,7 @@ type Blip = {
 };
 
 function blip({ freq, end, dur, type, gain, at = 0 }: Blip): void {
-  if (muted || paused) return;
+  if (disposed || muted || paused) return;
   const ac = audio();
   if (!ac) return;
   const t0 = ac.currentTime + at;
@@ -89,16 +118,14 @@ function blip({ freq, end, dur, type, gain, at = 0 }: Blip): void {
   g.gain.setValueAtTime(gain, t0);
   g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
   osc.connect(g).connect(ac.destination);
-  voices.add(osc);
-  osc.addEventListener(
-    "ended",
-    () => {
-      voices.delete(osc);
-      osc.disconnect();
-      g.disconnect();
-    },
-    { once: true },
-  );
+  const release = (): void => {
+    if (!voices.delete(osc)) return;
+    osc.removeEventListener("ended", release);
+    osc.disconnect();
+    g.disconnect();
+  };
+  voices.set(osc, release);
+  osc.addEventListener("ended", release, { once: true });
   osc.start(t0);
   osc.stop(t0 + dur + 0.02);
 }
