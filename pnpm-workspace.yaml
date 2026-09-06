@@ -4,8 +4,8 @@ packages:
   - packages/*
 
 catalog:
-  "@cloudflare/vite-plugin": ^1.54.2
-  "@cloudflare/workers-types": ^5.20260831.1
+  "@cloudflare/vite-plugin": ^1.54.4
+  "@cloudflare/workers-types": ^5.20260905.1
   "@kyh/tsconfig": ^1.2.0
   "@orpc/client": 2.0.0-beta.31
   "@orpc/server": 2.0.0-beta.31
@@ -15,9 +15,9 @@ catalog:
   "@tanstack/react-router": ^1.170.32
   "@tanstack/react-router-ssr-query": ^1.167.2
   "@tanstack/react-start": ^1.168.49
-  "@types/node": ^26.4.0
+  "@types/node": ^26.4.1
   "@types/react": ^19.2.18
-  "@types/react-dom": ^19.2.5
+  "@types/react-dom": ^19.2.7
   "@vitejs/plugin-react": ^6.1.1
   "@vitejs/plugin-react-swc": ^4.3.1
   globals: ^17.6.0
@@ -27,7 +27,7 @@ catalog:
   typescript: ^7.0.2
   vite: ^8.2.2
   vite-tsconfig-paths: ^6.1.1
-  wrangler: ^4.127.1
+  wrangler: ^4.129.0
   zod: ^4.5.4
 
 linkWorkspacePackages: true
