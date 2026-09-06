@@ -1,0 +1,412 @@
+{
+  "url": "http://localhost:5193/?time=night&offline=1",
+  "checkedAt": "2026-09-05T08:13:08.487Z",
+  "checks": [
+    {
+      "name": "actual coarse-pointer path",
+      "passed": true,
+      "evidence": {
+        "coarse": true,
+        "touch": 5,
+        "dpr": 3,
+        "width": 390,
+        "height": 844
+      }
+    },
+    {
+      "name": "hidden start button cannot take focus or intercept steering",
+      "passed": true,
+      "evidence": {
+        "point": {
+          "x": 110.02645111083984,
+          "y": 452.8984375,
+          "id": 1
+        },
+        "focused": false,
+        "intercepts": false,
+        "hit": "CANVAS"
+      }
+    },
+    {
+      "name": "touch accelerates and steers from the former start-button bounds",
+      "passed": true,
+      "evidence": {
+        "before": {
+          "x": -396.5,
+          "z": -286,
+          "y": 5.101700668334961,
+          "speed": 0,
+          "heading": 0,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.42008196721311475,
+            "v": 0.42851923076923076
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 88,
+            "wrecked": false,
+            "y": 1.6
+          }
+        },
+        "driven": {
+          "x": -396.5,
+          "z": -280.98553417968753,
+          "y": 5.3317344875335655,
+          "speed": 13.511519432304933,
+          "heading": 0.000006825651132569419,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.42008196721311475,
+            "v": 0.42851923076923076
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 85.8,
+            "wrecked": false,
+            "y": 2.6
+          }
+        },
+        "steered": {
+          "x": -398.0980065917969,
+          "z": -273.8629034423828,
+          "y": 6.679943671226502,
+          "speed": 21.326921582127664,
+          "heading": -0.3738352007996026,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.42008196721311475,
+            "v": 0.42851923076923076
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 90.3,
+            "wrecked": false,
+            "y": 2.6
+          }
+        }
+      }
+    },
+    {
+      "name": "touch nitro boost",
+      "passed": true,
+      "evidence": {
+        "x": -396.5,
+        "z": -279.6802434082031,
+        "y": 5.57777376937866,
+        "speed": 17.3944435124498,
+        "heading": 0.000008123561976831003,
+        "airborne": false,
+        "drifting": false,
+        "boosting": true,
+        "carrying": false,
+        "objective": {
+          "u": 0.42008196721311475,
+          "v": 0.42851923076923076
+        },
+        "wreckedCount": 0,
+        "nearestTraffic": {
+          "dist": 86.8,
+          "wrecked": false,
+          "y": 2.6
+        }
+      }
+    },
+    {
+      "name": "touch brake and steering drift",
+      "passed": true,
+      "evidence": {
+        "x": -396.27260009765627,
+        "z": -276.62229614257814,
+        "y": 6.159441299438477,
+        "speed": 18.728696338916578,
+        "heading": -0.24008436034871047,
+        "airborne": false,
+        "drifting": true,
+        "boosting": true,
+        "carrying": false,
+        "objective": {
+          "u": 0.42008196721311475,
+          "v": 0.42851923076923076
+        },
+        "wreckedCount": 0,
+        "nearestTraffic": {
+          "dist": 87.7,
+          "wrecked": false,
+          "y": 2.6
+        }
+      }
+    },
+    {
+      "name": "touch pedal reverses from stop",
+      "passed": true,
+      "evidence": {
+        "reverseDistance": -0.2884664306641298,
+        "reversed": {
+          "x": -396.5,
+          "z": -286.2884664306641,
+          "y": 4.358743332862853,
+          "speed": 3.349915744515011,
+          "heading": -9.797076735826417e-7,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.42008196721311475,
+            "v": 0.42851923076923076
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 84.7,
+            "wrecked": false,
+            "y": 2.6
+          }
+        }
+      }
+    },
+    {
+      "name": "pause holds vehicle",
+      "passed": true,
+      "evidence": {
+        "parked": {
+          "x": -396.5,
+          "z": -286.7884154663086,
+          "y": 4.403862030982972,
+          "speed": 2.553911924384106,
+          "heading": -3.5384917421682644e-7,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.42008196721311475,
+            "v": 0.42851923076923076
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 84.6,
+            "wrecked": false,
+            "y": 2.6
+          }
+        },
+        "paused": {
+          "x": -396.5,
+          "z": -286.7884154663086,
+          "y": 4.403862030982972,
+          "speed": 2.553911924384106,
+          "heading": -3.5384917421682644e-7,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.42008196721311475,
+            "v": 0.42851923076923076
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 84.6,
+            "wrecked": false,
+            "y": 2.6
+          }
+        }
+      }
+    },
+    {
+      "name": "touch resume and restart",
+      "passed": true,
+      "evidence": {
+        "x": 760.5,
+        "z": -448.5,
+        "y": 1.086902810096742,
+        "speed": 0,
+        "heading": -0.78539819245999,
+        "airborne": false,
+        "drifting": false,
+        "boosting": false,
+        "carrying": false,
+        "objective": {
+          "u": 0.6622093303991736,
+          "v": 0.34289538308699175
+        },
+        "wreckedCount": 0,
+        "nearestTraffic": {
+          "dist": 88.7,
+          "wrecked": false,
+          "y": 0.3
+        }
+      }
+    },
+    {
+      "name": "restart gives a drivable route and clear chase camera",
+      "passed": true,
+      "evidence": {
+        "start": {
+          "x": 760.5,
+          "z": -448.5,
+          "y": 1.086902810096742,
+          "speed": 0,
+          "heading": -0.78539819245999,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.6622093303991736,
+            "v": 0.34289538308699175
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 88.7,
+            "wrecked": false,
+            "y": 0.3
+          }
+        },
+        "probe": {
+          "x": 737.8858009033204,
+          "z": -425.8825360717774,
+          "y": 0.36233769643306735,
+          "speed": 30.192506565851307,
+          "heading": -0.7853976496795548,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.6622093303991736,
+            "v": 0.34289538308699175
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 69.1,
+            "wrecked": false,
+            "y": 0.3
+          }
+        },
+        "cameraDistance": 21.16880583413191
+      }
+    },
+    {
+      "name": "portrait-night fits viewport",
+      "passed": true,
+      "evidence": {
+        "coarse": true,
+        "width": 390,
+        "height": 844,
+        "overflow": false,
+        "stream": {
+          "cells": 836,
+          "resident": 133,
+          "detailedCells": 15,
+          "verts": 333485,
+          "bytes": 8698248,
+          "builtMs": 1112.0000002384186
+        }
+      }
+    },
+    {
+      "name": "portrait district clears HUD controls",
+      "passed": true,
+      "evidence": []
+    },
+    {
+      "name": "landscape-night fits viewport",
+      "passed": true,
+      "evidence": {
+        "coarse": true,
+        "width": 844,
+        "height": 390,
+        "overflow": false,
+        "stream": {
+          "cells": 836,
+          "resident": 203,
+          "detailedCells": 15,
+          "verts": 1512402,
+          "bytes": 39271572,
+          "builtMs": 1505.0000002384186
+        }
+      }
+    },
+    {
+      "name": "landscape-noon fits viewport",
+      "passed": true,
+      "evidence": {
+        "coarse": true,
+        "width": 844,
+        "height": 390,
+        "overflow": false,
+        "stream": {
+          "cells": 836,
+          "resident": 214,
+          "detailedCells": 16,
+          "verts": 1496245,
+          "bytes": 38246386,
+          "builtMs": 1829.5000002384186
+        }
+      }
+    },
+    {
+      "name": "no mobile page errors",
+      "passed": true,
+      "evidence": []
+    }
+  ],
+  "views": [
+    {
+      "name": "portrait-night",
+      "coarse": true,
+      "width": 390,
+      "height": 844,
+      "overflow": false,
+      "stream": {
+        "cells": 836,
+        "resident": 133,
+        "detailedCells": 15,
+        "verts": 333485,
+        "bytes": 8698248,
+        "builtMs": 1112.0000002384186
+      }
+    },
+    {
+      "name": "landscape-night",
+      "coarse": true,
+      "width": 844,
+      "height": 390,
+      "overflow": false,
+      "stream": {
+        "cells": 836,
+        "resident": 203,
+        "detailedCells": 15,
+        "verts": 1512402,
+        "bytes": 39271572,
+        "builtMs": 1505.0000002384186
+      }
+    },
+    {
+      "name": "landscape-noon",
+      "coarse": true,
+      "width": 844,
+      "height": 390,
+      "overflow": false,
+      "stream": {
+        "cells": 836,
+        "resident": 214,
+        "detailedCells": 16,
+        "verts": 1496245,
+        "bytes": 38246386,
+        "builtMs": 1829.5000002384186
+      }
+    }
+  ],
+  "worldRevision": 90
+}

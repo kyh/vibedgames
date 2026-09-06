@@ -11,6 +11,7 @@ import { CAR, ROAD_Y, WORLD_HALF_X, WORLD_HALF_Z } from "../shared/constants";
 import type { Solid } from "../world/city";
 import type { SolidIndex } from "../world/solid-index";
 import { slopeQuaternion } from "../world/terrain";
+import { DRY_WATER_CONTACT, type WaterContact } from "./water-contact";
 
 export type CarInput = {
   readonly throttle: number; // 0..1 gas
@@ -27,6 +28,7 @@ export type CarInput = {
 export type Surface = {
   heightAt(x: number, z: number): number;
   normalInto(out: THREE.Vector3, x: number, z: number): THREE.Vector3;
+  waterHeightAt?(x: number, z: number): number | null;
 };
 
 // The Kenney car's body faces +Z, which matches our heading-0 forward (sin,cos),
@@ -598,6 +600,23 @@ export class Car {
 
   setSurface(s: Surface): void {
     this.surface = s;
+    this.bindWaterSampler();
+  }
+
+  private bindWaterSampler(): void {
+    const surface = this.surface;
+    const sample = surface?.waterHeightAt;
+    this.vehicle?.setWaterSampler(
+      sample && surface
+        ? {
+            waterHeightAt: (x, z) => sample.call(surface, x, z),
+          }
+        : null,
+    );
+  }
+
+  get waterContact(): WaterContact {
+    return this.vehicle?.waterContact ?? DRY_WATER_CONTACT;
   }
 
   get speed(): number {
@@ -661,6 +680,7 @@ export class Car {
 
   attachPhysics(vehicle: RaycastVehicle): void {
     this.vehicle = vehicle;
+    this.bindWaterSampler();
     // The game's pacing stays authoritative: physics caps mirror CAR speeds.
     vehicle.params.cruiseSpeed = CAR.maxSpeed;
     vehicle.params.maxSpeed = CAR.boostSpeed;
@@ -782,6 +802,7 @@ export class Car {
   syncFromPhysics(dt: number, alpha = 1): void {
     const veh = this.vehicle;
     if (!veh) return;
+    const floating = veh.waterContact.kind === "floating";
     this.lastWallHit = 0;
     this.wallContact = false;
     this.justLanded = 0;
@@ -801,7 +822,7 @@ export class Car {
     const curSpeed = Math.hypot(lv.x, lv.z);
     // A hard horizontal velocity loss in one frame = we hit something.
     const deltaV = prevSpeed - curSpeed;
-    if (deltaV > 7 && prevSpeed > 8) {
+    if (!floating && deltaV > 7 && prevSpeed > 8) {
       this.lastWallHit = deltaV;
       this.wallContact = true;
       const inv = prevSpeed > 1e-3 ? 1 / prevSpeed : 0;
@@ -813,13 +834,20 @@ export class Car {
     const va = this.velAngle;
     this.slip = va === null ? 0 : ((va - this.heading + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
 
-    const airborneNow = veh.groundedWheels() === 0 && veh.airTimeSeconds > 0.12;
+    const airborneNow = !floating && veh.groundedWheels() === 0 && veh.airTimeSeconds > 0.12;
     if (airborneNow) this.airTime = veh.airTimeSeconds;
-    if (this.wasAirborne && !airborneNow) {
+    if (!floating && this.wasAirborne && !airborneNow) {
       this.justLanded = Math.max(0, -lv.y * 0.5 + 4);
       this.squash = Math.min(1, 0.45 + this.justLanded * 0.035);
     }
     this.airborne = airborneNow;
+    if (floating) {
+      this.airTime = 0;
+      this.isDrifting = false;
+      this.driftTier = 0;
+      this.miniTurboTier = 0;
+      this.miniBoostFired = false;
+    }
     this.wasAirborne = airborneNow;
     this.yVel = lv.y;
 
@@ -843,7 +871,7 @@ export class Car {
       w.node.position.y = w.restY + THREE.MathUtils.clamp(travel, -0.12, 0.2) * invScale;
       this.contactShadow.setWheelTravel(i, travel);
     }
-    this.contactShadow.update(dt, !airborneNow);
+    this.contactShadow.update(dt, !airborneNow && !floating);
     this.squash = Math.max(0, this.squash - dt * 5.5);
     const sq = this.squash;
     this.body.scale.set(1 + 0.12 * sq, 1 - 0.26 * sq, 1 + 0.12 * sq);

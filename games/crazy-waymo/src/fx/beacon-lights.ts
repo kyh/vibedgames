@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-import { radialGlowTexture } from "./lamp-glow";
+import { poolGlowTexture, radialGlowTexture } from "./lamp-glow";
 
 // Night lights for anything that is NOT a street lamp: pier lanterns, dock
 // floods, bridge deck strings, the aviation beacons on the tower tops — and,
@@ -114,9 +114,13 @@ const HALO_VERT = /* glsl */ `
 
 const POOL_VERT = /* glsl */ `
   ${COMMON_PARS}
+  attribute vec3 aNormal;
   void main() {
     setup(aCenter);
-    vec3 world = aCenter + vec3(position.x * aPulse.x, 0.0, -position.y * aPulse.x);
+    vec3 n = normalize(aNormal);
+    vec3 right = normalize(vec3(n.y, -n.x, 0.0));
+    vec3 back = cross(n, right);
+    vec3 world = aCenter + (right * position.x + back * position.y) * aPulse.x;
     gl_Position = projectionMatrix * viewMatrix * vec4(world, 1.0);
   }
 `;
@@ -163,6 +167,7 @@ export class GlowLayer {
   private readonly centers: Float32Array;
   private readonly colors: Float32Array;
   private readonly pulses: Float32Array;
+  private readonly normals: Float32Array;
   private readonly attrs: readonly THREE.InstancedBufferAttribute[];
   private readonly geo: THREE.InstancedBufferGeometry;
   private readonly capacity: number;
@@ -175,11 +180,16 @@ export class GlowLayer {
     this.centers = new Float32Array(opts.capacity * 3);
     this.colors = new Float32Array(opts.capacity * 3);
     this.pulses = new Float32Array(opts.capacity * 2);
+    this.normals = new Float32Array(opts.capacity * 3);
     const centerAttr = new THREE.InstancedBufferAttribute(this.centers, 3);
     const colorAttr = new THREE.InstancedBufferAttribute(this.colors, 3);
     const pulseAttr = new THREE.InstancedBufferAttribute(this.pulses, 2);
-    for (const a of [centerAttr, colorAttr, pulseAttr]) a.setUsage(THREE.DynamicDrawUsage);
-    this.attrs = [centerAttr, colorAttr, pulseAttr];
+    const normalAttr = new THREE.InstancedBufferAttribute(this.normals, 3);
+    this.attrs =
+      opts.kind === "pool"
+        ? [centerAttr, colorAttr, pulseAttr, normalAttr]
+        : [centerAttr, colorAttr, pulseAttr];
+    for (const a of this.attrs) a.setUsage(THREE.DynamicDrawUsage);
 
     const quad = new THREE.PlaneGeometry(1, 1);
     const geo = new THREE.InstancedBufferGeometry();
@@ -189,12 +199,13 @@ export class GlowLayer {
     geo.setAttribute("aCenter", centerAttr);
     geo.setAttribute("aColor", colorAttr);
     geo.setAttribute("aPulse", pulseAttr);
+    if (opts.kind === "pool") geo.setAttribute("aNormal", normalAttr);
     geo.instanceCount = 0;
     this.geo = geo;
 
     const mat = new THREE.ShaderMaterial({
       uniforms: {
-        uMap: { value: radialGlowTexture() },
+        uMap: { value: opts.kind === "pool" ? poolGlowTexture() : radialGlowTexture() },
         uAlpha: { value: opts.alpha },
         uIntensity: opts.intensity,
         uTime: opts.time,
@@ -221,7 +232,15 @@ export class GlowLayer {
   }
 
   /** Add one light. Silently drops anything past `capacity`. */
-  push(x: number, y: number, z: number, color: THREE.Color, size: number, blinkRate = 0): void {
+  push(
+    x: number,
+    y: number,
+    z: number,
+    color: THREE.Color,
+    size: number,
+    blinkRate = 0,
+    normal?: THREE.Vector3,
+  ): void {
     const i = this.cursor;
     if (i >= this.capacity) return;
     this.cursor = i + 1;
@@ -233,6 +252,9 @@ export class GlowLayer {
     this.colors[i * 3 + 2] = color.b * this.gain;
     this.pulses[i * 2] = size;
     this.pulses[i * 2 + 1] = blinkRate;
+    this.normals[i * 3] = normal?.x ?? 0;
+    this.normals[i * 3 + 1] = normal?.y ?? 1;
+    this.normals[i * 3 + 2] = normal?.z ?? 0;
   }
 
   commit(): void {

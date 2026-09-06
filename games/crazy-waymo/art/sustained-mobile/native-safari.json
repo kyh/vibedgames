@@ -1,0 +1,1248 @@
+{
+  "checkedAt": "2026-09-05T21:58:37.989Z",
+  "scope": "Native iOS Safari simulator sustained rendering and resource stability. Default-framebuffer render submissions, not display callbacks or GPU timings. Staged routes; trusted native touch drives. No physical-phone, heap, power or thermal claim.",
+  "expectedRevision": 96,
+  "durationSeconds": 240,
+  "runtime": {
+    "name": "iOS 26.5",
+    "version": "26.5",
+    "device": "iPhone 17 Pro"
+  },
+  "world": {
+    "revision": 96,
+    "installedRevision": 96,
+    "denseSpawn": {
+      "x": 425.75,
+      "z": -477.75,
+      "yaw": 0.7853981633974483,
+      "gx": 154,
+      "gz": 63
+    }
+  },
+  "initialResources": {
+    "at": 33651,
+    "renderer": {
+      "geometries": 665,
+      "textures": 135
+    },
+    "programs": 141,
+    "parcels": {
+      "cells": 836,
+      "resident": 138,
+      "detailedCells": 16,
+      "verts": 333236,
+      "bytes": 8713664,
+      "builtMs": 482.9999999999891,
+      "pending": 0
+    },
+    "tier": 4,
+    "pixelRatio": 0.9,
+    "buffer": {
+      "width": 361,
+      "height": 642
+    },
+    "mode": "playing",
+    "visibility": "visible",
+    "contextLost": false
+  },
+  "finalResources": {
+    "at": 295552,
+    "renderer": {
+      "geometries": 443,
+      "textures": 145
+    },
+    "programs": 143,
+    "parcels": {
+      "cells": 836,
+      "resident": 91,
+      "detailedCells": 8,
+      "verts": 703622,
+      "bytes": 18448130,
+      "builtMs": 1699.9999999998945,
+      "pending": 0
+    },
+    "tier": 0,
+    "pixelRatio": 2,
+    "buffer": {
+      "width": 804,
+      "height": 1428
+    },
+    "mode": "playing",
+    "visibility": "visible",
+    "contextLost": false
+  },
+  "cases": [
+    {
+      "name": "dense-day",
+      "kind": "dense",
+      "phase": 0.25,
+      "loadingMs": 10,
+      "resourcesBefore": {
+        "at": 35188,
+        "renderer": {
+          "geometries": 738,
+          "textures": 135
+        },
+        "programs": 141,
+        "parcels": {
+          "cells": 836,
+          "resident": 221,
+          "detailedCells": 14,
+          "verts": 821853,
+          "bytes": 21863002,
+          "builtMs": 715.9999999999745,
+          "pending": 0
+        },
+        "tier": 4,
+        "pixelRatio": 0.9,
+        "buffer": {
+          "width": 361,
+          "height": 642
+        },
+        "mode": "playing",
+        "visibility": "visible",
+        "contextLost": false
+      },
+      "samples": [
+        {
+          "at": 40149,
+          "renderer": {
+            "geometries": 796,
+            "textures": 135
+          },
+          "programs": 141,
+          "parcels": {
+            "cells": 836,
+            "resident": 228,
+            "detailedCells": 19,
+            "verts": 878697,
+            "bytes": 23184738,
+            "builtMs": 729.9999999999673,
+            "pending": 0
+          },
+          "tier": 4,
+          "pixelRatio": 0.9,
+          "buffer": {
+            "width": 361,
+            "height": 642
+          },
+          "mode": "playing",
+          "visibility": "visible",
+          "contextLost": false
+        },
+        {
+          "at": 59854,
+          "renderer": {
+            "geometries": 829,
+            "textures": 135
+          },
+          "programs": 142,
+          "parcels": {
+            "cells": 836,
+            "resident": 228,
+            "detailedCells": 19,
+            "verts": 878697,
+            "bytes": 23184738,
+            "builtMs": 741.99999999996,
+            "pending": 0
+          },
+          "tier": 3,
+          "pixelRatio": 1.1,
+          "buffer": {
+            "width": 442,
+            "height": 785
+          },
+          "mode": "playing",
+          "visibility": "visible",
+          "contextLost": false
+        },
+        {
+          "at": 79565,
+          "renderer": {
+            "geometries": 830,
+            "textures": 135
+          },
+          "programs": 142,
+          "parcels": {
+            "cells": 836,
+            "resident": 228,
+            "detailedCells": 19,
+            "verts": 878697,
+            "bytes": 23184738,
+            "builtMs": 754.9999999999527,
+            "pending": 0
+          },
+          "tier": 1,
+          "pixelRatio": 1.6,
+          "buffer": {
+            "width": 643,
+            "height": 1142
+          },
+          "mode": "playing",
+          "visibility": "visible",
+          "contextLost": false
+        },
+        {
+          "at": 99470,
+          "renderer": {
+            "geometries": 831,
+            "textures": 135
+          },
+          "programs": 142,
+          "parcels": {
+            "cells": 836,
+            "resident": 228,
+            "detailedCells": 19,
+            "verts": 878697,
+            "bytes": 23184738,
+            "builtMs": 765.9999999999818,
+            "pending": 0
+          },
+          "tier": 1,
+          "pixelRatio": 1.6,
+          "buffer": {
+            "width": 643,
+            "height": 1142
+          },
+          "mode": "playing",
+          "visibility": "visible",
+          "contextLost": false
+        }
+      ],
+      "legs": [
+        {
+          "holdMs": 3000,
+          "travel": 80.27526321858778,
+          "endSpeed": 26.367860114818598,
+          "water": "dry",
+          "headingChange": -2.6809838871155733e-7
+        },
+        {
+          "holdMs": 3000,
+          "travel": 79.60406075096353,
+          "endSpeed": 27.039869697963926,
+          "water": "dry",
+          "headingChange": -1.630907887628652e-7
+        },
+        {
+          "holdMs": 3000,
+          "travel": 78.9801762601921,
+          "endSpeed": 27.03986969796285,
+          "water": "dry",
+          "headingChange": -1.7810842556365003e-7
+        },
+        {
+          "holdMs": 3000,
+          "travel": 79.44976438893005,
+          "endSpeed": 26.591862859633867,
+          "water": "dry",
+          "headingChange": -3.292143953004256e-7
+        },
+        {
+          "holdMs": 3000,
+          "travel": 79.48521295007485,
+          "endSpeed": 26.591862859633867,
+          "water": "dry",
+          "headingChange": -3.2316367715168326e-7
+        },
+        {
+          "holdMs": 3000,
+          "travel": 79.89440870448114,
+          "endSpeed": 26.591862859633867,
+          "water": "dry",
+          "headingChange": -3.3991074666062104e-7
+        },
+        {
+          "holdMs": 3000,
+          "travel": 78.44438318746364,
+          "endSpeed": 27.48787383889494,
+          "water": "dry",
+          "headingChange": -1.7734227886201381e-7
+        },
+        {
+          "holdMs": 3000,
+          "travel": 80.75807852544453,
+          "endSpeed": 26.143857370003328,
+          "water": "dry",
+          "headingChange": -8.946696206102445e-8
+        },
+        {
+          "holdMs": 3000,
+          "travel": 78.96967151223434,
+          "endSpeed": 26.59186420833271,
+          "water": "dry",
+          "headingChange": -3.253769683686514e-7
+        },
+        {
+          "holdMs": 3000,
+          "travel": 81.1005661092326,
+          "endSpeed": 25.6958532290712,
+          "water": "dry",
+          "headingChange": -6.452398837453188e-9
+        },
+        {
+          "holdMs": 3000,
+          "travel": 79.92768898897259,
+          "endSpeed": 26.143857370003328,
+          "water": "dry",
+          "headingChange": -8.675414053804786e-8
+        },
+        {
+          "holdMs": 3000,
+          "travel": 80.3123889141024,
+          "endSpeed": 26.14385871870175,
+          "water": "dry",
+          "headingChange": -8.932862083366189e-8
+        },
+        {
+          "holdMs": 3000,
+          "travel": 77.53226464027813,
+          "endSpeed": 27.039868349264403,
+          "water": "dry",
+          "headingChange": -1.6922881662662093e-7
+        }
+      ],
+      "metrics": {
+        "all": {
+          "count": 2552,
+          "medianMs": 17,
+          "p95Ms": 20,
+          "maxMs": 34,
+          "meanMs": 17.173981191222566,
+          "over50": 0,
+          "over100": 0,
+          "precisionMs": 0.25,
+          "histogramCeilingMs": 1000
+        },
+        "moving": {
+          "count": 2457,
+          "medianMs": 17,
+          "p95Ms": 20,
+          "maxMs": 34,
+          "meanMs": 17.14733414733414,
+          "over50": 0,
+          "over100": 0,
+          "precisionMs": 0.25,
+          "histogramCeilingMs": 1000
+        },
+        "renderCpu": {
+          "count": 2565,
+          "medianMs": 4,
+          "p95Ms": 5,
+          "maxMs": 6,
+          "meanMs": 3.8522417153995816,
+          "over50": 0,
+          "over100": 0,
+          "precisionMs": 0.25,
+          "histogramCeilingMs": 1000
+        },
+        "transition": {
+          "count": 1162,
+          "medianMs": 17,
+          "p95Ms": 18,
+          "maxMs": 312,
+          "meanMs": 16.975903614457813,
+          "over50": 1,
+          "over100": 1,
+          "precisionMs": 0.25,
+          "histogramCeilingMs": 1000
+        },
+        "frames": 2565,
+        "movingFrames": 2457,
+        "movingFraction": 0.9578947368421052,
+        "meanCalls": 423.1458089668616,
+        "maxCalls": 486,
+        "meanTriangles": 810892.9052631579,
+        "maxTriangles": 946193,
+        "finite": true,
+        "wetFrames": 0,
+        "maxThrottle": 1,
+        "maxSteer": 0,
+        "maxFoamIndices": 0,
+        "tiers": [0, 973, 440, 948, 204],
+        "totalRenders": 3868
+      },
+      "resourcesAfter": {
+        "at": 99487.00000000001,
+        "renderer": {
+          "geometries": 831,
+          "textures": 135
+        },
+        "programs": 142,
+        "parcels": {
+          "cells": 836,
+          "resident": 228,
+          "detailedCells": 19,
+          "verts": 878697,
+          "bytes": 23184738,
+          "builtMs": 765.9999999999818,
+          "pending": 0
+        },
+        "tier": 1,
+        "pixelRatio": 1.6,
+        "buffer": {
+          "width": 643,
+          "height": 1142
+        },
+        "mode": "playing",
+        "visibility": "visible",
+        "contextLost": false
+      }
+    },
+    {
+      "name": "coast-day",
+      "kind": "coast",
+      "phase": 0.25,
+      "loadingMs": 12,
+      "resourcesBefore": {
+        "at": 101235,
+        "renderer": {
+          "geometries": 443,
+          "textures": 135
+        },
+        "programs": 142,
+        "parcels": {
+          "cells": 836,
+          "resident": 90,
+          "detailedCells": 8,
+          "verts": 671936,
+          "bytes": 17697134,
+          "builtMs": 1013.9999999999527,
+          "pending": 0
+        },
+        "tier": 1,
+        "pixelRatio": 1.6,
+        "buffer": {
+          "width": 643,
+          "height": 1142
+        },
+        "mode": "playing",
+        "visibility": "visible",
+        "contextLost": false
+      },
+      "samples": [
+        {
+          "at": 111363,
+          "renderer": {
+            "geometries": 442,
+            "textures": 135
+          },
+          "programs": 142,
+          "parcels": {
+            "cells": 836,
+            "resident": 91,
+            "detailedCells": 8,
+            "verts": 703622,
+            "bytes": 18448130,
+            "builtMs": 1022.9999999999527,
+            "pending": 0
+          },
+          "tier": 0,
+          "pixelRatio": 2,
+          "buffer": {
+            "width": 804,
+            "height": 1428
+          },
+          "mode": "playing",
+          "visibility": "visible",
+          "contextLost": false
+        },
+        {
+          "at": 131754,
+          "renderer": {
+            "geometries": 448,
+            "textures": 135
+          },
+          "programs": 142,
+          "parcels": {
+            "cells": 836,
+            "resident": 91,
+            "detailedCells": 8,
+            "verts": 703622,
+            "bytes": 18448130,
+            "builtMs": 1028.9999999999527,
+            "pending": 0
+          },
+          "tier": 0,
+          "pixelRatio": 2,
+          "buffer": {
+            "width": 804,
+            "height": 1428
+          },
+          "mode": "playing",
+          "visibility": "visible",
+          "contextLost": false
+        },
+        {
+          "at": 152082,
+          "renderer": {
+            "geometries": 448,
+            "textures": 135
+          },
+          "programs": 142,
+          "parcels": {
+            "cells": 836,
+            "resident": 91,
+            "detailedCells": 8,
+            "verts": 703622,
+            "bytes": 18448130,
+            "builtMs": 1037.000000000011,
+            "pending": 0
+          },
+          "tier": 0,
+          "pixelRatio": 2,
+          "buffer": {
+            "width": 804,
+            "height": 1428
+          },
+          "mode": "playing",
+          "visibility": "visible",
+          "contextLost": false
+        }
+      ],
+      "legs": [
+        {
+          "holdMs": 8000,
+          "travel": 49.405726286672476,
+          "endSpeed": 5.036934895638407,
+          "water": "floating",
+          "headingChange": -2.199284918581196
+        },
+        {
+          "holdMs": 8000,
+          "travel": 49.42441292715531,
+          "endSpeed": 4.179927056516483,
+          "water": "floating",
+          "headingChange": -2.2171152114400754
+        },
+        {
+          "holdMs": 8000,
+          "travel": 49.40923037486573,
+          "endSpeed": 4.447657637473895,
+          "water": "floating",
+          "headingChange": -2.2125211053322755
+        },
+        {
+          "holdMs": 8000,
+          "travel": 49.38193244760054,
+          "endSpeed": 4.882521501830469,
+          "water": "floating",
+          "headingChange": -2.204555263109742
+        },
+        {
+          "holdMs": 8000,
+          "travel": 48.04576234032584,
+          "endSpeed": 4.588052500920691,
+          "water": "floating",
+          "headingChange": -2.1563525664909613
+        },
+        {
+          "holdMs": 8000,
+          "travel": 49.383998936419125,
+          "endSpeed": 4.88257389011285,
+          "water": "floating",
+          "headingChange": -2.2042989095471506
+        }
+      ],
+      "metrics": {
+        "all": {
+          "count": 3071,
+          "medianMs": 17,
+          "p95Ms": 18,
+          "maxMs": 111.9999999999709,
+          "meanMs": 16.83588407684792,
+          "over50": 4,
+          "over100": 1,
+          "precisionMs": 0.25,
+          "histogramCeilingMs": 1000
+        },
+        "moving": {
+          "count": 2971,
+          "medianMs": 17,
+          "p95Ms": 18,
+          "maxMs": 111.9999999999709,
+          "meanMs": 16.84045775833053,
+          "over50": 4,
+          "over100": 1,
+          "precisionMs": 0.25,
+          "histogramCeilingMs": 1000
+        },
+        "renderCpu": {
+          "count": 3077,
+          "medianMs": 2,
+          "p95Ms": 3,
+          "maxMs": 4,
+          "meanMs": 2.3565160870980826,
+          "over50": 0,
+          "over100": 0,
+          "precisionMs": 0.25,
+          "histogramCeilingMs": 1000
+        },
+        "transition": {
+          "count": 540,
+          "medianMs": 17,
+          "p95Ms": 17,
+          "maxMs": 24,
+          "meanMs": 16.618518518518517,
+          "over50": 0,
+          "over100": 0,
+          "precisionMs": 0.25,
+          "histogramCeilingMs": 1000
+        },
+        "frames": 3077,
+        "movingFrames": 2971,
+        "movingFraction": 0.9655508612284693,
+        "meanCalls": 108.6044848878778,
+        "maxCalls": 146,
+        "meanTriangles": 384501.05134871625,
+        "maxTriangles": 482589,
+        "finite": true,
+        "wetFrames": 3077,
+        "maxThrottle": 1,
+        "maxSteer": 0.5645161290322581,
+        "maxFoamIndices": 2160,
+        "tiers": [2939, 138, 0, 0, 0],
+        "totalRenders": 7596
+      },
+      "resourcesAfter": {
+        "at": 162238,
+        "renderer": {
+          "geometries": 448,
+          "textures": 135
+        },
+        "programs": 142,
+        "parcels": {
+          "cells": 836,
+          "resident": 91,
+          "detailedCells": 8,
+          "verts": 703622,
+          "bytes": 18448130,
+          "builtMs": 1041.000000000011,
+          "pending": 0
+        },
+        "tier": 0,
+        "pixelRatio": 2,
+        "buffer": {
+          "width": 804,
+          "height": 1428
+        },
+        "mode": "playing",
+        "visibility": "visible",
+        "contextLost": false
+      }
+    },
+    {
+      "name": "dense-night",
+      "kind": "dense",
+      "phase": 0.7,
+      "loadingMs": 3979,
+      "resourcesBefore": {
+        "at": 168648,
+        "renderer": {
+          "geometries": 637,
+          "textures": 144
+        },
+        "programs": 143,
+        "parcels": {
+          "cells": 836,
+          "resident": 221,
+          "detailedCells": 14,
+          "verts": 821853,
+          "bytes": 21863002,
+          "builtMs": 1374.9999999998945,
+          "pending": 0
+        },
+        "tier": 1,
+        "pixelRatio": 1.6,
+        "buffer": {
+          "width": 643,
+          "height": 1142
+        },
+        "mode": "playing",
+        "visibility": "visible",
+        "contextLost": false
+      },
+      "samples": [
+        {
+          "at": 174741,
+          "renderer": {
+            "geometries": 694,
+            "textures": 144
+          },
+          "programs": 143,
+          "parcels": {
+            "cells": 836,
+            "resident": 228,
+            "detailedCells": 19,
+            "verts": 878697,
+            "bytes": 23184738,
+            "builtMs": 1391.9999999998654,
+            "pending": 0
+          },
+          "tier": 2,
+          "pixelRatio": 1.32,
+          "buffer": {
+            "width": 530,
+            "height": 942
+          },
+          "mode": "playing",
+          "visibility": "visible",
+          "contextLost": false
+        },
+        {
+          "at": 190035,
+          "renderer": {
+            "geometries": 720,
+            "textures": 144
+          },
+          "programs": 143,
+          "parcels": {
+            "cells": 836,
+            "resident": 228,
+            "detailedCells": 19,
+            "verts": 878697,
+            "bytes": 23184738,
+            "builtMs": 1401.9999999998072,
+            "pending": 0
+          },
+          "tier": 1,
+          "pixelRatio": 1.6,
+          "buffer": {
+            "width": 643,
+            "height": 1142
+          },
+          "mode": "playing",
+          "visibility": "visible",
+          "contextLost": false
+        },
+        {
+          "at": 209707,
+          "renderer": {
+            "geometries": 721,
+            "textures": 144
+          },
+          "programs": 143,
+          "parcels": {
+            "cells": 836,
+            "resident": 228,
+            "detailedCells": 19,
+            "verts": 878697,
+            "bytes": 23184738,
+            "builtMs": 1413.9999999997199,
+            "pending": 0
+          },
+          "tier": 0,
+          "pixelRatio": 2,
+          "buffer": {
+            "width": 804,
+            "height": 1428
+          },
+          "mode": "playing",
+          "visibility": "visible",
+          "contextLost": false
+        },
+        {
+          "at": 229451,
+          "renderer": {
+            "geometries": 721,
+            "textures": 144
+          },
+          "programs": 143,
+          "parcels": {
+            "cells": 836,
+            "resident": 228,
+            "detailedCells": 19,
+            "verts": 878697,
+            "bytes": 23184738,
+            "builtMs": 1425.9999999996908,
+            "pending": 0
+          },
+          "tier": 0,
+          "pixelRatio": 2,
+          "buffer": {
+            "width": 804,
+            "height": 1428
+          },
+          "mode": "playing",
+          "visibility": "visible",
+          "contextLost": false
+        }
+      ],
+      "legs": [
+        {
+          "holdMs": 3000,
+          "travel": 75.10234207780955,
+          "endSpeed": 26.59186285963332,
+          "water": "dry",
+          "headingChange": -2.9373277266042663e-7
+        },
+        {
+          "holdMs": 3000,
+          "travel": 79.67501743180756,
+          "endSpeed": 26.143857370003328,
+          "water": "dry",
+          "headingChange": -9.054954097642565e-8
+        },
+        {
+          "holdMs": 3000,
+          "travel": 80.29203197278466,
+          "endSpeed": 25.919855973886477,
+          "water": "dry",
+          "headingChange": -6.619773773586246e-8
+        },
+        {
+          "holdMs": 3000,
+          "travel": 81.24493259283487,
+          "endSpeed": 25.919855973886897,
+          "water": "dry",
+          "headingChange": -7.211511432458906e-8
+        },
+        {
+          "holdMs": 3000,
+          "travel": 79.42141192745348,
+          "endSpeed": 26.815865604449133,
+          "water": "dry",
+          "headingChange": -1.656397278226862e-7
+        },
+        {
+          "holdMs": 3000,
+          "travel": 78.44438318746364,
+          "endSpeed": 27.4878751875934,
+          "water": "dry",
+          "headingChange": -1.7826317044722373e-7
+        },
+        {
+          "holdMs": 3000,
+          "travel": 78.96967151223434,
+          "endSpeed": 26.5918642083323,
+          "water": "dry",
+          "headingChange": -3.259975681624283e-7
+        },
+        {
+          "holdMs": 3000,
+          "travel": 80.39951703726278,
+          "endSpeed": 26.143857370003328,
+          "water": "dry",
+          "headingChange": -8.706822429704886e-8
+        },
+        {
+          "holdMs": 3000,
+          "travel": 78.50956009901232,
+          "endSpeed": 27.03986969796285,
+          "water": "dry",
+          "headingChange": -1.7401784369042161e-7
+        },
+        {
+          "holdMs": 3000,
+          "travel": 78.49152853082504,
+          "endSpeed": 27.03986969796285,
+          "water": "dry",
+          "headingChange": -1.759868503148354e-7
+        },
+        {
+          "holdMs": 3000,
+          "travel": 78.68516116023181,
+          "endSpeed": 26.815865604449133,
+          "water": "dry",
+          "headingChange": -3.02280346420325e-7
+        },
+        {
+          "holdMs": 3000,
+          "travel": 78.87003781894965,
+          "endSpeed": 26.815866953147573,
+          "water": "dry",
+          "headingChange": -1.4458219044222176e-7
+        }
+      ],
+      "metrics": {
+        "all": {
+          "count": 2309,
+          "medianMs": 17,
+          "p95Ms": 21.75,
+          "maxMs": 53,
+          "meanMs": 17.588566478995276,
+          "over50": 3,
+          "over100": 0,
+          "precisionMs": 0.25,
+          "histogramCeilingMs": 1000
+        },
+        "moving": {
+          "count": 2212,
+          "medianMs": 17,
+          "p95Ms": 21,
+          "maxMs": 53,
+          "meanMs": 17.57368896925863,
+          "over50": 3,
+          "over100": 0,
+          "precisionMs": 0.25,
+          "histogramCeilingMs": 1000
+        },
+        "renderCpu": {
+          "count": 2321,
+          "medianMs": 3,
+          "p95Ms": 4,
+          "maxMs": 40,
+          "meanMs": 3.501938819474277,
+          "over50": 0,
+          "over100": 0,
+          "precisionMs": 0.25,
+          "histogramCeilingMs": 1000
+        },
+        "transition": {
+          "count": 1119,
+          "medianMs": 17,
+          "p95Ms": 24,
+          "maxMs": 168,
+          "meanMs": 17.77479892761389,
+          "over50": 5,
+          "over100": 1,
+          "precisionMs": 0.25,
+          "histogramCeilingMs": 1000
+        },
+        "frames": 2321,
+        "movingFrames": 2212,
+        "movingFraction": 0.953037483843171,
+        "meanCalls": 383.5700129254632,
+        "maxCalls": 454,
+        "meanTriangles": 767679.6643688065,
+        "maxTriangles": 934709,
+        "finite": true,
+        "wetFrames": 0,
+        "maxThrottle": 1,
+        "maxSteer": 0,
+        "maxFoamIndices": 0,
+        "tiers": [1179, 440, 702, 0, 0],
+        "totalRenders": 11241
+      },
+      "resourcesAfter": {
+        "at": 229468.00000000003,
+        "renderer": {
+          "geometries": 721,
+          "textures": 144
+        },
+        "programs": 143,
+        "parcels": {
+          "cells": 836,
+          "resident": 228,
+          "detailedCells": 19,
+          "verts": 878697,
+          "bytes": 23184738,
+          "builtMs": 1425.9999999996908,
+          "pending": 0
+        },
+        "tier": 0,
+        "pixelRatio": 2,
+        "buffer": {
+          "width": 804,
+          "height": 1428
+        },
+        "mode": "playing",
+        "visibility": "visible",
+        "contextLost": false
+      }
+    },
+    {
+      "name": "coast-night",
+      "kind": "coast",
+      "phase": 0.7,
+      "loadingMs": 9,
+      "resourcesBefore": {
+        "at": 231156,
+        "renderer": {
+          "geometries": 440,
+          "textures": 145
+        },
+        "programs": 143,
+        "parcels": {
+          "cells": 836,
+          "resident": 90,
+          "detailedCells": 8,
+          "verts": 671936,
+          "bytes": 17697134,
+          "builtMs": 1674.999999999778,
+          "pending": 0
+        },
+        "tier": 0,
+        "pixelRatio": 2,
+        "buffer": {
+          "width": 804,
+          "height": 1428
+        },
+        "mode": "playing",
+        "visibility": "visible",
+        "contextLost": false
+      },
+      "samples": [
+        {
+          "at": 241295.00000000003,
+          "renderer": {
+            "geometries": 438,
+            "textures": 145
+          },
+          "programs": 143,
+          "parcels": {
+            "cells": 836,
+            "resident": 91,
+            "detailedCells": 8,
+            "verts": 703622,
+            "bytes": 18448130,
+            "builtMs": 1683.999999999778,
+            "pending": 0
+          },
+          "tier": 0,
+          "pixelRatio": 2,
+          "buffer": {
+            "width": 804,
+            "height": 1428
+          },
+          "mode": "playing",
+          "visibility": "visible",
+          "contextLost": false
+        },
+        {
+          "at": 261684.00000000003,
+          "renderer": {
+            "geometries": 443,
+            "textures": 145
+          },
+          "programs": 143,
+          "parcels": {
+            "cells": 836,
+            "resident": 91,
+            "detailedCells": 8,
+            "verts": 703622,
+            "bytes": 18448130,
+            "builtMs": 1690.9999999998654,
+            "pending": 0
+          },
+          "tier": 0,
+          "pixelRatio": 2,
+          "buffer": {
+            "width": 804,
+            "height": 1428
+          },
+          "mode": "playing",
+          "visibility": "visible",
+          "contextLost": false
+        },
+        {
+          "at": 282018,
+          "renderer": {
+            "geometries": 443,
+            "textures": 145
+          },
+          "programs": 143,
+          "parcels": {
+            "cells": 836,
+            "resident": 91,
+            "detailedCells": 8,
+            "verts": 703622,
+            "bytes": 18448130,
+            "builtMs": 1696.9999999998945,
+            "pending": 0
+          },
+          "tier": 0,
+          "pixelRatio": 2,
+          "buffer": {
+            "width": 804,
+            "height": 1428
+          },
+          "mode": "playing",
+          "visibility": "visible",
+          "contextLost": false
+        }
+      ],
+      "legs": [
+        {
+          "holdMs": 8000,
+          "travel": 49.373690593275406,
+          "endSpeed": 5.03700678744232,
+          "water": "floating",
+          "headingChange": -2.201381169392945
+        },
+        {
+          "holdMs": 8000,
+          "travel": 49.46929842850312,
+          "endSpeed": 4.448055266693999,
+          "water": "floating",
+          "headingChange": -2.2074749887864975
+        },
+        {
+          "holdMs": 8000,
+          "travel": 49.415664005655394,
+          "endSpeed": 4.179913562537961,
+          "water": "floating",
+          "headingChange": -2.2165836046687892
+        },
+        {
+          "holdMs": 8000,
+          "travel": 49.48104571571288,
+          "endSpeed": 4.588434078688654,
+          "water": "floating",
+          "headingChange": -2.2009965764480026
+        },
+        {
+          "holdMs": 8000,
+          "travel": 49.41035316687796,
+          "endSpeed": 4.588115325884441,
+          "water": "floating",
+          "headingChange": -2.2077305476312152
+        },
+        {
+          "holdMs": 8000,
+          "travel": 49.44505758052136,
+          "endSpeed": 4.882990612196336,
+          "water": "floating",
+          "headingChange": -2.196571539624184
+        }
+      ],
+      "metrics": {
+        "all": {
+          "count": 3100,
+          "medianMs": 17,
+          "p95Ms": 17,
+          "maxMs": 31,
+          "meanMs": 16.672580645161254,
+          "over50": 0,
+          "over100": 0,
+          "precisionMs": 0.25,
+          "histogramCeilingMs": 1000
+        },
+        "moving": {
+          "count": 3002,
+          "medianMs": 17,
+          "p95Ms": 17,
+          "maxMs": 31,
+          "meanMs": 16.67255163224517,
+          "over50": 0,
+          "over100": 0,
+          "precisionMs": 0.25,
+          "histogramCeilingMs": 1000
+        },
+        "renderCpu": {
+          "count": 3106,
+          "medianMs": 2,
+          "p95Ms": 2,
+          "maxMs": 8,
+          "meanMs": 1.8197037990972915,
+          "over50": 0,
+          "over100": 0,
+          "precisionMs": 0.25,
+          "histogramCeilingMs": 1000
+        },
+        "transition": {
+          "count": 542,
+          "medianMs": 17,
+          "p95Ms": 17,
+          "maxMs": 24,
+          "meanMs": 16.619926199261887,
+          "over50": 0,
+          "over100": 0,
+          "precisionMs": 0.25,
+          "histogramCeilingMs": 1000
+        },
+        "frames": 3106,
+        "movingFrames": 3002,
+        "movingFraction": 0.9665164198325821,
+        "meanCalls": 83.256600128783,
+        "maxCalls": 118,
+        "meanTriangles": 273563.5466838377,
+        "maxTriangles": 347128,
+        "finite": true,
+        "wetFrames": 3106,
+        "maxThrottle": 1,
+        "maxSteer": 0.5645161290322581,
+        "maxFoamIndices": 2160,
+        "tiers": [3106, 0, 0, 0, 0],
+        "totalRenders": 14997
+      },
+      "resourcesAfter": {
+        "at": 292148,
+        "renderer": {
+          "geometries": 443,
+          "textures": 145
+        },
+        "programs": 143,
+        "parcels": {
+          "cells": 836,
+          "resident": 91,
+          "detailedCells": 8,
+          "verts": 703622,
+          "bytes": 18448130,
+          "builtMs": 1699.9999999998945,
+          "pending": 0
+        },
+        "tier": 0,
+        "pixelRatio": 2,
+        "buffer": {
+          "width": 804,
+          "height": 1428
+        },
+        "mode": "playing",
+        "visibility": "visible",
+        "contextLost": false
+      }
+    }
+  ],
+  "ownedSimulatorDeleted": true,
+  "passed": true,
+  "checks": [
+    {
+      "name": "Native Safari initializes the coarse DPR3 phone render path",
+      "passed": true
+    },
+    {
+      "name": "First native Start touch reaches play without retry",
+      "passed": true
+    },
+    {
+      "name": "Source and installed world match",
+      "passed": true
+    },
+    {
+      "name": "Sustained native motion and finite rendering (dense-day)",
+      "passed": true
+    },
+    {
+      "name": "Sustained native motion and finite rendering (coast-day)",
+      "passed": true
+    },
+    {
+      "name": "Floating steering and foam (coast-day)",
+      "passed": true
+    },
+    {
+      "name": "Sustained native motion and finite rendering (dense-night)",
+      "passed": true
+    },
+    {
+      "name": "Sustained native motion and finite rendering (coast-night)",
+      "passed": true
+    },
+    {
+      "name": "Floating steering and foam (coast-night)",
+      "passed": true
+    },
+    {
+      "name": "Native pause stops repeated rendering",
+      "passed": true
+    },
+    {
+      "name": "Native resume restores rendering",
+      "passed": true
+    },
+    {
+      "name": "No observed runtime, shader or context-loss failures",
+      "passed": true
+    },
+    {
+      "name": "No Safari console errors",
+      "passed": true
+    },
+    {
+      "name": "Existing simulator states preserved",
+      "passed": true
+    }
+  ],
+  "nativeStartAttempts": 1
+}

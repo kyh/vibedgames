@@ -38,9 +38,6 @@ export type Solid = {
   readonly maxX: number;
   readonly minZ: number;
   readonly maxZ: number;
-  // World-space top of the obstacle, when it CAN be jumped over (traffic).
-  // Absent = infinitely tall (buildings, walls).
-  readonly maxY?: number;
   // Rotation about the box CENTRE (three.js rotation.y convention). min/max
   // describe the UNROTATED box; consumers (car collision, camera clip,
   // physics) transform into the box's local frame. Absent = axis-aligned.
@@ -52,7 +49,13 @@ export type Solid = {
   // Deliberately has NO visual (map-edge walls). Anything else the player can
   // hit must be visible — the e2e census fails on untagged sightless solids.
   readonly unseen?: string;
-};
+} &
+  // New barriers carry their full visible vertical span. Legacy maxY-only
+  // solids remain ground anchored; no heights means the traditional tall box.
+  (
+    | { readonly minY: number; readonly maxY: number }
+    | { readonly minY?: never; readonly maxY?: number }
+  );
 
 // A drivable surface patch floating over the terrain (pier deck, bridge ramp).
 export type SurfaceDeck = {

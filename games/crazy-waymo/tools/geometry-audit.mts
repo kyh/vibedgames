@@ -28,13 +28,16 @@ import {
   makeTerracedDrapeField,
 } from "../src/world/ground.ts";
 import { freewayPillars } from "../src/world/freeways.ts";
-import { landmarkMarkers, landmarkProtection } from "../src/world/landmarks.ts";
+import { buildLandmarks, landmarkMarkers, landmarkProtection } from "../src/world/landmarks.ts";
+import { ModelCache } from "../src/assets/loader.ts";
+import type { WaterBody } from "../src/world/water.ts";
+import { carveWaterReservations } from "../src/world/water-reservations.ts";
 import { RoadNetwork } from "../src/world/network.ts";
-import { SF_FOOTPRINTS } from "../src/world/sf-footprints.ts";
-import { prismSpec } from "../src/world/sf-prisms.ts";
+import { decodeParcelSource, type ParcelSource } from "../src/world/parcel-source.ts";
 import { makeTerrain } from "../src/world/sf-map.ts";
 import type { Terrain } from "../src/world/terrain.ts";
 import { deserializeWorldBin, unpackRest, WORLD_REV } from "../src/world/world-bin.ts";
+import { treeRootSeatSamples } from "./test-tree-clearance.mts";
 
 // --- baked artifacts --------------------------------------------------------
 
@@ -68,6 +71,11 @@ export async function loadBakedRest(): Promise<BakedRest> {
 }
 
 export const BAKED_WORLD_REV = WORLD_REV;
+
+/** The shipped parcel source (public/world/parcels.bin) — the plan's input on every load. */
+export function loadParcelSource(): ParcelSource {
+  return decodeParcelSource(readArtifact("parcels"));
+}
 
 // --- oriented boxes ---------------------------------------------------------
 
@@ -560,10 +568,16 @@ export function seatReport(
     readonly buryDepth: number;
     readonly minCount: number;
     readonly groundSpread: number;
+    readonly seatSamples?: ReadonlyMap<
+      PropInstance,
+      { readonly x: number; readonly y: number; readonly z: number }
+    >;
   },
 ): SeatReport {
   const byUrl = new Map<string, { off: number[]; terr: number[]; items: PropInstance[] }>();
-  for (const p of props) {
+  for (const original of props) {
+    const sample = opts.seatSamples?.get(original);
+    const p = sample ? { ...original, ...sample } : original;
     const bucket = byUrl.get(p.url) ?? { off: [], terr: [], items: [] };
     const sy = Math.max(p.sy, 0.02);
     bucket.off.push((p.y - standAt(p.x, p.z)) / sy);
@@ -651,6 +665,26 @@ export type LandmarkReport = {
   readonly intruders: readonly LandmarkIntruder[];
 };
 
+/** Match the exact Float32 collision payload, including orientation/span.
+ * A nearby arbitrary box is not landmark-owned merely because it occupies
+ * the same reserved cell. */
+function landmarkSolidKey(s: Solid): string {
+  return (
+    [s.minX, s.maxX, s.minZ, s.maxZ, s.yaw ?? 0].map(Math.fround).join(",") +
+    `,${s.minY === undefined ? "ground" : Math.fround(s.minY)},${s.maxY === undefined ? "default" : Math.fround(s.maxY)}`
+  );
+}
+
+function canonicalLandmarkReservations(
+  plan: ReturnType<typeof generateCity>,
+  network: RoadNetwork,
+  terrain: Terrain,
+): readonly Solid[] {
+  const bodies: WaterBody[] = [];
+  buildLandmarks(terrain, new ModelCache(), network, undefined, (body) => bodies.push(body));
+  return carveWaterReservations(landmarkProtection(plan, network).solids, bodies);
+}
+
 /**
  * Wave 0 shipped a procedural skyscraper standing inside Oracle Park's bowl
  * because the reservations had not been re-baked. The reservation is a CELL
@@ -663,13 +697,13 @@ export function landmarkReport(
   solids: readonly Solid[],
   network: RoadNetwork,
   plan: ReturnType<typeof generateCity>,
+  terrain: Terrain,
 ): LandmarkReport {
   const prot = landmarkProtection(plan, network);
   const markers = landmarkMarkers(network);
   const own = new Set<string>();
-  for (const s of prot.solids) {
-    own.add(`${s.minX.toFixed(2)},${s.maxX.toFixed(2)},${s.minZ.toFixed(2)},${s.maxZ.toFixed(2)}`);
-  }
+  for (const s of canonicalLandmarkReservations(plan, network, terrain))
+    own.add(landmarkSolidKey(s));
   const nearestLandmark = (x: number, z: number): string => {
     let best = "?";
     let bestD = Infinity;
@@ -712,9 +746,7 @@ export function landmarkReport(
     const cx = (s.minX + s.maxX) / 2;
     const cz = (s.minZ + s.maxZ) / 2;
     if (!prot.reserved.has(`${gridXOf(cx)},${gridZOf(cz)}`)) continue;
-    if (
-      own.has(`${s.minX.toFixed(2)},${s.maxX.toFixed(2)},${s.minZ.toFixed(2)},${s.maxZ.toFixed(2)}`)
-    ) {
+    if (own.has(landmarkSolidKey(s))) {
       continue; // the landmark pass's own collision box
     }
     intruders.push({
@@ -896,29 +928,35 @@ export function classifySolids(
   solids: readonly Solid[],
   world: AuditWorld,
   props: readonly PropInstance[],
+  source: ParcelSource,
 ): readonly SolidClass[] {
-  const prot = landmarkProtection(world.plan, world.network);
   const landmarkBoxes = new Set<string>();
-  const boxKey = (s: Solid): string =>
-    `${s.minX.toFixed(2)},${s.maxX.toFixed(2)},${s.minZ.toFixed(2)},${s.maxZ.toFixed(2)}`;
-  for (const s of prot.solids) landmarkBoxes.add(boxKey(s));
+  for (const s of canonicalLandmarkReservations(world.plan, world.network, world.terrain))
+    landmarkBoxes.add(landmarkSolidKey(s));
 
   const pillars = new PointIndex(16);
   for (const p of freewayPillars(world.terrain, world.network)) pillars.add(p.x, p.z);
 
   // Real footprints: the rectangle case is one box on the parcel centroid, an
-  // irregular ring is one thin OBB per wall (city.ts wallOBB).
+  // irregular ring is one thin OBB per wall (parcel-plan.ts wallSolids).
   const parcels = new PointIndex(8);
-  for (const flat of SF_FOOTPRINTS) {
-    const spec = prismSpec(flat);
-    if (!spec) continue;
-    parcels.add(spec.cx, spec.cz);
-    const n = spec.rel.length / 2;
-    for (let i = 0; i < n; i++) {
-      const j = (i + 1) % n;
+  for (let i = 0; i < source.count; i++) {
+    const v0 = source.offsets[i] ?? 0;
+    const v1 = source.offsets[i + 1] ?? v0;
+    const n = v1 - v0;
+    if (n < 3) continue;
+    let cx = 0;
+    let cz = 0;
+    for (let k = 0; k < n; k++) {
+      cx += source.coords[(v0 + k) * 2] ?? 0;
+      cz += source.coords[(v0 + k) * 2 + 1] ?? 0;
+    }
+    parcels.add(cx / n, cz / n);
+    for (let k = 0; k < n; k++) {
+      const j = (k + 1) % n;
       parcels.add(
-        spec.cx + ((spec.rel[i * 2] ?? 0) + (spec.rel[j * 2] ?? 0)) / 2,
-        spec.cz + ((spec.rel[i * 2 + 1] ?? 0) + (spec.rel[j * 2 + 1] ?? 0)) / 2,
+        ((source.coords[(v0 + k) * 2] ?? 0) + (source.coords[(v0 + j) * 2] ?? 0)) / 2,
+        ((source.coords[(v0 + k) * 2 + 1] ?? 0) + (source.coords[(v0 + j) * 2 + 1] ?? 0)) / 2,
       );
     }
   }
@@ -936,7 +974,7 @@ export function classifySolids(
     const cx = (s.minX + s.maxX) / 2;
     const cz = (s.minZ + s.maxZ) / 2;
     if (Math.max(w, d) > 200) return "map-border";
-    if (landmarkBoxes.has(boxKey(s))) return "landmark";
+    if (landmarkBoxes.has(landmarkSolidKey(s))) return "landmark";
     if (s.noBody === true && w < 1.5 && d < 1.5) return "tree";
     if (
       s.yaw === undefined &&
@@ -1161,6 +1199,7 @@ async function main(): Promise<void> {
     buryDepth: 0.6,
     minCount: 40,
     groundSpread: 0.3,
+    seatSamples: await treeRootSeatSamples(rest, props),
   });
   console.log(
     `  ${seat.floating} floating (>0.35u over its kind's baseline), ` +
@@ -1184,7 +1223,7 @@ async function main(): Promise<void> {
   }
 
   console.log(`\n--- 5. landmark parcels`);
-  const lm = landmarkReport(props, rest.solids, world.network, world.plan);
+  const lm = landmarkReport(props, rest.solids, world.network, world.plan, world.terrain);
   console.log(`  ${lm.reservedCells} reserved cells across ${lm.landmarks.length} landmarks`);
   for (const l of lm.landmarks) console.log(`    ${l.name}: ${l.cells} cells`);
   console.log(`  intruders: ${lm.intruders.length}`);

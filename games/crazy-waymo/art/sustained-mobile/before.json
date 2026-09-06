@@ -1,0 +1,4403 @@
+{
+  "checkedAt": "2026-09-05T21:37:29.819Z",
+  "worldRevision": 96,
+  "passed": true,
+  "device": {
+    "coarse": true,
+    "dpr": 3,
+    "touch": 5,
+    "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M1 Max, Unspecified Version)",
+    "multiDraw": false,
+    "post": false,
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+  },
+  "readyMs": 10341,
+  "requestedSteadyMs": 300000,
+  "steadyMs": 300490.6999993324,
+  "wallMs": 456296,
+  "cpuRate": 4,
+  "fixedTier": null,
+  "noMultiDraw": true,
+  "limitations": [
+    "Headed desktop Chrome with coarse touch/DPR 3 and CPU throttling. Not physical-phone GPU, thermal or battery evidence.",
+    "Frames are completed main-scene render submissions after distinct game updates; no raw rAF counts or compositor presentation timestamps.",
+    "Repeated staged Sunset route; real CDP touch propulsion/steering. Fleet relocated and recycling held for reproducibility.",
+    "Resets, settling, 500 ms acceleration, rotations, screenshots, heap reads and pauses excluded from steady timing. No forced GC anywhere.",
+    "Timing percentiles use fixed 0.25 ms bins; overflow counts/max retained. Resource counts are not byte measurements.",
+    "Resource growth gates need 8 same-view/tier route-start samples; passing is bounded evidence, not proof against smaller leaks."
+  ],
+  "initialCityCapture": {
+    "fields": {
+      "restItems": {
+        "available": true,
+        "entries": 64049,
+        "typedViewBytes": 4099136,
+        "uniqueBackingBuffers": 64049,
+        "backingBytes": 4099136
+      },
+      "rawGeos": {
+        "available": true,
+        "entries": 426,
+        "typedViewBytes": 1780776,
+        "uniqueBackingBuffers": 1144,
+        "backingBytes": 1780776
+      },
+      "capturedMerged": {
+        "available": true,
+        "entries": 0,
+        "typedViewBytes": 0,
+        "uniqueBackingBuffers": 0,
+        "backingBytes": 0
+      },
+      "rawGeoIds": {
+        "available": true,
+        "entries": 426,
+        "typedViewBytes": 0,
+        "uniqueBackingBuffers": 0,
+        "backingBytes": 0
+      }
+    },
+    "sharedBackingBytes": 5879912,
+    "interpretation": "Typed views and reachable backing buffers only; excludes JS object/string overhead. Shared backing bytes deduplicated across fields; may also be owned by live render geometry."
+  },
+  "finalCityCapture": {
+    "fields": {
+      "restItems": {
+        "available": true,
+        "entries": 64049,
+        "typedViewBytes": 4099136,
+        "uniqueBackingBuffers": 64049,
+        "backingBytes": 4099136
+      },
+      "rawGeos": {
+        "available": true,
+        "entries": 426,
+        "typedViewBytes": 1780776,
+        "uniqueBackingBuffers": 1144,
+        "backingBytes": 1780776
+      },
+      "capturedMerged": {
+        "available": true,
+        "entries": 0,
+        "typedViewBytes": 0,
+        "uniqueBackingBuffers": 0,
+        "backingBytes": 0
+      },
+      "rawGeoIds": {
+        "available": true,
+        "entries": 426,
+        "typedViewBytes": 0,
+        "uniqueBackingBuffers": 0,
+        "backingBytes": 0
+      }
+    },
+    "sharedBackingBytes": 5879912,
+    "interpretation": "Typed views and reachable backing buffers only; excludes JS object/string overhead. Shared backing bytes deduplicated across fields; may also be owned by live render geometry."
+  },
+  "pageErrorCount": 0,
+  "pauses": [
+    {
+      "name": "portrait-day",
+      "durationMs": 2002.5,
+      "drawDelta": 0,
+      "updateDelta": 0,
+      "movement": 0
+    },
+    {
+      "name": "landscape-day",
+      "durationMs": 2001.7999999523163,
+      "drawDelta": 0,
+      "updateDelta": 0,
+      "movement": 0
+    },
+    {
+      "name": "portrait-night",
+      "durationMs": 2002.6000001430511,
+      "drawDelta": 0,
+      "updateDelta": 0,
+      "movement": 0
+    },
+    {
+      "name": "landscape-night",
+      "durationMs": 2001.7000000476837,
+      "drawDelta": 0,
+      "updateDelta": 0,
+      "movement": 0
+    }
+  ],
+  "source": "fa77a97d75be1869cc4a0c0fbad1d33fef1bcd27",
+  "checks": [
+    {
+      "name": "coarse DPR 3 single-pass game renderer",
+      "passed": true
+    },
+    {
+      "name": "portrait-day window 0 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "portrait-day window 1 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "portrait-day window 2 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "portrait-day window 3 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "portrait-day window 4 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "portrait-day window 5 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "portrait-day window 6 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "portrait-day window 7 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "portrait-day window 8 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "portrait-day window 9 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "portrait-day window 10 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "portrait-day has no sustained warmed resource runaway",
+      "passed": true
+    },
+    {
+      "name": "portrait-day pause stops drawing and simulation",
+      "passed": true
+    },
+    {
+      "name": "portrait-day resumes drawing",
+      "passed": true
+    },
+    {
+      "name": "landscape-day window 0 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "landscape-day window 1 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "landscape-day window 2 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "landscape-day window 3 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "landscape-day window 4 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "landscape-day window 5 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "landscape-day window 6 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "landscape-day window 7 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "landscape-day window 8 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "landscape-day window 9 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "landscape-day window 10 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "landscape-day pause stops drawing and simulation",
+      "passed": true
+    },
+    {
+      "name": "landscape-day resumes drawing",
+      "passed": true
+    },
+    {
+      "name": "portrait-night window 0 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "portrait-night window 1 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "portrait-night window 2 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "portrait-night window 3 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "portrait-night window 4 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "portrait-night window 5 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "portrait-night window 6 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "portrait-night window 7 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "portrait-night window 8 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "portrait-night window 9 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "portrait-night window 10 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "portrait-night pause stops drawing and simulation",
+      "passed": true
+    },
+    {
+      "name": "portrait-night resumes drawing",
+      "passed": true
+    },
+    {
+      "name": "landscape-night window 0 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "landscape-night window 1 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "landscape-night window 2 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "landscape-night window 3 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "landscape-night window 4 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "landscape-night window 5 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "landscape-night window 6 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "landscape-night window 7 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "landscape-night window 8 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "landscape-night window 9 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "landscape-night window 10 keeps finite moving road frames",
+      "passed": true
+    },
+    {
+      "name": "landscape-night has no sustained warmed resource runaway",
+      "passed": true
+    },
+    {
+      "name": "landscape-night pause stops drawing and simulation",
+      "passed": true
+    },
+    {
+      "name": "landscape-night resumes drawing",
+      "passed": true
+    },
+    {
+      "name": "requested steady duration completed",
+      "passed": true
+    },
+    {
+      "name": "no page exceptions",
+      "passed": true
+    }
+  ],
+  "views": [
+    {
+      "name": "portrait-day",
+      "presentedFrames": 4111,
+      "movingFrames": 4111,
+      "frameMeanMs": 18.284634146399615,
+      "framesOver50": 0,
+      "resourceVerdict": "stable",
+      "growth": [
+        {
+          "name": "geometries",
+          "tier": 3,
+          "baseline": 450,
+          "threshold": 675,
+          "last": [451, 451, 451],
+          "runaway": false
+        },
+        {
+          "name": "textures",
+          "tier": 3,
+          "baseline": 60,
+          "threshold": 81,
+          "last": [60, 60, 60],
+          "runaway": false
+        },
+        {
+          "name": "parcelBytes",
+          "tier": 3,
+          "baseline": 34808508,
+          "threshold": 46991485.8,
+          "last": [34808508, 34808508, 34808508],
+          "runaway": false
+        },
+        {
+          "name": "residentCells",
+          "tier": 3,
+          "baseline": 205,
+          "threshold": 256.25,
+          "last": [205, 205, 205],
+          "runaway": false
+        },
+        {
+          "name": "jsHeapUsed",
+          "tier": 3,
+          "baseline": 444110108,
+          "threshold": 777192689,
+          "last": [451566452, 445844940, 261144952],
+          "runaway": false
+        }
+      ],
+      "windows": [
+        {
+          "steadyMs": 7165.700000047684,
+          "frameMs": {
+            "count": 399,
+            "mean": 17.908771930183086,
+            "median": 17.25,
+            "p95": 24.5,
+            "p99": 32.75,
+            "max": 35.69999980926514,
+            "over33": 3,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 400,
+            "mean": 10.302500003576279,
+            "median": 9.5,
+            "p95": 13.5,
+            "p99": 14.25,
+            "max": 16.300000190734863,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 400,
+            "mean": 4.848750000596047,
+            "median": 4,
+            "p95": 8.5,
+            "p99": 21,
+            "max": 23.899999856948853,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 76, 324, 0],
+          "before": {
+            "tier": 3,
+            "pixelRatio": 1.1,
+            "memory": {
+              "geometries": 442,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 424571976,
+              "totalSize": 487391232,
+              "embedderHeapUsedSize": 14835952,
+              "backingStorageSize": 305200822
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 2727.2000029087067,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 468,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 431464128,
+              "totalSize": 489488384,
+              "embedderHeapUsedSize": 20647888,
+              "backingStorageSize": 315655666
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 203,
+              "detailedCells": 17,
+              "verts": 1320614,
+              "bytes": 34751194,
+              "builtMs": 3065.1000039577484,
+              "pending": 0
+            }
+          }
+        },
+        {
+          "steadyMs": 7039.799999952316,
+          "frameMs": {
+            "count": 366,
+            "mean": 19.183333333724182,
+            "median": 18.5,
+            "p95": 26,
+            "p99": 31.5,
+            "max": 40.59999990463257,
+            "over33": 3,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 367,
+            "mean": 11.59782016569652,
+            "median": 11,
+            "p95": 16,
+            "p99": 17.25,
+            "max": 17.90000009536743,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 367,
+            "mean": 5.1640326898819096,
+            "median": 4,
+            "p95": 8.75,
+            "p99": 19.5,
+            "max": 22.799999952316284,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 226, 141, 0],
+          "before": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 450,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 421399012,
+              "totalSize": 490536960,
+              "embedderHeapUsedSize": 21448704,
+              "backingStorageSize": 326412178
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 3398.600003004074,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 3,
+            "pixelRatio": 1.1,
+            "memory": {
+              "geometries": 465,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 449655872,
+              "totalSize": 493420544,
+              "embedderHeapUsedSize": 26684560,
+              "backingStorageSize": 333462524
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 206,
+              "detailedCells": 16,
+              "verts": 1293259,
+              "bytes": 34132360,
+              "builtMs": 3754.000002861023,
+              "pending": 1
+            }
+          }
+        },
+        {
+          "steadyMs": 7047.5,
+          "frameMs": {
+            "count": 376,
+            "mean": 18.680851063829788,
+            "median": 18,
+            "p95": 25.25,
+            "p99": 32,
+            "max": 40.90000009536743,
+            "over33": 2,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 377,
+            "mean": 11.54084880535419,
+            "median": 10.75,
+            "p95": 15.25,
+            "p99": 17,
+            "max": 17.899999856948853,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 377,
+            "mean": 5.021750667050916,
+            "median": 4,
+            "p95": 8.5,
+            "p99": 20,
+            "max": 22.800000190734863,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 0, 377, 0],
+          "before": {
+            "tier": 3,
+            "pixelRatio": 1.1,
+            "memory": {
+              "geometries": 450,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 444209724,
+              "totalSize": 493682688,
+              "embedderHeapUsedSize": 27640776,
+              "backingStorageSize": 340768642
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 4102.1000010967255,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 3,
+            "pixelRatio": 1.1,
+            "memory": {
+              "geometries": 465,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 458627136,
+              "totalSize": 496041984,
+              "embedderHeapUsedSize": 32728192,
+              "backingStorageSize": 348212633
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 206,
+              "detailedCells": 16,
+              "verts": 1293259,
+              "bytes": 34132360,
+              "builtMs": 4454.200001239777,
+              "pending": 1
+            }
+          }
+        },
+        {
+          "steadyMs": 7104.899999856949,
+          "frameMs": {
+            "count": 387,
+            "mean": 18.31266149870801,
+            "median": 17.5,
+            "p95": 24.5,
+            "p99": 33,
+            "max": 39.59999990463257,
+            "over33": 3,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 388,
+            "mean": 11.365979372226086,
+            "median": 10.5,
+            "p95": 14.75,
+            "p99": 15.75,
+            "max": 16.5,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 388,
+            "mean": 4.811855676247902,
+            "median": 3.75,
+            "p95": 8.5,
+            "p99": 19.75,
+            "max": 20.600000143051147,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 0, 388, 0],
+          "before": {
+            "tier": 3,
+            "pixelRatio": 1.1,
+            "memory": {
+              "geometries": 450,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 444110108,
+              "totalSize": 497090560,
+              "embedderHeapUsedSize": 33682656,
+              "backingStorageSize": 355318115
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 4795.000002145767,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 3,
+            "pixelRatio": 1.1,
+            "memory": {
+              "geometries": 468,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 436451744,
+              "totalSize": 499712000,
+              "embedderHeapUsedSize": 38941184,
+              "backingStorageSize": 362785237
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 17,
+              "verts": 1323063,
+              "bytes": 34817404,
+              "builtMs": 5145.5000030994415,
+              "pending": 0
+            }
+          }
+        },
+        {
+          "steadyMs": 7090,
+          "frameMs": {
+            "count": 382,
+            "mean": 18.516753926951225,
+            "median": 18,
+            "p95": 23.75,
+            "p99": 33,
+            "max": 39.09999990463257,
+            "over33": 3,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 383,
+            "mean": 11.504960836380642,
+            "median": 10.75,
+            "p95": 14.75,
+            "p99": 16,
+            "max": 17.199999809265137,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 383,
+            "mean": 4.933942558248734,
+            "median": 4,
+            "p95": 8.5,
+            "p99": 20,
+            "max": 24.200000047683716,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 0, 383, 0],
+          "before": {
+            "tier": 3,
+            "pixelRatio": 1.1,
+            "memory": {
+              "geometries": 450,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 452179684,
+              "totalSize": 500236288,
+              "embedderHeapUsedSize": 40264520,
+              "backingStorageSize": 372830055
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 5500.700003385544,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 3,
+            "pixelRatio": 1.1,
+            "memory": {
+              "geometries": 465,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 437505904,
+              "totalSize": 502333440,
+              "embedderHeapUsedSize": 45245464,
+              "backingStorageSize": 377410919
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 206,
+              "detailedCells": 16,
+              "verts": 1293259,
+              "bytes": 34132360,
+              "builtMs": 5840.400002717972,
+              "pending": 1
+            }
+          }
+        },
+        {
+          "steadyMs": 7038.5,
+          "frameMs": {
+            "count": 372,
+            "mean": 18.868279569892472,
+            "median": 18.25,
+            "p95": 24.5,
+            "p99": 33.75,
+            "max": 39.09999990463257,
+            "over33": 4,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 373,
+            "mean": 11.717158176304508,
+            "median": 11,
+            "p95": 15.25,
+            "p99": 16.5,
+            "max": 17.299999952316284,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 373,
+            "mean": 5.086863277425076,
+            "median": 4,
+            "p95": 8.75,
+            "p99": 19.5,
+            "max": 22.40000009536743,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 0, 373, 0],
+          "before": {
+            "tier": 3,
+            "pixelRatio": 1.1,
+            "memory": {
+              "geometries": 450,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 454613948,
+              "totalSize": 503382016,
+              "embedderHeapUsedSize": 46509832,
+              "backingStorageSize": 387182213
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 6185.700004577637,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 3,
+            "pixelRatio": 1.1,
+            "memory": {
+              "geometries": 465,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 466879432,
+              "totalSize": 504692736,
+              "embedderHeapUsedSize": 51238264,
+              "backingStorageSize": 394822737
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 206,
+              "detailedCells": 16,
+              "verts": 1293259,
+              "bytes": 34132360,
+              "builtMs": 6537.000004291534,
+              "pending": 1
+            }
+          }
+        },
+        {
+          "steadyMs": 7139,
+          "frameMs": {
+            "count": 380,
+            "mean": 18.733421052757063,
+            "median": 18,
+            "p95": 25,
+            "p99": 33.25,
+            "max": 38.60000014305115,
+            "over33": 4,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 381,
+            "mean": 11.645669293215894,
+            "median": 10.75,
+            "p95": 15,
+            "p99": 16,
+            "max": 18,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 381,
+            "mean": 4.951968493424062,
+            "median": 4,
+            "p95": 8.5,
+            "p99": 19.5,
+            "max": 23.600000143051147,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 0, 381, 0],
+          "before": {
+            "tier": 3,
+            "pixelRatio": 1.1,
+            "memory": {
+              "geometries": 450,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 448834452,
+              "totalSize": 506265600,
+              "embedderHeapUsedSize": 52251488,
+              "backingStorageSize": 401852489
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 6901.500004291534,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 3,
+            "pixelRatio": 1.1,
+            "memory": {
+              "geometries": 465,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 469233724,
+              "totalSize": 507838464,
+              "embedderHeapUsedSize": 57328680,
+              "backingStorageSize": 409467375
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 206,
+              "detailedCells": 16,
+              "verts": 1293259,
+              "bytes": 34132360,
+              "builtMs": 7248.800004005432,
+              "pending": 0
+            }
+          }
+        },
+        {
+          "steadyMs": 7098.600000143051,
+          "frameMs": {
+            "count": 375,
+            "mean": 18.882133333206177,
+            "median": 18.25,
+            "p95": 24.5,
+            "p99": 33,
+            "max": 39.40000009536743,
+            "over33": 3,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 376,
+            "mean": 11.754521279893023,
+            "median": 10.75,
+            "p95": 15.25,
+            "p99": 16.5,
+            "max": 16.899999856948853,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 376,
+            "mean": 5.066223405143048,
+            "median": 4,
+            "p95": 8.75,
+            "p99": 20.5,
+            "max": 23.200000047683716,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 0, 376, 0],
+          "before": {
+            "tier": 3,
+            "pixelRatio": 1.1,
+            "memory": {
+              "geometries": 451,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 451566452,
+              "totalSize": 508887040,
+              "embedderHeapUsedSize": 58317776,
+              "backingStorageSize": 416792295
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 7586.100003480911,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 3,
+            "pixelRatio": 1.1,
+            "memory": {
+              "geometries": 466,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 466446616,
+              "totalSize": 510984192,
+              "embedderHeapUsedSize": 63346656,
+              "backingStorageSize": 425432359
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 206,
+              "detailedCells": 16,
+              "verts": 1293259,
+              "bytes": 34132360,
+              "builtMs": 7940.000005245209,
+              "pending": 1
+            }
+          }
+        },
+        {
+          "steadyMs": 7131.5,
+          "frameMs": {
+            "count": 419,
+            "mean": 16.98305489226002,
+            "median": 16.5,
+            "p95": 22,
+            "p99": 30.75,
+            "max": 34.09999990463257,
+            "over33": 1,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 420,
+            "mean": 9.82380952664784,
+            "median": 9,
+            "p95": 12.5,
+            "p99": 13.25,
+            "max": 14.600000143051147,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 420,
+            "mean": 4.353571426868439,
+            "median": 3.5,
+            "p95": 8.25,
+            "p99": 17,
+            "max": 20.799999952316284,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 0, 420, 0],
+          "before": {
+            "tier": 3,
+            "pixelRatio": 1.1,
+            "memory": {
+              "geometries": 451,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 445844940,
+              "totalSize": 512032768,
+              "embedderHeapUsedSize": 64161000,
+              "backingStorageSize": 429448339
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 8244.100005149841,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 3,
+            "pixelRatio": 1.1,
+            "memory": {
+              "geometries": 469,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 458327060,
+              "totalSize": 514392064,
+              "embedderHeapUsedSize": 69831064,
+              "backingStorageSize": 440910241
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 203,
+              "detailedCells": 17,
+              "verts": 1320614,
+              "bytes": 34751194,
+              "builtMs": 8582.600004673004,
+              "pending": 0
+            }
+          }
+        },
+        {
+          "steadyMs": 7164.600000143051,
+          "frameMs": {
+            "count": 407,
+            "mean": 17.56068796080512,
+            "median": 17,
+            "p95": 23.5,
+            "p99": 34.75,
+            "max": 41.39999985694885,
+            "over33": 6,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 408,
+            "mean": 10.422549019257227,
+            "median": 10.5,
+            "p95": 13,
+            "p99": 15.25,
+            "max": 17.600000143051147,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 408,
+            "mean": 4.733333336372001,
+            "median": 3.5,
+            "p95": 8,
+            "p99": 22,
+            "max": 30.600000143051147,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 402, 6, 0],
+          "before": {
+            "tier": 3,
+            "pixelRatio": 1.1,
+            "memory": {
+              "geometries": 451,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 261144952,
+              "totalSize": 369672192,
+              "embedderHeapUsedSize": 7065344,
+              "backingStorageSize": 266418102
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 8942.200005292892,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 469,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 265602480,
+              "totalSize": 373866496,
+              "embedderHeapUsedSize": 12205464,
+              "backingStorageSize": 278101343
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 203,
+              "detailedCells": 17,
+              "verts": 1320614,
+              "bytes": 34751194,
+              "builtMs": 9310.500004768372,
+              "pending": 0
+            }
+          }
+        },
+        {
+          "steadyMs": 4147.599999904633,
+          "frameMs": {
+            "count": 237,
+            "mean": 17.444303797267157,
+            "median": 17,
+            "p95": 22.75,
+            "p99": 31,
+            "max": 36.299999952316284,
+            "over33": 1,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 238,
+            "mean": 10.749579822315889,
+            "median": 11,
+            "p95": 13.5,
+            "p99": 15,
+            "max": 18.800000190734863,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 238,
+            "mean": 4.648739499204299,
+            "median": 3.75,
+            "p95": 8.5,
+            "p99": 18,
+            "max": 21.40000009536743,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 238, 0, 0],
+          "before": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 451,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 265250900,
+              "totalSize": 382255104,
+              "embedderHeapUsedSize": 13253944,
+              "backingStorageSize": 285669111
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 9649.400003433228,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 477,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 266873936,
+              "totalSize": 382255104,
+              "embedderHeapUsedSize": 16793272,
+              "backingStorageSize": 290139313
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 212,
+              "detailedCells": 17,
+              "verts": 1387554,
+              "bytes": 36424986,
+              "builtMs": 9863.200003862381,
+              "pending": 1
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "landscape-day",
+      "presentedFrames": 3984,
+      "movingFrames": 3984,
+      "frameMeanMs": 18.858796878872788,
+      "framesOver50": 0,
+      "resourceVerdict": "insufficient-samples",
+      "growth": [],
+      "windows": [
+        {
+          "steadyMs": 7070.899999856949,
+          "frameMs": {
+            "count": 387,
+            "mean": 18.22273901821107,
+            "median": 17.75,
+            "p95": 22.5,
+            "p99": 33.75,
+            "max": 38.60000014305115,
+            "over33": 5,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 388,
+            "mean": 11.949999999754208,
+            "median": 11.75,
+            "p95": 14.5,
+            "p99": 16.25,
+            "max": 16.899999856948853,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 388,
+            "mean": 4.344845354557037,
+            "median": 3.5,
+            "p95": 7.25,
+            "p99": 20.75,
+            "max": 22.600000143051147,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 388, 0, 0],
+          "before": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 564,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 269937580,
+              "totalSize": 382255104,
+              "embedderHeapUsedSize": 20629080,
+              "backingStorageSize": 295490708
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 214,
+              "detailedCells": 18,
+              "verts": 1454597,
+              "bytes": 38044680,
+              "builtMs": 10046.80000424385,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 594,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 275216672,
+              "totalSize": 382255104,
+              "embedderHeapUsedSize": 25324480,
+              "backingStorageSize": 303632410
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 17,
+              "verts": 1323063,
+              "bytes": 34817404,
+              "builtMs": 10244.900003433228,
+              "pending": 0
+            }
+          }
+        },
+        {
+          "steadyMs": 7020.799999952316,
+          "frameMs": {
+            "count": 383,
+            "mean": 18.284073106925106,
+            "median": 18,
+            "p95": 22.75,
+            "p99": 34.75,
+            "max": 36.59999990463257,
+            "over33": 4,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 384,
+            "mean": 11.753645829856396,
+            "median": 11.5,
+            "p95": 14.25,
+            "p99": 15,
+            "max": 15.900000095367432,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 384,
+            "mean": 4.600520831843217,
+            "median": 3.5,
+            "p95": 8,
+            "p99": 20.75,
+            "max": 24.699999809265137,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 384, 0, 0],
+          "before": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 533,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 268874700,
+              "totalSize": 308592640,
+              "embedderHeapUsedSize": 5439272,
+              "backingStorageSize": 269588598
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 10598.100002765656,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 589,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 276921056,
+              "totalSize": 325369856,
+              "embedderHeapUsedSize": 10082120,
+              "backingStorageSize": 279430733
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 206,
+              "detailedCells": 16,
+              "verts": 1293259,
+              "bytes": 34132360,
+              "builtMs": 10923.400002241135,
+              "pending": 1
+            }
+          }
+        },
+        {
+          "steadyMs": 7174.700000047684,
+          "frameMs": {
+            "count": 388,
+            "mean": 18.44484536057895,
+            "median": 18,
+            "p95": 24,
+            "p99": 32.25,
+            "max": 35.59999990463257,
+            "over33": 2,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 389,
+            "mean": 11.918766072599318,
+            "median": 11.5,
+            "p95": 14.75,
+            "p99": 16.75,
+            "max": 17.699999809265137,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 389,
+            "mean": 4.571722361606313,
+            "median": 3.5,
+            "p95": 8.25,
+            "p99": 19.5,
+            "max": 22.59999990463257,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 389, 0, 0],
+          "before": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 533,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 278455440,
+              "totalSize": 325369856,
+              "embedderHeapUsedSize": 11321608,
+              "backingStorageSize": 286190455
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 11247.600003480911,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 594,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 268329048,
+              "totalSize": 325369856,
+              "embedderHeapUsedSize": 16153480,
+              "backingStorageSize": 295858355
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 17,
+              "verts": 1323063,
+              "bytes": 34817404,
+              "builtMs": 11595.300003767014,
+              "pending": 0
+            }
+          }
+        },
+        {
+          "steadyMs": 7014.5,
+          "frameMs": {
+            "count": 381,
+            "mean": 18.369553805649126,
+            "median": 17.75,
+            "p95": 23.5,
+            "p99": 34.5,
+            "max": 39.5,
+            "over33": 4,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 382,
+            "mean": 11.843193715779568,
+            "median": 11.5,
+            "p95": 14.5,
+            "p99": 16,
+            "max": 16.5,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 382,
+            "mean": 4.522774874227833,
+            "median": 3.5,
+            "p95": 7.75,
+            "p99": 18.75,
+            "max": 24.700000047683716,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 382, 0, 0],
+          "before": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 533,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 275047064,
+              "totalSize": 325369856,
+              "embedderHeapUsedSize": 17123392,
+              "backingStorageSize": 300836587
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 11934.000003576279,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 589,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 263216184,
+              "totalSize": 324583424,
+              "embedderHeapUsedSize": 5551280,
+              "backingStorageSize": 261884261
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 206,
+              "detailedCells": 16,
+              "verts": 1293259,
+              "bytes": 34132360,
+              "builtMs": 12251.300003290176,
+              "pending": 0
+            }
+          }
+        },
+        {
+          "steadyMs": 7096.900000095367,
+          "frameMs": {
+            "count": 378,
+            "mean": 18.73465608478223,
+            "median": 18.25,
+            "p95": 24.25,
+            "p99": 32.75,
+            "max": 41.90000009536743,
+            "over33": 3,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 379,
+            "mean": 12.074670183941683,
+            "median": 12,
+            "p95": 15,
+            "p99": 17.25,
+            "max": 19.59999990463257,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 379,
+            "mean": 4.574406338241295,
+            "median": 3.5,
+            "p95": 8.5,
+            "p99": 20.25,
+            "max": 27.299999952316284,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 379, 0, 0],
+          "before": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 533,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 275614772,
+              "totalSize": 324583424,
+              "embedderHeapUsedSize": 6788152,
+              "backingStorageSize": 272406399
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 12555.700003623962,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 589,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 275084968,
+              "totalSize": 324583424,
+              "embedderHeapUsedSize": 11527160,
+              "backingStorageSize": 280826909
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 206,
+              "detailedCells": 16,
+              "verts": 1293259,
+              "bytes": 34132360,
+              "builtMs": 12881.300004005432,
+              "pending": 1
+            }
+          }
+        },
+        {
+          "steadyMs": 7101,
+          "frameMs": {
+            "count": 377,
+            "mean": 18.7846153844889,
+            "median": 18,
+            "p95": 24.5,
+            "p99": 33.5,
+            "max": 40,
+            "over33": 5,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 378,
+            "mean": 11.879894182164833,
+            "median": 11.75,
+            "p95": 14.75,
+            "p99": 16.25,
+            "max": 17.40000009536743,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 378,
+            "mean": 4.60687830334618,
+            "median": 3.5,
+            "p95": 8.5,
+            "p99": 18.75,
+            "max": 22.59999990463257,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 378, 0, 0],
+          "before": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 533,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 276532832,
+              "totalSize": 324583424,
+              "embedderHeapUsedSize": 12520448,
+              "backingStorageSize": 288470495
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 13214.200003147125,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 594,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 282601808,
+              "totalSize": 324583424,
+              "embedderHeapUsedSize": 17257984,
+              "backingStorageSize": 298220375
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 17,
+              "verts": 1323063,
+              "bytes": 34817404,
+              "builtMs": 13556.400002717972,
+              "pending": 0
+            }
+          }
+        },
+        {
+          "steadyMs": 7138.099999904633,
+          "frameMs": {
+            "count": 364,
+            "mean": 19.55659340633141,
+            "median": 19,
+            "p95": 25.5,
+            "p99": 32,
+            "max": 38.19999980926514,
+            "over33": 2,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 365,
+            "mean": 12.761369862621777,
+            "median": 12.5,
+            "p95": 16,
+            "p99": 17.5,
+            "max": 20.600000143051147,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 365,
+            "mean": 4.768767130211608,
+            "median": 3.75,
+            "p95": 8.25,
+            "p99": 18.5,
+            "max": 22.899999856948853,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 365, 0, 0],
+          "before": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 533,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 288897124,
+              "totalSize": 349224960,
+              "embedderHeapUsedSize": 5023512,
+              "backingStorageSize": 270976201
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 13915.900003671646,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 594,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 271215460,
+              "totalSize": 353681408,
+              "embedderHeapUsedSize": 9742608,
+              "backingStorageSize": 275068620
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 17,
+              "verts": 1323063,
+              "bytes": 34817404,
+              "builtMs": 14262.40000295639,
+              "pending": 0
+            }
+          }
+        },
+        {
+          "steadyMs": 7032.5,
+          "frameMs": {
+            "count": 354,
+            "mean": 19.820338983320248,
+            "median": 19,
+            "p95": 25.25,
+            "p99": 33.5,
+            "max": 41.799999952316284,
+            "over33": 4,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 355,
+            "mean": 12.809014082626557,
+            "median": 12.25,
+            "p95": 16.25,
+            "p99": 17.25,
+            "max": 18.09999990463257,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 355,
+            "mean": 4.7805633833710575,
+            "median": 3.75,
+            "p95": 8.75,
+            "p99": 20,
+            "max": 27.700000047683716,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 0, 355, 0],
+          "before": {
+            "tier": 3,
+            "pixelRatio": 1.1,
+            "memory": {
+              "geometries": 533,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 291096936,
+              "totalSize": 353681408,
+              "embedderHeapUsedSize": 10829664,
+              "backingStorageSize": 285529208
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 14599.700002670288,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 3,
+            "pixelRatio": 1.1,
+            "memory": {
+              "geometries": 589,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 296829188,
+              "totalSize": 353681408,
+              "embedderHeapUsedSize": 15291072,
+              "backingStorageSize": 289204394
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 206,
+              "detailedCells": 16,
+              "verts": 1293259,
+              "bytes": 34132360,
+              "builtMs": 14933.40000295639,
+              "pending": 0
+            }
+          }
+        },
+        {
+          "steadyMs": 7132.900000095367,
+          "frameMs": {
+            "count": 355,
+            "mean": 20.037464788598076,
+            "median": 19.5,
+            "p95": 27,
+            "p99": 36,
+            "max": 41.59999990463257,
+            "over33": 6,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 356,
+            "mean": 12.84634831983052,
+            "median": 12.25,
+            "p95": 16.25,
+            "p99": 17.5,
+            "max": 19.700000047683716,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 356,
+            "mean": 4.834831454110949,
+            "median": 3.75,
+            "p95": 8.25,
+            "p99": 19.75,
+            "max": 23.5,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 0, 356, 0],
+          "before": {
+            "tier": 3,
+            "pixelRatio": 1.1,
+            "memory": {
+              "geometries": 533,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 284803200,
+              "totalSize": 353681408,
+              "embedderHeapUsedSize": 16374600,
+              "backingStorageSize": 298897716
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 15251.200002193451,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 3,
+            "pixelRatio": 1.1,
+            "memory": {
+              "geometries": 594,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 277786228,
+              "totalSize": 353681408,
+              "embedderHeapUsedSize": 20892920,
+              "backingStorageSize": 306368894
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 17,
+              "verts": 1323063,
+              "bytes": 34817404,
+              "builtMs": 15604.300002098083,
+              "pending": 0
+            }
+          }
+        },
+        {
+          "steadyMs": 7131.799999952316,
+          "frameMs": {
+            "count": 384,
+            "mean": 18.535416666418314,
+            "median": 17.5,
+            "p95": 24.5,
+            "p99": 32,
+            "max": 37.799999952316284,
+            "over33": 3,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 385,
+            "mean": 11.398441557450727,
+            "median": 11.25,
+            "p95": 13,
+            "p99": 14.25,
+            "max": 16.799999952316284,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 385,
+            "mean": 4.68649350203477,
+            "median": 3.75,
+            "p95": 8.25,
+            "p99": 18.25,
+            "max": 22,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 0, 0, 385],
+          "before": {
+            "tier": 3,
+            "pixelRatio": 1.1,
+            "memory": {
+              "geometries": 533,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 261650552,
+              "totalSize": 354729984,
+              "embedderHeapUsedSize": 5082904,
+              "backingStorageSize": 273219458
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 15953.900001525879,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 4,
+            "pixelRatio": 0.9,
+            "memory": {
+              "geometries": 594,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 274644072,
+              "totalSize": 354729984,
+              "embedderHeapUsedSize": 9878704,
+              "backingStorageSize": 276671481
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 17,
+              "verts": 1323063,
+              "bytes": 34817404,
+              "builtMs": 16300.500001907349,
+              "pending": 0
+            }
+          }
+        },
+        {
+          "steadyMs": 4204,
+          "frameMs": {
+            "count": 222,
+            "mean": 18.85675675697155,
+            "median": 17.5,
+            "p95": 24,
+            "p99": 32,
+            "max": 33.39999985694885,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 223,
+            "mean": 11.783856516996307,
+            "median": 11.5,
+            "p95": 13.5,
+            "p99": 14.5,
+            "max": 16.100000143051147,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 223,
+            "mean": 4.70762331710268,
+            "median": 3.75,
+            "p95": 8.75,
+            "p99": 17.25,
+            "max": 20.200000047683716,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 0, 0, 223],
+          "before": {
+            "tier": 4,
+            "pixelRatio": 0.9,
+            "memory": {
+              "geometries": 516,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 265669828,
+              "totalSize": 354729984,
+              "embedderHeapUsedSize": 11107824,
+              "backingStorageSize": 288671871
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 16636.300002336502,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 4,
+            "pixelRatio": 0.9,
+            "memory": {
+              "geometries": 559,
+              "textures": 60
+            },
+            "heap": {
+              "usedSize": 294745520,
+              "totalSize": 354729984,
+              "embedderHeapUsedSize": 14025896,
+              "backingStorageSize": 288576047
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 212,
+              "detailedCells": 17,
+              "verts": 1387554,
+              "bytes": 36424986,
+              "builtMs": 16851.800003051758,
+              "pending": 1
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "portrait-night",
+      "presentedFrames": 4275,
+      "movingFrames": 4275,
+      "frameMeanMs": 17.578588180090204,
+      "framesOver50": 0,
+      "resourceVerdict": "insufficient-samples",
+      "growth": [],
+      "windows": [
+        {
+          "steadyMs": 7075.899999856949,
+          "frameMs": {
+            "count": 408,
+            "mean": 17.29509803886507,
+            "median": 16.25,
+            "p95": 24.25,
+            "p99": 31.25,
+            "max": 41.90000009536743,
+            "over33": 3,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 409,
+            "mean": 10.124694374779326,
+            "median": 10,
+            "p95": 11.5,
+            "p99": 11.75,
+            "max": 12.5,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 409,
+            "mean": 4.288997556877603,
+            "median": 3.5,
+            "p95": 7.25,
+            "p99": 19,
+            "max": 24.200000047683716,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 0, 0, 409],
+          "before": {
+            "tier": 4,
+            "pixelRatio": 0.9,
+            "memory": {
+              "geometries": 552,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 292347724,
+              "totalSize": 354729984,
+              "embedderHeapUsedSize": 17836200,
+              "backingStorageSize": 294297412
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 214,
+              "detailedCells": 18,
+              "verts": 1454597,
+              "bytes": 38044680,
+              "builtMs": 17030.900003433228,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 4,
+            "pixelRatio": 0.9,
+            "memory": {
+              "geometries": 566,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 279060508,
+              "totalSize": 354729984,
+              "embedderHeapUsedSize": 23089040,
+              "backingStorageSize": 299575810
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 203,
+              "detailedCells": 17,
+              "verts": 1320614,
+              "bytes": 34751194,
+              "builtMs": 17234.700003623962,
+              "pending": 0
+            }
+          }
+        },
+        {
+          "steadyMs": 7097.799999952316,
+          "frameMs": {
+            "count": 399,
+            "mean": 17.74411027592824,
+            "median": 16.75,
+            "p95": 24,
+            "p99": 35,
+            "max": 41.69999980926514,
+            "over33": 4,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 400,
+            "mean": 10.261750000715256,
+            "median": 10,
+            "p95": 11.5,
+            "p99": 12.5,
+            "max": 18.700000047683716,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 400,
+            "mean": 4.633250001072883,
+            "median": 3.5,
+            "p95": 8.25,
+            "p99": 19,
+            "max": 23.59999990463257,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 0, 255, 145],
+          "before": {
+            "tier": 4,
+            "pixelRatio": 0.9,
+            "memory": {
+              "geometries": 519,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 273734248,
+              "totalSize": 354729984,
+              "embedderHeapUsedSize": 24172248,
+              "backingStorageSize": 305032010
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 17575.70000553131,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 3,
+            "pixelRatio": 1.1,
+            "memory": {
+              "geometries": 551,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 286998284,
+              "totalSize": 354729984,
+              "embedderHeapUsedSize": 30434536,
+              "backingStorageSize": 317102442
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 204,
+              "detailedCells": 17,
+              "verts": 1322664,
+              "bytes": 34806610,
+              "builtMs": 17927.5000064373,
+              "pending": 0
+            }
+          }
+        },
+        {
+          "steadyMs": 7057,
+          "frameMs": {
+            "count": 390,
+            "mean": 18.050512820023755,
+            "median": 17,
+            "p95": 24.5,
+            "p99": 32.75,
+            "max": 33.60000014305115,
+            "over33": 1,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 391,
+            "mean": 10.499999989633976,
+            "median": 10.5,
+            "p95": 11.5,
+            "p99": 12.5,
+            "max": 12.799999952316284,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 391,
+            "mean": 4.765217399963028,
+            "median": 3.75,
+            "p95": 9,
+            "p99": 18.75,
+            "max": 20.90000009536743,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 0, 391, 0],
+          "before": {
+            "tier": 3,
+            "pixelRatio": 1.1,
+            "memory": {
+              "geometries": 519,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 277793528,
+              "totalSize": 354729984,
+              "embedderHeapUsedSize": 31378256,
+              "backingStorageSize": 321910968
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 18264.800004720688,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 3,
+            "pixelRatio": 1.1,
+            "memory": {
+              "geometries": 551,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 285748740,
+              "totalSize": 354729984,
+              "embedderHeapUsedSize": 36398368,
+              "backingStorageSize": 332727442
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 17,
+              "verts": 1323063,
+              "bytes": 34817404,
+              "builtMs": 18618.300003767014,
+              "pending": 0
+            }
+          }
+        },
+        {
+          "steadyMs": 7167.299999952316,
+          "frameMs": {
+            "count": 406,
+            "mean": 17.60960591133005,
+            "median": 16.5,
+            "p95": 23.75,
+            "p99": 32.25,
+            "max": 35.89999985694885,
+            "over33": 2,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 407,
+            "mean": 10.256756753241987,
+            "median": 10.25,
+            "p95": 11.5,
+            "p99": 12.5,
+            "max": 12.700000047683716,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 407,
+            "mean": 4.5823095864101475,
+            "median": 3.5,
+            "p95": 8.5,
+            "p99": 18.5,
+            "max": 23.700000047683716,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 0, 407, 0],
+          "before": {
+            "tier": 3,
+            "pixelRatio": 1.1,
+            "memory": {
+              "geometries": 519,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 304293736,
+              "totalSize": 354729984,
+              "embedderHeapUsedSize": 37727488,
+              "backingStorageSize": 344230196
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 18968.400004386902,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 3,
+            "pixelRatio": 1.1,
+            "memory": {
+              "geometries": 551,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 291477248,
+              "totalSize": 354992128,
+              "embedderHeapUsedSize": 43138008,
+              "backingStorageSize": 348968992
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 203,
+              "detailedCells": 17,
+              "verts": 1320614,
+              "bytes": 34751194,
+              "builtMs": 19315.80000448227,
+              "pending": 0
+            }
+          }
+        },
+        {
+          "steadyMs": 7021,
+          "frameMs": {
+            "count": 400,
+            "mean": 17.50875,
+            "median": 16.5,
+            "p95": 24,
+            "p99": 32.25,
+            "max": 38.700000047683716,
+            "over33": 2,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 401,
+            "mean": 10.129925186794594,
+            "median": 10,
+            "p95": 11.25,
+            "p99": 12.25,
+            "max": 13.399999856948853,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 401,
+            "mean": 4.591022445673954,
+            "median": 3.75,
+            "p95": 8,
+            "p99": 18,
+            "max": 23.09999990463257,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 0, 401, 0],
+          "before": {
+            "tier": 3,
+            "pixelRatio": 1.1,
+            "memory": {
+              "geometries": 519,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 263560680,
+              "totalSize": 356302848,
+              "embedderHeapUsedSize": 6416288,
+              "backingStorageSize": 266850582
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 19669.200004577637,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 3,
+            "pixelRatio": 1.1,
+            "memory": {
+              "geometries": 551,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 275210168,
+              "totalSize": 356302848,
+              "embedderHeapUsedSize": 11722680,
+              "backingStorageSize": 278321445
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 17,
+              "verts": 1323063,
+              "bytes": 34817404,
+              "builtMs": 20010.300003767014,
+              "pending": 0
+            }
+          }
+        },
+        {
+          "steadyMs": 7035.600000143051,
+          "frameMs": {
+            "count": 409,
+            "mean": 17.164547677145027,
+            "median": 16.25,
+            "p95": 22,
+            "p99": 31.25,
+            "max": 34.10000014305115,
+            "over33": 1,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 410,
+            "mean": 10.063414637635393,
+            "median": 10,
+            "p95": 11.25,
+            "p99": 11.75,
+            "max": 12.399999856948853,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 410,
+            "mean": 4.586341458995168,
+            "median": 3.5,
+            "p95": 8.25,
+            "p99": 18.5,
+            "max": 22.200000047683716,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 279, 131, 0],
+          "before": {
+            "tier": 3,
+            "pixelRatio": 1.1,
+            "memory": {
+              "geometries": 519,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 286751824,
+              "totalSize": 356302848,
+              "embedderHeapUsedSize": 12836080,
+              "backingStorageSize": 287940329
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 20344.700005292892,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 551,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 278063376,
+              "totalSize": 356302848,
+              "embedderHeapUsedSize": 18333536,
+              "backingStorageSize": 294563001
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 203,
+              "detailedCells": 17,
+              "verts": 1320614,
+              "bytes": 34751194,
+              "builtMs": 20690.40000486374,
+              "pending": 0
+            }
+          }
+        },
+        {
+          "steadyMs": 7110,
+          "frameMs": {
+            "count": 415,
+            "mean": 17.096626505794294,
+            "median": 16.25,
+            "p95": 22,
+            "p99": 30.75,
+            "max": 35.40000009536743,
+            "over33": 1,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 416,
+            "mean": 10.13774037361145,
+            "median": 10,
+            "p95": 11.5,
+            "p99": 11.5,
+            "max": 12.200000047683716,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 416,
+            "mean": 4.557692316289131,
+            "median": 3.75,
+            "p95": 8.5,
+            "p99": 18,
+            "max": 23.200000047683716,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 416, 0, 0],
+          "before": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 519,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 274323364,
+              "totalSize": 356302848,
+              "embedderHeapUsedSize": 19299728,
+              "backingStorageSize": 300297151
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 21033.30000448227,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 551,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 279349784,
+              "totalSize": 356302848,
+              "embedderHeapUsedSize": 24739184,
+              "backingStorageSize": 310334657
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 203,
+              "detailedCells": 17,
+              "verts": 1320614,
+              "bytes": 34751194,
+              "builtMs": 21383.2000041008,
+              "pending": 0
+            }
+          }
+        },
+        {
+          "steadyMs": 7091.799999952316,
+          "frameMs": {
+            "count": 406,
+            "mean": 17.42339901501322,
+            "median": 16.5,
+            "p95": 22.75,
+            "p99": 31.25,
+            "max": 40.700000047683716,
+            "over33": 3,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 407,
+            "mean": 10.170515977194034,
+            "median": 10,
+            "p95": 11.25,
+            "p99": 12,
+            "max": 12.299999952316284,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 407,
+            "mean": 4.611302210013462,
+            "median": 3.5,
+            "p95": 8,
+            "p99": 18.25,
+            "max": 26.09999990463257,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 407, 0, 0],
+          "before": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 519,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 270310348,
+              "totalSize": 356302848,
+              "embedderHeapUsedSize": 25821184,
+              "backingStorageSize": 322555245
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 21725.400003433228,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 551,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 286380188,
+              "totalSize": 350978048,
+              "embedderHeapUsedSize": 6529952,
+              "backingStorageSize": 269818658
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 17,
+              "verts": 1323063,
+              "bytes": 34817404,
+              "builtMs": 22084.400004386902,
+              "pending": 0
+            }
+          }
+        },
+        {
+          "steadyMs": 7083.899999856949,
+          "frameMs": {
+            "count": 409,
+            "mean": 17.281662591803627,
+            "median": 16.5,
+            "p95": 22.5,
+            "p99": 31.75,
+            "max": 39.799999952316284,
+            "over33": 3,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 410,
+            "mean": 10.279999999883698,
+            "median": 10.25,
+            "p95": 11.5,
+            "p99": 12,
+            "max": 13,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 410,
+            "mean": 4.587317070728395,
+            "median": 3.5,
+            "p95": 8.25,
+            "p99": 18.5,
+            "max": 23.40000009536743,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 410, 0, 0],
+          "before": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 519,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 272279292,
+              "totalSize": 350978048,
+              "embedderHeapUsedSize": 7776984,
+              "backingStorageSize": 276126480
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 22416.000003814697,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 551,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 273200060,
+              "totalSize": 350978048,
+              "embedderHeapUsedSize": 12940712,
+              "backingStorageSize": 284330600
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 203,
+              "detailedCells": 17,
+              "verts": 1320614,
+              "bytes": 34751194,
+              "builtMs": 22771.600002527237,
+              "pending": 0
+            }
+          }
+        },
+        {
+          "steadyMs": 7132.5,
+          "frameMs": {
+            "count": 390,
+            "mean": 18.25025641062321,
+            "median": 17.5,
+            "p95": 24,
+            "p99": 32.75,
+            "max": 36.299999952316284,
+            "over33": 3,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 391,
+            "mean": 10.803580558513437,
+            "median": 10.5,
+            "p95": 12.5,
+            "p99": 15.5,
+            "max": 16.399999856948853,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 391,
+            "mean": 4.881841435761708,
+            "median": 4,
+            "p95": 8.25,
+            "p99": 20.5,
+            "max": 24.299999952316284,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 274, 117, 0, 0],
+          "before": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 519,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 264482324,
+              "totalSize": 350978048,
+              "embedderHeapUsedSize": 14040432,
+              "backingStorageSize": 296087318
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 23117.300001859665,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 1,
+            "pixelRatio": 1.6,
+            "memory": {
+              "geometries": 551,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 277427848,
+              "totalSize": 350978048,
+              "embedderHeapUsedSize": 19478720,
+              "backingStorageSize": 301273054
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 17,
+              "verts": 1323063,
+              "bytes": 34817404,
+              "builtMs": 23487.100002765656,
+              "pending": 0
+            }
+          }
+        },
+        {
+          "steadyMs": 4267.900000095367,
+          "frameMs": {
+            "count": 232,
+            "mean": 18.323275862068964,
+            "median": 17.25,
+            "p95": 25,
+            "p99": 32.5,
+            "max": 45.40000009536743,
+            "over33": 1,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 233,
+            "mean": 10.798283267942109,
+            "median": 10.75,
+            "p95": 12.25,
+            "p99": 13.5,
+            "max": 15.400000095367432,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 233,
+            "mean": 5.0527897034591875,
+            "median": 4,
+            "p95": 8.5,
+            "p99": 19.75,
+            "max": 32.60000014305115,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 233, 0, 0, 0],
+          "before": {
+            "tier": 1,
+            "pixelRatio": 1.6,
+            "memory": {
+              "geometries": 519,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 281426052,
+              "totalSize": 351240192,
+              "embedderHeapUsedSize": 5142568,
+              "backingStorageSize": 270794247
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 23836.200002908707,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 1,
+            "pixelRatio": 1.6,
+            "memory": {
+              "geometries": 545,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 262110644,
+              "totalSize": 351240192,
+              "embedderHeapUsedSize": 8748968,
+              "backingStorageSize": 272393580
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 213,
+              "detailedCells": 17,
+              "verts": 1395830,
+              "bytes": 36649308,
+              "builtMs": 24078.30000424385,
+              "pending": 1
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "landscape-night",
+      "presentedFrames": 4095,
+      "movingFrames": 4095,
+      "frameMeanMs": 18.33361900103781,
+      "framesOver50": 0,
+      "resourceVerdict": "stable",
+      "growth": [
+        {
+          "name": "geometries",
+          "tier": 2,
+          "baseline": 523,
+          "threshold": 784.5,
+          "last": [523, 523, 523],
+          "runaway": false
+        },
+        {
+          "name": "textures",
+          "tier": 2,
+          "baseline": 69,
+          "threshold": 93.15,
+          "last": [69, 69, 69],
+          "runaway": false
+        },
+        {
+          "name": "parcelBytes",
+          "tier": 2,
+          "baseline": 34808508,
+          "threshold": 46991485.8,
+          "last": [34808508, 34808508, 34808508],
+          "runaway": false
+        },
+        {
+          "name": "residentCells",
+          "tier": 2,
+          "baseline": 205,
+          "threshold": 256.25,
+          "last": [205, 205, 205],
+          "runaway": false
+        },
+        {
+          "name": "jsHeapUsed",
+          "tier": 2,
+          "baseline": 264128016,
+          "threshold": 462224028,
+          "last": [273032492, 279024276, 292056944],
+          "runaway": false
+        }
+      ],
+      "windows": [
+        {
+          "steadyMs": 7006,
+          "frameMs": {
+            "count": 365,
+            "mean": 19.149315068493152,
+            "median": 18.5,
+            "p95": 23.25,
+            "p99": 34.75,
+            "max": 37.09999990463257,
+            "over33": 5,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 366,
+            "mean": 12.665027319407853,
+            "median": 12.5,
+            "p95": 14.5,
+            "p99": 16.5,
+            "max": 17.09999990463257,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 366,
+            "mean": 4.410655736271801,
+            "median": 3.5,
+            "p95": 7.25,
+            "p99": 19,
+            "max": 23,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 366, 0, 0, 0],
+          "before": {
+            "tier": 1,
+            "pixelRatio": 1.6,
+            "memory": {
+              "geometries": 558,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 279655628,
+              "totalSize": 351240192,
+              "embedderHeapUsedSize": 12393328,
+              "backingStorageSize": 277832589
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 214,
+              "detailedCells": 18,
+              "verts": 1454597,
+              "bytes": 38044680,
+              "builtMs": 24270.30000448227,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 1,
+            "pixelRatio": 1.6,
+            "memory": {
+              "geometries": 593,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 279303432,
+              "totalSize": 351240192,
+              "embedderHeapUsedSize": 17046632,
+              "backingStorageSize": 281045067
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 16,
+              "verts": 1291320,
+              "bytes": 34079782,
+              "builtMs": 24448.90000462532,
+              "pending": 0
+            }
+          }
+        },
+        {
+          "steadyMs": 7036.799999952316,
+          "frameMs": {
+            "count": 371,
+            "mean": 18.92345013515647,
+            "median": 18,
+            "p95": 23,
+            "p99": 32.25,
+            "max": 38.40000009536743,
+            "over33": 3,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 372,
+            "mean": 12.199462356746837,
+            "median": 12,
+            "p95": 13.75,
+            "p99": 14.5,
+            "max": 15.099999904632568,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 372,
+            "mean": 4.793279585017953,
+            "median": 3.75,
+            "p95": 8.25,
+            "p99": 19,
+            "max": 24.800000190734863,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 372, 0, 0, 0],
+          "before": {
+            "tier": 1,
+            "pixelRatio": 1.6,
+            "memory": {
+              "geometries": 523,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 290199116,
+              "totalSize": 351240192,
+              "embedderHeapUsedSize": 18210032,
+              "backingStorageSize": 293206779
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 24774.300003528595,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 1,
+            "pixelRatio": 1.6,
+            "memory": {
+              "geometries": 596,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 278750016,
+              "totalSize": 351240192,
+              "embedderHeapUsedSize": 23123600,
+              "backingStorageSize": 297425105
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 206,
+              "detailedCells": 16,
+              "verts": 1293259,
+              "bytes": 34132360,
+              "builtMs": 25115.100003004074,
+              "pending": 0
+            }
+          }
+        },
+        {
+          "steadyMs": 7100.5,
+          "frameMs": {
+            "count": 368,
+            "mean": 19.247282608695652,
+            "median": 18.25,
+            "p95": 24.75,
+            "p99": 33.75,
+            "max": 39,
+            "over33": 5,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 369,
+            "mean": 12.253658539557522,
+            "median": 12,
+            "p95": 13.75,
+            "p99": 15.25,
+            "max": 16.299999952316284,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 369,
+            "mean": 4.941734410882965,
+            "median": 4,
+            "p95": 8.5,
+            "p99": 20,
+            "max": 22.5,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 369, 0, 0, 0],
+          "before": {
+            "tier": 1,
+            "pixelRatio": 1.6,
+            "memory": {
+              "geometries": 523,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 291916768,
+              "totalSize": 351240192,
+              "embedderHeapUsedSize": 24384904,
+              "backingStorageSize": 307461751
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 25455.20000243187,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 1,
+            "pixelRatio": 1.6,
+            "memory": {
+              "geometries": 601,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 259317720,
+              "totalSize": 350978048,
+              "embedderHeapUsedSize": 7064160,
+              "backingStorageSize": 269868636
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 17,
+              "verts": 1323063,
+              "bytes": 34817404,
+              "builtMs": 25812.600001573563,
+              "pending": 0
+            }
+          }
+        },
+        {
+          "steadyMs": 7070.5,
+          "frameMs": {
+            "count": 395,
+            "mean": 17.863291139240506,
+            "median": 17.5,
+            "p95": 23.5,
+            "p99": 31.75,
+            "max": 34.90000009536743,
+            "over33": 2,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 396,
+            "mean": 10.969444440470802,
+            "median": 10.5,
+            "p95": 13.75,
+            "p99": 14.75,
+            "max": 15.400000095367432,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 396,
+            "mean": 4.411868688434061,
+            "median": 3.5,
+            "p95": 7.5,
+            "p99": 18,
+            "max": 21,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 396, 0, 0],
+          "before": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 523,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 277393328,
+              "totalSize": 350978048,
+              "embedderHeapUsedSize": 8441976,
+              "backingStorageSize": 276379568
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 26160.600001096725,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 601,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 275550988,
+              "totalSize": 350978048,
+              "embedderHeapUsedSize": 13144768,
+              "backingStorageSize": 285016606
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 17,
+              "verts": 1323063,
+              "bytes": 34817404,
+              "builtMs": 26500.20000076294,
+              "pending": 0
+            }
+          }
+        },
+        {
+          "steadyMs": 7044.899999856949,
+          "frameMs": {
+            "count": 406,
+            "mean": 17.313546798499345,
+            "median": 16,
+            "p95": 24.5,
+            "p99": 31.25,
+            "max": 39.40000009536743,
+            "over33": 1,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 407,
+            "mean": 10.32530713667155,
+            "median": 10.25,
+            "p95": 11.5,
+            "p99": 12,
+            "max": 12.599999904632568,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 407,
+            "mean": 4.310073703747124,
+            "median": 3.25,
+            "p95": 7.75,
+            "p99": 19.25,
+            "max": 27.5,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 407, 0, 0],
+          "before": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 523,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 267281256,
+              "totalSize": 350978048,
+              "embedderHeapUsedSize": 14440560,
+              "backingStorageSize": 289161236
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 26837.200001001358,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 601,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 277290256,
+              "totalSize": 350978048,
+              "embedderHeapUsedSize": 19233376,
+              "backingStorageSize": 300625332
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 17,
+              "verts": 1323063,
+              "bytes": 34817404,
+              "builtMs": 27172.300000190735,
+              "pending": 0
+            }
+          }
+        },
+        {
+          "steadyMs": 7047.700000047684,
+          "frameMs": {
+            "count": 395,
+            "mean": 17.797721518745906,
+            "median": 16.5,
+            "p95": 25.25,
+            "p99": 35.25,
+            "max": 41.10000014305115,
+            "over33": 5,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 396,
+            "mean": 10.707323230276204,
+            "median": 10.5,
+            "p95": 12.25,
+            "p99": 13.25,
+            "max": 26.90000009536743,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 396,
+            "mean": 4.334090914389099,
+            "median": 3.5,
+            "p95": 8,
+            "p99": 18,
+            "max": 21.399999856948853,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 396, 0, 0],
+          "before": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 523,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 272739688,
+              "totalSize": 350978048,
+              "embedderHeapUsedSize": 20271944,
+              "backingStorageSize": 306281488
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 27510.599999666214,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 601,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 289079724,
+              "totalSize": 351240192,
+              "embedderHeapUsedSize": 6641000,
+              "backingStorageSize": 269720460
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 17,
+              "verts": 1323063,
+              "bytes": 34817404,
+              "builtMs": 27854.8999979496,
+              "pending": 0
+            }
+          }
+        },
+        {
+          "steadyMs": 7050.799999952316,
+          "frameMs": {
+            "count": 398,
+            "mean": 17.678391959798994,
+            "median": 16.5,
+            "p95": 25.5,
+            "p99": 30.5,
+            "max": 35.10000014305115,
+            "over33": 1,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 399,
+            "mean": 10.572431079128332,
+            "median": 10.5,
+            "p95": 11.75,
+            "p99": 12.5,
+            "max": 14,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 399,
+            "mean": 4.179448618327167,
+            "median": 3.25,
+            "p95": 7.5,
+            "p99": 18.5,
+            "max": 22.100000143051147,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 399, 0, 0],
+          "before": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 523,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 274195768,
+              "totalSize": 351240192,
+              "embedderHeapUsedSize": 7728624,
+              "backingStorageSize": 276039684
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 28171.49999856949,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 601,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 274013360,
+              "totalSize": 351240192,
+              "embedderHeapUsedSize": 12485040,
+              "backingStorageSize": 284234002
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 17,
+              "verts": 1323063,
+              "bytes": 34817404,
+              "builtMs": 28496.89999938011,
+              "pending": 0
+            }
+          }
+        },
+        {
+          "steadyMs": 7162.5,
+          "frameMs": {
+            "count": 398,
+            "mean": 17.95175879385004,
+            "median": 17,
+            "p95": 24.5,
+            "p99": 32.5,
+            "max": 39.5,
+            "over33": 3,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 399,
+            "mean": 11.187969929592352,
+            "median": 11,
+            "p95": 12.5,
+            "p99": 13.5,
+            "max": 15.100000143051147,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 399,
+            "mean": 4.401002506265664,
+            "median": 3.5,
+            "p95": 7.75,
+            "p99": 19.25,
+            "max": 25.899999856948853,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 399, 0, 0],
+          "before": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 523,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 264128016,
+              "totalSize": 351240192,
+              "embedderHeapUsedSize": 13710416,
+              "backingStorageSize": 296274696
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 28819.900000095367,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 601,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 278025940,
+              "totalSize": 351240192,
+              "embedderHeapUsedSize": 18646920,
+              "backingStorageSize": 300477158
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 17,
+              "verts": 1323063,
+              "bytes": 34817404,
+              "builtMs": 29153.299998760223,
+              "pending": 0
+            }
+          }
+        },
+        {
+          "steadyMs": 7090.5,
+          "frameMs": {
+            "count": 379,
+            "mean": 18.651451187586723,
+            "median": 17.75,
+            "p95": 24.5,
+            "p99": 34,
+            "max": 40.700000047683716,
+            "over33": 4,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 380,
+            "mean": 11.742894734834369,
+            "median": 11.5,
+            "p95": 13.5,
+            "p99": 14,
+            "max": 14.899999856948853,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 380,
+            "mean": 4.594473692617918,
+            "median": 3.5,
+            "p95": 8.5,
+            "p99": 19.5,
+            "max": 23.899999856948853,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 380, 0, 0],
+          "before": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 523,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 273032492,
+              "totalSize": 351240192,
+              "embedderHeapUsedSize": 19625848,
+              "backingStorageSize": 306069228
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 29494.99999856949,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 601,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 290117444,
+              "totalSize": 350715904,
+              "embedderHeapUsedSize": 5982872,
+              "backingStorageSize": 270484790
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 206,
+              "detailedCells": 17,
+              "verts": 1325304,
+              "bytes": 34878322,
+              "builtMs": 29848.199998617172,
+              "pending": 0
+            }
+          }
+        },
+        {
+          "steadyMs": 7129.699999809265,
+          "frameMs": {
+            "count": 383,
+            "mean": 18.569190600522195,
+            "median": 17.75,
+            "p95": 23.5,
+            "p99": 33.5,
+            "max": 35.39999985694885,
+            "over33": 4,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 384,
+            "mean": 11.716406242301067,
+            "median": 11.75,
+            "p95": 13,
+            "p99": 13.75,
+            "max": 14,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 384,
+            "mean": 4.642447920516133,
+            "median": 3.5,
+            "p95": 7.75,
+            "p99": 18.75,
+            "max": 21.899999856948853,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 384, 0, 0],
+          "before": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 523,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 279024276,
+              "totalSize": 350715904,
+              "embedderHeapUsedSize": 7121072,
+              "backingStorageSize": 277111684
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 30179.69999885559,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 601,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 265084244,
+              "totalSize": 350715904,
+              "embedderHeapUsedSize": 11853280,
+              "backingStorageSize": 281024654
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 17,
+              "verts": 1323063,
+              "bytes": 34817404,
+              "builtMs": 30533.499998807907,
+              "pending": 0
+            }
+          }
+        },
+        {
+          "steadyMs": 4324.299999952316,
+          "frameMs": {
+            "count": 226,
+            "mean": 19.04557522102795,
+            "median": 18,
+            "p95": 24.5,
+            "p99": 32,
+            "max": 35.700000047683716,
+            "over33": 2,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "renderMs": {
+            "count": 227,
+            "mean": 12.020704842874132,
+            "median": 12,
+            "p95": 13.5,
+            "p99": 14.25,
+            "max": 15.700000047683716,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "updateMs": {
+            "count": 227,
+            "mean": 4.762555065659174,
+            "median": 3.75,
+            "p95": 8.5,
+            "p99": 17.5,
+            "max": 22.5,
+            "over33": 0,
+            "over50": 0,
+            "over100": 0,
+            "resolution": 0.25,
+            "overflow": 0
+          },
+          "tierFrames": [0, 0, 227, 0, 0],
+          "before": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 523,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 292056944,
+              "totalSize": 350715904,
+              "embedderHeapUsedSize": 13062640,
+              "backingStorageSize": 296440852
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 205,
+              "detailedCells": 15,
+              "verts": 1326094,
+              "bytes": 34808508,
+              "builtMs": 30877.89999938011,
+              "pending": 0
+            }
+          },
+          "after": {
+            "tier": 2,
+            "pixelRatio": 1.32,
+            "memory": {
+              "geometries": 570,
+              "textures": 69
+            },
+            "heap": {
+              "usedSize": 266415676,
+              "totalSize": 350715904,
+              "embedderHeapUsedSize": 16015760,
+              "backingStorageSize": 296803504
+            },
+            "stream": {
+              "cells": 836,
+              "resident": 213,
+              "detailedCells": 17,
+              "verts": 1395830,
+              "bytes": 36649308,
+              "builtMs": 31110.299998521805,
+              "pending": 1
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

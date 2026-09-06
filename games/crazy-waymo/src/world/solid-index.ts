@@ -143,12 +143,13 @@ export class SolidIndex {
   }
 
   // Is the point inside any solid? (camera clip march)
-  hitAt(x: number, z: number): boolean {
+  hitAt(x: number, z: number, y?: number): boolean {
     const b = this.grid.bucketAt(x, z);
     const end = this.starts[b + 1] ?? 0;
     for (let k = this.starts[b] ?? 0; k < end; k++) {
       const s = this.solids[this.items[k] ?? 0];
       if (!s) continue;
+      if (y !== undefined && s.minY !== undefined && (y < s.minY || y > s.maxY)) continue;
       const yaw = s.yaw ?? 0;
       if (yaw === 0) {
         if (x > s.minX && x < s.maxX && z > s.minZ && z < s.maxZ) return true;

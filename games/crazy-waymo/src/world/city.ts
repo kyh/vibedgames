@@ -2,20 +2,20 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
 import { geoLayoutKey, type ModelCache } from "../assets/loader";
-import {
-  BUILDINGS_COMMERCIAL,
-  BUILDINGS_INDUSTRIAL,
-  BUILDINGS_SKYSCRAPER,
-  BUILDINGS_SUBURBAN,
-  KK_BUILDINGS,
-  modelUrl,
-  TREE_LARGE,
-  TREE_SMALL,
-  GARAGE_MODEL,
-} from "../assets/manifest";
+import { modelUrl, TREE_LARGE, TREE_SMALL, GARAGE_MODEL } from "../assets/manifest";
 import { registerBeacons } from "../fx/beacon-lights";
 import { applyMaterialBreakup, CITY_BREAKUP } from "../render/material-breakup";
+import { createTerrainMaterial } from "../render/terrain-material";
+import { StaticWorldGroup } from "../render/static-world-group";
+import {
+  propShadowPolicy,
+  propShadowsDisabled,
+  setPropShadowPolicy,
+  type PropShadowPolicy,
+} from "../render/prop-shadow";
 import { liveQuality } from "../render/quality";
+import { renderCapabilities } from "../render/capabilities";
+import { compatiblePropBatch, type PropBatch, type PropInstance } from "./instanced-props";
 import {
   CHUNK,
   CITY_SEED,
@@ -29,58 +29,52 @@ import {
   WORLD_W,
 } from "../shared/constants";
 import { Rng } from "../shared/rng";
-import { type Dir, DIR_DELTA, E, N, S, W } from "../shared/types";
 import { type DrapeField, toFloat32Attributes } from "./conform";
 import { activeMapProps } from "./map-file";
+import { type Garage, pickGarageSpots } from "./garages";
+export type { Garage } from "./garages";
+import { buildReservation } from "./reservation";
 import { buildFurniture, type LampHead, type ParkedSpec } from "./furniture";
 import type { GoldenGatePlan } from "./golden-gate";
 import { buildGoldenGate, goldenGateBeacons, goldenGatePlan } from "./golden-gate";
-import { type NetEdge, RoadNetwork } from "./network";
+import { RoadNetwork } from "./network";
 import { type CityPlan, generateCity } from "./grid";
 import { CUSTOM_MAP, editorMode, loadLocalOverrides } from "./custom-map";
 import {
-  applyGrassMottle,
+  makeGroundBlendAt,
   makeGroundColorAt,
+  makePaintedFloorAt,
   makeGroundOffset,
   makeStandingSurface,
   makeTerracedDrapeField,
-  parkCellHeight,
 } from "./ground";
-import { landuseSandAt } from "./sf-landuse";
-import {
-  type LandClassAt,
-  isParkLand,
-  makeLandClassAt,
-  wheelSurface,
-  type WheelSurface,
-} from "./land-class";
+import { buildShoreline, planShoreline } from "./shoreline";
+import { type LandClassAt, makeLandClassAt, wheelSurface, type WheelSurface } from "./land-class";
 import { buildGridNetwork } from "./grid-network";
 import {
   bakeConstantColor,
-  buildJunctionMap,
   buildRoads,
-  type JunctionMap,
   ROAD_MATERIALS,
   roadCollapseTarget,
   roadPartsToMeshes,
   walkFor,
 } from "./roads";
 import type { CityGenPayload } from "./gen-worker";
-import { buildFreeways, nearFreeway } from "./freeways";
+import { buildFreeways, isFreewayDeckContact, nearFreeway } from "./freeways";
 import { buildPiers } from "./piers";
 import { buildLandmarks, landmarkProtection } from "./landmarks";
-import { SF_FOOTPRINTS } from "./sf-footprints";
-import { frontEdgeOf, type LotRhythm, lotRhythmFor, parcelAt } from "./sf-adjacency";
-import { prismSpec } from "./sf-prisms";
-import {
-  type District,
-  type DistrictChar,
-  districtAt,
-  isLandCell,
-  makeTerrain,
-  paletteFor,
-  tintAmountFor,
-} from "./sf-map";
+import { SEA_Y, waterBodyContains, waterBedHeight, type WaterBody } from "./water";
+import { surfaceDeckAt } from "./surface-decks";
+import { carveWaterReservations } from "./water-reservations";
+import { stowWaterHeightAt } from "./lake";
+import { buildParcelFabric, parcelDetailLevel, parkOnLots } from "./parcel-build";
+import { visibleParcelPlans } from "./parcel-visibility";
+import { ParcelStreamer, type ParcelStreamStats, streamRadiusFor } from "./parcel-stream";
+import { frontSegment, type ParcelPlanResult, emptyParcelPlan, planParcels } from "./parcel-plan";
+import type { ParcelSource } from "./parcel-source";
+import { buildParcelClearance, type ParcelClearance } from "./parcel-clearance";
+import { buildTreeClearance } from "./tree-clearance";
+import { districtAt, makeTerrain } from "./sf-map";
 import type { Terrain } from "./terrain";
 import type { Solid, SurfaceDeck } from "../shared/types";
 import { DriveSurface } from "./surface";
@@ -92,84 +86,6 @@ export type { Solid, SurfaceDeck };
 
 export type RoadCell = { readonly gx: number; readonly gz: number };
 
-const HALF_PI = Math.PI / 2;
-
-// Building front faces +Z in the native model; this offset rotates it to face
-// the street. Tune if entrances point the wrong way. Because the model's Z
-// faces the kerb, its X runs ALONG the street: X is the lot frontage and Z is
-// the lot depth, and the two scale independently (see fitLotScale).
-const HALF_PI_CITY = Math.PI / 2;
-const BUILDING_FRONT_OFFSET = Math.PI;
-// Commercial districts whose real fabric is wall-to-wall mid-rise — frontage
-// rows pack shoulder-to-shoulder here instead of the gapped commercial step.
-const PACKED_COMMERCIAL = new Set(["Chinatown", "North Beach", "Union Square"]);
-
-// Hillside foundations: concrete plinth under buildings on a grade, with a
-// tuck-under garage cut into its downhill face (the single most-repeated hill
-// element in SF, and in this map).
-const PLINTH_GEO = new THREE.BoxGeometry(1, 1, 1);
-const PLINTH_MAT = new THREE.MeshStandardMaterial({ color: 0xb3aca0, roughness: 1 });
-// One extra material, so the door reads as an opening rather than as paint.
-// The stair and the jamb reuse PLINTH_MAT — same batch, no extra draw call.
-const GARAGE_DOOR_MAT = new THREE.MeshStandardMaterial({ color: 0x5c6165, roughness: 0.85 });
-const PLINTH_GARAGE_MIN = 1.7; // below this the door is shorter than a car
-// The mid-rise KayKit blocks (aspect ~0.8-1.2); c/d/g/h are 3-story towers
-// that would loom over a suburban row.
-const KK_BUILDINGS_MID = KK_BUILDINGS.filter((k) => /[abef]$/.test(k));
-// The only three flat-topped suburban models. Butting 18 gables shoulder to
-// shoulder reads as a sawtooth, so attached rows are biased onto these plus
-// the flat commercial blocks — the continuous cornice line IS the SF row read.
-const SUBURBAN_FLAT_TOP = BUILDINGS_SUBURBAN.filter((k) => /[brs]$/.test(k));
-
-// --- Roofscape ----------------------------------------------------------
-// The Kenney kits ship near-black roof swatches, and with per-instance tint
-// being one colour for the whole model, every aerial and every oblique chase
-// shot read as a field of dark caps — the loudest single tell against the
-// reference tile, whose roofs are mid-value tar, gravel and silver membrane
-// with furniture on top. The near meshes can't split roof from wall the way
-// the imposters do (one tint per instance), so the fix is geometry: a thin
-// roof-membrane cap on every FLAT-topped fabric model, tinted from a small
-// per-district family. Values sit mid-high (SF flat roofs are silvered or
-// pale tar, not asphalt-black) and each list stays a value ramp within one
-// family, same rule as the facade palettes. Caps ride the shared PLINTH_MAT
-// batch, so the whole roofscape costs zero extra draw calls.
-const ROOF_PALETTES = {
-  highrise: [0xb9bec4, 0xaab0b6, 0xc8ccd0, 0x9aa3a0],
-  downtown: [0xbab3a4, 0xa9a294, 0xcac3b2, 0x9b9488],
-  commercial: [0xb8ab94, 0xa79a85, 0xc4b79e, 0x8f9a8a],
-  industrial: [0x9aa0a4, 0x8c9296, 0xa8adb0],
-  wharf: [0xb5b0a4, 0xa39e92, 0xc0bbac],
-  // The pale membrane read of the avenues — this is what lifts the Sunset
-  // and Richmond aerials out of the mud.
-  residential: [0xd8d5cc, 0xc9c6bd, 0xbfbcb3],
-  victorian: [0xd4cfc4, 0xc6c1b6, 0xb9b4a9],
-} satisfies Record<FabricChar, readonly number[]>;
-// Flat-topped Kenney fabric (kk-* keep their authored roofs; ind-building-s
-// is the garage and never appears as fabric).
-function flatTopFabric(key: string): boolean {
-  return (
-    key.startsWith("com-building") ||
-    key.startsWith("ind-building") ||
-    SUBURBAN_FLAT_TOP.some((k) => k === key)
-  );
-}
-
-// --- Lot rhythm ---------------------------------------------------------
-// SF_LOT_RHYTHM (sf-adjacency.ts) is measured in REAL world units: the
-// citywide median lot is 3.15u = 14 m of frontage, a Castro lot 2.37u = 10.5 m.
-// This map's fabric is an arcade exaggeration of that — a shipped "row house"
-// is ~6.5u/29 m wide and ~5.5u/24 m tall, about four times a real one — and
-// walking true lot widths would take the frontage models from ~37k to ~108k
-// (measured over the 281,000u of walkable frontage), at 700-5,200 tris each.
-// So the measured band drives the RHYTHM, not the absolute size: every width is
-// a measured draw times LOT_EXAGGERATION. The ratios that read survive (a SoMa
-// or Embarcadero lot is 2.6x a Castro lot) at the scale the world is modelled
-// in, and the two halves of the city stay consistent because the band comes
-// from lotRhythmFor() for EVERY district — measured for 27, donor-borrowed for
-// the 25 the source model never covered, one code path, no seam.
-const LOT_EXAGGERATION = 2.1;
-const LOT_MIN = 3.4; // narrower than this and the kit model reads as a shed
-const LOT_MAX = 12.5; // wider and one model is a stretched billboard: split it
 // Facade to kerb: the sidewalk plus a stoop. Was a flat 2.4u regardless of
 // street class, which left ~1.1u of bare ground past a minor street's 1.3u walk
 // and pushed facade-to-facade to 11.2u (~50 m) against SF's ~25 m.
@@ -185,30 +101,6 @@ const FACADE_MARGIN = 0.45;
 export function facadeOffset(half: number): number {
   return half + walkFor(half) + FACADE_MARGIN;
 }
-// Row houses are narrow AND DEEP; shops are boxy. Depth is scaled on Z only,
-// so it never touches the frontage — the old uniform scale made a narrow lot
-// a shallow one too.
-const LOT_DEPTH_DEEP = 1.85;
-const LOT_DEPTH_SHALLOW = 1.15;
-// Shallower than this and the kit model is a billboard, so a lot that cannot
-// pull its back wall off the street behind is not built at all.
-const LOT_DEPTH_MIN = 2.6;
-// Rear slack worth another row rather than a yard.
-const BACK_ROW_MIN = 6;
-// Height is a storey count, not a multiple of the frontage. Tuned so the median
-// of each character lands on the height the old footprint-normalized scale
-// produced (residential ~5.5u, downtown ~12u) — narrowing the lots must not
-// squash the skyline with them.
-const FABRIC_STOREY = 1.85;
-// Hillsides: how far up its own fall a building is seated, and the most of it
-// the grade is allowed to bury. SF cuts in and stilts out; it does not stop
-// building at a 5u fall, which is what the old `drop > 5` tree fallback did to
-// 55-75% of the near-summit lots.
-const STEP_INTO_SLOPE = 0.62;
-const STEP_BURY_MAX = 1.6;
-// Fall one mass can absorb: ~2.6u of plinth (one garage storey) plus ~1.6u of
-// cut. More than that and the building is SPLIT into stepped sections.
-const FALL_PER_STEP = 4.2;
 /**
  * Per SECTION, after stepping: a genuine cliff face, left green. Exported
  * because furniture.ts's `steepLot` has to skip lot dressing on exactly the
@@ -217,77 +109,6 @@ const FALL_PER_STEP = 4.2;
  * with no fence, path or yard.
  */
 export const STEEP_CLIFF = 6.5;
-// The real-footprint pass sinks a prism's walls to its lowest ring vertex
-// instead of stepping it, so it tolerates more fall than a kit section can.
-const PRISM_CLIFF = 9;
-// Above this a building stops being one flat prism, measured on the source
-// model: the flat-prism share is 54.9% through the 9-20u band, 21.7% at 20-40u
-// and 0% above 40u, with the median plan tapering 1.00 -> 0.72 -> 0.57 up the
-// height. Anything over this gets a podium + inset shaft + crown instead.
-const TOWER_MIN_H = 14;
-const TOWER_PODIUM = 0.22; // podium share of the height
-const TOWER_INSET = 0.78; // shaft plan against the lot line
-// tintNode lerps the model's own (white) base colour toward the palette and the
-// batcher MULTIPLIES the result over the atlas, so the amount is really
-// "distance from white" — at the shipped amounts a pale palette moved the
-// atlas by nothing (measured mean saturation 0.076, nothing above 0.35). The
-// atlases were recoloured to near-neutral in wave 0 precisely so the tint could
-// bite; this is the gain that lets it, clamped so 1.0 = the palette colour
-// itself. Note three.js lerps in LINEAR space, which washes a pastel further
-// than sRGB arithmetic suggests.
-const TINT_GAIN = 1.7;
-// One dominant facade colour and one roof family per BLOCK, not per building:
-// rng.pick is uniform, which gave every district the same average colour and no
-// block any identity. ~2 tiles is an SF block face.
-const BLOCK_SPAN = 26;
-function blockHash(x: number, z: number): number {
-  const bx = Math.floor((x + WORLD_HALF_X) / BLOCK_SPAN);
-  const bz = Math.floor((z + WORLD_HALF_Z) / BLOCK_SPAN);
-  let h = Math.imul(bx, 374761393) + Math.imul(bz, 668265263);
-  h = Math.imul(h ^ (h >>> 13), 1274126177);
-  return (h ^ (h >>> 16)) >>> 0;
-}
-
-function dirToYaw(d: Dir): number {
-  // Yaw that points "toward" the given grid direction (about +Y).
-  switch (d) {
-    case N:
-      return Math.PI;
-    case S:
-      return 0;
-    case E:
-      return -HALF_PI;
-    case W:
-      return HALF_PI;
-    default:
-      return 0;
-  }
-}
-
-// Grid cell of a world position. The City methods delegate here so the fabric
-// planner (module scope, no instance) and the class cannot drift.
-const gridXOf = (x: number): number => Math.floor((x + WORLD_HALF_X) / ROAD_TILE);
-const gridZOf = (z: number): number => Math.floor((z + WORLD_HALF_Z) / ROAD_TILE);
-
-/**
- * Probe offsets over a rectangle in its OWN frame (±1 = the wall, 0 = the
- * middle): four corners, four wall midpoints, the centre. Testing the two
- * FRONT corners is what every placement pass here used to do, and it is blind
- * to the two failures that put 2,000 masses in the roadway: a lot deep enough
- * to cross its block and reach the street behind, and a long parcel lying
- * ALONG a street between its own corners.
- */
-const BOX_PROBES: readonly (readonly [number, number])[] = [
-  [-1, -1],
-  [1, -1],
-  [1, 1],
-  [-1, 1],
-  [0, -1],
-  [0, 1],
-  [-1, 0],
-  [1, 0],
-  [0, 0],
-];
 
 // --- Occupancy: rotated RECTANGLES, and a row can never reject itself.
 // Buildings are boxes, and the circle this used to keep made a 6u-wide lot claim
@@ -348,275 +169,6 @@ function boxesOverlap(a: OccBox, b: OccBox): boolean {
   return true;
 }
 
-// Park lots go green, so no fabric pass can ever be handed one: narrowing the
-// type is what deletes the dead "park" arms of poolFor/storeysFor instead of
-// leaving unreachable branches behind.
-type FabricChar = Exclude<DistrictChar, "park">;
-
-function fabricCharAt(x: number, z: number): FabricChar | null {
-  const gx = gridXOf(x);
-  const gz = gridZOf(z);
-  if (!isLandCell(gx, gz)) return null;
-  const c = districtAt(gx, gz).character;
-  return c === "park" ? null : c;
-}
-
-/**
- * One lot on a street frontage — the unit one kit model is fitted to. Both
- * front-face corners ride along so a consumer (and tools/test-world.mts)
- * measures the walls the walk actually produced rather than reconstructing
- * them from trigonometry.
- */
-export type FabricLot = {
-  readonly x: number;
-  readonly z: number;
-  readonly yaw: number;
-  /** Frontage along the street: scales the model's X only. */
-  readonly width: number;
-  /** Depth away from the street: scales the model's Z only. */
-  readonly depth: number;
-  readonly character: FabricChar;
-  /**
-   * Buildable depth still free BEHIND this lot, on this lot's half of the
-   * block. A wide block is two rows deep with rear yards; a narrow one is one
-   * row that already reaches the middle. Without this the interior of every
-   * wide block came out as bare ground.
-   */
-  readonly rear: number;
-  /** Wall-to-wall with the previous lot in this row — a party wall, no gap. */
-  readonly attached: boolean;
-  /** Lots of one run share a facade line and a dominant colour. */
-  readonly run: number;
-  readonly x0: number;
-  readonly z0: number;
-  readonly x1: number;
-  readonly z1: number;
-};
-
-// A measured quartile band, sampled with its tails and lifted to the map's
-// arcade scale. A lot wider than one model can carry is SPLIT (a 6.2u SoMa lot
-// becomes two fused models, never one stretched 3:1).
-function lotWidth(rng: Rng, band: LotRhythm): number {
-  const r = rng.range(0, 1);
-  const raw =
-    (r < 0.2
-      ? rng.range(band.p25 * 0.72, band.p25)
-      : r < 0.5
-        ? rng.range(band.p25, band.p50)
-        : r < 0.8
-          ? rng.range(band.p50, band.p75)
-          : rng.range(band.p75, band.p75 * 1.35)) * LOT_EXAGGERATION;
-  const parts = Math.max(1, Math.ceil(raw / LOT_MAX));
-  return Math.max(LOT_MIN, raw / parts);
-}
-
-// A slice of a lot, k of n, along its frontage (`axis` 0) or its depth
-// (`axis` 1). Slices keep the parent's facing and setback, so a stepped
-// building still butts its neighbours and still faces the same kerb.
-function sliceLot(lot: FabricLot, axis: 0 | 1, k: number, n: number): FabricLot {
-  const t0 = k / n;
-  const t1 = (k + 1) / n;
-  if (axis === 0) {
-    const x0 = lot.x0 + (lot.x1 - lot.x0) * t0;
-    const z0 = lot.z0 + (lot.z1 - lot.z0) * t0;
-    const x1 = lot.x0 + (lot.x1 - lot.x0) * t1;
-    const z1 = lot.z0 + (lot.z1 - lot.z0) * t1;
-    const shift = (t0 + t1) / 2 - 0.5;
-    return {
-      ...lot,
-      width: lot.width / n,
-      x: lot.x + (lot.x1 - lot.x0) * shift,
-      z: lot.z + (lot.z1 - lot.z0) * shift,
-      attached: true,
-      x0,
-      z0,
-      x1,
-      z1,
-    };
-  }
-  // Depth: k = 0 is the street-most slice. The normal points at the kerb.
-  const nx = (lot.x0 + lot.x1) / 2 - lot.x;
-  const nz = (lot.z0 + lot.z1) / 2 - lot.z;
-  const nl = Math.max(Math.hypot(nx, nz), 0.001);
-  const depth = lot.depth / n;
-  const back = (0.5 - (t0 + t1) / 2) * lot.depth;
-  const x = lot.x + (nx / nl) * back;
-  const z = lot.z + (nz / nl) * back;
-  return {
-    ...lot,
-    depth,
-    x,
-    z,
-    attached: true,
-    x0: lot.x0 - (nx / nl) * (t0 * lot.depth),
-    z0: lot.z0 - (nz / nl) * (t0 * lot.depth),
-    x1: lot.x1 - (nx / nl) * (t0 * lot.depth),
-    z1: lot.z1 - (nz / nl) * (t0 * lot.depth),
-  };
-}
-
-/**
- * Walk one side of one street edge as a LOT LINE: roll a width, place the lot
- * centred at s + w/2, advance s by exactly w. The previous walk re-rolled the
- * width every iteration but advanced by the PREVIOUS roll, so consecutive lots
- * gapped (or overlapped) by half the difference of two draws — up to 1.3u of
- * daylight between walls that were meant to be attached, which is what made the
- * dense districts read as gapped suburbia.
- *
- * Every narrowing happens HERE, so the width the walk advances by is the width
- * that gets built. placeBuilding is handed a finished lot and may only accept or
- * reject it; it can no longer shrink a building after the line has moved on.
- * Lots of one run share ONE facade line, which is also what makes their walls
- * meet exactly on a curve: neighbours read the same offset polyline, so the far
- * corner of one lot IS the near corner of the next.
- */
-export function planFabricRow(
-  network: RoadNetwork,
-  junctions: JunctionMap,
-  edge: NetEdge,
-  side: 1 | -1,
-  rng: Rng,
-): readonly FabricLot[] {
-  const lots: FabricLot[] = [];
-  // Corner buildings are real — the cross-street clearance below is the guard,
-  // so row trims stay small even at wide junctions.
-  const trimA = Math.min(network.nodeTrim(edge.a) * 0.6 + 1.5, edge.len * 0.4);
-  const trimB = Math.min(network.nodeTrim(edge.b) * 0.6 + 1.5, edge.len * 0.4);
-  const end = edge.len - trimB;
-  if (end - trimA < 5) return lots;
-  const frontOff = facadeOffset(edge.half);
-  const face = (s: number, off: number) => {
-    const smp = network.sample(edge, s);
-    return { x: smp.x - smp.tz * off * side, z: smp.z + smp.tx * off * side };
-  };
-  // Clear of every OTHER street; our own edge is cleared by frontOff itself.
-  // The JUNCTION PATCH has to be tested separately: it is the drawn asphalt at
-  // an intersection and it is wider than any of its arms, so a nearest-edge
-  // distance cannot see it and corner lots stood on the apron.
-  const clear = (p: { readonly x: number; readonly z: number }): boolean => {
-    if (junctions.near(p.x, p.z, 0.3)) return false;
-    const hit = network.nearest(p.x, p.z, ROAD_TILE * 1.6);
-    return hit === null || hit.dist >= hit.edge.half + 0.4;
-  };
-  let s = trimA + rng.range(0, 2);
-  let run = 0;
-  let attached = false;
-  while (s < end) {
-    run++;
-    const head = network.sample(edge, s);
-    const district = districtAt(gridXOf(head.x), gridZOf(head.z));
-    const band = lotRhythmFor(district.name);
-    const packed = PACKED_COMMERCIAL.has(district.name);
-    const dense =
-      district.character === "residential" || district.character === "victorian" || packed;
-    // One depth (hence one facade line) per run, drawn from the run's own band.
-    const depthRun = lotWidth(rng, band) * (dense ? LOT_DEPTH_DEEP : LOT_DEPTH_SHALLOW);
-    const runLen = Math.max(1, Math.round(band.runSize * rng.range(0.7, 1.5)));
-    for (let k = 0; k < runLen && s < end; k++) {
-      const p0 = face(s, frontOff);
-      if (!clear(p0)) {
-        // Still inside a junction apron — step past it, don't build a sliver.
-        s += LOT_MIN;
-        attached = false;
-        continue;
-      }
-      let w = Math.min(lotWidth(rng, band), end - s);
-      // Narrow until the FAR wall clears the cross street it is walking into.
-      for (let i = 0; i < 3 && w >= LOT_MIN; i++) {
-        if (clear(face(s + w, frontOff))) break;
-        w *= 0.62;
-      }
-      if (w < LOT_MIN) {
-        s += LOT_MIN;
-        attached = false;
-        continue;
-      }
-      // At a convex kink the facade line is longer than the centreline it is
-      // offset from, so an arclength step of w can span a chord well past it
-      // (measured: up to 19u for a 12.5u step). Pull the step back rather than
-      // stretch one model across the corner. This runs BEFORE the depth rule
-      // so every test below sees the width the walk will actually advance by.
-      let p1 = face(s + w, frontOff);
-      for (let i = 0; i < 3; i++) {
-        const chord = Math.hypot(p1.x - p0.x, p1.z - p0.z);
-        if (chord <= LOT_MAX || w <= LOT_MIN) break;
-        w = Math.max(LOT_MIN, w * (LOT_MAX / chord));
-        p1 = face(s + w, frontOff);
-      }
-      // How deep the block is: facade line to the facade line of the row facing
-      // the other way. Both rows fill toward each other and their rear property
-      // lines meet in the MIDDLE, so HALF of that is this row's to build on.
-      // Testing only "is the back wall on a street" is not enough — a deep row
-      // then crosses a narrow block and the row on the far kerb is rejected
-      // wholesale by its occupancy, leaving one side built and the other bare.
-      const probe = face(s + w * 0.5, frontOff + depthRun);
-      const far = network.nearest(probe.x, probe.z, ROAD_TILE * 2.4);
-      const halfBlock =
-        far === null || far.edge.id === edge.id
-          ? ROAD_TILE * 1.2
-          : (depthRun + far.dist - facadeOffset(far.edge.half)) / 2;
-      let depth = Math.max(w * 0.9, Math.min(depthRun, halfBlock));
-      // Backstop for cross streets the midpoint rule cannot see. The old loop
-      // guarded on `depth > w * 0.9` — which is the value depth STARTS at
-      // whenever the block is narrow, so on exactly the blocks that needed it
-      // the backstop never ran one iteration and the rear wall went into the
-      // street behind. The floor is now the shallowest lot worth building.
-      // (Whether the rectangle actually clears is settled once, for every
-      // caller, in placeOne's roadway gate: shrink the depth or refuse.)
-      for (let i = 0; i < 3 && depth > LOT_DEPTH_MIN; i++) {
-        if (clear(face(s, frontOff + depth)) && clear(face(s + w, frontOff + depth))) break;
-        depth = Math.max(LOT_DEPTH_MIN, depth * 0.72);
-      }
-      const b0 = face(s, frontOff + depth);
-      const b1 = face(s + w, frontOff + depth);
-      const x = (p0.x + p1.x + b0.x + b1.x) / 4;
-      const z = (p0.z + p1.z + b0.z + b1.z) / 4;
-      const character = fabricCharAt(x, z);
-      // FOLD-BACK. Past the radius of curvature of a convex kink the offset
-      // facade line self-intersects: the two back corners swap order and the
-      // lot's rectangle turns inside out across its own neighbours. No depth
-      // fixes that — the lot is degenerate, so it is not planned at all.
-      const folded = (b1.x - b0.x) * (p1.x - p0.x) + (b1.z - b0.z) * (p1.z - p0.z) <= 0;
-      s += w;
-      if (character === null || folded) {
-        attached = false;
-        continue;
-      }
-      // The chord between the shared corners, not the arclength: on a curve the
-      // chord is what the two walls actually have in common.
-      const ex = p1.x - p0.x;
-      const ez = p1.z - p0.z;
-      const width = Math.hypot(ex, ez);
-      if (width < LOT_MIN) {
-        attached = false;
-        continue;
-      }
-      lots.push({
-        x,
-        z,
-        yaw: Math.atan2((ex / width) * side, (ez / width) * side) + HALF_PI_CITY,
-        width,
-        depth,
-        rear: Math.max(0, halfBlock - depth),
-        character,
-        attached,
-        run,
-        x0: p0.x,
-        z0: p0.z,
-        x1: p1.x,
-        z1: p1.z,
-      });
-      attached = true;
-    }
-    // The break between runs — an alley or a driveway on a dense row, a side
-    // yard on a detached one. This IS the vacancy: the old walk holed every
-    // ~25th slot at random, which on a dense row is a missing tooth.
-    s += dense ? rng.range(0.9, 2.2) : rng.range(2.4, 5.0);
-    attached = false;
-  }
-  return lots;
-}
-
 // A streamed tile of static city geometry: its own merged meshes under one
 // group, tagged with a centre + cull radius so it can be hidden when far away.
 type MatRec = {
@@ -638,6 +190,7 @@ type MatRec = {
    */
   unlit?: boolean;
   toneMapped?: boolean;
+  propShadow?: PropShadowPolicy;
 };
 export type MergedChunkRec = {
   cx: number;
@@ -685,7 +238,7 @@ type ChunkMeshGroup = {
 
 type BakedMaterial = THREE.MeshStandardMaterial | THREE.MeshBasicMaterial;
 
-function materialFactory(): (m: MatRec) => BakedMaterial {
+export function materialFactory(): (m: MatRec) => BakedMaterial {
   // Material descriptors are the cache key. Omitting any field makes old rest
   // payloads alias materials that render differently.
   const mats = new Map<string, BakedMaterial>();
@@ -717,6 +270,7 @@ function materialFactory(): (m: MatRec) => BakedMaterial {
           });
       // Baked-path rebuilds of the live materials (plinths, seawall, prisms)
       // must carry the same surface breakup the cold-gen path gets below.
+      if (m.propShadow !== undefined) setPropShadowPolicy(mat, m.propShadow);
       applyMaterialBreakup(mat, CITY_BREAKUP);
       mats.set(k, mat);
     }
@@ -725,7 +279,7 @@ function materialFactory(): (m: MatRec) => BakedMaterial {
 }
 
 /** The MatRec for a material the capture understands, or null. */
-function matRecOf(mat: THREE.Material): MatRec | null {
+export function matRecOf(mat: THREE.Material): MatRec | null {
   if (mat instanceof THREE.MeshStandardMaterial) {
     return {
       color: mat.color.getHex(),
@@ -737,6 +291,7 @@ function matRecOf(mat: THREE.Material): MatRec | null {
       polygonOffsetUnits: mat.polygonOffsetUnits,
       transparent: mat.transparent,
       opacity: mat.opacity,
+      propShadow: propShadowPolicy(mat),
     };
   }
   if (mat instanceof THREE.MeshBasicMaterial) {
@@ -752,6 +307,7 @@ function matRecOf(mat: THREE.Material): MatRec | null {
       opacity: mat.opacity,
       unlit: true,
       toneMapped: mat.toneMapped,
+      propShadow: propShadowPolicy(mat),
     };
   }
   return null;
@@ -806,7 +362,7 @@ async function buildMergedChunkGroups(options: {
     const runtimeMat = options.runtimeMaterials?.get(rec);
     if (runtimeMat) {
       const mesh = new THREE.Mesh(geo, runtimeMat);
-      mesh.castShadow = true;
+      mesh.castShadow = !propShadowsDisabled(runtimeMat, renderCapabilities().multiDraw);
       mesh.receiveShadow = true;
       g.group.add(mesh);
       continue;
@@ -827,6 +383,8 @@ async function buildMergedChunkGroups(options: {
     const srcM = rec.srcMat ? options.cache.srcMesh(rec.srcMat.url, rec.srcMat.idx) : null;
     const srcMatOk = srcM && !Array.isArray(srcM.material) ? srcM.material : null;
     const mesh = new THREE.Mesh(geo, srcMatOk ?? options.materialFor(rec.mat));
+    if (propShadowPolicy(mesh.material) !== undefined)
+      mesh.castShadow = !propShadowsDisabled(mesh.material, renderCapabilities().multiDraw);
     mesh.receiveShadow = true;
     g.group.add(mesh);
   }
@@ -1200,96 +758,10 @@ function imposterBox(geo: THREE.BufferGeometry, mat: THREE.Material): THREE.Buff
   return box;
 }
 
-// A robotaxi garage: the depot building plus the drive-in pad in front where
-// the skin-swap UI opens. Spots are derived deterministically from the plan,
-// so BOTH the generated and the baked-artifact boot paths agree on them.
-export type Garage = { x: number; z: number; yaw: number; padX: number; padZ: number };
-
-const GARAGE_COUNT = 7;
-const GARAGE_MIN_DIST = 350;
-
-function pickGarageSpots(plan: CityPlan, terrain: Terrain, network: RoadNetwork): Garage[] {
-  const cells = plan.cells;
-  const dirs: readonly (readonly [number, number])[] = [
-    [1, 0],
-    [-1, 0],
-    [0, 1],
-    [0, -1],
-  ];
-  const cellAt = (gx: number, gz: number): string | undefined => cells[gx]?.[gz];
-  type Cand = { gx: number; gz: number; dx: number; dz: number };
-  const cands: Cand[] = [];
-  for (let gx = 4; gx < GRID_X - 4; gx += 2) {
-    for (let gz = 4; gz < GRID_Z - 4; gz += 2) {
-      if (cellAt(gx, gz) !== "lot") continue;
-      for (const [dx, dz] of dirs) {
-        if (cellAt(gx + dx, gz + dz) !== "road") continue;
-        // depth: the cell behind must be lot too (the depot is deep)
-        if (cellAt(gx - dx, gz - dz) !== "lot") continue;
-        const wx = (gx + 0.5) * ROAD_TILE - WORLD_HALF_X;
-        const wz = (gz + 0.5) * ROAD_TILE - WORLD_HALF_Z;
-        const r = ROAD_TILE;
-        const hs = [
-          terrain.heightAt(wx - r, wz - r),
-          terrain.heightAt(wx + r, wz - r),
-          terrain.heightAt(wx - r, wz + r),
-          terrain.heightAt(wx + r, wz + r),
-        ];
-        if (Math.max(...hs) - Math.min(...hs) > 1.4) continue; // flat pads only
-        cands.push({ gx, gz, dx, dz });
-        break;
-      }
-    }
-  }
-  // Seeded shuffle, then greedy max-spread accept.
-  const rng = new Rng(424242);
-  for (let i = cands.length - 1; i > 0; i--) {
-    const j = rng.int(i + 1);
-    const a = cands[i];
-    const b = cands[j];
-    if (a && b) {
-      cands[i] = b;
-      cands[j] = a;
-    }
-  }
-  const picked: Garage[] = [];
-  for (const c of cands) {
-    if (picked.length >= GARAGE_COUNT) break;
-    const wx = (c.gx + 0.5) * ROAD_TILE - WORLD_HALF_X;
-    const wz = (c.gz + 0.5) * ROAD_TILE - WORLD_HALF_Z;
-    if (picked.some((g) => Math.hypot(g.x - wx, g.z - wz) < GARAGE_MIN_DIST)) continue;
-    // Depot footprint must not clip a vector lane: the grid says "lot" but
-    // straightened OSM centrelines cut lot cells, and a depot corner in the
-    // roadway is an (invisible from the lane) wall.
-    const dh = ROAD_TILE * 0.42 + 0.3;
-    let clipsLane = false;
-    for (const [ox, oz] of [
-      [-dh, -dh],
-      [dh, -dh],
-      [-dh, dh],
-      [dh, dh],
-    ] as const) {
-      const hit = network.nearest(wx + ox, wz + oz, ROAD_TILE * 1.4);
-      if (hit && hit.dist < hit.edge.half + 0.2) {
-        clipsLane = true;
-        break;
-      }
-    }
-    if (clipsLane) continue;
-    picked.push({
-      x: wx,
-      z: wz,
-      yaw: Math.atan2(c.dx, c.dz), // model faces +Z — turn it toward the road
-      padX: wx + c.dx * ROAD_TILE * 1.15,
-      padZ: wz + c.dz * ROAD_TILE * 1.15,
-    });
-  }
-  return picked;
-}
-
 export class CityModel {
-  readonly group = new THREE.Group();
+  readonly group = new StaticWorldGroup();
   readonly solids: Solid[] = [];
+  private readonly landmarkWater: WaterBody[] = [];
   readonly roadCells: RoadCell[] = [];
   plan: CityPlan; // mutable: live street rebuild replaces it
   readonly terrain: Terrain;
@@ -1298,8 +770,8 @@ export class CityModel {
   readonly garages: readonly Garage[]; // robotaxi skin-swap depots (+ drive-in pads)
   lampHeads: readonly LampHead[] = []; // streetlight glow anchors (night pass)
   private chunks: Chunk[] = [];
-  // Road drape target (terrain + step-ladder street terrace), cached per
-  // network so live street edits rebuild it exactly once.
+  // Ground mesh offset (street depression, terrace and road-clearance cap),
+  // cached per network so live street edits rebuild it exactly once.
   // makeGroundOffset rasterizes a clearance field AND a full street terrace —
   // furniture and buildGround must share one, not build two.
   private groundOffsetCache: ((x: number, z: number) => number) | null = null;
@@ -1316,6 +788,7 @@ export class CityModel {
   // on a beach the painter drew as sand. Cached per PLAN — a live street edit
   // replaces the plan and the resolver reads its street/frontage fabric.
   private landClassCache: LandClassAt | null = null;
+  private paintedFloorAt = makePaintedFloorAt();
   private landClassPlan: CityPlan | null = null;
   private get landClassAt(): LandClassAt {
     if (!this.landClassCache || this.landClassPlan !== this.plan) {
@@ -1350,7 +823,7 @@ export class CityModel {
     return this.roadDrapeCache;
   }
   // Global model batches; instances flip visibility by chunk on transitions.
-  private batches: { mesh: THREE.BatchedMesh; chunkIds: Uint16Array }[] = [];
+  private batches: { mesh: PropBatch; chunkIds: Uint16Array }[] = [];
   private batchChunkGrid = { nx: 1, nz: 1 };
   private chunkVisible: Uint8Array | null = null;
   // chunk key → [batchIndex, instanceId] pairs, so a chunk transition touches
@@ -1373,7 +846,7 @@ export class CityModel {
   // ring less.
   private imposterInstances = new Map<number, number[]>();
   private imposterMidInstances = new Map<number, number[]>();
-  private imposterMesh: THREE.BatchedMesh | null = null;
+  private imposterMesh: PropBatch | null = null;
   private imposterVisible: Uint8Array | null = null;
   private imposterMidVisible: Uint8Array | null = null;
   // City-rest cache: everything phases 2+3 produce, in serializable form.
@@ -1447,6 +920,7 @@ export class CityModel {
         polygonOffsetUnits: mat.polygonOffsetUnits,
         transparent: mat.transparent,
         opacity: mat.opacity,
+        propShadow: propShadowPolicy(mat),
       },
       srcMat,
     };
@@ -1496,6 +970,87 @@ export class CityModel {
   private chunkVisibleTall: Uint8Array | null = null;
 
   private restPayload: CityRestPayload | null = null;
+
+  // --- The parcel fabric ----------------------------------------------------
+  // Real footprints as procedural buildings (parcel-plan.ts / parcel-mesh.ts).
+  // The plan is pure and cached: phase 2 reads it to claim ground ahead of the
+  // kit walk, and BOTH load paths build its meshes and solids live at the end
+  // of their pass — nothing of it is captured into the bins.
+  private reservedCells: ReadonlySet<string> = new Set();
+  private parcelSource: ParcelSource | null = null;
+  /** The parcel source (world-fetch.ts fetchParcelSource) — the main-thread fallback's input. */
+  setParcelSource(src: ParcelSource | null): void {
+    this.parcelSource = src;
+  }
+  private parcelPlanCache: ParcelPlanResult | null = null;
+  /** The plan, computed off-thread (parcel-worker.ts) — set before initLate(). */
+  setParcelPlan(plan: ParcelPlanResult | null): void {
+    this.parcelPlanCache = plan;
+  }
+  private parcelPlan(): ParcelPlanResult {
+    if (!this.parcelPlanCache) {
+      const source = this.parcelSource;
+      if (!source) {
+        // No source (fetch failed): no fabric, and the kit walk keeps every block.
+        this.parcelPlanCache = emptyParcelPlan();
+        console.log("[city] parcels: no source — kit fabric only");
+        return this.parcelPlanCache;
+      }
+      // Main-thread plan: edited cities (their network is not the baked one)
+      // and the worker having failed. Seconds of stall, so it is the fallback.
+      const t0 = performance.now();
+      this.parcelPlanCache = planParcels({
+        source,
+        network: this.network,
+        terrain: this.terrain,
+        reserved: this.reservedCells,
+        standAt: (x, z) => this.standAt(x, z),
+      });
+      const s = this.parcelPlanCache.stats;
+      console.log(
+        `[city] parcels planned: ${s.built} built (${s.onRoad} in a lane, ${s.clipped} clipped away, ` +
+          `${s.stacked} stacked, ${s.park} park, ${s.reserved} reserved, ${s.freeway} freeway, ` +
+          `${s.folded} folded, ${s.straddle} straddling, ${s.cliff} cliff, ${s.water} water; ` +
+          `${s.movedVerts} verts moved, ${s.stretched} stretched; ${s.underDeck} under a deck, ${s.boxed} boxed, ${s.split} split, ${s.lots} lots) ` +
+          `${Math.round(performance.now() - t0)}ms`,
+      );
+    }
+    return this.parcelPlanCache;
+  }
+  // The skyline (parcel-stream.ts explains the split) is built once; the
+  // rest of the fabric streams around the camera in updateStreaming.
+  private parcelStreamer: ParcelStreamer | null = null;
+  parcelStreamStats(): ParcelStreamStats | null {
+    return this.parcelStreamer?.stats() ?? null;
+  }
+  private async buildParcels(): Promise<void> {
+    const t0 = performance.now();
+    const { plans, lots } = this.parcelPlan();
+    const detail = parcelDetailLevel();
+    const visible = visibleParcelPlans(plans);
+    const skyline = visible.filter((p) => p.height >= BIG_SILHOUETTE_H);
+    const fabric = visible.filter((p) => p.height < BIG_SILHOUETTE_H);
+    const built = await buildParcelFabric(
+      skyline,
+      [],
+      { imposter: IMPOSTER_DISTANCE, midImposter: MID_IMPOSTER_DISTANCE, detail: DETAIL_DISTANCE },
+      detail,
+      () => this.breathe(),
+    );
+    for (const c of built.chunks) {
+      this.group.add(c.group);
+      this.chunks.push({ cx: c.cx, cz: c.cz, radius: c.radius, dist: c.dist, group: c.group });
+    }
+    this.parcelStreamer = new ParcelStreamer(this.group, fabric, lots, detail);
+    for (const p of plans) for (const so of p.solids) this.solids.push(so);
+    const cars = parkOnLots(lots, plans);
+    this.parkedCarSpecs = [...this.parkedCarSpecs, ...cars];
+    console.log(
+      `[city] parcels: ${skyline.length} skyline buildings static (${built.stats.vertices} verts), ` +
+        `${fabric.length} streamed over ${this.parcelStreamer.stats().cells} cells, ${lots.length} lots ` +
+        `(${cars.length} cars) in ${Math.round(performance.now() - t0)}ms`,
+    );
+  }
   private lateRoadFallback: (() => void) | null = null;
 
   // The rest payload can arrive AFTER construction (it streams behind the
@@ -1662,173 +1217,6 @@ export class CityModel {
     };
   }
 
-  private poolFor(c: FabricChar): readonly string[] {
-    switch (c) {
-      case "downtown":
-      case "highrise":
-        return this.rng.chance(0.55) ? BUILDINGS_SKYSCRAPER : BUILDINGS_COMMERCIAL;
-      case "commercial":
-      case "wharf":
-        // KayKit blocks carry their own storefront color — a strong mix here
-        // breaks up the Kenney-commercial repetition.
-        return this.rng.chance(0.35) ? KK_BUILDINGS : BUILDINGS_COMMERCIAL;
-      case "industrial":
-        return BUILDINGS_INDUSTRIAL;
-      case "victorian":
-      case "residential":
-        // Occasional KayKit mid-rise = the SF corner store/apartment block.
-        return this.rng.chance(0.12) ? KK_BUILDINGS_MID : BUILDINGS_SUBURBAN;
-    }
-  }
-
-  // Pool for a lot that BUTTS its neighbours. 18 of the 21 suburban models are
-  // gabled, and a butted gable row is a sawtooth; the flat three plus the
-  // commercial blocks give the continuous cornice an attached row needs. The
-  // roof family is chosen per BLOCK so a row agrees with itself instead of
-  // alternating gable/flat/gable.
-  private fabricPool(c: FabricChar, lot: FabricLot): readonly string[] {
-    if (!lot.attached) return this.poolFor(c);
-    switch (c) {
-      case "residential":
-      case "victorian": {
-        const h = blockHash(lot.x, lot.z);
-        if (h % 4 !== 0) return SUBURBAN_FLAT_TOP;
-        // The gabled quarter still wants ONE ridge per block, not eighteen.
-        // Handing a whole 18-model pool to `rng.pick` re-rolls the roof for
-        // every house, so even the "one roof family per block" blocks came out
-        // as a sawtooth of five different ridge heights. A two-model window
-        // keeps the variety between blocks and the repeat within one.
-        const i = h % BUILDINGS_SUBURBAN.length;
-        return BUILDINGS_SUBURBAN.filter(
-          (_, k) => k === i || k === (i + 1) % BUILDINGS_SUBURBAN.length,
-        );
-      }
-      case "downtown":
-      case "highrise":
-      case "commercial":
-      case "wharf":
-      case "industrial":
-        return this.poolFor(c); // already flat-topped blocks
-    }
-  }
-
-  private storeysFor(c: FabricChar): number {
-    switch (c) {
-      case "highrise": {
-        // A fat-tailed mix instead of the old flat 7-10: the uniform band made
-        // every FiDi block the same squat slab against an 11u street, and the
-        // skyline read as a bar chart with one bar. Most lots stay mid-rise,
-        // a quarter push to real tower height, and one in ten goes tall enough
-        // to give the district a silhouette the way the reference tile's
-        // supertalls do — heights VARY per lot, which is the actual fix.
-        const r = this.rng.range(0, 1);
-        if (r < 0.62) return 8 + this.rng.int(6);
-        if (r < 0.9) return 14 + this.rng.int(8);
-        return 22 + this.rng.int(9);
-      }
-      case "downtown":
-        return this.rng.chance(0.75) ? 6 + this.rng.int(5) : 11 + this.rng.int(6);
-      case "commercial":
-        return 4 + this.rng.int(3);
-      case "industrial":
-        return 2 + this.rng.int(3);
-      case "victorian":
-        return 3 + this.rng.int(2);
-      case "residential":
-        return this.rng.chance(0.75) ? 3 : 4;
-      case "wharf":
-        return 2 + this.rng.int(2);
-    }
-  }
-
-  // The facade colour: one dominant per block, two or three accents around it.
-  private blockColorAt(x: number, z: number, district: District): number {
-    const pal = paletteFor(district);
-    const h = blockHash(x, z);
-    const dominant = pal[h % pal.length];
-    if (dominant === undefined) return 0xffffff;
-    if (pal.length < 2 || this.rng.chance(0.66)) return dominant;
-    return pal[(h + 1 + this.rng.int(pal.length - 1)) % pal.length] ?? dominant;
-  }
-
-  // Tuck-under garage on the DOWNHILL face of a hillside plinth: a dark door
-  // under a header band, and a stoop back up to the raised entry. Skipped when
-  // the street face is the uphill one — then the garage is round the back,
-  // where nobody driving past can see it.
-  private garageFronts = 0;
-  private addGarageFront(
-    collect: (obj: THREE.Object3D) => void,
-    lot: FabricLot,
-    seatY: number,
-    plinthH: number,
-  ): void {
-    const fx = (lot.x0 + lot.x1) / 2;
-    const fz = (lot.z0 + lot.z1) / 2;
-    const faceY = this.terrain.heightAt(fx, fz);
-    if (faceY > seatY - 1.4) return; // the front is level or uphill
-    const nx = (fx - lot.x) / Math.max(Math.hypot(fx - lot.x, fz - lot.z), 0.001);
-    const nz = (fz - lot.z) / Math.max(Math.hypot(fx - lot.x, fz - lot.z), 0.001);
-    const doorW = Math.min(4.2, lot.width * 0.44);
-    const doorH = Math.min(plinthH - 0.5, 3.0);
-    if (doorH < 1.2) return;
-    const skin = 0.14; // proud of the plinth face so it can't z-fight it
-    const door = new THREE.Mesh(PLINTH_GEO, GARAGE_DOOR_MAT);
-    door.scale.set(doorW, doorH, 0.5);
-    door.rotation.y = lot.yaw;
-    door.position.set(
-      lot.x + nx * (lot.depth / 2 + skin),
-      faceY + doorH / 2,
-      lot.z + nz * (lot.depth / 2 + skin),
-    );
-    door.updateMatrixWorld(true);
-    collect(door);
-    const head = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
-    head.scale.set(doorW + 0.7, 0.42, 0.62);
-    head.rotation.y = lot.yaw;
-    head.position.set(
-      lot.x + nx * (lot.depth / 2 + skin + 0.06),
-      faceY + doorH + 0.2,
-      lot.z + nz * (lot.depth / 2 + skin + 0.06),
-    );
-    head.updateMatrixWorld(true);
-    collect(head);
-    // Stoop: three steps beside the door, ground to the raised entry. A single
-    // tilted slab was cheaper by two boxes and read as a plank leaning on the
-    // wall — steps are what makes the raised entry legible.
-    const rise = seatY - faceY;
-    const sideX = -nz * (doorW / 2 + 1.2);
-    const sideZ = nx * (doorW / 2 + 1.2);
-    const treads = 3;
-    for (let i = 0; i < treads; i++) {
-      const stepH = (rise * (i + 1)) / treads;
-      const out = 1.5 - (i * 1.5) / treads; // the bottom step reaches furthest
-      const step = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
-      step.scale.set(1.9, stepH, out + 0.35);
-      step.rotation.y = lot.yaw;
-      step.position.set(
-        lot.x + nx * (lot.depth / 2 + (out + 0.35) / 2) + sideX,
-        faceY + stepH / 2 - 0.1,
-        lot.z + nz * (lot.depth / 2 + (out + 0.35) / 2) + sideZ,
-      );
-      step.updateMatrixWorld(true);
-      collect(step);
-    }
-    this.garageFronts++;
-  }
-
-  // District-tinted material clones, cached so tinted buildings still merge.
-  // Tint via per-INSTANCE color (BatchedMesh.setColorAt): the batcher
-  // multiplies it with the material map exactly like the old cloned-material
-  // lerp did for white-based kit materials — and tint variants stop
-  // multiplying batch count (and material count).
-  private tintNode(node: THREE.Object3D, hex: number, amt: number): void {
-    node.traverse((c) => {
-      if (c instanceof THREE.Mesh && c.material instanceof THREE.MeshStandardMaterial) {
-        c.userData.tint = c.material.color.clone().lerp(new THREE.Color(hex), amt);
-      }
-    });
-  }
-
   // Build in yielded phases so the loading bar paints during city gen.
   async init(onProgress?: (f: number) => void): Promise<void> {
     await this.initEarly(onProgress);
@@ -1858,6 +1246,9 @@ export class CityModel {
     if (this.restPayload) {
       const tR = performance.now();
       await this.rebuildRest(this.restPayload, onProgress);
+      // Runtime has copied the construction data. The loader retains its own
+      // reference for its last consumers; failed rebuilds keep this for retry.
+      this.restPayload = null;
       console.log(`[city] rest rebuild ${Math.round(performance.now() - tR)}ms`);
       await tick(0.97);
       return;
@@ -1889,6 +1280,30 @@ export class CityModel {
 
   private buildPhase1(): void {
     const staticMeshes: THREE.Mesh[] = [];
+    // Cold generation resolves water before planting and reuses that landmark
+    // group in phase3. Baked loads skip both closures and build only in rebuildRest.
+    const landmarkWalls: Solid[] = [];
+    let landmarks: THREE.Group | null = null;
+    const resolveLandmarks = (): THREE.Group => {
+      if (landmarks) return landmarks;
+      this.landmarkWater.length = 0;
+      landmarks = buildLandmarks(
+        this.terrain,
+        this.cache,
+        this.network,
+        (wall) => landmarkWalls.push(wall),
+        (body) => this.landmarkWater.push(body),
+      );
+      return landmarks;
+    };
+    // Resolve lazily, after reservations exist. City scatter, furniture trees
+    // and shelters share this exact ring index for the whole generation run.
+    let parcelIndex: ParcelClearance | null = null;
+    const parcelClear: ParcelClearance = (footprint, margin) => {
+      parcelIndex ??= buildParcelClearance(this.parcelPlan().plans);
+      return parcelIndex(footprint, margin);
+    };
+    const treeClear = buildTreeClearance(this.cache, parcelClear, this.landmarkWater);
     const collect = (obj: THREE.Object3D): void => {
       obj.updateMatrixWorld(true);
       obj.traverse((c) => {
@@ -1927,8 +1342,11 @@ export class CityModel {
           const tz = wz + this.rng.range(-2.6, 2.6);
           if (this.onAsphalt(tx, tz, 0.6)) continue;
           if (nearFreeway(tx, tz, 0.5)) continue; // canopy pierces the deck
+          if (occupiedBy(occBox(tx, tz, 0.6, 0.6, 0, 0))) continue; // inside a parcel
           tree.position.set(tx, this.standAt(tx, tz), tz);
           tree.rotation.y = this.rng.range(0, Math.PI * 2);
+          if (!treeClear(treeUrl, { x: tx, z: tz, yaw: tree.rotation.y, scaleX: tsc, scaleZ: tsc }))
+            continue;
           collect(tree);
           if (large) treeSolid(tx, tz);
         }
@@ -1966,46 +1384,28 @@ export class CityModel {
     // --- Landmark footprints: cells the procedural city leaves alone.
     // Editor "clear" cells join the reservation, so every placement pass
     // (buildings, furniture, park tiles) skips them. ---
+    // Assembled by the ONE builder the parcel worker also uses
+    // (world/reservation.ts), so the plan it computes before this phase runs
+    // is against exactly this set.
     const lmBase = landmarkProtection(this.plan, this.network);
-    const reservedAll = new Set(lmBase.reserved);
-    for (const [cgx, cgz] of loadLocalOverrides().clear ?? []) {
-      reservedAll.add(`${cgx},${cgz}`);
-    }
-    // The Golden Gate corridor. buildGoldenGate runs LAST (phase 3), so its
-    // deck does not exist yet when the vegetation and furniture passes seat
-    // props — and the deck is not network asphalt, so `onAsphalt` cannot see it
-    // either. The result was a kit conifer planted on the deck centreline at
-    // the bridge axis, straddling both lanes. Reserving the corridor up front
-    // is the only place that knowledge can live for every later pass.
-    {
-      const gg = goldenGatePlan({
-        plan: this.plan,
-        terrain: this.terrain,
-        worldX: (g) => this.worldX(g),
-        worldZ: (g) => this.worldZ(g),
-      });
-      if (gg) {
-        const gx0 = gridXOf(gg.ax - gg.half - ROAD_TILE * 0.5);
-        const gx1 = gridXOf(gg.ax + gg.half + ROAD_TILE * 0.5);
-        const gz0 = gridZOf(Math.min(gg.northEndZ, gg.shoreZ));
-        const gz1 = gridZOf(Math.max(gg.northEndZ, gg.shoreZ));
-        for (let gx = gx0; gx <= gx1; gx++) {
-          for (let gz = gz0; gz <= gz1; gz++) reservedAll.add(`${gx},${gz}`);
-        }
-      }
-    }
-    // Garages claim their own cell AND their drive-in pad before anything else
-    // builds (or dresses) there.
-    for (const g of this.garages) {
-      reservedAll.add(`${gridXOf(g.x)},${gridZOf(g.z)}`);
-      reservedAll.add(`${gridXOf(g.padX)},${gridZOf(g.padZ)}`);
-    }
+    const reservedAll = buildReservation({
+      plan: this.plan,
+      terrain: this.terrain,
+      landmarks: lmBase.reserved,
+      garages: this.garages,
+      clears: loadLocalOverrides().clear ?? [],
+    });
     const lm = { ...lmBase, reserved: reservedAll };
+    this.reservedCells = reservedAll;
     // Landmark monuments have visuals but are NOT batch items (built as
     // one-off meshes in buildLandmarks), so the e2e sightless census cannot
     // vouch for them — tag the reason instead of relying on batched
     // neighbours to cover them by coincidence.
-    for (const s of lm.solids) this.solids.push({ ...s, unseen: "landmark (unbatched monument)" });
+    const landmarkReservations = lm.solids.map((s) => ({
+      ...s,
+      unseen: "landmark (unbatched monument)",
+    }));
+    this.solids.push(...landmarkReservations);
 
     const placedHash = new Map<number, OccBox[]>();
     let occRow = 0;
@@ -2056,66 +1456,6 @@ export class CityModel {
       occupy(occBox(g.x, g.z, half + 0.6, half + 0.6, 0, ++occRow));
     }
 
-    // A block-INTERIOR lot on a grid cell, facing the same street its frontage
-    // neighbour does. The shrink lives here rather than inside placeBuilding
-    // because the caller has to know the width it got: this is the cell-based
-    // twin of planFabricRow, and like it, it hands back a finished lot.
-    const fitCellLot = (gx: number, gz: number, faceDir: Dir, frac: number): FabricLot | null => {
-      const wx = this.worldX(gx);
-      const wz = this.worldZ(gz);
-      const character = fabricCharAt(wx, wz);
-      if (character === null) return null;
-      if (this.onAsphalt(wx, wz, 1)) return null;
-      const yaw = dirToYaw(faceDir);
-      const cos = Math.cos(yaw);
-      const sin = Math.sin(yaw);
-      const cornersClear = (f: number): boolean => {
-        const h = ROAD_TILE * f * 0.46;
-        return !(
-          this.onAsphalt(wx - h, wz - h, 0.4) ||
-          this.onAsphalt(wx + h, wz - h, 0.4) ||
-          this.onAsphalt(wx - h, wz + h, 0.4) ||
-          this.onAsphalt(wx + h, wz + h, 0.4)
-        );
-      };
-      let fit = frac;
-      if (!cornersClear(fit)) {
-        const near = this.network.nearest(wx, wz, ROAD_TILE * 1.6);
-        fit = near
-          ? Math.min(fit, ((near.dist - near.edge.half - 0.5) * 2) / ROAD_TILE)
-          : fit * 0.75;
-        // Corner lots see a second street the nearest-edge shrink can't: one
-        // more step down before giving the lot to grass.
-        if (ROAD_TILE * fit < LOT_MIN || !cornersClear(fit)) {
-          fit *= 0.78;
-          if (ROAD_TILE * fit < LOT_MIN || !cornersClear(fit)) return null;
-        }
-      }
-      const width = ROAD_TILE * fit;
-      // Interior lots read from the side, so they stay near-square: the deep
-      // plan belongs to the street row whose flanks its neighbours hide.
-      const depth = width * LOT_DEPTH_SHALLOW;
-      return {
-        x: wx,
-        z: wz,
-        yaw,
-        width,
-        depth,
-        rear: 0, // an interior cell IS the block interior; nothing behind it
-        character,
-        attached: false,
-        run: 0,
-        x0: wx - (width / 2) * cos - (depth / 2) * sin,
-        z0: wz - (width / 2) * sin + (depth / 2) * cos,
-        x1: wx + (width / 2) * cos - (depth / 2) * sin,
-        z1: wz + (width / 2) * sin + (depth / 2) * cos,
-      };
-    };
-
-    // Why a planned lot did not get built — the fabric pass is the biggest
-    // consumer of gen time and has no other visibility into its own losses.
-    const rejects = { freeway: 0, occupied: 0, cliff: 0, reserved: 0, road: 0 };
-
     // WHERE A WALL ACTUALLY GOT BUILT. furniture.ts hangs awnings, shutters,
     // fire escapes and murals on `facadeOffset(edge.half)` — a plane it can
     // compute but not verify, because it never sees the buildings. Every alley
@@ -2129,891 +1469,43 @@ export class CityModel {
     const facadeKey = (x: number, z: number): number =>
       Math.floor((x + WORLD_HALF_X) / FACADE_CELL) * FACADE_STRIDE +
       Math.floor((z + WORLD_HALF_Z) / FACADE_CELL);
-    const stampFacade = (lot: FabricLot): void => {
-      const steps = Math.max(2, Math.ceil((lot.width * 2) / FACADE_CELL));
+    const stampSegment = (x0: number, z0: number, x1: number, z1: number): void => {
+      const steps = Math.max(2, Math.ceil((Math.hypot(x1 - x0, z1 - z0) * 2) / FACADE_CELL));
       for (let i = 0; i <= steps; i++) {
         const t = i / steps;
-        facadeCells.add(facadeKey(lot.x0 + (lot.x1 - lot.x0) * t, lot.z0 + (lot.z1 - lot.z0) * t));
+        facadeCells.add(facadeKey(x0 + (x1 - x0) * t, z0 + (z1 - z0) * t));
       }
     };
     this.facadeAt = (x: number, z: number): boolean => facadeCells.has(facadeKey(x, z));
 
-    /**
-     * Walk BOX_PROBES over a lot's own rectangle in world space. The frame is
-     * taken from the lot's front-face corners rather than from `yaw`, so a
-     * sliced or back-row lot cannot drift out of phase with the trigonometry
-     * that built it, and `centreZ`/`halfD` are parameters so a caller can ask
-     * about a rectangle SHALLOWER than the planned one (pulling the back wall
-     * in) without inventing a second lot.
-     */
-    const lotProbes = (
-      lot: FabricLot,
-      cx: number,
-      cz: number,
-      halfD: number,
-      visit: (x: number, z: number) => boolean,
-    ): boolean => {
-      const ex = lot.x1 - lot.x0;
-      const ez = lot.z1 - lot.z0;
-      const el = Math.max(Math.hypot(ex, ez), 0.001);
-      const ax = ex / el;
-      const az = ez / el;
-      const fx = (lot.x0 + lot.x1) / 2 - lot.x;
-      const fz = (lot.z0 + lot.z1) / 2 - lot.z;
-      const fl = Math.max(Math.hypot(fx, fz), 0.001);
-      const bx = fx / fl;
-      const bz = fz / fl;
-      const halfW = lot.width / 2;
-      for (const [a, b] of BOX_PROBES) {
-        const px = cx + ax * a * halfW + bx * b * halfD;
-        const pz = cz + az * a * halfW + bz * b * halfD;
-        if (visit(px, pz)) return true;
-      }
-      return false;
-    };
-    /** Does any part of this rectangle stand on the DRAWN asphalt? */
-    const lotOnAsphalt = (lot: FabricLot, cx: number, cz: number, halfD: number): boolean =>
-      lotProbes(lot, cx, cz, halfD, (x, z) => this.onAsphalt(x, z, 0.3));
-    /**
-     * Does any part of this rectangle stand in a reserved (landmark / garage /
-     * editor-cleared) cell? The passes used to ask about the lot's CENTRE cell
-     * only, which is how six kit houses came to stand on the Murphy Windmill's
-     * and the Ferry Building's own lawns: a 12u cell is smaller than a lot.
-     */
-    const lotReserved = (lot: FabricLot, cx: number, cz: number, halfD: number): boolean =>
-      lotProbes(lot, cx, cz, halfD, (x, z) => lm.reserved.has(`${gridXOf(x)},${gridZOf(z)}`));
-
-    // One building on one finished lot. The lot's width, depth, facing and
-    // setback are decided by the caller (planFabricRow for frontage rows,
-    // fitCellLot for block-interior infill) and are FINAL here: this used to
-    // narrow the building itself, after the walk had already stepped by the
-    // un-narrowed width, which put the gap somewhere no caller could see.
-    // Returns the lot it built, or null when the lot is unbuildable.
-    const placeOne = (
-      lot: FabricLot,
-      row: number,
-      dressing: boolean, // rooftop towers + curbside trees (frontage only)
-    ): FabricLot | null => {
-      let wx = lot.x;
-      let wz = lot.z;
-      const district = districtAt(gridXOf(wx), gridZOf(wz));
-      if (nearFreeway(wx, wz, 1.5)) {
-        rejects.freeway++;
-        return null; // no lots inside the viaduct ROW
-      }
-      const halfW = lot.width / 2;
-      let halfD = lot.depth / 2;
-      // THE ROADWAY GATE, and the only one that sees every caller. Each planner
-      // clears the streets IT knows about — planFabricRow its own kerb and the
-      // cross streets its walk passes, fitCellLot its cell's four corners — and
-      // none of them can see a back row pushed across the block, a hillside
-      // slice swung round on its yaw, or the second street a corner lot backs
-      // onto. Measured before this existed: 1,537 kit masses reaching >0.5u
-      // past a kerb, 277 of them >3u — a car's width into a travel lane.
-      //
-      // The frontage is the street WALL and never moves; the depth does, so the
-      // fix is to pull the back wall in until the rectangle clears, and to
-      // refuse the lot only when there is nothing left to pull.
-      {
-        const fmx = (lot.x0 + lot.x1) / 2;
-        const fmz = (lot.z0 + lot.z1) / 2;
-        const nx = fmx - lot.x;
-        const nz = fmz - lot.z;
-        const nl = Math.max(Math.hypot(nx, nz), 0.001);
-        let ok = !lotOnAsphalt(lot, wx, wz, halfD);
-        for (let i = 0; i < 3 && !ok; i++) {
-          const d = halfD * 2 * 0.72;
-          if (d < LOT_DEPTH_MIN) break;
-          halfD = d / 2;
-          wx = fmx - (nx / nl) * halfD;
-          wz = fmz - (nz / nl) * halfD;
-          ok = !lotOnAsphalt(lot, wx, wz, halfD);
-        }
-        if (!ok) {
-          rejects.road++;
-          return null;
-        }
-      }
-      // A landmark parcel is a FOOTPRINT question, not a centre-cell one.
-      if (lotReserved(lot, wx, wz, halfD)) {
-        rejects.reserved++;
-        return null;
-      }
-      const depth = halfD * 2;
-      // The lot AS SEATED: same frontage and facing, the depth the roadway gate
-      // left it. Everything downstream that needs a plan (the tuck-under
-      // garage, the caller's back-row walk) must read this one, not the plan
-      // the walk handed in, or the dressing hangs off a wall that moved.
-      const seated: FabricLot = { ...lot, x: wx, z: wz, depth };
-      const cos = Math.cos(lot.yaw);
-      const sin = Math.sin(lot.yaw);
-      if (occupiedBy(occBox(wx, wz, halfW, halfD, lot.yaw, row))) {
-        rejects.occupied++;
-        return null;
-      }
-      // Attached rows want a continuous cornice, not 18 gables in a sawtooth.
-      const key = this.rng.pick(this.fabricPool(lot.character, lot));
-      const url = modelUrl("buildings", key);
-      const bounds = this.cache.bounds(url);
-      const node = this.cache.instance(url);
-      // Frontage on X, depth on Z, height on its own storey count: the old
-      // single `sxz` tied depth to frontage, so a narrow row house was also a
-      // shallow one — the opposite of what SF row houses are.
-      const storeys = this.storeysFor(lot.character);
-      const worldH = FABRIC_STOREY * storeys;
-      // Tall enough to stop being one box: podium at the lot line, shaft inset,
-      // crown at the measured taper. One prism the whole way up is what makes a
-      // kit skyscraper read as an extruded rectangle.
-      const tall = worldH >= TOWER_MIN_H;
-      const podiumH = tall ? worldH * TOWER_PODIUM : 0;
-      const inset = tall ? TOWER_INSET : 1;
-      node.scale.set(
-        (lot.width * inset) / Math.max(bounds.size.x, 0.001),
-        (worldH - podiumH) / Math.max(bounds.size.y, 0.001),
-        (depth * inset) / Math.max(bounds.size.z, 0.001),
-      );
-      node.rotation.y = lot.yaw + BUILDING_FRONT_OFFSET;
-      // Buildings stay vertical. SF cuts the uphill wall INTO the grade and
-      // stilts the downhill side on a garage plinth; seating every lot at its
-      // high corner (the old rule) floated whole hillside rows on a plinth as
-      // tall as the fall, and anything past a 5u fall was deleted outright and
-      // replaced with three trees — 55-75% of the near-summit lots, on the hills
-      // San Francisco is famous for building on.
-      const corners = [
-        this.terrain.heightAt(wx, wz),
-        this.terrain.heightAt(wx - halfW * cos - halfD * sin, wz - halfW * sin + halfD * cos),
-        this.terrain.heightAt(wx + halfW * cos - halfD * sin, wz + halfW * sin + halfD * cos),
-        this.terrain.heightAt(wx - halfW * cos + halfD * sin, wz - halfW * sin - halfD * cos),
-        this.terrain.heightAt(wx + halfW * cos + halfD * sin, wz + halfW * sin - halfD * cos),
-      ];
-      const loY = Math.min(...corners);
-      let hiY = Math.max(...corners);
-      // Park/landuse-green cells carry a flat terrace TILE seated at the
-      // cell's highest corner — a house seated on the raw field there gets
-      // buried by its own lawn. Seat on the terrace instead.
-      const cgx = gridXOf(wx);
-      const cgz = gridZOf(wz);
-      if (isParkLand(cgx, cgz)) {
-        hiY = Math.max(hiY, parkCellHeight(this.terrain, cgx, cgz));
-      }
-      const fall = hiY - loY;
-      if (fall > STEEP_CLIFF) {
-        rejects.cliff++;
-        // A genuine cliff face — real SF leaves these green.
-        for (let i = 0; i < 3; i++) {
-          const steepTreeUrl = modelUrl("props", this.rng.chance(0.5) ? TREE_LARGE : TREE_SMALL);
-          const stb = this.cache.bounds(steepTreeUrl);
-          const sts = (ROAD_TILE * 0.3) / Math.max(stb.size.y, 0.001);
-          const steepTree = this.cache.instance(steepTreeUrl);
-          steepTree.scale.setScalar(sts);
-          const stx = wx + this.rng.range(-3.5, 3.5);
-          const stz = wz + this.rng.range(-3.5, 3.5);
-          if (this.onAsphalt(stx, stz, 0.6)) continue;
-          if (nearFreeway(stx, stz, 0.5)) continue;
-          steepTree.position.set(stx, this.standAt(stx, stz), stz);
-          steepTree.rotation.y = this.rng.range(0, Math.PI * 2);
-          collect(steepTree);
-        }
-        return null;
-      }
-      // Step INTO the slope: the uphill wall is cut in, the downhill one rides
-      // a plinth that is now only part of the fall instead of all of it.
-      const seatY = fall > 1.0 ? Math.max(loY + fall * STEP_INTO_SLOPE, hiY - STEP_BURY_MAX) : hiY;
-      const plinthH = seatY - loY + 0.8;
-      if (fall > 0.7) {
-        const plinth = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
-        plinth.scale.set(lot.width * 0.98, plinthH, depth * 0.98);
-        plinth.rotation.y = lot.yaw;
-        plinth.position.set(wx, seatY - 0.1 - plinthH / 2, wz);
-        plinth.updateMatrixWorld(true);
-        collect(plinth);
-        // The plinth's downhill face is the most-repeated hill element in the
-        // map; give it the tuck-under garage SF actually builds there.
-        if (plinthH >= PLINTH_GARAGE_MIN) this.addGarageFront(collect, seated, seatY, plinthH);
-      }
-      node.position.set(wx, seatY - 0.15 + podiumH, wz);
-      // KayKit blocks ship with authored storefront colors — a light kiss of
-      // district tint keeps rows cohesive without muddying them.
-      const tintAmt = key.startsWith("kk-building")
-        ? tintAmountFor(district) * 0.25 * TINT_GAIN
-        : Math.min(1, tintAmountFor(district) * TINT_GAIN);
-      const bodyColor = this.blockColorAt(wx, wz, district);
-      this.tintNode(node, bodyColor, tintAmt);
-      collect(node);
-      if (tall) {
-        const podium = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
-        podium.scale.set(lot.width, podiumH + 0.3, depth);
-        podium.rotation.y = lot.yaw;
-        podium.position.set(wx, seatY + podiumH / 2 - 0.3, wz);
-        podium.updateMatrixWorld(true);
-        this.tintNode(podium, bodyColor, tintAmt * 0.7);
-        collect(podium);
-        const taper = worldH >= 40 ? 0.57 : 0.72;
-        const crownH = Math.min(2.4, worldH * 0.07);
-        const crown = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
-        crown.scale.set(lot.width * inset * taper, crownH, depth * inset * taper);
-        crown.rotation.y = lot.yaw;
-        crown.position.set(wx, seatY + worldH + crownH / 2 - 0.4, wz);
-        crown.updateMatrixWorld(true);
-        this.tintNode(crown, bodyColor, tintAmt * 0.8);
-        collect(crown);
-      }
-
-      // Roofscape: a membrane cap plus light plant on every flat-topped
-      // fabric model (see ROOF_PALETTES above). This runs before the dressing
-      // gate on purpose — the aerial reads the WHOLE roof plane, back rows
-      // included, and a frontage-only roofscape would checkerboard it.
-      if (flatTopFabric(key)) {
-        node.updateMatrixWorld(true);
-        const roofTop = new THREE.Box3().setFromObject(node).max.y;
-        const rpal = ROOF_PALETTES[lot.character];
-        const rh = blockHash(wx, wz);
-        const base = rpal[(rh >> 2) % rpal.length] ?? 0xb3aca0;
-        // Mostly one membrane per block (a roofer does a row at a time),
-        // with the occasional relaid outlier so the field never tiles.
-        const roofColor = this.rng.chance(0.78)
-          ? base
-          : (rpal[(rh + 1 + this.rng.int(rpal.length - 1)) % rpal.length] ?? base);
-        const cap = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
-        cap.scale.set(lot.width * inset * 0.94, 0.12, depth * inset * 0.94);
-        cap.rotation.y = lot.yaw;
-        cap.position.set(wx, roofTop + 0.05, wz);
-        cap.updateMatrixWorld(true);
-        this.tintNode(cap, roofColor, 0.95);
-        collect(cap);
-        // Bulkheads and AC plant on the downtown family only — a Sunset row
-        // roof is bare membrane, a commercial one carries its stair head.
-        const plant =
-          lot.character === "commercial" ||
-          lot.character === "downtown" ||
-          lot.character === "highrise";
-        const planHalfW = (lot.width * inset) / 2;
-        const planHalfD = (depth * inset) / 2;
-        const roofSpot = (ox: number, oz: number): readonly [number, number] => [
-          wx + ox * cos - oz * sin,
-          wz + ox * sin + oz * cos,
-        ];
-        if (plant && planHalfW > 2.6 && planHalfD > 2.6 && this.rng.chance(0.42)) {
-          const bh = this.rng.range(1.1, 1.7);
-          const [bx, bz] = roofSpot(
-            this.rng.range(-planHalfW * 0.45, planHalfW * 0.45),
-            this.rng.range(-planHalfD * 0.45, planHalfD * 0.45),
-          );
-          const bulk = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
-          bulk.scale.set(this.rng.range(1.6, 2.6), bh, this.rng.range(1.4, 2.2));
-          bulk.rotation.y = lot.yaw;
-          bulk.position.set(bx, roofTop + bh / 2, bz);
-          bulk.updateMatrixWorld(true);
-          this.tintNode(bulk, 0x8d8a82, 0.9);
-          collect(bulk);
-        }
-        if (plant && planHalfW > 2.2 && planHalfD > 2.2 && this.rng.chance(0.4)) {
-          for (let ac = this.rng.chance(0.5) ? 2 : 1; ac > 0; ac--) {
-            const aw = this.rng.range(0.6, 1.0);
-            const ah = this.rng.range(0.4, 0.7);
-            const [ax, az] = roofSpot(
-              this.rng.range(-planHalfW * 0.6, planHalfW * 0.6),
-              this.rng.range(-planHalfD * 0.6, planHalfD * 0.6),
-            );
-            const unit = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
-            unit.scale.set(aw, ah, aw);
-            unit.rotation.y = lot.yaw + this.rng.range(-0.3, 0.3);
-            unit.position.set(ax, roofTop + ah / 2, az);
-            unit.updateMatrixWorld(true);
-            this.tintNode(unit, 0xc4c8cb, 0.9);
-            collect(unit);
-          }
-        }
-      }
-
-      // Solid footprint (a touch smaller than the visual so curbs are
-      // forgiving), carried as an OBB so rotated rows collide truthfully.
-      this.solids.push({
-        minX: wx - halfW * 0.96,
-        maxX: wx + halfW * 0.96,
-        minZ: wz - halfD * 0.96,
-        maxZ: wz + halfD * 0.96,
-        yaw: lot.yaw,
-      });
-      occupy(occBox(wx, wz, halfW, halfD, lot.yaw, row));
-
-      if (!dressing) return seated;
-
-      // Rooftop watertower — the classic city-builder silhouette — on some
-      // mid-rise commercial and tower roofs.
-      if (
-        (district.character === "commercial" ||
-          district.character === "downtown" ||
-          district.character === "highrise") &&
-        this.rng.chance(0.13)
-      ) {
-        const towerUrl = modelUrl("props", "kk-watertower");
-        const twb = this.cache.bounds(towerUrl);
-        // Actual world-space roof of the placed building — bulletproof against
-        // any model origin/height quirk that made towers float.
-        node.updateMatrixWorld(true);
-        const roofBox = new THREE.Box3().setFromObject(node);
-        const roofY = roofBox.max.y;
-        const tws = 3.4 / Math.max(twb.size.y, 0.001);
-        const tower = this.cache.instance(towerUrl);
-        tower.scale.setScalar(tws);
-        tower.rotation.y = this.rng.range(0, Math.PI * 2);
-        // Dead-centre on the roof so it never reads as hanging off an edge.
-        tower.position.set(wx, roofY - 0.15, wz);
-        collect(tower);
-      }
-
-      // Curbside tree, in front of the facade. The old version stepped along
-      // DIR_DELTA[faceDir], which every frontage row passed as north — so half
-      // of them planted their street tree in the back yard. A tree at every
-      // second house (not "occasional") is what makes a row read planted from
-      // the chase cam; height jitter so it never reads as a hedge of clones.
-      if (this.rng.chance(0.55)) {
-        const fx = (lot.x0 + lot.x1) / 2 - wx;
-        const fz = (lot.z0 + lot.z1) / 2 - wz;
-        const fl = Math.max(Math.hypot(fx, fz), 0.001);
-        const large = this.rng.chance(0.5);
-        const treeUrl = modelUrl("props", large ? TREE_LARGE : TREE_SMALL);
-        const tb = this.cache.bounds(treeUrl);
-        const ts = (ROAD_TILE * this.rng.range(0.34, 0.46)) / Math.max(tb.size.y, 0.001);
-        const tree = this.cache.instance(treeUrl);
-        tree.scale.setScalar(ts);
-        const reach = fl + 1.1;
-        const tx = wx + (fx / fl) * reach + this.rng.range(-0.8, 0.8);
-        const tz = wz + (fz / fl) * reach + this.rng.range(-0.8, 0.8);
-        // 1.2u of kerb clearance, not 0.6: the trunk box is ±0.5, so at 0.6
-        // its inner face already grazed the kerb line and the denser planting
-        // pushed the kerb-intrusion ratchet over. At 1.2 the box clears the
-        // kerb with the same 0.2-0.6u the other placement passes keep.
-        if (!this.onAsphalt(tx, tz, 1.2)) {
-          tree.position.set(tx, this.standAt(tx, tz), tz);
-          tree.rotation.y = this.rng.range(0, Math.PI * 2);
-          collect(tree);
-          if (large) treeSolid(tx, tz);
-        }
-      }
-      return seated;
-    };
-
-    // One lot, STEPPED into its slope if it has to be. A single box can only
-    // absorb about FALL_PER_STEP of fall — beyond that it is either floating on
-    // a plinth as tall as a tower (which is what a 9u "hillside foundation"
-    // looked like) or buried to its eaves. SF splits the building instead, into
-    // sections that each take part of the drop, which is what the stepped rows
-    // on Nob Hill and Potrero are. Only a genuine cliff is left green.
-    const placeBuilding = (lot: FabricLot, row: number, dressing: boolean): FabricLot | null => {
-      const halfW = lot.width / 2;
-      const halfD = lot.depth / 2;
-      const cos = Math.cos(lot.yaw);
-      const sin = Math.sin(lot.yaw);
-      // Corner heights, in the lot's own frame: (±width, ±depth).
-      const h = (a: number, b: number): number =>
-        this.terrain.heightAt(
-          lot.x + a * halfW * cos - b * halfD * sin,
-          lot.z + a * halfW * sin + b * halfD * cos,
-        );
-      const hmm = h(-1, -1);
-      const hpm = h(1, -1);
-      const hmp = h(-1, 1);
-      const hpp = h(1, 1);
-      const fall = Math.max(hmm, hpm, hmp, hpp) - Math.min(hmm, hpm, hmp, hpp);
-      if (fall <= FALL_PER_STEP) return placeOne(lot, row, dressing);
-      const steps = Math.min(3, Math.ceil(fall / FALL_PER_STEP));
-      // Step along whichever axis the ground actually falls down.
-      const alongWidth = Math.abs(hpm + hpp - hmm - hmp);
-      const alongDepth = Math.abs(hmp + hpp - hmm - hpm);
-      const axis: 0 | 1 = alongWidth >= alongDepth ? 0 : 1;
-      // A slice thinner than this is a wall, not a building.
-      if ((axis === 0 ? lot.width : lot.depth) / steps < 2.6) {
-        return placeOne(lot, row, dressing);
-      }
-      let first: FabricLot | null = null;
-      for (let k = 0; k < steps; k++) {
-        const built = placeOne(sliceLot(lot, axis, k, steps), row, k === 0 && dressing);
-        if (first === null) first = built;
-      }
-      return first;
-    };
-
-    // --- Buildings (district-driven pool, palette tint, height) ---
-    for (const b of this.plan.buildingCells) {
-      const cellId = `${b.gx},${b.gz}`;
-      if (lm.reserved.has(cellId)) continue; // a landmark stands here
-      if (districtAt(b.gx, b.gz).character === "park" || lm.parkGreen.has(cellId)) {
-        placeGreen(b.gx, b.gz); // park frontage → green, drivable (no solid)
-      }
-    }
-
     this.phase2 = async () => {
-      // --- REAL downtown fabric: footprint POLYGONS + heights from the
-      // licensed SF model (tools/sf-data/extract-footprints.mjs), extruded as
-      // flat-shaded prisms — the actual massing at the actual addresses.
-      // Kit models only fill in where the real data thins out (occupancy
-      // marks make the frontage pass skip real parcels). ---
-      {
-        let placed = 0;
-        let roadSkip = 0;
-        let stackSkip = 0;
-        let parkSkip = 0;
-        let towers = 0;
-        for (let pid = 0; pid < SF_FOOTPRINTS.length; pid++) {
-          if (pid % 500 === 0) await this.breathe();
-          const flat = SF_FOOTPRINTS[pid];
-          if (flat === undefined) continue;
-          const spec = prismSpec(flat);
-          if (!spec) continue;
-          const { cx, cz, h: bh, rel } = spec;
-          const bgx = this.gridX(cx);
-          const bgz = this.gridZ(cz);
-          if (!isLandCell(bgx, bgz)) continue;
-          // Landmark parcel, asked of the whole RING and not just the centroid
-          // cell: a 12u cell is smaller than a parcel, so a centroid one cell
-          // outside still laid its footprint on the Ferry Building's apron.
-          let onReserved = lm.reserved.has(`${bgx},${bgz}`);
-          for (let i = 0; i < rel.length && !onReserved; i += 2) {
-            const rx = cx + (rel[i] ?? 0);
-            const rz = cz + (rel[i + 1] ?? 0);
-            if (lm.reserved.has(`${gridXOf(rx)},${gridZOf(rz)}`)) onReserved = true;
-          }
-          if (onReserved) continue;
-          // A parcel whose centroid falls inside another one is a height-band
-          // or building-part DUPLICATE of it (2,570 of them, measured in
-          // sf-adjacency.ts). Extruding both is what made downtown grey mush,
-          // and it is exactly what the old blanket 3.2u occupancy circle was
-          // really suppressing — at the cost of ~10k parcels whose only sin was
-          // standing next to their neighbour, which is what a party wall IS.
-          const parcel = parcelAt(pid);
-          if (parcel !== null && parcel.stacked) {
-            stackSkip++;
-            continue;
-          }
-          // Both fabric passes now agree on park LAND rather than on park
-          // NAMES: the frontage walk skips park-character districts, and this
-          // one used to skip nothing at all, so ~330 real parcels landed inside
-          // Dolores Park and the Panhandle. A real parcel in a park-named
-          // district box is real (it is the block across the street); a parcel
-          // standing on an actual park tile is not.
-          if (isParkLand(bgx, bgz)) {
-            parkSkip++;
-            continue;
-          }
-          // Real parcels + real streets agree to calibration error (~5u);
-          // only a parcel genuinely IN a lane gets skipped — nudging one
-          // building of a wall-to-wall row just makes it collide with the
-          // next one.
-          if (this.onAsphalt(cx, cz, 0.4)) {
-            roadSkip++;
-            continue;
-          }
-          // Corridor guard checks every ring vertex — a 30u building whose
-          // CENTROID clears the ramp can still lay a corner across the deck.
-          let fwHit = nearFreeway(cx, cz, 0.5);
-          for (let i = 0; i < rel.length && !fwHit; i += 2) {
-            if (nearFreeway(cx + (rel[i] ?? 0), cz + (rel[i + 1] ?? 0), 0.3)) fwHit = true;
-          }
-          if (fwHit) {
-            roadSkip++;
-            continue;
-          }
-          let deep = false;
-          for (let i = 0; i < rel.length && !deep; i += 2) {
-            if (this.onAsphalt(cx + (rel[i] ?? 0), cz + (rel[i + 1] ?? 0), -1.2)) deep = true;
-          }
-          if (deep) {
-            roadSkip++;
-            continue;
-          }
-          // Seat at the highest ring vertex; sink the walls to the lowest so
-          // hillside parcels never show open air under the low side.
-          let hiY = this.terrain.heightAt(cx, cz);
-          let loY = hiY;
-          for (let i = 0; i < rel.length; i += 2) {
-            const y = this.terrain.heightAt(cx + (rel[i] ?? 0), cz + (rel[i + 1] ?? 0));
-            if (y > hiY) hiY = y;
-            if (y < loY) loY = y;
-          }
-          const fall = hiY - loY;
-          if (fall > PRISM_CLIFF) continue; // cliff-steep — leave the face green
-          // Same rule as the kit fabric: cut into the uphill grade instead of
-          // floating the whole parcel at its high corner.
-          const seatY =
-            fall > 1.0 ? Math.max(loY + fall * STEP_INTO_SLOPE, hiY - STEP_BURY_MAX) : hiY;
-          const drop = seatY - loY;
-
-          // KIT MODELS fitted to the real parcel: bare extruded prisms read
-          // as colored blocks, not buildings. Fit the footprint's OBB; long
-          // parcels get a ROW of models (real blocks are several buildings,
-          // and one model stretched 5:1 is worse than none).
-          // The along-axis is the parcel's FRONTAGE — its longest edge that is
-          // not a party wall (sf-adjacency.ts). The plain longest edge often IS
-          // a party wall on an attached parcel, which turned the model (and its
-          // entrance) to face the neighbour it shares that wall with.
-          const nPts = rel.length / 2;
-          const front = frontEdgeOf(pid);
-          let obbLen = 0;
-          let ex = 1;
-          let ez = 0;
-          const ringEdge = (i: number) => {
-            const j = (i + 1) % nPts;
-            const dx = (rel[j * 2] ?? 0) - (rel[i * 2] ?? 0);
-            const dz = (rel[j * 2 + 1] ?? 0) - (rel[i * 2 + 1] ?? 0);
-            return { dx, dz, len: Math.hypot(dx, dz) };
-          };
-          const frontEdge = front === null ? null : ringEdge(front);
-          if (frontEdge !== null && frontEdge.len > 0.001) {
-            obbLen = frontEdge.len;
-            ex = frontEdge.dx / frontEdge.len;
-            ez = frontEdge.dz / frontEdge.len;
-          } else {
-            for (let i = 0; i < nPts; i++) {
-              const e = ringEdge(i);
-              if (e.len > obbLen) {
-                obbLen = e.len;
-                ex = e.dx / e.len;
-                ez = e.dz / e.len;
-              }
-            }
-          }
-          let minA = Infinity;
-          let maxA = -Infinity;
-          let minB = Infinity;
-          let maxB = -Infinity;
-          for (let i = 0; i < nPts; i++) {
-            const dx = rel[i * 2] ?? 0;
-            const dz = rel[i * 2 + 1] ?? 0;
-            const a = dx * ex + dz * ez;
-            const b = -dx * ez + dz * ex;
-            if (a < minA) minA = a;
-            if (a > maxA) maxA = a;
-            if (b < minB) minB = b;
-            if (b > maxB) maxB = b;
-          }
-          const lenA = maxA - minA;
-          const lenB = maxB - minB;
-          if (lenA < 2.6 || lenB < 2.6) continue; // sliver — nothing fits
-          const yaw = Math.atan2(-ez, ex);
-          // The parcel's own rectangle against everything already standing.
-          // The old test was a 3.2u circle on the centroid against a 5u circle
-          // per placed segment, which rejected any parcel within ~8u of a
-          // neighbour — i.e. every attached parcel in the city.
-          const midA = (minA + maxA) / 2;
-          const midB = (minB + maxB) / 2;
-          const obbX = cx + midA * ex - midB * ez;
-          const obbZ = cz + midA * ez + midB * ex;
-          const parcelRow = ++occRow;
-          if (occupiedBy(occBox(obbX, obbZ, lenA / 2, lenB / 2, yaw, parcelRow))) continue;
-          const bhV = Math.max(bh, 4.0); // below this the kit models squash into pancakes
-          const pool =
-            bhV > 28 ? BUILDINGS_SKYSCRAPER : bhV > 9 ? BUILDINGS_COMMERCIAL : BUILDINGS_SUBURBAN;
-          const district = districtAt(bgx, bgz);
-          // Towers own their whole parcel; low/mid parcels split into a grid
-          // of near-square cells — one model pancaked across a 25u lot reads
-          // as a squashed shed, a row of houses reads as a block.
-          const TARGET = 9;
-          const segA = bhV > 28 ? 1 : Math.min(6, Math.max(1, Math.round(lenA / TARGET)));
-          const segB = bhV > 28 ? 1 : Math.min(3, Math.max(1, Math.round(lenB / TARGET)));
-          // Podium + shaft + crown. The podium is emitted ONCE for the whole
-          // parcel and the shafts are inset about their own centres, so a long
-          // tall block reads as shafts standing on a shared podium rather than
-          // as a row of wedding cakes. Only a single-mass parcel gets a crown.
-          const tall = bhV >= TOWER_MIN_H;
-          const single = segA * segB === 1;
-          const segLen = lenA / segA;
-          const segWid = lenB / segB;
-          let placedSeg = 0;
-          for (let k = 0; k < segA * segB; k++) {
-            const ka = k % segA;
-            const kb = Math.floor(k / segA);
-            const a0 = minA + segLen * (ka + 0.5);
-            const bb0 = minB + segWid * (kb + 0.5);
-            const px = cx + a0 * ex - bb0 * ez;
-            const pz = cz + a0 * ez + bb0 * ex;
-            // The OBB covers more than an L-shaped ring: every segment
-            // re-checks itself against the streets (and shrinks once before
-            // giving up). Corners are not enough — a tower parcel is ONE
-            // segment up to 50u long, so it can lie along the street it
-            // swallows with both its corners on clear ground.
-            let fw = segLen * 0.94;
-            let fd = segWid * 0.92;
-            const cornersClear = (): boolean => {
-              for (const [sa, sb] of BOX_PROBES) {
-                const qx = px + ((sa * fw) / 2) * ex - ((sb * fd) / 2) * ez;
-                const qz = pz + ((sa * fw) / 2) * ez + ((sb * fd) / 2) * ex;
-                if (this.onAsphalt(qx, qz, 0.2)) return false;
-              }
-              return true;
-            };
-            if (!cornersClear()) {
-              fw *= 0.78;
-              fd *= 0.78;
-              if (fw < 2.4 || fd < 2.4 || !cornersClear()) continue;
-            }
-            const key = this.rng.pick(pool);
-            const url = modelUrl("buildings", key);
-            const bounds = this.cache.bounds(url);
-            const node = this.cache.instance(url);
-            // A tower is a PODIUM + SHAFT + CROWN, not one prism: measured on
-            // the source model, the flat-prism share collapses from 99.5% at
-            // 1-2u to 21.7% at 20-40u and 0% above 40u, with the median plan
-            // tapering 1.00 -> 0.72 -> 0.57 up the height. The shaft is inset
-            // about the parcel centre and the podium keeps the full lot line,
-            // which is what gives the street a continuous wall under a tower.
-            const podiumH = tall ? bhV * 0.22 : 0;
-            const shaftInset = tall ? 0.78 : 1;
-            const bodyBase = seatY + podiumH;
-            node.scale.set(
-              (fw * shaftInset) / Math.max(bounds.size.x, 0.001),
-              (bhV - podiumH) / Math.max(bounds.size.y, 0.001),
-              (fd * shaftInset) / Math.max(bounds.size.z, 0.001),
-            );
-            node.rotation.y = yaw + BUILDING_FRONT_OFFSET;
-            const bodyColor = this.blockColorAt(px, pz, district);
-            const bodyTint = Math.min(1, tintAmountFor(district) * TINT_GAIN);
-            if (tall && single) {
-              // Crown: the mechanical box every SF tower wears, at the measured
-              // taper for its band.
-              const crownTaper = bhV >= 40 ? 0.57 : 0.72;
-              const crownH = Math.min(2.4, bhV * 0.07);
-              const crown = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
-              crown.scale.set(fw * shaftInset * crownTaper, crownH, fd * shaftInset * crownTaper);
-              crown.rotation.y = yaw;
-              crown.position.set(px, seatY + bhV + crownH / 2 - 0.3, pz);
-              crown.updateMatrixWorld(true);
-              this.tintNode(crown, bodyColor, bodyTint * 0.8);
-              collect(crown);
-            }
-            if (drop > 0.7) {
-              const plinth = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
-              const ph = drop + 0.8;
-              plinth.scale.set(fw * 0.98, ph, fd * 0.98);
-              plinth.rotation.y = yaw;
-              plinth.position.set(px, seatY - 0.1 - ph / 2, pz);
-              plinth.updateMatrixWorld(true);
-              collect(plinth);
-            }
-            node.position.set(px, bodyBase - 0.15, pz);
-            this.tintNode(node, bodyColor, bodyTint);
-            collect(node);
-            occupy(occBox(px, pz, fw / 2, fd / 2, yaw, parcelRow));
-            placedSeg++;
-          }
-          if (placedSeg === 0) continue; // nothing fit — no solids either
-          if (tall) {
-            // One podium for the parcel: the continuous wall a tower needs at
-            // street level, under whichever shafts fitted above it. The SHAFTS
-            // re-test their own corners; the podium keeps the whole lot line
-            // and so is the one piece that can lie across a street — measured
-            // as a 50x39u blank slab over the Embarcadero. Pull its sides in.
-            const fit = this.fitRectOffAsphalt(
-              obbX,
-              obbZ,
-              ex,
-              ez,
-              (lenA * 0.96) / 2,
-              (lenB * 0.96) / 2,
-              0.2,
-              2.4,
-            );
-            if (fit) {
-              towers++;
-              const podiumH = bhV * 0.22;
-              const podium = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
-              podium.scale.set(fit.halfA * 2, podiumH, fit.halfB * 2);
-              podium.rotation.y = yaw;
-              podium.position.set(fit.cx, seatY + podiumH / 2 - 0.15, fit.cz);
-              podium.updateMatrixWorld(true);
-              this.tintNode(
-                podium,
-                this.blockColorAt(fit.cx, fit.cz, district),
-                Math.min(1, tintAmountFor(district) * TINT_GAIN) * 0.7,
-              );
-              collect(podium);
-            }
-          }
-
-          // Collision: rectangles get one OBB; complex outlines get one thin
-          // OBB per wall segment (an AABB over an L-shape or a diagonal row
-          // would wall off half a street corner).
-          const n = rel.length / 2;
-          const wallOBB = (x0: number, z0: number, x1: number, z1: number, t: number): void => {
-            const len = Math.hypot(x1 - x0, z1 - z0);
-            if (len < 2.2) return;
-            const ex = (x1 - x0) / len;
-            const ez = (z1 - z0) / len;
-            const mx = (x0 + x1) / 2;
-            const mz = (z0 + z1) / 2;
-            this.solids.push({
-              minX: mx - len / 2,
-              maxX: mx + len / 2,
-              minZ: mz - t / 2,
-              maxZ: mz + t / 2,
-              yaw: Math.atan2(-ez, ex),
-            });
-          };
-          if (n === 4) {
-            const ax = cx + (rel[0] ?? 0);
-            const az = cz + (rel[1] ?? 0);
-            const bx = cx + (rel[2] ?? 0);
-            const bz = cz + (rel[3] ?? 0);
-            const dxx = cx + (rel[4] ?? 0);
-            const dzz = cz + (rel[5] ?? 0);
-            const rectA = Math.hypot(bx - ax, bz - az);
-            const rectB = Math.hypot(dxx - bx, dzz - bz);
-            const rex = (bx - ax) / (rectA || 1);
-            const rez = (bz - az) / (rectA || 1);
-            // Only the ring VERTICES were ever tested against the streets, and
-            // one box over the whole rectangle is the biggest single collider
-            // this pass emits — a 50x39u wharf parcel laid an invisible wall
-            // across the road that crosses it. Fit it off the asphalt (and
-            // emit nothing at all rather than a wall in the lane).
-            const fit = this.fitRectOffAsphalt(
-              cx,
-              cz,
-              rex,
-              rez,
-              (rectA / 2) * 0.96,
-              (rectB / 2) * 0.96,
-              0.2,
-              2.2,
-            );
-            if (fit) {
-              this.solids.push({
-                minX: fit.cx - fit.halfA,
-                maxX: fit.cx + fit.halfA,
-                minZ: fit.cz - fit.halfB,
-                maxZ: fit.cz + fit.halfB,
-                yaw: Math.atan2(-rez, rex),
-              });
-            }
-          } else {
-            for (let i = 0; i < n; i++) {
-              const j = (i + 1) % n;
-              wallOBB(
-                cx + (rel[i * 2] ?? 0),
-                cz + (rel[i * 2 + 1] ?? 0),
-                cx + (rel[j * 2] ?? 0),
-                cz + (rel[j * 2 + 1] ?? 0),
-                1.6,
-              );
-            }
-          }
-          // Occupancy is claimed per placed SEGMENT above — ring-vertex
-          // claims over-blocked the frontage/infill passes around parcels
-          // whose corners didn't fit, leaving voids in the blocks.
-          placed++;
-        }
-        console.log(
-          `[city] real footprints placed: ${placed} (${roadSkip} on asphalt, ` +
-            `${stackSkip} stacked duplicates, ${parkSkip} on park land, ${towers} towers)`,
-        );
-      }
-
-      // --- FRONTAGE ROWS along the network edges: a LOT-LINE walk down each
-      // street (planFabricRow), facing the kerb at one setback per run — rows
-      // follow diagonals and curves exactly, which cell-based lots never could.
-      // The walk owns every width decision; this loop only rejects lots that
-      // stand on something else (a landmark, another building). ---
-      const junctions = buildJunctionMap(this.network);
-      let walkN = 0;
-      let lotsPlanned = 0;
-      let lotsBuilt = 0;
-      for (const edge of this.network.edges) {
-        if (++walkN % 40 === 0) await this.breathe();
-        for (const side of [1, -1] as const) {
-          const row = ++occRow;
-          const lots = planFabricRow(this.network, junctions, edge, side, this.rng);
-          lotsPlanned += lots.length;
-          for (const lot of lots) {
-            if (lm.reserved.has(`${gridXOf(lot.x)},${gridZOf(lot.z)}`)) {
-              rejects.reserved++;
-              continue;
-            }
-            const cardinal = Math.abs(Math.sin(2 * lot.yaw)) < 0.18;
-            if (placeBuilding(lot, row, cardinal) === null) continue;
-            lotsBuilt++;
-            stampFacade(lot); // this lot's front face is a wall furniture may dress
-            // BACK ROWS fill this lot's half of the block behind it. A narrow
-            // block's front row already reaches the middle and gets none; a wide
-            // one gets a second (rarely third) row with a rear yard between, the
-            // way SF blocks actually are. The old walk rolled an unconditional
-            // 80% back-row chance at a fixed depth instead, which both missed
-            // wide-block interiors and needed the occupancy test loose enough to
-            // let party walls through.
-            const nx = (lot.x0 + lot.x1) / 2 - lot.x;
-            const nz = (lot.z0 + lot.z1) / 2 - lot.z;
-            const nl = Math.max(Math.hypot(nx, nz), 0.001);
-            let behind = lot.depth / 2; // offset from the lot centre, backwards
-            let rear = lot.rear;
-            for (let r = 0; r < 2 && rear > BACK_ROW_MIN; r++) {
-              const yard = this.rng.range(1.4, 3.0);
-              const depth = Math.min(lot.depth, rear - yard);
-              if (depth < lot.width * 0.7) break;
-              behind += yard + depth / 2;
-              rear -= yard + depth;
-              const width = lot.width * this.rng.range(0.86, 0.96);
-              const bx = lot.x - (nx / nl) * behind;
-              const bz = lot.z - (nz / nl) * behind;
-              const character = fabricCharAt(bx, bz);
-              if (character === null) break;
-              // Front face of a back lot: still toward the same street.
-              const fx = bx + (nx / nl) * (depth / 2);
-              const fz = bz + (nz / nl) * (depth / 2);
-              const back: FabricLot = {
-                ...lot,
-                x: bx,
-                z: bz,
-                character,
-                attached: false,
-                width,
-                depth,
-                rear,
-                x0: fx + (nz / nl) * (width / 2),
-                z0: fz - (nx / nl) * (width / 2),
-                x1: fx - (nz / nl) * (width / 2),
-                z1: fz + (nx / nl) * (width / 2),
-              };
-              // Its own occupancy token: a back row must not be exempted from
-              // the front row it stands behind, nor from the lot beside it.
-              placeBuilding(back, ++occRow, false);
-              behind += depth / 2;
-            }
-          }
+      resolveLandmarks();
+      // --- REAL PARCELS: the procedural fabric (parcel-plan.ts) owns every
+      // block the licensed footprints cover. Planned here so it claims its
+      // ground before the kit walk; its geometry and collision are built live
+      // on BOTH load paths (buildParcels) and never enter the bins. ---
+      const { plans } = this.parcelPlan();
+      // Frontage greenery needs the authoritative parcel plan, which arrives
+      // after initEarly. Run before parcel occupancy stamping to retain its
+      // original candidate/random sequence; exact trunk clearance rejects it.
+      for (const b of this.plan.buildingCells) {
+        const cellId = `${b.gx},${b.gz}`;
+        if (lm.reserved.has(cellId)) continue; // a landmark stands here
+        if (districtAt(b.gx, b.gz).character === "park" || lm.parkGreen.has(cellId)) {
+          placeGreen(b.gx, b.gz); // park frontage → green, drivable (no solid)
         }
       }
-      console.log(
-        `[city] frontage lots: ${lotsBuilt} built of ${lotsPlanned} planned ` +
-          `(${rejects.occupied} occupied, ${rejects.reserved} reserved, ` +
-          `${rejects.cliff} cliff, ${rejects.freeway} freeway, ${rejects.road} roadway), ` +
-          `${this.garageFronts} hill garages`,
-      );
-
-      // --- Green block interiors: real SF blocks are packed back-to-back, so
-      // the row directly behind a frontage gets infill houses (slightly smaller,
-      // facing the same street). Deeper cells and parks stay green. ---
-      const frontageDirs = new Map<string, Dir>();
-      for (const b of this.plan.buildingCells) frontageDirs.set(`${b.gx},${b.gz}`, b.faceDir);
-      for (const g of this.plan.greenCells) {
-        const cellId = `${g.gx},${g.gz}`;
-        if (!lm.reserved.has(cellId) && !lm.parkGreen.has(cellId)) {
-          const district = districtAt(g.gx, g.gz);
-          if (district.character !== "park") {
-            let face: Dir | null = null;
-            for (const d of [N, E, S, W] as const) {
-              const [dx, dz] = DIR_DELTA[d];
-              const f = frontageDirs.get(`${g.gx + dx},${g.gz + dz}`);
-              if (f !== undefined) {
-                face = f;
-                break;
-              }
-            }
-            if (face !== null && this.rng.chance(0.6)) {
-              const lot = fitCellLot(g.gx, g.gz, face, this.rng.range(0.6, 0.74));
-              if (lot !== null && placeBuilding(lot, ++occRow, false) !== null) continue;
-            }
-          }
-        }
-        placeGreen(g.gx, g.gz);
+      for (const p of plans) {
+        const o = p.obb;
+        occupy(occBox(o.cx, o.cz, o.halfA, o.halfB, Math.atan2(-o.ez, o.ex), ++occRow));
+        const seg = frontSegment(p);
+        if (seg) stampSegment(seg[0], seg[1], seg[2], seg[3]);
       }
+
+      // --- Block interiors: every green cell gets its lawn and scatter. The
+      // parcel fabric owns the buildings; a cell inside a parcel's claim keeps
+      // its trees out through the occupancy test in placeGreen. ---
+      for (const g of this.plan.greenCells) placeGreen(g.gx, g.gz);
     };
     this.phase3 = async () => {
       // --- Street furniture: lights, parked cars, yards, awnings, smokestacks,
@@ -3029,6 +1521,8 @@ export class CityModel {
         rng: this.rng,
         reserved: lm.reserved,
         facadeAt: (x, z) => this.facadeAt(x, z),
+        parcelClear,
+        treeClear,
         worldX: (g) => this.worldX(g),
         worldZ: (g) => this.worldZ(g),
       });
@@ -3053,93 +1547,17 @@ export class CityModel {
       for (const s of gg.solids) this.solids.push(s);
       this.addDecks(gg.decks);
 
-      // --- Shoreline: wall off each water cell that borders land, and emit
-      // the seawall VISUAL in the same breath — a wall the player can hit
-      // must be a wall they can see; pairing them in one loop makes the
-      // invisible-shore-wall class unrepresentable. Concrete lip on urban
-      // shores, low sand berm on beaches. ---
-      const seawallMat = new THREE.MeshStandardMaterial({ color: 0x9aa2a6, roughness: 1 });
-      const bermMat = new THREE.MeshStandardMaterial({ color: 0xcbb98d, roughness: 1 });
-      const lipGeo = new THREE.BoxGeometry(1, 1, 1);
-      // A landmark that reaches the water owns its own shore — the Bay Bridge
-      // anchorage, Fort Point's apron, the ballpark's bowl edge are all already
-      // standing on those cells. A generic full-cell box stacked inside the
-      // parcel is a squatter the landmark audit counts, and the player can only
-      // meet it as an invisible wall past the visible one, so the shore pass
-      // defers there. Twelve cells across three landmarks; measured, the drawn
-      // asphalt stops at least 1u short of every one of them, so no drivable
-      // approach loses a barrier it was relying on.
-      for (let gx = 0; gx < GRID_X; gx++) {
-        for (let gz = 0; gz < GRID_Z; gz++) {
-          if (this.plan.cells[gx]?.[gz] !== "water") continue;
-          const waterKey = `${gx},${gz}`;
-          if (fr.openWaterCells.has(waterKey)) continue; // pier runs out here
-          if (gg.openWaterCells.has(waterKey)) continue; // Golden Gate span
-          const wx = this.worldX(gx);
-          const wz = this.worldZ(gz);
-          let coastal = false;
-          for (const d of [N, E, S, W] as const) {
-            const [dx, dz] = DIR_DELTA[d];
-            const nb = this.plan.cells[gx + dx]?.[gz + dz];
-            if (nb !== "road" && nb !== "lot") continue;
-            coastal = true;
-            const ex = wx + dx * (ROAD_TILE / 2);
-            const ez = wz + dz * (ROAD_TILE / 2);
-            // OSM sand cells AND natural shore-gradient beaches (ground.ts
-            // paints sand where landAt < ~0.45) get the low berm; only truly
-            // urban hard shores keep the concrete seawall.
-            // Where a waterfront street is drawn OVER the cell boundary the lip
-            // is not a shore edge, it is a tan bar lying across the lane (24 of
-            // them, up to 7u in). The blocker behind it is fitted off the
-            // asphalt for the same reason, so dropping the visual here keeps
-            // the pair honest: no wall you can see, none you can hit.
-            if (this.onAsphalt(ex, ez, -0.6)) continue;
-            const beach = landuseSandAt(gx + dx, gz + dz) || this.terrain.landAt(ex, ez) < 0.45;
-            const h = beach ? 0.8 : 1.0;
-            const th = beach ? 1.6 : 0.6;
-            // NOTHING SITS ON THE RAW HEIGHT FIELD (CLAUDE.md). These two kinds
-            // were the last holdouts: 1,340 of 3,086 concrete lips and 330 of
-            // 1,061 sand berms sat >0.35u off their own baseline, and the berm
-            // tracked `terrain.heightAt` MORE tightly than the surface that is
-            // drawn — the wrong-surface signature in one number. Seat both
-            // through makeStandingSurface like every other static prop.
-            // …and seat it on ITS OWN footprint. The reference used to be
-            // 0.62 tiles out — 1.6u INLAND of a lip that is drawn at the cell
-            // boundary and is only ~1u thick. On a bluff shore the two differ
-            // by up to 6.8u, so 300 of these hung in the air at the inland
-            // height above the edge they cap. 0.52 tiles is inside the lip's
-            // own thickness; the skirt then reaches DOWN to the boundary
-            // itself so a cap on a bluff still meets the shore instead of
-            // hovering over it (bounded — this is a kerb, not a cliff face).
-            const groundY = this.standAt(wx + dx * ROAD_TILE * 0.52, wz + dz * ROAD_TILE * 0.52);
-            const topY = groundY + 0.15 + h / 2;
-            const botY = Math.max(this.standAt(ex, ez), groundY - 3) + 0.15 - h / 2;
-            const hh = Math.max(h, topY - botY);
-            const lip = new THREE.Mesh(lipGeo, beach ? bermMat : seawallMat);
-            if (dx !== 0) lip.scale.set(th, hh, ROAD_TILE);
-            else lip.scale.set(ROAD_TILE, hh, th);
-            lip.position.set(ex, topY - hh / 2, ez);
-            lip.updateMatrixWorld(true);
-            collect(lip);
-          }
-          if (!coastal) continue;
-          if (lm.reserved.has(waterKey)) continue;
-          // The blocker is a full CELL, but a waterfront street's asphalt is
-          // drawn over part of that cell — 52 of these reached up to 7u into a
-          // travel lane as an invisible wall six units past the lip you can
-          // see. Fit it back to the water it is there to keep you out of.
-          const half = ROAD_TILE * 0.46;
-          const fit = this.fitRectOffAsphalt(wx, wz, 1, 0, half, half, 0.2, 2.0);
-          if (fit) {
-            this.solids.push({
-              minX: fit.cx - fit.halfA,
-              maxX: fit.cx + fit.halfA,
-              minZ: fit.cz - fit.halfB,
-              maxZ: fit.cz + fit.halfB,
-            });
-          }
-        }
-      }
+      // The contour follows dry land and actual supported deck footprints.
+      // Each rendered wall carries the same explicit vertical collider span.
+      const shore = planShoreline({
+        landAt: (x, z) => this.terrain.landAt(x, z),
+        standingAt: (x, z) => this.standAt(x, z),
+        driveAt: (x, z) => this.heightAt(x, z),
+        onRoad: (x, z) => this.onAsphalt(x, z, 1.3),
+        decks: this.getDecks(),
+      });
+      for (const wall of buildShoreline(shore)) collect(wall);
+      for (const wall of shore) this.solids.push(wall.solid);
 
       // --- Outer border walls (close the south/inland map edge) ---
       const t = 3;
@@ -3282,10 +1700,21 @@ export class CityModel {
       }
 
       console.log(`[city] merges ${Math.round(performance.now() - tMerge)}ms`);
-      await this.buildBatchesFrom(batchBuckets);
+      await this.buildBatchesFrom(batchBuckets, "capture");
 
       // --- Iconic landmarks (procedural; kept separate — always visible) ---
-      this.group.add(buildLandmarks(this.terrain, this.cache, this.network));
+      this.group.add(resolveLandmarks());
+      this.solids.push(...landmarkWalls);
+      // The live builders publish actual pool footprints. Only the generic
+      // landmark reservation boxes are carved; real monument/rim solids keep
+      // their exact ownership. Cold capture records the corrected boxes.
+      const reservationSet = new Set<Solid>(landmarkReservations);
+      let solidCount = 0;
+      for (const solid of this.solids) {
+        if (!reservationSet.has(solid)) this.solids[solidCount++] = solid;
+      }
+      this.solids.length = solidCount;
+      this.solids.push(...carveWaterReservations(landmarkReservations, this.landmarkWater));
       this.group.add(buildFreeways(this.terrain, this.network));
       this.group.add(buildPiers(this.terrain));
       this.lightGoldenGate();
@@ -3298,7 +1727,9 @@ export class CityModel {
           mergedChunks: this.capturedMerged,
           rawGeos: this.rawGeos,
           batchItems: [...this.restItems],
-          solids: this.solids,
+          // A COPY: the parcel fabric pushes its own solids after this, and
+          // those are rebuilt live on every load (see buildParcels).
+          solids: [...this.solids],
           parkedCars: [...this.parkedCarSpecs],
           lampHeads: [...this.lampHeads],
           decks: this.getDecks(),
@@ -3309,6 +1740,7 @@ export class CityModel {
       } else {
         console.log("[city] rest capture skipped: untagged batch items");
       }
+      await this.buildParcels();
     };
   }
 
@@ -3319,12 +1751,10 @@ export class CityModel {
     // --- Displaced terrain ground (hills + island; ocean plane sits below),
     // vertex-graded: concrete in the city, Ocean Beach sand along the west
     // shore (half-strength on other shores), park green under the big parks. ---
-    const groundMat = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      vertexColors: true,
-      roughness: 1,
-    });
-    applyGrassMottle(groundMat);
+    this.paintedFloorAt = makePaintedFloorAt();
+    const groundMat = createTerrainMaterial(
+      makeGroundBlendAt(this.landClassAt, this.paintedFloorAt),
+    );
     let ground: THREE.Group;
     if (this.genPayload) {
       ground = new THREE.Group();
@@ -3439,7 +1869,7 @@ export class CityModel {
       bucket.items.push(item);
     }
     console.log(`[city] rest items ok ${okN} dropSrc ${dropSrc} dropRaw ${dropRaw}`);
-    await this.buildBatchesFrom(buckets, (f) => onProgress?.(0.55 + f * 0.4));
+    await this.buildBatchesFrom(buckets, "restore", (f) => onProgress?.(0.55 + f * 0.4));
     // Game data.
     this.solids.length = 0;
     for (const so of rest.solids) this.solids.push(so);
@@ -3448,10 +1878,16 @@ export class CityModel {
     this.addDecks(rest.decks);
     this.buildGround();
     // Landmarks are procedural + cheap — always rebuilt live.
-    this.group.add(buildLandmarks(this.terrain, this.cache, this.network));
+    this.landmarkWater.length = 0;
+    this.group.add(
+      buildLandmarks(this.terrain, this.cache, this.network, undefined, (body) =>
+        this.landmarkWater.push(body),
+      ),
+    );
     this.group.add(buildFreeways(this.terrain, this.network));
     this.group.add(buildPiers(this.terrain));
     this.lightGoldenGate();
+    await this.buildParcels();
   }
 
   // The Golden Gate's MESHES are baked (buildGoldenGate runs on cold gen only,
@@ -3504,8 +1940,10 @@ export class CityModel {
   // rebuild (from serialized records).
   private async buildBatchesFrom(
     batchBuckets: Map<string, BatchBucket>,
+    mode: "capture" | "restore",
     onProgress?: (f: number) => void,
   ): Promise<void> {
+    const multiDraw = renderCapabilities().multiDraw;
     // Instances stream on the fine STREAM_CELL grid, not the merge CHUNK grid
     // the caller used for road tiles — see STREAM_CELL.
     const nx = Math.ceil(WORLD_W / STREAM_CELL);
@@ -3534,6 +1972,11 @@ export class CityModel {
       await this.breathe();
       onProgress?.(batchN / batchBuckets.size);
       batchN++;
+      // Both live and baked props enter here. Translucent panes must blend
+      // with farther panes instead of writing an opaque depth silhouette;
+      // restoring this runtime rule here keeps old material records valid.
+      const translucent = bucket.material.transparent && bucket.material.opacity < 1;
+      if (translucent) bucket.material.depthWrite = false;
       // Whole-city macro breakup + specular AA on every batched lit material
       // (kit facades, plinths, prisms, props); idempotent across both load
       // paths, and a no-op on unlit/transparent/decal buckets.
@@ -3544,7 +1987,9 @@ export class CityModel {
         bucket.indices,
         bucket.material,
       );
-      batched.castShadow = true;
+      // Three's depth shadow material ignores opacity; the separate opaque
+      // frame and canopy cast the shelter shadow, never its glass panes.
+      batched.castShadow = !translucent && !propShadowsDisabled(bucket.material, multiDraw);
       batched.receiveShadow = true;
       // Chunk streaming (below) is the coarse cull, but per-instance frustum
       // culling stays ON: BatchedMesh rebuilds its multidraw list per PASS
@@ -3555,10 +2000,9 @@ export class CityModel {
       // early-returns when culling is off and nothing changed, so the main
       // pass would reuse the shadow-culled list.)
       batched.perObjectFrustumCulled = true;
-      batched.sortObjects = false;
+      batched.sortObjects = bucket.material.transparent;
       const geoIds = new Map<THREE.BufferGeometry, number>();
       const chunkIds = new Uint16Array(bucket.items.length);
-      // no-op marker retained for rebuild parity
       for (let i = 0; i < bucket.items.length; i++) {
         // Buckets can hold thousands of instances — yield inside the loop too
         // (safe: the chunk grid publishes only at the very end, see below).
@@ -3572,7 +2016,9 @@ export class CityModel {
         }
         const iid = batched.addInstance(gid);
         batched.setMatrixAt(iid, item.matrix);
-        if (item.src) {
+        // A restored world already has its authoritative cache records.
+        // Recapturing them retained 64k matrix arrays with no later consumer.
+        if (mode === "capture" && item.src) {
           restItems.push({
             url: item.src.url,
             idx: item.src.idx,
@@ -3581,7 +2027,7 @@ export class CityModel {
             tint: item.tint ? item.tint.getHex() : null,
             big: false,
           });
-        } else {
+        } else if (mode === "capture") {
           const mat = bucket.material;
           const textured = mat instanceof THREE.MeshStandardMaterial && mat.map !== null;
           const rec = textured ? null : matRecOf(mat);
@@ -3631,9 +2077,7 @@ export class CityModel {
         chunkIds[iid] = ccz * nx + ccx;
       }
       batched.computeBoundingSphere();
-      this.group.add(batched);
       const bIndex = this.batches.length;
-      this.batches.push({ mesh: batched, chunkIds });
       let anyBig = false;
       for (let iid = 0; iid < chunkIds.length; iid++) {
         const key = chunkIds[iid] ?? 0;
@@ -3698,6 +2142,16 @@ export class CityModel {
       }
       // Small-prop shadows don't read at chase-cam scale; skip their pass.
       if (!anyBig) batched.castShadow = false;
+      // Opaque props with no shadow pass use the chunk visibility list as-is.
+      // This lets Three reuse its indirect draw list between chunk changes;
+      // otherwise it scans every city instance on every rendered frame.
+      // Casters retain per-pass culling; transparent batches retain sorting.
+      if (!batched.castShadow && !bucket.material.transparent) {
+        batched.perObjectFrustumCulled = false;
+      }
+      const mesh = compatiblePropBatch(batched, bucket.items, multiDraw);
+      this.group.add(mesh);
+      this.batches.push({ mesh, chunkIds });
     }
     if (imposters.length > 0) {
       // One box per distinct source model (see imposterBox) — a few dozen, so
@@ -3727,6 +2181,7 @@ export class CityModel {
       imp.perObjectFrustumCulled = false;
       imp.sortObjects = false;
       const gids = new Map<THREE.BufferGeometry, number>();
+      const impItems: PropInstance[] = [];
       const m4 = new THREE.Matrix4();
       const box = new THREE.Box3();
       const sizeV = new THREE.Vector3();
@@ -3764,14 +2219,17 @@ export class CityModel {
         imp.setMatrixAt(iid, m4);
         imp.setColorAt(iid, imposterColorInto(IMPOSTER_COLOR, item.geo, mat, item.tint));
         imp.setVisibleAt(iid, false);
+        if (!multiDraw)
+          impItems.push({ geo: boxGeo, matrix: m4.clone(), tint: IMPOSTER_COLOR.clone() });
         const tier = mid ? this.imposterMidInstances : this.imposterInstances;
         const list = tier.get(key);
         if (list) list.push(iid);
         else tier.set(key, [iid]);
       }
       imp.computeBoundingSphere();
-      this.group.add(imp);
-      this.imposterMesh = imp;
+      const mesh = compatiblePropBatch(imp, impItems, multiDraw);
+      this.group.add(mesh);
+      this.imposterMesh = mesh;
       let midN = 0;
       for (const spec of imposters) if (spec.mid) midN++;
       console.log(`[city] imposters ${imposters.length} (mid ${midN})`);
@@ -3808,17 +2266,12 @@ export class CityModel {
     console.log(`[city] batches ${Math.round(performance.now() - tBatch)}ms`);
   }
 
-  // The city never moves after build: compose every matrix once, then stop
-  // the per-frame recompose (updateMatrixWorld still walks the subtree, but
-  // each visit is two boolean checks instead of a position/quat/scale
-  // compose). Chunk streaming only flips `visible`, and BatchedMesh instance
-  // matrices live in a texture — neither needs object matrices. Skipped in
-  // editor mode, where props get dragged around live.
+  // The city never moves after build. Seal its transform subtree so the live
+  // scene cannot walk thousands of frozen descendants every frame. Streaming
+  // flips visibility/instance buffers; arriving parcel cells compose on attach.
+  // Editor sessions keep the ordinary live hierarchy.
   freezeStatic(): void {
-    this.group.updateMatrixWorld(true); // compose every local+world matrix once
-    this.group.traverse((o) => {
-      o.matrixAutoUpdate = false;
-    });
+    this.group.seal();
   }
 
   // Chunked visibility: merged road/drape tiles show/hide as whole groups
@@ -3829,6 +2282,11 @@ export class CityModel {
   updateStreaming(camera: THREE.Camera, showAll = false): void {
     const camX = camera.position.x;
     const camZ = camera.position.z;
+    this.parcelStreamer?.update(
+      camX,
+      camZ,
+      showAll ? Infinity : streamRadiusFor(liveQuality().detailScale),
+    );
     for (const c of this.chunks) {
       const d = Math.hypot(camX - c.cx, camZ - c.cz) - c.radius;
       const visible = showAll || d < c.dist;
@@ -3930,7 +2388,16 @@ export class CityModel {
   // with the ground paint (world/land-class.ts): this used to be a second,
   // drifting copy of the grading, which is how the tyres came to report
   // concrete on Ocean Beach.
-  surfaceKindAt(x: number, z: number): WheelSurface {
+  surfaceKindAt(x: number, z: number, y?: number): WheelSurface {
+    const contactY = y ?? this.heightAt(x, z);
+    if (
+      this.surface.isDeckContact(x, z, contactY) ||
+      isFreewayDeckContact(this.terrain, this.network, x, z, contactY)
+    )
+      return "road";
+    const painted = this.paintedFloorAt(x, z);
+    if (painted === "grass" || painted === "sand") return painted;
+    if (painted === "plaza") return "concrete";
     return wheelSurface(this.landClassAt(x, z));
   }
 
@@ -3954,7 +2421,26 @@ export class CityModel {
   }
 
   heightAt(x: number, z: number): number {
-    return this.surface.heightAt(x, z);
+    const floor = this.surface.heightAt(x, z);
+    if (surfaceDeckAt(this.getDecks(), x, z)) return floor;
+    return waterBedHeight(this.landmarkWater, x, z, floor);
+  }
+
+  getWaterBodies(): readonly WaterBody[] {
+    return this.landmarkWater;
+  }
+
+  waterHeightAt(x: number, z: number): number | null {
+    const lake = stowWaterHeightAt(x, z);
+    if (lake !== null) return lake;
+    for (const body of this.landmarkWater) if (waterBodyContains(body, x, z)) return body.y;
+    // The sea exists underneath supported bridges and piers too. Flotation
+    // checks hull height, so driving on a high deck never activates it.
+    return this.terrain.landAt(x, z) < 0.6 ? SEA_Y : null;
+  }
+
+  cameraFloorAt(x: number, z: number, referenceY: number): number {
+    return this.surface.floorBelow(x, z, referenceY);
   }
 
   normalInto(out: THREE.Vector3, x: number, z: number): THREE.Vector3 {

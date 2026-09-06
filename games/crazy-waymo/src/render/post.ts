@@ -163,7 +163,7 @@ const FinalGradeShader = {
     // x amount, y inner-edge radius
     uVignette: { value: new THREE.Vector2(0.18, 0.3) },
     uCA: { value: 0.0 },
-    uGrain: { value: 0.009 },
+    uGrain: { value: 0.0025 },
     uTime: { value: 0 },
     uAspect: { value: 16 / 9 },
     uTexel: { value: new THREE.Vector2(1 / 1920, 1 / 1080) },
@@ -444,7 +444,7 @@ const BLOOM_NIGHT_RADIUS = 0.3;
 //     vibrance and split tone land on the source first and the bloom then adds
 //     on top of a lifted frame.
 // So the residual halo is the SOURCE's own billboard skirt, not the pyramid:
-// it is authored in fx/lamp-glow.ts and fx/night-windows.ts, and downtown it
+// it is authored in fx/lamp-glow.ts and fx/street-luminaires.ts, and downtown it
 // is the beacon layer's house gain (fx/beacon-lights.ts). Shrinking the two
 // constants this side owns (MAST_HALO 1.5 -> 1.0, HALO_GAIN 3.4 -> 2.6) moved
 // the facade mean 1.4% and the blown share 0.07pp and is invisible in a
@@ -461,7 +461,7 @@ const BLOOM_KICK_LIFT = 0.06;
 const BLOOM_IGNITE_LIFT = 0.09;
 
 // Chromatic aberration bounds (per-channel uv offset at |fromCentre| = 1).
-const CA_REST = 0.00045;
+const CA_REST = 0;
 const CA_BOOST = 0.0019;
 // Vignette speed language: amount rises, inner edge walks in.
 const VIGNETTE_BASE = 0.18;

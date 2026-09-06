@@ -120,7 +120,6 @@ export type GoldenGateResult = {
   readonly objects: THREE.Object3D[];
   readonly solids: Solid[];
   readonly decks: readonly SurfaceDeck[];
-  readonly openWaterCells: ReadonlySet<string>;
 };
 
 // The geometry-free half of the bridge: where it starts, how high it runs and
@@ -592,15 +591,13 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
   const objects: THREE.Object3D[] = [];
   const solids: Solid[] = [];
   const decks: SurfaceDeck[] = [];
-  const openWaterCells = new Set<string>();
 
   const plan = goldenGatePlan(ctx);
-  if (!plan) return { objects, solids, decks, openWaterCells };
+  if (!plan) return { objects, solids, decks };
   const {
     ax,
     shoreZ,
     shoreH,
-    endZ,
     rampLen,
     rampTopZ,
     kneeZ,
@@ -654,49 +651,8 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
   // Deck out across the strait to the Marin landfall (or the fallback pad).
   decks.push({ minX: ax - half, maxX: ax + half, minZ: spanMinZ, maxZ: rampTopZ, y: deckY });
 
-  // --- Rails ---
-  // THESE DO NOT HOLD THE CAR, and the reason is not in this file. When the
-  // Rapier RaycastVehicle is attached — i.e. always, in the shipped game —
-  // `car.update` returns at its first line into `updatePhysicsControls`, so
-  // the arcade 2-D `resolveCollisions` that treats a Solid as infinitely tall
-  // never runs. The taxi meets these boxes ONLY as Rapier static colliders,
-  // and `physics-world.addStaticSolids` anchors every one of them to
-  // `terrain.heightAt` — which under the water crossing is the seabed at -5.
-  // The rail box therefore tops out ~6u below the carriageway and a straight
-  // run across the 222u span drives clean off the edge into the bay.
-  //
-  // Three fixes were built and MEASURED in the running game (mid-span
-  // teleport, throttle + full lock, telemetry every 400ms); all three are
-  // worse than the bug, so none of them is here:
-  //   • deck-anchored 12u box (base = deck−1, and again at deck−5): the car
-  //     now contacts the rail, and Rapier ejects the chassis out of the box's
-  //     BOTTOM face — it sinks through the deck and comes to rest at y≈4.2
-  //     under the bridge.
-  //   • parapet-height box (base = deck, maxY = deck+2.4): too shallow to
-  //     engage the chassis at all; identical to the bug.
-  // The root cause is that a SurfaceDeck is NOT a physics collider — nothing
-  // resists a downward ejection — so the honest fixes are to give the decks
-  // colliders, or to clamp the chassis to `surface.heightAt` after the step.
-  // Both are drive-feel changes in vehicle/raycast-vehicle.ts and want a real
-  // driving pass, not a world-gen edit. A straight crossing is unaffected
-  // (measured: flat y 7.06 the whole 190u span, onto the Marin landfall).
-  solids.push({ minX: ax - half - RAIL_T, maxX: ax - half, minZ: railMinZ, maxZ: railMaxZ });
-  solids.push({ minX: ax + half, maxX: ax + half + RAIL_T, minZ: railMinZ, maxZ: railMaxZ });
-  // End barrier only on the dead-end fallback — landfall is an open road.
-  if (landfallZ === null) {
-    solids.push({
-      minX: ax - half - RAIL_T,
-      maxX: ax + half + RAIL_T,
-      minZ: endZ - 1.2,
-      maxZ: endZ,
-    });
-  }
-
-  // --- Open the water cells the span crosses (no invisible shoreline walls) ---
-  for (let gz = plan.anchorGz; gz >= 0; gz--) {
-    if (ctx.plan.cells[plan.anchorGx]?.[gz] === "water")
-      openWaterCells.add(`${plan.anchorGx},${gz}`);
-  }
+  // Rails are generated with the shared shoreline contour after all decks
+  // exist, so their landfall openings and collision heights agree.
 
   // --- Visuals ---
   // Deck boards: kit bridge segments, flat along the deck + pitched on the ramp.
@@ -763,24 +719,6 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
         objects.push(seg);
       }
     }
-  }
-
-  // Side rails (visual, matches the solids).
-  const railLen = railMaxZ - railMinZ;
-  const railGeo = new THREE.BoxGeometry(RAIL_T, 1.1, railLen);
-  for (const sx of [-(half + RAIL_T / 2), half + RAIL_T / 2]) {
-    objects.push(mesh(railGeo, RAIL_ORANGE, ax + sx, deckY + 0.55, (railMinZ + railMaxZ) / 2));
-  }
-  if (landfallZ === null) {
-    objects.push(
-      mesh(
-        new THREE.BoxGeometry(DECK_W + RAIL_T * 2, 1.6, 1.2),
-        RAIL_ORANGE,
-        ax,
-        deckY + 0.8,
-        endZ - 0.6,
-      ),
-    );
   }
 
   // Transition pier where the deck leaves the ramp. There is exactly ONE: the
@@ -1291,5 +1229,5 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
     }
   }
 
-  return { objects, solids, decks, openWaterCells };
+  return { objects, solids, decks };
 }

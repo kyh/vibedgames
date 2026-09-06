@@ -1,0 +1,945 @@
+{
+  "url": "http://localhost:5193/?time=noon&offline=1",
+  "checkedAt": "2026-09-05T19:26:58.185Z",
+  "cpuRate": 4,
+  "noMultiDraw": true,
+  "interpretation": "Headed desktop Chrome stress proxy; not physical-phone performance",
+  "checks": [
+    {
+      "name": "actual coarse-pointer DPR3 phone path and requested extension fallback",
+      "passed": true,
+      "evidence": {
+        "coarse": true,
+        "touch": 5,
+        "dpr": 3,
+        "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M1 Max, Unspecified Version)",
+        "multiDraw": false,
+        "post": false
+      }
+    },
+    {
+      "name": "native touch entry and reverse exit each emit one paired splash",
+      "passed": true,
+      "evidence": {
+        "entry": 2,
+        "wake": 74,
+        "exit": 2
+      }
+    },
+    {
+      "name": "shore transitions keeps finite physical motion and clears drift/airtime afloat",
+      "passed": true,
+      "evidence": {
+        "frames": 793,
+        "wetFrames": 689,
+        "first": {
+          "x": -1438,
+          "y": 0.3623257923126221,
+          "z": 200,
+          "heading": -1.5707963267948968,
+          "speed": 0,
+          "water": "dry",
+          "airborne": false,
+          "drifting": false,
+          "airTime": 0.16666666666666666,
+          "tier": 4
+        },
+        "last": {
+          "x": -1453.8198203125,
+          "y": 0.13669025838375248,
+          "z": 200,
+          "heading": -1.5707963267948968,
+          "speed": 3.870331764221192,
+          "water": "dry",
+          "airborne": false,
+          "drifting": false,
+          "airTime": 0,
+          "tier": 2
+        }
+      }
+    },
+    {
+      "name": "shore transitions emits no tire matter or marks while wet",
+      "passed": true,
+      "evidence": {}
+    },
+    {
+      "name": "shore transitions water effects stay within one foam draw and compact pools",
+      "passed": true,
+      "evidence": {
+        "draws": 1,
+        "particles": 56,
+        "triangles": 800
+      }
+    },
+    {
+      "name": "portrait-day native touch propels and steers within a bounded ocean route",
+      "passed": true,
+      "evidence": {
+        "start": {
+          "x": -1510,
+          "z": 200,
+          "y": -0.7565351629853159,
+          "speed": 0,
+          "heading": 0,
+          "airborne": false,
+          "waterContact": {
+            "kind": "floating",
+            "waterY": -0.5,
+            "immersion": 0.5029573328793049,
+            "entrySpeed": 0,
+            "entryVerticalSpeed": 3.999995231628418
+          },
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.10450819672131145,
+            "v": 0.5364807692307693
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 73.8,
+            "wrecked": false,
+            "y": 0.3
+          }
+        },
+        "end": {
+          "x": -1498.6095900878906,
+          "y": -0.7000005485415459,
+          "z": 221.68680685424803,
+          "heading": 1.3023336500330815,
+          "speed": 7.838322117180486,
+          "water": "floating",
+          "airborne": false,
+          "drifting": false,
+          "airTime": 0,
+          "tier": 2
+        },
+        "headingDelta": 1.3023336500330815
+      }
+    },
+    {
+      "name": "portrait-day keeps finite physical motion and clears drift/airtime afloat",
+      "passed": true,
+      "evidence": {
+        "frames": 244,
+        "wetFrames": 244,
+        "first": {
+          "x": -1510,
+          "y": -0.7822690409421921,
+          "z": 200,
+          "heading": 0,
+          "speed": 0,
+          "water": "floating",
+          "airborne": false,
+          "drifting": false,
+          "airTime": 0,
+          "tier": 2
+        },
+        "last": {
+          "x": -1498.6095900878906,
+          "y": -0.7000005485415459,
+          "z": 221.68680685424803,
+          "heading": 1.3023336500330815,
+          "speed": 7.838322117180486,
+          "water": "floating",
+          "airborne": false,
+          "drifting": false,
+          "airTime": 0,
+          "tier": 2
+        }
+      }
+    },
+    {
+      "name": "portrait-day emits no tire matter or marks while wet",
+      "passed": true,
+      "evidence": {}
+    },
+    {
+      "name": "portrait-day water effects stay within one foam draw and compact pools",
+      "passed": true,
+      "evidence": {
+        "draws": 1,
+        "particles": 30,
+        "triangles": 720
+      }
+    },
+    {
+      "name": "portrait-day wakes follow sustained movement without repeated entry spray",
+      "passed": true,
+      "evidence": {
+        "entry": 0,
+        "wake": 36
+      }
+    },
+    {
+      "name": "landscape-day native touch propels and steers within a bounded ocean route",
+      "passed": true,
+      "evidence": {
+        "start": {
+          "x": -1510,
+          "z": 200,
+          "y": -0.7209574326276812,
+          "speed": 0,
+          "heading": 0,
+          "airborne": false,
+          "waterContact": {
+            "kind": "floating",
+            "waterY": -0.5,
+            "immersion": 0.5003149844706059,
+            "entrySpeed": 0,
+            "entryVerticalSpeed": 3.499995470046997
+          },
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.10450819672131145,
+            "v": 0.5364807692307693
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 75.4,
+            "wrecked": false,
+            "y": 0.3
+          }
+        },
+        "end": {
+          "x": -1498.9717431640624,
+          "y": -0.7000005486607551,
+          "z": 221.53827026367188,
+          "heading": 1.2801387010007979,
+          "speed": 7.838015858455294,
+          "water": "floating",
+          "airborne": false,
+          "drifting": false,
+          "airTime": 0,
+          "tier": 1
+        },
+        "headingDelta": 1.2801387010007979
+      }
+    },
+    {
+      "name": "landscape-day keeps finite physical motion and clears drift/airtime afloat",
+      "passed": true,
+      "evidence": {
+        "frames": 241,
+        "wetFrames": 241,
+        "first": {
+          "x": -1510,
+          "y": -0.7209574326276812,
+          "z": 200,
+          "heading": 0,
+          "speed": 0,
+          "water": "floating",
+          "airborne": false,
+          "drifting": false,
+          "airTime": 0,
+          "tier": 2
+        },
+        "last": {
+          "x": -1498.9717431640624,
+          "y": -0.7000005486607551,
+          "z": 221.53827026367188,
+          "heading": 1.2801387010007979,
+          "speed": 7.838015858455294,
+          "water": "floating",
+          "airborne": false,
+          "drifting": false,
+          "airTime": 0,
+          "tier": 1
+        }
+      }
+    },
+    {
+      "name": "landscape-day emits no tire matter or marks while wet",
+      "passed": true,
+      "evidence": {}
+    },
+    {
+      "name": "landscape-day water effects stay within one foam draw and compact pools",
+      "passed": true,
+      "evidence": {
+        "draws": 1,
+        "particles": 20,
+        "triangles": 720
+      }
+    },
+    {
+      "name": "landscape-day wakes follow sustained movement without repeated entry spray",
+      "passed": true,
+      "evidence": {
+        "entry": 0,
+        "wake": 36
+      }
+    },
+    {
+      "name": "portrait-night native touch propels and steers within a bounded ocean route",
+      "passed": true,
+      "evidence": {
+        "start": {
+          "x": -1510,
+          "z": 200,
+          "y": -0.6782984549999127,
+          "speed": 0,
+          "heading": 0,
+          "airborne": false,
+          "waterContact": {
+            "kind": "floating",
+            "waterY": -0.5,
+            "immersion": 0.4303585402667523,
+            "entrySpeed": 0,
+            "entryVerticalSpeed": 3.499995470046997
+          },
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.10450819672131145,
+            "v": 0.5364807692307693
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 80.4,
+            "wrecked": false,
+            "y": 0.3
+          }
+        },
+        "end": {
+          "x": -1498.7640688476563,
+          "y": -0.7000005336403847,
+          "z": 221.5242490234375,
+          "heading": 1.2927660556432232,
+          "speed": 7.838099929141207,
+          "water": "floating",
+          "airborne": false,
+          "drifting": false,
+          "airTime": 0,
+          "tier": 1
+        },
+        "headingDelta": 1.2927660556432232
+      }
+    },
+    {
+      "name": "portrait-night keeps finite physical motion and clears drift/airtime afloat",
+      "passed": true,
+      "evidence": {
+        "frames": 241,
+        "wetFrames": 241,
+        "first": {
+          "x": -1510,
+          "y": -0.7055587048530515,
+          "z": 200,
+          "heading": 0,
+          "speed": 0,
+          "water": "floating",
+          "airborne": false,
+          "drifting": false,
+          "airTime": 0,
+          "tier": 1
+        },
+        "last": {
+          "x": -1498.7640688476563,
+          "y": -0.7000005336403847,
+          "z": 221.5242490234375,
+          "heading": 1.2927660556432232,
+          "speed": 7.838099929141207,
+          "water": "floating",
+          "airborne": false,
+          "drifting": false,
+          "airTime": 0,
+          "tier": 1
+        }
+      }
+    },
+    {
+      "name": "portrait-night emits no tire matter or marks while wet",
+      "passed": true,
+      "evidence": {}
+    },
+    {
+      "name": "portrait-night water effects stay within one foam draw and compact pools",
+      "passed": true,
+      "evidence": {
+        "draws": 1,
+        "particles": 22,
+        "triangles": 720
+      }
+    },
+    {
+      "name": "portrait-night wakes follow sustained movement without repeated entry spray",
+      "passed": true,
+      "evidence": {
+        "entry": 0,
+        "wake": 36
+      }
+    },
+    {
+      "name": "landscape-night native touch propels and steers within a bounded ocean route",
+      "passed": true,
+      "evidence": {
+        "start": {
+          "x": -1510,
+          "z": 200,
+          "y": -0.7194709492921871,
+          "speed": 0,
+          "heading": 0,
+          "airborne": false,
+          "waterContact": {
+            "kind": "floating",
+            "waterY": -0.5,
+            "immersion": 0.4698056764900685,
+            "entrySpeed": 0,
+            "entryVerticalSpeed": 3.499995470046997
+          },
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.10450819672131145,
+            "v": 0.5364807692307693
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 75.5,
+            "wrecked": false,
+            "y": 0.3
+          }
+        },
+        "end": {
+          "x": -1498.8475341796875,
+          "y": -0.7000005197525024,
+          "z": 221.5902557373047,
+          "heading": 1.2877689955686706,
+          "speed": 7.83822427893213,
+          "water": "floating",
+          "airborne": false,
+          "drifting": false,
+          "airTime": 0,
+          "tier": 0
+        },
+        "headingDelta": 1.2877689955686706
+      }
+    },
+    {
+      "name": "landscape-night keeps finite physical motion and clears drift/airtime afloat",
+      "passed": true,
+      "evidence": {
+        "frames": 241,
+        "wetFrames": 241,
+        "first": {
+          "x": -1510,
+          "y": -0.7374796983003649,
+          "z": 200,
+          "heading": 0,
+          "speed": 0,
+          "water": "floating",
+          "airborne": false,
+          "drifting": false,
+          "airTime": 0,
+          "tier": 1
+        },
+        "last": {
+          "x": -1498.8475341796875,
+          "y": -0.7000005197525024,
+          "z": 221.5902557373047,
+          "heading": 1.2877689955686706,
+          "speed": 7.83822427893213,
+          "water": "floating",
+          "airborne": false,
+          "drifting": false,
+          "airTime": 0,
+          "tier": 0
+        }
+      }
+    },
+    {
+      "name": "landscape-night emits no tire matter or marks while wet",
+      "passed": true,
+      "evidence": {}
+    },
+    {
+      "name": "landscape-night water effects stay within one foam draw and compact pools",
+      "passed": true,
+      "evidence": {
+        "draws": 1,
+        "particles": 22,
+        "triangles": 720
+      }
+    },
+    {
+      "name": "landscape-night wakes follow sustained movement without repeated entry spray",
+      "passed": true,
+      "evidence": {
+        "entry": 0,
+        "wake": 36
+      }
+    },
+    {
+      "name": "no water VFX page errors",
+      "passed": true,
+      "evidence": []
+    }
+  ],
+  "views": [
+    {
+      "name": "portrait-day",
+      "entrySprays": 0,
+      "wakeSprays": 36,
+      "exitSprays": 0,
+      "tireWet": {},
+      "peakParticles": 30,
+      "peakFoamDraws": 1,
+      "peakFoamTriangles": 720,
+      "wetSeconds": 4.076300000000001,
+      "frameMs": {
+        "count": 243,
+        "median": 16.5,
+        "p95": 19.90000009536743,
+        "max": 28.600000143051147
+      },
+      "updateMs": {
+        "count": 244,
+        "median": 2.700000047683716,
+        "p95": 3.5,
+        "max": 15.600000143051147
+      },
+      "renderMs": {
+        "count": 244,
+        "median": 8.800000190734863,
+        "p95": 11.799999952316284,
+        "max": 13.800000190734863
+      },
+      "motion": {
+        "samples": 244,
+        "wetSamples": 244,
+        "first": {
+          "x": -1510,
+          "y": -0.7822690409421921,
+          "z": 200,
+          "heading": 0,
+          "speed": 0,
+          "water": "floating",
+          "airborne": false,
+          "drifting": false,
+          "airTime": 0,
+          "tier": 2
+        },
+        "last": {
+          "x": -1498.6095900878906,
+          "y": -0.7000005485415459,
+          "z": 221.68680685424803,
+          "heading": 1.3023336500330815,
+          "speed": 7.838322117180486,
+          "water": "floating",
+          "airborne": false,
+          "drifting": false,
+          "airTime": 0,
+          "tier": 2
+        },
+        "range": {
+          "x": {
+            "min": -1510,
+            "max": -1498.6095900878906
+          },
+          "y": {
+            "min": -0.8297492383718489,
+            "max": -0.70000048995018
+          },
+          "z": {
+            "min": 200,
+            "max": 221.68680685424803
+          },
+          "speed": {
+            "min": 0,
+            "max": 7.838322117180486
+          },
+          "heading": {
+            "min": 0,
+            "max": 1.3023336500330815
+          }
+        },
+        "tierSamples": {
+          "2": 244
+        }
+      }
+    },
+    {
+      "name": "landscape-day",
+      "entrySprays": 0,
+      "wakeSprays": 36,
+      "exitSprays": 0,
+      "tireWet": {},
+      "peakParticles": 20,
+      "peakFoamDraws": 1,
+      "peakFoamTriangles": 720,
+      "wetSeconds": 4.058400000000001,
+      "frameMs": {
+        "count": 240,
+        "median": 16.699999809265137,
+        "p95": 24,
+        "max": 31.09999990463257
+      },
+      "updateMs": {
+        "count": 241,
+        "median": 2.9000000953674316,
+        "p95": 3.6000001430511475,
+        "max": 16.200000047683716
+      },
+      "renderMs": {
+        "count": 241,
+        "median": 10.600000143051147,
+        "p95": 13.299999952316284,
+        "max": 14.200000047683716
+      },
+      "motion": {
+        "samples": 241,
+        "wetSamples": 241,
+        "first": {
+          "x": -1510,
+          "y": -0.7209574326276812,
+          "z": 200,
+          "heading": 0,
+          "speed": 0,
+          "water": "floating",
+          "airborne": false,
+          "drifting": false,
+          "airTime": 0,
+          "tier": 2
+        },
+        "last": {
+          "x": -1498.9717431640624,
+          "y": -0.7000005486607551,
+          "z": 221.53827026367188,
+          "heading": 1.2801387010007979,
+          "speed": 7.838015858455294,
+          "water": "floating",
+          "airborne": false,
+          "drifting": false,
+          "airTime": 0,
+          "tier": 1
+        },
+        "range": {
+          "x": {
+            "min": -1510,
+            "max": -1498.9717431640624
+          },
+          "y": {
+            "min": -0.7769690778255466,
+            "max": -0.70000048995018
+          },
+          "z": {
+            "min": 200,
+            "max": 221.53827026367188
+          },
+          "speed": {
+            "min": 0,
+            "max": 7.838015858455294
+          },
+          "heading": {
+            "min": 0,
+            "max": 1.2801387010007979
+          }
+        },
+        "tierSamples": {
+          "2": 54,
+          "1": 187
+        }
+      }
+    },
+    {
+      "name": "portrait-night",
+      "entrySprays": 0,
+      "wakeSprays": 36,
+      "exitSprays": 0,
+      "tireWet": {},
+      "peakParticles": 22,
+      "peakFoamDraws": 1,
+      "peakFoamTriangles": 720,
+      "wetSeconds": 4.024800000000002,
+      "frameMs": {
+        "count": 240,
+        "median": 16.5,
+        "p95": 24.600000143051147,
+        "max": 28.700000047683716
+      },
+      "updateMs": {
+        "count": 241,
+        "median": 2.8999998569488525,
+        "p95": 3.5999999046325684,
+        "max": 14.700000047683716
+      },
+      "renderMs": {
+        "count": 241,
+        "median": 7.5,
+        "p95": 9.299999952316284,
+        "max": 10.100000143051147
+      },
+      "motion": {
+        "samples": 241,
+        "wetSamples": 241,
+        "first": {
+          "x": -1510,
+          "y": -0.7055587048530515,
+          "z": 200,
+          "heading": 0,
+          "speed": 0,
+          "water": "floating",
+          "airborne": false,
+          "drifting": false,
+          "airTime": 0,
+          "tier": 1
+        },
+        "last": {
+          "x": -1498.7640688476563,
+          "y": -0.7000005336403847,
+          "z": 221.5242490234375,
+          "heading": 1.2927660556432232,
+          "speed": 7.838099929141207,
+          "water": "floating",
+          "airborne": false,
+          "drifting": false,
+          "airTime": 0,
+          "tier": 1
+        },
+        "range": {
+          "x": {
+            "min": -1510,
+            "max": -1498.7640688476563
+          },
+          "y": {
+            "min": -0.7767963966131212,
+            "max": -0.70000048995018
+          },
+          "z": {
+            "min": 200,
+            "max": 221.5242490234375
+          },
+          "speed": {
+            "min": 0,
+            "max": 7.838099929141207
+          },
+          "heading": {
+            "min": 0,
+            "max": 1.2927660556432232
+          }
+        },
+        "tierSamples": {
+          "1": 241
+        }
+      }
+    },
+    {
+      "name": "landscape-night",
+      "entrySprays": 0,
+      "wakeSprays": 36,
+      "exitSprays": 0,
+      "tireWet": {},
+      "peakParticles": 22,
+      "peakFoamDraws": 1,
+      "peakFoamTriangles": 720,
+      "wetSeconds": 4.032699999999997,
+      "frameMs": {
+        "count": 240,
+        "median": 16.59999990463257,
+        "p95": 23.700000047683716,
+        "max": 28.799999952316284
+      },
+      "updateMs": {
+        "count": 241,
+        "median": 3,
+        "p95": 3.799999952316284,
+        "max": 15.200000047683716
+      },
+      "renderMs": {
+        "count": 241,
+        "median": 8.900000095367432,
+        "p95": 11.5,
+        "max": 13
+      },
+      "motion": {
+        "samples": 241,
+        "wetSamples": 241,
+        "first": {
+          "x": -1510,
+          "y": -0.7374796983003649,
+          "z": 200,
+          "heading": 0,
+          "speed": 0,
+          "water": "floating",
+          "airborne": false,
+          "drifting": false,
+          "airTime": 0,
+          "tier": 1
+        },
+        "last": {
+          "x": -1498.8475341796875,
+          "y": -0.7000005197525024,
+          "z": 221.5902557373047,
+          "heading": 1.2877689955686706,
+          "speed": 7.83822427893213,
+          "water": "floating",
+          "airborne": false,
+          "drifting": false,
+          "airTime": 0,
+          "tier": 0
+        },
+        "range": {
+          "x": {
+            "min": -1510,
+            "max": -1498.8475341796875
+          },
+          "y": {
+            "min": -0.7769231522083282,
+            "max": -0.70000048995018
+          },
+          "z": {
+            "min": 200,
+            "max": 221.5902557373047
+          },
+          "speed": {
+            "min": 0,
+            "max": 7.83822427893213
+          },
+          "heading": {
+            "min": 0,
+            "max": 1.2877689955686706
+          }
+        },
+        "tierSamples": {
+          "1": 17,
+          "0": 224
+        }
+      }
+    }
+  ],
+  "worldRevision": 94,
+  "device": {
+    "coarse": true,
+    "touch": 5,
+    "dpr": 3,
+    "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M1 Max, Unspecified Version)",
+    "multiDraw": false,
+    "post": false
+  },
+  "access": {
+    "id": "ocean-beach",
+    "region": "Ocean Beach",
+    "dry": {
+      "x": -1438,
+      "z": 200
+    },
+    "wet": {
+      "x": -1470,
+      "z": 200
+    },
+    "width": 1352,
+    "opening": {
+      "minX": -1586,
+      "maxX": -1316.3799999999999,
+      "minZ": -520,
+      "maxZ": 832
+    }
+  },
+  "contactRun": {
+    "entrySprays": 2,
+    "wakeSprays": 74,
+    "exitSprays": 2,
+    "tireWet": {},
+    "peakParticles": 56,
+    "peakFoamDraws": 1,
+    "peakFoamTriangles": 800,
+    "wetSeconds": 11.492633333333336,
+    "frameMs": {
+      "count": 770,
+      "median": 16.600000143051147,
+      "p95": 19,
+      "max": 29.90000009536743
+    },
+    "updateMs": {
+      "count": 775,
+      "median": 3,
+      "p95": 3.9000000953674316,
+      "max": 16.600000143051147
+    },
+    "renderMs": {
+      "count": 774,
+      "median": 6.5,
+      "p95": 9.399999856948853,
+      "max": 11.5
+    },
+    "motion": {
+      "samples": 793,
+      "wetSamples": 689,
+      "first": {
+        "x": -1438,
+        "y": 0.3623257923126221,
+        "z": 200,
+        "heading": -1.5707963267948968,
+        "speed": 0,
+        "water": "dry",
+        "airborne": false,
+        "drifting": false,
+        "airTime": 0.16666666666666666,
+        "tier": 4
+      },
+      "last": {
+        "x": -1453.8198203125,
+        "y": 0.13669025838375248,
+        "z": 200,
+        "heading": -1.5707963267948968,
+        "speed": 3.870331764221192,
+        "water": "dry",
+        "airborne": false,
+        "drifting": false,
+        "airTime": 0,
+        "tier": 2
+      },
+      "range": {
+        "x": {
+          "min": -1489.2603137207032,
+          "max": -1438
+        },
+        "y": {
+          "min": -0.8712532308101655,
+          "max": 0.421827543735504
+        },
+        "z": {
+          "min": 200,
+          "max": 200
+        },
+        "speed": {
+          "min": 0,
+          "max": 26.97711563110352
+        },
+        "heading": {
+          "min": -1.5707963275115484,
+          "max": -1.5707963265598153
+        }
+      },
+      "tierSamples": {
+        "4": 136,
+        "3": 506,
+        "2": 151
+      }
+    }
+  },
+  "scope": "Revision 94 with final flotation physics and water FX. Revision 95 changes shoreline joints and planting only; final-world verification is recorded separately.",
+  "command": "node tools/verify-water-fx.mjs 'http://localhost:5193/?time=noon&offline=1' /private/tmp/waymo-water-fx-final",
+  "captureTiming": "Screenshot intervals excluded from timing; four view runs summarized before capture. Counts track actual GameScene updates and simulated elapsed time, not display callbacks.",
+  "captures": [
+    {
+      "file": "water-landscape-day.png",
+      "view": "landscape-day",
+      "pixelWidth": 2532,
+      "pixelHeight": 1170
+    },
+    {
+      "file": "water-portrait-night.png",
+      "view": "portrait-night",
+      "pixelWidth": 1170,
+      "pixelHeight": 2532
+    }
+  ]
+}

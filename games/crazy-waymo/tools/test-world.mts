@@ -1,19 +1,31 @@
+import { checkFrameTiming } from "./test-frame-timing.mts";
+import { checkStaticWorldGroup } from "./test-static-world-group.mts";
+import { checkInstancedProps } from "./test-instanced-props.mts";
+import { checkWorldBufferOwnership } from "./test-world-buffer-ownership.mts";
+import { checkSurfaceFx } from "./test-surface-fx.mts";
+import { checkWaterFx } from "./test-water-fx.mts";
+import { checkWaterReservations } from "./test-water-reservations.mts";
+import { checkFlotation } from "./test-flotation.mts";
+import { checkLake } from "./test-lake.mts";
+import { checkMarineFog } from "./test-marine-fog.mts";
+import { checkTerrainMaterials } from "./test-terrain-material.mts";
+import { auditWaterBarriers } from "./water-barrier-audit.mts";
+import {
+  checkShoreline,
+  checkShorelinePhysics,
+  checkLandmarkWaterWalls,
+} from "./test-shoreline.mts";
+import { checkParcelStreaming } from "./test-parcel-stream.mts";
+import { checkInstalledPlayerSpawns, checkPlayerSpawnFixtures } from "./test-player-spawn.mts";
+import { DriveSurface } from "../src/world/surface.ts";
+import { SolidIndex } from "../src/world/solid-index.ts";
 // Headless world-gen invariant harness: the raster cell grid and the vector
 // road network are parallel representations of the same streets — every bug
 // in the 2026-07 park work was drift between them. This suite regenerates the
 // world exactly like gen-worker does (no browser, no THREE render) and
 // asserts the invariants that would have caught each drift class at build
 // time. Run: `pnpm test`.
-import {
-  CITY_SEED,
-  GRID_X,
-  GRID_Z,
-  ROAD_TILE,
-  WORLD_HALF_X,
-  WORLD_HALF_Z,
-} from "../src/shared/constants.ts";
-import { Rng } from "../src/shared/rng.ts";
-import { type FabricLot, planFabricRow } from "../src/world/city.ts";
+import { GRID_X, GRID_Z, ROAD_TILE, WORLD_HALF_X, WORLD_HALF_Z } from "../src/shared/constants.ts";
 import { generateCity } from "../src/world/grid.ts";
 import {
   dominantCover,
@@ -22,12 +34,27 @@ import {
   wheelSurface,
 } from "../src/world/land-class.ts";
 import { freewayPillars } from "../src/world/freeways.ts";
+import { buildLandmarks, landmarkProtection } from "../src/world/landmarks.ts";
+import { ModelCache } from "../src/assets/loader.ts";
+import type { WaterBody } from "../src/world/water.ts";
+import { buildParcelGeometry, buildParcelGeometrySync } from "../src/world/parcel-mesh.ts";
+import {
+  geometryBytes,
+  parcelDetailForDistance,
+  STREAM_CELL,
+  STREAM_HYSTERESIS,
+  streamCellKey,
+  streamCells,
+  streamRadiusFor,
+} from "../src/world/parcel-stream.ts";
+import { distToRing, planParcels, pointInRing } from "../src/world/parcel-plan.ts";
+import { visibleParcelPlans } from "../src/world/parcel-visibility.ts";
+import { SIGN_ATLAS_BYTES } from "../src/world/parcel-signs.ts";
+import { distantFootprint } from "../src/world/parcel-lod.ts";
 import { RoadNetwork } from "../src/world/network.ts";
 import { buildJunctionMap } from "../src/world/roads.ts";
-import { districtAt, makeTerrain } from "../src/world/sf-map.ts";
+import { makeTerrain } from "../src/world/sf-map.ts";
 import { parkCell } from "../src/world/park-clear.ts";
-import { SF_ADJACENCY_PARCELS } from "../src/world/sf-adjacency.ts";
-import { SF_FOOTPRINTS } from "../src/world/sf-footprints.ts";
 import { NETWORK_GEN_ID, SF_BASE_NODES } from "../src/world/sf-network.ts";
 import { STREETS_GEN_ID } from "../src/world/sf-streets.ts";
 import {
@@ -38,12 +65,27 @@ import {
 } from "../src/world/sf-transit.ts";
 import { deserializeWorldBin, unpackWorld, WORLD_REV } from "../src/world/world-bin.ts";
 import { packWorld, serializeWorldBin } from "../src/world/world-bin-pack.ts";
+import { checkRoadSurfaces } from "./test-road-surfaces.mts";
+import { checkHistoricCorners, checkParcelFacades } from "./test-parcel-facades.mts";
+import { checkDrivingFx, checkWorldDrivingFx } from "./test-driving-fx.mts";
+import { checkTreeTemplates } from "./test-tree-templates.mts";
+import {
+  checkBakedTreeClearance,
+  checkTreeClearanceSources,
+  treeRootSeatSamples,
+} from "./test-tree-clearance.mts";
+import { checkBakedShelterClearance, checkSfStreetKit } from "./test-sf-street-kit.mts";
+import { checkScaffoldKit } from "./test-scaffold-kit.mts";
+import { checkSalesforce } from "./test-sf-salesforce.mts";
+import { checkParcelClearance } from "./test-parcel-clearance.mts";
+import { checkVehicleParking } from "./test-vehicle-parking.mts";
 import {
   asphaltDepth,
   buildAuditWorld,
   classifySolids,
   landmarkReport,
   loadBakedRest,
+  loadParcelSource,
   gradeReport,
   overlapReport,
   propInstances,
@@ -72,8 +114,14 @@ const worldZ = (gz: number): number => (gz + 0.5) * ROAD_TILE - WORLD_HALF_Z;
 console.log("world-gen invariants");
 const t0 = performance.now();
 const plan = generateCity();
+checkTerrainMaterials(check, plan);
 const network = new RoadNetwork();
 console.log(`  (plan + network in ${Math.round(performance.now() - t0)}ms)`);
+checkRoadSurfaces(check, network);
+checkDrivingFx(check);
+await checkTreeTemplates(check);
+await checkTreeClearanceSources(check);
+await checkVehicleParking(check);
 
 // --- 1. Every road CELL is served by a vector edge. The buildings-in-streets
 // bug was exactly this failing: grid kept cells whose edge had been dropped,
@@ -377,116 +425,22 @@ console.log(`  (plan + network in ${Math.round(performance.now() - t0)}ms)`);
     outOfRange === 0 && TRANSIT_EDGE_COUNT === network.edges.length,
     `${covered} covered, ${outOfRange} out of range, ${TRANSIT_EDGE_COUNT} vs ${network.edges.length} edges`,
   );
-  check(
-    "party-wall data covers exactly the shipped footprints",
-    SF_ADJACENCY_PARCELS === SF_FOOTPRINTS.length,
-    `${SF_ADJACENCY_PARCELS} vs ${SF_FOOTPRINTS.length}`,
-  );
-}
-
-// --- 11. The fabric LOT LINE. Frontage rows are the bulk of the city's
-// buildings, and the walk that lays them used to roll a lot width every
-// iteration while stepping by the PREVIOUS roll: consecutive lots gapped or
-// overlapped by half the difference of two draws, up to 1.3u (~6 m) of daylight
-// between walls that were meant to be attached. planFabricRow now walks a real
-// lot line and reports both front-face corners, so the invariant is checkable
-// without a browser: within a run, one lot's far corner IS the next one's near
-// corner. Curvature is the only slack (neighbours share an offset polyline, so
-// the two corners are literally the same sample) — the gate is 0.3u.
-{
-  const rng = new Rng(CITY_SEED);
-  let attachedPairs = 0;
-  let worstGap = 0;
-  let worstAt = "";
-  let denseBuilt = 0;
-  let denseWalk = 0;
-  let lots = 0;
-  for (const edge of network.edges) {
-    for (const side of [1, -1] as const) {
-      const row = planFabricRow(network, buildJunctionMap(network), edge, side, rng);
-      lots += row.length;
-      let prev: FabricLot | null = null;
-      for (const lot of row) {
-        if (lot.attached && prev) {
-          // The shared corner: prev's far front corner vs this lot's near one.
-          const gap = Math.min(
-            Math.hypot(lot.x0 - prev.x1, lot.z0 - prev.z1),
-            Math.hypot(lot.x1 - prev.x0, lot.z1 - prev.z0),
-          );
-          attachedPairs++;
-          if (gap > worstGap) {
-            worstGap = gap;
-            worstAt = `edge ${edge.id} side ${side} run ${lot.run}`;
-          }
-        }
-        prev = lot;
-      }
-      // Coverage on the rows that are supposed to read as wall-to-wall.
-      const smp = network.sample(edge, edge.len / 2);
-      const character = districtAt(
-        Math.floor((smp.x + WORLD_HALF_X) / ROAD_TILE),
-        Math.floor((smp.z + WORLD_HALF_Z) / ROAD_TILE),
-      ).character;
-      if (character !== "residential" && character !== "victorian") continue;
-      const trimA = Math.min(network.nodeTrim(edge.a) * 0.6 + 1.5, edge.len * 0.4);
-      const trimB = Math.min(network.nodeTrim(edge.b) * 0.6 + 1.5, edge.len * 0.4);
-      const walkable = edge.len - trimA - trimB;
-      if (walkable < 5) continue;
-      denseWalk += walkable;
-      for (const lot of row) denseBuilt += lot.width;
-    }
-  }
-  // The facade line moved in toward the kerb (a flat 2.4u became the street's
-  // own sidewalk width plus 0.45u), so the classic "buildings in the road" bug
-  // gets a hard gate: no planned lot may overlap asphalt or a junction patch.
-  // The junction patch is what a per-edge nearest() cannot see — it is wider
-  // than any of its arms.
   {
-    const j = buildJunctionMap(network);
-    let onAsphalt = 0;
-    let inPatch = 0;
-    let worstAt = "";
-    const rng2 = new Rng(CITY_SEED);
-    for (const edge of network.edges) {
-      for (const side of [1, -1] as const) {
-        for (const lot of planFabricRow(network, j, edge, side, rng2)) {
-          for (const [x, z] of [
-            [lot.x0, lot.z0],
-            [lot.x1, lot.z1],
-          ] as const) {
-            const hit = network.nearest(x, z, ROAD_TILE * 1.6);
-            if (hit && hit.dist < hit.edge.half) {
-              onAsphalt++;
-              if (!worstAt) worstAt = `edge ${edge.id} side ${side}`;
-            } else if (j.near(x, z, 0)) {
-              inPatch++;
-            }
-          }
-        }
-      }
-    }
+    const src = loadParcelSource();
+    let hero = 0;
+    for (let i = 0; i < src.count; i++) hero += src.hero[i] ?? 0;
     check(
-      "no fabric facade stands in the roadway",
-      onAsphalt === 0 && inPatch === 0,
-      `${onAsphalt} on asphalt${worstAt ? ` e.g. ${worstAt}` : ""}, ${inPatch} in a junction patch`,
+      "parcel source ships the survey plus the rest of the city",
+      src.count >= 100000 && hero >= 18000 && hero <= 21023,
+      `${src.count} parcels, ${hero} from the survey`,
     );
   }
-  check(
-    "attached lots leave no wall gap",
-    worstGap < 0.3,
-    `${attachedPairs} attached pairs, worst ${worstGap.toFixed(3)}u${worstAt ? ` @ ${worstAt}` : ""}`,
-  );
-  // What the walk can actually cover: runSize lots (median 3) shoulder to
-  // shoulder, then one 0.9-2.2u alley, is ~85% of a row; the rest goes to
-  // junction aprons, water, park land and cross-street shrinks. Below 0.7 the
-  // rhythm has stopped being wall-to-wall, which is the regression this catches.
-  const cov = denseBuilt / Math.max(1, denseWalk);
-  check(
-    "dense rows are built wall-to-wall",
-    cov > 0.7,
-    `${(cov * 100).toFixed(1)}% of ${Math.round(denseWalk)}u dense frontage, ${lots} lots total`,
-  );
 }
+
+// --- 11. Party walls. The kit lot-walk this used to audit is gone; the
+// fabric is the parcel plan, whose attached parcels share their wall by
+// construction (both rings carry the same edge) — the harness's parcel block
+// at the end asserts that on the plan itself.
 
 // --- 12. The resolved ground class (world/land-class.ts) is ONE rule shared by
 // the ground paint, the park furniture and the wheel-surface FX. Both of the
@@ -560,12 +514,21 @@ console.log(`  (plan + network in ${Math.round(performance.now() - t0)}ms)`);
   check("baked rest.bin is at the code's world rev", rev === WORLD_REV, `bin ${rev}`);
 
   const auditWorld = buildAuditWorld();
+  checkLake(check, auditWorld, rest);
+  checkLandmarkWaterWalls(check, auditWorld.terrain, auditWorld.network);
+  checkWaterReservations(check, auditWorld, rest);
+  checkWorldDrivingFx(check, auditWorld, rest);
   const props = propInstances(rest);
-  const cls = classifySolids(rest.solids, auditWorld, props);
+  const waterBarriers = auditWaterBarriers(check, rest, auditWorld, props);
+  const groundProps = props.filter((prop) => !waterBarriers.props.has(prop));
+  const nonWaterSolids = rest.solids.filter((solid) => !waterBarriers.solids.has(solid));
+  const cls = classifySolids(rest.solids, auditWorld, props, loadParcelSource());
   const EMPTY_SOLID = { minX: 0, maxX: 0, minZ: 0, maxZ: 0 };
   const massIdx: number[] = [];
   const furnIdx: number[] = [];
   for (let i = 0; i < rest.solids.length; i++) {
+    const solid = rest.solids[i];
+    if (solid && waterBarriers.solids.has(solid)) continue;
     const c = cls[i];
     if (c === "map-border") continue;
     if (c === "tree" || c === "furniture") furnIdx.push(i);
@@ -634,7 +597,7 @@ console.log(`  (plan + network in ${Math.round(performance.now() - t0)}ms)`);
     network,
     0.5,
   );
-  const inLane = propsInRoadway(props, network, auditWorld.standAt, 0.5);
+  const inLane = propsInRoadway(groundProps, network, auditWorld.standAt, 0.5);
   const propsDeep = inLane.filter((p) => p.depth > 2.5).length;
   let carsInLane = 0;
   let carWorst = 0;
@@ -656,31 +619,20 @@ console.log(`  (plan + network in ${Math.round(performance.now() - t0)}ms)`);
   // is per KIND against its own baseline — a model's origin is not its feet —
   // and only fixed-scale ground props qualify (a mass cuts into its own grade
   // and a plinth fills what is left, by design).
-  const seat = seatReport(props, auditWorld.standAt, auditWorld.terrainAt, {
+  const seat = seatReport(groundProps, auditWorld.standAt, auditWorld.terrainAt, {
     floatGap: 0.35,
     buryDepth: 0.6,
     minCount: 40,
     groundSpread: 0.3,
+    seatSamples: await treeRootSeatSamples(rest, props),
   });
   const wrongSurface = seat.groups.filter((g) => g.wrongSurface);
-  // Rev 70 halved this: the park gate pillars sampled ONE surface height for a
-  // pair standing 4.4u apart, the park walls seated on the LOWEST point under
-  // a 4.3u run (which sank 80 of them under the lawn), the tile skirt's height
-  // was a function of the terrain rather than a fixed size, and four unrelated
-  // props shared one BoxGeometry — and the rest capture keys raw geometry by
-  // identity, so all four were measured against one meaningless baseline.
-  // Rev 72 took the shore lip too (it sampled the surface 1.6u INLAND of a lip
-  // it draws on the cell boundary; on a bluff those differ by up to 6.8u):
-  // 1045 floating -> 745. What is left is almost entirely kk-tree-b and
-  // kk-trafficlight, whose GLBs carry the authoring offset in the mesh NODE,
-  // so the matrix the bake serializes is up to 1.7u from the trunk the prop
-  // actually stands on — their seat spread is 0.00 once that is taken back
-  // out, i.e. they are planted and this number is the MEASURE being wrong.
-  // Fixing that is a src/assets/loader.ts change, and it is worth doing before
-  // anyone spends more effort driving this count down.
+  // Rev94 measures decoded tree roots, not displaced GLB mesh pivots. The
+  // latter misclassified209 planted trees as buried on slopes; every tree
+  // remains in the audit. Non-tree props retain their per-kind baseline.
   check(
     "seated props stay on the drawn surface at their ratchet",
-    seat.floating <= 820 && seat.buried <= 285 && wrongSurface.length === 0,
+    seat.floating <= 280 && seat.buried <= 82 && wrongSurface.length === 0,
     `${seat.floating} floating, ${seat.buried} buried, ` +
       `${wrongSurface.length} kinds tracking the raw field` +
       (wrongSurface[0] ? ` (${wrongSurface[0].url})` : ""),
@@ -689,7 +641,7 @@ console.log(`  (plan + network in ${Math.round(performance.now() - t0)}ms)`);
   // Landmark parcels. Wave 0 shipped a skyscraper inside Oracle Park's bowl
   // because the reservations had not been re-baked; this asks the shipped
   // artifacts directly, for all 20 landmarks.
-  const lm = landmarkReport(props, rest.solids, network, plan);
+  const lm = landmarkReport(groundProps, nonWaterSolids, network, plan, auditWorld.terrain);
   const bowlSquatters = lm.intruders.filter((i) => i.landmark === "Oracle Park");
   check(
     "no procedural mass stands inside Oracle Park",
@@ -721,6 +673,244 @@ console.log(`  (plan + network in ${Math.round(performance.now() - t0)}ms)`);
       `${grade.overChord} edges over 42%`,
   );
 }
+
+// --- The parcel fabric: procedural buildings on the real footprints
+// (parcel-plan.ts / parcel-mesh.ts). It is built LIVE on both load paths and
+// never enters the bins, so it is audited from the plan itself — the same
+// pure function the game runs — rather than from rest.bin.
+{
+  const prot = landmarkProtection(plan, network);
+  const terrain = makeTerrain();
+  const { standAt } = buildAuditWorld();
+  const source = loadParcelSource();
+  const t0 = performance.now();
+  const parcels = planParcels({ source, network, terrain, reserved: prot.reserved, standAt });
+  const { rest: bakedRest } = await loadBakedRest();
+  checkPlayerSpawnFixtures(check);
+  const spawnSurface = new DriveSurface(terrain, plan, () => network);
+  spawnSurface.addDecks(bakedRest.decks);
+  checkInstalledPlayerSpawns(check, {
+    network,
+    decks: spawnSurface.getDecks(),
+    heightAt: (x, z) => spawnSurface.heightAt(x, z),
+    solids: new SolidIndex([
+      ...bakedRest.solids,
+      ...parcels.plans.flatMap((parcel) => parcel.solids),
+    ]),
+  });
+  checkBakedShelterClearance(check, bakedRest, parcels.plans);
+  const plantedWater: WaterBody[] = [];
+  buildLandmarks(terrain, new ModelCache(), network, undefined, (body) => plantedWater.push(body));
+  await checkBakedTreeClearance(check, bakedRest, parcels.plans, plantedWater);
+  checkHistoricCorners(check, parcels.plans);
+  const planMs = Math.round(performance.now() - t0);
+  const again = planParcels({ source, network, terrain, reserved: prot.reserved, standAt });
+  const sig = (r: typeof parcels): string =>
+    r.plans
+      .map(
+        (p) => `${p.id}:${p.kind}:${p.units}:${(p.ring[0] ?? 0).toFixed(3)}:${p.height.toFixed(3)}`,
+      )
+      .join("|");
+  check(
+    "parcel plan is deterministic",
+    sig(parcels) === sig(again),
+    `${parcels.plans.length} parcels in ${planMs}ms`,
+  );
+  const s = parcels.stats;
+  // The old kit pass built 2,890 of these; the kerb clip is what lifts it.
+  check(
+    "real parcels build instead of being rejected",
+    s.built >= 120000 && s.onRoad + s.clipped <= 4200 && s.straddle <= 3600,
+    `${s.built} of ${source.count} built (${s.onRoad} in a lane, ${s.clipped} clipped away, ` +
+      `${s.folded} folded, ${s.straddle} straddling, ${s.stacked} stacked, ${s.park} park, ` +
+      `${s.reserved} reserved, ${s.freeway} freeway, ${s.cliff} cliff, ${s.stretched} stretched; ${s.underDeck} under a deck, ${s.boxed} boxed, ${s.split} split)`,
+  );
+  // Every wall vertex clears the drawn asphalt — that is what the clip is for.
+  let pastKerb = 0;
+  let worst = 0;
+  let worstAt = "";
+  for (const p of parcels.plans) {
+    for (let i = 0; i < p.n; i++) {
+      const x = p.ring[i * 2] ?? 0;
+      const z = p.ring[i * 2 + 1] ?? 0;
+      const d = asphaltDepth(network, x, z);
+      if (d <= 0.5) continue;
+      pastKerb++;
+      if (d > worst) {
+        worst = d;
+        worstAt = uv(x, z);
+      }
+    }
+  }
+  check(
+    "parcel walls stay off the asphalt",
+    pastKerb === 0,
+    `${pastKerb} vertices past the kerb` +
+      (worst > 0 ? `, worst ${worst.toFixed(1)}u @ ${worstAt}` : ""),
+  );
+  const boxes = parcels.plans.flatMap((p) => p.solids).map(solidObb);
+  const inRoad = roadIntrusions(boxes, network, 0.5);
+  const deep = inRoad.filter((r) => r.depth > 3);
+  check(
+    "parcel solids stay out of the lanes",
+    // One 3u shed in Bayview lays a wall box 3.1u into its lane — a ratchet, not a pass.
+    inRoad.length <= 700 && deep.length <= 1,
+    `${boxes.length} solids, ${inRoad.length} past the kerb, ${deep.length} over 3u deep` +
+      (deep[0] ? `, worst ${deep[0].depth.toFixed(1)}u @ ${uv(deep[0].x, deep[0].z)}` : ""),
+  );
+  // What the plan cannot build it hands over as a surface lot, so the survey
+  // never leaves bare ground (the kit walk no longer fills inside it).
+  check(
+    "unbuildable parcels become lots, not bare ground",
+    parcels.lots.length >= 80 && parcels.lots.length <= 4000,
+    `${parcels.lots.length} lots`,
+  );
+  let heroWalls = 0;
+  let heroCount = 0;
+  for (const p of parcels.plans) {
+    if (!p.hero) continue;
+    heroCount++;
+    for (let e = 0; e < p.n; e++)
+      if (p.blind[e] === 1) {
+        heroWalls++;
+        break;
+      }
+  }
+  check(
+    "survey parcels keep their party walls through the bake",
+    heroCount >= 15000 && heroWalls >= heroCount * 0.45,
+    `${heroWalls} of ${heroCount} survey parcels carry a party wall`,
+  );
+  const kinds = new Map<string, number>();
+  for (const p of parcels.plans) kinds.set(p.kind, (kinds.get(p.kind) ?? 0) + 1);
+  const k = (name: string): number => kinds.get(name) ?? 0;
+  check(
+    "the fabric has the San Francisco mix",
+    k("rowhouse") + k("stucco") >= 90000 && k("midrise") >= 8000 && k("tower") >= 300,
+    [...kinds.entries()].map(([n, c]) => `${n} ${c}`).join(", "),
+  );
+  let simplified = 0;
+  let sourceCorners = 0;
+  let distantCorners = 0;
+  let escaped = 0;
+  for (const p of parcels.plans) {
+    if (p.hero) continue;
+    const lod = distantFootprint(p);
+    sourceCorners += p.n;
+    distantCorners += lod.n;
+    if (lod.ring === p.ring) continue;
+    simplified++;
+    for (let i = 0; i < lod.n; i++) {
+      const j = (i + 1) % lod.n;
+      for (const f of [0, 0.25, 0.5, 0.75]) {
+        const x = (lod.ring[i * 2] ?? 0) * (1 - f) + (lod.ring[j * 2] ?? 0) * f;
+        const z = (lod.ring[i * 2 + 1] ?? 0) * (1 - f) + (lod.ring[j * 2 + 1] ?? 0) * f;
+        if (!pointInRing(p.ring, p.n, x, z) && distToRing(p.ring, p.n, x, z) > 0.001) escaped++;
+      }
+    }
+  }
+  check(
+    "distant silhouettes stay inside their exact parcel footprints",
+    escaped === 0,
+    `${escaped} escaped probes across ${simplified} simplified footprints`,
+  );
+  check(
+    "distant OSM silhouettes discard subpixel footprint detail",
+    distantCorners < sourceCorners * 0.7,
+    `${sourceCorners} source / ${distantCorners} distant corners`,
+  );
+  // GPU budget. The skyline is resident everywhere; the rest of the fabric
+  // streams in 80u cells around the camera (parcel-stream.ts). Probe both the
+  // downtown skyline and dense central residential fabric, including retained
+  // cells and facade hysteresis. Phones hold a shorter radius.
+  const bytesOf = geometryBytes;
+  const visible = visibleParcelPlans(parcels.plans);
+  check(
+    "overlapping source volumes retain authoritative collision plans",
+    visible.length > 120000 && visible.length < parcels.plans.length,
+    `${parcels.plans.length - visible.length} enclosed render volumes suppressed; ${parcels.plans.length} collision parcels retained`,
+  );
+  const skyline = visible.filter((p) => p.height >= 13);
+  const fabric = visible.filter((p) => p.height < 13);
+  const t1 = performance.now();
+  const sky = await buildParcelGeometry(skyline, 2);
+  const skyMs = Math.round(performance.now() - t1);
+  check(
+    "the static skyline stays small",
+    skyline.length <= 1200 && bytesOf(sky) <= 20 * 1048576,
+    `${skyline.length} towers, ${sky.stats.vertices} verts, ${(bytesOf(sky) / 1048576).toFixed(1)} MB in ${skyMs}ms`,
+  );
+  const resident = async (x: number, z: number, radius: number, detail: 1 | 2) => {
+    const keys = new Set<number>();
+    for (const p of fabric) {
+      if (Math.hypot(p.obb.cx - x, p.obb.cz - z) < radius + STREAM_HYSTERESIS)
+        keys.add(streamCellKey(p.obb.cx, p.obb.cz));
+    }
+    const within = fabric.filter((p) => keys.has(streamCellKey(p.obb.cx, p.obb.cz)));
+    const lotsWithin = parcels.lots.filter((l) => keys.has(streamCellKey(l.obb.cx, l.obb.cz)));
+    let verts = 0;
+    let bytes = 0;
+    for (const [key, cell] of streamCells(within, lotsWithin)) {
+      const cx = (Math.floor(key / 4096) + 0.5) * STREAM_CELL - WORLD_HALF_X;
+      const cz = ((key % 4096) + 0.5) * STREAM_CELL - WORLD_HALF_Z;
+      // Include all retained cells and the complete detail hysteresis band.
+      // Build actual stream cells: merging the whole probe into a 320u batch
+      // would invent 32-bit index buffers the runtime's 80u cells never need.
+      const level = parcelDetailForDistance(Math.hypot(cx - x, cz - z), detail, detail);
+      const g = buildParcelGeometrySync(cell.plans, level, cell.lots);
+      verts += g.stats.vertices;
+      bytes += bytesOf(g);
+    }
+    return { parcels: within.length, verts, mb: bytes / 1048576 };
+  };
+  const fidi = await resident(640, -830, streamRadiusFor(1), 2);
+  check(
+    "resident fabric at FiDi fits the desktop budget",
+    fidi.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1048576 <= 110,
+    `${fidi.parcels} parcels, ${fidi.verts} verts, ${(fidi.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1048576).toFixed(2)} MiB total incl skyline + sign atlas`,
+  );
+  const fidiPhone = await resident(640, -830, streamRadiusFor(0.6), 1);
+  check(
+    "resident fabric at FiDi fits the phone budget",
+    fidiPhone.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1048576 <= 70,
+    `${fidiPhone.parcels} parcels, ${fidiPhone.verts} verts, ${(fidiPhone.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1048576).toFixed(2)} MiB total incl skyline + sign atlas`,
+  );
+  const richmond = await resident(-396, -260, streamRadiusFor(1), 2);
+  check(
+    "resident central-city fabric fits the desktop budget",
+    richmond.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1048576 <= 110,
+    `${richmond.parcels} Richmond parcels, ${richmond.verts} verts, ${(richmond.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1048576).toFixed(2)} MiB total incl skyline + sign atlas`,
+  );
+  const richmondPhoneFull = await resident(-396, -260, streamRadiusFor(1, 1), 1);
+  check(
+    "phone fabric stays within budget after earning maximum quality",
+    richmondPhoneFull.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1048576 <= 70,
+    `${(richmondPhoneFull.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1048576).toFixed(2)} MiB total`,
+  );
+  const richmondPhone = await resident(-396, -260, streamRadiusFor(0.6), 1);
+  check(
+    "resident central-city fabric fits the phone budget",
+    richmondPhone.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1048576 <= 70,
+    `${richmondPhone.parcels} Richmond parcels, ${richmondPhone.verts} verts, ${(richmondPhone.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1048576).toFixed(2)} MiB total incl skyline + sign atlas`,
+  );
+}
+
+checkFrameTiming(check);
+checkStaticWorldGroup(check);
+checkSurfaceFx(check);
+checkWaterFx(check);
+await checkFlotation(check);
+checkMarineFog(check);
+await checkShoreline(check);
+await checkShorelinePhysics(check);
+checkInstancedProps(check);
+await checkWorldBufferOwnership(check);
+await checkParcelStreaming(check);
+checkParcelFacades(check);
+checkSfStreetKit(check);
+checkScaffoldKit(check);
+checkSalesforce(check);
+checkParcelClearance(check);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

@@ -735,6 +735,11 @@
         font-variant-numeric: tabular-nums;
       }
       #banner-cta {
+        appearance: none;
+        border: 0;
+        font-family: inherit;
+        font-weight: inherit;
+        line-height: inherit;
         margin-top: 26px;
         font-size: 15px;
         letter-spacing: 2px;
@@ -742,10 +747,13 @@
         background: linear-gradient(180deg, #fff3cc, #ffc84e 58%, #f09a1c);
         border-radius: 10px;
         padding: 12px 22px;
-        pointer-events: auto;
+        pointer-events: none;
         cursor: pointer;
         box-shadow: 0 5px 0 rgba(23, 11, 4, 0.4);
         animation: pulse 1.4s ease-in-out infinite;
+      }
+      #banner.show #banner-cta {
+        pointer-events: auto;
       }
       @keyframes pulse {
         50% {
@@ -1058,6 +1066,18 @@
           top: calc(98px + env(safe-area-inset-top));
         }
       }
+      @media (pointer: coarse) and (max-width: 520px) {
+        #area {
+          max-width: calc(100vw - 232px);
+          padding: 6px 8px;
+          font-size: 11px;
+          line-height: 1.35;
+          letter-spacing: 1.4px;
+          white-space: normal;
+          text-align: center;
+          text-wrap: balance;
+        }
+      }
       /* Keycap legend, below the CTA. Chips read as keys, not prose; one row
          per input method under the pause overlay's KEYS/TOUCH/PAD tags. */
       #banner-controls {
@@ -1321,11 +1341,11 @@
       </div>
     </div>
 
-    <div id="banner" data-gamepad-ignore>
+    <div id="banner" data-gamepad-ignore inert>
       <div id="banner-title">CRAZY WAYMO</div>
       <div id="banner-sub"></div>
       <div id="banner-stats"></div>
-      <div id="banner-cta" role="button" tabindex="0" aria-label="Start driving">START DRIVING</div>
+      <button id="banner-cta" type="button" aria-label="Start driving">START DRIVING</button>
       <div id="banner-controls"></div>
     </div>
 

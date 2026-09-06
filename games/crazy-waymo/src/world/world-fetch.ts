@@ -2,6 +2,7 @@ import type { CityRestPayload } from "./city";
 import type { CityGenPayload } from "./gen-worker";
 import { deserializeWorldBin, unpackRest, unpackWorld, WORLD_REV } from "./world-bin";
 import type { WorldBinPayload } from "./world-bin";
+import { PARCEL_SOURCE_VERSION } from "./parcel-source";
 
 // Loader for the pre-baked world shipped as static assets (public/world/*.bin,
 // gzipped by the bake). First visits skip ALL generation: the title needs only
@@ -88,6 +89,30 @@ export function fetchBakedRest(): Promise<CityRestPayload | null> {
     .then((d) => (d?.rest ? unpackRest(d.rest) : null))
     .catch((e) => {
       console.log(`[world-bin] rest unpack failed: ${e instanceof Error ? e.message : e}`);
+      return null;
+    });
+}
+
+/**
+ * The parcel source (public/world/parcels.bin), inflated but not decoded —
+ * the caller hands the bytes to the parcel worker. Versioned by its own
+ * header, not WORLD_REV: it is an INPUT to generation, and a rebake of the
+ * world does not change it. Null on any failure — the city then builds no
+ * parcel fabric and the kit walk fills the blocks: a worse city, not a
+ * broken one.
+ */
+export function fetchParcelSource(): Promise<ArrayBuffer | null> {
+  return fetchMaybeParts("world/parcels.bin")
+    .then(async (gz) => {
+      if (!gz) return null;
+      const buf = await gunzip(gz);
+      console.log(
+        `[world-bin] parcels.bin loaded: ${buf.byteLength} bytes (v${PARCEL_SOURCE_VERSION})`,
+      );
+      return buf;
+    })
+    .catch((e) => {
+      console.log(`[world-bin] parcels.bin failed: ${e instanceof Error ? e.message : e}`);
       return null;
     });
 }

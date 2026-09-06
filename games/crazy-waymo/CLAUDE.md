@@ -8,9 +8,12 @@ crazy-waymo.vibedgames.com via `vg deploy ./dist`.
 
 ```bash
 pnpm dev            # dev server (repo root: pnpm dev:crazy-waymo)
-pnpm test           # world-gen invariant harness (~5s, headless, no browser)
-pnpm bake:world     # regenerate + install public/world/*.bin (headless chromium)
+pnpm test           # world-gen, geometry budget and driving invariant harness (no browser)
+pnpm bake:world     # regenerate + install public/world/*.bin (owned headed Chrome)
 pnpm bake:world -- 5193   # same, but attach to an already-running dev server
+pnpm bake:parcels   # re-bake public/world/parcels.bin from sf-buildings.raw.json (fetch-buildings.sh)
+                    # + the downtown survey. ANY change to it needs a WORLD_REV bump + bake:world:
+                    #   the bin is cache-busted by WORLD_REV, and the kit walk's coverage follows it.
 pnpm bake:map       # re-bake the OSM vector network + street mask (only after tools/sf-data changes)
                     # → it writes sf-network/sf-streets/sf-freeways UNFORMATTED. Run
                     #   node_modules/.bin/oxfmt --write on those three NEXT (never the repo-root
@@ -20,7 +23,17 @@ pnpm bake:map       # re-bake the OSM vector network + street mask (only after t
                     #   every corridor. `pnpm test` fails on the stamp mismatch if you forget.
 pnpm lint:streets   # street-mask sanity report
 pnpm typecheck
+node tools/verify-studio.mjs 'http://localhost:5193/?offline=1' /tmp/waymo-desktop
+node tools/verify-mobile.mjs 'http://localhost:5193/?offline=1' /tmp/waymo-mobile
+node tools/verify-water.mjs 'http://localhost:5193/?offline=1' /tmp/waymo-water
+node tools/verify-water-fx.mjs 'http://localhost:5193/?offline=1' /tmp/waymo-water-fx
+node tools/verify-menu-keyboard.mjs 'http://localhost:5193/?offline=1' /tmp/waymo-menu
 ```
+
+Browser checks use separate owned sessions. Run them serially: changing browser
+focus releases held input. Mobile verification keeps one CDP connection alive
+so coarse-pointer emulation persists through real multitouch input. Both scripts
+write revision-tagged reports and screenshots; they do not benchmark phone GPUs.
 
 **Run `pnpm test` after touching anything in `src/world/`** — it asserts the
 invariants between the two street representations (see below) that have
@@ -64,14 +77,30 @@ bake-network.mts`) from the same park-cleared polylines — car-free-park
   the kinematic branch of `car.update` (that's only the pre-physics fallback).
 - **Drive surface** (`world/surface.ts`): terrain + street-depression offset,
   pier/bridge decks, park-tile terraces — behind `city.heightAt/normalInto`.
+  Deck interpolation and exact collision floors share `world/surface-decks.ts`.
+  Tire materials use actual contact height, so ground below a bridge stays ground.
+- **Water boundaries** (`world/shoreline.ts`): contour supported dry ground and
+  exact deck footprints. Seawalls, park fences and pier railings own matching
+  visible assemblies and explicit `Solid.minY/maxY` bounds. Intentional beach
+  and launch openings live in `SHORE_ACCESS_SITES`; do not grow barriers to
+  catch every airborne car. Palace/Sutro rims live in `world/landmarks.ts`.
+- **Water driving** (`vehicle/flotation.ts`): fixed-step buoyancy on the existing
+  Rapier chassis. `WaterContact` drives splash, wake, sound and tire-effect gates.
+  `world/water.ts` shares the ocean level and authored landmark footprints;
+  `world/lake.ts` owns Stow's level water and local terrain basin. Water access
+  must permit return to land with ordinary controls. Cold generation resolves
+  landmark water before planting; roots and reservation solids stay outside it.
+- **Terrain material** (`render/terrain-material.ts`): one semantic weight map
+  from the ground classifier, shared across tiles. Floor paint feeds both material
+  weights and tire effects. Phones omit fine grain and normal relief.
 - **Nothing sits on the raw height field.** Three surfaces get drawn and none
   of them is `terrain.heightAt`: the road drape (terrain + street terrace), the
   ground mesh as TESSELLATED (`terrain.renderedHeightAt` — its ~9u lattice
   smears the 3u street-depression trench and the 3.25u terrace), and the
   freeway decks. Static props seat through `ground.ts makeStandingSurface`,
   which picks the first two by distance to the nearest edge; road paint is
-  re-seated on the draped asphalt itself (`conform.ts seatOnSurface` +
-  `surfaceSampler`) instead of being lifted clear of it. Seating on the raw
+  re-seated on the draped asphalt itself (`conform.ts surfaceSampler` +
+  adaptive draping) instead of being lifted clear of it. Seating on the raw
   field is what buried half a lamp post and floated the paint above the kerb.
 - **The junction patch is the paint clip.** `roads.ts buildJunctionMap` builds
   each node's patch ring once; the drawn asphalt and the marking clip test the
@@ -83,9 +112,9 @@ bake-network.mts`) from the same park-cleared polylines — car-free-park
   hill flank/OSM class) is resolved there and nowhere else; `ground.ts` only
   decides what each class LOOKS like, `park-clear.parkCell` and
   `land-class.isParkLand` are its two park questions, and `city.surfaceKindAt`
-  is `wheelSurface(landClassAt(...))` so the tyres cannot report concrete on
-  ground the painter drew as sand. Adding a fifth private copy of "is this
-  park/green" is how the paint, the props, the terraces and the FX drifted apart
+  resolves contact decks and floor paint before `wheelSurface(landClassAt(...))`,
+  so tires cannot report concrete on ground the painter drew as sand. Adding a
+  fifth private copy of "is this park/green" is how paint, props, terraces and FX drifted apart
   in the first place. `pnpm test` asserts no vegetation lands on a built cell.
 - **Road decal materials are identified by COLOUR on the bin round-trip.**
   `city.roadCollapseTarget` recognises a road material by the colour the capture
@@ -101,6 +130,73 @@ bake-network.mts`) from the same park-cleared polylines — car-free-park
   surface shader reads `v = 0` as its documented opt-out (no gutter grime, no
   wheel paths) and every stencil landed in the atlas's transparent padding and
   was deleted by `alphaTest`. Gate on the data, never on the material.
+- **The building fabric is PROCEDURAL and LIVE** (`world/parcel-plan.ts` →
+  `parcel-mesh.ts` → `parcel-build.ts`). Its input is the PARCEL SOURCE,
+  `public/world/parcels.bin` (`parcel-source.ts` reads it, `tools/sf-data/
+bake-parcels.mts` writes it): ~147k footprints — the licensed downtown survey
+  (`hero`, LiDAR heights, exact party walls) merged with OpenStreetMap for the
+  rest of the peninsula (89% carry a height tag; the rest get a district-typical
+  storey count from `fallbackStoreys`). `sf-footprints.ts` / `sf-adjacency.ts`
+  are now BAKE INPUTS only — never import them at runtime again; they were
+  2.4 MB of the main bundle. Survey provenance controls measured heights and
+  party walls, never art quality. Every district gets dimensional near
+  facades (`parcel-style.ts`, `parcel-mesh.ts`): bracketed Victorian bays and
+  pediments, shallow avenue picture windows and garage rows, stepped stucco
+  parapets, masonry shops with striped canopies and iron fire escapes, brick
+  industrial northlight roofs, and ribbed tower shafts. Distant buildings use
+  the FACADE shader (`parcel-build.ts`: framed sashes, reflections, cladding,
+  ground openings and night light). `parcel-lod.ts` conservatively removes
+  tiny OSM footprint jogs inside the source parcel; distant positions use
+  16-bit local coordinates and a uniform mesh transform. Near geometry and
+  collision solids remain exact. `parcel-visibility.ts` removes only render
+  volumes fully enclosed by another parcel, once against the full plan before
+  skyline and cell splitting; authoritative collision plans remain unchanged.
+  This prevents survey/OSM duplicates from stacking storefronts. The streamer
+  promotes cells within 220u (176u phones) and keeps a 40u detail hysteresis
+  band. Exposed flanks keep shader windows at every tier. The plan is pure
+  and deterministic and runs OFF THE MAIN
+  THREAD (`parcel-worker.ts`, ~5 s): `world-loader.ts` starts it the moment
+  parcels.bin lands, and the worker assembles its own reservation through
+  `world/reservation.ts` — the ONE builder phase 1 also uses, with the depot
+  picker in `world/garages.ts` — so it never waits on the city. Revisits skip
+  it: the plan is cached in IndexedDB (`world-cache.ts`, keyed by build id +
+  WORLD_REV + source bytes; `?cache=1` opts a dev tab in), ready in ~4 s
+  against ~10 s on a miss. An edited city or a worker failure plans on the
+  main thread from the decoded source. Both load paths build the meshes AND
+  the collision solids at the end of their pass (`city.buildParcels`), and
+  NOTHING of it is captured into the bins — the rest capture copies `solids`
+  before the parcels push theirs. So a change to the
+  generator or its palettes needs no rebake and shows in any dev tab; a change
+  that moves what the kit walk reads (coverage, occupancy, the clip) still
+  does. The kerb clip is why 15.9k of the 21k parcels build instead of 2.9k: a
+  vertex inside a street's setback is pushed to the setback line on the
+  parcel's side, a parcel entirely inside the band is slid back whole, and a
+  parcel the clip left shallower than 2.6u is stretched into its block.
+  `pnpm test` asserts determinism, the build count, walls off the asphalt,
+  solids out of lanes, the party walls, the kind mix and the vertex + GPU
+  budgets. THERE IS NO KIT BUILDING FABRIC ANY MORE: the Kenney/KayKit
+  building GLBs, the lot-line walk, plinths, garage fronts and kit tints are
+  gone (`public/models/buildings` holds only the depot). Every building is a
+  parcel; ground the source does not cover stays green. Phones keep
+  street openings and cornices; desktop adds bays, awnings and roof details. The fabric
+  STREAMS (`parcel-stream.ts`): the ~260 skyline parcels (≥ 13u) are built
+  once; everything else lives in 80u cells generated nearest-first within
+  a soft 3 ms frame budget, inside the fog line + 60u and freed 80u past it.
+  Construction yields between parcels; LOD replacements swap atomically.
+  Teleports discard departed cells immediately and fill the new radius over
+  subsequent frames. Initial loading and editor show-all still fill synchronously.
+  The GPU harness includes
+  both retention and detail hysteresis. `city.parcelStreamStats()` (reachable as
+  `__taxi.game.city.parcelStreamStats()`) reports residency; `pnpm test`
+  budgets it at the densest probe. Rejection is
+  the last resort: a folded ring is rebuilt as its own box, a ring that spans
+  a street is cut at the kerb and the larger side kept, a parcel under a
+  viaduct is built to the storeys that clear the soffit (`freewaySoffitAt`),
+  and what still cannot stand — no room for one storey, a pillar in the plan
+  — is emitted as a surface lot (`ParcelLot`: draped asphalt, bay lines,
+  parked cars) so the survey never leaves raw ground. The ~500 that remain
+  are MEDIAN parcels between the two edges of a divided boulevard; the road
+  is drawn over them and `pnpm test` carries them as a baseline.
 - **Two load paths, and only some builders run on both.** `buildLandmarks`,
   `buildFreeways` and `buildPiers` are rebuilt live on the cold-gen path AND
   the baked-rest path. `buildGoldenGate` runs on cold gen ONLY — its meshes go
@@ -108,12 +204,53 @@ bake-network.mts`) from the same park-cleared polylines — car-free-park
   beacons) has to come from `goldenGatePlan` + `goldenGateBeacons`, which
   `city.ts lightGoldenGate()` calls next to `buildLandmarks` on both paths.
   Registering beacons inside a gen-only builder lights the world for nobody.
-- **god objects**: `world/city.ts` (placement + render batching + rest
-  capture) and `scenes/game-scene.ts` (loop + modes + loading). Extract seams
+- **Night light is two passes.** The parcel fabric lights its own windows
+  (near glass through `GLASS_LIT`'s emissive, distant fabric in the facade
+  shader, both driven by `setParcelNight`); `fx/street-luminaires.ts` puts the
+  luminaire on downtown's signal masts through the beacon registry. There is
+  no window-painting pass any more — `night-windows.ts` went with the kits.
+- **god objects**: `world/city.ts` (parks, depots, seawall, render batching +
+  rest capture) and `scenes/game-scene.ts` (loop + modes + loading). Extract seams
   opportunistically (surface.ts and fx/vehicle-fx.ts are the pattern), don't
   big-bang.
 
-## Verifying in a browser (headless)
+## Verifying in an owned browser
+
+`node tools/verify-studio.mjs 'http://localhost:5193/?time=noon&offline=1' /tmp/waymo-review`
+runs keyboard acceleration, braking, boost, drift, staged fare pickup/delivery,
+pause/restart, hill parking and camera clearance. It saves seven neighborhood
+screenshots and a JSON report. Requires agent-browser and a running dev server.
+Fare positions are staged; this checks the real fare lifecycle, not route AI.
+
+`node tools/verify-mobile.mjs` checks coarse-pointer touch controls and both
+orientations. `node tools/verify-mobile-performance.mjs <dev-url> <output-dir> '2,4' 8000`
+measures actual presented gameplay frames during a native DPR 3 touch drive.
+Add `--no-multi-draw --tier=3` for a fixed fallback comparison. Repeated rates
+with `--keep-quality --memory` audit adaptation and retained allocations; forced
+collection runs outside timing windows. Steady samples wait for parcel convergence;
+cold destination fill is recorded separately. Add `--transition`
+to measure the first shadowless quality switch during driving, or use a
+production URL with `--production` for a smoke test without developer hooks.
+Phones cap rendering at 60 Hz, stop work when paused/hidden, and retain 1024 shadows
+and baked sky at every tier. These are desktop stress proxies, not physical-phone
+GPU benchmarks. Keep
+other browsers and build/test processes idle during timing runs.
+
+`node tools/verify-mobile-soak.mjs <dev-url> <output-dir> --minutes=5 --cpu=4`
+adds sustained repeated road drives across portrait/landscape and day/night.
+It records completed main-scene render submissions, bounded timing histograms,
+natural heap samples, stream residency and pause/resume checks. Default is the
+driver path without multi-draw; `--smoke` validates the harness in 28 timed seconds.
+Resets and collection overhead stay outside timing. An insufficient resource
+sample count is reported explicitly, never as proof of stable memory.
+`node tools/verify-native-soak.mjs <dev-url> <output-dir> 240` checks native
+Safari with one owned iPhone simulator; see `--help` for Appium setup. Run these
+serially. Neither simulator nor desktop throttling measures phone thermals.
+
+City transforms seal after load (`render/static-world-group.ts`); editor roots
+stay live. Late parcel cells must compose their world matrices after attachment
+before adopting frozen flags. Baked restoration skips cache recapture; the cold
+generation path still captures records for cache writes and world baking.
 
 Dev-only hooks on `window.__taxi`: `game`, `probe()` (pos/speed/state),
 `teleport(u, v)` (map fractions, 0-1 — snaps to the road CENTRELINE via
@@ -123,9 +260,9 @@ made every agent's headless spot-check unreliable), `lookFrom(x,y,z, tx,ty,tz)` 
 `setPhase(p)` (0.25 noon, 0.4 golden hour, 0.47 sunset, 0.7 night — pins the day-night cycle),
 `setFreecam(on)`, `pick(nx, ny)` (raycast debug).
 
-Recipe: poll `__taxi.game.isReady`, call `game.handleStartPress()` (private in TS but reachable from page JS; synthetic
-keydowns do NOT start the game; Enter opens chat), wait ~4s (countdown swoop
-owns the camera), then drive via dispatched KeyboardEvents on `window`.
+Recipe: poll `__taxi.game.isReady`, click the native `#banner-cta`, wait until
+`__taxi.game.mode.kind === "playing"` (the countdown owns the camera), then
+drive via dispatched KeyboardEvents on `window`. Enter opens chat.
 
 **Dispatch `key`, not `code`.** `InputState` (`input/keyboard.ts`) reads
 `e.key.toLowerCase()`, so throttle is

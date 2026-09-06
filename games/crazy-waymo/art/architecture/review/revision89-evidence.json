@@ -1,0 +1,79 @@
+{
+  "revision": 89,
+  "captureMode": "Headed Chrome, native Metal; actual game free camera, hidden player car and transient area splash only. Day phase0.25; night0.7.",
+  "probes": [
+    {
+      "name": "sunset",
+      "parcelId": 87087,
+      "distance": 7,
+      "side": 2,
+      "eyeAboveSeat": 2.6
+    },
+    {
+      "name": "chinatown",
+      "parcelId": 7952,
+      "distance": 7,
+      "side": 1,
+      "eyeAboveSeat": 2.6
+    },
+    {
+      "name": "north-beach",
+      "parcelId": 2098,
+      "distance": 8,
+      "side": 1,
+      "eyeAboveSeat": 2.6
+    },
+    {
+      "name": "alamo-turret",
+      "parcelId": 15995,
+      "distance": 8,
+      "side": -4,
+      "eyeAboveSeat": 4
+    },
+    {
+      "name": "alamo-mansard",
+      "parcelId": 27597,
+      "distance": 10,
+      "side": 3,
+      "eyeAboveSeat": 4
+    },
+    {
+      "name": "soma",
+      "parcelId": 37751,
+      "distance": 7,
+      "side": 0,
+      "eyeAboveSeat": 2.5
+    },
+    {
+      "name": "financial-district",
+      "parcelId": 8988,
+      "distance": 19,
+      "side": 6,
+      "eyeAboveSeat": 4.5
+    }
+  ],
+  "budgetMiB": {
+    "fidiDesktop": 44.68,
+    "fidiPhone": 23.34,
+    "richmondDesktop": 109.38,
+    "richmondPhone": 57.47
+  },
+  "roofDistribution": {
+    "turrets": 12,
+    "mansards": 13
+  },
+  "suppressedContainedVolumes": 667,
+  "checks": {
+    "passed": 122,
+    "failed": 0,
+    "browserPageErrors": 0
+  },
+  "limitations": [
+    "Chinatown camera follows a very steep grade; foreground road is real terrain, not clipping.",
+    "SoMa warehouse side remains deliberately restrained; hero landmark upgrade follows separately.",
+    "Some partial survey/OSM overlaps remain because exact containment retains exposed source volumes."
+  ],
+  "archivedImages": ["alamo-turret-day.png", "alamo-mansard-day.png"],
+  "note": "Revision89 images before the final three-era tower palette, podium-window correction and Salesforce hero. Historical budget numbers describe that capture source, not the final source.",
+  "captureRetention": "Retain the two unique Victorian roof views. Final revision 90 gameplay views replace the four older district screenshots; all original camera probes remain above."
+}

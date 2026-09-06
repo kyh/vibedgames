@@ -142,7 +142,16 @@ export default {
     }
 
     const body = compress ? obj.body.pipeThrough(new CompressionStream("gzip")) : obj.body;
-    const response = new Response(body, { headers });
+    // The body is ALREADY gzip when `compress` is set. Without `encodeBody:
+    // "manual"` the runtime reads `content-encoding: gzip` as an instruction
+    // and gzips it again; the browser then strips one layer and hands the
+    // loader gzip bytes. Every GLB on every game failed to parse this way, and
+    // Miniflare hid it — it drops `content-encoding` from the response it
+    // hands a test, so the double layer never reached an assertion.
+    const response = new Response(body, {
+      headers,
+      encodeBody: compress ? "manual" : "automatic",
+    });
 
     if (cacheable) {
       ctx.waitUntil(caches.default.put(cacheKey, toCache(response.clone(), headers, compress)));
@@ -191,7 +200,8 @@ function fromCache(hit: Response): Response {
   const headers = new Headers(hit.headers);
   headers.delete(ENCODING_MARKER);
   headers.set("content-encoding", encoding);
-  return new Response(hit.body, { headers });
+  // Same rule as the cold path: the cached octets are the gzip we made.
+  return new Response(hit.body, { headers, encodeBody: "manual" });
 }
 
 /**

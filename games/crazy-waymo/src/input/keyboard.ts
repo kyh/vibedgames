@@ -32,6 +32,11 @@ export class InputState {
   private onKeyDown = (e: KeyboardEvent): void => {
     if (this.typing) return; // the chat input owns the keyboard
     const k = e.key.toLowerCase();
+    // Native controls own activation: Enter must not also queue chat after
+    // their click starts the run, and Space must retain its default click.
+    if ((k === "enter" || k === " ") && e.target instanceof Element && e.target.closest("button")) {
+      return;
+    }
     if ([" ", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(k)) e.preventDefault();
     if (k === "enter") this.startPressed = true;
     if (k === "r") this.restartPressed = true;

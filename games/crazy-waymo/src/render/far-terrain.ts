@@ -128,11 +128,15 @@ const BANDS: readonly Band[] = [
   {
     radius: 2600,
     haze: 0.42,
-    color: 0x778fae,
+    color: 0x7e8e9a,
     ridges: [
       { bearing: 344, width: 11, height: 260 }, // Mount Tamalpais
+      { bearing: 339, width: 3.3, height: 276 }, // broken summit and eastern saddle
+      { bearing: 350, width: 3.5, height: 239 },
       { bearing: 357, width: 20, height: 165 }, // Marin ridge
       { bearing: 24, width: 14, height: 105 }, // Tiburon
+      { bearing: 18, width: 3.5, height: 112 },
+      { bearing: 32, width: 4, height: 108 },
       { bearing: 47, width: 17, height: 120 }, // Richmond hills
       { bearing: 177, width: 15, height: 155 }, // San Bruno Mountain
       { bearing: 201, width: 21, height: 175 }, // peninsula ridge
@@ -141,10 +145,13 @@ const BANDS: readonly Band[] = [
   {
     radius: 1850,
     haze: 0.24,
-    color: 0x647a99,
+    color: 0x667e76,
     ridges: [
       { bearing: 322, width: 13, height: 110 }, // Marin headlands, west of the Gate
+      { bearing: 315, width: 3.5, height: 119 },
+      { bearing: 328, width: 3.8, height: 112 },
       { bearing: 12, width: 7, height: 78 }, // Angel Island
+      { bearing: 9, width: 2.3, height: 83 },
       { bearing: 101, width: 19, height: 52 }, // Oakland shoreline
     ],
   },

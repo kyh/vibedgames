@@ -2,6 +2,8 @@ import * as THREE from "three";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
+import { createSfTreeModel } from "./sf-trees";
+
 export type Bounds = {
   readonly size: THREE.Vector3; // width(x), height(y), depth(z) of visible mesh
   readonly min: THREE.Vector3;
@@ -171,28 +173,33 @@ export class ModelCache {
     return mat;
   }
 
+  private storeTemplate(url: string, scene: THREE.Object3D): void {
+    scene.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        child.castShadow = true;
+        child.receiveShadow = true;
+        if (!Array.isArray(child.material)) child.material = this.dedupMaterial(child.material);
+      }
+    });
+    this.templates.set(url, scene);
+    this.boundsCache.set(url, computeMeshBounds(scene));
+    this.matSrc = null;
+    this.canonMap = null;
+  }
+
   private loadOne(url: string): Promise<void> {
+    // Source IDs survive in baked instance records. Replace their templates
+    // at this boundary so live generation and baked restoration agree.
+    if (url.endsWith("/props/tree-large.glb") || url.endsWith("/props/tree-small.glb")) {
+      const kind = url.endsWith("/tree-large.glb") ? "cypress" : "broadleaf";
+      this.storeTemplate(url, createSfTreeModel(kind));
+      return Promise.resolve();
+    }
     return new Promise((resolve, reject) => {
       this.loader.load(
         url,
         (gltf) => {
-          const scene = gltf.scene;
-          scene.traverse((child) => {
-            if (child instanceof THREE.Mesh) {
-              child.castShadow = true;
-              child.receiveShadow = true;
-              if (!Array.isArray(child.material)) {
-                child.material = this.dedupMaterial(child.material);
-              }
-            }
-          });
-          this.templates.set(url, scene);
-          this.boundsCache.set(url, computeMeshBounds(scene));
-          // Both reverse indexes below are built once from `templates` — a
-          // model that arrives after them (lazy player skins) would otherwise
-          // never be findable.
-          this.matSrc = null;
-          this.canonMap = null;
+          this.storeTemplate(url, gltf.scene);
           resolve();
         },
         undefined,

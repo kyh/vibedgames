@@ -1,0 +1,42 @@
+{
+  "worldRevision": 90,
+  "bundle": "index-TVy2lyUT.js",
+  "scope": "Environment-pass production startup and night-render smoke before release cleanup and mobile performance fixes. Full native production driving evidence remains separately labeled revision89.",
+  "method": "Fresh dedicated headed agent-browser session; native Start click; offline=1; time=night.",
+  "developerHooksPresent": false,
+  "worldRequestsRevision": 90,
+  "checks": [
+    {
+      "name": "Final production bundle and world artifacts",
+      "passed": true,
+      "evidence": "index-TVy2lyUT.js; world, rest and parcels resource requests all use v=90."
+    },
+    {
+      "name": "Ready title and loading completion",
+      "passed": true,
+      "evidence": "Title visible; loading display:none before Start."
+    },
+    {
+      "name": "Native Start reaches gameplay",
+      "passed": true,
+      "evidence": "Native Start click reaches GO!; title banner removed; unpaused Castro night view renders."
+    },
+    {
+      "name": "Developer hooks absent",
+      "passed": true,
+      "evidence": "typeof window.__taxi === undefined"
+    },
+    {
+      "name": "No browser errors or warnings",
+      "passed": true,
+      "evidence": "agent-browser errors empty; console contains logs only."
+    }
+  ],
+  "screenshot": "production-night-90.png",
+  "viewport": {
+    "width": 1200,
+    "height": 728
+  },
+  "limits": "Startup/night smoke only. No new full native driving or performance claim.",
+  "cleanup": "Owned browser closed. Local production preview remains on localhost:5199."
+}

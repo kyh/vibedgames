@@ -130,7 +130,19 @@ import type { CityGenPayload } from "./gen-worker";
 // span half-buried in the roadway. Green bike lanes also now need a street
 // wide enough to hold one (half >= 4.0): on the 3.2 residential class the band
 // landed mid travel-lane and read as loose green patches, not a lane.
-export const WORLD_REV = 83;
+// 87: disjoint road surfaces and paint layers, terrain clearance, and new
+// image-referenced tree templates and red-canopy Muni shelters.
+// 88: Muni shelters respect exact building footprints and search nearby curb
+// positions before falling back to a stop pole.
+// 89: Full tree-stem clearance and root colliders for embedded park trees.
+// 90: Open scaffold backing and correct along-street gantry orientation.
+// 91: Explicit shoreline wall spans, continuous pier ramps and enclosed pools.
+// 92: Preserve distinct shoreline materials through raw geometry capture.
+// 93: Regional seawalls/fences, open water access and a level Stow basin.
+// 94: Trim rail joints and remove generic reservations from authored water.
+// 95: Anchor stepped rail joints and keep trees out of authored pools.
+// 96: Retain authored shoreline shadow policy for fallback instancing.
+export const WORLD_REV = 96;
 
 export type Typed = Float32Array | Uint16Array | Uint32Array | Int8Array | Uint8Array | Int32Array;
 export type BufRef = { $buf: number; $type: "f32" | "u16" | "u32" | "i8" | "u8" | "i32" };
@@ -328,7 +340,9 @@ export function unpackWorld(p: PackedWorld): CityGenPayload {
       position: dqPos(t.pos),
       normal: t.nor ? dqNor(t.nor) : null,
       color: t.col ? dqCol(t.col) : null,
-      index: t.index,
+      // Decoded views share the entire download. Keep only this geometry's
+      // indices so a small surviving mesh cannot pin megabytes of staging data.
+      index: t.index?.slice() ?? null,
       x: t.x,
       z: t.z,
     })),
@@ -396,7 +410,7 @@ export async function unpackRest(p: PackedRest): Promise<CityRestPayload> {
       normal: r.nor ? dqNor(r.nor) : null,
       uv: r.uv ? dqUv(r.uv) : null,
       color: r.col ? dqCol(r.col) : null,
-      index: r.index,
+      index: r.index?.slice() ?? null,
       mat: r.mat,
       srcMat: r.srcMat,
     });
@@ -407,7 +421,7 @@ export async function unpackRest(p: PackedRest): Promise<CityRestPayload> {
       position: dqPos(g.pos),
       normal: g.nor ? dqNor(g.nor) : null,
       uv: null,
-      index: g.index,
+      index: g.index?.slice() ?? null,
       mat: g.mat,
     })),
     batchItems,
@@ -418,7 +432,12 @@ export async function unpackRest(p: PackedRest): Promise<CityRestPayload> {
   };
 }
 
-export type PackedSolids = { data: Float32Array; flags: Uint8Array; count: number };
+export type PackedSolids = {
+  data: Float32Array;
+  flags: Uint8Array;
+  count: number;
+  minY?: Float32Array;
+};
 
 // Mutable staging shape for Solid: the flag-gated fields are added one
 // statement at a time, and Solid itself is readonly.
@@ -447,7 +466,20 @@ function unpackSolids(p: PackedSolids): CityRestPayload["solids"] {
     if (f & 8) solid.unseen = "baked";
     if (f & 2) solid.yaw = p.data[i * 6 + 5] ?? 0;
     if (f & 4) solid.noBody = true;
-    out.push(solid);
+    if (f & 16) {
+      const minY = p.minY?.[i];
+      const maxY = solid.maxY;
+      if (
+        minY === undefined ||
+        maxY === undefined ||
+        !Number.isFinite(minY) ||
+        !Number.isFinite(maxY) ||
+        minY >= maxY
+      ) {
+        throw new Error("Invalid packed wall height");
+      }
+      out.push({ ...solid, minY, maxY });
+    } else out.push(solid);
   }
   return out;
 }

@@ -1,0 +1,37 @@
+{
+  "worldRevision": 96,
+  "entrypoints": [
+    {
+      "path": "assets/index-ey7r2hV_.js",
+      "bytes": 5234516,
+      "sha256": "4d5994fa647ee47989996919cfc893657a8b9d52853de91aba7a7449e7b67660"
+    }
+  ],
+  "worldFiles": [
+    {
+      "path": "world/parcels.bin",
+      "bytes": 3062502,
+      "sha256": "3e457580c9ead78acc245f9026bb589599c091a26b231632eb9ac6b1e9057968"
+    },
+    {
+      "path": "world/rest.bin.0",
+      "bytes": 9437184,
+      "sha256": "f0b1091c269c81ded007868edbe46e3646ba0a3c3611df2b143c58d1346e82fc"
+    },
+    {
+      "path": "world/rest.bin.1",
+      "bytes": 9437184,
+      "sha256": "ed7aaec11d444a7c81cfd27f09b0d8f759405191e4b67ec01ee6a6cbaf0ed37e"
+    },
+    {
+      "path": "world/rest.bin.2",
+      "bytes": 4228551,
+      "sha256": "f512370c7424786dd659bccdad162737dcdf93466f1673ac38ac86dacf010803"
+    },
+    {
+      "path": "world/world.bin",
+      "bytes": 1834622,
+      "sha256": "d4c5aa9030a3a7af661ae95b64deb2f33343b338063c8354f5a48e7c73d8f1e5"
+    }
+  ]
+}

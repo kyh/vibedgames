@@ -1,0 +1,32 @@
+{
+  "reference": "reference.png",
+  "factory": "../../src/assets/sf-trees.ts",
+  "pass": "structural with vertex color materials",
+  "sharedConstraints": {
+    "meshCountPerTemplate": 1,
+    "meshLocalHeight": [-1, 1],
+    "clearTrunkLowerFraction": 0.45,
+    "material": "rough dielectric, shared mipmapped leaflet texture, vertex-colored leaf shade to sunlit tips and warm bark",
+    "instancing": "ModelCache creates each template once; existing city stream clones and batches it",
+    "referenceSimplification": "Leaflets collapsed into crown lobes; branch clusters reduced to visible silhouette limbs. Street canopy width deliberately narrower than the isolated reference."
+  },
+  "variants": [
+    {
+      "id": "cypress",
+      "sourceId": "tree-large.glb",
+      "triangles": 526,
+      "macro": "Five wind-shaped canopy shelves, separated by negative space",
+      "structure": "S-curved trunk, three crossing limbs visible below foliage",
+      "palette": "cool green undersides, muted yellow-green upper crowns, warm grey-brown trunk"
+    },
+    {
+      "id": "broadleaf",
+      "sourceId": "tree-small.glb",
+      "triangles": 516,
+      "macro": "Five rounded overlapping crowns, taller crown than cypress",
+      "structure": "Forked upright trunk, clear lower half",
+      "palette": "shares cypress palette; existing district tint supplies cherry variation"
+    }
+  ],
+  "remainingReferenceGap": "Reference leaf detail and bark grooves are omitted to stay within repeated street-tree budget."
+}

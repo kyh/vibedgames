@@ -266,6 +266,7 @@ function packSolids(solids: CityRestPayload["solids"]): PackedSolids {
   const n = solids.length;
   const data = new Float32Array(n * 6);
   const flags = new Uint8Array(n);
+  const minY = new Float32Array(n);
   for (let i = 0; i < n; i++) {
     const so = solids[i];
     if (!so) continue;
@@ -275,11 +276,13 @@ function packSolids(solids: CityRestPayload["solids"]): PackedSolids {
     data[i * 6 + 3] = so.maxZ;
     data[i * 6 + 4] = so.maxY ?? 0;
     data[i * 6 + 5] = so.yaw ?? 0;
+    minY[i] = so.minY ?? 0;
     flags[i] =
       (so.maxY !== undefined ? 1 : 0) |
       (so.yaw !== undefined ? 2 : 0) |
       (so.noBody ? 4 : 0) |
-      (so.unseen !== undefined ? 8 : 0); // reason string dropped; the bit is what the census needs
+      (so.unseen !== undefined ? 8 : 0) |
+      (so.minY !== undefined ? 16 : 0); // reason string dropped; the bit is what the census needs
   }
-  return { data, flags, count: n };
+  return { data, flags, count: n, minY };
 }

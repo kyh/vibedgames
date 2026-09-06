@@ -1,5 +1,7 @@
 import type { CityRestPayload } from "./city";
 import type { CityGenPayload } from "./gen-worker";
+import type { ParcelWorkerResponse } from "./parcel-worker";
+import { WORLD_REV } from "./world-bin";
 
 // IndexedDB cache for the worker-generated world: first visit pays the ~5-8s
 // generation once, every later visit loads the finished buffers in a few
@@ -136,4 +138,57 @@ export function writeWorldCache(payload: CityGenPayload): void {
         }),
     )
     .catch(() => {});
+}
+
+// --- The parcel plan -----------------------------------------------------------
+// The worker's plan for the whole city (parcel-worker.ts), so a revisit skips
+// the ~5 s it takes. Keyed like the rest cache — every deploy replans — and by
+// the source bytes and world rev, since the plan is a function of both.
+const PARCEL_KEY = "parcels";
+
+function parcelVersion(sourceBytes: number): string {
+  return `${buildId()}|rev${WORLD_REV}|src${sourceBytes}`;
+}
+
+export async function readParcelPlanCache(
+  sourceBytes: number,
+): Promise<ParcelWorkerResponse | null> {
+  if (!enabled()) return null;
+  try {
+    const db = await openDb();
+    const value = await new Promise<unknown>((resolve, reject) => {
+      const tx = db.transaction(STORE, "readonly");
+      const req = tx.objectStore(STORE).get(PARCEL_KEY);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error ?? new Error("idb read failed"));
+    });
+    db.close();
+    if (
+      value instanceof Object &&
+      "version" in value &&
+      "payload" in value &&
+      value.version === parcelVersion(sourceBytes)
+    ) {
+      // SAFETY: the only writer of this key is writeParcelPlanCache below, and
+      // the version string it stamps has just been matched.
+      return value.payload as ParcelWorkerResponse;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeParcelPlanCache(sourceBytes: number, payload: ParcelWorkerResponse): void {
+  if (!enabled()) return;
+  void openDb()
+    .then((db) => {
+      const tx = db.transaction(STORE, "readwrite");
+      tx.objectStore(STORE).put({ version: parcelVersion(sourceBytes), payload }, PARCEL_KEY);
+      tx.oncomplete = () => db.close();
+      tx.onerror = () => db.close();
+    })
+    .catch(() => {
+      // best effort
+    });
 }

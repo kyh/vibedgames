@@ -297,7 +297,9 @@ export class BoostPlume {
     this.uLen.value = (PLUME_LEN_BASE + PLUME_LEN_BURN * this.burn) * (1 + PLUME_IGNITE_LEN * ig);
     this.uRad.value = (PLUME_RAD_BASE + PLUME_RAD_BURN * this.burn) * (1 + PLUME_IGNITE_RAD * ig);
     this.uIntensity.value =
-      (PLUME_INT_BASE + PLUME_INT_BURN * this.burn) * (1 + PLUME_IGNITE_INT * ig);
+      (PLUME_INT_BASE + PLUME_INT_BURN * this.burn) *
+      (1 + PLUME_IGNITE_INT * ig) *
+      Math.min(1, this.burn / 0.25);
     this.mesh.visible = this.burn > 0.02;
   }
 }

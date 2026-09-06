@@ -98,5 +98,8 @@ export function setupTouch(input: InputState, onChat?: () => void): TouchControl
 // Buttons belong over the live run only, never floating on the title/gameover
 // banner. Display needs both `.on` (touch device) and `.play` (active run).
 export function setTouchPlaying(active: boolean): void {
-  document.getElementById("touch")?.classList.toggle("play", active);
+  const controls = document.getElementById("touch");
+  if (!controls) return;
+  controls.classList.toggle("play", active);
+  controls.setAttribute("aria-hidden", String(!active));
 }

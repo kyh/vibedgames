@@ -34,12 +34,21 @@ Rule: JSON-serializable primitives only, never raw engine objects — `vg playte
 
 ## Running It
 
-Run from the project root — the path below is where the skill installs, and Node resolves it relative to your working directory:
+Run from the project root:
+
+```bash
+# This skill's directory. Claude Code substitutes CLAUDE_SKILL_DIR (project, global
+# or plugin install); other agents fall back to wherever `skills add` put it.
+SKILL="${CLAUDE_SKILL_DIR}"
+[ -d "$SKILL" ] || for d in .agents/skills .claude/skills ~/.agents/skills ~/.claude/skills; do
+  [ -d "$d/playtest" ] && SKILL=$d/playtest && break
+done
+```
 
 ```sh
-node .claude/skills/playtest/scripts/bot-playtest.mjs --url http://localhost:5173
-node .claude/skills/playtest/scripts/bot-playtest.mjs --game my-game --seed 42      # a deployed game
-node .claude/skills/playtest/scripts/bot-playtest.mjs --url http://localhost:5173 --script ./sweep.json
+node $SKILL/scripts/bot-playtest.mjs --url http://localhost:5173
+node $SKILL/scripts/bot-playtest.mjs --game my-game --seed 42      # a deployed game
+node $SKILL/scripts/bot-playtest.mjs --url http://localhost:5173 --script ./sweep.json
 ```
 
 | Flag                    | Meaning                                                                          |
@@ -98,8 +107,8 @@ When raw keys can't express the verb — placing a tower, choosing a card, trigg
 For games with fail states, run the bot twice and compare:
 
 ```sh
-node .claude/skills/playtest/scripts/bot-playtest.mjs --url http://localhost:5173 --reaction-delay 0
-node .claude/skills/playtest/scripts/bot-playtest.mjs --url http://localhost:5173 --reaction-delay 300
+node $SKILL/scripts/bot-playtest.mjs --url http://localhost:5173 --reaction-delay 0
+node $SKILL/scripts/bot-playtest.mjs --url http://localhost:5173 --reaction-delay 300
 ```
 
 - Delayed bot does as well as the fast one → difficulty pressure is decorative.

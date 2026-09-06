@@ -195,6 +195,8 @@ export class Sfx {
   private boostLoopFilter: BiquadFilterNode | null = null;
   private boostLoopGain: GainNode | null = null;
   private boostLoopOn = false;
+  private wakeGain: GainNode | null = null;
+  private wakeFilter: BiquadFilterNode | null = null;
 
   // Ambient city bed (see setAmbience).
   private ambientBus: GainNode | null = null;
@@ -451,6 +453,30 @@ export class Sfx {
     }
     if (this.windGain) this.windGain.gain.setTargetAtTime(0, t, 0.1);
     if (this.engineLfoDepth) this.engineLfoDepth.gain.setTargetAtTime(0, t, 0.1);
+    this.setWaterMotion(0);
+  }
+
+  /** Soft hull wash; one lazy voice shares the existing noise buffer. */
+  setWaterMotion(speed: number): void {
+    const ctx = this.ctx;
+    const master = this.master;
+    if (!ctx || !master) return;
+    const amount = Math.max(0, Math.min(1, speed / 18));
+    if (!this.wakeGain && amount > 0.01) {
+      const wake = this.makeNoiseLoop(ctx, master, "lowpass", 620, 0.6);
+      this.wakeGain = wake.gain;
+      this.wakeFilter = wake.filter;
+    }
+    const t = ctx.currentTime;
+    this.wakeGain?.gain.setTargetAtTime(amount * 0.13, t, 0.12);
+    this.wakeFilter?.frequency.setTargetAtTime(420 + amount * 1100, t, 0.15);
+  }
+
+  /** A broad low splash with a light spray tail, never a metal impact. */
+  waterSplash(speed: number, verticalSpeed: number): void {
+    const power = Math.min(1, Math.max(0.12, (speed + verticalSpeed * 1.5) / 35));
+    this.noiseHit(0.32 + power * 0.22, 700, 0.28 * power, "lowpass", 0.6);
+    this.noiseHit(0.5, 2100, 0.065 * power, "bandpass", 0.7);
   }
 
   /** Tire slip 0..1 (0 disables); speedFrac scales loudness. */

@@ -49,64 +49,6 @@ export const ROAD_BRIDGE = "road-bridge";
 export const BRIDGE_PILLAR = "bridge-pillar";
 export const BRIDGE_PILLAR_WIDE = "bridge-pillar-wide";
 
-// --- Buildings (by district prefix) ---
-export const BUILDINGS_COMMERCIAL = [
-  "com-building-a",
-  "com-building-b",
-  "com-building-c",
-  "com-building-d",
-  "com-building-e",
-  "com-building-f",
-  "com-building-g",
-  "com-building-h",
-  "com-building-i",
-  "com-building-j",
-  "com-building-k",
-  "com-building-l",
-  "com-building-m",
-  "com-building-n",
-] as const;
-export const BUILDINGS_SKYSCRAPER = [
-  "com-building-skyscraper-a",
-  "com-building-skyscraper-b",
-  "com-building-skyscraper-c",
-  "com-building-skyscraper-d",
-  "com-building-skyscraper-e",
-] as const;
-export const BUILDINGS_INDUSTRIAL = [
-  "ind-building-a",
-  "ind-building-b",
-  "ind-building-c",
-  "ind-building-d",
-  "ind-building-e",
-  "ind-building-f",
-  "ind-building-g",
-  "ind-building-h",
-] as const;
-export const BUILDINGS_SUBURBAN = [
-  "sub-building-type-a",
-  "sub-building-type-b",
-  "sub-building-type-c",
-  "sub-building-type-d",
-  "sub-building-type-e",
-  "sub-building-type-f",
-  "sub-building-type-g",
-  "sub-building-type-h",
-  "sub-building-type-i",
-  "sub-building-type-j",
-  "sub-building-type-k",
-  "sub-building-type-l",
-  "sub-building-type-m",
-  "sub-building-type-n",
-  "sub-building-type-o",
-  "sub-building-type-p",
-  "sub-building-type-q",
-  "sub-building-type-r",
-  "sub-building-type-s",
-  "sub-building-type-t",
-  "sub-building-type-u",
-] as const;
-
 // --- Props ---
 export const TREE_LARGE = "tree-large";
 export const TREE_SMALL = "tree-small";
@@ -128,21 +70,10 @@ export const PARK_WALL_CORNER = "kk-park-wall-corner";
 export const PARK_ENTRY = "kk-park-entry";
 export const BUSHES = ["kk-bush-a", "kk-bush-b", "kk-bush-c"] as const;
 export const PARK_TREES = ["kk-tree-a", "kk-tree-b", "kk-tree-c"] as const;
-// The robotaxi garage (Kenney industrial building-s: orange roller doors).
-// Deliberately NOT in BUILDINGS_INDUSTRIAL — it only spawns as a garage.
+// The robotaxi garage (Kenney industrial building-s: orange roller doors) —
+// the one building model left; every other building is the parcel fabric.
 export const GARAGE_MODEL = "ind-building-s";
 
-// KayKit buildings + cars (City Builder Bits) — editor palette alongside Kenney.
-export const KK_BUILDINGS = [
-  "kk-building-a",
-  "kk-building-b",
-  "kk-building-c",
-  "kk-building-d",
-  "kk-building-e",
-  "kk-building-f",
-  "kk-building-g",
-  "kk-building-h",
-] as const;
 export const KK_CARS = [
   "kk-car-hatchback",
   "kk-car-police",
@@ -318,17 +249,9 @@ export function allModelUrls(): string[] {
   for (const c of SERVICE_CARS) urls.push(modelUrl("cars", c));
   for (const c of CONSTRUCTION_VEHICLES) urls.push(modelUrl("cars", c));
   for (const r of ROADS) urls.push(modelUrl("roads", r));
-  for (const b of [
-    ...BUILDINGS_COMMERCIAL,
-    ...BUILDINGS_SKYSCRAPER,
-    ...BUILDINGS_INDUSTRIAL,
-    ...BUILDINGS_SUBURBAN,
-  ])
-    urls.push(modelUrl("buildings", b));
   for (const p of PROPS) urls.push(modelUrl("props", p));
   for (const t of PARK_TILES) urls.push(modelUrl("parks", t));
   urls.push(modelUrl("buildings", GARAGE_MODEL));
-  for (const b of KK_BUILDINGS) urls.push(modelUrl("buildings", b));
   for (const d of [...DEBRIS_SMALL, ...DEBRIS_BIG]) urls.push(modelUrl("debris", d));
   for (const c of CHARACTERS) urls.push(modelUrl("characters", c));
   return urls;

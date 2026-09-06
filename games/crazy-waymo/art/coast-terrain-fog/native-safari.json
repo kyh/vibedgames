@@ -1,0 +1,4334 @@
+{
+  "checkedAt": "2026-09-05T17:49:29.091Z",
+  "url": "http://localhost:5193/?time=noon&offline=1",
+  "scope": "Native iOS Safari simulator shader and touch compatibility. No physical-phone performance claim.",
+  "checks": [
+    {
+      "name": "Native Safari initializes the coarse DPR3 phone render path",
+      "passed": true,
+      "evidence": {
+        "title": "Crazy Waymo",
+        "width": 402,
+        "height": 714,
+        "dpr": 3,
+        "coarse": true,
+        "post": false,
+        "renderer": "WebKit WebGL"
+      }
+    },
+    {
+      "name": "First native Start touch reaches play without retry",
+      "passed": true,
+      "evidence": {
+        "attempts": [
+          {
+            "attempt": 1,
+            "before": {
+              "mode": "title",
+              "ready": true,
+              "fonts": "loaded",
+              "focus": true,
+              "visibility": "visible",
+              "banner": {
+                "classes": "show",
+                "inert": false,
+                "opacity": "1",
+                "display": "flex",
+                "visibility": "visible"
+              },
+              "cta": {
+                "rect": {
+                  "x": 102.71092224121094,
+                  "y": 366.3216552734375,
+                  "width": 196.5587615966797,
+                  "height": 44.356689453125,
+                  "top": 366.3216552734375,
+                  "right": 299.2696838378906,
+                  "bottom": 410.6783447265625,
+                  "left": 102.71092224121094
+                },
+                "center": {
+                  "x": 200.99030303955078,
+                  "y": 388.5
+                },
+                "pointerEvents": "auto",
+                "visibility": "visible",
+                "transform": "matrix(1.031551, 0, 0, 1.031551, 0, 0)",
+                "animation": "pulse"
+              },
+              "hit": {
+                "id": "banner-cta",
+                "tag": "BUTTON",
+                "cta": true,
+                "ignored": true
+              },
+              "active": {
+                "id": "",
+                "tag": "BODY",
+                "cta": false,
+                "ignored": false
+              },
+              "viewport": {
+                "width": 402,
+                "height": 714,
+                "screenWidth": 402,
+                "screenHeight": 874,
+                "dpr": 3,
+                "scrollX": 0,
+                "scrollY": 0,
+                "visual": {
+                  "offsetLeft": 0,
+                  "offsetTop": 0,
+                  "pageTop": 0,
+                  "width": 402,
+                  "height": 714,
+                  "scale": 1
+                }
+              },
+              "events": [],
+              "errors": []
+            },
+            "gesture": {
+              "method": "native-w3c-touch",
+              "duration": 100,
+              "nativeRect": {
+                "y": 428,
+                "x": 105,
+                "width": 192,
+                "height": 45
+              },
+              "nativeCenter": {
+                "x": 201,
+                "y": 451
+              },
+              "webCenter": {
+                "x": 200.99030303955078,
+                "y": 388.5
+              },
+              "offset": {
+                "x": 0.00969696044921875,
+                "y": 62.5
+              }
+            },
+            "after": {
+              "mode": "countdown",
+              "ready": true,
+              "fonts": "loaded",
+              "focus": true,
+              "visibility": "visible",
+              "banner": {
+                "classes": "",
+                "inert": true,
+                "opacity": "0",
+                "display": "flex",
+                "visibility": "visible"
+              },
+              "cta": {
+                "rect": {
+                  "x": 105.61344909667969,
+                  "y": 366.97625732421875,
+                  "width": 190.75733947753906,
+                  "height": 43.0474853515625,
+                  "top": 366.97625732421875,
+                  "right": 296.37078857421875,
+                  "bottom": 410.02374267578125,
+                  "left": 105.61344909667969
+                },
+                "center": {
+                  "x": 200.99211883544922,
+                  "y": 388.5
+                },
+                "pointerEvents": "none",
+                "visibility": "visible",
+                "transform": "matrix(1.001105, 0, 0, 1.001105, 0, 0)",
+                "animation": "pulse"
+              },
+              "hit": {
+                "id": "",
+                "tag": "CANVAS",
+                "cta": false,
+                "ignored": false
+              },
+              "active": {
+                "id": "",
+                "tag": "BODY",
+                "cta": false,
+                "ignored": false
+              },
+              "viewport": {
+                "width": 402,
+                "height": 714,
+                "screenWidth": 402,
+                "screenHeight": 874,
+                "dpr": 3,
+                "scrollX": 0,
+                "scrollY": 0,
+                "visual": {
+                  "offsetLeft": 0,
+                  "offsetTop": 0,
+                  "pageTop": 0,
+                  "width": 402,
+                  "height": 714,
+                  "scale": 1
+                }
+              },
+              "events": [
+                {
+                  "type": "pointerdown",
+                  "phase": "capture",
+                  "time": 29903.000000000004,
+                  "trusted": true,
+                  "pointer": "touch",
+                  "pointerId": 1770746435,
+                  "primary": true,
+                  "mode": "title",
+                  "id": "banner-cta",
+                  "tag": "BUTTON",
+                  "cta": true,
+                  "x": 201,
+                  "y": 389,
+                  "screenX": 201,
+                  "screenY": 389,
+                  "button": 0,
+                  "detail": 0,
+                  "cancelable": true,
+                  "prevented": false,
+                  "path": [
+                    {
+                      "id": "banner-cta",
+                      "tag": "BUTTON"
+                    },
+                    {
+                      "id": "banner",
+                      "tag": "DIV"
+                    },
+                    {
+                      "id": "",
+                      "tag": "BODY"
+                    },
+                    {
+                      "id": "",
+                      "tag": "HTML"
+                    }
+                  ]
+                },
+                {
+                  "type": "pointerdown",
+                  "phase": "bubble",
+                  "time": 29903.000000000004,
+                  "trusted": true,
+                  "pointer": "touch",
+                  "pointerId": 1770746435,
+                  "primary": true,
+                  "mode": "title",
+                  "id": "banner-cta",
+                  "tag": "BUTTON",
+                  "cta": true,
+                  "x": 201,
+                  "y": 389,
+                  "screenX": 201,
+                  "screenY": 389,
+                  "button": 0,
+                  "detail": 0,
+                  "cancelable": true,
+                  "prevented": false,
+                  "path": [
+                    {
+                      "id": "banner-cta",
+                      "tag": "BUTTON"
+                    },
+                    {
+                      "id": "banner",
+                      "tag": "DIV"
+                    },
+                    {
+                      "id": "",
+                      "tag": "BODY"
+                    },
+                    {
+                      "id": "",
+                      "tag": "HTML"
+                    }
+                  ]
+                },
+                {
+                  "type": "touchstart",
+                  "phase": "capture",
+                  "time": 29904,
+                  "trusted": true,
+                  "pointer": "touch",
+                  "pointerId": null,
+                  "primary": null,
+                  "mode": "title",
+                  "id": "banner-cta",
+                  "tag": "BUTTON",
+                  "cta": true,
+                  "x": 201,
+                  "y": 389,
+                  "screenX": 201,
+                  "screenY": 389,
+                  "button": null,
+                  "detail": 0,
+                  "cancelable": false,
+                  "prevented": false,
+                  "path": [
+                    {
+                      "id": "banner-cta",
+                      "tag": "BUTTON"
+                    },
+                    {
+                      "id": "banner",
+                      "tag": "DIV"
+                    },
+                    {
+                      "id": "",
+                      "tag": "BODY"
+                    },
+                    {
+                      "id": "",
+                      "tag": "HTML"
+                    }
+                  ]
+                },
+                {
+                  "type": "touchstart",
+                  "phase": "bubble",
+                  "time": 29904,
+                  "trusted": true,
+                  "pointer": "touch",
+                  "pointerId": null,
+                  "primary": null,
+                  "mode": "title",
+                  "id": "banner-cta",
+                  "tag": "BUTTON",
+                  "cta": true,
+                  "x": 201,
+                  "y": 389,
+                  "screenX": 201,
+                  "screenY": 389,
+                  "button": null,
+                  "detail": 0,
+                  "cancelable": false,
+                  "prevented": false,
+                  "path": [
+                    {
+                      "id": "banner-cta",
+                      "tag": "BUTTON"
+                    },
+                    {
+                      "id": "banner",
+                      "tag": "DIV"
+                    },
+                    {
+                      "id": "",
+                      "tag": "BODY"
+                    },
+                    {
+                      "id": "",
+                      "tag": "HTML"
+                    }
+                  ]
+                },
+                {
+                  "type": "pointerup",
+                  "phase": "capture",
+                  "time": 30010,
+                  "trusted": true,
+                  "pointer": "touch",
+                  "pointerId": 1770746435,
+                  "primary": true,
+                  "mode": "title",
+                  "id": "banner-cta",
+                  "tag": "BUTTON",
+                  "cta": true,
+                  "x": 201,
+                  "y": 389,
+                  "screenX": 201,
+                  "screenY": 389,
+                  "button": 0,
+                  "detail": 0,
+                  "cancelable": true,
+                  "prevented": false,
+                  "path": [
+                    {
+                      "id": "banner-cta",
+                      "tag": "BUTTON"
+                    },
+                    {
+                      "id": "banner",
+                      "tag": "DIV"
+                    },
+                    {
+                      "id": "",
+                      "tag": "BODY"
+                    },
+                    {
+                      "id": "",
+                      "tag": "HTML"
+                    }
+                  ]
+                },
+                {
+                  "type": "pointerup",
+                  "phase": "bubble",
+                  "time": 30133,
+                  "trusted": true,
+                  "pointer": "touch",
+                  "pointerId": 1770746435,
+                  "primary": true,
+                  "mode": "countdown",
+                  "id": "banner-cta",
+                  "tag": "BUTTON",
+                  "cta": true,
+                  "x": 201,
+                  "y": 389,
+                  "screenX": 201,
+                  "screenY": 389,
+                  "button": 0,
+                  "detail": 0,
+                  "cancelable": true,
+                  "prevented": false,
+                  "path": [
+                    {
+                      "id": "banner-cta",
+                      "tag": "BUTTON"
+                    },
+                    {
+                      "id": "banner",
+                      "tag": "DIV"
+                    },
+                    {
+                      "id": "",
+                      "tag": "BODY"
+                    },
+                    {
+                      "id": "",
+                      "tag": "HTML"
+                    }
+                  ]
+                },
+                {
+                  "type": "touchend",
+                  "phase": "capture",
+                  "time": 30133,
+                  "trusted": true,
+                  "pointer": "touch",
+                  "pointerId": null,
+                  "primary": null,
+                  "mode": "countdown",
+                  "id": "banner-cta",
+                  "tag": "BUTTON",
+                  "cta": true,
+                  "x": 201,
+                  "y": 389,
+                  "screenX": 201,
+                  "screenY": 389,
+                  "button": null,
+                  "detail": 0,
+                  "cancelable": false,
+                  "prevented": false,
+                  "path": [
+                    {
+                      "id": "banner-cta",
+                      "tag": "BUTTON"
+                    },
+                    {
+                      "id": "banner",
+                      "tag": "DIV"
+                    },
+                    {
+                      "id": "",
+                      "tag": "BODY"
+                    },
+                    {
+                      "id": "",
+                      "tag": "HTML"
+                    }
+                  ]
+                },
+                {
+                  "type": "touchend",
+                  "phase": "bubble",
+                  "time": 30133,
+                  "trusted": true,
+                  "pointer": "touch",
+                  "pointerId": null,
+                  "primary": null,
+                  "mode": "countdown",
+                  "id": "banner-cta",
+                  "tag": "BUTTON",
+                  "cta": true,
+                  "x": 201,
+                  "y": 389,
+                  "screenX": 201,
+                  "screenY": 389,
+                  "button": null,
+                  "detail": 0,
+                  "cancelable": false,
+                  "prevented": false,
+                  "path": [
+                    {
+                      "id": "banner-cta",
+                      "tag": "BUTTON"
+                    },
+                    {
+                      "id": "banner",
+                      "tag": "DIV"
+                    },
+                    {
+                      "id": "",
+                      "tag": "BODY"
+                    },
+                    {
+                      "id": "",
+                      "tag": "HTML"
+                    }
+                  ]
+                }
+              ],
+              "errors": []
+            },
+            "events": [
+              {
+                "type": "pointerdown",
+                "phase": "capture",
+                "time": 29903.000000000004,
+                "trusted": true,
+                "pointer": "touch",
+                "pointerId": 1770746435,
+                "primary": true,
+                "mode": "title",
+                "id": "banner-cta",
+                "tag": "BUTTON",
+                "cta": true,
+                "x": 201,
+                "y": 389,
+                "screenX": 201,
+                "screenY": 389,
+                "button": 0,
+                "detail": 0,
+                "cancelable": true,
+                "prevented": false,
+                "path": [
+                  {
+                    "id": "banner-cta",
+                    "tag": "BUTTON"
+                  },
+                  {
+                    "id": "banner",
+                    "tag": "DIV"
+                  },
+                  {
+                    "id": "",
+                    "tag": "BODY"
+                  },
+                  {
+                    "id": "",
+                    "tag": "HTML"
+                  }
+                ]
+              },
+              {
+                "type": "pointerdown",
+                "phase": "bubble",
+                "time": 29903.000000000004,
+                "trusted": true,
+                "pointer": "touch",
+                "pointerId": 1770746435,
+                "primary": true,
+                "mode": "title",
+                "id": "banner-cta",
+                "tag": "BUTTON",
+                "cta": true,
+                "x": 201,
+                "y": 389,
+                "screenX": 201,
+                "screenY": 389,
+                "button": 0,
+                "detail": 0,
+                "cancelable": true,
+                "prevented": false,
+                "path": [
+                  {
+                    "id": "banner-cta",
+                    "tag": "BUTTON"
+                  },
+                  {
+                    "id": "banner",
+                    "tag": "DIV"
+                  },
+                  {
+                    "id": "",
+                    "tag": "BODY"
+                  },
+                  {
+                    "id": "",
+                    "tag": "HTML"
+                  }
+                ]
+              },
+              {
+                "type": "touchstart",
+                "phase": "capture",
+                "time": 29904,
+                "trusted": true,
+                "pointer": "touch",
+                "pointerId": null,
+                "primary": null,
+                "mode": "title",
+                "id": "banner-cta",
+                "tag": "BUTTON",
+                "cta": true,
+                "x": 201,
+                "y": 389,
+                "screenX": 201,
+                "screenY": 389,
+                "button": null,
+                "detail": 0,
+                "cancelable": false,
+                "prevented": false,
+                "path": [
+                  {
+                    "id": "banner-cta",
+                    "tag": "BUTTON"
+                  },
+                  {
+                    "id": "banner",
+                    "tag": "DIV"
+                  },
+                  {
+                    "id": "",
+                    "tag": "BODY"
+                  },
+                  {
+                    "id": "",
+                    "tag": "HTML"
+                  }
+                ]
+              },
+              {
+                "type": "touchstart",
+                "phase": "bubble",
+                "time": 29904,
+                "trusted": true,
+                "pointer": "touch",
+                "pointerId": null,
+                "primary": null,
+                "mode": "title",
+                "id": "banner-cta",
+                "tag": "BUTTON",
+                "cta": true,
+                "x": 201,
+                "y": 389,
+                "screenX": 201,
+                "screenY": 389,
+                "button": null,
+                "detail": 0,
+                "cancelable": false,
+                "prevented": false,
+                "path": [
+                  {
+                    "id": "banner-cta",
+                    "tag": "BUTTON"
+                  },
+                  {
+                    "id": "banner",
+                    "tag": "DIV"
+                  },
+                  {
+                    "id": "",
+                    "tag": "BODY"
+                  },
+                  {
+                    "id": "",
+                    "tag": "HTML"
+                  }
+                ]
+              },
+              {
+                "type": "pointerup",
+                "phase": "capture",
+                "time": 30010,
+                "trusted": true,
+                "pointer": "touch",
+                "pointerId": 1770746435,
+                "primary": true,
+                "mode": "title",
+                "id": "banner-cta",
+                "tag": "BUTTON",
+                "cta": true,
+                "x": 201,
+                "y": 389,
+                "screenX": 201,
+                "screenY": 389,
+                "button": 0,
+                "detail": 0,
+                "cancelable": true,
+                "prevented": false,
+                "path": [
+                  {
+                    "id": "banner-cta",
+                    "tag": "BUTTON"
+                  },
+                  {
+                    "id": "banner",
+                    "tag": "DIV"
+                  },
+                  {
+                    "id": "",
+                    "tag": "BODY"
+                  },
+                  {
+                    "id": "",
+                    "tag": "HTML"
+                  }
+                ]
+              },
+              {
+                "type": "pointerup",
+                "phase": "bubble",
+                "time": 30133,
+                "trusted": true,
+                "pointer": "touch",
+                "pointerId": 1770746435,
+                "primary": true,
+                "mode": "countdown",
+                "id": "banner-cta",
+                "tag": "BUTTON",
+                "cta": true,
+                "x": 201,
+                "y": 389,
+                "screenX": 201,
+                "screenY": 389,
+                "button": 0,
+                "detail": 0,
+                "cancelable": true,
+                "prevented": false,
+                "path": [
+                  {
+                    "id": "banner-cta",
+                    "tag": "BUTTON"
+                  },
+                  {
+                    "id": "banner",
+                    "tag": "DIV"
+                  },
+                  {
+                    "id": "",
+                    "tag": "BODY"
+                  },
+                  {
+                    "id": "",
+                    "tag": "HTML"
+                  }
+                ]
+              },
+              {
+                "type": "touchend",
+                "phase": "capture",
+                "time": 30133,
+                "trusted": true,
+                "pointer": "touch",
+                "pointerId": null,
+                "primary": null,
+                "mode": "countdown",
+                "id": "banner-cta",
+                "tag": "BUTTON",
+                "cta": true,
+                "x": 201,
+                "y": 389,
+                "screenX": 201,
+                "screenY": 389,
+                "button": null,
+                "detail": 0,
+                "cancelable": false,
+                "prevented": false,
+                "path": [
+                  {
+                    "id": "banner-cta",
+                    "tag": "BUTTON"
+                  },
+                  {
+                    "id": "banner",
+                    "tag": "DIV"
+                  },
+                  {
+                    "id": "",
+                    "tag": "BODY"
+                  },
+                  {
+                    "id": "",
+                    "tag": "HTML"
+                  }
+                ]
+              },
+              {
+                "type": "touchend",
+                "phase": "bubble",
+                "time": 30133,
+                "trusted": true,
+                "pointer": "touch",
+                "pointerId": null,
+                "primary": null,
+                "mode": "countdown",
+                "id": "banner-cta",
+                "tag": "BUTTON",
+                "cta": true,
+                "x": 201,
+                "y": 389,
+                "screenX": 201,
+                "screenY": 389,
+                "button": null,
+                "detail": 0,
+                "cancelable": false,
+                "prevented": false,
+                "path": [
+                  {
+                    "id": "banner-cta",
+                    "tag": "BUTTON"
+                  },
+                  {
+                    "id": "banner",
+                    "tag": "DIV"
+                  },
+                  {
+                    "id": "",
+                    "tag": "BODY"
+                  },
+                  {
+                    "id": "",
+                    "tag": "HTML"
+                  }
+                ]
+              }
+            ],
+            "delivery": "trusted-cta-pointerup",
+            "completed": {
+              "mode": "playing",
+              "ready": true,
+              "fonts": "loaded",
+              "focus": true,
+              "visibility": "visible",
+              "banner": {
+                "classes": "",
+                "inert": true,
+                "opacity": "0",
+                "display": "flex",
+                "visibility": "visible"
+              },
+              "cta": {
+                "rect": {
+                  "x": 101.43833923339844,
+                  "y": 366.03466796875,
+                  "width": 199.10231018066406,
+                  "height": 44.9306640625,
+                  "top": 366.03466796875,
+                  "right": 300.5406494140625,
+                  "bottom": 410.96533203125,
+                  "left": 101.43833923339844
+                },
+                "center": {
+                  "x": 200.98949432373047,
+                  "y": 388.5
+                },
+                "pointerEvents": "none",
+                "visibility": "visible",
+                "transform": "matrix(1.044899, 0, 0, 1.044899, 0, 0)",
+                "animation": "pulse"
+              },
+              "hit": {
+                "id": "",
+                "tag": "CANVAS",
+                "cta": false,
+                "ignored": false
+              },
+              "active": {
+                "id": "",
+                "tag": "BODY",
+                "cta": false,
+                "ignored": false
+              },
+              "viewport": {
+                "width": 402,
+                "height": 714,
+                "screenWidth": 402,
+                "screenHeight": 874,
+                "dpr": 3,
+                "scrollX": 0,
+                "scrollY": 0,
+                "visual": {
+                  "offsetLeft": 0,
+                  "offsetTop": 0,
+                  "pageTop": 0,
+                  "width": 402,
+                  "height": 714,
+                  "scale": 1
+                }
+              },
+              "events": [
+                {
+                  "type": "pointerdown",
+                  "phase": "capture",
+                  "time": 29903.000000000004,
+                  "trusted": true,
+                  "pointer": "touch",
+                  "pointerId": 1770746435,
+                  "primary": true,
+                  "mode": "title",
+                  "id": "banner-cta",
+                  "tag": "BUTTON",
+                  "cta": true,
+                  "x": 201,
+                  "y": 389,
+                  "screenX": 201,
+                  "screenY": 389,
+                  "button": 0,
+                  "detail": 0,
+                  "cancelable": true,
+                  "prevented": false,
+                  "path": [
+                    {
+                      "id": "banner-cta",
+                      "tag": "BUTTON"
+                    },
+                    {
+                      "id": "banner",
+                      "tag": "DIV"
+                    },
+                    {
+                      "id": "",
+                      "tag": "BODY"
+                    },
+                    {
+                      "id": "",
+                      "tag": "HTML"
+                    }
+                  ]
+                },
+                {
+                  "type": "pointerdown",
+                  "phase": "bubble",
+                  "time": 29903.000000000004,
+                  "trusted": true,
+                  "pointer": "touch",
+                  "pointerId": 1770746435,
+                  "primary": true,
+                  "mode": "title",
+                  "id": "banner-cta",
+                  "tag": "BUTTON",
+                  "cta": true,
+                  "x": 201,
+                  "y": 389,
+                  "screenX": 201,
+                  "screenY": 389,
+                  "button": 0,
+                  "detail": 0,
+                  "cancelable": true,
+                  "prevented": false,
+                  "path": [
+                    {
+                      "id": "banner-cta",
+                      "tag": "BUTTON"
+                    },
+                    {
+                      "id": "banner",
+                      "tag": "DIV"
+                    },
+                    {
+                      "id": "",
+                      "tag": "BODY"
+                    },
+                    {
+                      "id": "",
+                      "tag": "HTML"
+                    }
+                  ]
+                },
+                {
+                  "type": "touchstart",
+                  "phase": "capture",
+                  "time": 29904,
+                  "trusted": true,
+                  "pointer": "touch",
+                  "pointerId": null,
+                  "primary": null,
+                  "mode": "title",
+                  "id": "banner-cta",
+                  "tag": "BUTTON",
+                  "cta": true,
+                  "x": 201,
+                  "y": 389,
+                  "screenX": 201,
+                  "screenY": 389,
+                  "button": null,
+                  "detail": 0,
+                  "cancelable": false,
+                  "prevented": false,
+                  "path": [
+                    {
+                      "id": "banner-cta",
+                      "tag": "BUTTON"
+                    },
+                    {
+                      "id": "banner",
+                      "tag": "DIV"
+                    },
+                    {
+                      "id": "",
+                      "tag": "BODY"
+                    },
+                    {
+                      "id": "",
+                      "tag": "HTML"
+                    }
+                  ]
+                },
+                {
+                  "type": "touchstart",
+                  "phase": "bubble",
+                  "time": 29904,
+                  "trusted": true,
+                  "pointer": "touch",
+                  "pointerId": null,
+                  "primary": null,
+                  "mode": "title",
+                  "id": "banner-cta",
+                  "tag": "BUTTON",
+                  "cta": true,
+                  "x": 201,
+                  "y": 389,
+                  "screenX": 201,
+                  "screenY": 389,
+                  "button": null,
+                  "detail": 0,
+                  "cancelable": false,
+                  "prevented": false,
+                  "path": [
+                    {
+                      "id": "banner-cta",
+                      "tag": "BUTTON"
+                    },
+                    {
+                      "id": "banner",
+                      "tag": "DIV"
+                    },
+                    {
+                      "id": "",
+                      "tag": "BODY"
+                    },
+                    {
+                      "id": "",
+                      "tag": "HTML"
+                    }
+                  ]
+                },
+                {
+                  "type": "pointerup",
+                  "phase": "capture",
+                  "time": 30010,
+                  "trusted": true,
+                  "pointer": "touch",
+                  "pointerId": 1770746435,
+                  "primary": true,
+                  "mode": "title",
+                  "id": "banner-cta",
+                  "tag": "BUTTON",
+                  "cta": true,
+                  "x": 201,
+                  "y": 389,
+                  "screenX": 201,
+                  "screenY": 389,
+                  "button": 0,
+                  "detail": 0,
+                  "cancelable": true,
+                  "prevented": false,
+                  "path": [
+                    {
+                      "id": "banner-cta",
+                      "tag": "BUTTON"
+                    },
+                    {
+                      "id": "banner",
+                      "tag": "DIV"
+                    },
+                    {
+                      "id": "",
+                      "tag": "BODY"
+                    },
+                    {
+                      "id": "",
+                      "tag": "HTML"
+                    }
+                  ]
+                },
+                {
+                  "type": "pointerup",
+                  "phase": "bubble",
+                  "time": 30133,
+                  "trusted": true,
+                  "pointer": "touch",
+                  "pointerId": 1770746435,
+                  "primary": true,
+                  "mode": "countdown",
+                  "id": "banner-cta",
+                  "tag": "BUTTON",
+                  "cta": true,
+                  "x": 201,
+                  "y": 389,
+                  "screenX": 201,
+                  "screenY": 389,
+                  "button": 0,
+                  "detail": 0,
+                  "cancelable": true,
+                  "prevented": false,
+                  "path": [
+                    {
+                      "id": "banner-cta",
+                      "tag": "BUTTON"
+                    },
+                    {
+                      "id": "banner",
+                      "tag": "DIV"
+                    },
+                    {
+                      "id": "",
+                      "tag": "BODY"
+                    },
+                    {
+                      "id": "",
+                      "tag": "HTML"
+                    }
+                  ]
+                },
+                {
+                  "type": "touchend",
+                  "phase": "capture",
+                  "time": 30133,
+                  "trusted": true,
+                  "pointer": "touch",
+                  "pointerId": null,
+                  "primary": null,
+                  "mode": "countdown",
+                  "id": "banner-cta",
+                  "tag": "BUTTON",
+                  "cta": true,
+                  "x": 201,
+                  "y": 389,
+                  "screenX": 201,
+                  "screenY": 389,
+                  "button": null,
+                  "detail": 0,
+                  "cancelable": false,
+                  "prevented": false,
+                  "path": [
+                    {
+                      "id": "banner-cta",
+                      "tag": "BUTTON"
+                    },
+                    {
+                      "id": "banner",
+                      "tag": "DIV"
+                    },
+                    {
+                      "id": "",
+                      "tag": "BODY"
+                    },
+                    {
+                      "id": "",
+                      "tag": "HTML"
+                    }
+                  ]
+                },
+                {
+                  "type": "touchend",
+                  "phase": "bubble",
+                  "time": 30133,
+                  "trusted": true,
+                  "pointer": "touch",
+                  "pointerId": null,
+                  "primary": null,
+                  "mode": "countdown",
+                  "id": "banner-cta",
+                  "tag": "BUTTON",
+                  "cta": true,
+                  "x": 201,
+                  "y": 389,
+                  "screenX": 201,
+                  "screenY": 389,
+                  "button": null,
+                  "detail": 0,
+                  "cancelable": false,
+                  "prevented": false,
+                  "path": [
+                    {
+                      "id": "banner-cta",
+                      "tag": "BUTTON"
+                    },
+                    {
+                      "id": "banner",
+                      "tag": "DIV"
+                    },
+                    {
+                      "id": "",
+                      "tag": "BODY"
+                    },
+                    {
+                      "id": "",
+                      "tag": "HTML"
+                    }
+                  ]
+                }
+              ],
+              "errors": []
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "portrait-day-drive: native touch advances the car",
+      "passed": true,
+      "evidence": {
+        "distance": 46.36409057681465,
+        "maxMph": 64,
+        "before": {
+          "x": -936.2776489257812,
+          "z": 403.0002746582031,
+          "y": 0.43674035072326667,
+          "speed": 0,
+          "heading": -1.570793538949368,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.20696721311475408,
+            "v": 0.6739807692307692
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 65.6,
+            "wrecked": false,
+            "y": 0.8
+          }
+        },
+        "after": {
+          "x": -982.6417395019531,
+          "z": 403.0000305175781,
+          "y": 0.37233824133872984,
+          "speed": 26.0837554933598,
+          "heading": -1.5707955604804242,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.20696721311475408,
+            "v": 0.6739807692307692
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 80.5,
+            "wrecked": false,
+            "y": 0.6
+          }
+        },
+        "events": [
+          {
+            "type": "pointerdown",
+            "phase": "capture",
+            "time": 32645.000000000004,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": 1770746436,
+            "primary": true,
+            "mode": "playing",
+            "id": "",
+            "tag": "BUTTON",
+            "cta": false,
+            "x": 368,
+            "y": 34,
+            "screenX": 368,
+            "screenY": 34,
+            "button": 0,
+            "detail": 0,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "BUTTON"
+              },
+              {
+                "id": "",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "touchstart",
+            "phase": "capture",
+            "time": 32645.000000000004,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": null,
+            "primary": null,
+            "mode": "playing",
+            "id": "",
+            "tag": "BUTTON",
+            "cta": false,
+            "x": 368,
+            "y": 34,
+            "screenX": 368,
+            "screenY": 34,
+            "button": null,
+            "detail": 0,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "BUTTON"
+              },
+              {
+                "id": "",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "pointerup",
+            "phase": "capture",
+            "time": 32710,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": 1770746436,
+            "primary": true,
+            "mode": "playing",
+            "id": "",
+            "tag": "BUTTON",
+            "cta": false,
+            "x": 368,
+            "y": 34,
+            "screenX": 368,
+            "screenY": 34,
+            "button": 0,
+            "detail": 0,
+            "cancelable": true,
+            "prevented": true,
+            "path": [
+              {
+                "id": "",
+                "tag": "BUTTON"
+              },
+              {
+                "id": "",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "touchend",
+            "phase": "capture",
+            "time": 32712.000000000004,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": null,
+            "primary": null,
+            "mode": "playing",
+            "id": "",
+            "tag": "BUTTON",
+            "cta": false,
+            "x": 368,
+            "y": 34,
+            "screenX": 368,
+            "screenY": 34,
+            "button": null,
+            "detail": 0,
+            "cancelable": true,
+            "prevented": true,
+            "path": [
+              {
+                "id": "",
+                "tag": "BUTTON"
+              },
+              {
+                "id": "",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "pointerdown",
+            "phase": "capture",
+            "time": 34095,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": 1770746439,
+            "primary": true,
+            "mode": "playing",
+            "id": "",
+            "tag": "BUTTON",
+            "cta": false,
+            "x": 201,
+            "y": 389,
+            "screenX": 201,
+            "screenY": 389,
+            "button": 0,
+            "detail": 0,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "BUTTON"
+              },
+              {
+                "id": "waymo-pause",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "touchstart",
+            "phase": "capture",
+            "time": 34095,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": null,
+            "primary": null,
+            "mode": "playing",
+            "id": "",
+            "tag": "BUTTON",
+            "cta": false,
+            "x": 201,
+            "y": 389,
+            "screenX": 201,
+            "screenY": 389,
+            "button": null,
+            "detail": 0,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "BUTTON"
+              },
+              {
+                "id": "waymo-pause",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "pointerup",
+            "phase": "capture",
+            "time": 34160.00000000001,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": 1770746439,
+            "primary": true,
+            "mode": "playing",
+            "id": "",
+            "tag": "BUTTON",
+            "cta": false,
+            "x": 201,
+            "y": 389,
+            "screenX": 201,
+            "screenY": 389,
+            "button": 0,
+            "detail": 0,
+            "cancelable": true,
+            "prevented": true,
+            "path": [
+              {
+                "id": "",
+                "tag": "BUTTON"
+              },
+              {
+                "id": "waymo-pause",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "touchend",
+            "phase": "capture",
+            "time": 34166.00000000001,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": null,
+            "primary": null,
+            "mode": "countdown",
+            "id": "",
+            "tag": "BUTTON",
+            "cta": false,
+            "x": 201,
+            "y": 389,
+            "screenX": 201,
+            "screenY": 389,
+            "button": null,
+            "detail": 0,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "BUTTON"
+              },
+              {
+                "id": "waymo-pause",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "mousedown",
+            "phase": "capture",
+            "time": 34259,
+            "trusted": true,
+            "pointer": "",
+            "pointerId": null,
+            "primary": null,
+            "mode": "countdown",
+            "id": "",
+            "tag": "CANVAS",
+            "cta": false,
+            "x": 201,
+            "y": 389,
+            "screenX": 201,
+            "screenY": 389,
+            "button": 0,
+            "detail": 1,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "CANVAS"
+              },
+              {
+                "id": "game",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "mousedown",
+            "phase": "bubble",
+            "time": 34259,
+            "trusted": true,
+            "pointer": "",
+            "pointerId": null,
+            "primary": null,
+            "mode": "countdown",
+            "id": "",
+            "tag": "CANVAS",
+            "cta": false,
+            "x": 201,
+            "y": 389,
+            "screenX": 201,
+            "screenY": 389,
+            "button": 0,
+            "detail": 1,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "CANVAS"
+              },
+              {
+                "id": "game",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "mouseup",
+            "phase": "capture",
+            "time": 34259,
+            "trusted": true,
+            "pointer": "",
+            "pointerId": null,
+            "primary": null,
+            "mode": "countdown",
+            "id": "",
+            "tag": "CANVAS",
+            "cta": false,
+            "x": 201,
+            "y": 389,
+            "screenX": 201,
+            "screenY": 389,
+            "button": 0,
+            "detail": 1,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "CANVAS"
+              },
+              {
+                "id": "game",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "mouseup",
+            "phase": "bubble",
+            "time": 34259,
+            "trusted": true,
+            "pointer": "",
+            "pointerId": null,
+            "primary": null,
+            "mode": "countdown",
+            "id": "",
+            "tag": "CANVAS",
+            "cta": false,
+            "x": 201,
+            "y": 389,
+            "screenX": 201,
+            "screenY": 389,
+            "button": 0,
+            "detail": 1,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "CANVAS"
+              },
+              {
+                "id": "game",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "click",
+            "phase": "capture",
+            "time": 34259,
+            "trusted": true,
+            "pointer": "mouse",
+            "pointerId": 1770746439,
+            "primary": true,
+            "mode": "countdown",
+            "id": "",
+            "tag": "CANVAS",
+            "cta": false,
+            "x": 201,
+            "y": 389,
+            "screenX": 201,
+            "screenY": 389,
+            "button": 0,
+            "detail": 1,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "CANVAS"
+              },
+              {
+                "id": "game",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "click",
+            "phase": "bubble",
+            "time": 34259,
+            "trusted": true,
+            "pointer": "mouse",
+            "pointerId": 1770746439,
+            "primary": true,
+            "mode": "countdown",
+            "id": "",
+            "tag": "CANVAS",
+            "cta": false,
+            "x": 201,
+            "y": 389,
+            "screenX": 201,
+            "screenY": 389,
+            "button": 0,
+            "detail": 1,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "CANVAS"
+              },
+              {
+                "id": "game",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "pointerdown",
+            "phase": "capture",
+            "time": 37029,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": 1770746440,
+            "primary": true,
+            "mode": "playing",
+            "id": "",
+            "tag": "CANVAS",
+            "cta": false,
+            "x": 120,
+            "y": 368,
+            "screenX": 120,
+            "screenY": 368,
+            "button": 0,
+            "detail": 0,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "CANVAS"
+              },
+              {
+                "id": "game",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "pointerdown",
+            "phase": "bubble",
+            "time": 37029,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": 1770746440,
+            "primary": true,
+            "mode": "playing",
+            "id": "",
+            "tag": "CANVAS",
+            "cta": false,
+            "x": 120,
+            "y": 368,
+            "screenX": 120,
+            "screenY": 368,
+            "button": 0,
+            "detail": 0,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "CANVAS"
+              },
+              {
+                "id": "game",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "touchstart",
+            "phase": "capture",
+            "time": 37029,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": null,
+            "primary": null,
+            "mode": "playing",
+            "id": "",
+            "tag": "CANVAS",
+            "cta": false,
+            "x": 120,
+            "y": 368,
+            "screenX": 120,
+            "screenY": 368,
+            "button": null,
+            "detail": 0,
+            "cancelable": false,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "CANVAS"
+              },
+              {
+                "id": "game",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "touchstart",
+            "phase": "bubble",
+            "time": 37029,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": null,
+            "primary": null,
+            "mode": "playing",
+            "id": "",
+            "tag": "CANVAS",
+            "cta": false,
+            "x": 120,
+            "y": 368,
+            "screenX": 120,
+            "screenY": 368,
+            "button": null,
+            "detail": 0,
+            "cancelable": false,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "CANVAS"
+              },
+              {
+                "id": "game",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "pointerup",
+            "phase": "capture",
+            "time": 38926,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": 1770746440,
+            "primary": true,
+            "mode": "playing",
+            "id": "",
+            "tag": "CANVAS",
+            "cta": false,
+            "x": 120,
+            "y": 368,
+            "screenX": 120,
+            "screenY": 368,
+            "button": 0,
+            "detail": 0,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "CANVAS"
+              },
+              {
+                "id": "game",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "pointerup",
+            "phase": "bubble",
+            "time": 38926,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": 1770746440,
+            "primary": true,
+            "mode": "playing",
+            "id": "",
+            "tag": "CANVAS",
+            "cta": false,
+            "x": 120,
+            "y": 368,
+            "screenX": 120,
+            "screenY": 368,
+            "button": 0,
+            "detail": 0,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "CANVAS"
+              },
+              {
+                "id": "game",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "touchend",
+            "phase": "capture",
+            "time": 38926,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": null,
+            "primary": null,
+            "mode": "playing",
+            "id": "",
+            "tag": "CANVAS",
+            "cta": false,
+            "x": 120,
+            "y": 368,
+            "screenX": 120,
+            "screenY": 368,
+            "button": null,
+            "detail": 0,
+            "cancelable": false,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "CANVAS"
+              },
+              {
+                "id": "game",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "touchend",
+            "phase": "bubble",
+            "time": 38926,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": null,
+            "primary": null,
+            "mode": "playing",
+            "id": "",
+            "tag": "CANVAS",
+            "cta": false,
+            "x": 120,
+            "y": 368,
+            "screenX": 120,
+            "screenY": 368,
+            "button": null,
+            "detail": 0,
+            "cancelable": false,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "CANVAS"
+              },
+              {
+                "id": "game",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "sunset-day: terrain and fog shaders render without errors",
+      "passed": true,
+      "evidence": {
+        "phoneTerrain": ["semantic-terrain-v2-phone"],
+        "marineVisible": true,
+        "failedPrograms": 0,
+        "errors": []
+      }
+    },
+    {
+      "name": "gate-day: terrain and fog shaders render without errors",
+      "passed": true,
+      "evidence": {
+        "phoneTerrain": ["semantic-terrain-v2-phone"],
+        "marineVisible": true,
+        "failedPrograms": 0,
+        "errors": []
+      }
+    },
+    {
+      "name": "park-day: terrain and fog shaders render without errors",
+      "passed": true,
+      "evidence": {
+        "phoneTerrain": ["semantic-terrain-v2-phone"],
+        "marineVisible": true,
+        "failedPrograms": 0,
+        "errors": []
+      }
+    },
+    {
+      "name": "gate-night: terrain and fog shaders render without errors",
+      "passed": true,
+      "evidence": {
+        "phoneTerrain": ["semantic-terrain-v2-phone"],
+        "marineVisible": true,
+        "failedPrograms": 0,
+        "errors": []
+      }
+    },
+    {
+      "name": "park-night: terrain and fog shaders render without errors",
+      "passed": true,
+      "evidence": {
+        "phoneTerrain": ["semantic-terrain-v2-phone"],
+        "marineVisible": true,
+        "failedPrograms": 0,
+        "errors": []
+      }
+    },
+    {
+      "name": "landscape-night-drive: native touch advances the car",
+      "passed": true,
+      "evidence": {
+        "distance": 43.885591458101864,
+        "maxMph": 64,
+        "before": {
+          "x": 640.3012084960938,
+          "z": -601.3012084960938,
+          "y": 0.3630306792259216,
+          "speed": 0,
+          "heading": -0.7853981926780731,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.7457558919920463,
+            "v": 0.3298221882302964
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 90.1,
+            "wrecked": false,
+            "y": 0.4
+          }
+        },
+        "after": {
+          "x": 609.2694091796875,
+          "z": -570.2694091796875,
+          "y": 0.3626626181602478,
+          "speed": 26.81627021484928,
+          "heading": -0.7854067575923261,
+          "airborne": false,
+          "drifting": false,
+          "boosting": false,
+          "carrying": false,
+          "objective": {
+            "u": 0.7457558919920463,
+            "v": 0.3298221882302964
+          },
+          "wreckedCount": 0,
+          "nearestTraffic": {
+            "dist": 27.6,
+            "wrecked": false,
+            "y": 0.3
+          }
+        },
+        "events": [
+          {
+            "type": "pointerdown",
+            "phase": "capture",
+            "time": 55255,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": 1770746443,
+            "primary": true,
+            "mode": "playing",
+            "id": "",
+            "tag": "BUTTON",
+            "cta": false,
+            "x": 778,
+            "y": 34,
+            "screenX": 778,
+            "screenY": 34,
+            "button": 0,
+            "detail": 0,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "BUTTON"
+              },
+              {
+                "id": "",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "touchstart",
+            "phase": "capture",
+            "time": 55255,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": null,
+            "primary": null,
+            "mode": "playing",
+            "id": "",
+            "tag": "BUTTON",
+            "cta": false,
+            "x": 778,
+            "y": 34,
+            "screenX": 778,
+            "screenY": 34,
+            "button": null,
+            "detail": 0,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "BUTTON"
+              },
+              {
+                "id": "",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "pointerup",
+            "phase": "capture",
+            "time": 55310,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": 1770746443,
+            "primary": true,
+            "mode": "playing",
+            "id": "",
+            "tag": "BUTTON",
+            "cta": false,
+            "x": 778,
+            "y": 34.000000000000014,
+            "screenX": 778,
+            "screenY": 34.000000000000014,
+            "button": 0,
+            "detail": 0,
+            "cancelable": true,
+            "prevented": true,
+            "path": [
+              {
+                "id": "",
+                "tag": "BUTTON"
+              },
+              {
+                "id": "",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "touchend",
+            "phase": "capture",
+            "time": 55310,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": null,
+            "primary": null,
+            "mode": "playing",
+            "id": "",
+            "tag": "BUTTON",
+            "cta": false,
+            "x": 778,
+            "y": 34.000000000000014,
+            "screenX": 778,
+            "screenY": 34.000000000000014,
+            "button": null,
+            "detail": 0,
+            "cancelable": true,
+            "prevented": true,
+            "path": [
+              {
+                "id": "",
+                "tag": "BUTTON"
+              },
+              {
+                "id": "",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "pointerdown",
+            "phase": "capture",
+            "time": 55728,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": 1770746444,
+            "primary": true,
+            "mode": "playing",
+            "id": "",
+            "tag": "BUTTON",
+            "cta": false,
+            "x": 437,
+            "y": 259,
+            "screenX": 437,
+            "screenY": 259,
+            "button": 0,
+            "detail": 0,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "BUTTON"
+              },
+              {
+                "id": "waymo-pause",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "touchstart",
+            "phase": "capture",
+            "time": 55728,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": null,
+            "primary": null,
+            "mode": "playing",
+            "id": "",
+            "tag": "BUTTON",
+            "cta": false,
+            "x": 437,
+            "y": 259,
+            "screenX": 437,
+            "screenY": 259,
+            "button": null,
+            "detail": 0,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "BUTTON"
+              },
+              {
+                "id": "waymo-pause",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "pointerup",
+            "phase": "capture",
+            "time": 55793,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": 1770746444,
+            "primary": true,
+            "mode": "playing",
+            "id": "",
+            "tag": "BUTTON",
+            "cta": false,
+            "x": 437,
+            "y": 259,
+            "screenX": 437,
+            "screenY": 259,
+            "button": 0,
+            "detail": 0,
+            "cancelable": true,
+            "prevented": true,
+            "path": [
+              {
+                "id": "",
+                "tag": "BUTTON"
+              },
+              {
+                "id": "waymo-pause",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "touchend",
+            "phase": "capture",
+            "time": 55797.00000000001,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": null,
+            "primary": null,
+            "mode": "countdown",
+            "id": "",
+            "tag": "BUTTON",
+            "cta": false,
+            "x": 437,
+            "y": 259,
+            "screenX": 437,
+            "screenY": 259,
+            "button": null,
+            "detail": 0,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "BUTTON"
+              },
+              {
+                "id": "waymo-pause",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "mousedown",
+            "phase": "capture",
+            "time": 55919.00000000001,
+            "trusted": true,
+            "pointer": "",
+            "pointerId": null,
+            "primary": null,
+            "mode": "countdown",
+            "id": "",
+            "tag": "CANVAS",
+            "cta": false,
+            "x": 437,
+            "y": 259,
+            "screenX": 437,
+            "screenY": 259,
+            "button": 0,
+            "detail": 1,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "CANVAS"
+              },
+              {
+                "id": "game",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "mousedown",
+            "phase": "bubble",
+            "time": 55919.00000000001,
+            "trusted": true,
+            "pointer": "",
+            "pointerId": null,
+            "primary": null,
+            "mode": "countdown",
+            "id": "",
+            "tag": "CANVAS",
+            "cta": false,
+            "x": 437,
+            "y": 259,
+            "screenX": 437,
+            "screenY": 259,
+            "button": 0,
+            "detail": 1,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "CANVAS"
+              },
+              {
+                "id": "game",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "mouseup",
+            "phase": "capture",
+            "time": 55919.00000000001,
+            "trusted": true,
+            "pointer": "",
+            "pointerId": null,
+            "primary": null,
+            "mode": "countdown",
+            "id": "",
+            "tag": "CANVAS",
+            "cta": false,
+            "x": 437,
+            "y": 259,
+            "screenX": 437,
+            "screenY": 259,
+            "button": 0,
+            "detail": 1,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "CANVAS"
+              },
+              {
+                "id": "game",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "mouseup",
+            "phase": "bubble",
+            "time": 55919.00000000001,
+            "trusted": true,
+            "pointer": "",
+            "pointerId": null,
+            "primary": null,
+            "mode": "countdown",
+            "id": "",
+            "tag": "CANVAS",
+            "cta": false,
+            "x": 437,
+            "y": 259,
+            "screenX": 437,
+            "screenY": 259,
+            "button": 0,
+            "detail": 1,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "CANVAS"
+              },
+              {
+                "id": "game",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "click",
+            "phase": "capture",
+            "time": 55919.00000000001,
+            "trusted": true,
+            "pointer": "mouse",
+            "pointerId": 1770746444,
+            "primary": true,
+            "mode": "countdown",
+            "id": "",
+            "tag": "CANVAS",
+            "cta": false,
+            "x": 437,
+            "y": 259,
+            "screenX": 437,
+            "screenY": 259,
+            "button": 0,
+            "detail": 1,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "CANVAS"
+              },
+              {
+                "id": "game",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "click",
+            "phase": "bubble",
+            "time": 55919.00000000001,
+            "trusted": true,
+            "pointer": "mouse",
+            "pointerId": 1770746444,
+            "primary": true,
+            "mode": "countdown",
+            "id": "",
+            "tag": "CANVAS",
+            "cta": false,
+            "x": 437,
+            "y": 259,
+            "screenX": 437,
+            "screenY": 259,
+            "button": 0,
+            "detail": 1,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "CANVAS"
+              },
+              {
+                "id": "game",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "pointerdown",
+            "phase": "capture",
+            "time": 59003,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": 1770746445,
+            "primary": true,
+            "mode": "playing",
+            "id": "",
+            "tag": "CANVAS",
+            "cta": false,
+            "x": 350,
+            "y": 166,
+            "screenX": 350,
+            "screenY": 166,
+            "button": 0,
+            "detail": 0,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "CANVAS"
+              },
+              {
+                "id": "game",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "pointerdown",
+            "phase": "bubble",
+            "time": 59003,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": 1770746445,
+            "primary": true,
+            "mode": "playing",
+            "id": "",
+            "tag": "CANVAS",
+            "cta": false,
+            "x": 350,
+            "y": 166,
+            "screenX": 350,
+            "screenY": 166,
+            "button": 0,
+            "detail": 0,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "CANVAS"
+              },
+              {
+                "id": "game",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "touchstart",
+            "phase": "capture",
+            "time": 59003,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": null,
+            "primary": null,
+            "mode": "playing",
+            "id": "",
+            "tag": "CANVAS",
+            "cta": false,
+            "x": 350,
+            "y": 166,
+            "screenX": 350,
+            "screenY": 166,
+            "button": null,
+            "detail": 0,
+            "cancelable": false,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "CANVAS"
+              },
+              {
+                "id": "game",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "touchstart",
+            "phase": "bubble",
+            "time": 59003,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": null,
+            "primary": null,
+            "mode": "playing",
+            "id": "",
+            "tag": "CANVAS",
+            "cta": false,
+            "x": 350,
+            "y": 166,
+            "screenX": 350,
+            "screenY": 166,
+            "button": null,
+            "detail": 0,
+            "cancelable": false,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "CANVAS"
+              },
+              {
+                "id": "game",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "pointerup",
+            "phase": "capture",
+            "time": 60905,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": 1770746445,
+            "primary": true,
+            "mode": "playing",
+            "id": "",
+            "tag": "CANVAS",
+            "cta": false,
+            "x": 350,
+            "y": 166,
+            "screenX": 350,
+            "screenY": 166,
+            "button": 0,
+            "detail": 0,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "CANVAS"
+              },
+              {
+                "id": "game",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "pointerup",
+            "phase": "bubble",
+            "time": 60905,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": 1770746445,
+            "primary": true,
+            "mode": "playing",
+            "id": "",
+            "tag": "CANVAS",
+            "cta": false,
+            "x": 350,
+            "y": 166,
+            "screenX": 350,
+            "screenY": 166,
+            "button": 0,
+            "detail": 0,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "CANVAS"
+              },
+              {
+                "id": "game",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "touchend",
+            "phase": "capture",
+            "time": 60905,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": null,
+            "primary": null,
+            "mode": "playing",
+            "id": "",
+            "tag": "CANVAS",
+            "cta": false,
+            "x": 350,
+            "y": 166,
+            "screenX": 350,
+            "screenY": 166,
+            "button": null,
+            "detail": 0,
+            "cancelable": false,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "CANVAS"
+              },
+              {
+                "id": "game",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "touchend",
+            "phase": "bubble",
+            "time": 60905,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": null,
+            "primary": null,
+            "mode": "playing",
+            "id": "",
+            "tag": "CANVAS",
+            "cta": false,
+            "x": 350,
+            "y": 166,
+            "screenX": 350,
+            "screenY": 166,
+            "button": null,
+            "detail": 0,
+            "cancelable": false,
+            "prevented": false,
+            "path": [
+              {
+                "id": "",
+                "tag": "CANVAS"
+              },
+              {
+                "id": "game",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "No Safari runtime or shader console errors",
+      "passed": true,
+      "evidence": []
+    },
+    {
+      "name": "Existing simulator states preserved",
+      "passed": true,
+      "evidence": ["Booted", "Booted"]
+    }
+  ],
+  "views": [
+    {
+      "name": "sunset-day",
+      "u": 0.17,
+      "v": 0.64,
+      "lift": 10,
+      "tu": 0.045,
+      "tv": 0.63,
+      "tlift": 5,
+      "phase": 0.25,
+      "shaders": {
+        "phoneTerrain": ["semantic-terrain-v2-phone"],
+        "marineVisible": true,
+        "failedPrograms": 0,
+        "errors": []
+      }
+    },
+    {
+      "name": "gate-day",
+      "u": 0.25,
+      "v": 0.12,
+      "lift": 25,
+      "tu": 0.3422,
+      "tv": -0.02,
+      "tlift": 45,
+      "phase": 0.25,
+      "shaders": {
+        "phoneTerrain": ["semantic-terrain-v2-phone"],
+        "marineVisible": true,
+        "failedPrograms": 0,
+        "errors": []
+      }
+    },
+    {
+      "name": "park-day",
+      "u": 0.229,
+      "v": 0.43,
+      "lift": 5,
+      "tu": 0.221,
+      "tv": 0.421,
+      "tlift": 1,
+      "phase": 0.25,
+      "shaders": {
+        "phoneTerrain": ["semantic-terrain-v2-phone"],
+        "marineVisible": true,
+        "failedPrograms": 0,
+        "errors": []
+      }
+    },
+    {
+      "name": "gate-night",
+      "u": 0.25,
+      "v": 0.12,
+      "lift": 25,
+      "tu": 0.3422,
+      "tv": -0.02,
+      "tlift": 45,
+      "phase": 0.7,
+      "shaders": {
+        "phoneTerrain": ["semantic-terrain-v2-phone"],
+        "marineVisible": true,
+        "failedPrograms": 0,
+        "errors": []
+      }
+    },
+    {
+      "name": "park-night",
+      "u": 0.229,
+      "v": 0.43,
+      "lift": 5,
+      "tu": 0.221,
+      "tv": 0.421,
+      "tlift": 1,
+      "phase": 0.7,
+      "shaders": {
+        "phoneTerrain": ["semantic-terrain-v2-phone"],
+        "marineVisible": true,
+        "failedPrograms": 0,
+        "errors": []
+      }
+    }
+  ],
+  "preservedBefore": [
+    {
+      "id": "184B86E3-D94A-414B-BB76-C0E0F605723A",
+      "state": "Booted"
+    },
+    {
+      "id": "6B5804AB-1A79-46A5-A757-BCE0F9A8F57B",
+      "state": "Booted"
+    }
+  ],
+  "ownedSimulator": "13642EF0-0495-40D0-930C-3EA1086D9047",
+  "runtime": {
+    "name": "iOS 26.5",
+    "version": "26.5",
+    "device": "iPhone 17 Pro"
+  },
+  "appiumPid": 33315,
+  "sessionId": "8ce2ff15-0169-457b-8ca8-3b8bd425c616",
+  "startAttempts": [
+    {
+      "attempt": 1,
+      "before": {
+        "mode": "title",
+        "ready": true,
+        "fonts": "loaded",
+        "focus": true,
+        "visibility": "visible",
+        "banner": {
+          "classes": "show",
+          "inert": false,
+          "opacity": "1",
+          "display": "flex",
+          "visibility": "visible"
+        },
+        "cta": {
+          "rect": {
+            "x": 102.71092224121094,
+            "y": 366.3216552734375,
+            "width": 196.5587615966797,
+            "height": 44.356689453125,
+            "top": 366.3216552734375,
+            "right": 299.2696838378906,
+            "bottom": 410.6783447265625,
+            "left": 102.71092224121094
+          },
+          "center": {
+            "x": 200.99030303955078,
+            "y": 388.5
+          },
+          "pointerEvents": "auto",
+          "visibility": "visible",
+          "transform": "matrix(1.031551, 0, 0, 1.031551, 0, 0)",
+          "animation": "pulse"
+        },
+        "hit": {
+          "id": "banner-cta",
+          "tag": "BUTTON",
+          "cta": true,
+          "ignored": true
+        },
+        "active": {
+          "id": "",
+          "tag": "BODY",
+          "cta": false,
+          "ignored": false
+        },
+        "viewport": {
+          "width": 402,
+          "height": 714,
+          "screenWidth": 402,
+          "screenHeight": 874,
+          "dpr": 3,
+          "scrollX": 0,
+          "scrollY": 0,
+          "visual": {
+            "offsetLeft": 0,
+            "offsetTop": 0,
+            "pageTop": 0,
+            "width": 402,
+            "height": 714,
+            "scale": 1
+          }
+        },
+        "events": [],
+        "errors": []
+      },
+      "gesture": {
+        "method": "native-w3c-touch",
+        "duration": 100,
+        "nativeRect": {
+          "y": 428,
+          "x": 105,
+          "width": 192,
+          "height": 45
+        },
+        "nativeCenter": {
+          "x": 201,
+          "y": 451
+        },
+        "webCenter": {
+          "x": 200.99030303955078,
+          "y": 388.5
+        },
+        "offset": {
+          "x": 0.00969696044921875,
+          "y": 62.5
+        }
+      },
+      "after": {
+        "mode": "countdown",
+        "ready": true,
+        "fonts": "loaded",
+        "focus": true,
+        "visibility": "visible",
+        "banner": {
+          "classes": "",
+          "inert": true,
+          "opacity": "0",
+          "display": "flex",
+          "visibility": "visible"
+        },
+        "cta": {
+          "rect": {
+            "x": 105.61344909667969,
+            "y": 366.97625732421875,
+            "width": 190.75733947753906,
+            "height": 43.0474853515625,
+            "top": 366.97625732421875,
+            "right": 296.37078857421875,
+            "bottom": 410.02374267578125,
+            "left": 105.61344909667969
+          },
+          "center": {
+            "x": 200.99211883544922,
+            "y": 388.5
+          },
+          "pointerEvents": "none",
+          "visibility": "visible",
+          "transform": "matrix(1.001105, 0, 0, 1.001105, 0, 0)",
+          "animation": "pulse"
+        },
+        "hit": {
+          "id": "",
+          "tag": "CANVAS",
+          "cta": false,
+          "ignored": false
+        },
+        "active": {
+          "id": "",
+          "tag": "BODY",
+          "cta": false,
+          "ignored": false
+        },
+        "viewport": {
+          "width": 402,
+          "height": 714,
+          "screenWidth": 402,
+          "screenHeight": 874,
+          "dpr": 3,
+          "scrollX": 0,
+          "scrollY": 0,
+          "visual": {
+            "offsetLeft": 0,
+            "offsetTop": 0,
+            "pageTop": 0,
+            "width": 402,
+            "height": 714,
+            "scale": 1
+          }
+        },
+        "events": [
+          {
+            "type": "pointerdown",
+            "phase": "capture",
+            "time": 29903.000000000004,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": 1770746435,
+            "primary": true,
+            "mode": "title",
+            "id": "banner-cta",
+            "tag": "BUTTON",
+            "cta": true,
+            "x": 201,
+            "y": 389,
+            "screenX": 201,
+            "screenY": 389,
+            "button": 0,
+            "detail": 0,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "banner-cta",
+                "tag": "BUTTON"
+              },
+              {
+                "id": "banner",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "pointerdown",
+            "phase": "bubble",
+            "time": 29903.000000000004,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": 1770746435,
+            "primary": true,
+            "mode": "title",
+            "id": "banner-cta",
+            "tag": "BUTTON",
+            "cta": true,
+            "x": 201,
+            "y": 389,
+            "screenX": 201,
+            "screenY": 389,
+            "button": 0,
+            "detail": 0,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "banner-cta",
+                "tag": "BUTTON"
+              },
+              {
+                "id": "banner",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "touchstart",
+            "phase": "capture",
+            "time": 29904,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": null,
+            "primary": null,
+            "mode": "title",
+            "id": "banner-cta",
+            "tag": "BUTTON",
+            "cta": true,
+            "x": 201,
+            "y": 389,
+            "screenX": 201,
+            "screenY": 389,
+            "button": null,
+            "detail": 0,
+            "cancelable": false,
+            "prevented": false,
+            "path": [
+              {
+                "id": "banner-cta",
+                "tag": "BUTTON"
+              },
+              {
+                "id": "banner",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "touchstart",
+            "phase": "bubble",
+            "time": 29904,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": null,
+            "primary": null,
+            "mode": "title",
+            "id": "banner-cta",
+            "tag": "BUTTON",
+            "cta": true,
+            "x": 201,
+            "y": 389,
+            "screenX": 201,
+            "screenY": 389,
+            "button": null,
+            "detail": 0,
+            "cancelable": false,
+            "prevented": false,
+            "path": [
+              {
+                "id": "banner-cta",
+                "tag": "BUTTON"
+              },
+              {
+                "id": "banner",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "pointerup",
+            "phase": "capture",
+            "time": 30010,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": 1770746435,
+            "primary": true,
+            "mode": "title",
+            "id": "banner-cta",
+            "tag": "BUTTON",
+            "cta": true,
+            "x": 201,
+            "y": 389,
+            "screenX": 201,
+            "screenY": 389,
+            "button": 0,
+            "detail": 0,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "banner-cta",
+                "tag": "BUTTON"
+              },
+              {
+                "id": "banner",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "pointerup",
+            "phase": "bubble",
+            "time": 30133,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": 1770746435,
+            "primary": true,
+            "mode": "countdown",
+            "id": "banner-cta",
+            "tag": "BUTTON",
+            "cta": true,
+            "x": 201,
+            "y": 389,
+            "screenX": 201,
+            "screenY": 389,
+            "button": 0,
+            "detail": 0,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "banner-cta",
+                "tag": "BUTTON"
+              },
+              {
+                "id": "banner",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "touchend",
+            "phase": "capture",
+            "time": 30133,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": null,
+            "primary": null,
+            "mode": "countdown",
+            "id": "banner-cta",
+            "tag": "BUTTON",
+            "cta": true,
+            "x": 201,
+            "y": 389,
+            "screenX": 201,
+            "screenY": 389,
+            "button": null,
+            "detail": 0,
+            "cancelable": false,
+            "prevented": false,
+            "path": [
+              {
+                "id": "banner-cta",
+                "tag": "BUTTON"
+              },
+              {
+                "id": "banner",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "touchend",
+            "phase": "bubble",
+            "time": 30133,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": null,
+            "primary": null,
+            "mode": "countdown",
+            "id": "banner-cta",
+            "tag": "BUTTON",
+            "cta": true,
+            "x": 201,
+            "y": 389,
+            "screenX": 201,
+            "screenY": 389,
+            "button": null,
+            "detail": 0,
+            "cancelable": false,
+            "prevented": false,
+            "path": [
+              {
+                "id": "banner-cta",
+                "tag": "BUTTON"
+              },
+              {
+                "id": "banner",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          }
+        ],
+        "errors": []
+      },
+      "events": [
+        {
+          "type": "pointerdown",
+          "phase": "capture",
+          "time": 29903.000000000004,
+          "trusted": true,
+          "pointer": "touch",
+          "pointerId": 1770746435,
+          "primary": true,
+          "mode": "title",
+          "id": "banner-cta",
+          "tag": "BUTTON",
+          "cta": true,
+          "x": 201,
+          "y": 389,
+          "screenX": 201,
+          "screenY": 389,
+          "button": 0,
+          "detail": 0,
+          "cancelable": true,
+          "prevented": false,
+          "path": [
+            {
+              "id": "banner-cta",
+              "tag": "BUTTON"
+            },
+            {
+              "id": "banner",
+              "tag": "DIV"
+            },
+            {
+              "id": "",
+              "tag": "BODY"
+            },
+            {
+              "id": "",
+              "tag": "HTML"
+            }
+          ]
+        },
+        {
+          "type": "pointerdown",
+          "phase": "bubble",
+          "time": 29903.000000000004,
+          "trusted": true,
+          "pointer": "touch",
+          "pointerId": 1770746435,
+          "primary": true,
+          "mode": "title",
+          "id": "banner-cta",
+          "tag": "BUTTON",
+          "cta": true,
+          "x": 201,
+          "y": 389,
+          "screenX": 201,
+          "screenY": 389,
+          "button": 0,
+          "detail": 0,
+          "cancelable": true,
+          "prevented": false,
+          "path": [
+            {
+              "id": "banner-cta",
+              "tag": "BUTTON"
+            },
+            {
+              "id": "banner",
+              "tag": "DIV"
+            },
+            {
+              "id": "",
+              "tag": "BODY"
+            },
+            {
+              "id": "",
+              "tag": "HTML"
+            }
+          ]
+        },
+        {
+          "type": "touchstart",
+          "phase": "capture",
+          "time": 29904,
+          "trusted": true,
+          "pointer": "touch",
+          "pointerId": null,
+          "primary": null,
+          "mode": "title",
+          "id": "banner-cta",
+          "tag": "BUTTON",
+          "cta": true,
+          "x": 201,
+          "y": 389,
+          "screenX": 201,
+          "screenY": 389,
+          "button": null,
+          "detail": 0,
+          "cancelable": false,
+          "prevented": false,
+          "path": [
+            {
+              "id": "banner-cta",
+              "tag": "BUTTON"
+            },
+            {
+              "id": "banner",
+              "tag": "DIV"
+            },
+            {
+              "id": "",
+              "tag": "BODY"
+            },
+            {
+              "id": "",
+              "tag": "HTML"
+            }
+          ]
+        },
+        {
+          "type": "touchstart",
+          "phase": "bubble",
+          "time": 29904,
+          "trusted": true,
+          "pointer": "touch",
+          "pointerId": null,
+          "primary": null,
+          "mode": "title",
+          "id": "banner-cta",
+          "tag": "BUTTON",
+          "cta": true,
+          "x": 201,
+          "y": 389,
+          "screenX": 201,
+          "screenY": 389,
+          "button": null,
+          "detail": 0,
+          "cancelable": false,
+          "prevented": false,
+          "path": [
+            {
+              "id": "banner-cta",
+              "tag": "BUTTON"
+            },
+            {
+              "id": "banner",
+              "tag": "DIV"
+            },
+            {
+              "id": "",
+              "tag": "BODY"
+            },
+            {
+              "id": "",
+              "tag": "HTML"
+            }
+          ]
+        },
+        {
+          "type": "pointerup",
+          "phase": "capture",
+          "time": 30010,
+          "trusted": true,
+          "pointer": "touch",
+          "pointerId": 1770746435,
+          "primary": true,
+          "mode": "title",
+          "id": "banner-cta",
+          "tag": "BUTTON",
+          "cta": true,
+          "x": 201,
+          "y": 389,
+          "screenX": 201,
+          "screenY": 389,
+          "button": 0,
+          "detail": 0,
+          "cancelable": true,
+          "prevented": false,
+          "path": [
+            {
+              "id": "banner-cta",
+              "tag": "BUTTON"
+            },
+            {
+              "id": "banner",
+              "tag": "DIV"
+            },
+            {
+              "id": "",
+              "tag": "BODY"
+            },
+            {
+              "id": "",
+              "tag": "HTML"
+            }
+          ]
+        },
+        {
+          "type": "pointerup",
+          "phase": "bubble",
+          "time": 30133,
+          "trusted": true,
+          "pointer": "touch",
+          "pointerId": 1770746435,
+          "primary": true,
+          "mode": "countdown",
+          "id": "banner-cta",
+          "tag": "BUTTON",
+          "cta": true,
+          "x": 201,
+          "y": 389,
+          "screenX": 201,
+          "screenY": 389,
+          "button": 0,
+          "detail": 0,
+          "cancelable": true,
+          "prevented": false,
+          "path": [
+            {
+              "id": "banner-cta",
+              "tag": "BUTTON"
+            },
+            {
+              "id": "banner",
+              "tag": "DIV"
+            },
+            {
+              "id": "",
+              "tag": "BODY"
+            },
+            {
+              "id": "",
+              "tag": "HTML"
+            }
+          ]
+        },
+        {
+          "type": "touchend",
+          "phase": "capture",
+          "time": 30133,
+          "trusted": true,
+          "pointer": "touch",
+          "pointerId": null,
+          "primary": null,
+          "mode": "countdown",
+          "id": "banner-cta",
+          "tag": "BUTTON",
+          "cta": true,
+          "x": 201,
+          "y": 389,
+          "screenX": 201,
+          "screenY": 389,
+          "button": null,
+          "detail": 0,
+          "cancelable": false,
+          "prevented": false,
+          "path": [
+            {
+              "id": "banner-cta",
+              "tag": "BUTTON"
+            },
+            {
+              "id": "banner",
+              "tag": "DIV"
+            },
+            {
+              "id": "",
+              "tag": "BODY"
+            },
+            {
+              "id": "",
+              "tag": "HTML"
+            }
+          ]
+        },
+        {
+          "type": "touchend",
+          "phase": "bubble",
+          "time": 30133,
+          "trusted": true,
+          "pointer": "touch",
+          "pointerId": null,
+          "primary": null,
+          "mode": "countdown",
+          "id": "banner-cta",
+          "tag": "BUTTON",
+          "cta": true,
+          "x": 201,
+          "y": 389,
+          "screenX": 201,
+          "screenY": 389,
+          "button": null,
+          "detail": 0,
+          "cancelable": false,
+          "prevented": false,
+          "path": [
+            {
+              "id": "banner-cta",
+              "tag": "BUTTON"
+            },
+            {
+              "id": "banner",
+              "tag": "DIV"
+            },
+            {
+              "id": "",
+              "tag": "BODY"
+            },
+            {
+              "id": "",
+              "tag": "HTML"
+            }
+          ]
+        }
+      ],
+      "delivery": "trusted-cta-pointerup",
+      "completed": {
+        "mode": "playing",
+        "ready": true,
+        "fonts": "loaded",
+        "focus": true,
+        "visibility": "visible",
+        "banner": {
+          "classes": "",
+          "inert": true,
+          "opacity": "0",
+          "display": "flex",
+          "visibility": "visible"
+        },
+        "cta": {
+          "rect": {
+            "x": 101.43833923339844,
+            "y": 366.03466796875,
+            "width": 199.10231018066406,
+            "height": 44.9306640625,
+            "top": 366.03466796875,
+            "right": 300.5406494140625,
+            "bottom": 410.96533203125,
+            "left": 101.43833923339844
+          },
+          "center": {
+            "x": 200.98949432373047,
+            "y": 388.5
+          },
+          "pointerEvents": "none",
+          "visibility": "visible",
+          "transform": "matrix(1.044899, 0, 0, 1.044899, 0, 0)",
+          "animation": "pulse"
+        },
+        "hit": {
+          "id": "",
+          "tag": "CANVAS",
+          "cta": false,
+          "ignored": false
+        },
+        "active": {
+          "id": "",
+          "tag": "BODY",
+          "cta": false,
+          "ignored": false
+        },
+        "viewport": {
+          "width": 402,
+          "height": 714,
+          "screenWidth": 402,
+          "screenHeight": 874,
+          "dpr": 3,
+          "scrollX": 0,
+          "scrollY": 0,
+          "visual": {
+            "offsetLeft": 0,
+            "offsetTop": 0,
+            "pageTop": 0,
+            "width": 402,
+            "height": 714,
+            "scale": 1
+          }
+        },
+        "events": [
+          {
+            "type": "pointerdown",
+            "phase": "capture",
+            "time": 29903.000000000004,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": 1770746435,
+            "primary": true,
+            "mode": "title",
+            "id": "banner-cta",
+            "tag": "BUTTON",
+            "cta": true,
+            "x": 201,
+            "y": 389,
+            "screenX": 201,
+            "screenY": 389,
+            "button": 0,
+            "detail": 0,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "banner-cta",
+                "tag": "BUTTON"
+              },
+              {
+                "id": "banner",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "pointerdown",
+            "phase": "bubble",
+            "time": 29903.000000000004,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": 1770746435,
+            "primary": true,
+            "mode": "title",
+            "id": "banner-cta",
+            "tag": "BUTTON",
+            "cta": true,
+            "x": 201,
+            "y": 389,
+            "screenX": 201,
+            "screenY": 389,
+            "button": 0,
+            "detail": 0,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "banner-cta",
+                "tag": "BUTTON"
+              },
+              {
+                "id": "banner",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "touchstart",
+            "phase": "capture",
+            "time": 29904,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": null,
+            "primary": null,
+            "mode": "title",
+            "id": "banner-cta",
+            "tag": "BUTTON",
+            "cta": true,
+            "x": 201,
+            "y": 389,
+            "screenX": 201,
+            "screenY": 389,
+            "button": null,
+            "detail": 0,
+            "cancelable": false,
+            "prevented": false,
+            "path": [
+              {
+                "id": "banner-cta",
+                "tag": "BUTTON"
+              },
+              {
+                "id": "banner",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "touchstart",
+            "phase": "bubble",
+            "time": 29904,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": null,
+            "primary": null,
+            "mode": "title",
+            "id": "banner-cta",
+            "tag": "BUTTON",
+            "cta": true,
+            "x": 201,
+            "y": 389,
+            "screenX": 201,
+            "screenY": 389,
+            "button": null,
+            "detail": 0,
+            "cancelable": false,
+            "prevented": false,
+            "path": [
+              {
+                "id": "banner-cta",
+                "tag": "BUTTON"
+              },
+              {
+                "id": "banner",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "pointerup",
+            "phase": "capture",
+            "time": 30010,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": 1770746435,
+            "primary": true,
+            "mode": "title",
+            "id": "banner-cta",
+            "tag": "BUTTON",
+            "cta": true,
+            "x": 201,
+            "y": 389,
+            "screenX": 201,
+            "screenY": 389,
+            "button": 0,
+            "detail": 0,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "banner-cta",
+                "tag": "BUTTON"
+              },
+              {
+                "id": "banner",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "pointerup",
+            "phase": "bubble",
+            "time": 30133,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": 1770746435,
+            "primary": true,
+            "mode": "countdown",
+            "id": "banner-cta",
+            "tag": "BUTTON",
+            "cta": true,
+            "x": 201,
+            "y": 389,
+            "screenX": 201,
+            "screenY": 389,
+            "button": 0,
+            "detail": 0,
+            "cancelable": true,
+            "prevented": false,
+            "path": [
+              {
+                "id": "banner-cta",
+                "tag": "BUTTON"
+              },
+              {
+                "id": "banner",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "touchend",
+            "phase": "capture",
+            "time": 30133,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": null,
+            "primary": null,
+            "mode": "countdown",
+            "id": "banner-cta",
+            "tag": "BUTTON",
+            "cta": true,
+            "x": 201,
+            "y": 389,
+            "screenX": 201,
+            "screenY": 389,
+            "button": null,
+            "detail": 0,
+            "cancelable": false,
+            "prevented": false,
+            "path": [
+              {
+                "id": "banner-cta",
+                "tag": "BUTTON"
+              },
+              {
+                "id": "banner",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          },
+          {
+            "type": "touchend",
+            "phase": "bubble",
+            "time": 30133,
+            "trusted": true,
+            "pointer": "touch",
+            "pointerId": null,
+            "primary": null,
+            "mode": "countdown",
+            "id": "banner-cta",
+            "tag": "BUTTON",
+            "cta": true,
+            "x": 201,
+            "y": 389,
+            "screenX": 201,
+            "screenY": 389,
+            "button": null,
+            "detail": 0,
+            "cancelable": false,
+            "prevented": false,
+            "path": [
+              {
+                "id": "banner-cta",
+                "tag": "BUTTON"
+              },
+              {
+                "id": "banner",
+                "tag": "DIV"
+              },
+              {
+                "id": "",
+                "tag": "BODY"
+              },
+              {
+                "id": "",
+                "tag": "HTML"
+              }
+            ]
+          }
+        ],
+        "errors": []
+      }
+    }
+  ],
+  "ownedSimulatorDeleted": true,
+  "passed": true
+}

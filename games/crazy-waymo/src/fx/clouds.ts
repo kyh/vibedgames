@@ -1,19 +1,19 @@
 import * as THREE from "three";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
 import type { CloudQuality } from "../render/quality";
 import { WORLD_H, WORLD_HALF_X, WORLD_W } from "../shared/constants";
 
-// SF sky: two billboard layers on one shader.
+// SF sky: sculpted cumulus above translucent marine fog.
 //
 // 1. High cumulus — puffy clusters way above the city, drifting east.
 // 2. Karl the Fog — the low marine layer: huge, flat, near-white sheets that
 //    roll in off the Pacific, spill over the western hills, and dissolve as
 //    they push inland (exactly what the real fog does most afternoons).
 //
-// Each layer is ONE InstancedBufferGeometry draw call. Billboarding is
-// cylindrical (yaw-only, done in the vertex shader) so the flat sheets never
-// tilt with the chase camera. The soft blob texture is generated on a canvas
-// at boot — no asset fetch.
+// Each layer is one instanced draw. Cumulus use 500 triangles per cluster,
+// smooth wrap lighting and real depth; Karl stays on soft billboards.
+// No shadow casting, raymarching or additional render passes.
 
 // 22 cumulus were scattered over 1.6 x 1.4 map widths of sky — about one cloud
 // per two million square units — and painted pure white against a pale noon
@@ -34,26 +34,12 @@ const CLUSTER_SPREAD_X = 0.46;
 const CLUSTER_SPREAD_Z = 0.14;
 /** Satellites shoulder BELOW the hero — cumulus towers, not a flat row. */
 const CLUSTER_DROP = 0.14;
-// Sun-occlusion tap (kart-royale kr-sky-water §3): one extra texture fetch
-// displaced toward the sun gives both the anti-sun self-shadow AND — from the
-// sign of the same density gradient — the free silver lining on the sun flank.
-/** UV displacement of the sun tap, in quad heights (world-isotropic in VERT). */
-const SUN_TAP_FRAC = 0.35;
-const SUN_OCC_DEPTH = 0.38; // max darkening on the shadowed flank
-const SUN_OCC_GAIN = 1.6;
-const LINING_GAIN = 2.6; // (a - al) -> rim mask slope, KR verbatim
-/** Rim radiance vs the live sun color — re-derived for waymo's exposure 0.62. */
-const LINING_STRENGTH = 0.6;
+/** Warm direct light on the cloud shoulders; diffuse sky fill stays neutral. */
+const LINING_STRENGTH = 0.34;
 // Sun-keyed terms hold through sunset (lamp opens at 0.62 there) and die
 // across dusk, so the lit rims sweep dawn -> night without popping.
 const SUN_FADE_LO = 0.62;
 const SUN_FADE_HI = 1.0;
-// Vertical shading on a cumulus: the flat-lit top vs the sky-fill underside.
-// Without it a billboard is one flat alpha blob no matter how good the texture,
-// which is the other half of why they read as absent rather than as clouds.
-const HIGH_BASE_SHADE = 0.7; // underside multiplier
-const HIGH_SHADE_LO = 0.1; // quad v where the shading starts
-const HIGH_SHADE_HI = 0.72; // ...and where it reaches full daylight
 // Karl dissolves past this map fraction (u west→east); respawns over the ocean.
 const FOG_DISSOLVE_U = 0.55;
 const FOG_SPAWN_MIN_U = -0.25; // off-shore, over the open Pacific
@@ -78,12 +64,9 @@ const VERT = `
   attribute vec3 aCenter;
   attribute vec2 aSize;
   attribute float aAlpha;
-  attribute float aSeed;
-  uniform vec3 uSunDir;
   varying vec2 vUv;
   varying float vAlpha;
   varying float vWorldY;
-  varying vec2 vSunUv;
   void main() {
     vUv = uv;
     vAlpha = aAlpha;
@@ -95,11 +78,6 @@ const VERT = `
     vec3 local = vec3(position.x * aSize.x, position.y * aSize.y, 0.0);
     vec3 world = aCenter + vec3(local.x * c + local.z * s, local.y, -local.x * s + local.z * c);
     vWorldY = world.y;
-    // The sun tap's UV displacement: project the sun direction onto the quad
-    // plane (local +x maps to world (c, 0, -s)), scaled per axis so the same
-    // world-space displacement lands on both the wide and the tall axis.
-    float sunX = dot(uSunDir.xz, vec2(c, -s));
-    vSunUv = vec2(sunX * aSize.y / max(aSize.x, 1.0), uSunDir.y) * ${SUN_TAP_FRAC.toFixed(2)};
     gl_Position = projectionMatrix * viewMatrix * vec4(world, 1.0);
   }
 `;
@@ -107,10 +85,7 @@ const VERT = `
 // skipping the blend write for them saves real ROP bandwidth on tile GPUs.
 // `floorFade` gives the low marine sheets a soft world-space underside (see
 // FLOOR_Y); the high cumulus sit 190u up and skip the extra work entirely.
-// `shade` also enables the sun tap: the marine layer is a flat sheet lit from
-// every side at once, so both the vertical ramp AND a directional rim on it
-// read as gradient errors — only the cumulus get either.
-function frag(discardLow: boolean, floorFade: boolean, shade: boolean): string {
+function frag(discardLow: boolean, floorFade: boolean): string {
   return `
   uniform sampler2D uMap;
   uniform vec3 uColor;
@@ -118,36 +93,78 @@ function frag(discardLow: boolean, floorFade: boolean, shade: boolean): string {
   varying vec2 vUv;
   varying float vAlpha;
   varying float vWorldY;
-  varying vec2 vSunUv;
-  ${shade ? "uniform vec3 uSunCol;\n  uniform float uSunW;" : ""}
   void main() {
     float a = texture2D(uMap, vUv).a * vAlpha;
     ${floorFade ? `a *= smoothstep(${FLOOR_Y.toFixed(1)}, ${FLOOR_TOP.toFixed(1)}, vWorldY);` : ""}
     ${discardLow ? "if (a < 0.004) discard;" : ""}
     vec3 rgb = uColor * uDim;
-    ${
-      shade
-        ? `rgb *= mix(${HIGH_BASE_SHADE.toFixed(2)}, 1.0,
-        smoothstep(${HIGH_SHADE_LO.toFixed(2)}, ${HIGH_SHADE_HI.toFixed(2)}, vUv.y));
-    // One sun-displaced density tap: where the displaced sample is DENSER the
-    // texel sits behind cloud mass (self-shadow); where it is thinner the
-    // texel is the sun-facing flank and the same gradient is the silver lining.
-    float al = texture2D(uMap, vUv + vSunUv).a * vAlpha;
-    rgb *= 1.0 - ${SUN_OCC_DEPTH.toFixed(2)} * uSunW
-      * clamp((al - a) * ${SUN_OCC_GAIN.toFixed(2)}, 0.0, 1.0);
-    rgb += uSunCol * clamp((a - al) * ${LINING_GAIN.toFixed(2)}, 0.0, 1.0)
-      * smoothstep(0.05, 0.30, a);`
-        : ""
-    }
     gl_FragColor = vec4(rgb, a);
   }
 `;
 }
 
-// A soft, lumpy cloud blob: overlapping radial gradients on a canvas.
-// `dense` (cumulus): near-opaque cores + a soft flat base so the puffs read
-// as solid cartoon clouds; false keeps the translucent marine-fog softness.
-function cloudTexture(lobes: number, squash: number, dense = false): THREE.CanvasTexture {
+function cumulusGeometry(): THREE.BufferGeometry {
+  const lobes = [
+    { x: 0, y: 0.12, z: 0, sx: 0.28, sy: 0.4, sz: 0.27 },
+    { x: -0.28, y: -0.04, z: 0.03, sx: 0.25, sy: 0.24, sz: 0.24 },
+    { x: 0.26, y: -0.04, z: 0, sx: 0.28, sy: 0.3, sz: 0.26 },
+    { x: -0.06, y: -0.21, z: 0.15, sx: 0.38, sy: 0.2, sz: 0.23 },
+    { x: 0.1, y: -0.03, z: -0.19, sx: 0.33, sy: 0.3, sz: 0.25 },
+  ];
+  const pieces = lobes.map((lobe) => {
+    const geometry = new THREE.SphereGeometry(1, 10, 6);
+    geometry.scale(lobe.sx, lobe.sy, lobe.sz);
+    geometry.translate(lobe.x, lobe.y, lobe.z);
+    return geometry;
+  });
+  const geometry = mergeGeometries(pieces);
+  for (const piece of pieces) piece.dispose();
+  if (!geometry) throw new Error("Cloud lobe layouts must agree");
+  return geometry;
+}
+
+const CUMULUS_VERT = /* glsl */ `
+  attribute vec3 aCenter;
+  attribute vec2 aSize;
+  attribute float aSeed;
+  varying vec3 vCloudNormal;
+  void main() {
+    // Fixed world rotation, unlike a billboard: cloud shoulders keep their
+    // sun-facing side while the camera turns and travels underneath them.
+    float yaw = aSeed * 6.2831853;
+    float c = cos(yaw);
+    float s = sin(yaw);
+    vec3 scale = vec3(aSize.x, aSize.y, aSize.x * 0.62);
+    vec3 p = position * scale;
+    vec3 world = aCenter + vec3(p.x * c + p.z * s, p.y, -p.x * s + p.z * c);
+    vec3 n = normal / scale;
+    vCloudNormal = normalize(vec3(n.x * c + n.z * s, n.y, -n.x * s + n.z * c));
+    gl_Position = projectionMatrix * viewMatrix * vec4(world, 1.0);
+  }
+`;
+
+const CUMULUS_FRAG = /* glsl */ `
+  uniform vec3 uColor;
+  uniform float uDim;
+  uniform vec3 uSunDir;
+  uniform vec3 uSunCol;
+  uniform float uSunW;
+  varying vec3 vCloudNormal;
+  void main() {
+    vec3 n = normalize(vCloudNormal);
+    float skyFill = 0.72 + 0.28 * (n.y * 0.5 + 0.5);
+    float key = smoothstep(-0.75, 1.0, dot(n, uSunDir));
+    vec3 rgb = uColor * uDim * skyFill;
+    float dayKey = mix(0.55, key, uSunW);
+    rgb *= mix(vec3(0.72, 0.84, 1.0), vec3(1.0), dayKey);
+    rgb *= mix(0.82, 1.22, dayKey);
+    rgb += uSunCol * key * 0.16;
+    gl_FragColor = vec4(rgb, 1.0);
+  }
+`;
+
+// Translucent marine fog stays soft; it must never acquire a cumulus rim.
+function cloudTexture(lobes: number, squash: number): THREE.CanvasTexture {
   const w = 256;
   const h = 128;
   const canvas = document.createElement("canvas");
@@ -156,8 +173,6 @@ function cloudTexture(lobes: number, squash: number, dense = false): THREE.Canva
   const ctx = canvas.getContext("2d");
   if (ctx) {
     ctx.clearRect(0, 0, w, h);
-    const core = dense ? 0.9 : 0.42;
-    const mid = dense ? 0.55 : 0.2;
     for (let i = 0; i < lobes; i++) {
       const r = h * (0.34 + Math.random() * 0.22);
       // Keep the whole gradient inside the canvas: a lobe clipped by the
@@ -168,8 +183,8 @@ function cloudTexture(lobes: number, squash: number, dense = false): THREE.Canva
       const rawY = h * (0.52 + (Math.random() - 0.5) * 0.2);
       const cy = Math.max(r * squash + 2, rawY); // bottom clip is masked by the base fade
       const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-      g.addColorStop(0, `rgba(255,255,255,${core})`);
-      g.addColorStop(0.55, `rgba(255,255,255,${mid})`);
+      g.addColorStop(0, "rgba(255,255,255,0.42)");
+      g.addColorStop(0.55, "rgba(255,255,255,0.2)");
       g.addColorStop(1, "rgba(255,255,255,0)");
       ctx.save();
       ctx.translate(cx, cy);
@@ -178,16 +193,6 @@ function cloudTexture(lobes: number, squash: number, dense = false): THREE.Canva
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, w, h);
       ctx.restore();
-    }
-    if (dense) {
-      // Erase the ragged underside into a soft flat base.
-      const fade = ctx.createLinearGradient(0, h * 0.64, 0, h * 0.85);
-      fade.addColorStop(0, "rgba(0,0,0,0)");
-      fade.addColorStop(1, "rgba(0,0,0,1)");
-      ctx.globalCompositeOperation = "destination-out";
-      ctx.fillStyle = fade;
-      ctx.fillRect(0, 0, w, h);
-      ctx.globalCompositeOperation = "source-over";
     }
   }
   const tex = new THREE.CanvasTexture(canvas);
@@ -203,13 +208,16 @@ type LayerOpts = {
   nightColor: number;
   /** How much of the daylight brightness survives full night (0..1). */
   nightDim: number;
-  tex: THREE.CanvasTexture;
   renderOrder: number;
-  discardLow: boolean;
-  floorFade: boolean;
-  /** Vertical top-lit / underside-shaded ramp (cumulus only). */
-  shade: boolean;
-};
+} & (
+  | { readonly kind: "cumulus" }
+  | {
+      readonly kind: "marine";
+      readonly tex: THREE.Texture;
+      readonly discardLow: boolean;
+      readonly floorFade: boolean;
+    }
+);
 
 class CloudLayer {
   readonly mesh: THREE.Mesh;
@@ -221,11 +229,13 @@ class CloudLayer {
   private alphaAttr: THREE.InstancedBufferAttribute;
 
   constructor(opts: LayerOpts) {
-    const quad = new THREE.PlaneGeometry(1, 1);
+    const sculpted = opts.kind === "cumulus";
+    const quad = sculpted ? cumulusGeometry() : new THREE.PlaneGeometry(1, 1);
     const geo = new THREE.InstancedBufferGeometry();
     geo.index = quad.index;
     geo.setAttribute("position", quad.getAttribute("position"));
     geo.setAttribute("uv", quad.getAttribute("uv"));
+    geo.setAttribute("normal", quad.getAttribute("normal"));
     geo.instanceCount = opts.count;
     this.geo = geo;
 
@@ -248,17 +258,18 @@ class CloudLayer {
     const color = new THREE.Color(opts.color);
     const mat = new THREE.ShaderMaterial({
       uniforms: {
-        uMap: { value: opts.tex },
+        uMap: { value: opts.kind === "marine" ? opts.tex : null },
         uColor: { value: color },
         uDim: { value: 1 },
         uSunDir: this.sunDirU,
         uSunCol: this.sunColU,
         uSunW: this.sunWU,
       },
-      vertexShader: VERT,
-      fragmentShader: frag(opts.discardLow, opts.floorFade, opts.shade),
-      transparent: true,
-      depthWrite: false,
+      vertexShader: sculpted ? CUMULUS_VERT : VERT,
+      fragmentShader:
+        opts.kind === "cumulus" ? CUMULUS_FRAG : frag(opts.discardLow, opts.floorFade),
+      transparent: !sculpted,
+      depthWrite: sculpted,
     });
     this.dimUniform = mat.uniforms.uDim ?? { value: 1 };
     this.tint = color;
@@ -329,11 +340,8 @@ export class SkyClouds {
       color: 0xffffff,
       nightColor: 0x4a5a86,
       nightDim: 0.85,
-      tex: cloudTexture(5, 0.9, true),
       renderOrder: 4,
-      discardLow,
-      floorFade: false,
-      shade: true,
+      kind: "cumulus",
     });
     this.fog = new CloudLayer({
       count: FOG_COUNT,
@@ -346,7 +354,7 @@ export class SkyClouds {
       floorFade: true,
       // Karl is a flat sheet lit from every side at once; a top-lit ramp on it
       // reads as a gradient error, not as volume.
-      shade: false,
+      kind: "marine",
     });
     this.group.add(this.high.mesh);
     this.group.add(this.fog.mesh);
@@ -371,10 +379,14 @@ export class SkyClouds {
       if (dir.lengthSq() < 1e-6) return;
       this.high.sunDirU.value.copy(dir.normalize());
       const dayW = 1 - THREE.MathUtils.smoothstep(this.nightF, SUN_FADE_LO, SUN_FADE_HI);
-      this.high.sunWU.value = dayW;
+      // The directional light becomes the moon after dusk. Keep its shading
+      // across the lobes so night clouds retain volume instead of flat cutouts.
+      this.high.sunWU.value = THREE.MathUtils.lerp(0.65, 1, dayW);
       this.high.sunColU.value
         .copy(sun.color)
-        .multiplyScalar(Math.min(sun.intensity, 1.2) * LINING_STRENGTH * dayW);
+        .multiplyScalar(
+          Math.min(sun.intensity, 1.2) * LINING_STRENGTH * THREE.MathUtils.lerp(0.35, 1, dayW),
+        );
     };
 
     // Cluster spawner (see CLUSTER_*): a hero puff plus overlapping shoulder
@@ -408,8 +420,9 @@ export class SkyClouds {
         const dy = hero ? 0 : -heroW * CLUSTER_DROP * (0.4 + Math.random() * 0.6);
         const dz = hero ? 0 : Math.sin(ang) * heroW * CLUSTER_SPREAD_Z * 2 * reach;
         this.high.centers.set([cx + dx, cy + dy, cz + dz], i * 3);
-        this.high.sizes.set([w, w * (0.3 + Math.random() * 0.14)], i * 2);
+        this.high.sizes.set([w, w * (0.42 + Math.random() * 0.16)], i * 2);
         this.high.alphas[i] = hero ? 0.85 + Math.random() * 0.15 : 0.55 + Math.random() * 0.35;
+        this.high.seeds[i] = Math.random();
         this.highSpeed[i] = speed;
       }
     }
