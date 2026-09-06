@@ -414,27 +414,28 @@ export class GameScene {
    *  gate on it) and kill the continuous engine/screech/scrape/boost loops
    *  so nothing drones on under the overlay. */
   requestPause(): void {
+    if (this.paused) return;
     this.paused = true;
     this.sfx.stopEngine();
-    this.sfx.setScreech(0, 1);
-    this.sfx.setScrape(false);
-    this.sfx.setBoostLoop(false);
-    // Music droning under the PAUSED overlay defeats the pause. Only playing
-    // runs have it on (start() owns it) — remember, so resume restarts it only
+    this.sfx.pause();
+    // Music starts with the countdown. Remember it so resume restarts it only
     // when we were the ones to stop it.
-    this.musicPausedByWrapper = this.mode.kind === "playing";
+    this.musicPausedByWrapper = this.mode.kind === "playing" || this.mode.kind === "countdown";
     if (this.musicPausedByWrapper) this.sfx.stopMusic();
   }
 
   /** Wrapper resume: update() picks the loops back up on its own next frame. */
   requestResume(): void {
+    if (!this.paused) return;
     this.paused = false;
+    this.sfx.resume();
     if (this.musicPausedByWrapper) {
       this.musicPausedByWrapper = false;
       this.sfx.startMusic();
     }
   }
   private musicPausedByWrapper = false;
+
   // Editor: live street rebuild — regenerate roads in-place and respawn
   // traffic on the new network. No reload.
   rebuildStreets(): void {
@@ -491,6 +492,9 @@ export class GameScene {
   private scrapeFrames = 0;
   private wasBoosting = false;
   private wasFloating = false;
+  private wasAirborne = false;
+  private boostWasFull = true;
+  private lastPatience = 1;
   private lastDriftTier: 0 | 1 | 2 = 0;
   private countdownShown = -1;
   private camFrom = new THREE.Vector3();
@@ -1332,12 +1336,27 @@ vec3 ocGerstner(vec2 p, float t) {
 
   private openGarage(): void {
     this.garageOpen = true;
+    this.sfx.ui("open");
     let el = this.garageEl;
     if (!el) {
       el = document.createElement("div");
       el.id = "garage";
       document.body.appendChild(el);
       this.garageEl = el;
+      let browsedSkin: string | undefined;
+      const browse = (e: Event): void => {
+        const card = e.target instanceof Element ? e.target.closest("[data-skin]") : null;
+        if (!(card instanceof HTMLElement)) return;
+        const id = card.dataset["skin"];
+        if (!id || id === browsedSkin) return;
+        browsedSkin = id;
+        this.sfx.ui("move");
+      };
+      el.addEventListener("pointerover", browse);
+      el.addEventListener("focusin", browse);
+      el.addEventListener("pointerleave", () => {
+        browsedSkin = undefined;
+      });
       el.addEventListener("click", (e) => {
         const btn = e.target instanceof Element ? e.target.closest("[data-skin]") : null;
         if (!(btn instanceof HTMLElement)) return;
@@ -1347,6 +1366,7 @@ vec3 ocGerstner(vec2 p, float t) {
         const owned = this.ownedSkins.has(sk.id) || sk.price === 0;
         if (!owned) {
           if (this.state.score < sk.price) {
+            this.sfx.denied();
             this.hud.announceMinor(`NEED $${sk.price}`, "#ff6a5e");
             return;
           }
@@ -1354,7 +1374,8 @@ vec3 ocGerstner(vec2 p, float t) {
           this.ownedSkins.add(sk.id);
           storageSet("crazy-waymo:skins-owned", JSON.stringify([...this.ownedSkins]));
           this.hud.announceMinor(`${sk.label} UNLOCKED −$${sk.price}`, "#ffd24a");
-        }
+          this.sfx.unlock();
+        } else this.sfx.ui("select");
         this.skinId = sk.id;
         storageSet("crazy-waymo:skin", sk.id);
         void this.wearSkin(sk.id);
@@ -1393,7 +1414,8 @@ vec3 ocGerstner(vec2 p, float t) {
     this.garagePreview?.attach(el);
   }
 
-  private closeGarage(): void {
+  private closeGarage(announce = true): void {
+    if (announce && this.garageOpen) this.sfx.ui("back");
     this.garageOpen = false;
     if (this.garageEl) this.garageEl.style.display = "none";
   }
@@ -1418,7 +1440,7 @@ vec3 ocGerstner(vec2 p, float t) {
             this.chatAt = Date.now();
             this.bubbles.say(this.car.object3D, text, { lift: 3.0 });
           }
-          this.closeChat();
+          this.closeChat(text ? "select" : "back");
         } else if (e.key === "Escape") {
           this.closeChat();
         }
@@ -1426,6 +1448,7 @@ vec3 ocGerstner(vec2 p, float t) {
       el.addEventListener("blur", () => this.closeChat());
     }
     el.style.display = "block";
+    this.sfx.ui("open");
     el.value = "";
     this.input.setTyping(true);
     // The chat pill lands on the pedal on a portrait phone, and a tap aimed at
@@ -1435,12 +1458,12 @@ vec3 ocGerstner(vec2 p, float t) {
     el.focus();
   }
 
-  private closeChat(): void {
+  private closeChat(cue: "select" | "back" = "back"): void {
     const el = this.chatEl;
-    if (el) {
-      el.style.display = "none";
-      el.blur();
-    }
+    if (!el || el.style.display === "none") return;
+    el.style.display = "none";
+    this.sfx.ui(cue);
+    el.blur();
     document.body.classList.remove("chatting");
     this.input.setTyping(false);
   }
@@ -1465,13 +1488,19 @@ vec3 ocGerstner(vec2 p, float t) {
   }
 
   private handleStartPress(): void {
-    if (this.mode.kind === "title") this.start();
+    if (this.mode.kind !== "title") return;
+    this.sfx.ensure();
+    this.sfx.ui("select");
+    this.start();
   }
 
   /** Restart the run — R, and the pause overlay's button for players with no
    *  keyboard. Trailer mode owns its run and must never be reset from UI. */
   restartRun(): void {
-    if (!this.trailerMode) this.start();
+    if (this.trailerMode) return;
+    this.sfx.ensure();
+    this.sfx.reset();
+    this.start();
   }
 
   /** M. Session-only in trailer mode: the trailer now solicits a keypress to
@@ -1479,6 +1508,7 @@ vec3 ocGerstner(vec2 p, float t) {
    *  saved sound preference for the real game. */
   private toggleMute(): void {
     this.sfx.setMuted(!this.sfx.muted);
+    if (!this.sfx.muted) this.sfx.ui("select");
     this.embedTouch.sync();
     if (!this.trailerMode) storageSet(SOUND_KEY, this.sfx.muted ? "0" : "1");
   }
@@ -1495,8 +1525,16 @@ vec3 ocGerstner(vec2 p, float t) {
     const car = this.car;
     const fares = this.fares;
     if (!car || !fares) return;
+    this.sfx.setPaused(this.paused);
+    this.sfx.stopEngine();
+    this.wasBoosting = false;
     this.wasFloating = false;
-    this.sfx.setWaterMotion(0);
+    this.wasAirborne = false;
+    this.boostWasFull = true;
+    this.lastPatience = 1;
+    this.lastDriftTier = 0;
+    this.scrapeFrames = 0;
+    this.closeGarage(false);
     notifyGameStarted();
     const lapS = (() => {
       let t = performance.now();
@@ -1680,7 +1718,7 @@ vec3 ocGerstner(vec2 p, float t) {
     // Single read — calling consumeRestart() twice would clear the one-shot flag
     // before the second branch could see it. R restarts from any state.
     // (Trailer mode owns the run: chat/restart would wreck a staged scene.)
-    if (this.input.consumeRestart() && !this.trailerMode) this.start();
+    if (this.input.consumeRestart()) this.restartRun();
     if (this.input.consumeMute()) this.toggleMute();
     this.updateGarages(dt);
     this.heckleCooldown = Math.max(0, this.heckleCooldown - dt);
@@ -1916,6 +1954,9 @@ vec3 ocGerstner(vec2 p, float t) {
     const ev = fares.update(dt, car);
     this.handleFareEvent(ev);
     this.state.update(dt, fares.carryingInfo() !== null);
+    const patience = fares.patienceFrac();
+    if (patience <= 0.25 && this.lastPatience > 0.25) this.sfx.passengerWarning();
+    this.lastPatience = patience;
 
     // Drift: score + screech + smoke + skid marks (slip-gated in the car).
     const water = car.waterContact;
@@ -1939,7 +1980,7 @@ vec3 ocGerstner(vec2 p, float t) {
     // Mini-turbo tier tell (Mario Kart): a blip + spark flare each time the
     // charge steps up a tier — blue at tier 1, orange at tier 2.
     const tier = drifting ? car.driftTier : 0;
-    if (tier > this.lastDriftTier) this.sfx.driftArm();
+    if (tier > this.lastDriftTier && (tier === 1 || tier === 2)) this.sfx.driftArm(tier);
     this.lastDriftTier = tier;
 
     // Drift-release mini-turbo — the signature skill move — pays by tier.
@@ -1947,7 +1988,7 @@ vec3 ocGerstner(vec2 p, float t) {
     // colored (cyan → orange). No ground shockwave.
     if (car.miniBoostFired) {
       const superTurbo = car.miniTurboTier >= 2;
-      this.sfx.boost();
+      this.sfx.miniTurbo(superTurbo ? 2 : 1);
       this.rig.addTrauma(superTurbo ? 0.26 : 0.18);
       this.hud.flash(superTurbo ? "#ffa726" : "#8fe8ff", 0.16);
       this.hud.showCombo(superTurbo ? "SUPER MINI-TURBO!" : "MINI-TURBO!");
@@ -1955,10 +1996,13 @@ vec3 ocGerstner(vec2 p, float t) {
 
     // Boost package: ignition one-shot + loop + flames + camera kick.
     if (car.isBoosting && !this.wasBoosting) {
-      this.sfx.boost();
+      if (!car.miniBoostFired) this.sfx.boost();
       this.rig.addTrauma(0.12);
-    }
+    } else if (!car.isBoosting && this.wasBoosting) this.sfx.boostEnd();
     this.wasBoosting = car.isBoosting;
+    const boostFull = car.boostMeter >= CAR.boostMax;
+    if (boostFull && !this.boostWasFull) this.sfx.boostReady();
+    this.boostWasFull = boostFull;
     this.sfx.setBoostLoop(car.isBoosting);
     if (car.isBoosting) {
       this.flameAccum += dt;
@@ -1989,6 +2033,8 @@ vec3 ocGerstner(vec2 p, float t) {
       car.isBoosting,
       car.airborne,
     );
+    if (car.airborne && !this.wasAirborne && car.speed > 8) this.sfx.jump();
+    this.wasAirborne = car.airborne;
 
     // Landing package: squash (in the car), dust ring, thud, shake, air pay.
     if (car.justLanded > 0) {
@@ -2248,7 +2294,7 @@ vec3 ocGerstner(vec2 p, float t) {
       if (car) car.addBoost(30);
     } else if (ev.kind === "bail") {
       this.state.bail();
-      this.sfx.denied();
+      this.sfx.passengerBail();
       this.hud.flash("#ff5a52", 0.2);
       this.hud.announceMinor("PASSENGER BAILED!", "#ff5a52");
     }
