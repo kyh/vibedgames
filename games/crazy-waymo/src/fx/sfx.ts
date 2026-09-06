@@ -134,20 +134,31 @@ export class Sfx {
   private fallbackLoop(ctx: AudioContext, name: LoopName): AudioBuffer {
     const buffer = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
     const data = buffer.getChannelData(0);
-    let smooth = 0;
-    for (let i = 0; i < data.length; i++) {
-      if (name === "engine-loop") {
+    if (name === "engine-loop") {
+      for (let i = 0; i < data.length; i++) {
         const phase = (i / ctx.sampleRate) * Math.PI * 2;
         data[i] =
           Math.sin(phase * 140) * 0.146 +
           Math.sin(phase * 280) * 0.0292 +
           Math.sin(phase * 420) * 0.0052;
-      } else {
-        smooth += (Math.random() * 2 - 1 - smooth) * 0.09;
-        // Zero both ends so the fallback loop has no seam click.
-        const edge = Math.min(1, i / 500, (data.length - 1 - i) / 500);
-        data[i] = smooth * 0.25 * edge;
       }
+      return buffer;
+    }
+
+    // Equal-power overlap keeps the noise continuous at the wrap. Fading each
+    // buffer edge to zero would repeat a small dropout on every fallback lap.
+    const overlap = Math.round(ctx.sampleRate * 0.02);
+    const noise = new Float32Array(data.length + overlap);
+    let smooth = 0;
+    for (let i = -512; i < noise.length; i++) {
+      smooth += (Math.random() * 2 - 1 - smooth) * 0.09;
+      if (i >= 0) noise[i] = smooth * 0.25;
+    }
+    data.set(noise.subarray(overlap, data.length));
+    for (let i = 0; i < overlap; i++) {
+      const angle = (i / (overlap - 1)) * Math.PI * 0.5;
+      data[data.length - overlap + i] =
+        (noise[data.length + i] ?? 0) * Math.cos(angle) + (noise[i] ?? 0) * Math.sin(angle);
     }
     return buffer;
   }

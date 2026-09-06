@@ -11,6 +11,10 @@ const directory = fileURLToPath(new URL("../public/audio/cozy/", import.meta.url
 const manifestPath = path.join(directory, "manifest.json");
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 const selected = new Set(process.argv.slice(3));
+const unknown = [...selected].filter(
+  (name) => !manifest.sounds.some((sound) => sound.name === name),
+);
+if (unknown.length > 0) throw new Error(`Unknown clip(s): ${unknown.join(", ")}`);
 const sampleRate = 44100;
 const channels = 2;
 const report = [];
