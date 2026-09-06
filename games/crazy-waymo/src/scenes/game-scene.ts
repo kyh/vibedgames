@@ -37,7 +37,7 @@ import {
 } from "../game/fares";
 import { GameState } from "../game/state";
 import type { ParkedCars } from "../game/parked-cars";
-import { Traffic } from "../game/traffic";
+import { Traffic, type TrafficCar } from "../game/traffic";
 import { InputState } from "../input/keyboard";
 import { NetSession } from "../net/session";
 import { readTransform, type RemoteCars } from "../net/remote-cars";
@@ -73,7 +73,7 @@ import type { Minimap, MinimapMarker } from "../ui/minimap";
 import { setTouchPlaying, setupTouch, type TouchControls } from "../ui/touch";
 import type { Car, CarInput } from "../vehicle/car";
 import type { CityModel, Garage } from "../world/city";
-import { HECKLES, SpeechBubbles } from "../fx/speech-bubbles";
+import { HECKLES, SpeechBubbles, TRAFFIC_QUIPS, type TrafficQuip } from "../fx/speech-bubbles";
 import { ROBOTAXI_SKINS, skinById, skinModelUrl } from "../vehicle/car";
 import { districtAt, landFactor } from "../world/sf-map";
 import { CeilingIndex, deckCeilings, harvestCeilingSpans, SolidIndex } from "../world/solid-index";
@@ -301,6 +301,10 @@ export type TrailerStage = {
    *  hook: the trailer rolls unattended, so a context created at staging time
    *  would stay suspended by the browser. */
   unlockAudio(): void;
+  setGameplayHud(visible: boolean): void;
+  setCommentary(visible: boolean): void;
+  /** Stage an existing NPC line on a real fleet car, using the normal bubbles. */
+  sayTraffic(car: TrafficCar, quip: TrafficQuip): void;
 };
 
 export class GameScene {
@@ -2289,7 +2293,7 @@ vec3 ocGerstner(vec2 p, float t) {
       // The drive is endless, so no end-of-run hands the title screen its BEST
       // line — bank it wherever the score grows instead.
       const score = this.state.displayScore;
-      if (score > readBest()) storageSet(BEST_KEY, String(score));
+      if (!this.trailerMode && score > readBest()) storageSet(BEST_KEY, String(score));
       this.sayRiderLine("dropoff");
       if (car) car.addBoost(30);
     } else if (ev.kind === "bail") {
@@ -2303,6 +2307,9 @@ vec3 ocGerstner(vec2 p, float t) {
   // Heckles know WHO they're yelling at: mostly the citywide anti-robotaxi
   // pool, but ~45% of the time an operator-specific jab at the equipped car.
   private pickHeckle(): string | undefined {
+    // The trailer places its few reactions explicitly; random heckles compete
+    // with those lines and make consecutive takes say different things.
+    if (this.trailerMode) return undefined;
     const sk = skinById(this.skinId);
     const pool = sk.heckles.length > 0 && Math.random() < 0.45 ? sk.heckles : HECKLES;
     return pool[Math.floor(Math.random() * pool.length)];
@@ -2461,10 +2468,17 @@ vec3 ocGerstner(vec2 p, float t) {
   private trailerStage: TrailerStage | null = null;
   private trailerFrame: ((dt: number) => void) | null = null;
 
-  /** TRAILER: flip the loaded scene straight into gameplay — no banner, no
-   *  countdown — and hand the director its staging facade. Only functional in
-   *  ?trailer=1 boots after `ready`; idempotent. Audio stays silent until the
-   *  director calls stage.unlockAudio() (there is no start gate to unlock it). */
+  /** Load the trailer's taxi before revealing footage; leave saved equipment alone. */
+  async prepareTrailer(): Promise<void> {
+    if (!this.trailerMode) return;
+    await this.cache.ensure(skinModelUrl(skinById("waymo")));
+    // Keep the taxi consistent without changing the player's saved equipment.
+    this.skinId = "waymo";
+    this.car?.setSkin(this.skinId);
+  }
+
+  /** Enter gameplay and expose staging controls after `ready`; idempotent and
+   *  restricted to trailer boots. A trusted gesture unlocks audio through the shell. */
   beginTrailer(): TrailerStage | null {
     if (this.trailerStage) return this.trailerStage;
     if (!this.trailerMode || !this.loadDone) return null;
@@ -2482,9 +2496,7 @@ vec3 ocGerstner(vec2 p, float t) {
     this.hintBoostShown = true;
     if (this.garagePillar) this.garagePillar.visible = false;
     if (this.garageRings) this.garageRings.visible = false;
-    // Speech bubbles (NPC heckles, passenger chatter) photobomb the subject
-    // in staged shots and go stale across cuts — hidden for the whole boot.
-    this.bubbles.group.visible = false;
+    this.bubbles.clear();
     this.state.reset();
     this.mode = { kind: "playing" };
     this.trailerStage = {
@@ -2548,6 +2560,21 @@ vec3 ocGerstner(vec2 p, float t) {
         this.sfx.ensure();
         this.sfx.setMuted(false);
         this.sfx.startMusic();
+      },
+      setGameplayHud: (visible) => this.minimap?.setVisible(visible),
+      setCommentary: (visible) => {
+        this.bubbles.clear();
+        this.bubbles.group.visible = visible;
+      },
+      sayTraffic: (actor, quip) => {
+        if (this.bubbles.group.visible && traffic.cars.includes(actor)) {
+          this.bubbles.say(actor.object3D, TRAFFIC_QUIPS[quip], {
+            lift: 2.3,
+            dur: 3,
+            accent: "#e05c2e",
+            screenWidth: 0.22,
+          });
+        }
       },
     };
     return this.trailerStage;

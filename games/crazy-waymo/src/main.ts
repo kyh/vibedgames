@@ -157,7 +157,11 @@ if (trailerMode) {
   void Promise.all([import("./trailer/trailer-director"), loaded]).then(
     async ([{ startTrailer }]) => {
       await game.ready; // staging needs traffic/physics/cones — full readiness
-      startTrailer(game);
+      await game.prepareTrailer();
+      startTrailer(game, () => {
+        drawScene();
+        return renderer.domElement;
+      });
     },
   );
 }

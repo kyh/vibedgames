@@ -2294,6 +2294,12 @@ export function landmarkProtection(
     }
   };
 
+  // OSM relation 3829019 includes Sutro's 298m antenna as a building. Its
+  // western footing cell at (-353, 92) touches only that footprint. Reserve
+  // it without adding collision: the authored antenna stands nearby, and the
+  // parcel pass must not build a second, glass-clad tower here.
+  reserved.add(cellKey(94, 107));
+
   for (const lm of LANDMARKS) {
     if (!lm.protHalf && !lm.clearHalf) continue;
     const [x, z] = resolvePosition(lm, network);

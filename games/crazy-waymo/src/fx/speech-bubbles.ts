@@ -12,6 +12,7 @@ type Bubble = {
   lift: number;
   age: number;
   dur: number;
+  screenWidth?: number;
 };
 
 const MAX_BUBBLES = 10;
@@ -103,12 +104,23 @@ export class SpeechBubbles {
   readonly group = new THREE.Group();
   private bubbles: Bubble[] = [];
 
+  clear(): void {
+    for (const bubble of this.bubbles) this.dispose(bubble);
+    this.bubbles = [];
+  }
+
   // Show a bubble above `anchor` (an object, or a fn returning a world pos —
   // return null to hide early). One bubble per anchor: a new say() replaces.
   say(
     anchor: THREE.Object3D | (() => THREE.Vector3 | null),
     text: string,
-    opts?: { dur?: number; lift?: number; accent?: string },
+    opts?: {
+      dur?: number;
+      lift?: number;
+      accent?: string;
+      /** Optional share of the camera frame, stable as the speaker moves. */
+      screenWidth?: number;
+    },
   ): void {
     const clean = text.trim().slice(0, 90);
     if (!clean) return;
@@ -138,6 +150,10 @@ export class SpeechBubbles {
       lift: opts?.lift ?? 3.2,
       age: 0,
       dur: opts?.dur ?? 6,
+      screenWidth:
+        opts?.screenWidth !== undefined && Number.isFinite(opts.screenWidth)
+          ? THREE.MathUtils.clamp(opts.screenWidth, 0, MAX_SCREEN_FRAC)
+          : undefined,
     });
   }
 
@@ -152,6 +168,7 @@ export class SpeechBubbles {
 
   update(dt: number, camera: THREE.PerspectiveCamera): void {
     const pos = new THREE.Vector3();
+    const viewPos = new THREE.Vector3();
     const halfTan = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
     for (let i = this.bubbles.length - 1; i >= 0; i--) {
       const b = this.bubbles[i];
@@ -186,8 +203,15 @@ export class SpeechBubbles {
       const ch = canvas instanceof HTMLCanvasElement ? canvas.height : 80;
       // Frame width at the bubble's own depth: the cap is what keeps a
       // portrait phone's narrow horizontal field from being papered over.
-      const frameW = 2 * camera.position.distanceTo(b.sprite.position) * halfTan * camera.aspect;
-      const perPx = Math.min(UNITS_PER_PX, (frameW * MAX_SCREEN_FRAC) / cw);
+      const depth =
+        b.screenWidth === undefined
+          ? camera.position.distanceTo(b.sprite.position)
+          : Math.max(0, -viewPos.copy(b.sprite.position).applyMatrix4(camera.matrixWorldInverse).z);
+      const frameW = 2 * depth * halfTan * camera.aspect;
+      const perPx =
+        b.screenWidth === undefined
+          ? Math.min(UNITS_PER_PX, (frameW * MAX_SCREEN_FRAC) / cw)
+          : (frameW * b.screenWidth) / cw;
       b.sprite.scale.set(cw * perPx * s, ch * perPx * s, 1);
       if (b.sprite.material instanceof THREE.SpriteMaterial) {
         b.sprite.material.opacity = popIn * fade;
@@ -205,6 +229,12 @@ export class SpeechBubbles {
 // --- NPC heckling: what SF has actually said/done to robotaxis, playfully ---
 // (coning protests, the 50-Waymo dead-end prank, backflips off roofs,
 // "there's no driver?!", holiday gridlock screaming — see project notes)
+export const TRAFFIC_QUIPS = {
+  spreadsheet: "Did a spreadsheet just cut me off?",
+  brakes: "Your free trial of brakes expired.",
+};
+export type TrafficQuip = keyof typeof TRAFFIC_QUIPS;
+
 export const HECKLES: readonly string[] = [
   "THERE'S NO DRIVER?!",
   "Somebody get a cone!",
@@ -223,7 +253,7 @@ export const HECKLES: readonly string[] = [
   "One star. ONE STAR.",
   "It's driving itself?! In THIS economy?",
   "Watch the paint, Siri!",
-  "Did a spreadsheet just cut me off?",
+  TRAFFIC_QUIPS.spreadsheet,
   "Fifty of you blocked my street last week!",
   "Go back to Phoenix!",
   "Eyes on the road, chatbot!",
@@ -238,4 +268,5 @@ export const HECKLES: readonly string[] = [
   "Empty?! I got yelled at by an EMPTY CAR?!",
   "You saw what happened to the last one… 🔥",
   "Keep it up and you'll end up like the one in LA 🔥",
+  TRAFFIC_QUIPS.brakes,
 ];
