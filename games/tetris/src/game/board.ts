@@ -20,6 +20,8 @@ export type ClearResult = {
   lines: number;
   /** Cubes removed this clear (for scoring / fx). */
   cubes: number;
+  /** Exact pre-drop footprint, with crossing row/column intersections once. */
+  clearedCells: Cell[];
 };
 
 /** Clockwise rotation of an XZ footprint = transpose + reverse rows. */
@@ -106,7 +108,7 @@ export class Board {
    * each cleared pillar down by one. Returns counts for scoring/fx.
    */
   clearLayer(y: number): ClearResult {
-    const empty: ClearResult = { xColumns: 0, zRows: 0, lines: 0, cubes: 0 };
+    const empty: ClearResult = { xColumns: 0, zRows: 0, lines: 0, cubes: 0, clearedCells: [] };
     if (y < 0 || y >= this.height) return empty;
 
     const fullX: boolean[] = []; // fullX[x] = column x (all z) full
@@ -147,13 +149,17 @@ export class Board {
     }
 
     let cubes = 0;
+    const clearedCells: Cell[] = [];
     for (const k of pillars) {
       const x = Math.floor(k / this.depth);
       const z = k % this.depth;
-      if (this.occupied(x, y, z)) cubes += 1;
+      if (this.occupied(x, y, z)) {
+        cubes += 1;
+        clearedCells.push({ x, y, z });
+      }
       this.dropColumnAbove(x, z, y);
     }
-    return { xColumns, zRows, lines: xColumns + zRows, cubes };
+    return { xColumns, zRows, lines: xColumns + zRows, cubes, clearedCells };
   }
 
   /** Charged power-sweep: clear the lowest layer that has any cube and drop

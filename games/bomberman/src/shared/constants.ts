@@ -1,3 +1,6 @@
+import type { Arena } from "./arena";
+import type { ClockStamp } from "../util/clock";
+
 // ---- board geometry ---------------------------------------------------------
 
 export const TILE = 64;
@@ -97,6 +100,11 @@ export type Bot = {
  * wholesale — every field that can reset MUST be present in `emptyShared()`.
  */
 export type SharedState = {
+  /** Missing only in legacy rooms; read through readArena at the boundary. */
+  arena?: Arena;
+  nextArena?: Arena;
+  /** Missing only in legacy rooms; every current host write carries its clock. */
+  clock?: ClockStamp;
   grid: Cell[][];
   bombs: Record<string, Bomb>;
   blasts: Record<string, Blast>;

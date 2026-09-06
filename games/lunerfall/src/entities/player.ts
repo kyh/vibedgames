@@ -69,6 +69,7 @@ export class Player {
   private lastSwing = -1;
   private lastSpecial = -1;
   private lastRunDust = 0;
+  private lastEcho = -Infinity;
   private swingClip: string | null = null;
 
   constructor(
@@ -113,6 +114,7 @@ export class Player {
   }
 
   enterRoom(grid: Grid, x: number, y: number) {
+    this.lastEcho = -Infinity;
     this.body.enterRoom(grid, x, y);
     this.sprite.setPosition(Math.round(x), Math.round(y));
   }
@@ -227,13 +229,25 @@ export class Player {
       Math.round(interp(b.prevX, b.x, alpha)),
       Math.round(interp(b.prevY, b.y, alpha)),
     );
-    if (b.dashing) afterImage(this.scene, this.sprite, this.hero.color);
+    this.dashTrail(b.dashing);
     if (b.downed) this.sprite.setTint(DOWNED_TINT);
     else this.sprite.clearTint();
     this.sprite.setAlpha(
       b.iframes > 0 && !b.dead ? (Math.floor(b.iframes * 20) % 2 === 0 ? 0.45 : 1) : 1,
     );
     this.runTrail(b);
+  }
+
+  // Same scene-clock cadence for local render and remote puppet frames.
+  private dashTrail(dashing: boolean) {
+    if (!dashing) {
+      this.lastEcho = -Infinity;
+      return;
+    }
+    const now = this.scene.time.now;
+    if (now - this.lastEcho < 40) return;
+    this.lastEcho = now;
+    afterImage(this.scene, this.sprite, this.hero.color);
   }
 
   // Kick a smoke puff off the back foot while running on the ground.
@@ -303,7 +317,7 @@ export class Player {
       far ? tx : this.sprite.x + (tx - this.sprite.x) * 0.4,
       far ? ty : this.sprite.y + (ty - this.sprite.y) * 0.4,
     );
-    if (net.dashing) afterImage(this.scene, this.sprite, this.hero.color);
+    this.dashTrail(net.dashing);
     if (net.downed) this.sprite.setTint(DOWNED_TINT);
     else this.sprite.clearTint();
     this.sprite.setAlpha(

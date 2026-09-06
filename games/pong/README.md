@@ -8,6 +8,7 @@
 pnpm dev:pong   # http://localhost:5188
 pnpm --filter @repo/pong typecheck   # tsc --noEmit
 pnpm --filter @repo/pong build       # vite build
+pnpm --filter @repo/pong test        # curve + input continuity invariants
 pnpm --filter @repo/pong preview     # vite preview
 ```
 
@@ -18,6 +19,13 @@ pnpm --filter @repo/pong preview     # vite preview
 | `/` | the game |
 
 ## Controls
+
+Flick sideways just as the ball meets your paddle to curve a return. Hand, mouse,
+touch, and stick use the same move. A still paddle keeps the original return;
+curves keep rally speed and end after half a second or a wall bank. First to 7.
+
+Reduced motion follows the system preference: static camera, no inversion flash,
+shorter trails, and still score/callout feedback.
 
 | Input                              | Action           |
 | ---------------------------------- | ---------------- |

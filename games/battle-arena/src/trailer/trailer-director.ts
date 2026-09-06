@@ -112,6 +112,7 @@ type SceneSpec = {
 };
 
 class Director {
+  private disposed = false;
   private readonly world: World;
   private readonly worldView: WorldView;
   private readonly environment: Environment;
@@ -474,6 +475,7 @@ class Director {
       id: spec.id,
       duration: spec.duration,
       setup: () => {
+        if (this.disposed) return;
         this.holding = true;
         // Drop anything the outgoing scene queued: it would otherwise fire once
         // against the incoming scene's freshly staged world.
@@ -496,19 +498,34 @@ class Director {
       // it toward and away from the lens every frame. Queue the body instead
       // and let the loop run it against the pose it is about to draw.
       run: (t) => {
+        if (this.disposed) return;
         this.holding = false;
         this.pending = spec.run ? () => spec.run?.(t) : null;
       },
     };
-    if (spec.teardown) out.teardown = spec.teardown;
+    if (spec.teardown)
+      out.teardown = () => {
+        if (!this.disposed) spec.teardown?.();
+      };
     return out;
   }
 
   // ── the loop + kickoff ─────────────────────────────────────────────────────
 
+  /** Final owner cleanup; ordinary trailer cuts keep their continuous music. */
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.pending = null;
+    this.view.renderer.setAnimationLoop(null);
+    this.fx.dispose();
+  }
+
   start(): void {
+    if (this.disposed) return;
     const timer = new THREE.Timer();
     this.view.renderer.setAnimationLoop((t) => {
+      if (this.disposed) return;
       timer.update(t);
       const frameDt = Math.min(timer.getDelta(), 1 / 30);
       if (this.holding) {
@@ -564,6 +581,7 @@ class Director {
       // on that same gesture). Ephemeral — setMuted would persist
       // localStorage["ba-muted"]="0" and unmute normal gameplay for good.
       onGesture: () => {
+        if (this.disposed) return;
         this.fx.audio.setMutedEphemeral(false);
         this.fx.audio.music?.setIntensity(this.musicLevel);
       },

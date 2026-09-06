@@ -37,6 +37,7 @@ import { buildDecor, hash2, type Decor } from "../data/decor";
 import type { ModelLibrary } from "./models";
 import { refreshStaticShadows } from "./view";
 import { teamColor } from "./palette";
+import { ArenaMaterials, floorVariation } from "./arena-materials";
 
 /** Standing-tall models scale-to-height (target × decor scale) so they match
  *  the arena pillars; everything else keeps native size × scale. (Exported for
@@ -94,6 +95,8 @@ type GeoInfo = {
 };
 
 export class Environment {
+  private materials = new ArenaMaterials();
+  private readonly reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null;
   private flames: THREE.PointLight[] = [];
   // ambient particle layers (own Points — never the combat pool)
   private embers: THREE.Points | null = null;
@@ -277,8 +280,9 @@ export class Environment {
   /** Template lookup: extra architecture pieces first, then the shared lib. */
   private templateOf(name: string): THREE.Object3D {
     const extra = this.extras.get(name);
-    if (extra) return extra.clone(true);
-    return this.lib.instance(name);
+    const object = extra ? extra.clone(true) : this.lib.instance(name);
+    this.materials.apply(object, name);
+    return object;
   }
 
   /** Pull a single mesh's geometry+material out of a loaded prop for
@@ -692,12 +696,21 @@ export class Environment {
     for (const m of this.floorMeshes) {
       this.scene.remove(m);
       m.dispose(); // InstancedMesh.dispose frees its instance buffers only
+      const at = this.added.indexOf(m);
+      if (at >= 0) this.added.splice(at, 1);
+    }
+    for (const geometry of this.floorGeos) {
+      geometry.dispose();
+      const at = this.ownedGeos.indexOf(geometry);
+      if (at >= 0) this.ownedGeos.splice(at, 1);
     }
     this.floorMeshes.length = 0;
+    this.floorGeos.clear();
     this.buildFloor();
   }
 
   private floorMeshes: THREE.InstancedMesh[] = [];
+  private floorGeos = new Set<THREE.BufferGeometry>();
 
   private buildFloor(): void {
     const flag = this.geoOf("floor_tile_large");
@@ -705,19 +718,9 @@ export class Environment {
     const dirt = this.geoOf("floor_dirt_large");
     const grate = this.geoOf("floor_tile_big_grate");
     if (!flag) return;
-    // DUNGEON GRADE: the tile albedo is warm greige (~#8f867e) which reads as
-    // sand under the arena's warm light — multiply toward the cool stone gray
-    // of the walls so the hall reads dungeon, not desert (KayKit's own sample
-    // renders are this cool). Dirt keeps most of its warmth (camp blobs).
-    const coolTint = (info: GeoInfo | null, r: number, g: number, b: number): void => {
-      if (info && info.mat instanceof THREE.MeshStandardMaterial) info.mat.color.setRGB(r, g, b);
-    };
-    coolTint(flag, 0.72, 0.82, 0.97);
-    coolTint(worn, 0.72, 0.82, 0.97);
-    coolTint(grate, 0.76, 0.84, 0.97);
-    coolTint(dirt, 0.75, 0.72, 0.67);
     for (const info of [flag, worn, dirt, grate]) {
       if (!info) continue;
+      this.floorGeos.add(info.geo);
       const c = info.box.getCenter(V_POS);
       info.geo.translate(-c.x, 0, -c.z); // center each tile on its origin
     }
@@ -801,8 +804,10 @@ export class Environment {
         V_POS.set(x, y, z);
         V_SCL.set(1, 1, 1);
         inst.setMatrixAt(i, M_OUT.compose(V_POS, Q_ROT, V_SCL));
+        inst.setColorAt(i, floorVariation(x, z, C_SCRATCH));
       });
       inst.instanceMatrix.needsUpdate = true;
+      if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
       this.add(inst);
       this.floorMeshes.push(inst);
     }
@@ -1074,13 +1079,16 @@ export class Environment {
   /** Flicker torch lights + advance the ambient particle layers + drive the
    *  fountain warning rims. No per-frame allocations. */
   update(t: number): void {
+    const reduced = this.reducedMotion?.matches ?? false;
     for (let i = 0; i < this.flames.length; i++) {
       const f = this.flames[i];
       if (!f) continue;
       const base = i < 6 ? 6 : 5; // index 6 = throne light (slow warm flicker)
-      f.intensity = base * (0.82 + Math.sin(t * 9 + i * 2.1) * 0.12 + Math.sin(t * 23 + i) * 0.06);
+      f.intensity =
+        base *
+        (reduced ? 0.82 : 0.82 + Math.sin(t * 9 + i * 2.1) * 0.12 + Math.sin(t * 23 + i) * 0.06);
     }
-    const dt = this.lastT < 0 ? 0 : Math.min(0.05, Math.max(0, t - this.lastT));
+    const dt = reduced || this.lastT < 0 ? 0 : Math.min(0.05, Math.max(0, t - this.lastT));
     this.lastT = t;
     if (this.embers) {
       const ep = this.emberPos;
@@ -1133,7 +1141,7 @@ export class Environment {
           const d = Math.hypot(this.localX - sp.x, this.localY - sp.y);
           level = 0.4 * Math.max(0, 1 - d / WARN_SEE);
         }
-        const v = level * (0.72 + 0.28 * Math.sin(t * 4 + i * 1.1));
+        const v = level * (reduced ? 1 : 0.72 + 0.28 * Math.sin(t * 4 + i * 1.1));
         if (Math.abs(v - (this.warnLevels[i] ?? 0)) < 0.005) continue;
         this.warnLevels[i] = v;
         this.warnRims.setColorAt(i, C_SCRATCH.setRGB(v, v, v));
@@ -1164,7 +1172,7 @@ export class Environment {
     targetHeight: number,
     rotY: number,
   ): THREE.Object3D {
-    const obj = this.lib.instance(name);
+    const obj = this.templateOf(name);
     const box = new THREE.Box3().setFromObject(obj);
     const size = box.getSize(V_SCL);
     const h = size.y > 0.01 ? size.y : 1;
@@ -1252,7 +1260,7 @@ export class Environment {
       return obj;
     }
 
-    const obj = this.lib.instance(d.model);
+    const obj = this.templateOf(d.model);
     obj.scale.setScalar(d.scale);
     obj.rotation.order = "YXZ";
     obj.rotation.y = d.rot;
@@ -1272,14 +1280,21 @@ export class Environment {
   /** Tear down everything this environment added: scene objects removed, owned
    *  geometries/materials disposed (library templates are shared — untouched). */
   dispose(): void {
+    if (this.disposed) return;
     this.disposed = true;
     this.disposeExtras();
-    for (const o of this.added) this.scene.remove(o);
+    for (const o of this.added) {
+      this.scene.remove(o);
+      if (o instanceof THREE.InstancedMesh) o.dispose();
+    }
     this.added.length = 0;
     for (const g of this.ownedGeos) g.dispose();
     this.ownedGeos.length = 0;
     for (const m of this.ownedMats) m.dispose();
     this.ownedMats.length = 0;
+    this.materials.dispose();
+    this.floorMeshes.length = 0;
+    this.floorGeos.clear();
     this.flames.length = 0;
     this.embers = null;
     this.motes = null;

@@ -58,6 +58,15 @@ function check(label: string, cond: boolean): void {
   const r = b.clearLayer(0);
   check("dual axis: 1 xColumn + 1 zRow", r.xColumns === 1 && r.zRows === 1);
   check("dual axis: cubes counted once (width+depth-1)", r.cubes === WELL_WIDTH + WELL_DEPTH - 1);
+  check("dual axis: effect footprint matches removed cubes", r.clearedCells.length === r.cubes);
+  check(
+    "dual axis: effect intersection occurs once",
+    r.clearedCells.filter((c) => c.x === 0 && c.y === 0 && c.z === 0).length === 1,
+  );
+  check(
+    "dual axis: effect footprint excludes uncleared cells",
+    r.clearedCells.every((c) => c.y === 0 && (c.x === 0 || c.z === 0)),
+  );
 }
 
 // 4) Piece moves, rotates, and lands via the board.

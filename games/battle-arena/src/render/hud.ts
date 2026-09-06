@@ -57,6 +57,20 @@ function hex(n: number): string {
   return "#" + n.toString(16).padStart(6, "0");
 }
 
+/** Player names cross the room boundary; render them as text in HUD markup. */
+function htmlText(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+export type MatchActions =
+  | { kind: "offline" }
+  | { kind: "online"; canRematch: () => boolean; rematch: () => void };
+
 export type ShopCallbacks = {
   buy: (itemId: string) => void;
   canShop: () => boolean;
@@ -85,6 +99,37 @@ type ItemSocket = {
 type BuffEl = { ring: HTMLElement; sec: HTMLElement; lastT: number; lastSec: string };
 
 type Arrow = { el: HTMLDivElement; lastTf: string; on: boolean };
+
+type ToastKind = "leader" | "delivery" | "streak" | "sudden" | "matchend" | "notice";
+const TOAST_STYLE = {
+  leader: { priority: 2, life: 3600 },
+  delivery: { priority: 1, life: 2400 },
+  streak: { priority: 0, life: 2400 },
+  sudden: { priority: 3, life: 3600 },
+  matchend: { priority: 3, life: 2400 },
+  notice: { priority: 0, life: 2400 },
+} satisfies Record<ToastKind, { priority: number; life: number }>;
+const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
+const TOAST_MAX_AGE = 6000;
+type Toast = { text: string; kind: ToastKind; receivedAt: number };
+type VisibleToast = { notice: Toast; el: HTMLElement; until: number };
+type FeedRow = { el: HTMLElement; until: number };
+type ConfettiStage = { at: number; x: number; y: number; color: number };
+
+/** Network notification kinds remain strings. Unknown kinds get neutral styling,
+ * never inferred objective priority from their human-readable text. */
+function toastKind(kind: string): ToastKind {
+  switch (kind) {
+    case "leader":
+    case "delivery":
+    case "streak":
+    case "sudden":
+    case "matchend":
+      return kind;
+    default:
+      return "notice";
+  }
+}
 
 export class Hud {
   private root: HTMLElement;
@@ -191,15 +236,44 @@ export class Hud {
   private lastLowOp = -1;
   private lastLowOp2 = -1;
   private hbPhase = -1;
+  private disposed = false;
+  private presentationPaused = false;
+  private presentationHidden = document.hidden;
+  private presentationNow = 0;
+  private feedRows: FeedRow[] = [];
+  private visibleToasts: VisibleToast[] = [];
+  private pendingToasts: Toast[] = [];
+  private confetti: ConfettiStage[] = [];
+  private sawSuddenDeath = false;
+  private ownedElements: Element[] = [];
+  private ownedStyle: HTMLStyleElement | null = null;
+  private readonly onVisibilityChange = (): void => {
+    if (this.disposed) return;
+    this.presentationHidden = document.hidden;
+    this.clearPresentation();
+    this.dropIncomingPresentation();
+    this.showHint("");
+    this.showIntro("");
+  };
+  private readonly onMuteKey = (e: KeyboardEvent): void => {
+    if (e.code !== "KeyM" || e.repeat || this.disposed) return;
+    const t = e.target;
+    if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) return;
+    this.sfx.setMuted(!this.sfx.isMuted);
+  };
 
   constructor(
     private view: View,
     private fx: Fx,
     private shop: ShopCallbacks,
+    private matchActions: MatchActions = { kind: "offline" },
   ) {
     this.root = document.getElementById("hud")!;
     this.injectStyle();
     this.build();
+    this.root.classList.remove("ba-ended");
+    this.ownedElements = [...this.root.children];
+    document.addEventListener("visibilitychange", this.onVisibilityChange);
     // persistent low-HP danger vignette (two reused nodes; opacity only).
     // Layer 1 = radial closing in from the corners, layer 2 = inset ring that
     // pulses opposite-phase for a "walls closing" read.
@@ -213,6 +287,10 @@ export class Hud {
       "position:fixed;inset:0;pointer-events:none;z-index:7;opacity:0;transition:opacity .15s;" +
       "box-shadow:inset 0 0 90px rgba(190,20,20,.55)";
     document.body.appendChild(this.lowHpEl2);
+  }
+
+  private get presentationBlocked(): boolean {
+    return this.presentationPaused || this.presentationHidden;
   }
 
   /** Shared Audio instance (owned by Fx) for the UI sound set. */
@@ -306,12 +384,7 @@ export class Hud {
     this.arrowDelivery = { el: arrowEl("ba-arrow-delivery"), lastTf: "", on: false };
 
     // sound is muted by default (opt-in) — M is the one mute toggle
-    window.addEventListener("keydown", (e) => {
-      if (e.code !== "KeyM" || e.repeat) return;
-      const t = e.target;
-      if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) return;
-      this.sfx.setMuted(!this.sfx.isMuted);
-    });
+    window.addEventListener("keydown", this.onMuteKey);
 
     // touch path to the scoreboard (Tab-only on desktop): tapping the timer
     // pins/unpins it
@@ -415,6 +488,7 @@ export class Hud {
   }
 
   toggleShop(): void {
+    if (this.disposed || this.shownEnd) return;
     this.shopOpen = !this.shopOpen;
     this.shopEl.hidden = !this.shopOpen;
     if (this.shopOpen) this.sfx.uiOpen();
@@ -430,6 +504,8 @@ export class Hud {
    *  banner (any short line). The scene drives timing; empty string hides.
    *  Change-gated internally — safe to call every frame. */
   showIntro(text: string): void {
+    if (this.disposed) return;
+    if (this.shownEnd || this.presentationBlocked) text = "";
     if (text === this.introText) return;
     this.introText = text;
     const el = this.introEl;
@@ -448,6 +524,8 @@ export class Hud {
 
   /** Contextual hint slot (fed by render/hints.ts via the scene). Empty hides. */
   showHint(text: string): void {
+    if (this.disposed) return;
+    if (this.shownEnd || this.presentationBlocked) text = "";
     if (text === this.hintText) return;
     this.hintText = text;
     if (text === "") {
@@ -459,9 +537,28 @@ export class Hud {
   }
 
   // ── per-frame update ──
-  update(w: World, me: Unit, scoreHeld = false): void {
+  update(
+    w: World,
+    me: Unit,
+    scoreHeld = false,
+    frameDt = Math.max(0, (w.now - this.lastNow) / 1000),
+  ): void {
+    if (this.disposed) return;
+    // A snapshot/world replacement can leave the ended phase without reloading.
+    // Remove result masking and pending celebration before this world's frame.
+    if (this.shownEnd && (w.phase !== "ended" || !w.winner)) this.updateEnd(w, me);
+    this.updatePresentation(frameDt);
     this.lastMe = me;
     if (me.killStreak > this.bestStreak) this.bestStreak = me.killStreak;
+    if (w.phase === "ended") {
+      this.updateEnd(w, me);
+      this.dropIncomingPresentation();
+      this.lastNow = w.now;
+      return;
+    }
+    if (w.suddenDeath && !this.sawSuddenDeath && !this.presentationBlocked)
+      this.queueToast({ text: "SUDDEN DEATH", kind: "sudden", receivedAt: this.presentationNow });
+    this.sawSuddenDeath = w.suddenDeath;
     this.updateLowHp(w, me);
     this.updatePlates(w, me);
     this.updateVitals(w, me);
@@ -483,8 +580,100 @@ export class Hud {
     this.lastNow = w.now;
   }
 
+  /** A late visitor sees the accepted result without inventing a player seat. */
+  updateUnassigned(w: World, frameDt: number): void {
+    if (this.disposed || w.phase !== "ended") return;
+    this.updatePresentation(frameDt);
+    this.lastMe = null;
+    this.updateEnd(w, null);
+    this.dropIncomingPresentation();
+    this.lastNow = w.now;
+  }
+
+  /** Only an accepted new match rewinds these sim-clock cursors. Baseline its
+   * observed hits; neither a stale ring nor a ready/respawn cue may replay. */
+  resetMatch(w: World, me: Unit | null): void {
+    if (this.disposed) return;
+    this.clearPresentation();
+    this.dropIncomingPresentation();
+    this.presentationNow = 0;
+    this.shownEnd = false;
+    this.endEl.hidden = true;
+    this.root.classList.remove("ba-ended");
+    this.shopOpen = false;
+    this.shopEl.hidden = true;
+    this.boardTapped = false;
+    this.boardForced = false;
+    this.boardSig = "";
+    this.boardEl.classList.remove("force");
+    this.boardEl.textContent = "";
+    for (const plate of this.plates.values()) plate.wrap.remove();
+    this.plates.clear();
+    for (const arrow of [this.arrowCoin, this.arrowDelivery]) {
+      arrow.on = false;
+      arrow.el.classList.remove("on");
+    }
+    this.itemTaps = [];
+    this.bestStreak = me?.killStreak ?? 0;
+    this.sawSuddenDeath = false;
+    this.lastMe = null;
+    this.lastNow = this.lastReadySoundAt = w.now;
+    this.lastAttackSeen = me?.lastAttackAt ?? 0;
+    this.lastHitSeen = me?.lastHitAt ?? 0;
+    this.fireUntil = this.hitFlashUntil = this.hitDirUntil = 0;
+    this.hitFlashCrit = false;
+    this.reticleVisible = false;
+    this.reticleEl.classList.remove("show", "fire", "hit", "hitcrit");
+    this.lastHitDirDeg = 1e9;
+    this.lastHitDirOp = 0;
+    this.hitDirEl.style.opacity = "0";
+    this.lowHpEl.style.opacity = this.lowHpEl2.style.opacity = "0";
+    this.lastLowOp = this.lastLowOp2 = 0;
+    this.hbPhase = -1;
+    this.lastLevel = 0;
+    this.lvlBadge.classList.remove("lvlup");
+    this.hpGhost = me ? Math.max(0, Math.min(1, me.hp / Math.max(1, me.maxHp))) : 1;
+    this.respawnShown = false;
+    this.respawnFor = 0;
+    this.lastRespawnCeil = -1;
+    this.respawnEl.hidden = true;
+    this.buffSeen.clear();
+    this.buffEls.clear();
+    this.buffScratch.length = 0;
+    this.buffSig = "";
+    this.buffsEl.textContent = "";
+    for (const el of this.abilityEls.values()) {
+      el.wasOnCd = false;
+      el.wrap.classList.remove("ready");
+    }
+    this.showHint("");
+    this.showIntro("");
+  }
+
+  /** Local presentation pause is independent of the host's live world clock. */
+  setPaused(paused: boolean): void {
+    if (this.disposed || paused === this.presentationPaused) return;
+    this.presentationPaused = paused;
+    if (paused) {
+      this.clearPresentation();
+      this.dropIncomingPresentation();
+      this.showHint("");
+      this.showIntro("");
+    }
+  }
+
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.clearPresentation();
+    this.dropIncomingPresentation();
     window.removeEventListener("resize", this.remeasureTopBand);
+    window.removeEventListener("keydown", this.onMuteKey);
+    document.removeEventListener("visibilitychange", this.onVisibilityChange);
+    for (const el of this.ownedElements) el.remove();
+    this.ownedElements = [];
+    this.ownedStyle?.remove();
+    this.ownedStyle = null;
     this.lowHpEl.remove();
     this.lowHpEl2.remove();
   }
@@ -665,7 +854,7 @@ export class Hud {
         const col =
           u.kind === "creep" ? "#b8c0d0" : isLocal ? hex(LOCAL_COLOR) : hex(teamColor(u.team));
         const name = u.kind === "creep" ? "" : u.name;
-        wrap.innerHTML = `<div class="ba-pname" style="color:${col}">${name}</div><div class="ba-php"><div class="ba-phpfill" style="background:${u.kind === "creep" ? "#c8a0a0" : u.team === me.team ? "#5dd66b" : "#ff5a52"}"></div></div>`;
+        wrap.innerHTML = `<div class="ba-pname" style="color:${col}">${htmlText(name)}</div><div class="ba-php"><div class="ba-phpfill" style="background:${u.kind === "creep" ? "#c8a0a0" : u.team === me.team ? "#5dd66b" : "#ff5a52"}"></div></div>`;
         byId("ba-plates").appendChild(wrap);
         // SAFETY: both divs were just created by the innerHTML assignment above.
         plate = {
@@ -1019,7 +1208,7 @@ export class Hud {
         const extra = scoreHeld
           ? `<span class="ba-rg">${Math.floor(u.gold)}g</span><span class="ba-ri">${u.items.length} it</span>`
           : "";
-        return `<div class="ba-row${u.id === me.id ? " me" : ""}${scoreHeld ? " x" : ""}"><span class="ba-dot" style="background:${col}"></span><span class="ba-rn">${lead}${u.name}</span><span class="ba-rk">${kda}</span>${extra}</div>`;
+        return `<div class="ba-row${u.id === me.id ? " me" : ""}${scoreHeld ? " x" : ""}"><span class="ba-dot" style="background:${col}"></span><span class="ba-rn">${lead}${htmlText(u.name)}</span><span class="ba-rk">${kda}</span>${extra}</div>`;
       })
       .join("");
   }
@@ -1183,29 +1372,122 @@ export class Hud {
     }
   }
 
+  private dropIncomingPresentation(): void {
+    this.fx.feed.length = 0;
+    this.fx.toasts.length = 0;
+  }
+
+  private clearPresentation(): void {
+    for (const row of this.feedRows) row.el.remove();
+    for (const toast of this.visibleToasts) toast.el.remove();
+    this.feedRows = [];
+    this.visibleToasts = [];
+    this.pendingToasts = [];
+    this.confetti = [];
+  }
+
+  /** Two visible notices + three plain pending records. Priority displaces
+   * lower-priority decoration; equal priority stays FIFO and expires promptly. */
+  private queueToast(notice: Toast): void {
+    if (this.presentationBlocked || this.shownEnd || this.disposed) return;
+    if (this.visibleToasts.length < 2) {
+      this.presentToast(notice);
+      return;
+    }
+    const priority = TOAST_STYLE[notice.kind].priority;
+    const lowest = Math.min(...this.visibleToasts.map((t) => TOAST_STYLE[t.notice.kind].priority));
+    if (priority > lowest) {
+      const index = this.visibleToasts.findIndex(
+        (t) => TOAST_STYLE[t.notice.kind].priority === lowest,
+      );
+      const displaced = this.visibleToasts.splice(index, 1)[0];
+      displaced?.el.remove();
+      this.presentToast(notice);
+      return;
+    }
+    if (this.pendingToasts.some((p) => p.kind === notice.kind && p.text === notice.text)) return;
+    if (this.pendingToasts.length >= 3) {
+      const lowest = Math.min(...this.pendingToasts.map((p) => TOAST_STYLE[p.kind].priority));
+      if (priority < lowest) return;
+      const index = this.pendingToasts.findIndex((p) => TOAST_STYLE[p.kind].priority === lowest);
+      this.pendingToasts.splice(index, 1);
+    }
+    this.pendingToasts.push(notice);
+  }
+
+  private presentToast(notice: Toast): void {
+    const el = document.createElement("div");
+    el.className = "ba-toast " + notice.kind;
+    el.textContent = notice.text;
+    this.toastEl.appendChild(el);
+    this.visibleToasts.push({
+      notice,
+      el,
+      until: this.presentationNow + TOAST_STYLE[notice.kind].life,
+    });
+  }
+
+  private updatePresentation(frameDt: number): void {
+    if (this.presentationBlocked) {
+      this.dropIncomingPresentation();
+      return;
+    }
+    if (Number.isFinite(frameDt)) this.presentationNow += Math.max(0, frameDt) * 1000;
+    const now = this.presentationNow;
+    const feedCap = window.innerWidth < 720 ? 3 : 5;
+    this.feedRows = this.feedRows.filter((row, i) => {
+      if (row.until > now && i >= this.feedRows.length - feedCap) return true;
+      row.el.remove();
+      return false;
+    });
+    this.visibleToasts = this.visibleToasts.filter((toast) => {
+      if (toast.until > now && now - toast.notice.receivedAt < TOAST_MAX_AGE) return true;
+      toast.el.remove();
+      return false;
+    });
+    this.pendingToasts = this.pendingToasts.filter((p) => now - p.receivedAt < TOAST_MAX_AGE);
+    while (this.visibleToasts.length < 2 && this.pendingToasts.length > 0) {
+      const highest = Math.max(...this.pendingToasts.map((p) => TOAST_STYLE[p.kind].priority));
+      const index = this.pendingToasts.findIndex((p) => TOAST_STYLE[p.kind].priority === highest);
+      const next = this.pendingToasts.splice(index, 1)[0];
+      if (next) this.presentToast(next);
+    }
+    if (REDUCED_MOTION.matches) this.confetti = [];
+    this.confetti = this.confetti.filter((stage) => {
+      if (stage.at > now) return true;
+      // A delayed frame must not collapse every missed fountain into one burst.
+      if (now - stage.at < 200) this.fx.fountain(stage.x, stage.y, 16, stage.color);
+      return false;
+    });
+  }
+
   private drainFeed(w: World): void {
-    while (this.fx.feed.length) {
-      const k = this.fx.feed.shift()!;
+    if (this.presentationBlocked || this.shownEnd) {
+      this.dropIncomingPresentation();
+      return;
+    }
+    const cap = window.innerWidth < 720 ? 3 : 5;
+    // Only the newest rows can be visible; pressure never allocates hidden rows.
+    const incoming = this.fx.feed.splice(Math.max(0, this.fx.feed.length - cap));
+    this.fx.feed.length = 0;
+    for (const k of incoming) {
       const row = document.createElement("div");
       row.className = "ba-kill" + (k.leader ? " leader" : "");
       const ku = w.units.get(k.killer);
       const vu = w.units.get(k.victim);
       const weapon = `<img class="ba-kw" src="${attackIcon(ku?.attackKind ?? "melee")}" alt="">`;
-      row.innerHTML = `${feedSigil(ku)}<b>${k.killerName}</b>${weapon}${feedSigil(vu)}<span>${k.victimName}</span>`;
+      row.innerHTML = `${feedSigil(ku)}<b>${htmlText(k.killerName)}</b>${weapon}${feedSigil(vu)}<span>${htmlText(k.victimName)}</span>`;
       this.feedEl.appendChild(row);
-      setTimeout(() => row.remove(), 5000);
-      const cap = window.innerWidth < 720 ? 3 : 5;
-      while (this.feedEl.childElementCount > cap) this.feedEl.firstElementChild?.remove();
+      this.feedRows.push({ el: row, until: this.presentationNow + 5000 });
+      while (this.feedRows.length > cap) this.feedRows.shift()?.el.remove();
     }
-    while (this.fx.toasts.length) {
-      const t = this.fx.toasts.shift()!;
-      const el = document.createElement("div");
-      el.className = "ba-toast " + t.kind;
-      el.textContent = t.text;
-      this.toastEl.appendChild(el);
-      // objective callouts (golem/leader slain) deserve a longer read than chatter
-      setTimeout(() => el.remove(), t.kind === "leader" ? 3600 : 2400);
-    }
+    for (const notice of this.fx.toasts)
+      this.queueToast({
+        text: notice.text,
+        kind: toastKind(notice.kind),
+        receivedAt: this.presentationNow,
+      });
+    this.fx.toasts.length = 0;
   }
 
   private updateShop(me: Unit): void {
@@ -1223,17 +1505,33 @@ export class Hud {
 
   /** Match-end card: title slam, winner sigil, your stat line, best-kills
    *  open loop, PLAY AGAIN / CHANGE HERO. Win confetti reuses fx.fountain. */
-  private updateEnd(w: World, me: Unit): void {
+  private updateEnd(w: World, me: Unit | null): void {
     if (w.phase !== "ended" || !w.winner) {
       if (this.shownEnd) {
         this.shownEnd = false;
         this.endEl.hidden = true;
+        this.root.classList.remove("ba-ended");
+        this.clearPresentation();
+        this.bestStreak = me?.killStreak ?? 0;
+        this.sawSuddenDeath = false;
       }
       return;
     }
-    if (this.shownEnd) return;
+    if (this.shownEnd) {
+      this.syncRematchAction();
+      return;
+    }
     this.shownEnd = true;
-    const won = w.winner === me.team;
+    this.clearPresentation();
+    this.dropIncomingPresentation();
+    this.showHint("");
+    this.showIntro("");
+    this.shopOpen = false;
+    this.shopEl.hidden = true;
+    this.boardTapped = false;
+    this.itemTaps = [];
+    this.root.classList.add("ba-ended");
+    const won = me !== null && w.winner === me.team;
     const winner = [...w.units.values()].find((u) => u.team === w.winner);
     let best = 0;
     try {
@@ -1241,10 +1539,10 @@ export class Hud {
     } catch {
       /* storage unavailable — skip the open loop */
     }
-    const newBest = me.kills > best;
+    const newBest = me !== null && me.kills > best;
     if (newBest) {
       try {
-        localStorage.setItem("ba-best-kills", `${me.kills}`);
+        localStorage.setItem("ba-best-kills", `${me?.kills ?? 0}`);
       } catch {
         /* ignore */
       }
@@ -1256,29 +1554,46 @@ export class Hud {
     this.endEl.hidden = false;
     this.endEl.innerHTML = `
       <div class="ba-end-card">
-        <div class="ba-end-title ${won ? "win" : "loss"}">${won ? "VICTORY" : "DEFEAT"}</div>
-        <div class="ba-end-sub">${sigil}${winner?.name ?? "Someone"} takes the arena</div>
-        <div class="ba-end-stats">
+        <div class="ba-end-title ${me ? (won ? "win" : "loss") : ""}">${me ? (won ? "VICTORY" : "DEFEAT") : "MATCH COMPLETE"}</div>
+        <div class="ba-end-sub">${sigil}${htmlText(winner?.name ?? "Someone")} takes the arena</div>
+        ${
+          me
+            ? `<div class="ba-end-stats">
           <span><b>${me.kills}</b>K</span><span><b>${me.deaths}</b>D</span><span><b>${me.assists}</b>A</span>
-          <span><b>${Math.floor(me.gold)}</b>g</span><span><b>${me.level}</b>Lv</span><span><b>${Math.max(this.bestStreak, me.killStreak)}</b>streak</span>
+          <span><b>${Math.floor(me.gold)}</b><small>GOLD HELD</small></span><span><b>${me.level}</b>Lv</span><span><b>${Math.max(this.bestStreak, me.killStreak)}</b>streak</span>
         </div>
-        <div class="ba-end-best${newBest ? " nb" : ""}">${newBest ? "NEW BEST!" : `BEST: ${Math.max(best, me.kills)}`}</div>
+        <div class="ba-end-best${newBest ? " nb" : ""}">${newBest ? "NEW BEST!" : `BEST: ${Math.max(best, me.kills)}`}</div>`
+            : '<div class="ba-end-best">YOU JOINED AFTER THE FINAL BLOW</div>'
+        }
         <div class="ba-end-btns"><button class="ba-end-btn" data-act="again">PLAY AGAIN</button><button class="ba-end-btn alt" data-act="hero">CHANGE HERO</button></div>
       </div>`;
     this.endEl.querySelectorAll<HTMLButtonElement>(".ba-end-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
         if (btn.dataset.act === "hero") backToLobby();
+        else if (this.matchActions.kind === "online") this.matchActions.rematch();
         else location.reload();
       });
     });
-    if (won && winner) {
-      const fx = this.fx;
-      const wx = winner.x;
-      const wy = winner.y;
-      [0xffd24a, 0x6bff8e, 0x9fd0ff].forEach((c, i) => {
-        setTimeout(() => fx.fountain(wx, wy, 16, c), i * 200);
-      });
+    this.syncRematchAction();
+    if (won && winner && !this.presentationBlocked && !REDUCED_MOTION.matches) {
+      this.confetti = [0xffd24a, 0x6bff8e, 0x9fd0ff].map((color, i) => ({
+        at: this.presentationNow + i * 200,
+        x: winner.x,
+        y: winner.y,
+        color,
+      }));
     }
+  }
+
+  /** Server election may change while the result card is already visible. */
+  private syncRematchAction(): void {
+    if (this.matchActions.kind !== "online") return;
+    const button = this.endEl.querySelector<HTMLButtonElement>('[data-act="again"]');
+    if (!button) return;
+    const available = this.matchActions.canRematch();
+    const label = available ? "START REMATCH" : "WAITING FOR HOST";
+    if (button.textContent !== label) button.textContent = label;
+    button.disabled = !available;
   }
 
   // ── styles ──
@@ -1286,6 +1601,7 @@ export class Hud {
     const s = document.createElement("style");
     s.textContent = STYLE;
     document.head.appendChild(s);
+    this.ownedStyle = s;
   }
 }
 
@@ -1319,7 +1635,9 @@ function arrowEl(id: string): HTMLDivElement {
 }
 
 const STYLE = `
+.ba-end-btn:disabled{opacity:.55;cursor:wait;transform:none;filter:none;}
 [hidden]{display:none!important}
+#hud.ba-ended>:not(#ba-end){visibility:hidden;pointer-events:none}
 #ba-plates{position:absolute;inset:0}
 .ba-plate{position:absolute;transform:translate(-50%,-50%);text-align:center;pointer-events:none;will-change:left,top}
 .ba-pname{font:700 12px ui-monospace,monospace;text-shadow:0 1px 2px #000;white-space:nowrap}
@@ -1356,6 +1674,7 @@ const STYLE = `
 .ba-toast.leader{color:#ff5a52}
 .ba-toast.delivery{color:#6bffcc}
 .ba-toast.streak{color:#ffb13b}
+.ba-toast.sudden{color:#ffd24a}
 .ba-toast.matchend{color:#ffd24a;font-size:30px}
 #ba-bottom{position:fixed;bottom:calc(14px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none}
 #ba-buffs{display:flex;gap:5px;min-height:26px}
@@ -1470,7 +1789,9 @@ body.ba-mouse-mode canvas{cursor:default}
 @keyframes ba-endin{from{transform:scale(.7);letter-spacing:8px;opacity:0}}
 .ba-end-sub{font:600 18px ui-monospace,monospace;margin-top:8px;opacity:.9;display:flex;align-items:center;justify-content:center;gap:8px}
 .ba-es{width:22px;height:22px;border-radius:5px;border:1px solid rgba(255,255,255,.3)}
-.ba-end-stats{font:700 15px ui-monospace,monospace;display:flex;gap:18px;justify-content:center;margin-top:14px;opacity:.9}
+.ba-end-stats{font:700 15px ui-monospace,monospace;display:flex;gap:18px;justify-content:center;flex-wrap:wrap;max-width:calc(100vw - 32px);margin:14px auto 0;opacity:.9}
+.ba-end-stats span{white-space:nowrap}
+.ba-end-stats small{font:700 10px ui-monospace,monospace}
 .ba-end-stats b{color:#ffd24a;font-size:22px;margin-right:3px}
 .ba-end-best{font:800 13px ui-monospace,monospace;letter-spacing:2px;margin-top:10px;opacity:.7}
 .ba-end-best.nb{color:#ffd24a;opacity:1;animation:ba-pop .4s}
@@ -1515,6 +1836,9 @@ body.ba-touch-on #ba-feed{top:calc(76px + env(safe-area-inset-top))}
 .ba-end-btns{margin-top:14px}
 .ba-end-btn{padding:11px 20px;font-size:14px}
 .ba-rtitle{font-size:40px}
+}
+@media (prefers-reduced-motion:reduce){
+.ba-kill,.ba-toast,.ba-end-title,.ba-end-best.nb{animation:none}
 }
 /* portrait phones: two shop columns leave ~100px for a name + a description,
    so the grid collapses to one readable column and scrolls instead */

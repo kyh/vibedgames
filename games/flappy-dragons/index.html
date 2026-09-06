@@ -73,6 +73,109 @@
       #hint {
         margin-bottom: 18px;
       }
+      #flight-result {
+        position: fixed;
+        z-index: 14;
+        top: calc(50% + 48px);
+        left: 50%;
+        width: min(340px, calc(100vw - 32px));
+        padding: 14px 18px 0;
+        transform: translate(-50%, 8px);
+        opacity: 0;
+        visibility: hidden;
+        overflow: hidden;
+        pointer-events: none;
+        text-align: center;
+        background: rgba(27, 29, 62, 0.92);
+        border: 2px solid #dfd4ee;
+        border-radius: 3px;
+        box-shadow:
+          0 5px 0 rgba(28, 26, 53, 0.38),
+          0 10px 28px #201f4933;
+        color: #fff6d6;
+        font:
+          12px/1.4 ui-monospace,
+          "SF Mono",
+          Menlo,
+          monospace;
+        transition:
+          opacity 160ms,
+          transform 160ms;
+      }
+      #flight-result.show {
+        opacity: 1;
+        visibility: visible;
+        transform: translate(-50%, 0);
+      }
+      #flight-result.record {
+        border-color: #ffcf57;
+      }
+      #result-title {
+        letter-spacing: 1.6px;
+        color: #ddd4ee;
+        font-size: 10px;
+      }
+      .record #result-title {
+        color: #ffcf57;
+      }
+      #result-score {
+        display: block;
+        font-size: 38px;
+        line-height: 1.2;
+        font-weight: 900;
+      }
+      .result-stats {
+        display: flex;
+        justify-content: center;
+        gap: 26px;
+        margin: 9px 0 12px;
+      }
+      .result-stats span {
+        display: grid;
+        gap: 1px;
+        color: #c8c1dc;
+        font-size: 10px;
+        letter-spacing: 1px;
+      }
+      .result-stats b {
+        color: #fff6d6;
+        font-size: 17px;
+      }
+      #result-retry {
+        font-size: 10px;
+        letter-spacing: 0.3px;
+        padding: 9px 0 12px;
+        border-top: 1px solid #ffffff26;
+      }
+      .result-progress {
+        height: 3px;
+        margin: 0 -18px;
+        background: #ffcf57;
+        transform-origin: left;
+        transform: scaleX(var(--return-progress, 0));
+      }
+      @media (max-height: 520px) {
+        #flight-result {
+          top: calc(50% + 30px);
+          padding-top: 8px;
+        }
+        #result-score {
+          font-size: 26px;
+        }
+        .result-stats {
+          margin: 4px 0;
+        }
+        #result-retry {
+          padding: 6px 0;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #flight-result,
+        #flight-result.show {
+          transform: translate(-50%, 0);
+          transition: opacity 120ms;
+        }
+      }
       /* The pose-cam panel owns the bottom-right corner. On a coarse pointer
          the centred pills run under its collapsed pill ("TAP ANYWHERE TO RES…")
          and vanish behind it expanded, so stack above whatever it reports. */
@@ -381,6 +484,17 @@
     <div id="hud">
       <div class="pill" id="best"></div>
       <div class="pill" id="hint"></div>
+    </div>
+    <div id="flight-result" role="status" aria-live="polite">
+      <div id="result-title">YOUR FLIGHT</div>
+      <strong id="result-score">0</strong>
+      <div class="result-stats">
+        <span><b id="result-gates">0</b>GATES</span>
+        <span><b id="result-coins">0</b>COINS</span>
+        <span><b id="result-best">0</b>BEST</span>
+      </div>
+      <div id="result-retry" aria-live="off"></div>
+      <div class="result-progress" aria-hidden="true"></div>
     </div>
     <div id="start">
       <div id="start-clouds" aria-hidden="true">

@@ -59,6 +59,20 @@ export class Input {
     add("k", K.K);
   }
 
+  /** Clear pause/transport input without manufacturing a fresh pad edge. */
+  reset(): void {
+    for (const key of Object.values(this.keys)) key.reset();
+    this.pad?.pad.reset();
+    this.pad?.pad.nextFrame();
+    this.pad?.pad.nextFrame();
+    this.phys.update();
+    this.phys.update();
+  }
+
+  destroy(): void {
+    this.phys.destroy();
+  }
+
   private held(name: string): boolean {
     const k = this.keys[name];
     return k ? k.isDown : false;

@@ -2,6 +2,7 @@ import Phaser from "phaser";
 import { setPauseHandlers } from "@repo/embed";
 
 import { hide as hidePauseOverlay, show as showPauseOverlay } from "./pause-overlay";
+import { disposeSound, setSoundPaused, soundDiagnostics } from "./render/audio";
 import { BootScene } from "./scenes/boot-scene";
 import { GameScene } from "./scenes/game-scene";
 import { HudScene } from "./scenes/hud-scene";
@@ -43,6 +44,23 @@ declare global {
 
 void fontReady.then(() => {
   const game = new Phaser.Game(config);
+  game.events.once(Phaser.Core.Events.DESTROY, disposeSound);
+  Object.defineProperty(window, "__GAME_DIAGNOSTICS__", {
+    configurable: true,
+    get: () => {
+      const scene = game.scene.getScene("Game");
+      return scene instanceof GameScene && game.scene.isActive("Game")
+        ? { ...scene.diagnostics(), audio: soundDiagnostics() }
+        : {
+            frame: game.loop.frame,
+            phase: "menu",
+            player: null,
+            score: 0,
+            complete: false,
+            audio: soundDiagnostics(),
+          };
+    },
+  });
   if (import.meta.env.DEV) window.__game = game;
   // Scale.RESIZE can read stale parent bounds when a resize lands while the
   // tab is hidden or the browser throttles events (tab switch, phone
@@ -69,6 +87,9 @@ void fontReady.then(() => {
   let froze = false;
   setPauseHandlers({
     onPause: () => {
+      const scene = game.scene.getScene("Game");
+      if (scene instanceof GameScene && game.scene.isActive("Game")) scene.setControlsPaused(true);
+      setSoundPaused(true);
       showPauseOverlay();
       if (isOnline()) return;
       froze = true;
@@ -76,6 +97,9 @@ void fontReady.then(() => {
       game.sound.pauseAll();
     },
     onResume: () => {
+      const scene = game.scene.getScene("Game");
+      if (scene instanceof GameScene && game.scene.isActive("Game")) scene.setControlsPaused(false);
+      setSoundPaused(false);
       hidePauseOverlay();
       if (!froze) return;
       froze = false;

@@ -12,6 +12,14 @@ import { RingPool } from "../fx/shock-rings";
 import { NetSession, isJsonNumber, isJsonObject } from "../net/session";
 import type { JsonObject, JsonValue } from "../net/session";
 import {
+  PaddleStroke,
+  SPIN_LIFE,
+  STROKE_TIMEOUT,
+  curveVelocity,
+  validatedRemoteStroke,
+} from "../shared/spin";
+import type { Spin } from "../shared/spin";
+import {
   MP_ROOM,
   MP_MAX_PLAYERS,
   OFFLINE_FALLBACK_MS,
@@ -132,7 +140,17 @@ export class GameScene {
   private scoreAi = 0; // opponent's score
   private rallySpeed = RALLY_SPEED_BASE;
   private rallyHits = 0;
+  private longestRally = 0;
   private serveAt: number | null = null; // elapsed time of the next auto-serve
+  private spin: Spin = null;
+  private readonly stroke = new PaddleStroke();
+  private remoteStrokeSeq = -1;
+  private remoteStrokeIntent = 0;
+  private remoteStrokeUntil = 0;
+  private paddleSeq = 0;
+  private frame = 0;
+  private spinShots = 0;
+  private random = Math.random;
 
   // ---- multiplayer -----------------------------------------------------------
   private net: NetSession;
@@ -140,6 +158,7 @@ export class GameScene {
   private paddleAcc = 0; // seconds since the last paddle broadcast
   private hostSeq = 0; // host: monotonically increases each shared broadcast
   private lastSeq = -1; // guest: last applied host sequence number
+  private connectedBefore = false;
   private connWas = false; // tracks the connecting→live transition for the HUD
   private oppWas = false; // tracks opponent join/leave for the HUD
   private roleWasGuest: boolean | null = null; // last role while live (host migration)
@@ -168,6 +187,9 @@ export class GameScene {
   private trailAcc = 0;
   private particles: ParticlePool;
   private rings: RingPool;
+  private reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  private shotUntil = 0;
+  private pointUntil = 0;
 
   // ---- display objects ---------------------------------------------------------
   private playerRing: THREE.Mesh;
@@ -207,10 +229,19 @@ export class GameScene {
   private scoreYouEl = el("score-you");
   private scoreAiEl = el("score-ai");
   private bannerEl = el("banner");
+  private bannerTitleEl = el("banner-title");
+  private bannerDetailEl = el("banner-detail");
+  private bannerControlsEl = el("banner-controls");
+  private bannerHintEl = el("banner-hint");
+  private actionEl = el("match-action");
+  private bannerPromptKey = "";
+  private pointEl = el("point-callout");
   private comboEl = el("combo");
   private serveMeterEl = el("serve-meter");
   private oppLabelEl = el("opp-label");
   private netInfoEl = el("netinfo");
+  private shotEl = el("shot-callout");
+  private matchPointEl = el("match-point");
   private serveMeterShown = false; // cached so we only touch classList on transitions
 
   constructor() {
@@ -330,7 +361,16 @@ export class GameScene {
     window.addEventListener("pointerdown", this.onPointerDown);
     window.addEventListener("pointerup", this.onPointerUp);
     window.addEventListener("pointercancel", this.onPointerUp);
+    window.matchMedia("(prefers-reduced-motion: reduce)").addEventListener("change", (event) => {
+      this.setReducedMotion(event.matches);
+    });
+    this.setReducedMotion(this.reducedMotion);
 
+    // A scroll inside the instruction card must not become a canvas serve.
+    for (const eventName of ["pointerdown", "pointermove", "pointerup", "pointercancel"]) {
+      this.bannerEl.addEventListener(eventName, (event) => event.stopPropagation());
+    }
+    this.actionEl.addEventListener("click", () => this.confirm());
     this.syncHud();
   }
 
@@ -375,7 +415,7 @@ export class GameScene {
   }
 
   /** True while actually connected (not solo) to a room with another player. */
-  private hasLiveOpponent(): boolean {
+  hasLiveOpponent(): boolean {
     return this.net.live && !this.net.offline && this.hasOpponent();
   }
 
@@ -388,6 +428,7 @@ export class GameScene {
     if (this.hasLiveOpponent()) return;
     this.froze = true;
     this.paused = true;
+    this.stroke.reset();
   }
 
   /** Wrapper resume. Only unfreezes if requestPause() actually froze us. */
@@ -395,6 +436,7 @@ export class GameScene {
     if (!this.froze) return;
     this.froze = false;
     this.paused = false;
+    this.stroke.reset();
   }
 
   /** The old host left mid-game and the server promoted us. Our slot flips
@@ -402,6 +444,8 @@ export class GameScene {
    *  MEANS on screen (the view flip negates x) — remap so nothing teleports,
    *  then restart the point from a clean serve on our own clock. */
   private becomeHost(): void {
+    this.resetStrokes();
+    this.spin = null;
     const myOld = this.aiX; // slot B was ours
     const oppOld = this.playerX;
     this.playerX = -myOld; // same screen position under the new flip sign
@@ -431,10 +475,19 @@ export class GameScene {
   // resume by itself when focus returns.
   private onBlur = (): void => {
     this.dragging = false;
+    this.stroke.reset();
   };
 
   /** Wrist landmark x ∈ [0,1] from the webcam tracker (also the DEV hook). */
   handleHandPosition(x: number): void {
+    if (!Number.isFinite(x) || x < 0 || x > 1) return;
+    if (!this.paused) {
+      this.stroke.sample(
+        this.flip * ((1 - x) * HAND_RANGE - PADDLE_X_MAX),
+        performance.now() / 1000,
+        "hand",
+      );
+    }
     this.handX = x;
     this.handSeenAt = performance.now();
   }
@@ -474,13 +527,17 @@ export class GameScene {
     if (this.currentHandX() !== null) return; // hand owns the paddle
     if (this.padSteerX() !== null) return; // deflected stick owns the paddle
     const x = this.pointerToTableX(e);
-    if (x !== null) this.myPaddle = x;
+    if (x !== null) {
+      this.myPaddle = x;
+      if (!this.paused) this.stroke.sample(x, performance.now() / 1000, "pointer");
+    }
   };
 
   private onPointerDown = (e: PointerEvent): void => {
     // Drag-pan is mouse-only: on touch, pointermove must keep driving the
     // paddle (it's the only non-camera control there).
     if (e.pointerType === "mouse") {
+      this.stroke.reset();
       this.dragging = true;
       this.lastPointer.x = e.clientX;
       this.lastPointer.y = e.clientY;
@@ -533,6 +590,7 @@ export class GameScene {
     if (this.phase === "won") {
       this.scoreYou = 0;
       this.scoreAi = 0;
+      this.longestRally = 0;
       this.phase = "serving";
       this.syncHud();
     }
@@ -556,10 +614,14 @@ export class GameScene {
   private serve(): void {
     notifyGameStarted();
     // Always toward slot A (the host), ±SERVE_SPREAD rad of straight down.
-    const angle = -Math.PI / 2 + (Math.random() * 2 - 1) * SERVE_SPREAD;
+    const angle = -Math.PI / 2 + (this.random() * 2 - 1) * SERVE_SPREAD;
+    this.spin = null;
+    this.resetStrokes();
     this.rallySpeed = RALLY_SPEED_BASE;
     this.rallyHits = 0;
     this.serveAt = null;
+    this.pointEl.textContent = "";
+    this.pointUntil = 0;
     this.comboEl.style.opacity = "0"; // the rally counter resets with the new rally
     this.ballVel.set(Math.cos(angle) * this.rallySpeed, Math.sin(angle) * this.rallySpeed);
     this.phase = "rally";
@@ -572,7 +634,16 @@ export class GameScene {
 
   update(dt: number): void {
     if (this.paused) return;
+    this.frame += 1;
     this.elapsed += dt;
+    if (this.shotUntil > 0 && this.elapsed >= this.shotUntil) {
+      this.shotUntil = 0;
+      this.shotEl.classList.remove("on");
+    }
+    if (this.pointUntil > 0 && this.elapsed >= this.pointUntil) {
+      this.pointUntil = 0;
+      this.pointEl.textContent = "";
+    }
     this.invertFlash = Math.max(0, this.invertFlash - dt);
     this.net.tick();
 
@@ -582,6 +653,8 @@ export class GameScene {
     this.pad.update();
     if (this.pad.justPressed("a")) this.confirm();
 
+    if (this.net.live && !this.net.offline) this.connectedBefore = true;
+
     // Reflect connecting→live and opponent join/leave in the HUD once each.
     if (this.net.live !== this.connWas) {
       this.connWas = this.net.live;
@@ -590,6 +663,8 @@ export class GameScene {
     const opp = this.net.live && this.hasOpponent();
     if (opp !== this.oppWas) {
       this.oppWas = opp;
+      this.resetStrokes();
+      this.remoteStrokeSeq = -1;
       this.syncHud();
     }
     if (this.net.live && !this.net.offline) {
@@ -612,6 +687,8 @@ export class GameScene {
     // auto-serve clock (elapsed), the shake oscillator (a frozen offset
     // reads as a glitch, not a shake), and the drag-pan camera (user input).
     if (this.freeze > 0) {
+      // Motion collected while contact is frozen cannot charge the next shot.
+      this.stroke.reset();
       this.freeze -= dt;
       this.shakeTime += dt;
       this.composeCamera();
@@ -668,6 +745,7 @@ export class GameScene {
     const padX = this.padSteerX();
     if (padX !== null) {
       const targetX = flip * padX * PADDLE_X_MAX;
+      this.stroke.sample(targetX, performance.now() / 1000, "pad");
       this.myPaddle += (targetX - this.myPaddle) * frameLerp(PAD_LERP, dt);
     }
   }
@@ -689,6 +767,17 @@ export class GameScene {
     const raw = other?.state?.["paddle"];
     if (!isJsonNumber(raw)) return;
     const target = clamp(raw, -PADDLE_X_MAX, PADDLE_X_MAX);
+    const seq = other?.state?.["strokeSeq"];
+    const intent = other?.state?.["stroke"];
+    if (isJsonNumber(seq) && seq > this.remoteStrokeSeq) {
+      this.remoteStrokeSeq = seq;
+      const age = other?.state?.["strokeAge"];
+      this.remoteStrokeIntent = isJsonNumber(intent) ? validatedRemoteStroke(intent) : 0;
+      this.remoteStrokeUntil =
+        isJsonNumber(age) && age >= 0 && age < STROKE_TIMEOUT
+          ? performance.now() / 1000 + STROKE_TIMEOUT - age
+          : 0;
+    }
     const next = this.oppPaddle + (target - this.oppPaddle) * frameLerp(0.5, dt);
     if (this.mySlotA) this.aiX = next;
     else this.playerX = next;
@@ -706,11 +795,13 @@ export class GameScene {
   private updateBall(dt: number): void {
     const pos = this.ballPos;
     const vel = this.ballVel;
+    this.spin = curveVelocity(vel, this.spin, dt, MIN_VY_FRAC);
     pos.addScaledVector(vel, dt);
 
     // Side walls.
     if (Math.abs(pos.x) >= WALL_X && Math.sign(vel.x) === Math.sign(pos.x)) {
       vel.x = -vel.x;
+      this.spin = null; // a bank ends the curve; no hidden second bend off the rail
       pos.x = clamp(pos.x, -WALL_X, WALL_X);
       this.wallFx(pos.x, pos.y);
       this.emitBeat("wall", { x: pos.x, y: pos.y });
@@ -740,11 +831,26 @@ export class GameScene {
 
     // Every return raises the rally speed — the pace ramp.
     this.rallyHits += 1;
+    this.longestRally = Math.max(this.longestRally, this.rallyHits);
     this.rallySpeed = Math.min(RALLY_SPEED_MAX, this.rallySpeed + RALLY_SPEED_STEP);
     this.ballVel.copy(reflectOffPaddle(this.ballPos.x, paddleX, towardY, this.rallySpeed));
+    const now = performance.now() / 1000;
+    const strength =
+      side === "player"
+        ? this.stroke.read(now)
+        : this.hasOpponent()
+          ? now < this.remoteStrokeUntil
+            ? this.remoteStrokeIntent
+            : 0
+          : 0;
+    this.spin = Math.abs(strength) >= 0.15 ? { strength, left: SPIN_LIFE } : null;
+    if (this.spin) this.spinShots += 1;
+    this.stroke.reset();
+    this.remoteStrokeIntent = 0;
+    this.remoteStrokeUntil = 0;
     this.arc = {
       fromY: this.ballPos.y,
-      toY: towardY * (ARC_LAND_MIN + Math.random() * (ARC_LAND_MAX - ARC_LAND_MIN)),
+      toY: towardY * (ARC_LAND_MIN + this.random() * (ARC_LAND_MAX - ARC_LAND_MIN)),
     };
 
     // Juice — replayed on the guest via the "phit" beat with the same inputs.
@@ -755,6 +861,7 @@ export class GameScene {
       this.ballVel.y,
       side === "player",
       this.rallyHits,
+      this.spin?.strength ?? 0,
     );
     this.emitBeat("phit", {
       x: this.ballPos.x,
@@ -763,6 +870,7 @@ export class GameScene {
       vy: this.ballVel.y,
       a: side === "player",
       n: this.rallyHits,
+      spin: this.spin?.strength ?? 0,
     });
   }
 
@@ -781,6 +889,7 @@ export class GameScene {
     cvy: number,
     slotA: boolean,
     rallyHits: number,
+    spin: number,
   ): void {
     const flip = this.flip;
     const sx = flip * cx;
@@ -803,6 +912,23 @@ export class GameScene {
     });
     this.rings.spawn({ x: sx, y: mine ? -PADDLE_Y : PADDLE_Y, ...RING_PADDLE });
     this.showCombo(rallyHits);
+    if (spin !== 0) {
+      this.showShot(spin * flip, mine);
+      // A second, tight ring and a short sideways fan give spin its own ink mark.
+      this.rings.spawn({ x: sx, y: sy, from: 0.18, to: 0.8, life: 0.18, opacity: 0.85 });
+      this.particles.burst({
+        x: sx,
+        y: sy,
+        z: this.ballHeight(),
+        dirX: spin * flip,
+        dirY: 0,
+        ...BURST_PADDLE,
+        count: 5,
+        spread: 0.35,
+        life: 0.2,
+        size: 0.045,
+      });
+    }
     sfx.paddleHit(rallyHits);
   }
 
@@ -820,6 +946,8 @@ export class GameScene {
 
     this.ballPos.set(0, 0);
     this.ballVel.set(0, 0);
+    this.spin = null;
+    this.resetStrokes();
     this.arc = null;
     const won = this.scoreYou >= WIN_SCORE || this.scoreAi >= WIN_SCORE;
     this.phase = won ? "won" : "serving";
@@ -847,16 +975,21 @@ export class GameScene {
     if (iScored) this.flashFar = 1;
     else this.flashNear = 1;
 
-    this.invertFlash = INVERT_FLASH_S;
+    this.invertFlash = this.reducedMotion ? 0 : INVERT_FLASH_S;
     this.trauma = Math.min(1, this.trauma + TRAUMA_GOAL);
     this.particles.burst({ x: sx, y: sy, z: BALL_R, dirY: -Math.sign(cy) * flip, ...BURST_GOAL });
     this.rings.spawn({ x: sx, y: sy, ...RING_GOAL });
     this.comboEl.style.opacity = "0"; // the rally is over
+    this.shotEl.classList.remove("on");
+    this.shotUntil = 0;
 
+    this.pointEl.textContent = won ? "" : iScored ? "YOU SCORE" : "RIVAL SCORES";
+    this.pointUntil = won ? 0 : this.elapsed + AUTO_SERVE_S;
     if (won) {
       sfx.win(iScored);
       // Confetti rain from above center — pure flair on the match climax.
-      this.particles.burst({ x: 0, y: 0, z: CONFETTI_Z, ...BURST_CONFETTI });
+      if (!this.reducedMotion)
+        this.particles.burst({ x: 0, y: 0, z: CONFETTI_Z, ...BURST_CONFETTI });
     } else {
       sfx.score(iScored);
     }
@@ -885,14 +1018,14 @@ export class GameScene {
     this.net.sendEvent(event, payload);
   }
 
-  private handleEvent(event: string, payload: JsonValue, _from: string): void {
+  private handleEvent(event: string, payload: JsonValue, from: string): void {
     // Guest → host intent (serve / rematch). Only the host acts on it.
     if (event === "confirm") {
-      if (!this.isGuest()) this.confirm();
+      if (!this.isGuest() && from === this.net.otherPlayer()?.id) this.confirm();
       return;
     }
     // Host → guest fx beats — the host already ran these locally.
-    if (!this.isGuest()) return;
+    if (!this.isGuest() || from !== this.net.hostId) return;
     const p = isJsonObject(payload) ? payload : {};
     const num = (k: string): number => {
       const v = p[k];
@@ -901,7 +1034,15 @@ export class GameScene {
     const bool = (k: string): boolean => p[k] === true;
     switch (event) {
       case "phit":
-        this.paddleHitFx(num("x"), num("y"), num("vx"), num("vy"), bool("a"), num("n"));
+        this.paddleHitFx(
+          num("x"),
+          num("y"),
+          num("vx"),
+          num("vy"),
+          bool("a"),
+          num("n"),
+          clamp(num("spin"), -1, 1),
+        );
         break;
       case "wall":
         this.wallFx(num("x"), num("y"));
@@ -932,8 +1073,11 @@ export class GameScene {
       by: this.ballPos.y,
       bvx: this.ballVel.x,
       bvy: this.ballVel.y,
+      spin: this.spin?.strength ?? 0,
+      spinLeft: this.spin?.left ?? 0,
       phase: this.phase,
       rally: this.rallyHits,
+      longestRally: this.longestRally,
       // Remaining time, not the absolute deadline: `serveAt` lives in OUR
       // `elapsed` timeline, which the guest's clock has no relation to.
       serveLeft: this.serveAt === null ? null : Math.max(0, this.serveAt - this.elapsed),
@@ -950,7 +1094,14 @@ export class GameScene {
     this.paddleAcc += dt;
     if (this.paddleAcc < 1 / NET_TICK_HZ) return;
     this.paddleAcc = 0;
-    this.net.updateMyState({ paddle: this.myPaddle });
+    this.paddleSeq += 1;
+    const now = performance.now() / 1000;
+    this.net.updateMyState({
+      paddle: this.myPaddle,
+      stroke: this.stroke.read(now),
+      strokeAge: this.stroke.age(now),
+      strokeSeq: this.paddleSeq,
+    });
   }
 
   /** Guest: adopt the host's authoritative snapshot, dead-reckoning the ball
@@ -966,7 +1117,13 @@ export class GameScene {
     if (fresh && seq !== null) {
       this.lastSeq = seq;
       this.ballVel.set(numField(s, "bvx") ?? 0, numField(s, "bvy") ?? 0);
+      const strength = clamp(numField(s, "spin") ?? 0, -1, 1);
+      const left = clamp(numField(s, "spinLeft") ?? 0, 0, SPIN_LIFE);
+      this.spin = strength !== 0 && left > 0 ? { strength, left } : null;
+      this.rallySpeed = this.ballVel.length() || RALLY_SPEED_BASE;
       this.rallyHits = numField(s, "rally") ?? 0;
+      // Authoritative match statistic: repeated FX packets never add contacts.
+      this.longestRally = Math.max(0, Math.floor(numField(s, "longestRally") ?? 0));
       // Re-anchor the host's remaining serve time in OUR timeline (only on a
       // fresh snapshot — re-anchoring stale data would freeze the meter).
       const sl = numField(s, "serveLeft");
@@ -986,6 +1143,7 @@ export class GameScene {
 
       this.ballPos.set(numField(s, "bx") ?? 0, numField(s, "by") ?? 0);
     } else if (this.phase === "rally") {
+      this.spin = curveVelocity(this.ballVel, this.spin, dt, MIN_VY_FRAC);
       this.ballPos.addScaledVector(this.ballVel, dt);
     }
 
@@ -1013,15 +1171,17 @@ export class GameScene {
     this.playerPulse *= Math.exp(-PULSE_DECAY * dt);
     this.aiPulse *= Math.exp(-PULSE_DECAY * dt);
     this.playerRing.position.x = flip * this.myPaddle;
-    this.playerRing.scale.setScalar(1 + PULSE_SCALE * this.playerPulse);
+    this.playerRing.scale.setScalar(
+      1 + PULSE_SCALE * this.playerPulse * (this.reducedMotion ? 0.3 : 1),
+    );
     this.aiRing.position.x = flip * this.oppPaddle;
-    this.aiRing.scale.setScalar(1 + PULSE_SCALE * this.aiPulse);
+    this.aiRing.scale.setScalar(1 + PULSE_SCALE * this.aiPulse * (this.reducedMotion ? 0.3 : 1));
 
     const arcZ = this.arc ? arcHeight(this.arc, this.ballPos.y) : 0;
     this.ball.position.set(flip * this.ballPos.x, flip * this.ballPos.y, BALL_R + arcZ);
     this.ball.scale.lerp(UNIT_SCALE, 1 - Math.exp(-SQUASH_RECOVER * dt));
     // Waiting to serve: the ball breathes — anticipation instead of a dead prop.
-    if (this.phase === "serving") {
+    if (this.phase === "serving" && !this.reducedMotion) {
       this.ball.scale.setScalar(1 + SERVE_PULSE_SCALE * Math.sin(this.elapsed * SERVE_PULSE_FREQ));
     }
 
@@ -1038,7 +1198,7 @@ export class GameScene {
         1,
       );
       const ghostSize = TRAIL_SIZE * (1 + STREAK_SIZE_GAIN * spd);
-      const ghostLife = TRAIL_LIFE * (1 + STREAK_LIFE_GAIN * spd);
+      const ghostLife = TRAIL_LIFE * (1 + STREAK_LIFE_GAIN * spd) * (this.reducedMotion ? 0.5 : 1);
       this.trailAcc += dt * TRAIL_RATE;
       const ghosts = Math.floor(this.trailAcc);
       this.trailAcc -= ghosts;
@@ -1051,6 +1211,16 @@ export class GameScene {
           ghostSize,
           ghostLife,
         );
+        if (this.spin && !this.reducedMotion && i % 2 === 0) {
+          // A fine parallel ink stroke sits on the curving side of the trail.
+          this.particles.ghost(
+            flip * (this.ballPos.x - this.ballVel.x * back + Math.sign(this.spin.strength) * 0.22),
+            flip * (this.ballPos.y - this.ballVel.y * back),
+            BALL_R + arcZ,
+            ghostSize * 0.32,
+            ghostLife * 0.8,
+          );
+        }
       }
     }
     this.particles.update(dt);
@@ -1103,6 +1273,11 @@ export class GameScene {
    * plus a shake/breath roll. Offsets stay << shake so impacts mask them.
    */
   private composeCamera(): void {
+    if (this.reducedMotion) {
+      this.camera.position.set(this.camDrag.x, CAM_POS.y + this.camDrag.y, CAM_POS.z);
+      this.camera.lookAt(0, CAM_AIM_Y, PADDLE_Z);
+      return;
+    }
     const shake = this.trauma * this.trauma;
     const t = this.shakeTime * SHAKE_FREQ;
     const e = this.elapsed;
@@ -1134,7 +1309,98 @@ export class GameScene {
 
   /** True while a goal's full-screen ink/paper swap is live (dither pass reads this). */
   isScreenInverted(): boolean {
-    return this.invertFlash > 0;
+    return !this.reducedMotion && this.invertFlash > 0;
+  }
+
+  setReducedMotion(enabled: boolean): void {
+    this.reducedMotion = enabled;
+    document.documentElement.classList.toggle("reduced-motion", enabled);
+    if (enabled) {
+      this.invertFlash = 0;
+      this.camDrag.set(0, 0, 0);
+      this.camKick.set(0, 0, 0);
+      this.trauma = 0;
+    }
+    this.composeCamera();
+  }
+
+  private resetStrokes(): void {
+    this.stroke.reset();
+    this.remoteStrokeIntent = 0;
+    this.remoteStrokeUntil = 0;
+  }
+
+  /** Plain telemetry for the playtest contract; no engine objects escape. */
+  diagnostics() {
+    return {
+      frame: this.frame,
+      score: this.scoreYou,
+      opponentScore: this.scoreAi,
+      complete: this.phase === "won",
+      phase: this.phase,
+      player: {
+        x: this.flip * this.myPaddle,
+        y: -PADDLE_Y,
+      },
+      entities: 3,
+      rallyHits: this.rallyHits,
+      longestRally: this.longestRally,
+      spinShots: this.spinShots,
+      ball: {
+        x: this.ballPos.x,
+        y: this.ballPos.y,
+        vx: this.ballVel.x,
+        vy: this.ballVel.y,
+        spin: this.spin?.strength ?? 0,
+        spinLeft: this.spin?.left ?? 0,
+      },
+      reducedMotion: this.reducedMotion,
+      paused: this.paused,
+      handActive: this.currentHandX() !== null,
+    };
+  }
+
+  /** Dev/test-only callers use this to restart a reproducible solo run. */
+  seed(seed: number): void {
+    let value = seed >>> 0;
+    this.random = () => {
+      value = (Math.imul(value, 1664525) + 1013904223) >>> 0;
+      return value / 4294967296;
+    };
+    this.setTestState("active-play");
+  }
+
+  setTestState(name: string): void {
+    if (name !== "active-play" && name !== "match-point" && name !== "fail") {
+      throw new Error(`Unknown Pong playtest state: ${name}`);
+    }
+    this.playSolo();
+    this.paused = false;
+    this.froze = false;
+    this.freeze = 0;
+    this.phase = "serving";
+    this.playerX = 0;
+    this.aiX = 0;
+    this.ballPos.set(0, 0);
+    this.arc = null;
+    this.handX = null;
+    this.lastHandX = null;
+    this.spinShots = 0;
+    this.longestRally = 0;
+    this.pointEl.textContent = "";
+    this.pointUntil = 0;
+    this.scoreYou = name === "match-point" ? WIN_SCORE - 1 : 0;
+    this.scoreAi = name === "fail" ? WIN_SCORE : 0;
+    if (name === "fail") {
+      this.phase = "won";
+      this.ballVel.set(0, 0);
+      this.spin = null;
+      this.serveAt = null;
+      this.resetStrokes();
+      this.syncHud();
+    } else {
+      this.serve();
+    }
   }
 
   // ---- HUD -----------------------------------------------------------------
@@ -1144,29 +1410,55 @@ export class GameScene {
     this.scoreAiEl.textContent = String(this.scoreAi);
     const human = this.net.live && this.hasOpponent();
     this.oppLabelEl.textContent = human ? "RIVAL" : "AI";
+    const matchPoint =
+      this.phase !== "won" && Math.max(this.scoreYou, this.scoreAi) === WIN_SCORE - 1;
+    const matchPointText = matchPoint
+      ? this.scoreYou === this.scoreAi
+        ? "DECIDING POINT"
+        : this.scoreYou > this.scoreAi
+          ? "YOUR MATCH POINT"
+          : "DEFEND MATCH POINT"
+      : "";
+    // Guest snapshots arrive at 30 Hz; announce the cue only when it changes.
+    if (this.matchPointEl.textContent !== matchPointText) {
+      this.matchPointEl.textContent = matchPointText;
+    }
 
-    // The serve prompt / win note words come from the controls manifest,
-    // filtered per device and connected pad (controls.ts).
-    let controlsCopy = false;
+    // Keep the action node mounted: 30 Hz guest snapshots must not steal focus.
+    let controlsCopy = true;
     if (!this.net.live) {
-      this.bannerEl.replaceChildren("connecting", promptNote(connectingPromptPhrases()));
-      this.bannerEl.style.opacity = "1";
-      controlsCopy = true;
+      this.showBanner(
+        this.connectedBefore ? "RECONNECTING" : "PONG",
+        this.connectedBefore ? "Your match is waiting for the connection." : "FIRST TO 7 WINS",
+        connectingPromptPhrases(),
+        "Play AI now to leave matchmaking.",
+        "PLAY AI",
+      );
     } else if (this.phase === "serving" && this.serveAt === null) {
-      this.bannerEl.replaceChildren("PONG", promptNote(servePromptPhrases()));
-      this.bannerEl.style.opacity = "1";
-      controlsCopy = true;
+      this.showBanner(
+        "PONG",
+        "FIRST TO 7 WINS",
+        servePromptPhrases(),
+        "Flick sideways at contact to curve your return.",
+        "SERVE",
+      );
     } else if (this.phase === "won") {
       const iWon = this.scoreYou > this.scoreAi;
-      const strong = iWon ? "you win" : human ? "rival wins" : "ai wins";
-      this.bannerEl.replaceChildren(strong, promptNote(rematchNotePhrases()));
-      this.bannerEl.style.opacity = "1";
-      controlsCopy = true;
+      this.showBanner(
+        iWon ? "YOU WIN" : human ? "RIVAL WINS" : "AI WINS",
+        `${this.scoreYou} — ${this.scoreAi} · LONGEST RALLY ${this.longestRally}`,
+        rematchNotePhrases(),
+        this.longestRally > 0
+          ? "Next match: beat your rally or land a curve."
+          : "Try a sideways flick as the ball meets your paddle.",
+        "REMATCH",
+      );
     } else {
-      this.bannerEl.style.opacity = "0";
+      controlsCopy = false;
     }
+    this.bannerEl.hidden = !controlsCopy;
     this.watchBannerControls(controlsCopy);
-    this.netInfoEl.textContent = this.netInfoText();
+    setText(this.netInfoEl, this.netInfoText());
   }
 
   /** While the banner shows manifest-derived copy, watch for the things that
@@ -1188,23 +1480,46 @@ export class GameScene {
     }
   }
 
+  private showBanner(
+    title: string,
+    detail: string,
+    phrases: readonly PromptPhrase[],
+    hint: string,
+    action: string,
+  ): void {
+    setText(this.bannerTitleEl, title);
+    setText(this.bannerDetailEl, detail);
+    setText(this.bannerHintEl, hint);
+    setText(this.actionEl, action);
+    const key = JSON.stringify(phrases);
+    if (key !== this.bannerPromptKey) {
+      this.bannerPromptKey = key;
+      this.bannerControlsEl.replaceChildren(promptNote(phrases));
+    }
+  }
+
   private netInfoText(): string {
-    if (!this.net.live) return "connecting…";
-    if (this.net.offline) return "offline · vs AI";
-    const role = this.isGuest() ? "guest" : "host";
-    return this.hasOpponent() ? `${role} · 1v1` : `${role} · waiting for player`;
+    if (!this.net.live) return this.connectedBefore ? "Reconnecting…" : "Finding a rival…";
+    if (this.net.offline) return "VS AI · FIRST TO 7";
+    return this.hasOpponent() ? "LIVE 1V1 · FIRST TO 7" : "VS AI · RIVAL CAN JOIN";
   }
 
   /** Surface the running rally length as an escalating "×N" once past MIN. */
   private showCombo(hits: number): void {
     if (hits < COMBO_MIN) return;
     const tier = clamp(hits / COMBO_PEAK_HITS, 0, 1);
-    this.comboEl.textContent = `×${hits}`;
+    this.comboEl.textContent = `RALLY ×${hits}`;
     this.comboEl.style.setProperty("--combo-tier", tier.toFixed(3));
     this.comboEl.style.opacity = "1";
     this.comboEl.classList.remove("pop");
     void this.comboEl.offsetWidth; // restart the CSS pop
     this.comboEl.classList.add("pop");
+  }
+
+  private showShot(direction: number, mine: boolean): void {
+    this.shotEl.textContent = `${direction < 0 ? "↶" : "↷"} ${mine ? "CURVE SHOT" : "RIVAL CURVE"}`;
+    this.shotEl.classList.add("on");
+    this.shotUntil = this.elapsed + 0.7;
   }
 
   /** Deplete the serve-countdown bar over the auto-serve dead air between points. */
@@ -1298,6 +1613,10 @@ function promptNote(phrases: readonly PromptPhrase[]): HTMLElement {
     node.append(run);
   });
   return node;
+}
+
+function setText(node: HTMLElement, text: string): void {
+  if (node.textContent !== text) node.textContent = text;
 }
 
 function popScore(node: HTMLElement): void {

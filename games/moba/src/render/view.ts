@@ -23,7 +23,13 @@ import type { World, Unit, Projectile, GroundEffect, FxEvent } from "../sim/type
 import { CLIFF_FRAMES, FLAT_AUTOTILE, SLOPE_FRAMES, autotileFrame, autotileMask } from "./autotile";
 import { sfx } from "./audio";
 import { FONT } from "./font";
-import { abilityCastFx, effectColor, groundFxKind } from "./fx-map";
+import { abilityCastFx, effectColor, groundFxKind, hitColor } from "./fx-map";
+import { CommonFx } from "./common-fx";
+import { layoutHeroPlates } from "./combat-plates";
+import type { HeroPlate } from "./combat-plates";
+import { attackPose } from "./attack-pose";
+import type { AttackCue } from "./attack-pose";
+import { presentationSettings, watchPresentationSettings } from "./presentation-settings";
 import { animKey, structureDestroyedTex, unitSprite } from "./sprites";
 
 const COLS = GRID.cols;
@@ -48,6 +54,8 @@ const D_RING = -90;
 const D_BRIDGE_SHADOW = -89;
 const D_BRIDGE = -84; // minus a per-strip index (northern strips on top), stays above the shadow
 const DEPTH_DECAL = -50;
+const DEPTH_GROUND_ZONE = -40;
+const DEPTH_UNIT_PLATE = 91000;
 
 // Terrain autotile tables (flat/elevated grass), cliff + slope frames live in
 // ./autotile — the single source shared with the ?gallery=map gallery.
@@ -65,6 +73,7 @@ function rng2(x: number, y: number): number {
 
 type UnitView = {
   container: Phaser.GameObjects.Container;
+  plate: Phaser.GameObjects.Container;
   sprite: Phaser.GameObjects.Sprite;
   shadow: Phaser.GameObjects.Image;
   ring: Phaser.GameObjects.Graphics;
@@ -76,6 +85,7 @@ type UnitView = {
   dy: number;
   curAnim: string;
   lastAttackAt: number; // detect a fresh swing to play the attack anim once
+  attackCue: AttackCue | null;
   lastDustAt: number; // throttle the running dust puffs
   dead: boolean; // playing/played the death anim while hidden (heroes)
   recoilX: number; // hit knockback offset (decays each frame)
@@ -104,6 +114,7 @@ type StructView = {
 
 export class WorldView {
   private scene: Phaser.Scene;
+  private readonly commonFx: CommonFx;
   private units = new Map<string, UnitView>();
   private structs = new Map<string, StructView>();
   private projs = new Map<string, Phaser.GameObjects.Image | Phaser.GameObjects.Sprite>();
@@ -115,6 +126,10 @@ export class WorldView {
   private scorches: Phaser.GameObjects.Image[] = []; // lingering blast marks (capped)
   private reticle: Phaser.GameObjects.Image | null = null; // target marker (Cursor_04)
   private reticleId = ""; // unit the player is currently targeting/hovering
+  private plateLeaders: Phaser.GameObjects.Graphics | null = null;
+  private reducedMotion = false;
+  private focused = false;
+  private clouds: Phaser.GameObjects.Image[] = [];
   playerHeroId = "";
   playerTeam: "radiant" | "dire" = "radiant";
 
@@ -128,6 +143,23 @@ export class WorldView {
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
+    this.commonFx = new CommonFx(scene);
+    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const syncMotion = () => {
+      const settings = presentationSettings();
+      this.reducedMotion = motion.matches || settings.motion === "reduced";
+      this.focused = settings.effects === "focused";
+      this.commonFx.setFocused(this.focused);
+      for (const cloud of this.clouds) cloud.setVisible(!this.focused);
+      if (this.reducedMotion) this.trauma = 0;
+    };
+    syncMotion();
+    const stopSettings = watchPresentationSettings(syncMotion);
+    motion.addEventListener("change", syncMotion);
+    scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      motion.removeEventListener("change", syncMotion);
+      stopSettings();
+    });
   }
 
   /** Start a looping anim at a deterministic offset, CLAMPED to its real frame
@@ -666,8 +698,10 @@ export class WorldView {
         .image(x, y, "clouds", frame)
         .setScale(0.7 + rng2(i, i) * 0.6)
         .setAlpha(0.45 + rng2(i, 3) * 0.25)
+        .setVisible(!this.focused)
         .setDepth(9000); // above units, below HUD
       const dist = 600 + rng2(i, 9) * 900;
+      this.clouds.push(c);
       s.tweens.add({
         targets: c,
         x: x + dist,
@@ -754,17 +788,24 @@ export class WorldView {
   sync(world: World, dt: number): void {
     this.syncStructures(world);
     this.syncUnits(world, dt);
+    this.syncHeroPlates(world);
     this.syncProjectiles(world);
     this.syncGrounds(world, dt);
     this.syncMines(world);
     this.syncReticle(world);
     this.drainFx(world);
+    this.commonFx.update(dt);
     this.tickAmbientSplashes(dt);
     this.tickShake(dt);
   }
 
+  fxCounts() {
+    return this.commonFx.counts();
+  }
+
   /** Add screen-shake trauma (0..1), clamped. Bigger events add more. */
   addTrauma(amount: number): void {
+    if (this.reducedMotion) return;
     this.trauma = Math.min(1, this.trauma + amount);
   }
 
@@ -775,6 +816,13 @@ export class WorldView {
     const d = Math.hypot(x - (v.x + v.width / 2), y - (v.y + v.height / 2));
     const falloff = Math.max(0, 1 - d / 1000);
     if (falloff > 0) this.addTrauma(base * falloff);
+  }
+
+  /** Cosmetic attenuation follows the viewed battle, never simulation state. */
+  private soundGainAt(x: number, y: number): number {
+    const v = this.scene.cameras.main.worldView;
+    const distance = Math.hypot(x - v.centerX, y - v.centerY);
+    return Math.max(0, 1 - Math.max(0, distance - 180) / 1200);
   }
 
   /** Decay trauma and recompute the camera offset/rotation (offset ∝ trauma², from
@@ -827,6 +875,7 @@ export class WorldView {
 
   /** Occasional water splashes along shorelines near the camera, for living water. */
   private tickAmbientSplashes(dt: number): void {
+    if (this.focused) return;
     this.splashAcc += dt;
     if (this.splashAcc < 0.55) return;
     this.splashAcc = 0;
@@ -946,6 +995,11 @@ export class WorldView {
         const v = this.units.get(u.id);
         if (v && !v.dead) {
           v.dead = true;
+          v.attackCue = null;
+          v.plate.setVisible(false);
+          v.ring.setVisible(false);
+          for (const star of v.stunStars) star.setVisible(false);
+          v.shieldFx?.setVisible(false);
           const dkey = animKey(u, "death");
           v.sprite.clearTint();
           this.spawnSkull(v.dx, v.dy, u.kind === "hero" ? 0.62 : 0.5);
@@ -974,9 +1028,12 @@ export class WorldView {
         v.curAnim = "";
         this.scene.tweens.killTweensOf(v.sprite);
         v.sprite.setAlpha(1).setAngle(0);
-        v.sprite.y = -18;
+        v.sprite.setPosition(0, -18);
+        v.recoilX = v.recoilY = 0;
       }
       v.container.setVisible(true);
+      v.plate.setVisible(true);
+      v.ring.setVisible(true);
 
       // smooth display position toward sim position — snappy enough to track the
       // 30Hz sim without floating, smooth enough to hide the step.
@@ -987,12 +1044,16 @@ export class WorldView {
       // purely visual (the sim position is untouched, so nav/MP stay authoritative).
       v.recoilX *= Math.pow(0.0008, dt);
       v.recoilY *= Math.pow(0.0008, dt);
+      if (this.reducedMotion) v.recoilX = v.recoilY = 0;
       if (Math.abs(v.recoilX) < 0.3) v.recoilX = 0;
       if (Math.abs(v.recoilY) < 0.3) v.recoilY = 0;
       // elevation lift: raise the sprite when on a plateau / climbing a ramp so it
       // stands on the high ground (sim x/y is untouched — depth still sorts by feet)
       const elev = elevationFrac(v.dx, v.dy) * LIFT;
-      v.container.setPosition(Math.round(v.dx + v.recoilX), Math.round(v.dy + v.recoilY - elev));
+      v.container.setPosition(Math.round(v.dx), Math.round(v.dy - elev));
+      // Only the body recoils. Ground rings and health stay on the actual feet.
+      v.sprite.setPosition(v.recoilX, -18 + v.recoilY);
+      v.plate.setPosition(Math.round(v.dx), Math.round(v.dy - elev));
       // sort by the lifted "screen feet" so plateau units order correctly against
       // the lifted plateau trees/decor (which use depth = y - LIFT)
       v.container.setDepth(v.dy - elev);
@@ -1005,7 +1066,7 @@ export class WorldView {
 
       // running dust puffs at the feet (throttled per unit)
       const speed = Math.hypot(u.vx, u.vy);
-      if (speed > 70) {
+      if (speed > 70 && !this.focused) {
         const now = this.scene.time.now;
         if (now - v.lastDustAt > (u.kind === "hero" ? 240 : 340)) {
           v.lastDustAt = now;
@@ -1029,6 +1090,12 @@ export class WorldView {
         if (this.scene.anims.exists(attackKey)) {
           v.sprite.play(attackKey, true);
           v.curAnim = attackKey;
+        } else {
+          v.attackCue = {
+            startedAt: u.lastAttackAt,
+            resolveAt: u.pendingAttack.resolveAt,
+            facing: u.facing,
+          };
         }
         if (u.kind === "hero") this.spawnSwing(v.dx, v.dy, u.facing, u.projectileSpeed > 0);
       } else if (!attackPlaying) {
@@ -1037,6 +1104,14 @@ export class WorldView {
           v.sprite.play(key, true);
           v.curAnim = key;
         }
+      }
+
+      if (v.attackCue) {
+        const cancelled = !u.pendingAttack && (speed > 12 || world.now < v.attackCue.resolveAt);
+        const pose = cancelled ? null : attackPose(v.attackCue, world.now);
+        if (!pose) v.attackCue = null;
+        v.sprite.setAngle(this.reducedMotion ? 0 : (pose?.angle ?? 0));
+        v.sprite.x += this.reducedMotion ? 0 : (pose?.x ?? 0);
       }
 
       // no sprite tint at all — units show their true art; hit feedback is the
@@ -1050,7 +1125,17 @@ export class WorldView {
 
       // status tints: stun = yellow ring flash handled via ring alpha
       const stunned = u.statuses.some((s) => s.kind === "stun" || s.kind === "taunt");
-      v.ring.setAlpha(u.id === this.playerHeroId ? 1 : stunned ? 0.9 : u.kind === "hero" ? 0.5 : 0);
+      v.ring.setAlpha(
+        u.id === this.playerHeroId
+          ? 1
+          : stunned
+            ? 0.9
+            : v.attackCue
+              ? 0.8
+              : u.kind === "hero"
+                ? 0.5
+                : 0,
+      );
       // persistent status auras (orbiting stun stars, shield shimmer)
       this.syncStatusFx(u, v);
     }
@@ -1060,8 +1145,46 @@ export class WorldView {
       if (!world.units.has(id)) {
         this.spawnDeathAnim(v);
         v.container.destroy();
+        v.plate.destroy();
         this.units.delete(id);
       }
+    }
+  }
+
+  /** Health/name plates sit above combat decoration, with a leader only when a
+   * crowd displaces a hero's label. Their original art and team colors remain. */
+  private syncHeroPlates(world: World): void {
+    if (!this.plateLeaders)
+      this.plateLeaders = this.scene.add.graphics().setDepth(DEPTH_UNIT_PLATE - 1);
+    this.plateLeaders.clear();
+    const plates: HeroPlate[] = [];
+    for (const [id, v] of this.units) {
+      const u = world.units.get(id);
+      if (!u?.alive || u.kind !== "hero" || !v.label) continue;
+      if (!this.commonFx.visible(v.dx, v.dy, 100)) continue;
+      const priority =
+        id === this.playerHeroId ? "player" : id === this.reticleId ? "target" : "hero";
+      plates.push({
+        id,
+        x: v.container.x,
+        y: v.container.y - 87,
+        width: Math.max(64, v.label.width),
+        height: 36,
+        priority,
+      });
+    }
+    for (const plate of layoutHeroPlates(plates)) {
+      const v = this.units.get(plate.id);
+      if (!v) continue;
+      v.plate.y -= plate.lift;
+      const local = plate.id === this.playerHeroId;
+      v.hpBg.setStrokeStyle(local ? 2 : 1, local ? 0xffe14a : 0x000000, local ? 1 : 0.6);
+      if (plate.lift <= 0) continue;
+      // A dark under-stroke stays readable over both pale spells and grass.
+      this.plateLeaders.lineStyle(3, 0x101522, 0.85);
+      this.plateLeaders.lineBetween(plate.x, plate.y + 36, plate.x, v.container.y - 42);
+      this.plateLeaders.lineStyle(1, local ? 0xffe14a : 0xeaf0ff, 0.85);
+      this.plateLeaders.lineBetween(plate.x, plate.y + 36, plate.x, v.container.y - 42);
     }
   }
 
@@ -1069,7 +1192,14 @@ export class WorldView {
    *  uses this when swapping subjects — a character swap isn't a death, so the
    *  default "unit vanished → death pop" path would litter the stage with skulls. */
   clearUnitViews(): void {
-    for (const [, v] of this.units) v.container.destroy();
+    this.commonFx.reset();
+    this.trauma = 0;
+    this.shakeX = this.shakeY = this.shakeRot = 0;
+    for (const [, v] of this.units) {
+      v.container.destroy();
+      v.plate.destroy();
+    }
+    this.plateLeaders?.clear();
     this.units.clear();
   }
 
@@ -1078,6 +1208,7 @@ export class WorldView {
    *  only handles the alive→dead edge; a director that swaps in a new World needs
    *  the reverse (rubble back to the intact tower/castle art + bars). */
   resetStructures(world: World): void {
+    this.commonFx.reset();
     for (const [id, sv] of this.structs) {
       const u = world.units.get(id);
       if (!u || !u.alive || !sv.dead) continue;
@@ -1096,6 +1227,7 @@ export class WorldView {
   /** Hero attack flourish: a sweeping slash arc for melee, a muzzle spark for
    *  ranged — drawn in the facing direction so swings read as deliberate hits. */
   private spawnSwing(x: number, y: number, facing: number, ranged: boolean): void {
+    if (!this.commonFx.visible(x, y)) return;
     const s = this.scene;
     const cx = x + facing * (ranged ? 30 : 40);
     const cy = y - 22;
@@ -1157,53 +1289,47 @@ export class WorldView {
     ny: number,
     tint: number,
     crit?: boolean,
+    important = false,
   ): void {
-    const s = this.scene;
+    if (!this.commonFx.visible(x, y)) return;
     const baseAng = Math.atan2(ny, nx);
-    const n = crit ? 7 : 4;
-    for (let i = 0; i < n; i++) {
+    const priority = important || crit ? "important" : "common";
+    for (let i = 0; i < (crit ? 7 : 4); i++) {
       const a = baseAng + (Math.random() - 0.5) * 1.5;
-      const spd = (crit ? 90 : 60) + Math.random() * 70;
-      const sp = s.add
-        .image(x, y, "spark")
-        .setDepth(y + 320)
-        .setScale(0.18 + Math.random() * 0.16)
-        .setTint(tint)
-        .setBlendMode(Phaser.BlendModes.ADD);
-      s.tweens.add({
-        targets: sp,
-        x: x + Math.cos(a) * spd,
-        y: y + Math.sin(a) * spd + 18, // slight gravity droop
-        scale: 0,
-        alpha: 0,
-        duration: 230 + Math.random() * 130,
-        ease: "Quad.Out",
-        onComplete: () => sp.destroy(),
+      const speed = (crit ? 90 : 60) + Math.random() * 70;
+      this.commonFx.image({
+        texture: "spark",
+        x,
+        y,
+        depth: y + 320,
+        scale: 0.18 + Math.random() * 0.16,
+        endScale: 0,
+        tint,
+        dx: Math.cos(a) * speed,
+        dy: Math.sin(a) * speed + 18,
+        life: (230 + Math.random() * 130) / 1000,
+        priority,
       });
     }
-    // sharp streak shards on crits/big hits — stretched along their velocity, they
-    // read as fast, energetic debris (soft dots alone read mushy).
-    const shards = crit ? 4 : 2;
-    for (let i = 0; i < shards; i++) {
+    for (let i = 0; i < (crit ? 4 : 2); i++) {
       const a = baseAng + (Math.random() - 0.5) * 1.1;
-      const spd = (crit ? 130 : 95) + Math.random() * 90;
-      const sh = s.add
-        .image(x, y, "streak")
-        .setDepth(y + 321)
-        .setRotation(a)
-        .setScale(crit ? 0.8 : 0.55, 0.6)
-        .setTint(tint)
-        .setAlpha(0.9)
-        .setBlendMode(Phaser.BlendModes.ADD);
-      s.tweens.add({
-        targets: sh,
-        x: x + Math.cos(a) * spd,
-        y: y + Math.sin(a) * spd + 12,
-        scaleX: 0,
-        alpha: 0,
-        duration: 180 + Math.random() * 110,
-        ease: "Quad.Out",
-        onComplete: () => sh.destroy(),
+      const speed = (crit ? 130 : 95) + Math.random() * 90;
+      this.commonFx.image({
+        texture: "streak",
+        x,
+        y,
+        depth: y + 321,
+        scale: crit ? 0.8 : 0.55,
+        scaleY: 0.6,
+        endScale: 0,
+        endScaleY: 0.6,
+        rotation: a,
+        tint,
+        alpha: 0.9,
+        dx: Math.cos(a) * speed,
+        dy: Math.sin(a) * speed + 12,
+        life: (180 + Math.random() * 110) / 1000,
+        priority,
       });
     }
   }
@@ -1211,6 +1337,7 @@ export class WorldView {
   /** Stamp a lingering scorch mark where a blast/AoE landed (permanence — the field
    *  remembers the fight). Capped + slowly faded so marks don't pile up forever. */
   private stampScorch(x: number, y: number, radius: number): void {
+    if (!this.commonFx.visible(x, y, radius + 160)) return;
     const s = this.scene;
     if (!s.textures.exists("fx-scorch")) return;
     const mark = s.add
@@ -1238,37 +1365,24 @@ export class WorldView {
 
   /** An expanding shockwave ring — reserved for crits / big nukes (not every hit). */
   private spawnShockwave(x: number, y: number, tint: number, strength: number): void {
-    const s = this.scene;
-    if (!s.textures.exists("fx-ring")) return;
-    const ring = s.add
-      .image(x, y, "fx-ring")
-      .setDepth(y + 260)
-      .setTint(tint)
-      .setAlpha(0.7 * strength)
-      .setScale(0.25)
-      .setBlendMode(Phaser.BlendModes.ADD);
-    s.tweens.add({
-      targets: ring,
-      scale: 1.3 + strength * 0.7,
-      alpha: 0,
-      duration: 340,
-      ease: "Cubic.Out",
-      onComplete: () => ring.destroy(),
+    this.commonFx.image({
+      texture: "fx-ring",
+      x,
+      y,
+      depth: y + 260,
+      tint,
+      alpha: 0.7 * strength,
+      scale: 0.25,
+      endScale: 1.3 + strength * 0.7,
+      life: 0.34,
+      ease: "cubic",
+      priority: "important",
     });
   }
 
   /** A little kicked-up dust puff at the feet of a running unit. */
   private spawnDust(x: number, y: number, scale: number, flip: boolean): void {
-    const s = this.scene;
-    if (!s.anims.exists("fx-dust1")) return;
-    const d = s.add
-      .sprite(x, y, "fx-dust1", 0)
-      .setScale(scale)
-      .setAlpha(0.75)
-      .setFlipX(flip)
-      .setDepth(y - 2);
-    d.play("fx-dust1");
-    d.once("animationcomplete", () => d.destroy());
+    this.commonFx.sprite({ sheet: "fx-dust1", x, y, depth: y - 2, scale, flip, alpha: 0.75 });
   }
 
   /** One-shot death at a unit's last position (for reaped creeps): play the real
@@ -1398,7 +1512,7 @@ export class WorldView {
       .setOrigin(0, 0.5);
     let mpFill: Phaser.GameObjects.Rectangle | null = null;
     let label: Phaser.GameObjects.Text | null = null;
-    const children: Phaser.GameObjects.GameObject[] = [shadow, ring, sprite, hpBg, hpFill];
+    const plateChildren: Phaser.GameObjects.GameObject[] = [hpBg, hpFill];
     if (u.kind === "hero" && u.hero) {
       const mpBg = s.add
         .rectangle(0, barY + 8, bw + 4, 5, 0x0c1018)
@@ -1413,11 +1527,13 @@ export class WorldView {
           strokeThickness: 3,
         })
         .setOrigin(0.5);
-      children.push(mpBg, mpFill, label);
+      plateChildren.push(mpBg, mpFill, label);
     }
-    const container = s.add.container(u.x, u.y, children).setDepth(u.y);
+    const container = s.add.container(u.x, u.y, [shadow, ring, sprite]).setDepth(u.y);
+    const plate = s.add.container(u.x, u.y, plateChildren).setDepth(DEPTH_UNIT_PLATE);
     const v: UnitView = {
       container,
+      plate,
       sprite,
       shadow,
       ring,
@@ -1429,6 +1545,7 @@ export class WorldView {
       dy: u.y,
       curAnim: "",
       lastAttackAt: 0,
+      attackCue: null,
       lastDustAt: 0,
       dead: false,
       recoilX: 0,
@@ -1465,8 +1582,8 @@ export class WorldView {
     }
     const n = v.stunStars.length;
     for (let i = 0; i < n; i++) {
-      const a = now / 260 + (i / n) * Math.PI * 2;
-      v.stunStars[i]?.setPosition(Math.cos(a) * 15, headY + Math.sin(a) * 5);
+      const a = (this.reducedMotion ? 0 : now / 260) + (i / n) * Math.PI * 2;
+      v.stunStars[i]?.setVisible(true).setPosition(Math.cos(a) * 15, headY + Math.sin(a) * 5);
     }
 
     const shielded = u.statuses.some((st) => st.kind === "shield");
@@ -1480,8 +1597,13 @@ export class WorldView {
       v.shieldFx = null;
     }
     if (v.shieldFx) {
-      v.shieldFx.setScale(1 + 0.07 * Math.sin(now / 130));
-      v.shieldFx.setStrokeStyle(2, 0x9fe6ff, 0.55 + 0.3 * Math.sin(now / 150));
+      v.shieldFx.setVisible(true);
+      v.shieldFx.setScale(this.reducedMotion ? 1 : 1 + 0.07 * Math.sin(now / 130));
+      v.shieldFx.setStrokeStyle(
+        2,
+        0x9fe6ff,
+        this.reducedMotion ? 0.8 : 0.55 + 0.3 * Math.sin(now / 150),
+      );
     }
   }
 
@@ -1534,7 +1656,7 @@ export class WorldView {
    *  per projectile so the trail is a ribbon of a few puffs, not a solid smear. */
   private tickProjTrail(p: Projectile): void {
     const now = this.scene.time.now;
-    if (now - (this.projTrailAt.get(p.id) ?? 0) < 22) return;
+    if (now - (this.projTrailAt.get(p.id) ?? 0) < (this.focused ? 70 : 22)) return;
     // no point trailing a projectile the camera can't see — a fight on the far side
     // of the map would otherwise spawn puffs nobody renders (kill invisible work).
     const view = this.scene.cameras.main.worldView;
@@ -1550,20 +1672,16 @@ export class WorldView {
           : p.kind === "dynamite"
             ? 0xffae4a
             : 0xdfe8ff; // arrows/tower: a faint white streak
-    const g = this.scene.add
-      .image(p.x, p.y, "spark")
-      .setDepth(p.y + 199)
-      .setScale(hot ? 0.5 : 0.3)
-      .setTint(col)
-      .setAlpha(hot ? 0.75 : 0.5)
-      .setBlendMode(Phaser.BlendModes.ADD);
-    this.scene.tweens.add({
-      targets: g,
-      scale: 0,
-      alpha: 0,
-      duration: hot ? 300 : 210,
-      ease: "Quad.Out",
-      onComplete: () => g.destroy(),
+    this.commonFx.image({
+      texture: "spark",
+      x: p.x,
+      y: p.y,
+      depth: p.y + 199,
+      scale: hot ? 0.5 : 0.3,
+      endScale: 0,
+      tint: col,
+      alpha: hot ? 0.75 : 0.5,
+      life: hot ? 0.3 : 0.21,
     });
   }
 
@@ -1579,7 +1697,7 @@ export class WorldView {
         const arc = s.add
           .circle(g.x, g.y, g.radius, col, kind === "storm" ? 0.1 : 0.2)
           .setStrokeStyle(2.5, col, 0.7)
-          .setDepth(g.y - 10);
+          .setDepth(DEPTH_GROUND_ZONE);
         const sprites: GroundView["sprites"] = [];
         // fire / heal zones tile a few looping effect sprites across the radius
         if (kind === "fire" || kind === "heal") {
@@ -1597,7 +1715,7 @@ export class WorldView {
                 .sprite(g.x + ox, g.y + oy, sheet, 0)
                 .setScale(sc)
                 .setAlpha(0.85)
-                .setDepth(g.y - 6);
+                .setDepth(DEPTH_GROUND_ZONE + 1);
               if (kind === "heal") sp.setTint(0x9bf0b0).setBlendMode(Phaser.BlendModes.ADD);
               this.playLoop(sp, `${sheet}-loop`, Math.floor(Math.random() * 6));
               sprites.push({ sp, ox, oy });
@@ -1611,7 +1729,6 @@ export class WorldView {
       // followOwner zones (flashfire) move with the caster — keep sprites attached
       for (const { sp, ox, oy } of gv.sprites) {
         sp.setPosition(g.x + ox, g.y + oy);
-        sp.setDepth(g.y - 6);
       }
       // storm zones rain lightning bolts on random points inside the radius
       if (kind === "storm" && s.anims.exists("sp-lightning")) {
@@ -1668,131 +1785,121 @@ export class WorldView {
     const s = this.scene;
     switch (fx.t) {
       case "hit": {
-        sfx.hit();
+        const localVictim = fx.targetId === this.playerHeroId;
+        sfx.hit({ important: localVictim, gain: localVictim ? 1 : this.soundGainAt(fx.x, fx.y) });
         const magic = fx.dtype === "magic";
-        const tintCol = magic ? 0xc78bff : 0xffffff;
-        // impact puff at the strike point — the clash spark that sells combat
-        const puff = s.add
-          .image(fx.x + (Math.random() - 0.5) * 12, fx.y, "spark")
-          .setDepth(fx.y + 300)
-          .setScale(0.5)
-          .setTint(tintCol)
-          .setAlpha(0.85)
-          .setBlendMode(Phaser.BlendModes.ADD);
-        s.tweens.add({
-          targets: puff,
-          scale: fx.crit ? 2.0 : 1.35,
-          alpha: 0,
-          duration: fx.crit ? 260 : 170,
-          ease: "Quad.Out",
-          onComplete: () => puff.destroy(),
+        const tintCol = hitColor(fx.attackerHero, magic);
+        const important =
+          fx.targetId === this.playerHeroId ||
+          fx.targetId === this.reticleId ||
+          fx.crit === true ||
+          (!fx.isAttack && fx.amount >= 60);
+        const priority = important ? "important" : "common";
+        this.commonFx.image({
+          texture: "spark",
+          x: fx.x,
+          y: fx.y,
+          depth: fx.y + 300,
+          scale: 0.5,
+          endScale: fx.crit ? 2 : 1.35,
+          tint: tintCol,
+          alpha: 0.85,
+          life: fx.crit ? 0.26 : 0.17,
+          priority,
         });
-        // damage flash + knockback recoil + spark spray on the victim's sprite —
-        // the impact reactions that make combat feel weighty/action-y. Recoil and
-        // sparks fire only on real swings / crits / big nukes; small DoT & ground
-        // ticks (every 0.5s) just get the cheap flash so burning units don't twitch
-        // or spray particles twice a second.
         const bigHit = fx.isAttack === true || fx.crit === true || fx.amount >= 30;
-        // a 1-frame near-white flash core over the puff: the bright "overload" beat
-        // before the impact cools (fast in, slow out).
-        if (bigHit) {
-          const flash = s.add
-            .image(fx.x, fx.y, "spark")
-            .setDepth(fx.y + 301)
-            .setScale(fx.crit ? 1.15 : 0.72)
-            .setAlpha(0.95)
-            .setBlendMode(Phaser.BlendModes.ADD);
-          s.tweens.add({
-            targets: flash,
-            scale: 0,
-            alpha: 0,
-            duration: fx.crit ? 150 : 95,
-            ease: "Quad.Out",
-            onComplete: () => flash.destroy(),
+        if (bigHit)
+          this.commonFx.image({
+            texture: "spark",
+            x: fx.x,
+            y: fx.y,
+            depth: fx.y + 301,
+            scale: fx.crit ? 1.15 : 0.72,
+            endScale: 0,
+            alpha: 0.95,
+            life: fx.crit ? 0.15 : 0.095,
+            priority,
           });
-        }
+        // Culling is confined to decoration. Victim tint/recoil and local damage
+        // response still happen even when its impact is outside the camera.
         const vv = this.units.get(fx.targetId);
         if (vv && !vv.dead) {
           vv.sprite.setTint(magic ? 0xd9a6ff : 0xff8a8a);
           vv.flashUntil = s.time.now + (fx.crit ? 130 : 90);
-          if (bigHit) {
+          if (bigHit && !this.reducedMotion) {
             const kick = Math.min(fx.isAttack ? 16 : 9, 4 + fx.amount * 0.12) * (fx.crit ? 1.6 : 1);
             vv.recoilX += fx.nx * kick;
             vv.recoilY += fx.ny * kick;
+            const recoil = Math.hypot(vv.recoilX, vv.recoilY);
+            if (recoil > 18) {
+              vv.recoilX *= 18 / recoil;
+              vv.recoilY *= 18 / recoil;
+            }
           }
         }
-        if (bigHit) this.spawnHitSparks(fx.x, fx.y, fx.nx, fx.ny, tintCol, fx.crit);
-        // a shockwave ring is reserved for crits / big nukes — on every hit it's noise
+        if (bigHit) this.spawnHitSparks(fx.x, fx.y, fx.nx, fx.ny, tintCol, fx.crit, important);
         if (fx.crit || fx.amount >= 55) this.spawnShockwave(fx.x, fx.y, tintCol, fx.crit ? 1 : 0.8);
-        // trauma shake: the player taking a real hit rattles the view; a heavy blow
-        // landing near the camera nudges it (distance-weighted).
         if (fx.targetId === this.playerHeroId && fx.amount >= 25)
           this.addTrauma(Math.min(0.5, 0.14 + fx.amount / 400));
         else if (fx.crit || fx.amount >= 60) this.traumaAt(fx.x, fx.y, 0.2);
-        const color = magic ? "#c78bff" : fx.crit ? "#ffd23a" : "#ffffff";
-        const size = fx.crit ? "24px" : "15px";
-        const t = s.add
-          .text(fx.x + (Math.random() - 0.5) * 16, fx.y, `${fx.amount}`, {
-            fontFamily: FONT,
-            fontSize: size,
-            color,
-            stroke: "#1c1410",
-            strokeThickness: fx.crit ? 5 : 4,
-          })
-          .setOrigin(0.5)
-          .setDepth(90000);
-        // crits punch in with an overshoot pop; everyone rises + fades
-        if (fx.crit) {
-          t.setScale(0.4);
-          s.tweens.add({ targets: t, scale: 1.15, duration: 200, ease: "Back.Out" });
-        }
-        s.tweens.add({
-          targets: t,
-          y: fx.y - (fx.crit ? 52 : 38),
-          alpha: 0,
-          duration: fx.crit ? 820 : 700,
-          ease: "Cubic.Out",
-          onComplete: () => t.destroy(),
+        this.commonFx.label({
+          text: `${fx.amount}`,
+          group: fx.targetId,
+          x: fx.x,
+          y: fx.y,
+          depth: 90000,
+          color: magic ? "#c78bff" : fx.crit ? "#ffd23a" : "#ffffff",
+          size: fx.crit ? 24 : 15,
+          crit: fx.crit,
+          life: fx.crit ? 0.82 : 0.7,
+          rise: fx.crit ? 52 : 38,
+          priority,
         });
         break;
       }
       case "explosion": {
-        sfx.explosion();
+        sfx.explosion({ gain: this.soundGainAt(fx.x, fx.y) });
         this.stampScorch(fx.x, fx.y, fx.radius);
         this.traumaAt(fx.x, fx.y, Phaser.Math.Clamp(0.12 + fx.radius / 500, 0.12, 0.5));
-        // white flash core the instant the blast lands (before the sprite's fire cools)
-        const boom = s.add
-          .image(fx.x, fx.y - 6, "glow")
-          .setDepth(fx.y + 402)
-          .setTint(0xfff2d6)
-          .setAlpha(0.85)
-          .setScale((fx.radius / 128) * 0.6)
-          .setBlendMode(Phaser.BlendModes.ADD);
-        s.tweens.add({
-          targets: boom,
-          scale: (fx.radius / 128) * 1.5,
-          alpha: 0,
-          duration: 150,
-          ease: "Quad.Out",
-          onComplete: () => boom.destroy(),
+        this.commonFx.image({
+          texture: "glow",
+          x: fx.x,
+          y: fx.y - 6,
+          depth: fx.y + 402,
+          tint: 0xfff2d6,
+          alpha: 0.85,
+          scale: (fx.radius / 128) * 0.6,
+          endScale: (fx.radius / 128) * 1.5,
+          life: 0.15,
+          priority: "important",
+          radius: fx.radius + 160,
         });
-        // the Particle FX pack's cartoon explosions, played raw (their art carries
-        // its own palette — no tint, no additive blend)
+        // Authored explosion sheets retain their own palette and frame timing.
         const key =
           fx.radius >= 130 && s.anims.exists("fx-explode2") ? "fx-explode2" : "fx-explode1";
         if (s.anims.exists(key)) {
-          const e = s.add.sprite(fx.x, fx.y - 10, key, 0).setDepth(fx.y + 400);
-          e.setScale(Phaser.Math.Clamp(fx.radius / 85, 0.8, 2.4));
-          e.play(key);
-          e.once("animationcomplete", () => e.destroy());
-        } else if (s.anims.exists("fx-explode")) {
-          const e = s.add
-            .sprite(fx.x, fx.y, "fx-explosion", 0)
-            .setDepth(fx.y + 400)
-            .setBlendMode(Phaser.BlendModes.ADD);
-          e.setScale((fx.radius / 96) * 1.2).setTint(fx.color);
-          e.play("fx-explode");
-          e.once("animationcomplete", () => e.destroy());
+          this.commonFx.sprite({
+            sheet: key,
+            x: fx.x,
+            y: fx.y - 10,
+            depth: fx.y + 400,
+            scale: Phaser.Math.Clamp(fx.radius / 85, 0.8, 2.4),
+            priority: "important",
+            radius: fx.radius + 160,
+          });
+        } else {
+          this.commonFx.sprite({
+            sheet: "fx-explosion",
+            anim: "fx-explode",
+            x: fx.x,
+            y: fx.y,
+            depth: fx.y + 400,
+            scale: (fx.radius / 96) * 1.2,
+            tint: fx.color,
+            additive: true,
+            priority: "important",
+            radius: fx.radius + 160,
+          });
         }
         break;
       }
@@ -1816,6 +1923,7 @@ export class WorldView {
         const v = this.units.get(fx.unitId);
         const isMe = fx.unitId === this.playerHeroId;
         if (isMe) sfx.level();
+        if (!this.commonFx.visible(fx.x, fx.y)) break;
         const x = v ? v.dx : fx.x;
         const y = v ? v.dy : fx.y;
         // overload: an expanding golden ring at the feet + a warm flash column
@@ -1875,48 +1983,35 @@ export class WorldView {
       case "gold": {
         if (fx.heroId !== this.playerHeroId) break;
         sfx.gold();
-        const t = s.add
-          .text(fx.x, fx.y, `+${fx.amount}`, {
-            fontFamily: FONT,
-            fontSize: "14px",
-            color: "#ffd23a",
-            stroke: "#1c1410",
-            strokeThickness: 4,
-          })
-          .setOrigin(0.5)
-          .setDepth(90000);
-        s.tweens.add({
-          targets: t,
-          y: fx.y - 30,
-          alpha: 0,
-          duration: 800,
-          onComplete: () => t.destroy(),
+        this.commonFx.label({
+          text: `+${fx.amount}`,
+          x: fx.x,
+          y: fx.y,
+          depth: 90000,
+          color: "#ffd23a",
+          size: 14,
+          rise: 30,
+          life: 0.8,
+          priority: "important",
         });
         break;
       }
       case "heal": {
-        const t = s.add
-          .text(fx.x, fx.y - 20, `+${Math.round(fx.amount)}`, {
-            fontFamily: FONT,
-            fontSize: "14px",
-            color: "#7bf08b",
-            stroke: "#1c1410",
-            strokeThickness: 4,
-          })
-          .setOrigin(0.5)
-          .setDepth(90000);
-        s.tweens.add({
-          targets: t,
-          y: fx.y - 50,
-          alpha: 0,
-          duration: 700,
-          onComplete: () => t.destroy(),
+        this.commonFx.label({
+          text: `+${Math.round(fx.amount)}`,
+          x: fx.x,
+          y: fx.y - 20,
+          depth: 90000,
+          color: "#7bf08b",
+          size: 14,
+          rise: 30,
+          life: 0.7,
         });
         break;
       }
       case "structureDown": {
         sfx.structureDown();
-        this.addTrauma(0.85); // a tower/ancient falling should be felt across the map
+        this.traumaAt(fx.x, fx.y, 0.85);
         this.stampScorch(fx.x, fx.y, 150);
         this.spawnShockwave(fx.x, fx.y, 0xffd9a0, 1.4);
         // a barrage: the main blast plus offset secondary bursts (never one long one)
@@ -1929,59 +2024,65 @@ export class WorldView {
         for (const [ox, oy, sc, delay] of bursts) {
           const key = s.anims.exists("fx-explode2") ? "fx-explode2" : "fx-explode1";
           if (!s.anims.exists(key)) break;
-          s.time.delayedCall(delay, () => {
-            const e = s.add
-              .sprite(fx.x + ox, fx.y + oy, key, 0)
-              .setDepth(fx.y + 500)
-              .setScale(sc);
-            e.play(key);
-            e.once("animationcomplete", () => e.destroy());
+          this.commonFx.sprite({
+            sheet: key,
+            x: fx.x + ox,
+            y: fx.y + oy,
+            depth: fx.y + 500,
+            scale: sc,
+            delay: delay / 1000,
+            priority: "important",
+            radius: 300,
           });
         }
         break;
       }
       case "death": {
-        if (fx.kind === "hero") sfx.death();
+        if (fx.kind === "hero") {
+          const localVictim = fx.unitId === this.playerHeroId;
+          sfx.death({
+            important: localVictim,
+            gain: localVictim ? 1 : this.soundGainAt(fx.x, fx.y),
+          });
+        }
         if (fx.kind === "creep") {
-          if (s.anims.exists("fx-dust2")) {
-            const puff = s.add
-              .sprite(fx.x, fx.y - 8, "fx-dust2", 0)
-              .setDepth(fx.y + 10)
-              .setScale(1.1)
-              .setAlpha(0.9);
-            puff.play("fx-dust2");
-            puff.once("animationcomplete", () => puff.destroy());
-          } else {
-            const puff = s.add
-              .image(fx.x, fx.y - 10, "spark")
-              .setDepth(fx.y + 10)
-              .setTint(0xdddddd)
-              .setScale(1.5);
-            s.tweens.add({
-              targets: puff,
-              scale: 0,
-              alpha: 0,
-              duration: 320,
-              onComplete: () => puff.destroy(),
+          if (s.anims.exists("fx-dust2"))
+            this.commonFx.sprite({
+              sheet: "fx-dust2",
+              x: fx.x,
+              y: fx.y - 8,
+              depth: fx.y + 10,
+              scale: 1.1,
+              alpha: 0.9,
             });
-          }
+          else
+            this.commonFx.image({
+              texture: "spark",
+              x: fx.x,
+              y: fx.y - 10,
+              depth: fx.y + 10,
+              tint: 0xdddddd,
+              scale: 1.5,
+              endScale: 0,
+              life: 0.32,
+            });
         }
         break;
       }
       case "cast": {
-        if (fx.team === this.playerTeam) sfx.ability();
+        if (fx.team === this.playerTeam) sfx.ability(fx.effect, this.soundGainAt(fx.x, fx.y));
         const col = effectColor(fx.effect);
-        const ring = s.add
-          .circle(fx.x, fx.y + 6, 34, col, 0)
-          .setStrokeStyle(3, col, 0.9)
-          .setDepth(fx.y);
-        s.tweens.add({
-          targets: ring,
-          scale: 0.2,
-          alpha: 0,
-          duration: 280,
-          ease: "Quad.Out",
-          onComplete: () => ring.destroy(),
+        this.commonFx.image({
+          texture: "fx-ring",
+          x: fx.x,
+          y: fx.y + 6,
+          depth: fx.y,
+          tint: col,
+          scale: 34 / 28,
+          endScale: 6.8 / 28,
+          alpha: 0.9,
+          life: 0.28,
+          priority: "important",
         });
         // self/aura cast bursts (windfoot, flashfire, powder keg, blink puff…)
         const spec = abilityCastFx(fx.effect);
@@ -2005,15 +2106,16 @@ export class WorldView {
     scale: number,
     tint?: number,
   ): void {
-    const s = this.scene;
-    if (!s.anims.exists(sheet)) return;
-    const sp = s.add
-      .sprite(x, y, sheet, 0)
-      .setDepth(y + 360)
-      .setScale(scale);
-    if (tint !== undefined) sp.setTint(tint);
-    sp.play(sheet);
-    sp.once("animationcomplete", () => sp.destroy());
+    this.commonFx.sprite({
+      sheet,
+      x,
+      y,
+      depth: y + 360,
+      scale,
+      tint,
+      priority: "important",
+      radius: 160 + scale * 128,
+    });
   }
 
   private playAbilityFx(fx: Extract<FxEvent, { t: "ability" }>): void {
@@ -2090,6 +2192,7 @@ export class WorldView {
   /** Soft radial impact glow + faint ring sized to an ability's radius (replaces
    *  the old harsh hard-stroked ring). */
   private spawnSoftImpact(x: number, y: number, r: number, col: number): void {
+    if (!this.commonFx.visible(x, y, r + 160)) return;
     const s = this.scene;
     const sc = (r * 2.2) / 128; // "glow" is 128px
     const g = s.add

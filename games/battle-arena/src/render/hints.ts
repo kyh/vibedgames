@@ -194,6 +194,14 @@ export class Hints {
     if (this.visible?.id === "shop600") this.hide();
   }
 
+  /** Keep learned rules across rematches, but never their old time deadlines. */
+  resetMatch(): void {
+    this.visible = null;
+    this.visibleUntil = this.nextAt = this.lastT = 0;
+    this.st.spawnSet = false;
+    this.show("");
+  }
+
   private hide(): void {
     this.visible = null;
     this.nextAt = this.lastT + GAP_S;

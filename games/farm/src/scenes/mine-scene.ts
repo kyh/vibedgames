@@ -14,13 +14,15 @@ import {
   DEPTH,
 } from "../config";
 import { store } from "../systems/store";
-import { patchSave } from "../systems/save";
+import { GameScene, type MineRecap } from "./game-scene";
 import { makeGameKeys, NUM_KEY_NAMES, type MineKeys } from "../systems/keys";
 import { stickMove } from "../systems/stick";
 import { isTap } from "../systems/touch";
 import type { OreId } from "../data/items";
 import { burst, floatText, shake } from "../render/fx";
 import { Sound } from "../render/audio";
+import { CharacterAction, FARMER_HURT_MS, SKELETON_CONTACT_MS } from "../render/character-action";
+import { onSceneExit } from "../render/scene-lifetime";
 
 const MW = 32;
 const MH = 24;
@@ -47,6 +49,7 @@ type Enemy = {
   maxHp: number;
   invuln: number;
   hurt: number;
+  contactUntil: number;
   dead: boolean;
   kx: number;
   ky: number; // knockback velocity
@@ -60,6 +63,8 @@ export class MineScene extends Phaser.Scene {
   private shadow!: Phaser.GameObjects.Sprite;
   private facing = { x: 0, y: 1 };
   private acting = false;
+  private readonly characterAction = new CharacterAction();
+  private hurtUntil = 0;
   /** Trailer-mode scripted movement — read like a stick when real input is silent. */
   trailerMove: { x: number; y: number; run: boolean } | null = null;
   /** Trailer-mode camera zoom override (null = the normal viewport-derived play
@@ -84,6 +89,8 @@ export class MineScene extends Phaser.Scene {
   gamepad?: PhaserGamepad;
   /** Physical controller — polled here (this scene owns the frame while active). */
   private readonly pad = new PhysicalGamepad();
+  private farm: GameScene | null = null;
+  private visit = { deepest: 1, defeated: 0, gathered: 0, startingGold: 0 };
 
   constructor() {
     super("Mine");
@@ -91,13 +98,18 @@ export class MineScene extends Phaser.Scene {
 
   create(data: { depth?: number }): void {
     this.depth = data?.depth ?? 1;
+    if (this.depth === 1)
+      this.visit = { deepest: 1, defeated: 0, gathered: 0, startingGold: store.gold };
+    this.visit.deepest = Math.max(this.visit.deepest, this.depth);
+    const farm = this.scene.get("Game");
+    this.farm = farm instanceof GameScene ? farm : null;
     // reset reused-instance state (scene.restart keeps the instance)
     this.nodes = [];
     this.enemies = [];
     this.transitioning = false;
     this.invulnUntil = 0;
     this.knock = { x: 0, y: 0 };
-    this.acting = false;
+    this.resetCharacterAction();
     this.facing = { x: 0, y: 1 };
     this.trailerMove = null;
     this.cameras.main.setBackgroundColor("#0a0c12");
@@ -123,9 +135,9 @@ export class MineScene extends Phaser.Scene {
     if (this.onResizeHandler) this.scale.off("resize", this.onResizeHandler);
     this.onResizeHandler = () => cam.setZoom(this.baseZoom());
     this.scale.on("resize", this.onResizeHandler);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      if (this.onResizeHandler) this.scale.off("resize", this.onResizeHandler);
-    });
+    const scale = this.scale;
+    const onResize = this.onResizeHandler;
+    onSceneExit(this, () => scale.off("resize", onResize));
 
     this.setupInput();
     if (this.trailerNoInput) {
@@ -136,11 +148,17 @@ export class MineScene extends Phaser.Scene {
     // Prime the pad so an A still held from entering the mine doesn't read as
     // a fresh press (and swing) on this scene's first frame.
     this.pad.update();
-    Sound.startMusic("mine");
+    const releaseMusic = Sound.startMusic("mine");
+    onSceneExit(this, () => {
+      releaseMusic();
+      this.resetCharacterAction();
+      if (window.__mine === this) delete window.__mine;
+    });
     if (!this.scene.isActive("MineHud")) this.scene.launch("MineHud");
 
     floatText(this, this.player.x, this.player.y - 24, `Mine — Floor ${this.depth}`, "#cdd6e0");
     if (import.meta.env.DEV) window.__mine = this;
+    this.game.events.emit("farm-enter-mine");
   }
 
   /** The zoom every camera move returns to. Read (never re-derived from the
@@ -232,7 +250,17 @@ export class MineScene extends Phaser.Scene {
       .setOrigin(0.5, CHAR_ORIGIN_Y)
       .play("e-skel-idle");
     spr.setDepth(DEPTH.entityBase + spr.y);
-    this.enemies.push({ spr, hp: maxHp, maxHp, invuln: 0, hurt: 0, dead: false, kx: 0, ky: 0 });
+    this.enemies.push({
+      spr,
+      hp: maxHp,
+      maxHp,
+      invuln: 0,
+      hurt: 0,
+      contactUntil: 0,
+      dead: false,
+      kx: 0,
+      ky: 0,
+    });
   }
 
   // ---- trailer staging hooks (dead in normal play; see src/trailer/) ----
@@ -408,6 +436,7 @@ export class MineScene extends Phaser.Scene {
 
   override update(_t: number, dms: number): void {
     const dt = Math.min(dms, 50) / 1000;
+    this.farm?.retryPendingSave(dt);
     // Physical pad: A mirrors E/SPACE (swing/mine; checkLadders reads the held
     // button for climbing), LB/RB cycle the hotbar like number keys.
     this.pad.update();
@@ -469,12 +498,24 @@ export class MineScene extends Phaser.Scene {
         Sound.footstep();
         this.stepTimer = 0.3;
       }
-      if (this.player.anims.currentAnim?.key !== "p-walk") this.player.play("p-walk", true);
+      this.setMovementAnimation("p-walk");
       if (dx < 0) this.player.setFlipX(true);
       else if (dx > 0) this.player.setFlipX(false);
-    } else if (this.player.anims.currentAnim?.key !== "p-idle") {
-      this.player.play("p-idle", true);
+    } else {
+      this.setMovementAnimation("p-idle");
     }
+  }
+
+  private setMovementAnimation(key: "p-idle" | "p-walk"): void {
+    const next = this.time.now < this.hurtUntil ? "p-hurt" : key;
+    if (this.player.anims.currentAnim?.key !== next) this.player.play(next, true);
+  }
+
+  /** Presentation cleanup only; Phaser owns the existing action impact timers. */
+  resetCharacterAction(): void {
+    this.characterAction.reset();
+    this.acting = false;
+    this.hurtUntil = 0;
   }
 
   private moveBy(mx: number, my: number): void {
@@ -528,6 +569,7 @@ export class MineScene extends Phaser.Scene {
       return;
     }
     this.acting = true;
+    this.hurtUntil = 0;
     store.spendEnergy(ENERGY_PER_SWING);
     // brief i-frames while committing to a swing, so trading blows isn't pure punishment
     this.invulnUntil = Math.max(this.invulnUntil, this.time.now + 350);
@@ -553,9 +595,9 @@ export class MineScene extends Phaser.Scene {
         this.time.delayedCall(70, () => this.cameras.main.setZoom(this.baseZoom()));
       }
     });
-    this.player.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
+    this.characterAction.watch(this.player, "p-attack", () => {
       this.acting = false;
-      this.player.play("p-idle", true);
+      if (!this.transitioning) this.player.play("p-idle", true);
     });
   }
 
@@ -568,13 +610,20 @@ export class MineScene extends Phaser.Scene {
     e.kx = this.facing.x * kb + (this.facing.x === 0 ? 0 : 0);
     e.ky = this.facing.y * kb;
     if (this.facing.x === 0 && this.facing.y === 0) e.ky = -kb;
-    burst(this, e.spr.x, e.spr.y - 14, { colors: [0xffffff, 0xffd34d], count: 6, speed: 60 });
+    burst(this, e.spr.x, e.spr.y - 14, {
+      colors: [0xffffff, 0xffd34d],
+      count: 6,
+      speed: 60,
+      matter: "spark",
+    });
     floatText(this, e.spr.x, e.spr.y - 18, `${dmg}`, "#ffd0d0");
     if (e.hp <= 0) this.killEnemy(e);
+    else e.spr.play("e-skel-hurt", true);
   }
 
   private killEnemy(e: Enemy): void {
     e.dead = true;
+    this.visit.defeated += 1;
     e.spr.clearTint();
     e.spr.play("e-skel-death");
     Sound.thud();
@@ -615,6 +664,7 @@ export class MineScene extends Phaser.Scene {
       return;
     }
     this.acting = true;
+    this.hurtUntil = 0;
     store.spendEnergy(ENERGY_PER_SWING);
     this.player.play("p-mine", true);
     Sound.mine();
@@ -622,6 +672,7 @@ export class MineScene extends Phaser.Scene {
       node.hp -= 1;
       burst(this, node.spr.x, node.spr.y - 8, {
         colors: [0xbfcad6, 0x8a98a8, 0xffffff],
+        matter: "spark",
         count: 7,
         speed: 55,
       });
@@ -637,26 +688,34 @@ export class MineScene extends Phaser.Scene {
         this.tweens.add({ targets: node.spr, scaleX: 1.12, scaleY: 0.9, duration: 60, yoyo: true });
       }
     });
-    this.player.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
+    this.characterAction.watch(this.player, "p-mine", () => {
       this.acting = false;
-      this.player.play("p-idle", true);
+      if (!this.transitioning) this.player.play("p-idle", true);
     });
   }
 
   private dropNode(node: Node): void {
     const bonus = Math.random() < store.skills.oreBonusChance() ? 1 : 0;
     if (node.kind === "stone") {
-      store.inv.add({ kind: "resource", res: "stone" }, 1 + bonus);
-      floatText(this, node.spr.x, node.spr.y - 12, `+${1 + bonus} Stone`, "#cdd6e0");
+      const accepted = 1 + bonus - store.inv.add({ kind: "resource", res: "stone" }, 1 + bonus);
+      this.visit.gathered += accepted;
+      floatText(
+        this,
+        node.spr.x,
+        node.spr.y - 12,
+        accepted ? `+${accepted} Stone` : "Bag full",
+        "#cdd6e0",
+      );
     } else {
-      store.inv.add({ kind: "resource", res: node.kind }, 1 + bonus);
+      const accepted = 1 + bonus - store.inv.add({ kind: "resource", res: node.kind }, 1 + bonus);
+      this.visit.gathered += accepted;
       const name = node.kind === "coal" ? "Coal" : node.kind === "copper" ? "Copper" : "Crystal";
       store.skills.addXP("mining", 4);
       floatText(
         this,
         node.spr.x,
         node.spr.y - 12,
-        `+${1 + bonus} ${name}`,
+        accepted ? `+${accepted} ${name}` : "Bag full",
         node.kind === "crystal" ? "#9fe0ff" : "#ffce8a",
       );
     }
@@ -670,12 +729,14 @@ export class MineScene extends Phaser.Scene {
     const now = this.time.now;
     for (const e of this.enemies) {
       if (e.dead) continue;
+      let moving = false;
       if (e.hurt > 0) {
         e.hurt -= dt;
         if (e.hurt <= 0) e.spr.clearTint();
       }
       // knockback
       if (Math.abs(e.kx) > 2 || Math.abs(e.ky) > 2) {
+        moving = true;
         this.moveEnemy(e, e.kx * dt, e.ky * dt);
         e.kx *= 0.85;
         e.ky *= 0.85;
@@ -684,16 +745,26 @@ export class MineScene extends Phaser.Scene {
           dy = this.player.y - e.spr.y;
         const dist = Math.hypot(dx, dy);
         if (dist < 110 && dist > 12) {
+          moving = true;
           const sp = (28 + this.depth * 2) * dt;
           this.moveEnemy(e, (dx / dist) * sp, (dy / dist) * sp);
           e.spr.setFlipX(dx < 0);
-          if (e.spr.anims.currentAnim?.key !== "e-skel-walk") e.spr.play("e-skel-walk", true);
-        } else if (e.spr.anims.currentAnim?.key !== "e-skel-idle" && e.hurt <= 0) {
-          e.spr.play("e-skel-idle", true);
         }
         // contact damage
-        if (dist < 13 && now > this.invulnUntil) this.damagePlayer(8 + this.depth, dx, dy);
+        if (dist < 13 && now > this.invulnUntil) {
+          this.damagePlayer(8 + this.depth, dx, dy);
+          e.contactUntil = now + SKELETON_CONTACT_MS;
+        }
       }
+      const anim =
+        e.hurt > 0
+          ? "e-skel-hurt"
+          : now < e.contactUntil
+            ? "e-skel-contact"
+            : moving
+              ? "e-skel-walk"
+              : "e-skel-idle";
+      if (e.spr.anims.currentAnim?.key !== anim) e.spr.play(anim, true);
       e.spr.setDepth(DEPTH.entityBase + e.spr.y);
     }
   }
@@ -729,6 +800,10 @@ export class MineScene extends Phaser.Scene {
     this.time.delayedCall(260, () => this.player.clearTint());
     this.persist();
     if (store.hp <= 0) this.faint();
+    else if (!this.acting && !this.transitioning) {
+      this.hurtUntil = this.time.now + FARMER_HURT_MS;
+      this.player.play("p-hurt", true);
+    }
   }
 
   // ---------------------------------------------------------------- ladders / exit
@@ -772,13 +847,15 @@ export class MineScene extends Phaser.Scene {
     this.scene.stop("MineHud");
     this.cameras.main.fadeOut(450, 0, 0, 0);
     this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
-      this.scene.start("Game", { fromMine: true });
+      this.scene.start("Game", { fromMine: true, mineRecap: this.recap(false) });
     });
   }
 
   private faint(): void {
     if (this.transitioning) return;
     this.transitioning = true;
+    this.characterAction.reset();
+    this.hurtUntil = 0;
     const lost = Math.floor(store.gold * FAINT_GOLD_LOSS_FRAC);
     store.gold = Math.max(0, store.gold - lost);
     store.hp = Math.max(1, Math.floor(store.maxHp() * 0.5));
@@ -789,17 +866,25 @@ export class MineScene extends Phaser.Scene {
     this.scene.stop("MineHud");
     this.cameras.main.fadeOut(900, 0, 0, 0);
     this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
-      this.scene.start("Game", { fromMine: true, fainted: true });
+      this.scene.start("Game", { fromMine: true, fainted: true, mineRecap: this.recap(true) });
     });
   }
 
   private persist(): void {
-    patchSave({
-      inv: store.inv.toJSON(),
-      skills: store.skills.toJSON(),
-      gold: store.gold,
-      hp: store.hp,
-      energy: store.energy,
-    });
+    this.farm?.save();
+  }
+
+  get savePending(): boolean {
+    return this.farm?.savePending ?? false;
+  }
+
+  private recap(fainted: boolean): MineRecap {
+    return {
+      deepest: this.visit.deepest,
+      defeated: this.visit.defeated,
+      gathered: this.visit.gathered,
+      gold: store.gold - this.visit.startingGold,
+      fainted,
+    };
   }
 }

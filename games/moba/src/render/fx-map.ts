@@ -149,3 +149,18 @@ export function effectColor(effect: string): number {
   if (effect.startsWith("ironvow")) return 0x9cc4ff;
   return 0xffffff;
 }
+
+/** Existing hero palette at contact; neutral sources retain the damage-type cue. */
+export function hitColor(hero: string | undefined, magic: boolean): number {
+  switch (hero) {
+    case "ironvow":
+    case "duskblade":
+    case "stormcaller":
+    case "emberhex":
+    case "boomtinker":
+    case "brewkeeper":
+      return effectColor(hero);
+    default:
+      return magic ? 0xc78bff : 0xffffff;
+  }
+}

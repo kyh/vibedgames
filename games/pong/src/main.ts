@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { createTouchControls, setPauseHandlers } from "@repo/embed";
 
-import { isMuted, setMuted } from "./fx/sfx";
+import { isMuted, setMuted, setSoundPaused } from "./fx/sfx";
 import { createHandCamera } from "./input/camera";
 import { createPongPauseOverlay } from "./pause-overlay";
 import { DitherPass } from "./render/dither-pass";
@@ -15,6 +15,8 @@ if (!container) throw new Error("missing #game container");
 // No MSAA: the scene renders into the dither pass's low-res target, where
 // hard pixels are the point — the canvas only ever shows the quantized quad.
 const renderer = new THREE.WebGLRenderer({ antialias: false });
+// Count the scene and existing dither pass together in diagnostics.
+renderer.info.autoReset = false;
 
 // Snap the pixel ratio so one dithered game pixel maps to a whole number of
 // device pixels. A fractional DPR (1.25/1.75 display scaling) would otherwise
@@ -34,28 +36,49 @@ const dither = new DitherPass(window.innerWidth, window.innerHeight);
 
 // Wrapper pause: freeze the sim unless a live human opponent is connected
 // (see GameScene.requestPause) — the wrapper's own overlay shows either way.
-const pauseOverlay = createPongPauseOverlay();
+const pauseOverlay = createPongPauseOverlay(() => game.hasLiveOpponent());
 setPauseHandlers({
   onPause: () => {
-    pauseOverlay.show();
     game.requestPause();
+    setSoundPaused(true);
+    pauseOverlay.show();
   },
   onResume: () => {
     pauseOverlay.hide();
     game.requestResume();
+    setSoundPaused(false);
   },
 });
 
 // Mute is the M key and pause is Escape, so without this a phone plays a
 // permanently silent game it cannot leave.
+const soundButton = document.getElementById("sound-toggle");
+if (!soundButton) throw new Error("missing #sound-toggle");
+function syncSound(): void {
+  if (!soundButton) return;
+  soundButton.textContent = isMuted() ? "SOUND OFF" : "SOUND ON";
+  soundButton.setAttribute("aria-pressed", String(!isMuted()));
+  soundButton.setAttribute("aria-label", isMuted() ? "Turn sound on" : "Turn sound off");
+}
+function changeSound(muted: boolean): void {
+  setMuted(muted);
+  syncSound();
+}
 const touchControls = createTouchControls({
-  mute: { get: isMuted, set: setMuted },
+  mute: { get: isMuted, set: changeSound },
 });
-window.addEventListener("keydown", (e) => {
-  if (e.code !== "KeyM") return;
-  setMuted(!isMuted());
+soundButton.addEventListener("pointerdown", (event) => event.stopPropagation());
+soundButton.addEventListener("pointerup", (event) => event.stopPropagation());
+soundButton.addEventListener("click", () => {
+  changeSound(!isMuted());
   touchControls.sync();
 });
+window.addEventListener("keydown", (e) => {
+  if (e.code !== "KeyM" || e.repeat) return;
+  changeSound(!isMuted());
+  touchControls.sync();
+});
+syncSound();
 
 // Webcam hand tracking. On failure it shows a status in its panel and the
 // pointer keeps working; a closed fist serves/rematches so a cam-only player
@@ -84,9 +107,31 @@ renderer.setAnimationLoop((time) => {
   timer.update(time);
   const dt = Math.min(timer.getDelta(), MAX_DT);
   game.update(dt);
+  renderer.info.reset();
   dither.setInverted(game.isScreenInverted());
   dither.render(renderer, game.scene, game.camera);
+  Object.assign(window, {
+    __GAME_DIAGNOSTICS__: {
+      ...game.diagnostics(),
+      renderer: { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles },
+    },
+  });
 });
+
+// See plugins/tooling/skills/playtest/references/bot-playtest.md. State hooks
+// opt into a solo match, never write a staged score into a live room.
+if (import.meta.env.DEV || new URLSearchParams(window.location.search).get("test") === "1") {
+  Object.assign(window, {
+    __GAME_TEST_HOOKS__: {
+      seed: (seed: number) => game.seed(seed),
+      setState: (name: string) => game.setTestState(name),
+      setPausedForScreenshot: (paused: boolean) =>
+        paused ? game.requestPause() : game.requestResume(),
+      setReducedMotion: (enabled: boolean) => game.setReducedMotion(enabled),
+      hand: (x: number) => game.handleHandPosition(x),
+    },
+  });
+}
 
 if (import.meta.env.DEV) {
   // __pongHand(x): drive the gesture→paddle path synthetically (x ∈ [0,1]).

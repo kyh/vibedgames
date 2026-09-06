@@ -5,6 +5,9 @@ import { itemIcon, itemName, sellValue, isSellable } from "../data/items";
 import { SKILL_IDS, SKILL_NAMES, SKILL_ICON, xpToNext } from "../systems/skills";
 import { Sound } from "../render/audio";
 import { GameScene } from "./game-scene";
+import { seasonOfDay } from "../data/calendar";
+import { JournalView } from "../render/journal-view";
+import { onSceneExit } from "../render/scene-lifetime";
 
 const FONT = "ui-monospace, monospace";
 const SZ = 44;
@@ -19,17 +22,25 @@ export class InventoryScene extends Phaser.Scene {
   private info!: Phaser.GameObjects.Text;
   private skillG!: Phaser.GameObjects.Graphics;
   private titleText!: Phaser.GameObjects.Text;
-  private closeText!: Phaser.GameObjects.Text;
   private skillTitle!: Phaser.GameObjects.Text;
   private skillGold!: Phaser.GameObjects.Text;
   private sz = SZ;
   private onResize?: () => void;
+  private journal: JournalView | null = null;
+  private closing = false;
+  private nextJournalRefresh = 0;
 
   constructor() {
     super("Inventory");
   }
 
   create(): void {
+    this.journal?.destroy(false);
+    this.journal = null;
+    this.closing = false;
+    this.nextJournalRefresh = 0;
+    this.cameras.main.visible = true;
+    this.input.enabled = true;
     this.picked = -1;
     this.cells = [];
     this.icons = [];
@@ -42,11 +53,11 @@ export class InventoryScene extends Phaser.Scene {
       .setInteractive();
     // tap outside the panels = close (phones have no ESC key)
     backdrop.on("pointerdown", (p: Phaser.Input.Pointer) => {
-      if (!this.inPanels(p.x, p.y)) this.close();
+      if (this.journal?.page !== "journal" && !this.inPanels(p.x, p.y)) this.close();
     });
     this.g = this.add.graphics();
     this.info = this.add
-      .text(0, 0, "", { fontFamily: FONT, fontSize: "14px", color: "#fff6d5" })
+      .text(0, 0, "", { fontFamily: FONT, fontSize: "14px", color: "#3a2a14" })
       .setOrigin(0.5, 0);
     this.skillG = this.add.graphics();
     this.titleText = this.add.text(0, 0, "🎒 Inventory", {
@@ -55,11 +66,6 @@ export class InventoryScene extends Phaser.Scene {
       fontStyle: "bold",
       color: "#fff6d5",
     });
-    this.closeText = this.add
-      .text(0, 0, "✕", { fontFamily: FONT, fontSize: "20px", color: "#fff6d5" })
-      .setOrigin(0.5)
-      .setInteractive({ useHandCursor: true });
-    this.closeText.on("pointerdown", () => this.close());
     this.skillTitle = this.add.text(0, 0, "Skills", {
       fontFamily: FONT,
       fontSize: "16px",
@@ -88,20 +94,48 @@ export class InventoryScene extends Phaser.Scene {
       );
     }
 
+    const game = this.scene.get("Game");
+    if (!(game instanceof GameScene)) throw new Error("Inventory requires the Game scene");
+    const journal = new JournalView(
+      seasonOfDay(game.day),
+      (season) => store.collections.page(season),
+      {
+        page: (page) => {
+          this.cameras.main.visible = page === "inventory";
+          this.input.enabled = page === "inventory";
+        },
+        close: () => this.close(),
+      },
+    );
+    this.journal = journal;
     this.layout();
     if (this.onResize) this.scale.off("resize", this.onResize);
     this.onResize = () => this.layout();
     this.scale.on("resize", this.onResize);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      if (this.onResize) this.scale.off("resize", this.onResize);
+    const scale = this.scale;
+    const resize = this.onResize;
+    const input = this.input;
+    const keyboard = input.keyboard;
+    const click = (p: Phaser.Input.Pointer): void => this.onClick(p);
+    const close = (): void => this.close();
+    input.on("pointerdown", click);
+    keyboard?.on("keydown-ESC", close);
+    keyboard?.on("keydown-I", close);
+    onSceneExit(this, () => {
+      scale.off("resize", resize);
+      input.off("pointerdown", click);
+      keyboard?.off("keydown-ESC", close);
+      keyboard?.off("keydown-I", close);
+      journal.destroy(false);
+      if (this.journal === journal) this.journal = null;
     });
-
-    this.input.on("pointerdown", (p: Phaser.Input.Pointer) => this.onClick(p));
-    this.input.keyboard?.on("keydown-ESC", () => this.close());
-    this.input.keyboard?.on("keydown-I", () => this.close());
   }
 
   private close(): void {
+    if (this.closing) return;
+    this.closing = true;
+    this.journal?.destroy();
+    this.journal = null;
     const game = this.scene.get("Game");
     if (!(game instanceof GameScene)) throw new Error("Inventory requires the Game scene");
     game.closeUi();
@@ -123,6 +157,9 @@ export class InventoryScene extends Phaser.Scene {
     this.cells = [];
     const W = this.scale.width,
       H = this.scale.height;
+    // The native page navigation sits above both original panels.
+    const header = 72;
+    const availableH = H - header;
     const wide = W >= 700;
     const perRow = wide ? HOTBAR : 6;
     this.skillRow = wide ? 44 : 36;
@@ -136,7 +173,7 @@ export class InventoryScene extends Phaser.Scene {
     if (!wide) {
       // stacked layout must also fit the height (grid + skills + margins)
       const stackedSkillH = 56 + SKILL_IDS.length * this.skillRow + 10;
-      const gridBudget = H - 20 - 52 - 14 - 44 - 12 - stackedSkillH;
+      const gridBudget = availableH - 20 - 52 - 14 - 44 - 12 - stackedSkillH;
       sz = Math.max(24, Math.min(sz, Math.floor(gridBudget / (hotRows + packRows)) - GAP));
     }
     this.sz = sz;
@@ -155,11 +192,11 @@ export class InventoryScene extends Phaser.Scene {
     if (wide) {
       const groupW = panelW + 12 + skillW;
       px = (W - groupW) / 2;
-      py = (H - panelH) / 2;
+      py = header + (availableH - panelH) / 2;
       this.skillPanel = { x: px + panelW + 12, y: py, w: skillW, h: skillH };
     } else {
       px = (W - panelW) / 2;
-      py = Math.max(10, (H - (panelH + 12 + skillH)) / 2);
+      py = header + Math.max(0, (availableH - (panelH + 12 + skillH)) / 2);
       this.skillPanel = { x: px, y: py + panelH + 12, w: skillW, h: skillH };
     }
     const startX = px + 16 + sz / 2;
@@ -174,7 +211,7 @@ export class InventoryScene extends Phaser.Scene {
     this.info.setWordWrapWidth(panelW - 24).setFontSize(panelW < 400 ? 11 : 14);
     this.panel = { px, py, panelW, panelH };
     this.titleText.setPosition(px + 14, py + 10);
-    this.closeText.setPosition(px + panelW - 20, py + 20);
+    this.journal?.setInventoryBounds(px, py - 64, wide ? panelW + 12 + skillW : panelW);
     this.draw();
   }
 
@@ -183,6 +220,7 @@ export class InventoryScene extends Phaser.Scene {
   private skillRow = 44;
 
   private onClick(p: Phaser.Input.Pointer): void {
+    if (this.journal?.page === "journal") return;
     const hit = this.cells.find(
       (c) => Math.abs(p.x - c.x) <= this.sz / 2 && Math.abs(p.y - c.y) <= this.sz / 2,
     );
@@ -198,6 +236,13 @@ export class InventoryScene extends Phaser.Scene {
   }
 
   override update(): void {
+    if (this.journal?.page === "journal") {
+      if (this.time.now >= this.nextJournalRefresh) {
+        this.nextJournalRefresh = this.time.now + 200;
+        this.journal.refresh();
+      }
+      return;
+    }
     // live-refresh in case qty changed elsewhere
     this.draw();
   }

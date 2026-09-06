@@ -1,7 +1,7 @@
 // Game scene — runs local (vs bots) or online (host-authoritative). The sim is
 // identical in both; only authority + transport differ. Mirrors games/moba:
 // guests send INTENT events and render snapshots; the host simulates and
-// broadcasts under sharedState.snap, with stale-host takeover.
+// broadcasts under sharedState.snap. Only the server elects a host.
 import { MultiplayerClient } from "@vibedgames/multiplayer";
 import { ARENA_BOT_FILL, KILL_GOAL_FFA, SHOP_RADIUS, SIM_DT } from "../data/config";
 import { CHAMP_BY_ID, DEFAULT_CHAMP, valAt } from "../data/champions";
@@ -20,6 +20,13 @@ import {
 } from "../sim/world";
 import { INTENT_EVENT, MULTIPLAYER_HOST, PARTY, type Intent } from "../net/protocol";
 import { applySnapshot, emptyGuestWorld, encodeWorld, isSnapshot } from "../net/snapshot";
+import {
+  humanRoster,
+  reconcileHostHeroes,
+  restoreHostState,
+  type HeroPick,
+  type OnlineSeat,
+} from "../net/host-state";
 import type { Vec2 } from "../sim/math";
 import { isJsonNumber, isJsonObject, isJsonString, type JsonValue } from "../data/json";
 import { SNAPSHOT_HZ } from "../data/config";
@@ -34,7 +41,6 @@ import type { Audio } from "../render/audio";
 import { Hud } from "../render/hud";
 import { Hints } from "../render/hints";
 
-const ONLINE_SEED = 0xbada55;
 const INTRO_S = 2.4; // camera fly-in length; solo holds the sim this long (NEVER online)
 const CAST_BUFFER_MS = 350; // mirror of the sim's cast-buffer window — deny-feedback only
 const MUSIC_SAMPLE_S = 0.25; // intensity driver runs at 4Hz
@@ -50,6 +56,7 @@ export type SceneOpts = {
 
 export class GameScene {
   world: World;
+  private disposed = false;
   private net: MultiplayerClient | null = null;
   private worldView: WorldView;
   private environment: Environment;
@@ -72,6 +79,7 @@ export class GameScene {
   private musicAcc = 0;
   private musicIntensity: 0 | 1 | 2 | 3 = 0;
   private musicLowSince = -1;
+  private musicPhase: World["phase"] = "playing";
   // touch integration (change-gated per-frame feeds)
   private boundChamp = "";
   private readonly touchCdLast = {
@@ -84,19 +92,19 @@ export class GameScene {
   } satisfies Record<AbilityKey, number>;
 
   // online state
-  private picks: Record<string, { champId: string; name: string }> = {};
-  private assign: Record<string, number> = {};
-  private joinResendAt = 0;
+  private picks: Record<string, HeroPick> = {};
+  private assign: Record<string, OnlineSeat> = {};
+  private joinResendAt = -Infinity;
   private snapAcc = 0;
   private netFx: World["fx"] = [];
   private fxSeqOut = 0;
   private lastFxSeq = -1;
-  // host-takeover
-  private forcedHost = false;
-  private tookOverFrom: string | null = null;
-  private rateAt0 = 0;
-  private rateGameTime0 = -1;
-  private slowWindows = 0;
+  private connectedId: string | null = null;
+  private hostReady = false;
+  private baselineFx = true;
+  private matchGeneration: number | null = null;
+  private controlsPaused = false;
+  private neutralPending = false;
 
   constructor(
     private view: View,
@@ -146,10 +154,14 @@ export class GameScene {
     // refreshed per-frame in tickOnline once the connection knows itself)
     if (!opts.online) this.fx.localOwnerId = "local";
     this.worldView.fx = this.fx;
-    this.hud = new Hud(view, this.fx, {
-      buy: (id) => this.requestBuy(id),
-      canShop: () => this.canShop(),
-    });
+    this.hud = new Hud(
+      view,
+      this.fx,
+      { buy: (id) => this.requestBuy(id), canShop: () => this.canShop() },
+      opts.online
+        ? { kind: "online", canRematch: () => this.canRematch(), rematch: () => this.rematch() }
+        : { kind: "offline" },
+    );
     // contextual hint engine — DOM-free; the HUD renders via showHint("" hides)
     this.hints = new Hints(
       () => this.touch?.active ?? false,
@@ -165,10 +177,12 @@ export class GameScene {
     // HUD's #ba-reticle (hit-confirm ticks, fed by fx.localHits).
 
     view.startIntro(); // cinematic fly-in (both modes; only solo holds the sim)
+    // Observe short transport gaps even when no render frame falls inside them.
+    this.net?.subscribe(() => this.syncConnection());
   }
 
   private get amHost(): boolean {
-    return !this.net || (this.net.isHost ?? false) || this.forcedHost;
+    return !this.net || (this.net.connectionStatus === "connected" && this.net.isHost);
   }
 
   private localUnit(): Unit | null {
@@ -177,13 +191,26 @@ export class GameScene {
 
   // ── per-frame ──
   update(frameDt: number): void {
-    this.controls.update(frameDt); // poll the physical pad before any reads
+    if (this.disposed) return;
+    this.controls.update(this.controlsPaused ? 0 : frameDt); // poll before any reads
     this.introTime += frameDt; // real-time clock for the fly-in/countdown
     if (this.net) this.tickOnline(frameDt);
     else this.tickLocal(frameDt);
 
     this.view.samplePerf(frameDt); // adaptive resolution (real, unscaled dt)
     const me = this.localUnit();
+    // Surviving guests can receive a fresh world after the host restarts. Clear
+    // the old match's presentation before its first new FX batch is consumed.
+    if (this.musicPhase === "ended" && this.world.phase === "playing") {
+      this.musicPhase = "playing";
+      this.musicClock = 0;
+      this.musicAcc = 0;
+      this.musicIntensity = 0;
+      this.musicLowSince = -1;
+      this.fx.bestStreak = 0;
+      this.fx.lastDeath = null;
+      this.fx.audio.beginMatch();
+    }
     // FX drains events first (it may arm a hit-stop), then the visual layer runs
     // on the slowed render-dt while the SIM already stepped on the real frameDt.
     this.fx.update(this.world, frameDt);
@@ -191,7 +218,7 @@ export class GameScene {
     this.worldView.sync(this.world, rdt);
     if (me) {
       this.statusEl.textContent = "";
-      this.hud.update(this.world, me, this.controls.scoreHeld());
+      this.hud.update(this.world, me, this.controls.scoreHeld(), frameDt);
       // listener facing must match the CAMERA frame so stereo pan tracks the
       // screen — the camera chases the aim on every input source
       this.fx.audio.setListener(me.x, me.y, this.aimX, this.aimY);
@@ -200,6 +227,9 @@ export class GameScene {
         this.touch.bindChamp(me.champId); // icon backgrounds + keycaps, once
       }
       this.feedTouchCooldowns(me);
+    } else if (this.world.phase === "ended") {
+      this.statusEl.textContent = "";
+      this.hud.updateUnassigned(this.world, frameDt);
     } else {
       this.statusEl.textContent =
         this.net && this.net.connectionStatus !== "connected"
@@ -232,6 +262,12 @@ export class GameScene {
 
   // ── local mode ──
   private tickLocal(frameDt: number): void {
+    if (this.controlsPaused || this.world.phase === "ended") {
+      this.controls.setMouseMode(true);
+      this.drainActionInput();
+      this.acc = 0;
+      return;
+    }
     // Intro fly-in (SOLO ONLY): the world literally waits for you — hold the
     // fixed-step accumulator and suppress input until the countdown ends.
     // NEVER hold online: guests join a live match (camera sweep only there).
@@ -268,7 +304,7 @@ export class GameScene {
     if (me) this.readInput(me, true, frameDt);
     this.acc += frameDt;
     let n = 0;
-    while (this.acc >= SIM_DT && n < 5) {
+    while (this.acc >= SIM_DT && n < 5 && this.world.phase === "playing") {
       step(this.world);
       this.acc -= SIM_DT;
       n++;
@@ -296,6 +332,17 @@ export class GameScene {
 
   // ── music intensity driver (result-05 A5) ──
   private driveMusic(frameDt: number, me: Unit | null): void {
+    // Audio retains terminal intent even before its first unlock. Unmuting on
+    // the result must not start combat layers or replay an old victory phrase.
+    if (this.world.phase === "ended") {
+      if (this.musicPhase !== "ended") {
+        this.musicPhase = "ended";
+        this.fx.audio.resolveMatch(
+          me && this.world.winner ? (this.world.winner === me.team ? "won" : "lost") : "unassigned",
+        );
+      }
+      return;
+    }
     this.musicClock += frameDt;
     this.musicAcc += frameDt;
     if (this.musicAcc < MUSIC_SAMPLE_S) return;
@@ -388,55 +435,108 @@ export class GameScene {
   }
 
   // ── online mode ──
-  private tickOnline(frameDt: number): void {
+  private syncConnection(): boolean {
     const net = this.net;
-    if (!net) return;
-    if (net.connectionStatus !== "connected" || !net.playerId) return;
-
+    if (!net || net.connectionStatus !== "connected" || !net.playerId) {
+      if (this.connectedId !== null) {
+        this.resetHeldInput();
+        this.neutralPending = true;
+      }
+      this.connectedId = null;
+      this.hostReady = false;
+      this.baselineFx = true;
+      this.netFx = [];
+      this.acc = 0;
+      return false;
+    }
+    if (this.connectedId !== net.playerId) {
+      this.connectedId = net.playerId;
+      this.hostReady = false;
+      this.baselineFx = true;
+      this.joinResendAt = -Infinity;
+      this.neutralPending = true;
+      // Keep fresh movement pressed during the gap; queued actions never replay.
+      this.drainActionInput();
+    }
+    if (!net.isHost && this.hostReady) {
+      this.hostReady = false;
+      this.baselineFx = true;
+      this.netFx = [];
+      this.acc = 0;
+    }
     this.localId = `h-${net.playerId}`;
     this.worldView.localId = this.localId;
     this.fx.localId = this.localId;
     this.fx.localOwnerId = net.playerId;
+    return true;
+  }
 
-    // announce our champ pick (and re-announce so a migrated host learns it)
-    if (this.world.now - this.joinResendAt > 3000 || this.joinResendAt === 0) {
-      net.sendEvent(INTENT_EVENT, {
-        kind: "join",
-        champId: this.champId,
-        name: this.name,
-      } satisfies Intent);
-      this.joinResendAt = this.world.now;
+  /** Every admission path prepares authority first, including events arriving
+   * between render frames and direct HUD purchases. */
+  private prepareOnline(): boolean {
+    const net = this.net;
+    if (!net || !this.syncConnection()) return false;
+    const snap = net.sharedState["snap"];
+    if (net.isHost && !this.hostReady) {
+      // Malformed room state is not permission to overwrite a live match.
+      if (snap !== undefined && snap !== null && !isSnapshot(snap)) return false;
+      const roster = restoreHostState(this.world, isSnapshot(snap) ? snap : null);
+      this.picks = { ...this.picks, ...roster.picks };
+      this.assign = roster.seats;
+      this.netFx = [];
+      this.acc = 0;
+      this.snapAcc = 0;
+      this.fxSeqOut = sharedCounter(net.sharedState["fxSeq"]);
+      this.baselineFx = true;
+      this.hostReady = true;
+    } else if (!net.isHost) {
+      if (!isSnapshot(snap)) return false;
+      applySnapshot(this.world, snap);
     }
-
-    // watch the host's broadcast for a stall; take over if it died
-    this.sampleHostLiveness(net);
-    if (!net.isHost && !this.forcedHost && this.shouldTakeOverHost(net)) {
-      this.forcedHost = true;
-      this.tookOverFrom = net.hostId;
-      // CONTINUE the snapshot-synced world (rngState/seq/scores carried) — only
-      // seed fresh if we somehow have nothing. Never wipe a live match.
-      this.assign = {};
-      if (this.world.units.size === 0) this.world = createWorld(ONLINE_SEED);
+    const generation = sharedCounter(net.sharedState["matchGeneration"]);
+    if (this.matchGeneration !== null && generation !== this.matchGeneration)
+      this.resetMatchPresentation();
+    this.matchGeneration = generation;
+    if (this.baselineFx) {
+      this.lastFxSeq = sharedCounter(net.sharedState["fxSeq"]);
+      this.world.fx.length = 0;
+      this.baselineFx = false;
     }
-    if (this.forcedHost && net.isHost) this.forcedHost = false;
-    else if (
-      this.forcedHost &&
-      net.hostId &&
-      net.hostId !== net.playerId &&
-      net.hostId !== this.tookOverFrom
-    ) {
-      this.forcedHost = false;
+    return true;
+  }
+
+  private announcePick(net: MultiplayerClient): void {
+    const id = net.playerId;
+    if (!id) return;
+    const now = performance.now();
+    if (now - this.joinResendAt < 3000) return;
+    const pick = { champId: this.champId, name: this.name };
+    this.picks[id] ??= pick;
+    net.sendEvent(INTENT_EVENT, { kind: "join", ...pick } satisfies Intent);
+    this.joinResendAt = now;
+  }
+
+  private tickOnline(frameDt: number): void {
+    const net = this.net;
+    if (!net || !this.prepareOnline()) {
+      this.drainActionInput();
+      return;
     }
-
-    const me = this.localUnit();
-    if (me) this.readInput(me, this.amHost, frameDt);
-
+    this.announcePick(net);
+    if (this.amHost) this.reconcileHeroes(net);
+    this.flushNeutralInput();
+    if (this.controlsPaused || this.world.phase === "ended") {
+      this.controls.setMouseMode(true);
+      this.drainActionInput();
+    } else {
+      const me = this.localUnit();
+      if (me) this.readInput(me, this.amHost, frameDt);
+      else this.drainActionInput();
+    }
     if (this.amHost) {
-      this.becomeHostIfNeeded();
-      this.reconcileHeroes(net);
-      this.acc += frameDt;
+      this.acc = this.world.phase === "playing" ? this.acc + frameDt : 0;
       let n = 0;
-      while (this.acc >= SIM_DT && n < 5) {
+      while (this.acc >= SIM_DT && n < 5 && this.world.phase === "playing") {
         step(this.world);
         this.acc -= SIM_DT;
         n++;
@@ -444,8 +544,6 @@ export class GameScene {
       if (this.world.fx.length) this.netFx.push(...this.world.fx);
       this.broadcast(frameDt);
     } else {
-      const snap = net.sharedState["snap"];
-      if (isSnapshot(snap)) applySnapshot(this.world, snap);
       const fxSeq = net.sharedState["fxSeq"];
       if (isJsonNumber(fxSeq) && fxSeq !== this.lastFxSeq) {
         this.lastFxSeq = fxSeq;
@@ -473,7 +571,25 @@ export class GameScene {
   private readInput(me: Unit, host: boolean, dt: number): void {
     // MOUSE mode while a menu owns the cursor (shop, end screen); ACTION mode
     // (locked pointer) the rest of the match. Controls no-ops when unchanged.
-    this.controls.setMouseMode(this.hud.isShopOpen || this.world.phase === "ended");
+    this.controls.setMouseMode(
+      this.controlsPaused || this.hud.isShopOpen || this.world.phase === "ended",
+    );
+    if (this.controlsPaused || this.world.phase === "ended") {
+      // Results own input. Drain edges so a new round cannot inherit a cast.
+      this.controls.consumeAbilities();
+      this.controls.consumeAttackEdge();
+      this.controls.consumeJump();
+      this.controls.consumeDash();
+      this.controls.consumeItems();
+      this.controls.consumeBuy();
+      this.touch?.consumeAbilities();
+      this.touch?.consumeJumpAttack();
+      this.touch?.consumeJump();
+      this.touch?.consumeDash();
+      this.touch?.consumeBuy();
+      this.hud.consumeItemTaps();
+      return;
+    }
     if (!me.alive) {
       if (host) setHeroInput(me, 0, 0, this.aimX, this.aimY, false);
       return;
@@ -628,6 +744,10 @@ export class GameScene {
   }
 
   private requestBuy(itemId: string): void {
+    if (this.disposed) return;
+    if (this.net && !this.prepareOnline()) return;
+    if (this.controlsPaused || this.world.phase !== "playing") return;
+    this.flushNeutralInput();
     const me = this.localUnit();
     if (!me) return;
     if (this.amHost) buyItem(this.world, me, itemId);
@@ -636,18 +756,24 @@ export class GameScene {
 
   // ── host: receive intents ──
   private onNetEvent(event: string, payload: JsonValue, from: string): void {
-    if (event !== INTENT_EVENT) return;
+    if (this.disposed || event !== INTENT_EVENT) return;
     // Parse the wire intent field-by-field — a malformed/malicious client must
     // not inject NaN/Inf or spoofed shapes into the authoritative sim.
     if (!isJsonObject(payload)) return;
+    const net = this.net;
+    if (!net || !this.prepareOnline()) return;
+    const sender = net.players[from];
+    if (!sender || sender.connected === false) return;
     const intent = payload;
     if (intent["kind"] === "join") {
       const champId = intent["champId"];
       const name = intent["name"];
-      if (isJsonString(champId) && isJsonString(name)) this.picks[from] = { champId, name };
+      if (isJsonString(champId) && CHAMP_BY_ID[champId] && isJsonString(name))
+        this.picks[from] = { champId, name: name.slice(0, 14) };
       return;
     }
-    if (!this.amHost) return;
+    if (!this.amHost || this.world.phase !== "playing") return;
+    if (from === net.playerId && this.controlsPaused) return;
     const u = this.world.units.get(`h-${from}`);
     if (!u || !u.alive) return;
     const f = (n: JsonValue | undefined): number => (isJsonNumber(n) ? n : 0);
@@ -692,107 +818,126 @@ export class GameScene {
   }
 
   // ── host: spawn/maintain hero set ──
-  private becomeHostIfNeeded(): void {
-    if (this.world.units.size === 0 && this.world.gameTime === 0) {
-      this.world = createWorld(ONLINE_SEED);
-    }
-  }
-
   private reconcileHeroes(net: MultiplayerClient): void {
-    const conns = Object.keys(net.players);
-    // drop heroes for departed humans
-    for (const u of [...this.world.units.values()]) {
-      if (u.kind !== "hero" || u.isBot) continue;
-      if (!conns.includes(u.ownerId)) {
-        this.world.units.delete(u.id);
-        delete this.assign[u.ownerId];
-      }
-    }
-    // assign stable slots + spawn known picks
-    for (const connId of conns) {
-      if (this.assign[connId] === undefined) this.assign[connId] = this.freeSlot();
-      const id = `h-${connId}`;
-      if (!this.world.units.has(id)) {
-        const pick = this.picks[connId];
-        if (pick) {
-          spawnHero(this.world, {
-            id,
-            ownerId: connId,
-            team: connId,
-            champId: pick.champId,
-            name: pick.name || "Player",
-            isBot: false,
-            slot: this.assign[connId]!,
-          });
-        }
-      }
-    }
-    ensureBots(this.world);
-  }
-
-  private freeSlot(): number {
-    const used = new Set<number>([
-      ...Object.values(this.assign),
-      ...[...this.world.units.values()].filter((u) => u.kind === "hero").map((u) => u.slot),
-    ]);
-    for (let s = 0; s < SPAWNS.length; s++) if (!used.has(s)) return s;
-    return 0;
+    reconcileHostHeroes(this.world, net.players, this.picks, this.assign);
   }
 
   private broadcast(dt: number): void {
+    const net = this.net;
+    if (!net || !this.amHost || !this.hostReady) return;
     this.snapAcc += dt;
     if (this.snapAcc < 1 / SNAPSHOT_HZ) return;
     this.snapAcc = 0;
     this.fxSeqOut += 1;
-    this.net?.updateSharedState({
-      snap: encodeWorld(this.world),
+    this.lastFxSeq = this.fxSeqOut; // our own rendered batch must never echo on reconnect
+    net.updateSharedState({
+      snap: structuredClone(encodeWorld(this.world)),
       fx: this.netFx,
       fxSeq: this.fxSeqOut,
+      matchGeneration: this.matchGeneration ?? 0,
     });
     this.netFx = [];
   }
 
-  // ── host-takeover (mirrors moba) ──
-  private sampleHostLiveness(net: MultiplayerClient): void {
-    const snap = net.sharedState["snap"];
-    if (!isSnapshot(snap)) return;
-    // a finished match legitimately freezes gameTime — treat it as alive, don't
-    // mistake the frozen clock for a dead host and trigger a takeover.
-    if (snap.phase !== "playing") {
-      this.slowWindows = 0;
-      this.rateAt0 = 0;
-      return;
-    }
-    const gt = snap.gameTime;
-    const now = performance.now();
-    if (this.rateAt0 === 0) {
-      this.rateAt0 = now;
-      this.rateGameTime0 = gt;
-      return;
-    }
-    if (now - this.rateAt0 >= 2000) {
-      const rate = (gt - this.rateGameTime0) / ((now - this.rateAt0) / 1000);
-      this.slowWindows = rate < 0.5 ? this.slowWindows + 1 : 0;
-      this.rateAt0 = now;
-      this.rateGameTime0 = gt;
-    }
+  private canRematch(): boolean {
+    return (
+      !this.disposed &&
+      !this.controlsPaused &&
+      !!this.net &&
+      this.amHost &&
+      this.world.phase === "ended"
+    );
   }
 
-  private shouldTakeOverHost(net: MultiplayerClient): boolean {
-    // take over only on a genuine stall (host crawling/frozen mid-match)
-    if (this.slowWindows < 2) return false;
-    const me = net.playerId;
-    if (!me) return false;
-    const others = Object.keys(net.players).filter((id) => id !== net.hostId);
-    if (others.length === 0) return true;
-    others.sort();
-    return me === others[0];
+  private rematch(): void {
+    if (!this.prepareOnline() || !this.canRematch()) return;
+    const net = this.net;
+    if (!net) return;
+    const roster = humanRoster(this.world);
+    this.picks = { ...this.picks, ...roster.picks };
+    this.assign = roster.seats;
+    // This explicit host action is the only way an accepted round is replaced.
+    restoreHostState(this.world, null);
+    this.reconcileHeroes(net);
+    this.matchGeneration = (this.matchGeneration ?? 0) + 1;
+    this.netFx = [];
+    this.world.fx.length = 0;
+    this.acc = 0;
+    this.resetMatchPresentation();
+    this.broadcast(1 / SNAPSHOT_HZ);
+  }
+
+  private resetMatchPresentation(): void {
+    this.worldView.resetCharacters();
+    this.fx.resetMatch();
+    this.hud.resetMatch(this.world, this.localUnit());
+    this.hints.resetMatch();
+    this.fx.audio.beginMatch();
+    this.musicPhase = "playing";
+    this.musicClock = 0;
+    this.musicAcc = 0;
+    this.musicIntensity = 0;
+    this.musicLowSince = -1;
+    this.aimInit = false;
+    this.boundChamp = "";
+    for (const key of ALL_ABILITY_KEYS) this.touchCdLast[key] = -1;
+    this.resetHeldInput();
+    this.neutralPending = true;
+    this.baselineFx = true;
+  }
+
+  private drainActionInput(): void {
+    this.controls.consumeAbilities();
+    this.controls.consumeAttackEdge();
+    this.controls.consumeJump();
+    this.controls.consumeDash();
+    this.controls.consumeItems();
+    this.controls.consumeBuy();
+    this.touch?.consumeAbilities();
+    this.touch?.consumeJumpAttack();
+    this.touch?.consumeJump();
+    this.touch?.consumeDash();
+    this.touch?.consumeBuy();
+    this.hud.consumeItemTaps();
+  }
+
+  private resetHeldInput(): void {
+    this.controls.resetInput();
+    this.touch?.resetInput();
+    this.hud.consumeItemTaps();
+  }
+
+  /** Pause/transport loss releases a persistent attack/move without stopping
+   * an online host. If disconnected, defer the release until identity is valid. */
+  private flushNeutralInput(): void {
+    if (!this.neutralPending) return;
+    if (this.net && (!this.connectedId || this.net.connectionStatus !== "connected")) return;
+    if (this.world.phase !== "playing") {
+      this.neutralPending = false;
+      return;
+    }
+    const me = this.localUnit();
+    if (!me) return;
+    if (this.amHost) setHeroInput(me, 0, 0, me.aimX, me.aimY, false);
+    else
+      this.net?.sendEvent(INTENT_EVENT, {
+        kind: "input",
+        mx: 0,
+        my: 0,
+        ax: me.aimX,
+        ay: me.aimY,
+        attack: false,
+      } satisfies Intent);
+    this.neutralPending = false;
   }
 
   private canShop(): boolean {
+    if (this.controlsPaused || this.world.phase !== "playing") return false;
+    if (this.net && (this.net.connectionStatus !== "connected" || !this.net.playerId)) return false;
     const me = this.localUnit();
     if (!me || !me.alive) return false;
-    const sp = SPAWNS[me.slot % SPAWNS.length]!;
+    const sp = SPAWNS[me.slot % SPAWNS.length];
+    if (!sp) return false;
     return (me.x - sp.x) ** 2 + (me.y - sp.y) ** 2 <= SHOP_RADIUS * SHOP_RADIUS;
   }
 
@@ -801,22 +946,63 @@ export class GameScene {
     return this.fx.audio;
   }
 
+  diagnostics() {
+    const me = this.localUnit();
+    return {
+      phase: this.world.phase,
+      player: me ? { x: me.x, y: me.y, hp: me.hp, alive: me.alive } : null,
+      score: me?.kills ?? 0,
+      complete: this.world.phase === "ended",
+      disposed: this.disposed,
+      online: this.net
+        ? {
+            connection: this.net.connectionStatus,
+            playerId: this.net.playerId,
+            hostId: this.net.hostId,
+            authority: this.amHost,
+            prepared: this.hostReady,
+            matchGeneration: this.matchGeneration,
+            controlsPaused: this.controlsPaused,
+          }
+        : null,
+      audio: this.fx.audio.diagnostics(),
+    };
+  }
+
   /** Wrapper-requested pause/resume (see main.ts's setPauseHandlers wiring) —
    *  offline only, the sim itself is frozen by simply not calling update(). */
   pauseAudio(): void {
+    this.controlsPaused = true;
+    this.resetHeldInput();
+    this.controls.setMouseMode(true);
+    this.neutralPending = true;
+    if (!this.net || this.prepareOnline()) this.flushNeutralInput();
+    this.hud.setPaused(true);
     this.fx.audio.suspend();
   }
 
   resumeAudio(): void {
+    this.resetHeldInput();
+    this.controlsPaused = false;
+    this.controls.setMouseMode(this.hud.isShopOpen || this.world.phase === "ended");
+    this.hud.setPaused(false);
     this.fx.audio.resume();
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     this.net?.destroy();
     this.statusEl.remove();
     this.hud.dispose();
+    this.controls.dispose();
+    this.fx.dispose();
     if (document.pointerLockElement) document.exitPointerLock();
   }
+}
+
+function sharedCounter(value: JsonValue | undefined): number {
+  return isJsonNumber(value) && Number.isSafeInteger(value) && value >= 0 ? value : 0;
 }
 
 const clamp1 = (n: number): number => (n < -1 ? -1 : n > 1 ? 1 : n);

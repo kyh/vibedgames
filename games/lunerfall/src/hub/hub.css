@@ -1,0 +1,445 @@
+.lf-hub {
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+  overflow: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  color: #b8c1cc;
+  font:
+    13px/1.5 Monaco,
+    monospace;
+  padding: max(20px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right))
+    max(20px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
+}
+.lf-hub * {
+  box-sizing: border-box;
+}
+.lf-hub-content {
+  max-width: 1140px;
+  min-height: 100%;
+  margin: auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(250px, 1fr);
+  grid-template-rows: auto 1fr;
+  column-gap: 40px;
+  align-content: center;
+  align-items: center;
+}
+.lf-hub-content.lf-has-recap {
+  grid-template-rows: auto auto 1fr;
+}
+.lf-hub-mast {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding-right: 44px;
+}
+.lf-hub h1 {
+  margin: 0;
+  color: #34e5c8;
+  font-size: clamp(26px, 4vw, 42px);
+  line-height: 1.1;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+}
+.lf-hub-brand p {
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  margin: 8px 0 0;
+}
+.lf-hub-bank {
+  max-width: 370px;
+  text-align: right;
+  color: #ffd15c;
+  overflow-wrap: anywhere;
+}
+.lf-hub-receipt {
+  grid-column: 1 / -1;
+  margin: 16px 0 0;
+  padding: 10px 14px;
+  border-left: 2px solid #34e5c8;
+  background: #0b0e14e8;
+  overflow-wrap: anywhere;
+}
+.lf-hub-receipt h2 {
+  margin: 0;
+  font-size: 11px;
+  color: #f4f7fb;
+}
+.lf-hub-receipt p {
+  margin: 4px 0 0;
+}
+.lf-hub-reward {
+  color: #ffd15c;
+}
+.lf-hub-roster {
+  grid-column: 1;
+  align-self: center;
+  text-align: center;
+  min-width: 0;
+}
+.lf-hub-heroes {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+.lf-hub-hero {
+  position: relative;
+  border: 0;
+  border-bottom: 2px solid #1e2733;
+  padding: 0 2px 10px;
+  min-width: 0;
+  min-height: 44px;
+  font: inherit;
+  color: #8b95a1;
+  background: linear-gradient(0deg, #05070bd9 0 40px, transparent 110px);
+  cursor: pointer;
+}
+.lf-hub-art {
+  display: block;
+  height: clamp(150px, 27vh, 225px);
+}
+.lf-hub-name {
+  display: block;
+  font-size: clamp(9px, 0.9vw, 12px);
+  letter-spacing: -0.03em;
+  color: #d8dee6;
+}
+.lf-hub-cost {
+  display: block;
+  font-size: 9px;
+  color: #ffd15c;
+  margin-top: 5px;
+}
+.lf-hub-hero[aria-pressed="true"] {
+  border-color: var(--hero);
+}
+.lf-hub-hero[aria-pressed="true"] .lf-hub-name {
+  color: var(--hero);
+}
+.lf-hub-hero-title {
+  font-size: 21px;
+  font-weight: 400;
+  margin: 24px 0 8px;
+}
+.lf-hub-blurb {
+  margin: 0;
+  min-height: 36px;
+  text-wrap: balance;
+}
+.lf-hub-tools {
+  grid-column: 2;
+  padding: 24px 0;
+}
+.lf-hub-caption {
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.14em;
+  color: #8b95a1;
+  margin: 0 0 12px;
+}
+.lf-hub-control-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  margin: 0 0 18px;
+  font-size: 11px;
+}
+.lf-hub-control-line > span {
+  white-space: nowrap;
+}
+.lf-hub kbd {
+  color: #ffd15c;
+  font:
+    bold 10px "Courier New",
+    monospace;
+  padding: 2px 3px;
+  border: 1px solid #33445e;
+  background: #141922;
+  box-shadow: 0 2px #0a0c11;
+}
+.lf-hub-button {
+  display: block;
+  min-height: 44px;
+  width: 100%;
+  padding: 10px 14px;
+  margin: 0 0 10px;
+  border: 1px solid #33445e;
+  border-radius: 2px;
+  background: #0b0e14f2;
+  color: #d8dee6;
+  font:
+    bold 12px "Courier New",
+    monospace;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+}
+.lf-hub-go {
+  color: #34e5c8;
+  border: 2px solid #34e5c8;
+  background: #082620eb;
+}
+.lf-hub-go[data-locked="true"] {
+  color: #ffd15c;
+  border-color: #ffd15c;
+  background: #26200ceb;
+}
+.lf-hub-modes {
+  display: flex;
+  gap: 10px;
+}
+.lf-hub-button[aria-pressed="true"] {
+  color: #34e5c8;
+  border-color: #34e5c8;
+}
+.lf-hub button:hover {
+  filter: brightness(1.18);
+}
+.lf-hub button:focus-visible {
+  outline: 2px solid #ffd15c;
+  outline-offset: 4px;
+}
+.lf-hub button:active {
+  filter: brightness(1.4);
+}
+.lf-hub-connection {
+  margin: 2px 0 12px;
+  color: #34e5c8;
+  overflow-wrap: anywhere;
+}
+.lf-hub-hint {
+  font-size: 10px;
+  color: #8b95a1;
+  margin: 0;
+}
+.lf-hub-status {
+  color: #ffd15c;
+  margin: 8px 0 0;
+  min-height: 18px;
+}
+.lf-hub-forge {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  padding: 22px;
+  overflow: auto;
+  border: 2px solid #33445e;
+  border-radius: 2px;
+  color: #b8c1cc;
+  background: #080c13;
+  box-shadow: 6px 6px #0009;
+  font:
+    12px/1.5 "Courier New",
+    monospace;
+}
+.lf-hub-forge::backdrop {
+  background: #05070bf2;
+}
+.lf-hub-forge-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.lf-hub-forge-head h2 {
+  margin: 0;
+  font-size: 20px;
+  color: #34e5c8;
+  font-weight: 400;
+}
+.lf-hub-forge-head button {
+  width: auto;
+  margin: 0;
+}
+.lf-hub-forge-sub {
+  font-size: 11px;
+  margin: 12px 0 4px;
+}
+.lf-hub-forge-bank {
+  color: #ffd15c;
+  overflow-wrap: anywhere;
+}
+.lf-hub-upgrade {
+  width: 100%;
+  min-height: 66px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 10px;
+  text-align: left;
+  padding: 10px 12px;
+  margin: 8px 0;
+  border: 1px solid #1e2733;
+  background: #101620;
+  color: #b8c1cc;
+  font:
+    12px/1.5 "Courier New",
+    monospace;
+  cursor: pointer;
+}
+.lf-hub-upgrade strong {
+  font-size: 13px;
+  color: #f4f7fb;
+}
+.lf-hub-upgrade-cost {
+  color: #ffd15c;
+}
+.lf-hub-upgrade-desc {
+  font-size: 11px;
+}
+.lf-hub-upgrade-level {
+  font-size: 11px;
+  text-align: right;
+}
+.lf-hub-upgrade[aria-pressed="true"] {
+  border-color: #34e5c8;
+  background: #102923;
+}
+.lf-hub-forge-hint {
+  font-size: 10px;
+  margin: 16px 0 0;
+}
+body.lf-in-hub #rotate {
+  display: none;
+}
+body.lf-in-hub .lf-touch {
+  display: flex;
+}
+@media (max-width: 600px) {
+  .lf-hub {
+    padding: max(24px, env(safe-area-inset-top)) 14px max(20px, env(safe-area-inset-bottom));
+  }
+  .lf-hub-content {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0;
+  }
+  .lf-hub-mast {
+    display: block;
+    width: 100%;
+    padding-right: 46px;
+  }
+  .lf-hub-bank {
+    margin-top: 16px;
+    text-align: left;
+    font-size: 11px;
+  }
+  .lf-hub-receipt {
+    width: 100%;
+    font-size: 11px;
+    margin-top: 14px;
+  }
+  .lf-hub-roster {
+    width: 100%;
+    margin-top: 12px;
+  }
+  .lf-hub-art {
+    height: 135px;
+  }
+  .lf-hub-hero-title {
+    margin-top: 16px;
+    font-size: 18px;
+  }
+  .lf-hub-tools {
+    width: 100%;
+    padding: 18px 4px 0;
+  }
+  .lf-hub-caption {
+    display: none;
+  }
+  .lf-hub-control-line {
+    justify-content: center;
+    gap: 8px 10px;
+    margin-bottom: 16px;
+  }
+  .lf-hub-hint,
+  .lf-hub-status {
+    text-align: center;
+  }
+}
+@media (max-height: 560px) {
+  .lf-hub {
+    padding: max(12px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right))
+      max(12px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
+  }
+  .lf-hub-content {
+    grid-template-columns: minmax(0, 1.65fr) minmax(220px, 1fr);
+    column-gap: 22px;
+  }
+  .lf-hub-mast {
+    padding-right: 46px;
+  }
+  .lf-hub h1 {
+    font-size: 26px;
+  }
+  .lf-hub-brand p {
+    font-size: 9px;
+    margin-top: 4px;
+  }
+  .lf-hub-bank {
+    font-size: 10px;
+    max-width: 270px;
+  }
+  .lf-hub-art {
+    height: 108px;
+  }
+  .lf-hub-hero-title {
+    margin: 12px 0 4px;
+    font-size: 18px;
+  }
+  .lf-hub-blurb {
+    font-size: 11px;
+  }
+  .lf-hub-tools {
+    padding: 10px 0 0;
+  }
+  .lf-hub-caption {
+    display: none;
+  }
+  .lf-hub-control-line {
+    gap: 6px 9px;
+    margin-bottom: 10px;
+    font-size: 10px;
+  }
+  .lf-hub-button {
+    margin-bottom: 7px;
+  }
+  .lf-hub-status:empty {
+    display: none;
+  }
+  .lf-hub-receipt {
+    font-size: 10px;
+    margin-top: 8px;
+    padding: 6px 10px;
+  }
+}
+
+@media (max-height: 560px) and (min-width: 601px) {
+  .lf-hub-forge[open] {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 12px;
+    padding: 16px;
+  }
+  .lf-hub-forge-head,
+  .lf-hub-forge-sub,
+  .lf-hub-forge-bank,
+  .lf-hub-forge-hint,
+  .lf-hub-forge > .lf-hub-status {
+    grid-column: 1 / -1;
+  }
+  .lf-hub-forge-sub {
+    margin: 8px 0 0;
+  }
+  .lf-hub-forge-bank {
+    margin: 6px 0;
+  }
+  .lf-hub-upgrade {
+    margin: 4px 0;
+  }
+  .lf-hub-forge-hint {
+    margin-top: 8px;
+  }
+}

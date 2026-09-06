@@ -33,6 +33,27 @@ export class VersusMatch {
   score = { host: 0, guest: 0 } satisfies Record<VsSide, number>;
   winner: VsSide | null = null; // round winner in roundEnd, match in matchEnd
 
+  /** Full precision for authority handoff; encode remains the compact view. */
+  checkpoint() {
+    return {
+      phase: this.phase,
+      round: this.round,
+      t: this.t,
+      hp: { ...this.hp },
+      score: { ...this.score },
+      winner: this.winner,
+    };
+  }
+
+  restore(state: VersusCheckpoint): void {
+    this.phase = state.phase;
+    this.round = state.round;
+    this.t = state.t;
+    this.hp = { ...state.hp };
+    this.score = { ...state.score };
+    this.winner = state.winner;
+  }
+
   /** Both duelists present (or a rematch): scores wiped, round 1 countdown. */
   beginMatch() {
     this.score = { host: 0, guest: 0 };
@@ -127,3 +148,5 @@ export class VersusMatch {
     };
   }
 }
+
+export type VersusCheckpoint = ReturnType<VersusMatch["checkpoint"]>;

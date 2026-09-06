@@ -223,6 +223,8 @@ export type FxEvent =
       nx: number;
       ny: number;
       isAttack?: boolean;
+      /** Source hero identity for cosmetic impact colour; absent for environment/creeps. */
+      attackerHero?: string;
     }
   | { t: "death"; x: number; y: number; unitId: string; kind: UnitKind }
   | { t: "explosion"; x: number; y: number; radius: number; color: number }

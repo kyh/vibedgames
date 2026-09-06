@@ -1,14 +1,17 @@
 import Phaser from "phaser";
 
+import { sfx } from "./audio/sfx";
 import { BootScene } from "./scenes/boot-scene";
 import { GameScene } from "./scenes/game-scene";
 import { reseed } from "./shared/rng";
+import { readTrialChoice } from "./trials/weapon-trial";
 
 // Presence-check inline — importing isTrailerMode from trailer-shell here
 // would hoist the whole shell (letterbox/cut CSS) into the main chunk, since
 // the lazy director chunk imports the same module.
 const bootParams = new URLSearchParams(location.search);
 const trailerMode = bootParams.has("trailer");
+const trial = readTrialChoice(bootParams);
 
 // Bot-playtest seeding (boot-time variant of the diagnostics contract — see
 // shared/diag.ts): the scene is single-start, so the seed must land before
@@ -16,6 +19,8 @@ const trailerMode = bootParams.has("trailer");
 const seedParam = bootParams.get("seed");
 if (seedParam !== null && seedParam !== "" && Number.isFinite(Number(seedParam))) {
   reseed(Number(seedParam));
+} else if (trial) {
+  reseed(trial.seed);
 } else if (trailerMode) {
   // Trailer runs seed the gameplay stream so takes are repeatable.
   reseed(7);
@@ -44,6 +49,7 @@ declare global {
 }
 
 const game = new Phaser.Game(config);
+game.events.once(Phaser.Core.Events.DESTROY, () => sfx.dispose());
 if (import.meta.env.DEV) window.__game = game;
 
 // Trailer mode (?trailer=1): hand the booted game to the director, which

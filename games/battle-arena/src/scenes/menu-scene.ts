@@ -40,6 +40,12 @@ export class Menu {
   private el: HTMLDivElement;
   private selected: string;
   private unwatchControls: () => void;
+  private removed = false;
+  private selectionAnimations: Animation[] = [];
+  private readonly motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+  private readonly onMotionChange = (): void => {
+    if (this.motion.matches) this.cancelSelectionAnimations();
+  };
 
   constructor(private opts: MenuOpts) {
     this.selected = opts.initial;
@@ -51,6 +57,7 @@ export class Menu {
     // the help line lists controller rows only while a pad is connected —
     // re-render if one appears (or vanishes) while the lobby is up
     this.unwatchControls = watchControlContext(() => this.renderHelp());
+    this.motion.addEventListener("change", this.onMotionChange);
   }
 
   private build(): void {
@@ -90,7 +97,11 @@ export class Menu {
     this.renderHelp();
 
     this.el.querySelectorAll<HTMLButtonElement>(".ba-chip").forEach((btn) => {
-      btn.addEventListener("click", () => this.opts.onSelect(btn.dataset["id"]!));
+      btn.addEventListener("click", () => {
+        const id = btn.dataset["id"];
+        if (!this.removed && id && id !== this.selected && CHAMPIONS.some((c) => c.id === id))
+          this.opts.onSelect(id);
+      });
     });
 
     const nameOf = (): string => {
@@ -120,23 +131,60 @@ export class Menu {
 
   /** Reflect the current selection (called by MenuStage on click / chip click). */
   setSelected(id: string): void {
-    this.selected = id;
-    this.el.querySelectorAll<HTMLButtonElement>(".ba-chip").forEach((b) => {
-      b.classList.toggle("sel", b.dataset["id"] === id);
-    });
+    if (this.removed) return;
     const c = CHAMPIONS.find((x) => x.id === id);
-    const info = document.getElementById("ba-info");
-    if (c && info) {
-      const ab = ALL_ABILITY_KEYS.map(
-        (k) =>
-          `<span class="ba-i-a"><img src="${abilityIcon(c.id, k)}" alt=""><i>${KEYCAP[k]}</i><em>${c.abilities[k].name}</em></span>`,
-      ).join("");
-      info.style.setProperty("--accent", hex(c.tint));
-      info.innerHTML = `<span class="ba-i-name">${c.name}</span><span class="ba-i-title">${c.title}</span>
+    const info = this.el.querySelector<HTMLDivElement>(".ba-info");
+    if (!c || !info) return;
+    const changed = this.selected !== id;
+    // The first build still fills the initial choice; MenuStage's subsequent
+    // same-ID sync and repeat clicks leave that presentation undisturbed.
+    if (!changed && info.childElementCount > 0) return;
+    this.cancelSelectionAnimations();
+    this.selected = id;
+    const chips = Array.from(this.el.querySelectorAll<HTMLButtonElement>(".ba-chip"));
+    for (const b of chips) {
+      const selected = b.dataset["id"] === id;
+      b.classList.toggle("sel", selected);
+      b.setAttribute("aria-pressed", String(selected));
+    }
+    const chip = chips.find((b) => b.dataset["id"] === id);
+    const ab = ALL_ABILITY_KEYS.map(
+      (k) =>
+        `<span class="ba-i-a"><img src="${abilityIcon(c.id, k)}" alt=""><i>${KEYCAP[k]}</i><em>${c.abilities[k].name}</em></span>`,
+    ).join("");
+    info.style.setProperty("--accent", hex(c.tint));
+    info.innerHTML = `<span class="ba-i-name">${c.name}</span><span class="ba-i-title">${c.title}</span>
         <span class="ba-i-role">${c.role} · ${c.primary.toUpperCase()} · <span class="ba-i-diff">${dots(c.difficulty)}</span></span>
         <span class="ba-i-blurb">${c.blurb}</span>
         <span class="ba-i-abrow">${ab}</span>`;
+    if (!changed || this.motion.matches) return;
+    // MenuStage approaches the selected pose at 8×dt. This short entrance
+    // settles with it; selection and start remain available throughout.
+    this.selectionAnimations.push(
+      info.animate(
+        [
+          { opacity: 0.45, transform: "translateY(6px)" },
+          { opacity: 1, transform: "translateY(0)" },
+        ],
+        { duration: 280, easing: "cubic-bezier(.2,.8,.2,1)" },
+      ),
+    );
+    if (chip) {
+      this.selectionAnimations.push(
+        chip.animate(
+          [
+            { boxShadow: `0 0 30px -3px ${hex(c.tint)}` },
+            { boxShadow: `0 0 20px -6px ${hex(c.tint)}` },
+          ],
+          { duration: 280, easing: "ease-out" },
+        ),
+      );
     }
+  }
+
+  private cancelSelectionAnimations(): void {
+    for (const animation of this.selectionAnimations) animation.cancel();
+    this.selectionAnimations = [];
   }
 
   /** The help block, straight from the controls manifest (device-filtered by
@@ -158,11 +206,16 @@ export class Menu {
   }
 
   remove(): void {
+    if (this.removed) return;
+    this.removed = true;
+    this.cancelSelectionAnimations();
+    this.motion.removeEventListener("change", this.onMotionChange);
     this.unwatchControls();
     this.el.remove();
   }
 
   private start(opts: SceneOpts): void {
+    if (this.removed) return;
     // persist the pick — bare-URL quick-starts reuse it (chosenChamp/chosenName)
     localStorage.setItem("ba-champ", opts.champId);
     localStorage.setItem("ba-name", opts.name);
@@ -196,7 +249,7 @@ function injectStyle(): void {
 .ba-i-a em{font:600 9px ui-monospace,monospace;font-style:normal;opacity:.75;text-align:center;line-height:1.2}
 #ba-menu .ba-bottom{padding:0 calc(16px + env(safe-area-inset-right,0px)) calc(22px + env(safe-area-inset-bottom,0px)) calc(16px + env(safe-area-inset-left,0px));background:linear-gradient(#080a1200,#080a12dd 40%)}
 .ba-chips{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:14px}
-.ba-chip{pointer-events:auto;display:flex;flex-direction:column;align-items:center;gap:3px;width:104px;padding:10px 6px;background:rgba(20,26,42,.85);border:2px solid rgba(255,255,255,.12);border-radius:10px;color:#fff;cursor:pointer;font:800 13px ui-monospace,monospace;transition:transform .1s,border-color .1s,box-shadow .1s}
+.ba-chip{pointer-events:auto;display:flex;flex-direction:column;align-items:center;gap:3px;width:104px;padding:10px 6px;background:rgba(20,26,42,.85);border:2px solid rgba(255,255,255,.12);border-radius:10px;color:#fff;cursor:pointer;font:800 13px ui-monospace,monospace;transition:transform .28s cubic-bezier(.2,.8,.2,1),border-color .18s,box-shadow .28s}
 .ba-chip:hover{transform:translateY(-2px)}
 .ba-chip.sel{border-color:var(--accent);color:var(--accent);box-shadow:0 0 20px -6px var(--accent);transform:translateY(-4px) scale(1.04)}
 .ba-cs{width:44px;height:44px;border-radius:9px;border:2px solid var(--accent);background:#0a0e1a}
@@ -212,6 +265,10 @@ function injectStyle(): void {
 .ba-help{margin-top:14px;text-align:center;display:flex;flex-direction:column;gap:8px;align-items:center}
 .ba-help-lead{font:600 12px ui-monospace,monospace;opacity:.5}
 .ba-help .ba-p-strip{max-width:min(92vw,860px);opacity:.92}
+@media (prefers-reduced-motion: reduce){
+  .ba-chip{transition:none}
+  .ba-chip:hover,.ba-chip.sel{transform:none}
+}
 /* short viewports: compact the info panel so the ability strip clears the
    3D roster row instead of sitting on the champions' heads */
 @media (max-height: 800px){

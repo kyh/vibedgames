@@ -79,20 +79,18 @@ setPauseHandlers({
   onPause: () => {
     wrapperPaused = true;
     pauseOverlay.show();
-    gameScene()?.setCountdownPaused(true);
+    gameScene()?.setPresentationPaused(true);
     if (gameScene()?.isOnline() ?? false) return;
     froze = true;
     game.loop.sleep();
-    game.sound.pauseAll();
   },
   onResume: () => {
     wrapperPaused = false;
     pauseOverlay.hide();
-    gameScene()?.setCountdownPaused(false);
+    gameScene()?.setPresentationPaused(false);
     if (!froze) return;
     froze = false;
     game.loop.wake();
-    game.sound.resumeAll();
   },
 });
 

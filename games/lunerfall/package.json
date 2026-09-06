@@ -8,7 +8,7 @@
     "clean": "rm -rf .turbo dist node_modules",
     "dev": "vite",
     "preview": "vite preview",
-    "test": "tsx tools/sim.mts",
+    "test": "tsx tools/sim.mts && node --import tsx tools/actor-presentation-smoke.mjs && node --import tsx tools/hub-integration-smoke.mjs && node --import tsx tools/checkpoint-bodies-smoke.mjs && node --import tsx tools/checkpoint-scene-smoke.mjs && node --import tsx tools/session-smoke.mjs && node --import tsx tools/checkpoint-input-smoke.mjs && node --import tsx tools/checkpoint-cleanup-smoke.mjs && node --import tsx tools/checkpoint-terminal-smoke.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

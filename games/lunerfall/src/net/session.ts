@@ -9,8 +9,7 @@
 // shallow-merge (last-write-wins per field), and events are fire-and-forget.
 // Offline, everything loops back locally so the same code paths keep working.
 //
-// Keep this file byte-identical across games/*/src/net/session.ts — per-game
-// tuning (room, maxPlayers, fallbackMs) goes in the NetSession constructor.
+// Lunerfall also observes admission revisions for exact checkpoint handoff.
 //
 
 import { isOfflineRequested } from "@repo/embed";
@@ -41,6 +40,11 @@ export class NetSession {
   private readonly fallbackMs: number;
   private readonly onEvent?: (event: string, payload: JsonValue, from: string) => void;
 
+  private admissionRevision = 0;
+  private droppedRevision = 0;
+  private unwatch: (() => void) | null = null;
+  private disposed = false;
+
   private solo = false;
   private everConnected = false;
   private bootedAt = 0;
@@ -68,6 +72,37 @@ export class NetSession {
             // JsonValue covers every possible value.
             this.onEvent?.(event, payload as JsonValue, from),
         });
+    const client = this.client;
+    if (client) {
+      let status = client.connectionStatus;
+      let playerId = client.playerId;
+      let hostId = client.hostId;
+      this.unwatch = client.subscribe(() => {
+        if (client.connectionStatus === "connected") this.everConnected = true;
+        if (
+          status === client.connectionStatus &&
+          playerId === client.playerId &&
+          hostId === client.hostId
+        )
+          return;
+        if (status === "connected" && client.connectionStatus !== "connected")
+          this.droppedRevision++;
+        status = client.connectionStatus;
+        playerId = client.playerId;
+        hostId = client.hostId;
+        this.admissionRevision++;
+      });
+    }
+  }
+
+  /** Changes even if a transport loss/reconnect occurs between scene frames. */
+  get authorityRevision(): number {
+    return this.admissionRevision;
+  }
+
+  /** Records even a transport loss and recovery between two scene frames. */
+  get disconnectRevision(): number {
+    return this.droppedRevision;
   }
 
   /** Call once per frame: drives the offline fallback timer. */
@@ -105,7 +140,7 @@ export class NetSession {
 
   /** Connected to a room, or running the solo fallback. */
   get live(): boolean {
-    return this.solo || this.client?.connectionStatus === "connected";
+    return !this.disposed && (this.solo || this.client?.connectionStatus === "connected");
   }
 
   get connectionStatus(): string {
@@ -114,7 +149,7 @@ export class NetSession {
   }
 
   get isHost(): boolean {
-    return this.solo || this.client?.isHost === true;
+    return this.live && (this.solo || this.client?.isHost === true);
   }
 
   /** The current room host's id (for authenticating host-only events). */
@@ -154,12 +189,14 @@ export class NetSession {
 
   /** Per-player state shallow-merges, mirroring the package semantics. */
   updateMyState(patch: Record<string, JsonValue>): void {
+    if (!this.live) return;
     if (this.solo || !this.client) Object.assign(this.offlineMyState, patch);
     else this.client.updateMyState(patch);
   }
 
   /** Shared-state patch shallow-merges; host-only on the server. */
   patchShared(patch: Record<string, JsonValue>): void {
+    if (!this.isHost) return;
     if (this.solo || !this.client) {
       this.offlineShared = { ...this.offlineShared, ...patch };
     } else {
@@ -169,11 +206,16 @@ export class NetSession {
 
   /** Events loop straight back to the local handler when offline. */
   sendEvent(event: string, payload: Record<string, JsonValue>): void {
+    if (!this.live) return;
     if (this.solo || !this.client) this.onEvent?.(event, payload, SOLO_ID);
     else this.client.sendEvent(event, payload);
   }
 
   destroy(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.unwatch?.();
+    this.unwatch = null;
     if (!this.solo) this.client?.destroy();
   }
 }

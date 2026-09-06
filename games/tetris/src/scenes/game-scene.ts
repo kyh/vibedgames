@@ -20,7 +20,9 @@ import type { Cell } from "../game/board";
 import { screenToWorld, type ScreenDir } from "../game/camera-correction";
 import { Engine, type LockEvent } from "../game/engine";
 import { ParticlePool } from "../fx/particles";
-import { isMuted, setMuted, sfx, toggleMute } from "../fx/sfx";
+import { WellFx, type WellFxState } from "../fx/well-fx";
+import type { Status } from "../game/state";
+import { isMuted, resetSound, setMuted, sfx, toggleMute } from "../fx/sfx";
 import { Keyboard, type KeyboardHandlers } from "../input/keyboard";
 import type { PoseActions, PoseControls } from "../input/pose-control";
 import { isCoarsePointer, TouchControls, type TouchHandlers } from "../input/touch";
@@ -65,7 +67,33 @@ function el(id: string): HTMLElement | null {
   return document.getElementById(id);
 }
 
+const BEST_SCORE_KEY = "tetris-best-score";
+
+function readBestScore(): number {
+  try {
+    const value = Number(localStorage.getItem(BEST_SCORE_KEY));
+    return Number.isSafeInteger(value) && value >= 0 ? value : 0;
+  } catch {
+    return 0;
+  }
+}
+
 type Steer = { horiz: -1 | 0 | 1; depth: -1 | 0 | 1 };
+
+export type TetrisDiagnostics = {
+  frame: number;
+  phase: Status;
+  score: number;
+  complete: boolean;
+  player: Cell | null;
+  entities: number;
+  lines: number;
+  charge: number;
+  corner: number;
+  run: { pieces: number; rescues: number; largestClear: number; bestScore: number };
+  catchRemainingMs: number | null;
+  fx: WellFxState & { particles: number };
+};
 
 export class GameScene {
   readonly scene = new Scene();
@@ -73,6 +101,7 @@ export class GameScene {
   private readonly well: Well;
   private readonly cubes: CubeField;
   private readonly particles: ParticlePool;
+  private readonly wellFx: WellFx;
   private readonly collapse = new Collapse();
   private readonly engine = new Engine();
   private readonly keyboard: Keyboard;
@@ -98,6 +127,15 @@ export class GameScene {
   private boardDirty = true;
   private collapseStartedAt = 0;
   private lastPoseAt = -1e9;
+  private frame = 0;
+  private maxHeight = -1;
+  private piecesPlaced = 0;
+  private rescues = 0;
+  private largestClear = 0;
+  private bestScore = readBestScore();
+  // Sampled alongside the displayed meter, so diagnostics also freeze on pause.
+  private catchRemainingMs: number | null = null;
+  private catchTenths = -1;
 
   // HUD cache (avoid touching the DOM unless a value changed)
   private hudScore = -1;
@@ -113,6 +151,7 @@ export class GameScene {
     this.well = new Well(this.scene);
     this.cubes = new CubeField(this.scene);
     this.particles = new ParticlePool(this.scene);
+    this.wellFx = new WellFx(this.scene);
     this.keyboard = new Keyboard(this.keyboardHandlers());
     this.touch = new TouchControls(this.touchHandlers());
     // M and P are keyboard-only: without this a phone plays permanently silent
@@ -124,6 +163,7 @@ export class GameScene {
       styleId: "tetris-touch-controls-css",
     });
     document.body.classList.toggle("touch", this.coarse);
+    el("compact-start")?.addEventListener("click", () => this.startIfIdle());
     this.renderLegend();
     this.showBanner("TETRIS", titleSubText());
     // Plugging in a pad on the title adds its legend row + start hint.
@@ -155,6 +195,33 @@ export class GameScene {
 
   resize(aspect: number): void {
     this.rig.resize(aspect);
+  }
+
+  diagnostics(): TetrisDiagnostics {
+    let entities = 0;
+    this.engine.board.forEachCube(() => {
+      entities += 1;
+    });
+    const active = this.engine.activeCells();
+    return {
+      frame: this.frame,
+      phase: this.engine.state.status,
+      score: this.engine.state.score,
+      complete: this.engine.state.status === "gameOver",
+      player: active.length > 0 ? centroid(active) : null,
+      entities,
+      lines: this.engine.state.lines,
+      charge: this.engine.charge,
+      corner: this.rig.corner,
+      run: {
+        pieces: this.piecesPlaced,
+        rescues: this.rescues,
+        largestClear: this.largestClear,
+        bestScore: this.bestScore,
+      },
+      catchRemainingMs: this.catchRemainingMs,
+      fx: { ...this.wellFx.counts(), particles: this.particles.count },
+    };
   }
 
   /** Wrapper pause ended: shift the collapse catch-window deadline so the
@@ -269,14 +336,24 @@ export class GameScene {
 
   private doPower(): void {
     if (!this.engine.canPower()) return;
+    let lowest = this.engine.board.height;
+    const footprint: Cell[] = [];
+    this.engine.board.forEachCube((x, y, z) => {
+      if (y < lowest) {
+        lowest = y;
+        footprint.length = 0;
+      }
+      if (y === lowest) footprint.push({ x, y, z });
+    });
     const removed = this.engine.power();
     if (removed <= 0) return;
+    this.wellFx.power(footprint);
     this.boardDirty = true;
-    sfx.clear(removed);
+    sfx.power();
     this.rig.addTrauma(TRAUMA_CLEAR);
     this.particles.burst({
       x: WELL_CENTER_X,
-      y: 0.2,
+      y: lowest + 0.2,
       z: WELL_CENTER_Z,
       color: 0xffffff,
       count: CLEAR_BURST_COUNT,
@@ -292,10 +369,16 @@ export class GameScene {
   private onHardDrop(): void {
     const status = this.engine.state.status;
     if (status === "playing") {
+      const start = this.engine.activeCells();
+      const landing = this.engine.ghostCells();
+      const color = PIECES[this.engine.activePieceIndex()]?.color ?? 0xffffff;
       const ev = this.engine.hardDrop();
       sfx.hardDrop();
       this.rig.addTrauma(TRAUMA_HARD_DROP);
-      if (ev) this.handleLock(ev);
+      if (ev) {
+        this.wellFx.hardDrop(start, landing, color);
+        this.handleLock(ev);
+      }
     } else if (status === "collapsing") {
       this.tryCatch();
     } else if (status === "title" || status === "gameOver") {
@@ -326,6 +409,12 @@ export class GameScene {
     this.cubes.clearLocked();
     this.well.setCorner(0);
     this.rig.resetTrauma();
+    this.particles.reset();
+    this.wellFx.reset();
+    resetSound();
+    this.piecesPlaced = 0;
+    this.rescues = 0;
+    this.largestClear = 0;
     this.engine.startGame();
     this.boardDirty = true;
     this.needSnap = true;
@@ -337,6 +426,8 @@ export class GameScene {
   // ---- lock / clear / collapse ------------------------------------------------
 
   private handleLock(ev: LockEvent): void {
+    this.piecesPlaced += 1;
+    this.largestClear = Math.max(this.largestClear, ev.clear.lines);
     this.boardDirty = true;
     const colorHex = PIECES[ev.colorIndex - 1]?.color ?? 0xffffff;
     const c = centroid(ev.lockedCells);
@@ -357,7 +448,12 @@ export class GameScene {
     });
 
     if (ev.clear.lines > 0) {
-      sfx.clear(ev.clear.lines);
+      this.wellFx.clear(
+        ev.clear.clearedCells,
+        ev.clear.lines,
+        ev.clear.xColumns > 0 && ev.clear.zRows > 0,
+      );
+      sfx.clear(ev.clear.lines, ev.clear.xColumns > 0 && ev.clear.zRows > 0);
       this.rig.addTrauma(TRAUMA_CLEAR);
       this.particles.burst({
         x: c.x,
@@ -406,7 +502,9 @@ export class GameScene {
     if (stillDead) {
       this.finalizeGameOver();
     } else {
+      this.rescues += 1;
       sfx.catch();
+      this.wellFx.rescue();
       this.hideBanner();
     }
   }
@@ -415,15 +513,35 @@ export class GameScene {
     this.engine.state.status = "gameOver";
     this.well.setAllWallsVisible(true);
     sfx.gameOver();
+    const newBest = this.engine.state.score > this.bestScore;
+    this.bestScore = Math.max(this.bestScore, this.engine.state.score);
+    if (newBest) {
+      try {
+        localStorage.setItem(BEST_SCORE_KEY, String(this.bestScore));
+      } catch {
+        // A blocked store must never block the retry path; keep this visit's best.
+      }
+    }
+    const score = el("result-score");
+    const best = el("result-best");
+    const stats = el("result-stats");
+    if (score) score.textContent = String(this.engine.state.score);
+    if (best) best.textContent = `${newBest ? "NEW BEST" : "BEST"} ${this.bestScore}`;
+    if (stats) {
+      const lines = this.engine.state.lines;
+      stats.textContent = `${lines} ${lines === 1 ? "line" : "lines"} · ${this.piecesPlaced} ${this.piecesPlaced === 1 ? "piece" : "pieces"} placed\n${this.rescues} ${this.rescues === 1 ? "rescue" : "rescues"} · largest clear ${this.largestClear}`;
+    }
     this.showBanner(
       "GAME OVER",
-      `score ${this.engine.state.score} · ${this.coarse ? "tap" : "Enter"} to retry`,
+      `${this.coarse ? "Tap" : "Enter / Space"} to retry · a fresh stack awaits`,
+      false,
     );
   }
 
   // ---- main update ------------------------------------------------------------
 
   update(dt: number): void {
+    this.frame += 1;
     const now = performance.now();
     const dtMs = dt * 1000;
     this.touch.update(dtMs); // poll the gamepad before the sim tick
@@ -444,8 +562,13 @@ export class GameScene {
     // syncLocked itself still no-ops while frozen, so keep the flag until thawed)
     if (this.boardDirty && !this.cubes.frozen) {
       this.cubes.syncLocked(this.engine.board);
+      this.maxHeight = -1;
+      this.engine.board.forEachCube((_x, y) => {
+        this.maxHeight = Math.max(this.maxHeight, y);
+      });
       this.boardDirty = false;
     }
+    this.wellFx.setHeight(this.maxHeight, this.engine.state.status === "playing");
     const active = this.engine.activeCells();
     this.cubes.setActive(active, this.engine.activePieceIndex(), this.needSnap);
     this.cubes.setGhost(this.engine.ghostCells());
@@ -453,6 +576,7 @@ export class GameScene {
 
     this.cubes.update(dt);
     this.particles.update(dt);
+    this.wellFx.update(dt);
     this.rig.update(dt, now);
     this.updateHud(now);
   }
@@ -594,6 +718,7 @@ export class GameScene {
 
   private updateHud(now: number): void {
     const s = this.engine.state;
+    this.updateCatchMeter(now);
     if (s.score !== this.hudScore) {
       this.hudScore = s.score;
       const node = el("score");
@@ -641,6 +766,30 @@ export class GameScene {
     }
   }
 
+  private updateCatchMeter(now: number): void {
+    const meter = el("catch-meter");
+    const catching = this.engine.state.status === "collapsing";
+    if (meter) meter.hidden = !catching;
+    if (!catching) {
+      this.catchRemainingMs = null;
+      this.catchTenths = -1;
+      return;
+    }
+    const remaining = Math.max(0, CATCH_WINDOW_MS - (now - this.collapseStartedAt));
+    this.catchRemainingMs = remaining;
+    if (meter) meter.setAttribute("aria-valuenow", (remaining / CATCH_WINDOW_MS).toFixed(3));
+    const fill = el("catch-fill");
+    if (fill) fill.style.transform = `scaleX(${remaining / CATCH_WINDOW_MS})`;
+    const tenths = Math.ceil(remaining / 100);
+    if (tenths !== this.catchTenths) {
+      this.catchTenths = tenths;
+      const label = el("catch-time");
+      if (label) label.textContent = `${(tenths / 10).toFixed(1)}s to catch`;
+      if (meter)
+        meter.setAttribute("aria-valuetext", `${(tenths / 10).toFixed(1)} seconds to catch`);
+    }
+  }
+
   /** Show the centre banner. When `withLegend`, also reveal the full control
    *  reference centred under it and hide the in-play hotkey bar. */
   private showBanner(title: string, sub: string, withLegend = true): void {
@@ -649,16 +798,36 @@ export class GameScene {
     const b = el("banner");
     if (t) t.textContent = title;
     if (s) s.textContent = sub;
-    if (b) b.style.opacity = "1";
+    if (b) {
+      b.style.opacity = "1";
+      b.dataset.phase = this.engine.state.status;
+      b.setAttribute("aria-hidden", "false");
+    }
+    const teaching = el("spatial-rule");
+    const summary = el("run-summary");
+    const start = el("compact-start");
+    if (teaching) teaching.hidden = this.engine.state.status !== "title";
+    if (summary) summary.hidden = this.engine.state.status !== "gameOver";
+    if (start) start.textContent = this.engine.state.status === "gameOver" ? "Play again" : "Play";
+    this.updateCatchMeter(performance.now());
     this.setHudMode(withLegend ? "legend" : "none");
   }
 
   /** Hide the banner. In play the quiet hotkey bar carries the reference; the
-   *  full legend lives on the title and game-over banners (and the wrapper
+   *  full legend lives on the title banner (and the wrapper
    *  pause overlay renders its own copy from the same manifest). */
   private hideBanner(): void {
     const b = el("banner");
-    if (b) b.style.opacity = "0";
+    if (b) {
+      b.style.opacity = "0";
+      b.dataset.phase = this.engine.state.status;
+      b.setAttribute("aria-hidden", "true");
+    }
+    const teaching = el("spatial-rule");
+    const summary = el("run-summary");
+    if (teaching) teaching.hidden = true;
+    if (summary) summary.hidden = true;
+    this.updateCatchMeter(performance.now());
     this.setHudMode("hotkeys");
   }
 

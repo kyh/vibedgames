@@ -144,6 +144,122 @@ export class PlayerBody {
   private hDown = false;
   private jumpHeld = false;
 
+  /** Exact authority state; excludes grid, kit and presentation callbacks. */
+  checkpoint() {
+    return {
+      x: this.x,
+      y: this.y,
+      prevX: this.prevX,
+      prevY: this.prevY,
+      vx: this.vx,
+      vy: this.vy,
+      facing: this.facing,
+      grounded: this.grounded,
+      wallDir: this.wallDir,
+      iframes: this.iframes,
+      dead: this.dead,
+      downed: this.downed,
+      attackStep: this.attackStep,
+      swingId: this.swingId,
+      specialId: this.specialId,
+      specialActive: this.specialActive,
+      pendingShot: structuredClone(this.pendingShot),
+      pendingHeal: this.pendingHeal,
+      attackTime: this.attackTime,
+      attackBuf: this.attackBuf,
+      attackCd: this.attackCd,
+      comboQueued: this.comboQueued,
+      comboStage: this.comboStage,
+      comboGrace: this.comboGrace,
+      specialBuf: this.specialBuf,
+      specialCd: this.specialCd,
+      specialElapsed: this.specialElapsed,
+      specialDur: this.specialDur,
+      specialFired: this.specialFired,
+      hurtStun: this.hurtStun,
+      airDash: this.airDash,
+      jumping: this.jumping,
+      coyote: this.coyote,
+      jumpBuf: this.jumpBuf,
+      dashBuf: this.dashBuf,
+      dashTime: this.dashTime,
+      dashCd: this.dashCd,
+      wallLock: this.wallLock,
+      dashDirX: this.dashDirX,
+      dashDirY: this.dashDirY,
+      landVy: this.landVy,
+      hLeft: this.hLeft,
+      hRight: this.hRight,
+      hUp: this.hUp,
+      hDown: this.hDown,
+      jumpHeld: this.jumpHeld,
+    };
+  }
+
+  /** Restore without simulating, emitting effects or refreshing cooldowns. */
+  restore(state: PlayerBodyCheckpoint) {
+    this.x = state.x;
+    this.y = state.y;
+    this.prevX = state.prevX;
+    this.prevY = state.prevY;
+    this.vx = state.vx;
+    this.vy = state.vy;
+    this.facing = state.facing;
+    this.grounded = state.grounded;
+    this.wallDir = state.wallDir;
+    this.iframes = state.iframes;
+    this.dead = state.dead;
+    this.downed = state.downed;
+    this.attackStep = state.attackStep;
+    this.swingId = state.swingId;
+    this.specialId = state.specialId;
+    this.specialActive = state.specialActive;
+    this.pendingShot = structuredClone(state.pendingShot);
+    this.pendingHeal = state.pendingHeal;
+    this.attackTime = state.attackTime;
+    this.attackBuf = state.attackBuf;
+    this.attackCd = state.attackCd;
+    this.comboQueued = state.comboQueued;
+    this.comboStage = state.comboStage;
+    this.comboGrace = state.comboGrace;
+    this.specialBuf = state.specialBuf;
+    this.specialCd = state.specialCd;
+    this.specialElapsed = state.specialElapsed;
+    this.specialDur = state.specialDur;
+    this.specialFired = state.specialFired;
+    this.hurtStun = state.hurtStun;
+    this.airDash = state.airDash;
+    this.jumping = state.jumping;
+    this.coyote = state.coyote;
+    this.jumpBuf = state.jumpBuf;
+    this.dashBuf = state.dashBuf;
+    this.dashTime = state.dashTime;
+    this.dashCd = state.dashCd;
+    this.wallLock = state.wallLock;
+    this.dashDirX = state.dashDirX;
+    this.dashDirY = state.dashDirY;
+    this.landVy = state.landVy;
+    this.hLeft = state.hLeft;
+    this.hRight = state.hRight;
+    this.hUp = state.hUp;
+    this.hDown = state.hDown;
+    this.jumpHeld = state.jumpHeld;
+  }
+
+  /** Drop queued/held input; active actions and their deadlines keep running. */
+  clearInput(): void {
+    this.hLeft = false;
+    this.hRight = false;
+    this.hUp = false;
+    this.hDown = false;
+    this.jumpHeld = false;
+    this.comboQueued = false;
+    this.jumpBuf = 0;
+    this.dashBuf = 0;
+    this.attackBuf = 0;
+    this.specialBuf = 0;
+  }
+
   constructor(
     private grid: Grid,
     x: number,
@@ -642,3 +758,5 @@ export class PlayerBody {
 export function rectsOverlap(a: Rect, b: Rect): boolean {
   return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 }
+
+export type PlayerBodyCheckpoint = ReturnType<PlayerBody["checkpoint"]>;

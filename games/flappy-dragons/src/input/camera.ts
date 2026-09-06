@@ -41,6 +41,8 @@ import {
   type NormalizedLandmark,
 } from "@mediapipe/tasks-vision";
 
+import { poseStatus } from "./pose-status";
+
 // ---- legacy tuning (recovered from git — do not retune) ------------------------
 
 /** Jump fires when the smoothed nose rises above baseline by this fraction of baseline. */
@@ -116,6 +118,7 @@ type Panel = {
   button: HTMLButtonElement;
   recal: HTMLButtonElement;
   status: HTMLSpanElement;
+  cap: HTMLDivElement;
 };
 
 // ---- state machine ---------------------------------------------------------------
@@ -139,6 +142,9 @@ class PoseCamera {
   private landmarker: PoseLandmarker | null = null;
   private stream: MediaStream | null = null;
   private detectionStarted = false;
+  /** Observation only: never used by the detectors or baseline. */
+  private noseVisible = false;
+  private armsVisible = false;
   /** Overlay 2d context + DrawingUtils, created once when the stream is sized. */
   private overlayCtx: CanvasRenderingContext2D | null = null;
   private drawingUtils: DrawingUtils | null = null;
@@ -167,6 +173,17 @@ class PoseCamera {
       const expanding = this.collapsed;
       this.setCollapsed(!this.collapsed);
       if (expanding && this.state === "idle") this.start();
+    });
+    this.ui.screen.addEventListener("keydown", (event) => {
+      if (event.target !== this.ui.screen || (event.key !== "Enter" && event.key !== " ")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (!event.repeat) this.ui.screen.click();
+    });
+    this.ui.screen.addEventListener("keyup", (event) => {
+      if (event.target !== this.ui.screen || (event.key !== "Enter" && event.key !== " ")) return;
+      event.preventDefault();
+      event.stopPropagation();
     });
     if (autoStart) {
       // Legacy mounted the component on page load and auto-started immediately.
@@ -216,10 +233,11 @@ class PoseCamera {
 
   private setCollapsed(collapsed: boolean): void {
     this.ui.root.classList.toggle("fd-cam--collapsed", collapsed);
+    this.ui.screen.setAttribute("aria-expanded", String(!collapsed));
   }
 
   private setStatus(text: string): void {
-    this.ui.status.textContent = text;
+    if (this.ui.status.textContent !== text) this.ui.status.textContent = text;
   }
 
   /** The button is only shown in "idle" — a retry after a startup failure. */
@@ -232,6 +250,9 @@ class PoseCamera {
   private start(): void {
     if (this.state !== "idle") return;
     this.setState("loading");
+    this.ui.cap.textContent = "📷 LOADING";
+    this.ui.screen.setAttribute("aria-label", "Pose camera preview");
+    this.ui.screen.title = "";
     this.setStatus("Starting camera and loading model...");
     void this.startCamera();
   }
@@ -278,6 +299,11 @@ class PoseCamera {
       this.ui.root.classList.remove("fd-cam--live");
       this.setStatus(`Error: ${errorMessage(error)}`);
       this.setState("idle");
+      // A missing camera should occupy a retry pill, not an empty video frame.
+      this.ui.cap.textContent = "📷 retry";
+      this.ui.screen.setAttribute("aria-label", "Camera unavailable. Retry pose camera");
+      this.ui.screen.title = `Camera unavailable: ${errorMessage(error)}. Click to retry.`;
+      this.setCollapsed(true);
     }
   }
 
@@ -300,6 +326,9 @@ class PoseCamera {
     } catch (error) {
       this.setStatus(`Error loading model: ${errorMessage(error)}`);
       this.setState("idle");
+      this.ui.cap.textContent = "📷 RETRY";
+      this.ui.screen.title = `Pose model unavailable: ${errorMessage(error)}. Click to retry.`;
+      this.setCollapsed(true);
     }
   }
 
@@ -331,6 +360,8 @@ class PoseCamera {
         try {
           const result = landmarker.detectForVideo(video, timestamp);
           const landmarks = result.landmarks[0];
+          this.noseVisible = false;
+          this.armsVisible = false;
           if (landmarks) {
             this.drawSkeleton(landmarks);
 
@@ -338,6 +369,7 @@ class PoseCamera {
             // calibrated baseline matches the legacy numbers.
             const nose = landmarks[NOSE_INDEX];
             if (nose && nose.visibility > MIN_VISIBILITY) {
+              this.noseVisible = true;
               const noseY = nose.y * (video.videoHeight || 1);
               this.yPositions.unshift(noseY);
               if (this.yPositions.length > SMOOTHING_WINDOW) this.yPositions.pop();
@@ -345,9 +377,13 @@ class PoseCamera {
               this.processSample();
             }
             this.processArmFlap(landmarks);
+          } else {
+            this.overlayCtx?.clearRect(0, 0, this.ui.overlay.width, this.ui.overlay.height);
           }
+          this.showReadiness();
         } catch (error) {
-          this.setStatus(`Error: ${errorMessage(error)}`);
+          this.setStatus(`Tracking interrupted: ${errorMessage(error)}`);
+          this.ui.cap.textContent = "📷 CHECK CAM";
         }
       }
 
@@ -362,7 +398,8 @@ class PoseCamera {
   /** Enter warm-up: collect samples to seed the baseline, then arm jumps automatically. */
   private beginWarmup(): void {
     this.setState("warming");
-    this.setStatus("Centering... stand naturally");
+    this.ui.cap.textContent = "📷 CENTERING";
+    this.setStatus("Centering · stand naturally");
     this.warmupSamples = 0;
     this.warmupTotal = 0;
     this.baselineY = 0;
@@ -381,7 +418,6 @@ class PoseCamera {
       if (this.warmupSamples >= WARMUP_SAMPLES) {
         this.baselineY = this.warmupTotal / this.warmupSamples;
         this.setState("detecting");
-        this.setStatus("Jump or flap your arms!");
       }
       return;
     }
@@ -404,7 +440,6 @@ class PoseCamera {
 
     if (heightDiff > jumpThreshold && this.state === "detecting") {
       this.setState("jumping");
-      this.setStatus("Jumping!");
       this.minY = currentY;
       this.jumpStartedAt = performance.now();
 
@@ -427,12 +462,10 @@ class PoseCamera {
       Math.abs(currentY - this.baselineY) < jumpThreshold / 2
     ) {
       this.setState("detecting");
-      this.setStatus("Jump or flap your arms!");
     } else if (this.state === "jumping" && performance.now() - this.jumpStartedAt > JUMP_STUCK_MS) {
       // Never landed — stuck read. Re-arm detection and let the baseline
       // re-track from wherever the player settled.
       this.setState("detecting");
-      this.setStatus("Jump or flap your arms!");
     }
   }
 
@@ -461,6 +494,7 @@ class PoseCamera {
     }
     const scale = Math.abs(ls.x - rs.x);
     if (scale < MIN_SHOULDER_WIDTH) return;
+    this.armsVisible = true;
 
     this.wristYs.unshift((lw.y + rw.y) / 2);
     if (this.wristYs.length > FLAP_SMOOTHING_WINDOW) this.wristYs.pop();
@@ -477,7 +511,6 @@ class PoseCamera {
         // A body-jump already flapped this instant — don't double-fire.
         if (this.state !== "jumping") {
           const strength = Math.min(stroke / (FLAP_STROKE * scale * MAX_FLAP_FACTOR), 1);
-          this.setStatus("Flap!");
           this.onJump(strength, false);
         }
       }
@@ -488,6 +521,20 @@ class PoseCamera {
         this.strokeTopY = wy;
       }
     }
+  }
+
+  private showReadiness(): void {
+    if (this.state !== "warming" && this.state !== "detecting" && this.state !== "jumping") return;
+    const status = poseStatus(
+      this.state === "warming",
+      this.warmupSamples,
+      WARMUP_SAMPLES,
+      this.noseVisible,
+      this.armsVisible,
+    );
+    const cap = `📷 ${status.label}`;
+    if (this.ui.cap.textContent !== cap) this.ui.cap.textContent = cap;
+    this.setStatus(status.detail);
   }
 
   // ---- skeleton overlay ------------------------------------------------------
@@ -604,6 +651,9 @@ function injectStyles(): void {
       pointer-events: auto; touch-action: manipulation;
       -webkit-tap-highlight-color: transparent;
     }
+    @media (max-height: 520px) and (min-width: 600px) {
+      .fd-cam:not(.fd-cam--collapsed) { width: min(320px, 45vw); }
+    }
     .fd-cam--collapsed { width: 120px; }
     .fd-cam--collapsed .fd-cam__screen { min-height: 44px; }
     .fd-cam--collapsed .fd-cam__controls { display: none; }
@@ -642,7 +692,7 @@ function injectStyles(): void {
     .fd-cam__btn--off { visibility: hidden; }
     .fd-cam__status {
       min-width: 0; letter-spacing: 0.5px;
-      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      white-space: normal; line-height: 1.4;
       text-shadow: 0 1px 3px rgba(0, 0, 0, 0.75);
     }
   `;
@@ -657,6 +707,10 @@ function buildPanel(parent: HTMLElement, collapsed: boolean): Panel {
 
   const screen = document.createElement("div");
   screen.className = "fd-cam__screen";
+  screen.tabIndex = 0;
+  screen.setAttribute("role", "button");
+  screen.setAttribute("aria-label", "Pose camera preview");
+  screen.setAttribute("aria-expanded", String(!collapsed));
 
   const video = document.createElement("video");
   video.className = "fd-cam__video";
@@ -686,6 +740,7 @@ function buildPanel(parent: HTMLElement, collapsed: boolean): Panel {
 
   const status = document.createElement("span");
   status.className = "fd-cam__status";
+  status.setAttribute("role", "status");
 
   controls.append(button, recal, status);
   screen.append(video, overlay, cap, controls);
@@ -700,7 +755,7 @@ function buildPanel(parent: HTMLElement, collapsed: boolean): Panel {
     document.documentElement.style.setProperty("--fd-cam-h", `${Math.round(height)}px`);
   }).observe(root);
 
-  return { root, screen, video, overlay, button, recal, status };
+  return { root, screen, video, overlay, button, recal, status, cap };
 }
 
 // ---- pure helpers --------------------------------------------------------------------------

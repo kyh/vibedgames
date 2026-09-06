@@ -263,6 +263,19 @@ export class Telegraphs {
     }
   }
 
+  clear(): void {
+    this.zoneById.clear();
+    this.free.length = 0;
+    this.frame = this.lastNow = 0;
+    for (const [index, decal] of this.decals.entries()) {
+      decal.mesh.visible = false;
+      decal.zoneId = null;
+      decal.residueLife = 0;
+      decal.seenFrame = 0;
+      this.free.push(index);
+    }
+  }
+
   dispose(): void {
     for (const d of this.decals) {
       this.scene.remove(d.mesh);

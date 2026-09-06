@@ -8,13 +8,25 @@ import { ITEMS, ITEM_BY_ID } from "../data/items";
 import { BRIDGES, GRID, WORLD, isHighCell, isLandCell } from "../data/map";
 import { FONT } from "../render/font";
 import { abilityIconFrame } from "../render/fx-map";
+import { actionAvailability } from "../render/action-availability";
+import type { UnavailableReason } from "../render/action-availability";
+import { presentationSettings } from "../render/presentation-settings";
 import { heroSheetTex } from "../render/sprites";
 import { SLOT_LABEL } from "./game-scene";
-import type { GameScene } from "./game-scene";
+import type { GameScene, MatchResult, ObjectiveNotice } from "./game-scene";
 
 /** Coarse-pointer detection at boot, so copy is input-aware before any touch. */
 function touchDevice(): boolean {
   return window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+}
+
+function stopPointer(
+  _p: Phaser.Input.Pointer,
+  _x: number,
+  _y: number,
+  event: Phaser.Types.Input.EventData,
+): void {
+  event.stopPropagation();
 }
 
 const KEYS: AbilityKey[] = ["Q", "W", "E", "R"];
@@ -26,6 +38,53 @@ const ARC_R = 28; // uniform button radius
 const ARC_START_DEG = 2; // Q sits almost straight above the anchor
 const ARC_SPAN_DEG = 88; // ...and R lands level with it (quarter arc)
 const DEG = Math.PI / 180;
+const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+function reducedMotion(): boolean {
+  return REDUCED_MOTION.matches || presentationSettings().motion === "reduced";
+}
+const NOTICE_PRIORITY = { objective: 1, major: 2, ending: 3 } satisfies Record<
+  ObjectiveNotice["priority"],
+  number
+>;
+const NOTICE_LIFETIME = 14000;
+const AVAILABILITY_LABEL = {
+  unavailable: "LOCKED",
+  dead: "DEAD",
+  stunned: "STUN",
+  silenced: "SILENCE",
+  unlearned: "LEARN",
+  passive: "PASSIVE",
+  cooldown: "WAIT",
+  mana: "MANA",
+} satisfies Record<UnavailableReason, string>;
+type Announcement = { entry: ObjectiveNotice; age: number; remaining: number };
+type ResultButton = {
+  bg: Phaser.GameObjects.NineSlice;
+  label: Phaser.GameObjects.Text;
+  action: "again" | "menu";
+};
+type ResultPersonal = {
+  frame: Phaser.GameObjects.Image;
+  portrait: Phaser.GameObjects.Image;
+  name: Phaser.GameObjects.Text;
+  role: Phaser.GameObjects.Text;
+  kda: Phaser.GameObjects.Text;
+  kdaLabel: Phaser.GameObjects.Text;
+  stats: { value: Phaser.GameObjects.Text; label: Phaser.GameObjects.Text }[];
+};
+type ResultUi = {
+  data: MatchResult;
+  root: Phaser.GameObjects.Container;
+  veil: Phaser.GameObjects.Rectangle;
+  panel: Phaser.GameObjects.NineSlice;
+  ribbon: Phaser.GameObjects.NineSlice;
+  title: Phaser.GameObjects.Text;
+  context: Phaser.GameObjects.Text;
+  personal: ResultPersonal | null;
+  neutral: Phaser.GameObjects.Text | null;
+  buttons: ResultButton[];
+};
 
 type Slot = {
   key: AbilityKey;
@@ -115,6 +174,10 @@ export class HudScene extends Phaser.Scene {
   private feedLines: { text: Phaser.GameObjects.Text; until: number }[] = [];
   private announce!: Phaser.GameObjects.Text;
   private teamScore!: Phaser.GameObjects.Text;
+  private activeNotice: Announcement | null = null;
+  private pendingNotices: Announcement[] = [];
+  private resultUi: ResultUi | null = null;
+  private resultClicked = false;
 
   // scoreboard (Tab)
   private board!: Phaser.GameObjects.Container;
@@ -153,6 +216,10 @@ export class HudScene extends Phaser.Scene {
     this.itemSlots = [];
     this.shopRows = [];
     this.feedLines = [];
+    this.activeNotice = null;
+    this.pendingNotices = [];
+    this.resultUi = null;
+    this.resultClicked = false;
     this.uiButtons = [];
     this.shopOpen = false;
     this.boardOpen = false;
@@ -161,9 +228,14 @@ export class HudScene extends Phaser.Scene {
     this.touchUi = touchDevice();
 
     this.scale.on(Phaser.Scale.Events.RESIZE, this.layout, this);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () =>
-      this.scale.off(Phaser.Scale.Events.RESIZE, this.layout, this),
-    );
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.scale.off(Phaser.Scale.Events.RESIZE, this.layout, this);
+      // DisplayList already owns destruction. Only discard per-match references.
+      this.activeNotice = null;
+      this.pendingNotices = [];
+      this.resultUi = null;
+      this.resultClicked = false;
+    });
     // radial vignette to frame the field — sits behind every HUD widget, above the
     // game. In the HUD scene (camera zoom = 1) so it's true screen-space.
     if (this.textures.exists("vignette")) {
@@ -208,6 +280,7 @@ export class HudScene extends Phaser.Scene {
    *  each frame before this update runs (it sits earlier in the scene list), so
    *  the press edges here are fresh. */
   private pollPad(): void {
+    if (this.gs?.controlsPaused) return;
     const pad = this.gs?.physPad;
     if (!pad?.connected) return;
     if (pad.justPressed("select")) this.toggleShop();
@@ -400,6 +473,7 @@ export class HudScene extends Phaser.Scene {
       .setOrigin(0.5);
     this.dashCd = this.add.rectangle(0, 0, 50, 58, 0x000000, 0.62).setOrigin(0.5, 1);
     this.dashCdCircle = this.add.circle(0, 0, ARC_R - 1, 0x000000, 0.62).setVisible(false);
+    this.dashLabel.setDepth(1); // the availability reason stays above its veil
 
     // inventory slots (1..6). Compact shows OWNED items only, as round chips —
     // an empty grid is dead pixels on a phone, so empties vanish entirely.
@@ -559,6 +633,7 @@ export class HudScene extends Phaser.Scene {
   }
 
   private toggleShop(): void {
+    if (this.gs.matchResult) return;
     this.shopOpen = !this.shopOpen;
     this.shop.setVisible(this.shopOpen);
     this.gs.uiBlocking = this.shopOpen; // pause hero input so arrows drive the shop
@@ -695,39 +770,102 @@ export class HudScene extends Phaser.Scene {
       .setAlpha(0);
   }
 
-  private showAnnounce(text: string, tone: "good" | "bad" | "neutral"): void {
-    const color = tone === "good" ? "#9bf0b4" : tone === "bad" ? "#ffb0a4" : "#fff3c4";
-    const W = this.scale.width;
-    const cx = W / 2;
-    const cy = this.scale.height * 0.26;
-    // clamp to the viewport on phones (the text scales down, the ribbon caps)
-    const fit = Math.min(1, (W - 56) / Math.max(1, this.announce.setText(text).width));
-    this.announce
-      .setColor(color)
-      .setAlpha(1)
-      .setScale(0.6 * fit);
-    this.announce.setPosition(cx, cy - 4);
-    this.announceRibbon.setPosition(cx, cy).setAlpha(1).setScale(0.6);
-    this.announceRibbon.setSize(
-      Math.min(W - 8, Math.max(380, this.announce.width * fit + 150)),
-      76,
+  private queueAnnouncement(entry: ObjectiveNotice): void {
+    const remaining = NOTICE_LIFETIME - Math.max(0, this.time.now - entry.at);
+    if (remaining <= 0) return;
+    const next = { entry, remaining, age: 0 };
+    if (!this.activeNotice) this.activeNotice = next;
+    else if (NOTICE_PRIORITY[entry.priority] > NOTICE_PRIORITY[this.activeNotice.entry.priority]) {
+      this.holdAnnouncement(this.activeNotice, true);
+      this.activeNotice = next;
+    } else this.holdAnnouncement(next);
+    this.layoutAnnouncement();
+  }
+
+  private holdAnnouncement(next: Announcement, interrupted = false): void {
+    if (
+      this.pendingNotices.some(
+        (p) =>
+          p.entry.text === next.entry.text &&
+          p.entry.priority === next.entry.priority &&
+          p.entry.tone === next.entry.tone,
+      )
+    )
+      return;
+    if (this.pendingNotices.length === 3) {
+      const lowest = Math.min(...this.pendingNotices.map((p) => NOTICE_PRIORITY[p.entry.priority]));
+      if (NOTICE_PRIORITY[next.entry.priority] < lowest) return;
+      const drop = this.pendingNotices.findIndex(
+        (p) => NOTICE_PRIORITY[p.entry.priority] === lowest,
+      );
+      this.pendingNotices.splice(drop, 1);
+    }
+    if (interrupted) this.pendingNotices.unshift(next);
+    else this.pendingNotices.push(next);
+  }
+
+  private updateAnnouncement(delta: number): void {
+    for (const p of this.pendingNotices) p.remaining -= delta;
+    this.pendingNotices = this.pendingNotices.filter(
+      (p) => p.remaining > 0 && this.time.now - p.entry.at < NOTICE_LIFETIME,
     );
-    this.tweens.killTweensOf([this.announce, this.announceRibbon]);
-    this.tweens.add({ targets: this.announce, scale: fit, duration: 320, ease: "Back.Out" });
-    this.tweens.add({ targets: this.announceRibbon, scale: 1, duration: 320, ease: "Back.Out" });
-    this.tweens.add({
-      targets: [this.announce, this.announceRibbon],
-      alpha: 0,
-      delay: 3200,
-      duration: 700,
-    });
+    if (this.activeNotice) {
+      this.activeNotice.age += delta;
+      this.activeNotice.remaining -= delta;
+      if (
+        this.activeNotice.age >= 3900 ||
+        this.activeNotice.remaining <= 0 ||
+        this.time.now - this.activeNotice.entry.at >= NOTICE_LIFETIME
+      )
+        this.activeNotice = null;
+    }
+    if (!this.activeNotice && this.pendingNotices.length > 0) {
+      const highest = Math.max(
+        ...this.pendingNotices.map((p) => NOTICE_PRIORITY[p.entry.priority]),
+      );
+      const index = this.pendingNotices.findIndex(
+        (p) => NOTICE_PRIORITY[p.entry.priority] === highest,
+      );
+      this.activeNotice = this.pendingNotices.splice(index, 1)[0] ?? null;
+    }
+    this.layoutAnnouncement();
+  }
+
+  private layoutAnnouncement(): void {
+    const active = this.activeNotice;
+    if (!active) {
+      this.announce.setAlpha(0);
+      this.announceRibbon.setAlpha(0);
+      return;
+    }
+    const { text, tone } = active.entry;
+    const W = this.scale.width;
+    const cy = this.scale.height * 0.26;
+    const color = tone === "good" ? "#9bf0b4" : tone === "bad" ? "#ffb0a4" : "#fff3c4";
+    if (this.announce.text !== text) this.announce.setText(text);
+    if (this.announce.style.color !== color) this.announce.setColor(color);
+    const fit = Math.min(1, (W - 56) / Math.max(1, this.announce.width));
+    const entrance = reducedMotion()
+      ? 1
+      : 0.6 + 0.4 * Phaser.Math.Easing.Back.Out(Math.min(1, active.age / 320));
+    const alpha = Math.min(1, Math.max(0, (3900 - active.age) / 700));
+    this.announce
+      .setPosition(W / 2, cy - 4)
+      .setScale(fit * entrance)
+      .setAlpha(alpha);
+    const ribbonWidth = Math.min(W - 8, Math.max(380, this.announce.width * fit + 150));
+    if (this.announceRibbon.width !== ribbonWidth) this.announceRibbon.setSize(ribbonWidth, 76);
+    this.announceRibbon
+      .setPosition(W / 2, cy)
+      .setScale(entrance)
+      .setAlpha(alpha);
   }
 
   private updateFeed(): void {
     const now = this.time.now;
     for (const e of this.gs.drainFeed()) {
       if (e.kind === "notify") {
-        this.showAnnounce(e.text, e.tone);
+        this.queueAnnouncement(e);
         continue;
       }
       // no running kill feed on phones — announces (the banner) still show
@@ -766,12 +904,201 @@ export class HudScene extends Phaser.Scene {
     });
   }
 
+  // ---- result: the HUD camera is unrotated screen-space --------------------
+  private buildResult(data: MatchResult): void {
+    this.shopOpen = false;
+    this.boardOpen = false;
+    this.shop.setVisible(false);
+    this.board.setVisible(false);
+    this.gs.uiBlocking = true;
+    this.activeNotice = null;
+    this.pendingNotices = [];
+    this.announce.setAlpha(0);
+    this.announceRibbon.setAlpha(0);
+    // Ignore the existing combat HUD in both rendering and camera hit tests.
+    // Result objects are created afterward; resize/update cannot revive widgets.
+    this.cameras.main.ignore(this.children.list);
+    const veil = this.add
+      .rectangle(0, 0, 1, 1, 0x05080e, 0.68)
+      .setOrigin(0)
+      .setDepth(50000)
+      .setInteractive();
+    veil.on("pointerdown", stopPointer);
+    const root = this.add.container(0, 0).setDepth(50001);
+    const won = data.kind === "assigned" && data.outcome === "victory";
+    const neutral = data.kind === "unassigned";
+    const panel = this.add.nineslice(0, 0, "ui-carved9", 0, 600, 236, 20, 20, 20, 20);
+    const ribbon = this.add.nineslice(
+      0,
+      0,
+      neutral ? "ui-ribbon-blue" : won ? "ui-ribbon-yellow" : "ui-ribbon-red",
+      0,
+      560,
+      100,
+      58,
+      58,
+      22,
+      22,
+    );
+    const text = (value: string, size: number, color: string): Phaser.GameObjects.Text =>
+      this.add
+        .text(0, 0, value, { fontFamily: FONT, fontSize: size, color, align: "center" })
+        .setOrigin(0.5);
+    const title = text(
+      neutral ? "MATCH COMPLETE" : won ? "VICTORY" : "DEFEAT",
+      64,
+      won ? "#5a3a10" : "#f4eee0",
+    );
+    title.setStroke(won ? "#fff3c4" : "#283342", 5);
+    const minutes = Math.floor(data.duration / 60);
+    const seconds = Math.floor(data.duration % 60)
+      .toString()
+      .padStart(2, "0");
+    const context = text(
+      `${data.winner ? `${data.winner.toUpperCase()} PREVAILS  ·  ` : ""}${minutes}:${seconds} MATCH`,
+      15,
+      "#fff0ca",
+    );
+    root.add([panel, ribbon, title, context]);
+    let personal: ResultPersonal | null = null;
+    let completion: Phaser.GameObjects.Text | null = null;
+    if (data.kind === "assigned") {
+      const frame = this.add.image(0, 0, "ui-panel");
+      const portrait = this.add.image(0, 0, heroSheetTex(data.heroId, data.team), 0);
+      const name = text(data.heroName, 26, "#4a3320");
+      const role = text(`${data.heroTitle}\n${data.role}`, 14, "#6b533c");
+      const kda = text(`${data.kills} / ${data.deaths} / ${data.assists}`, 36, "#4a3320");
+      const kdaLabel = text("KILLS  /  DEATHS  /  ASSISTS", 12, "#6b533c");
+      const stats = [
+        { label: "LEVEL", value: data.level },
+        { label: "LAST HITS", value: data.lastHits },
+        { label: "DENIES", value: data.denies },
+        { label: "GOLD HELD", value: Math.floor(data.gold) },
+      ].map((stat) => ({
+        value: text(String(stat.value), 21, "#4a3320"),
+        label: text(stat.label, 11, "#6b533c"),
+      }));
+      root.add([frame, portrait, name, role, kda, kdaLabel]);
+      for (const stat of stats) root.add([stat.value, stat.label]);
+      personal = { frame, portrait, name, role, kda, kdaLabel, stats };
+    } else {
+      completion = text("The battle has ended.\nNo personal hero was assigned.", 22, "#4a3320");
+      root.add(completion);
+    }
+    const buttons: ResultButton[] = [];
+    const addButton = (action: "again" | "menu", color: "blue" | "red", caption: string): void => {
+      const bg = this.add
+        .nineslice(0, 0, `ui-btn-${color}`, 0, 250, 60, 28, 28, 20, 26)
+        .setInteractive({ useHandCursor: true });
+      const label = text(caption, 19, "#1e3a44");
+      root.add([bg, label]);
+      buttons.push({ bg, label, action });
+      bg.on("pointerover", () => {
+        if (!this.resultClicked && !reducedMotion())
+          this.tweens.add({ targets: [bg, label], scale: 1.04, duration: 100 });
+      });
+      bg.on("pointerout", () => this.tweens.add({ targets: [bg, label], scale: 1, duration: 100 }));
+      bg.on(
+        "pointerdown",
+        (p: Phaser.Input.Pointer, x: number, y: number, event: Phaser.Types.Input.EventData) => {
+          stopPointer(p, x, y, event);
+          if (this.resultClicked) return;
+          this.resultClicked = true;
+          bg.setTexture(`ui-btn-${color}-pressed`);
+          label.setText("…").setY(bg.y);
+          this.time.delayedCall(40, () => this.gs.leaveResult(action));
+        },
+      );
+    };
+    if (data.canReplay) addButton("again", "blue", "⟳  PLAY AGAIN");
+    addButton("menu", "red", "⌂  BACK TO MENU");
+    this.resultUi = {
+      data,
+      root,
+      veil,
+      panel,
+      ribbon,
+      title,
+      context,
+      personal,
+      neutral: completion,
+      buttons,
+    };
+    this.layoutResult();
+    if (!reducedMotion()) {
+      root.setAlpha(0);
+      this.tweens.add({ targets: root, alpha: 1, duration: 250 });
+    }
+  }
+
+  private layoutResult(): void {
+    const ui = this.resultUi;
+    if (!ui) return;
+    const W = this.scale.width;
+    const H = this.scale.height;
+    const inset = safeAreaInset();
+    const narrow = W < 600;
+    const width = narrow ? 360 : 600;
+    const both = ui.buttons.length === 2;
+    const fullHeight = narrow && both ? 520 : narrow ? 450 : 430;
+    const fit = Math.min(
+      1,
+      (W - inset.left - inset.right - 24) / width,
+      (H - inset.top - inset.bottom - 24) / fullHeight,
+    );
+    ui.veil.setSize(W, H);
+    ui.root
+      .setPosition(
+        (W + inset.left - inset.right) / 2,
+        (H + inset.top - inset.bottom) / 2 - (narrow && both ? 28 : 0) * fit,
+      )
+      .setScale(fit);
+    ui.ribbon.setPosition(0, narrow ? -178 : -155).setSize(narrow ? 360 : 560, narrow ? 88 : 104);
+    ui.title
+      .setPosition(0, narrow ? -184 : -163)
+      .setFontSize(ui.data.kind === "unassigned" ? (narrow ? 30 : 44) : narrow ? 46 : 64);
+    ui.context.setPosition(0, narrow ? -128 : -105).setFontSize(narrow ? 12 : 15);
+    ui.panel.setPosition(0, narrow ? 18 : 20).setSize(width, narrow ? 266 : 226);
+    const p = ui.personal;
+    if (p) {
+      const px = narrow ? -116 : -205;
+      const py = narrow ? -59 : -8;
+      const size = narrow ? 90 : 138;
+      p.frame.setPosition(px, py).setDisplaySize(size, size);
+      p.portrait.setPosition(px, py).setDisplaySize(size - 12, size - 12);
+      p.name
+        .setOrigin(0, 0.5)
+        .setPosition(narrow ? -55 : -106, narrow ? -77 : -58)
+        .setFontSize(narrow ? 24 : 27);
+      p.role
+        .setOrigin(0, 0.5)
+        .setAlign("left")
+        .setPosition(narrow ? -55 : -106, narrow ? -45 : -24)
+        .setFontSize(narrow ? 12 : 14);
+      p.kda.setPosition(narrow ? 0 : 94, narrow ? 22 : 27).setFontSize(narrow ? 34 : 36);
+      p.kdaLabel.setPosition(narrow ? 0 : 94, narrow ? 49 : 54).setFontSize(narrow ? 11 : 12);
+      p.stats.forEach((stat, i) => {
+        const x = -width / 2 + 28 + (i + 0.5) * ((width - 56) / 4);
+        stat.value.setPosition(x, narrow ? 94 : 92).setFontSize(narrow ? 20 : 21);
+        stat.label.setPosition(x, narrow ? 119 : 114).setFontSize(narrow ? 10 : 11);
+      });
+    }
+    ui.neutral?.setPosition(0, 15).setFontSize(narrow ? 18 : 22);
+    ui.buttons.forEach((button, i) => {
+      const x = narrow || !both ? 0 : i === 0 ? -140 : 140;
+      const y = narrow ? 194 + i * 66 : 186;
+      button.bg.setPosition(x, y);
+      button.label.setPosition(x, y - (this.resultClicked ? 0 : 4));
+    });
+  }
+
   // ---- scoreboard (Tab) ----------------------------------------------------
   private buildBoard(): void {
     this.board = this.add.container(0, 0, []).setDepth(48000).setVisible(false);
   }
 
   private toggleBoard(): void {
+    if (this.gs.matchResult) return;
     this.boardOpen = !this.boardOpen;
     this.board.setVisible(this.boardOpen);
     if (this.boardOpen) this.renderBoard();
@@ -898,6 +1225,10 @@ export class HudScene extends Phaser.Scene {
    *  arc bending around the dash button in the bottom-right corner. No space is
    *  reserved for the move stick — it floats and spawns wherever the touch is. */
   private layout(): void {
+    if (this.resultUi) {
+      this.layoutResult();
+      return;
+    }
     const W = this.scale.width;
     const H = this.scale.height;
     const inset = safeAreaInset();
@@ -1123,9 +1454,16 @@ export class HudScene extends Phaser.Scene {
 
     if (this.danger) this.danger.setSize(W, H).setPosition(0, 0);
     if (this.vignette) this.vignette.setDisplaySize(W, H).setPosition(0, 0);
+    this.layoutAnnouncement();
   }
 
-  override update(): void {
+  override update(_t: number, delta: number): void {
+    const result = this.gs.matchResult;
+    if (result) {
+      if (!this.resultUi) this.buildResult(result);
+      this.gs.drainFeed(); // final objectives cannot repaint over the result
+      return;
+    }
     // auto-close the shop if the player dies while it's open, so uiBlocking can't
     // strand a freshly-respawned hero frozen.
     if (this.shopOpen && !this.gs?.player?.alive) this.toggleShop();
@@ -1133,6 +1471,7 @@ export class HudScene extends Phaser.Scene {
     // minimap / feed / scoreboard run even while the player is dead or unspawned
     this.updateMinimap();
     this.updateFeed();
+    this.updateAnnouncement(Math.min(delta, 100));
     // scoreboard refreshes at 4Hz, not per frame — renderBoard rebuilds every
     // Text object, which is far too much churn to run at 60fps while Tab is held
     if (this.boardOpen && this.time.now >= this.boardNextRenderAt) {
@@ -1156,7 +1495,11 @@ export class HudScene extends Phaser.Scene {
       const p = this.gs?.player;
       const pct = p && p.alive && p.maxHp > 0 ? p.hp / p.maxHp : 1;
       this.danger.setAlpha(
-        pct < 0.3 ? 0.18 * (1 - pct / 0.3) * (0.55 + 0.45 * Math.sin(this.time.now / 170)) : 0,
+        pct < 0.3
+          ? 0.18 *
+              (1 - pct / 0.3) *
+              (reducedMotion() ? 1 : 0.55 + 0.45 * Math.sin(this.time.now / 170))
+          : 0,
       );
     }
 
@@ -1188,17 +1531,35 @@ export class HudScene extends Phaser.Scene {
     // dash (F) cooldown (5s)
     if (this.dashCd) {
       const left = Math.max(0, (h.dashReadyAt - world.now) / 1000);
-      const cooling = left > 0.05;
+      const cooling = left > 0;
+      const availability = actionAvailability(me, world.now, { kind: "dash" });
+      const blocked = availability.kind === "blocked" && availability.reason !== "cooldown";
+      const stroke = blocked || cooling ? 0x8a7350 : 0x4a90d9;
       if (this.compact) {
         this.dashCd.setVisible(false);
-        this.dashCdCircle.setVisible(cooling);
-        this.dashCircle.setStrokeStyle(2, cooling ? 0x8a7350 : 0x4a90d9);
+        this.dashCdCircle.setVisible(cooling || blocked);
+        this.dashCircle.setStrokeStyle(2, stroke);
       } else {
         this.dashCdCircle.setVisible(false);
-        this.dashCd.setVisible(cooling);
-        this.dashCd.height = 58 * Math.min(1, left / 5);
-        this.dashBox.setStrokeStyle(2, cooling ? 0x8a7350 : 0x4a90d9);
+        this.dashCd.setVisible(cooling || blocked);
+        this.dashCd.height = 58 * (blocked ? 1 : Math.min(1, left / 5));
+        this.dashBox.setStrokeStyle(2, stroke);
       }
+      const label =
+        blocked && availability.kind === "blocked" ? AVAILABILITY_LABEL[availability.reason] : null;
+      this.dashLabel
+        .setText(
+          label
+            ? `${label}${cooling ? `\n${Math.ceil(left)}s` : ""}`
+            : this.compact
+              ? "⚡"
+              : this.touchUi
+                ? "⚡\ndash"
+                : "F\ndash",
+        )
+        .setFontSize(label ? 11 : this.compact ? 20 : 11);
+      const labelColor = label ? "#ffe8b0" : "#3a5a78";
+      if (this.dashLabel.style.color !== labelColor) this.dashLabel.setColor(labelColor);
     }
 
     // portrait/level
@@ -1237,6 +1598,8 @@ export class HudScene extends Phaser.Scene {
       s.pips.forEach((p, j) => p.setFillStyle(j < rank ? 0xffe14a : 0x39456a));
       const cdLeft = Math.max(0, (slot.readyAt - world.now) / 1000);
       const cdTotal = rank > 0 ? valAt(ad.cooldown, rank) : 1;
+      let cdFontSize = 20;
+      let cdLabel = "";
       // one veil per form: the desktop rect drains bottom-up, the compact
       // circle just dims the whole button (no drain on phones)
       const veil = (on: boolean, frac: number, color: number, alpha: number): void => {
@@ -1255,21 +1618,41 @@ export class HudScene extends Phaser.Scene {
       };
       if (rank <= 0) {
         veil(true, 1, 0x000000, 0.6);
-        s.cdText.setText("");
         s.icon.setAlpha(0.32); // unlearned
         stroke(2, 0x6b5530);
-      } else if (cdLeft > 0.05) {
+      } else if (cdLeft > 0) {
         veil(true, Math.min(1, cdLeft / cdTotal), 0x000000, 0.6);
-        s.cdText.setText(cdLeft >= 1 ? `${Math.ceil(cdLeft)}` : "");
+        cdLabel = cdLeft >= 1 ? `${Math.ceil(cdLeft)}` : "";
         s.icon.setAlpha(0.4); // on cooldown
         stroke(2, 0x8a7350);
       } else {
         const manaOk = me.mp >= valAt(ad.manaCost, rank);
         veil(!manaOk, manaOk ? 0 : 1, 0x1a3a6a, 0.5);
-        s.cdText.setText("");
         s.icon.setAlpha(manaOk ? 1 : 0.6); // ready / no mana
         stroke(manaOk ? 3 : 2, manaOk ? 0x3f9e4d : 0x8a7350);
       }
+      const availability = actionAvailability(me, world.now, { kind: "ability", key: s.key });
+      if (
+        availability.kind === "blocked" &&
+        availability.reason !== "cooldown" &&
+        availability.reason !== "unlearned" &&
+        availability.reason !== "mana"
+      ) {
+        const passive = availability.reason === "passive";
+        const cooling = cdLeft > 0;
+        veil(cooling || !passive, cooling ? Math.min(1, cdLeft / cdTotal) : 1, 0x000000, 0.6);
+        cdLabel = `${AVAILABILITY_LABEL[availability.reason]}${cooling ? `\n${Math.ceil(cdLeft)}s` : ""}`;
+        cdFontSize = this.compact ? 9 : 10;
+        s.icon.setAlpha(passive ? 0.8 : 0.35);
+        stroke(2, passive ? 0x8a7350 : 0xa66c58);
+      } else if (me.alive && h.channel?.key === s.key && h.channel.until > world.now) {
+        // The channel is active, not a blanket input lock. Other spells and
+        // dash still show their actual availability; cooldown keeps progressing.
+        cdLabel = `CHANNEL${cdLeft > 0 ? `\nCD ${Math.ceil(cdLeft)}s` : ""}`;
+        cdFontSize = this.compact ? 9 : 10;
+        stroke(2, 0x81bdd4);
+      }
+      s.cdText.setFontSize(cdFontSize).setText(cdLabel);
     }
 
     // inventory slots. Compact shows owned items only, packed into a column

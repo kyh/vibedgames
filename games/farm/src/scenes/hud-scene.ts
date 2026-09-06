@@ -16,13 +16,27 @@ import {
 } from "../data/animals";
 import { SKILL_NAMES, type SkillId } from "../systems/skills";
 import { Sound } from "../render/audio";
+import { onSceneExit } from "../render/scene-lifetime";
 import { hotbarGrid } from "../render/hotbar-layout";
 import { isPick, isTouchDevice } from "../systems/touch";
-import { GameScene } from "./game-scene";
+import { GameScene, type DayRecap } from "./game-scene";
 
 const FONT = "ui-monospace, monospace";
 const SLOT = 42;
 const PAD = 4;
+
+type ToastNotice = {
+  message: string;
+  color: string;
+  node: Phaser.GameObjects.Text;
+};
+type DayCard = {
+  container: Phaser.GameObjects.Container;
+  panel: Phaser.GameObjects.Graphics;
+  label: Phaser.GameObjects.Text;
+  season: Phaser.GameObjects.Text;
+  recap: Phaser.GameObjects.Text;
+};
 
 export class HudScene extends Phaser.Scene {
   private g!: GameScene;
@@ -48,6 +62,9 @@ export class HudScene extends Phaser.Scene {
   private goldText!: Phaser.GameObjects.Text;
   private bars!: Phaser.GameObjects.Graphics;
   private toolTip!: Phaser.GameObjects.Text;
+  private actionTip: Phaser.GameObjects.Text | null = null;
+  private notices: ToastNotice[] = [];
+  private dayCard: DayCard | null = null;
   private modal: Phaser.GameObjects.Container | null = null;
   private dialogueBox: Phaser.GameObjects.Container | null = null;
   private hotbar!: Phaser.GameObjects.Container;
@@ -68,7 +85,8 @@ export class HudScene extends Phaser.Scene {
     this.slotNodes = [];
     this.modal = null;
     this.dialogueBox = null;
-    this.toastY = 0;
+    this.notices = [];
+    this.dayCard = null;
     this.hudSig = "";
     this.slot = SLOT;
     this.perRow = HOTBAR;
@@ -119,6 +137,17 @@ export class HudScene extends Phaser.Scene {
       })
       .setOrigin(0.5, 1);
 
+    this.actionTip = this.add
+      .text(0, 0, "", {
+        fontFamily: FONT,
+        fontSize: "12px",
+        color: "#ffe27a",
+        stroke: "#2a1e0e",
+        strokeThickness: 3,
+        align: "center",
+      })
+      .setOrigin(0.5, 1);
+
     // Touch controls live HERE (not in GameScene) so the overlay isn't
     // transformed by the game camera's zoom. The Hud's input plugin processes
     // pointers before GameScene's, so hotbar taps never reach the game. No
@@ -128,7 +157,11 @@ export class HudScene extends Phaser.Scene {
       visible: "coarse",
       render: { depth: 90, blendMode: Phaser.BlendModes.NORMAL },
     });
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.g.gamepad?.destroy());
+    const gamepad = this.g.gamepad;
+    onSceneExit(this, () => {
+      gamepad.destroy();
+      if (this.g.gamepad === gamepad) this.g.gamepad = undefined;
+    });
 
     this.buildHotbar();
     this.buildTouchButtons();
@@ -136,20 +169,30 @@ export class HudScene extends Phaser.Scene {
     if (this.onResize) this.scale.off("resize", this.onResize);
     this.onResize = () => this.layout();
     this.scale.on("resize", this.onResize);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      if (this.onResize) this.scale.off("resize", this.onResize);
-    });
+    const scale = this.scale;
+    const onResize = this.onResize;
+    onSceneExit(this, () => scale.off("resize", onResize));
 
-    this.g.events.on("toast", (text: string, color: string) => this.toast(text, color));
-    this.g.events.on("daybanner", (day: number, season: Season, weather: Weather) =>
-      this.dayBanner(day, season, weather),
-    );
+    const onToast = (text: string, color: string) => this.toast(text, color);
+    const onLevelUp = (skill: SkillId, level: number) =>
+      this.toast(`${SKILL_NAMES[skill]} reached Level ${level}!`, "#ffe27a");
+    const onDayBanner = (day: number, season: Season, weather: Weather, recap?: DayRecap) =>
+      this.dayBanner(day, season, weather, recap);
+    this.g.events.on("toast", onToast);
+    this.g.events.on("daybanner", onDayBanner);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.g.events.off("toast", onToast);
+      this.g.events.off("daybanner", onDayBanner);
+      this.g.events.off("levelup", onLevelUp);
+      for (const notice of this.notices) this.removeNotice(notice);
+      this.notices = [];
+      this.clearDayBanner();
+      this.actionTip = null;
+    });
     this.g.events.on("open-shop", () => this.openShop());
     this.g.events.on("open-animal-shop", (b: BuildingKind) => this.openAnimalShop(b));
     this.g.events.on("confirm-sleep", () => this.openSleep());
-    this.g.events.on("levelup", (skill: SkillId, level: number) =>
-      this.toast(`${SKILL_NAMES[skill]} reached Level ${level}!`, "#ffe27a"),
-    );
+    this.g.events.on("levelup", onLevelUp);
     this.g.events.on(
       "dialogue",
       (d: { name: string; role: string; text: string; hearts: number }) => this.showDialogue(d),
@@ -197,7 +240,7 @@ export class HudScene extends Phaser.Scene {
     // starts a movement drag, and the floating stick claims that touch on the
     // way down — so a drag has to stay a move and not also swap tools.
     zone.on("pointerup", (p: Phaser.Input.Pointer) => {
-      if (!this.g.uiOpen && isPick(p)) store.inv.select(i);
+      if (!this.g.controlsPaused && !this.g.uiOpen && isPick(p)) store.inv.select(i);
     });
     return zone;
   }
@@ -279,6 +322,11 @@ export class HudScene extends Phaser.Scene {
     this.clockText.setPosition(24 + il, 56 + it);
     this.goldText.setPosition(W - 22 - ir, 28 + it);
     this.toolTip.setPosition(W / 2, this.hotbarTop(H) - 8);
+    this.actionTip
+      ?.setPosition(W / 2, this.hotbarTop(H) - 29)
+      .setWordWrapWidth(Math.max(80, W - 40 - il - ir));
+    this.layoutNotices();
+    this.layoutDayBanner();
     this.touchUi.forEach((c, i) => c.setPosition(34 + il, 108 + it + i * 56));
     if (this.modal) this.modal.setPosition(W / 2, H / 2);
     if (this.dialogueBox) this.dialogueBox.setPosition(W / 2, this.dialogueY(H));
@@ -314,6 +362,8 @@ export class HudScene extends Phaser.Scene {
     if (item && item.kind === "tool" && item.tool === "can")
       tip += `  💧${this.g.canCharge}/${CAN_MAX}`;
     this.toolTip.setText(tip);
+    const hint = this.g.uiOpen || this.dialogueBox ? null : this.g.actionHint();
+    this.actionTip?.setText(hint ?? "").setVisible(hint !== null);
   }
 
   /** Everything the Graphics-drawn HUD (hotbar, panels, bars) depends on. */
@@ -414,72 +464,144 @@ export class HudScene extends Phaser.Scene {
 
   // ---------------------------------------------------------------- toasts / banner / dialogue
 
-  private toastY = 0;
+  /** At most three owned notices; repeated warnings refresh their own slot. */
   private toast(text: string, color = "#fff6d5"): void {
-    const W = this.scale.width;
-    const t = this.add
-      .text(W / 2, 92 + this.toastY, text, {
-        fontFamily: FONT,
-        fontSize: "15px",
-        fontStyle: "bold",
-        color,
-        stroke: "#2a1e0e",
-        strokeThickness: 4,
-        align: "center",
-      })
-      .setOrigin(0.5, 0)
-      .setDepth(100);
-    this.toastY += 26;
+    let notice = this.notices.find((entry) => entry.message === text && entry.color === color);
+    if (!notice) {
+      if (this.notices.length === 3) {
+        const oldest = this.notices.shift();
+        if (oldest) this.removeNotice(oldest);
+      }
+      const node = this.add
+        .text(0, 0, text, {
+          fontFamily: FONT,
+          fontSize: "14px",
+          fontStyle: "bold",
+          color,
+          stroke: "#2a1e0e",
+          strokeThickness: 4,
+          align: "center",
+        })
+        .setOrigin(0.5, 0)
+        .setDepth(100);
+      notice = { message: text, color, node };
+      this.notices.push(notice);
+    }
+    const current = notice;
+    this.tweens.killTweensOf(current.node);
+    current.node.setAlpha(1);
+    this.layoutNotices();
     this.tweens.add({
-      targets: t,
-      alpha: { from: 1, to: 0 },
-      y: t.y - 10,
+      targets: current.node,
+      alpha: 0,
       delay: 1200,
       duration: 700,
       onComplete: () => {
-        t.destroy();
-        this.toastY = Math.max(0, this.toastY - 26);
+        this.notices = this.notices.filter((entry) => entry !== current);
+        // This tween already owns completion; do not destroy it from its callback.
+        current.node.destroy();
+        this.layoutNotices();
       },
     });
   }
 
-  private dayBanner(day: number, season: Season, weather: Weather): void {
-    const W = this.scale.width,
-      H = this.scale.height;
-    const c = this.add.container(W / 2, H / 2).setDepth(120);
+  private removeNotice(notice: ToastNotice): void {
+    this.tweens.killTweensOf(notice.node);
+    notice.node.destroy();
+  }
+
+  private layoutNotices(): void {
+    const W = this.scale.width;
+    let y = 92 + this.inset.top;
+    for (const notice of this.notices) {
+      notice.node.setWordWrapWidth(Math.max(80, W - 48 - this.inset.left - this.inset.right));
+      notice.node.setPosition(W / 2, y);
+      y += notice.node.height + 8;
+    }
+  }
+
+  private clearDayBanner(): void {
+    if (!this.dayCard) return;
+    this.tweens.killTweensOf(this.dayCard.container);
+    this.dayCard.container.destroy();
+    this.dayCard = null;
+  }
+
+  private layoutDayBanner(): void {
+    const card = this.dayCard;
+    if (!card) return;
+    const W = this.scale.width;
+    const w = Math.min(420, W - 32 - this.inset.left - this.inset.right);
+    const h = card.recap.visible ? 152 : 110;
+    card.container.setPosition(W / 2, this.scale.height / 2);
+    card.panel.clear();
+    card.panel.fillStyle(0x000000, 0.2);
+    card.panel.fillRoundedRect(-w / 2 + 4, -h / 2 + 5, w, h, 12);
+    card.panel.fillStyle(0xf3e2bf, 0.96);
+    card.panel.fillRoundedRect(-w / 2, -h / 2, w, h, 12);
+    card.panel.lineStyle(3, 0x9a6a35, 1);
+    card.panel.strokeRoundedRect(-w / 2, -h / 2, w, h, 12);
+    card.label.setPosition(0, -h / 2 + 31).setFontSize(W < 400 ? 36 : 42);
+    card.season
+      .setPosition(0, -h / 2 + 66)
+      .setFontSize(W < 400 ? 15 : 18)
+      .setWordWrapWidth(w - 28);
+    card.recap.setPosition(0, -h / 2 + 94).setWordWrapWidth(w - 28);
+  }
+
+  private dayBanner(day: number, season: Season, weather: Weather, recap?: DayRecap): void {
+    this.clearDayBanner();
+    const container = this.add.container(0, 0).setDepth(120);
+    const panel = this.add.graphics();
     const label = this.add
-      .text(0, -16, `Day ${day}`, {
+      .text(0, 0, `Day ${day}`, {
         fontFamily: FONT,
-        fontSize: "54px",
+        fontSize: "42px",
         fontStyle: "900",
-        color: "#fff6d5",
-        stroke: "#7a4a18",
-        strokeThickness: 8,
+        color: "#7a4a18",
       })
       .setOrigin(0.5);
-    const sub = this.add
+    const seasonText = this.add
       .text(
         0,
-        30,
+        0,
         `${seasonIcon(season)} ${seasonName(season)}  ·  ${WEATHER_ICON[weather]} ${WEATHER_NAME[weather]}`,
-        {
-          fontFamily: FONT,
-          fontSize: "20px",
-          color: "#ffe9b0",
-          stroke: "#7a4a18",
-          strokeThickness: 4,
-        },
+        { fontFamily: FONT, fontSize: "18px", color: "#7a4a18", align: "center" },
       )
       .setOrigin(0.5);
-    c.add([label, sub]);
-    c.setScale(0.7).setAlpha(0);
-    this.tweens.add({ targets: c, alpha: 1, scale: 1, duration: 400, ease: "Back.easeOut" });
+    const recapText = this.add
+      .text(
+        0,
+        0,
+        recap
+          ? `SHIPPING THIS VISIT
+${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${recap.shippedGold}g`
+          : "",
+        { fontFamily: FONT, fontSize: "12px", color: "#5a471f", align: "center" },
+      )
+      .setOrigin(0.5, 0)
+      .setLineSpacing(3)
+      .setVisible(recap !== undefined);
+    container.add([panel, label, seasonText, recapText]);
+    this.dayCard = { container, panel, label, season: seasonText, recap: recapText };
+    this.layoutDayBanner();
+    container.setScale(0.7).setAlpha(0);
     this.tweens.add({
-      targets: c,
+      targets: container,
+      alpha: 1,
+      scale: 1,
+      duration: 400,
+      ease: "Back.easeOut",
+    });
+    this.tweens.add({
+      targets: container,
       alpha: 0,
       delay: 1700,
       duration: 500,
-      onComplete: () => c.destroy(),
+      onComplete: () => {
+        if (this.dayCard?.container === container) this.dayCard = null;
+        container.destroy();
+      },
     });
   }
 
@@ -585,10 +707,12 @@ export class HudScene extends Phaser.Scene {
       .setOrigin(0.5);
     const close = this.add
       .text(w / 2 - 22, -h / 2 + 20, "✕", { fontFamily: FONT, fontSize: "20px", color: "#fff6d5" })
-      .setOrigin(0.5)
+      .setOrigin(0.5);
+    const closeTarget = this.add
+      .zone(w / 2 - 22, -h / 2 + 20, 44, 44)
       .setInteractive({ useHandCursor: true });
-    close.on("pointerdown", () => this.closeModal());
-    c.add([dim, panel, titleT, close]);
+    closeTarget.on("pointerdown", () => this.closeModal());
+    c.add([dim, panel, titleT, close, closeTarget]);
     this.modal = c;
     return c;
   }
@@ -733,21 +857,31 @@ export class HudScene extends Phaser.Scene {
   }
 
   private openSleep(): void {
-    const c = this.modalShell(Math.min(360, this.scale.width - 24), 180, "🛏  Rest for the night?");
+    const width = Math.min(390, this.scale.width - 24);
+    const preview = this.g.overnightPreview();
+    const detail =
+      preview.withering > 0
+        ? `\n${preview.withering} out-of-season crop${preview.withering === 1 ? "" : "s"} will wither.`
+        : preview.changingSeason
+          ? `\n${seasonName(preview.season)} begins tomorrow.`
+          : "";
+    const c = this.modalShell(width, 220, "Rest for the night?");
     const body = this.add
-      .text(0, -10, "Sleep until morning.\nWatered crops grow, animals produce.", {
+      .text(0, -5, `Sleep until morning.\nWatered crops grow, animals produce.${detail}`, {
         fontFamily: FONT,
         fontSize: "14px",
         color: "#3a2a14",
         align: "center",
+        wordWrap: { width: width - 40 },
+        lineSpacing: 5,
       })
       .setOrigin(0.5);
-    const yes = this.bigBtn(-80, 56, "Sleep", 0x3a86c8, () => {
+    const yes = this.bigBtn(-80, 74, "Sleep", 0x3a86c8, () => {
       this.modal?.destroy();
       this.modal = null;
       this.g.doSleep();
     });
-    const no = this.bigBtn(80, 56, "Not yet", 0xb05a3a, () => this.closeModal());
+    const no = this.bigBtn(80, 74, "Not yet", 0xb05a3a, () => this.closeModal());
     c.add([body, yes, no]);
   }
 
@@ -760,7 +894,7 @@ export class HudScene extends Phaser.Scene {
   ): Phaser.GameObjects.Container {
     const c = this.add.container(x, y);
     const w = 130,
-      h = 40;
+      h = 44;
     const g = this.add.graphics();
     g.fillStyle(color, 1);
     g.fillRoundedRect(-w / 2, -h / 2, w, h, 10);

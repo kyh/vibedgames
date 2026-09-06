@@ -39,10 +39,24 @@ export function isMuted(): boolean {
 export function setMuted(next: boolean): void {
   muted = next;
   storageSet(SOUND_KEY, muted ? "0" : "1");
-  if (!muted) audio();
+  if (muted) stopVoices();
+  else if (!paused) audio();
 }
 
 let ctx: AudioContext | null = null;
+let paused = false;
+const voices = new Set<OscillatorNode>();
+
+function stopVoices(): void {
+  for (const voice of voices) voice.stop();
+  voices.clear();
+}
+
+/** Stop active and scheduled notes; resuming never replays an old score fanfare. */
+export function setSoundPaused(next: boolean): void {
+  paused = next;
+  if (paused) stopVoices();
+}
 
 function audio(): AudioContext | null {
   if (ctx === null && "AudioContext" in window) ctx = new AudioContext();
@@ -62,7 +76,7 @@ type Blip = {
 };
 
 function blip({ freq, end, dur, type, gain, at = 0 }: Blip): void {
-  if (muted) return;
+  if (muted || paused) return;
   const ac = audio();
   if (!ac) return;
   const t0 = ac.currentTime + at;
@@ -75,6 +89,16 @@ function blip({ freq, end, dur, type, gain, at = 0 }: Blip): void {
   g.gain.setValueAtTime(gain, t0);
   g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
   osc.connect(g).connect(ac.destination);
+  voices.add(osc);
+  osc.addEventListener(
+    "ended",
+    () => {
+      voices.delete(osc);
+      osc.disconnect();
+      g.disconnect();
+    },
+    { once: true },
+  );
   osc.start(t0);
   osc.stop(t0 + dur + 0.02);
 }

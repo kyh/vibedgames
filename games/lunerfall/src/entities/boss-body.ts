@@ -57,6 +57,54 @@ export class BossBody {
   pendingAdds: Add[] | null = null;
   readonly kind: BossKind;
 
+  /** Exact authority state; excludes grid, kit and presentation callbacks. */
+  checkpoint() {
+    return {
+      x: this.x,
+      y: this.y,
+      prevX: this.prevX,
+      prevY: this.prevY,
+      vx: this.vx,
+      vy: this.vy,
+      facing: this.facing,
+      grounded: this.grounded,
+      hp: this.hp,
+      state: this.state,
+      stateT: this.stateT,
+      phase: this.phase,
+      dead: this.dead,
+      hitFlash: this.hitFlash,
+      iframes: this.iframes,
+      attackCd: this.attackCd,
+      pendingWaves: structuredClone(this.pendingWaves),
+      pendingBlast: structuredClone(this.pendingBlast),
+      pendingAdds: structuredClone(this.pendingAdds),
+    };
+  }
+
+  /** Restore without simulating, emitting effects or refreshing cooldowns. */
+  restore(state: BossBodyCheckpoint) {
+    this.x = state.x;
+    this.y = state.y;
+    this.prevX = state.prevX;
+    this.prevY = state.prevY;
+    this.vx = state.vx;
+    this.vy = state.vy;
+    this.facing = state.facing;
+    this.grounded = state.grounded;
+    this.hp = state.hp;
+    this.state = state.state;
+    this.stateT = state.stateT;
+    this.phase = state.phase;
+    this.dead = state.dead;
+    this.hitFlash = state.hitFlash;
+    this.iframes = state.iframes;
+    this.attackCd = state.attackCd;
+    this.pendingWaves = structuredClone(state.pendingWaves);
+    this.pendingBlast = structuredClone(state.pendingBlast);
+    this.pendingAdds = structuredClone(state.pendingAdds);
+  }
+
   constructor(
     private grid: Grid,
     x: number,
@@ -299,3 +347,5 @@ export class BossBody {
     }
   }
 }
+
+export type BossBodyCheckpoint = ReturnType<BossBody["checkpoint"]>;

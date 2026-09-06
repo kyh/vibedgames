@@ -2,6 +2,8 @@
 
 TowerFall-feel roguelite dungeon crawl — Phaser, pixel art, five heroes with distinct kits, proc-gen rooms across five biomes. Online co-op and first-to-3 versus via `@vibedgames/multiplayer` (share a party code, host-authoritative). Deployed at `lunerfall.vibedgames.com`.
 
+Combat effects reuse scene-owned pools (192 particles, 32 afterimages, 16 labels), cleared between rooms. Hero specials and boss blasts carry their own colors; elite clears and boss defeats get finite payoff cues. Routine camera shake follows the local player. Authored swings, hitboxes, combat freeze and rewards are unchanged.
+
 ## Develop
 
 ```bash

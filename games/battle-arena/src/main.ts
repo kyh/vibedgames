@@ -254,9 +254,24 @@ async function main(): Promise<void> {
   // Wrapper-pause bookkeeping (see setPauseHandlers below): which match loop is
   // live, whether it's online, and whether onPause actually froze it.
   let activeScene: GameScene | null = null;
+  let frame = 0;
+  Object.defineProperty(window, "__GAME_DIAGNOSTICS__", {
+    configurable: true,
+    get: () => ({
+      frame,
+      ...(activeScene?.diagnostics() ?? {
+        phase: "menu",
+        player: null,
+        score: 0,
+        complete: false,
+        audio: null,
+      }),
+    }),
+  });
   let onlineMatch = false;
   let froze = false;
   const matchLoop = (t: number): void => {
+    frame++;
     timer.update(t);
     const dt = Math.min(timer.getDelta(), 1 / 30);
     activeScene?.update(dt);
@@ -323,18 +338,18 @@ async function main(): Promise<void> {
   setPauseHandlers({
     onPause: () => {
       pauseOverlay.show();
+      activeScene?.pauseAudio();
       if (onlineMatch || !activeScene) return;
       froze = true;
       view.renderer.setAnimationLoop(null);
-      activeScene.pauseAudio();
     },
     onResume: () => {
       pauseOverlay.hide();
+      activeScene?.resumeAudio();
       if (!froze) return;
       froze = false;
       timer.reset();
       view.renderer.setAnimationLoop(matchLoop);
-      activeScene?.resumeAudio();
     },
   });
 

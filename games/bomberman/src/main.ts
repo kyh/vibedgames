@@ -4,7 +4,7 @@ import Phaser from "phaser";
 import { createBombermanPauseOverlay } from "./pause-overlay";
 import { BootScene } from "./scenes/boot-scene";
 import { GameScene } from "./scenes/game-scene";
-import { pauseClock, resumeClock } from "./util/clock";
+import { pauseAudio } from "./fx/sfx";
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.WEBGL,
@@ -47,20 +47,22 @@ const pauseOverlay = createBombermanPauseOverlay();
 setPauseHandlers({
   onPause: () => {
     pauseOverlay.show();
+    pauseAudio(true);
     const scene = game.scene.getScene<GameScene>("Game");
+    scene?.setPresentationPaused(true);
     // Other humans present (live online round) — leave the sim running.
     if (!scene || !scene.freezable) return;
     froze = true;
-    pauseClock();
-    game.loop.sleep(); // stops update() until wake()
+    scene.pauseSimulation(); // publishes a shared frozen anchor before sleeping
     game.sound.pauseAll();
   },
   onResume: () => {
     pauseOverlay.hide();
+    pauseAudio(false);
+    game.scene.getScene<GameScene>("Game")?.setPresentationPaused(false);
     if (!froze) return;
     froze = false;
-    resumeClock();
-    game.loop.wake();
+    game.scene.getScene<GameScene>("Game")?.resumeSimulation();
     game.sound.resumeAll();
   },
 });

@@ -244,6 +244,11 @@ export class SpikePool {
     }
   }
 
+  clear(): void {
+    for (const spike of this.active) spike.t = spike.rise + spike.hold + spike.exit;
+    this.update(0);
+  }
+
   dispose(): void {
     this.blades.dispose();
     this.shards.dispose();

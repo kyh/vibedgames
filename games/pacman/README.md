@@ -33,3 +33,5 @@ pnpm --filter @repo/pacman preview     # vite preview
 On touch the porthole boots as a pill and the face camera starts on the tap that opens it — phones only grant `getUserMedia` inside a gesture, and nothing of the ~6 MB face stack is fetched until then.
 
 Multiplayer: auto-joins the shared `pacman-default` room (up to 4 players), solo fallback when the party server is unreachable.
+
+Power hearts show a shrinking blush arc around Pacman; another heart refills the existing ten-second clock. Quick pearl pickups reveal the existing musical chain in the HUD, with unchanged points. Wall dust follows the impact direction, and caught ghosts leave their own pastel color at capture and arrival.

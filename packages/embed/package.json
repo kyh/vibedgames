@@ -10,6 +10,7 @@
   },
   "scripts": {
     "clean": "rm -rf .cache .turbo dist node_modules",
+    "test": "node --import tsx tools/pause-key-smoke.mjs",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

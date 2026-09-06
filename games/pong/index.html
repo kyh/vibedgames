@@ -8,7 +8,7 @@
     />
     <link rel="icon" href="data:," />
     <title>Pong</title>
-    <meta name="description" content="Classic pong reborn in dithered 3D. First to 11 takes it." />
+    <meta name="description" content="Classic pong reborn in dithered 3D. First to 7 takes it." />
     <style>
       * {
         box-sizing: border-box;
@@ -71,6 +71,54 @@
         text-transform: uppercase;
         opacity: 0.55;
       }
+      #match-point {
+        margin-top: 10px;
+        min-height: 14px;
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 2px;
+      }
+      #shot-callout {
+        position: fixed;
+        bottom: calc(8% + env(safe-area-inset-bottom));
+        left: 50%;
+        transform: translate(-50%, 6px);
+        padding: 7px 11px;
+        border: 1px solid #000;
+        background: #d4d4d4;
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 2px;
+        white-space: nowrap;
+        opacity: 0;
+        transition:
+          opacity 120ms ease,
+          transform 160ms ease;
+        pointer-events: none;
+      }
+      #shot-callout.on {
+        opacity: 1;
+        transform: translate(-50%, 0);
+      }
+      #banner .spin-hint {
+        display: block;
+        margin-top: 15px;
+        font-size: 11px;
+        font-weight: 400;
+        line-height: 1.5;
+        letter-spacing: 0.5px;
+      }
+      .reduced-motion #score span,
+      .reduced-motion #combo,
+      .reduced-motion #banner,
+      .reduced-motion #serve-meter,
+      .reduced-motion #shot-callout {
+        animation: none;
+        transition: none;
+      }
+      .reduced-motion #shot-callout {
+        transform: translate(-50%, 0);
+      }
       @keyframes pop {
         0% {
           transform: scale(1.7);
@@ -90,7 +138,7 @@
         text-align: center;
         font-weight: 800;
         font-variant-numeric: tabular-nums;
-        font-size: calc(28px + var(--combo-tier, 0) * 44px);
+        font-size: calc(20px + var(--combo-tier, 0) * 24px);
         letter-spacing: 2px;
         opacity: 0;
         transition: opacity 0.18s ease;
@@ -139,22 +187,109 @@
          60px headline in 393px of height. */
       #banner {
         position: fixed;
-        top: 34%;
+        top: 50%;
         left: 50%;
-        transform: translateX(-50%);
+        transform: translate(-50%, -50%);
         width: max-content;
-        max-width: min(92vw, 560px);
+        max-width: min(92vw, 520px);
+        max-height: calc(100dvh - 180px);
+        overflow-y: auto;
         padding: 16px 22px 18px;
         background: #d4d4d4;
         border: 2px solid #000;
         box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.85);
         text-align: center;
         font-weight: 800;
-        font-size: clamp(32px, 8vmin, 72px);
+        font-size: clamp(30px, 7vmin, 58px);
         line-height: 1;
         letter-spacing: 4px;
-        opacity: 0;
-        transition: opacity 0.25s ease;
+        pointer-events: auto;
+      }
+      #banner[hidden] {
+        display: none;
+      }
+      #banner-detail {
+        margin-top: 14px;
+        font-size: 12px;
+        line-height: 1.5;
+        letter-spacing: 1px;
+        font-variant-numeric: tabular-nums;
+      }
+      #match-action,
+      #sound-toggle {
+        min-height: 44px;
+        border: 2px solid #000;
+        background: #000;
+        color: #d4d4d4;
+        font:
+          800 12px ui-monospace,
+          monospace;
+        letter-spacing: 2px;
+        cursor: pointer;
+        touch-action: manipulation;
+      }
+      #match-action {
+        width: 100%;
+        margin-top: 18px;
+        box-shadow: 3px 3px 0 #999;
+      }
+      #match-action:active {
+        transform: translate(2px, 2px);
+        box-shadow: 1px 1px 0 #999;
+      }
+      button:focus-visible {
+        outline: 2px dashed #000;
+        outline-offset: 4px;
+      }
+      #sound-toggle {
+        position: fixed;
+        top: calc(12px + env(safe-area-inset-top));
+        left: calc(12px + env(safe-area-inset-left));
+        padding: 0 10px;
+        background: #d4d4d4;
+        color: #000;
+        font-size: 10px;
+        letter-spacing: 1px;
+      }
+      @media (max-width: 600px) {
+        #hud {
+          padding-top: calc(68px + env(safe-area-inset-top));
+        }
+        #banner {
+          padding: 16px;
+        }
+        #banner small {
+          font-size: 12px;
+          letter-spacing: 1px;
+        }
+      }
+      @media (max-height: 500px) {
+        #banner {
+          max-height: calc(100dvh - 30px);
+          width: min(68vw, 480px);
+        }
+        #banner-title {
+          font-size: 28px;
+        }
+        #banner .spin-hint {
+          margin-top: 8px;
+        }
+        #match-action {
+          margin-top: 10px;
+        }
+        #banner-controls small {
+          margin-top: 8px;
+        }
+      }
+      #point-callout {
+        position: fixed;
+        top: 24%;
+        left: 0;
+        right: 0;
+        text-align: center;
+        font-size: 18px;
+        font-weight: 800;
+        letter-spacing: 3px;
         pointer-events: none;
       }
       #banner small {
@@ -298,10 +433,20 @@
         <span id="opp-label">AI</span>
       </div>
       <div id="netinfo"></div>
+      <div id="match-point" role="status"></div>
     </div>
+    <button id="sound-toggle" type="button" aria-pressed="false">SOUND OFF</button>
     <div id="combo"></div>
+    <div id="point-callout" role="status"></div>
+    <div id="shot-callout" role="status"></div>
     <div id="serve-meter"></div>
-    <div id="banner"></div>
+    <div id="banner" aria-labelledby="banner-title">
+      <div id="banner-title"></div>
+      <div id="banner-detail"></div>
+      <div id="banner-controls"></div>
+      <span id="banner-hint" class="spin-hint"></span>
+      <button id="match-action" type="button">SERVE</button>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

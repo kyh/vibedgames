@@ -7,7 +7,9 @@
     "build": "vite build",
     "clean": "rm -rf .turbo dist node_modules",
     "dev": "vite",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "tsx --test tools/arena-smoke.mts && node tools/verify-character-action.mjs && node tools/verify-round-audio.mjs && node tools/verify-pause-input.mjs && node tools/verify-shared-clock.mjs && node tools/verify-scene-cleanup.mjs && node tools/verify-round-adoption.mjs",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@repo/embed": "workspace:*",

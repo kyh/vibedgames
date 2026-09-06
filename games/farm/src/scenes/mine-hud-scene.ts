@@ -12,6 +12,7 @@ import { MAX_ENERGY } from "../config";
 import { hotbarGrid } from "../render/hotbar-layout";
 import { isPick, isTouchDevice } from "../systems/touch";
 import { MineScene } from "./mine-scene";
+import { onSceneExit } from "../render/scene-lifetime";
 
 const FONT = "ui-monospace, monospace";
 // Same slot geometry as the farm hotbar (scenes/hud-scene): it is the same
@@ -70,16 +71,21 @@ export class MineHudScene extends Phaser.Scene {
       render: { depth: 40, blendMode: Phaser.BlendModes.NORMAL },
     });
     this.mine.gamepad = this.gamepad;
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.gamepad?.destroy());
+    const gamepad = this.gamepad;
+    onSceneExit(this, () => {
+      gamepad.destroy();
+      if (this.mine.gamepad === gamepad) this.mine.gamepad = undefined;
+      this.gamepad = undefined;
+    });
     if (this.onResize) this.scale.off("resize", this.onResize);
     this.onResize = () => {
       this.inset = safeAreaInset();
       this.positionVignette();
     };
     this.scale.on("resize", this.onResize);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      if (this.onResize) this.scale.off("resize", this.onResize);
-    });
+    const scale = this.scale;
+    const onResize = this.onResize;
+    onSceneExit(this, () => scale.off("resize", onResize));
   }
 
   private buildVignette(): void {
@@ -161,8 +167,15 @@ export class MineHudScene extends Phaser.Scene {
     g.fillRoundedRect(16 + il, 49 + it, Math.max(2, 150 * enFrac), 8, 3);
     // hint bottom-left — contextual: only while the player is on a ladder tile
     const onLadder = this.mine.onLadder();
-    this.hint.setVisible(onLadder);
-    if (onLadder) {
+    this.hint.setText(
+      this.mine.savePending
+        ? "Save unavailable — retrying…"
+        : isTouchDevice()
+          ? "Tap the ladder to climb"
+          : "Space/E to climb",
+    );
+    this.hint.setVisible(onLadder || this.mine.savePending);
+    if (this.hint.visible) {
       g.fillStyle(0x000000, 0.35);
       g.fillRoundedRect(10 + il, H - 27 - ib, this.hint.width + 16, 18, 6);
       this.hint.setPosition(18 + il, H - 24 - ib);

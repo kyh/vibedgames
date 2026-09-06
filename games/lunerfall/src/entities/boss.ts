@@ -1,6 +1,8 @@
 import Phaser from "phaser";
 
 import { HERO_ORIGIN_Y, interp } from "../config";
+import { showActorPose } from "../data/actor-animation";
+import { BossActing, isBossAction, remoteBlend, type BossAction } from "../data/actor-presentation";
 import { bossKind } from "../data/bosses";
 import { afterImage } from "../sys/fx";
 import type { Grid } from "../sys/grid";
@@ -33,6 +35,8 @@ export class Boss {
   private readonly flareTint: number; // wind-up tint, derived from baseTint
   private trailT = 0; // charge ghost-trail emit clock (sim seconds, not frames)
   private lastStateT = 0; // previous stateT, to measure how far the SIM advanced
+  private readonly acting = new BossActing();
+  private posed = false;
 
   constructor(scene: Phaser.Scene, grid: Grid, x: number, y: number, biome: number) {
     this.body = new BossBody(grid, x, y, biome);
@@ -78,9 +82,29 @@ export class Boss {
     else this.sprite.setTint(this.baseTint).setTintMode(Phaser.TintModes.MULTIPLY);
   }
 
+  action(): BossAction {
+    return { state: this.body.state, elapsed: this.body.stateT };
+  }
+
+  private applyAction(action: BossAction): boolean {
+    const pose = this.acting.pose(action);
+    if (!pose) return false;
+    showActorPose(this.sprite, "salamander", pose);
+    this.posed = true;
+    return true;
+  }
+
+  private playLoop(key: string): void {
+    if (this.posed) {
+      this.sprite.anims.resume();
+      this.posed = false;
+    }
+    if (this.sprite.anims.currentAnim?.key !== key) this.sprite.play(key, true);
+  }
+
   render(alpha = 1) {
     const b = this.body;
-    this.sprite.play(`salamander:${this.clip()}`, true);
+    if (!this.applyAction(this.action())) this.playLoop(`salamander:${this.clip()}`);
     this.sprite.setFlipX(b.facing < 0);
     this.sprite.setPosition(
       Math.round(interp(b.prevX, b.x, alpha)),
@@ -108,13 +132,28 @@ export class Boss {
 
   // Guest: replay the host's clip on this puppet (no local sim/state). Position
   // lerps toward the authoritative point so 30Hz snapshots render smoothly.
-  applyNet(clip: string, x: number, y: number, flip: boolean, flash: boolean, telegraph: boolean) {
-    if (this.sprite.anims.currentAnim?.key !== clip) this.sprite.play(clip, true);
+  applyNet(
+    clip: string,
+    x: number,
+    y: number,
+    flip: boolean,
+    flash: boolean,
+    telegraph: boolean,
+    action?: BossAction,
+    dt = 1 / 60,
+  ) {
+    if (isBossAction(action)) {
+      if (!this.applyAction(action)) this.playLoop(clip);
+    } else {
+      this.acting.reset();
+      this.playLoop(clip);
+    }
     this.sprite.setFlipX(flip);
     const far = Math.hypot(x - this.sprite.x, y - this.sprite.y) > 48;
+    const blend = remoteBlend(dt);
     this.sprite.setPosition(
-      far ? x : this.sprite.x + (x - this.sprite.x) * 0.35,
-      far ? y : this.sprite.y + (y - this.sprite.y) * 0.35,
+      far ? x : this.sprite.x + (x - this.sprite.x) * blend,
+      far ? y : this.sprite.y + (y - this.sprite.y) * blend,
     );
     this.applyTint(flash, telegraph);
   }

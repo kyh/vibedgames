@@ -30,7 +30,12 @@ import { PillarPool } from "./fx-pillar";
 import { VoidPool } from "./fx-void";
 import { RibbonPool } from "./fx-ribbon";
 import { createBrewPoolMaterial, type BrewPoolMaterial } from "./fx-pool";
-import { HDR_BRIGHT, ParticlePools, type SpawnOptions } from "./fx-particles";
+import {
+  HDR_BRIGHT,
+  ParticlePools,
+  type ParticlePriority,
+  type SpawnOptions,
+} from "./fx-particles";
 import { Telegraphs, groundFxColor } from "./telegraph";
 import type { View } from "./view";
 
@@ -150,10 +155,12 @@ function sp(x: number, y: number, z: number): SpawnOptions {
   scratch.stretch = false;
   scratch.bright = 1;
   scratch.alpha = 1;
+  scratch.priority = "impact";
   return scratch;
 }
 
 export class Fx {
+  private disposed = false;
   readonly pools: ParticlePools;
   readonly telegraphs: Telegraphs;
   readonly chunks: ChunkPool;
@@ -355,6 +362,7 @@ export class Fx {
    * would have been without this.
    */
   warm(renderer: THREE.WebGLRenderer, camera: THREE.Camera): void {
+    if (this.disposed) return;
     // Deferred to the first update(), NOT run here. A program's cache key
     // includes the light and shadow setup it was compiled against, so compiling
     // before the caller has finished building its scene produces programs the
@@ -362,6 +370,7 @@ export class Fx {
     // stall this exists to prevent. By the first frame everything is final.
     this.pendingWarm = { renderer, camera };
     void whenFxTexturesReady().then(() => {
+      if (this.disposed) return;
       uploadFxTextures(renderer);
       // Only NOW is a compile worth doing. A material whose map has not decoded
       // yet compiles without USE_MAP, and three throws that program away the
@@ -429,6 +438,7 @@ export class Fx {
   }
 
   update(w: World, dt: number): void {
+    if (this.disposed) return;
     this.flushWarm();
     this.nowMs = w.now;
     const me = w.units.get(this.localId);
@@ -444,7 +454,7 @@ export class Fx {
 
     this.hitsThisFrame = 0;
     this.heavyThisFrame = false;
-    for (const e of w.fx) this.handle(e);
+    for (const e of w.fx) this.handle(e, w);
     w.fx.length = 0;
     // per-frame local-hit accumulation → ONE hard-freeze write (Smash-style table)
     if (this.hitsThisFrame > 0) {
@@ -531,24 +541,35 @@ export class Fx {
     return (x - this.lx) ** 2 + (y - this.ly) ** 2 <= r * r;
   }
 
-  private handle(e: FxEvent): void {
+  private handle(e: FxEvent, w: World): void {
     switch (e.t) {
       case "hit": {
-        const color = e.dtype === "magic" ? 0xc070ff : e.dtype === "pure" ? 0xffffff : 0xffd06a;
+        const attacker = w.units.get(e.by);
+        const palette = attacker ? CHAMP_FX.get(attacker.champId) : undefined;
+        const color =
+          e.dtype === "magic"
+            ? (palette?.primary ?? 0xc070ff)
+            : e.dtype === "pure"
+              ? 0xffffff
+              : 0xffd06a;
         const heavy = e.crit ?? false;
         const mine = e.by !== "" && e.by === this.localId;
         const onMe = e.to === this.localId;
+        const distantBasic = !mine && !onMe && !heavy && !this.within(e.x, e.y, 14);
+        const priority: ParticlePriority = mine || onMe || heavy ? "major" : "impact";
         // de-escalated basics so abilities outrank them (and the slash arc stays
         // readable THROUGH the impact); heavies keep the works
-        this.flash(e.x, 1.1, e.y, 0xffffff, heavy ? 1.2 : 0.55, heavy ? 2.2 : 1.4);
-        this.impactRing(e.x, e.y, color, heavy ? 2.1 : 1.2);
+        if (!distantBasic) {
+          this.flash(e.x, 1.1, e.y, 0xffffff, heavy ? 1.2 : 0.55, heavy ? 2.2 : 1.4, priority);
+          this.impactRing(e.x, e.y, color, heavy ? 2.1 : 1.2);
+        }
         if (heavy)
           this.flare("impact-burst", e.x, 1.15, e.y, 0xfff2d0, 2.0, 0.14, Math.random() * Math.PI);
-        this.sparks(e.x, 1.1, e.y, e.dx, e.dy, heavy ? 20 : 8, color);
-        this.burst(e.x, 1.1, e.y, heavy ? 7 : 4, color, 5, 0.16);
+        this.sparks(e.x, 1.1, e.y, e.dx, e.dy, heavy ? 20 : distantBasic ? 3 : 8, color, priority);
+        if (!distantBasic) this.burst(e.x, 1.1, e.y, heavy ? 7 : 4, color, 5, 0.16, priority);
         if (heavy) {
           this.impactRing(e.x, e.y, 0xffd24a, 2.8); // gold heavy ring
-          this.audio.crit(e.x, e.y);
+          this.audio.crit(e.x, e.y, onMe);
         }
         if (mine) {
           this.view.addTrauma(0.05); // the kick does the work
@@ -561,9 +582,9 @@ export class Fx {
           this.view.addTrauma(heavy ? 0.22 : 0.16);
           this.view.kick(e.dx, e.dy, 0.5); // getting slugged moves your camera
         } else {
-          this.view.addTrauma(0.06 * this.att(e.x, e.y));
+          this.view.addTrauma((distantBasic ? 0.015 : 0.06) * this.att(e.x, e.y));
         }
-        this.audio.hit(e.x, e.y, e.dtype);
+        this.audio.hit(e.x, e.y, e.dtype, onMe);
         this.hitNumber(e.x, e.y, e.amount, e.dx, e.dy, heavy, e.by);
         break;
       }
@@ -652,8 +673,8 @@ export class Fx {
                         ? 0xffb050
                         : 0xffa030;
         const big = e.kind === "meteor";
-        this.flash(e.x, 0.9, e.y, 0xffffff, big ? 2.4 : 1.5, 2.4);
-        this.burst(e.x, 0.8, e.y, big ? 26 : 16, color, big ? 9 : 7, 0.5);
+        this.flash(e.x, 0.9, e.y, 0xffffff, big ? 2.4 : 1.5, 2.4, "major");
+        this.burst(e.x, 0.8, e.y, big ? 26 : 16, color, big ? 9 : 7, 0.5, "major");
         this.shockwave(e.x, e.y, color, e.radius);
         switch (e.kind) {
           case "nova": {
@@ -754,7 +775,7 @@ export class Fx {
             this.beam(e.x, e.y, 0xff8040, 9, 1.2);
             this.debris(e.x, e.y, 6, 0x804030);
             this.chunks.burst(e.x, e.y, 8, 0x5a2a18, 8);
-            this.smoke(e.x, e.y, 8);
+            this.smoke(e.x, e.y, 8, "major");
             this.texDecal("shock-burst", e.x, e.y, {
               size: 3,
               grow: 4.5,
@@ -830,9 +851,9 @@ export class Fx {
         break;
       }
       case "death": {
-        this.flash(e.x, 1.0, e.y, 0xffffff, 1.2, 2.0);
-        this.burst(e.x, 1.0, e.y, 16, 0x99a0b5, 6, 0.6);
-        this.smoke(e.x, e.y, 4);
+        this.flash(e.x, 1.0, e.y, 0xffffff, 1.2, 2.0, "major");
+        this.burst(e.x, 1.0, e.y, 16, 0x99a0b5, 6, 0.6, "major");
+        this.smoke(e.x, e.y, 4, "major");
         if (e.by !== "" && e.by === this.localOwnerId) {
           // YOUR kill — the confirm: freeze → slow-mo tail, gold ring, punch-in
           this.hardFreeze = Math.max(this.hardFreeze, 0.1);
@@ -840,7 +861,7 @@ export class Fx {
           this.view.addTrauma(0.45);
           this.view.punchFov(4.0);
           this.shockwave(e.x, e.y, 0xffd24a, 3.5);
-          this.flash(e.x, 1.2, e.y, 0xffffff, 1.8, 2.6);
+          this.flash(e.x, 1.2, e.y, 0xffffff, 1.8, 2.6, "major");
           this.audio.killConfirm();
         } else if (e.team === this.localTeam && this.localTeam !== "") {
           // your death — a long exhale
@@ -932,7 +953,6 @@ export class Fx {
       case "notify":
         if (e.kind === "matchend") {
           this.slowMo = Math.max(this.slowMo, 1.2); // match-end slow-mo beat
-          this.audio.victory();
         } else {
           this.toasts.push({ text: e.text, kind: e.kind });
           if (e.kind === "delivery") this.audio.delivery();
@@ -1498,6 +1518,7 @@ export class Fx {
           o.size = 0.32;
           o.life = 0.3;
           o.stretch = true;
+          o.priority = "ambient";
           this.pools.spawn("add", o);
         }
         break;
@@ -1514,6 +1535,7 @@ export class Fx {
             o.size = 0.3;
             o.life = 0.35;
             o.stretch = true;
+            o.priority = "ambient";
             this.pools.spawn("add", o);
           }
         }
@@ -1563,6 +1585,7 @@ export class Fx {
           o.color = 0xff5a2c;
           o.size = 0.24;
           o.life = 0.5;
+          o.priority = "ambient";
           this.pools.spawn("add", o);
         }
         break;
@@ -1623,6 +1646,7 @@ export class Fx {
           o.gravity = 1;
           o.drag = 1.2;
           o.alpha = 0.8;
+          o.priority = "ambient";
           this.pools.spawn("normal", o);
         }
         break;
@@ -1641,6 +1665,7 @@ export class Fx {
           o.size = 0.28;
           o.life = 0.5;
           o.stretch = true;
+          o.priority = "ambient";
           this.pools.spawn("add", o);
         }
         for (let i = 0; i < 2; i++) {
@@ -1653,6 +1678,7 @@ export class Fx {
           o.size = 0.24;
           o.life = 0.55;
           o.stretch = true;
+          o.priority = "ambient";
           this.pools.spawn("add", o);
         }
         break;
@@ -1670,6 +1696,7 @@ export class Fx {
           o.color = groundFxColor(g.effect);
           o.size = 0.22;
           o.life = 0.5;
+          o.priority = "ambient";
           this.pools.spawn("add", o);
         }
         break;
@@ -1703,6 +1730,7 @@ export class Fx {
     o.color = color;
     o.size = 0.24;
     o.life = 0.4;
+    o.priority = "ambient";
     this.pools.spawn("add", o);
   }
 
@@ -1750,6 +1778,7 @@ export class Fx {
     color: number,
     speed: number,
     life: number,
+    priority: ParticlePriority = "impact",
   ): void {
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2;
@@ -1764,12 +1793,22 @@ export class Fx {
       o.size = 0.5 + Math.random() * 0.7;
       o.stretch = true;
       o.color = color;
+      o.priority = priority;
       this.pools.spawn("add", o);
     }
   }
 
   /** Directional hit sparks — a cone along (dx,dz), stretched, additive. */
-  sparks(x: number, y: number, z: number, dx: number, dz: number, n: number, color: number): void {
+  sparks(
+    x: number,
+    y: number,
+    z: number,
+    dx: number,
+    dz: number,
+    n: number,
+    color: number,
+    priority: ParticlePriority = "impact",
+  ): void {
     const base = Math.atan2(dz, dx);
     for (let i = 0; i < n; i++) {
       const a = base + (Math.random() - 0.5) * 1.1;
@@ -1784,12 +1823,13 @@ export class Fx {
       o.size = 0.35 + Math.random() * 0.4;
       o.stretch = true;
       o.color = color;
+      o.priority = priority;
       this.pools.spawn("add", o);
     }
   }
 
   /** Rising smoke — NORMAL blend, outlives the fire. (x,z) in sim coords. */
-  smoke(x: number, z: number, n: number): void {
+  smoke(x: number, z: number, n: number, priority: ParticlePriority = "impact"): void {
     for (let i = 0; i < n; i++) {
       const g = 0.18 + Math.random() * 0.1;
       const a = Math.random() * Math.PI * 2;
@@ -1804,6 +1844,7 @@ export class Fx {
       o.cr = g;
       o.cg = g;
       o.cb = g;
+      o.priority = priority;
       this.pools.spawn("normal", o);
     }
   }
@@ -1824,6 +1865,7 @@ export class Fx {
       o.cr = g;
       o.cg = g * 0.95;
       o.cb = g * 0.85;
+      o.priority = "ambient";
       this.pools.spawn("normal", o);
     }
   }
@@ -1854,6 +1896,7 @@ export class Fx {
     o.life = 0.22;
     o.size = 0.45;
     o.color = color;
+    o.priority = "ambient";
     this.pools.spawn("add", o);
   }
 
@@ -1863,6 +1906,7 @@ export class Fx {
     o.life = 0.25;
     o.size = size;
     o.color = color;
+    o.priority = "ambient";
     this.pools.spawn("add", o);
   }
 
@@ -1881,6 +1925,7 @@ export class Fx {
     o.life = life;
     o.size = size;
     o.color = color;
+    o.priority = "ambient";
     this.pools.spawn("add", o);
   }
 
@@ -1897,16 +1942,26 @@ export class Fx {
     o.cg = g;
     o.cb = g;
     o.alpha = 0.7;
+    o.priority = "ambient";
     this.pools.spawn("normal", o);
   }
 
   /** Quick additive flash — pops big then fades. `bright` >1 blooms. */
-  flash(x: number, y: number, z: number, color: number, size: number, bright = 1): void {
+  flash(
+    x: number,
+    y: number,
+    z: number,
+    color: number,
+    size: number,
+    bright = 1,
+    priority: ParticlePriority = "impact",
+  ): void {
     const o = sp(x, y, z);
     o.life = 0.12;
     o.size = size;
     o.color = color;
     o.bright = bright > 1 ? HDR_BRIGHT : 1;
+    o.priority = priority;
     this.pools.spawn("add", o);
   }
 
@@ -2696,7 +2751,57 @@ export class Fx {
     this.numbers.clear();
   }
 
+  /** An accepted rematch owns a fresh presentation clock, while the loaded
+   * materials, fixed pools and audio context remain reusable. */
+  resetMatch(): void {
+    if (this.disposed) return;
+    this.delayed.length = 0;
+    this.feed.length = this.toasts.length = this.localHits.length = 0;
+    this.zoneAnim.clear();
+    this.clock = this.nowMs = this.zoneSweepAt = 0;
+    this.hardFreeze = this.slowMo = 0;
+    this.bestStreak = this.hitsThisFrame = 0;
+    this.heavyThisFrame = false;
+    this.lastDeath = null;
+    this.numbers.clear();
+    this.pools.clear();
+    this.chunks.clear();
+    this.spikes.clear();
+    this.bolts.clear();
+    this.telegraphs.clear();
+    for (const effect of [...this.rings, ...this.beams, ...this.domes, ...this.cracks]) {
+      effect.life = 0;
+      effect.mesh.visible = false;
+    }
+    for (const effect of [...this.cones, ...this.slashes]) {
+      effect.life = 0;
+      effect.pivot.visible = false;
+    }
+    for (const flare of this.flares) {
+      flare.life = 0;
+      flare.sprite.visible = false;
+    }
+    for (const actor of this.texActors) actor.life = 0;
+    this.stepTexActors(0);
+    for (const piece of this.zonePieces.values()) {
+      this.scene.remove(piece.obj);
+      piece.ownMat?.dispose();
+    }
+    this.zonePieces.clear();
+    this.view.resetImpulses();
+  }
+
   dispose(): void {
+    if (this.disposed) return;
+    this.resetMatch();
+    this.disposed = true;
+    this.audio.dispose();
+    this.pendingWarm = null;
+    this.delayed.length = 0;
+    this.feed.length = 0;
+    this.toasts.length = 0;
+    this.localHits.length = 0;
+    this.zoneAnim.clear();
     this.numbers.dispose();
     this.pools.dispose();
     this.chunks.dispose();
@@ -2727,6 +2832,11 @@ export class Fx {
       this.scene.remove(c.mesh);
       c.mat.dispose();
     }
+    for (const flare of this.flares) {
+      this.scene.remove(flare.sprite);
+      flare.mat.dispose();
+    }
+    this.flares.length = 0;
     this.spikes.dispose();
     this.bolts.dispose();
     this.pillars.dispose();
@@ -2749,5 +2859,7 @@ export class Fx {
     this.vortexGeo.dispose();
     this.cometGeo.dispose();
     this.rockMat.dispose();
+    this.texQuad.dispose();
+    this.texSphere.dispose();
   }
 }

@@ -178,6 +178,7 @@ function buildGroundDisc(): THREE.Mesh {
 }
 
 export class View {
+  private readonly reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null;
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
@@ -206,7 +207,7 @@ export class View {
   private readonly introLook = new THREE.Vector3(0, 2, 0);
   private readonly introScratch = new THREE.Vector3();
   readonly throneAura: THREE.Mesh;
-  private throneColumn: THREE.Mesh | null = null;
+  private throneColumn: THREE.Mesh<THREE.CylinderGeometry, THREE.MeshBasicMaterial> | null = null;
   /** TRAILER-ONLY bloom scale, read only by cinematic(). 1 = the game's bloom. */
   bloomScale = 1;
   // post-processing
@@ -459,6 +460,8 @@ export class View {
     dt: number,
     groundY = 0,
   ): void {
+    const reduced = this.reducedMotion?.matches ?? false;
+    if (reduced) this.resetImpulses();
     // 1:1 mouse-look: snap heading/pitch straight to the input — NO rotational
     // smoothing. Only the follow *focus* eases, so walking is steady but turning
     // is instant (rotation is computed from the snapped yaw, not an eased pos).
@@ -549,9 +552,12 @@ export class View {
       const t = Math.min(1, this.introT / INTRO_S);
       const k = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
       if (this.introT >= INTRO_S) this.introT = -1;
-      this.camera.position.lerpVectors(this.introPos, this.camera.position, k);
-      this.introScratch.lerpVectors(this.introLook, this.look, k);
-      this.camera.lookAt(this.introScratch);
+      if (reduced) this.camera.lookAt(this.look);
+      else {
+        this.camera.position.lerpVectors(this.introPos, this.camera.position, k);
+        this.introScratch.lerpVectors(this.introLook, this.look, k);
+        this.camera.lookAt(this.introScratch);
+      }
     } else {
       this.camera.lookAt(this.look);
     }
@@ -566,6 +572,7 @@ export class View {
    *  punch, screen flash/vignette — the same per-frame decay block follow()
    *  runs. Gameplay never calls this; follow() remains the one gameplay path. */
   cinematic(pos: THREE.Vector3, look: THREE.Vector3, dt: number, fovBase = CAM.fov): void {
+    if (this.reducedMotion?.matches) this.resetImpulses();
     this.shake = Math.max(0, this.shake - dt * 1.6);
     this.shakeT += dt * 31;
     // Bloom is the other half of a flash blowout: it smears the clipped core out
@@ -614,12 +621,14 @@ export class View {
   /** Punch the FOV in by `deg` degrees (kill 4.0 / heavy hit 1.8 / your R 2.2).
    *  Decays ×(1−7dt) — a distinct "impact zoom" channel on top of the shake. */
   punchFov(deg: number): void {
+    if (this.reducedMotion?.matches) return;
     this.fovPunch = Math.max(this.fovPunch, deg);
   }
 
   /** Full-screen beat: whiten `flash` (0..~0.25) and/or squeeze the vignette
    *  by `vignette` — the big-ult "the screen itself reacts" channel. */
   screenPulse(flash: number, vignette = 0): void {
+    if (this.reducedMotion?.matches) return;
     this.flashAmt = Math.max(this.flashAmt, flash);
     this.vigPunch = Math.max(this.vigPunch, vignette);
   }
@@ -658,27 +667,42 @@ export class View {
   }
 
   addTrauma(amount: number): void {
+    if (this.reducedMotion?.matches) return;
     this.shake = Math.min(1, this.shake + amount);
   }
 
   /** Directional camera punch toward an impact (dx,dy = sim-plane hit dir). Snaps
    *  the camera a hair toward the hit, then springs back — weight on YOUR blows. */
   kick(dx: number, dy: number, amount: number): void {
+    if (this.reducedMotion?.matches) return;
     const n = Math.hypot(dx, dy) || 1;
     this.kickVec.set((dx / n) * amount, 0, (dy / n) * amount);
+  }
+
+  /** Rematch/preference boundary: clear decorative impulses without moving the
+   * chase camera, changing aim or restarting the intro's control deadline. */
+  resetImpulses(): void {
+    this.shake = this.shakeT = this.fovPunch = this.flashAmt = this.vigPunch = 0;
+    this.shakeOff.set(0, 0, 0);
+    this.kickVec.set(0, 0, 0);
+    if (this.bloom) this.bloom.strength = 0.6;
+    const flash = this.grade?.uniforms["uFlash"];
+    const vignette = this.grade?.uniforms["uVignette"];
+    if (flash) flash.value = 0;
+    if (vignette) vignette.value = 0.18;
   }
 
   /** Pulse the throne aura + glow column. */
   tickAura(t: number): void {
     // SAFETY: buildArena creates the aura mesh with a MeshBasicMaterial.
     const m = this.throneAura.material as THREE.MeshBasicMaterial;
-    m.opacity = 0.35 + Math.sin(t * 2) * 0.15;
+    m.opacity = this.reducedMotion?.matches ? 0.35 : 0.35 + Math.sin(t * 2) * 0.15;
     if (this.throneColumn) {
       // faint breathing beacon — against the dark two-story backdrop anything
       // past ~0.05 reads as a giant ghost column over the throne
-      // SAFETY: the column mesh is created above with a MeshBasicMaterial.
-      (this.throneColumn.material as THREE.MeshBasicMaterial).opacity =
-        0.022 + Math.abs(Math.sin(t * 1.5)) * 0.022;
+      this.throneColumn.material.opacity = this.reducedMotion?.matches
+        ? 0.033
+        : 0.022 + Math.abs(Math.sin(t * 1.5)) * 0.022;
     }
   }
 
@@ -729,7 +753,7 @@ export class View {
     this.dtAvg = this.dtAvg * 0.95 + Math.min(frameDt, 0.1) * 0.05;
     if (1 / this.dtAvg < 50 && this.prStep < 2) {
       this.prStep++;
-      this.applyPixelRatio(this.prStep === 1 ? Math.min(1.5, this.prNow) : 1.25);
+      this.applyPixelRatio(Math.min(this.prStep === 1 ? 1.5 : 1.25, this.prNow));
     }
   }
 

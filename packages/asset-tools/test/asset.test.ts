@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { globSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { globSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { test } from "node:test";
@@ -610,18 +610,23 @@ test("cellSizeOf falls back rather than producing NaN", () => {
  * format-checked clean — the bundle is a plain `.mjs` those tools do not follow
  * into. Only running the file finds it, so run every one.
  */
-test("every skill script loads and reports a usage error, not a crash", () => {
+test("every skill script loads and reports a usage error, not a crash", (t) => {
   const repoRoot = join(import.meta.dirname, "..", "..", "..");
   const scripts = globSync("plugins/*/skills/*/scripts/*.mjs", { cwd: repoRoot })
     .filter((rel) => !rel.includes("/_lib/"))
     .map((rel) => join(repoRoot, rel));
   assert.ok(scripts.length >= 20, `expected the skill scripts, found ${scripts.length}`);
 
+  // Some bare commands inspect cwd. Keep this import/usage check independent
+  // of unrelated files in the machine's shared temporary directory.
+  const cwd = workspace();
+  t.after(() => rmSync(cwd, { recursive: true, force: true }));
+
   const offenders: string[] = [];
   for (const path of scripts) {
     const run = spawnSync(process.execPath, [path], {
       encoding: "utf8",
-      cwd: tmpdir(),
+      cwd,
       timeout: 30_000,
     });
     const output = `${run.stdout ?? ""}${run.stderr ?? ""}`;

@@ -18,6 +18,7 @@ import { applyDissolve, type DissolveHandle } from "./dissolve";
 import { StatusFx } from "./status-fx";
 import { groundFxColor } from "./telegraph";
 import { LOCAL_COLOR, teamColor } from "./palette";
+import { AnimationEvents, animationWindow } from "./animation-events";
 
 // Clip choices + strike timing live in data/clip-timing.ts (ABILITY_CLIPS /
 // ATTACK_SETS / clipSpeed) — ONE table shared with the sim, so the damage tick
@@ -63,8 +64,6 @@ const SPIN_LOOP_CLIP = "Melee_2H_Attack_Spinning"; // whirlwind ult — a loopin
 function clipWindowMs(durSec: number, speed = 1): number {
   return Math.min(ONE_SHOT_CAP_MS, Math.max(ONE_SHOT_MIN_MS, (durSec / speed) * 1000));
 }
-const ATTACK_RECENCY_MS = 340; // an attack event older than this is stale — skip
-const CAST_ANIM_MS = 520; // recency window for detecting a fresh cast event
 const HIT_ANIM_MS = 300; // flinch beat — Hit_A/B are SPED to fit (never cut)
 // Jump animation is a 3-phase state machine: takeoff → airborne float → land.
 const JUMP_START_CLIP = "Jump_Start";
@@ -212,6 +211,7 @@ function castClip(def: ViewDef): string {
 
 class UnitView {
   readonly group = new THREE.Group();
+  private pose = new THREE.Group();
   private char: AnimatedCharacter;
   private ring: THREE.Mesh;
   private ringMat: THREE.MeshBasicMaterial;
@@ -223,8 +223,7 @@ class UnitView {
   private wasAlive = true;
   private yaw = 0;
   private groundY = 0; // smoothed ground under the feet (see update)
-  private lastAttackShown = -1;
-  private lastCastShown = -1;
+  private actionEvents = new AnimationEvents();
   private lastHitShown = -1;
   private lastFlinchAt = -1;
   private jumpPhase = ""; // "" | "start" | "idle" | "land" — 3-phase hop state
@@ -262,12 +261,14 @@ class UnitView {
     private color: number,
     private isLocal: boolean,
     private isCreep: boolean,
+    private identity: { champId: string; team: string },
   ) {
     this.def = def;
     this.baseScale = def.scale ?? 1;
     this.char = new AnimatedCharacter(lib, def.model, def.rig === "large" ? "Large/" : "");
     this.char.root.scale.setScalar(this.baseScale);
-    this.group.add(this.char.root);
+    this.group.add(this.pose);
+    this.pose.add(this.char.root);
 
     // clone materials per-instance so hit-flash / stealth / team-tint don't
     // bleed across units that share a model (SkeletonUtils.clone shares mats).
@@ -373,6 +374,14 @@ class UnitView {
     this.spawnClipPending = true; // heroes drop in (Spawn_Air); skeletons awaken from the floor
   }
 
+  matches(u: Unit, isLocal: boolean): boolean {
+    return (
+      this.identity.champId === u.champId &&
+      this.identity.team === u.team &&
+      this.isLocal === isLocal
+    );
+  }
+
   update(u: Unit, now: number, dt: number, fx: Fx | null, spinning: boolean): void {
     // smooth toward the sim position; snap on first appearance, respawn, or a
     // big jump (blink/teleport) so the character doesn't slide across the map.
@@ -386,6 +395,8 @@ class UnitView {
         : 0;
     const groundY = terrainHeight(u.x, u.y);
     if (!this.placed || respawned || jumped) {
+      this.recoilX = this.recoilZ = 0;
+      this.pose.position.set(0, 0, 0);
       this.groundY = groundY;
       this.group.position.set(u.x, groundY + hopY, u.y);
       this.yaw = Math.atan2(u.aimX, u.aimY) + MODEL_YAW;
@@ -404,8 +415,6 @@ class UnitView {
     // springs back while the shadow stays planted (physical "enemy reaction")
     this.recoilX *= Math.max(0, 1 - dt * 9);
     this.recoilZ *= Math.max(0, 1 - dt * 9);
-    this.group.position.x += this.recoilX;
-    this.group.position.z += this.recoilZ;
     // blob contact-shadow rides the terrain (never the hop), shrinking as the
     // unit rises so it reads as a cast shadow
     this.blob.position.set(u.x, this.groundY + 0.08, u.y); // clear the 0.05 tile tops
@@ -417,9 +426,19 @@ class UnitView {
     const d = Math.atan2(Math.sin(targetYaw - this.yaw), Math.cos(targetYaw - this.yaw));
     this.yaw += d * Math.min(1, 16 * dt);
     this.group.rotation.y = this.yaw;
+    // Recoil is a world-plane vector; the pose sits inside the yawed root.
+    const c = Math.cos(this.yaw);
+    const s = Math.sin(this.yaw);
+    this.pose.position.set(
+      c * this.recoilX - s * this.recoilZ,
+      0,
+      s * this.recoilX + c * this.recoilZ,
+    );
     this.wasAlive = u.alive;
 
     if (!u.alive) {
+      this.recoilX = this.recoilZ = 0;
+      this.pose.position.set(0, 0, 0);
       if (this.hexShown) this.setHex(false);
       if (!this.deadShown) {
         this.char.play("Death_A", { fade: 0.12, loop: false, clamp: true });
@@ -498,60 +517,59 @@ class UnitView {
 
     // one-shots are triggered ON THE EVENT (delta), never per-frame — otherwise
     // play() would reset the clip to frame 0 every frame and freeze it.
-    if (u.lastCastAt !== this.lastCastShown) {
-      this.lastCastShown = u.lastCastAt;
-      if (now - u.lastCastAt < CAST_ANIM_MS) {
-        const clip =
-          (u.lastCastKey ? ABILITY_CLIPS.get(this.def.id)?.[u.lastCastKey] : undefined) ??
-          castClip(this.def);
-        // The whirlwind's clip is a LOOP (the `spinning` branch drives it) — don't
-        // fire it as a one-shot here or it plays once and freezes.
-        if (clip !== SPIN_LOOP_CLIP) {
-          const ts = clipSpeed(clip); // shared table — the sim's strike waits for this exact contact frame
-          const winMs = clipWindowMs(ch.clipDuration(clip), ts);
-          ch.play(clip, { loop: false, fade: 0.06, timeScale: ts });
-          this.oneShotUntil = now + winMs;
-          this.emitTrails(winMs); // weapon-trail ribbon on the ability swing
+    const action = this.actionEvents.observe(u, now);
+    if (action?.kind === "cast") {
+      const clip =
+        (u.lastCastKey ? ABILITY_CLIPS.get(this.def.id)?.[u.lastCastKey] : undefined) ??
+        castClip(this.def);
+      // The whirlwind's clip is a LOOP (the `spinning` branch drives it) — don't
+      // fire it as a one-shot here or it plays once and freezes.
+      if (clip !== SPIN_LOOP_CLIP) {
+        const ts = clipSpeed(clip); // shared table — the sim's strike waits for this exact contact frame
+        const window = animationWindow(ch.clipDuration(clip), ts, action);
+        if (window.remaining > 0) {
+          ch.play(clip, { loop: false, fade: 0.06, timeScale: ts, offset: window.offset });
+          this.oneShotUntil = window.until;
+          this.emitTrails(window.remaining); // only the accepted swing's remaining ribbon
         }
       }
-    } else if (u.lastAttackAt !== this.lastAttackShown) {
-      this.lastAttackShown = u.lastAttackAt;
-      if (now - u.lastAttackAt < ATTACK_RECENCY_MS) {
-        // pick by the SYNCED swing counter so the clip matches the sim rhythm
-        // (the slow swing that hits harder plays its heavy clip). Same
-        // swingClip() call the sim used to schedule this swing's damage.
-        const clip = swingClip(this.def.id, u.swingCount);
-        const clipDur = ch.clipDuration(clip);
-        // NO SWING EVER CLIPS: speed each swing just enough that the WHOLE clip
-        // plays within its actual interval (base rate × this swing's rhythm
-        // timeMult — so a slowed swing like Vesper's plays at natural speed, and
-        // a fast one is sped to fit). Mirrors sim/combat.ts strikeMs(): using
-        // the status-folded attack speed keeps the contact frame aligned even
-        // under Hunter's-Focus-style haste.
-        const rhythm = CHAMP_BY_ID[this.def.id]?.basicRhythm;
-        const swing = Math.max(0, u.swingCount - 1);
-        const timeMult =
-          rhythm && rhythm.length ? (rhythm[swing % rhythm.length]?.timeMult ?? 1) : 1;
-        const intervalMs = (timeMult * 1000) / Math.max(0.1, effectiveAttackSpeed(u));
-        const ts =
-          clipDur > 0 ? Math.max(clipSpeed(clip), (clipDur * 1000) / intervalMs) : clipSpeed(clip);
-        const winMs = clipWindowMs(clipDur, ts);
-        ch.play(clip, { loop: false, fade: 0.04, timeScale: ts });
-        this.oneShotUntil = now + winMs;
-        this.emitTrails(winMs); // weapon-trail ribbon traces the blade
+    } else if (action?.kind === "attack") {
+      // pick by the SYNCED swing counter so the clip matches the sim rhythm
+      // (the slow swing that hits harder plays its heavy clip). Same
+      // swingClip() call the sim used to schedule this swing's damage.
+      const clip = swingClip(this.def.id, u.swingCount);
+      const clipDur = ch.clipDuration(clip);
+      // NO SWING EVER CLIPS: speed each swing just enough that the WHOLE clip
+      // plays within its actual interval (base rate × this swing's rhythm
+      // timeMult — so a slowed swing like Vesper's plays at natural speed, and
+      // a fast one is sped to fit). Mirrors sim/combat.ts strikeMs(): using
+      // the status-folded attack speed keeps the contact frame aligned even
+      // under Hunter's-Focus-style haste.
+      const rhythm = CHAMP_BY_ID[this.def.id]?.basicRhythm;
+      const swing = Math.max(0, u.swingCount - 1);
+      const timeMult = rhythm && rhythm.length ? (rhythm[swing % rhythm.length]?.timeMult ?? 1) : 1;
+      const intervalMs = (timeMult * 1000) / Math.max(0.1, effectiveAttackSpeed(u));
+      const ts =
+        clipDur > 0 ? Math.max(clipSpeed(clip), (clipDur * 1000) / intervalMs) : clipSpeed(clip);
+      const window = animationWindow(clipDur, ts, action);
+      if (window.remaining > 0) {
+        ch.play(clip, { loop: false, fade: 0.04, timeScale: ts, offset: window.offset });
+        this.oneShotUntil = window.until;
+        this.emitTrails(window.remaining); // weapon-trail ribbon traces the blade
         fx?.attackSound(this.def.id, u.x, u.y);
-        // (the slash VFX is the shader ribbon in weapon-trail.ts — it traces
-        // the real animated blade across the WHOLE swing; no billboard stamp)
       }
+      // (the slash VFX is the shader ribbon in weapon-trail.ts — it traces
+      // the real animated blade across the WHOLE swing; no billboard stamp)
     }
     // get-hit flinch — when freshly damaged and not mid-swing/cast (throttled so
     // a flurry of hits doesn't lock the character in permanent flinch)
     if (u.lastHitAt !== this.lastHitShown) {
       this.lastHitShown = u.lastHitAt;
       // knockback lurch on every fresh hit (even when the flinch anim is throttled)
-      if (u.alive && now - u.lastHitAt < 180) {
-        this.recoilX = u.lastHitDx * 0.34;
-        this.recoilZ = u.lastHitDy * 0.34;
+      if (u.alive && !respawned && !jumped && now - u.lastHitAt < 180) {
+        const magnitude = Math.max(1, Math.hypot(u.lastHitDx, u.lastHitDy));
+        this.recoilX = (u.lastHitDx / magnitude) * 0.34;
+        this.recoilZ = (u.lastHitDy / magnitude) * 0.34;
       }
       if (
         !spinning &&
@@ -720,7 +738,7 @@ class UnitView {
       const pivot = new THREE.Group();
       pivot.add(inst);
       pivot.scale.setScalar(this.mushScale);
-      this.group.add(pivot);
+      this.pose.add(pivot);
       this.mushroom = pivot;
     }
     if (this.mushroom) this.mushroom.visible = on;
@@ -834,6 +852,7 @@ export class WorldView {
   private propSpecs = destructibleProps(); // slot-indexed placement lookup
   private projectiles = new Map<string, THREE.Object3D>();
   private coins = new Map<string, THREE.Object3D>();
+  private ownedCoins = new Set<THREE.Mesh>();
   private deliveries = new Map<string, THREE.Group>();
   private boss: AnimatedCharacter | null = null;
   private seenCoins = new Set<string>();
@@ -868,6 +887,33 @@ export class WorldView {
     this.boss.play("Idle_B", { fade: 0 });
   }
 
+  /** Explicit match replacement reuses this view. Retained IDs cannot inherit
+   * old character poses, pickup flights or decoration emission clocks. */
+  resetCharacters(): void {
+    for (const view of this.units.values()) view.dispose(this.scene);
+    this.units.clear();
+    for (const prop of this.props.values()) prop.dispose(this.scene);
+    this.props.clear();
+    // Projectile geometry and materials are shared caches, not per-shot owns.
+    for (const projectile of this.projectiles.values()) this.scene.remove(projectile);
+    this.projectiles.clear();
+    for (const coin of this.coins.values()) this.removeCoin(coin);
+    this.coins.clear();
+    for (const delivery of this.deliveries.values()) this.removeDelivery(delivery);
+    this.deliveries.clear();
+    this.seenCoins.clear();
+    this.flyingCoins.clear();
+    this.coinTrailAt.clear();
+    this.coinSparkleAt.clear();
+    this.deliveryEmitAt.clear();
+    this.emberNext.clear();
+    this.spinners.clear();
+    this.fireballFlip = false;
+    this.bossReturnAt = 0;
+    this.bossNextTaunt = 6000;
+    this.boss?.play("Idle_B", { fade: 0 });
+  }
+
   sync(w: World, dt: number): void {
     const now = w.now;
 
@@ -895,19 +941,22 @@ export class WorldView {
       if (u.kind !== "hero" && u.kind !== "creep") continue;
       seen.add(u.id);
       let view = this.units.get(u.id);
+      const isLocal = u.kind === "hero" && u.id === this.localId;
+      if (view && !view.matches(u, isLocal)) {
+        view.dispose(this.scene);
+        this.units.delete(u.id);
+        this.emberNext.delete(u.id);
+        view = undefined;
+      }
       if (!view) {
         const isCreep = u.kind === "creep";
         const def =
           (isCreep ? CREEP_VIEW.get(u.champId) : CHAMP_BY_ID[u.champId]) ?? CHAMP_BY_ID["knight"]!;
         const color = isCreep ? 0x9aa3b5 : teamColor(u.team);
-        view = new UnitView(
-          this.scene,
-          this.lib,
-          def,
-          color,
-          !isCreep && u.id === this.localId,
-          isCreep,
-        );
+        view = new UnitView(this.scene, this.lib, def, color, isLocal, isCreep, {
+          champId: u.champId,
+          team: u.team,
+        });
         this.units.set(u.id, view);
         this.scene.add(view.group);
       }
@@ -1034,6 +1083,7 @@ export class WorldView {
               }),
             );
         this.coins.set(c.id, mesh);
+        if (!c.loot && mesh instanceof THREE.Mesh) this.ownedCoins.add(mesh);
         this.scene.add(mesh);
       }
       // parabolic arc while flying, then bob+spin on the ground
@@ -1086,7 +1136,7 @@ export class WorldView {
     }
     for (const [id, mesh] of this.coins) {
       if (!seen.has(id)) {
-        this.scene.remove(mesh);
+        this.removeCoin(mesh);
         this.coins.delete(id);
         this.seenCoins.delete(id);
         this.flyingCoins.delete(id);
@@ -1154,10 +1204,29 @@ export class WorldView {
     }
     for (const [id, group] of this.deliveries) {
       if (!seen.has(id)) {
-        this.scene.remove(group);
+        this.removeDelivery(group);
         this.deliveries.delete(id);
         this.deliveryEmitAt.delete(id);
       }
+    }
+  }
+
+  private removeCoin(object: THREE.Object3D): void {
+    this.scene.remove(object);
+    // Loot pieces use library geometry/materials. Only the procedural gold
+    // cylinder owns resources here, and each removal releases them once.
+    if (object instanceof THREE.Mesh && this.ownedCoins.delete(object)) {
+      object.geometry.dispose();
+      disposeMat(object.material);
+    }
+  }
+
+  private removeDelivery(group: THREE.Group): void {
+    this.scene.remove(group);
+    for (const child of group.children) {
+      if (!(child instanceof THREE.Mesh)) continue;
+      child.geometry.dispose();
+      disposeMat(child.material);
     }
   }
 

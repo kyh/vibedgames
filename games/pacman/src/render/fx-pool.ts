@@ -54,6 +54,8 @@ type Confetti = Span & {
 type Ring = { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; bornAt: number; r1: number };
 
 export type BurstOpts = {
+  /** Optional ground-plane direction; dust fans away from a contacted wall. */
+  direction?: { x: number; z: number };
   speed?: number;
   lift?: number;
   lifeMin?: number;
@@ -108,6 +110,11 @@ export class FxPool {
     for (let i = 0; i < count; i++) {
       if (this.puffs.length >= MAX_PUFFS) this.puffs.shift();
       const dir = randomUnit();
+      if (opts.direction) {
+        dir.x = dir.x * 0.45 + opts.direction.x;
+        dir.z = dir.z * 0.45 + opts.direction.z;
+        dir.normalize();
+      }
       const v = speed * (0.5 + Math.random() * 0.5);
       this.puffs.push({
         px: at.x,

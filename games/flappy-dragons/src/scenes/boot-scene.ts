@@ -61,13 +61,29 @@ export class BootScene extends Phaser.Scene {
     this.scene.start("Game");
   }
 
-  /** Soft round particle for score puffs (concentric falloff). */
+  /** Small pixel shapes layered over the retained game art. */
   private makeUtilTextures(): void {
     const g = this.add.graphics();
-    for (let i = 6; i >= 1; i--) {
-      g.fillStyle(0xffffff, 0.18).fillCircle(16, 16, (i / 6) * 14);
-    }
-    g.generateTexture("spark", 32, 32);
+    // Crisp stepped silhouettes match the existing 16px-grid art.
+    g.fillStyle(0xffffff).fillRect(2, 0, 4, 8).fillRect(0, 2, 8, 4);
+    g.generateTexture("flight-puff", 8, 8);
+    g.clear().fillStyle(0xffffff).fillRect(4, 0, 2, 10).fillRect(0, 4, 10, 2);
+    g.generateTexture("flight-glint", 10, 10);
+    g.clear().fillStyle(0xffffff).fillRect(2, 0, 4, 2).fillRect(0, 2, 6, 4).fillRect(0, 6, 4, 2);
+    g.generateTexture("flight-leaf", 6, 8);
+    g.clear().lineStyle(2, 0xffffff);
+    g.beginPath()
+      .moveTo(10, 2)
+      .lineTo(22, 2)
+      .lineTo(30, 10)
+      .lineTo(30, 22)
+      .lineTo(22, 30)
+      .lineTo(10, 30)
+      .lineTo(2, 22)
+      .lineTo(2, 10)
+      .closePath()
+      .strokePath();
+    g.generateTexture("flight-ring", 32, 32);
     g.destroy();
   }
 }

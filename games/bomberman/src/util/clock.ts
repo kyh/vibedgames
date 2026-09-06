@@ -12,24 +12,54 @@
 // reads `now()` — net heartbeats, connection deadlines and logging stay on real
 // `Date.now()`, because pausing them would break reconnection.
 
-let pausedTotal = 0; // total ms elapsed while paused, accumulated across pauses
-let pausedAt = 0; // real timestamp the current pause began; 0 when not paused
+export type ClockStamp = { kind: "running"; offset: number } | { kind: "paused"; now: number };
+type ClockWire = string | number | boolean | null | ClockWire[] | { [key: string]: ClockWire };
+
+let clock: ClockStamp = { kind: "running", offset: 0 };
+
+const isRecord = (value: ClockWire | undefined): value is { [key: string]: ClockWire } =>
+  Object.prototype.toString.call(value) === "[object Object]";
+const isFiniteNumber = (value: ClockWire | undefined): value is number => Number.isFinite(value);
+
+/** Optional only at the legacy wire boundary. A frozen timestamp carries an
+ * unfinished pause through host loss; an offset alone cannot represent it. */
+export function readClock(value: ClockWire | undefined): ClockStamp {
+  if (isRecord(value)) {
+    if (value["kind"] === "running" && isFiniteNumber(value["offset"]))
+      return { kind: "running", offset: value["offset"] };
+    if (value["kind"] === "paused" && isFiniteNumber(value["now"]))
+      return { kind: "paused", now: value["now"] };
+  }
+  return { kind: "running", offset: 0 };
+}
+
+export function clockStamp(): ClockStamp {
+  return { ...clock };
+}
+
+export function adoptClock(stamp: ClockStamp): void {
+  clock = { ...stamp };
+}
+
+export function sameClock(a: ClockStamp, b: ClockStamp): boolean {
+  return a.kind === "paused"
+    ? b.kind === "paused" && a.now === b.now
+    : b.kind === "running" && a.offset === b.offset;
+}
 
 /** Sim clock: `Date.now()` minus all time spent paused. Frozen while paused. */
 export function now(): number {
-  if (pausedAt !== 0) return pausedAt - pausedTotal;
-  return Date.now() - pausedTotal;
+  return clock.kind === "paused" ? clock.now : Date.now() - clock.offset;
 }
 
 /** Freeze the sim clock. Idempotent — a second call while paused is a no-op. */
 export function pauseClock(): void {
-  if (pausedAt !== 0) return;
-  pausedAt = Date.now();
+  if (clock.kind === "paused") return;
+  clock = { kind: "paused", now: now() };
 }
 
 /** Resume the sim clock, folding the pause span into the running offset. */
 export function resumeClock(): void {
-  if (pausedAt === 0) return;
-  pausedTotal += Date.now() - pausedAt;
-  pausedAt = 0;
+  if (clock.kind === "running") return;
+  clock = { kind: "running", offset: Date.now() - clock.now };
 }

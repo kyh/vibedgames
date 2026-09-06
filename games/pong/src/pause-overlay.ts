@@ -67,11 +67,14 @@ function dashes(): HTMLElement {
   return line;
 }
 
-export function createPongPauseOverlay(): PongPauseOverlay {
-  return createPauseShell({ fadeMs: 220, render: renderCard });
+export function createPongPauseOverlay(matchContinues: () => boolean): PongPauseOverlay {
+  return createPauseShell({
+    fadeMs: 220,
+    render: (overlay) => renderCard(overlay, matchContinues()),
+  });
 }
 
-function renderCard(overlay: HTMLElement): void {
+function renderCard(overlay: HTMLElement, matchContinues: boolean): void {
   const coarse = window.matchMedia("(pointer: coarse)").matches;
 
   // Visuals only — positioning/z-index/fade already live on the shell's root.
@@ -88,7 +91,7 @@ function renderCard(overlay: HTMLElement): void {
 
   // Inverted title bar, like the HAND CONTROL label writ large.
   const title = document.createElement("div");
-  title.textContent = "PAUSED";
+  title.textContent = matchContinues ? "CONTROLS" : "PAUSED";
   title.style.cssText =
     `background:${INK};color:${PAPER};padding:10px 20px;` +
     "font-size:20px;font-weight:800;letter-spacing:8px;text-indent:8px";
@@ -101,6 +104,13 @@ function renderCard(overlay: HTMLElement): void {
 
   const body = document.createElement("div");
   body.style.cssText = "padding:4px 22px 0;text-align:left";
+
+  const note = document.createElement("p");
+  note.textContent = matchContinues
+    ? "Live match continues while these controls are open."
+    : "Your match is frozen. Take your time.";
+  note.style.cssText = "font-size:12px;line-height:1.6;text-align:center;margin:10px 0 4px";
+  body.append(note);
 
   // Controls, grouped by method — filtered fresh each show() so a pad
   // plugged in mid-game earns its PAD section on the next pause.
@@ -128,7 +138,8 @@ function renderCard(overlay: HTMLElement): void {
 
   // Resume hint — footer under a dashed rule, printed small caps.
   const hint = document.createElement("div");
-  hint.textContent = coarse ? "TAP TO RESUME" : "CLICK OR ANY KEY TO RESUME";
+  const action = matchContinues ? "RETURN" : "RESUME";
+  hint.textContent = coarse ? `TAP TO ${action}` : `CLICK OR ANY KEY TO ${action}`;
   hint.style.cssText =
     `margin-top:16px;border-top:2px dashed ${INK};padding:12px 22px 14px;` +
     "font-size:11px;font-weight:700;letter-spacing:3px;text-align:center;opacity:0.8";

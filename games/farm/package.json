@@ -8,6 +8,7 @@
     "clean": "rm -rf .turbo dist node_modules",
     "dev": "vite",
     "preview": "vite preview",
+    "test": "node --import tsx tools/collections-smoke.mjs && node --import tsx tools/character-action-smoke.mjs && node --import tsx tools/journal-view-smoke.mjs && node --import tsx tools/progress-smoke.mjs && node tools/audio-smoke.mjs && node tools/app-lifecycle-smoke.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

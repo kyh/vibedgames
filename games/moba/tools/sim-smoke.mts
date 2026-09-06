@@ -5,6 +5,7 @@
 // dedup, bot shopping through buyItem).
 
 import { SIM_DT } from "../src/data/config.ts";
+import { HEROES } from "../src/data/heroes.ts";
 import { castAbility } from "../src/sim/abilities.ts";
 import { dealDamage } from "../src/sim/combat.ts";
 import { effectiveAttackSpeed } from "../src/sim/stats.ts";
@@ -30,6 +31,31 @@ function check(name: string, cond: boolean, extra = ""): void {
     fail++;
     console.log(`  FAIL ${name} ${extra}`);
   }
+}
+
+// Cosmetic source identity survives the central damage path for every hero,
+// without changing damage. Missing sources remain safe for old/network events.
+{
+  const w = createWorld(11);
+  const victim = spawnHero(w, "ironvow", "dire", "victim", false, 0);
+  for (const def of HEROES) {
+    const attacker = spawnHero(w, def.id, "radiant", def.id, false, 0);
+    w.fx.length = 0;
+    const hp = victim.hp;
+    dealDamage(w, attacker, victim, 10, "pure", {});
+    const hit = w.fx.find((fx) => fx.t === "hit");
+    check(
+      `${def.id}: impact carries source identity and unchanged damage`,
+      hit?.t === "hit" && hit.attackerHero === def.id && victim.hp === hp - 10 && hit.amount === 10,
+    );
+  }
+  w.fx.length = 0;
+  dealDamage(w, null, victim, 10, "pure", {});
+  const hit = w.fx.find((fx) => fx.t === "hit");
+  check(
+    "environment impact has no invented hero identity",
+    hit?.t === "hit" && hit.attackerHero === undefined,
+  );
 }
 
 // ---- 1. a full match runs without crashing --------------------------------

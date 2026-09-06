@@ -53,6 +53,62 @@ export class EnemyBody {
   pendingProjectile: Projectile | null = null;
   pendingBlast: Blast | null = null;
 
+  /** Exact authority state; excludes grid, kit and presentation callbacks. */
+  checkpoint() {
+    return {
+      x: this.x,
+      y: this.y,
+      prevX: this.prevX,
+      prevY: this.prevY,
+      vx: this.vx,
+      vy: this.vy,
+      facing: this.facing,
+      grounded: this.grounded,
+      hp: this.hp,
+      state: this.state,
+      stateT: this.stateT,
+      dead: this.dead,
+      hitFlash: this.hitFlash,
+      iframes: this.iframes,
+      speedMult: this.speedMult,
+      dmgTakenMult: this.dmgTakenMult,
+      dmgOutMult: this.dmgOutMult,
+      attackCd: this.attackCd,
+      chargeDir: this.chargeDir,
+      hitWall: this.hitWall,
+      exploded: this.exploded,
+      pendingProjectile: structuredClone(this.pendingProjectile),
+      pendingBlast: structuredClone(this.pendingBlast),
+    };
+  }
+
+  /** Restore without simulating, emitting effects or refreshing cooldowns. */
+  restore(state: EnemyBodyCheckpoint) {
+    this.x = state.x;
+    this.y = state.y;
+    this.prevX = state.prevX;
+    this.prevY = state.prevY;
+    this.vx = state.vx;
+    this.vy = state.vy;
+    this.facing = state.facing;
+    this.grounded = state.grounded;
+    this.hp = state.hp;
+    this.state = state.state;
+    this.stateT = state.stateT;
+    this.dead = state.dead;
+    this.hitFlash = state.hitFlash;
+    this.iframes = state.iframes;
+    this.speedMult = state.speedMult;
+    this.dmgTakenMult = state.dmgTakenMult;
+    this.dmgOutMult = state.dmgOutMult;
+    this.attackCd = state.attackCd;
+    this.chargeDir = state.chargeDir;
+    this.hitWall = state.hitWall;
+    this.exploded = state.exploded;
+    this.pendingProjectile = structuredClone(state.pendingProjectile);
+    this.pendingBlast = structuredClone(state.pendingBlast);
+  }
+
   constructor(
     readonly kind: EnemyKind,
     private grid: Grid,
@@ -362,3 +418,5 @@ export class EnemyBody {
     if (this.grounded && this.vy > 0) this.vy = 0;
   }
 }
+
+export type EnemyBodyCheckpoint = ReturnType<EnemyBody["checkpoint"]>;

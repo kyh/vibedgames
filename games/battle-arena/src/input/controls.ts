@@ -298,6 +298,25 @@ export class Controls {
     return this.hadInput;
   }
 
+  /** Release remembered input at pause/transport boundaries. Sample both pad
+   * buffers so a held button cannot become a fresh press after resuming. */
+  resetInput(): void {
+    this.keys.clear();
+    this.abilityQueue = [];
+    this.itemQueue = [];
+    this.buyPressed = false;
+    this.scorePressed = false;
+    this.jumpPressed = false;
+    this.dashPressed = false;
+    this.lmb = false;
+    this.lmbEdge = false;
+    this.padFwd = 0;
+    this.padStrafe = 0;
+    this.padAttack = false;
+    this.pad.update();
+    this.pad.update();
+  }
+
   dispose(): void {
     this.pad.destroy();
     window.removeEventListener("keydown", this.onKeyDown);

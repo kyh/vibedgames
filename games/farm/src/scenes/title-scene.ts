@@ -1,10 +1,17 @@
 import Phaser from "phaser";
 import { watchControlContext } from "@repo/embed";
 import { PhysicalGamepad } from "@vibedgames/gamepad";
-import { hasSave, clearSave } from "../systems/save";
+import { hasSave, clearSave, loadSave } from "../systems/save";
 import { Sound } from "../render/audio";
 import { buildControlsCard, type ControlsCard } from "../render/controls-card";
 import { mountTouchControls } from "../touch-controls";
+import { seasonName, seasonOfDay } from "../data/calendar";
+import { onSceneExit } from "../render/scene-lifetime";
+
+// idle.webp's nine 96×64 frames have a combined alpha silhouette y=23..39.
+// Layout uses its 16px visible height; the 64px frame includes transparent padding.
+const FARMER_VISIBLE_HEIGHT = 16;
+const FARMER_CENTER_OFFSET_Y = -1;
 
 export class TitleScene extends Phaser.Scene {
   private onResize?: (gs: Phaser.Structs.Size) => void;
@@ -31,9 +38,9 @@ export class TitleScene extends Phaser.Scene {
       layout();
     };
     this.scale.on("resize", this.onResize);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      if (this.onResize) this.scale.off("resize", this.onResize);
-    });
+    const scale = this.scale;
+    const onResize = this.onResize;
+    onSceneExit(this, () => scale.off("resize", onResize));
 
     // decorative idle farmer
     const farmer = this.add.sprite(0, 0, "p-idle").setScale(5).play("p-idle");
@@ -60,6 +67,16 @@ export class TitleScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
+    const intro = this.add
+      .text(0, 0, "Till → plant → water → sleep", {
+        fontFamily: "ui-monospace, monospace",
+        fontSize: "14px",
+        color: "#fff6d5",
+        stroke: "#547f2c",
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5);
+
     const newBtn = this.makeButton("🌱  New Farm", "#5fae3a");
     const contBtn = this.makeButton("☀  Continue", "#3a86c8");
     // The controls card — the pause sign's grouped parchment chips, rendered
@@ -74,7 +91,7 @@ export class TitleScene extends Phaser.Scene {
     // before adding this run's, and tear it down on shutdown.
     this.unwatchControls?.();
     this.unwatchControls = watchControlContext(rebuildCard);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+    onSceneExit(this, () => {
       this.unwatchControls?.();
       this.unwatchControls = undefined;
       this.controlsCard = null;
@@ -82,6 +99,21 @@ export class TitleScene extends Phaser.Scene {
 
     const save = hasSave();
     contBtn.container.setAlpha(save ? 1 : 0.35);
+    const saved = loadSave();
+    const saveDetail = this.add
+      .text(
+        0,
+        15,
+        saved
+          ? `Day ${saved.day} · ${seasonName(seasonOfDay(saved.day))}`
+          : save
+            ? "Saved farm"
+            : "No saved farm yet",
+        { fontFamily: "ui-monospace, monospace", fontSize: "11px", color: "#e5f3ff" },
+      )
+      .setOrigin(0.5);
+    contBtn.text.setFontSize(20).setY(-7);
+    contBtn.container.add(saveDetail);
 
     newBtn.zone.on("pointerdown", () => {
       Sound.resume();
@@ -110,10 +142,22 @@ export class TitleScene extends Phaser.Scene {
       const compact = h < 520;
       title.setFontSize(compact ? 50 : 84);
       title.setPosition(cx, h * (compact ? 0.13 : 0.26));
-      tag.setPosition(cx, title.y + (compact ? 48 : 92));
-      farmer.setVisible(!compact).setPosition(cx, tag.y + 96);
+      tag
+        .setText(compact ? "Till → plant → water → sleep" : "a cozy farming RPG")
+        .setFontSize(compact ? 14 : 20)
+        .setPosition(cx, title.y + (compact ? 48 : 92));
+      farmer.setVisible(!compact);
       newBtn.container.setPosition(cx, h * (compact ? 0.39 : 0.66));
       contBtn.container.setPosition(cx, newBtn.container.y + (compact ? 60 : 70));
+      intro.setVisible(!compact).setPosition(cx, newBtn.container.y - 48);
+      // Keep the decorative farmer inside its band as shorter screens reflow.
+      const farmerScale = Math.min(
+        5,
+        Math.max(1, Math.floor((intro.y - tag.y - 44) / FARMER_VISIBLE_HEIGHT)),
+      );
+      farmer
+        .setScale(farmerScale)
+        .setPosition(cx, (tag.y + intro.y) / 2 - FARMER_CENTER_OFFSET_Y * farmerScale);
       // Controls card fills the band under the buttons, bottom-anchored where
       // the hint line lived. The card reflows to the band (build-time work), so
       // it is rebuilt only when the band itself changes — i.e. on a rotation.
@@ -184,6 +228,6 @@ export class TitleScene extends Phaser.Scene {
     container.add([bg, txt, zone]);
     zone.on("pointerover", () => container.setScale(1.05));
     zone.on("pointerout", () => container.setScale(1));
-    return { container, zone };
+    return { container, zone, text: txt };
   }
 }

@@ -83,11 +83,16 @@ setPauseHandlers({
 });
 
 const timer = new THREE.Timer();
+let frame = 0;
 renderer.setAnimationLoop((time) => {
   timer.update(time);
   const dt = Math.min(timer.getDelta(), MAX_DT);
-  if (!paused) game.update(dt);
+  if (!paused) {
+    game.update(dt);
+    frame++;
+  }
   renderer.render(game.scene, game.camera);
+  Object.assign(window, { __GAME_DIAGNOSTICS__: { frame, paused, ...game.diagnostics() } });
 });
 
 // Synthetic gesture hooks so the face pipeline can be driven without a webcam.

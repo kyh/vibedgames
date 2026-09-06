@@ -1,6 +1,14 @@
 import Phaser from "phaser";
 
 import { ENEMY_ORIGIN_Y, ENEMY_SCALE, interp } from "../config";
+import { showActorPose } from "../data/actor-animation";
+import {
+  enemyPose,
+  isActorTint,
+  isEnemyAction,
+  remoteBlend,
+  type EnemyAction,
+} from "../data/actor-presentation";
 import type { EnemyKind } from "../data/enemies";
 import type { Grid } from "../sys/grid";
 import { EnemyBody } from "./enemy-body";
@@ -12,6 +20,7 @@ export class Enemy {
   readonly sprite: Phaser.GameObjects.Sprite;
   baseTint = 0xffffff; // affix recolour (elite enemies); restored after a hit-flash
   private flashing = false;
+  private posed = false;
 
   constructor(scene: Phaser.Scene, grid: Grid, kind: EnemyKind, x: number, y: number) {
     this.body = new EnemyBody(kind, grid, x, y);
@@ -63,6 +72,10 @@ export class Enemy {
   }
 
   private playSuffix(key: string, suffix: string) {
+    if (this.posed) {
+      this.sprite.anims.resume();
+      this.posed = false;
+    }
     if (this.sprite.anims.currentAnim?.key === key) return; // already looping this clip
     // timeScale, not duration: a play `duration` freezes per-frame-duration anims.
     this.sprite.play(key, true);
@@ -71,10 +84,24 @@ export class Enemy {
     this.sprite.anims.timeScale = ms !== undefined && ms > 0 && authored > 0 ? authored / ms : 1;
   }
 
+  action(): EnemyAction {
+    return { state: this.body.state, elapsed: this.body.stateT };
+  }
+
+  private applyAction(action: EnemyAction): boolean {
+    const pose = enemyPose(this.body.kind, action);
+    if (!pose) return false;
+    showActorPose(this.sprite, this.body.kind.name, pose);
+    this.posed = true;
+    return true;
+  }
+
   render(alpha = 1) {
     const b = this.body;
-    const suffix = this.clip();
-    this.playSuffix(`${b.kind.name}:${suffix}`, suffix);
+    if (!this.applyAction(this.action())) {
+      const suffix = this.clip();
+      this.playSuffix(`${b.kind.name}:${suffix}`, suffix);
+    }
     this.sprite.setFlipX(b.facing < 0);
     this.sprite.setPosition(
       Math.round(interp(b.prevX, b.x, alpha)),
@@ -92,13 +119,29 @@ export class Enemy {
 
   // Guest: replay the host's clip on this puppet (no local sim/state). Position
   // lerps toward the authoritative point so 30Hz snapshots render smoothly.
-  applyNet(clip: string, x: number, y: number, flip: boolean, flash: boolean) {
-    this.playSuffix(clip, clip.slice(clip.indexOf(":") + 1));
+  applyNet(
+    clip: string,
+    x: number,
+    y: number,
+    flip: boolean,
+    flash: boolean,
+    action?: EnemyAction,
+    tint?: number,
+    dt = 1 / 60,
+  ) {
+    if (!isEnemyAction(action) || !this.applyAction(action)) {
+      this.playSuffix(clip, clip.slice(clip.indexOf(":") + 1));
+    }
+    if (isActorTint(tint) && tint !== this.baseTint) {
+      this.baseTint = tint;
+      if (!this.flashing) this.sprite.setTint(tint).setTintMode(Phaser.TintModes.MULTIPLY);
+    }
     this.sprite.setFlipX(flip);
     const far = Math.hypot(x - this.sprite.x, y - this.sprite.y) > 48;
+    const blend = remoteBlend(dt);
     this.sprite.setPosition(
-      far ? x : this.sprite.x + (x - this.sprite.x) * 0.35,
-      far ? y : this.sprite.y + (y - this.sprite.y) * 0.35,
+      far ? x : this.sprite.x + (x - this.sprite.x) * blend,
+      far ? y : this.sprite.y + (y - this.sprite.y) * blend,
     );
     if (flash && !this.flashing) {
       this.sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);

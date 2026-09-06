@@ -11,11 +11,17 @@
 import * as THREE from "three";
 
 export type ParticleKind = "add" | "normal";
+export type ParticlePriority = "ambient" | "impact" | "major";
+const PRIORITY = { ambient: 0, impact: 1, major: 2 } satisfies Readonly<
+  Record<ParticlePriority, number>
+>;
 
 /** Standard HDR multiplier for bloom-worthy cores (bloom threshold is 0.82). */
 export const HDR_BRIGHT = 2.2;
 
 export type SpawnOptions = {
+  /** Ambient leaves impact headroom; major may replace less important particles. */
+  priority?: ParticlePriority;
   /** World position (y is up; sim-plane callers pass (x, height, simY)). */
   x: number;
   y: number;
@@ -46,6 +52,7 @@ export type SpawnOptions = {
 };
 
 export type BurstOptions = {
+  priority?: ParticlePriority;
   x: number;
   y: number;
   z: number;
@@ -77,6 +84,7 @@ const ZERO_MAT = new THREE.Matrix4().makeScale(0, 0, 0);
 const scratchBurst: SpawnOptions = { x: 0, y: 0, z: 0, size: 0.6, life: 0.3 };
 
 type Slot = {
+  priority: ParticlePriority;
   px: number;
   py: number;
   pz: number;
@@ -97,6 +105,7 @@ type Slot = {
 
 function makeSlot(): Slot {
   return {
+    priority: "impact",
     px: 0,
     py: 0,
     pz: 0,
@@ -133,6 +142,7 @@ class Pool {
     geo: THREE.BufferGeometry,
     mat: THREE.Material,
     private readonly cap: number,
+    private readonly reserve: number,
     private readonly fadeColor: boolean,
     renderOrder: number,
     alphaAttr: THREE.InstancedBufferAttribute | null,
@@ -154,10 +164,14 @@ class Pool {
   }
 
   spawn(o: SpawnOptions): void {
-    const idx = this.free.pop();
-    if (idx === undefined) return; // saturated — drop (scale-of-importance budget)
+    const priority = o.priority ?? "impact";
+    if (priority === "ambient" && this.free.length <= this.reserve) return;
+    const freeIndex = this.free.pop();
+    const idx = freeIndex ?? this.replaceable(priority);
+    if (idx === undefined) return;
     const s = this.slots[idx];
     if (!s) return;
+    s.priority = priority;
     s.px = o.x;
     s.py = o.y;
     s.pz = o.z;
@@ -177,13 +191,44 @@ class Pool {
     s.r = scratchCol.r * bright;
     s.g = scratchCol.g * bright;
     s.b = scratchCol.b * bright;
-    this.active[this.activeCount++] = idx;
+    // A replacement already occupies exactly one packed-list entry. It never
+    // touches the free list or activeCount; expiration releases it once.
+    if (freeIndex !== undefined) this.active[this.activeCount++] = idx;
     if (idx >= this.highWater) {
       this.highWater = idx + 1;
       this.mesh.count = this.highWater;
     }
     this.writeInstance(idx, s, 1); // visible from the very next render
     this.dirty = true;
+  }
+
+  private replaceable(priority: ParticlePriority): number | undefined {
+    let candidate: number | undefined;
+    let lowest = PRIORITY[priority];
+    let fraction = Infinity;
+    for (let i = 0; i < this.activeCount; i++) {
+      const idx = this.active[i];
+      const slot = idx === undefined ? undefined : this.slots[idx];
+      if (!slot || PRIORITY[slot.priority] >= PRIORITY[priority]) continue;
+      const rank = PRIORITY[slot.priority];
+      const remaining = slot.life / slot.maxLife;
+      if (rank < lowest || (rank === lowest && remaining < fraction)) {
+        candidate = idx;
+        lowest = rank;
+        fraction = remaining;
+      }
+    }
+    return candidate;
+  }
+
+  counts() {
+    const counts = { ambient: 0, impact: 0, major: 0 };
+    for (let i = 0; i < this.activeCount; i++) {
+      const idx = this.active[i];
+      const slot = idx === undefined ? undefined : this.slots[idx];
+      if (slot) counts[slot.priority]++;
+    }
+    return { active: this.activeCount, capacity: this.cap, ...counts };
   }
 
   update(dt: number): void {
@@ -249,6 +294,13 @@ class Pool {
     }
   }
 
+  clear(): void {
+    for (const slot of this.slots) slot.life = 0;
+    this.update(0); // release through the same free-list path as natural expiry
+    this.mesh.count = 0;
+    this.highWater = 0;
+  }
+
   dispose(scene: THREE.Scene): void {
     scene.remove(this.mesh);
     this.mesh.geometry.dispose();
@@ -277,7 +329,7 @@ export class ParticlePools {
       toneMapped: true,
     });
     this.addMat = addMat;
-    this.add = new Pool(addGeo, addMat, ADD_CAP, true, 11, null);
+    this.add = new Pool(addGeo, addMat, ADD_CAP, 96, true, 11, null);
 
     // NORMAL pool — matter. Per-instance alpha rides an aAlpha attribute that a
     // typed onBeforeCompile patch multiplies into diffuseColor.a.
@@ -305,7 +357,7 @@ export class ParticlePools {
         );
     };
     normalMat.customProgramCacheKey = () => "fx-particles-alpha";
-    this.normal = new Pool(normalGeo, normalMat, NORMAL_CAP, false, 10, alphaAttr);
+    this.normal = new Pool(normalGeo, normalMat, NORMAL_CAP, 32, false, 10, alphaAttr);
 
     // NORMAL under ADD (bright energy composites over smoke — value contrast).
     scene.add(this.normal.mesh);
@@ -353,6 +405,7 @@ export class ParticlePools {
       scratchBurst.stretch = o.stretch ?? true;
       scratchBurst.bright = o.bright ?? 1;
       scratchBurst.alpha = o.alpha ?? 1;
+      scratchBurst.priority = o.priority ?? "impact";
       this.spawn(kind, scratchBurst);
     }
   }
@@ -361,6 +414,16 @@ export class ParticlePools {
   update(dt: number): void {
     this.add.update(dt);
     this.normal.update(dt);
+  }
+
+  /** On-demand primitive telemetry; never scans pools during the render loop. */
+  counts() {
+    return { add: this.add.counts(), normal: this.normal.counts() };
+  }
+
+  clear(): void {
+    this.add.clear();
+    this.normal.clear();
   }
 
   dispose(): void {

@@ -35,13 +35,17 @@ import { getWorldMap } from "../world/map-store";
 import { buildWorldMap } from "../render/worldmap-render";
 import { CELL, type WorldMapSprite } from "../world/worldmap";
 import { Inventory } from "../systems/inventory";
+import { Collections, type CollectionDiscovery } from "../systems/collections";
 import { Skills, type SkillId, SKILL_NAMES } from "../systems/skills";
 import { store } from "../systems/store";
 import { CROPS, cropStage, isMature, type CropId } from "../data/crops";
 import { isSellable, sellValue, type Item, type ForageId } from "../data/items";
-import { loadSave, writeSave, type SaveData } from "../systems/save";
-import { burst, floatText, shake, pop } from "../render/fx";
+import { loadSave, writeSave, type SaveData, type SaveOutcome } from "../systems/save";
+import { burst, floatText, shake, pop, rewardArc } from "../render/fx";
+import { FarmAmbience } from "../render/farm-ambience";
 import { Sound } from "../render/audio";
+import { CharacterAction } from "../render/character-action";
+import { onSceneExit } from "../render/scene-lifetime";
 import { seasonOfDay, type Season } from "../data/calendar";
 import { isWet, weatherForDay, type Weather } from "../systems/weather";
 import { Fishing } from "../systems/fishing";
@@ -53,6 +57,16 @@ import { AnimalManager } from "../entities/animals";
 import { NpcManager } from "../entities/npcs";
 
 type CharAction = "dig" | "water" | "axe" | "mine" | "doing";
+
+/** Presentation receipt for this visit. Never persisted or used to award gold. */
+export type DayRecap = Readonly<{ day: number; shippedGold: number; shipments: number }>;
+export type MineRecap = Readonly<{
+  deepest: number;
+  defeated: number;
+  gathered: number;
+  gold: number;
+  fainted: boolean;
+}>;
 
 declare global {
   interface Window {
@@ -114,13 +128,16 @@ export class GameScene extends Phaser.Scene {
   timeMin = DAY_START_MIN;
   canCharge = CAN_MAX;
   uiOpen = false;
+  controlsPaused = false;
   weather: Weather = "sunny";
+  private shipping: DayRecap = { day: 1, shippedGold: 0, shipments: 0 };
 
   private seed = 0;
   player!: Phaser.GameObjects.Sprite;
   private shadow!: Phaser.GameObjects.Sprite;
   facing = { x: 0, y: 1 };
   acting = false;
+  private readonly characterAction = new CharacterAction();
   private moving = false;
   // click-to-move: waypoint pixel positions the player walks through
   private clickPath: { x: number; y: number }[] = [];
@@ -128,6 +145,7 @@ export class GameScene extends Phaser.Scene {
 
   private soilImgs = new Map<number, Phaser.GameObjects.Image>();
   private cropImgs = new Map<number, Phaser.GameObjects.Image>();
+  private ambience: FarmAmbience | null = null;
   objSprites = new Map<number, Phaser.GameObjects.Sprite>();
   private highlight!: Phaser.GameObjects.Graphics;
   private nightOverlay!: Phaser.GameObjects.Rectangle;
@@ -158,10 +176,16 @@ export class GameScene extends Phaser.Scene {
   trailerFrame: ((dt: number) => void) | null = null;
   private fainted = false;
   private onResizeHandler?: (gs: Phaser.Structs.Size) => void;
-  private saveHandler = (): void => this.save();
+  private saveHandler = (): void => {
+    this.save();
+  };
   /** Debounced-save state: actions mark dirty, update() flushes (see save). */
   private saveDirty = false;
   private saveAcc = 0;
+  private saveFailed = false;
+  private farmReady = false;
+  private farmPosition = { x: 0, y: 0 };
+  private finalCleanupBound = false;
 
   // ---- multiplayer (co-op shared farm) ---------------------------------------
   // The host owns the world (tilled/watered/crops) and the clock; guests adopt
@@ -198,22 +222,28 @@ export class GameScene extends Phaser.Scene {
     return store.inv;
   }
 
-  create(data: { mode: "new" | "continue"; fromMine?: boolean; fainted?: boolean }): void {
+  create(data: {
+    mode: "new" | "continue";
+    fromMine?: boolean;
+    fainted?: boolean;
+    mineRecap?: MineRecap;
+  }): void {
     notifyGameStarted();
     document.getElementById("veil")?.classList.add("hidden");
     // reset reused-instance state (Phaser keeps the scene instance across start/stop)
     this.soilImgs = new Map();
     this.cropImgs = new Map();
     this.objSprites = new Map();
-    this.acting = false;
+    this.resetCharacterAction();
     this.transitioning = false;
     this.uiOpen = false;
+    this.controlsPaused = false;
     this.facing = { x: 0, y: 1 };
     this.fainted = false;
     this.stepTimer = 0;
     this.clickPath = [];
     this.pathStuck = 0;
-    this.saveDirty = false;
+    if (!data?.fromMine) this.saveDirty = false;
     this.saveAcc = 0;
     this.trailerMove = null;
 
@@ -225,6 +255,7 @@ export class GameScene extends Phaser.Scene {
       const s = data?.mode === "continue" ? loadSave() : null;
       if (s) this.loadFrom(s);
       else this.startNew();
+      this.shipping = { day: this.day, shippedGold: 0, shipments: 0 };
     }
     this.weather = weatherForDay(this.seed, this.day);
 
@@ -252,6 +283,8 @@ export class GameScene extends Phaser.Scene {
       .setAlpha(0.35);
     this.player = this.add.sprite(0, 0, "p-idle").setOrigin(0.5, CHAR_ORIGIN_Y).play("p-idle");
     this.player.setPosition(this.pendingSpawn.x, this.pendingSpawn.y);
+    this.farmPosition = { ...this.pendingSpawn };
+    this.farmReady = true;
 
     this.highlight = this.add.graphics().setDepth(DEPTH.highlight);
 
@@ -266,15 +299,16 @@ export class GameScene extends Phaser.Scene {
       this.cameras.main.setZoom(zoomForWidth(gs.width));
     };
     this.scale.on("resize", this.onResizeHandler);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      if (this.onResizeHandler) this.scale.off("resize", this.onResizeHandler);
-    });
+    const scale = this.scale;
+    const onResize = this.onResizeHandler;
+    onSceneExit(this, () => scale.off("resize", onResize));
 
     const cam = this.cameras.main;
     cam.setBounds(0, 0, MAP_W * TILE, MAP_H * TILE);
     cam.setZoom(zoomForWidth(this.scale.width));
     cam.startFollow(this.player, true, 0.12, 0.12);
     cam.setRoundPixels(true);
+    this.ambience = new FarmAmbience(this);
 
     this.fishing = new Fishing(this);
     this.animals = new AnimalManager(this, this.world);
@@ -283,6 +317,15 @@ export class GameScene extends Phaser.Scene {
     this.npcs.spawnAll();
 
     this.setupInput();
+    const releaseMusic = Sound.startMusic("farm");
+    const fishing = this.fishing;
+    onSceneExit(this, () => {
+      releaseMusic();
+      fishing.destroy();
+      this.resetCharacterAction();
+      this.ambience = null;
+      this.collisionOverlay = null;
+    });
     // Prime the pad so an A still held from the title/mine doesn't read as a
     // fresh press (and swing a tool) on this scene's first frame.
     this.pad.update();
@@ -296,9 +339,31 @@ export class GameScene extends Phaser.Scene {
     this.game.events.on("hidden", this.saveHandler);
     window.removeEventListener("beforeunload", this.saveHandler);
     window.addEventListener("beforeunload", this.saveHandler);
+    if (!this.finalCleanupBound) {
+      this.finalCleanupBound = true;
+      const gameEvents = this.game.events;
+      this.events.once(Phaser.Scenes.Events.DESTROY, () => {
+        gameEvents.off("hidden", this.saveHandler);
+        window.removeEventListener("beforeunload", this.saveHandler);
+        this.net?.destroy();
+        this.net = undefined;
+        this.pendingTileIntents = [];
+        this.farmReady = false;
+        if (window.__gs === this) delete window.__gs;
+      });
+    }
 
-    if (data?.fromMine) cam.fadeIn(400, 0, 0, 0);
-    else this.events.emit("daybanner", this.day, seasonOfDay(this.day), this.weather);
+    if (data?.fromMine) {
+      cam.fadeIn(400, 0, 0, 0);
+      const recap = data.mineRecap;
+      if (recap)
+        this.time.delayedCall(420, () =>
+          this.toast(
+            `${recap.fainted ? "Rescued" : "Home"} · Floor ${recap.deepest} · ${recap.gathered} minerals · ${recap.defeated} defeated · ${recap.gold >= 0 ? "+" : ""}${recap.gold}g`,
+            recap.fainted ? "#ffb3b3" : "#d8ffb0",
+          ),
+        );
+    } else this.events.emit("daybanner", this.day, seasonOfDay(this.day), this.weather);
 
     this.remoteFarmers = new RemoteFarmers(this);
     // Rebuild the edit ledger from the world we just built: clearing it alone
@@ -336,6 +401,7 @@ export class GameScene extends Phaser.Scene {
     this.world = World.fromJSON(s.world, getWorldMap());
     store.inv = Inventory.fromJSON(s.inv);
     store.skills = Skills.fromJSON(s.skills);
+    store.collections = Collections.fromJSON(s.collections);
     store.gold = s.gold;
     store.energy = s.energy;
     store.hp = s.hp;
@@ -347,20 +413,10 @@ export class GameScene extends Phaser.Scene {
     if (s.npcFriendship) store.npcFriendship = s.npcFriendship;
   }
 
-  // Coming back from the mine: GameScene was stopped, so rebuild the WORLD and
-  // clock from the save — but keep inv/skills/gold/hp/energy/animals live in the
-  // store (they changed during the mine run and must not be reverted).
+  // Scene stop releases rendering, not the world. Keep the live farm through
+  // mine trips, including when storage is unavailable or a write is pending.
   private restoreFromStore(): void {
-    const s = loadSave();
-    if (!s) {
-      this.startNew();
-      return;
-    }
-    this.seed = s.seed;
-    this.world = World.fromJSON(s.world, getWorldMap());
-    this.day = s.day;
-    this.timeMin = s.timeMin;
-    this.canCharge = s.canCharge;
+    if (!this.farmReady) this.startNew();
     this.pendingSpawn = { x: MINE_EXIT.tx * TILE + 8, y: MINE_EXIT.ty * TILE + 8 };
   }
 
@@ -378,16 +434,16 @@ export class GameScene extends Phaser.Scene {
       this.toast(Sound.toggleMute() ? "Sound off" : "Sound on", "#dfe9ff");
       syncTouchControls();
     });
-    Sound.startMusic("farm");
 
     NUM_KEY_NAMES.forEach((name, i) =>
-      this.keys[name].on("down", () => !this.uiOpen && store.inv.select(i)),
+      this.keys[name].on("down", () => !this.controlsPaused && !this.uiOpen && store.inv.select(i)),
     );
 
     this.keys.SPACE.on("down", () => this.tryAction());
     this.keys.E.on("down", () => this.tryAction());
     // click / tap: act on the cell when it's within reach, else walk to it
     const actOrWalk = (p: Phaser.Input.Pointer): void => {
+      if (this.controlsPaused) return;
       const wp = this.cameras.main.getWorldPoint(p.x, p.y);
       const tx = Math.floor(wp.x / TILE);
       const ty = Math.floor(wp.y / TILE);
@@ -403,7 +459,7 @@ export class GameScene extends Phaser.Scene {
       }
     };
     this.input.on("pointerdown", (p: Phaser.Input.Pointer) => {
-      if (this.uiOpen || p.button !== 0) return;
+      if (this.controlsPaused || this.uiOpen || p.button !== 0) return;
       const hud = this.scene.get("Hud");
       if (hud.input.hitTestPointer(p).length > 0) return; // hotbar click
       if (this.fishing.active) {
@@ -416,7 +472,7 @@ export class GameScene extends Phaser.Scene {
       actOrWalk(p);
     });
     this.input.on("pointerup", (p: Phaser.Input.Pointer) => {
-      if (!p.wasTouch || this.uiOpen || this.fishing.active) return;
+      if (this.controlsPaused || !p.wasTouch || this.uiOpen || this.fishing.active) return;
       const hud = this.scene.get("Hud");
       if (hud.input.hitTestPointer(p).length > 0) return; // hotbar tap
       if (!isTap(p)) return; // a drag was the stick, not a tap
@@ -428,7 +484,7 @@ export class GameScene extends Phaser.Scene {
     this.input.on(
       "wheel",
       (_p: Phaser.Input.Pointer, _o: Phaser.GameObjects.GameObject[], _dx: number, dy: number) => {
-        if (!this.uiOpen) store.inv.cycle(Math.sign(dy));
+        if (!this.controlsPaused && !this.uiOpen) store.inv.cycle(Math.sign(dy));
       },
     );
   }
@@ -456,7 +512,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   toggleInventory(): void {
-    if (this.fishing.active) return;
+    if (this.controlsPaused || this.fishing.active) return;
     if (this.scene.isActive("Inventory")) {
       this.scene.stop("Inventory");
       this.uiOpen = false;
@@ -597,7 +653,7 @@ export class GameScene extends Phaser.Scene {
     this.pad.update();
     if (this.pad.justPressed("a")) this.tryAction();
     if (this.pad.justPressed("y")) this.toggleInventory();
-    if (!this.uiOpen) {
+    if (!this.controlsPaused && !this.uiOpen) {
       if (this.pad.justPressed("lb")) store.inv.cycle(-1);
       if (this.pad.justPressed("rb")) store.inv.cycle(1);
     }
@@ -610,15 +666,16 @@ export class GameScene extends Phaser.Scene {
       // While still handshaking (not live yet) run it locally — a frozen
       // clock during the connect window reads as a hang.
       if (this.amHost || !this.net?.live) this.advanceTime(dt);
-      this.handleMovement(dt);
+      if (!this.controlsPaused) this.handleMovement(dt);
     } else if (!this.acting && !this.fishing.active) {
       this.setAnim("idle");
     }
-    this.fishing.update(dt);
+    if (!this.controlsPaused) this.fishing.update(dt);
     this.animals.update(dt);
     this.npcs.update(dt);
     this.updateHighlight();
     this.updateNightTint();
+    this.ambience?.update(dt, this.weather, this.season(), this.timeMin);
     this.player.setDepth(DEPTH.entityBase + this.player.y);
     // shadow rides the feet, always one depth step under its owner
     this.shadow.setPosition(this.player.x, this.player.y + 1);
@@ -626,8 +683,7 @@ export class GameScene extends Phaser.Scene {
     this.updateNet(dt);
     this.trailerFrame?.(dt);
     // flush debounced saves (transitions and tab-hide/unload still save at once)
-    this.saveAcc += dt;
-    if (this.saveDirty && this.saveAcc >= SAVE_FLUSH_SEC) this.save();
+    this.retryPendingSave(dt);
   }
 
   // ---- multiplayer: sync ----------------------------------------------------
@@ -639,6 +695,19 @@ export class GameScene extends Phaser.Scene {
    */
   isOnline(): boolean {
     return this.net !== undefined && this.net.live && !this.net.offline;
+  }
+
+  /** Live co-op keeps its clock and connection; only this farmer takes a break. */
+  setControlsPaused(paused: boolean): void {
+    this.controlsPaused = paused;
+    this.moving = false;
+    this.clickPath = [];
+    this.pathStuck = 0;
+    for (const key of Object.values(this.keys)) key.reset();
+    this.gamepad?.pad.reset();
+    this.pad.update();
+    this.fishing.setPaused(paused);
+    if (!this.acting && !this.fishing.active) this.setAnim("idle");
   }
 
   private handleNetEvent(event: string, payload: JsonValue, _from: string): void {
@@ -805,8 +874,10 @@ export class GameScene extends Phaser.Scene {
       this.weather = weather;
     }
     if (isJsonNumber(day) && day !== this.day) {
+      const recap = this.shipping.shipments > 0 ? this.shipping : undefined;
       this.day = day;
-      this.events.emit("daybanner", this.day, seasonOfDay(this.day), this.weather);
+      this.shipping = { day, shippedGold: 0, shipments: 0 };
+      this.events.emit("daybanner", this.day, seasonOfDay(this.day), this.weather, recap);
     }
   }
 
@@ -1083,7 +1154,7 @@ export class GameScene extends Phaser.Scene {
 
   /** Public: the trailer director drives staged actions through this exact path. */
   tryAction(target?: { tx: number; ty: number }): void {
-    if (this.uiOpen || this.acting || this.transitioning) return;
+    if (this.controlsPaused || this.uiOpen || this.acting || this.transitioning) return;
     if (this.fishing.active) {
       this.fishing.onActionPress();
       return;
@@ -1199,10 +1270,16 @@ export class GameScene extends Phaser.Scene {
     this.time.delayedCall((impactFrame / rate) * 1000, () => {
       if (this.acting) onImpact();
     });
-    this.player.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
+    this.characterAction.watch(this.player, `p-${action}`, () => {
       this.acting = false;
       this.player.play("p-idle", true);
     });
+  }
+
+  /** Presentation cleanup only; Phaser owns the existing action impact timers. */
+  resetCharacterAction(): void {
+    this.characterAction.reset();
+    this.acting = false;
   }
 
   awardXP(skill: SkillId, amount: number): void {
@@ -1249,6 +1326,7 @@ export class GameScene extends Phaser.Scene {
       ty = (idx / MAP_W) | 0;
     burst(this, tx * TILE + 8, ty * TILE + 8, {
       colors: [0x6fc6ff, 0x9fe0ff, 0xffffff],
+      matter: "droplet",
       count: 8,
       up: true,
       speed: 40,
@@ -1263,6 +1341,7 @@ export class GameScene extends Phaser.Scene {
     this.canCharge = CAN_MAX;
     burst(this, this.player.x, this.player.y - 8, {
       colors: [0x6fc6ff, 0x9fe0ff],
+      matter: "droplet",
       count: 12,
       speed: 35,
     });
@@ -1280,6 +1359,7 @@ export class GameScene extends Phaser.Scene {
       ty = (idx / MAP_W) | 0;
     burst(this, tx * TILE + 8, ty * TILE + 12, {
       colors: [0x7ec850, 0x4a9d3f],
+      matter: "leaf",
       count: 5,
       up: true,
       speed: 30,
@@ -1297,7 +1377,10 @@ export class GameScene extends Phaser.Scene {
     const [lo, hi] = def.yield;
     let n = lo + ((Math.random() * (hi - lo + 1)) | 0);
     if (Math.random() < store.skills.yieldBonusChance()) n += 1;
-    store.inv.add({ kind: "produce", crop: cs.crop }, n);
+    const item: Item = { kind: "produce", crop: cs.crop };
+    const leftover = store.inv.add(item, n);
+    const accepted = n - leftover;
+    this.showDiscovery(store.collections.recordHarvest(cs.crop, this.season(), accepted));
     this.world.crops.delete(idx);
     const img = this.cropImgs.get(idx);
     if (img) {
@@ -1309,13 +1392,22 @@ export class GameScene extends Phaser.Scene {
     this.refreshSoilTint(idx);
     const tx = idx % MAP_W,
       ty = (idx / MAP_W) | 0;
+    if (leftover < n) rewardArc(this, tx * TILE + 8, ty * TILE + 4, this.player, item);
     burst(this, tx * TILE + 8, ty * TILE + 8, {
       colors: [0x7ec850, 0xffe27a, 0xff9ed2],
+      matter: "leaf",
       count: 12,
       up: true,
       speed: 55,
     });
-    floatText(this, tx * TILE + 8, ty * TILE + 4, `+${n} ${def.name}`, "#d8ffb0");
+    floatText(
+      this,
+      tx * TILE + 8,
+      ty * TILE + 4,
+      accepted > 0 ? `+${accepted} ${def.name}` : "Bag full",
+      "#d8ffb0",
+    );
+    if (leftover > 0) this.toast(`${leftover} ${def.name} left behind — bag full.`, "#ffd27a");
     Sound.harvest();
     this.awardXP("farming", 12);
     this.requestSave();
@@ -1329,6 +1421,7 @@ export class GameScene extends Phaser.Scene {
       this.tweens.add({ targets: spr, x: spr.x + 1.5, duration: 50, yoyo: true, repeat: 2 });
       burst(this, spr.x, spr.y - 16, {
         colors: [0x4a9d3f, 0x7ec850, 0x2f6b3a],
+        matter: "leaf",
         count: 7,
         speed: 50,
       });
@@ -1365,6 +1458,7 @@ export class GameScene extends Phaser.Scene {
       this.tweens.add({ targets: spr, scaleX: 1.12, scaleY: 0.9, duration: 60, yoyo: true });
       burst(this, spr.x, spr.y - 8, {
         colors: [0xbfcad6, 0x8a98a8, 0xffffff],
+        matter: "spark",
         count: 8,
         speed: 55,
       });
@@ -1488,6 +1582,12 @@ export class GameScene extends Phaser.Scene {
   private shipProduce(): void {
     const total = this.sellAll();
     if (total > 0) {
+      const previous = this.shipping.day === this.day ? this.shipping : null;
+      this.shipping = {
+        day: this.day,
+        shippedGold: (previous?.shippedGold ?? 0) + total,
+        shipments: (previous?.shipments ?? 0) + 1,
+      };
       const bin = this.world.objects.find((o) => o.type === "bin");
       if (bin) {
         burst(this, bin.tx * TILE + 8, bin.ty * TILE + 4, {
@@ -1551,6 +1651,7 @@ export class GameScene extends Phaser.Scene {
 
   endDay(exhausted = false): void {
     this.transitioning = true;
+    const recap = this.shipping.day === this.day ? this.shipping : undefined;
     const cam = this.cameras.main;
     cam.fadeOut(600, 6, 10, 24);
     cam.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
@@ -1561,6 +1662,7 @@ export class GameScene extends Phaser.Scene {
         this.runOvernight();
         this.refreshTileEditsAfterOvernight();
         this.day += 1;
+        this.shipping = { day: this.day, shippedGold: 0, shipments: 0 };
         this.timeMin = DAY_START_MIN;
         this.weather = weatherForDay(this.seed, this.day);
       }
@@ -1571,7 +1673,7 @@ export class GameScene extends Phaser.Scene {
       this.fainted = false;
       this.save();
       if (this.amHost) {
-        this.events.emit("daybanner", this.day, seasonOfDay(this.day), this.weather);
+        this.events.emit("daybanner", this.day, seasonOfDay(this.day), this.weather, recap);
       }
       Sound.wake();
       cam.fadeIn(700, 6, 10, 24);
@@ -1626,15 +1728,45 @@ export class GameScene extends Phaser.Scene {
     this.events.emit("toast", text, color);
   }
 
+  showDiscovery(discovery: CollectionDiscovery | null): void {
+    if (!discovery) return;
+    this.toast(
+      discovery.completedSeason
+        ? `${discovery.season} journal complete!`
+        : `Journal: ${discovery.name} collected.`,
+      "#d8ffb0",
+    );
+  }
+
+  /** Preview exactly the crop eligibility used by runOvernight. */
+  overnightPreview() {
+    const season = seasonOfDay(this.day + 1);
+    let withering = 0;
+    for (const crop of this.world.crops.values()) {
+      if (!CROPS[crop.crop].seasons.includes(season)) withering += 1;
+    }
+    return { season, changingSeason: season !== this.season(), withering };
+  }
+
   /** Mark the save dirty; update() flushes at most every SAVE_FLUSH_SEC.
    *  Transitions (enterMine/endDay) and hidden/beforeunload call save() directly. */
   requestSave(): void {
     this.saveDirty = true;
   }
 
-  save(): void {
-    this.saveDirty = false;
+  get savePending(): boolean {
+    return this.saveDirty;
+  }
+
+  retryPendingSave(dt: number): void {
+    this.saveAcc += dt;
+    if (this.saveDirty && this.saveAcc >= SAVE_FLUSH_SEC) this.save();
+  }
+
+  save(): SaveOutcome {
+    if (!this.farmReady) return { kind: "disabled" };
     this.saveAcc = 0;
+    if (this.scene.isActive()) this.farmPosition = { x: this.player.x, y: this.player.y };
     const d: SaveData = {
       v: 3,
       seed: this.seed,
@@ -1644,24 +1776,117 @@ export class GameScene extends Phaser.Scene {
       energy: store.energy,
       hp: store.hp,
       canCharge: this.canCharge,
-      player: { x: this.player.x, y: this.player.y },
+      player: this.farmPosition,
       world: this.world.toJSON(),
       inv: store.inv.toJSON(),
       skills: store.skills.toJSON(),
       animals: store.animalSave(),
       animalSeq: store.animalSeq,
       npcFriendship: store.npcFriendship,
+      collections: store.collections.toJSON(),
     };
-    writeSave(d);
+    const outcome = writeSave(d);
+    this.saveDirty = outcome.kind === "failure";
+    if (outcome.kind === "failure" && !this.saveFailed) {
+      this.saveFailed = true;
+      this.toast("Save unavailable. Progress stays here; retrying…", "#ffd27a");
+    } else if (outcome.kind === "success" && this.saveFailed) {
+      this.saveFailed = false;
+      this.toast("Progress saved.", "#d8ffb0");
+    }
+    return outcome;
   }
 
   selectedItem(): Item | null {
     return store.inv.selectedItem();
   }
+
+  /** Read-only teaching beside the selected tool; action resolution stays in tryAction. */
+  actionHint(): string | null {
+    if (
+      this.controlsPaused ||
+      this.uiOpen ||
+      this.transitioning ||
+      this.acting ||
+      this.fishing.active
+    )
+      return null;
+    const { tx, ty } = this.targetTile();
+    if (!inBounds(tx, ty)) return null;
+    const item = this.selectedItem();
+    const object = this.world.objectAt(tx, ty);
+    if (object) {
+      switch (object.type) {
+        case "house":
+          return this.amHost
+            ? "Sleep to restore energy and begin a new day"
+            : "The host starts the next day";
+        case "shop":
+          return "Buy seeds and supplies";
+        case "bin":
+          return "Ship produce for gold";
+        case "cave":
+          return store.inv.count((it) => it.kind === "tool" && it.tool === "pickaxe") > 0
+            ? "Enter the mine"
+            : "Bring a pickaxe to enter the mine";
+        case "barn":
+        case "coop":
+          return "Visit the animal shop";
+        case "forage":
+          return "Collect wild produce";
+        case "tree":
+          if (item?.kind !== "tool" || item.tool !== "axe") return "Equip an axe to chop";
+          return store.energy > 0 ? "Chop wood" : "Out of energy — rest at home";
+        case "rock":
+          if (item?.kind !== "tool" || item.tool !== "pickaxe") return "Equip a pickaxe to mine";
+          return store.energy > 0 ? "Break stone" : "Out of energy — rest at home";
+        case "ore":
+          return null;
+      }
+    }
+    const idx = this.world.idx(tx, ty);
+    const crop = this.world.crops.get(idx);
+    if (crop && isMature(CROPS[crop.crop], crop.daysGrown)) return "Harvest the ripe crop";
+    if (!item) return "Select a tool or seeds from your hotbar";
+    if (item.kind === "seed") {
+      if (!this.world.tilled[idx]) return "Till the soil before planting";
+      if (crop) return "A crop is already growing here";
+      return CROPS[item.crop].seasons.includes(this.season())
+        ? `Plant ${CROPS[item.crop].name}`
+        : `${CROPS[item.crop].name} needs another season`;
+    }
+    if (item.kind !== "tool") return "Gift to a villager or ship produce at the bin";
+    switch (item.tool) {
+      case "hoe":
+        return store.energy <= 0
+          ? "Out of energy — rest at home"
+          : this.world.canTill(tx, ty)
+            ? "Till soil for seeds"
+            : "Find bare soil to till";
+      case "can":
+        if (store.energy <= 0) return "Out of energy — rest at home";
+        if (this.world.getGround(tx, ty) === GROUND.water) return "Refill your watering can";
+        if (this.canCharge <= 0) return "Empty can — refill at the pond";
+        return this.world.tilled[idx]
+          ? "Water the soil for overnight growth"
+          : "Till the soil before watering";
+      case "rod":
+        return this.world.getGround(tx, ty) === GROUND.water
+          ? "Cast into the water"
+          : "Face the pond to fish";
+      case "axe":
+        return "Face a tree to chop wood";
+      case "pickaxe":
+        return "Face a rock to gather stone";
+      case "sword":
+        return "Bring your sword into the mine";
+    }
+  }
   season(): Season {
     return seasonOfDay(this.day);
   }
   actionHeld(): boolean {
+    if (this.controlsPaused) return false;
     return (
       this.keys.SPACE.isDown ||
       this.keys.E.isDown ||

@@ -436,6 +436,7 @@ export function dealDamage(
       nx,
       ny,
       isAttack: opts.isAttack,
+      attackerHero: attacker?.hero?.defId,
     });
   }
 

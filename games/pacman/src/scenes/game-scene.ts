@@ -28,6 +28,7 @@ import { FxPool } from "../render/fx-pool";
 import { buildHeartGeometry } from "../render/heart";
 import type { PelletCell } from "../render/pellet-field";
 import { PelletField } from "../render/pellet-field";
+import { PowerHalo } from "../render/power-halo";
 import { TraumaCamera } from "../render/trauma-camera";
 import { RemotePacs } from "../net/remote-pacs";
 import { NetSession, isJsonNumber, isJsonObject, isJsonString } from "../net/session";
@@ -158,6 +159,9 @@ const COMBO_WINDOW_S = 0.9;
 
 const SWIPE_MIN_PX = 24;
 const EPS = 1e-4;
+const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
+const CAPTURE_ECHO_S = 0.28;
+const REAPPEAR_S = 0.24;
 /**
  * Ceiling for the portrait FOV widening below — past this it just fisheyes.
  *
@@ -205,6 +209,8 @@ export class GameScene {
   private hearts = new Map<string, Heart>();
   private score = 0;
   private best = 0;
+  /** Local ghost contacts, retained across lives and reset with the round score. */
+  private ghostsChomped = 0;
 
   // ---- multiplayer (shared-maze pellet race) ---------------------------------
   // The maze + pellets come from the static MAP (identical on every client). The
@@ -266,6 +272,11 @@ export class GameScene {
   private pacRig = new THREE.Group();
   /** Inner group: facing rotation (so the rig's scale stays world-aligned). */
   private pacGroup: THREE.Group;
+  /** One render-only copy; shares immutable geometry/materials, never owns/disposes them. */
+  private captureEcho: THREE.Group;
+  private captureAge = CAPTURE_ECHO_S;
+  private reappearAge = REAPPEAR_S;
+  private resultAge = 0;
   private mouthMesh: THREE.Mesh;
   private mouthAngle = 0;
   private mouthBuiltBucket = -1;
@@ -281,6 +292,7 @@ export class GameScene {
 
   // ---- feel / vfx state ---------------------------------------------------------
   private fx: FxPool;
+  private powerHalo: PowerHalo;
   private shaker = new TraumaCamera();
   private t = 0;
   private fovKick = 0;
@@ -306,6 +318,8 @@ export class GameScene {
   private scoreEl = el("score");
   private bestEl = el("best");
   private statsEl = el("stats");
+  private chainEl = el("chain");
+  private chainText = "";
   private bannerEl = el("banner");
   private bannerTitleEl = el("banner-title");
   private bannerSubEl = el("banner-sub");
@@ -313,6 +327,17 @@ export class GameScene {
   private flashEl = el("flash");
   private selfieBtnEl = el("btn-selfie");
   private restartBtnEl = el("btn-restart");
+  private teachingEl = el("teaching");
+  private teachingNoteEl = el("teaching-note");
+  private teachingStepEl = el("teaching-step");
+  private teachingTurnEl = el("teaching-turn");
+  private taughtStep = false;
+  private taughtTurn = false;
+  private teachingDoneAt = -1;
+  private teachingBlockedUntil = -1;
+  private teachingSig = "";
+  private resultEl = el("result");
+  private resultSig = "";
 
   constructor() {
     this.scene.background = new THREE.Color(COLORS.bg);
@@ -332,6 +357,10 @@ export class GameScene {
     this.mouthMesh = mouth;
     this.pacRig.add(this.pacGroup);
     this.scene.add(this.pacRig);
+    this.captureEcho = this.pacGroup.clone();
+    this.captureEcho.name = "capture-echo";
+    this.captureEcho.visible = false;
+    this.scene.add(this.captureEcho);
 
     this.ghosts = GHOST_SPAWNS.map((spawn, i) => {
       const color = GHOST_COLORS[i % GHOST_COLORS.length] ?? COLORS.power;
@@ -354,6 +383,7 @@ export class GameScene {
     });
 
     this.fx = new FxPool(this.scene);
+    this.powerHalo = new PowerHalo(this.scene);
     this.remotePacs = new RemotePacs(this.scene);
     this.best = loadBest();
     this.bindInput();
@@ -532,6 +562,7 @@ export class GameScene {
     this.appliedEaten.clear();
     this.resetBoard();
     this.score = 0;
+    this.resetSessionPresentation();
     this.resetPacman();
     this.graceMs = SPAWN_GRACE_MS;
     this.updateHud();
@@ -680,11 +711,36 @@ export class GameScene {
       sfx.play("warn");
     }
 
+    this.updateSessionPresentation(dt);
     this.renderActors(dt);
+    this.powerHalo.update(this.pac.x, this.pac.z, scared ? this.scaredMs : 0);
+    this.updateChainHud();
     this.fx.update(dt);
     this.updateCamera(dt);
     music.update();
     this.updateNet(dt);
+  }
+
+  /** Read-only primitives for playtests; simulation coordinates are maze cells. */
+  diagnostics() {
+    return {
+      score: this.score,
+      complete: this.phase === "win",
+      phase: this.phase,
+      player: { x: this.pac.x, y: this.pac.z },
+      entities: this.ghosts.length + this.pelletsLeft() + 1,
+      powerMs: this.scaredMs,
+    };
+  }
+
+  private updateChainHud(): void {
+    const active =
+      this.phase === "playing" && this.comboIdx > 0 && this.t - this.lastPelletAt < COMBO_WINDOW_S;
+    const text = active ? `♪ ${this.comboIdx + 1} PEARL CHAIN` : "";
+    if (text === this.chainText) return;
+    this.chainText = text;
+    this.chainEl.textContent = text;
+    this.chainEl.classList.toggle("active", active);
   }
 
   // ---- board ---------------------------------------------------------------
@@ -948,6 +1004,7 @@ export class GameScene {
     if (action === "reverse") this.pac.dir = OPPOSITE[this.pac.dir];
     else if (action === "left") this.pac.dir = TURN_LEFT[this.pac.dir];
     else this.pac.dir = TURN_RIGHT[this.pac.dir];
+    this.taughtTurn = true;
     // Audible "turn registered" tick — vital for face input, where the only
     // other confirmation is the slow camera swing. Throttled against
     // key-repeat spam from held arrows.
@@ -990,18 +1047,20 @@ export class GameScene {
     if (!isOpen(col, row)) {
       // Blocked chomp still gets feedback — with face input, a silent no-op
       // is indistinguishable from "the camera missed my gesture".
+      this.teachingBlockedUntil = this.t + 1.2;
       sfx.play("bump", { gain: 0.7 });
       this.squashKick = Math.max(this.squashKick, 0.5);
       this.fx.puff(
         new THREE.Vector3(this.pac.x + dx * 0.55, 0.15, this.pac.z + dz * 0.55),
         4,
         COLORS.wall,
-        { speed: 0.8, sizeMin: 0.05, sizeMax: 0.1 },
+        { speed: 0.8, sizeMin: 0.05, sizeMax: 0.1, direction: { x: -dx, z: -dz } },
       );
       return;
     }
     this.pac.target = { x: col, z: row };
     this.pac.isMoving = true;
+    this.taughtStep = true;
     sfx.play("chomp", { gain: 0.55 });
   }
 
@@ -1098,15 +1157,23 @@ export class GameScene {
 
   /** Eaten scared ghost: +200, respawn at center, heading kept (legacy). */
   private eatGhost(g: Ghost): void {
+    this.ghostsChomped += 1;
     this.addScore(SCORE_GHOST);
     const at = new THREE.Vector3(g.x, GHOST_BOB_BASE, g.z);
-    this.fx.puff(at, 14, 0xffffff, { speed: 2, sizeMin: 0.12, sizeMax: 0.26 });
+    this.fx.puff(at, 14, g.color, { speed: 2, sizeMin: 0.12, sizeMax: 0.26 });
+    this.fx.ring(g.x, g.z, 1.15, g.color);
     this.fx.heartBurst(at, 5);
     this.shaker.add(TRAUMA_GHOST_EATEN);
     sfx.play("ghost_eaten");
     g.x = GHOST_RESPAWN.col;
     g.z = GHOST_RESPAWN.row;
     g.spawnScale = 0;
+    this.fx.puff(new THREE.Vector3(g.x, 0.12, g.z), 6, g.color, {
+      speed: 0.65,
+      lift: 0.7,
+      sizeMin: 0.07,
+      sizeMax: 0.14,
+    });
   }
 
   /**
@@ -1115,6 +1182,13 @@ export class GameScene {
    * rebuild's additions, kept.
    */
   private caught(): void {
+    this.captureAge = 0;
+    this.captureEcho.position.set(this.pac.x, 0, this.pac.z);
+    this.captureEcho.rotation.set(0, 0, 0);
+    if (this.pac.dir === "up") this.captureEcho.rotation.x = -Math.PI / 2;
+    else if (this.pac.dir === "down") this.captureEcho.rotation.x = Math.PI / 2;
+    else if (this.pac.dir === "left") this.captureEcho.rotation.y = Math.PI;
+    this.captureEcho.visible = !REDUCED_MOTION.matches && (this.racing || this.lives > 1);
     this.shaker.add(TRAUMA_CAUGHT);
     this.fx.puff(new THREE.Vector3(this.pac.x, 0.4, this.pac.z), 12, COLORS.power, {
       speed: 1.6,
@@ -1146,6 +1220,7 @@ export class GameScene {
   // ---- round lifecycle -------------------------------------------------------
 
   private resetPacman(): void {
+    this.reappearAge = 0;
     this.pac.x = PACMAN_SPAWN.col;
     this.pac.z = PACMAN_SPAWN.row;
     this.pac.dir = "right";
@@ -1158,6 +1233,7 @@ export class GameScene {
 
   private resetGame(): void {
     this.score = 0;
+    this.resetSessionPresentation();
     this.lives = START_LIVES;
     this.scaredMs = 0;
     this.graceMs = 0;
@@ -1195,9 +1271,12 @@ export class GameScene {
   }
 
   private setPhase(phase: Phase): void {
+    const entering = this.phase !== phase;
     this.phase = phase;
+    if (entering) this.resultAge = 0;
+    this.updateChainHud();
     this.renderBanner();
-    if (phase !== "playing") retrigger(this.bannerEl, "pop");
+    if (phase !== "playing" && (entering || phase === "title")) retrigger(this.bannerEl, "pop");
     // Instruction banners keep a watcher so controller rows appear the moment
     // a pad is plugged in (and vanish when it's pulled); other phases drop it.
     this.unwatchControls?.();
@@ -1205,11 +1284,11 @@ export class GameScene {
       phase === "title" || phase === "win" || phase === "gameover"
         ? watchControlContext(() => this.renderBanner())
         : null;
-    if (phase === "win") {
+    if (entering && phase === "win") {
       this.fx.confettiRain(110);
       this.winConfettiIn = 0.7;
       sfx.play("win");
-    } else if (phase === "gameover") {
+    } else if (entering && phase === "gameover") {
       sfx.play("gameover");
     }
   }
@@ -1224,7 +1303,12 @@ export class GameScene {
       title: ["PAC·MAN", ""],
       ready: ["READY?", ""],
       playing: ["", ""],
-      win: ["MAZE CLEAR!", `every crumb tidied up ♥ chomp or ${restartHint()} to play again`],
+      win: [
+        this.racing ? "ROUND COMPLETE!" : "MAZE CLEAR!",
+        this.racing && !this.net.isHost
+          ? "every crumb tidied up ♥ waiting for the host to start the next maze"
+          : `every crumb tidied up ♥ chomp or ${restartHint()} for the next maze`,
+      ],
       gameover: ["OHH NO…", `you did your best ♥ chomp or ${restartHint()} to try again`],
     } satisfies Record<Phase, readonly [string, string]>;
     const [title, sub] = texts[this.phase];
@@ -1238,6 +1322,18 @@ export class GameScene {
       this.bannerControlsEl.replaceChildren();
     }
     this.bannerEl.style.opacity = title === "" ? "0" : "1";
+    const result = this.phase === "win" || this.phase === "gameover";
+    this.bannerEl.classList.toggle("has-result", result);
+    this.resultEl.hidden = !result;
+    this.resultEl.classList.toggle("show", result && this.resultAge >= 0.16);
+    if (result) {
+      this.resultSig = this.resultSignature();
+      el("result-mode").textContent = this.racing ? "YOUR SHARED-MAZE ROUND" : "YOUR SOLO RUN";
+      el("result-score").textContent = String(this.score);
+      el("result-best").textContent = String(this.best);
+      el("result-ghosts").textContent = String(this.ghostsChomped);
+      el("result-left").textContent = String(this.pelletsLeft());
+    }
   }
 
   /** Soft pink full-screen blink on getting caught — feedback, not punishment. */
@@ -1253,6 +1349,69 @@ export class GameScene {
       this.noticeTimer = null;
       this.updateHud();
     }, 900);
+  }
+
+  // ---- session presentation (never controls the simulation) ------------------
+
+  private resetSessionPresentation(): void {
+    this.ghostsChomped = 0;
+    this.captureAge = CAPTURE_ECHO_S;
+    this.captureEcho.visible = false;
+    this.resultAge = 0;
+    this.resultSig = "";
+  }
+
+  private resultSignature(): string {
+    return [
+      this.phase,
+      this.score,
+      this.best,
+      this.ghostsChomped,
+      this.pelletsLeft(),
+      this.racing,
+      this.net.isHost,
+    ].join(":");
+  }
+
+  private updateSessionPresentation(dt: number): void {
+    this.captureAge = Math.min(CAPTURE_ECHO_S, this.captureAge + dt);
+    this.reappearAge = Math.min(REAPPEAR_S, this.reappearAge + dt);
+    this.resultAge += dt;
+    if (this.captureAge >= CAPTURE_ECHO_S || REDUCED_MOTION.matches)
+      this.captureEcho.visible = false;
+    if (this.captureEcho.visible) {
+      const u = this.captureAge / CAPTURE_ECHO_S;
+      this.captureEcho.scale.set(1 - u * 0.55, Math.max(0.01, (1 - u) ** 2), 1 - u * 0.55);
+    }
+
+    if (this.taughtStep && this.taughtTurn && this.teachingDoneAt < 0) this.teachingDoneAt = this.t;
+    const teaching =
+      (this.phase === "ready" || this.phase === "playing") &&
+      (this.teachingDoneAt < 0 || this.t - this.teachingDoneAt < 2);
+    const blocked = this.t < this.teachingBlockedUntil;
+    const sig = [teaching, this.taughtStep, this.taughtTurn, blocked].join(":");
+    if (sig !== this.teachingSig) {
+      this.teachingSig = sig;
+      this.teachingEl.hidden = !teaching;
+      this.teachingStepEl.textContent = this.taughtStep ? "✓ STEP" : "1 · STEP";
+      this.teachingTurnEl.textContent = this.taughtTurn ? "✓ TURN" : "2 · TURN";
+      this.teachingStepEl.classList.toggle("done", this.taughtStep);
+      this.teachingTurnEl.classList.toggle("done", this.taughtTurn);
+      this.teachingNoteEl.textContent = blocked
+        ? "Wall ahead · turn, then chomp"
+        : this.taughtStep && this.taughtTurn
+          ? "Got it! Chomp, turn, tidy the maze ♥"
+          : this.taughtTurn
+            ? "Now chomp · one open tile per bite"
+            : this.taughtStep
+              ? "Turn left or right · relative to your facing"
+              : "One chomp = one tile · turns follow your facing";
+    }
+
+    if (this.phase === "win" || this.phase === "gameover") {
+      if (this.resultSignature() !== this.resultSig) this.renderBanner();
+      this.resultEl.classList.toggle("show", this.resultAge >= 0.16);
+    }
   }
 
   // ---- rendering ---------------------------------------------------------------
@@ -1271,7 +1430,17 @@ export class GameScene {
     const side = bulge - 0.04 * this.stretchAmt;
     const horizontal = this.pac.dir === "left" || this.pac.dir === "right";
     this.pacRig.position.set(this.pac.x, 0, this.pac.z);
-    this.pacRig.scale.set(horizontal ? forward : side, sy, horizontal ? side : forward);
+    const settle = REDUCED_MOTION.matches ? 1 : 1 - 0.18 * (1 - this.reappearAge / REAPPEAR_S) ** 2;
+    const caughtScale =
+      this.phase === "gameover" && !REDUCED_MOTION.matches
+        ? 1 - 0.2 * Math.min(1, this.captureAge / CAPTURE_ECHO_S)
+        : 1;
+    this.pacRig.scale
+      .set(horizontal ? forward : side, sy, horizontal ? side : forward)
+      .multiplyScalar(settle * caughtScale);
+    if (this.phase === "win" && !REDUCED_MOTION.matches) {
+      this.pacRig.position.y = Math.sin(Math.min(1, this.resultAge / 0.65) * Math.PI) * 0.16;
+    }
     // Spawn-grace blink: classic readable invincibility flicker.
     this.pacRig.visible = this.graceMs <= 0 || Math.floor(tMs / 120) % 2 === 0;
 
@@ -1417,6 +1586,7 @@ export class GameScene {
     this.bestEl.textContent = `BEST ${this.best}`;
     const hearts = this.lives > 0 ? "♥".repeat(this.lives) : "×";
     this.statsEl.textContent = `${hearts}  ·  ${this.pelletsLeft()} left`;
+    if (this.phase === "win" || this.phase === "gameover") this.renderBanner();
   }
 }
 

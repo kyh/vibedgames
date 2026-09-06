@@ -61,3 +61,10 @@ export function mountTouchHud(pause: boolean): void {
 export function syncTouchHud(): void {
   controls?.sync();
 }
+
+/** The app owns the shared DOM cluster, including final Game.destroy. */
+export function destroyTouchHud(): void {
+  controls?.destroy();
+  controls = null;
+  hasPause = false;
+}

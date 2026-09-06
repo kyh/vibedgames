@@ -74,6 +74,27 @@
       #charge {
         color: #ffd86b;
       }
+      .well-cues {
+        align-self: flex-start;
+        margin-top: 12px;
+        text-align: left;
+        font-size: 11px;
+        letter-spacing: 1px;
+      }
+      #fx-notice {
+        min-height: 18px;
+        opacity: 0;
+        text-shadow: 0 2px 4px #12131f;
+      }
+      #height-warning {
+        margin-top: 5px;
+        padding: 5px 8px;
+        border: 1px solid rgba(255, 189, 115, 0.35);
+        border-radius: 6px;
+        background: rgba(20, 22, 36, 0.8);
+        color: #ffbd73;
+        font-size: 10px;
+      }
       .preview {
         display: flex;
         align-items: center;
@@ -137,9 +158,10 @@
       }
       #banner {
         position: fixed;
-        top: 32%;
+        top: clamp(128px, 24vh, 240px);
         left: 0;
         right: 0;
+        padding: 0 20px;
         text-align: center;
         opacity: 0;
         transition: opacity 0.25s ease;
@@ -159,6 +181,114 @@
         font-size: 15px;
         color: rgba(215, 220, 240, 0.85);
         text-shadow: 0 2px 0 rgba(0, 0, 0, 0.45);
+      }
+      #spatial-rule {
+        width: min(100%, 470px);
+        margin: 16px auto 0;
+        padding: 12px 16px;
+        border: 1px solid rgba(142, 162, 255, 0.25);
+        border-radius: 12px;
+        background: rgba(18, 19, 31, 0.9);
+        text-align: left;
+      }
+      #spatial-rule:not([hidden]) {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+      #spatial-rule svg {
+        width: 64px;
+        height: 64px;
+        flex: none;
+      }
+      #spatial-rule strong {
+        font-size: 13px;
+        font-weight: 600;
+        color: #eef0ff;
+      }
+      #spatial-rule p {
+        margin: 5px 0 0;
+        font-size: 11px;
+        line-height: 1.5;
+        color: #a7aecb;
+      }
+      #spatial-rule .view-hint {
+        color: #c8d0f5;
+      }
+      #run-summary {
+        margin: 18px auto 0;
+        width: min(100%, 360px);
+        padding: 16px 20px;
+        border: 1px solid rgba(142, 162, 255, 0.3);
+        border-radius: 12px;
+        background: rgba(18, 19, 31, 0.92);
+      }
+      .result-label {
+        color: #a7aecb;
+        font-size: 10px;
+        letter-spacing: 2px;
+      }
+      #result-score {
+        margin: 3px 0;
+        font:
+          700 44px/1.1 system-ui,
+          sans-serif;
+        color: #fff;
+        font-variant-numeric: tabular-nums;
+      }
+      #result-best {
+        color: #ffd86b;
+        font-size: 11px;
+        letter-spacing: 1px;
+      }
+      #result-stats {
+        margin-top: 13px;
+        padding-top: 11px;
+        border-top: 1px solid rgba(142, 162, 255, 0.2);
+        white-space: pre-line;
+        font-size: 12px;
+        line-height: 1.7;
+        color: #c8d0f5;
+      }
+      #catch-meter {
+        width: min(80%, 300px);
+        margin: 18px auto 0;
+      }
+      #catch-track {
+        height: 8px;
+        overflow: hidden;
+        border-radius: 4px;
+        background: #292d46;
+        box-shadow: 0 0 0 1px rgba(142, 162, 255, 0.35);
+      }
+      #catch-fill {
+        height: 100%;
+        background: #c8d0ff;
+        transform-origin: left;
+      }
+      #catch-time {
+        margin-top: 9px;
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+        color: #eef0ff;
+      }
+      #compact-start {
+        display: none;
+        margin: 12px auto 0;
+        min-height: 44px;
+        padding: 8px 24px;
+        border: 1px solid #8ea2ff;
+        border-radius: 8px;
+        color: #eef0ff;
+        background: #303958;
+        font:
+          600 13px ui-monospace,
+          monospace;
+        cursor: pointer;
+      }
+      #compact-start:focus-visible {
+        outline: 2px solid #eef0ff;
+        outline-offset: 3px;
       }
 
       /* Webcam pose panel: bottom-right, navy border + hard offset shadow,
@@ -296,6 +426,156 @@
           height: 114px;
         }
       }
+      /* Keep teaching / results below the expanded feed on narrow screens. */
+      @media (max-width: 700px) and (min-height: 551px) {
+        /* A live feed is opaque: leave the well's spawn height visible while
+           playing / catching, without cropping the 4:3 camera image. */
+        body:has(#banner[data-phase="playing"]) #camera-panel.expanded,
+        body:has(#banner[data-phase="collapsing"]) #camera-panel.expanded {
+          top: calc(env(safe-area-inset-top, 0px) + 70px);
+          width: 180px;
+          height: 135px;
+        }
+        #banner {
+          top: max(260px, 32vh);
+          padding: 0 16px;
+        }
+        body:has(#camera-panel.expanded) #banner {
+          top: max(350px, 39vh);
+        }
+        #spatial-rule {
+          padding: 10px 12px;
+        }
+        #spatial-rule:not([hidden]) {
+          gap: 12px;
+        }
+        #spatial-rule svg {
+          width: 48px;
+          height: 48px;
+        }
+        #banner-sub {
+          line-height: 1.5;
+        }
+        #legend {
+          margin-top: 14px;
+          gap: 9px;
+        }
+      }
+      /* The short-screen card uses the lane between the score column and
+         camera / thumb controls. The well and camera retain their framing. */
+      @media (max-height: 550px) and (min-width: 600px) {
+        #banner,
+        body.touch #banner {
+          top: 36px;
+          left: 166px;
+          right: 232px;
+          padding: 0;
+          max-height: calc(100svh - 48px);
+          overflow-y: auto;
+          overscroll-behavior: contain;
+          touch-action: pan-y;
+        }
+        #banner[data-phase="title"],
+        #banner[data-phase="gameOver"] {
+          pointer-events: auto;
+        }
+        #banner[data-phase="title"] #compact-start,
+        #banner[data-phase="gameOver"] #compact-start {
+          display: block;
+        }
+        body.touch #banner {
+          right: 290px;
+        }
+        #banner-title,
+        body.touch #banner-title {
+          font-size: clamp(26px, 4.5vw, 38px);
+        }
+        #banner-sub {
+          margin-top: 9px;
+          padding: 0;
+          font-size: 11px;
+          line-height: 1.5;
+        }
+        #spatial-rule {
+          margin-top: 10px;
+          padding: 9px;
+        }
+        #spatial-rule:not([hidden]) {
+          gap: 9px;
+        }
+        #spatial-rule svg {
+          width: 40px;
+          height: 40px;
+        }
+        #spatial-rule strong {
+          font-size: 11px;
+        }
+        #spatial-rule p {
+          font-size: 10px;
+          line-height: 1.4;
+        }
+        #legend {
+          margin-top: 10px;
+          gap: 8px;
+          max-width: 100%;
+        }
+        #run-summary {
+          margin-top: 12px;
+          padding: 12px;
+        }
+        #result-score {
+          font-size: 34px;
+        }
+        #result-stats {
+          margin-top: 9px;
+          padding-top: 9px;
+          font-size: 11px;
+        }
+      }
+      @media (max-height: 550px) and (max-width: 599px) {
+        #banner,
+        body.touch #banner {
+          top: 174px;
+          left: 12px;
+          right: 12px;
+          max-height: calc(100svh - 186px);
+          padding: 12px;
+          overflow-y: auto;
+          overscroll-behavior: contain;
+          touch-action: pan-y;
+          border-radius: 12px;
+          background: rgba(18, 19, 31, 0.95);
+        }
+        #banner[data-phase="title"],
+        #banner[data-phase="gameOver"] {
+          pointer-events: auto;
+        }
+        #banner[data-phase="title"] #compact-start,
+        #banner[data-phase="gameOver"] #compact-start {
+          display: block;
+        }
+        #banner-title,
+        body.touch #banner-title {
+          font-size: 28px;
+        }
+        #spatial-rule {
+          margin-top: 10px;
+          padding: 9px;
+        }
+        #spatial-rule:not([hidden]) {
+          gap: 10px;
+        }
+        #spatial-rule svg {
+          width: 40px;
+          height: 40px;
+        }
+        #spatial-rule strong {
+          font-size: 12px;
+        }
+        #legend {
+          max-width: 100%;
+        }
+      }
     </style>
   </head>
   <body>
@@ -319,6 +599,10 @@
           <div class="pill" id="input-owner">○ KEYS</div>
         </div>
       </div>
+      <div class="well-cues">
+        <div id="fx-notice" aria-live="polite"></div>
+        <div id="height-warning" hidden></div>
+      </div>
       <div class="bottom">
         <div id="hotkeys">
           <span><kbd>←→↑↓</kbd>move</span>
@@ -331,9 +615,43 @@
         </div>
       </div>
     </div>
-    <div id="banner">
+    <div id="banner" data-gamepad-ignore>
       <div id="banner-title"></div>
+      <div id="spatial-rule" hidden>
+        <svg viewBox="0 0 81 81" aria-hidden="true">
+          <defs>
+            <pattern id="floor-grid" width="10" height="10" patternUnits="userSpaceOnUse">
+              <path d="M 10 0 H 0 V 10" fill="none" stroke="#69739d" stroke-width="1" />
+            </pattern>
+          </defs>
+          <path d="M 0 30 H 80 V 40 H 0 Z M 30 0 H 40 V 80 H 30 Z" fill="#8ea2ff" opacity="0.65" />
+          <rect x="0.5" y="0.5" width="80" height="80" fill="url(#floor-grid)" stroke="#69739d" />
+        </svg>
+        <div>
+          <strong>8 across or 8 deep.</strong>
+          <p>Fill a row at one height. Either floor direction clears.</p>
+          <p class="view-hint">Orbit to find gaps. Movement follows your view.</p>
+        </div>
+      </div>
       <div id="banner-sub"></div>
+      <div
+        id="catch-meter"
+        role="progressbar"
+        aria-label="Time remaining to catch"
+        aria-valuemin="0"
+        aria-valuemax="1"
+        hidden
+      >
+        <div id="catch-track" aria-hidden="true"><div id="catch-fill"></div></div>
+        <div id="catch-time"></div>
+      </div>
+      <div id="run-summary" hidden>
+        <div class="result-label">RUN SCORE</div>
+        <div id="result-score"></div>
+        <div id="result-best"></div>
+        <div id="result-stats"></div>
+      </div>
+      <button id="compact-start" type="button">Play</button>
       <!-- rows rendered from src/controls.ts, one per visible input method -->
       <div id="legend"></div>
     </div>

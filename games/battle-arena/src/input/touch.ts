@@ -221,6 +221,18 @@ export class TouchControls {
   attackDown(): boolean {
     return this.aim !== null && Math.hypot(this.aim.dx, this.aim.dy) > 0.2;
   }
+  /** An overlay can consume pointer-up; release the owned sticks and edges. */
+  resetInput(): void {
+    this.move = null;
+    this.aim = null;
+    this.queue = [];
+    this.buy = false;
+    this.jump = false;
+    this.dash = false;
+    this.jumpAttack = false;
+    for (const button of this.buttons.values()) button.el.classList.remove("press");
+    this.render();
+  }
   consumeAbilities(): AbilityKey[] {
     const out = this.queue;
     this.queue = [];

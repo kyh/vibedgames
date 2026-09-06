@@ -1,6 +1,7 @@
 import { setPauseHandlers } from "@repo/embed";
 import * as THREE from "three";
 
+import { setSoundPaused, soundDiagnostics } from "./fx/sfx";
 import { PoseCamera } from "./input/camera";
 import { PoseControls } from "./input/pose-control";
 import { isCoarsePointer } from "./input/touch";
@@ -22,6 +23,10 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 container.appendChild(renderer.domElement);
 
 const game = new GameScene(window.innerWidth / window.innerHeight);
+Object.defineProperty(window, "__GAME_DIAGNOSTICS__", {
+  configurable: true,
+  get: () => ({ ...game.diagnostics(), audio: soundDiagnostics() }),
+});
 
 // Pose control + webcam: degrades to keyboard if the camera is denied or the
 // model fails to load. A mouse-and-keyboard session auto-starts it; a phone
@@ -49,10 +54,12 @@ let wrapperPausedAt: number | null = null;
 // START all funnel into this one pause state machine (@repo/embed).
 setPauseHandlers({
   onPause: () => {
+    setSoundPaused(true);
     pauseOverlay.show();
     wrapperPausedAt = performance.now();
   },
   onResume: () => {
+    setSoundPaused(false);
     pauseOverlay.hide();
     if (wrapperPausedAt === null) return;
     game.shiftWallClock(performance.now() - wrapperPausedAt);

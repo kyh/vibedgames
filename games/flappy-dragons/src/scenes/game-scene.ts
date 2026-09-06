@@ -9,6 +9,7 @@ import { isCoarsePointer, recalibratePose, setPoseLocked } from "../input/camera
 import { NetSession, isJsonNumber } from "../net/session";
 import type { JsonObject } from "../net/session";
 import type { Player } from "@vibedgames/multiplayer";
+import { FlightFx } from "./flight-fx";
 import {
   ART_SCALE,
   BEST_KEY,
@@ -60,6 +61,7 @@ type Pipe = {
   botCap: Phaser.GameObjects.Image;
   botBody: Phaser.GameObjects.TileSprite;
   coin: Phaser.GameObjects.Sprite | null;
+  glint: Phaser.GameObjects.Image | null;
 };
 
 type BgLayer = {
@@ -98,6 +100,7 @@ const GHOST_SCALE_MAX = 1.06;
 
 /** Decided once at boot so hint/HUD copy is input-aware from the first frame. */
 const TOUCH = isCoarsePointer();
+const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
 
 const HINT_FLAP = TOUCH ? "TAP TO FLAP" : "CLICK · SPACE — FLAP";
 const HINT_RESTART = TOUCH ? "TAP ANYWHERE TO RESTART" : "CLICK OR PRESS SPACE TO RESTART";
@@ -136,7 +139,7 @@ export class GameScene extends Phaser.Scene {
   /** Cosmetic dragon wandering across the title screen (pre-start only). */
   private titleDragon: Phaser.GameObjects.Sprite | null = null;
   private digits: Phaser.GameObjects.Image[] = [];
-  private puffEmitter!: Phaser.GameObjects.Particles.ParticleEmitter;
+  private flightFx: FlightFx | null = null;
 
   // Net bookkeeping.
   private stateAcc = 0;
@@ -149,6 +152,11 @@ export class GameScene extends Phaser.Scene {
 
   private hintEl: HTMLElement | null = null;
   private bestEl: HTMLElement | null = null;
+  private resultsEl: HTMLElement | null = null;
+  private resultRetryEl: HTMLElement | null = null;
+  private resultLayoutKey = "";
+  private phraseTimer: Phaser.Time.TimerEvent | null = null;
+  private presentationPaused = false;
   private boardEl: HTMLElement | null = null;
   private touchControls: TouchControls | null = null;
   private muted = true;
@@ -172,6 +180,8 @@ export class GameScene extends Phaser.Scene {
   create(): void {
     this.hintEl = document.getElementById("hint");
     this.bestEl = document.getElementById("best");
+    this.resultsEl = document.getElementById("flight-result");
+    this.resultRetryEl = document.getElementById("result-retry");
     this.boardEl = document.getElementById("board");
     this.netInfoEl = document.getElementById("netinfo");
     this.startEl = document.getElementById("start");
@@ -214,18 +224,7 @@ export class GameScene extends Phaser.Scene {
       .setDepth(10);
     this.bird.play(`fly-${this.skin}`);
 
-    // One reusable score-puff emitter; puff() just explodes it at a position.
-    this.puffEmitter = this.add
-      .particles(0, 0, "spark", {
-        speed: { min: 30, max: 120 },
-        angle: { min: 0, max: 360 },
-        lifespan: { min: 240, max: 420 },
-        scale: { start: 0.9, end: 0 },
-        alpha: { start: 0.9, end: 0 },
-        blendMode: Phaser.BlendModes.ADD,
-        emitting: false,
-      })
-      .setDepth(15);
+    this.flightFx = new FlightFx(this);
 
     // Hidden from boot: the HTML start overlay owns the pre-flap moment now,
     // and this banner would show through its translucent wash.
@@ -260,6 +259,12 @@ export class GameScene extends Phaser.Scene {
     this.scale.on(Phaser.Scale.Events.RESIZE, this.layout, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.layout, this);
+      this.cancelPhrase();
+      this.countdownTimer?.remove();
+      this.countdownTimer = null;
+      this.resultsEl?.classList.remove("show");
+      this.unwatchControls?.();
+      this.unwatchControls = null;
       this.net.destroy();
       this.touchControls?.destroy();
       this.touchControls = null;
@@ -271,6 +276,20 @@ export class GameScene extends Phaser.Scene {
 
     if (import.meta.env.DEV) {
       window.__fb = { scene: this, net: this.net };
+      Object.defineProperty(window, "__GAME_DIAGNOSTICS__", {
+        configurable: true,
+        get: () => ({
+          frame: this.game.loop.frame,
+          score: this.score,
+          complete: this.phase === "gameover",
+          player: { x: BIRD_X, y: this.birdY, alive: this.alive },
+          entities: this.pipes.size + this.ghosts.size + 1,
+          phase: this.phase,
+          countdown: this.countingDown,
+          phrasePending: this.phraseTimer !== null,
+          paused: this.presentationPaused,
+        }),
+      });
     }
   }
 
@@ -388,6 +407,7 @@ export class GameScene extends Phaser.Scene {
         el.classList.remove("pop");
         void el.offsetWidth; // restart the pop animation
         el.classList.add("pop");
+        this.playSound("point", { rate: 1.25 - n * 0.15, volume: 0.28 });
         n--;
         this.countdownTimer = this.time.delayedCall(1000, tick);
       } else {
@@ -398,6 +418,7 @@ export class GameScene extends Phaser.Scene {
         void el.offsetWidth;
         el.classList.add("pop");
         this.countingDown = false;
+        this.playSound("point", { rate: 1.5, volume: 0.5 });
         this.setHint(HINT_FLAP);
         this.countdownTimer = this.time.delayedCall(800, () => {
           this.countdownTimer = null;
@@ -428,8 +449,14 @@ export class GameScene extends Phaser.Scene {
    * nothing about it is shared with the race — so the wrapper pause freezes it
    * even when the online sim has to keep running for the other players.
    */
-  setCountdownPaused(paused: boolean): void {
+  setPresentationPaused(paused: boolean): void {
+    this.presentationPaused = paused;
     if (this.countdownTimer) this.countdownTimer.paused = paused;
+    this.sound.mute = this.muted || paused;
+    if (paused) {
+      this.cancelPhrase();
+      this.sound.stopAll();
+    }
   }
   private get alive(): boolean {
     return this.phase === "playing";
@@ -474,9 +501,19 @@ export class GameScene extends Phaser.Scene {
       if (time - this.diedAt >= RESPAWN_MS) this.respawn();
     }
 
+    this.updateResults(time);
     this.applyParallax();
     this.syncPipes();
     this.syncGhosts();
+    this.flightFx?.update(
+      dt,
+      { width: this.viewW(), top: this.viewTop(), scoreY: this.scoreY() },
+      {
+        x: this.bird.x,
+        y: this.bird.y,
+        climbing: this.phase === "playing" && this.vy < -120,
+      },
+    );
     this.broadcast(dt);
     this.updateBoard(dt);
   }
@@ -561,7 +598,9 @@ export class GameScene extends Phaser.Scene {
   private flap(strength: number, refire = false): void {
     this.vy = flapVelocityFor(strength);
     if (refire) return;
-    this.sound.play("flap", { rate: 0.95 + Math.random() * 0.1 });
+    this.flightFx?.wingbeat(this.bird.x, this.bird.y);
+    this.playSound("flap", { rate: 0.95 + Math.random() * 0.1 });
+    if (prefersReducedMotion()) return;
     this.tweens.killTweensOf(this.bird);
     this.bird.setScale(ART_SCALE * 1.15, ART_SCALE * 0.8);
     this.tweens.add({
@@ -586,7 +625,7 @@ export class GameScene extends Phaser.Scene {
     setPoseLocked(phase === "playing");
   }
 
-  /** Solo: any input on gameover drops straight back into playing. */
+  /** Solo: the existing retry input starts another get-ready countdown. */
   private restart(): void {
     this.score = 0;
     this.birdY = BIRD_SPAWN_Y;
@@ -625,6 +664,9 @@ export class GameScene extends Phaser.Scene {
 
   /** Reset the bird's look + game-over HUD after a death. */
   private reviveBird(): void {
+    this.cancelPhrase();
+    this.resultsEl?.classList.remove("show");
+    this.flightFx?.reset();
     this.tweens.killTweensOf(this.bird);
     this.bird
       .setRotation(0)
@@ -648,22 +690,41 @@ export class GameScene extends Phaser.Scene {
   private die(): void {
     this.setPhase("gameover");
     this.diedAt = this.time.now;
-    this.sound.play("hit");
+    this.cancelPhrase();
+    this.playSound("hit");
     this.bird.stop();
     this.bird.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
     this.time.delayedCall(90, () => {
       if (this.phase === "gameover") this.bird.clearTint().setTintMode(Phaser.TintModes.MULTIPLY);
     });
-    this.cameras.main.shake(120, 0.008);
+    if (!prefersReducedMotion()) this.cameras.main.shake(120, 0.008);
+    this.flightFx?.crash(this.bird.x, this.bird.y);
 
     const isNewBest = this.score > this.best;
     if (isNewBest) {
       this.best = this.score;
       writeBest(this.best);
+      this.flightFx?.celebrate("NEW BEST!", this.viewW() / 2, this.scoreY() + 44);
+      this.playPhrase([1.15, 1.45, 1.8], 140);
     }
     this.overImg.setVisible(true);
-    this.setBest(`${isNewBest ? "NEW BEST" : "BEST"} ${this.best}`);
-    this.setHint(this.racing ? "" : HINT_RESTART);
+    this.setBest("");
+    this.setHint("");
+    this.resultsEl?.classList.remove("show");
+    this.resultsEl?.classList.toggle("record", isNewBest);
+    const fields = {
+      "result-title": isNewBest ? "A NEW PERSONAL BEST" : "YOUR FLIGHT",
+      "result-score": String(this.score),
+      "result-gates": String(this.score - this.collectedCoins.size),
+      "result-coins": String(this.collectedCoins.size),
+      "result-best": String(this.best),
+    };
+    for (const [id, value] of Object.entries(fields)) {
+      const el = document.getElementById(id);
+      if (el) el.textContent = value;
+    }
+    this.resultLayoutKey = "";
+    this.updateResults(this.time.now);
   }
 
   // ---- deterministic course ------------------------------------------------
@@ -754,8 +815,14 @@ export class GameScene extends Phaser.Scene {
             .setDepth(4)
         : null;
     coin?.play("coin-spin");
+    const glint = coin
+      ? this.add
+          .image(0, coin.y - 12, "flight-glint")
+          .setTint(0xfff4b8)
+          .setDepth(5)
+      : null;
 
-    const pipe: Pipe = { index: i, topHeight, topCap, topBody, botCap, botBody, coin };
+    const pipe: Pipe = { index: i, topHeight, topCap, topBody, botCap, botBody, coin, glint };
     this.pipes.set(i, pipe);
     return pipe;
   }
@@ -768,6 +835,14 @@ export class GameScene extends Phaser.Scene {
     pipe.topCap.x = centerX;
     pipe.botCap.x = centerX;
     if (pipe.coin) pipe.coin.x = centerX;
+    if (pipe.glint) {
+      pipe.glint.x = centerX + 12;
+      // A small steady gleam still marks an edge-on coin under reduced motion.
+      const pulse = prefersReducedMotion()
+        ? 0.45
+        : Math.max(0, Math.sin(this.time.now / 230 + pipe.index * 2.4));
+      pipe.glint.setAlpha(0.2 + pulse * 0.8).setScale(0.7 + pulse * 0.4);
+    }
   }
 
   private clearPipes(): void {
@@ -781,10 +856,11 @@ export class GameScene extends Phaser.Scene {
       if (this.screenX(pipe.index) + PIPE_WIDTH > BIRD_X) continue;
       this.lastScoredIndex = pipe.index;
       this.score += 1;
-      this.sound.play("point");
+      if (this.score % 5 !== 0) this.playSound("point");
       this.refreshScore();
       this.scorePop();
-      this.puff(this.bird.x, this.bird.y);
+      this.flightFx?.pass(this.bird.x, this.bird.y);
+      this.showMilestone();
     }
   }
 
@@ -797,12 +873,15 @@ export class GameScene extends Phaser.Scene {
       if (Math.abs(coin.x - cx) >= COIN_PICKUP_X || Math.abs(coin.y - cy) >= COIN_PICKUP_Y)
         continue;
       pipe.coin = null;
+      pipe.glint?.destroy();
+      pipe.glint = null;
       this.collectedCoins.add(pipe.index);
       this.collectCoin(coin);
     }
   }
 
   private collectCoin(coin: Phaser.GameObjects.Sprite): void {
+    this.flightFx?.pickup(coin.x, coin.y);
     const burst = this.add
       .sprite(coin.x, coin.y, "burst-1")
       .setScale(ART_SCALE)
@@ -811,9 +890,10 @@ export class GameScene extends Phaser.Scene {
     burst.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => burst.destroy());
     coin.destroy();
     this.score += 1;
-    this.sound.play("point", { rate: 1.5 });
+    if (this.score % 5 !== 0) this.playSound("point", { rate: 1.5 });
     this.refreshScore();
     this.scorePop();
+    this.showMilestone();
   }
 
   private checkDeath(): void {
@@ -927,11 +1007,15 @@ export class GameScene extends Phaser.Scene {
 
   // ---- visual effects ------------------------------------------------------
 
-  private puff(x: number, y: number): void {
-    this.puffEmitter.explode(10, x, y);
+  private showMilestone(): void {
+    if (this.score > 0 && this.score % 5 === 0) {
+      this.flightFx?.celebrate(`${this.score} · KEEP FLYING!`, this.bird.x, this.bird.y);
+      this.playPhrase([1.25, 1.6]);
+    }
   }
 
   private scorePop(): void {
+    if (prefersReducedMotion()) return;
     const y = this.scoreY();
     for (const digit of this.digits) {
       this.tweens.killTweensOf(digit);
@@ -972,18 +1056,106 @@ export class GameScene extends Phaser.Scene {
     if (this.bestEl) this.bestEl.textContent = text;
   }
 
+  /** Presentation uses the existing deadlines; never gates input or respawn. */
+  private updateResults(time: number): void {
+    if (this.phase !== "gameover") return;
+    this.layoutResults();
+    const elapsed = Math.max(0, time - this.diedAt);
+    this.resultsEl?.classList.toggle("show", elapsed >= 120);
+    const remaining = Math.max(0, RESPAWN_MS - elapsed);
+    const retry = this.racing
+      ? `BACK IN ${(remaining / 1000).toFixed(1)}s · RACE CONTINUES`
+      : elapsed < RESTART_LOCKOUT_MS
+        ? "TAKE A BREATH…"
+        : HINT_RESTART;
+    if (this.resultRetryEl && this.resultRetryEl.textContent !== retry) {
+      this.resultRetryEl.textContent = retry;
+    }
+    this.resultsEl?.style.setProperty(
+      "--return-progress",
+      String(Math.min(1, elapsed / (this.racing ? RESPAWN_MS : RESTART_LOCKOUT_MS))),
+    );
+  }
+
+  /** Keep the banner/card together and outside the optional live camera. */
+  private layoutResults(): void {
+    const card = this.resultsEl;
+    if (!card) return;
+    const camera = document.querySelector(".fd-cam")?.getBoundingClientRect();
+    const width = Math.min(340, this.scale.width - 32);
+    const height = card.offsetHeight;
+    const key = [
+      this.scale.width,
+      this.scale.height,
+      width,
+      height,
+      camera?.left,
+      camera?.top,
+    ].join(":");
+    if (key === this.resultLayoutKey) return;
+    this.resultLayoutKey = key;
+    let cardWidth = width;
+    let x = this.scale.width / 2;
+    let y = this.scale.height / 2 + (this.scale.height <= 520 ? 30 : 48);
+    if (camera && x + width / 2 > camera.left && y + height > camera.top - 12) {
+      if (camera.left >= 272) {
+        cardWidth = Math.min(width, camera.left - 32);
+        x = camera.left / 2;
+      } else y = Math.max(90, Math.min(y, camera.top - height - 16));
+    }
+    card.style.width = `${cardWidth}px`;
+    card.style.left = `${x}px`;
+    card.style.top = `${y}px`;
+    const zoom = this.viewZoom();
+    this.overImg
+      .setScale(Math.min(ART_SCALE, (cardWidth - 16) / zoom / this.overImg.width))
+      .setPosition(x / zoom, this.viewTop() + (y - 48) / zoom);
+  }
+
+  private playSound(key: string, config?: Phaser.Types.Sound.SoundConfig): void {
+    if (this.muted || this.presentationPaused) return;
+    this.sound.play(key, config);
+  }
+
+  /** One pending note at most. New moments replace stale fanfares. */
+  private playPhrase(rates: readonly number[], delay = 0): void {
+    this.cancelPhrase();
+    if (this.muted || this.presentationPaused) return;
+    const note = (index: number): void => {
+      this.phraseTimer = null;
+      const rate = rates[index];
+      if (rate === undefined || this.muted || this.presentationPaused) return;
+      this.playSound("point", { rate, volume: 0.45 });
+      if (index + 1 < rates.length) {
+        this.phraseTimer = this.time.delayedCall(110, () => note(index + 1));
+      }
+    };
+    if (delay > 0) this.phraseTimer = this.time.delayedCall(delay, () => note(0));
+    else note(0);
+  }
+
+  private cancelPhrase(): void {
+    this.phraseTimer?.remove();
+    this.phraseTimer = null;
+  }
+
   private setMuted(muted: boolean): void {
     // The scene owns the flag rather than reading it back off the sound
     // manager: Phaser swaps in a no-audio manager when the device has no
     // output, and that one silently drops writes to `mute` and always reads
     // false — which left the toggle stuck after a single press.
     this.muted = muted;
-    this.sound.mute = muted;
+    this.sound.mute = muted || this.presentationPaused;
+    if (muted) {
+      this.cancelPhrase();
+      this.sound.stopAll();
+    }
     storageSet(SOUND_KEY, muted ? "0" : "1");
     // Autoplay policy may have left the context suspended (we boot muted, so
     // nothing forced it awake). We're inside a user gesture — resume is safe.
     if (
       !muted &&
+      !this.presentationPaused &&
       this.sound instanceof Phaser.Sound.WebAudioSoundManager &&
       this.sound.context.state === "suspended"
     ) {
@@ -1107,6 +1279,8 @@ export class GameScene extends Phaser.Scene {
         .setPosition(width / 2, top + viewH / 2);
     }
     this.refreshScore();
+    this.resultLayoutKey = "";
+    if (this.phase === "gameover") this.layoutResults();
     // Both the visible pipe window and the trunk tops depend on the view.
     this.clearPipes();
   }
@@ -1127,6 +1301,7 @@ function destroyPipe(pipe: Pipe): void {
   pipe.botCap.destroy();
   pipe.botBody.destroy();
   pipe.coin?.destroy();
+  pipe.glint?.destroy();
 }
 
 function randomSeed(): number {
@@ -1135,11 +1310,7 @@ function randomSeed(): number {
 }
 
 function prefersReducedMotion(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    "matchMedia" in window &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
+  return REDUCED_MOTION.matches;
 }
 
 /** Stable 0..1 hash of a player id (+salt) for per-rival flock variation. */
