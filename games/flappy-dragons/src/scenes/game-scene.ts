@@ -10,6 +10,18 @@ import { NetSession, isJsonNumber } from "../net/session";
 import type { JsonObject } from "../net/session";
 import type { Player } from "@vibedgames/multiplayer";
 import { FlightFx } from "./flight-fx";
+import { ForestLandmarks } from "./forest-landmarks";
+import {
+  CHALLENGE_SEED,
+  CHALLENGE_NAME,
+  CHALLENGE_GOAL,
+  CHALLENGE_BEST_KEY,
+  freshRouteProgress,
+  passRouteGate,
+  routeBestFromStorage,
+  routeLocation,
+} from "../shared/challenge-route";
+import type { FlightMode } from "../shared/challenge-route";
 import {
   ART_SCALE,
   BEST_KEY,
@@ -118,6 +130,8 @@ export class GameScene extends Phaser.Scene {
   private best = 0;
   private diedAt = 0;
   private skin = 1;
+  private flightMode: FlightMode = { kind: "normal" };
+  private routeHud = document.getElementById("route-hud");
 
   /** Global course scroll. The host owns it; guests mirror the host's value. */
   private worldX = 0;
@@ -140,6 +154,7 @@ export class GameScene extends Phaser.Scene {
   private titleDragon: Phaser.GameObjects.Sprite | null = null;
   private digits: Phaser.GameObjects.Image[] = [];
   private flightFx: FlightFx | null = null;
+  private landmarks: ForestLandmarks | null = null;
 
   // Net bookkeeping.
   private stateAcc = 0;
@@ -163,6 +178,34 @@ export class GameScene extends Phaser.Scene {
   private netInfoEl: HTMLElement | null = null;
   private startEl: HTMLElement | null = null;
   private started = false;
+  private externalReleased = false;
+  private challengeStartEl: HTMLElement | null = null;
+  private routeRetryEl: HTMLButtonElement | null = null;
+  private routeNormalEl: HTMLButtonElement | null = null;
+  private readonly routePointerEvents = [
+    "pointerdown",
+    "pointermove",
+    "pointerup",
+    "pointercancel",
+    "click",
+  ];
+  private readonly stopRoutePointer = (event: Event): void => event.stopPropagation();
+  private readonly stopRouteKey = (event: KeyboardEvent): void => {
+    // Keep native button activation; only the surrounding start/flap route is fenced.
+    if (event.key === "Enter" || event.key === " ") event.stopPropagation();
+  };
+  private readonly onPointerInput = (): void => this.handleInput();
+  private readonly onFlapKey = (event: KeyboardEvent): void => {
+    if (!event.repeat) this.handleInput();
+  };
+  private readonly onMuteKey = (event: KeyboardEvent): void => {
+    if (this.externalReleased || event.repeat) return;
+    this.setMuted(!this.muted);
+    this.touchControls?.sync();
+  };
+  private readonly onStartInput = (): void => {
+    if (!this.externalReleased) this.beginPlay();
+  };
   /** Physical controller: any face button flaps (and starts/restarts). */
   private readonly pad = new PhysicalGamepad();
   private unwatchControls: (() => void) | null = null;
@@ -178,6 +221,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   create(): void {
+    this.externalReleased = false;
     this.hintEl = document.getElementById("hint");
     this.bestEl = document.getElementById("best");
     this.resultsEl = document.getElementById("flight-result");
@@ -185,6 +229,11 @@ export class GameScene extends Phaser.Scene {
     this.boardEl = document.getElementById("board");
     this.netInfoEl = document.getElementById("netinfo");
     this.startEl = document.getElementById("start");
+    this.challengeStartEl = document.getElementById("challenge-start");
+    const routeRetry = document.getElementById("route-retry");
+    this.routeRetryEl = routeRetry instanceof HTMLButtonElement ? routeRetry : null;
+    const routeNormal = document.getElementById("route-normal");
+    this.routeNormalEl = routeNormal instanceof HTMLButtonElement ? routeNormal : null;
     this.best = readBest();
     this.skin = rollSkin();
 
@@ -225,6 +274,7 @@ export class GameScene extends Phaser.Scene {
     this.bird.play(`fly-${this.skin}`);
 
     this.flightFx = new FlightFx(this);
+    this.landmarks = new ForestLandmarks(this);
 
     // Hidden from boot: the HTML start overlay owns the pre-flap moment now,
     // and this banner would show through its translucent wash.
@@ -240,35 +290,11 @@ export class GameScene extends Phaser.Scene {
       .setVisible(false);
 
     this.buildStartScreen();
-    this.input.on("pointerdown", () => this.handleInput());
-    this.input.keyboard?.on("keydown-SPACE", (e: KeyboardEvent) => {
-      if (!e.repeat) this.handleInput();
-    });
-    this.input.keyboard?.on("keydown-UP", (e: KeyboardEvent) => {
-      if (!e.repeat) this.handleInput();
-    });
-    // M is a user gesture, so unmuting here can safely resume a suspended
-    // audio context.
-    this.input.keyboard?.on("keydown-M", (e: KeyboardEvent) => {
-      if (!e.repeat) {
-        this.setMuted(!this.muted);
-        this.touchControls?.sync();
-      }
-    });
+    this.bindExternalInput();
 
     this.scale.on(Phaser.Scale.Events.RESIZE, this.layout, this);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      this.scale.off(Phaser.Scale.Events.RESIZE, this.layout, this);
-      this.cancelPhrase();
-      this.countdownTimer?.remove();
-      this.countdownTimer = null;
-      this.resultsEl?.classList.remove("show");
-      this.unwatchControls?.();
-      this.unwatchControls = null;
-      this.net.destroy();
-      this.touchControls?.destroy();
-      this.touchControls = null;
-    });
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.releaseExternal);
+    this.events.once(Phaser.Scenes.Events.DESTROY, this.releaseExternal);
 
     this.layout();
     this.setHint(HINT_FLAP);
@@ -288,10 +314,64 @@ export class GameScene extends Phaser.Scene {
           countdown: this.countingDown,
           phrasePending: this.phraseTimer !== null,
           paused: this.presentationPaused,
+          challenge: this.flightMode.kind === "challenge" ? this.flightMode.progress : null,
         }),
       });
     }
   }
+
+  private bindExternalInput(): void {
+    this.input.on("pointerdown", this.onPointerInput);
+    this.input.keyboard?.on("keydown-SPACE", this.onFlapKey);
+    this.input.keyboard?.on("keydown-UP", this.onFlapKey);
+    this.input.keyboard?.on("keydown-M", this.onMuteKey);
+    for (const button of [this.challengeStartEl, this.routeRetryEl, this.routeNormalEl]) {
+      for (const name of this.routePointerEvents)
+        button?.addEventListener(name, this.stopRoutePointer);
+      button?.addEventListener("keydown", this.stopRouteKey);
+      button?.addEventListener("keyup", this.stopRouteKey);
+    }
+    this.challengeStartEl?.addEventListener("click", this.onChallengeStart);
+    this.routeRetryEl?.addEventListener("click", this.onRouteRetry);
+    this.routeNormalEl?.addEventListener("click", this.onRouteNormal);
+  }
+
+  /** Phaser may destroy display/input plugins before this final listener runs. */
+  private readonly releaseExternal = (): void => {
+    if (this.externalReleased) return;
+    this.externalReleased = true;
+    this.events.off(Phaser.Scenes.Events.SHUTDOWN, this.releaseExternal);
+    this.events.off(Phaser.Scenes.Events.DESTROY, this.releaseExternal);
+    this.scale.off(Phaser.Scale.Events.RESIZE, this.layout, this);
+    this.input.off("pointerdown", this.onPointerInput);
+    this.input.keyboard?.off("keydown-SPACE", this.onFlapKey);
+    this.input.keyboard?.off("keydown-UP", this.onFlapKey);
+    this.input.keyboard?.off("keydown-M", this.onMuteKey);
+    this.input.keyboard?.off("keyup", this.onStartInput);
+    this.startEl?.removeEventListener("pointerup", this.onStartInput);
+    for (const button of [this.challengeStartEl, this.routeRetryEl, this.routeNormalEl]) {
+      for (const name of this.routePointerEvents)
+        button?.removeEventListener(name, this.stopRoutePointer);
+      button?.removeEventListener("keydown", this.stopRouteKey);
+      button?.removeEventListener("keyup", this.stopRouteKey);
+    }
+    this.challengeStartEl?.removeEventListener("click", this.onChallengeStart);
+    this.routeRetryEl?.removeEventListener("click", this.onRouteRetry);
+    this.routeNormalEl?.removeEventListener("click", this.onRouteNormal);
+    this.cancelPhrase();
+    this.countdownTimer?.remove();
+    this.countdownTimer = null;
+    this.resultsEl?.classList.remove("show");
+    if (this.routeHud) this.routeHud.hidden = true;
+    const countdown = document.getElementById("countdown");
+    countdown?.classList.remove("show", "pop");
+    if (countdown) countdown.textContent = "";
+    this.unwatchControls?.();
+    this.unwatchControls = null;
+    this.net.destroy();
+    this.touchControls?.destroy();
+    this.touchControls = null;
+  };
 
   private buildStartScreen(): void {
     const controls = document.getElementById("start-controls");
@@ -313,8 +393,8 @@ export class GameScene extends Phaser.Scene {
     if (go) go.textContent = TOUCH ? "tap to start" : "press any key to start";
     // Reveals the overlay now that the card is complete — see #start in index.html.
     this.startEl?.classList.add("ready");
-    this.input.keyboard?.once("keyup", () => this.beginPlay());
-    this.startEl?.addEventListener("pointerup", () => this.beginPlay(), { once: true });
+    this.input.keyboard?.once("keyup", this.onStartInput);
+    this.startEl?.addEventListener("pointerup", this.onStartInput, { once: true });
   }
 
   /**
@@ -389,6 +469,102 @@ export class GameScene extends Phaser.Scene {
     this.runCountdown();
   }
 
+  /** Optional route is local by intent; the normal auto-join remains the default. */
+  private challengeSeed(): number | null {
+    return this.flightMode.kind === "challenge" ? CHALLENGE_SEED : null;
+  }
+
+  private onChallengeStart = (): void => {
+    if (this.externalReleased || this.presentationPaused || this.started) return;
+    this.selectChallenge();
+    this.beginPlay();
+  };
+
+  private onRouteRetry = (): void => {
+    if (
+      this.externalReleased ||
+      this.presentationPaused ||
+      this.phase !== "gameover" ||
+      this.racing
+    )
+      return;
+    if (this.time.now - this.diedAt < RESTART_LOCKOUT_MS) return;
+    if (this.flightMode.kind === "normal") this.selectChallenge();
+    this.restart();
+  };
+
+  private onRouteNormal = (): void => {
+    if (
+      this.externalReleased ||
+      this.presentationPaused ||
+      this.flightMode.kind !== "challenge" ||
+      this.phase !== "gameover"
+    )
+      return;
+    if (this.time.now - this.diedAt < RESTART_LOCKOUT_MS) return;
+    this.flightMode = { kind: "normal" };
+    this.replaceSession(false);
+    this.best = readBest();
+    this.resetRouteFlight();
+    this.runCountdown();
+  };
+
+  private selectChallenge(): void {
+    this.flightMode = { kind: "challenge", progress: freshRouteProgress() };
+    this.replaceSession(true);
+    this.best = routeBestFromStorage(storageGet(CHALLENGE_BEST_KEY));
+    this.resetRouteFlight();
+    this.ensureSeed();
+  }
+
+  /** Only explicit mode navigation resets the local flight and its presentation. */
+  private resetRouteFlight(): void {
+    this.cancelPhrase();
+    this.sound.stopAll();
+    this.countdownTimer?.remove();
+    this.countdownTimer = null;
+    this.countingDown = false;
+    this.score = 0;
+    this.worldX = 0;
+    this.readyDrift = 0;
+    this.birdY = BIRD_SPAWN_Y;
+    this.vy = 0;
+    this.lastScoredIndex = -1;
+    this.collectedCoins.clear();
+    this.clearPipes();
+    for (const ghost of this.ghosts.values()) ghost.sprite.destroy();
+    this.ghosts.clear();
+    this.bird.setPosition(BIRD_X + DRAGON_SPRITE_OFFSET_X, BIRD_SPAWN_Y + DRAGON_SPRITE_OFFSET_Y);
+    this.reviveBird();
+    this.setPhase("ready");
+    this.refreshRouteHud();
+  }
+
+  private refreshRouteHud(): void {
+    if (!this.routeHud) return;
+    this.routeHud.hidden = this.flightMode.kind !== "challenge";
+    if (this.flightMode.kind !== "challenge") return;
+    const gates = this.flightMode.progress.gates;
+    const text =
+      gates >= CHALLENGE_GOAL
+        ? "CANOPY TRAIL · ROUTE CLEARED · KEEP FLYING"
+        : `${routeLocation(gates).toUpperCase()} · ${gates} / ${CHALLENGE_GOAL} GATES`;
+    if (this.routeHud.textContent !== text) this.routeHud.textContent = text;
+  }
+
+  private recordRouteGate(index: number): void {
+    if (this.flightMode.kind !== "challenge") return;
+    const previous = this.flightMode.progress;
+    const progress = passRouteGate(previous, index);
+    if (progress === previous) return;
+    this.flightMode = { kind: "challenge", progress };
+    this.refreshRouteHud();
+    if (progress.gates === CHALLENGE_GOAL) {
+      this.flightFx?.celebrate("ROUTE CLEARED!", this.bird.x, this.bird.y);
+      this.playPhrase([1.2, 1.5, 1.8]);
+    }
+  }
+
   /**
    * 3-2-1 between the start screen and the first flap: time to step back and
    * get framed for the pose camera, whose baseline re-captures during the
@@ -450,7 +626,11 @@ export class GameScene extends Phaser.Scene {
    * even when the online sim has to keep running for the other players.
    */
   setPresentationPaused(paused: boolean): void {
+    if (paused === this.presentationPaused) return;
     this.presentationPaused = paused;
+    // The button that dismisses the wrapper's controls is consumed by it.
+    // Drain its held edge before the next gameplay poll, including solo sleep.
+    this.pad.update();
     if (this.countdownTimer) this.countdownTimer.paused = paused;
     this.sound.mute = this.muted || paused;
     if (paused) {
@@ -521,10 +701,15 @@ export class GameScene extends Phaser.Scene {
   // ---- seed + world scroll -------------------------------------------------
 
   private ensureSeed(): void {
+    const challenge = this.challengeSeed();
+    if (challenge !== null) {
+      this.adoptSeed(challenge);
+      return;
+    }
     const s = this.net.sharedState;
     const shared = s ? numField(s, "seed") : null;
-    if (shared !== null) {
-      this.seed = shared;
+    if (shared !== null && Number.isSafeInteger(shared) && shared > 0 && shared <= 0x80000000) {
+      this.adoptSeed(shared);
       return;
     }
     // First host seeds the course. Guests wait for it (bird just hovers).
@@ -532,6 +717,34 @@ export class GameScene extends Phaser.Scene {
       if (this.seed === 0) this.seed = randomSeed();
       this.net.patchShared({ seed: this.seed });
     }
+  }
+
+  /** A new admitted course cannot reuse obstacle geometry from the old seed. */
+  private adoptSeed(seed: number): void {
+    if (seed === this.seed) return;
+    this.seed = seed;
+    this.clearPipes();
+    this.syncPipes();
+  }
+
+  /** Explicit route navigation replaces a session; normal reconnects keep it. */
+  private replaceSession(forceOffline: boolean): void {
+    this.net.destroy();
+    this.net = new NetSession({
+      room: MP_ROOM,
+      maxPlayers: MP_MAX_PLAYERS,
+      fallbackMs: OFFLINE_FALLBACK_MS,
+      forceOffline,
+    });
+    this.seed = 0;
+    this.stateAcc = 0;
+    this.worldAcc = 0;
+    this.boardAcc = 0;
+    this.hostSeq = 0;
+    this.lastSeq = -1;
+    this.boardSig = "";
+    this.lastNetInfo = "";
+    if (import.meta.env.DEV) window.__fb = { scene: this, net: this.net };
   }
 
   private advanceWorld(dt: number): void {
@@ -561,6 +774,7 @@ export class GameScene extends Phaser.Scene {
   // ---- input ---------------------------------------------------------------
 
   private handleInput(strength = 1, refire = false): void {
+    if (this.externalReleased || this.presentationPaused) return;
     if (!this.started) {
       this.beginPlay();
       return;
@@ -633,8 +847,12 @@ export class GameScene extends Phaser.Scene {
     this.worldX = 0; // solo: start the course over
     this.lastScoredIndex = -1;
     this.collectedCoins.clear();
+    if (this.flightMode.kind === "challenge") {
+      this.flightMode = { kind: "challenge", progress: freshRouteProgress() };
+      this.refreshRouteHud();
+    }
     if (!this.racing) {
-      this.seed = randomSeed(); // fresh course when truly alone
+      this.seed = this.challengeSeed() ?? randomSeed(); // normal solo still gets a fresh course
       // Publish the reroll, or ensureSeed() re-adopts the stale shared seed
       // next frame and every solo run replays the identical course. (Offline
       // this writes the local loopback state; a non-host can't be alone.)
@@ -703,7 +921,8 @@ export class GameScene extends Phaser.Scene {
     const isNewBest = this.score > this.best;
     if (isNewBest) {
       this.best = this.score;
-      writeBest(this.best);
+      if (this.flightMode.kind === "challenge") storageSet(CHALLENGE_BEST_KEY, String(this.best));
+      else writeBest(this.best);
       this.flightFx?.celebrate("NEW BEST!", this.viewW() / 2, this.scoreY() + 44);
       this.playPhrase([1.15, 1.45, 1.8], 140);
     }
@@ -713,11 +932,25 @@ export class GameScene extends Phaser.Scene {
     this.resultsEl?.classList.remove("show");
     this.resultsEl?.classList.toggle("record", isNewBest);
     const fields = {
-      "result-title": isNewBest ? "A NEW PERSONAL BEST" : "YOUR FLIGHT",
+      "result-title":
+        this.flightMode.kind === "challenge"
+          ? isNewBest
+            ? "A NEW ROUTE BEST"
+            : CHALLENGE_NAME.toUpperCase()
+          : isNewBest
+            ? "A NEW PERSONAL BEST"
+            : "YOUR FLIGHT",
       "result-score": String(this.score),
       "result-gates": String(this.score - this.collectedCoins.size),
       "result-coins": String(this.collectedCoins.size),
       "result-best": String(this.best),
+      "result-best-label": this.flightMode.kind === "challenge" ? "ROUTE BEST" : "BEST",
+      "result-route":
+        this.flightMode.kind === "challenge"
+          ? this.flightMode.progress.gates >= CHALLENGE_GOAL
+            ? "10 GATES CLEARED · SAME ROUTE NEXT TIME"
+            : `${this.flightMode.progress.gates} / ${CHALLENGE_GOAL} GATES · SAME ROUTE NEXT TIME`
+          : "",
     };
     for (const [id, value] of Object.entries(fields)) {
       const el = document.getElementById(id);
@@ -861,6 +1094,7 @@ export class GameScene extends Phaser.Scene {
       this.scorePop();
       this.flightFx?.pass(this.bird.x, this.bird.y);
       this.showMilestone();
+      this.recordRouteGate(pipe.index);
     }
   }
 
@@ -1061,6 +1295,18 @@ export class GameScene extends Phaser.Scene {
     if (this.phase !== "gameover") return;
     this.layoutResults();
     const elapsed = Math.max(0, time - this.diedAt);
+    const routeButton = this.routeRetryEl;
+    const normalButton = this.routeNormalEl;
+    if (routeButton) {
+      routeButton.hidden = this.racing;
+      routeButton.disabled = elapsed < RESTART_LOCKOUT_MS;
+      const label = this.flightMode.kind === "challenge" ? "Retry route" : "Challenge route";
+      if (routeButton.textContent !== label) routeButton.textContent = label;
+    }
+    if (normalButton) {
+      normalButton.hidden = this.flightMode.kind !== "challenge";
+      normalButton.disabled = elapsed < RESTART_LOCKOUT_MS;
+    }
     this.resultsEl?.classList.toggle("show", elapsed >= 120);
     const remaining = Math.max(0, RESPAWN_MS - elapsed);
     const retry = this.racing
@@ -1096,7 +1342,10 @@ export class GameScene extends Phaser.Scene {
     this.resultLayoutKey = key;
     let cardWidth = width;
     let x = this.scale.width / 2;
-    let y = this.scale.height / 2 + (this.scale.height <= 520 ? 30 : 48);
+    let y = Math.min(
+      this.scale.height - height - 16,
+      this.scale.height / 2 + (this.scale.height <= 520 ? 30 : 48),
+    );
     if (camera && x + width / 2 > camera.left && y + height > camera.top - 12) {
       if (camera.left >= 272) {
         cardWidth = Math.min(width, camera.left - 32);
@@ -1290,6 +1539,7 @@ export class GameScene extends Phaser.Scene {
     for (const layer of this.bgLayers) {
       layer.sprite.tilePositionX = (px * layer.factor) / layer.sprite.tileScaleX;
     }
+    this.landmarks?.update(px, { width: this.viewW(), top: this.viewTop(), floor: COURSE_H });
   }
 }
 

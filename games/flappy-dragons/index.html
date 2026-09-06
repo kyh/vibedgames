@@ -79,11 +79,13 @@
         top: calc(50% + 48px);
         left: 50%;
         width: min(340px, calc(100vw - 32px));
+        max-height: calc(100dvh - 88px);
         padding: 14px 18px 0;
         transform: translate(-50%, 8px);
         opacity: 0;
         visibility: hidden;
-        overflow: hidden;
+        overflow-x: hidden;
+        overflow-y: auto;
         pointer-events: none;
         text-align: center;
         background: rgba(27, 29, 62, 0.92);
@@ -154,6 +156,85 @@
         transform-origin: left;
         transform: scaleX(var(--return-progress, 0));
       }
+      #result-route {
+        color: #ffdf8b;
+        font-size: 10px;
+        letter-spacing: 0.5px;
+        margin-bottom: 8px;
+      }
+      #result-route:empty {
+        display: none;
+      }
+      #result-best-label {
+        font-style: normal;
+      }
+      .route-actions {
+        display: flex;
+        gap: 8px;
+        justify-content: center;
+        margin: 0 0 12px;
+      }
+      .route-action {
+        min-height: 44px;
+        border: 2px solid #8c698e;
+        border-radius: 3px;
+        background: #fff2c9;
+        color: #382951;
+        padding: 8px 12px;
+        font:
+          800 12px/1.25 ui-monospace,
+          "SF Mono",
+          Menlo,
+          monospace;
+        box-shadow: 0 3px 0 #5c416d;
+        cursor: pointer;
+        touch-action: manipulation;
+        pointer-events: auto;
+      }
+      .route-action:focus-visible {
+        outline: 3px solid #ffcf57;
+        outline-offset: 3px;
+      }
+      .route-action:disabled {
+        cursor: default;
+        opacity: 0.55;
+      }
+      .route-action[hidden] {
+        display: none;
+      }
+      #challenge-start {
+        min-width: 220px;
+      }
+      #challenge-start small {
+        display: block;
+        margin-top: 3px;
+        font-weight: 500;
+        font-size: 10px;
+      }
+      #route-hud {
+        position: fixed;
+        z-index: 12;
+        top: calc(96px + env(safe-area-inset-top));
+        left: 50%;
+        transform: translateX(-50%);
+        max-width: calc(100vw - 32px);
+        padding: 5px 9px;
+        border: 1px solid #e2d4ee;
+        border-radius: 3px;
+        background: rgba(38, 31, 67, 0.82);
+        color: #fff2c9;
+        text-align: center;
+        font:
+          700 10px/1.35 ui-monospace,
+          "SF Mono",
+          Menlo,
+          monospace;
+        letter-spacing: 0.6px;
+        pointer-events: none;
+      }
+      #route-hud[hidden] {
+        display: none;
+      }
       @media (max-height: 520px) {
         #flight-result {
           top: calc(50% + 30px);
@@ -167,6 +248,15 @@
         }
         #result-retry {
           padding: 6px 0;
+        }
+        #route-hud {
+          top: calc(64px + env(safe-area-inset-top));
+        }
+        .route-actions {
+          margin-bottom: 8px;
+        }
+        #challenge-start {
+          min-width: 200px;
         }
       }
       @media (prefers-reduced-motion: reduce) {
@@ -348,6 +438,7 @@
         flex-direction: column;
         align-items: center;
         gap: 20px;
+        max-width: 100%;
       }
 
       #countdown {
@@ -465,6 +556,49 @@
           transform: scale(0.96);
         }
       }
+      /* Keep the full camera usable beside the title, rather than stacking
+         the challenge action beneath its live preview. The camera owns this
+         measured height; collapsing it gives the title its space back. */
+      @media (max-width: 599px) {
+        #start {
+          padding-bottom: calc(36px + env(safe-area-inset-bottom) + var(--fd-cam-h, 0px));
+        }
+        #start-card {
+          gap: 14px;
+        }
+      }
+      @media (max-height: 520px) and (min-width: 600px) {
+        #start {
+          padding: 16px 24px;
+        }
+        body:has(.fd-cam:not(.fd-cam--collapsed)) #start {
+          padding-right: calc(min(320px, 45vw) + 36px + env(safe-area-inset-right));
+        }
+        #start-card {
+          width: min(380px, 100%);
+          gap: 10px;
+        }
+        #start-title img {
+          width: 180px;
+          max-width: 100%;
+        }
+        #start-controls {
+          max-width: 100%;
+        }
+        #start-controls .fdp-controls {
+          gap: 8px 18px;
+          margin-top: 0;
+        }
+        #start-controls .fdp-method {
+          margin-bottom: 5px;
+        }
+        #start-controls .fdp-rows {
+          gap: 5px 10px;
+        }
+        #start-controls .fdp-key {
+          padding: 3px 8px;
+        }
+      }
       @media (prefers-reduced-motion: reduce) {
         #start-title,
         #start-title img,
@@ -481,6 +615,7 @@
     <div id="game"></div>
     <div id="board"></div>
     <div id="netinfo"></div>
+    <div id="route-hud" role="status" hidden></div>
     <div id="hud">
       <div class="pill" id="best"></div>
       <div class="pill" id="hint"></div>
@@ -491,9 +626,14 @@
       <div class="result-stats">
         <span><b id="result-gates">0</b>GATES</span>
         <span><b id="result-coins">0</b>COINS</span>
-        <span><b id="result-best">0</b>BEST</span>
+        <span><b id="result-best">0</b><em id="result-best-label">BEST</em></span>
       </div>
+      <div id="result-route"></div>
       <div id="result-retry" aria-live="off"></div>
+      <div class="route-actions">
+        <button id="route-retry" class="route-action" type="button">Challenge route</button>
+        <button id="route-normal" class="route-action" type="button" hidden>Play normal</button>
+      </div>
       <div class="result-progress" aria-hidden="true"></div>
     </div>
     <div id="start">
@@ -508,6 +648,9 @@
         </h1>
         <div id="start-controls"></div>
         <div id="start-go"></div>
+        <button id="challenge-start" class="route-action" type="button">
+          Challenge route<small>Canopy Trail · 10 gates · same route on retry</small>
+        </button>
       </div>
     </div>
     <div id="countdown" aria-live="polite"></div>

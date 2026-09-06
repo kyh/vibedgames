@@ -48,8 +48,8 @@ Each row includes the existing polish/graphics baseline plus the remaining work.
 | Lunerfall             | Enemy anticipation/recovery; portrait hub composition; complete co-op expedition and boss pacing      | Original acting, responsive hub, live co-op/versus and hardware load verified |
 | Farm                  | Character/tool transition continuity; seasonal collection goals; complete day/mine/save pacing        | Original acting, journal, saves, live pause and hardware scenes verified      |
 | Pong                  | Spin teaching/practice; optional trick-shot mastery; full local/connected match feel                  | Practice, camera recovery, live matches and hardware rendering verified       |
-| Flappy Dragons        | Distinct forest landmarks; seeded challenge routes; pose recovery and full-flight pacing              | Camera/pause ownership and seeded-route completion next                       |
-| Pacman                | Musical escalation; optional maze challenges; camera recovery and complete chase pacing               | Queued                                                                        |
+| Flappy Dragons        | Distinct forest landmarks; seeded challenge routes; pose recovery and full-flight pacing              | Route, camera recovery, live races and hardware flight verified locally       |
+| Pacman                | Musical escalation; optional maze challenges; camera recovery and complete chase pacing               | Camera/audio ownership and shared-board completion next                       |
 | Tetris                | Advanced spatial teaching; seeded score challenges; camera recovery and full-run pacing               | Queued                                                                        |
 
 Ancients' reconnect, host migration, ended results and late joins passed live
@@ -132,6 +132,19 @@ Flappy Dragons plan: preserve the four-frame dragon art, forest palette, all pos
 methods and original flap/race rules. Finish final scene/camera ownership and
 paused-controller fencing; verify real race recovery; add an optional fixed-seed
 solo route and sparse forest landmarks using the existing course generator.
+Unresolved questions: none blocking implementation.
+
+Flappy Dragons' local pass is complete. [Evidence and captures](/Users/kyh/.codex/visualizations/2026/09/05/01a072e5-b121-77b0-b7f7-52a06ec3e9e2/aaa-completion/flappy-dragons/README.md)
+cover native ten-gate Canopy Trail completion and retry, a generated landmark
+sprite matching the original forest, camera recovery and unchanged pose traces,
+real races/reconnect/election/late join, touch with expanded-camera layouts,
+bounded effects, matched Apple GPU flight and lossless recorded audio. All89
+original assets and the original flight/race rules remain intact.
+
+Pacman plan: preserve its plush maze, original lullaby and face/step/turn rules;
+finish paused-input, camera and audio ownership; fix stale shared-board claim
+rollback; add restrained chase mixing and an optional original-maze Pearl
+circuit. Verify real claims, host recovery, full chase and native input paths.
 Unresolved questions: none blocking implementation.
 
 After individual work, compare the collection for quality consistency and close

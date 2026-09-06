@@ -2,7 +2,7 @@ import Phaser from "phaser";
 import { setPauseHandlers } from "@repo/embed";
 
 import { CONTROLS } from "./controls";
-import { initPoseCamera, type PoseJumpHandler } from "./input/camera";
+import { disposePoseCamera, initPoseCamera, type PoseJumpHandler } from "./input/camera";
 import type { NetSession } from "./net/session";
 import { createFlappyPauseOverlay } from "./pause-overlay";
 import { BootScene } from "./scenes/boot-scene";
@@ -32,19 +32,25 @@ const config: Phaser.Types.Core.GameConfig = {
 };
 
 const game = new Phaser.Game(config);
+let disposed = false;
 
 // Scale.RESIZE can read stale parent bounds when a resize lands while the tab
 // is hidden or the browser throttles events (tab switch, phone rotation): the
 // canvas lags one size behind. Re-check once layout settles and on tab return.
 let settle: ReturnType<typeof setTimeout> | undefined;
 const refreshScale = (): void => {
+  if (disposed) return;
   clearTimeout(settle);
-  settle = setTimeout(() => game.scale.refresh(), 150);
+  settle = setTimeout(() => {
+    settle = undefined;
+    if (!disposed) game.scale.refresh();
+  }, 150);
 };
 window.addEventListener("resize", refreshScale);
-document.addEventListener("visibilitychange", () => {
+const onVisibilityChange = (): void => {
   if (!document.hidden) refreshScale();
-});
+};
+document.addEventListener("visibilitychange", onVisibilityChange);
 
 // Webcam pose-jump (legacy signature feature): detected physical jumps route
 // into the scene through the same path as tap/keyboard input — EXCEPT while
@@ -54,7 +60,7 @@ document.addEventListener("visibilitychange", () => {
 // PAUSED screen.
 let wrapperPaused = false;
 const poseJump: PoseJumpHandler = (strength, refire) => {
-  if (wrapperPaused) return;
+  if (disposed || wrapperPaused) return;
   const scene = game.scene.getScene("Game");
   if (game.scene.isActive("Game") && scene instanceof GameScene) {
     scene.poseJump(strength, refire);
@@ -69,6 +75,7 @@ initPoseCamera(poseJump);
 // is local-only, so it pauses in BOTH paths (online it would otherwise keep
 // ticking behind the overlay).
 const gameScene = (): GameScene | null => {
+  if (disposed) return null;
   const scene = game.scene.getScene("Game");
   return game.scene.isActive("Game") && scene instanceof GameScene ? scene : null;
 };
@@ -77,6 +84,7 @@ let froze = false;
 const pauseOverlay = createFlappyPauseOverlay(CONTROLS);
 setPauseHandlers({
   onPause: () => {
+    if (disposed) return;
     wrapperPaused = true;
     pauseOverlay.show();
     gameScene()?.setPresentationPaused(true);
@@ -85,6 +93,7 @@ setPauseHandlers({
     game.loop.sleep();
   },
   onResume: () => {
+    if (disposed) return;
     wrapperPaused = false;
     pauseOverlay.hide();
     gameScene()?.setPresentationPaused(false);
@@ -92,6 +101,18 @@ setPauseHandlers({
     froze = false;
     game.loop.wake();
   },
+});
+
+// SceneManager is already destroyed at this final event; only app owners remain.
+game.events.once(Phaser.Core.Events.DESTROY, () => {
+  disposed = true;
+  clearTimeout(settle);
+  settle = undefined;
+  window.removeEventListener("resize", refreshScale);
+  document.removeEventListener("visibilitychange", onVisibilityChange);
+  setPauseHandlers({});
+  pauseOverlay.hide();
+  disposePoseCamera();
 });
 
 if (import.meta.env.DEV) {

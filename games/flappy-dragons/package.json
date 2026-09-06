@@ -9,7 +9,7 @@
     "dev": "vite",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "tsx scripts/session-smoke.ts"
+    "test": "node --import tsx scripts/session-smoke.ts && node --import tsx scripts/route-smoke.ts && node --import tsx --test scripts/*-smoke.mjs"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "1.0.1",

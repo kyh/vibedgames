@@ -17,6 +17,7 @@ export class BootScene extends Phaser.Scene {
       }
     }
     for (let i = 1; i <= 4; i++) this.load.image(`bg-${i}`, `bg-${i}.png`);
+    this.load.image("landmark-tree", "landmark-tree.png");
     this.load.image("tube-cap", "tube-cap.png");
     this.load.image("tube-body", "tube-body.png");
     for (let i = 1; i <= 6; i++) this.load.image(`coin-${i}`, `coin-${i}.png`);
