@@ -1,4 +1,4 @@
-import { cn } from "@repo/ui/lib/utils";
+import { cn } from "cn";
 import { Link } from "@tanstack/react-router";
 import { motion } from "motion/react";
 

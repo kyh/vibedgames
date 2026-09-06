@@ -15,7 +15,7 @@ Components are imported per-file (no barrel export):
 ```ts
 import { Button } from "@repo/ui/components/button";
 import { useIsMobile } from "@repo/ui/hooks/use-mobile";
-import { cn } from "@repo/ui/lib/utils";
+import { cn } from "cn";
 ```
 
 Global styles + Tailwind theme:
@@ -28,5 +28,4 @@ Global styles + Tailwind theme:
 
 - `src/components/` — button, dialog, sheet, sidebar, field, input, OTP input, tooltip, avatar, skeleton, spinner, logo, …
 - `src/hooks/` — `use-mobile` (breakpoint detection), `use-shake` (error shake animation, reduced-motion aware)
-- `src/lib/utils.ts` — `cn()` class merger
 - `src/styles/globals.css` — Tailwind theme tokens

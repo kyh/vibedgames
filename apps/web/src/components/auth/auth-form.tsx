@@ -7,7 +7,7 @@ import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from "@repo/u
 import { Input } from "@repo/ui/components/input";
 import { OTPInput } from "@repo/ui/components/otp-input";
 import { toast } from "@repo/ui/components/sonner";
-import { cn } from "@repo/ui/lib/utils";
+import { cn } from "cn";
 import { BLUR_FADE } from "@repo/ui/lib/motion";
 import { useShake } from "@repo/ui/hooks/use-shake";
 import { useMutation } from "@tanstack/react-query";

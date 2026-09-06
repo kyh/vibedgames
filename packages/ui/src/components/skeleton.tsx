@@ -1,4 +1,4 @@
-import { cn } from "@repo/ui/lib/utils";
+import { cn } from "cn";
 
 /**
  * Static placeholder block that fades in on mount — no pulse. Compose into a

@@ -3,7 +3,7 @@
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { motion, MotionConfig, useReducedMotion } from "motion/react";
 
-import { cn } from "@repo/ui/lib/utils";
+import { cn } from "cn";
 import { EASE_OUT, SHAKE_KEYFRAMES, SHAKE_TRANSITION } from "@repo/ui/lib/motion";
 
 // OTP segmented input — N cells, secretly ONE real input.
