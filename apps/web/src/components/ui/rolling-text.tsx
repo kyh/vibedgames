@@ -7,7 +7,7 @@ import {
   useReducedMotion,
   type TargetAndTransition,
 } from "motion/react";
-import { cn } from "@repo/ui/lib/utils";
+import { cn } from "cn";
 
 const NBSP = "\u00A0";
 const glyph = (char: string) => (char === " " ? NBSP : char);

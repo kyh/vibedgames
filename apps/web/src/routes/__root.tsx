@@ -2,7 +2,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { GlobalAlertDialog } from "@repo/ui/components/alert-dialog";
 import { Toaster } from "@repo/ui/components/sonner";
 import { TooltipProvider } from "@repo/ui/components/tooltip";
-import { cn } from "@repo/ui/lib/utils";
+import { cn } from "cn";
 import { createRootRouteWithContext, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
 
 import { siteConfig } from "@/lib/site-config";

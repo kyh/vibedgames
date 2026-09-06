@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { animate, motion, useMotionValue, useReducedMotion, useTransform } from "motion/react";
 
-import { cn } from "@repo/ui/lib/utils";
+import { cn } from "cn";
 
 const WIPE_DURATION = 0.6;
 

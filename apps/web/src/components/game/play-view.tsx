@@ -5,7 +5,7 @@ import {
   InputGroupButton,
   InputGroupInput,
 } from "@repo/ui/components/input-group";
-import { cn } from "@repo/ui/lib/utils";
+import { cn } from "cn";
 import { CompassIcon, RefreshCwIcon } from "lucide-react";
 import { motion } from "motion/react";
 

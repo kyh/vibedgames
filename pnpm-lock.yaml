@@ -152,6 +152,9 @@ catalogs:
     '@vitejs/plugin-react':
       specifier: ^6.1.1
       version: 6.1.1
+    cn:
+      specifier: ^0.2.5
+      version: 0.2.5
     react:
       specifier: ^19.2.8
       version: 19.2.8
@@ -377,6 +380,9 @@ importers:
       better-auth:
         specifier: ^1.7.2
         version: 1.7.2(@cloudflare/workers-types@5.20260829.1)(@tanstack/react-start@1.168.49(esbuild@0.28.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(rolldown@1.2.6)(supports-color@10.2.2)(vite@8.2.2(@types/node@26.4.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)))(drizzle-kit@0.31.10)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260829.1)(@libsql/client@0.17.4)(kysely@0.29.5))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      cn:
+        specifier: 'catalog:'
+        version: 0.2.5
       lucide-react:
         specifier: ^1.35.0
         version: 1.35.0(react@19.2.8)
@@ -948,8 +954,8 @@ importers:
         specifier: ^0.7.1
         version: 0.7.1
       cn:
-        specifier: ^0.2.3
-        version: 0.2.3
+        specifier: 'catalog:'
+        version: 0.2.5
       lucide-react:
         specifier: ^1.35.0
         version: 1.35.0(react@19.2.8)
@@ -3606,8 +3612,8 @@ packages:
     resolution: {integrity: sha512-eYm0QWBtUrBWZWG0d386OGAw16Z995PiOVo2B7bjWSbHedGl5e0ZWaq65kOGgUSNesEIDkB9ISbTg/JK9dhCZA==}
     engines: {node: '>=6'}
 
-  cn@0.2.3:
-    resolution: {integrity: sha512-z1S2v7FdtqcoXQzJWqNPBJ3KPG1or9FlefB0x+Eu8322BMmCSSVqzeI7itNj/6YRjyendnlWDJnKQkBhukT3fg==}
+  cn@0.2.5:
+    resolution: {integrity: sha512-OCjZtMeQfXbI4Es1+EIjkd77gvWzaE689gD8KhfexlqjClC06qR1MQBR+Z35ZMSPNEBWyHiItW1Soy0UvwNv9w==}
     engines: {node: '>=20'}
     hasBin: true
 
@@ -7538,7 +7544,7 @@ snapshots:
 
   clsx@2.1.1: {}
 
-  cn@0.2.3: {}
+  cn@0.2.5: {}
 
   code-block-writer@13.0.3: {}
 
