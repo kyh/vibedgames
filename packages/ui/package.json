@@ -17,7 +17,7 @@
   "dependencies": {
     "@base-ui/react": "^1.7.0",
     "class-variance-authority": "^0.7.1",
-    "cnfast": "^0.1.0",
+    "cn": "^0.2.3",
     "lucide-react": "^1.35.0",
     "motion": "^13.1.1",
     "shadcn": "^4.19.0",
