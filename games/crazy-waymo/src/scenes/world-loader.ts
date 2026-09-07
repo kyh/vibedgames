@@ -115,7 +115,11 @@ function runWhenIdle(cb: () => void): void {
 
 // Work that must not land inside the load at all — an idle deadline can
 // still expire mid-build on a slow phone. Queued until the loading veil
-// drops, then handed to idle time.
+// drops, then handed to idle time. `hideLoading` only STARTS the veil's
+// 350 ms fade, and the title's first frames follow it; an idle slot between
+// those frames would still take a multi-second put(), so the hand-off waits
+// out the transition first.
+const AFTER_VEIL_MS = 1500;
 let loadFinished = false;
 const afterLoad: (() => void)[] = [];
 function runAfterLoad(cb: () => void): void {
@@ -123,8 +127,11 @@ function runAfterLoad(cb: () => void): void {
   else afterLoad.push(cb);
 }
 function flushAfterLoad(): void {
-  loadFinished = true;
-  for (const cb of afterLoad.splice(0)) runWhenIdle(cb);
+  const queued = afterLoad.splice(0);
+  setTimeout(() => {
+    loadFinished = true;
+    for (const cb of queued) runWhenIdle(cb);
+  }, AFTER_VEIL_MS);
 }
 
 function fromWorker(r: ParcelWorkerResponse): ParcelPlanResult {
