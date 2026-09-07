@@ -113,6 +113,12 @@ export class BootScene extends Phaser.Scene {
     g.generateTexture("chip", 7, 3);
     g.clear();
 
+    // A quiet tile footprint connects the original fire bursts without bloom.
+    g.fillStyle(0xffa24b, 0.13).fillRoundedRect(3, 3, 58, 58, 5);
+    g.lineStyle(1.5, 0xffc27a, 0.46).strokeRoundedRect(3, 3, 58, 58, 5);
+    g.generateTexture("blast-cell", 64, 64);
+    g.clear();
+
     // Radial glow disc (additive) for powerup pedestals and bomb tells.
     for (let i = 16; i >= 1; i--) {
       g.fillStyle(0xffffff, 0.05).fillCircle(64, 64, (i / 16) * 62);

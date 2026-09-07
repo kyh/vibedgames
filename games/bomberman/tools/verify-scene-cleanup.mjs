@@ -92,6 +92,7 @@ const makeScene = ({ offline = false, delayed = false } = {}) => {
     deathSeen: new Set(["me"]),
     bombSprites: new Map([["bomb", {}]]),
     blastSprites: new Map([["blast", []]]),
+    blastSeen: new Set(["blast"]),
     powerupObjs: new Map([["pickup", {}]]),
     tileObjs: [[{}]],
     tileKind: [["wall"]],
@@ -175,6 +176,7 @@ const check = (fixture) => {
     0,
   );
   assert.equal(scene.tileObjs.length + scene.tileKind.length + scene.deathSeen.size, 0);
+  assert.equal(scene.blastSeen.size, 0);
   assert.equal(scene.battleFx, null);
   assert.equal(scene.sparkEmitter, null);
   assert.equal(scene.winnerAction, null);

@@ -13,6 +13,8 @@ import Phaser from "phaser";
 import { createArena, readArena, type Arena } from "../shared/arena";
 import { BattleFx } from "../fx/battle-fx";
 import { CharacterAction, VICTORY_ACTION_MS } from "../render/character-action";
+import { blastFrame, fireCells, freshCue } from "../render/blast-frame";
+import { RoundHud } from "../render/round-hud";
 import {
   audioDiagnostics,
   disposeAudio,
@@ -95,6 +97,13 @@ type PlayerObjs = {
 type BombObjs = {
   sprite: Phaser.GameObjects.Image;
   shadow: Phaser.GameObjects.Image;
+  fuse: Phaser.GameObjects.Graphics;
+};
+
+type BlastObjs = {
+  fire: Phaser.GameObjects.Image;
+  footprint: Phaser.GameObjects.Image;
+  placedAt: number;
 };
 
 type RoundPresentation =
@@ -214,7 +223,8 @@ export class GameScene extends Phaser.Scene {
   private tileObjs: Array<Array<Phaser.GameObjects.Container | null>> = [];
   private tileKind: Array<Array<Cell["kind"] | null>> = [];
   private bombSprites = new Map<string, BombObjs>();
-  private blastSprites = new Map<string, Phaser.GameObjects.Sprite[]>();
+  private blastSprites = new Map<string, BlastObjs>();
+  private blastSeen = new Set<string>();
   private powerupObjs = new Map<string, Phaser.GameObjects.Container>();
   private players = new Map<string, PlayerObjs>();
   private deathSeen = new Set<string>();
@@ -247,7 +257,7 @@ export class GameScene extends Phaser.Scene {
   private restartableSince: number | null = null;
 
   private statusEl: HTMLElement | null = null;
-  private playersEl: HTMLElement | null = null;
+  private roundHud: RoundHud | null = null;
   private statsEl: HTMLElement | null = null;
   private bannerEl: HTMLElement | null = null;
   private startEl: HTMLElement | null = null;
@@ -259,7 +269,6 @@ export class GameScene extends Phaser.Scene {
   private started = false;
   // Last strings written to each HUD element, to skip redundant DOM writes.
   private lastStatus: string | null = null;
-  private lastPlayers: string | null = null;
   private lastStats: string | null = null;
   private lastBanner: string | null = null;
 
@@ -284,6 +293,7 @@ export class GameScene extends Phaser.Scene {
   setPresentationPaused(paused: boolean): void {
     if (this.controlsPaused === paused) return;
     this.controlsPaused = paused;
+    if (paused) this.roundHud?.update(simNow(), false);
     this.queuedDir = null;
     this.moving = false;
     this.moveCooldown = 0;
@@ -449,7 +459,7 @@ export class GameScene extends Phaser.Scene {
 
   create(): void {
     this.statusEl = document.getElementById("status");
-    this.playersEl = document.getElementById("players");
+    this.roundHud = new RoundHud();
     this.statsEl = document.getElementById("stats");
     this.bannerEl = document.getElementById("banner");
     this.buildStartScreen();
@@ -568,6 +578,8 @@ export class GameScene extends Phaser.Scene {
       this.touchControls?.destroy();
       this.touchControls = null;
       this.uiEvents.abort();
+      this.roundHud?.dispose();
+      this.roundHud = null;
       this.unwatchControls?.();
       this.unwatchControls = null;
       this.input.keyboard?.off("keyup", this.onStartKeyUp, this);
@@ -580,6 +592,7 @@ export class GameScene extends Phaser.Scene {
       this.deathSeen.clear();
       this.bombSprites.clear();
       this.blastSprites.clear();
+      this.blastSeen.clear();
       this.powerupObjs.clear();
       this.tileObjs = [];
       this.tileKind = [];
@@ -997,6 +1010,8 @@ export class GameScene extends Phaser.Scene {
       resetRoundAudio();
       for (const objs of this.players.values()) this.resetPlayerFeedback(objs);
       this.battleFx?.clear();
+      this.blastSeen.clear();
+      this.roundHud?.reset();
       this.sparkEmitter?.killAll();
       document.getElementById("pickup-note")?.classList.remove("on");
       this.pickupUntil = 0;
@@ -1008,7 +1023,7 @@ export class GameScene extends Phaser.Scene {
     this.trackRestartable();
     this.setStatus(this.statusText());
     this.syncArenaControls();
-    this.setPlayersList(this.playersListText());
+    this.syncRoster();
     this.setStats(this.statsText());
     this.setBanner();
     // No body until the start screen is dismissed — bots and the host seed run
@@ -1134,46 +1149,27 @@ export class GameScene extends Phaser.Scene {
           .image(colX(bomb.col), rowY(bomb.row), "bomb")
           .setDisplaySize(TILE * 0.92, TILE * 0.92)
           .setDepth(6);
-        const baseX = sprite.scaleX;
-        const baseY = sprite.scaleY;
-        const pulse = (): void => {
-          this.tweens.add({
-            targets: sprite,
-            scaleX: { from: baseX, to: baseX * 1.14 },
-            scaleY: { from: baseY, to: baseY * 0.86 },
-            duration: 300,
-            ease: "Sine.InOut",
-            yoyo: true,
-            repeat: -1,
-          });
-        };
-        if (this.feedbackEnabled) sfx.place();
-        if (this.feedbackEnabled && bomb.ownerId === this.myId)
+        const fuse = this.add.graphics().setPosition(colX(bomb.col), rowY(bomb.row)).setDepth(5);
+        const fresh = this.feedbackEnabled && freshCue(bomb.placedAt, simNow());
+        if (fresh) sfx.place(bomb.ownerId === this.myId);
+        if (fresh && bomb.ownerId === this.myId) {
           this.pulsePlayer(bomb.ownerId, "place");
+          this.roundHud?.acceptedPlacement(simNow());
+        }
         if (this.feedbackEnabled && this.isAlive(bomb.ownerId)) {
           const owner = this.fighters().find((fighter) => fighter.id === bomb.ownerId);
           if (owner)
             this.players.get(bomb.ownerId)?.action.place(bomb, simNow(), this.characterTime, owner);
         }
-        if (this.feedbackEnabled && !this.reducedMotion) {
-          sprite.setScale(baseX * 0.65, baseY * 0.65);
-          this.tweens.add({
-            targets: sprite,
-            scaleX: baseX,
-            scaleY: baseY,
-            duration: 160,
-            ease: "Back.Out",
-            onComplete: pulse,
-          });
-        } else pulse();
-        this.bombSprites.set(bomb.id, { sprite, shadow });
+        this.bombSprites.set(bomb.id, { sprite, shadow, fuse });
       }
     }
-    for (const [id, { sprite, shadow }] of this.bombSprites)
+    for (const [id, { sprite, shadow, fuse }] of this.bombSprites)
       if (!seen.has(id)) {
         this.tweens.killTweensOf(sprite);
         sprite.destroy();
         shadow.destroy();
+        fuse.destroy();
         this.bombSprites.delete(id);
       }
   }
@@ -1181,7 +1177,33 @@ export class GameScene extends Phaser.Scene {
   private syncBlasts(): void {
     const s = this.shared();
     if (!s) return;
-    const seen = new Set<string>();
+    const now = simNow();
+    const blasts = Object.values(s.blasts);
+    const seen = new Set(blasts.map((blast) => blast.id));
+    const cells = fireCells(blasts, now);
+    for (const [key, cell] of cells) {
+      const existing = this.blastSprites.get(key);
+      if (existing) {
+        existing.placedAt = cell.placedAt;
+        continue;
+      }
+      const footprint = this.add.image(colX(cell.col), rowY(cell.row), "blast-cell").setDepth(7);
+      const fire = this.add
+        .image(colX(cell.col), rowY(cell.row), "explosion", 0)
+        .setDisplaySize(TILE * 1.35, TILE * 1.35)
+        .setDepth(30)
+        .setAngle(((cell.col * 3 + cell.row) % 4) * 90)
+        .setTint(0xffe3ac)
+        .setAlpha(0.8)
+        .setBlendMode(Phaser.BlendModes.ADD);
+      this.blastSprites.set(key, { fire, footprint, placedAt: cell.placedAt });
+    }
+    for (const [key, visual] of this.blastSprites) {
+      if (cells.has(key)) continue;
+      visual.fire.destroy();
+      visual.footprint.destroy();
+      this.blastSprites.delete(key);
+    }
     const cam = this.cameras.main;
     const centerX = cam.scrollX + cam.width / 2;
     const centerY = cam.scrollY + cam.height / 2;
@@ -1190,32 +1212,24 @@ export class GameScene extends Phaser.Scene {
     const listenerY = local?.y ?? centerY;
     let nearest: { distance: number; x: number } | null = null;
     let newBlasts = 0;
-    for (const blast of Object.values(s.blasts)) {
-      seen.add(blast.id);
-      if (this.blastSprites.has(blast.id)) continue;
-      const sprites = blast.tiles.map((t) => {
-        const sp = this.add
-          .sprite(colX(t.col), rowY(t.row), "explosion", 0)
-          .setDisplaySize(TILE * 1.35, TILE * 1.35)
-          .setDepth(30)
-          .setAngle(Phaser.Math.Between(0, 3) * 90)
-          .setBlendMode(Phaser.BlendModes.ADD);
-        sp.play({ key: "explode", startFrame: Phaser.Math.Between(0, 2) });
-        return sp;
-      });
-      this.blastSprites.set(blast.id, sprites);
-      if (this.feedbackEnabled) {
+    const impactTiles = new Map<string, { col: number; row: number }>();
+    for (const blast of blasts) {
+      if (this.blastSeen.has(blast.id)) continue;
+      this.blastSeen.add(blast.id);
+      if (this.feedbackEnabled && freshCue(blast.placedAt, now)) {
         newBlasts++;
         for (const tile of blast.tiles) {
           const x = colX(tile.col);
           const distance = Math.hypot(x - listenerX, rowY(tile.row) - listenerY);
           if (!nearest || distance < nearest.distance) nearest = { distance, x };
         }
-        this.battleFx?.blast(blast.tiles, this.reducedMotion);
-        this.shakeIfNear(blast.tiles);
+        for (const tile of blast.tiles) impactTiles.set(tileKey(tile.col, tile.row), tile);
       }
     }
     if (newBlasts > 0) {
+      const tiles = [...impactTiles.values()];
+      this.battleFx?.blast(tiles, this.reducedMotion);
+      this.shakeIfNear(tiles);
       const distance = nearest?.distance ?? 0;
       const strength = Math.max(0.2, 1 - (Math.max(0, distance / TILE - 2) / 8) * 0.8);
       const pan = Math.max(
@@ -1224,11 +1238,17 @@ export class GameScene extends Phaser.Scene {
       );
       sfx.blast({ strength, pan }, newBlasts);
     }
-    for (const [id, sprites] of this.blastSprites)
-      if (!seen.has(id)) {
-        for (const sp of sprites) sp.destroy();
-        this.blastSprites.delete(id);
-      }
+    for (const id of this.blastSeen) if (!seen.has(id)) this.blastSeen.delete(id);
+    this.updateBlastFrames(now);
+  }
+
+  private updateBlastFrames(now: number): void {
+    for (const { fire, footprint, placedAt } of this.blastSprites.values()) {
+      const frame = blastFrame(placedAt, now);
+      fire.setVisible(frame !== null);
+      footprint.setVisible(frame !== null);
+      if (frame !== null) fire.setFrame(frame);
+    }
   }
 
   private syncPowerups(): void {
@@ -1252,24 +1272,26 @@ export class GameScene extends Phaser.Scene {
       const container = this.add
         .container(colX(pu.col), rowY(pu.row), [shadow, glow, icon])
         .setDepth(4);
-      this.tweens.add({
-        targets: icon,
-        y: -6,
-        duration: 760,
-        ease: "Sine.InOut",
-        yoyo: true,
-        repeat: -1,
-      });
-      this.tweens.add({
-        targets: glow,
-        alpha: { from: 0.35, to: 0.65 },
-        scaleX: { from: glow.scaleX * 0.92, to: glow.scaleX * 1.08 },
-        scaleY: { from: glow.scaleY * 0.92, to: glow.scaleY * 1.08 },
-        duration: 900,
-        ease: "Sine.InOut",
-        yoyo: true,
-        repeat: -1,
-      });
+      if (!this.reducedMotion) {
+        this.tweens.add({
+          targets: icon,
+          y: -6,
+          duration: 760,
+          ease: "Sine.InOut",
+          yoyo: true,
+          repeat: -1,
+        });
+        this.tweens.add({
+          targets: glow,
+          alpha: { from: 0.35, to: 0.65 },
+          scaleX: { from: glow.scaleX * 0.92, to: glow.scaleX * 1.08 },
+          scaleY: { from: glow.scaleY * 0.92, to: glow.scaleY * 1.08 },
+          duration: 900,
+          ease: "Sine.InOut",
+          yoyo: true,
+          repeat: -1,
+        });
+      }
       this.powerupObjs.set(key, container);
     }
     for (const [key, container] of this.powerupObjs)
@@ -1366,14 +1388,15 @@ export class GameScene extends Phaser.Scene {
       marker = this.add
         .triangle(0, -TILE * 0.82, -9, -6, 9, -6, 0, 7, 0xffe14a)
         .setStrokeStyle(2, 0x1a1430, 1);
-      this.tweens.add({
-        targets: marker,
-        y: -TILE * 0.92,
-        duration: 520,
-        ease: "Sine.InOut",
-        yoyo: true,
-        repeat: -1,
-      });
+      if (!this.reducedMotion)
+        this.tweens.add({
+          targets: marker,
+          y: -TILE * 0.92,
+          duration: 520,
+          ease: "Sine.InOut",
+          yoyo: true,
+          repeat: -1,
+        });
       children.push(marker);
     }
 
@@ -1915,7 +1938,22 @@ export class GameScene extends Phaser.Scene {
     this.battleFx?.update(delta);
     this.updateCharacterActions(delta);
     const now = simNow();
+    this.updateBlastFrames(now);
     const state = this.shared();
+    this.roundHud?.updateBombs(
+      Object.values(state?.bombs ?? {}),
+      this.myId,
+      this.myStats().bombs,
+      now,
+    );
+    this.roundHud?.update(
+      now,
+      this.started &&
+        this.live &&
+        !this.controlsPaused &&
+        state?.winner === null &&
+        this.isAlive(this.myId),
+    );
     const alive = this.fighters().filter((fighter) => this.isAlive(fighter.id)).length;
     updateRoundScore(
       this.started &&
@@ -1936,9 +1974,25 @@ export class GameScene extends Phaser.Scene {
     }
     this.syncRestartButton();
     for (const bomb of Object.values(this.shared()?.bombs ?? {})) {
-      const sprite = this.bombSprites.get(bomb.id)?.sprite;
-      if (!sprite) continue;
+      const visual = this.bombSprites.get(bomb.id);
+      if (!visual) continue;
+      const { sprite, fuse } = visual;
       const left = Math.max(0, FUSE_MS - (now - bomb.placedAt));
+      const progress = Math.min(1, left / FUSE_MS);
+      const age = Math.max(0, now - bomb.placedAt);
+      const urgency = 1 - progress;
+      const pulse = this.reducedMotion ? 0 : Math.sin(age * 0.01 + urgency * urgency * 10) * 0.055;
+      const arrival = this.reducedMotion ? 1 : Math.min(1, 0.75 + age / 640);
+      sprite.setDisplaySize(
+        TILE * 0.92 * (1 + pulse) * arrival,
+        TILE * 0.92 * (1 - pulse) * arrival,
+      );
+      fuse.clear().lineStyle(2.5, left < 700 ? 0xff7650 : 0xffd27a, 0.8);
+      if (progress > 0)
+        fuse
+          .beginPath()
+          .arc(0, 3, TILE * 0.46, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress)
+          .strokePath();
       if (left < 700 && (this.reducedMotion || Math.floor(left / 110) % 2 === 0))
         sprite.setTint(0xff4d4d);
       else sprite.clearTint();
@@ -2189,16 +2243,17 @@ export class GameScene extends Phaser.Scene {
     return this.offline ? "solo · offline" : this.amHost ? "host" : "guest";
   }
 
-  private playersListText(): string {
-    const s = this.shared();
-    const ids = [...Object.keys(this.peers), ...(s ? Object.keys(s.bots ?? {}) : [])];
-    return ids
-      .map((id) => {
-        const dead = s?.deaths[id] ? "💀" : "";
-        const me = id === this.myId ? "★" : id.startsWith("bot-") ? "🤖" : "•";
-        return `${me} ${this.labelFor(id)}${dead}`;
-      })
-      .join("   ");
+  private syncRoster(): void {
+    this.roundHud?.updateRoster(
+      this.fighters().map((fighter) => ({
+        id: fighter.id,
+        label: this.labelFor(fighter.id),
+        colorIdx: fighter.colorIdx,
+        alive: this.isAlive(fighter.id),
+        isLocal: fighter.isLocal,
+        isBot: fighter.isBot,
+      })),
+    );
   }
 
   private statsText(): string {
@@ -2300,19 +2355,12 @@ export class GameScene extends Phaser.Scene {
     this.statusEl.textContent = text;
   }
 
-  private setPlayersList(text: string): void {
-    if (!this.playersEl || text === this.lastPlayers) return;
-    this.lastPlayers = text;
-    this.playersEl.textContent = text;
-  }
-
   private setStats(text: string): void {
     if (!this.statsEl || text === this.lastStats) return;
     this.lastStats = text;
     this.statsEl.hidden = text === "";
     if (!text) return;
     const stats = this.myStats();
-    this.writeUiText("stat-bomb", String(stats.bombs));
     this.writeUiText("stat-fire", String(stats.range));
     this.writeUiText(
       "stat-speed",

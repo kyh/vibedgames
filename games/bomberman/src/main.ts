@@ -21,19 +21,25 @@ const config: Phaser.Types.Core.GameConfig = {
 };
 
 const game = new Phaser.Game(config);
+let disposed = false;
 
 // Scale.RESIZE can read stale parent bounds when a resize lands while the tab
 // is hidden or the browser throttles events (tab switch, phone rotation): the
 // canvas lags one size behind. Re-check once layout settles and on tab return.
 let settle: ReturnType<typeof setTimeout> | undefined;
 const refreshScale = (): void => {
+  if (disposed) return;
   clearTimeout(settle);
-  settle = setTimeout(() => game.scale.refresh(), 150);
+  settle = setTimeout(() => {
+    settle = undefined;
+    if (!disposed) game.scale.refresh();
+  }, 150);
+};
+const onVisibilityChange = (): void => {
+  if (!document.hidden) refreshScale();
 };
 window.addEventListener("resize", refreshScale);
-document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) refreshScale();
-});
+document.addEventListener("visibilitychange", onVisibilityChange);
 
 // Wrapper pause. The overlay always shows; we only truly FREEZE the game when
 // no other human is in the arena — freezing a shared online round would stall
@@ -44,8 +50,9 @@ document.addEventListener("visibilitychange", () => {
 // re-announces the game as started after onResume.
 let froze = false;
 const pauseOverlay = createBombermanPauseOverlay();
-setPauseHandlers({
+const releasePauseHandlers = setPauseHandlers({
   onPause: () => {
+    if (disposed) return;
     pauseOverlay.show();
     pauseAudio(true);
     const scene = game.scene.getScene<GameScene>("Game");
@@ -57,6 +64,7 @@ setPauseHandlers({
     game.sound.pauseAll();
   },
   onResume: () => {
+    if (disposed) return;
     pauseOverlay.hide();
     pauseAudio(false);
     game.scene.getScene<GameScene>("Game")?.setPresentationPaused(false);
@@ -65,4 +73,15 @@ setPauseHandlers({
     game.scene.getScene<GameScene>("Game")?.resumeSimulation();
     game.sound.resumeAll();
   },
+});
+
+game.events.once(Phaser.Core.Events.DESTROY, () => {
+  if (disposed) return;
+  disposed = true;
+  clearTimeout(settle);
+  settle = undefined;
+  window.removeEventListener("resize", refreshScale);
+  document.removeEventListener("visibilitychange", onVisibilityChange);
+  releasePauseHandlers();
+  pauseOverlay.hide();
 });

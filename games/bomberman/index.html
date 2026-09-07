@@ -118,9 +118,46 @@
         flex-shrink: 0;
       }
       #players {
-        text-align: right;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 8px;
         max-width: min(65%, 660px);
         overflow-wrap: anywhere;
+      }
+      .roster-count {
+        color: #f4d994;
+        white-space: nowrap;
+        font-size: 11px;
+      }
+      .roster-fighters {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px 9px;
+      }
+      .roster-fighter {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        white-space: nowrap;
+      }
+      .roster-fighter.local {
+        font-weight: 800;
+      }
+      .roster-fighter.out {
+        color: #b7b5a8;
+        text-decoration: line-through;
+      }
+      .roster-fighter.out .roster-dot {
+        opacity: 0.4;
+      }
+      .roster-dot {
+        width: 6px;
+        height: 6px;
+        flex: 0 0 6px;
+        border-radius: 50%;
+        box-shadow: 0 0 0 1px #071713;
       }
       #stats {
         align-self: center;
@@ -145,6 +182,43 @@
       }
       .stat b {
         min-width: 1ch;
+      }
+      .bomb-stock {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 3ch;
+        line-height: 1.1;
+      }
+      #bomb-availability.empty b {
+        color: #c6c6b5;
+      }
+      #bomb-refill {
+        width: 100%;
+        height: 3px;
+        overflow: hidden;
+        background: #071510;
+        border-radius: 1px;
+      }
+      #bomb-refill-fill {
+        display: block;
+        height: 100%;
+        width: 0;
+        background: #e7c474;
+      }
+      #placement-tip {
+        align-self: center;
+        max-width: min(100%, 330px);
+        margin: 8px 0 0;
+        padding: 7px 10px;
+        border: 1px solid #8c8257;
+        border-radius: 6px;
+        background: #14221eeb;
+        color: #efe2b7;
+        font:
+          12px/1.4 ui-monospace,
+          monospace;
+        text-align: center;
       }
       #stats[data-pickup="bomb"] .stat-bomb,
       #stats[data-pickup="fire"] .stat-fire,
@@ -403,9 +477,15 @@
           gap: 5px;
         }
         #players {
-          text-align: left;
+          justify-content: flex-start;
           max-width: 100%;
           font-size: 11px;
+        }
+        #placement-tip {
+          align-self: flex-start;
+          max-width: calc(100% - 100px);
+          font-size: 11px;
+          text-align: left;
         }
         #stats {
           align-self: flex-start;
@@ -565,10 +645,18 @@
         <div class="pill" id="status">Connecting…</div>
         <div class="pill" id="players"></div>
       </div>
+      <p id="placement-tip" hidden>Turn a corner. Walls block the blast.</p>
       <div class="pill" id="stats" hidden>
-        <span class="stat stat-bomb" title="Bomb capacity"
-          ><img src="/assets/pow-bomb-v2.webp" alt="Bomb capacity" /><b id="stat-bomb">1</b></span
-        >
+        <span
+          class="stat stat-bomb"
+          id="bomb-availability"
+          role="group"
+          aria-label="1 of 1 bombs available."
+          ><img src="/assets/pow-bomb-v2.webp" alt="" /><span class="bomb-stock"
+            ><b id="stat-bomb">1/1</b
+            ><span id="bomb-refill" aria-hidden="true" hidden
+              ><i id="bomb-refill-fill"></i></span></span
+        ></span>
         <span class="stat stat-fire" title="Blast reach"
           ><img src="/assets/pow-fire-v2.webp" alt="Blast reach" /><b id="stat-fire">2</b></span
         >

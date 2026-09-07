@@ -183,6 +183,8 @@ const group = (name, run) => {
 
 group("actual Phaser keys and touch bindings clear on both pause edges", () => {
   const { scene, keys, virtual, listeners, writes } = fresh();
+  const hudUpdates = [];
+  scene.roundHud = { update: (...args) => hudUpdates.push(args) };
   keys.get("RIGHT").onDown({ timeStamp: 100 });
   listeners.get("keydown-RIGHT")();
   virtual.pointerDown(1, 50, 50);
@@ -192,6 +194,7 @@ group("actual Phaser keys and touch bindings clear on both pause edges", () => {
   scene.moving = true;
   scene.moveCooldown = 90;
   scene.setPresentationPaused(true);
+  assert.deepEqual(hudUpdates, [[1000, false]], "hide tip before the solo loop sleeps");
   assert.equal(scene.queuedDir, null);
   assert.equal(scene.moving, false);
   assert.equal(scene.moveCooldown, 0);
@@ -334,9 +337,11 @@ group("actual paused host update still renders and ticks the shared arena", () =
 
 group("actual wrapper callbacks preserve online ticking and offline sleep", () => {
   const main = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
-  const script = stripTypeScriptTypes(main.slice(main.indexOf("let froze = false;")), {
-    mode: "strip",
-  });
+  const start = main.indexOf("let froze = false;");
+  const script = stripTypeScriptTypes(
+    `let disposed = false;\n${main.slice(start, main.indexOf("\ngame.events.once(", start))}`,
+    { mode: "strip" },
+  );
   for (const solo of [false, true]) {
     const { scene } = fresh();
     if (solo) delete scene.client.players.guest;

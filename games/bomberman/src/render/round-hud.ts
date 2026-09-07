@@ -1,0 +1,146 @@
+import { COLORS, FUSE_MS, type Bomb } from "../shared/constants";
+
+export type HudFighter = {
+  id: string;
+  label: string;
+  colorIdx: number;
+  alive: boolean;
+  isLocal: boolean;
+  isBot: boolean;
+};
+
+export type BombStock = {
+  available: number;
+  capacity: number;
+  next: { remaining: number; progress: number } | null;
+};
+
+/** Capacity comes from accepted stats; active bombs stay occupied until the
+ * shared state removes them, even when their nominal fuse already elapsed. */
+export function bombStock(
+  bombs: readonly Bomb[],
+  ownerId: string | null,
+  capacity: number,
+  now: number,
+): BombStock {
+  let active = 0;
+  let earliest = Infinity;
+  for (const bomb of bombs) {
+    if (bomb.ownerId !== ownerId) continue;
+    active++;
+    earliest = Math.min(earliest, bomb.placedAt);
+  }
+  const remaining = Math.max(0, earliest + FUSE_MS - now);
+  return {
+    available: Math.max(0, capacity - active),
+    capacity,
+    next: active > 0 ? { remaining, progress: Math.max(0, 1 - remaining / FUSE_MS) } : null,
+  };
+}
+
+const PLACEMENT_TIP_MS = 3600;
+
+/** Owns only existing HUD text and its one finite teaching cue. No listeners,
+ * animation timers, gameplay requests, or inferred local acceptance. */
+export class RoundHud {
+  private readonly stockEl = document.getElementById("stat-bomb");
+  private readonly bombEl = document.getElementById("bomb-availability");
+  private readonly refillEl = document.getElementById("bomb-refill");
+  private readonly refillFill = document.getElementById("bomb-refill-fill");
+  private readonly playersEl = document.getElementById("players");
+  private readonly tipEl = document.getElementById("placement-tip");
+  private stockText = "";
+  private stockLabel = "";
+  private refillPercent = -1;
+  private rosterSignature = "";
+  private tipUntil = 0;
+  private taughtPlacement = false;
+  private disposed = false;
+
+  updateBombs(bombs: readonly Bomb[], ownerId: string | null, capacity: number, now: number): void {
+    if (this.disposed) return;
+    const stock = bombStock(bombs, ownerId, capacity, now);
+    const text = `${stock.available}/${stock.capacity}`;
+    if (text !== this.stockText) {
+      this.stockText = text;
+      if (this.stockEl) this.stockEl.textContent = text;
+      this.bombEl?.classList.toggle("empty", stock.available === 0);
+    }
+    const fuse = stock.next
+      ? stock.next.remaining > 0
+        ? ` Next fuse ends in ${(Math.ceil(stock.next.remaining / 100) / 10).toFixed(1)} seconds.`
+        : " Waiting for detonation."
+      : "";
+    const label = `${stock.available} of ${stock.capacity} bombs available.${fuse}`;
+    if (label !== this.stockLabel) {
+      this.stockLabel = label;
+      this.bombEl?.setAttribute("aria-label", label);
+      this.bombEl?.setAttribute("title", label);
+    }
+    if (this.refillEl) this.refillEl.hidden = stock.next === null;
+    const percent = stock.next ? Math.round(stock.next.progress * 100) : 0;
+    if (percent !== this.refillPercent) {
+      this.refillPercent = percent;
+      if (this.refillFill) this.refillFill.style.width = `${percent}%`;
+    }
+  }
+
+  updateRoster(fighters: readonly HudFighter[]): void {
+    if (this.disposed || !this.playersEl) return;
+    const signature = JSON.stringify(fighters);
+    if (signature === this.rosterSignature) return;
+    this.rosterSignature = signature;
+    const count = document.createElement("strong");
+    count.className = "roster-count";
+    count.textContent = `${fighters.filter((fighter) => fighter.alive).length} alive`;
+    const roster = document.createElement("span");
+    roster.className = "roster-fighters";
+    for (const fighter of fighters) {
+      const chip = document.createElement("span");
+      chip.className = `roster-fighter${fighter.isLocal ? " local" : ""}${fighter.alive ? "" : " out"}`;
+      chip.dataset.player = fighter.id;
+      chip.setAttribute(
+        "aria-label",
+        `${fighter.label}${fighter.isLocal ? ", you" : fighter.isBot ? ", computer" : ""}, ${fighter.alive ? "alive" : "out"}`,
+      );
+      const dot = document.createElement("i");
+      dot.className = "roster-dot";
+      dot.setAttribute("aria-hidden", "true");
+      dot.style.backgroundColor = `#${(COLORS[fighter.colorIdx] ?? 0xffffff).toString(16).padStart(6, "0")}`;
+      const label = document.createElement("span");
+      label.textContent = fighter.label;
+      chip.append(dot, label);
+      roster.append(chip);
+    }
+    this.playersEl.replaceChildren(count, roster);
+  }
+
+  acceptedPlacement(now: number): void {
+    if (this.disposed || this.taughtPlacement) return;
+    this.taughtPlacement = true;
+    this.tipUntil = now + PLACEMENT_TIP_MS;
+    if (this.tipEl) this.tipEl.hidden = false;
+  }
+
+  update(now: number, active = true): void {
+    if (this.disposed) return;
+    if (active && (this.tipUntil === 0 || now < this.tipUntil)) return;
+    this.tipUntil = 0;
+    if (this.tipEl) this.tipEl.hidden = true;
+  }
+
+  reset(): void {
+    if (this.disposed) return;
+    this.tipUntil = 0;
+    this.taughtPlacement = false;
+    this.stockText = this.stockLabel = this.rosterSignature = "";
+    this.refillPercent = -1;
+    if (this.tipEl) this.tipEl.hidden = true;
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.reset();
+    this.disposed = true;
+  }
+}

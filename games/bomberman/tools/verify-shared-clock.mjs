@@ -263,7 +263,13 @@ test("actual wrapper: late-peer wake retains input/audio pause; later overlay re
     createBombermanPauseOverlay: () => ({ show() {}, hide() {} }),
     pauseAudio: (paused) => p.calls.push(`audio-${paused}`),
   });
-  vm.runInContext(compile(main.slice(main.indexOf("let froze = false;"))), p.context);
+  const start = main.indexOf("let froze = false;");
+  vm.runInContext(
+    compile(
+      `let disposed = false;\n${main.slice(start, main.indexOf("\ngame.events.once(", start))}`,
+    ),
+    p.context,
+  );
   p.context.handlers.onPause();
   assert.equal(p.h.controlsPaused, true);
   assert.equal(p.h.simulationFrozen, true);

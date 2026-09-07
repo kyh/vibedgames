@@ -11,8 +11,8 @@ rules. Keep Crazy Waymo's separate work intact while checking it as the referenc
 
 ## Continued quality work
 
-One game at a time, through PR #327. Ancients' second checkpoint is pushed;
-Battle Arena's second checkpoint is implemented and verified. Prior receipts below remain historical
+One game at a time, through PR #327. Ancients' and Battle Arena's second checkpoints
+are pushed with passing CI. Bomberman's second checkpoint is implemented and verified. Prior receipts below remain historical
 evidence for their exact source versions and measured scopes.
 
 Ancients plan: correct exposed foam centres with the original shoreline art;
@@ -51,7 +51,25 @@ samples are separate from native keyboard/touch input.
 
 [Battle Arena second-pass evidence](/Users/kyh/.codex/visualizations/2026/09/05/01a072e5-b121-77b0-b7f7-52a06ec3e9e2/aaa-completion/battle-arena-quality/README.md)
 records the frozen revisions, native captures, exact recipe/asset integrity,
-review and final validation scope. Bomberman is next for a fresh session review.
+review and final validation scope.
+
+Bomberman second plan: render each active fire cell once, seeking the original
+video-derived sheet to accepted blast age; clarify the exact hazard footprint;
+drive bomb pulse/fuse progress from the shared clock; show available bomb slots
+and readable fighter status; protect accepted local placement audio; release the
+last resize, visibility and pause owners on game destruction. Keep original and
+first-pass generated assets, classic rules, optional Crossroads and every input.
+The frozen baseline completed two natural rounds in 15.52 and 31.39 seconds with
+native movement/bomb/restart input and no browser errors. Both ended in bot wins;
+this is session-flow evidence, not human skill or fun. Verify final native layouts,
+overlapping/late hazards, reduced motion, audio pressure and lifecycle before push.
+
+[Bomberman second-pass evidence](/Users/kyh/.codex/visualizations/2026/09/05/01a072e5-b121-77b0-b7f7-52a06ec3e9e2/aaa-completion/bomberman-quality/README.md)
+records final layouts, native controls, two connected clients and all24 preserved
+assets. Two final natural rounds and a40.86-second measured mix passed; staged
+11-bomb chains had p9510.5ms and no frames above33.33ms on an Apple M1 Max.
+These desktop measurements do not prove phone thermals or subjective sound quality.
+The final full gate and build pass. Starfall is next for a fresh battlezone review.
 
 Unresolved questions: none blocking this pass.
 

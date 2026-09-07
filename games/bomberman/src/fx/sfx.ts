@@ -309,9 +309,9 @@ function rumble(admission: Admission, strength: number, pan: number): void {
 }
 
 export const sfx = {
-  place(): void {
+  place(local = false): void {
     events.place++;
-    const admission = admit(1, "routine");
+    const admission = admit(1, local ? "personal" : "routine");
     if (admission) tone(admission, 150, 75, 0.07, 0.1);
   },
   blast(spatial: BlastSound = { strength: 1, pan: 0 }, logicalCount = 1): void {
