@@ -1,9 +1,9 @@
 # AAA completion goal
 
-The goal remains the full collection at AAA finish quality within each game's
-existing art direction. Previous polish passes are the starting point, not the
-completion criterion. Continue implementing and verifying the gaps below; do not
-close the goal merely because a pass or test suite finishes.
+This plan defines the collection's AAA finish-quality work within each game's
+existing art direction. All ten implementation and local integration milestones
+are complete. The evidence below covers full-session presentation, replay depth,
+input ownership, multiplayer recovery and measured rendering/audio behavior.
 
 Preserve core gameplay, asset/video animation and hand/face/pose/pointer/touch/
 controller inputs. Optional new modes add depth without replacing the normal
@@ -41,7 +41,7 @@ Each row includes the existing polish/graphics baseline plus the remaining work.
 
 | Game                  | Work to finish                                                                                        | Current work                                                                  |
 | --------------------- | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| Ancients of Eldermoor | Crowded team silhouettes; full-match sound/pacing/readability                                         | Combat, settings, soundscape and live multiplayer verified locally            |
+| Ancients of Eldermoor | Crowded team silhouettes; full-match sound/pacing/readability                                         | Combat, settings, soundscape, live multiplayer and hardware load verified     |
 | Battle Arena          | Match/handoff reliability; champion animation continuity; consistent arena materials/lighting         | Live multiplayer, animation, materials and hardware combat verified locally   |
 | Bomberman             | Character anticipation/recovery/victory animation; encounter/result sound mix; optional arena variety | Acting, score, arenas, live recovery and hardware chains verified locally     |
 | Starfall              | Authored battle escalation and quiet intervals; weapon-specific trials; dense-combat performance      | Battle score, real weapon trials, live recovery and hardware combat verified  |
@@ -169,11 +169,20 @@ matte blocks gain smooth ink edges; reduced motion retains essential view turns.
 All 31 core assertions and 31 new regression cases pass. Original engine, pose
 and audio traces match; final Apple GPU stack and lossless sound checks pass.
 
-Collection audit: reconcile final source manifests and refresh Ancients' hardware
-combat and current shared-pause checks before closing the collection milestone.
+The collection audit reconciles all ten games and pins 1,019 current source,
+index and asset files. Ancients' final real-GPU combat and fresh-input pause
+checks pass. Its warmed, screenshot-free desktop sample measured p95 18.2 ms,
+max 26.5 ms and no frames over 33.3 ms. The earlier capture-inclusive sample and
+its longer frames remain in the evidence.
 
-After individual work, compare the collection for quality consistency and close
-remaining shared device, audio and multiplayer issues. Production publishing is
-separate from the local completion goal.
+[Collection evidence](/Users/kyh/.codex/visualizations/2026/09/05/01a072e5-b121-77b0-b7f7-52a06ec3e9e2/aaa-completion/collection/README.md)
+distinguishes historical snapshots from current files and records each game's
+acceptance. Physical camera/controller recognition, handheld thermal behavior,
+WAN testing and subjective listening remain outside the measured evidence.
+These limits do not reopen the completed implementation queue.
 
-Unresolved questions: none blocking implementation.
+All ten implementation and local integration milestones are complete. Final CI
+and review status are tracked in the single [PR #327](https://github.com/kyh/vibedgames/pull/327).
+Production publishing is separate from this completion goal.
+
+Unresolved questions: none.

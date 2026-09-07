@@ -1,7 +1,20 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { cameraFixture } from "./camera-harness.mjs";
+
+// Math.sin is implementation-dependent at the last bit. Replay the original
+// camera samples instead of regenerating subtly different inputs per CPU.
+// No detector state, callback strength, action frame or timing is rounded.
+const { samples } = JSON.parse(
+  readFileSync(new URL("./fixtures/detector-inputs.json", import.meta.url), "utf8"),
+);
+assert.equal(samples.length, 1200);
+for (const sample of samples) {
+  assert.equal(sample.length, 2);
+  assert.ok(sample.every(Number.isFinite));
+}
 
 export function detectorTrace(sourcePath) {
   const f = cameraFixture(sourcePath),
@@ -14,18 +27,11 @@ export function detectorTrace(sourcePath) {
     camera.setLocked(frame % 300 >= 60 && frame % 300 < 260);
     const landmarks = Array.from({ length: 33 }, () => ({ x: 0.5, y: 0.5, z: 0, visibility: 1 }));
     const phase = frame % 300;
-    const jump =
-      phase >= 90 && phase < 110
-        ? Math.sin(((phase - 90) / 20) * Math.PI) * 140
-        : phase >= 145 && phase < 245
-          ? 85
-          : 0;
-    const noseY = 400 + Math.sin(frame * 0.1) * 2 - jump;
+    const [noseY, wrist] = samples[frame];
     landmarks[0].y = noseY / 480;
     landmarks[0].visibility = phase >= 265 && phase < 275 ? 0.2 : 1;
     landmarks[11].x = 0.3;
     landmarks[12].x = 0.7;
-    const wrist = 0.5 + Math.sin(frame / 6) * 0.28;
     landmarks[15].y = wrist;
     landmarks[16].y = wrist;
     if (phase >= 275 && phase < 290) landmarks[15].visibility = 0.2;
@@ -63,8 +69,8 @@ export function detectorTrace(sourcePath) {
 test("baseline detector trace preserves warmup, smoothing, jump/refire/landing/stuck reset, arm rearm and visibility", () => {
   const result = detectorTrace();
   assert.equal(result.frames, 1200);
-  assert.ok(result.initial > 10);
-  assert.ok(result.refires > 10);
+  assert.equal(result.initial, 28);
+  assert.equal(result.refires, 137);
   assert.deepEqual(result.states, ["warming", "detecting", "jumping"]);
   assert.equal(result.sha256, "3728aa5f03ab2e548821fa0254e2db85645b31cd242e6ff8eead0df98e61d171");
 });

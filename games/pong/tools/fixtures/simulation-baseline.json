@@ -1,0 +1,49 @@
+{
+  "provenance": {
+    "commit": "707d5f2a",
+    "originalPath": "games/pong/src/scenes/game-scene.ts",
+    "originalSha256": "2247d8b5ee4669aca555e6b064a99f32bcc35d4ef8c67dbe48528923884be063",
+    "extraction": "Original fields, reachable simulation methods and pure helpers. Display composition/HUD are inert. Constructor creates transport/pool/ball collaborators only.",
+    "methods": [
+      "method:isGuest",
+      "get:mySlotA",
+      "get:flip",
+      "get:myPaddle",
+      "set:myPaddle",
+      "get:oppPaddle",
+      "method:hasOpponent",
+      "method:becomeHost",
+      "method:handleHandPosition",
+      "method:currentHandX",
+      "method:confirm",
+      "method:playSolo",
+      "method:serve",
+      "method:update",
+      "method:applyPaddleInput",
+      "method:padSteerX",
+      "method:smoothOppPaddle",
+      "method:updateAi",
+      "method:updateBall",
+      "method:onPaddleHit",
+      "method:paddleHitFx",
+      "method:onPoint",
+      "method:pointFx",
+      "method:wallFx",
+      "method:emitBeat",
+      "method:handleEvent",
+      "method:broadcastShared",
+      "method:broadcastPaddle",
+      "method:applyGuestShared",
+      "method:squashBall",
+      "method:ballHeight",
+      "method:resetStrokes",
+      "method:seed",
+      "method:setTestState"
+    ]
+  },
+  "oracleSha256": "e754529f1dc7d7fd45baea71bf5a6f75e73807c43c298fa2b548c01ac8df7afb",
+  "dependencies": {
+    "src/shared/constants.ts": "1637bb1fa3a89c351f80bd48384774e53dc8caf8541bc463a9be0108c20339a4",
+    "src/shared/spin.ts": "3daccbaee0b2ed05e9040fc20b0b8814f983e65a2a8cf8c3a1f1b05d18e53a3b"
+  }
+}

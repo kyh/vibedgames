@@ -1,8 +1,14 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { sceneFixture } from "./scene-harness.mjs";
 import { GOAL_Y, HAND_RANGE, PADDLE_X_MAX, PADDLE_Y } from "../src/shared/constants.ts";
+
+const hashFile = (path) =>
+  createHash("sha256")
+    .update(readFileSync(new URL(path, import.meta.url)))
+    .digest("hex");
 
 /** Actual fixed-step simulation, hand mapping and authoritative contacts. */
 export function simulationTrace(sourcePath) {
@@ -122,12 +128,28 @@ export function simulationTrace(sourcePath) {
 }
 test("solo and host simulation retain the verified baseline across hand input, contacts, curves, walls, points and rematches", () => {
   const result = simulationTrace();
-  assert.ok(result.coverage.soloContacts > 10);
-  assert.ok(result.coverage.hostContacts > 10);
-  assert.ok(result.coverage.curves >= 6);
-  assert.ok(result.coverage.walls > 5);
-  assert.ok(result.coverage.points > 10);
-  assert.ok(result.coverage.wonFrames >= 4);
+  const baselinePath = "./fixtures/simulation-baseline.txt";
+  const manifest = JSON.parse(
+    readFileSync(new URL("./fixtures/simulation-baseline.json", import.meta.url), "utf8"),
+  );
+
+  assert.equal(hashFile(baselinePath), manifest.oracleSha256);
+  for (const [path, expected] of Object.entries(manifest.dependencies))
+    assert.equal(
+      hashFile(`../${path}`),
+      expected,
+      `Original simulation dependency changed: ${path}`,
+    );
+  assert.deepEqual(result.coverage, {
+    soloContacts: 18,
+    hostContacts: 13,
+    points: 18,
+    curves: 6,
+    walls: 17,
+    wonFrames: 4,
+  });
   assert.equal(result.frames, 4822);
-  assert.equal(result.sha256, "b09c5c4b53c1bda54b84e1197102446172418b8541ca3dbbe701e5670130917b");
+  // Exact raw values, compared to original code on this runtime. Math.sin/cos
+  // and the engine's exp/pow/hypot may differ by a last bit across architectures.
+  assert.deepEqual(result, simulationTrace(baselinePath));
 });

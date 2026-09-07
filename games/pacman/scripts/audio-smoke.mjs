@@ -191,7 +191,7 @@ function harness(options = {}, source = current) {
   const code = source.replaceAll("export ", "");
   const mod = new Function(
     "deps",
-    `${stripTypeScriptTypes(`const {${Object.keys(deps).join(",")}}=deps;\n${code}`, { mode: "strip" })};return {sfx,music,unlockAudio,isSoundOn,${source === current ? "setAudioPaused,resetAudio,disposeAudio,audioDiagnostics," : ""}};`,
+    `${stripTypeScriptTypes(`const {${Object.keys(deps).join(",")}}=deps;\n${code}`, { mode: "strip" })};return {sfx,${source === current ? "music,unlockAudio,isSoundOn,setAudioPaused,resetAudio,disposeAudio,audioDiagnostics," : ""}};`,
   )(deps);
   return {
     mod,
@@ -425,18 +425,14 @@ test("pending media playback follows latest pause and mute without duplicate ele
 });
 test("all11 authored buffers, pitch jitter, play gains and caught duck routing match baseline", () => {
   const output = recipes(harness());
-  if (process.env.PACMAN_AUDIO_BASELINE) {
-    const before = recipes(harness({}, readFileSync(process.env.PACMAN_AUDIO_BASELINE, "utf8")));
-    assert.deepEqual(output, before);
-    console.log(
-      JSON.stringify({
-        buffers: output.bufferHashes.length,
-        recipeHash: createHash("sha256").update(JSON.stringify(output)).digest("hex"),
-      }),
-    );
-  }
-  assert.equal(
-    createHash("sha256").update(JSON.stringify(output)).digest("hex"),
-    "adb41ebf4c051d270a957ef485d0f1ea2a356324087d08ded5a3f301305a83fe",
+  const baseline = readFileSync(new URL("./fixtures/audio-baseline.txt", import.meta.url), "utf8");
+  const manifest = JSON.parse(
+    readFileSync(new URL("./fixtures/audio-baseline.json", import.meta.url), "utf8"),
   );
+  assert.equal(createHash("sha256").update(baseline).digest("hex"), manifest.oracleSha256);
+  // Keep every Float32 sample byte, random draw, playback rate and routing event
+  // exact. Frozen original recipes use the same runtime's transcendental math.
+  assert.equal(output.bufferHashes.length, 11);
+  assert.equal(output.plays.length, 11);
+  assert.deepEqual(output, recipes(harness({}, baseline)));
 });
