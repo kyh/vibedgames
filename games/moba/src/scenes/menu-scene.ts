@@ -1,4 +1,5 @@
 import { safeAreaInset } from "@vibedgames/gamepad";
+import { PhysicalGamepad } from "@vibedgames/gamepad/phaser";
 import {
   controlGroups,
   isOfflineRequested,
@@ -23,6 +24,15 @@ const GROUP_LABEL = {
   controller: "GAMEPAD",
 } satisfies Record<ControlMethod, string>;
 
+type MenuAction = {
+  online: boolean;
+  color: "blue" | "red";
+  button: Phaser.GameObjects.NineSlice;
+  label: Phaser.GameObjects.Text;
+  ring: Phaser.GameObjects.Rectangle;
+};
+type MenuFocus = { kind: "champion" } | { kind: "action"; action: MenuAction };
+
 export class MenuScene extends Phaser.Scene {
   private selected = "ironvow";
   private cards: { id: string; ring: Phaser.GameObjects.Rectangle }[] = [];
@@ -32,6 +42,16 @@ export class MenuScene extends Phaser.Scene {
   private relayout: Phaser.Time.TimerEvent | null = null;
   private unwatchControls: (() => void) | null = null;
   private controlsPlaque: Phaser.GameObjects.Container | null = null;
+  private actions: MenuAction[] = [];
+  private focus: MenuFocus = { kind: "champion" };
+  private cardColumns = 6;
+  private pad: PhysicalGamepad | null = null;
+  private padConfirmArmed = false;
+  private keyboardConfirmArmed = true;
+  private menuLive = false;
+  private starting = false;
+  private startTimer: Phaser.Time.TimerEvent | null = null;
+  private navigationHint: Phaser.GameObjects.Text | null = null;
 
   constructor() {
     super("Menu");
@@ -41,6 +61,13 @@ export class MenuScene extends Phaser.Scene {
     // scene instance is reused on BACK TO MENU — rebuild card refs from scratch
     this.cards = [];
     this.controlsPlaque = null;
+    this.actions = [];
+    this.focus = { kind: "champion" };
+    this.starting = false;
+    this.menuLive = false;
+    this.navigationHint = null;
+    this.padConfirmArmed = false;
+    this.keyboardConfirmArmed = true;
 
     const veil = document.getElementById("veil");
     if (veil) {
@@ -67,13 +94,33 @@ export class MenuScene extends Phaser.Scene {
     // the menu is static, so a debounced restart is the simplest correct
     // relayout for resizes / phone rotation (`selected` survives on the instance)
     this.scale.on(Phaser.Scale.Events.RESIZE, this.queueRelayout, this);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+    let released = false;
+    const release = (): void => {
+      if (released) return;
+      released = true;
+      this.menuLive = false;
+      this.events.off(Phaser.Scenes.Events.SHUTDOWN, release);
+      this.events.off(Phaser.Scenes.Events.DESTROY, release);
       this.scale.off(Phaser.Scale.Events.RESIZE, this.queueRelayout, this);
       this.relayout?.remove();
       this.relayout = null;
       this.unwatchControls?.();
       this.unwatchControls = null;
-    });
+      this.input.keyboard?.off("keydown", this.onMenuKeyDown, this);
+      this.input.keyboard?.off("keyup", this.onMenuKeyUp, this);
+      this.pad?.destroy();
+      this.pad = null;
+      this.startTimer?.remove();
+      this.startTimer = null;
+      this.actions = [];
+      this.focus = { kind: "champion" };
+    };
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, release);
+    this.events.once(Phaser.Scenes.Events.DESTROY, release);
+    this.pad = new PhysicalGamepad();
+    this.menuLive = true;
+    this.input.keyboard?.on("keydown", this.onMenuKeyDown, this);
+    this.input.keyboard?.on("keyup", this.onMenuKeyUp, this);
 
     // backdrop: open water, slowly drifting, with rocks and clouds
     const water = this.add.tileSprite(0, 0, W, H, "t-water").setOrigin(0).setScrollFactor(0);
@@ -136,9 +183,9 @@ export class MenuScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
     title.setScale(Math.min(1, (Math.min(720, W - 24) - 60) / Math.max(1, title.width)));
-    if (!this.compactH)
-      this.add
-        .text(W / 2, 116, "Choose your champion · destroy the enemy Ancient", {
+    if (!this.compactH) {
+      this.navigationHint = this.add
+        .text(W / 2, 116, "", {
           fontFamily: FONT,
           fontSize: "16px",
           color: "#eafaf8",
@@ -146,10 +193,12 @@ export class MenuScene extends Phaser.Scene {
           strokeThickness: 4,
         })
         .setOrigin(0.5);
+    }
 
     // hero cards on carved parchment panels; a 3-wide grid on narrow screens
     const n = HEROES.length;
     const cols = W < 720 ? 3 : n;
+    this.cardColumns = cols;
     const rows = Math.ceil(n / cols);
     const cardW = Math.min(160, (W - 48) / cols - 12);
     const f = cardW / 160;
@@ -238,14 +287,13 @@ export class MenuScene extends Phaser.Scene {
       if (t.width > w - 34) t.setFontSize(Math.floor((21 * (w - 34)) / t.width));
       b.on("pointerover", () => this.tweens.add({ targets: [b, t], scale: 1.05, duration: 110 }));
       b.on("pointerout", () => this.tweens.add({ targets: [b, t], scale: 1, duration: 110 }));
-      b.on("pointerdown", () => {
-        b.setTexture(`ui-btn-${color}-pressed`);
-        t.setText("LOADING…").setY(btnY);
-        notifyGameStarted();
-        this.time.delayedCall(80, () =>
-          this.scene.start("Game", { heroId: this.selected, online }),
-        );
-      });
+      const ring = this.add
+        .rectangle(x, btnY, w + 6, 64, 0x000000, 0)
+        .setStrokeStyle(3, 0xffe14a)
+        .setVisible(false);
+      const action = { online, color, button: b, label: t, ring };
+      this.actions.push(action);
+      b.on("pointerdown", () => this.beginMatch(action));
     };
     // ?offline=1 forbids any socket, so the online button is dropped rather
     // than left as a control that silently starts a bot match.
@@ -266,6 +314,148 @@ export class MenuScene extends Phaser.Scene {
     this.unwatchControls = watchControlContext(() => this.buildControlsPlaque(btnY));
 
     this.select(this.selected);
+  }
+
+  private onMenuKeyDown(event: KeyboardEvent): void {
+    if (!this.menuLive || this.starting) return;
+    const direction =
+      event.key === "ArrowLeft"
+        ? "left"
+        : event.key === "ArrowRight"
+          ? "right"
+          : event.key === "ArrowUp"
+            ? "up"
+            : event.key === "ArrowDown"
+              ? "down"
+              : null;
+    if (direction) {
+      event.preventDefault();
+      this.moveFocus(direction);
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      if (!event.repeat && this.keyboardConfirmArmed) {
+        this.keyboardConfirmArmed = false;
+        this.confirmFocus();
+      }
+    }
+  }
+
+  private onMenuKeyUp(event: KeyboardEvent): void {
+    if (event.key === "Enter") this.keyboardConfirmArmed = true;
+  }
+
+  override update(): void {
+    if (!this.menuLive || this.starting || !this.pad) return;
+    this.pad.update();
+    if (!this.pad.connected) {
+      this.padConfirmArmed = false;
+      return;
+    }
+    if (!this.pad.isButtonDown("a")) this.padConfirmArmed = true;
+    for (const direction of ["left", "right", "up", "down"] satisfies (
+      | "left"
+      | "right"
+      | "up"
+      | "down"
+    )[]) {
+      if (this.pad.justPressed(direction)) this.moveFocus(direction);
+    }
+    if (this.pad.justPressed("b")) {
+      this.focus = { kind: "champion" };
+      this.paintFocus();
+    } else if (this.padConfirmArmed && this.pad.justPressed("a")) {
+      this.padConfirmArmed = false;
+      this.confirmFocus();
+    }
+  }
+
+  private moveFocus(direction: "left" | "right" | "up" | "down"): void {
+    if (!this.menuLive || this.starting) return;
+    if (this.focus.kind === "action") {
+      if (direction === "up") this.focus = { kind: "champion" };
+      else if (direction === "left" || direction === "right") {
+        const index = this.actions.indexOf(this.focus.action);
+        const action =
+          this.actions[
+            (index + (direction === "left" ? -1 : 1) + this.actions.length) % this.actions.length
+          ];
+        if (action) this.focus = { kind: "action", action };
+      }
+      this.paintFocus();
+      return;
+    }
+    const index = Math.max(
+      0,
+      HEROES.findIndex((hero) => hero.id === this.selected),
+    );
+    if (direction === "down" && index + this.cardColumns >= HEROES.length) {
+      this.focusPlay();
+      return;
+    }
+    const next =
+      direction === "left"
+        ? (index + HEROES.length - 1) % HEROES.length
+        : direction === "right"
+          ? (index + 1) % HEROES.length
+          : direction === "up"
+            ? index >= this.cardColumns
+              ? index - this.cardColumns
+              : index
+            : Math.min(HEROES.length - 1, index + this.cardColumns);
+    const hero = HEROES[next];
+    if (hero) this.select(hero.id);
+  }
+
+  private focusPlay(): void {
+    const action = this.actions.find((entry) => !entry.online);
+    if (!action) return;
+    this.focus = { kind: "action", action };
+    this.paintFocus();
+  }
+
+  private confirmFocus(): void {
+    if (!this.menuLive || this.starting) return;
+    if (this.focus.kind === "champion") this.focusPlay();
+    else this.beginMatch(this.focus.action);
+  }
+
+  private beginMatch(action: MenuAction): void {
+    if (!this.menuLive || this.starting || !this.actions.includes(action)) return;
+    this.starting = true;
+    this.focus = { kind: "action", action };
+    this.paintFocus();
+    action.button.setTexture(`ui-btn-${action.color}-pressed`);
+    action.label.setText("LOADING…").setY(action.button.y);
+    const heroId = this.selected;
+    notifyGameStarted();
+    this.startTimer = this.time.delayedCall(80, () => {
+      this.startTimer = null;
+      if (this.menuLive) this.scene.start("Game", { heroId, online: action.online });
+    });
+  }
+
+  private paintFocus(): void {
+    for (const card of this.cards) {
+      card.ring
+        .setVisible(card.id === this.selected)
+        .setStrokeStyle(
+          this.focus.kind === "champion" ? 4 : 2,
+          0xffe14a,
+          this.focus.kind === "champion" ? 1 : 0.65,
+        );
+    }
+    for (const action of this.actions)
+      action.ring.setVisible(this.focus.kind === "action" && this.focus.action === action);
+    if (this.navigationHint) {
+      const text =
+        this.focus.kind === "champion"
+          ? "Choose a champion · arrows / D-pad · Enter / A"
+          : `${this.focus.action.online ? "PLAY ONLINE" : "PLAY vs BOTS"} · Enter / A to play · ↑ to return`;
+      this.navigationHint.setText(text).setScale(1);
+      this.navigationHint.setScale(
+        Math.min(1, (this.scale.width - 32) / Math.max(1, this.navigationHint.width)),
+      );
+    }
   }
 
   /** The menu's controls plaque — the pause overlay's grouped keycap language
@@ -418,8 +608,10 @@ export class MenuScene extends Phaser.Scene {
   }
 
   private select(id: string): void {
+    if (!this.menuLive || this.starting || !HEROES.some((hero) => hero.id === id)) return;
     this.selected = id;
+    this.focus = { kind: "champion" };
     this.preview(id);
-    for (const c of this.cards) c.ring.setVisible(c.id === id);
+    this.paintFocus();
   }
 }

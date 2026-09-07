@@ -115,7 +115,7 @@ test("host state_patch propagates to guests; non-host writes are dropped", async
   const eventsA: string[] = [];
   const eventsB: string[] = [];
   const clientA = connect(room, { onEvent: (event) => eventsA.push(event) });
-  const clientB = connect(room);
+  const clientB = connect(room, { onEvent: (event) => eventsB.push(event) });
   try {
     await waitFor(() => admitted(clientA) && admitted(clientB), "both clients admitted");
     // Which client wins the host election depends on connect order — don't
@@ -442,33 +442,38 @@ test("malformed and oversized state patches are dropped without harming the room
   // Raw host joins first: only the host may write shared state, and only a raw
   // client can put malformed payloads on the wire.
   const rawHost = new RawClient(room, { _pk: `val-host-${process.pid}` });
-  const guest = connect(room);
   try {
-    await waitFor(() => rawHost.synced() && admitted(guest), "host and guest in the room");
+    await waitFor(() => rawHost.synced(), "raw host admitted before guest connects");
+    const guest = connect(room);
+    try {
+      await waitFor(() => admitted(guest), "guest admitted");
+      assert.equal(guest.hostId, rawHost.id, "raw sender owns shared state");
 
-    rawHost.send({ type: "state_patch", data: { ["__proto__"]: { polluted: true } } });
-    rawHost.send({ type: "state_patch", data: "not-an-object" });
-    rawHost.send({ type: "state_patch", data: { blob: "x".repeat(1_100_000) } });
-    // Fence: same sender, so the server processed (and dropped) all three
-    // rejects before this valid patch.
-    rawHost.send({ type: "state_patch", data: { ok: 1 } });
+      rawHost.send({ type: "state_patch", data: { ["__proto__"]: { polluted: true } } });
+      rawHost.send({ type: "state_patch", data: "not-an-object" });
+      rawHost.send({ type: "state_patch", data: { blob: "x".repeat(1_100_000) } });
+      // Fence: same sender, so the server processed (and dropped) all three
+      // rejects before this valid patch.
+      rawHost.send({ type: "state_patch", data: { ok: 1 } });
 
-    await waitFor(() => guest.sharedState.ok === 1, "valid patch after rejects still lands");
-    assert.equal(
-      Object.prototype.hasOwnProperty.call(guest.sharedState, "__proto__"),
-      false,
-      "prototype-polluting key never reached the guest",
-    );
-    assert.equal(guest.sharedState.blob, undefined, "oversized frame was refused");
-    assert.equal(
-      Object.keys(guest.sharedState).some((key) => /^\d+$/.test(key)),
-      false,
-      "non-object root never scattered index keys into shared state",
-    );
-    assert.equal(rawHost.closed, false, "rejects did not kill the host's connection");
+      await waitFor(() => guest.sharedState.ok === 1, "valid patch after rejects still lands");
+      assert.equal(
+        Object.prototype.hasOwnProperty.call(guest.sharedState, "__proto__"),
+        false,
+        "prototype-polluting key never reached the guest",
+      );
+      assert.equal(guest.sharedState.blob, undefined, "oversized frame was refused");
+      assert.equal(
+        Object.keys(guest.sharedState).some((key) => /^\d+$/.test(key)),
+        false,
+        "non-object root never scattered index keys into shared state",
+      );
+      assert.equal(rawHost.closed, false, "rejects did not kill the host's connection");
+    } finally {
+      guest.destroy();
+    }
   } finally {
     rawHost.close(1000);
-    guest.destroy();
   }
 });
 

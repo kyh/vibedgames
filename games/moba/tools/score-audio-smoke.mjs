@@ -5,6 +5,7 @@ import { SCORE_STEP_SECONDS } from "../src/render/score.ts";
 // speaker, waveform or perceptual mix claim; root captures the actual graph.
 const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
 const originalPerformance = Object.getOwnPropertyDescriptor(globalThis, "performance");
+const originalFetch = globalThis.fetch;
 let serial = 0;
 class Param {
   value = 1;
@@ -26,9 +27,14 @@ class GraphNode {
     this.disconnected++;
   }
 }
-async function setup(stored = "1") {
+async function setup(stored = "1", sampleReady = false) {
   let clock = 10000;
   const contexts = [];
+  const requests = [];
+  globalThis.fetch = async (url) => {
+    requests.push(url);
+    return { ok: sampleReady, arrayBuffer: async () => new ArrayBuffer(4) };
+  };
   class Context {
     state = "running";
     currentTime = 0;
@@ -55,6 +61,9 @@ async function setup(stored = "1") {
     createBuffer(channels, length, sampleRate) {
       const data = new Float32Array(length);
       return { length, sampleRate, getChannelData: () => data };
+    }
+    async decodeAudioData() {
+      return { foley: true, duration: 0.5, length: 4000, sampleRate: 8000 };
     }
     source() {
       const node = new GraphNode();
@@ -114,14 +123,14 @@ async function setup(stored = "1") {
   return {
     mod,
     contexts,
+    requests,
     bump: () => {
       clock += 100;
     },
   };
 }
 const settle = async () => {
-  await Promise.resolve();
-  await Promise.resolve();
+  for (let i = 0; i < 8; i++) await Promise.resolve();
 };
 const frame = (step, kind = "quiet") => ({
   kind,
@@ -270,10 +279,49 @@ try {
     mod.disposeSound();
     groups++;
   }
+  {
+    const { mod, contexts, requests, bump } = await setup("1", true);
+    mod.sfx.ability("ironvow:Q", 1, true);
+    assert.equal(mod.soundDiagnostics().ownedSources, 2, "loading plays immediate fallback");
+    assert.equal(
+      contexts[0].sources.some((s) => s.buffer?.foley),
+      false,
+    );
+    await settle();
+    assert.equal(mod.soundDiagnostics().foley.ready, 6);
+    assert.equal(mod.soundDiagnostics().acceptedSources, 2, "decode cannot replay missed accent");
+    contexts[0].advance(1);
+    bump();
+    mod.sfx.ability("ironvow:Q", 0.6);
+    mod.sfx.ability("ironvow:Q", 1, true);
+    assert.equal(mod.soundDiagnostics().ownedSources, 4, "ally cannot swallow local cast");
+    assert.equal(mod.soundDiagnostics().essentialSources, 2);
+    assert.equal(contexts[0].sources.filter((s) => !s.disconnected && s.buffer?.foley).length, 2);
+    mod.sfx.ability("ironvow:Q", 1, true);
+    assert.equal(mod.soundDiagnostics().ownedSources, 4, "same local duplicate stays throttled");
+    mod.sfx.ability("ironvow:W", 1, true);
+    assert.equal(mod.soundDiagnostics().ownedSources, 6, "different accepted spell has own gate");
+    for (let i = 0; i < 30; i++) {
+      bump();
+      mod.sfx.ability("boomtinker:Q", 1, i % 2 === 0);
+      assert.ok(mod.soundDiagnostics().ownedSources <= 32, "sample voices share existing cap");
+    }
+    mod.resetSound();
+    assert.equal(mod.soundDiagnostics().ownedSources, 0);
+    assert.equal(mod.soundDiagnostics().foley.ready, 6, "reset retains six reusable buffers");
+    mod.resumeAudio();
+    assert.equal(requests.length, 6, "reset cannot refetch samples");
+    mod.disposeSound();
+    assert.equal(mod.soundDiagnostics().foley.status, "disposed");
+    assert.equal(mod.soundDiagnostics().foley.ready, 0);
+    for (const source of contexts[0].sources) assert.equal(source.disconnected, 1);
+    groups++;
+  }
   console.log(
     `✓ ${groups} actual score/audio graph groups: natural expiry, 32/6/2 caps, SFX priority, clock jumps, outcome, pause/mute/reset/dispose`,
   );
 } finally {
+  globalThis.fetch = originalFetch;
   if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow);
   else delete globalThis.window;
   if (originalPerformance) Object.defineProperty(globalThis, "performance", originalPerformance);

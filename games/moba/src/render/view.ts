@@ -27,8 +27,10 @@ import { abilityCastFx, effectColor, groundFxKind, hitColor } from "./fx-map";
 import { CommonFx } from "./common-fx";
 import { layoutHeroPlates } from "./combat-plates";
 import type { HeroPlate } from "./combat-plates";
-import { attackPose } from "./attack-pose";
+import { attackClipFrame, attackPose, attackRecoveryFrame } from "./attack-pose";
 import type { AttackCue } from "./attack-pose";
+import { spellPose } from "./spell-pose";
+import type { SpellCue } from "./spell-pose";
 import { presentationSettings, watchPresentationSettings } from "./presentation-settings";
 import { animKey, structureDestroyedTex, unitSprite } from "./sprites";
 
@@ -84,8 +86,12 @@ type UnitView = {
   dx: number;
   dy: number;
   curAnim: string;
-  lastAttackAt: number; // detect a fresh swing to play the attack anim once
+  lastAttackAt: number;
+  lastSwingAt: number;
   attackCue: AttackCue | null;
+  spellCue: SpellCue | null;
+  lastCast: { at: number; effect: string } | null;
+  baseScale: number;
   lastDustAt: number; // throttle the running dust puffs
   dead: boolean; // playing/played the death anim while hidden (heroes)
   recoilX: number; // hit knockback offset (decays each frame)
@@ -156,10 +162,17 @@ export class WorldView {
     syncMotion();
     const stopSettings = watchPresentationSettings(syncMotion);
     motion.addEventListener("change", syncMotion);
-    scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      scene.events.off(Phaser.Scenes.Events.SHUTDOWN, release);
+      scene.events.off(Phaser.Scenes.Events.DESTROY, release);
       motion.removeEventListener("change", syncMotion);
       stopSettings();
-    });
+    };
+    scene.events.once(Phaser.Scenes.Events.SHUTDOWN, release);
+    scene.events.once(Phaser.Scenes.Events.DESTROY, release);
   }
 
   /** Start a looping anim at a deterministic offset, CLAMPED to its real frame
@@ -349,30 +362,33 @@ export class WorldView {
     });
   }
 
-  /** Animated 192px foam sprites on every water cell touching land —
-   *  oversized sprites on the 64 grid, each starting at a different frame. */
+  /** The original foam has a filled centre: place it UNDER each boundary land
+   *  cell so the grass hides that centre and only the ripple reaches the water.
+   *  Water-cell candidates remain separate for the occasional ambient splash. */
   private buildFoam(): void {
     const s = this.scene;
     const hasFoam = s.textures.exists("foam");
+    const neighbours = [
+      [-1, 0],
+      [1, 0],
+      [0, -1],
+      [0, 1],
+      [-1, -1],
+      [1, -1],
+      [-1, 1],
+      [1, 1],
+    ] satisfies Array<[number, number]>;
     for (let cy = 0; cy < ROWS; cy++) {
       for (let cx = 0; cx < COLS; cx++) {
-        if (isLandCell(cx, cy)) continue;
-        const touches = (
-          [
-            [-1, 0],
-            [1, 0],
-            [0, -1],
-            [0, 1],
-            [-1, -1],
-            [1, -1],
-            [-1, 1],
-            [1, 1],
-          ] satisfies Array<[number, number]>
-        ).some(([dx, dy]) => isLandCell(cx + dx, cy + dy));
-        if (!touches) continue;
+        const land = isLandCell(cx, cy);
+        const boundary = neighbours.some(([dx, dy]) => isLandCell(cx + dx, cy + dy) !== land);
+        if (!boundary) continue;
         const x = cx * CELL + CELL / 2;
         const y = cy * CELL + CELL / 2;
-        this.shoreCells.push({ x, y });
+        if (!land) {
+          this.shoreCells.push({ x, y });
+          continue;
+        }
         if (!hasFoam) continue;
         const f = s.add.sprite(x, y, "foam", 0).setDepth(D_FOAM);
         this.playLoop(f, "foam-loop", cx * 7 + cy * 5);
@@ -787,6 +803,7 @@ export class WorldView {
   /** Per-frame sync of all dynamic objects to the world. */
   sync(world: World, dt: number): void {
     this.syncStructures(world);
+    this.admitSpellCues(world);
     this.syncUnits(world, dt);
     this.syncHeroPlates(world);
     this.syncProjectiles(world);
@@ -987,6 +1004,25 @@ export class WorldView {
     }
   }
 
+  private admitSpellCues(world: World): void {
+    for (const fx of world.fx) {
+      if (fx.t !== "cast") continue;
+      const actor = fx.actor;
+      if (!actor || actor.at > world.now || world.now - actor.at > 450) continue;
+      const unit = world.units.get(actor.unitId);
+      if (!unit?.alive || !unit.hero || !fx.effect.startsWith(`${unit.hero.defId}:`)) continue;
+      const view = this.units.get(unit.id) ?? this.createUnitView(unit);
+      if (
+        view.lastCast &&
+        (actor.at < view.lastCast.at ||
+          (actor.at === view.lastCast.at && fx.effect === view.lastCast.effect))
+      )
+        continue;
+      view.lastCast = { at: actor.at, effect: fx.effect };
+      view.spellCue = { effect: fx.effect, at: actor.at, facing: unit.facing };
+    }
+  }
+
   private syncUnits(world: World, dt: number): void {
     for (const u of world.units.values()) {
       if (u.kind === "structure") continue;
@@ -996,6 +1032,7 @@ export class WorldView {
         if (v && !v.dead) {
           v.dead = true;
           v.attackCue = null;
+          v.spellCue = null;
           v.plate.setVisible(false);
           v.ring.setVisible(false);
           for (const star of v.stunStars) star.setVisible(false);
@@ -1027,7 +1064,9 @@ export class WorldView {
         v.dy = u.y;
         v.curAnim = "";
         this.scene.tweens.killTweensOf(v.sprite);
-        v.sprite.setAlpha(1).setAngle(0);
+        v.sprite.setAlpha(1).setAngle(0).setScale(v.baseScale);
+        v.spellCue = null;
+        v.lastCast = null;
         v.sprite.setPosition(0, -18);
         v.recoilX = v.recoilY = 0;
       }
@@ -1052,7 +1091,10 @@ export class WorldView {
       const elev = elevationFrac(v.dx, v.dy) * LIFT;
       v.container.setPosition(Math.round(v.dx), Math.round(v.dy - elev));
       // Only the body recoils. Ground rings and health stay on the actual feet.
-      v.sprite.setPosition(v.recoilX, -18 + v.recoilY);
+      v.sprite
+        .setPosition(v.recoilX, -18 + v.recoilY)
+        .setAngle(0)
+        .setScale(v.baseScale);
       v.plate.setPosition(Math.round(v.dx), Math.round(v.dy - elev));
       // sort by the lifted "screen feet" so plateau units order correctly against
       // the lifted plateau trees/decor (which use depth = y - LIFT)
@@ -1079,39 +1121,70 @@ export class WorldView {
         }
       }
 
-      // facing + animation. A fresh attack (lastAttackAt advanced) plays the FULL
-      // attack swing once; while it's still playing we don't interrupt it with
-      // walk/idle, so each hit reads as a complete motion.
+      // Body frames follow the accepted wind-up, contact and recovery. A late
+      // snapshot samples its present age instead of replaying anticipation.
       v.sprite.setFlipX(u.facing < 0);
       const attackKey = animKey(u, "attack");
-      const attackPlaying = v.curAnim === attackKey && v.sprite.anims.isPlaying;
       if (u.lastAttackAt !== v.lastAttackAt && u.pendingAttack) {
         v.lastAttackAt = u.lastAttackAt;
-        if (this.scene.anims.exists(attackKey)) {
-          v.sprite.play(attackKey, true);
-          v.curAnim = attackKey;
-        } else {
-          v.attackCue = {
-            startedAt: u.lastAttackAt,
-            resolveAt: u.pendingAttack.resolveAt,
-            facing: u.facing,
-          };
-        }
-        if (u.kind === "hero") this.spawnSwing(v.dx, v.dy, u.facing, u.projectileSpeed > 0);
-      } else if (!attackPlaying) {
+        v.attackCue = {
+          startedAt: u.lastAttackAt,
+          resolveAt: u.pendingAttack.resolveAt,
+          facing: u.facing,
+        };
+      }
+      const cue = v.attackCue;
+      const cancelled = cue && !u.pendingAttack && (speed > 12 || world.now < cue.resolveAt);
+      const attack = cue && !cancelled ? attackPose(cue, world.now) : null;
+      if (!attack) v.attackCue = null;
+      const clip = this.scene.anims.get(attackKey);
+      const index =
+        cue && attack && clip
+          ? attackClipFrame(cue, world.now, attackKey, clip.frames.length)
+          : null;
+      const attackFrame = index === null ? undefined : clip?.frames[index];
+      if (attackFrame) {
+        v.sprite.anims.stop();
+        v.sprite.setFrame(attackFrame.textureFrame);
+        v.curAnim = attackKey;
+      } else {
         const key = animKey(u, speed > 12 ? "walk" : "idle");
         if (v.curAnim !== key && this.scene.anims.exists(key)) {
           v.sprite.play(key, true);
           v.curAnim = key;
         }
+        if (attack && !this.reducedMotion) {
+          v.sprite.setAngle(attack.angle);
+          v.sprite.x += attack.x;
+        }
+      }
+      if (cue && attack && world.now >= cue.resolveAt && v.lastSwingAt !== cue.startedAt) {
+        v.lastSwingAt = cue.startedAt;
+        if (u.kind === "hero") this.spawnSwing(v.dx, v.dy, cue.facing, u.projectileSpeed > 0);
       }
 
-      if (v.attackCue) {
-        const cancelled = !u.pendingAttack && (speed > 12 || world.now < v.attackCue.resolveAt);
-        const pose = cancelled ? null : attackPose(v.attackCue, world.now);
-        if (!pose) v.attackCue = null;
-        v.sprite.setAngle(this.reducedMotion ? 0 : (pose?.angle ?? 0));
-        v.sprite.x += this.reducedMotion ? 0 : (pose?.x ?? 0);
+      const pose = spellPose(v.spellCue, u.hero?.channel ?? null, world.now, u.facing);
+      if (!pose) v.spellCue = null;
+      if (pose) {
+        // An actual pending basic attack keeps ownership of its existing clip.
+        // Otherwise sample only the release/recovery part of the original art.
+        if (pose.frame !== null && !u.pendingAttack) {
+          const clip = this.scene.anims.get(attackKey);
+          const index = attackRecoveryFrame(pose.frame, attackKey, clip?.frames.length ?? 0);
+          const frame = index === null ? undefined : clip?.frames[index];
+          if (frame) {
+            v.sprite.anims.stop();
+            v.sprite.setFrame(frame.textureFrame);
+            v.curAnim = "spell-release";
+          }
+        }
+        if (!this.reducedMotion) {
+          v.sprite.x += pose.x;
+          v.sprite.y += pose.y;
+          v.sprite
+            .setAngle(pose.angle)
+            .setScale(v.baseScale * pose.scaleX, v.baseScale * pose.scaleY);
+        }
       }
 
       // no sprite tint at all — units show their true art; hit feedback is the
@@ -1545,7 +1618,11 @@ export class WorldView {
       dy: u.y,
       curAnim: "",
       lastAttackAt: 0,
+      lastSwingAt: 0,
       attackCue: null,
+      spellCue: null,
+      lastCast: null,
+      baseScale: scale,
       lastDustAt: 0,
       dead: false,
       recoilX: 0,
@@ -2070,7 +2147,12 @@ export class WorldView {
         break;
       }
       case "cast": {
-        if (fx.team === this.playerTeam) sfx.ability(fx.effect, this.soundGainAt(fx.x, fx.y));
+        const actor = fx.actor;
+        const local = actor?.unitId === this.playerHeroId;
+        const gain = local
+          ? 1
+          : this.soundGainAt(fx.x, fx.y) * (fx.team === this.playerTeam ? 0.6 : 0.45);
+        sfx.ability(fx.effect, gain, local);
         const col = effectColor(fx.effect);
         this.commonFx.image({
           texture: "fx-ring",

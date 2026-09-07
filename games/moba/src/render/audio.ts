@@ -2,6 +2,9 @@
 // authoritative score grid never queues missed beats or uses wall-time timers.
 
 import { ScoreClock } from "./score";
+import { abilityFoley, abilityNotes } from "./ability-sound";
+import { FoleyBank } from "./foley";
+import type { SynthTone, SynthNoise } from "./ability-sound";
 import type { ScoreNote, SoundscapeFrame } from "./score";
 
 const SOUND_KEY = "moba:sound";
@@ -40,24 +43,10 @@ type Voice = {
   phrase: Phrase;
   onEnded: () => void;
 };
-type Tone = {
-  kind: "tone";
-  freq: number;
-  dur: number;
-  type: OscillatorType;
-  gain: number;
-  slideTo?: number;
-  at: number;
-};
-type Noise = {
-  kind: "noise";
-  dur: number;
-  gain: number;
-  filter: BiquadFilterType;
-  frequency: number;
-  at: number;
-};
-type Note = Tone | Noise | ScoreNote;
+type Tone = SynthTone;
+type Noise = SynthNoise;
+type Sample = { kind: "sample"; buffer: AudioBuffer; gain: number; at: number; dur: number };
+type Note = Tone | Noise | ScoreNote | Sample;
 type Reaction = { important?: boolean; gain?: number };
 type Throttle = { key: string; minMs: number };
 
@@ -73,6 +62,7 @@ const phrases: Phrase[] = [];
 const noiseBufs = new Map<number, AudioBuffer>();
 const lastAt = new Map<string, number>();
 const scoreClock = new ScoreClock();
+const foley = new FoleyBank();
 const bedBuses = new Map<BedKind, GainNode>();
 let acceptedSources = 0;
 let droppedSources = 0;
@@ -126,6 +116,7 @@ function audio(): Bus | null {
       master.gain.value = MASTER_GAIN;
       master.connect(context.destination);
       bus = { context, master };
+      foley.prime(context);
     } catch {
       return null;
     }
@@ -228,6 +219,7 @@ export function disposeSound(): void {
   setMaster();
   resetSound();
   noiseBufs.clear();
+  foley.dispose();
   for (const gain of bedBuses.values()) gain.disconnect();
   bedBuses.clear();
   if (bus) {
@@ -271,7 +263,7 @@ function play(
 ): void {
   const level = Number.isFinite(gain) ? Math.max(0, Math.min(1, gain)) : 0;
   // Silent/distant/paused events neither allocate audio nor consume a gate.
-  if (blocked() || level === 0) return;
+  if (blocked() || level === 0 || notes.length === 0) return;
   const target = audio();
   let routine = 0;
   for (const voice of voices) if (!voice.phrase.essential) routine++;
@@ -409,9 +401,22 @@ function schedule(target: Bus, phrase: Phrase, note: Note, now: number, level: n
     const filter = ctx.createBiquadFilter();
     filter.type = note.filter;
     filter.frequency.value = note.frequency;
-    gain.gain.value = note.gain * level;
+    if (note.attack !== undefined) {
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.linearRampToValueAtTime(note.gain * level, t + note.attack);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + note.dur);
+    } else gain.gain.value = note.gain * level;
     bufferSource.connect(filter).connect(gain);
     nodes.push(filter);
+    source = bufferSource;
+  } else if (note.kind === "sample") {
+    const bufferSource = ctx.createBufferSource();
+    bufferSource.buffer = note.buffer;
+    gain.gain.setValueAtTime(0, t);
+    gain.gain.linearRampToValueAtTime(note.gain * level, t + 0.002);
+    gain.gain.setValueAtTime(note.gain * level, t + Math.max(0.002, note.dur - 0.02));
+    gain.gain.linearRampToValueAtTime(0, t + note.dur);
+    bufferSource.connect(gain);
     source = bufferSource;
   } else {
     const filter = ctx.createBiquadFilter();
@@ -457,42 +462,27 @@ function schedule(target: Bus, phrase: Phrase, note: Note, now: number, level: n
   if (note.kind === "tone" || note.kind === "score-tone") source.stop(t + note.dur + 0.02);
 }
 
-/** Only accepted cast IDs choose a family. Unknown IDs retain the old phrase. */
-function abilityNotes(effect: string): readonly Note[] {
-  switch (effect.split(":")[0]) {
-    case "ironvow":
-      return [
-        noise(0.045, 0.055, 2400, 0, "highpass"),
-        tone(720, 0.12, "triangle", 0.05, 520, 0.025),
-      ];
-    case "duskblade":
-      return [noise(0.12, 0.055, 1800), tone(260, 0.16, "sine", 0.045, 90)];
-    case "stormcaller":
-      return [
-        tone(880, 0.075, "square", 0.035, 1320),
-        tone(1320, 0.1, "triangle", 0.055, undefined, 0.045),
-      ];
-    case "emberhex":
-      return [noise(0.16, 0.07, 1100), tone(220, 0.18, "sawtooth", 0.045, 100)];
-    case "boomtinker":
-      return [
-        tone(1450, 0.025, "square", 0.028),
-        noise(0.07, 0.07, 2600, 0.03, "bandpass"),
-        tone(150, 0.11, "sine", 0.045, 75, 0.03),
-      ];
-    case "brewkeeper":
-      return [tone(360, 0.1, "sine", 0.06, 600), tone(600, 0.13, "sine", 0.045, 420, 0.065)];
-    default:
-      return [tone(440, 0.18, "sawtooth", 0.06, 880)];
-  }
-}
-
 export const sfx = {
   hit(reaction: Reaction = {}): void {
     play([noise(0.06, 0.07, 1400)], reaction, { key: "hit", minMs: 60 });
   },
-  ability(effect = "", gain = 1): void {
-    play(abilityNotes(effect), { gain }, { key: "ability", minMs: 90 });
+  ability(effect = "", gain = 1, local = false): void {
+    // Each spell has its own gate. A teammate cannot swallow the player's
+    // accepted cast; the existing essential reserve protects that response.
+    const notes: Note[] = [...abilityNotes(effect)];
+    const accent = abilityFoley(effect);
+    const buffer = accent ? foley.buffer(accent.key) : null;
+    const first = notes[0];
+    // Replace one voice, never add a parallel source or replay a missed cue.
+    if (buffer && accent && first)
+      notes[0] = {
+        kind: "sample",
+        buffer,
+        gain: accent.gain,
+        at: first.at,
+        dur: buffer.duration,
+      };
+    play(notes, { gain, important: local }, { key: `ability:${effect}`, minMs: 90 });
   },
   explosion(reaction: Reaction = {}): void {
     play([noise(0.28, 0.16, 700), tone(120, 0.3, "sine", 0.1, 50)], reaction, {
@@ -556,6 +546,7 @@ export function soundDiagnostics() {
     essentialSources: voices.size - routineSources,
     phrases: phrases.length,
     noiseBuffers: noiseBufs.size,
+    foley: foley.diagnostics(),
     throttleGates: lastAt.size,
     limit: VOICE_LIMIT,
     routineLimit: ROUTINE_LIMIT,

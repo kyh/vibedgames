@@ -26,6 +26,7 @@ import {
   updateSoundscape,
 } from "../render/audio";
 import { readSoundscape } from "../render/score";
+import { structureAnnouncement } from "../render/objective-guidance";
 import { presentationSettings, watchPresentationSettings } from "../render/presentation-settings";
 import { WorldView } from "../render/view";
 import { INTENT_EVENT, MULTIPLAYER_HOST, PARTY, ROOM, parseIntent } from "../net/protocol";
@@ -226,7 +227,6 @@ export class GameScene extends Phaser.Scene {
     this.cam.setBackgroundColor("#0a0e16");
     this.applyZoom();
     const stopPresentationSettings = watchPresentationSettings(() => this.applyZoom());
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, stopPresentationSettings);
     this.scale.on(Phaser.Scale.Events.RESIZE, this.applyZoom, this);
 
     if (this.online) this.startOnline();
@@ -234,6 +234,9 @@ export class GameScene extends Phaser.Scene {
 
     this.bindInput();
     this.bindTouch();
+    // The menu's held confirm belongs to navigation, not the first attack.
+    this.physPad.update();
+    this.physPad.update();
     this.scene.launch("Hud", { game: this });
     if (import.meta.env.DEV) {
       this.installDebug();
@@ -250,7 +253,13 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+    let released = false;
+    const release = (): void => {
+      if (released) return;
+      released = true;
+      this.events.off(Phaser.Scenes.Events.SHUTDOWN, release);
+      this.events.off(Phaser.Scenes.Events.DESTROY, release);
+      stopPresentationSettings();
       resetSound();
       this.result = null;
       this.scale.off(Phaser.Scale.Events.RESIZE, this.applyZoom, this);
@@ -260,7 +269,10 @@ export class GameScene extends Phaser.Scene {
       this.touchControls = null;
       this.physPad.destroy();
       this.net?.destroy();
-    });
+      this.net = null;
+    };
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, release);
+    this.events.once(Phaser.Scenes.Events.DESTROY, release);
 
     const veil = document.getElementById("veil");
     if (veil) {
@@ -483,6 +495,19 @@ export class GameScene extends Phaser.Scene {
 
   get controlsPaused(): boolean {
     return this.inputPaused;
+  }
+
+  /** Native HUD panels may consume key-up. Clear every input edge on both
+   * panel boundaries; the match clock and pause preference remain untouched. */
+  clearHudInput(): void {
+    this.input.keyboard?.resetKeys();
+    this.pad?.pad.reset();
+    this.pad?.pad.nextFrame();
+    this.pad?.pad.nextFrame();
+    this.physPad.update();
+    this.physPad.update();
+    this.needsPauseHold = true;
+    this.flushPauseHold();
   }
 
   /** The online simulation continues under pause; only this player's input
@@ -733,13 +758,9 @@ export class GameScene extends Phaser.Scene {
           at: now,
         });
       else if (fx.t === "structureDown") {
-        const owner = me ? (fx.team === me.team ? "YOUR" : "ENEMY") : fx.team.toUpperCase();
-        const structure = fx.tier === "ancient" ? "ANCIENT" : fx.tier === "base" ? "BASE" : "TOWER";
         this.feed.push({
           kind: "notify",
-          text: `${owner} ${structure} HAS FALLEN`,
-          tone: me ? (fx.team === me.team ? "bad" : "good") : "neutral",
-          priority: fx.tier === "ancient" ? "ending" : fx.tier === "base" ? "major" : "objective",
+          ...structureAnnouncement(this.world, fx, me?.team ?? null),
           at: now,
         });
       } else if (

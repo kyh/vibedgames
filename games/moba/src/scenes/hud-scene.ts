@@ -11,6 +11,13 @@ import { abilityIconFrame } from "../render/fx-map";
 import { actionAvailability } from "../render/action-availability";
 import type { UnavailableReason } from "../render/action-availability";
 import { presentationSettings } from "../render/presentation-settings";
+import { objectiveGuidance } from "../render/objective-guidance";
+import {
+  abilityExplanation,
+  abilityUpgrade,
+  experienceProgress,
+  killFeedText,
+} from "../render/hud-presentation";
 import { heroSheetTex } from "../render/sprites";
 import { SLOT_LABEL } from "./game-scene";
 import type { GameScene, MatchResult, ObjectiveNotice } from "./game-scene";
@@ -59,6 +66,25 @@ const AVAILABILITY_LABEL = {
   mana: "MANA",
 } satisfies Record<UnavailableReason, string>;
 type Announcement = { entry: ObjectiveNotice; age: number; remaining: number };
+type AbilityGuide = {
+  root: HTMLDivElement;
+  style: HTMLStyleElement;
+  toggle: HTMLButtonElement;
+  panel: HTMLElement;
+  close: HTMLButtonElement;
+  title: HTMLElement;
+  experience: HTMLElement;
+  tabs: { key: AbilityKey; button: HTMLButtonElement }[];
+  name: HTMLElement;
+  rank: HTMLElement;
+  description: HTMLElement;
+  costs: HTMLElement;
+  unlock: HTMLElement;
+  copy: HTMLDivElement;
+  more: HTMLElement;
+  selected: AbilityKey;
+  signature: string;
+};
 type ResultButton = {
   bg: Phaser.GameObjects.NineSlice;
   label: Phaser.GameObjects.Text;
@@ -108,6 +134,13 @@ export class HudScene extends Phaser.Scene {
   private mpBar!: Phaser.GameObjects.Rectangle;
   private hpText!: Phaser.GameObjects.Text;
   private mpText!: Phaser.GameObjects.Text;
+  private xpBg: Phaser.GameObjects.Rectangle | null = null;
+  private xpFill: Phaser.GameObjects.Rectangle | null = null;
+  private xpText: Phaser.GameObjects.Text | null = null;
+  private guide: AbilityGuide | null = null;
+  private objectiveText: Phaser.GameObjects.Text | null = null;
+  private respawnTipText: Phaser.GameObjects.Text | null = null;
+  private guidanceNextAt = 0;
   private portrait!: Phaser.GameObjects.Image;
   private lvlText!: Phaser.GameObjects.Text;
   private goldText!: Phaser.GameObjects.Text;
@@ -202,7 +235,7 @@ export class HudScene extends Phaser.Scene {
 
   /** Whether shop/scoreboard own the Escape key right now (wrapper pause defers). */
   get escConsumed(): boolean {
-    return this.shopOpen || this.boardOpen;
+    return this.shopOpen || this.boardOpen || this.guide?.panel.hidden === false;
   }
 
   init(data: { game: GameScene }): void {
@@ -225,17 +258,28 @@ export class HudScene extends Phaser.Scene {
     this.boardOpen = false;
     this.boardNextRenderAt = 0;
     this.mapNextRedrawAt = 0;
+    this.guidanceNextAt = 0;
     this.touchUi = touchDevice();
 
     this.scale.on(Phaser.Scale.Events.RESIZE, this.layout, this);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+    let released = false;
+    const release = (): void => {
+      if (released) return;
+      released = true;
+      this.events.off(Phaser.Scenes.Events.SHUTDOWN, release);
+      this.events.off(Phaser.Scenes.Events.DESTROY, release);
       this.scale.off(Phaser.Scale.Events.RESIZE, this.layout, this);
+      this.guide?.root.remove();
+      this.guide?.style.remove();
+      this.guide = null;
       // DisplayList already owns destruction. Only discard per-match references.
       this.activeNotice = null;
       this.pendingNotices = [];
       this.resultUi = null;
       this.resultClicked = false;
-    });
+    };
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, release);
+    this.events.once(Phaser.Scenes.Events.DESTROY, release);
     // radial vignette to frame the field — sits behind every HUD widget, above the
     // game. In the HUD scene (camera zoom = 1) so it's true screen-space.
     if (this.textures.exists("vignette")) {
@@ -243,7 +287,7 @@ export class HudScene extends Phaser.Scene {
         .image(0, 0, "vignette")
         .setOrigin(0, 0)
         .setScrollFactor(0)
-        .setDepth(100);
+        .setDepth(-10);
     }
     this.danger = this.add
       .rectangle(0, 0, this.scale.width, this.scale.height, 0xff2a2a, 0)
@@ -255,6 +299,7 @@ export class HudScene extends Phaser.Scene {
     this.buildMinimap();
     this.buildFeed();
     this.buildBoard();
+    this.buildAbilityGuide();
     this.layout();
     this.input.keyboard?.on("keydown-B", () => this.toggleShop());
     // keyboard shop navigation (active only while the shop is open)
@@ -270,6 +315,7 @@ export class HudScene extends Phaser.Scene {
       if (this.boardOpen) this.toggleBoard();
     });
     this.input.keyboard?.on("keydown-ESC", () => {
+      this.closeAbilityGuide();
       if (this.shopOpen) this.toggleShop();
       if (this.boardOpen) this.toggleBoard();
     });
@@ -373,6 +419,17 @@ export class HudScene extends Phaser.Scene {
         color: "#ffffff",
         stroke: "#1c2030",
         strokeThickness: 3,
+      })
+      .setOrigin(0.5);
+    this.xpBg = this.add.rectangle(0, 0, this.barW, 3, 0x5b4c34).setOrigin(0, 0.5);
+    this.xpFill = this.add.rectangle(0, 0, this.barW, 3, 0xe6bd59).setOrigin(0, 0.5);
+    this.xpText = this.add
+      .text(0, 0, "", {
+        fontFamily: FONT,
+        fontSize: "10px",
+        color: "#fff0b9",
+        stroke: "#302c22",
+        strokeThickness: 2,
       })
       .setOrigin(0.5);
 
@@ -548,6 +605,289 @@ export class HudScene extends Phaser.Scene {
       })
       .setOrigin(0.5)
       .setVisible(false);
+    this.objectiveText = this.add.text(0, 0, "", {
+      fontFamily: FONT,
+      fontSize: "13px",
+      color: "#fff0bf",
+      stroke: "#2d3529",
+      strokeThickness: 3,
+    });
+    this.respawnTipText = this.add
+      .text(0, 0, "", {
+        fontFamily: FONT,
+        fontSize: "15px",
+        color: "#fff0bf",
+        stroke: "#2d3529",
+        strokeThickness: 3,
+        align: "center",
+      })
+      .setOrigin(0.5, 0)
+      .setVisible(false);
+  }
+
+  private updateGuidance(): void {
+    if (this.time.now < this.guidanceNextAt) return;
+    this.guidanceNextAt = this.time.now + 200;
+    const world = this.gs.worldRef;
+    const guidance = world ? objectiveGuidance(world, this.gs.player) : null;
+    this.objectiveText?.setText(guidance?.text ?? "");
+    const tip = guidance?.respawnTip;
+    this.respawnTipText?.setText(tip ?? "").setVisible(!!tip && this.guide?.panel.hidden !== false);
+  }
+
+  /** A separate native inspect surface. Ability buttons keep their cast action. */
+  private buildAbilityGuide(): void {
+    const root = document.createElement("div");
+    root.className = "moba-ability-guide";
+    const style = document.createElement("style");
+    style.textContent = `
+      .moba-ability-guide{position:fixed;inset:0;z-index:90;pointer-events:none;color:#352c22}
+      .moba-ability-guide[data-open=true]{pointer-events:auto}
+      .moba-ability-guide [hidden]{display:none!important}
+      .moba-ability-guide button{min-height:44px;border:1px solid #786044;border-radius:2px;background:#ead7ae;color:#352c22;font:14px ${FONT};cursor:pointer}
+      .moba-ability-guide button:focus-visible,.moba-ability-guide .guide-copy:focus-visible{outline:3px solid #164f62;outline-offset:2px}
+      .moba-ability-guide button[aria-pressed=true]{background:#325c69;color:#fff2ce;border-color:#203b43}
+      .moba-ability-guide .guide-toggle{position:absolute;width:112px;pointer-events:auto;background:#d4bb8c url(assets/ui/carved3.webp) center/100% 100% no-repeat;border:0}
+      .moba-ability-guide section{position:absolute;box-sizing:border-box;pointer-events:auto;display:flex;flex-direction:column;border:3px solid #786044;border-radius:3px;background:#e6d2a9;box-shadow:0 4px 0 #352c2260;overflow:hidden}
+      .moba-ability-guide header{display:flex;flex-shrink:0;align-items:center;gap:8px;padding:7px 10px 0}
+      .moba-ability-guide .guide-heading{flex:1;min-width:0}
+      .moba-ability-guide h2{margin:0;font:19px ${FONT}}
+      .moba-ability-guide .guide-close{flex:none;width:44px;font-size:20px}
+      .moba-ability-guide .guide-xp{margin:3px 0;font:12px system-ui,sans-serif;color:#5d482d}
+      .moba-ability-guide nav{display:flex;flex-shrink:0;gap:6px;padding:6px 10px 8px}
+      .moba-ability-guide nav button{flex:1}
+      .moba-ability-guide .guide-copy{min-height:0;padding:0 12px 12px;overflow:auto;overscroll-behavior:contain;touch-action:pan-y;font:15px/1.4 system-ui,sans-serif}
+      .moba-ability-guide h3{margin:0 0 5px;font:20px ${FONT}}
+      .moba-ability-guide p{margin:6px 0}
+      .moba-ability-guide .guide-rank,.moba-ability-guide .guide-costs,.moba-ability-guide .guide-unlock{font-size:13px;color:#5d482d}
+      .moba-ability-guide .guide-unlock{border-top:1px solid #bca177;padding-top:8px}
+      .moba-ability-guide .guide-more{height:16px;flex:none;margin:0;text-align:center;font:11px/16px system-ui,sans-serif;color:#70532e;pointer-events:none;visibility:hidden}
+      @media(max-width:759px),(max-height:519px){
+        .moba-ability-guide header{padding:4px 8px 2px}
+        .moba-ability-guide h2{font-size:17px;line-height:1.05}
+        .moba-ability-guide .guide-xp{margin:2px 0;font-size:11px}
+        .moba-ability-guide nav{gap:4px;padding:0 8px 4px}
+        .moba-ability-guide .guide-copy{padding:0 10px 8px;font-size:13px;line-height:1.35}
+        .moba-ability-guide h3{font-size:17px;line-height:1.1;margin-bottom:4px}
+        .moba-ability-guide .guide-copy p{margin:4px 0}
+        .moba-ability-guide .guide-rank,.moba-ability-guide .guide-costs,.moba-ability-guide .guide-unlock{font-size:12px}
+      }
+    `;
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "guide-toggle";
+    toggle.textContent = "ABILITIES";
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.setAttribute("aria-controls", "moba-ability-panel");
+    const panel = document.createElement("section");
+    panel.id = "moba-ability-panel";
+    panel.hidden = true;
+    panel.setAttribute("role", "dialog");
+    panel.setAttribute("aria-modal", "true");
+    panel.setAttribute("aria-label", "Champion ability guide");
+    const header = document.createElement("header");
+    const heading = document.createElement("div");
+    heading.className = "guide-heading";
+    const title = document.createElement("h2");
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "guide-close";
+    close.textContent = "×";
+    close.setAttribute("aria-label", "Close ability guide");
+    const experience = document.createElement("p");
+    experience.className = "guide-xp";
+    heading.append(title, experience);
+    header.append(heading, close);
+    const nav = document.createElement("nav");
+    nav.setAttribute("aria-label", "Inspect an ability");
+    const tabs = KEYS.map((key) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = key;
+      nav.append(button);
+      return { key, button };
+    });
+    const copy = document.createElement("div");
+    copy.className = "guide-copy";
+    copy.tabIndex = 0;
+    copy.setAttribute("aria-label", "Ability details");
+    const name = document.createElement("h3");
+    const rank = document.createElement("p");
+    rank.className = "guide-rank";
+    const description = document.createElement("p");
+    const costs = document.createElement("p");
+    costs.className = "guide-costs";
+    const unlock = document.createElement("p");
+    unlock.className = "guide-unlock";
+    copy.append(name, rank, description, costs, unlock);
+    const more = document.createElement("p");
+    more.className = "guide-more";
+    more.textContent = "Scroll for more ↓";
+    more.setAttribute("aria-hidden", "true");
+    panel.append(header, nav, copy, more);
+    root.append(toggle, panel);
+    const guide: AbilityGuide = {
+      root,
+      style,
+      toggle,
+      panel,
+      close,
+      title,
+      experience,
+      tabs,
+      name,
+      rank,
+      description,
+      costs,
+      unlock,
+      copy,
+      more,
+      selected: "Q",
+      signature: "",
+    };
+    this.guide = guide;
+    copy.addEventListener("scroll", () => {
+      if (this.guide === guide) this.refreshGuideOverflow();
+    });
+    for (const event of ["pointerdown", "pointerup", "pointermove", "click"])
+      root.addEventListener(event, (e) => e.stopPropagation());
+    let closingEscape = false;
+    const fenceKey = (event: KeyboardEvent): void => {
+      if (this.guide !== guide) return;
+      if (!panel.hidden) {
+        if (event.key !== "m" && event.key !== "M") event.stopPropagation();
+        if (event.key === "Tab" && event.type === "keydown") {
+          event.preventDefault();
+          const focusable = [close, ...tabs.map((tab) => tab.button), copy];
+          const current = focusable.findIndex((node) => node === document.activeElement);
+          focusable[
+            (current + (event.shiftKey ? -1 : 1) + focusable.length) % focusable.length
+          ]?.focus();
+          return;
+        }
+        if (event.key === "Escape") {
+          if (event.type === "keydown") {
+            event.preventDefault();
+            closingEscape = true;
+            this.closeAbilityGuide();
+          }
+          return;
+        }
+        const key = KEYS.find((k) => k === event.key.toUpperCase());
+        if (key && event.type === "keydown") {
+          guide.selected = key;
+          this.refreshAbilityGuide();
+        }
+      } else if (event.key === "Enter" || event.key === " ") event.stopPropagation();
+      else if (event.key === "Escape" && event.type === "keyup" && closingEscape) {
+        event.stopPropagation();
+        closingEscape = false;
+      }
+    };
+    root.addEventListener("keydown", fenceKey);
+    root.addEventListener("keyup", fenceKey);
+    toggle.addEventListener("click", () => {
+      if (
+        this.guide !== guide ||
+        this.gs.matchResult ||
+        this.gs.controlsPaused ||
+        this.shopOpen ||
+        this.boardOpen
+      )
+        return;
+      if (!panel.hidden) this.closeAbilityGuide();
+      else {
+        panel.hidden = false;
+        root.dataset.open = "true";
+        toggle.setAttribute("aria-expanded", "true");
+        this.gs.uiBlocking = true;
+        this.gs.clearHudInput();
+        this.refreshAbilityGuide();
+        close.focus();
+      }
+    });
+    close.addEventListener("click", () => {
+      if (this.guide === guide) this.closeAbilityGuide();
+    });
+    for (const tab of tabs)
+      tab.button.addEventListener("click", () => {
+        if (this.guide !== guide) return;
+        guide.selected = tab.key;
+        this.refreshAbilityGuide();
+      });
+    document.head.append(style);
+    document.body.append(root);
+  }
+
+  private closeAbilityGuide(focus = true): void {
+    const guide = this.guide;
+    if (!guide || guide.panel.hidden) return;
+    guide.panel.hidden = true;
+    guide.root.dataset.open = "false";
+    guide.toggle.setAttribute("aria-expanded", "false");
+    this.gs.uiBlocking = this.shopOpen;
+    this.gs.clearHudInput();
+    if (focus) guide.toggle.focus();
+  }
+
+  private refreshAbilityGuide(): void {
+    const guide = this.guide;
+    if (!guide) return;
+    const me = this.gs.player;
+    const hero = me?.hero;
+    guide.root.hidden = !hero || !!this.gs.matchResult || this.shopOpen || this.boardOpen;
+    if (!me || !hero || guide.panel.hidden) return;
+    const signature = `${hero.defId}:${hero.level}:${Math.floor(hero.xp)}:${hero.abilityPoints}:${
+      me.alive
+    }:${guide.selected}:${KEYS.map((key) => hero.abilities[key].rank).join()}`;
+    if (signature === guide.signature) {
+      this.refreshGuideOverflow();
+      return;
+    }
+    guide.signature = signature;
+    const explanation = abilityExplanation(hero, guide.selected);
+    if (!explanation) return;
+    guide.title.textContent = HERO_BY_ID[hero.defId]?.name ?? "Your champion";
+    guide.experience.textContent = `Level ${hero.level} · ${experienceProgress(hero).text}`;
+    guide.name.textContent = explanation.name;
+    guide.rank.textContent = explanation.rank;
+    guide.description.textContent = explanation.description;
+    guide.costs.textContent = explanation.costs;
+    guide.unlock.textContent = me.alive ? explanation.unlock : "Upgrade after respawning";
+    for (const tab of guide.tabs) {
+      tab.button.setAttribute("aria-pressed", String(tab.key === guide.selected));
+      tab.button.setAttribute(
+        "aria-label",
+        `Inspect ${tab.key}: ${HERO_BY_ID[hero.defId]?.abilities[tab.key].name ?? tab.key}`,
+      );
+    }
+    this.refreshGuideOverflow();
+  }
+
+  private refreshGuideOverflow(): void {
+    const guide = this.guide;
+    if (!guide) return;
+    const more =
+      !guide.panel.hidden &&
+      guide.copy.scrollHeight - guide.copy.clientHeight - guide.copy.scrollTop > 2;
+    const visibility = more ? "visible" : "hidden";
+    if (guide.more.style.visibility !== visibility) guide.more.style.visibility = visibility;
+  }
+
+  private layoutAbilityGuide(): void {
+    const guide = this.guide;
+    if (!guide) return;
+    const W = this.scale.width;
+    const H = this.scale.height;
+    const portrait = H > W;
+    const x = this.compact ? this.mapX : 12;
+    const y = this.compact ? this.mapY + this.mapH + 10 : 286;
+    guide.toggle.style.left = `${x}px`;
+    guide.toggle.style.top = `${y}px`;
+    guide.panel.style.left = `${x}px`;
+    guide.panel.style.top = `${y + 52}px`;
+    guide.panel.style.width = `${this.compact ? (portrait ? W - x - 12 : Math.min(320, W * 0.4)) : 350}px`;
+    guide.panel.style.maxHeight = `${Math.max(150, Math.min(H - y - 64, this.compact && portrait ? H * 0.23 : 390))}px`;
   }
 
   private buildShop(): void {
@@ -634,6 +974,7 @@ export class HudScene extends Phaser.Scene {
 
   private toggleShop(): void {
     if (this.gs.matchResult) return;
+    this.closeAbilityGuide(false);
     this.shopOpen = !this.shopOpen;
     this.shop.setVisible(this.shopOpen);
     this.gs.uiBlocking = this.shopOpen; // pause hero input so arrows drive the shop
@@ -871,7 +1212,7 @@ export class HudScene extends Phaser.Scene {
       // no running kill feed on phones — announces (the banner) still show
       if (this.compact) continue;
       const col = e.team === "radiant" ? "#7fdcff" : "#ff9a8a";
-      const txt = e.killer ? `${e.killer}  ⚔  ${e.victim}` : `${e.victim} has fallen`;
+      const txt = killFeedText(e, this.gs.player?.team ?? null);
       const line = this.add
         .text(0, 0, txt, {
           fontFamily: FONT,
@@ -879,6 +1220,7 @@ export class HudScene extends Phaser.Scene {
           color: col,
           stroke: "#1c1410",
           strokeThickness: 3,
+          wordWrap: { width: Math.min(380, this.scale.width - 32) },
         })
         .setOrigin(1, 0)
         .setDepth(44000);
@@ -898,14 +1240,18 @@ export class HudScene extends Phaser.Scene {
     // below the minimap when it's up top (and below the hint line on portrait phones)
     const hintPad = this.compact && this.scale.height > this.scale.width ? 52 : 18;
     const topY = this.mapY > 200 ? 88 : this.mapY + this.mapH + hintPad;
-    this.feedLines.forEach((f, i) => {
-      f.text.setPosition(rightX, topY + i * 20);
+    let lineY = topY;
+    this.feedLines.forEach((f) => {
+      f.text.setPosition(rightX, lineY).setVisible(!this.compact);
+      lineY += f.text.height + 5;
       f.text.setAlpha(Math.min(1, (f.until - now) / 1500));
     });
   }
 
   // ---- result: the HUD camera is unrotated screen-space --------------------
   private buildResult(data: MatchResult): void {
+    this.closeAbilityGuide(false);
+    if (this.guide) this.guide.root.hidden = true;
     this.shopOpen = false;
     this.boardOpen = false;
     this.shop.setVisible(false);
@@ -1099,6 +1445,7 @@ export class HudScene extends Phaser.Scene {
 
   private toggleBoard(): void {
     if (this.gs.matchResult) return;
+    this.closeAbilityGuide(false);
     this.boardOpen = !this.boardOpen;
     this.board.setVisible(this.boardOpen);
     if (this.boardOpen) this.renderBoard();
@@ -1319,6 +1666,11 @@ export class HudScene extends Phaser.Scene {
       this.kdaText.setPosition(left + 16, iy + 60);
     }
     this.apText.setPosition(left + 16, iy + 82).setVisible(!compact);
+    this.objectiveText
+      ?.setPosition(compact ? stripX : cx, compact ? iy + (portraitOrient ? 88 : 78) : 68)
+      .setOrigin(compact ? 0 : 0.5, 0)
+      .setFontSize(compact ? 11 : 13)
+      .setWordWrapWidth(compact ? W - stripX - 12 : 420);
 
     // utility buttons: glyph roundels under the info strip on compact, the
     // classic word-pill column under the info panel on desktop
@@ -1374,6 +1726,9 @@ export class HudScene extends Phaser.Scene {
       this.mpBar.height = 7;
       this.hpText.setPosition(barX + this.barW / 2, bBot - 28).setFontSize(11);
       this.mpText.setPosition(barX + this.barW / 2, bBot - 12).setFontSize(10);
+      this.xpBg?.setPosition(barX, bBot - 4).setSize(this.barW, 3);
+      this.xpFill?.setPosition(barX, bBot - 4);
+      this.xpText?.setPosition(barX + this.barW / 2, bBot + 4).setFontSize(9);
 
       // ability arc: dash anchors the corner, Q/W/E/R fan on a quarter-arc
       const ax = W - 40 - inset.right;
@@ -1403,6 +1758,9 @@ export class HudScene extends Phaser.Scene {
       this.mpBar.height = 10;
       this.hpText.setPosition(barX + this.barW / 2, baseY - 14).setFontSize(12);
       this.mpText.setPosition(barX + this.barW / 2, baseY + 6).setFontSize(11);
+      this.xpBg?.setPosition(barX, baseY + 22).setSize(this.barW, 3);
+      this.xpFill?.setPosition(barX, baseY + 22);
+      this.xpText?.setPosition(barX + this.barW / 2, baseY + 32).setFontSize(10);
 
       const startX = cx + 60;
       dashPos = { x: startX - 64, y: baseY };
@@ -1450,11 +1808,17 @@ export class HudScene extends Phaser.Scene {
       this.shop.setPosition(cx, H / 2);
       this.shop.setScale(Math.min(1, (W - 20) / 430, (H - 20) / Math.max(1, this.shopPanelH)));
     }
-    this.respawnText.setPosition(cx, H / 2 - 120);
+    const respawnY = compact ? Math.max(H / 2 - 120, H * 0.45) : H / 2 - 120;
+    this.respawnText.setPosition(cx, respawnY).setFontSize(compact ? 28 : 42);
+    this.respawnTipText
+      ?.setPosition(cx, respawnY + (compact ? 30 : 40))
+      .setFontSize(compact ? 13 : 15)
+      .setWordWrapWidth(Math.min(480, W - 32));
 
     if (this.danger) this.danger.setSize(W, H).setPosition(0, 0);
     if (this.vignette) this.vignette.setDisplaySize(W, H).setPosition(0, 0);
     this.layoutAnnouncement();
+    this.layoutAbilityGuide();
   }
 
   override update(_t: number, delta: number): void {
@@ -1467,6 +1831,8 @@ export class HudScene extends Phaser.Scene {
     // auto-close the shop if the player dies while it's open, so uiBlocking can't
     // strand a freshly-respawned hero frozen.
     if (this.shopOpen && !this.gs?.player?.alive) this.toggleShop();
+    this.refreshAbilityGuide();
+    this.updateGuidance();
     this.pollPad();
     // minimap / feed / scoreboard run even while the player is dead or unspawned
     this.updateMinimap();
@@ -1567,6 +1933,9 @@ export class HudScene extends Phaser.Scene {
     if (this.portrait.texture.key !== tex && this.textures.exists(tex))
       this.portrait.setTexture(tex, 0).setDisplaySize(this.portraitSize, this.portraitSize);
     this.lvlText.setText(`${h.level}`);
+    const experience = experienceProgress(h);
+    if (this.xpFill) this.xpFill.width = this.barW * experience.fraction;
+    this.xpText?.setText(experience.text);
 
     // bars
     const hpPct = Math.max(0, me.hp / me.maxHp);
@@ -1584,7 +1953,8 @@ export class HudScene extends Phaser.Scene {
       if (!ad) continue;
       const rank = slot.rank;
       // tappable level-up badge while points are banked (touch/guest path)
-      s.plus.setVisible(me.alive && h.abilityPoints > 0 && rank < ad.maxRank);
+      const upgrade = abilityUpgrade(h, s.key);
+      s.plus.setVisible(me.alive && upgrade.kind === "available");
       // ability spell icon (set once per hero)
       const iconFrame = abilityIconFrame(ad.effect);
       if (iconFrame !== null && this.textures.exists("spell-icons")) {
@@ -1620,6 +1990,10 @@ export class HudScene extends Phaser.Scene {
         veil(true, 1, 0x000000, 0.6);
         s.icon.setAlpha(0.32); // unlearned
         stroke(2, 0x6b5530);
+        if (upgrade.kind === "level") {
+          cdLabel = `LV ${upgrade.level}`;
+          cdFontSize = 13;
+        }
       } else if (cdLeft > 0) {
         veil(true, Math.min(1, cdLeft / cdTotal), 0x000000, 0.6);
         cdLabel = cdLeft >= 1 ? `${Math.ceil(cdLeft)}` : "";

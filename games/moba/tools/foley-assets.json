@@ -1,0 +1,89 @@
+{
+  "source": "Original generated fantasy Foley. Mono 48 kHz Opus; quiet lead trimmed; peak target 0.56; 3 ms attack and 20 ms tail fades. Runtime mixer attenuates each accent. Measurements do not establish perceived quality.",
+  "assets": [
+    {
+      "key": "buckler",
+      "model": "fal-ai/elevenlabs/sound-effects/v2",
+      "requestId": "01a07c66-f997-7631-977e-814680cc6bb1",
+      "prompt": "One compact medieval steel buckler impact for a warm hand-painted fantasy game. Immediate firm wooden thud with a bright small metal clink and short natural ring dying into silence. Dry close Foley, weighty but friendly. Single hit, no music, voice, drone or ambience, no long reverb.",
+      "sourceSha256": "66250e6ca6ef04fca597ca7b9f9efb95686223b7e9f04e1678b51c4e078ab80b",
+      "outputSha256": "508f343766b0369635f2660d5e1031f8b0f335a21eb4ba785dc34d435e1820f9",
+      "bytes": 5458,
+      "duration": 0.6050833333333333,
+      "trimmedLead": 0,
+      "peak": 0.5539036989212036,
+      "rms": 0.053621189885707625,
+      "largestSampleStep": 0.8246252238750458
+    },
+    {
+      "key": "blade",
+      "model": "fal-ai/elevenlabs/sound-effects/v2",
+      "requestId": "01a07c67-027a-71a0-b325-88d402dbca90",
+      "prompt": "One fast short dagger slash for a nimble fantasy rogue. Close dry layered leather movement and a fine steel blade cutting air, brisk attack then clean soft decay. Precise tactile Foley, not a cartoon laser. Single gesture, no music, voice, rhythmic repeats or background ambience.",
+      "sourceSha256": "7b6b967dd1674cce9735942f1481086abf900d7f52b8bb7f0153bb6798e1cb54",
+      "outputSha256": "2a929862d9d9bd430341ef0b2e1500b569eea9f69638ccb0aa2aa234c9bad611",
+      "bytes": 3646,
+      "duration": 0.32916666666666666,
+      "trimmedLead": 0,
+      "peak": 0.6267293095588684,
+      "rms": 0.1892140276349406,
+      "largestSampleStep": 0.4077053815126419
+    },
+    {
+      "key": "bowstring",
+      "model": "fal-ai/elevenlabs/sound-effects/v2",
+      "requestId": "01a07c67-046f-7df3-837a-ceafbe66631f",
+      "prompt": "One crisp fantasy bow release: close dry taut bowstring twang, short wooden flex and a fine airy arrow whisk with a tiny sparkling crackle. Immediate response and short controlled decay. Detailed warm Foley, no music, voices, long reverb or background ambience.",
+      "sourceSha256": "9ed8f0bf959b06680a05784f0e95dd3692b170fa9352455803eaab1cc464eb5d",
+      "outputSha256": "69c3e185b760042e25d05ba9bd23bf890fe0e2c40922f7341ffdb31919e53d7e",
+      "bytes": 3518,
+      "duration": 0.3126041666666667,
+      "trimmedLead": 0,
+      "peak": 0.5526130795478821,
+      "rms": 0.07716943412480955,
+      "largestSampleStep": 0.23999109864234924
+    },
+    {
+      "key": "fire",
+      "model": "fal-ai/elevenlabs/sound-effects/v2",
+      "requestId": "01a07c67-0a21-7a02-ac73-f8e9601519e5",
+      "prompt": "One compact hand-cast fire burst for a storybook fantasy battle. Sudden warm low ignition puff with textured flame whoosh and a few crisp embers, dying quickly to silence. Powerful tactile sound at small scale, no huge cinematic boom. No voices, music, repeating pulses or background.",
+      "sourceSha256": "c66eaa3aa90bd62b0adef764c10811fb781ef5ddea42c227f834057b365f4fba",
+      "outputSha256": "decb86f8fb1226a1b2be598796cb64313ef29db55afb7eb39cdf2d978631d4ec",
+      "bytes": 4359,
+      "duration": 0.5048958333333333,
+      "trimmedLead": 0,
+      "peak": 0.6930269598960876,
+      "rms": 0.1877162745924187,
+      "largestSampleStep": 0.24936872720718384
+    },
+    {
+      "key": "mechanism",
+      "model": "fal-ai/elevenlabs/sound-effects/v2",
+      "requestId": "01a07c67-1050-72c3-89c4-ca854286a775",
+      "prompt": "One playful but weighty clockwork gadget throw for a fantasy goblin engineer: an immediate small metal latch clack, spring release, wood-and-brass rattle and short low thump. A single coherent quick action with a clean short tail. Dry Foley, no music, voices, ambience or extra repeated actions.",
+      "sourceSha256": "469f0665d66c45215982e09e992f1012a00750ba2335f3ea360488095e2af265",
+      "outputSha256": "d5b3703efa4ff1cd24b0c2822388031f7257daa32f0c04ceadda0938ab2d81b4",
+      "bytes": 5083,
+      "duration": 0.3494791666666667,
+      "trimmedLead": 0,
+      "peak": 0.5440279841423035,
+      "rms": 0.04772129487761801,
+      "largestSampleStep": 0.526946485042572
+    },
+    {
+      "key": "potion",
+      "model": "fal-ai/elevenlabs/sound-effects/v2",
+      "requestId": "01a07c67-124d-7a83-8413-6373d25d2e7d",
+      "prompt": "One magical healing potion splash for a cozy fantasy healer. Immediate rounded glass clink and rich liquid glug blooming into a soft sparkling watery splash, then clean short decay. Organic tactile friendly Foley, no electronic beep. Single action, no voice, music or background ambience.",
+      "sourceSha256": "2e6792acdf60357892c6e835c6adacd833c8a1cf390d6f05d306806af8040939",
+      "outputSha256": "d0d2b1721620f6e90e34fe7d9b73cf0fbd3961dc7a8c3cd4a452b99fda7264ee",
+      "bytes": 4060,
+      "duration": 0.45245833333333335,
+      "trimmedLead": 0,
+      "peak": 0.5529941320419312,
+      "rms": 0.05111375843084751,
+      "largestSampleStep": 0.08842221274971962
+    }
+  ]
+}

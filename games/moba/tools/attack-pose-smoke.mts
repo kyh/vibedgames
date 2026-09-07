@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { attackPose } from "../src/render/attack-pose";
+import { attackClipFrame, attackPose } from "../src/render/attack-pose";
 import { createWorld, spawnHero, step } from "../src/sim/world";
 import { tryAttack, resolvePendingAttacks } from "../src/sim/combat";
 
@@ -36,4 +36,19 @@ assert.deepEqual(attackPose(cue, world.now), strike, "repeated snapshots keep th
 const left = attackPose({ ...cue, facing: -1 }, world.now);
 assert.ok(left && left.x === -strike.x && left.angle === -strike.angle);
 assert.equal(attackPose(cue, cue.resolveAt + 170), null, "recovery ends at the authored boundary");
+for (const [key, count, contact] of [
+  ["u-warrior-blue-attack", 6, 3],
+  ["u-pawn-red-attack", 6, 3],
+  ["u-archer-blue-attack", 7, 6],
+  ["u-torch-red-attack", 6, 3],
+  ["u-tnt-red-attack", 6, 2],
+  ["u-barrel-blue-attack", 3, 2],
+] satisfies [string, number, number][]) {
+  const beforeContact = attackClipFrame(cue, cue.resolveAt - 1, key, count);
+  assert.ok(beforeContact !== null && beforeContact < contact);
+  assert.equal(attackClipFrame(cue, cue.resolveAt, key, count), contact, key);
+  assert.equal(attackClipFrame(cue, cue.resolveAt + 169, key, count), count - 1);
+  assert.equal(attackClipFrame(cue, cue.resolveAt + 170, key, count), null);
+  assert.equal(attackClipFrame(cue, cue.startedAt - 1, key, count), null);
+}
 console.log("✓ neutral attack pose follows real wind-up, strike, recovery and repeated snapshots");

@@ -31,9 +31,12 @@ const config: Phaser.Types.Core.GameConfig = {
 // The display font must be resolved before any Phaser Text is created, or those
 // texts rasterise with the fallback. Cap the wait so a blocked font CDN can
 // never hold the game hostage.
+let fontTimeout: ReturnType<typeof setTimeout> | undefined;
 const fontReady = Promise.race([
   document.fonts.load('20px "Lilita One"'),
-  new Promise((resolve) => setTimeout(resolve, 1500)),
+  new Promise((resolve) => {
+    fontTimeout = setTimeout(resolve, 1500);
+  }),
 ]);
 declare global {
   interface Window {
@@ -43,11 +46,21 @@ declare global {
 }
 
 void fontReady.then(() => {
+  clearTimeout(fontTimeout);
   const game = new Phaser.Game(config);
-  game.events.once(Phaser.Core.Events.DESTROY, disposeSound);
+  let disposed = false;
   Object.defineProperty(window, "__GAME_DIAGNOSTICS__", {
     configurable: true,
     get: () => {
+      if (disposed)
+        return {
+          frame: game.loop.frame,
+          phase: "disposed",
+          player: null,
+          score: 0,
+          complete: false,
+          audio: soundDiagnostics(),
+        };
       const scene = game.scene.getScene("Game");
       return scene instanceof GameScene && game.scene.isActive("Game")
         ? { ...scene.diagnostics(), audio: soundDiagnostics() }
@@ -68,13 +81,29 @@ void fontReady.then(() => {
   // and on tab return.
   let settle: ReturnType<typeof setTimeout> | undefined;
   const refreshScale = (): void => {
+    if (disposed) return;
     clearTimeout(settle);
-    settle = setTimeout(() => game.scale.refresh(), 150);
+    settle = setTimeout(() => {
+      if (!disposed) game.scale.refresh();
+    }, 150);
+  };
+  const onVisibility = (): void => {
+    if (!document.hidden) refreshScale();
   };
   window.addEventListener("resize", refreshScale);
-  document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) refreshScale();
-  });
+  document.addEventListener("visibilitychange", onVisibility);
+  const dispose = (): void => {
+    if (disposed) return;
+    disposed = true;
+    clearTimeout(settle);
+    window.removeEventListener("resize", refreshScale);
+    document.removeEventListener("visibilitychange", onVisibility);
+    setPauseHandlers({});
+    hidePauseOverlay();
+    disposeSound();
+  };
+  // Game DESTROY runs after the scene manager is destroyed. Do not look up scenes here.
+  game.events.once(Phaser.Core.Events.DESTROY, dispose);
 
   // Sim is entirely delta-driven (update(_t, deltaMs)), so the wrapper's
   // pause can freeze/resume the loop directly — except in online mode, where
@@ -87,6 +116,7 @@ void fontReady.then(() => {
   let froze = false;
   setPauseHandlers({
     onPause: () => {
+      if (disposed) return;
       const scene = game.scene.getScene("Game");
       if (scene instanceof GameScene && game.scene.isActive("Game")) scene.setControlsPaused(true);
       setSoundPaused(true);
@@ -97,6 +127,7 @@ void fontReady.then(() => {
       game.sound.pauseAll();
     },
     onResume: () => {
+      if (disposed) return;
       const scene = game.scene.getScene("Game");
       if (scene instanceof GameScene && game.scene.isActive("Game")) scene.setControlsPaused(false);
       setSoundPaused(false);
@@ -108,6 +139,7 @@ void fontReady.then(() => {
     },
     // Escape closes an open shop/scoreboard first; only a bare Escape pauses.
     escapePauses: () => {
+      if (disposed) return false;
       const hud = game.scene.getScene("Hud");
       return !(hud instanceof HudScene && hud.escConsumed);
     },

@@ -65,7 +65,14 @@ export function castAbility(w: World, caster: Unit, input: CastInput): boolean {
   caster.mp -= manaCost;
   slot.readyAt = w.now + valAt(def.cooldown, rank) * 1000;
   if (caster.facing !== undefined && point) caster.facing = point.x >= caster.x ? 1 : -1;
-  w.fx.push({ t: "cast", x: caster.x, y: caster.y, effect: def.effect, team: caster.team });
+  w.fx.push({
+    t: "cast",
+    x: caster.x,
+    y: caster.y,
+    effect: def.effect,
+    team: caster.team,
+    actor: { unitId: caster.id, at: w.now },
+  });
   return true;
 }
 

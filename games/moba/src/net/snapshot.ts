@@ -3,6 +3,7 @@
 // the Maps into a guest's persistent World so the renderer can read it unchanged.
 
 import type { MultiplayerClient } from "@vibedgames/multiplayer";
+import { parseCastActor } from "./cast-actor";
 
 import type { FxEvent, GroundEffect, Mine, Projectile, Unit, World } from "../sim/types";
 
@@ -128,7 +129,14 @@ const FX_TAGS = [
 export function sharedFxBatch(state: SharedState): FxEvent[] {
   const v = state["fx"];
   if (!Array.isArray(v)) return [];
-  return v.filter(
-    (e): e is FxEvent => e instanceof Object && "t" in e && FX_TAGS.some((tag) => tag === e.t),
-  );
+  return v
+    .filter(
+      (e): e is FxEvent => e instanceof Object && "t" in e && FX_TAGS.some((tag) => tag === e.t),
+    )
+    .map((event) => {
+      if (event.t !== "cast") return event;
+      const actor = parseCastActor(event.actor);
+      const { actor: _actor, ...cast } = event;
+      return actor ? { ...cast, actor } : cast;
+    });
 }

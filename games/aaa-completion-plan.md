@@ -1,13 +1,40 @@
 # AAA completion goal
 
-This plan defines the collection's AAA finish-quality work within each game's
-existing art direction. All ten implementation and local integration milestones
-are complete. The evidence below covers full-session presentation, replay depth,
-input ownership, multiplayer recovery and measured rendering/audio behavior.
+This plan tracks finish-quality work within each game's existing art direction.
+All ten first-pass implementation milestones are complete. That establishes a
+tested polish baseline, not a collection-wide AAA quality claim. The next pass
+uses observed sessions to find remaining art, animation, sound and clarity gaps.
 
 Preserve core gameplay, asset/video animation and hand/face/pose/pointer/touch/
 controller inputs. Optional new modes add depth without replacing the normal
 rules. Keep Crazy Waymo's separate work intact while checking it as the reference.
+
+## Continued quality work
+
+One game at a time, through PR #327. Ancients' second checkpoint is implemented;
+Battle Arena is next for observed-session review. Prior receipts below remain historical
+evidence for their exact source versions and measured scopes.
+
+Ancients plan: correct exposed foam centres with the original shoreline art;
+align original attack contact frames with accepted hit times; add accepted spell
+body acting and distinct spell sounds with small generated Foley accents; expose
+real ability descriptions, rank gates and XP; clarify teams, lane objectives and
+respawn choices; finish final destruction cleanup. Preserve the map, original
+assets, combat timings and all controls. Verify native keyboard/touch flows,
+rendered audio, sustained play and bounded GPU load before the next checkpoint.
+
+The initial native ten-minute segment reached level 7 through real combat,
+deaths, respawns and a tower loss. It did not reach a match result; a driver
+Escape opened pause near the end. This is session evidence, not a completed
+match or proof of fun. Physical-device heat, camera recognition and subjective
+sound quality require evidence beyond desktop emulation and graph tests.
+
+[Ancients second-pass evidence](/Users/kyh/.codex/visualizations/2026/09/05/01a072e5-b121-77b0-b7f7-52a06ec3e9e2/aaa-completion/moba-quality/README.md)
+records original asset integrity, corrected spell-contact frames, native guide/
+menu/touch input, generated Foley and measured mix ownership, desktop timing and
+final destruction. The broader quality goal remains open.
+
+Unresolved questions: none blocking this pass.
 
 ## Completion evidence
 
