@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { setPauseHandlers } from "@repo/embed";
 
 import { FramePacer } from "./render/frame-pacer";
+import { hasReleasedArrays } from "./render/gpu-only-geometry";
 import { PerfGovernor } from "./render/perf-governor";
 import { PostPipeline } from "./render/post";
 import { setRenderCapabilities } from "./render/capabilities";
@@ -126,6 +127,14 @@ renderer.domElement.addEventListener("webglcontextlost", () => {
 });
 renderer.domElement.addEventListener("webglcontextrestored", () => {
   console.warn("[crazy-waymo] WebGL context restored");
+  // Restoration re-uploads every geometry from its heap array. Phones have
+  // released the static ones (render/gpu-only-geometry.ts), so the rebuilt
+  // city would be empty — a reload is the only complete recovery there.
+  if (hasReleasedArrays()) {
+    showFatal("Graphics restored — reloading…");
+    window.location.reload();
+    return;
+  }
   hideFatal();
   governor.resetTiming();
   framePacer.invalidate();

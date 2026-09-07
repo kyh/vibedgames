@@ -113,6 +113,20 @@ function runWhenIdle(cb: () => void): void {
   else setTimeout(cb, 8000);
 }
 
+// Work that must not land inside the load at all — an idle deadline can
+// still expire mid-build on a slow phone. Queued until the loading veil
+// drops, then handed to idle time.
+let loadFinished = false;
+const afterLoad: (() => void)[] = [];
+function runAfterLoad(cb: () => void): void {
+  if (loadFinished) runWhenIdle(cb);
+  else afterLoad.push(cb);
+}
+function flushAfterLoad(): void {
+  loadFinished = true;
+  for (const cb of afterLoad.splice(0)) runWhenIdle(cb);
+}
+
 function fromWorker(r: ParcelWorkerResponse): ParcelPlanResult {
   return { plans: r.plans, lots: r.lots, stats: r.stats, covered: new Set(r.covered) };
 }
@@ -147,8 +161,9 @@ function runParcelWorker(source: ArrayBuffer): Promise<ParcelPlanResult | null> 
         const r = ev.data;
         console.log(`[parcel-worker] planned ${r.plans.length} parcels in ${r.ms}ms`);
         // The put() serializes ~500k plan objects on the main thread — a
-        // multi-second block on a phone if it lands mid-load. Idle time only.
-        runWhenIdle(() => writeParcelPlanCache(bytes, r));
+        // multi-second block on a phone if it lands mid-load. After load,
+        // in idle time only.
+        runAfterLoad(() => writeParcelPlanCache(bytes, r));
         resolve(fromWorker(r));
         worker.terminate();
       };
@@ -518,6 +533,7 @@ async function finishLoad(
   deps.showTitle();
   deps.onPlayable();
   deps.hideLoading();
+  flushAfterLoad();
 }
 
 function storageGet(key: string): string | null {

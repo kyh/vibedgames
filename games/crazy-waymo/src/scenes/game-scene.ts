@@ -1148,19 +1148,23 @@ vec3 ocGerstner(vec2 p, float t) {
    */
   private async buildCeilingIndex(city: CityModel): Promise<void> {
     const t0 = performance.now();
-    const spans = await harvestCeilingSpans(
-      city.group,
-      city.terrain,
-      city.network,
-      () => new Promise<void>((resolve) => setTimeout(resolve, 0)),
-    );
-    spans.push(...deckCeilings(city.getDecks()));
-    const index = new CeilingIndex(spans);
-    this.rig.setCeilings(index);
-    console.log(`[city] ceilings ${index.size} spans in ${Math.round(performance.now() - t0)}ms`);
-    // The last CPU reader of the static meshes' vertex arrays is done: phones
-    // drop the copies now (render/gpu-only-geometry.ts; no-op on desktop).
-    releaseDeferredArrays();
+    try {
+      const spans = await harvestCeilingSpans(
+        city.group,
+        city.terrain,
+        city.network,
+        () => new Promise<void>((resolve) => setTimeout(resolve, 0)),
+      );
+      spans.push(...deckCeilings(city.getDecks()));
+      const index = new CeilingIndex(spans);
+      this.rig.setCeilings(index);
+      console.log(`[city] ceilings ${index.size} spans in ${Math.round(performance.now() - t0)}ms`);
+    } finally {
+      // The last CPU reader of the static meshes' vertex arrays is done (or
+      // gave up): phones drop the copies now (render/gpu-only-geometry.ts;
+      // no-op on desktop). Never let a failed harvest pin them.
+      releaseDeferredArrays();
+    }
   }
 
   private attachNightAndLife(city: CityModel): void {

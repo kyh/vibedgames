@@ -18,16 +18,26 @@ import * as THREE from "three";
 //
 // The hook fires at upload time, per attribute, so a mesh culled off-screen
 // keeps its data until its first draw — replacing arrays eagerly would hand
-// the GPU an empty buffer for anything the camera had not seen yet.
+// the GPU an empty buffer for anything the camera had not seen yet. A mesh
+// that was ALREADY drawn when it is registered would never fire the hook
+// (three uploads a static buffer once), so registration bumps the attribute
+// version: an uploaded buffer re-uploads once and releases, a fresh one
+// uploads on its first draw as usual.
 //
 // DEFERRED releases wait for one late CPU reader: the ceiling harvest
 // (world/solid-index.ts) walks the plain meshes' position arrays after the
 // title screen is up, i.e. after their first draw. Those attributes park in
 // `pending` when uploaded and are released together by
 // `releaseDeferredArrays()` once the harvest has run.
+//
+// A RESTORED context re-uploads every geometry from its array. Once anything
+// here has been released that would draw an empty city, so the restore path
+// (main.ts) reloads the page instead when `hasReleasedArrays()` says so.
 
+const hooked = new WeakSet<THREE.BufferAttribute>();
 const pending = new Set<THREE.BufferAttribute>();
 let armed = false;
+let released = 0;
 
 function release(attr: THREE.BufferAttribute): void {
   // SAFETY: BufferAttribute only ever holds a TypedArray (its constructor
@@ -37,6 +47,7 @@ function release(attr: THREE.BufferAttribute): void {
   attr.array = new Ctor(0);
   attr.updateRanges.length = 0;
   attr.onUpload(() => {});
+  released++;
 }
 
 export function releaseArraysAfterUpload(
@@ -50,10 +61,14 @@ export function releaseArraysAfterUpload(
   }
   if (geometry.index) attrs.push(geometry.index);
   for (const attr of attrs) {
+    if (hooked.has(attr)) continue;
+    hooked.add(attr);
     attr.onUpload(() => {
       if (deferred && !armed) pending.add(attr);
       else release(attr);
     });
+    // Already on the GPU? One re-upload fires the hook (see header).
+    attr.needsUpdate = true;
   }
 }
 
@@ -63,4 +78,10 @@ export function releaseDeferredArrays(): void {
   armed = true;
   for (const attr of pending) release(attr);
   pending.clear();
+}
+
+/** True once any array is gone — a restored context can no longer rebuild
+ *  the scene from the heap. */
+export function hasReleasedArrays(): boolean {
+  return released > 0;
 }

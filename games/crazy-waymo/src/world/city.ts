@@ -1236,6 +1236,9 @@ export class CityModel {
     await tick(0.87);
     this.buildPhase1();
     console.log(`[city] phase1 ${Math.round(performance.now() - t0)}ms`);
+    // Hook the phase-1 meshes before the loader attaches the group: the
+    // title camera draws them all through the rest of the load.
+    this.releaseStaticGeometryAfterUpload();
     await tick(0.95);
   }
 
