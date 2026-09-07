@@ -108,6 +108,10 @@ export class WellFx {
     );
   }
 
+  orbitHint(): void {
+    this.announce("VIEW TURNED · MOVEMENT FOLLOWS THIS CORNER", "#bcc8ff");
+  }
+
   power(cells: Cell[]): void {
     this.contact(cells, 0xffd86b, true);
     this.pulse = { kind: "power", age: 0, y: (cells[0]?.y ?? 0) + 0.49 };

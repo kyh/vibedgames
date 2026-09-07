@@ -28,6 +28,8 @@ export class Keyboard {
   private away = false;
   private near = false;
   private softDrop = false;
+  private paused = false;
+  private destroyed = false;
 
   constructor(handlers: KeyboardHandlers) {
     this.handlers = handlers;
@@ -37,9 +39,18 @@ export class Keyboard {
   }
 
   destroy(): void {
+    if (this.destroyed) return;
+    this.destroyed = true;
+    this.onBlur();
     window.removeEventListener("keydown", this.onKeyDown);
     window.removeEventListener("keyup", this.onKeyUp);
     window.removeEventListener("blur", this.onBlur);
+  }
+
+  setPaused(paused: boolean): void {
+    if (this.destroyed) return;
+    this.paused = paused;
+    this.onBlur();
   }
 
   private horiz(): -1 | 0 | 1 {
@@ -50,7 +61,10 @@ export class Keyboard {
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
+    if (this.destroyed || e.repeat) return;
     const k = e.key;
+    // Repeats never rearm a key held across pause. M remains a native sound gesture.
+    if (this.paused && k.toLowerCase() !== "m") return;
     if (k === "ArrowLeft" || k === "a" || k === "A") {
       this.left = true;
       this.handlers.setHoriz(this.horiz());
@@ -91,6 +105,7 @@ export class Keyboard {
   };
 
   private onKeyUp = (e: KeyboardEvent): void => {
+    if (this.destroyed || this.paused) return;
     const k = e.key;
     if (k === "ArrowLeft" || k === "a" || k === "A") {
       this.left = false;

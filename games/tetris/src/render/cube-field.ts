@@ -62,7 +62,9 @@ export class CubeField {
       this.activeTargets.push(new Vector3());
     }
 
-    const ghostGeo = new EdgesGeometry(new BoxGeometry(0.98, 0.98, 0.98));
+    const ghostSource = new BoxGeometry(0.98, 0.98, 0.98);
+    const ghostGeo = new EdgesGeometry(ghostSource);
+    ghostSource.dispose();
     for (let i = 0; i < 4; i++) {
       const line = new LineSegments(
         ghostGeo,

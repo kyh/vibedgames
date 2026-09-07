@@ -121,6 +121,20 @@
         align-items: center;
         gap: 8px;
       }
+      #run-mode {
+        align-self: flex-start;
+        margin-top: 10px;
+        color: #ffd86b;
+        font-size: 10px;
+      }
+      #run-mode[hidden] {
+        display: none;
+      }
+      body.touch #run-mode {
+        max-width: calc(100vw - min(62vw, 240px) - 24px);
+        white-space: normal;
+        line-height: 1.5;
+      }
       #hotkeys {
         display: flex;
         flex-wrap: wrap;
@@ -158,7 +172,12 @@
       }
       #banner {
         position: fixed;
-        top: clamp(128px, 24vh, 240px);
+        --banner-top: clamp(128px, 24vh, 240px);
+        top: var(--banner-top);
+        max-height: calc(100svh - var(--banner-top) - 16px);
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        touch-action: pan-y;
         left: 0;
         right: 0;
         padding: 0 20px;
@@ -192,9 +211,113 @@
         text-align: left;
       }
       #spatial-rule:not([hidden]) {
+        display: block;
+        pointer-events: auto;
+      }
+      .rule-content {
         display: flex;
         align-items: center;
         gap: 16px;
+      }
+      .rule-copy {
+        min-width: 0;
+      }
+      .rule-cell {
+        fill: transparent;
+        stroke: #69739d;
+        stroke-width: 0.7;
+      }
+      .rule-cell-clear {
+        fill: #8ea2ff;
+      }
+      .rule-cell-locked {
+        fill: #4e5879;
+      }
+      .rule-cell-landing {
+        stroke: #00e5ff;
+        stroke-width: 1.7;
+      }
+      .rule-navigation {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        margin-top: 6px;
+      }
+      .rule-navigation button {
+        width: 44px;
+        min-height: 44px;
+        padding: 0;
+        border: 1px solid rgba(142, 162, 255, 0.3);
+        border-radius: 6px;
+        color: #eef0ff;
+        background: #24293f;
+        font:
+          18px ui-monospace,
+          monospace;
+        cursor: pointer;
+        touch-action: manipulation;
+      }
+      .rule-navigation button:disabled {
+        opacity: 0.35;
+        cursor: default;
+      }
+      .rule-navigation button:focus-visible,
+      .fixed-run-button:focus-visible {
+        outline: 2px solid #eef0ff;
+        outline-offset: 3px;
+      }
+      .rule-count {
+        color: #a7aecb;
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
+      }
+      #run-actions {
+        display: flex;
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 12px;
+        pointer-events: auto;
+      }
+      #fixed-run-actions {
+        display: contents;
+      }
+      .fixed-run-button {
+        min-height: 44px;
+        padding: 8px 16px;
+        border: 1px solid #69739d;
+        border-radius: 8px;
+        color: #eef0ff;
+        background: #24293f;
+        font:
+          600 12px/1.4 ui-monospace,
+          monospace;
+        cursor: pointer;
+        touch-action: manipulation;
+      }
+      .fixed-run-button small {
+        display: block;
+        color: #a7aecb;
+        font-size: 10px;
+        font-weight: 400;
+      }
+      #run-actions[hidden],
+      #fixed-run-actions[hidden],
+      .fixed-run-button[hidden],
+      #banner #run-actions #compact-start[hidden] {
+        display: none;
+      }
+      #banner[data-phase="title"],
+      #banner[data-phase="gameOver"] {
+        pointer-events: auto;
+      }
+      #run-actions #compact-start {
+        margin: 0;
+      }
+      #banner[data-phase="title"] #compact-start:not([hidden]),
+      #banner[data-phase="gameOver"] #compact-start:not([hidden]) {
+        display: block;
       }
       #spatial-rule svg {
         width: 64px;
@@ -315,6 +438,30 @@
         object-fit: cover;
         transform: scaleX(-1);
         filter: grayscale(1) contrast(1.05);
+      }
+      .camera-toggle {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        min-width: 44px;
+        min-height: 44px;
+        padding: 0;
+        border: 0;
+        border-radius: inherit;
+        color: inherit;
+        background: transparent;
+        cursor: pointer;
+        touch-action: manipulation;
+      }
+      .camera-toggle:focus-visible {
+        outline: 3px solid #eef0ff;
+        outline-offset: -4px;
+      }
+      #camera-panel video,
+      #camera-panel canvas,
+      #camera-status {
+        pointer-events: none;
       }
       #camera-status {
         position: absolute;
@@ -437,11 +584,13 @@
           height: 135px;
         }
         #banner {
-          top: max(260px, 32vh);
+          --banner-top: max(260px, 32vh);
+          top: var(--banner-top);
           padding: 0 16px;
         }
         body:has(#camera-panel.expanded) #banner {
-          top: max(350px, 39vh);
+          --banner-top: max(350px, 39vh);
+          top: var(--banner-top);
         }
         #spatial-rule {
           padding: 10px 12px;
@@ -491,17 +640,39 @@
           font-size: clamp(26px, 4.5vw, 38px);
         }
         #banner-sub {
-          margin-top: 9px;
+          margin-top: 6px;
           padding: 0;
           font-size: 11px;
           line-height: 1.5;
         }
         #spatial-rule {
-          margin-top: 10px;
-          padding: 9px;
+          margin-top: 8px;
+          padding: 8px;
         }
-        #spatial-rule:not([hidden]) {
-          gap: 9px;
+        #spatial-rule .rule-content {
+          gap: 8px;
+        }
+        #spatial-rule p {
+          margin-top: 3px;
+        }
+        #spatial-rule .rule-navigation {
+          margin-top: 4px;
+        }
+        #run-actions {
+          display: grid;
+          grid-auto-flow: column;
+          grid-auto-columns: minmax(0, 1fr);
+          gap: 8px;
+          margin-top: 8px;
+        }
+        #run-actions:has(#fixed-run-enter:not([hidden])) {
+          grid-template-columns: max-content minmax(0, 1fr);
+        }
+        #run-actions #compact-start,
+        #run-actions .fixed-run-button {
+          min-width: 44px;
+          min-height: 44px;
+          padding: 7px 10px;
         }
         #spatial-rule svg {
           width: 40px;
@@ -603,6 +774,7 @@
         <div id="fx-notice" aria-live="polite"></div>
         <div id="height-warning" hidden></div>
       </div>
+      <div class="pill" id="run-mode" hidden></div>
       <div class="bottom">
         <div id="hotkeys">
           <span><kbd>←→↑↓</kbd>move</span>
@@ -617,22 +789,7 @@
     </div>
     <div id="banner" data-gamepad-ignore>
       <div id="banner-title"></div>
-      <div id="spatial-rule" hidden>
-        <svg viewBox="0 0 81 81" aria-hidden="true">
-          <defs>
-            <pattern id="floor-grid" width="10" height="10" patternUnits="userSpaceOnUse">
-              <path d="M 10 0 H 0 V 10" fill="none" stroke="#69739d" stroke-width="1" />
-            </pattern>
-          </defs>
-          <path d="M 0 30 H 80 V 40 H 0 Z M 30 0 H 40 V 80 H 30 Z" fill="#8ea2ff" opacity="0.65" />
-          <rect x="0.5" y="0.5" width="80" height="80" fill="url(#floor-grid)" stroke="#69739d" />
-        </svg>
-        <div>
-          <strong>8 across or 8 deep.</strong>
-          <p>Fill a row at one height. Either floor direction clears.</p>
-          <p class="view-hint">Orbit to find gaps. Movement follows your view.</p>
-        </div>
-      </div>
+      <div id="spatial-rule" hidden></div>
       <div id="banner-sub"></div>
       <div
         id="catch-meter"
@@ -651,7 +808,20 @@
         <div id="result-best"></div>
         <div id="result-stats"></div>
       </div>
-      <button id="compact-start" type="button">Play</button>
+      <div id="run-actions">
+        <button id="compact-start" type="button">Play</button>
+        <div id="fixed-run-actions" hidden>
+          <button id="fixed-run-enter" class="fixed-run-button" type="button">
+            Fixed sequence<small>Same pieces. Beat your score.</small>
+          </button>
+          <button id="fixed-run-retry" class="fixed-run-button" type="button" hidden>
+            Retry sequence
+          </button>
+          <button id="fixed-run-normal" class="fixed-run-button" type="button" hidden>
+            Play normal
+          </button>
+        </div>
+      </div>
       <!-- rows rendered from src/controls.ts, one per visible input method -->
       <div id="legend"></div>
     </div>

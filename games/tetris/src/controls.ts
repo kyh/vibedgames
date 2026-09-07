@@ -3,8 +3,7 @@ import type { ControlEntry, ControlMethod, ControlsManifest } from "@repo/embed"
 
 // Every way to play, one list — the title legend and the pause overlay both
 // render from this (filtered per device / connected pad by @repo/embed).
-// Camera rows stay condensed to the three headline gestures (the same copy
-// the pause overlay always used); the collapse banner still teaches hands-up.
+// Camera rows include every existing gesture; titleSubText keeps two headlines.
 export const CONTROLS: ControlsManifest = [
   { method: "keys", input: "←→↑↓", action: "move" },
   { method: "keys", input: "R", action: "rotate" },
@@ -27,6 +26,9 @@ export const CONTROLS: ControlsManifest = [
   { method: "camera", input: "📷 lean", action: "move" },
   { method: "camera", input: "📷 twist", action: "rotate" },
   { method: "camera", input: "📷 T-pose", action: "power sweep" },
+  { method: "camera", input: "📷 circle raised hand", action: "turn view" },
+  { method: "camera", input: "📷 cross wrists", action: "hold piece" },
+  { method: "camera", input: "📷 throw hands up", action: "start / catch collapse" },
   { method: "controller", input: "L-STICK / D-PAD", action: "move" },
   { method: "controller", input: "A", action: "rotate" },
   { method: "controller", input: "LB / RB", action: "turn view" },

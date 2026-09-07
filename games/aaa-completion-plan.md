@@ -50,7 +50,7 @@ Each row includes the existing polish/graphics baseline plus the remaining work.
 | Pong                  | Spin teaching/practice; optional trick-shot mastery; full local/connected match feel                  | Practice, camera recovery, live matches and hardware rendering verified       |
 | Flappy Dragons        | Distinct forest landmarks; seeded challenge routes; pose recovery and full-flight pacing              | Route, camera recovery, live races and hardware flight verified locally       |
 | Pacman                | Musical escalation; optional maze challenges; camera recovery and complete chase pacing               | Circuit, camera/audio recovery, live mazes and hardware chase verified        |
-| Tetris                | Advanced spatial teaching; seeded score challenges; camera recovery and full-run pacing               | Queued                                                                        |
+| Tetris                | Advanced spatial teaching; seeded score challenges; camera recovery and full-run pacing               | Fixed sequence, teaching, native recovery and hardware stack verified         |
 
 Ancients' reconnect, host migration, ended results and late joins passed live
 two-client checks. [Authority evidence](/Users/kyh/.codex/visualizations/2026/09/05/01a072e5-b121-77b0-b7f7-52a06ec3e9e2/aaa-completion/moba-authority/README.md)
@@ -160,6 +160,17 @@ paused orbit deadlines. Teach existing spatial clears and add an optional fixed
 piece-sequence score run with separate records. Verify full play, catch/retry,
 native inputs, sound and dense-stack hardware rendering.
 Unresolved questions: none blocking implementation.
+
+Tetris's local pass is complete. [Evidence and captures](/Users/kyh/.codex/visualizations/2026/09/05/01a072e5-b121-77b0-b7f7-52a06ec3e9e2/aaa-completion/tetris/README.md)
+cover native fixed-sequence runs and retry, three real-board teaching cards,
+original clears/sweeps/catches, all four camera-corner retries, camera recovery,
+held touch/controller pause boundaries and unobstructed phone results. Original
+matte blocks gain smooth ink edges; reduced motion retains essential view turns.
+All 31 core assertions and 31 new regression cases pass. Original engine, pose
+and audio traces match; final Apple GPU stack and lossless sound checks pass.
+
+Collection audit: reconcile final source manifests and refresh Ancients' hardware
+combat and current shared-pause checks before closing the collection milestone.
 
 After individual work, compare the collection for quality consistency and close
 remaining shared device, audio and multiplayer issues. Production publishing is

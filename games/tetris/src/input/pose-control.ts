@@ -77,9 +77,21 @@ export class PoseControls {
   private circleAngle = 0;
   private circleAccum = 0;
   private hasCircleAngle = false;
+  private actionsPaused = false;
+  private neutralRequired = false;
 
   constructor(actions: PoseActions) {
     this.actions = actions;
+  }
+
+  /** Keep detection/calibration live, then require a fresh body gesture after pause. */
+  setActionsPaused(paused: boolean): void {
+    this.actionsPaused = paused;
+    this.neutralRequired = true;
+    this.hasPrev = false;
+    this.hasCenter = false;
+    this.hasCircleAngle = false;
+    this.circleAccum = 0;
   }
 
   /** Re-run neutral calibration (bound to the recenter key / a settle pose). */
@@ -133,6 +145,25 @@ export class PoseControls {
         this.neutralX = this.sumNeutralX / CALIB_FRAMES;
         this.baseShoulder = this.sumShoulder / CALIB_FRAMES;
       }
+    }
+
+    if (this.actionsPaused || this.neutralRequired) {
+      const off = 1 - nose.x / W - this.neutralX;
+      const uncrossed =
+        Math.sign(rightWrist.x - leftWrist.x) === Math.sign(rightShoulder.x - leftShoulder.x);
+      const neutral =
+        Math.abs(off) <= NOSE_DEAD_ZONE &&
+        shoulderWidth >= ROTATE_SQUEEZE_FRACTION * this.baseShoulder &&
+        leftWrist.y > shoulderY &&
+        rightWrist.y > shoulderY &&
+        uncrossed;
+      if (!this.actionsPaused && neutral) {
+        this.neutralRequired = false;
+        this.holdArmed = this.powerArmed = true;
+      }
+      this.hasPrev = false;
+      this.lastTime = now;
+      return;
     }
 
     if (this.calibCount >= CALIB_FRAMES) {

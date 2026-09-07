@@ -12,13 +12,21 @@ import {
 } from "@repo/embed";
 import type { TouchControls as EmbedTouchControls } from "@repo/embed";
 import { PhysicalGamepad, stickDirection4 } from "@vibedgames/gamepad";
-import { Color, Scene } from "three";
+import { BufferGeometry, Color, InstancedMesh, LineSegments, Material, Mesh, Scene } from "three";
 
 import { CONTROLS, titleSubText } from "../controls";
 import { groupRow } from "../pause-overlay";
 import type { Cell } from "../game/board";
 import { screenToWorld, type ScreenDir } from "../game/camera-correction";
 import { Engine, type LockEvent } from "../game/engine";
+import {
+  createFixedRandom,
+  FIXED_RUN_NAME,
+  readFixedBest,
+  storeFixedBest,
+  type RunMode,
+} from "../game/fixed-run";
+import { RuleTeaching } from "../game/rule-teaching";
 import { ParticlePool } from "../fx/particles";
 import { WellFx, type WellFxState } from "../fx/well-fx";
 import type { Status } from "../game/state";
@@ -84,6 +92,7 @@ export type TetrisDiagnostics = {
   frame: number;
   phase: Status;
   score: number;
+  mode: RunMode["kind"];
   complete: boolean;
   player: Cell | null;
   entities: number;
@@ -110,6 +119,11 @@ export class GameScene {
   private readonly pad = new PhysicalGamepad();
   private readonly coarse = isCoarsePointer();
   private poseControls: PoseControls | null = null;
+  private presentationPaused = false;
+  private disposed = false;
+  private padSteerBlocked = false;
+  private padSoftBlocked = false;
+  private readonly onCompactStart = () => this.startIfIdle();
   private unwatchControls: (() => void) | null = null;
 
   // input state (screen-relative)
@@ -132,7 +146,18 @@ export class GameScene {
   private piecesPlaced = 0;
   private rescues = 0;
   private largestClear = 0;
+  private orbitTaught = false;
   private bestScore = readBestScore();
+  private fixedBest = readFixedBest();
+  private mode: RunMode = { kind: "normal" };
+  private readonly teaching: RuleTeaching;
+  private readonly onFixedEnter = () => this.startMode({ kind: "fixed" });
+  private readonly onFixedRetry = () => this.startIfIdle();
+  private readonly onFixedNormal = () => this.startMode({ kind: "normal" });
+  private readonly sealRunPointer = (event: Event) => event.stopPropagation();
+  private readonly sealRunKey = (event: KeyboardEvent) => {
+    if (event.key === "Enter" || event.key === " ") event.stopPropagation();
+  };
   // Sampled alongside the displayed meter, so diagnostics also freeze on pause.
   private catchRemainingMs: number | null = null;
   private catchTenths = -1;
@@ -163,12 +188,20 @@ export class GameScene {
       styleId: "tetris-touch-controls-css",
     });
     document.body.classList.toggle("touch", this.coarse);
-    el("compact-start")?.addEventListener("click", () => this.startIfIdle());
+    el("compact-start")?.addEventListener("click", this.onCompactStart);
+    this.teaching = new RuleTeaching(el("spatial-rule"));
+    el("fixed-run-enter")?.addEventListener("click", this.onFixedEnter);
+    el("fixed-run-retry")?.addEventListener("click", this.onFixedRetry);
+    el("fixed-run-normal")?.addEventListener("click", this.onFixedNormal);
+    el("run-actions")?.addEventListener("keydown", this.sealRunKey);
+    el("run-actions")?.addEventListener("keyup", this.sealRunKey);
+    el("run-actions")?.addEventListener("pointerdown", this.sealRunPointer);
+    el("run-actions")?.addEventListener("pointerup", this.sealRunPointer);
     this.renderLegend();
     this.showBanner("TETRIS", titleSubText());
     // Plugging in a pad on the title adds its legend row + start hint.
     this.unwatchControls = watchControlContext(() => {
-      if (this.engine.state.status !== "title") return;
+      if (this.disposed || this.engine.state.status !== "title") return;
       this.renderLegend();
       this.showBanner("TETRIS", titleSubText());
     });
@@ -194,6 +227,7 @@ export class GameScene {
   }
 
   resize(aspect: number): void {
+    if (this.disposed) return;
     this.rig.resize(aspect);
   }
 
@@ -207,6 +241,7 @@ export class GameScene {
       frame: this.frame,
       phase: this.engine.state.status,
       score: this.engine.state.score,
+      mode: this.mode.kind,
       complete: this.engine.state.status === "gameOver",
       player: active.length > 0 ? centroid(active) : null,
       entities,
@@ -217,7 +252,7 @@ export class GameScene {
         pieces: this.piecesPlaced,
         rescues: this.rescues,
         largestClear: this.largestClear,
-        bestScore: this.bestScore,
+        bestScore: this.mode.kind === "fixed" ? this.fixedBest : this.bestScore,
       },
       catchRemainingMs: this.catchRemainingMs,
       fx: { ...this.wellFx.counts(), particles: this.particles.count },
@@ -228,7 +263,74 @@ export class GameScene {
    *  paused gap doesn't count against it. Pose-freshness stamps deliberately
    *  stay unshifted — stale pose input reading as old is the safe direction. */
   shiftWallClock(pausedMs: number): void {
+    if (this.disposed) return;
     this.collapseStartedAt += pausedMs;
+    this.rig.shiftWallClock(pausedMs);
+  }
+
+  /** Freeze asynchronous intent sources as well as the frame-driven engine. */
+  setPresentationPaused(paused: boolean): void {
+    if (this.disposed) return;
+    this.presentationPaused = paused;
+    this.keyboard.setPaused(paused);
+    this.touch.setPaused(paused);
+    this.kbHoriz = this.kbDepth = this.poseHoriz = 0;
+    this.poseHorizAt = this.lastPoseAt = this.lastPadAt = -1e9;
+    this.hMove.dir = this.dMove.dir = 0;
+    this.hMove.das = this.hMove.arr = this.dMove.das = this.dMove.arr = 0;
+    this.engine.setSoftDrop(false);
+    this.padSoftDrop = false;
+    this.pad.update();
+    this.pad.update();
+    this.padSteerBlocked = true;
+    this.padSoftBlocked = true;
+  }
+
+  /** Final scene owner. Reset/retry keeps these resources; final teardown releases each once. */
+  dispose(): void {
+    if (this.disposed) return;
+    this.setPresentationPaused(true);
+    this.disposed = true;
+    this.keyboard.destroy();
+    this.touch.destroy();
+    this.touchControls.destroy();
+    this.pad.destroy();
+    this.unwatchControls?.();
+    this.unwatchControls = null;
+    el("compact-start")?.removeEventListener("click", this.onCompactStart);
+    this.teaching.dispose();
+    el("fixed-run-enter")?.removeEventListener("click", this.onFixedEnter);
+    el("fixed-run-retry")?.removeEventListener("click", this.onFixedRetry);
+    el("fixed-run-normal")?.removeEventListener("click", this.onFixedNormal);
+    el("run-actions")?.removeEventListener("keydown", this.sealRunKey);
+    el("run-actions")?.removeEventListener("keyup", this.sealRunKey);
+    el("run-actions")?.removeEventListener("pointerdown", this.sealRunPointer);
+    el("run-actions")?.removeEventListener("pointerup", this.sealRunPointer);
+    this.collapse.dispose();
+    this.cubes.clearLocked();
+    this.particles.reset();
+    this.wellFx.reset();
+    this.poseControls = null;
+    this.hideBanner();
+    this.setHudMode("none");
+    const meter = el("catch-meter");
+    if (meter) meter.hidden = true;
+    const geometries = new Set<BufferGeometry>();
+    const materials = new Set<Material>();
+    this.scene.traverse((object) => {
+      if (object instanceof Mesh || object instanceof LineSegments) {
+        geometries.add(object.geometry);
+        for (const material of Array.isArray(object.material)
+          ? object.material
+          : [object.material]) {
+          materials.add(material);
+        }
+      }
+      if (object instanceof InstancedMesh) object.dispose();
+    });
+    for (const geometry of geometries) geometry.dispose();
+    for (const material of materials) material.dispose();
+    this.scene.clear();
   }
 
   // ---- input wiring -----------------------------------------------------------
@@ -236,20 +338,24 @@ export class GameScene {
   /** Bound intent handlers handed to PoseControls (main.ts wires the camera). */
   readonly poseActions: PoseActions = {
     steer: (dir) => {
+      if (this.presentationPaused || this.disposed) return;
       this.poseHoriz = dir;
       this.poseHorizAt = performance.now();
       this.lastPoseAt = this.poseHorizAt;
     },
     rotate: () => this.doRotate(),
     orbit: (dir) => {
+      if (this.presentationPaused || this.disposed) return;
       this.lastPoseAt = performance.now();
       this.doOrbit(dir);
     },
     hold: () => {
+      if (this.presentationPaused || this.disposed) return;
       this.lastPoseAt = performance.now();
       this.doHold();
     },
     power: () => {
+      if (this.presentationPaused || this.disposed) return;
       this.lastPoseAt = performance.now();
       this.doPower();
     },
@@ -265,23 +371,28 @@ export class GameScene {
   private keyboardHandlers(): KeyboardHandlers {
     return {
       setHoriz: (dir) => {
-        this.kbHoriz = dir;
+        if (!this.presentationPaused && !this.disposed) this.kbHoriz = dir;
       },
       setDepth: (dir) => {
-        this.kbDepth = dir;
+        if (!this.presentationPaused && !this.disposed) this.kbDepth = dir;
       },
       rotate: () => {
         this.doRotate();
       },
       hardDrop: () => this.onHardDrop(),
-      setSoftDrop: (on) => this.engine.setSoftDrop(on),
+      setSoftDrop: (on) => {
+        if (!this.presentationPaused && !this.disposed) this.engine.setSoftDrop(on);
+      },
       orbit: (dir) => this.doOrbit(dir),
       hold: () => this.doHold(),
       power: () => this.doPower(),
       pause: () => this.requestPause(),
       start: () => this.startIfIdle(),
-      recenter: () => this.poseControls?.recenter(),
+      recenter: () => {
+        if (!this.disposed) this.poseControls?.recenter();
+      },
       muteToggle: () => {
+        if (this.disposed) return;
         toggleMute();
         this.touchControls.sync();
       },
@@ -296,7 +407,9 @@ export class GameScene {
       },
       orbit: (dir) => this.doOrbit(dir),
       drop: () => this.onHardDrop(),
-      setSoftDrop: (on) => this.engine.setSoftDrop(on),
+      setSoftDrop: (on) => {
+        if (!this.presentationPaused && !this.disposed) this.engine.setSoftDrop(on);
+      },
       hold: () => this.doHold(),
       power: () => this.doPower(),
       tap: () => this.onFreeTap(),
@@ -306,6 +419,7 @@ export class GameScene {
   /** A free touch (not on a button): the touch mirror of hands-up / Enter.
    *  While paused the wrapper overlay covers the screen and owns the tap. */
   private onFreeTap(): void {
+    if (this.presentationPaused || this.disposed) return;
     const s = this.engine.state.status;
     if (s === "title" || s === "gameOver") this.startGame();
     else if (s === "collapsing") this.tryCatch();
@@ -314,6 +428,7 @@ export class GameScene {
   // ---- verbs ------------------------------------------------------------------
 
   private doRotate(): boolean {
+    if (this.presentationPaused || this.disposed) return false;
     if (this.engine.state.status !== "playing") return false;
     const ok = this.engine.rotate();
     if (ok) sfx.rotate();
@@ -321,13 +436,19 @@ export class GameScene {
   }
 
   private doOrbit(dir: -1 | 1): void {
+    if (this.presentationPaused || this.disposed) return;
     if (this.engine.state.status !== "playing") return;
     const corner = this.rig.orbit(dir, performance.now());
     this.well.setCorner(corner);
+    if (!this.orbitTaught) {
+      this.orbitTaught = true;
+      this.wellFx.orbitHint();
+    }
     sfx.orbit();
   }
 
   private doHold(): void {
+    if (this.presentationPaused || this.disposed) return;
     if (this.engine.hold()) {
       this.needSnap = true;
       sfx.rotate();
@@ -335,6 +456,7 @@ export class GameScene {
   }
 
   private doPower(): void {
+    if (this.presentationPaused || this.disposed) return;
     if (!this.engine.canPower()) return;
     let lowest = this.engine.board.height;
     const footprint: Cell[] = [];
@@ -367,6 +489,7 @@ export class GameScene {
   }
 
   private onHardDrop(): void {
+    if (this.presentationPaused || this.disposed) return;
     const status = this.engine.state.status;
     if (status === "playing") {
       const start = this.engine.activeCells();
@@ -391,23 +514,58 @@ export class GameScene {
    *  handlers own the freeze (update-skip + shiftWallClock). While paused the
    *  overlay's own resume paths (pointerup / keyup / fresh pad press) apply. */
   private requestPause(): void {
+    if (this.presentationPaused || this.disposed) return;
     if (this.engine.state.status !== "playing") return;
     pauseGame();
   }
 
   private startIfIdle(): void {
+    if (this.presentationPaused || this.disposed) return;
     const s = this.engine.state.status;
     if (s === "title" || s === "gameOver") this.startGame();
   }
 
+  private startMode(mode: RunMode): void {
+    if (this.presentationPaused || this.disposed) return;
+    const phase = this.engine.state.status;
+    if (phase !== "title" && phase !== "gameOver") return;
+    this.mode = mode;
+    this.startGame();
+  }
+
+  private refreshRunActions(): void {
+    const phase = this.engine.state.status;
+    const idle = !this.disposed && (phase === "title" || phase === "gameOver");
+    const fixed = this.mode.kind === "fixed";
+    this.touch.setActive(!this.disposed && (phase === "playing" || phase === "collapsing"));
+    const actions = el("run-actions");
+    if (actions) actions.hidden = !idle;
+    const fixedActions = el("fixed-run-actions");
+    if (fixedActions) fixedActions.hidden = !idle;
+    const start = el("compact-start");
+    if (start) start.hidden = fixed;
+    const enter = el("fixed-run-enter");
+    if (enter) enter.hidden = fixed;
+    const retry = el("fixed-run-retry");
+    if (retry) retry.hidden = !fixed;
+    const normal = el("fixed-run-normal");
+    if (normal) normal.hidden = !fixed;
+    const badge = el("run-mode");
+    if (badge) {
+      badge.hidden = !fixed || this.disposed || phase !== "playing";
+      badge.textContent = `${FIXED_RUN_NAME} · best ${this.fixedBest}`;
+    }
+  }
+
   private startGame(): void {
+    if (this.presentationPaused || this.disposed) return;
     this.unwatchControls?.();
     this.unwatchControls = null;
     notifyGameStarted();
     this.collapse.dispose();
     this.cubes.frozen = false;
     this.cubes.clearLocked();
-    this.well.setCorner(0);
+    this.well.setCorner(this.rig.corner);
     this.rig.resetTrauma();
     this.particles.reset();
     this.wellFx.reset();
@@ -415,7 +573,8 @@ export class GameScene {
     this.piecesPlaced = 0;
     this.rescues = 0;
     this.largestClear = 0;
-    this.engine.startGame();
+    this.orbitTaught = false;
+    this.engine.startGame(this.mode.kind === "fixed" ? createFixedRandom() : null);
     this.boardDirty = true;
     this.needSnap = true;
     this.hMove.dir = 0;
@@ -490,6 +649,7 @@ export class GameScene {
   }
 
   private tryCatch(): void {
+    if (this.presentationPaused || this.disposed) return;
     if (this.engine.state.status !== "collapsing") return;
     this.collapse.dispose();
     this.cubes.frozen = false;
@@ -513,27 +673,36 @@ export class GameScene {
     this.engine.state.status = "gameOver";
     this.well.setAllWallsVisible(true);
     sfx.gameOver();
-    const newBest = this.engine.state.score > this.bestScore;
-    this.bestScore = Math.max(this.bestScore, this.engine.state.score);
-    if (newBest) {
-      try {
-        localStorage.setItem(BEST_SCORE_KEY, String(this.bestScore));
-      } catch {
-        // A blocked store must never block the retry path; keep this visit's best.
+    const previous = this.mode.kind === "fixed" ? this.fixedBest : this.bestScore;
+    const newBest = this.engine.state.score > previous;
+    const runBest = Math.max(previous, this.engine.state.score);
+    if (this.mode.kind === "fixed") {
+      this.fixedBest = runBest;
+      if (newBest) storeFixedBest(runBest);
+    } else {
+      this.bestScore = runBest;
+      if (newBest) {
+        try {
+          localStorage.setItem(BEST_SCORE_KEY, String(runBest));
+        } catch {
+          // A blocked store must never block the retry path; keep this visit's best.
+        }
       }
     }
     const score = el("result-score");
     const best = el("result-best");
     const stats = el("result-stats");
     if (score) score.textContent = String(this.engine.state.score);
-    if (best) best.textContent = `${newBest ? "NEW BEST" : "BEST"} ${this.bestScore}`;
+    if (best) best.textContent = `${newBest ? "NEW BEST" : "BEST"} ${runBest}`;
     if (stats) {
       const lines = this.engine.state.lines;
       stats.textContent = `${lines} ${lines === 1 ? "line" : "lines"} · ${this.piecesPlaced} ${this.piecesPlaced === 1 ? "piece" : "pieces"} placed\n${this.rescues} ${this.rescues === 1 ? "rescue" : "rescues"} · largest clear ${this.largestClear}`;
     }
     this.showBanner(
-      "GAME OVER",
-      `${this.coarse ? "Tap" : "Enter / Space"} to retry · a fresh stack awaits`,
+      this.mode.kind === "fixed" ? "FIXED SEQUENCE" : "GAME OVER",
+      this.mode.kind === "fixed"
+        ? "Same pieces. New possibilities. Beat your sequence best."
+        : `${this.coarse ? "Tap" : "Enter / Space"} to retry · a fresh stack awaits`,
       false,
     );
   }
@@ -541,11 +710,13 @@ export class GameScene {
   // ---- main update ------------------------------------------------------------
 
   update(dt: number): void {
+    if (this.presentationPaused || this.disposed) return;
     this.frame += 1;
     const now = performance.now();
     const dtMs = dt * 1000;
     this.touch.update(dtMs); // poll the gamepad before the sim tick
     this.updatePad(now);
+    if (this.presentationPaused || this.disposed) return;
     const status = this.engine.state.status;
 
     if (status === "playing") {
@@ -618,6 +789,10 @@ export class GameScene {
       else if (dir === "up") depth = -1;
       else if (dir === "down") depth = 1;
     }
+    if (this.padSteerBlocked) {
+      if (horiz === 0 && depth === 0) this.padSteerBlocked = false;
+      return { horiz: 0, depth: 0 };
+    }
     if (horiz !== 0 || depth !== 0) this.lastPadAt = performance.now();
     return { horiz, depth };
   }
@@ -639,6 +814,7 @@ export class GameScene {
     let acted = false;
     if (this.pad.justPressed("start")) {
       this.requestPause();
+      if (this.presentationPaused || this.disposed) return;
       acted = true;
     }
     if (this.pad.justPressed("a")) {
@@ -665,7 +841,9 @@ export class GameScene {
       this.doOrbit(1);
       acted = true;
     }
-    const soft = this.pad.isButtonDown("lt") || this.pad.isButtonDown("rt");
+    const heldSoft = this.pad.isButtonDown("lt") || this.pad.isButtonDown("rt");
+    if (!heldSoft) this.padSoftBlocked = false;
+    const soft = heldSoft && !this.padSoftBlocked;
     if (soft !== this.padSoftDrop) {
       this.padSoftDrop = soft;
       this.engine.setSoftDrop(soft);
@@ -709,6 +887,7 @@ export class GameScene {
 
   /** One camera-corrected move step (shared by keyboard DAS/ARR and touch). */
   private stepScreen(dir: ScreenDir, initial: boolean): void {
+    if (this.presentationPaused || this.disposed) return;
     const m = screenToWorld(this.rig.corner, dir);
     const moved = this.engine.move(m.dx, m.dz);
     if (moved && initial) sfx.move();
@@ -809,6 +988,7 @@ export class GameScene {
     if (teaching) teaching.hidden = this.engine.state.status !== "title";
     if (summary) summary.hidden = this.engine.state.status !== "gameOver";
     if (start) start.textContent = this.engine.state.status === "gameOver" ? "Play again" : "Play";
+    this.refreshRunActions();
     this.updateCatchMeter(performance.now());
     this.setHudMode(withLegend ? "legend" : "none");
   }
@@ -827,6 +1007,7 @@ export class GameScene {
     const summary = el("run-summary");
     if (teaching) teaching.hidden = true;
     if (summary) summary.hidden = true;
+    this.refreshRunActions();
     this.updateCatchMeter(performance.now());
     this.setHudMode("hotkeys");
   }

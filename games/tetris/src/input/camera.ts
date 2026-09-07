@@ -1,4 +1,4 @@
-import type { NormalizedLandmark, PoseLandmarker } from "@mediapipe/tasks-vision";
+import type { DrawingUtils, NormalizedLandmark, PoseLandmarker } from "@mediapipe/tasks-vision";
 
 import { isCoarsePointer } from "./touch";
 
@@ -94,14 +94,18 @@ function landmarksToKeypoints(
 export class PoseCamera {
   private readonly onPose: PoseHandler;
   private readonly panel: HTMLDivElement;
+  private readonly toggle: HTMLButtonElement;
   private readonly video: HTMLVideoElement;
   private readonly canvas: HTMLCanvasElement;
   private readonly status: HTMLDivElement;
   private landmarker: PoseLandmarker | null = null;
+  private drawingUtils: DrawingUtils | null = null;
   private tasks: VisionTasks | null = null;
+  private stream: MediaStream | null = null;
   private rafId: number | null = null;
-  private destroyed = false;
-  private started = false;
+  private state: "idle" | "starting" | "live" | "unavailable" | "destroyed" = "idle";
+  private attempt = 0;
+  private tracking = false;
   private lastVideoTime = -1;
   private lastTimestamp = 0;
 
@@ -120,78 +124,128 @@ export class PoseCamera {
     this.status = document.createElement("div");
     this.status.id = "camera-status";
     this.status.textContent = deferred ? "tap to play with the camera" : "starting camera…";
-    this.panel.append(this.video, this.canvas, this.status);
-    // Small screens shrink the panel (CSS); tapping toggles the expanded size.
-    // The attribute keeps the virtual gamepad from claiming taps on the panel.
+    this.toggle = document.createElement("button");
+    this.toggle.id = "camera-toggle";
+    this.toggle.className = "camera-toggle";
+    this.toggle.type = "button";
+    this.panel.append(this.video, this.canvas, this.status, this.toggle);
     this.panel.setAttribute("data-gamepad-ignore", "");
-    this.panel.addEventListener("click", () => {
-      this.panel.classList.toggle("expanded");
-      if (deferred) void this.start();
-    });
+    this.toggle.addEventListener("click", this.onToggle);
+    this.toggle.addEventListener("keydown", this.sealKey);
+    this.toggle.addEventListener("keyup", this.sealKey);
+    this.toggle.addEventListener("pointerdown", this.sealPointer);
+    this.toggle.addEventListener("pointerup", this.sealPointer);
+    this.updateToggle();
     document.body.appendChild(this.panel);
   }
 
-  /** Request the camera, then load the model. Idempotent: the panel tap that
-   *  opts a phone in also toggles the expanded size, and may fire again later. */
+  private readonly onToggle = (event: Event): void => {
+    event.stopPropagation();
+    if (this.state === "destroyed") return;
+    this.panel.classList.toggle("expanded");
+    if (this.state === "idle" || this.state === "unavailable") void this.start();
+    this.updateToggle();
+  };
+
+  private readonly sealKey = (event: KeyboardEvent): void => {
+    if (event.code === "Enter" || event.code === "Space") event.stopPropagation();
+  };
+
+  private readonly sealPointer = (event: Event): void => event.stopPropagation();
+
+  /** Camera, video playback and model retain their original startup order.
+   * Every await belongs to one attempt, including resources returned after teardown. */
   async start(): Promise<void> {
-    if (this.started) return;
-    this.started = true;
+    if (this.state !== "idle" && this.state !== "unavailable") return;
+    const attempt = ++this.attempt;
+    this.releaseCapture();
+    this.state = "starting";
+    this.setStatus("starting camera…");
+    this.updateToggle();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "user" },
         audio: false,
       });
-      if (this.destroyed) {
-        stream.getTracks().forEach((track) => track.stop());
+      if (!this.current(attempt)) {
+        for (const track of stream.getTracks()) track.stop();
         return;
       }
-
+      this.stream = stream;
       this.video.srcObject = stream;
       await this.video.play();
+      if (!this.current(attempt)) return;
       this.canvas.width = this.video.videoWidth;
       this.canvas.height = this.video.videoHeight;
 
-      await this.loadModel();
-      if (this.destroyed) return;
+      await this.loadModel(attempt);
+      if (!this.current(attempt)) return;
 
+      this.state = "live";
       this.setStatus(null);
-      this.detectFrame();
+      this.updateToggle();
+      this.detectFrame(attempt);
     } catch (error) {
-      // Denied/unavailable camera or model load failure: keyboard keeps
-      // working, the panel just reports why the webcam path is inactive.
-      // Stop any acquired stream so the webcam LED matches the status text.
-      this.started = false; // another tap on the panel retries
-      if (this.video.srcObject instanceof MediaStream) {
-        this.video.srcObject.getTracks().forEach((track) => track.stop());
-        this.video.srcObject = null;
-      }
-      console.error("Error starting camera or loading model:", error);
-      this.setStatus(
-        isCoarsePointer()
-          ? "camera unavailable — touch controls active"
-          : "camera unavailable — keyboard controls active",
-      );
+      if (this.current(attempt)) console.error("Error starting camera or loading model:", error);
+      this.fail(attempt);
     }
+  }
+
+  private current(attempt: number): boolean {
+    return this.state !== "destroyed" && this.attempt === attempt;
+  }
+
+  private fail(attempt: number): void {
+    if (!this.current(attempt)) return;
+    this.attempt++;
+    this.releaseCapture();
+    this.state = "unavailable";
+    this.setStatus(
+      isCoarsePointer()
+        ? "camera unavailable — retry · touch controls active"
+        : "camera unavailable — retry · keyboard controls active",
+    );
+    this.updateToggle();
+  }
+
+  private releaseCapture(): void {
+    if (this.rafId !== null) cancelAnimationFrame(this.rafId);
+    this.rafId = null;
+    this.video.pause();
+    this.video.srcObject = null;
+    for (const track of this.stream?.getTracks() ?? []) track.stop();
+    this.stream = null;
+    this.landmarker?.close();
+    this.landmarker = null;
+    this.drawingUtils?.close();
+    this.drawingUtils = null;
+    this.tasks = null;
+    this.lastVideoTime = -1;
+    this.lastTimestamp = 0;
+    this.tracking = false;
   }
 
   destroy(): void {
-    this.destroyed = true;
-    if (this.rafId !== null) cancelAnimationFrame(this.rafId);
-    this.rafId = null;
-    const src = this.video.srcObject;
-    if (src instanceof MediaStream) {
-      src.getTracks().forEach((track) => track.stop());
-    }
-    this.landmarker?.close();
-    this.landmarker = null;
+    if (this.state === "destroyed") return;
+    this.state = "destroyed";
+    this.attempt++;
+    this.releaseCapture();
+    this.toggle.removeEventListener("click", this.onToggle);
+    this.toggle.removeEventListener("keydown", this.sealKey);
+    this.toggle.removeEventListener("keyup", this.sealKey);
+    this.toggle.removeEventListener("pointerdown", this.sealPointer);
+    this.toggle.removeEventListener("pointerup", this.sealPointer);
+    this.toggle.disabled = true;
     this.panel.remove();
   }
 
-  private async loadModel(): Promise<void> {
+  private async loadModel(attempt: number): Promise<void> {
     const tasks = await import("@mediapipe/tasks-vision");
+    if (!this.current(attempt)) return;
     this.tasks = tasks;
     const vision = await tasks.FilesetResolver.forVisionTasks(WASM_URL);
-    this.landmarker = await tasks.PoseLandmarker.createFromOptions(vision, {
+    if (!this.current(attempt)) return;
+    const landmarker = await tasks.PoseLandmarker.createFromOptions(vision, {
       baseOptions: {
         modelAssetPath: MODEL_URL,
         delegate: "GPU",
@@ -199,15 +253,21 @@ export class PoseCamera {
       runningMode: "VIDEO",
       numPoses: 1,
     });
+    if (!this.current(attempt)) {
+      landmarker.close();
+      return;
+    }
+    this.landmarker = landmarker;
   }
 
-  private detectFrame = (): void => {
-    if (this.destroyed) return;
+  private detectFrame = (attempt = this.attempt): void => {
+    if (!this.current(attempt)) return;
+    this.rafId = null;
     const video = this.video;
     const landmarker = this.landmarker;
 
     if (video.readyState !== 4 || !landmarker) {
-      this.rafId = requestAnimationFrame(this.detectFrame);
+      this.rafId = requestAnimationFrame(() => this.detectFrame(attempt));
       return;
     }
 
@@ -221,6 +281,7 @@ export class PoseCamera {
       try {
         const result = landmarker.detectForVideo(video, timestamp);
         const landmarks = result.landmarks[0];
+        this.tracking = landmarks !== undefined;
         if (landmarks) {
           this.drawSkeleton(landmarks);
           const keypoints = landmarksToKeypoints(landmarks, video.videoWidth, video.videoHeight);
@@ -230,11 +291,13 @@ export class PoseCamera {
           );
         }
       } catch (error) {
-        console.error("Error detecting pose:", error);
+        if (this.current(attempt)) console.error("Error detecting pose:", error);
+        this.fail(attempt);
+        return;
       }
     }
 
-    this.rafId = requestAnimationFrame(this.detectFrame);
+    if (this.current(attempt)) this.rafId = requestAnimationFrame(() => this.detectFrame(attempt));
   };
 
   private drawSkeleton(landmarks: NormalizedLandmark[]): void {
@@ -244,7 +307,8 @@ export class PoseCamera {
 
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
-    const drawingUtils = new tasks.DrawingUtils(ctx);
+    const drawingUtils = this.drawingUtils ?? new tasks.DrawingUtils(ctx);
+    this.drawingUtils = drawingUtils;
     drawingUtils.drawLandmarks(landmarks, {
       radius: 3,
       color: "red",
@@ -253,6 +317,32 @@ export class PoseCamera {
     drawingUtils.drawConnectors(landmarks, tasks.PoseLandmarker.POSE_CONNECTIONS, {
       color: "blue",
       lineWidth: 2,
+    });
+  }
+
+  private updateToggle(): void {
+    const expanded = this.panel.classList.contains("expanded");
+    const action =
+      this.state === "unavailable"
+        ? "Retry body camera"
+        : this.state === "idle"
+          ? "Enable body controls"
+          : expanded
+            ? "Collapse body camera"
+            : "Expand body camera";
+    this.toggle.setAttribute("aria-label", action);
+    this.toggle.setAttribute("aria-expanded", String(expanded));
+  }
+
+  diagnostics() {
+    return Object.freeze({
+      state: this.state,
+      attempt: this.attempt,
+      tracking: this.tracking,
+      raf: this.rafId !== null,
+      stream: this.stream !== null,
+      model: this.landmarker !== null,
+      drawing: this.drawingUtils !== null,
     });
   }
 

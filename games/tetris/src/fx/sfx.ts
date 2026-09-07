@@ -25,6 +25,7 @@ function storageSet(key: string, value: string): void {
 // Muted by default; returning players who opted into sound stay unmuted.
 let muted = storageGet(SOUND_KEY) !== "1";
 let paused = false;
+let disposed = false;
 const VOICE_LIMIT = 24;
 const ROUTINE_LIMIT = 16;
 
@@ -49,7 +50,7 @@ let stoppedSources = 0;
 let endedSources = 0;
 let peakSources = 0;
 
-const blocked = (): boolean => muted || paused;
+const blocked = (): boolean => disposed || muted || paused;
 
 function setMaster(): void {
   if (!bus) return;
@@ -60,7 +61,7 @@ function setMaster(): void {
 /** One pending context operation. Its completion obeys the latest pause/mute
  * intent; rejected unlocks wait for the next gesture, never spin a retry loop. */
 function reconcileContext(): void {
-  if (!bus || bus.context.state === "closed") return;
+  if (disposed || !bus || bus.context.state === "closed") return;
   setMaster();
   if (contextTransition) return;
   const ac = bus.context;
@@ -70,6 +71,7 @@ function reconcileContext(): void {
   contextTransition = operation;
   void operation.then(
     () => {
+      if (disposed || bus?.context !== ac || contextTransition !== operation) return;
       contextTransition = null;
       // Successful operations can race a newer intent. Reconcile only that
       // change; an interrupted device must not cause unbounded resume retries.
@@ -77,6 +79,7 @@ function reconcileContext(): void {
       return undefined;
     },
     () => {
+      if (disposed || bus?.context !== ac || contextTransition !== operation) return;
       contextTransition = null;
       if (shouldRun !== !blocked()) reconcileContext();
       return undefined;
@@ -84,20 +87,24 @@ function reconcileContext(): void {
   );
 }
 
+function createBus(): void {
+  if (disposed || bus || !("AudioContext" in window)) return;
+  let context: AudioContext | null = null;
+  try {
+    context = new AudioContext();
+    const master = context.createGain();
+    master.gain.value = blocked() ? 0 : 1;
+    master.connect(context.destination);
+    bus = { context, master };
+  } catch {
+    // A partially created graph still owns its context.
+    if (context) void context.close().catch(() => {});
+  }
+}
+
 function audio(): AudioBus | null {
   if (blocked()) return null;
-  if (!bus && "AudioContext" in window) {
-    try {
-      const context = new AudioContext();
-      const master = context.createGain();
-      master.gain.value = 1;
-      master.connect(context.destination);
-      bus = { context, master };
-    } catch {
-      // Audio may be unavailable in an embed; input/gameplay still proceeds.
-      return null;
-    }
-  }
+  createBus();
   reconcileContext();
   // Never accumulate notes behind a locked or pending context operation.
   return bus?.context.state === "running" && !contextTransition ? bus : null;
@@ -113,7 +120,11 @@ function release(voice: Voice, reason: "stopped" | "ended"): void {
   voice.source.removeEventListener("ended", voice.onEnded);
   if (reason === "stopped") {
     stoppedSources++;
-    voice.source.stop();
+    try {
+      voice.source.stop();
+    } catch {
+      // A failed or already completed source still owns its gain graph.
+    }
   } else endedSources++;
   voice.source.disconnect();
   voice.gain.disconnect();
@@ -134,8 +145,12 @@ export function isMuted(): boolean {
 /** Set mute and persist the choice. Runs from a user gesture (the M key or the
  *  touch control), so turning sound on can create/resume the ctx. */
 export function setMuted(next: boolean): void {
+  if (disposed) return;
   muted = next;
   storageSet(SOUND_KEY, muted ? "0" : "1");
+  // The embed's native speaker button seals its events. This gesture can
+  // unlock an empty, silent context while paused for a later pose-only resume.
+  if (!muted && paused && globalThis.navigator?.userActivation?.isActive) createBus();
   if (blocked()) {
     setMaster();
     stopVoices();
@@ -151,6 +166,7 @@ export function toggleMute(): boolean {
 
 /** Local wrapper pause is independent of the stored sound preference. */
 export function setSoundPaused(next: boolean): void {
+  if (disposed) return;
   paused = next;
   if (blocked()) {
     setMaster();
@@ -161,8 +177,22 @@ export function setSoundPaused(next: boolean): void {
 
 /** New run: cancel even future fanfare notes, retaining mute/pause intent. */
 export function resetSound(): void {
+  if (disposed) return;
   stopVoices();
   if (!blocked()) audio();
+}
+
+/** Final app ownership. Ordinary retries use resetSound and retain this bus. */
+export function disposeSound(): void {
+  if (disposed) return;
+  disposed = true;
+  setMaster();
+  stopVoices();
+  const owned = bus;
+  bus = null;
+  contextTransition = null;
+  owned?.master.disconnect();
+  if (owned && owned.context.state !== "closed") void owned.context.close().catch(() => {});
 }
 
 /** Owned WebAudio sources, including future notes; not a hardware audibility meter. */
@@ -178,6 +208,8 @@ export function soundDiagnostics() {
     context: bus?.context.state ?? "uncreated",
     muted,
     paused,
+    disposed,
+    // AudioParam.value may lag its scheduled intent in a suspended render quantum.
     masterGain: bus?.master.gain.value ?? 0,
     contextTransition: contextTransition !== null,
     ownedSources: voices.size,
@@ -205,6 +237,7 @@ type Blip = {
 };
 
 function play(notes: readonly Blip[], essential = false): void {
+  if (disposed) return;
   const audioBus = audio();
   const routineCount = [...voices].filter((voice) => !voice.phrase.essential).length;
   if (
@@ -257,8 +290,12 @@ function blip(
   acceptedSources++;
   peakSources = Math.max(peakSources, voices.size);
   osc.addEventListener("ended", voice.onEnded, { once: true });
-  osc.start(t0);
-  osc.stop(t0 + dur + 0.02);
+  try {
+    osc.start(t0);
+    osc.stop(t0 + dur + 0.02);
+  } catch {
+    release(voice, "stopped");
+  }
 }
 
 export const sfx = {
