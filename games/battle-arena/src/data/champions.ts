@@ -840,7 +840,7 @@ export const CHAMPIONS: ChampDef[] = [
           radius: [3.2, 3.4, 3.6, 3.8],
           duration: [4, 4, 4, 4],
         },
-        desc: "Spill the cauldron — the brew burns and slows all who wade in.",
+        desc: "Spill the cauldron — acid eats the floor, burning and slowing all who wade in.",
       }),
       E: ab({
         key: "E",
@@ -866,7 +866,7 @@ export const CHAMPIONS: ChampDef[] = [
         manaCost: [0, 0, 0],
         cooldown: [80, 70, 60],
         values: { radius: [4, 4.5, 5], duration: [2.0, 2.4, 2.8], slow: [40, 40, 40] },
-        desc: "Hex the ground — everyone caught becomes a harmless mushroom.",
+        desc: "Tear a void open over the ground — everyone it swallows becomes a harmless mushroom.",
       }),
       DASH: ab({
         key: "DASH",
