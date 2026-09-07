@@ -65,6 +65,7 @@ export type BurstOpts = {
 };
 
 export class FxPool {
+  private readonly reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   private puffMesh: THREE.InstancedMesh;
   private heartMesh: THREE.InstancedMesh;
   private confettiMesh: THREE.InstancedMesh;
@@ -193,7 +194,7 @@ export class FxPool {
     this.updateHearts(dt);
     this.updateConfetti(dt);
     this.updateRings();
-    this.updateMotes(dt);
+    if (!this.reducedMotion.matches) this.updateMotes(dt);
   }
 
   // ---- per-system integration ------------------------------------------------

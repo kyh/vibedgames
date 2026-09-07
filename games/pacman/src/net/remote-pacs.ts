@@ -34,6 +34,7 @@ const LERP_RATE = 12;
 const BODY_Y = 0.4;
 
 export class RemotePacs {
+  private disposed = false;
   readonly group = new THREE.Group();
   private pacs = new Map<string, RemotePac>();
   private geo = new THREE.SphereGeometry(0.42, 20, 16);
@@ -44,6 +45,7 @@ export class RemotePacs {
 
   /** Adopt the latest player snapshot (excluding me). */
   sync(players: PlayerMap, myId: string | null): void {
+    if (this.disposed) return;
     const seen = new Set<string>();
     for (const [id, player] of Object.entries(players)) {
       if (id === myId) continue;
@@ -64,6 +66,7 @@ export class RemotePacs {
   }
 
   update(dt: number, t: number): void {
+    if (this.disposed) return;
     const k = 1 - Math.exp(-LERP_RATE * dt);
     for (const pac of this.pacs.values()) {
       if (pac.seeded) {
@@ -74,6 +77,16 @@ export class RemotePacs {
       }
       pac.group.position.set(pac.cur.x, pac.cur.y + Math.sin(t * 3 + pac.cur.x) * 0.03, pac.cur.z);
     }
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    for (const pac of this.pacs.values()) pac.mat.dispose();
+    this.pacs.clear();
+    this.group.clear();
+    this.group.removeFromParent();
+    this.geo.dispose();
   }
 
   private spawn(id: string, st: RemotePacState): RemotePac {

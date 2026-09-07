@@ -8,7 +8,8 @@
     "clean": "rm -rf .turbo dist node_modules",
     "dev": "vite",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test scripts/*-smoke.mjs"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "1.0.1",

@@ -1,0 +1,672 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { stripTypeScriptTypes } from "node:module";
+import test from "node:test";
+import * as THREE from "three";
+import { PhysicalGamepad } from "../../../packages/gamepad/src/physical.ts";
+import { stickDirection4 } from "../../../packages/gamepad/src/core.ts";
+import * as constants from "../src/shared/constants.ts";
+
+const source = readFileSync(new URL("../src/scenes/game-scene.ts", import.meta.url), "utf8");
+const main = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
+const adapter = readFileSync(new URL("../src/net/session.ts", import.meta.url), "utf8");
+
+// Compile the shipping methods, with collaborators injected at their existing
+// boundaries. Do not copy their implementation into the test oracle.
+function member(text, name) {
+  const lines = text.split("\n");
+  const first = lines.findIndex((line) =>
+    new RegExp(`^  (?:(?:private|public|protected|readonly|async) )*(?:get )?${name}\\b`).test(
+      line,
+    ),
+  );
+  assert.ok(first >= 0, `source member ${name}`);
+  if (lines[first].endsWith(";")) return lines[first];
+  const last = lines.findIndex((line, index) => index > first && /^  };?$/.test(line));
+  assert.ok(last > first, `member boundary ${name}`);
+  return lines.slice(first, last + 1).join("\n");
+}
+
+const methods = [
+  "racing",
+  "handleNetEvent",
+  "parseCellKey",
+  "parseEatKey",
+  "hostArbitrate",
+  "broadcastBoard",
+  "markEaten",
+  "applyNewRound",
+  "hostNewRound",
+  "handleStart",
+  "resetGame",
+  "resetPacman",
+  "resetRoundActors",
+  "beginReady",
+  "setPhase",
+  "bindInput",
+  "dispose",
+  "setPresentationPaused",
+  "onKeyDown",
+  "onKeyUp",
+  "onBlur",
+  "onPointerDown",
+  "onPointerMove",
+  "onPointerUp",
+  "onBanner",
+  "chomp",
+  "pollPad",
+  "steer",
+  "onMouthChange",
+  "onHeadTurnLeft",
+  "onHeadTurnRight",
+  "takeStep",
+  "movePacman",
+  "requestRestart",
+  "toggleSelfie",
+  "onSelfieClick",
+  "onRestartClick",
+];
+
+class Surface extends EventTarget {
+  hidden = false;
+  listeners = new Map();
+  style = {};
+  classList = { toggle() {} };
+  addEventListener(type, listener, options) {
+    const listeners = this.listeners.get(type) ?? new Set();
+    listeners.add(listener);
+    this.listeners.set(type, listeners);
+    super.addEventListener(type, listener, options);
+  }
+  removeEventListener(type, listener, options) {
+    this.listeners.get(type)?.delete(listener);
+    super.removeEventListener(type, listener, options);
+  }
+  setAttribute() {}
+  closest() {
+    return null;
+  }
+  get listenerCount() {
+    return [...this.listeners.values()].reduce((sum, listeners) => sum + listeners.size, 0);
+  }
+}
+
+function harness(text = source, selected = methods) {
+  const events = [],
+    sounds = [],
+    notices = [],
+    patches = [],
+    releases = [];
+  const window = new Surface();
+  const json = adapter.match(/export const isJsonObject[\s\S]*?export type NetSessionOptions/)?.[0];
+  assert.ok(json);
+  const guards = stripTypeScriptTypes(
+    json.replaceAll("export ", "").replace("type NetSessionOptions", ""),
+  );
+  const deps = {
+    ...constants,
+    THREE,
+    window,
+    Element: Surface,
+    PhysicalGamepad,
+    stickDirection4,
+    SWIPE_MIN_PX: 24,
+    EPS: 1e-4,
+    REDUCED_MOTION: { matches: false },
+    sfx: { play: (...args) => sounds.push(args) },
+    notifyGameStarted: () => notices.push("started"),
+    watchControlContext: () => () => releases.push("watcher"),
+    retrigger() {},
+    clearTimeout: (id) => releases.push(["timer", id]),
+  };
+  const code = stripTypeScriptTypes(
+    `class Subject {\n${selected.map((name) => member(text, name)).join("\n")}\n}`,
+  );
+  const Subject = new Function(...Object.keys(deps), `${guards}\n${code}\nreturn Subject;`)(
+    ...Object.values(deps),
+  );
+  const game = new Subject();
+  const input = { buttons: new Set(), axes: [0, 0] };
+  const pad = new PhysicalGamepad({
+    poll: () => [
+      {
+        connected: true,
+        axes: input.axes,
+        buttons: Array.from({ length: 16 }, (_, index) => ({
+          pressed: input.buttons.has(index),
+          touched: input.buttons.has(index),
+          value: input.buttons.has(index) ? 1 : 0,
+        })),
+      },
+    ],
+  });
+  const net = {
+    isHost: false,
+    playerId: "guest",
+    hostId: "host",
+    offline: false,
+    peer: { id: "host" },
+    otherPlayer() {
+      return this.peer;
+    },
+    sendEvent: (...args) => events.push(args),
+    patchShared: (patch) => patches.push(patch),
+    destroy: () => releases.push("net"),
+  };
+  Object.assign(game, {
+    disposed: false,
+    presentationPaused: false,
+    phase: "playing",
+    mode: { kind: "normal" },
+    pac: {
+      x: constants.PACMAN_SPAWN.col,
+      z: constants.PACMAN_SPAWN.row,
+      dir: "right",
+      isMoving: false,
+      target: { x: constants.PACMAN_SPAWN.col, z: constants.PACMAN_SPAWN.row },
+    },
+    boardRound: 7,
+    pendingClaims: new Set(),
+    appliedEaten: new Set(),
+    hostEaten: new Set(),
+    heldKeys: new Set(),
+    blockedKeys: new Set(),
+    score: 1000,
+    ghosts: [],
+    stepRequested: false,
+    prevMouthOpen: false,
+    shiftHeld: false,
+    selfieOn: false,
+    swipeOrigin: null,
+    swiped: false,
+    padStickDir: null,
+    t: 1,
+    lastTurnTickAt: -Infinity,
+    squashKick: 0,
+    readyMs: 0,
+    lives: constants.START_LIVES,
+    scaredMs: 0,
+    net,
+    pad,
+    resetBoard: () => notices.push("board"),
+    resetSessionPresentation: () => notices.push("presentation"),
+    updateHud() {},
+    updateChainHud() {},
+    renderBanner() {},
+    refreshCircuit() {},
+    addScore(amount) {
+      this.score += amount;
+    },
+    toggleSound: () => notices.push("sound-toggle"),
+    fx: { puff() {}, confettiRain: (count) => notices.push(["confetti", count]) },
+    onCircuitEnter() {},
+    onCircuitRetry() {},
+    onCircuitNormal() {},
+    sealCircuitKey() {},
+    sealCircuitPointer() {},
+  });
+  for (const key of [
+    "selfieBtnEl",
+    "restartBtnEl",
+    "circuitEnterEl",
+    "circuitRetryEl",
+    "circuitNormalEl",
+    "bannerEl",
+    "resultEl",
+    "teachingEl",
+    "circuitHudEl",
+    "circuitActionsEl",
+    "circuitReceiptEl",
+  ])
+    game[key] = new Surface();
+  return { game, events, sounds, notices, patches, releases, window, input };
+}
+
+const keyEvent = (code, key = code, repeat = false) => ({ code, key, repeat, preventDefault() {} });
+const cellOfType = (type) => {
+  for (let row = 0; row < constants.MAP.length; row++) {
+    const col = constants.MAP[row].indexOf(type);
+    if (col >= 0) return { col, row, key: constants.cellKey(col, row) };
+  }
+  assert.fail(`map contains ${type}`);
+};
+
+test("only the current host rejects a pending round claim, once, at the map's value", () => {
+  for (const [type, amount] of [
+    [2, constants.SCORE_PELLET],
+    [3, constants.SCORE_POWER],
+  ]) {
+    const { game, events } = harness();
+    const cell = cellOfType(type);
+    game.markEaten(cell.col, cell.row);
+    game.markEaten(cell.col, cell.row);
+    assert.deepEqual(events, [["eat", { key: cell.key, round: 7 }]]);
+    const payload = { to: "guest", key: cell.key, round: 7, amount: 1000000 };
+    const before = game.score;
+    for (const [from, patch] of [
+      ["rival", {}],
+      ["host", { to: "rival" }],
+      ["host", { round: 6 }],
+      ["host", { round: 8 }],
+      ["host", { key: cellOfType(1).key }],
+      ["host", { key: "-1,0" }],
+      ["host", { key: "1.5,1" }],
+      ["host", { key: 4 }],
+    ]) {
+      game.handleNetEvent("reject", { ...payload, ...patch }, from);
+      assert.equal(game.score, before);
+      assert.ok(game.pendingClaims.has(cell.key));
+    }
+    game.handleNetEvent("reject", payload, "host");
+    assert.equal(game.score, before - amount);
+    assert.equal(game.pendingClaims.size, 0);
+    game.handleNetEvent("reject", payload, "host");
+    assert.equal(game.score, before - amount);
+    const unsolicited = cellOfType(type === 2 ? 3 : 2);
+    game.handleNetEvent("reject", { ...payload, key: unsolicited.key }, "host");
+    assert.equal(game.score, before - amount);
+  }
+});
+
+test("host arbitration rejects with its round; stale claims cannot mutate the board", () => {
+  const { game, events, patches } = harness();
+  game.net.isHost = true;
+  game.net.playerId = "host";
+  const cell = cellOfType(3);
+  game.handleNetEvent("eat", { key: cell.key, round: 6 }, "guest");
+  assert.equal(game.hostEaten.size, 0);
+  game.handleNetEvent("eat", { key: cell.key, round: 7 }, "guest");
+  assert.deepEqual(patches, [{ board: { round: 7, eaten: { [cell.key]: 1 } } }]);
+  game.handleNetEvent("eat", { key: cell.key, round: 7 }, "rival");
+  assert.deepEqual(events, [
+    ["reject", { key: cell.key, amount: constants.SCORE_POWER, to: "rival", round: 7 }],
+  ]);
+});
+
+test("every board reset retires pending claims; old rejection cannot tax a fresh run", () => {
+  for (const reset of [
+    (game) => game.applyNewRound(8),
+    (game) => game.resetGame(),
+    (game) => game.hostNewRound(),
+  ]) {
+    const { game } = harness();
+    const cell = cellOfType(2);
+    game.markEaten(cell.col, cell.row);
+    reset(game);
+    assert.equal(game.pendingClaims.size, 0);
+    const score = game.score;
+    game.handleNetEvent("reject", { key: cell.key, round: game.boardRound, to: "guest" }, "host");
+    assert.equal(game.score, score);
+  }
+});
+
+test("fresh shared rounds retire power, lives, chain, motion and ghost poses", () => {
+  for (const phase of ["title", "ready", "playing", "win", "gameover"]) {
+    const { game } = harness();
+    Object.assign(game, {
+      phase,
+      scaredMs: 6000,
+      lives: 1,
+      comboIdx: 3,
+      lastPelletAt: 99,
+      squashKick: 0.8,
+      stepRequested: true,
+    });
+    game.pac.isMoving = true;
+    game.ghosts = constants.GHOST_SPAWNS.map(() => ({
+      x: -99,
+      z: -99,
+      dir: "left",
+      spawnScale: 0.2,
+    }));
+    game.applyNewRound(8);
+    assert.equal(game.scaredMs, 0);
+    assert.equal(game.lives, constants.START_LIVES);
+    assert.equal(game.comboIdx, 0);
+    assert.equal(game.lastPelletAt, -Infinity);
+    assert.equal(game.squashKick, 0);
+    assert.equal(game.stepRequested, false);
+    assert.equal(game.pac.isMoving, false);
+    assert.equal(game.graceMs, constants.SPAWN_GRACE_MS);
+    assert.equal(game.phase, ["ready", "playing", "win"].includes(phase) ? "playing" : phase);
+    assert.deepEqual(
+      game.ghosts,
+      constants.GHOST_SPAWNS.map((spawn) => ({
+        x: spawn.col,
+        z: spawn.row,
+        dir: spawn.dir,
+        spawnScale: 1,
+      })),
+    );
+  }
+  const { game } = harness();
+  game.net.offline = true;
+  game.hostEaten.add("1,1");
+  game.appliedEaten.add("1,1");
+  game.resetGame();
+  assert.equal(game.hostEaten.size + game.appliedEaten.size, 0);
+});
+
+test("live race start arms the wrapper; repeated terminal phase does not replay effects", () => {
+  const { game, notices, sounds } = harness();
+  game.phase = "title";
+  game.handleStart();
+  assert.equal(game.phase, "playing");
+  assert.deepEqual(notices, ["started"]);
+  assert.equal(game.graceMs, constants.SPAWN_GRACE_MS);
+  game.setPhase("win");
+  game.setPhase("win");
+  game.handleStart(); // guest must keep waiting for the host
+  assert.equal(game.phase, "win");
+  assert.equal(sounds.filter(([cue]) => cue === "win").length, 1);
+  assert.equal(
+    notices.filter((value) => Array.isArray(value) && value[0] === "confetti").length,
+    1,
+  );
+});
+
+test("paused keyboard, face, chomp, restart, pointer and real pad cannot act", () => {
+  for (const phase of ["title", "ready", "playing", "win", "gameover"]) {
+    const { game, input, notices, sounds } = harness();
+    game.phase = phase;
+    game.stepRequested = true;
+    game.setPresentationPaused(true);
+    const before = structuredClone(game.pac);
+    for (const code of ["ArrowLeft", "ArrowRight", "ArrowDown", "Space", "KeyR", "KeyM"])
+      game.onKeyDown(keyEvent(code));
+    game.onKeyDown(keyEvent("ShiftLeft", "Shift"));
+    game.onHeadTurnLeft();
+    game.onHeadTurnRight();
+    game.onMouthChange(true);
+    game.chomp();
+    game.requestRestart();
+    game.toggleSelfie();
+    game.onPointerDown({ clientX: 0, clientY: 0 });
+    game.onPointerMove({ clientX: 50, clientY: 0 });
+    game.onPointerUp();
+    input.buttons = new Set([0, 9, 13, 14, 15]);
+    input.axes = [0, -1];
+    game.pollPad();
+    assert.equal(game.phase, phase);
+    assert.deepEqual(game.pac, before);
+    assert.equal(game.stepRequested, false);
+    assert.equal(game.shiftHeld, false);
+    assert.equal(game.selfieOn, false);
+    assert.deepEqual(notices, []);
+    assert.deepEqual(sounds, []);
+  }
+});
+
+test("pause consumes held pad/keyboard edges; fresh input still works, Tab never starts", () => {
+  const { game, input } = harness();
+  game.onKeyDown(keyEvent("ArrowLeft"));
+  const direction = game.pac.dir;
+  game.setPresentationPaused(true);
+  input.buttons = new Set([0, 9]);
+  input.axes = [1, 0];
+  game.setPresentationPaused(false);
+  game.pollPad();
+  game.onKeyDown(keyEvent("ArrowLeft", "ArrowLeft", true));
+  assert.equal(game.pac.dir, direction);
+  assert.equal(game.stepRequested, false);
+  input.buttons.clear();
+  input.axes = [0, 0];
+  game.pollPad();
+  game.onKeyUp(keyEvent("ArrowLeft"));
+  game.onKeyDown(keyEvent("ArrowLeft"));
+  assert.equal(game.pac.dir, constants.TURN_LEFT[direction]);
+  input.buttons.add(0);
+  game.pollPad();
+  assert.equal(game.stepRequested, true);
+  game.phase = "title";
+  for (const key of ["Tab", "Control", "Alt", "Meta", "Escape"]) game.onKeyDown(keyEvent(key, key));
+  assert.equal(game.phase, "title");
+});
+
+test("raw held mouth is consumed during pause and needs a new close-open edge", () => {
+  const { game } = harness();
+  game.setPresentationPaused(true);
+  game.onMouthChange(true);
+  game.setPresentationPaused(false);
+  game.onMouthChange(true);
+  assert.equal(game.stepRequested, false);
+  game.onMouthChange(false);
+  game.onMouthChange(true);
+  assert.equal(game.stepRequested, true);
+});
+
+const traceMethods = [
+  "onBanner",
+  "onKeyDown",
+  "onKeyUp",
+  "chomp",
+  "steer",
+  "onMouthChange",
+  "onHeadTurnLeft",
+  "onHeadTurnRight",
+  "takeStep",
+  "movePacman",
+  "requestRestart",
+  "handleStart",
+  "racing",
+];
+function controlTrace(text) {
+  const trace = [];
+  const { game, sounds } = harness(text, traceMethods);
+  for (const phase of ["ready", "playing"]) {
+    for (let row = 0; row < constants.GRID_ROWS; row++) {
+      for (let col = 0; col < constants.GRID_COLS; col++) {
+        if (!constants.isOpen(col, row)) continue;
+        for (const dir of constants.DIRS) {
+          sounds.length = 0;
+          Object.assign(game, {
+            stepRequested: false,
+            prevMouthOpen: false,
+            shiftHeld: false,
+            lastTurnTickAt: -Infinity,
+            squashKick: 0,
+          });
+          game.phase = phase;
+          game.pac = { x: col, z: row, dir, isMoving: false, target: { x: col, z: row } };
+          const observe = () =>
+            trace.push([
+              phase,
+              structuredClone(game.pac),
+              game.stepRequested,
+              game.prevMouthOpen,
+              game.shiftHeld,
+              structuredClone(sounds),
+            ]);
+          game.onHeadTurnLeft();
+          game.onHeadTurnRight();
+          game.onKeyDown(keyEvent("ArrowLeft"));
+          game.onKeyDown(keyEvent("ArrowDown"));
+          game.onKeyDown(keyEvent("ArrowRight"));
+          game.onKeyDown(keyEvent("ArrowUp"));
+          game.onMouthChange(false);
+          game.onMouthChange(true);
+          observe();
+          game.takeStep();
+          for (const dt of [0, 1 / 120, 1 / 30, 0.04, 0.3]) {
+            game.movePacman(dt);
+            observe();
+          }
+          game.stepRequested = false;
+          game.onMouthChange(true);
+          observe(); // held mouth does not request twice
+          game.onMouthChange(false);
+          game.onMouthChange(true);
+          observe();
+          game.onKeyDown(keyEvent("Space", " "));
+          game.onKeyDown(keyEvent("ShiftLeft", "Shift"));
+          observe();
+          game.onKeyUp(keyEvent("ShiftLeft", "Shift"));
+          observe();
+        }
+      }
+    }
+  }
+  return trace;
+}
+
+test("normal accepted face, relative steering and movement keep the pre-completion trace", () => {
+  const trace = controlTrace(source);
+  if (process.env.PACMAN_SESSION_BASELINE) {
+    const baseline = readFileSync(process.env.PACMAN_SESSION_BASELINE, "utf8");
+    assert.deepEqual(trace, controlTrace(baseline));
+  }
+  const digest = createHash("sha256").update(JSON.stringify(trace)).digest("hex");
+  // Recorded only after full equality against the immutable pre-completion
+  // source; permanent CI needs no temporary baseline checkout.
+  assert.equal(digest, "16848e5330d1839705d029789a63bab04cc61ab3457d19de7f19f311a749c67c");
+});
+
+test("scene disposal releases each unique Three owner and external listener once", () => {
+  const { game, window, releases } = harness();
+  game.scene = new THREE.Scene();
+  const geometry = new THREE.BoxGeometry(),
+    initial = new THREE.SphereGeometry(),
+    heart = new THREE.BufferGeometry();
+  const texture = new THREE.Texture();
+  const material = new THREE.MeshBasicMaterial({ map: texture });
+  const pointsMaterial = new THREE.PointsMaterial({ map: texture });
+  const counters = new Map();
+  for (const resource of [geometry, initial, heart, texture, material, pointsMaterial]) {
+    counters.set(resource, 0);
+    resource.addEventListener("dispose", () => counters.set(resource, counters.get(resource) + 1));
+  }
+  game.scene.add(
+    new THREE.Mesh(geometry, [material, material]),
+    new THREE.Mesh(geometry, material),
+    new THREE.Points(geometry, pointsMaterial),
+  );
+  const instanced = new THREE.InstancedMesh(geometry, material, 2);
+  let instanceDisposes = 0;
+  instanced.addEventListener("dispose", () => instanceDisposes++);
+  game.scene.add(instanced);
+  const light = new THREE.DirectionalLight();
+  let shadowDisposes = 0;
+  light.shadow.dispose = () => shadowDisposes++;
+  game.scene.add(light);
+  Object.assign(game, {
+    initialMouthGeometry: initial,
+    heartGeo: heart,
+    mouthGeoCache: new Map([
+      [0, geometry],
+      [1, geometry],
+    ]),
+    powerMat: material,
+    touchControls: { destroy: () => releases.push("touch") },
+    remotePacs: { dispose: () => releases.push("remote") },
+    circuitMarkers: { dispose: () => releases.push("circuit") },
+    unwatchControls: () => releases.push("watcher"),
+    noticeTimer: 42,
+  });
+  game.pendingClaims.add("1,1");
+  game.heldKeys.add("Space");
+  game.blockedKeys.add("Space");
+  game.bindInput();
+  const buttons = [
+    game.selfieBtnEl,
+    game.restartBtnEl,
+    game.circuitEnterEl,
+    game.circuitRetryEl,
+    game.circuitNormalEl,
+  ];
+  assert.equal(window.listenerCount, 6);
+  assert.equal(
+    buttons.reduce((count, button) => count + button.listenerCount, 0),
+    17,
+  );
+  game.dispose();
+  game.dispose();
+  assert.equal(window.listenerCount, 0);
+  assert.equal(
+    buttons.reduce((count, button) => count + button.listenerCount, 0),
+    0,
+  );
+  assert.deepEqual([...counters.values()], [1, 1, 1, 1, 1, 1]);
+  assert.equal(instanceDisposes, 1);
+  assert.equal(shadowDisposes, 1);
+  assert.deepEqual(releases, ["watcher", "touch", ["timer", 42], "net", "remote", "circuit"]);
+  assert.equal(game.scene.children.length, 0);
+  assert.equal(
+    game.mouthGeoCache.size + game.pendingClaims.size + game.heldKeys.size + game.blockedKeys.size,
+    0,
+  );
+  for (const key of [
+    "bannerEl",
+    "resultEl",
+    "teachingEl",
+    "circuitHudEl",
+    "circuitActionsEl",
+    "circuitReceiptEl",
+  ])
+    assert.equal(game[key].hidden, true);
+  const direction = game.pac.dir;
+  game.onKeyDown(keyEvent("ArrowLeft"));
+  game.onHeadTurnLeft();
+  game.chomp();
+  game.handleStart();
+  assert.equal(game.pac.dir, direction);
+  assert.equal(game.stepRequested, false);
+});
+
+test("the actual final app owner stops its loop before releasing camera, scene and renderer", () => {
+  const text = main.match(/^function dispose\(\): void \{[\s\S]*?^}/m)?.[0];
+  assert.ok(text);
+  const calls = [],
+    window = new Surface(),
+    webcamToggle = new Surface(),
+    webcamPanel = new Surface();
+  const unlockAudio = () => calls.push("unexpected unlock"),
+    resize = () => calls.push("unexpected resize"),
+    onCameraClick = () => calls.push("unexpected camera action"),
+    sealCameraKey = () => calls.push("unexpected camera key");
+  window.addEventListener("pointerdown", unlockAudio);
+  window.addEventListener("keydown", unlockAudio);
+  window.addEventListener("resize", resize);
+  webcamToggle.addEventListener("click", onCameraClick);
+  webcamToggle.addEventListener("keydown", sealCameraKey);
+  webcamToggle.addEventListener("keyup", sealCameraKey);
+  const deps = {
+    window,
+    webcamToggle,
+    webcamPanel,
+    unlockAudio,
+    resize,
+    onCameraClick,
+    sealCameraKey,
+    renderer: {
+      setAnimationLoop: (loop) => calls.push(["loop", loop]),
+      dispose: () => calls.push("renderer"),
+      domElement: { remove: () => calls.push("canvas") },
+    },
+    setPauseHandlers: (handlers) => calls.push(["pause-handlers", handlers]),
+    pauseOverlay: { hide: () => calls.push("overlay") },
+    face: { dispose: () => calls.push("camera") },
+    game: { dispose: () => calls.push("scene") },
+    disposeAudio: () => calls.push("audio"),
+    timer: { dispose: () => calls.push("timer") },
+  };
+  const dispose = new Function(
+    ...Object.keys(deps),
+    `let disposed=false;${stripTypeScriptTypes(text)};return dispose;`,
+  )(...Object.values(deps));
+  dispose();
+  dispose();
+  assert.deepEqual(calls, [
+    ["loop", null],
+    ["pause-handlers", {}],
+    "overlay",
+    "camera",
+    "scene",
+    "audio",
+    "timer",
+    "renderer",
+    "canvas",
+  ]);
+  assert.equal(window.listenerCount + webcamToggle.listenerCount, 0);
+  assert.equal(webcamPanel.hidden, true);
+});

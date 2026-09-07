@@ -20,11 +20,12 @@ import { PhysicalGamepad, stickDirection4 } from "@vibedgames/gamepad";
 import type { Dir4 } from "@vibedgames/gamepad";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 
-import { isSoundOn, music, sfx, unlockAudio } from "../audio/sfx";
+import { isSoundOn, music, resetAudio, sfx, unlockAudio } from "../audio/sfx";
 import { restartHint } from "../controls";
 import { IS_TOUCH } from "../input/input-mode";
 import { buildControls, ensureStyle as ensureControlsStyle } from "../pause-overlay";
 import { FxPool } from "../render/fx-pool";
+import { CircuitMarkers } from "../render/circuit-markers";
 import { buildHeartGeometry } from "../render/heart";
 import type { PelletCell } from "../render/pellet-field";
 import { PelletField } from "../render/pellet-field";
@@ -34,6 +35,19 @@ import { RemotePacs } from "../net/remote-pacs";
 import { NetSession, isJsonNumber, isJsonObject, isJsonString } from "../net/session";
 import type { JsonValue } from "../net/session";
 import type { Dir } from "../shared/constants";
+import {
+  CIRCUIT_BEST_KEY,
+  CIRCUIT_GOAL,
+  catchCircuit,
+  circuitCollected,
+  collectCircuitPearl,
+  formatCircuitTime,
+  improveCircuitBest,
+  parseCircuitBest,
+  startCircuit,
+  tickCircuit,
+} from "../shared/pearl-circuit";
+import type { CircuitReceipt, CircuitRun } from "../shared/pearl-circuit";
 import {
   MP_ROOM,
   MP_MAX_PLAYERS,
@@ -192,6 +206,19 @@ const TOUCH_CONTROLS_CSS = `
 `;
 
 export class GameScene {
+  private disposed = false;
+  private presentationPaused = false;
+  private mode: { kind: "normal" } | { kind: "circuit"; run: CircuitRun } = { kind: "normal" };
+  private circuitBest: CircuitReceipt | null = readCircuitBest();
+  private circuitMarkers: CircuitMarkers;
+  private circuitHudEl = el("circuit-hud");
+  private circuitActionsEl = el("circuit-actions");
+  private circuitEnterEl = el("circuit-enter");
+  private circuitRetryEl = el("circuit-retry");
+  private circuitNormalEl = el("circuit-normal");
+  private circuitReceiptEl = el("circuit-receipt");
+  private readonly heldKeys = new Set<string>();
+  private readonly blockedKeys = new Set<string>();
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
 
@@ -228,6 +255,8 @@ export class GameScene {
   private boardSig = "";
   private hostEaten = new Set<string>(); // host: authoritative eaten cells
   private appliedEaten = new Set<string>(); // cells already removed locally
+  /** At most one optimistic claim per maze cell, retired on rejection or reset. */
+  private pendingClaims = new Set<string>();
   /** Last shared board object reconciled (patches replace it, so `===` detects change). */
   private lastBoardRef: JsonValue | undefined = null;
   /** Whether we were host when lastBoardRef was reconciled — a promotion must re-adopt. */
@@ -278,6 +307,7 @@ export class GameScene {
   private reappearAge = REAPPEAR_S;
   private resultAge = 0;
   private mouthMesh: THREE.Mesh;
+  private readonly initialMouthGeometry: THREE.BufferGeometry;
   private mouthAngle = 0;
   private mouthBuiltBucket = -1;
   /** Quantized wedge geometries, built once each (~16 total, never disposed). */
@@ -355,6 +385,7 @@ export class GameScene {
     const mouth = this.pacGroup.getObjectByName("mouth");
     if (!(mouth instanceof THREE.Mesh)) throw new Error("pacman mouth missing");
     this.mouthMesh = mouth;
+    this.initialMouthGeometry = mouth.geometry;
     this.pacRig.add(this.pacGroup);
     this.scene.add(this.pacRig);
     this.captureEcho = this.pacGroup.clone();
@@ -383,6 +414,7 @@ export class GameScene {
     });
 
     this.fx = new FxPool(this.scene);
+    this.circuitMarkers = new CircuitMarkers(this.scene);
     this.powerHalo = new PowerHalo(this.scene);
     this.remotePacs = new RemotePacs(this.scene);
     this.best = loadBest();
@@ -399,6 +431,7 @@ export class GameScene {
   }
 
   private handleNetEvent(event: string, payload: JsonValue, from: string): void {
+    if (this.disposed) return;
     const p = isJsonObject(payload) ? payload : {};
     // Host arbitrates pellet eats: the first valid claim on a cell wins.
     if (event === "eat" && this.net.isHost) {
@@ -414,11 +447,11 @@ export class GameScene {
     // `reject` to drive a rival's score down.
     if (event === "reject" && from === this.net.hostId) {
       const key = p["key"];
-      const amount = p["amount"];
-      if (p["to"] === this.net.playerId && isJsonString(key) && isJsonNumber(amount)) {
-        // Clamp to the max a legitimate cell is worth (defence-in-depth).
-        this.addScore(-Math.max(0, Math.min(SCORE_POWER, amount)));
-      }
+      if (p["round"] !== this.boardRound || p["to"] !== this.net.playerId || !isJsonString(key))
+        return;
+      const cell = this.parseEatKey(key);
+      if (!cell || !this.pendingClaims.delete(key)) return;
+      this.addScore(-(MAP[cell.row]?.[cell.col] === 3 ? SCORE_POWER : SCORE_PELLET));
     }
   }
 
@@ -454,7 +487,7 @@ export class GameScene {
     if (this.hostEaten.has(key)) {
       const amount = MAP[cell.row]?.[cell.col] === 3 ? SCORE_POWER : SCORE_PELLET;
       if (claimer === (this.net.playerId ?? "solo")) this.addScore(-amount);
-      else this.net.sendEvent("reject", { key, amount, to: claimer });
+      else this.net.sendEvent("reject", { key, amount, to: claimer, round: this.boardRound });
       return;
     }
     this.hostEaten.add(key);
@@ -479,6 +512,7 @@ export class GameScene {
       // guest claimed the same cell first this tick.
       this.hostArbitrate(key, this.net.playerId ?? "solo");
     } else {
+      this.pendingClaims.add(key);
       this.net.sendEvent("eat", { key, round: this.boardRound });
     }
   }
@@ -559,10 +593,12 @@ export class GameScene {
 
   private applyNewRound(round: number): void {
     this.boardRound = round;
+    this.pendingClaims.clear();
     this.appliedEaten.clear();
     this.resetBoard();
     this.score = 0;
     this.resetSessionPresentation();
+    this.resetRoundActors();
     this.resetPacman();
     this.graceMs = SPAWN_GRACE_MS;
     this.updateHud();
@@ -577,6 +613,7 @@ export class GameScene {
   /** Tap/gesture to start or restart — solo resets the board; in a race it just
    *  drops you into the ongoing shared maze (host can start a new round). */
   private handleStart(): void {
+    if (this.disposed || this.presentationPaused) return;
     if (this.racing) {
       if (this.phase === "win") {
         // Only the host can start the next round; a guest flipping to
@@ -592,6 +629,88 @@ export class GameScene {
     }
     this.resetGame();
   }
+
+  private readonly onCircuitEnter = (): void => {
+    if (
+      this.disposed ||
+      this.presentationPaused ||
+      (this.phase !== "title" && (!this.onBanner || this.racing))
+    )
+      return;
+    this.replaceSession(true);
+    this.mode = { kind: "circuit", run: startCircuit() };
+    document.body.classList.add("circuit-mode");
+    this.resetGame();
+  };
+
+  private readonly onCircuitRetry = (): void => {
+    if (this.mode.kind === "circuit" && this.onBanner) this.handleStart();
+  };
+
+  private readonly onCircuitNormal = (): void => {
+    if (this.disposed || this.presentationPaused || this.mode.kind !== "circuit" || !this.onBanner)
+      return;
+    this.mode = { kind: "normal" };
+    document.body.classList.remove("circuit-mode");
+    this.replaceSession(false);
+    this.resetGame();
+  };
+
+  /** Explicit mode navigation starts a fresh session; transient gaps retain it. */
+  private replaceSession(forceOffline: boolean): void {
+    this.net.destroy();
+    this.net = new NetSession({
+      room: MP_ROOM,
+      maxPlayers: MP_MAX_PLAYERS,
+      fallbackMs: OFFLINE_FALLBACK_MS,
+      forceOffline,
+      onEvent: (event, payload, from) => this.handleNetEvent(event, payload, from),
+    });
+    this.netAcc = 0;
+    this.boardRound = 0;
+    this.boardSig = "";
+    this.hostEaten.clear();
+    this.appliedEaten.clear();
+    this.pendingClaims.clear();
+    this.lastBoardRef = null;
+    this.lastBoardAsHost = false;
+    this.netInfoText = "";
+    this.remotePacs.sync({}, null);
+    this.boardEl.replaceChildren();
+    this.netInfoEl.textContent = "";
+  }
+
+  private refreshCircuit(): void {
+    const run = this.mode.kind === "circuit" ? this.mode.run : null;
+    this.circuitMarkers.sync(run);
+    this.circuitHudEl.hidden = run === null || this.onBanner;
+    if (run?.kind === "running") {
+      const text = `PEARL CIRCUIT · ${circuitCollected(run)} / ${CIRCUIT_GOAL} · ${formatCircuitTime(run.elapsedMs)}`;
+      if (this.circuitHudEl.textContent !== text) this.circuitHudEl.textContent = text;
+    }
+  }
+
+  private recordCircuitPearl(col: number, row: number): void {
+    if (this.mode.kind !== "circuit") return;
+    const previous = this.mode.run;
+    const run = collectCircuitPearl(previous, col, row);
+    this.mode = { kind: "circuit", run };
+    this.refreshCircuit();
+    if (previous.kind === "running" && run.kind === "complete") {
+      this.circuitBest = improveCircuitBest(this.circuitBest, run.receipt);
+      try {
+        localStorage.setItem(CIRCUIT_BEST_KEY, JSON.stringify(this.circuitBest));
+      } catch {
+        /* Completion stays valid when persistence is unavailable. */
+      }
+      this.setPhase("win");
+    }
+  }
+
+  private readonly sealCircuitKey = (event: KeyboardEvent): void => {
+    if (event.code === "Space" || event.code === "Enter") event.stopPropagation();
+  };
+  private readonly sealCircuitPointer = (event: Event): void => event.stopPropagation();
 
   private updateNet(dt: number): void {
     if (!this.net.offline) {
@@ -664,6 +783,7 @@ export class GameScene {
   // ---- per-frame update ---------------------------------------------------------
 
   update(dt: number): void {
+    if (this.disposed || this.presentationPaused) return;
     const dtMs = dt * 1000;
     this.t += dt;
     const scaredMsBefore = this.scaredMs;
@@ -676,6 +796,8 @@ export class GameScene {
       this.readyMs -= dtMs;
       if (this.readyMs <= 0) this.setPhase("playing");
     } else if (this.phase === "playing") {
+      if (this.mode.kind === "circuit")
+        this.mode = { kind: "circuit", run: tickCircuit(this.mode.run, dt) };
       // Legacy semantics: a chomp during the step animation is dropped, not queued.
       if (this.stepRequested) {
         this.stepRequested = false;
@@ -693,7 +815,7 @@ export class GameScene {
     } else if (this.phase === "win") {
       // Drifting celebration: another confetti wave every beat.
       this.winConfettiIn -= dt;
-      if (this.winConfettiIn <= 0) {
+      if (this.winConfettiIn <= 0 && !REDUCED_MOTION.matches) {
         this.fx.confettiRain(26);
         this.winConfettiIn = 0.7;
       }
@@ -712,12 +834,22 @@ export class GameScene {
     }
 
     this.updateSessionPresentation(dt);
+    this.refreshCircuit();
     this.renderActors(dt);
     this.powerHalo.update(this.pac.x, this.pac.z, scared ? this.scaredMs : 0);
     this.updateChainHud();
     this.fx.update(dt);
     this.updateCamera(dt);
-    music.update();
+    const nearestDanger =
+      scared || this.graceMs > 0 || this.phase !== "playing"
+        ? null
+        : this.ghosts.reduce(
+            (nearest, ghost) =>
+              Math.min(nearest, Math.hypot(ghost.x - this.pac.x, ghost.z - this.pac.z)),
+            Infinity,
+          );
+    music.setMix({ phase: this.phase, nearestDanger });
+    music.update(dt);
     this.updateNet(dt);
   }
 
@@ -851,12 +983,113 @@ export class GameScene {
     window.addEventListener("pointerdown", this.onPointerDown);
     window.addEventListener("pointermove", this.onPointerMove);
     window.addEventListener("pointerup", this.onPointerUp);
-    this.selfieBtnEl.addEventListener("click", () => this.toggleSelfie());
-    this.restartBtnEl.addEventListener("click", () => this.requestRestart());
+    this.selfieBtnEl.addEventListener("click", this.onSelfieClick);
+    this.restartBtnEl.addEventListener("click", this.onRestartClick);
+    this.circuitEnterEl.addEventListener("click", this.onCircuitEnter);
+    this.circuitRetryEl.addEventListener("click", this.onCircuitRetry);
+    this.circuitNormalEl.addEventListener("click", this.onCircuitNormal);
+    for (const button of [this.circuitEnterEl, this.circuitRetryEl, this.circuitNormalEl]) {
+      button.addEventListener("keydown", this.sealCircuitKey);
+      button.addEventListener("keyup", this.sealCircuitKey);
+      button.addEventListener("pointerdown", this.sealCircuitPointer);
+      button.addEventListener("pointerup", this.sealCircuitPointer);
+    }
+  }
+
+  private readonly onSelfieClick = (): void => this.toggleSelfie();
+  private readonly onRestartClick = (): void => this.requestRestart();
+
+  /** Pause owns pending actions, while the live camera continues observing. */
+  setPresentationPaused(paused: boolean): void {
+    if (this.disposed || paused === this.presentationPaused) return;
+    this.presentationPaused = paused;
+    this.stepRequested = false;
+    this.shiftHeld = false;
+    this.swipeOrigin = null;
+    this.swiped = false;
+    if (paused) for (const key of this.heldKeys) this.blockedKeys.add(key);
+    this.pad.update();
+    this.padStickDir = stickDirection4(this.pad.getStick());
+  }
+
+  /** Final ownership only. Normal rounds retain their reusable Three objects. */
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    window.removeEventListener("keydown", this.onKeyDown);
+    window.removeEventListener("keyup", this.onKeyUp);
+    window.removeEventListener("blur", this.onBlur);
+    window.removeEventListener("pointerdown", this.onPointerDown);
+    window.removeEventListener("pointermove", this.onPointerMove);
+    window.removeEventListener("pointerup", this.onPointerUp);
+    this.selfieBtnEl.removeEventListener("click", this.onSelfieClick);
+    this.restartBtnEl.removeEventListener("click", this.onRestartClick);
+    this.circuitEnterEl.removeEventListener("click", this.onCircuitEnter);
+    this.circuitRetryEl.removeEventListener("click", this.onCircuitRetry);
+    this.circuitNormalEl.removeEventListener("click", this.onCircuitNormal);
+    for (const button of [this.circuitEnterEl, this.circuitRetryEl, this.circuitNormalEl]) {
+      button.removeEventListener("keydown", this.sealCircuitKey);
+      button.removeEventListener("keyup", this.sealCircuitKey);
+      button.removeEventListener("pointerdown", this.sealCircuitPointer);
+      button.removeEventListener("pointerup", this.sealCircuitPointer);
+    }
+    this.unwatchControls?.();
+    this.unwatchControls = null;
+    this.touchControls.destroy();
+    if (this.noticeTimer !== null) clearTimeout(this.noticeTimer);
+    this.noticeTimer = null;
+    this.net.destroy();
+    this.remotePacs.dispose();
+    this.circuitMarkers.dispose();
+    const geometries = new Set<THREE.BufferGeometry>([
+      this.initialMouthGeometry,
+      this.heartGeo,
+      ...this.mouthGeoCache.values(),
+    ]);
+    const materials = new Set<THREE.Material>([this.powerMat]);
+    const textures = new Set<THREE.Texture>();
+    this.scene.traverse((object) => {
+      if (
+        object instanceof THREE.Mesh ||
+        object instanceof THREE.Points ||
+        object instanceof THREE.Line
+      ) {
+        geometries.add(object.geometry);
+        for (const material of Array.isArray(object.material)
+          ? object.material
+          : [object.material]) {
+          materials.add(material);
+          if (
+            (material instanceof THREE.PointsMaterial ||
+              material instanceof THREE.MeshStandardMaterial ||
+              material instanceof THREE.MeshBasicMaterial) &&
+            material.map
+          )
+            textures.add(material.map);
+        }
+      }
+      if (object instanceof THREE.InstancedMesh) object.dispose();
+      if (object instanceof THREE.DirectionalLight) object.shadow.dispose();
+    });
+    for (const geometry of geometries) geometry.dispose();
+    for (const material of materials) material.dispose();
+    for (const texture of textures) texture.dispose();
+    this.mouthGeoCache.clear();
+    this.pendingClaims.clear();
+    this.heldKeys.clear();
+    this.blockedKeys.clear();
+    this.bannerEl.hidden = true;
+    this.resultEl.hidden = true;
+    this.teachingEl.hidden = true;
+    this.circuitHudEl.hidden = true;
+    this.circuitActionsEl.hidden = true;
+    this.circuitReceiptEl.hidden = true;
+    this.scene.clear();
   }
 
   /** M key / the touch cluster's speaker — one toggle for music + sfx, persisted. */
   private toggleSound(): void {
+    if (this.disposed) return;
     const on = music.toggle();
     sfx.setEnabled(on);
     // The cluster seals its own pointer events, so the window listener that
@@ -868,6 +1101,7 @@ export class GameScene {
 
   /** 🤳 pill — latched selfie cam (SHIFT still works as hold on keyboards). */
   private toggleSelfie(): void {
+    if (this.disposed || this.presentationPaused) return;
     this.selfieOn = !this.selfieOn;
     this.selfieBtnEl.classList.toggle("on", this.selfieOn);
     this.selfieBtnEl.setAttribute("aria-pressed", this.selfieOn ? "true" : "false");
@@ -879,6 +1113,17 @@ export class GameScene {
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
+    if (this.disposed) return;
+    if (["Tab", "Control", "Alt", "Meta", "Escape"].includes(e.key)) return;
+    this.heldKeys.add(e.code);
+    if (this.presentationPaused) {
+      this.blockedKeys.add(e.code);
+      return;
+    }
+    if (this.blockedKeys.has(e.code)) {
+      if (e.repeat) return;
+      this.blockedKeys.delete(e.code);
+    }
     if (e.key === "Shift") {
       this.shiftHeld = true;
       return;
@@ -925,6 +1170,8 @@ export class GameScene {
   };
 
   private onKeyUp = (e: KeyboardEvent): void => {
+    this.heldKeys.delete(e.code);
+    this.blockedKeys.delete(e.code);
     if (e.key === "Shift") this.shiftHeld = false;
   };
 
@@ -933,9 +1180,11 @@ export class GameScene {
   };
 
   private onPointerDown = (e: PointerEvent): void => {
+    if (this.disposed || this.presentationPaused) return;
     // Taps on the HUD pills / webcam porthole are UI, not game input — they
     // must not swipe-steer or tap-start underneath.
-    if (e.target instanceof Element && e.target.closest("#controls, #webcam")) return;
+    if (e.target instanceof Element && e.target.closest("#controls, #webcam, #circuit-actions"))
+      return;
     this.swipeOrigin = { x: e.clientX, y: e.clientY };
     this.swiped = false;
   };
@@ -943,6 +1192,7 @@ export class GameScene {
   // Touch fallback: horizontal swipe = relative turn, swipe up = step forward,
   // swipe down = reverse. Tap = start/restart.
   private onPointerMove = (e: PointerEvent): void => {
+    if (this.disposed || this.presentationPaused) return;
     if (!this.swipeOrigin || this.swiped) return;
     const dx = e.clientX - this.swipeOrigin.x;
     const dy = e.clientY - this.swipeOrigin.y;
@@ -974,6 +1224,7 @@ export class GameScene {
   /** One chomp: a grid step while playing, the start gesture on a banner.
    *  Every chomp input (mouth, SPACE, swipe ↑, pad A / stick ↑) lands here. */
   private chomp(): void {
+    if (this.disposed || this.presentationPaused) return;
     if (this.onBanner) this.handleStart();
     else this.stepRequested = true;
   }
@@ -1000,6 +1251,7 @@ export class GameScene {
 
   /** Heading change — instant, unvalidated, relative to current facing (legacy). */
   private steer(action: "left" | "right" | "reverse"): void {
+    if (this.disposed || this.presentationPaused) return;
     if (this.phase !== "playing" && this.phase !== "ready") return;
     if (action === "reverse") this.pac.dir = OPPOSITE[this.pac.dir];
     else if (action === "left") this.pac.dir = TURN_LEFT[this.pac.dir];
@@ -1111,6 +1363,7 @@ export class GameScene {
       this.lastPelletAt = this.t;
       const semis = COMBO_SCALE[Math.min(this.comboIdx, COMBO_SCALE.length - 1)] ?? 0;
       sfx.play("pellet", { rate: Math.pow(2, semis / 12) });
+      this.recordCircuitPearl(col, row);
     } else {
       return;
     }
@@ -1182,6 +1435,8 @@ export class GameScene {
    * rebuild's additions, kept.
    */
   private caught(): void {
+    if (this.mode.kind === "circuit")
+      this.mode = { kind: "circuit", run: catchCircuit(this.mode.run) };
     this.captureAge = 0;
     this.captureEcho.position.set(this.pac.x, 0, this.pac.z);
     this.captureEcho.rotation.set(0, 0, 0);
@@ -1232,24 +1487,34 @@ export class GameScene {
   }
 
   private resetGame(): void {
+    this.pendingClaims.clear();
+    this.hostEaten.clear();
+    this.appliedEaten.clear();
+    if (this.mode.kind === "circuit") this.mode = { kind: "circuit", run: startCircuit() };
     this.score = 0;
     this.resetSessionPresentation();
-    this.lives = START_LIVES;
-    this.scaredMs = 0;
     this.graceMs = 0;
-    this.comboIdx = 0;
-    this.lastPelletAt = -Infinity;
     // Online-but-alone: restarting restores every pellet locally, so the
     // shared board must start a fresh round too — otherwise the stale eaten
     // set desyncs the maze for the next rival who joins.
     if (!this.net.offline && this.net.isHost) {
       this.boardRound += 1;
-      this.hostEaten.clear();
-      this.appliedEaten.clear();
       this.broadcastBoard();
     }
     this.resetBoard();
     this.resetPacman();
+    this.resetRoundActors();
+    this.updateHud();
+    this.beginReady();
+    this.refreshCircuit();
+  }
+
+  /** Fresh solo and shared mazes retire the same local round state. */
+  private resetRoundActors(): void {
+    this.lives = START_LIVES;
+    this.scaredMs = 0;
+    this.comboIdx = 0;
+    this.lastPelletAt = -Infinity;
     this.squashKick = 0;
     this.ghosts.forEach((g, i) => {
       const spawn = GHOST_SPAWNS[i % GHOST_SPAWNS.length];
@@ -1259,8 +1524,6 @@ export class GameScene {
       g.dir = spawn.dir;
       g.spawnScale = 1;
     });
-    this.updateHud();
-    this.beginReady();
   }
 
   private beginReady(): void {
@@ -1273,6 +1536,7 @@ export class GameScene {
   private setPhase(phase: Phase): void {
     const entering = this.phase !== phase;
     this.phase = phase;
+    if (phase === "playing") notifyGameStarted();
     if (entering) this.resultAge = 0;
     this.updateChainHud();
     this.renderBanner();
@@ -1285,7 +1549,7 @@ export class GameScene {
         ? watchControlContext(() => this.renderBanner())
         : null;
     if (entering && phase === "win") {
-      this.fx.confettiRain(110);
+      this.fx.confettiRain(REDUCED_MOTION.matches ? 12 : 110);
       this.winConfettiIn = 0.7;
       sfx.play("win");
     } else if (entering && phase === "gameover") {
@@ -1312,8 +1576,12 @@ export class GameScene {
       gameover: ["OHH NO…", `you did your best ♥ chomp or ${restartHint()} to try again`],
     } satisfies Record<Phase, readonly [string, string]>;
     const [title, sub] = texts[this.phase];
-    this.bannerTitleEl.textContent = title;
-    this.bannerSubEl.textContent = sub;
+    const circuit = this.mode.kind === "circuit";
+    this.bannerTitleEl.textContent = circuit && this.phase === "win" ? "CIRCUIT CLEAR!" : title;
+    this.bannerSubEl.textContent =
+      circuit && this.onBanner
+        ? `${CIRCUIT_GOAL} pearls, one loop ♥ replay or explore the full maze`
+        : sub;
     if (this.phase === "title") {
       ensureControlsStyle();
       const card = buildControls(IS_TOUCH);
@@ -1324,7 +1592,7 @@ export class GameScene {
     this.bannerEl.style.opacity = title === "" ? "0" : "1";
     const result = this.phase === "win" || this.phase === "gameover";
     this.bannerEl.classList.toggle("has-result", result);
-    this.resultEl.hidden = !result;
+    this.resultEl.hidden = !result || circuit;
     this.resultEl.classList.toggle("show", result && this.resultAge >= 0.16);
     if (result) {
       this.resultSig = this.resultSignature();
@@ -1334,6 +1602,22 @@ export class GameScene {
       el("result-ghosts").textContent = String(this.ghostsChomped);
       el("result-left").textContent = String(this.pelletsLeft());
     }
+    this.circuitActionsEl.hidden =
+      !this.onBanner || (!circuit && this.phase !== "title" && this.racing);
+    this.circuitEnterEl.hidden = circuit;
+    this.circuitRetryEl.hidden = !circuit;
+    this.circuitNormalEl.hidden = !circuit;
+    this.circuitReceiptEl.hidden = !circuit || !result;
+    if (this.mode.kind === "circuit" && result) {
+      const run = this.mode.run;
+      const receipt = run.kind === "complete" ? run.receipt : run;
+      el("circuit-time").textContent = formatCircuitTime(receipt.elapsedMs);
+      el("circuit-catches").textContent = String(receipt.catches);
+      el("circuit-best").textContent = this.circuitBest
+        ? formatCircuitTime(this.circuitBest.elapsedMs)
+        : "—";
+    }
+    this.refreshCircuit();
   }
 
   /** Soft pink full-screen blink on getting caught — feedback, not punishment. */
@@ -1354,6 +1638,7 @@ export class GameScene {
   // ---- session presentation (never controls the simulation) ------------------
 
   private resetSessionPresentation(): void {
+    resetAudio();
     this.ghostsChomped = 0;
     this.captureAge = CAPTURE_ECHO_S;
     this.captureEcho.visible = false;
@@ -1527,7 +1812,7 @@ export class GameScene {
    */
   private updateCamera(dt: number): void {
     if (this.phase === "title") {
-      const a = this.t * TITLE_ORBIT_SPEED;
+      const a = REDUCED_MOTION.matches ? 0 : this.t * TITLE_ORBIT_SPEED;
       const cx = (GRID_COLS - 1) / 2;
       const cz = (GRID_ROWS - 1) / 2;
       this.camTarget.set(
@@ -1556,14 +1841,14 @@ export class GameScene {
     this.camera.lookAt(this.lookCur);
 
     const shake = this.shaker.update(dt, this.t);
-    if (shake.ox !== 0 || shake.oy !== 0 || shake.rot !== 0) {
+    if (!REDUCED_MOTION.matches && (shake.ox !== 0 || shake.oy !== 0 || shake.rot !== 0)) {
       this.camera.translateX(shake.ox);
       this.camera.translateY(shake.oy);
       this.camera.rotateZ(shake.rot);
     }
 
     this.fovKick *= Math.exp(-FOV_KICK_DECAY * dt);
-    const fov = this.baseFov + this.fovKick;
+    const fov = this.baseFov + (REDUCED_MOTION.matches ? 0 : this.fovKick);
     if (Math.abs(fov - this.camera.fov) > 0.005) {
       this.camera.fov = fov;
       this.camera.updateProjectionMatrix();
@@ -1574,7 +1859,7 @@ export class GameScene {
 
   private addScore(n: number): void {
     this.score += n;
-    if (this.score > this.best) {
+    if (this.mode.kind === "normal" && this.score > this.best) {
       this.best = this.score;
       saveBest(this.best);
     }
@@ -1585,12 +1870,21 @@ export class GameScene {
     this.scoreEl.textContent = `SCORE ${this.score}`;
     this.bestEl.textContent = `BEST ${this.best}`;
     const hearts = this.lives > 0 ? "♥".repeat(this.lives) : "×";
-    this.statsEl.textContent = `${hearts}  ·  ${this.pelletsLeft()} left`;
+    this.statsEl.textContent =
+      this.mode.kind === "circuit" ? hearts : `${hearts}  ·  ${this.pelletsLeft()} left`;
     if (this.phase === "win" || this.phase === "gameover") this.renderBanner();
   }
 }
 
 // ---- pure helpers ---------------------------------------------------------------
+
+function readCircuitBest(): CircuitReceipt | null {
+  try {
+    return parseCircuitBest(localStorage.getItem(CIRCUIT_BEST_KEY));
+  } catch {
+    return null;
+  }
+}
 
 function el(id: string): HTMLElement {
   const node = document.getElementById(id);

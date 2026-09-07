@@ -49,7 +49,7 @@ Each row includes the existing polish/graphics baseline plus the remaining work.
 | Farm                  | Character/tool transition continuity; seasonal collection goals; complete day/mine/save pacing        | Original acting, journal, saves, live pause and hardware scenes verified      |
 | Pong                  | Spin teaching/practice; optional trick-shot mastery; full local/connected match feel                  | Practice, camera recovery, live matches and hardware rendering verified       |
 | Flappy Dragons        | Distinct forest landmarks; seeded challenge routes; pose recovery and full-flight pacing              | Route, camera recovery, live races and hardware flight verified locally       |
-| Pacman                | Musical escalation; optional maze challenges; camera recovery and complete chase pacing               | Camera/audio ownership and shared-board completion next                       |
+| Pacman                | Musical escalation; optional maze challenges; camera recovery and complete chase pacing               | Circuit, camera/audio recovery, live mazes and hardware chase verified        |
 | Tetris                | Advanced spatial teaching; seeded score challenges; camera recovery and full-run pacing               | Queued                                                                        |
 
 Ancients' reconnect, host migration, ended results and late joins passed live
@@ -145,6 +145,20 @@ Pacman plan: preserve its plush maze, original lullaby and face/step/turn rules;
 finish paused-input, camera and audio ownership; fix stale shared-board claim
 rollback; add restrained chase mixing and an optional original-maze Pearl
 circuit. Verify real claims, host recovery, full chase and native input paths.
+Unresolved questions: none blocking implementation.
+
+Pacman's local pass is complete. [Evidence and captures](/Users/kyh/.codex/visualizations/2026/09/05/01a072e5-b121-77b0-b7f7-52a06ec3e9e2/aaa-completion/pacman/README.md)
+cover native 28-pearl circuit completion, original lullaby chase mixing, camera
+retry and paused-input recovery, real contested pickups/reconnect/host migration/
+maze rematches, expanded-camera phone layouts, lossless audio and matched Apple
+GPU chase measurements. All 35 regressions pass; 30,400 normal-control observations
+match the saved baseline. Original assets, maze and movement rules remain intact.
+
+Tetris plan: preserve the matte neon well, original puzzle rules and pose verbs;
+finish paused-input, camera and final resource ownership; repair retry walls and
+paused orbit deadlines. Teach existing spatial clears and add an optional fixed
+piece-sequence score run with separate records. Verify full play, catch/retry,
+native inputs, sound and dense-stack hardware rendering.
 Unresolved questions: none blocking implementation.
 
 After individual work, compare the collection for quality consistency and close
