@@ -289,6 +289,10 @@ export class RibbonPool {
       if (!r) return; // saturated — this bolt flies without a wake
       r.id = id;
       r.loose = 0;
+      // A slot freed by a wake that had faded out still carries that fade —
+      // reset it here, not in update(), or the new wake's first frame draws
+      // at whatever the old one died at.
+      r.uni.uFade.value = 1;
       r.uni.uSeed.value = Math.random() * 100;
       r.uni.uColorCore.value.setHex(palette.core);
       r.uni.uColorBody.value.setHex(palette.body);

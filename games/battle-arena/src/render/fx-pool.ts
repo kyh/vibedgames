@@ -207,7 +207,7 @@ void main() {
   // Held INSIDE the footprint: the telegraph's hostile rim runs around the
   // zone's true radius, and a pool that spilled past it would lie about where
   // the burn stops.
-  float outer = uRadius * (0.80 + bearing * 0.16 + bite * 0.05) + ${POOL.boundary.toFixed(3)} * 0.5;
+  float outer = min(uRadius, uRadius * (0.80 + bearing * 0.16 + bite * 0.05) + ${POOL.boundary.toFixed(3)} * 0.5);
   float aa = fwidth(rad) + 0.02;
   if (rad > outer + aa * 6.0) discard;
 

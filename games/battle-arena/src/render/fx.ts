@@ -185,6 +185,7 @@ export class Fx {
   private cometGeo = createRockGeometry({ seed: 4, detail: 2, craters: 6, cuts: 8 });
   private rockMat = createBurningRockMaterial(fxClock);
   private pendingWarm: { renderer: THREE.WebGLRenderer; camera: THREE.Camera } | null = null;
+  private warmParked: { mesh: THREE.Mesh; ownMat: boolean }[] = []; // warmRig stand-ins
   private texturesReady = false;
   private boltFrom = new THREE.Vector3();
   private boltTo = new THREE.Vector3();
@@ -389,16 +390,19 @@ export class Fx {
    * Invisible costs nothing to render and still compiles.
    */
   private warmRig(scene: THREE.Scene): void {
-    const park = (mesh: THREE.Mesh) => {
+    // `ownMat`: the stand-in's material exists only for the warm pass and is
+    // disposed with it. The rock's is shared with the meteor and lives with it.
+    const park = (mesh: THREE.Mesh, ownMat: boolean) => {
       mesh.visible = false;
       mesh.frustumCulled = false;
       mesh.position.set(0, -1000, 0);
       scene.add(mesh);
+      this.warmParked.push({ mesh, ownMat });
     };
-    park(new THREE.Mesh(this.cometGeo, this.rockMat));
+    park(new THREE.Mesh(this.cometGeo, this.rockMat), false);
     // The brew pool is built per zone (its material owns the zone's seed), so
     // the same stand-in trick covers its program.
-    park(new THREE.Mesh(this.ringPlane, createBrewPoolMaterial(fxClock)));
+    park(new THREE.Mesh(this.ringPlane, createBrewPoolMaterial(fxClock)), true);
     // The tex* helpers build a fresh MeshBasicMaterial per call, so their
     // programs are never in the scene at warm time either. One stand-in per
     // blend mode covers every one of them — the program key is the same.
@@ -414,6 +418,7 @@ export class Fx {
             side: THREE.DoubleSide,
           }),
         ),
+        true,
       );
     }
   }
@@ -2733,6 +2738,11 @@ export class Fx {
     }
     this.zonePieces.clear();
     this.brewPools.clear();
+    for (const { mesh, ownMat } of this.warmParked) {
+      this.scene.remove(mesh);
+      if (ownMat && mesh.material instanceof THREE.Material) mesh.material.dispose();
+    }
+    this.warmParked.length = 0;
     for (const g of this.coneGeoCache.values()) g.dispose();
     for (const g of this.rimGeoCache.values()) g.dispose();
     this.ringPlane.dispose();
