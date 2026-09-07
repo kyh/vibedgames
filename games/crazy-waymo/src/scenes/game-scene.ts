@@ -48,6 +48,7 @@ import { DayNight } from "../render/day-night";
 import { setGradeMotion } from "../render/grade";
 import { FarTerrain } from "../render/far-terrain";
 import { LandmarkSilhouettes } from "../render/landmark-silhouette";
+import { releaseDeferredArrays } from "../render/gpu-only-geometry";
 import { FULL_QUALITY, isCoarsePointer, type QualityFeatures } from "../render/quality";
 import { Sky } from "../render/sky";
 import {
@@ -1157,6 +1158,9 @@ vec3 ocGerstner(vec2 p, float t) {
     const index = new CeilingIndex(spans);
     this.rig.setCeilings(index);
     console.log(`[city] ceilings ${index.size} spans in ${Math.round(performance.now() - t0)}ms`);
+    // The last CPU reader of the static meshes' vertex arrays is done: phones
+    // drop the copies now (render/gpu-only-geometry.ts; no-op on desktop).
+    releaseDeferredArrays();
   }
 
   private attachNightAndLife(city: CityModel): void {

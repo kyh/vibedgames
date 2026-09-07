@@ -106,6 +106,13 @@ function cityEdited(): boolean {
   );
 }
 
+// Cache writes serialize large object graphs on the main thread. Never during
+// load; a browser without requestIdleCallback gets a plain delay instead.
+function runWhenIdle(cb: () => void): void {
+  if ("requestIdleCallback" in window) requestIdleCallback(cb, { timeout: 30000 });
+  else setTimeout(cb, 8000);
+}
+
 function fromWorker(r: ParcelWorkerResponse): ParcelPlanResult {
   return { plans: r.plans, lots: r.lots, stats: r.stats, covered: new Set(r.covered) };
 }
@@ -139,7 +146,9 @@ function runParcelWorker(source: ArrayBuffer): Promise<ParcelPlanResult | null> 
       worker.onmessage = (ev: MessageEvent<ParcelWorkerResponse>) => {
         const r = ev.data;
         console.log(`[parcel-worker] planned ${r.plans.length} parcels in ${r.ms}ms`);
-        writeParcelPlanCache(bytes, r);
+        // The put() serializes ~500k plan objects on the main thread — a
+        // multi-second block on a phone if it lands mid-load. Idle time only.
+        runWhenIdle(() => writeParcelPlanCache(bytes, r));
         resolve(fromWorker(r));
         worker.terminate();
       };
@@ -419,11 +428,7 @@ async function finishLoad(
   // The rest-cache write serializes ~100MB — idle time only, never at start.
   if (city.restCapture && !restState.fromBake) {
     const restCapture = city.restCapture;
-    const idle =
-      "requestIdleCallback" in window
-        ? (cb: () => void): void => void requestIdleCallback(cb, { timeout: 30000 })
-        : (cb: () => void): void => void setTimeout(cb, 8000);
-    idle(() => writeRestCache(restCapture));
+    runWhenIdle(() => writeRestCache(restCapture));
   }
   await paint();
 
