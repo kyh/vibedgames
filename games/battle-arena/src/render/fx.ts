@@ -6,6 +6,7 @@
 // for the HUD to read.
 import * as THREE from "three";
 import { HOP_HEIGHT } from "../data/config";
+import { isLocalCast } from "../net/cast-actor";
 import { terrainHeight } from "../data/terrain";
 import type { FxEvent, GroundEffect, World } from "../sim/types";
 import { Audio } from "./audio";
@@ -876,7 +877,7 @@ export class Fx {
       }
       case "cast":
         this.signatureCast(`${e.champId}:${e.key}`, e.x, e.y, e.dx, e.dy);
-        this.audio.cast(e.champId, e.key, e.x, e.y);
+        this.audio.cast(e.champId, e.key, e.x, e.y, isLocalCast(e.unitId, this.localId));
         if (e.key === "R" && this.within(e.x, e.y, 1.5)) this.view.punchFov(2.2); // your R
         break;
       case "levelup":
@@ -1763,8 +1764,8 @@ export class Fx {
   }
 
   /** Per-champ basic-attack whoosh (delegates to the audio timbre table). */
-  attackSound(champId: string, x: number, y: number): void {
-    this.audio.attack(champId, x, y);
+  attackSound(champId: string, x: number, y: number, local = false): void {
+    this.audio.attack(champId, x, y, local);
   }
 
   // ── particle spawners (public signatures preserved from the mesh-pool era) ──

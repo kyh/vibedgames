@@ -17,6 +17,10 @@ import type { Audio } from "./audio";
 import type { Fx } from "./fx";
 import { LOCAL_COLOR, teamColor } from "./palette";
 import type { View } from "./view";
+import { abilityReadiness, readablePlates } from "./hud-readability";
+import type { PlateAnchor, PlateCandidate, ScreenBox } from "./hud-readability";
+import { coinObjective, deliveryObjective } from "./objective-state";
+import { terrainHeight } from "../data/terrain";
 
 // Q/W/E/R map to number keys 1-4; DASH/JUMP are the flat util pair (Shift/Space).
 const KEYCAP = {
@@ -29,12 +33,6 @@ const KEYCAP = {
 } satisfies Record<AbilityKey, string>;
 /** The flat, always-unlocked mobility pair — no rank pips, no level lock. */
 const UTIL_KEYS = new Set<AbilityKey>(["DASH", "JUMP"]);
-// .ba-plate is centred on its anchor: 12px name line + 5px bar + 2px gap, and
-// the 54px HP bar is the floor on its width — a 14-char name roughly doubles it.
-const PLATE_HALF_H = 10;
-const PLATE_HALF_W = 54;
-/** Breathing room around the timer block before a plate counts as colliding. */
-const PLATE_KEEP_OUT = 6;
 
 /** Status kinds rendered with a red (hostile) border in the buff row. */
 const DEBUFF_KINDS = new Set(["stun", "root", "slow", "dot", "damageAmp", "hex"]);
@@ -46,8 +44,8 @@ const TIPS: string[] = [
   "The throne pays bonus gold",
   "The leader carries a 650g bounty",
   "Grab coins where the golem throws",
-  "Green pads drop free items",
-  "Skeleton camps are safe gold",
+  "Green pads give items, or gold when your belt is full",
+  "Defeat camp guards for gold",
   "Hopping dodges skillshots",
   "Heal fast inside your base",
   "Kill streaks pay extra gold",
@@ -70,6 +68,10 @@ function htmlText(value: string): string {
 export type MatchActions =
   | { kind: "offline" }
   | { kind: "online"; canRematch: () => boolean; rematch: () => void };
+
+function sealKitActivation(event: KeyboardEvent): void {
+  if (event.key === "Enter" || event.key === " ") event.stopPropagation();
+}
 
 export type ShopCallbacks = {
   buy: (itemId: string) => void;
@@ -137,6 +139,13 @@ export class Hud {
     string,
     { wrap: HTMLDivElement; fill: HTMLDivElement; name: HTMLDivElement }
   >();
+  private plateAnchors: ((id: string) => PlateAnchor | null) | null = null;
+  private plateKeepOut: ScreenBox[] = [];
+  private plateKeepOutAt = 0;
+  private kitButton: HTMLButtonElement | null = null;
+  private kitAction: (() => void) | null = null;
+  private coinState: ReturnType<typeof coinObjective> | null = null;
+  private deliveryState: ReturnType<typeof deliveryObjective> | null = null;
   private timerEl!: HTMLElement;
   private goalEl!: HTMLElement;
   private objCoinEl!: HTMLElement;
@@ -179,11 +188,8 @@ export class Hud {
   private arrowDelivery!: Arrow;
   private lowHpEl: HTMLDivElement;
   private lowHpEl2: HTMLDivElement;
-  private topEl!: HTMLElement;
-  /** #ba-top's box, cached between resizes — see hitsTopBand(). */
-  private topBand: DOMRect | null = null;
   private readonly remeasureTopBand = (): void => {
-    this.topBand = null;
+    this.plateKeepOutAt = 0;
   };
 
   /** Set true by the scene for online matches — hides the HEROES button. */
@@ -298,6 +304,16 @@ export class Hud {
     return this.fx.audio;
   }
 
+  setPlateAnchors(read: (id: string) => PlateAnchor | null): void {
+    if (!this.disposed) this.plateAnchors = read;
+  }
+
+  setKitAction(open: () => void): void {
+    if (this.disposed) return;
+    this.kitAction = open;
+    if (this.kitButton) this.kitButton.hidden = false;
+  }
+
   // ── markup ──
   private build(): void {
     this.root.innerHTML = `
@@ -310,8 +326,11 @@ export class Hud {
       <div id="ba-board"></div>
       <div id="ba-feed"></div>
       <button id="ba-menu-btn">HEROES ▸</button>
+      <button id="ba-kit-btn" type="button" hidden>YOUR KIT</button>
       <div id="ba-toasts"></div>
       <div id="ba-bottom">
+        <div id="ba-left">
+        <div id="ba-hint"></div>
         <div id="ba-buffs"></div>
         <div id="ba-vitals">
           <div id="ba-vrow">
@@ -320,12 +339,12 @@ export class Hud {
           </div>
           <div class="ba-bar xp"><div id="ba-xpfill"></div></div>
         </div>
-        <div id="ba-abilities"></div>
         <div id="ba-items"></div>
         <div id="ba-meta"><span id="ba-gold">0</span></div>
+        </div>
+        <div id="ba-abilities"></div>
       </div>
       <div id="ba-goal-banner"><b>REACH THE THRONE</b> · first to ${KILL_GOAL_FFA} kills</div>
-      <div id="ba-hint"></div>
       <div id="ba-intro"></div>
       <div id="ba-arrow-coin" class="ba-arrow">◆</div>
       <div id="ba-arrow-delivery" class="ba-arrow">▲</div>
@@ -343,7 +362,6 @@ export class Hud {
 
     this.timerEl = byId("ba-timer");
     this.goalEl = byId("ba-goal");
-    this.topEl = byId("ba-top");
     window.addEventListener("resize", this.remeasureTopBand);
     const obj = byId("ba-objective");
     this.objCoinEl = obj.children[0] instanceof HTMLElement ? obj.children[0] : obj;
@@ -380,6 +398,18 @@ export class Hud {
     this.menuBtn =
       menuBtn instanceof HTMLButtonElement ? menuBtn : document.createElement("button");
     this.menuBtn.addEventListener("click", backToLobby);
+    const kit = document.getElementById("ba-kit-btn");
+    if (kit instanceof HTMLButtonElement) {
+      this.kitButton = kit;
+      kit.addEventListener("click", (event) => {
+        event.stopPropagation();
+        if (!this.disposed && !this.shownEnd && !this.presentationBlocked) this.kitAction?.();
+      });
+      for (const name of ["pointerdown", "pointerup"])
+        kit.addEventListener(name, (event) => event.stopPropagation());
+      kit.addEventListener("keydown", sealKitActivation);
+      kit.addEventListener("keyup", sealKitActivation);
+    }
     this.arrowCoin = { el: arrowEl("ba-arrow-coin"), lastTf: "", on: false };
     this.arrowDelivery = { el: arrowEl("ba-arrow-delivery"), lastTf: "", on: false };
 
@@ -572,7 +602,7 @@ export class Hud {
     this.updateMenuBtn(w);
     this.updateReticle(w, me);
     this.updateHitDir(w, me);
-    this.updateArrows(w);
+    this.updateArrows();
     this.drawMinimap(w, me);
     this.drainFeed(w);
     this.updateShop(me);
@@ -594,6 +624,9 @@ export class Hud {
    * observed hits; neither a stale ring nor a ready/respawn cue may replay. */
   resetMatch(w: World, me: Unit | null): void {
     if (this.disposed) return;
+    this.coinState = null;
+    this.deliveryState = null;
+    this.plateKeepOutAt = 0;
     this.clearPresentation();
     this.dropIncomingPresentation();
     this.presentationNow = 0;
@@ -665,6 +698,9 @@ export class Hud {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.plateAnchors = null;
+    this.kitAction = null;
+    this.kitButton = null;
     this.clearPresentation();
     this.dropIncomingPresentation();
     window.removeEventListener("resize", this.remeasureTopBand);
@@ -820,31 +856,41 @@ export class Hud {
     ctx.restore();
   }
 
-  /** Would a plate anchored at (x, y) collide with the timer/goal block? A
-   *  landscape phone is only 393px tall, so world-space plates drift straight
-   *  through the match clock and the win condition, which have to stay
-   *  readable — a plate that lands on them is dropped for the frame. The test
-   *  is against that block's own box rather than the whole top band: anywhere
-   *  else up there the plate is the more useful thing on screen. Plate extents
-   *  come from the constants above so a plate never forces a layout read. */
-  private hitsTopBand(x: number, y: number): boolean {
-    const band = (this.topBand ??= this.topEl.getBoundingClientRect());
-    return (
-      x + PLATE_HALF_W > band.left - PLATE_KEEP_OUT &&
-      x - PLATE_HALF_W < band.right + PLATE_KEEP_OUT &&
-      y + PLATE_HALF_H > band.top - PLATE_KEEP_OUT &&
-      y - PLATE_HALF_H < band.bottom + PLATE_KEEP_OUT
-    );
-  }
-
   private updatePlates(w: World, me: Unit): void {
+    if (w.now >= this.plateKeepOutAt) {
+      this.plateKeepOutAt = w.now + 200;
+      this.plateKeepOut = [];
+      for (const id of [
+        "ba-top",
+        "ba-goal-banner",
+        "ba-left",
+        "ba-abilities",
+        "ba-board",
+        "ba-menu-btn",
+        "ba-kit-btn",
+        "ba-minimap",
+      ]) {
+        const element = document.getElementById(id);
+        if (!element || element.hidden || (id === "ba-goal-banner" && w.gameTime >= 10)) continue;
+        const box = element.getBoundingClientRect();
+        if (box.width > 0 && box.height > 0)
+          this.plateKeepOut.push({
+            left: box.left - 6,
+            top: box.top - 6,
+            right: box.right + 6,
+            bottom: box.bottom + 6,
+          });
+      }
+    }
     const seen = new Set<string>();
+    const candidates: PlateCandidate[] = [];
     for (const u of w.units.values()) {
       if ((u.kind !== "hero" && u.kind !== "creep") || !u.alive) continue;
       const stealthed = u.statuses.some((s) => s.kind === "stealth") && u.id !== me.id;
       if (stealthed) continue;
       // only show skeleton HP bars when they're near the player (avoid clutter)
-      if (u.kind === "creep" && (u.x - me.x) ** 2 + (u.y - me.y) ** 2 > 22 * 22) continue;
+      const distance = Math.hypot(u.x - me.x, u.y - me.y);
+      if (u.kind === "creep" && distance > 22) continue;
       seen.add(u.id);
       let plate = this.plates.get(u.id);
       if (!plate) {
@@ -853,27 +899,64 @@ export class Hud {
         const isLocal = u.id === me.id;
         const col =
           u.kind === "creep" ? "#b8c0d0" : isLocal ? hex(LOCAL_COLOR) : hex(teamColor(u.team));
-        const name = u.kind === "creep" ? "" : u.name;
-        wrap.innerHTML = `<div class="ba-pname" style="color:${col}">${htmlText(name)}</div><div class="ba-php"><div class="ba-phpfill" style="background:${u.kind === "creep" ? "#c8a0a0" : u.team === me.team ? "#5dd66b" : "#ff5a52"}"></div></div>`;
+        const name = document.createElement("div");
+        name.className = "ba-pname";
+        name.style.color = col;
+        name.textContent = u.kind === "creep" ? "" : u.name;
+        const bar = document.createElement("div");
+        bar.className = "ba-php";
+        const fill = document.createElement("div");
+        fill.className = "ba-phpfill";
+        fill.style.background =
+          u.kind === "creep" ? "#c8a0a0" : u.team === me.team ? "#5dd66b" : "#ff5a52";
+        bar.append(fill);
+        wrap.append(name, bar);
         byId("ba-plates").appendChild(wrap);
-        // SAFETY: both divs were just created by the innerHTML assignment above.
-        plate = {
-          wrap,
-          fill: wrap.querySelector(".ba-phpfill") as HTMLDivElement,
-          name: wrap.querySelector(".ba-pname") as HTMLDivElement,
-        };
+        plate = { wrap, fill, name };
         this.plates.set(u.id, plate);
       }
-      const s = this.view.worldToScreen(u.x, u.y);
-      const top = s.y - 56;
-      if (s.visible && !this.hitsTopBand(s.x, top)) {
-        plate.wrap.style.display = "block";
-        plate.wrap.style.left = `${s.x}px`;
-        plate.wrap.style.top = `${top}px`;
-        plate.fill.style.width = `${Math.max(0, (u.hp / u.maxHp) * 100)}%`;
-      } else {
-        plate.wrap.style.display = "none";
-      }
+      plate.wrap.style.display = "none";
+      const anchor = this.plateAnchors?.(u.id);
+      const s = anchor
+        ? this.view.worldToScreen(anchor.x, anchor.z, anchor.y)
+        : this.view.worldToScreen(u.x, u.y, terrainHeight(u.x, u.y) + 2);
+      if (
+        !s.visible ||
+        s.x < 8 ||
+        s.x > window.innerWidth - 8 ||
+        s.y < 4 ||
+        s.y > window.innerHeight - 8
+      )
+        continue;
+      const local = u.id === me.id;
+      const recent = w.now - u.lastHitAt < 2000 && u.lastHitAt > 0;
+      const compact = u.kind === "creep" || (!local && distance > 24 && !recent);
+      const halfWidth = compact ? 17 : 56;
+      const top = s.y - (compact ? 9 : 24);
+      if (s.x < halfWidth || s.x > window.innerWidth - halfWidth || top < 4) continue;
+      candidates.push({
+        id: u.id,
+        x: s.x,
+        y: top,
+        distance,
+        priority: local
+          ? 0
+          : u.kind === "hero" && (distance < 16 || recent)
+            ? 1
+            : u.kind === "hero"
+              ? 2
+              : 3,
+        compact,
+      });
+      plate.fill.style.width = `${Math.max(0, (u.hp / u.maxHp) * 100)}%`;
+    }
+    for (const candidate of readablePlates(candidates, this.plateKeepOut)) {
+      const plate = this.plates.get(candidate.id);
+      if (!plate) continue;
+      plate.wrap.classList.toggle("compact", candidate.compact);
+      plate.wrap.style.display = "block";
+      plate.wrap.style.left = `${Math.round(candidate.x)}px`;
+      plate.wrap.style.top = `${Math.round(candidate.y)}px`;
     }
     for (const [id, plate] of this.plates) {
       if (!seen.has(id)) {
@@ -959,6 +1042,9 @@ export class Hud {
       const el = this.abilityEls.get(key)!;
       const slot = me.abilities[key];
       const ad = def.abilities[key];
+      const readiness = abilityReadiness(me, key, w.now);
+      el.wrap.classList.toggle("blocked", readiness.kind === "blocked");
+      el.wrap.classList.toggle("queued", readiness.queued);
       // DASH/JUMP are flat (maxRank 1): no rank pips, never level-locked.
       const util = UTIL_KEYS.has(key);
       if (!util && slot.rank !== el.lastRank) {
@@ -992,7 +1078,12 @@ export class Hud {
         el.wrap.style.setProperty("--cd", `${pct}`);
       }
       el.wrap.classList.toggle("oncd", frac > 0);
-      if (el.wasOnCd && frac === 0) {
+      if (
+        el.wasOnCd &&
+        readiness.kind === "available" &&
+        !readiness.queued &&
+        !this.presentationBlocked
+      ) {
         el.wrap.classList.remove("ready");
         void el.wrap.offsetWidth;
         el.wrap.classList.add("ready");
@@ -1002,7 +1093,14 @@ export class Hud {
         }
       }
       el.wasOnCd = frac > 0;
-      const text = cdLeft > 0 ? (cdLeft < 10 ? cdLeft.toFixed(1) : `${Math.ceil(cdLeft)}`) : "";
+      const countdown =
+        cdLeft > 0 ? (cdLeft < 10 ? cdLeft.toFixed(1) : `${Math.ceil(cdLeft)}`) : "";
+      const label = readiness.queued
+        ? "QUEUED"
+        : readiness.kind === "blocked"
+          ? readiness.label
+          : "";
+      const text = label ? `${label}${countdown ? `\n${countdown}` : ""}` : countdown;
       if (text !== el.lastText) {
         el.lastText = text;
         el.cdText.textContent = text;
@@ -1012,13 +1110,14 @@ export class Hud {
 
   private readonly ITEM_KEYS = ["5", "6", "7", "8", "9", "0"];
   private updateItems(w: World, me: Unit): void {
-    const sig = me.items.join(",");
+    const sig = `${this.shopOpen}:${me.items.join(",")}`;
     if (sig !== this.itemSig) {
       this.itemSig = sig;
       for (let i = 0; i < MAX_ITEMS; i++) {
         const sock = this.itemSockets[i]!;
         const id = me.items[i];
         const it = id ? ITEM_BY_ID[id] : undefined;
+        sock.chip.hidden = !it && !this.shopOpen;
         if (it) {
           sock.chip.className = `ba-item-chip${it.active ? " active" : ""}`;
           sock.img.src = iconUrl(it.icon);
@@ -1155,32 +1254,20 @@ export class Hud {
       this.lastGoalStr = goalStr;
       this.goalEl.textContent = goalStr;
     }
-    // objective countdowns (whole-second buckets; LIVE pulses)
-    let coinStr = "";
-    let coinLive = false;
-    if (w.coins.length > 0) {
-      coinStr = "◈ COIN LIVE";
-      coinLive = true;
-    } else if (w.boss.alive && w.nextCoinAt > w.gameTime) {
-      coinStr = `◈ COIN ${Math.ceil(w.nextCoinAt - w.gameTime)}s`;
-    }
+    // Countdown and arrow share one retained, authoritative target.
+    this.coinState = coinObjective(w, this.lastMe, this.coinState?.target?.id ?? null);
+    const coinStr = this.coinState.text;
     if (coinStr !== this.lastObjCoin) {
       this.lastObjCoin = coinStr;
       this.objCoinEl.textContent = coinStr;
-      this.objCoinEl.className = coinLive ? "coin live" : "coin";
+      this.objCoinEl.className = this.coinState.live ? "coin live" : "coin";
     }
-    let dropStr = "";
-    let dropLive = false;
-    if (w.deliveries.length > 0) {
-      dropStr = "▣ DROP LIVE";
-      dropLive = true;
-    } else if (w.nextDeliveryAt > w.gameTime) {
-      dropStr = `▣ DROP ${Math.ceil(w.nextDeliveryAt - w.gameTime)}s`;
-    }
+    this.deliveryState = deliveryObjective(w, this.lastMe, this.deliveryState?.target?.id ?? null);
+    const dropStr = this.deliveryState.text;
     if (dropStr !== this.lastObjDrop) {
       this.lastObjDrop = dropStr;
       this.objDropEl.textContent = dropStr;
-      this.objDropEl.className = dropLive ? "drop live" : "drop";
+      this.objDropEl.className = this.deliveryState.live ? "drop live" : "drop";
     }
   }
 
@@ -1328,10 +1415,10 @@ export class Hud {
   }
 
   /** Off-screen coin/delivery edge arrows: transform-only, 40px inset. */
-  private updateArrows(w: World): void {
-    const coin = w.coins.length > 0 ? w.coins[0] : undefined;
+  private updateArrows(): void {
+    const coin = this.coinState?.target;
     this.placeArrow(this.arrowCoin, coin?.x, coin?.y);
-    const drop = w.deliveries.length > 0 ? w.deliveries[0] : undefined;
+    const drop = this.deliveryState?.target;
     this.placeArrow(this.arrowDelivery, drop?.x, drop?.y);
   }
 
@@ -1345,7 +1432,7 @@ export class Hud {
     }
     const W = window.innerWidth;
     const H = window.innerHeight;
-    const s = this.view.worldToScreen(x, y);
+    const s = this.view.worldToScreen(x, y, terrainHeight(x, y) + 1.4);
     const behind = !s.visible && s.x === 0 && s.y === 0;
     const onScreen = s.visible && s.x >= 0 && s.x <= W && s.y >= 0 && s.y <= H;
     if (onScreen) {
@@ -1639,8 +1726,10 @@ const STYLE = `
 [hidden]{display:none!important}
 #hud.ba-ended>:not(#ba-end){visibility:hidden;pointer-events:none}
 #ba-plates{position:absolute;inset:0}
-.ba-plate{position:absolute;transform:translate(-50%,-50%);text-align:center;pointer-events:none;will-change:left,top}
-.ba-pname{font:700 12px ui-monospace,monospace;text-shadow:0 1px 2px #000;white-space:nowrap}
+.ba-plate{position:absolute;transform:translateX(-50%);text-align:center;pointer-events:none;will-change:left,top}
+.ba-pname{max-width:108px;overflow:hidden;text-overflow:ellipsis;font:700 12px ui-monospace,monospace;text-shadow:0 1px 2px #000;white-space:nowrap}
+.ba-plate.compact .ba-pname{display:none}
+.ba-plate.compact .ba-php{width:28px;height:4px;opacity:.8}
 .ba-php{width:54px;height:5px;margin:2px auto 0;background:rgba(0,0,0,.6);border-radius:3px;overflow:hidden}
 .ba-phpfill{height:100%;width:100%;transition:width .12s}
 #ba-top{position:fixed;top:calc(12px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);text-align:center;pointer-events:none}
@@ -1669,6 +1758,8 @@ const STYLE = `
 .ba-kw{width:13px;height:13px;opacity:.8}
 #ba-menu-btn{position:fixed;top:calc(148px + env(safe-area-inset-top));right:calc(64px + env(safe-area-inset-right));height:44px;padding:0 12px;pointer-events:auto;background:rgba(12,16,26,.75);border:1px solid rgba(255,210,74,.4);border-radius:8px;color:#ffd24a;font:800 12px ui-monospace,monospace;letter-spacing:1px;cursor:pointer;z-index:6}
 #ba-menu-btn:hover{background:rgba(255,210,74,.15)}
+#ba-kit-btn{position:fixed;top:calc(96px + env(safe-area-inset-top));right:calc(64px + env(safe-area-inset-right));min-height:44px;padding:0 12px;pointer-events:auto;background:rgba(12,16,26,.85);border:1px solid rgba(255,210,74,.5);border-radius:8px;color:#ffd24a;font:800 12px ui-monospace,monospace;cursor:pointer;z-index:6}
+#ba-kit-btn:focus-visible{outline:2px solid #fff0ad;outline-offset:3px}
 #ba-toasts{position:fixed;top:24%;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;gap:6px;align-items:center;pointer-events:none}
 .ba-toast{font:800 italic 24px system-ui,sans-serif;letter-spacing:1px;text-shadow:0 2px 8px #000;animation:ba-pop .3s}
 .ba-toast.leader{color:#ff5a52}
@@ -1676,8 +1767,9 @@ const STYLE = `
 .ba-toast.streak{color:#ffb13b}
 .ba-toast.sudden{color:#ffd24a}
 .ba-toast.matchend{color:#ffd24a;font-size:30px}
-#ba-bottom{position:fixed;bottom:calc(14px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none}
-#ba-buffs{display:flex;gap:5px;min-height:26px}
+#ba-bottom{display:contents;pointer-events:none}
+#ba-left{position:fixed;left:calc(16px + env(safe-area-inset-left));bottom:calc(16px + env(safe-area-inset-bottom));display:flex;flex-direction:column;align-items:flex-start;gap:6px;pointer-events:none}
+#ba-buffs{display:flex;gap:5px}
 .ba-buff{position:relative;width:26px;height:26px;border-radius:6px;overflow:hidden;border:1px solid rgba(107,255,142,.7);background:rgba(10,14,24,.7)}
 .ba-buff.debuff{border-color:rgba(255,90,82,.8)}
 .ba-buff img{position:absolute;inset:0;width:100%;height:100%}
@@ -1701,7 +1793,7 @@ const STYLE = `
 .ba-bar.hp span{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font:700 11px ui-monospace,monospace;text-shadow:0 1px 1px #000;font-variant-numeric:tabular-nums}
 .ba-bar.xp{height:5px;border-radius:3px;margin-top:3px;background:rgba(0,0,0,.55)}
 #ba-xpfill{height:100%;width:0;background:linear-gradient(90deg,#b98a1e,#ffd24a);border-radius:3px}
-#ba-abilities{display:flex;gap:8px;align-items:flex-end}
+#ba-abilities{position:fixed;right:calc(16px + env(safe-area-inset-right));bottom:calc(16px + env(safe-area-inset-bottom));display:flex;gap:8px;align-items:flex-end}
 .ba-abil{position:relative;width:56px;height:56px;background:#0c101c;border:2px solid rgba(255,255,255,.22);border-radius:11px;overflow:hidden;box-shadow:0 3px 0 rgba(0,0,0,.45),inset 0 0 0 1px rgba(0,0,0,.6)}
 .ba-abil.ult{width:62px;height:62px;border-color:rgba(255,210,74,.55)}
 .ba-abil.util{width:44px;height:44px;border-color:rgba(150,200,255,.4)}
@@ -1710,6 +1802,9 @@ const STYLE = `
 .ba-abil.oncd .ba-ic{filter:saturate(.3) brightness(.55)}
 .ba-abil.locked .ba-ic{filter:grayscale(1) brightness(.4)}
 .ba-abil.locked{opacity:.6}
+.ba-abil.blocked .ba-ic{filter:saturate(.15) brightness(.4)}
+.ba-abil.blocked .ba-cdtext,.ba-abil.queued .ba-cdtext{font-size:11px;white-space:pre-line;text-align:center}
+.ba-abil.queued{border-color:#ffe08a}
 .ba-cd{position:absolute;inset:0;background:conic-gradient(rgba(5,8,16,.85) calc(var(--cd,0)*1%),transparent 0)}
 .ba-key{position:absolute;top:2px;left:2px;padding:1px 5px;border-radius:5px 0 6px 0;background:rgba(5,8,16,.85);font:800 12px ui-monospace,monospace;color:#ffd24a;text-shadow:none}
 .ba-cdtext{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font:800 18px ui-monospace,monospace;color:#fff;text-shadow:0 2px 3px #000;font-variant-numeric:tabular-nums}
@@ -1726,6 +1821,7 @@ body.ba-mouse-mode canvas{cursor:default}
 .ba-item-chip.active.rdy{box-shadow:0 0 8px -2px #6bff8e}
 .ba-item-chip.empty{background:rgba(18,22,34,.5);border-style:dashed;opacity:.5}
 .ba-item-chip.empty .ba-ii{display:none}
+.ba-item-chip[hidden]{display:none}
 .ba-ii{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .ba-ik{position:absolute;top:0;left:0;padding:0 4px;border-radius:0 0 5px 0;background:rgba(5,8,16,.85);font:700 9px/13px ui-monospace,monospace;color:#ffd24a}
 .ba-icd{position:absolute;left:0;bottom:0;width:100%;height:0;background:rgba(10,14,24,.78);border-top:1px solid rgba(255,255,255,.3);display:flex;align-items:center;justify-content:center;font:800 12px ui-monospace,monospace;color:#fff}
@@ -1733,8 +1829,8 @@ body.ba-mouse-mode canvas{cursor:default}
 #ba-gold{color:#ffd24a}
 #ba-goal-banner{position:fixed;top:22%;left:50%;transform:translateX(-50%);background:rgba(10,14,24,.7);border:1px solid rgba(255,210,74,.3);border-radius:12px;padding:12px 20px;font:700 18px ui-monospace,monospace;color:#fff;text-shadow:0 2px 8px #000;white-space:nowrap;pointer-events:none;transition:opacity .5s}
 #ba-goal-banner b{color:#ffd24a}
-#ba-hint{position:fixed;bottom:calc(206px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);font:700 16px ui-monospace,monospace;color:#fff;text-shadow:0 2px 6px #000;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .3s}
-#ba-hint.show{opacity:1}
+#ba-hint{display:none;max-width:340px;font:700 13px/1.35 ui-monospace,monospace;color:#fff;text-shadow:0 2px 6px #000;pointer-events:none}
+#ba-hint.show{display:block}
 #ba-hint b{color:#ffd24a}
 #ba-intro{position:fixed;top:32%;left:50%;transform:translate(-50%,-50%);font:900 italic 72px system-ui,sans-serif;color:#fff;text-shadow:0 6px 0 rgba(0,0,0,.5),0 0 40px rgba(255,210,74,.25);pointer-events:none;z-index:9;opacity:0}
 #ba-intro.show{opacity:1}
@@ -1757,7 +1853,7 @@ body.ba-mouse-mode canvas{cursor:default}
 #ba-reticle.hit i{background:#ffd24a}
 #ba-reticle.hitcrit i{background:#ff5a52;transform:scale(1.5)}
 #ba-hitdir{position:fixed;left:50%;top:50%;width:240px;height:240px;margin:-120px;border-radius:50%;pointer-events:none;z-index:6;opacity:0;background:conic-gradient(from calc(var(--a,0deg) - 30deg),transparent 0deg,rgba(255,60,48,.75) 30deg,transparent 60deg);-webkit-mask:radial-gradient(circle,transparent 62%,#000 63%,#000 78%,transparent 79%);mask:radial-gradient(circle,transparent 62%,#000 63%,#000 78%,transparent 79%)}
-#ba-minimap{position:fixed;right:calc(12px + env(safe-area-inset-right));bottom:calc(12px + env(safe-area-inset-bottom));width:150px;height:132px;opacity:.92;pointer-events:none;filter:drop-shadow(0 0 10px rgba(0,0,0,.65))}
+#ba-minimap{position:fixed;right:calc(12px + env(safe-area-inset-right));bottom:calc(104px + env(safe-area-inset-bottom));width:150px;height:132px;opacity:.92;pointer-events:none;filter:drop-shadow(0 0 10px rgba(0,0,0,.65))}
 #ba-respawn{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(circle,rgba(40,10,10,.3),rgba(8,8,12,.7));pointer-events:none}
 .ba-rtitle{font:900 italic 56px system-ui,sans-serif;color:#ff5a52;text-shadow:0 4px 0 rgba(0,0,0,.5)}
 .ba-rslain{font:600 14px ui-monospace,monospace;color:#ff9a94;margin-top:6px}
@@ -1803,11 +1899,11 @@ body.ba-mouse-mode canvas{cursor:default}
 /* touch mode (any viewport): the touch grid (bottom-right) duplicates the
    ability tiles (icons + cooldown sweeps), so hide the desktop row and pin the
    remaining vitals/belt cluster bottom-LEFT, clear of the 3-column button grid. */
-body.ba-touch-on #ba-bottom{left:calc(12px + env(safe-area-inset-left));transform:none;align-items:flex-start}
+body.ba-touch-on #ba-left{left:calc(12px + env(safe-area-inset-left));bottom:calc(16px + env(safe-area-inset-bottom));max-width:170px}
 body.ba-touch-on #ba-abilities{display:none}
 body.ba-touch-on #ba-vitals{width:170px}
 /* keep the hint and belt clear of the bottom-right button grid */
-body.ba-touch-on #ba-hint{bottom:calc(240px + env(safe-area-inset-bottom))}
+body.ba-touch-on #ba-hint{max-width:170px;font-size:11px}
 body.ba-touch-on .ba-item-chip{width:28px;height:28px}
 /* the shared @repo/embed pause+mute cluster owns the top-right corner on a
    coarse pointer, so the kill feed starts below it */
@@ -1826,9 +1922,9 @@ body.ba-touch-on #ba-feed{top:calc(76px + env(safe-area-inset-top))}
 #ba-vitals{width:250px}
 .ba-item-chip{width:32px;height:32px}
 .ba-buff{width:22px;height:22px}
-#ba-objective{display:none}
+#ba-objective{gap:4px;flex-direction:column;font-size:9px;letter-spacing:0;margin-top:3px}
 #ba-goal-banner{font-size:14px;padding:9px 14px}
-#ba-hint{bottom:calc(186px + env(safe-area-inset-bottom));font-size:13px}
+#ba-hint{max-width:250px;font-size:12px}
 #ba-intro{font-size:54px}
 #ba-timer{font-size:30px}
 .ba-end-sub{font-size:14px;margin-top:4px}
@@ -1837,13 +1933,24 @@ body.ba-touch-on #ba-feed{top:calc(76px + env(safe-area-inset-top))}
 .ba-end-btn{padding:11px 20px;font-size:14px}
 .ba-rtitle{font-size:40px}
 }
+@media (max-height:500px) and (min-width:521px){
+#ba-kit-btn{top:calc(12px + env(safe-area-inset-top));left:calc(16px + env(safe-area-inset-left));right:auto}
+#ba-menu-btn{top:calc(12px + env(safe-area-inset-top));left:calc(112px + env(safe-area-inset-left));right:auto}
+#ba-goal-banner{top:calc(98px + env(safe-area-inset-top))}
+#ba-abilities{display:grid;grid-template-columns:repeat(3,52px);align-items:end}
+#ba-abilities .ba-abil-gap{display:none}
+}
 @media (prefers-reduced-motion:reduce){
 .ba-kill,.ba-toast,.ba-end-title,.ba-end-best.nb{animation:none}
 }
 /* portrait phones: two shop columns leave ~100px for a name + a description,
    so the grid collapses to one readable column and scrolls instead */
 @media (max-width:520px){
+#ba-goal-banner{top:max(calc(202px + env(safe-area-inset-top)),22%)}
 .ba-shop-grid{grid-template-columns:minmax(0,1fr)}
+#ba-left{bottom:calc(92px + env(safe-area-inset-bottom))}
+#ba-abilities{left:50%;right:auto;transform:translateX(-50%);gap:6px}
+body.ba-touch-on #ba-abilities{display:none}
 }
 `;
 

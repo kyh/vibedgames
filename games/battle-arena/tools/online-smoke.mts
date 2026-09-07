@@ -222,7 +222,7 @@ function sceneHarness(host = true, ended = false) {
       updateSharedState(s){this.sharedState={...this.sharedState,...s};this.writes.push(structuredClone(s));this.notify()}
       destroy(){}
     }
-    class WorldView {resets=0;setupBoss(){} resetCharacters(){this.resets++} sync(){}}
+    class WorldView {resets=0;setupBoss(){} resetCharacters(){this.resets++} sync(){} plateAnchor(){return null}}
     class Environment {setup(){} setLocalPos(){}setHomeSlot(){}update(){}}
     class Fx {
       resets=0; bestStreak=0;lastDeath=null;
@@ -231,10 +231,17 @@ function sceneHarness(host = true, ended = false) {
     }
     class Hud {
       isShopOpen=false;unassigned=0;paused=false;items=[];resets=0;
+      setPlateAnchors(read){this.readPlate=read} setKitAction(open){this.openKit=open}
       resetMatch(w,me){this.resets++;this.resetNow=w.now;this.resetPlayer=me?.id}
       consumeItemTaps(){const a=this.items;this.items=[];return a}
       setPaused(v){this.paused=v} updateUnassigned(){this.unassigned++}update(){}showHint(){}
       toggleShop(){this.isShopOpen=!this.isShopOpen}
+    }
+    class AbilityGuide {
+      open=false;constructor(change){this.change=change}
+      show(){if(this.open)return;this.open=true;this.change(true)}
+      close(){if(!this.open)return;this.open=false;this.change(false)}
+      update(){}dispose(){this.close()}
     }
     class Hints {resets=0;resetMatch(){this.resets++}update(){}notifyShopOpened(){}}
     ${source}
@@ -494,4 +501,38 @@ test("actual scene accepted remote cast emits once; cooldown tail remains buffer
   );
   equal("h.world.units.get('h-peer').queuedCast === null", true);
   equal("h.world.fx.filter(e=>e.t==='cast'&&e.champId==='ranger').length", 1);
+});
+
+test("guide releases the local intent while the host keeps simulating; close requires fresh input", () => {
+  const { run, equal } = sceneHarness();
+  run(
+    "h.prepareOnline();h.introTime=10;controls.keys.add('KeyW');controls.lmb=true;h.readInput(h.world.units.get('h-local'),true,1/30)",
+  );
+  equal("h.world.units.get('h-local').attackHeld", true);
+  run("h.hud.openKit();globalThis.beforeGuideTime=h.world.now;h.tickOnline(1/30)");
+  equal("h.world.now>beforeGuideTime", true);
+  equal("h.world.units.get('h-local').attackHeld", false);
+  equal("h.world.units.get('h-local').moveX", 0);
+  run("controls.abilityQueue.push('Q');touch.queue.push('W');h.tickOnline(1/30)");
+  equal("controls.abilityQueue.length+touch.queue.length", 0);
+  run("h.guide.close();h.tickOnline(1/30)");
+  equal("h.world.units.get('h-local').attackHeld", false);
+  run("controls.keys.add('KeyW');h.tickOnline(1/30)");
+  equal(
+    "Math.hypot(h.world.units.get('h-local').moveX,h.world.units.get('h-local').moveY)>0",
+    true,
+  );
+});
+
+test("guest guide publishes neutral once without stepping or writing the shared world", () => {
+  const { run, equal } = sceneHarness(false);
+  run("h.tickOnline(0);h.net.sent=[];globalThis.beforeGuideTime=h.world.now;h.hud.openKit()");
+  equal(
+    "h.net.sent.filter(([event,payload])=>payload.kind==='input'&&!payload.attack&&payload.mx===0&&payload.my===0).length",
+    1,
+  );
+  run("controls.abilityQueue.push('Q');h.tickOnline(1/30)");
+  equal("h.world.now", 61000);
+  equal("h.net.writes.length", 0);
+  equal("h.net.sent.filter(([event,payload])=>payload.kind==='cast').length", 0);
 });

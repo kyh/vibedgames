@@ -23,6 +23,7 @@ export class Controls {
   private abilityQueue: AbilityKey[] = [];
   private itemQueue: number[] = []; // item-belt slot indices
   private buyPressed = false;
+  private guidePressed = false;
   private scorePressed = false;
   private jumpPressed = false; // Space edge (hop)
   private dashPressed = false; // Shift edge (cast DASH)
@@ -151,6 +152,7 @@ export class Controls {
     if (this.pad.justPressed("lb")) this.abilityQueue.push("E");
     if (this.pad.justPressed("rb")) this.abilityQueue.push("R");
     if (this.pad.justPressed("select")) this.buyPressed = true;
+    if (this.pad.justPressed("ls")) this.guidePressed = true;
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
@@ -169,6 +171,7 @@ export class Controls {
     else if (code === "Digit9") this.itemQueue.push(4);
     else if (code === "Digit0") this.itemQueue.push(5);
     else if (code === "KeyB") this.buyPressed = true;
+    else if (code === "KeyH") this.guidePressed = true;
     else if (code === "Space") {
       this.jumpPressed = true;
       e.preventDefault(); // don't scroll the page
@@ -298,6 +301,12 @@ export class Controls {
     return this.hadInput;
   }
 
+  consumeGuide(): boolean {
+    const pressed = this.guidePressed;
+    this.guidePressed = false;
+    return pressed;
+  }
+
   /** Release remembered input at pause/transport boundaries. Sample both pad
    * buffers so a held button cannot become a fresh press after resuming. */
   resetInput(): void {
@@ -305,6 +314,7 @@ export class Controls {
     this.abilityQueue = [];
     this.itemQueue = [];
     this.buyPressed = false;
+    this.guidePressed = false;
     this.scorePressed = false;
     this.jumpPressed = false;
     this.dashPressed = false;

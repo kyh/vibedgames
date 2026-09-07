@@ -103,6 +103,7 @@ export class Audio {
   private voices = new VoicePool(48, 32);
   private ambience = new VoicePool(8, 8);
   private plans: Plan[] | null = null;
+  private actionGates: { local: boolean; pending: Map<string, number> } | null = null;
   private preference = readMuted();
   private paused = false;
   private disposed = false;
@@ -356,9 +357,12 @@ export class Audio {
   /** Rate-limit a given voice so overlapping events don't stack into noise. */
   private gate(key: string, ms: number): boolean {
     if (!this.ready()) return false;
+    if (this.actionGates?.local) key += ":local";
     const t = this.now() * 1000;
-    if (t - (this.last[key] ?? -1e9) < ms) return false;
-    this.last[key] = t;
+    const previous = this.actionGates?.pending.get(key) ?? this.last[key] ?? -1e9;
+    if (t - previous < ms) return false;
+    if (this.actionGates) this.actionGates.pending.set(key, t);
+    else this.last[key] = t;
     return true;
   }
 
@@ -488,10 +492,14 @@ export class Audio {
   }
 
   private essential(build: () => void): void {
-    if (!this.ready()) return;
+    this.phrase(build, "essential");
+  }
+
+  private phrase(build: () => void, priority: "routine" | "essential"): boolean {
+    if (!this.ready()) return false;
     if (this.plans) {
       build();
-      return;
+      return true;
     }
     const plans: Plan[] = [];
     this.plans = plans;
@@ -500,14 +508,36 @@ export class Audio {
     } finally {
       this.plans = null;
     }
-    if (plans.length === 0) return;
+    if (plans.length === 0) return false;
     const group = this.voices.begin(
       plans.reduce((n, plan) => n + sourceCost(plan), 0),
-      "essential",
+      priority,
     );
-    if (!group) return;
+    if (!group) return false;
     for (const plan of plans) this.renderPlan(plan, group);
     group.seal();
+    return true;
+  }
+
+  /** Commit action throttles only after its entire audible phrase is admitted. */
+  private combatCue(
+    key: string,
+    ms: number,
+    local: boolean,
+    x: number | undefined,
+    y: number | undefined,
+    build: () => void,
+  ): void {
+    if (!this.ready() || !this.mix({ x, y }, 1)) return;
+    const pending = new Map<string, number>();
+    this.actionGates = { local, pending };
+    let admitted = false;
+    try {
+      if (this.gate(key, ms)) admitted = this.phrase(build, local ? "essential" : "routine");
+    } finally {
+      this.actionGates = null;
+    }
+    if (admitted) for (const [name, time] of pending) this.last[name] = time;
   }
 
   private renderTone(o: ToneOpts, m: Mix, t: number, group: VoiceGroup): void {
@@ -706,8 +736,11 @@ export class Audio {
   // ── per-champ attack timbres (A3) ───────────────────────────────────────────
 
   /** One whoosh per swing, driven by the world-view attack one-shot delta. */
-  attack(champId: string, x: number, y: number): void {
-    if (!this.gate("atk:" + champId, 70)) return;
+  attack(champId: string, x: number, y: number, local = false): void {
+    this.combatCue("atk:" + champId, 70, local, x, y, () => this.attackVoice(champId, x, y));
+  }
+
+  private attackVoice(champId: string, x: number, y: number): void {
     const t = this.now();
     switch (champId) {
       case "knight":
@@ -845,8 +878,13 @@ export class Audio {
   // ── per-champ cast timbres (A3) ─────────────────────────────────────────────
 
   /** Champ base voice × CAST_MOD; R adds the ult layer (sub drop + riser). */
-  cast(champId = "", key: AbilityKey = "Q", x?: number, y?: number): void {
-    if (!this.gate("cast", 60)) return;
+  cast(champId = "", key: AbilityKey = "Q", x?: number, y?: number, local = false): void {
+    this.combatCue(local ? "cast:" + key : "cast", 60, local, x, y, () =>
+      this.castPhrase(champId, key, x, y),
+    );
+  }
+
+  private castPhrase(champId: string, key: AbilityKey, x?: number, y?: number): void {
     const t = this.now();
     const m = CAST_MOD[key];
     this.castVoice(champId, t, x, y, m.p, m.d);

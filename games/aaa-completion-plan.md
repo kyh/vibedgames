@@ -11,8 +11,8 @@ rules. Keep Crazy Waymo's separate work intact while checking it as the referenc
 
 ## Continued quality work
 
-One game at a time, through PR #327. Ancients' second checkpoint is implemented;
-Battle Arena is next for observed-session review. Prior receipts below remain historical
+One game at a time, through PR #327. Ancients' second checkpoint is pushed;
+Battle Arena's second checkpoint is implemented and verified. Prior receipts below remain historical
 evidence for their exact source versions and measured scopes.
 
 Ancients plan: correct exposed foam centres with the original shoreline art;
@@ -33,6 +33,25 @@ sound quality require evidence beyond desktop emulation and graph tests.
 records original asset integrity, corrected spell-contact frames, native guide/
 menu/touch input, generated Foley and measured mix ownership, desktop timing and
 final destruction. The broader quality goal remains open.
+
+Battle Arena second plan: expose the local champion by splitting the HUD; attach
+readable nameplates to rendered bodies; soften existing window/throne beams;
+protect accepted local audio from distant routine throttling; distinguish boss
+coins from ordinary loot; show real blocked/queued abilities and optional kit
+inspection; complete keyboard/controller lobby access and optional storage
+fallback; align the original Large golem recovery to coin launch age; give death
+a restrained music bed. Original assets, combat timings and input methods stay.
+
+The frozen baseline completed a natural 493.67-second match through sudden death,
+a real winner and a fresh rematch, with no browser errors. The driver reached
+level 9 with 2 kills, 20 deaths and 4 assists; it did not shop. This establishes
+session flow, not human fun or mastery. Final layout checks include all six
+champions and explicit staged full-inventory stress; synthetic standard-pad
+samples are separate from native keyboard/touch input.
+
+[Battle Arena second-pass evidence](/Users/kyh/.codex/visualizations/2026/09/05/01a072e5-b121-77b0-b7f7-52a06ec3e9e2/aaa-completion/battle-arena-quality/README.md)
+records the frozen revisions, native captures, exact recipe/asset integrity,
+review and final validation scope. Bomberman is next for a fresh session review.
 
 Unresolved questions: none blocking this pass.
 

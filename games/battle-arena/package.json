@@ -9,7 +9,7 @@
     "dev": "vite",
     "fx:shots": "node tools/fx-shots.mjs",
     "preview": "vite preview",
-    "test": "tsx tools/verify-timing.mts && tsx --test tools/verify-particles.mts && tsx tools/verify-animation-continuity.mjs && tsx tools/verify-rematch-fx.mjs && tsx tools/verify-rematch-hud.mjs && tsx tools/verify-arena-materials.mjs && tsx --test tools/online-smoke.mts",
+    "test": "tsx tools/verify-timing.mts && tsx --test tools/verify-particles.mts && tsx tools/verify-animation-continuity.mjs && tsx tools/verify-rematch-fx.mjs && tsx tools/verify-rematch-hud.mjs && tsx tools/verify-arena-materials.mjs && tsx --test tools/online-smoke.mts && tsx tools/audio-priority-smoke.mjs && tsx --test tools/verify-objectives.mts && tsx tools/verify-boss-throw.mjs && tsx --test tools/verify-hud-readability.mjs && tsx tools/verify-head-anchors.mjs && tsx tools/verify-guide-input.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

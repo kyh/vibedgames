@@ -1,3 +1,4 @@
+import { readPreference } from "./data/preferences";
 // Boot: load the lobby's assets, show the lobby, then run the chosen match.
 //
 // Asset loading is two-phase. The champion-select lobby needs six champion
@@ -109,7 +110,7 @@ async function fetchBundledMap(): Promise<MapData | null> {
 
 /** The editor's localStorage draft (offline test loop). */
 function readLocalMapDraft(): MapData | null {
-  const raw = localStorage.getItem(MAP_STORAGE_KEY);
+  const raw = readPreference(MAP_STORAGE_KEY);
   if (raw === null) return null;
   try {
     const parsed = parseMapData(JSON.parse(raw));
@@ -287,6 +288,7 @@ async function main(): Promise<void> {
     // create input only when a match starts, so menu clicks never grab the
     // pointer (Controls' mousedown requests pointer lock).
     const controls = new Controls(view.renderer.domElement);
+    controls.resetInput();
     const touch = new TouchControls();
     const scene = new GameScene(view, lib, controls, opts, touch);
     activeScene = scene;
@@ -336,6 +338,7 @@ async function main(): Promise<void> {
   // (belt-and-suspenders: matchLoop already clamps dt to 1/30 regardless).
   const pauseOverlay = createPauseOverlay({ isLive: () => onlineMatch });
   setPauseHandlers({
+    escapePauses: () => activeScene !== null && !activeScene.isGuideOpen,
     onPause: () => {
       pauseOverlay.show();
       activeScene?.pauseAudio();
@@ -403,6 +406,8 @@ async function main(): Promise<void> {
     stage.select(initialChamp); // sync the 3D row with the persisted pick
     const menuTimer = new THREE.Timer();
     view.renderer.setAnimationLoop((t) => {
+      menu.update();
+      if (!menu.active) return;
       menuTimer.update(t);
       stage.update(Math.min(menuTimer.getDelta(), 1 / 30));
       stage.render();

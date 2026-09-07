@@ -3,11 +3,11 @@
 // animation clip from its unit state. Never mutates the sim.
 import * as THREE from "three";
 import { CHAMP_BY_ID } from "../data/champions";
-import { ABILITY_CLIPS, TWO_H_SPEED, clipSpeed, swingClip } from "../data/clip-timing";
+import { ABILITY_CLIPS, CLIP_TIMING, TWO_H_SPEED, clipSpeed, swingClip } from "../data/clip-timing";
 import { HOP_HEIGHT, JUMP_MS, type DamageType } from "../data/config";
 import { BOSS_HEIGHT, BOSS_POS } from "../data/map";
 import { destructibleProps, type PropSpec } from "../data/props";
-import type { Projectile, Unit, World } from "../sim/types";
+import type { Coin, Projectile, Unit, World } from "../sim/types";
 import { effectiveAttackSpeed } from "../sim/stats";
 import { AnimatedCharacter, ModelLibrary } from "./models";
 import { WeaponTrail, type TrailOverride } from "./weapon-trail";
@@ -16,6 +16,7 @@ import { CHAMP_FX, type Fx } from "./fx";
 import { energyBallMaterial } from "./fx-shaders";
 import { applyDissolve, type DissolveHandle } from "./dissolve";
 import { StatusFx } from "./status-fx";
+import type { PlateAnchor } from "./hud-readability";
 import { groundFxColor } from "./telegraph";
 import { LOCAL_COLOR, teamColor } from "./palette";
 import { AnimationEvents, animationWindow } from "./animation-events";
@@ -211,6 +212,8 @@ function castClip(def: ViewDef): string {
 
 class UnitView {
   readonly group = new THREE.Group();
+  private readonly platePoint: PlateAnchor = { x: 0, y: 0, z: 0 };
+  private readonly plateHeight: number;
   private pose = new THREE.Group();
   private char: AnimatedCharacter;
   private ring: THREE.Mesh;
@@ -269,6 +272,11 @@ class UnitView {
     this.char.root.scale.setScalar(this.baseScale);
     this.group.add(this.pose);
     this.pose.add(this.char.root);
+    // Measure only the original body, before weapons, rings or trails attach.
+    // The cached height follows the placed root through terrain and real hops.
+    this.char.root.updateWorldMatrix(true, true);
+    const bodyBounds = new THREE.Box3().setFromObject(this.char.root);
+    this.plateHeight = Math.max(0.8, Number.isFinite(bodyBounds.max.y) ? bodyBounds.max.y : 1.4);
 
     // clone materials per-instance so hit-flash / stealth / team-tint don't
     // bleed across units that share a model (SkeletonUtils.clone shares mats).
@@ -556,7 +564,7 @@ class UnitView {
         ch.play(clip, { loop: false, fade: 0.04, timeScale: ts, offset: window.offset });
         this.oneShotUntil = window.until;
         this.emitTrails(window.remaining); // weapon-trail ribbon traces the blade
-        fx?.attackSound(this.def.id, u.x, u.y);
+        fx?.attackSound(this.def.id, u.x, u.y, this.isLocal);
       }
       // (the slash VFX is the shader ribbon in weapon-trail.ts — it traces
       // the real animated blade across the WHOLE swing; no billboard stamp)
@@ -726,6 +734,13 @@ class UnitView {
     this.statusFx?.update(u, dt, now);
   }
 
+  plateAnchor(): PlateAnchor {
+    this.platePoint.x = this.group.position.x;
+    this.platePoint.y = this.group.position.y + (this.hexShown ? 1.2 : this.plateHeight) + 0.12;
+    this.platePoint.z = this.group.position.z;
+    return this.platePoint;
+  }
+
   /** Swap the character for a hopping mushroom (witch's Grand Hex). */
   private setHex(on: boolean): void {
     this.hexShown = on;
@@ -864,6 +879,7 @@ export class WorldView {
   private spinners = new Set<string>(); // unit ids owning a live whirlwind zone
   private bossReturnAt = 0;
   private bossNextTaunt = 6000;
+  private lastBossLaunchAt = -Infinity;
   private fireballFlip = false;
   fx: Fx | null = null; // set by the scene, for projectile trails
   localId = "";
@@ -872,6 +888,10 @@ export class WorldView {
     private scene: THREE.Scene,
     private lib: ModelLibrary,
   ) {}
+
+  plateAnchor(id: string): PlateAnchor | null {
+    return this.units.get(id)?.plateAnchor() ?? null;
+  }
 
   setupBoss(): void {
     // the throne golem is a Rig_Large body — bind the Large clip set (the
@@ -911,6 +931,7 @@ export class WorldView {
     this.fireballFlip = false;
     this.bossReturnAt = 0;
     this.bossNextTaunt = 6000;
+    this.lastBossLaunchAt = -Infinity;
     this.boss?.play("Idle_B", { fade: 0 });
   }
 
@@ -1051,15 +1072,15 @@ export class WorldView {
 
   private syncCoins(w: World, now: number): void {
     const seen = new Set<string>();
+    let launched: Coin | null = null;
     for (const c of w.coins) {
       seen.add(c.id);
       // a freshly-spawned, still-flying coin = the boss just hurled it → animate;
       // a fresh loot drop (lands instantly) gets its landing pop right away
       if (!this.seenCoins.has(c.id)) {
         this.seenCoins.add(c.id);
-        if (now < c.landAt && this.boss) {
-          this.boss.play("Throw", { fade: 0.08, loop: false });
-          this.bossReturnAt = now + this.boss.clipDuration("Throw") * 1000; // full wind-up, no cut
+        if (!c.loot && now < c.landAt && (!launched || c.landAt > launched.landAt)) {
+          launched = c;
         } else if (c.loot) {
           this.fx?.impactRing(c.x, c.y, 0xffd24a, 1.0);
           this.fx?.sparks(c.x, 0.6, c.y, 0, 1, 5, 0xfff2b0);
@@ -1132,6 +1153,22 @@ export class WorldView {
       } else {
         mesh.rotation.y = now * 0.005;
         mesh.rotation.x = Math.PI / 2;
+      }
+    }
+    if (launched && this.boss) {
+      const launchAt = launched.landAt - 900;
+      if (launchAt > this.lastBossLaunchAt && launchAt <= now) {
+        this.lastBossLaunchAt = launchAt;
+        // Large has no Throw clip: its existing fallback is this native 2H
+        // release (measured right-hand peak at 35%). The coin has already left.
+        const timing = CLIP_TIMING.get("Melee_2H_Attack");
+        const duration = this.boss.clipDuration("Melee_2H_Attack");
+        const age = (now - launchAt) / 1000;
+        const offset = duration * (timing?.contact ?? 0.35) + age;
+        if (offset < duration) {
+          this.boss.play("Melee_2H_Attack", { fade: age > 0.1 ? 0 : 0.06, loop: false, offset });
+          this.bossReturnAt = now + (duration - offset) * 1000;
+        }
       }
     }
     for (const [id, mesh] of this.coins) {

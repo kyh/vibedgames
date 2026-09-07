@@ -1,3 +1,6 @@
+import { abilityReadiness } from "../render/hud-readability";
+import { readPreference } from "../data/preferences";
+import { AbilityGuide } from "../render/ability-guide";
 // Game scene — runs local (vs bots) or online (host-authoritative). The sim is
 // identical in both; only authority + transport differ. Mirrors games/moba:
 // guests send INTENT events and render snapshots; the host simulates and
@@ -62,6 +65,7 @@ export class GameScene {
   private environment: Environment;
   private fx: Fx;
   private hud: Hud;
+  private guide: AbilityGuide;
   private acc = 0;
   private aimX = 0;
   private aimY = 1;
@@ -162,6 +166,16 @@ export class GameScene {
         ? { kind: "online", canRematch: () => this.canRematch(), rematch: () => this.rematch() }
         : { kind: "offline" },
     );
+    this.hud.setPlateAnchors((id) => this.worldView.plateAnchor(id));
+    this.guide = new AbilityGuide((open) => {
+      this.resetHeldInput();
+      this.controls.setMouseMode(
+        open || this.hud.isShopOpen || this.controlsPaused || this.world.phase === "ended",
+      );
+      this.neutralPending = true;
+      this.flushNeutralInput();
+    });
+    this.hud.setKitAction(() => this.guide.show(this.champId, this.localUnit()));
     // contextual hint engine — DOM-free; the HUD renders via showHint("" hides)
     this.hints = new Hints(
       () => this.touch?.active ?? false,
@@ -189,13 +203,22 @@ export class GameScene {
     return this.world.units.get(this.localId) ?? null;
   }
 
+  get isGuideOpen(): boolean {
+    return this.guide.open;
+  }
+
   // ── per-frame ──
   update(frameDt: number): void {
     if (this.disposed) return;
-    this.controls.update(this.controlsPaused ? 0 : frameDt); // poll before any reads
+    this.guide.update(this.localUnit());
+    this.controls.update(this.controlsPaused || this.guide.open ? 0 : frameDt); // poll before any reads
+    const inspect = this.controls.consumeGuide();
+    if (inspect && !this.controlsPaused && !this.guide.open && this.world.phase === "playing")
+      this.guide.show(this.champId, this.localUnit());
     this.introTime += frameDt; // real-time clock for the fly-in/countdown
     if (this.net) this.tickOnline(frameDt);
     else this.tickLocal(frameDt);
+    if (this.world.phase === "ended") this.guide.close();
 
     this.view.samplePerf(frameDt); // adaptive resolution (real, unscaled dt)
     const me = this.localUnit();
@@ -353,6 +376,12 @@ export class GameScene {
     const music = this.fx.audio.music;
     if (!music) return;
     const desired = this.musicDesired(this.world, me);
+    if (!me.alive) {
+      if (this.musicIntensity !== 0) music.setIntensity(0);
+      this.musicIntensity = 0;
+      this.musicLowSince = -1;
+      return;
+    }
     if (desired > this.musicIntensity) {
       // escalate immediately
       this.musicIntensity = desired;
@@ -372,6 +401,7 @@ export class GameScene {
   }
 
   private musicDesired(w: World, me: Unit): 0 | 1 | 2 | 3 {
+    if (!me.alive) return 0;
     // 3: endgame stakes or a contested throne
     if (w.suddenDeath || w.matchTime - w.gameTime < 60) return 3;
     if (isInThrone(me.x, me.y) && this.enemyHeroNear(me, 0, 0, 11)) return 3;
@@ -416,6 +446,7 @@ export class GameScene {
     if (!def) return;
     for (const key of ALL_ABILITY_KEYS) {
       const slot = me.abilities[key];
+      touch.setReadiness(key, abilityReadiness(me, key, this.world.now));
       let pct = 0;
       if (slot.rank < 1) {
         pct = 1; // locked reads as a full sweep (dimmed)
@@ -572,7 +603,7 @@ export class GameScene {
     // MOUSE mode while a menu owns the cursor (shop, end screen); ACTION mode
     // (locked pointer) the rest of the match. Controls no-ops when unchanged.
     this.controls.setMouseMode(
-      this.controlsPaused || this.hud.isShopOpen || this.world.phase === "ended",
+      this.controlsPaused || this.guide.open || this.hud.isShopOpen || this.world.phase === "ended",
     );
     if (this.controlsPaused || this.world.phase === "ended") {
       // Results own input. Drain edges so a new round cannot inherit a cast.
@@ -588,6 +619,11 @@ export class GameScene {
       this.touch?.consumeDash();
       this.touch?.consumeBuy();
       this.hud.consumeItemTaps();
+      return;
+    }
+    if (this.guide.open) {
+      this.drainActionInput();
+      if (host) setHeroInput(me, 0, 0, this.aimX, this.aimY, false);
       return;
     }
     if (!me.alive) {
@@ -973,6 +1009,7 @@ export class GameScene {
    *  offline only, the sim itself is frozen by simply not calling update(). */
   pauseAudio(): void {
     this.controlsPaused = true;
+    this.guide.close();
     this.resetHeldInput();
     this.controls.setMouseMode(true);
     this.neutralPending = true;
@@ -992,6 +1029,7 @@ export class GameScene {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.guide.dispose();
     this.net?.destroy();
     this.statusEl.remove();
     this.hud.dispose();
@@ -1014,7 +1052,7 @@ const clampArena = (n: number): number => (n < -HALF ? -HALF : n > HALF ? HALF :
 export function chosenChamp(): string {
   const fromUrl = new URLSearchParams(location.search).get("champ");
   if (fromUrl && CHAMP_BY_ID[fromUrl]) return fromUrl;
-  const stored = localStorage.getItem("ba-champ");
+  const stored = readPreference("ba-champ");
   if (stored && CHAMP_BY_ID[stored]) return stored;
   return DEFAULT_CHAMP;
 }
@@ -1023,6 +1061,6 @@ export function chosenChamp(): string {
 export function chosenName(): string {
   const fromUrl = new URLSearchParams(location.search).get("name")?.trim();
   if (fromUrl) return fromUrl.slice(0, 14);
-  const stored = localStorage.getItem("ba-name")?.trim();
+  const stored = readPreference("ba-name")?.trim();
   return stored ? stored.slice(0, 14) : "Player";
 }

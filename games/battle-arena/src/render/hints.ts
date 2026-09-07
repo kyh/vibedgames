@@ -8,6 +8,7 @@
 // shop-open handler calls `notifyShopOpened()` to dismiss the shop hint early.
 import { CAMPS, isInThrone } from "../data/map";
 import type { Unit, World } from "../sim/types";
+import { liveBossCoins } from "./objective-state";
 
 const INTRO_S = 2.4; // solo fly-in length (view.startIntro) — move hint waits for it
 const SHOW_S = 4; // hint display time
@@ -28,6 +29,8 @@ type Rule = {
   when(w: World, me: Unit, st: HintState): boolean;
   /** Early-dismiss (and "already learned — never show") condition. */
   done?(w: World, me: Unit, st: HintState): boolean;
+  /** A transient target disappearing dismisses a visible lesson, not an unseen one. */
+  dismiss?(w: World): boolean;
 };
 
 function enemyWithin(w: World, me: Unit, r: number): boolean {
@@ -84,14 +87,15 @@ const RULES: Rule[] = [
     id: "coin",
     text: "Golem threw gold — grab it",
     touch: "Golem threw gold — grab it",
-    when: (w) => w.coins.length > 0,
-    done: (w) => w.coins.length === 0,
+    when: (w) => liveBossCoins(w).length > 0,
+    dismiss: (w) => liveBossCoins(w).length === 0,
   },
   {
     id: "delivery",
-    text: "Green pad — free item",
-    touch: "Green pad — free item",
-    when: (w) => w.deliveries.length > 0,
+    text: "Green pad — item or gold",
+    touch: "Green pad — item or gold",
+    when: (w) => w.deliveries.some((drop) => drop.expireAt > w.now),
+    dismiss: (w) => !w.deliveries.some((drop) => drop.expireAt > w.now),
   },
   {
     id: "shop600",
@@ -168,7 +172,7 @@ export class Hints {
 
     if (this.visible) {
       const r = this.visible;
-      if (t >= this.visibleUntil || (r.done !== undefined && r.done(w, me, this.st))) this.hide();
+      if (t >= this.visibleUntil || r.done?.(w, me, this.st) || r.dismiss?.(w)) this.hide();
       return;
     }
     if (t < this.nextAt) return;

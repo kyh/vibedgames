@@ -1,3 +1,5 @@
+import type { AbilityReadiness } from "../render/hud-readability";
+import { CHAMP_BY_ID } from "../data/champions";
 // Touch controls (build-doc §12). Left half = floating move stick (camera-
 // relative forward/strafe); right half = floating LOOK stick — it turns the
 // camera FPS-style (the scene folds its deflection into yaw/pitch at pad
@@ -49,6 +51,8 @@ type Btn = {
   label: HTMLSpanElement;
   cd: HTMLDivElement | null;
   lastCd: number;
+  state: HTMLSpanElement;
+  lastState: string;
 };
 
 export class TouchControls {
@@ -114,7 +118,10 @@ export class TouchControls {
       });
       el.addEventListener("pointerup", () => el.classList.remove("press"));
       el.addEventListener("pointercancel", () => el.classList.remove("press"));
-      this.buttons.set(b.id, { el, label, cd, lastCd: -1 });
+      const state = document.createElement("span");
+      state.className = "ba-tstate";
+      el.append(state);
+      this.buttons.set(b.id, { el, label, cd, state, lastCd: -1, lastState: "" });
       pad.appendChild(el);
     }
     this.layer.appendChild(pad);
@@ -141,6 +148,7 @@ export class TouchControls {
     for (const key of ALL_ABILITY_KEYS) {
       const btn = this.buttons.get(key);
       if (!btn) continue;
+      btn.el.setAttribute("aria-label", CHAMP_BY_ID[champId]?.abilities[key].name ?? key);
       btn.el.style.backgroundImage = `url("${abilityIcon(champId, key)}")`;
       if (key === "Q" || key === "W" || key === "E" || key === "R") btn.label.classList.add("kc");
     }
@@ -155,6 +163,18 @@ export class TouchControls {
     if (v === btn.lastCd) return;
     btn.lastCd = v;
     btn.cd.style.setProperty("--cd", `${v}`);
+  }
+
+  /** Informative only: taps still reach the authoritative cast/buffer path. */
+  setReadiness(key: AbilityKey, readiness: AbilityReadiness): void {
+    const button = this.buttons.get(key);
+    if (!button) return;
+    const text = readiness.kind === "blocked" ? readiness.label : readiness.queued ? "QUEUED" : "";
+    if (text === button.lastState) return;
+    button.lastState = text;
+    button.state.textContent = text;
+    button.el.classList.toggle("blocked", readiness.kind === "blocked");
+    button.el.classList.toggle("queued", readiness.queued);
   }
 
   private activate(): void {
@@ -273,6 +293,7 @@ function injectTouchStyle(): void {
 .ba-tbtn .ba-tl{font:800 18px ui-monospace,monospace;pointer-events:none}
 .ba-tbtn .ba-tl.word{font-size:11px;letter-spacing:.5px}
 .ba-tbtn .ba-tl.kc{position:absolute;right:6px;bottom:4px;font:800 10px/14px ui-monospace,monospace;color:#ffd24a;background:rgba(5,8,16,.85);border-radius:4px;padding:0 4px}
+.ba-tbtn.blocked{filter:saturate(.35)}.ba-tbtn.queued{border-color:#ffd24a}.ba-tstate{position:absolute;left:0;right:0;top:18px;text-align:center;font:800 9px ui-monospace,monospace;background:#09101dcc;color:#ffe7a4;pointer-events:none}.ba-tstate:empty{display:none}
 .ba-tcd{position:absolute;inset:0;border-radius:50%;background:conic-gradient(rgba(5,8,16,.75) calc(var(--cd,0)*1%),transparent 0);pointer-events:none}
 `;
   document.head.appendChild(s);

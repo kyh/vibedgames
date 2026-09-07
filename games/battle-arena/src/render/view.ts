@@ -1,3 +1,4 @@
+import { softLightMaterial } from "./soft-light";
 // The Three.js stage: renderer, scene, lights, the static arena built from
 // data/map, and an ARPG chase camera. Reads map data — nothing hand-placed.
 import * as THREE from "three";
@@ -373,14 +374,7 @@ export class View {
     // from across the arena, narrow enough not to curtain the sky behind the dais
     this.throneColumn = new THREE.Mesh(
       new THREE.CylinderGeometry(1.2, 2.0, 11, 24, 1, true),
-      new THREE.MeshBasicMaterial({
-        color: 0xffcc55,
-        transparent: true,
-        opacity: 0.03,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-      }),
+      softLightMaterial(0xffcc55, 0.03),
     );
     this.throneColumn.position.set(ARENA.throne.x, plateauTop + 5.5, ARENA.throne.y);
     arenaGroup.add(this.throneColumn);

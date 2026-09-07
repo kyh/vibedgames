@@ -98,6 +98,7 @@ export function castAbility(w: World, caster: Unit, key: AbilityKey, ctx: CastCt
   caster.lastCastKey = key;
   w.fx.push({
     t: "cast",
+    unitId: caster.id,
     x: caster.x,
     y: caster.y,
     dx: dir.x,

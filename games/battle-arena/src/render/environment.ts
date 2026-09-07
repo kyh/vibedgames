@@ -1,3 +1,4 @@
+import { softLightMaterial } from "./soft-light";
 // KayKit dungeon dressing for "The Sunken Court" — a hexagonal two-story
 // dungeon hall. Places the perimeter walls (ground story + a set-back,
 // balustraded second story with arched windows), interior partition-wall
@@ -519,14 +520,7 @@ export class Environment {
     const merged = mergeGeometries(cones);
     for (const g of cones) g.dispose();
     if (!merged) return;
-    const mat = new THREE.MeshBasicMaterial({
-      color: 0x9fc6e0,
-      transparent: true,
-      opacity: 0.035,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    });
+    const mat = softLightMaterial(0x9fc6e0, 0.035);
     this.ownedGeos.push(merged);
     this.ownedMats.push(mat);
     this.add(new THREE.Mesh(merged, mat));
