@@ -16,7 +16,7 @@ export class ForestLandmarks {
   private readonly trees: Landmark[] = [];
 
   constructor(scene: Phaser.Scene) {
-    // Twin grove, a broad old canopy, then a loose group of sunlit boughs.
+    // Varied tree groups repeat well behind the course.
     for (const [at, offset, height, foreground] of [
       [900, -120, 410, true],
       [900, 120, 350, true],

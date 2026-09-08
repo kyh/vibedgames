@@ -46,9 +46,6 @@ function sceneFixture(window = {}) {
       phrase: 0,
       countdown: 0,
       unwatch: 0,
-      challenge: 0,
-      retry: 0,
-      normal: 0,
     };
   const document = {
     getElementById(id) {
@@ -68,9 +65,6 @@ function sceneFixture(window = {}) {
   };
   const names = [
     "externalReleased",
-    "routePointerEvents",
-    "stopRoutePointer",
-    "stopRouteKey",
     "onPointerInput",
     "onFlapKey",
     "onMuteKey",
@@ -101,14 +95,8 @@ function sceneFixture(window = {}) {
     phase: "playing",
     muted: false,
     startEl: document.getElementById("start"),
-    challengeStartEl: document.getElementById("challenge-start"),
-    routeRetryEl: document.getElementById("route-retry"),
-    routeNormalEl: document.getElementById("route-normal"),
     resultsEl: document.getElementById("flight-result"),
-    routeHud: document.getElementById("route-hud"),
-    onChallengeStart: () => calls.challenge++,
-    onRouteRetry: () => calls.retry++,
-    onRouteNormal: () => calls.normal++,
+    gatesEl: document.getElementById("flight-gates"),
     layout() {},
     flap: () => calls.flap++,
     beginPlay: () => calls.begin++,
@@ -131,7 +119,7 @@ test("scene release runs once on shutdown or actual Phaser destroy after display
   for (const shutdownFirst of [false, true]) {
     const f = sceneFixture(),
       g = f.scene;
-    g.routeHud.hidden = false;
+    g.gatesEl.hidden = false;
     const countdown = new Element();
     countdown.classList.add("show", "pop");
     countdown.textContent = "2";
@@ -148,7 +136,7 @@ test("scene release runs once on shutdown or actual Phaser destroy after display
     destroySystems.call({ events: f.bus, settings: {} });
     g.releaseExternal();
     assert.equal(g.externalReleased, true);
-    assert.equal(g.routeHud.hidden, true);
+    assert.equal(g.gatesEl.hidden, true);
     assert.equal(countdown.textContent, "");
     assert.equal(countdown.classList.contains("show"), false);
     assert.equal(countdown.classList.contains("pop"), false);
@@ -164,37 +152,21 @@ test("scene release runs once on shutdown or actual Phaser destroy after display
     assert.deepEqual([f.calls.begin, f.calls.flap, f.calls.mute], [0, 0, 0]);
   }
 });
-test("native route button Space/Enter and pointer events stay local without suppressing native activation", () => {
+test("ordinary pointer and keyboard input stays live until its scene owner releases", () => {
   const f = sceneFixture();
-  for (const [element, action] of [
-    [f.scene.challengeStartEl, "challenge"],
-    [f.scene.routeRetryEl, "retry"],
-    [f.scene.routeNormalEl, "normal"],
-  ]) {
-    for (const key of ["Enter", " "]) {
-      for (const type of ["keydown", "keyup"]) {
-        const event = new Event(type, { bubbles: true, cancelable: true });
-        Object.defineProperty(event, "key", { value: key });
-        element.dispatchEvent(event);
-        assert.equal(event.cancelBubble, true);
-        assert.equal(event.defaultPrevented, false);
-      }
-      element.click();
-    }
-    assert.equal(f.calls[action], 2);
-    for (const type of ["pointerdown", "pointerup", "pointermove", "pointercancel"]) {
-      const event = new Event(type, { bubbles: true });
-      element.dispatchEvent(event);
-      assert.equal(event.cancelBubble, true);
-    }
-  }
-  assert.deepEqual([f.calls.flap, f.calls.begin], [0, 0]);
   f.keyboard.emit("keydown-SPACE", { repeat: false });
-  assert.equal(f.calls.flap, 1);
+  f.keyboard.emit("keydown-UP", { repeat: false });
+  f.keyboard.emit("keydown-SPACE", { repeat: true });
+  f.input.emit("pointerdown");
+  assert.equal(f.calls.flap, 3);
   f.keyboard.emit("keyup", { key: "d" });
-  assert.equal(f.calls.begin, 1);
+  f.keyboard.emit("keyup", { key: "d" });
+  assert.equal(f.calls.begin, 1, "title keyboard listener is once-only");
   f.scene.releaseExternal();
   assert.equal(f.keyboard.eventNames().length, 0);
+  f.input.emit("pointerdown");
+  f.keyboard.emit("keydown-UP", { repeat: false });
+  assert.equal(f.calls.flap, 3);
 });
 test("actual main final Game order closes camera/window/timer/pause owners without accessing SceneManager", () => {
   const window = new Element(),

@@ -134,7 +134,7 @@ test("a changed admitted seed rebuilds cached obstacle geometry before the next 
     ["build", 42],
   ]);
 });
-test("challenge seed is isolated from shared input; normal course admits only valid seeds", () => {
+test("normal course admits only valid shared seeds; the first host draws one seed", () => {
   const ensure = method("ensureSeed", {
     numField: (o, key) => o[key] ?? null,
     randomSeed: () => 97,
@@ -143,7 +143,6 @@ test("challenge seed is isolated from shared input; normal course admits only va
     patched = [],
     game = {
       seed: 0,
-      challengeSeed: () => null,
       adoptSeed(seed) {
         this.seed = seed;
         adopted.push(seed);
@@ -164,65 +163,10 @@ test("challenge seed is isolated from shared input; normal course admits only va
   game.net.sharedState = { seed: 41 };
   ensure.call(game);
   assert.deepEqual(adopted, [41]);
-  game.challengeSeed = () => 8123;
-  ensure.call(game);
-  assert.deepEqual(adopted, [41, 8123]);
   assert.deepEqual(patched, []);
-  game.challengeSeed = () => null;
   game.seed = 0;
   game.net.sharedState = null;
   game.net.isHost = true;
   ensure.call(game);
   assert.deepEqual(patched, [{ seed: 97 }]);
-});
-test("explicit route navigation retires the prior session and resets only transport ownership", () => {
-  const created = [],
-    window = {},
-    old = {
-      destroys: 0,
-      destroy() {
-        this.destroys++;
-      },
-    };
-  class NetSession {
-    destroys = 0;
-    constructor(options) {
-      this.options = options;
-      created.push(this);
-    }
-    destroy() {
-      this.destroys++;
-    }
-  }
-  const replace = method("replaceSession", {
-    NetSession,
-    MP_ROOM: "original-room",
-    MP_MAX_PLAYERS: 8,
-    OFFLINE_FALLBACK_MS: 3000,
-    window,
-  });
-  const game = {
-    net: old,
-    seed: 37,
-    stateAcc: 1,
-    worldAcc: 1,
-    boardAcc: 1,
-    hostSeq: 12,
-    lastSeq: 22,
-    boardSig: "old",
-    lastNetInfo: "old",
-    worldX: 321,
-    score: 9,
-  };
-  replace.call(game, true);
-  assert.equal(old.destroys, 1);
-  assert.equal(created[0].options.forceOffline, true);
-  assert.equal(game.net, created[0]);
-  assert.equal(game.seed, 0);
-  assert.equal(game.lastSeq, -1);
-  assert.equal(game.worldX, 321);
-  assert.equal(game.score, 9);
-  replace.call(game, false);
-  assert.equal(created[0].destroys, 1);
-  assert.equal(created[1].options.forceOffline, false);
 });

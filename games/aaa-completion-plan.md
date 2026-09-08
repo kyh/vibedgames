@@ -6,8 +6,10 @@ tested polish baseline, not a collection-wide AAA quality claim. The next pass
 uses observed sessions to find remaining art, animation, sound and clarity gaps.
 
 Preserve core gameplay, asset/video animation and hand/face/pose/pointer/touch/
-controller inputs. Optional new modes add depth without replacing the normal
-rules. Keep Crazy Waymo's separate work intact while checking it as the reference.
+controller inputs. The user's updated direction puts all new mechanics in normal
+play: [current correction plan](main-gameplay-plan.md). Optional-mode entries below
+are historical evidence, superseded by that plan. Keep Crazy Waymo's separate
+work intact while checking it as the reference.
 
 ## Continued quality work
 
