@@ -44,6 +44,7 @@ export class NetSession {
   private droppedRevision = 0;
   private unwatch: (() => void) | null = null;
   private disposed = false;
+  private full = false;
 
   private solo = false;
   private everConnected = false;
@@ -78,6 +79,14 @@ export class NetSession {
       let playerId = client.playerId;
       let hostId = client.hostId;
       this.unwatch = client.subscribe(() => {
+        if (this.disposed) return;
+        // An invite identifies one room; the SDK's matchmaking overflow must
+        // not admit this player into a different expedition under that code.
+        if (client.room !== opts.room) {
+          this.full = true;
+          this.destroy();
+          return;
+        }
         if (client.connectionStatus === "connected") this.everConnected = true;
         if (
           status === client.connectionStatus &&
@@ -105,10 +114,14 @@ export class NetSession {
     return this.droppedRevision;
   }
 
+  get roomFull(): boolean {
+    return this.full;
+  }
+
   /** Call once per frame: drives the offline fallback timer. */
   tick(): void {
     const client = this.client;
-    if (this.solo || !client) return;
+    if (this.disposed || this.solo || !client) return;
     // Start the grace window on the FIRST tick, not at construction: heavy games
     // (lots of assets/wasm) can take longer than the window just to reach their
     // first frame, and counting that load time would wrongly drop a client to

@@ -556,7 +556,9 @@ export class GameScene extends Phaser.Scene {
       .setAlpha(0);
 
     const regParty: JsonValue = this.registry.get("party");
-    const party = params.get("party") ?? (isJsonString(regParty) ? regParty : "");
+    const party = (params.get("party") ?? (isJsonString(regParty) ? regParty : ""))
+      .trim()
+      .toUpperCase();
     const regMode: JsonValue = this.registry.get("mode");
     const modeStr = params.get("mode") ?? (isJsonString(regMode) ? regMode : "");
     if (party.length > 0 && modeStr === "vs") this.mode = "versus";
@@ -638,7 +640,7 @@ export class GameScene extends Phaser.Scene {
       this.fadeRect.setAlpha(1);
       this.showBanner("CONNECTING…", 100000, "connecting");
       this.session = new NetSession({
-        room: `lunerfall-${party}`,
+        room: `lunerfall-${this.mode === "versus" ? "vs" : "coop"}-${party}`,
         maxPlayers: 2,
         fallbackMs: 6000,
       });
@@ -1148,6 +1150,10 @@ export class GameScene extends Phaser.Scene {
 
     if (this.session) {
       this.session.tick();
+      if (this.session.roomFull) {
+        this.scene.start("select", { roomFull: true });
+        return;
+      }
       // Drain input even while disconnected. A single sample serves authority,
       // prediction and uplink; old presses never queue behind reconnection.
       const sample = this.demo ? this.demoInput() : this.controls.sample();

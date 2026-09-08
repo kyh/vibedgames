@@ -20,6 +20,8 @@ export function sessionFixture() {
   class Socket extends EventTarget {
     id = "right";
     closed = 0;
+    redirects = [];
+    reconnects = 0;
     constructor() {
       super();
       sockets.push(this);
@@ -30,6 +32,13 @@ export function sessionFixture() {
     close() {
       this.closed++;
       this.dispatchEvent(new Event("close"));
+    }
+    updateProperties(properties) {
+      this.redirects.push(properties);
+    }
+    reconnect() {
+      this.reconnects++;
+      this.close();
     }
     receive(message) {
       this.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(message) }));
@@ -75,6 +84,49 @@ const check = (name, run) => {
   groups++;
   console.log(`PASS ${name}`);
 };
+check(
+  "actual SDK overflow rejects the invite before admission and never falls back to solo",
+  () => {
+    const n = sessionFixture();
+    try {
+      n.session.tick();
+      n.socket.receive({ type: "room_full", data: { room: "checkpoint-test~2", capacity: 2 } });
+      assert.equal(n.socket.redirects[0].room, "checkpoint-test~2", "real SDK redirected");
+      assert.equal(n.socket.reconnects, 1);
+      const fullAtRedirect = n.session.roomFull;
+      n.sync({ unrelated: true }, "right");
+      assert.equal(n.session.live, false, "overflow room cannot admit a new host");
+      assert.equal(fullAtRedirect, true, "rejection is synchronous with redirect");
+      assert.equal(n.session.isHost, false);
+      assert.equal(n.session.offline, false);
+      assert.equal(n.timers.size, 0, "the rejected client's heartbeat is released");
+      const closed = n.socket.closed;
+      const count = n.packets.length;
+      const revision = n.session.authorityRevision;
+      n.sync({ unrelated: true }, "right");
+      n.socket.dispatchEvent(new Event("open"));
+      n.socket.dispatchEvent(new Event("error"));
+      n.socket.receive({ type: "room_full", data: { room: "checkpoint-test~3", capacity: 2 } });
+      n.session.updateMyState({ input: "late" });
+      n.session.patchShared({ seeded: true });
+      n.session.sendEvent("late", {});
+      n.setNow(100000);
+      n.session.tick();
+      n.session.destroy();
+      n.session.destroy();
+      assert.equal(n.session.roomFull, true);
+      assert.equal(n.session.live, false);
+      assert.equal(n.session.isHost, false);
+      assert.equal(n.session.offline, false);
+      assert.equal(n.session.authorityRevision, revision, "destroyed subscription stays inert");
+      assert.equal(n.socket.reconnects, 1, "late packets cannot redirect again");
+      assert.equal(n.socket.closed, closed, "cleanup is idempotent");
+      assert.equal(n.packets.length, count, "no late admission, writes or events");
+    } finally {
+      n.session.destroy();
+    }
+  },
+);
 check(
   "actual SDK disconnected host cannot write, send events, or queue player input; election alone admits authority",
   () => {

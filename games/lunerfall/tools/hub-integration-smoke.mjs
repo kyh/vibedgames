@@ -8,6 +8,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as meta from "../src/data/meta.ts";
 import { readRunRecap } from "../src/data/run-recap.ts";
+import { parseRoomCode, partyLink } from "../src/hub/party-link.ts";
 import { HERO_ORDER, HEROES } from "../src/data/heroes.ts";
 import { CONTROLS } from "../src/controls.ts";
 import { BASE_W, BASE_H, HERO_ORIGIN_Y } from "../src/config.ts";
@@ -94,6 +95,8 @@ class Node extends Target {
     return this.attributes.get(name) ?? null;
   }
   matches(selector) {
+    if (selector.includes(","))
+      return selector.split(",").some((part) => this.matches(part.trim()));
     return selector.startsWith(".")
       ? this.className.split(" ").includes(selector.slice(1))
       : this.tagName === selector;
@@ -108,6 +111,9 @@ class Node extends Target {
   }
   closest(selector) {
     return this.matches(selector) ? this : (this.parent?.closest(selector) ?? null);
+  }
+  contains(node) {
+    return node === this || this.children.some((child) => child.contains(node));
   }
   getBoundingClientRect() {
     return { left: 20, top: 80, right: 160, bottom: 240, width: 140, height: 160 };
@@ -127,12 +133,22 @@ class Button extends Node {
     super("button");
   }
 }
+class Input extends Node {
+  value = "";
+  constructor() {
+    super("input");
+  }
+  select() {}
+}
 globalThis.Element = Node;
 globalThis.HTMLButtonElement = Button;
+globalThis.HTMLInputElement = Input;
+globalThis.HTMLTextAreaElement = class extends Node {};
 globalThis.document = {
   body: new Node("body"),
   activeElement: null,
-  createElement: (tag) => (tag === "button" ? new Button() : new Node(tag)),
+  createElement: (tag) =>
+    tag === "button" ? new Button() : tag === "input" ? new Input() : new Node(tag),
   createTextNode: (text) => {
     const n = new Node("#text");
     n.textContent = text;
@@ -288,6 +304,8 @@ const SelectScene = loadClass("SelectScene", "src/scenes/select-scene.ts", {
   HERO_ORDER,
   HEROES,
   readRunRecap,
+  parseRoomCode,
+  partyLink,
   ...meta,
   HubView,
   isCoarse: () => coarse,
@@ -341,7 +359,7 @@ check(
     data.recap.gold = 999;
     assert.equal(scene.recap.gold, 27);
     assert.match(scene.view.root.textContent, /GOLD 27/);
-    assert.match(scene.view.root.textContent, /\+18 SHARDS/);
+    assert.match(scene.view.root.textContent, /\+18 ✦/);
     assert.deepEqual(meta.loadMeta(), original);
     stop(scene);
     scene.init(scene.sys.settings.data);
@@ -564,34 +582,85 @@ check("dialog opening and arrow/pad navigation restore the intended keyboard own
   stop(scene);
 });
 
-check("online toggles preserve room code, versus policy and explicit co-op receipt restart", () => {
+check(
+  "online choices preserve code and clean invites without starting or restarting other rooms",
+  () => {
+    resetMeta();
+    currentUrl = new URL("http://localhost:5190/?party=TEST&mode=vs");
+    const scene = start({ recap: banked });
+    assert.equal(scene.net, "vs");
+    assert.equal(scene.code, "TEST");
+    click(scene.view.coop);
+    assert.equal(scene.code, "TEST");
+    assert.equal(scene.net, "coop");
+    assert.equal(currentUrl.searchParams.get("mode"), null);
+    assert.equal(scene.starts.length, 0);
+    click(scene.view.go);
+    assert.equal(scene.registry.get("party"), "TEST");
+    assert.equal(scene.registry.get("restartExpedition"), false);
+    stop(scene);
+    currentUrl = new URL("http://localhost:5190/?offline=1");
+    const ordinary = start();
+    click(ordinary.view.coop);
+    const code = ordinary.code;
+    assert.match(code, /^[A-Z2-9]{4}$/);
+    assert.equal(currentUrl.searchParams.has("offline"), false);
+    click(ordinary.view.versus);
+    assert.equal(ordinary.code, code);
+    assert.equal(currentUrl.searchParams.get("mode"), "vs");
+    click(ordinary.view.versus);
+    assert.equal(ordinary.net, "vs");
+    assert.equal(ordinary.code, code);
+    click(ordinary.view.solo);
+    assert.equal(ordinary.net, "off");
+    assert.equal(currentUrl.searchParams.has("party"), false);
+    assert.equal(ordinary.starts.length, 0);
+    stop(ordinary);
+  },
+);
+
+check("room entry normalizes codes; invalid input and text shortcuts cannot start a run", () => {
   resetMeta();
-  currentUrl = new URL("http://localhost:5190/?party=TEST&mode=vs");
-  const scene = start({ recap: banked });
+  currentUrl = new URL("http://localhost:5190/?party=abcd&mode=vs&offline=1#preview");
+  const scene = start();
+  assert.equal(scene.code, "ABCD");
+  assert.equal(currentUrl.href, "http://localhost:5190/?party=ABCD&mode=vs");
+  const input = scene.view.root.querySelector("input");
+  input.focus();
+  for (const [code, letter] of [
+    ["KeyC", "c"],
+    ["KeyM", "m"],
+    ["KeyJ", "j"],
+    ["Enter", "Enter"],
+  ])
+    key(scene, input, code, letter);
   assert.equal(scene.net, "vs");
-  assert.equal(scene.code, "TEST");
-  click(scene.view.coop);
-  assert.equal(scene.code, "TEST");
-  assert.equal(scene.net, "coop");
-  assert.equal(currentUrl.searchParams.get("mode"), null);
+  assert.equal(scene.shopOpen, false);
   assert.equal(scene.starts.length, 0);
-  click(scene.view.go);
-  assert.equal(scene.registry.get("party"), "TEST");
-  assert.equal(scene.registry.get("restartExpedition"), true);
+  scene.joinRoom("bad?");
+  assert.equal(scene.code, "ABCD");
+  scene.joinRoom(" ajcm ");
+  assert.equal(scene.code, "AJCM");
+  assert.equal(currentUrl.searchParams.get("party"), "AJCM");
+  assert.equal(scene.starts.length, 0);
+  scene.confirm();
+  assert.equal(scene.registry.get("party"), "AJCM");
+  assert.equal(scene.registry.get("mode"), "vs");
   stop(scene);
-  currentUrl = new URL("http://localhost:5190/?offline=1");
-  const ordinary = start();
-  click(ordinary.view.coop);
-  const code = ordinary.code;
-  assert.match(code, /^[A-Z2-9]{4}$/);
-  click(ordinary.view.versus);
-  assert.equal(ordinary.code, code);
-  assert.equal(currentUrl.searchParams.get("mode"), "vs");
-  click(ordinary.view.versus);
-  assert.equal(ordinary.net, "off");
-  assert.equal(currentUrl.searchParams.has("party"), false);
-  assert.equal(ordinary.starts.length, 0);
-  stop(ordinary);
+});
+
+check("only the same co-op room can restart a retained recap", () => {
+  resetMeta();
+  currentUrl = new URL("http://localhost:5190/?party=ABCD");
+  const same = start({ recap: banked });
+  same.confirm();
+  assert.equal(same.registry.get("restartExpedition"), true);
+  stop(same);
+  const different = start({ recap: banked });
+  different.joinRoom("EFGH");
+  different.confirm();
+  assert.equal(different.registry.get("restartExpedition"), false);
+  stop(different);
 });
 
 check(

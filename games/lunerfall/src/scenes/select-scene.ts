@@ -16,6 +16,7 @@ import {
   UPGRADES,
 } from "../data/meta";
 import { HubView } from "../hub/hub-view";
+import { parseRoomCode, partyLink } from "../hub/party-link";
 import { isCoarse } from "../sys/screen";
 
 /** Screen-space hub only. The same authored sprites, selection and purchase
@@ -24,7 +25,7 @@ export class SelectScene extends Phaser.Scene {
   private index = 0;
   private sprites: Phaser.GameObjects.Sprite[] = [];
   private ring: Phaser.GameObjects.Ellipse | null = null;
-  private arrow: Phaser.GameObjects.Text | null = null;
+  private showcase: Phaser.GameObjects.Sprite | null = null;
   private backdrop: Phaser.GameObjects.Image | null = null;
   private shade: Phaser.GameObjects.Rectangle | null = null;
   private view: HubView | null = null;
@@ -35,6 +36,8 @@ export class SelectScene extends Phaser.Scene {
   private shopIndex = 0;
   private pad: PhysicalGamepad | null = null;
   private recap: RunRecap | null = null;
+  private recapRoom: { code: string; mode: "coop" | "vs" } | null = null;
+  private roomFull = false;
   private k = 1;
   private selectedX = 0;
   private selectedY = 0;
@@ -46,11 +49,10 @@ export class SelectScene extends Phaser.Scene {
 
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Phaser supplies untyped scene data; parse at this boundary.
   init(data: unknown): void {
-    this.recap =
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Untrusted scene-entry payload, not game-domain state.
-      typeof data === "object" && data !== null && "recap" in data
-        ? readRunRecap(data.recap)
-        : null;
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Untrusted scene-entry payload, not game-domain state.
+    const payload = typeof data === "object" && data !== null ? data : null;
+    this.recap = payload && "recap" in payload ? readRunRecap(payload.recap) : null;
+    this.roomFull = payload !== null && "roomFull" in payload && payload.roomFull === true;
     // Phaser retains old truthy scene data. Consume the receipt exactly once.
     this.sys.settings.data = {};
   }
@@ -61,20 +63,19 @@ export class SelectScene extends Phaser.Scene {
     this.shopOpen = false;
     this.shopIndex = 0;
     const search = new URLSearchParams(location.search);
-    const code = search.get("party");
-    this.code = code?.toUpperCase() ?? "";
+    const code = parseRoomCode(search.get("party") ?? "");
+    this.code = code ?? "";
     this.net = code ? (search.get("mode") === "vs" ? "vs" : "coop") : "off";
+    this.recapRoom = this.recap && this.net !== "off" ? { code: this.code, mode: this.net } : null;
+    this.syncRoomUrl();
     this.reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     this.backdrop = this.add
       .image(0, 0, "env:backdrop")
       .setOrigin(0)
       .setTint(0x7385a8)
-      .setAlpha(0.5);
-    this.shade = this.add.rectangle(0, 0, 1, 1, 0x05070b, 0.42).setOrigin(0);
+      .setAlpha(0.85);
+    this.shade = this.add.rectangle(0, 0, 1, 1, 0x05070b, 0.22).setOrigin(0);
     this.ring = this.add.ellipse(0, 0, 46, 16).setStrokeStyle(1.5, 0x34e5c8, 0.95);
-    this.arrow = this.add
-      .text(0, 0, "▼", { fontFamily: "monospace", fontSize: "12px", color: "#34e5c8" })
-      .setOrigin(0.5);
     for (const name of HERO_ORDER) {
       const sprite = this.add
         .sprite(0, 0, name, firstFrame(this, name))
@@ -82,6 +83,9 @@ export class SelectScene extends Phaser.Scene {
       sprite.play(`${name}:idle`);
       this.sprites.push(sprite);
     }
+    this.showcase = this.add
+      .sprite(0, 0, "axion", firstFrame(this, "axion"))
+      .setOrigin(0.5, HERO_ORIGIN_Y);
     this.view = new HubView(
       {
         hero: (index) => this.pickHero(index),
@@ -89,6 +93,7 @@ export class SelectScene extends Phaser.Scene {
         forge: () => this.toggleShop(),
         offer: (index) => this.pickUpgrade(index),
         mode: (mode) => this.toggleNet(mode),
+        join: (code) => this.joinRoom(code),
         layout: this.layout,
       },
       this.recap,
@@ -116,7 +121,7 @@ export class SelectScene extends Phaser.Scene {
       this.sprites = [];
       // DisplayList owns these objects, including direct Game.destroy's path.
       this.ring = null;
-      this.arrow = null;
+      this.showcase = null;
       this.backdrop = null;
       this.shade = null;
       // Restore only when a running game can accept a scene transition.
@@ -127,6 +132,7 @@ export class SelectScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, shutdown);
     this.events.once(Phaser.Scenes.Events.DESTROY, destroy);
     this.refresh();
+    if (this.roomFull) this.view.announce("Room full. Join another code or play Solo.");
   }
 
   /** DOM stages determine positions in CSS pixels. Only this scene changes the
@@ -150,35 +156,39 @@ export class SelectScene extends Phaser.Scene {
       const art = node.querySelector(".lf-hub-art")?.getBoundingClientRect();
       if (!art) return;
       const selected = index === this.index;
-      const scale = Math.min(rect.width / 27, art.height / 31, selected ? 4.2 : 2.9) * this.k;
+      const scale = Math.min(rect.width / 32, art.height / 34, 2.4) * this.k;
       const x = (rect.left + rect.width / 2) * this.k;
-      const y = (art.bottom - 18) * this.k;
+      const y = (art.bottom - 5) * this.k;
       const locked = !isUnlocked(this.meta, name);
       sprite
         .setPosition(x, y)
         .setScale(scale)
         .setVisible(rect.bottom > 0 && art.top < h);
-      sprite.setAlpha(selected ? (locked ? 0.72 : 1) : locked ? 0.38 : 0.68);
-      sprite.setTint(locked ? 0x788294 : 0xffffff);
-      if (selected) {
-        this.selectedX = x;
-        this.selectedY = y;
-        this.ring
-          ?.setPosition(x, y + 3 * this.k)
-          .setSize((46 * scale) / 2, (16 * scale) / 2)
-          .setStrokeStyle(1.5 * this.k, HEROES[name].color, 0.95)
-          .setVisible(sprite.visible);
-        this.arrow
-          ?.setPosition(x, y - 25 * scale - 8 * this.k)
-          .setScale(this.k)
-          .setColor(`#${HEROES[name].color.toString(16).padStart(6, "0")}`)
-          .setVisible(sprite.visible);
-      }
+      sprite.setAlpha(selected ? 1 : locked ? 0.68 : 0.9);
+      sprite.setTint(locked ? 0xaab2c0 : 0xffffff);
     });
+    const hero = HERO_ORDER[this.index] ?? "axion";
+    const stage = view.showcase.getBoundingClientRect();
+    const scale = Math.min(stage.width / 58, stage.height / 38, 8) * this.k;
+    this.selectedX = (stage.left + stage.width / 2) * this.k;
+    this.selectedY = (stage.bottom - 22) * this.k;
+    const visible = stage.bottom > 0 && stage.top < h;
+    this.showcase
+      ?.setPosition(this.selectedX, this.selectedY)
+      .setScale(scale)
+      .setAlpha(isUnlocked(this.meta, hero) ? 1 : 0.65)
+      .setVisible(visible)
+      .play(`${hero}:idle`, true);
+    this.ring
+      ?.setPosition(this.selectedX, this.selectedY + 3 * this.k)
+      .setSize(23 * scale, 8 * scale)
+      .setStrokeStyle(2 * this.k, HEROES[hero].color, 0.8)
+      .setVisible(visible);
   };
 
   update(time: number): void {
     this.pad?.update();
+    if (this.view?.blocksGameInput()) return;
     if (this.pad?.justPressed("left")) this.move(-1);
     if (this.pad?.justPressed("right")) this.move(1);
     if (this.shopOpen) {
@@ -188,17 +198,16 @@ export class SelectScene extends Phaser.Scene {
     if (this.pad?.justPressed("a")) this.confirm();
     const pulse = this.reducedMotion?.matches ? 0 : Math.sin(time / 460);
     this.ring?.setScale(1 + pulse * 0.05);
-    const selected = this.sprites[this.index];
-    if (selected)
-      this.arrow?.setPosition(
-        this.selectedX,
-        this.selectedY - 25 * selected.scaleY - 8 * this.k + pulse * 2 * this.k,
-      );
   }
 
   private readonly keyDown = (event: KeyboardEvent): void => {
+    if (event.repeat || this.view?.blocksGameInput()) return;
     // Native button activation owns Enter/Space; do not also descend behind it.
-    if (event.target instanceof HTMLButtonElement && (event.key === "Enter" || event.key === " "))
+    if (
+      event.target instanceof Element &&
+      event.target.closest("button, summary") &&
+      (event.key === "Enter" || event.key === " ")
+    )
       return;
     if (event.code.startsWith("Arrow") || event.code === "Space") event.preventDefault();
     sfx.unlock();
@@ -249,6 +258,7 @@ export class SelectScene extends Phaser.Scene {
       bestScore: loadBestScore(),
       net: this.net,
       code: this.code,
+      inviteUrl: this.net === "off" ? "" : partyLink(location.href, this.code, this.net),
       shop: this.shopOpen ? { index: this.shopIndex } : null,
       coarse: isCoarse(),
     });
@@ -267,8 +277,7 @@ export class SelectScene extends Phaser.Scene {
   private pickHero(index: number): void {
     if (this.shopOpen) return;
     sfx.unlock();
-    if (index === this.index) this.confirm();
-    else {
+    if (index !== this.index) {
       this.index = index;
       sfx.select();
       this.refresh();
@@ -327,25 +336,43 @@ export class SelectScene extends Phaser.Scene {
     }
   }
 
-  private toggleNet(mode: "coop" | "vs"): void {
+  private toggleNet(mode: "off" | "coop" | "vs"): void {
     if (this.shopOpen) return;
     sfx.unlock();
     sfx.select();
-    const url = new URL(location.href);
-    if (this.net === mode) {
+    if (mode === "off") {
       this.net = "off";
       this.code = "";
-      url.searchParams.delete("party");
-      url.searchParams.delete("mode");
     } else {
       if (this.net === "off") this.code = randomCode();
       this.net = mode;
-      url.searchParams.set("party", this.code);
-      if (mode === "vs") url.searchParams.set("mode", "vs");
-      else url.searchParams.delete("mode");
     }
-    history.replaceState(null, "", url.toString());
+    this.syncRoomUrl();
+    this.view?.announce("");
     this.refresh();
+  }
+
+  private joinRoom(value: string): void {
+    if (this.shopOpen || this.net === "off") return;
+    const code = parseRoomCode(value);
+    if (!code) {
+      this.view?.announce("Enter a 4-character room code.");
+      return;
+    }
+    this.code = code;
+    this.syncRoomUrl();
+    this.refresh();
+    this.view?.announce("Room selected. Press Play to join.");
+    this.view?.focusSelection();
+  }
+
+  private syncRoomUrl(): void {
+    const url = new URL(location.href);
+    if (this.net === "off") {
+      url.searchParams.delete("party");
+      url.searchParams.delete("mode");
+      history.replaceState(null, "", url.toString());
+    } else history.replaceState(null, "", partyLink(location.href, this.code, this.net));
   }
 
   /** Deliberate unlock never starts a run. Keyboard/controller confirm on a
@@ -362,7 +389,10 @@ export class SelectScene extends Phaser.Scene {
     this.registry.set("hero", hero);
     this.registry.set("party", this.net !== "off" ? this.code : "");
     this.registry.set("mode", this.net === "vs" ? "vs" : "");
-    this.registry.set("restartExpedition", this.net === "coop" && this.recap !== null);
+    this.registry.set(
+      "restartExpedition",
+      this.net === "coop" && this.recapRoom?.mode === "coop" && this.recapRoom.code === this.code,
+    );
     notifyGameStarted();
     this.scene.start("game", { hero });
   }
