@@ -34,11 +34,19 @@ class Target extends EventTarget {
   addEventListener(name, fn, options) {
     if (!this.listeners.has(name)) this.listeners.set(name, new Set());
     this.listeners.get(name).add(fn);
-    super.addEventListener(name, fn, options);
+    super.addEventListener(
+      name,
+      fn,
+      options === true || options === false ? { capture: options } : options,
+    );
   }
   removeEventListener(name, fn, options) {
     this.listeners.get(name)?.delete(fn);
-    super.removeEventListener(name, fn, options);
+    super.removeEventListener(
+      name,
+      fn,
+      options === true || options === false ? { capture: options } : options,
+    );
   }
   count(name) {
     return this.listeners.get(name)?.size ?? 0;
@@ -224,12 +232,28 @@ test("menu and HUD restart/final boundaries release only their external owners",
   }
 });
 
+function embedFixture(window) {
+  window.parent = window;
+  const source = strip(
+    read("../../../packages/embed/src/protocol.ts") +
+      "\n" +
+      read("../../../packages/embed/src/game.ts"),
+  )
+    .replace(/^import[\s\S]*?;\s*/gm, "")
+    .replace(/^export /gm, "");
+  return new Function(
+    "window",
+    "HTMLElement",
+    `${source};return {setPauseHandlers,notifyGameStarted,pauseGame,resumeGame,isPausable};`,
+  )(window, class extends Target {});
+}
 async function appFixture(online) {
   const window = new Target(),
     document = new Target(),
     timers = new Map(),
     calls = [],
     scenes = gameSceneFixture();
+  const embed = embedFixture(window);
   let hooks = {},
     timerId = 0,
     destroyed = false,
@@ -296,6 +320,7 @@ async function appFixture(online) {
     },
     setPauseHandlers: (value) => {
       hooks = value;
+      return embed.setPauseHandlers(value);
     },
     showPauseOverlay: () => calls.push("overlay:show"),
     hidePauseOverlay: () => calls.push("overlay:hide"),
@@ -310,40 +335,88 @@ async function appFixture(online) {
   };
   const source = strip(read("../src/main.ts")).replace(/^import[\s\S]*?;\s*/gm, "");
   await new Function(...Object.keys(deps), `${source};return fontReady;`)(...Object.values(deps));
-  return { window, document, game, scenes, timers, calls, hooks: () => hooks, hud };
+  return { window, document, game, scenes, timers, calls, hooks: () => hooks, hud, embed };
 }
-test("actual Game.runDestroy closes scene owners then app listeners/timer/pause without querying dead scenes", async () => {
+test("paused offline/online Game.runDestroy releases the actual embed owner without querying dead scenes", async () => {
+  for (const online of [false, true]) {
+    const f = await appFixture(online);
+    const baselineKeys = f.window.count("keydown");
+    assert.equal(f.timers.size, 0, "resolved font cancels its fallback timeout");
+    f.embed.notifyGameStarted();
+    f.embed.pauseGame();
+    assert.equal(f.window.count("keydown"), baselineKeys + 1);
+    assert.equal(f.window.count("keyup"), 1);
+    f.window.dispatchEvent(new Event("resize"));
+    const pending = [...f.timers.values()][0],
+      stale = f.hooks();
+    assert.ok(pending);
+    const retainedDisposes = f.game.events.listeners("destroy");
+    f.game.runDestroy();
+    for (const dispose of retainedDisposes) dispose();
+    assert.equal(f.scenes.counts.net, 1);
+    assert.equal(f.scenes.settings.size, 0);
+    assert.equal(f.window.count("resize"), 0);
+    assert.equal(f.document.count("visibilitychange"), 0);
+    assert.equal(f.timers.size, 0);
+    assert.equal(f.window.count("keydown"), baselineKeys);
+    assert.equal(f.window.count("keyup"), 0);
+    assert.equal(f.embed.isPausable(), false);
+    assert.equal(f.window["__GAME_DIAGNOSTICS__"].phase, "disposed");
+    const finalCalls = [...f.calls];
+    pending();
+    stale.onPause();
+    stale.onResume();
+    assert.equal(stale.escapePauses(), false);
+    f.embed.resumeGame();
+    f.embed.pauseGame();
+    f.window.dispatchEvent(new Event("resize"));
+    f.document.dispatchEvent(new Event("visibilitychange"));
+    f.game.events.emit("destroy");
+    assert.deepEqual(
+      f.calls,
+      finalCalls,
+      "retained callbacks cannot resume the dead scene or loop",
+    );
+    assert.equal(f.calls.filter((x) => x === "sound:dispose").length, 1);
+    assert.equal(f.calls.includes("scale"), false);
+  }
+});
+test("old app destroy preserves a newer actual embed pause owner and its active key gate", async () => {
   const f = await appFixture(true);
-  assert.equal(f.timers.size, 0, "resolved font cancels its fallback timeout");
-  f.window.dispatchEvent(new Event("resize"));
-  const pending = [...f.timers.values()][0],
-    stale = f.hooks();
-  assert.ok(pending);
+  const baselineKeys = f.window.count("keydown");
+  f.embed.notifyGameStarted();
+  f.embed.pauseGame();
+  const newerCalls = [];
+  const releaseNewer = f.embed.setPauseHandlers({
+    onPause: () => newerCalls.push("pause"),
+    onResume: () => newerCalls.push("resume"),
+  });
   const retainedDisposes = f.game.events.listeners("destroy");
   f.game.runDestroy();
   for (const dispose of retainedDisposes) dispose();
-  assert.equal(f.scenes.counts.net, 1);
-  assert.equal(f.scenes.settings.size, 0);
-  assert.equal(f.window.count("resize"), 0);
-  assert.equal(f.document.count("visibilitychange"), 0);
-  assert.equal(f.timers.size, 0);
-  assert.deepEqual(f.hooks(), {});
-  assert.equal(f.window["__GAME_DIAGNOSTICS__"].phase, "disposed");
-  pending();
-  stale.onPause();
-  stale.onResume();
-  assert.equal(stale.escapePauses(), false);
-  f.window.dispatchEvent(new Event("resize"));
-  f.document.dispatchEvent(new Event("visibilitychange"));
-  f.game.events.emit("destroy");
+  assert.equal(f.window.count("keyup"), 1, "old release cannot remove a newer owner's paused gate");
+  f.embed.resumeGame();
+  assert.deepEqual(newerCalls, ["resume"]);
+  assert.equal(f.embed.isPausable(), true);
+  assert.equal(f.window.count("keydown"), baselineKeys);
+  assert.equal(f.window.count("keyup"), 0);
+  f.embed.pauseGame();
+  assert.deepEqual(newerCalls, ["resume", "pause"]);
+  releaseNewer();
+  releaseNewer();
+  f.embed.resumeGame();
+  assert.deepEqual(newerCalls, ["resume", "pause"]);
+  assert.equal(f.embed.isPausable(), false);
+  assert.equal(f.window.count("keyup"), 0);
+  assert.equal(f.calls.includes("wake"), false);
   assert.equal(f.calls.filter((x) => x === "sound:dispose").length, 1);
-  assert.equal(f.calls.includes("scale"), false);
 });
 test("unchanged online pause keeps simulation live; offline pause owns one sleep/wake and HUD Escape", async () => {
   for (const online of [true, false]) {
     const f = await appFixture(online);
-    f.hooks().onPause();
-    f.hooks().onResume();
+    f.embed.notifyGameStarted();
+    f.embed.pauseGame();
+    f.embed.resumeGame();
     assert.deepEqual(f.calls.slice(0, 2), ["controls:true", "sound:true"]);
     assert.equal(f.calls.includes("sleep"), !online);
     assert.equal(f.calls.includes("wake"), !online);

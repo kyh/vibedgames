@@ -11,9 +11,9 @@ rules. Keep Crazy Waymo's separate work intact while checking it as the referenc
 
 ## Continued quality work
 
-One game at a time, through PR #327. Ancients', Battle Arena's, Bomberman's,
-Starfall's, Lunerfall's and Farm's second checkpoints are pushed with passing CI. Prior receipts below remain historical
-evidence for their exact source versions and measured scopes.
+All ten games now have second implementation checkpoints, one game at a time
+through PR #327. Each receipt records its exact source version and measured
+scope. Final integration checks preserve newer Crazy Waymo work on main.
 
 Ancients plan: correct exposed foam centres with the original shoreline art;
 align original attack contact frames with accepted hit times; add accepted spell
@@ -179,6 +179,13 @@ retry, camera recovery, compact HOLD feedback and exact final ownership. Active
 runs remain paused after graphics recovery; original deadlines shift on deliberate
 resume. Rare clear/catch states use explicit fixtures. Original rules, detector
 trace, input methods and asset remain intact. Full verification and build pass.
+
+[Final integration evidence](/Users/kyh/.codex/visualizations/2026/09/05/01a072e5-b121-77b0-b7f7-52a06ec3e9e2/aaa-completion/final-integration/README.md)
+records Ancients' two-line correction to release its exact shared pause owner.
+Real paused browser destruction removes the keyboard gate; a newer owner's
+registration survives and resumes once. Existing gameplay and audio stay exact.
+Battle's ordinary scene/rematch cleanup remains distinct from a full app remount;
+this pass makes no editor/HMR or universal GPU teardown claim.
 
 Unresolved questions: none blocking this pass.
 

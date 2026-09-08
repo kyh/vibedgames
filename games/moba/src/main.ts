@@ -98,7 +98,7 @@ void fontReady.then(() => {
     clearTimeout(settle);
     window.removeEventListener("resize", refreshScale);
     document.removeEventListener("visibilitychange", onVisibility);
-    setPauseHandlers({});
+    releasePauseHandlers();
     hidePauseOverlay();
     disposeSound();
   };
@@ -114,7 +114,7 @@ void fontReady.then(() => {
     return game.scene.isActive("Game") && scene instanceof GameScene && scene.isOnline();
   };
   let froze = false;
-  setPauseHandlers({
+  const releasePauseHandlers = setPauseHandlers({
     onPause: () => {
       if (disposed) return;
       const scene = game.scene.getScene("Game");
