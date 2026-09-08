@@ -643,7 +643,9 @@ test("the actual final app owner stops its loop before releasing camera, scene a
       dispose: () => calls.push("renderer"),
       domElement: { remove: () => calls.push("canvas") },
     },
-    setPauseHandlers: (handlers) => calls.push(["pause-handlers", handlers]),
+    releasePause: () => calls.push("pause-release"),
+    devHooks: {},
+    diagnostics: {},
     pauseOverlay: { hide: () => calls.push("overlay") },
     face: { dispose: () => calls.push("camera") },
     game: { dispose: () => calls.push("scene") },
@@ -658,7 +660,7 @@ test("the actual final app owner stops its loop before releasing camera, scene a
   dispose();
   assert.deepEqual(calls, [
     ["loop", null],
-    ["pause-handlers", {}],
+    "pause-release",
     "overlay",
     "camera",
     "scene",
@@ -669,4 +671,179 @@ test("the actual final app owner stops its loop before releasing camera, scene a
   ]);
   assert.equal(window.listenerCount + webcamToggle.listenerCount, 0);
   assert.equal(webcamPanel.hidden, true);
+});
+
+test("actual main clears the paused embed gate and exact globals without touching replacement owners", () => {
+  for (const replacement of [false, true]) {
+    const calls = [];
+    class Element extends Surface {
+      classList = { contains: () => false, add() {}, remove() {}, toggle() {} };
+      appendChild() {}
+      remove() {}
+      addEventListener(type, fn, options) {
+        super.addEventListener(
+          type,
+          fn,
+          options === true || options === false ? { capture: options } : options,
+        );
+      }
+      removeEventListener(type, fn, options) {
+        super.removeEventListener(
+          type,
+          fn,
+          options === true || options === false ? { capture: options } : options,
+        );
+      }
+    }
+    const window = new Element();
+    Object.assign(window, {
+      parent: window,
+      innerWidth: 1280,
+      innerHeight: 720,
+      devicePixelRatio: 1,
+    });
+    const elements = new Map();
+    const document = {
+      body: new Element(),
+      getElementById(id) {
+        if (!elements.has(id)) elements.set(id, new Element());
+        return elements.get(id);
+      },
+    };
+    const js = (text) =>
+      stripTypeScriptTypes(text, { mode: "transform" })
+        .replace(/^import[^;]*;\s*/gm, "")
+        .replace(/^export /gm, "");
+    const embed = new Function(
+      "window",
+      "HTMLElement",
+      "GAME_PAUSED_MESSAGE",
+      "GAME_STARTED_MESSAGE",
+      "isPauseGameMessage",
+      js(readFileSync(new URL("../../../packages/embed/src/game.ts", import.meta.url), "utf8")) +
+        ";return {setPauseHandlers,notifyGameStarted,pauseGame,resumeGame,isPausable};",
+    )(window, Element, "paused", "started", () => false);
+    let loop, retainedLoop, pause;
+    class Renderer {
+      domElement = new Element();
+      shadowMap = {};
+      setPixelRatio() {}
+      setSize() {
+        calls.push("size");
+      }
+      setAnimationLoop(next) {
+        loop = next;
+        if (next) retainedLoop = next;
+      }
+      render() {
+        calls.push("render");
+      }
+      dispose() {
+        calls.push("renderer");
+      }
+    }
+    class Timer {
+      update() {}
+      getDelta() {
+        return 0.016;
+      }
+      dispose() {}
+    }
+    class Game {
+      dispose() {
+        calls.push("game");
+      }
+      setPresentationPaused() {
+        calls.push("pause");
+      }
+      update() {
+        calls.push("update");
+      }
+      diagnostics() {
+        return { score: 0 };
+      }
+      resize() {
+        calls.push("resize");
+      }
+      onMouthChange() {
+        calls.push("mouth");
+      }
+      onHeadTurnLeft() {
+        calls.push("left");
+      }
+      onHeadTurnRight() {
+        calls.push("right");
+      }
+    }
+    class Camera {
+      start() {}
+      dispose() {
+        calls.push("camera");
+      }
+      setActionsPaused() {}
+    }
+    const deps = {
+      window,
+      document,
+      THREE: { WebGLRenderer: Renderer, Timer },
+      HTMLElement: Element,
+      HTMLButtonElement: Element,
+      HTMLVideoElement: Element,
+      HTMLCanvasElement: Element,
+      setPauseHandlers(next) {
+        pause = next;
+        return embed.setPauseHandlers(next);
+      },
+      disposeAudio() {},
+      setAudioPaused() {},
+      unlockAudio() {},
+      FaceCamera: Camera,
+      IS_TOUCH: false,
+      pauseOverlay: { show() {}, hide() {} },
+      GameScene: Game,
+      MAX_DT: 0.05,
+      TONE_EXPOSURE: 1,
+    };
+    new Function(
+      ...Object.keys(deps),
+      js(main)
+        .replaceAll("import.meta.env.DEV", "true")
+        .replace("import.meta.hot?.dispose(dispose);", ""),
+    )(...Object.values(deps));
+    const dispose = window.__pacmanDispose,
+      hooks = window.__pacman;
+    retainedLoop(1);
+    embed.notifyGameStarted();
+    embed.pauseGame();
+    assert.equal(window.listeners.get("keyup").size, 1);
+    let resumed = 0,
+      release;
+    const next = {};
+    const names = ["__pacman", "__pacmanDispose", "__GAME_DIAGNOSTICS__"];
+    if (replacement) {
+      release = embed.setPauseHandlers({ onResume: () => resumed++ });
+      for (const name of names) window[name] = next;
+    }
+    dispose();
+    dispose();
+    assert.equal(loop, null);
+    assert.equal(window.listeners.get("keyup").size, replacement ? 1 : 0);
+    for (const name of names) assert.equal(window[name], replacement ? next : undefined, name);
+    assert.equal(calls.filter((c) => c === "camera").length, 1);
+    assert.equal(calls.filter((c) => c === "game").length, 1);
+    const after = [...calls];
+    retainedLoop(2);
+    pause.onPause();
+    pause.onResume();
+    hooks.mouth(true);
+    hooks.chomp();
+    hooks.turnLeft();
+    hooks.turnRight();
+    window.dispatchEvent(new Event("resize"));
+    assert.deepEqual(calls, after);
+    embed.resumeGame();
+    assert.equal(resumed, replacement ? 1 : 0);
+    assert.equal(embed.isPausable(), replacement);
+    release?.();
+  }
 });

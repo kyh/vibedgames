@@ -17,7 +17,35 @@ const deferred = () => {
   });
   return { promise, resolve, reject };
 };
-class Element extends EventTarget {
+class Surface extends EventTarget {
+  listeners = new Map();
+  addEventListener(type, listener, options) {
+    const listeners = this.listeners.get(type) ?? new Set();
+    listeners.add(listener);
+    this.listeners.set(type, listeners);
+    super.addEventListener(type, listener, options);
+  }
+  removeEventListener(type, listener, options) {
+    this.listeners.get(type)?.delete(listener);
+    super.removeEventListener(type, listener, options);
+  }
+}
+class Track extends Surface {
+  stops = 0;
+  readyState = "live";
+  constructor(onStop) {
+    super();
+    this.onStop = onStop;
+  }
+  stop() {
+    this.stops++;
+    this.readyState = "ended";
+    this.onStop();
+    // Stress reentrant cleanup: listeners must be removed before stopping.
+    this.dispatchEvent(new Event("ended"));
+  }
+}
+class Element extends Surface {
   style = {};
   width = 0;
   height = 0;
@@ -26,6 +54,7 @@ class Element extends EventTarget {
   readyState = 0;
   currentTime = 0;
   srcObject = null;
+  error = null;
   pauses = 0;
   textContent = "";
   play() {
@@ -49,15 +78,20 @@ function harness(source = current) {
     stops: 0,
     events: [],
     states: [],
+    tracks: [],
   };
   let now = 1000,
     nextRaf = 0;
   const video = new Element(),
     overlay = new Element(),
     status = new Element();
-  const stream = { getTracks: () => [{ stop: () => calls.stops++ }] };
+  const mediaStream = () => {
+    const track = new Track(() => calls.stops++);
+    calls.tracks.push(track);
+    return { getTracks: () => [track] };
+  };
   const config = {
-    media: async () => stream,
+    media: async () => mediaStream(),
     fileset: async () => ({}),
     model: async () => {
       const model = {
@@ -144,6 +178,7 @@ function harness(source = current) {
     config,
     video,
     frame,
+    mediaStream,
     async start() {
       await camera.start();
       video.readyState = 2;
@@ -192,7 +227,7 @@ test("camera denial retries before model costs; readiness follows real face resu
   await h.camera.start();
   assert.equal(h.calls.imports, 0);
   assert.equal(h.camera.diagnostics().state.kind, "unavailable");
-  h.config.media = async () => ({ getTracks: () => [{ stop: () => h.calls.stops++ }] });
+  h.config.media = async () => h.mediaStream();
   await h.start();
   assert.deepEqual(h.camera.diagnostics().state, { kind: "live", tracking: false });
   h.tick(1200, face());
@@ -209,7 +244,7 @@ test("late media and model completions release once after stop/dispose", async (
   h.config.media = () => media.promise;
   const start = h.camera.start();
   h.camera.dispose();
-  media.resolve({ getTracks: () => [{ stop: () => h.calls.stops++ }] });
+  media.resolve(h.mediaStream());
   await start;
   assert.equal(h.calls.stops, 1);
   assert.equal(h.calls.imports, 0);
@@ -311,4 +346,95 @@ test("600-frame mouth/head/held-repeat trace matches original detector and order
     );
   }
   assert.equal(output.hash, "8226c13a52b8b0aeb291fb8d847cccb6454ef37b07d6303407a4f3ad13d5e2a3");
+});
+
+test("track loss and video errors stop cached gestures and allow a fresh capture", async () => {
+  for (const fault of ["ended", "error"]) {
+    const h = harness();
+    await h.start();
+    h.tick(1400, face(true, "left"));
+    const track = h.calls.tracks[0];
+    const oldTrackListener = [...(track.listeners.get("ended") ?? [])][0];
+    const oldVideoListener = [...(h.video.listeners.get("error") ?? [])][0];
+    const oldFrame = [...h.frame.values()][0];
+    const before = h.calls.events.length;
+    if (fault === "error") h.video.error = { code: 3, message: "decode failed" };
+    (fault === "ended" ? track : h.video).dispatchEvent(new Event(fault));
+    for (let i = 0; i < 10; i++) h.tick(2000 + i * 600, face(true, "left"), false);
+    assert.equal(h.camera.diagnostics().state.kind, "unavailable", fault);
+    assert.equal(h.calls.events.length, before, "no cached face actions after capture loss");
+    assert.equal(h.frame.size, 0);
+    assert.equal(h.video.srcObject, null);
+    assert.equal(track.stops, 1);
+    assert.equal(h.calls.models[0].closes, 1);
+    assert.equal(h.calls.drawings[0].closes, 1);
+    assert.equal(track.listeners.get("ended").size, 0);
+    assert.equal(h.video.listeners.get("error").size, 0);
+    h.video.error = null;
+    await h.start();
+    assert.equal(h.calls.media, 2);
+    assert.equal(h.frame.size, 1);
+    oldTrackListener();
+    oldVideoListener();
+    oldFrame();
+    track.dispatchEvent(new Event("ended"));
+    h.video.dispatchEvent(new Event("error"));
+    assert.equal(h.camera.diagnostics().state.kind, "live");
+    assert.equal(h.calls.models[1].closes, 0);
+    h.tick(9000, face(false, "center"));
+    assert.ok(h.calls.events.length > before);
+    h.camera.dispose();
+    h.camera.dispose();
+    assert.equal(h.frame.size, 0);
+    assert.equal(h.video.listeners.get("error").size, 0);
+    for (const owner of h.calls.tracks) assert.equal(owner.stops, 1);
+    for (const owner of h.calls.models) assert.equal(owner.closes, 1);
+    for (const owner of h.calls.drawings) assert.equal(owner.closes, 1);
+  }
+});
+
+test("an already-ended acquired track releases before loading the model and remains retryable", async () => {
+  const h = harness();
+  const stream = h.mediaStream();
+  h.calls.tracks[0].readyState = "ended";
+  h.config.media = async () => stream;
+  await h.camera.start();
+  assert.equal(h.camera.diagnostics().state.kind, "unavailable");
+  assert.equal(h.calls.tracks[0].stops, 1);
+  assert.equal(h.calls.imports, 0);
+  assert.equal(h.frame.size, 0);
+  assert.equal(h.video.srcObject, null);
+  h.config.media = async () => h.mediaStream();
+  await h.start();
+  assert.equal(h.camera.diagnostics().state.kind, "live");
+  assert.equal(h.calls.media, 2);
+  h.camera.dispose();
+  assert.equal(h.calls.tracks[0].stops, 1);
+  assert.equal(h.calls.tracks[1].stops, 1);
+});
+
+test("track loss during model startup fences late completion and removes listeners before stop", async () => {
+  const h = harness(),
+    lateModel = deferred();
+  h.config.model = () => lateModel.promise;
+  const pending = h.camera.start();
+  await settle();
+  h.calls.tracks[0].dispatchEvent(new Event("ended"));
+  assert.equal(h.camera.diagnostics().state.kind, "unavailable");
+  assert.equal(h.calls.tracks[0].stops, 1);
+  assert.equal(h.calls.drawings[0].closes, 1);
+  let closes = 0;
+  lateModel.resolve({ close: () => closes++ });
+  await pending;
+  assert.equal(closes, 1);
+  assert.equal(h.frame.size, 0);
+  assert.equal(h.video.srcObject, null);
+  assert.equal(h.calls.tracks[0].listeners.get("ended").size, 0);
+  const clean = harness();
+  await clean.start();
+  clean.camera.stop();
+  assert.equal(clean.camera.diagnostics().state.kind, "idle");
+  assert.equal(clean.calls.states.filter((state) => state.kind === "unavailable").length, 0);
+  assert.equal(clean.calls.tracks[0].listeners.get("ended").size, 0);
+  assert.equal(clean.video.listeners.get("error").size, 0);
 });

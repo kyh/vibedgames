@@ -128,7 +128,7 @@ window.addEventListener("resize", resize);
 // frame even while paused, so the delta never balloons across the gap —
 // resuming needs no explicit reset.
 let paused = false;
-setPauseHandlers({
+const releasePause = setPauseHandlers({
   onPause: () => {
     if (disposed) return;
     pauseOverlay.show();
@@ -149,6 +149,8 @@ setPauseHandlers({
 
 const timer = new THREE.Timer();
 let frame = 0;
+type Diagnostics = ReturnType<GameScene["diagnostics"]> & { frame: number; paused: boolean };
+let diagnostics: Diagnostics | undefined;
 renderer.setAnimationLoop((time) => {
   if (disposed) return;
   timer.update(time);
@@ -158,7 +160,8 @@ renderer.setAnimationLoop((time) => {
     frame++;
   }
   renderer.render(game.scene, game.camera);
-  Object.assign(window, { __GAME_DIAGNOSTICS__: { frame, paused, ...game.diagnostics() } });
+  diagnostics = { frame, paused, ...game.diagnostics() };
+  window.__GAME_DIAGNOSTICS__ = diagnostics;
 });
 
 function dispose(): void {
@@ -171,7 +174,7 @@ function dispose(): void {
   webcamToggle.removeEventListener("click", onCameraClick);
   webcamToggle.removeEventListener("keydown", sealCameraKey);
   webcamToggle.removeEventListener("keyup", sealCameraKey);
-  setPauseHandlers({});
+  releasePause();
   pauseOverlay.hide();
   face.dispose();
   webcamPanel.hidden = true;
@@ -180,25 +183,43 @@ function dispose(): void {
   timer.dispose();
   renderer.dispose();
   renderer.domElement.remove();
+  if (window.__pacman === devHooks) delete window.__pacman;
+  if (window.__pacmanDispose === dispose) delete window.__pacmanDispose;
+  if (window.__GAME_DIAGNOSTICS__ === diagnostics) delete window.__GAME_DIAGNOSTICS__;
 }
 
 import.meta.hot?.dispose(dispose);
 
 // Synthetic gesture hooks so the face pipeline can be driven without a webcam.
+const devHooks = {
+  game,
+  face,
+  renderer,
+  mouth: (open: boolean) => {
+    if (!disposed) game.onMouthChange(open);
+  },
+  chomp: () => {
+    if (disposed) return;
+    game.onMouthChange(true);
+    game.onMouthChange(false);
+  },
+  turnLeft: () => {
+    if (!disposed) game.onHeadTurnLeft();
+  },
+  turnRight: () => {
+    if (!disposed) game.onHeadTurnRight();
+  },
+};
+declare global {
+  interface Window {
+    __pacman?: typeof devHooks;
+    __pacmanDispose?: typeof dispose;
+    __GAME_DIAGNOSTICS__?: Diagnostics;
+  }
+}
 if (import.meta.env.DEV) {
   Object.assign(window, {
-    __pacman: {
-      game,
-      face,
-      renderer,
-      mouth: (open: boolean) => game.onMouthChange(open),
-      chomp: () => {
-        game.onMouthChange(true);
-        game.onMouthChange(false);
-      },
-      turnLeft: () => game.onHeadTurnLeft(),
-      turnRight: () => game.onHeadTurnRight(),
-    },
+    __pacman: devHooks,
     __pacmanDispose: dispose,
   });
 }

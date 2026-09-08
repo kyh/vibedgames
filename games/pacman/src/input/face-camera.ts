@@ -74,6 +74,7 @@ export class FaceCamera {
   private attempt = 0;
   private raf: number | null = null;
   private loadedData: (() => void) | null = null;
+  private releaseCaptureEvents: (() => void) | null = null;
   private actionsPaused = false;
   private mouthOpen = false;
   private headPosition: HeadPosition = "center";
@@ -111,6 +112,22 @@ export class FaceCamera {
         return;
       }
       this.stream = stream;
+      const video = this.opts.video;
+      const tracks = stream.getTracks();
+      if (tracks.some((track) => track.readyState === "ended")) {
+        this.fail(attempt);
+        return;
+      }
+      const onEnded = (): void => this.fail(attempt);
+      const onVideoError = (): void => {
+        if (video.srcObject === stream && video.error) this.fail(attempt);
+      };
+      for (const track of tracks) track.addEventListener("ended", onEnded);
+      video.addEventListener("error", onVideoError);
+      this.releaseCaptureEvents = () => {
+        for (const track of tracks) track.removeEventListener("ended", onEnded);
+        video.removeEventListener("error", onVideoError);
+      };
 
       this.publish({ kind: "starting", stage: "model" });
       const vision = await import("@mediapipe/tasks-vision");
@@ -135,7 +152,6 @@ export class FaceCamera {
       }
       this.landmarker = landmarker;
 
-      const video = this.opts.video;
       const loaded = (): void => {
         if (!this.current(attempt) || this.loadedData !== loaded) return;
         video.removeEventListener("loadeddata", loaded);
@@ -172,6 +188,9 @@ export class FaceCamera {
     this.raf = null;
     if (this.loadedData) this.opts.video.removeEventListener("loadeddata", this.loadedData);
     this.loadedData = null;
+    const releaseEvents = this.releaseCaptureEvents;
+    this.releaseCaptureEvents = null;
+    releaseEvents?.();
     this.opts.video.pause();
     this.opts.video.srcObject = null;
     for (const track of this.stream?.getTracks() ?? []) track.stop();

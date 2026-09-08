@@ -159,6 +159,20 @@ the original plush maze, lullaby, Pearl circuit, rules and detector ordering.
 Verify native retry, compact layouts, accepted movement and paused destruction.
 Keep the existing sound mix; a speculative routing change needs listening.
 
+[Pacman second-pass evidence](/Users/kyh/.codex/visualizations/2026/09/05/01a072e5-b121-77b0-b7f7-52a06ec3e9e2/aaa-completion/pacman-quality/README.md)
+records terminal camera recovery without stale gestures, native movement,
+three compact result layouts, actual connected-maze recovery and final paused
+destruction. The 600-frame/549-callback detector trace, original scene, audio
+and three assets stay exact. Rare capture/maze-clear states are explicit fixtures.
+Full verification and build pass.
+
+Tetris second plan: freeze play and wall-clock deadlines during graphics loss,
+show recovery status and return active sessions to deliberate resume; release
+the exact final pause/global owner; show when HOLD is spent for the current
+piece. Preserve the voxel well, bag, core rules, special windows and all inputs.
+Verify real browser context loss/restore, hold/lock/retry, compact previews and
+paused final teardown. Before first start, recovery returns to the original title.
+
 Unresolved questions: none blocking this pass.
 
 ## Completion evidence
