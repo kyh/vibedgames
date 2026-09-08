@@ -21,7 +21,7 @@ pnpm --filter @repo/pong preview     # vite preview
 ## Controls
 
 Every accepted return adds one charge. Four returns fill the meter; make a fresh
-fist (or click, tap, or press pad A) to arm a power shot on your next contact.
+fist (or press Space, click, tap, or press pad A) to arm a power shot on your next contact.
 Power returns travel at 1.4× ordinary rally speed, capped at 17. Charge carries
 between points; queued shots clear on a point, pause, or lost hand tracking.
 Rematches reset charge.
@@ -40,7 +40,7 @@ shorter trails, and still score/callout feedback.
 | Input                              | Action                       |
 | ---------------------------------- | ---------------------------- |
 | ✋ hand (mouse, finger, pad stick) | steer the paddle             |
-| ✊ fist (click, tap, pad A)        | serve · power shot · rematch |
+| ✊ fist (Space, click, tap, pad A) | serve · power shot · rematch |
 | M · 🔊 button                      | mute                         |
 | Escape · ⏸ button                  | pause                        |
 

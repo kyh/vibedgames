@@ -34,6 +34,11 @@ function fixture() {
     }
   }
   class Element extends Surface {
+    isContentEditable = false;
+    nativeControl = false;
+    closest() {
+      return this.nativeControl ? this : null;
+    }
     appendChild() {}
     setAttribute() {}
     remove() {
@@ -92,13 +97,16 @@ function fixture() {
     }
   }
   class Game {
+    inputPaused = false;
     hasLiveOpponent() {
       return false;
     }
     requestPause() {
+      this.inputPaused = true;
       count("game.pause");
     }
     requestResume() {
+      this.inputPaused = false;
       count("game.resume");
     }
     diagnostics() {
@@ -115,6 +123,10 @@ function fixture() {
     }
     handleHandPosition() {
       count("game.hand");
+    }
+    handleGestureConfirm() {
+      count("game.confirm");
+      if (!this.inputPaused) count("game.action");
     }
     seed() {
       count("game.seed");
@@ -142,6 +154,7 @@ function fixture() {
   const deps = {
     window,
     document,
+    HTMLElement: Element,
     THREE: { WebGLRenderer: Renderer, Timer },
     createTouchControls(config) {
       touchConfig = config;
@@ -292,4 +305,48 @@ test("old main disposal preserves a replacement pause owner and replacement glob
   assert.equal(resumed, 1);
   assert.equal(f.embed.isPausable(), true);
   releaseReplacement();
+});
+
+test("fresh Space uses fist action; repeats, pause resume and focused controls cannot leak an action", () => {
+  const f = fixture();
+  const key = (type, repeat = false, target = f.window) => {
+    const event = new Event(type, { cancelable: true });
+    Object.defineProperties(event, {
+      code: { value: "Space" },
+      repeat: { value: repeat },
+      target: { value: target },
+    });
+    f.window.dispatchEvent(event);
+    return event;
+  };
+  try {
+    assert.equal(key("keydown").defaultPrevented, true);
+    assert.equal(f.calls.get("game.action"), 1);
+    assert.equal(key("keydown", true).defaultPrevented, true);
+    assert.equal(f.calls.get("game.confirm"), 1);
+    const control = f.elements.get("sound-toggle");
+    control.nativeControl = true;
+    assert.equal(key("keydown", false, control).defaultPrevented, false);
+    control.nativeControl = false;
+    control.isContentEditable = true;
+    assert.equal(key("keydown", false, control).defaultPrevented, false);
+    assert.equal(f.calls.get("game.confirm"), 1);
+    f.embed.notifyGameStarted();
+    f.embed.pauseGame();
+    key("keydown");
+    assert.equal(f.calls.get("game.action"), 1, "same action delegates to the scene pause guard");
+    key("keyup");
+    f.embed.resumeGame(); // Overlay rendering/key binding is stubbed in this main-owner fixture.
+    assert.equal(f.calls.get("game.resume"), 1);
+    key("keydown", true);
+    assert.equal(f.calls.get("game.action"), 1, "held resume key cannot become a fresh shot");
+    key("keyup");
+    key("keydown");
+    assert.equal(f.calls.get("game.action"), 2);
+    f.dispose();
+    key("keydown");
+    assert.equal(f.calls.get("game.action"), 2, "input ownership ends at disposal");
+  } finally {
+    f.dispose();
+  }
 });

@@ -3,6 +3,7 @@ import type { ControlsManifest } from "@repo/embed";
 import { handCameraState } from "./input/camera";
 
 export const CONTROLS: ControlsManifest = [
+  { method: "keys", input: "SPACE", action: "serve · power shot · rematch" },
   { method: "keys", input: "M", action: "mute" },
   { method: "mouse", input: "MOUSE", action: "steer the paddle" },
   { method: "mouse", input: "CLICK", action: "serve · power shot · rematch" },

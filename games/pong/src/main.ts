@@ -92,6 +92,18 @@ soundButton.addEventListener(
 window.addEventListener(
   "keydown",
   (e) => {
+    if (e.code === "Space") {
+      if (
+        e.defaultPrevented ||
+        (e.target instanceof HTMLElement &&
+          (e.target.isContentEditable ||
+            e.target.closest("button, input, textarea, select, a[href], [role=button]")))
+      )
+        return;
+      e.preventDefault();
+      if (!e.repeat) game.handleGestureConfirm();
+      return;
+    }
     if (e.code !== "KeyM" || e.repeat) return;
     changeSound(!isMuted());
     touchControls.sync();
