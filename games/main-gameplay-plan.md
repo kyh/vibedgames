@@ -47,4 +47,11 @@ pause and death pass. Actual two-client pickups and guest shots credit only the
 local owner; spectator pause retires that feedback. No trial world setup remains.
 Assets, audio and core weapon/world rules stay exact. Full verification and build pass.
 
+Bomberman complete: native Play starts Classic; real two-client guest/host
+rematch requests advance Crossroads then Classic. Native movement/bomb placement
+and a staged blast finish retain ordinary results. Compact results fit. Reconnect
+and host migration preserve the accepted grid; duplicate/stale request tests
+prevent extra rotation. Art, video acting, clocks, fuse and core rules stay exact.
+Full verification and build pass.
+
 Unresolved questions: none.

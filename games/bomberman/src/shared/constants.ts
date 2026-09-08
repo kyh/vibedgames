@@ -102,7 +102,6 @@ export type Bot = {
 export type SharedState = {
   /** Missing only in legacy rooms; read through readArena at the boundary. */
   arena?: Arena;
-  nextArena?: Arena;
   /** Missing only in legacy rooms; every current host write carries its clock. */
   clock?: ClockStamp;
   grid: Cell[][];

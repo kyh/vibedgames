@@ -28,7 +28,7 @@ const isJsonNumber=Number.isFinite;
 ${arena}
 ${["emptyShared", "isShared", "readPlayerState"].map(helper).join("\n")}
 class Scene {
-${["live", "amHost", "myId", "peers", "shared", "netSendEvent", "netUpdateMyState", "writeShared", "requestRestart", "handleEvent", "onUpdate", "ensureMySpawn", "respawnSelf"].map(method).join("\n")}
+${["live", "amHost", "myId", "peers", "shared", "netSendEvent", "netUpdateMyState", "writeShared", "requestRestart", "handleEvent", "onUpdate", "ensureSeeded", "ensureMySpawn", "respawnSelf", "beginPlay"].map(method).join("\n")}
 }
 globalThis.Scene=Scene;
 `);
@@ -36,15 +36,32 @@ globalThis.Scene=Scene;
 /** Actual snapshot/request/adoption methods. UI and transport are explicit
  * collaborators; each case controls which accepted snapshots/events arrive. */
 function fixture({ host = false, offline = false, previous = 1000, started = true } = {}) {
-  const calls = { audioResets: 0, positions: [], shared: [], events: [], clock: 0 };
+  const calls = {
+    audioResets: 0,
+    positions: [],
+    shared: [],
+    events: [],
+    clock: 0,
+    grids: 0,
+    starts: 0,
+  };
   const context = vm.createContext({
     ...constants,
+    newGrid: () => {
+      calls.grids++;
+      return constants.newGrid();
+    },
     simNow: () => 1000,
     clockStamp: () => ({ kind: "running", offset: 0 }),
     resetRoundAudio: () => calls.audioResets++,
     document: { getElementById: () => null },
     colX: (col) => col * constants.TILE,
     rowY: (row) => row * constants.TILE,
+    unlockAudio() {},
+    createTouchControls: () => ({ dispose() {} }),
+    isMuted: () => true,
+    setMuted() {},
+    notifyGameStarted: () => calls.starts++,
   });
   vm.runInContext(code, context);
   const grid = Array.from({ length: 15 }, () =>
@@ -53,7 +70,6 @@ function fixture({ host = false, offline = false, previous = 1000, started = tru
   grid[7][9] = { kind: "crate" };
   const world = {
     arena: "classic",
-    nextArena: "crossroads",
     clock: { kind: "running", offset: 0 },
     grid,
     bombs: {},
@@ -71,6 +87,9 @@ function fixture({ host = false, offline = false, previous = 1000, started = tru
     offlineShared: structuredClone(world),
     offlineMyState: { ...state },
     started,
+    freezable: offline,
+    input: { keyboard: { off() {} } },
+    time: { delayedCall: (_delay, callback) => callback() },
     controlsPaused: false,
     presentationRound: previous,
     moving: false,
@@ -103,11 +122,9 @@ function fixture({ host = false, offline = false, previous = 1000, started = tru
     syncSharedClock() {
       calls.clock++;
     },
-    ensureSeeded() {},
     trackRestartable() {},
     setStatus() {},
     statusText() {},
-    syncArenaControls() {},
     syncRoster() {},
     setStats() {},
     statsText() {},
@@ -198,8 +215,89 @@ test("requests carry observed round; stale/duplicate requests cannot reset its r
   h.requestRestart();
   h.handleEvent("request_restart", calls.events[1].payload, "host");
   assert.equal(h.shared().startedAt, 1002);
+  assert.equal(h.shared().arena, "classic");
+  assert.equal(calls.grids, 2, "only two accepted requests generate grids");
   h.onUpdate();
   assert.equal(calls.positions.length, 2);
+});
+
+test("new solo and hosted sessions seed Classic once; Play never replaces that grid", () => {
+  for (const offline of [false, true]) {
+    const { h, calls } = fixture({ host: true, offline, previous: null, started: false });
+    if (offline) h.offlineShared = null;
+    else h.client.sharedState = {};
+    h.ensureSeeded();
+    const grid = h.shared().grid;
+    assert.equal(h.shared().arena, "classic");
+    assert.equal(calls.grids, 1);
+    for (let i = 0; i < 3; i++) h.ensureSeeded();
+    h.beginPlay();
+    h.beginPlay();
+    assert.equal(h.shared().grid, grid);
+    assert.equal(calls.grids, 1);
+    assert.equal(calls.starts, 1);
+  }
+});
+
+test("accepted arena survives late Play, reconnect and promotion without regeneration", () => {
+  for (const arenaValue of [undefined, "classic", "crossroads"]) {
+    const { h, calls } = fixture({ previous: null, started: false });
+    if (arenaValue === undefined) delete h.client.sharedState.arena;
+    else h.client.sharedState.arena = arenaValue;
+    // A retired selection may survive a shallow-merged legacy snapshot.
+    h.client.sharedState.nextArena = arenaValue === "crossroads" ? "classic" : "crossroads";
+    const grid = h.shared().grid;
+    const before = JSON.stringify(h.shared());
+    h.onUpdate();
+    h.beginPlay();
+    h.onUpdate();
+    h.client.connectionStatus = "disconnected";
+    h.ensureSeeded();
+    h.client.connectionStatus = "connected";
+    h.onUpdate();
+    h.client.isHost = true;
+    h.client.hostId = "guest";
+    h.onUpdate();
+    assert.equal(h.shared().grid, grid);
+    assert.equal(JSON.stringify(h.shared()), before);
+    assert.equal(calls.grids, 0);
+    assert.equal(calls.shared.length, 0);
+  }
+  const { h, calls } = fixture({ offline: true, started: false });
+  h.offlineShared.nextArena = "crossroads";
+  const grid = h.shared().grid;
+  h.beginPlay();
+  assert.equal(h.shared().grid, grid, "solo Play ignores a retired selection too");
+  assert.equal(calls.grids, 0);
+});
+
+test("guest R advances the host once; arena metadata alone chooses the next layout", () => {
+  for (const arenaValue of [undefined, "classic", "crossroads"]) {
+    const guest = fixture();
+    const host = fixture({ host: true });
+    if (arenaValue === undefined) delete host.h.client.sharedState.arena;
+    else host.h.client.sharedState.arena = arenaValue;
+    host.h.client.sharedState.nextArena = arenaValue ?? "classic";
+    const before = host.h.shared().grid;
+    guest.h.requestRestart();
+    const request = guest.calls.events[0];
+    guest.h.handleEvent(request.event, request.payload, "guest");
+    assert.equal(guest.calls.grids + guest.calls.shared.length, 0);
+    host.h.handleEvent(request.event, request.payload, "guest");
+    assert.equal(host.h.shared().arena, arenaValue === "crossroads" ? "classic" : "crossroads");
+    assert.notEqual(host.h.shared().grid, before);
+    assert.equal(host.calls.grids, 1);
+    assert.equal(Object.hasOwn(host.calls.shared[0], "nextArena"), false);
+    for (let i = 0; i < 3; i++) host.h.handleEvent(request.event, request.payload, "guest");
+    assert.equal(host.calls.grids, 1, "repeated old request cannot advance again");
+    guest.h.client.sharedState = structuredClone(host.h.shared());
+    const acceptedGrid = guest.h.shared().grid;
+    guest.h.onUpdate();
+    guest.h.onUpdate();
+    assert.equal(guest.h.shared().grid, acceptedGrid);
+    assert.equal(guest.calls.grids, 0);
+    assert.equal(guest.calls.positions.length, 1);
+  }
 });
 
 test("offline loopback and paused/disconnected request guards retain their contracts", () => {

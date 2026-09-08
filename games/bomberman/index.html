@@ -40,42 +40,13 @@
         cursor: pointer;
         touch-action: manipulation;
       }
-      button:focus-visible,
-      select:focus-visible {
+      button:focus-visible {
         outline: 3px solid #fff4bd;
         outline-offset: 4px;
       }
       button:disabled {
         opacity: 0.45;
         cursor: default;
-      }
-      .arena-choice {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 12px;
-        margin: 12px 0 0;
-        font-size: 13px;
-        color: var(--brass);
-      }
-      .arena-choice select {
-        min-height: 44px;
-        padding: 8px 30px 8px 12px;
-        border: 1px solid #cbb57c70;
-        border-radius: 8px;
-        background: var(--stone);
-        color: var(--ink);
-        font: inherit;
-      }
-      .arena-choice select:disabled {
-        opacity: 0.7;
-      }
-      .arena-note {
-        margin: 5px 0 12px;
-        color: #b7c4b5;
-        font-size: 11px;
-        line-height: 1.4;
-        text-align: center;
       }
       #game {
         position: fixed;
@@ -614,13 +585,6 @@
           border-left: 1px solid #cbb57c44;
           padding: 12px 0 12px 18px;
         }
-        #start-actions .arena-choice {
-          margin-top: 0;
-          gap: 8px;
-        }
-        #start-actions .arena-note {
-          margin: 8px 0 16px;
-        }
         #start-play {
           min-width: 0;
           flex: 1;
@@ -672,14 +636,6 @@
         <p id="round-eyebrow"></p>
         <h2 id="round-title" role="status"></h2>
         <p id="round-detail"></p>
-        <label class="arena-choice" for="round-arena"
-          >Next arena
-          <select id="round-arena" aria-describedby="round-arena-note" disabled>
-            <option value="classic">Classic</option>
-            <option value="crossroads">Crossroads</option>
-          </select>
-        </label>
-        <p id="round-arena-note" class="arena-note"></p>
         <button id="round-restart" class="primary" disabled>Restart round</button>
         <p id="round-note"></p>
       </div>
@@ -710,14 +666,6 @@
           <div id="start-controls"></div>
         </div>
         <div id="start-actions">
-          <label class="arena-choice" for="start-arena"
-            >Next arena
-            <select id="start-arena" aria-describedby="start-arena-note" disabled>
-              <option value="classic">Classic</option>
-              <option value="crossroads">Crossroads</option>
-            </select>
-          </label>
-          <p id="start-arena-note" class="arena-note"></p>
           <div id="start-buttons">
             <button id="start-play" class="primary">Play</button>
             <button id="start-sound" class="secondary" aria-pressed="false">Sound off</button>

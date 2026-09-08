@@ -49,7 +49,7 @@ function peer({ host = true, started = true, offline = false, stamp, real = 1000
   vm.runInContext(
     `${clockCode}\n${arenaCode}\n${sceneCode}\n
     const calls=[];
-    const shared={arena:'crossroads',nextArena:'classic',grid:Array.from({length:15},()=>Array.from({length:19},()=>({kind:'empty'}))),bombs:{},blasts:{},powerups:{},bots:{},stats:{},deaths:{},winner:null,startedAt:10000,foreign:{retained:1}};
+    const shared={arena:'crossroads',grid:Array.from({length:15},()=>Array.from({length:19},()=>({kind:'empty'}))),bombs:{},blasts:{},powerups:{},bots:{},stats:{},deaths:{},winner:null,startedAt:10000,foreign:{retained:1}};
     const h=Object.assign(new Scene(),{
       offline:false,started:true,clockAuthority:false,simulationFrozen:false,controlsPaused:false,
       netDirty:false,hostTickAcc:0,botTimes:[],offlineShared:null,offlineMyState:{},
@@ -240,7 +240,7 @@ test("full/partial/reset clock stamps preserve foreign fields and offline fuse p
   p.h.hostTick(70);
   assert.equal(Object.keys(p.h.offlineShared.bombs).length, 1);
   p.h.resumeSimulation();
-  p.h.netPatchShared({ nextArena: "crossroads" });
+  p.h.netPatchShared({ winner: null });
   assert.equal(p.h.offlineShared.clock.offset, 5000);
   assert.deepEqual(plain(p.h.offlineShared.foreign), { retained: 1 });
   p.advance(1900);

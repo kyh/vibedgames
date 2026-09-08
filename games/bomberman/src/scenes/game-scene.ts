@@ -164,7 +164,6 @@ function emptyShared(arena: Arena = "classic"): SharedState {
   // omitted key carries over from the previous round.
   return {
     arena,
-    nextArena: arena,
     clock: clockStamp(),
     grid: createArena(arena),
     bombs: {},
@@ -463,7 +462,6 @@ export class GameScene extends Phaser.Scene {
     this.statsEl = document.getElementById("stats");
     this.bannerEl = document.getElementById("banner");
     this.buildStartScreen();
-    this.bindArenaControls();
     const restart = document.getElementById("round-restart");
     restart?.addEventListener(
       "click",
@@ -988,7 +986,7 @@ export class GameScene extends Phaser.Scene {
     } else if (event === "request_restart") {
       const state = this.shared();
       if (!state || !isJsonObject(payload) || payload["round"] !== state.startedAt) return;
-      const next = emptyShared(readArena(state.nextArena ?? state.arena));
+      const next = emptyShared(readArena(state.arena) === "classic" ? "crossroads" : "classic");
       // startedAt is the existing round identity. Two requests in one clock
       // millisecond must still produce distinct rounds, without new wire state.
       next.startedAt = Math.max(next.startedAt, state.startedAt + 1);
@@ -1022,7 +1020,6 @@ export class GameScene extends Phaser.Scene {
     }
     this.trackRestartable();
     this.setStatus(this.statusText());
-    this.syncArenaControls();
     this.syncRoster();
     this.setStats(this.statsText());
     this.setBanner();
@@ -1470,7 +1467,6 @@ export class GameScene extends Phaser.Scene {
 
     const next: SharedState = {
       arena: readArena(s.arena),
-      nextArena: readArena(s.nextArena ?? s.arena),
       clock: clockStamp(),
       grid: s.grid,
       bombs: { ...s.bombs },
@@ -2149,10 +2145,7 @@ export class GameScene extends Phaser.Scene {
 
   private onStartKeyUp(event: KeyboardEvent): void {
     if (event.key === "Tab" || event.key === "Escape") return;
-    if (
-      event.target instanceof HTMLElement &&
-      event.target.closest("button, select, #start-reading")
-    )
+    if (event.target instanceof HTMLElement && event.target.closest("button, #start-reading"))
       return;
     this.beginPlay();
   }
@@ -2167,12 +2160,6 @@ export class GameScene extends Phaser.Scene {
 
   private beginPlay(): void {
     if (this.started) return;
-    const state = this.shared();
-    const arena = readArena(state?.nextArena ?? state?.arena);
-    // A solo host's first Play is an explicit start. In a live shared round,
-    // joining never replaces the arena other people are already playing.
-    if (this.live && this.amHost && this.freezable && arena !== readArena(state?.arena))
-      this.writeShared(emptyShared(arena));
     this.started = true;
     this.netDirty = true; // spawn immediately, even if the room has no new traffic
     this.padActionsArmed = false;
@@ -2193,42 +2180,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ---- HUD -----------------------------------------------------------------
-
-  private bindArenaControls(): void {
-    for (const id of ["start-arena", "round-arena"]) {
-      const select = document.getElementById(id);
-      if (!(select instanceof HTMLSelectElement)) continue;
-      select.addEventListener(
-        "change",
-        () => {
-          if (this.live && this.amHost) this.netPatchShared({ nextArena: readArena(select.value) });
-          this.syncArenaControls();
-        },
-        { signal: this.uiEvents.signal },
-      );
-    }
-  }
-
-  private syncArenaControls(): void {
-    const state = this.shared();
-    const next = readArena(state?.nextArena ?? state?.arena);
-    const canChoose = this.live && this.amHost;
-    for (const id of ["start-arena", "round-arena"]) {
-      const select = document.getElementById(id);
-      if (!(select instanceof HTMLSelectElement)) continue;
-      select.value = next;
-      select.disabled = !canChoose;
-    }
-    const description =
-      next === "crossroads"
-        ? "Open central lanes. Longer sightlines."
-        : "Original courtyard. Break your own path.";
-    for (const id of ["start-arena-note", "round-arena-note"]) {
-      const note = document.getElementById(id);
-      if (note)
-        note.textContent = `${description} ${canChoose ? "Applies next round." : "Host chooses the next arena."}`;
-    }
-  }
 
   private statusText(): string {
     if (!this.offline) {
