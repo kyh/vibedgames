@@ -68,9 +68,9 @@ const SFX_NAMES = [
 
 export type SfxName = (typeof SFX_NAMES)[number];
 
-export type PlayOpts = { gain?: number; rate?: number };
+export type PlayOpts = { gain?: number; rate?: number; priority?: "local" };
 
-type VoiceRole = "routine" | "important" | "music";
+type VoiceRole = "routine" | "local" | "important" | "music";
 type Voice = {
   source: AudioBufferSourceNode;
   gain: GainNode;
@@ -81,6 +81,7 @@ type Voice = {
 
 const VOICE_LIMIT = 32;
 const ROUTINE_LIMIT = 24;
+const LOCAL_LIMIT = 28;
 const MUSIC_LIMIT = 2;
 const IMPORTANT = new Set<SfxName>([
   "shield_hit",
@@ -177,9 +178,13 @@ export class Sfx {
     const buffer = this.buffers.get(name);
     const gain = opts.gain ?? 1;
     const rate = opts.rate ?? 1;
-    if (!buffer || !Number.isFinite(gain) || gain < 0 || !Number.isFinite(rate) || rate <= 0)
+    if (!buffer || !Number.isFinite(gain) || gain <= 0 || !Number.isFinite(rate) || rate <= 0)
       return;
-    const role = IMPORTANT.has(name) ? "important" : "routine";
+    const role = IMPORTANT.has(name)
+      ? "important"
+      : opts.priority === "local"
+        ? "local"
+        : "routine";
     if (!this.admit(1, role)) return;
     const jitter = PITCH_JITTER_BASE + Math.random() * PITCH_JITTER_SPAN;
     this.source(
@@ -328,7 +333,7 @@ export class Sfx {
 
   private admit(count: number, role: VoiceRole): boolean {
     if (!this.ready()) return false;
-    if (role !== "important") {
+    if (role === "routine" || role === "music") {
       let routine = 0;
       for (const voice of this.voices.values()) if (voice.role !== "important") routine++;
       if (
@@ -340,20 +345,39 @@ export class Sfx {
         return false;
       }
     } else {
-      while (this.voices.size + count > VOICE_LIMIT) {
+      // Local confirmations reserve four slots above chatter, leaving another
+      // four for warnings/death. Retire complete notes, never essential cues.
+      const limit = role === "local" ? LOCAL_LIMIT : VOICE_LIMIT;
+      if (role === "local") {
+        let protectedVoices = 0;
+        for (const voice of this.voices.values()) if (voice.role === "important") protectedVoices++;
+        if (protectedVoices + count > limit) {
+          this.counts.dropped += count;
+          return false;
+        }
+      }
+      while (this.voices.size + count > limit) {
         if (this.musicVoices() > 0) {
           this.clearMusicVoices();
           continue;
         }
-        let oldest: Voice | undefined;
+        let oldestRoutine: Voice | undefined;
+        let oldestLocal: Voice | undefined;
+        let oldestImportant: Voice | undefined;
         for (const voice of this.voices.values()) {
-          oldest ??= voice;
           if (voice.role === "routine") {
-            oldest = voice;
+            oldestRoutine = voice;
             break;
           }
+          if (voice.role === "local") oldestLocal ??= voice;
+          else oldestImportant ??= voice;
         }
-        if (!oldest) return false;
+        const oldest =
+          oldestRoutine ?? oldestLocal ?? (role === "important" ? oldestImportant : undefined);
+        if (!oldest) {
+          this.counts.dropped += count;
+          return false;
+        }
         this.release(oldest, true);
       }
     }
@@ -451,11 +475,13 @@ export class Sfx {
     let scheduledSources = 0;
     let routineSources = 0;
     let essentialSources = 0;
+    let localSources = 0;
     let musicVoices = 0;
     const now = this.ctx?.currentTime ?? 0;
     for (const voice of this.voices.values()) {
       if (voice.startsAt > now) scheduledSources++;
       if (voice.role === "important") essentialSources++;
+      else if (voice.role === "local") localSources++;
       else routineSources++;
       if (voice.role === "music") musicVoices++;
     }
@@ -469,6 +495,7 @@ export class Sfx {
       scheduledSources,
       routineSources,
       essentialSources,
+      localSources,
       musicVoices,
       graphNodes: this.voices.size,
       cachedBuffers: this.buffers.size + this.musicBuffers.size,
@@ -478,6 +505,7 @@ export class Sfx {
       schedulerCount: this.musicTimer === null ? 0 : 1,
       limit: VOICE_LIMIT,
       routineLimit: ROUTINE_LIMIT,
+      localLimit: LOCAL_LIMIT,
       musicLimit: MUSIC_LIMIT,
       // Raw AudioParam values may lag while the renderer is suspended.
       masterGain: this.master?.gain.value ?? 0,

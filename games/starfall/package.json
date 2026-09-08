@@ -8,7 +8,7 @@
     "clean": "rm -rf .turbo dist node_modules",
     "dev": "vite",
     "preview": "vite preview",
-    "test": "tsx scripts/fx-smoke.ts && tsx scripts/boss-encounters-smoke.ts && tsx scripts/battle-beat-smoke.ts && tsx scripts/weapon-trials-smoke.ts && node tools/score-audio-smoke.mjs && node --import tsx tools/weapon-trial-integration-smoke.mjs && node --import tsx tools/verify-network-ownership.mjs && node --import tsx tools/verify-scene-cleanup.mjs",
+    "test": "tsx scripts/fx-smoke.ts && tsx scripts/boss-encounters-smoke.ts && tsx scripts/battle-beat-smoke.ts && tsx scripts/weapon-trials-smoke.ts && node tools/score-audio-smoke.mjs && node --import tsx tools/weapon-trial-integration-smoke.mjs && node --import tsx tools/verify-network-ownership.mjs && node --import tsx tools/verify-scene-cleanup.mjs && node tools/local-audio-smoke.mjs && node tools/main-lifecycle-smoke.mjs && node --import tsx --test tools/verify-flight-hud.mjs tools/verify-battle-layers.mjs && node --import tsx --test tools/verify-fleet-acting.mjs && node tools/trailer-lifecycle-smoke.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

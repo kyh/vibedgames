@@ -86,7 +86,7 @@ export function contactPoint(
   return { x: tail.x + dx * t, y: tail.y + dy * t };
 }
 
-export type BurstKind = "muzzle" | "impact" | "death" | "boss" | "detonation";
+export type BurstKind = "muzzle" | "impact" | "fracture" | "death" | "boss" | "detonation";
 
 export function burstLifetime(kind: BurstKind): number {
   switch (kind) {
@@ -94,6 +94,8 @@ export function burstLifetime(kind: BurstKind): number {
       return 115;
     case "impact":
       return 300;
+    case "fracture":
+      return 650;
     case "death":
       return 900;
     case "boss":

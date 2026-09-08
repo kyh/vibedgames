@@ -79,7 +79,7 @@ export function itemToWire(it: ItemState): ItemState {
 }
 
 export function enemyToWire(e: EnemyState): EnemyState {
-  return {
+  const encoded: EnemyState = {
     id: e.id,
     kind: e.kind,
     x: q1(e.x),
@@ -96,6 +96,8 @@ export function enemyToWire(e: EnemyState): EnemyState {
     lances: e.lances.map(qVec),
     shielded: e.shielded,
   };
+  if (e.attackAt !== undefined && Number.isFinite(e.attackAt)) encoded.attackAt = qms(e.attackAt);
+  return encoded;
 }
 
 export function enemyShotToWire(s: EnemyShotState): EnemyShotState {

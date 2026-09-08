@@ -41,6 +41,8 @@ import {
   shardToWire,
   ufoToWire,
 } from "../shared/wire";
+import { chargeTrail, fleetPose, hostileShotLook } from "../render/fleet-acting";
+import { FlightHud } from "../render/flight-hud";
 import { EdgePips } from "../render/edge-pips";
 import type { PipTarget } from "../render/edge-pips";
 import { EnergyBarrier } from "../render/energy-barrier";
@@ -440,6 +442,7 @@ type EnemyObjs = {
   telegraphDuration: number;
   /** Lancer close-pass trauma fires once per charge. */
   chargeTraumaDone: boolean;
+  nextTrailAt: number | null;
 };
 
 type Splinter = {
@@ -637,6 +640,7 @@ export class GameScene extends Phaser.Scene {
   private readonly trialChoice = readTrialChoice(new URLSearchParams(location.search));
   private readonly trial = this.trialChoice ? new WeaponTrial(this.trialChoice) : null;
   private trialCard: TrialCard | null = null;
+  private flightHud: FlightHud | null = null;
   private trialPickupId: string | null = null;
   private readonly trialBeamIds = new WeakMap<Beam, number>();
   private nextTrialBeam = 0;
@@ -1120,7 +1124,8 @@ export class GameScene extends Phaser.Scene {
     // clock (shared/clock.ts) holds every stored deadline, so a boost with 3s
     // left before the pause still has 3s after resume.
     const pauseOverlay = createStarfallPauseOverlay();
-    setPauseHandlers({
+    this.flightHud = new FlightHud();
+    const releasePauseHandlers = setPauseHandlers({
       onPause: () => {
         pauseOverlay.show();
         if (this.offline) this.freezeSim();
@@ -1153,7 +1158,9 @@ export class GameScene extends Phaser.Scene {
       cleanedUp = true;
       sceneEvents.off(Phaser.Scenes.Events.SHUTDOWN, cleanupScene);
       sceneEvents.off(Phaser.Scenes.Events.DESTROY, cleanupScene);
-      setPauseHandlers({});
+      releasePauseHandlers();
+      this.flightHud?.dispose();
+      this.flightHud = null;
       pauseOverlay.hide();
       sfx.clearTransient();
       this.bossEncounters.reset();
@@ -1462,6 +1469,7 @@ export class GameScene extends Phaser.Scene {
     if (this.frozen || !this.offline) return;
     this.frozen = true;
     this.battleBeat.reset();
+    this.flightHud?.reset();
     if (this.trial) this.trialCard?.update(this.trial.state, simNow(), false);
     pauseClock();
     sfx.setSuspended(true);
@@ -1484,6 +1492,7 @@ export class GameScene extends Phaser.Scene {
   private pauseToSpectator(): void {
     if (this.paused) return;
     this.paused = true;
+    this.flightHud?.reset();
     // Clean despawn. Leaving alive=false + respawnAt=0 means tickRespawn can't
     // fire, and spawned=false hides my ship + gates every my-ship code path.
     this.spawned = false;
@@ -1924,7 +1933,7 @@ export class GameScene extends Phaser.Scene {
       nextFireAt: prev?.nextFireAt ?? 0,
     };
     if (moved) {
-      sfx.play("sentry_place");
+      sfx.play("sentry_place", { priority: "local" });
       this.fx.ring(this.shipX, this.shipY, 4, 18, 200, SENTRY_WEAPON.tint, 0.6);
     }
   }
@@ -2086,7 +2095,7 @@ export class GameScene extends Phaser.Scene {
   private muzzleFx(nose: Vec, now: number, gainScale = 1): void {
     const w = this.weapon;
     const sound = weaponSound(w.sfx);
-    const playOpts: PlayOpts = { gain: sound.gain * gainScale };
+    const playOpts: PlayOpts = { gain: sound.gain * gainScale, priority: "local" };
     if (sound.rate !== undefined) playOpts.rate = sound.rate;
     sfx.play(sound.name, playOpts);
     // Every burst below sits ON the pilot's nose, so all of it damps together
@@ -2820,7 +2829,7 @@ export class GameScene extends Phaser.Scene {
     this.gainXp(base * mult, now);
     if (mult > this.comboTier && mult >= 2) {
       // Tier-up: the one allowed long effect (§9) + rising sfx + pill pop.
-      sfx.play("combo_up", { rate: Math.pow(2, (2 * (mult - 2)) / 12) });
+      sfx.play("combo_up", { rate: Math.pow(2, (2 * (mult - 2)) / 12), priority: "local" });
       this.trauma.add(0.1);
       this.fx.ring(this.shipX, this.shipY, 6, 75, 350, 0xffffff, 0.8);
       this.fx.converge(this.shipX, this.shipY, 12, 40, 300, 0xffffff);
@@ -2867,7 +2876,7 @@ export class GameScene extends Phaser.Scene {
    *  sparks, reusing the combo-tier vocabulary) + a pitched cue + HUD pop. */
   private onLevelUp(now: number): void {
     this.applyBaseLoadout(now);
-    sfx.play("combo_up", { rate: 1.5 });
+    sfx.play("combo_up", { rate: 1.5, priority: "local" });
     this.trauma.add(0.12);
     const tint = this.myTint();
     this.fx.hullUpgrade(
@@ -3623,7 +3632,7 @@ export class GameScene extends Phaser.Scene {
   /** 50ms full-screen white at 0.25, fading 200ms (§9 player death). */
   private screenFlash(): void {
     this.flashRect.setSize(this.scale.width + 8, this.scale.height + 8);
-    this.flashRect.setAlpha(0.25);
+    this.flashRect.setAlpha(this.fx.battle.reducedMotion() ? 0 : 0.25);
     this.tweens.killTweensOf(this.flashRect);
     this.tweens.add({ targets: this.flashRect, alpha: 0, delay: 50, duration: 200 });
   }
@@ -3665,7 +3674,7 @@ export class GameScene extends Phaser.Scene {
           lifeMin: 200,
           lifeMax: 420,
         });
-        sfx.play("pickup");
+        sfx.play("pickup", { priority: "local" });
       } else if (it.kind === "shield") {
         // Timed shield MODIFIER on the base shield (one held; same kind
         // extends +20s capped at 60s out AND refreshes its resource;
@@ -3691,7 +3700,7 @@ export class GameScene extends Phaser.Scene {
           lifeMin: 200,
           lifeMax: 420,
         });
-        sfx.play("pickup_shield");
+        sfx.play("pickup_shield", { priority: "local" });
       } else {
         const kind = BOOSTER_KINDS[it.boosterIdx] ?? "repair";
         if (kind === "repair") {
@@ -3718,7 +3727,7 @@ export class GameScene extends Phaser.Scene {
           lifeMin: 200,
           lifeMax: 420,
         });
-        sfx.play("pickup_booster");
+        sfx.play("pickup_booster", { priority: "local" });
       }
       this.recentPickups.set(it.id, now);
       this.netSendEvent("item_pickup", { itemId: it.id });
@@ -4098,6 +4107,8 @@ export class GameScene extends Phaser.Scene {
       local.hp = e.hp;
       local.telegraphUntil = e.telegraphUntil;
       local.chargeUntil = e.chargeUntil;
+      if (e.attackAt !== undefined && Number.isFinite(e.attackAt)) local.attackAt = e.attackAt;
+      else delete local.attackAt;
       // Keep the most pessimistic blink (local prediction may be ahead).
       local.blinkUntil = Math.max(local.blinkUntil, e.blinkUntil);
       local.graceUntil = e.graceUntil;
@@ -4804,11 +4815,13 @@ export class GameScene extends Phaser.Scene {
     return sim;
   }
 
-  private hostSpawnShot(x: number, y: number, angle: number, speed: number, now: number): void {
+  private hostSpawnShot(enemy: EnemyState, angle: number, speed: number, now: number): void {
+    enemy.attackAt = now;
+    this.dirty.enemies = true;
     this.world.enemyShots.push({
       id: entityId(),
-      x,
-      y,
+      x: enemy.x,
+      y: enemy.y,
       vx: Math.cos(angle) * speed,
       vy: Math.sin(angle) * speed,
       diesAt: now + ENEMY_SHOT_TTL_MS,
@@ -4856,7 +4869,7 @@ export class GameScene extends Phaser.Scene {
               sim.fireAt = 0;
               sim.nextAttackAt = now + DRONE_COOLDOWN_MS;
               if (dist < ENEMY_FIRE_RANGE) {
-                this.hostSpawnShot(e.x, e.y, desired, DRONE_SHOT_SPEED, now);
+                this.hostSpawnShot(e, desired, DRONE_SHOT_SPEED, now);
               }
             }
           } else if (
@@ -4893,7 +4906,7 @@ export class GameScene extends Phaser.Scene {
           }
           if (sim.burstLeft > 0) {
             if (now >= sim.nextBurstShotAt) {
-              this.hostSpawnShot(e.x, e.y, desired, WASP_SHOT_SPEED, now);
+              this.hostSpawnShot(e, desired, WASP_SHOT_SPEED, now);
               sim.burstLeft -= 1;
               sim.nextBurstShotAt = now + WASP_BURST_GAP_MS;
               if (sim.burstLeft === 0) sim.nextAttackAt = now + WASP_COOLDOWN_MS;
@@ -4979,7 +4992,7 @@ export class GameScene extends Phaser.Scene {
               sim.nextAttackAt = now + WARDEN_COOLDOWN_MS;
               e.shielded = false;
               if (dist < WARDEN_FIRE_RANGE) {
-                this.hostSpawnShot(e.x, e.y, desired, WARDEN_SHOT_SPEED, now);
+                this.hostSpawnShot(e, desired, WARDEN_SHOT_SPEED, now);
               }
             }
           } else if (now < sim.nextBurstShotAt) {
@@ -5012,13 +5025,7 @@ export class GameScene extends Phaser.Scene {
               const aim = e.lances[0];
               e.lances = [];
               if (aim && dist < SNIPER_FIRE_RANGE) {
-                this.hostSpawnShot(
-                  e.x,
-                  e.y,
-                  Math.atan2(aim.y - e.y, aim.x - e.x),
-                  SNIPER_SHOT_SPEED,
-                  now,
-                );
+                this.hostSpawnShot(e, Math.atan2(aim.y - e.y, aim.x - e.x), SNIPER_SHOT_SPEED, now);
               }
             } else {
               e.vx *= 0.2; // plant while aiming
@@ -5186,7 +5193,7 @@ export class GameScene extends Phaser.Scene {
           const base = desired - (BOSS_P1_SPREAD_DEG * DEG) / 2;
           const step = (BOSS_P1_SPREAD_DEG * DEG) / (BOSS_P1_SPREAD_COUNT - 1);
           for (let i = 0; i < BOSS_P1_SPREAD_COUNT; i++) {
-            this.hostSpawnShot(e.x, e.y, base + step * i, BOSS_SHOT_SPEED, now);
+            this.hostSpawnShot(e, base + step * i, BOSS_SHOT_SPEED, now);
           }
         }
       } else if (now >= sim.nextAttackAt) {
@@ -5203,8 +5210,7 @@ export class GameScene extends Phaser.Scene {
           sim.nextAttackAt = now + BOSS_P2_CYCLE_MS;
           for (const aim of e.lances) {
             this.hostSpawnShot(
-              e.x,
-              e.y,
+              e,
               Math.atan2(aim.y - e.y, aim.x - e.x),
               BOSS_LANCE_SHOT_SPEED, // distinct speed → BOSS_LANCE damage (70), not sniper 55
               now,
@@ -5238,13 +5244,7 @@ export class GameScene extends Phaser.Scene {
           sim.fireAt = 0;
           sim.nextAttackAt = now + BOSS_P3_CYCLE_MS;
           for (let i = 0; i < BOSS_P3_NOVA_COUNT; i++) {
-            this.hostSpawnShot(
-              e.x,
-              e.y,
-              (Math.PI * 2 * i) / BOSS_P3_NOVA_COUNT,
-              BOSS_SHOT_SPEED,
-              now,
-            );
+            this.hostSpawnShot(e, (Math.PI * 2 * i) / BOSS_P3_NOVA_COUNT, BOSS_SHOT_SPEED, now);
           }
           // Cap the brood so a long phase-3 can't balloon enemies[] unbounded.
           if (sim.broodCount < BOSS_BROOD_CAP) this.hostBirthMites(e, BOSS_P3_MITES, now);
@@ -5261,6 +5261,7 @@ export class GameScene extends Phaser.Scene {
   private hostBirthMites(parent: EnemyState, n: number, now: number): void {
     const w = this.world;
     const psim = this.simFor(parent.id);
+    if (n > 0) parent.attackAt = now;
     for (let i = 0; i < n; i++) {
       const ang = parent.angle + (Math.PI * 2 * i) / Math.max(1, n) + rand() * 0.4;
       const m = spawnEnemyState(
@@ -6026,7 +6027,7 @@ export class GameScene extends Phaser.Scene {
         rec.gfx.y,
         Math.min(115, rec.drawnRadius * 1.4),
         0xaec6dd,
-        "death",
+        "fracture",
       );
       this.splinterBurst(rec.gfx.x, rec.gfx.y, rec.drawnRadius, 20, now);
       this.fx.sparks(rec.gfx.x, rec.gfx.y, 6, 0xffffff, { lifeMin: 150, lifeMax: 250 });
@@ -6105,20 +6106,14 @@ export class GameScene extends Phaser.Scene {
           lastTelegraphUntil: 0,
           telegraphDuration: 0,
           chargeTraumaDone: false,
+          nextTrailAt: null,
         };
         this.enemyObjs.set(e.id, rec);
       }
-      rec.gfx.setPosition(e.x, e.y).setRotation(e.angle);
-      // Damage flicker (UFO style) + grace flash-in for splitter children.
-      // NOT the boss or the long-TTK elites (warden, hive): under sustained
-      // point-blank fire blinkUntil is pinned refreshed, and a hide-strobe
-      // would blank the hull for a quarter of the whole melt — those flash
-      // WHITE instead (drawEnemyTelegraphs). Lancer/splitter fights are
-      // sub-3s, so the cheap hide-blink stays readable there.
-      const flashesWhite = e.kind === "dreadnought" || e.kind === "warden" || e.kind === "spawner";
-      const hidden = !flashesWhite && now < e.blinkUntil && Math.floor(now / 66) % 4 === 0;
-      rec.gfx.setVisible(!hidden);
-      rec.gfx.setAlpha(e.graceUntil > now ? 0.25 + 0.45 * (Math.sin(now / 40) * 0.5 + 0.5) : 1);
+      const reduced = this.fx.battle.reducedMotion();
+      // A hit accents the hull without hiding the threat.
+      rec.gfx.setVisible(true);
+      rec.gfx.setAlpha(e.graceUntil > now ? (reduced ? 0.6 : 0.4 + 0.2 * Math.sin(now / 80)) : 1);
       // Telegraph audio: LANCER windup + WASP burst, on-screen only (§6.1).
       if (e.telegraphUntil > now && rec.lastTelegraphUntil !== e.telegraphUntil) {
         rec.lastTelegraphUntil = e.telegraphUntil;
@@ -6134,16 +6129,27 @@ export class GameScene extends Phaser.Scene {
           sfx.play("telegraph_warn");
         }
       }
+      const pose = fleetPose(e, now, rec.telegraphDuration, reduced);
+      rec.gfx
+        .setPosition(e.x - Math.cos(e.angle) * pose.recoil, e.y - Math.sin(e.angle) * pose.recoil)
+        .setRotation(e.angle)
+        .setScale(pose.scaleX, pose.scaleY);
+      const trail = chargeTrail(
+        rec.nextTrailAt,
+        now,
+        e.kind === "lancer" && e.chargeUntil > now && !reduced,
+      );
+      rec.nextTrailAt = trail.nextAt;
       if (e.kind === "lancer") {
         if (e.chargeUntil > now) {
-          // Charge trail (ADD, hull tint) + close-pass trauma, once per charge.
-          this.fx.sparks(e.x, e.y, 1, ENEMY_SPECS.lancer.tint, {
-            speedMin: 0,
-            speedMax: 20,
-            lifeMin: 250,
-            lifeMax: 250,
-            scale: 0.5,
-          });
+          if (trail.count > 0)
+            this.fx.sparks(e.x, e.y, trail.count, ENEMY_SPECS.lancer.tint, {
+              speedMin: 0,
+              speedMax: 20,
+              lifeMin: 250,
+              lifeMax: 250,
+              scale: 0.5,
+            });
           if (
             !rec.chargeTraumaDone &&
             this.alive &&
@@ -6236,9 +6242,8 @@ export class GameScene extends Phaser.Scene {
       }
       // Retain the existing damage response independently of anticipation.
       if (
-        (e.kind === "dreadnought" || e.kind === "warden" || e.kind === "spawner") &&
         e.blinkUntil > now &&
-        Math.floor(now / 66) % 4 === 0
+        (this.fx.battle.reducedMotion() || Math.floor(now / 66) % 4 === 0)
       ) {
         g.lineStyle(2 * sw, 0xffffff, 0.9);
         strokeTransformed(g, enemyHullPoints(e.kind), e.x, e.y, e.angle);
@@ -6446,6 +6451,7 @@ export class GameScene extends Phaser.Scene {
       const len = Math.hypot(s.vx, s.vy) || 1;
       const ux = s.vx / len;
       const uy = s.vy / len;
+      const look = hostileShotLook(len);
       this.fx.battle.beam(
         s.x - ux * ENEMY_SHOT_LEN,
         s.y - uy * ENEMY_SHOT_LEN,
@@ -6453,10 +6459,32 @@ export class GameScene extends Phaser.Scene {
         s.y,
         ENEMY_SHOT_WIDTH,
         ENEMY_SHOT_TINT,
-        "bolt",
+        look === "lance" || look === "rail" ? "rail" : look === "plasma" ? "plasma" : "rapid",
         this.time.now,
       );
+      // Original red collision stroke stays exact. Nose marks describe speed
+      // bands; every mark travels with its accepted projectile, never an aim.
+      g.lineStyle(ENEMY_SHOT_WIDTH, ENEMY_SHOT_TINT, 1);
       g.lineBetween(s.x - ux * ENEMY_SHOT_LEN, s.y - uy * ENEMY_SHOT_LEN, s.x, s.y);
+      if (look === "plasma") {
+        g.fillStyle(ENEMY_SHOT_TINT, 0.9).fillCircle(s.x, s.y, 2.6);
+      } else if (look === "lance" || look === "rail") {
+        g.lineStyle(1, 0xffb4ba, 0.9);
+        g.lineBetween(s.x - ux * 8, s.y - uy * 8, s.x, s.y);
+        if (look === "lance") {
+          g.lineStyle(1, ENEMY_SHOT_TINT, 0.9);
+          g.lineBetween(s.x - ux * 5 - uy * 3, s.y - uy * 5 + ux * 3, s.x, s.y);
+          g.lineBetween(s.x - ux * 5 + uy * 3, s.y - uy * 5 - ux * 3, s.x, s.y);
+        }
+      } else {
+        g.lineStyle(1, ENEMY_SHOT_TINT, 0.8);
+        g.lineBetween(
+          s.x - ux * 4 - uy * 2,
+          s.y - uy * 4 + ux * 2,
+          s.x - ux * 4 + uy * 2,
+          s.y - uy * 4 - ux * 2,
+        );
+      }
     }
   }
 
@@ -6610,6 +6638,17 @@ export class GameScene extends Phaser.Scene {
     // (real recoil/impacts keep selling), only the follow target changes.
     const lock = this.trailer?.camPos ?? null;
     if (!this.spawned && !lock) return;
+    if (this.fx.battle.reducedMotion()) {
+      this.kickX = 0;
+      this.kickY = 0;
+      this.trauma.reset();
+      this.tweens.killTweensOf(this.flashRect);
+      this.flashRect.setAlpha(0);
+      this.cameras.main.centerOn(lock ? lock.x : this.shipX, lock ? lock.y : this.shipY);
+      this.cameras.main.setAngle(0);
+      this.camRollDeg = 0;
+      return;
+    }
     const decay = Math.exp(-8 * dt);
     this.kickX *= decay;
     this.kickY *= decay;
@@ -6664,8 +6703,15 @@ export class GameScene extends Phaser.Scene {
     const L = Math.max(1, Math.min(LEVEL_CAP, Math.round(level)));
     const s = shipScaleForLevel(L);
     const sw = this.strokeScale();
+    const hull = shipHullPoints(L);
+    g.fillStyle(0x050c17, 0.94).fillPoints(
+      hull.map((p) => new Phaser.Math.Vector2(p.x, p.y)),
+      true,
+    );
+    g.lineStyle(sw * 3, 0x050c17, 0.9);
+    strokeClosed(g, hull);
     g.lineStyle(sw, tint, 1);
-    strokeClosed(g, shipHullPoints(L));
+    strokeClosed(g, hull);
     if (L >= 2) {
       g.lineBetween(-2 * s, -3 * s, -9 * s, -7 * s); // swept wings
       g.lineBetween(-2 * s, 3 * s, -9 * s, 7 * s);
@@ -6717,6 +6763,14 @@ export class GameScene extends Phaser.Scene {
       1,
     );
     const pts = enemyHullPoints(kind);
+    g.fillStyle(0x050c17, 0.9).fillPoints(
+      pts.map((p) => new Phaser.Math.Vector2(p.x, p.y)),
+      true,
+    );
+    g.fillStyle(ENEMY_SPECS[kind].tint, 0.1).fillPoints(
+      pts.map((p) => new Phaser.Math.Vector2(p.x, p.y)),
+      true,
+    );
     strokeClosed(g, pts);
     if (kind === "dreadnought") {
       // Bridge dot + cross-struts so the capital ship reads as a boss.
@@ -7048,6 +7102,13 @@ export class GameScene extends Phaser.Scene {
 
   private updateHud(now: number): void {
     const presentation = this.started && !this.trailer;
+    this.flightHud?.update({
+      level: this.level,
+      xp: this.xp,
+      weaponUntil: this.weaponUntil,
+      now,
+      active: presentation && this.spawned && this.alive && !this.paused && !this.frozen,
+    });
     const boss = this.world.enemies.find(
       (e) => e.kind === "dreadnought" && e.hp > 0 && e.maxHp > 0,
     );
@@ -7072,7 +7133,7 @@ export class GameScene extends Phaser.Scene {
     if (this.weaponBarEl) {
       // A special is active iff weaponUntil is in the future; base weapons show
       // no bar. Stacked pickups can push the timer past one base duration: clamp
-      // the bar full; the extra time drains invisibly until under 20s again.
+      // the bar full; the adjacent seconds retain the complete accepted time.
       const frac =
         this.weaponUntil <= now
           ? 0

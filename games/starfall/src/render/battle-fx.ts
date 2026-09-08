@@ -196,6 +196,37 @@ export class BattleFx {
       const t = age / life;
       const boss = b.kind === "boss";
       const impact = b.kind === "impact" || b.kind === "muzzle";
+      if (b.kind === "fracture") {
+        // Matter breaks into cold facets. Ship kills retain the hot cores and
+        // broad shock fronts, even when the destroyed rock was much larger.
+        const g = this.blastGfx;
+        const envelope = 1 - t;
+        const reach = Math.min(b.radius, 72);
+        const heat = burstStage(age, 0, 110);
+        b.glow
+          .setPosition(b.x, b.y)
+          .setTint(0xaec6dd)
+          .setAlpha(heat * (reduced ? 0.12 : 0.32))
+          .setDisplaySize(reach * 1.2, reach * 1.2)
+          .setVisible(heat > 0);
+        g.fillStyle(0xe4eff7, heat * (reduced ? 0.25 : 0.65));
+        g.fillCircle(b.x, b.y, Math.min(8, reach * 0.13));
+        const count = reduced ? 4 : 9;
+        for (let i = 0; i < count; i++) {
+          const angle = b.seed + (i * Math.PI * 2) / count;
+          const distance = reach * (0.2 + t * (reduced ? 0.35 : 1.05));
+          const x = b.x + Math.cos(angle) * distance;
+          const y = b.y + Math.sin(angle) * distance;
+          const size = (2 + (i % 3) * 1.5) * envelope;
+          g.lineStyle(1, i % 3 === 0 ? 0xe4eff7 : 0x8195ac, envelope * 0.85);
+          g.beginPath();
+          g.moveTo(x - size, y);
+          g.lineTo(x, y - size * 0.7);
+          g.lineTo(x + size * 0.6, y + size);
+          g.closePath().strokePath();
+        }
+        continue;
+      }
       // Destroyed hulls burn white/amber; red remains an incoming threat.
       const blastTint = boss || b.kind === "death" ? 0xffb35c : b.tint;
       const flash = burstStage(age, 0, impact ? 110 : boss ? 520 : 300);

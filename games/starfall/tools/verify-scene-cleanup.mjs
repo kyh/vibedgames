@@ -30,7 +30,7 @@ assert.ok(start >= 0 && end > start);
 const register = new Function(
   "Phaser",
   "sfx",
-  "setPauseHandlers",
+  "releasePauseHandlers",
   "pauseOverlay",
   `${stripTypeScriptTypes(sceneSource.slice(start, end), { mode: "strip" })};return cleanupScene;`,
 );
@@ -137,8 +137,8 @@ const make = async ({ offline = false, delayed = false } = {}) => {
         env.audio.clearTransient();
       },
     },
-    (next) => {
-      handlers = next;
+    () => {
+      handlers = {};
     },
     { hide: () => counts.hidden++ },
   );

@@ -11,8 +11,8 @@ rules. Keep Crazy Waymo's separate work intact while checking it as the referenc
 
 ## Continued quality work
 
-One game at a time, through PR #327. Ancients' and Battle Arena's second checkpoints
-are pushed with passing CI. Bomberman's second checkpoint is implemented and verified. Prior receipts below remain historical
+One game at a time, through PR #327. Ancients', Battle Arena's and Bomberman's second
+checkpoints are pushed with passing CI. Prior receipts below remain historical
 evidence for their exact source versions and measured scopes.
 
 Ancients plan: correct exposed foam centres with the original shoreline art;
@@ -69,7 +69,28 @@ records final layouts, native controls, two connected clients and all24 preserve
 assets. Two final natural rounds and a40.86-second measured mix passed; staged
 11-bomb chains had p9510.5ms and no frames above33.33ms on an Apple M1 Max.
 These desktop measurements do not prove phone thermals or subjective sound quality.
-The final full gate and build pass. Starfall is next for a fresh battlezone review.
+The final full gate and build pass.
+
+Starfall second plan: quiet the original grid; make ship and weapon silhouettes
+read clearly in dense combat; distinguish cool rock fractures from warm ship
+explosions; add accepted attack/recovery acting and truthful volley identity;
+make existing far fleets readable while clearing decoration for locked warnings;
+show actual XP/level and stacked special-weapon time; protect local audio; make
+continuous trails independent of display rate; reduce camera/flash motion and finish
+app/pause cleanup. Keep all original assets,26weapons,90-second waves, boss phase
+floors,20-second pickup rules, trials and controls. The updated game completed a
+555.03-second native-input session through Sector 2, reaching level 3 and earning
+24,227 first-sector points. The boss remained alive across the handoff; this is
+not an earned boss defeat. The session stayed muted, so actual mixer capture is
+separate. Final portrait flow fixes only HTML/CSS after that session; all gameplay,
+audio and render TypeScript match its frozen revision.
+
+[Starfall second-pass evidence](/Users/kyh/.codex/visualizations/2026/09/05/01a072e5-b121-77b0-b7f7-52a06ec3e9e2/aaa-completion/starfall-quality/README.md)
+records six native layouts including combined boss/boost/recap flow, actual
+connected recovery, accepted-time fleet acting and local audio priority. All six
+assets and all sound recipes remain intact. The final full gate/build pass.
+The corrected16.08-second decoded master mix has no clipped samples; listening
+and physical-device behavior are not inferred from desktop captures.
 
 Unresolved questions: none blocking this pass.
 

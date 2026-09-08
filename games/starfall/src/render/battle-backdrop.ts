@@ -14,6 +14,7 @@ type Salvo = {
   strength: number;
 };
 type Flash = { x: number; y: number; bornAt: number; radius: number; tint: number };
+type Fleet = { x: number; y: number; facing: number; tint: number };
 
 /** Far-away light, never an arena entity. A separate cosmetic random stream,
  * muted non-red palette and slow parallax keep it distinct from live threats. */
@@ -22,6 +23,8 @@ export class BattleBackdrop {
   private readonly haze: Phaser.GameObjects.Image[];
   private salvos: Salvo[] = [];
   private flashes: Flash[] = [];
+  private fleets: Fleet[] = [];
+  private viewport = "";
   private nextSalvoAt = 0;
   private previousTime: number | null = null;
   private randomState = 0x514ac29d;
@@ -42,16 +45,22 @@ export class BattleBackdrop {
         .setTint(tint)
         .setAlpha(0.18),
     );
-    scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+    const release = () => {
+      scene.events.off(Phaser.Scenes.Events.SHUTDOWN, release);
+      scene.events.off(Phaser.Scenes.Events.DESTROY, release);
       this.salvos.length = 0;
       this.flashes.length = 0;
+      this.fleets.length = 0;
       this.haze.length = 0;
-    });
+    };
+    scene.events.once(Phaser.Scenes.Events.SHUTDOWN, release);
+    scene.events.once(Phaser.Scenes.Events.DESTROY, release);
   }
 
   reset(): void {
     this.salvos.length = 0;
     this.flashes.length = 0;
+    this.fleets.length = 0;
     this.nextSalvoAt = this.scene.time.now + 600;
     this.previousTime = null;
     this.randomState = 0x514ac29d;
@@ -73,6 +82,17 @@ export class BattleBackdrop {
     const cy = c.scrollY * SCROLL + c.height / 2;
     const w = c.width / c.zoom;
     const h = c.height / c.zoom;
+    const viewport = `${c.width}:${c.height}:${c.zoom}`;
+    if (this.fleets.length === 0 || this.viewport !== viewport) {
+      this.viewport = viewport;
+      this.fleets = [
+        { x: cx - w * 0.34, y: cy - h * 0.3, facing: 1, tint: 0x68a8bd },
+        { x: cx + w * 0.25, y: cy + h * 0.33, facing: -1, tint: 0x9c8756 },
+        { x: cx + w * 0.34, y: cy - h * 0.3, facing: -1, tint: 0x9c8756 },
+      ];
+      this.salvos.length = 0;
+      this.flashes.length = 0;
+    }
     for (let i = 0; i < this.haze.length; i++) {
       const node = this.haze[i];
       if (!node) continue;
@@ -82,16 +102,18 @@ export class BattleBackdrop {
         .setAlpha(frame.beat === "crest" ? 0.2 : frame.beat === "build" ? 0.17 : 0.14);
     }
     this.gfx.clear();
-    // Quiet still has distant ships and haze. These are silhouettes, never
-    // hostile-red hulls, target marks or warning circles.
-    for (let i = 0; i < 3; i++) {
-      const x = cx + (i - 1) * w * 0.33;
-      const y = cy + (i % 2 === 0 ? -1 : 1) * h * 0.34;
-      const facing = i % 2 === 0 ? 1 : -1;
-      this.gfx.lineStyle(1, i === 1 ? 0x9c8756 : 0x68a8bd, 0.16);
-      this.gfx.lineBetween(x + facing * 20, y, x - facing * 17, y - 6);
-      this.gfx.lineBetween(x + facing * 20, y, x - facing * 17, y + 6);
-      this.gfx.lineBetween(x - facing * 8, y - 4, x - facing * 23, y);
+    // Anchors live in the far plane; camera motion no longer cancels their
+    // parallax. Recycle only outside the visible margin, with three hulls total.
+    for (const fleet of this.fleets) {
+      const pad = 140;
+      const spanX = w + pad * 2;
+      const spanY = h + pad * 2;
+      const left = cx - w / 2 - pad;
+      const top = cy - h / 2 - pad;
+      fleet.x = left + ((((fleet.x - left) % spanX) + spanX) % spanX);
+      fleet.y = top + ((((fleet.y - top) % spanY) + spanY) % spanY);
+      const alpha = frame.lockedWarning ? 0.12 : frame.beat === "crest" ? 0.42 : 0.3;
+      this.drawFleet(fleet, alpha * this.centerFade(fleet.x, fleet.y, cx, cy, w, h));
     }
     if (this.motion.matches || !frame.active || frame.lockedWarning) {
       this.salvos.length = 0;
@@ -108,7 +130,7 @@ export class BattleBackdrop {
           x: s.x + Math.cos(s.angle) * s.speed * 1.25,
           y: s.y + Math.sin(s.angle) * s.speed * 1.25,
           bornAt: s.bornAt + 1250,
-          radius: 10 + this.random() * 8,
+          radius: 14 + this.random() * 8,
           tint: s.tint,
         });
       return false;
@@ -118,27 +140,28 @@ export class BattleBackdrop {
     } else if (frame.accent || now >= this.nextSalvoAt) {
       const interval = frame.beat === "quiet" ? 3200 : frame.beat === "build" ? 1400 : 800;
       this.nextSalvoAt = now + interval + this.random() * interval * 0.3;
-      this.launchFormation(now, frame, cx, cy, w, h);
+      this.launchFormation(now, frame);
     }
     const g = this.gfx;
     for (const s of this.salvos) {
       const age = (now - s.bornAt) / 1000;
       const x = s.x + Math.cos(s.angle) * s.speed * age;
       const y = s.y + Math.sin(s.angle) * s.speed * age;
-      g.lineStyle(4, s.tint, 0.08 * s.strength).lineBetween(
+      const strength = s.strength * this.centerFade(x, y, cx, cy, w, h);
+      g.lineStyle(4, s.tint, 0.1 * strength).lineBetween(
         x - Math.cos(s.angle) * 22,
         y - Math.sin(s.angle) * 22,
         x,
         y,
       );
-      g.lineStyle(1, s.tint, 0.42 * s.strength).lineBetween(
-        x - Math.cos(s.angle) * 12,
-        y - Math.sin(s.angle) * 12,
+      g.lineStyle(1, s.tint, 0.58 * strength).lineBetween(
+        x - Math.cos(s.angle) * 18,
+        y - Math.sin(s.angle) * 18,
         x,
         y,
       );
       // A tiny far hull trails its salvo; no health bar, target or attack shape.
-      g.lineStyle(1, s.tint, 0.28 * s.strength);
+      g.lineStyle(1, s.tint, 0.24 * strength);
       const bx = s.x - Math.cos(s.angle) * 35,
         by = s.y - Math.sin(s.angle) * 35;
       g.lineBetween(bx, by, bx - Math.cos(s.angle + 0.6) * 12, by - Math.sin(s.angle + 0.6) * 12);
@@ -147,40 +170,67 @@ export class BattleBackdrop {
     this.flashes = this.flashes.filter((f) => now - f.bornAt < 650);
     for (const f of this.flashes) {
       const p = (now - f.bornAt) / 650;
-      g.lineStyle(1, f.tint, (1 - p) * 0.4).strokeCircle(f.x, f.y, f.radius * p);
-      g.fillStyle(f.tint, (1 - p) * 0.28).fillCircle(f.x, f.y, 4);
+      const fade = this.centerFade(f.x, f.y, cx, cy, w, h);
+      g.lineStyle(1, f.tint, (1 - p) * 0.55 * fade).strokeCircle(f.x, f.y, f.radius * p);
+      g.fillStyle(0xc8dce6, (1 - p) * 0.5 * fade).fillCircle(f.x, f.y, 3);
     }
   }
 
-  private launchFormation(
-    now: number,
-    frame: BattleBeatFrame,
-    cx: number,
-    cy: number,
-    w: number,
-    h: number,
-  ): void {
+  private launchFormation(now: number, frame: BattleBeatFrame): void {
     const broadside = frame.beat === "crest" || frame.accent !== null;
     const count = broadside ? 6 : frame.beat === "quiet" ? 2 : 3;
     if (this.salvos.length + count > SALVO_CAP) return;
-    const direction = this.formation++ % 2 === 0 ? 1 : -1;
-    const bank = frame.accent === "phase" ? -1 : 1;
+    const reverse = this.formation++ % 2 !== 0;
     for (let i = 0; i < count; i++) {
-      // Opposing three-ship broadsides bracket the playfield at a crest.
-      // Quieter beats send one small wing across a distant upper/lower lane.
-      const side = broadside && i >= 3 ? -direction : direction;
-      const lane = broadside && i >= 3 ? 1 : -1;
+      // A visible exchange originates on the hulls and resolves at the far
+      // opponent. These are decorative broadside ports, never real emitters.
+      const swap = broadside && i >= 3 ? !reverse : reverse;
+      const from = this.fleets[swap ? 2 : 0];
+      const to = this.fleets[swap ? 0 : 2];
+      if (!from || !to) return;
       const row = broadside ? i % 3 : i;
+      const x = from.x + from.facing * 44;
+      const y = from.y - 5 + row * 5;
+      const dx = to.x - x;
+      const dy = to.y - y;
       this.salvos.push({
-        x: cx - side * w * 0.24 - side * row * 22,
-        y: cy + lane * bank * h * 0.28 + row * 12,
-        angle: (side === 1 ? 0 : Math.PI) + lane * bank * 0.12,
+        x,
+        y,
+        angle: Math.atan2(dy, dx),
         bornAt: now,
-        tint: side === 1 ? 0x68a8bd : 0x9c8756,
-        speed: (broadside ? 170 : 115) + row * 8,
+        tint: from.tint,
+        speed: Math.hypot(dx, dy) / 1.25,
         strength: broadside ? 1.15 : frame.beat === "quiet" ? 0.6 : 0.9,
       });
     }
+  }
+
+  private drawFleet(fleet: Fleet, alpha: number): void {
+    const { x, y, facing, tint } = fleet;
+    const g = this.gfx;
+    // Long broken keels and recessed engines distinguish the far capital
+    // ships from the live triangular fighters without changing their palette.
+    g.fillStyle(0x102330, alpha * 0.32);
+    g.beginPath();
+    g.moveTo(x + facing * 52, y);
+    g.lineTo(x + facing * 26, y - 8);
+    g.lineTo(x - facing * 34, y - 12);
+    g.lineTo(x - facing * 48, y);
+    g.lineTo(x - facing * 34, y + 12);
+    g.lineTo(x + facing * 26, y + 8);
+    g.closePath().fillPath();
+    g.lineStyle(1, tint, alpha).strokePath();
+    g.lineBetween(x + facing * 35, y, x - facing * 31, y);
+    g.lineBetween(x + facing * 15, y - 3, x - facing * 28, y - 7);
+    g.lineBetween(x + facing * 15, y + 3, x - facing * 28, y + 7);
+    g.lineStyle(2, tint, alpha * 0.8);
+    g.lineBetween(x - facing * 38, y - 5, x - facing * 44, y - 5);
+    g.lineBetween(x - facing * 38, y + 5, x - facing * 44, y + 5);
+  }
+
+  private centerFade(x: number, y: number, cx: number, cy: number, w: number, h: number): number {
+    const distance = Math.hypot((x - cx) / (w * 0.22), (y - cy) / (h * 0.2));
+    return Math.min(1, Math.max(0.12, distance - 0.5));
   }
 
   private random(): number {

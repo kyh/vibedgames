@@ -24,7 +24,9 @@
         padding: 0;
         height: 100%;
         overflow: hidden;
-        background: #020617 url("bg.png") repeat;
+        background:
+          linear-gradient(rgba(2, 6, 17, 0.62), rgba(2, 6, 17, 0.62)),
+          #020617 url("bg.png") repeat;
         background-size: 10px 10px;
         color: #fff;
         font-family:
@@ -54,11 +56,62 @@
         justify-content: space-between;
         align-items: flex-start;
       }
+      #hudleft {
+        width: min(220px, 44vw);
+      }
+      #weapon-line {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+      }
       #weapon {
-        font-size: 11px;
+        font-size: 12px;
         text-transform: uppercase;
         letter-spacing: 1px;
-        opacity: 0.6;
+        color: #e1eaf4;
+        line-height: 1.3;
+      }
+      #weapon-time {
+        color: #c3d5e8;
+        font:
+          11px/1.3 ui-monospace,
+          "SF Mono",
+          Menlo,
+          monospace;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+      #flight-progress {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 3px 7px;
+        margin-top: 5px;
+        color: #9cabbc;
+        font:
+          10px/1.4 ui-monospace,
+          "SF Mono",
+          Menlo,
+          monospace;
+        font-variant-numeric: tabular-nums;
+      }
+      #flight-level {
+        color: #d1deeb;
+      }
+      #flight-xp-track {
+        width: 38px;
+        height: 2px;
+        background: rgba(156, 171, 188, 0.2);
+      }
+      #flight-xp-fill {
+        display: block;
+        width: 0;
+        height: 100%;
+        background: #9cbbd5;
+      }
+      #flight-progress[hidden],
+      #weapon-time[hidden] {
+        display: none;
       }
       #weaponbar {
         height: 2px;
@@ -213,13 +266,6 @@
         background: #ff2d2d;
         box-shadow: 0 0 10px #ff2d2d;
         transition: width 120ms linear;
-      }
-      @media (max-width: 600px) {
-        #bossbar {
-          top: calc(122px + env(safe-area-inset-top, 0px));
-          width: calc(100vw - 40px);
-          max-width: none;
-        }
       }
       #combo {
         position: fixed;
@@ -635,16 +681,9 @@
         letter-spacing: 0.05em;
       }
       @media (max-width: 600px) {
-        #hudright {
-          max-width: 52%;
-        }
         #sector {
           line-height: 1.5;
           letter-spacing: 0.04em;
-        }
-        #recap,
-        #pulse {
-          top: calc(168px + env(safe-area-inset-top, 0px));
         }
         #recap {
           padding: 10px 14px;
@@ -709,12 +748,51 @@
           letter-spacing: 0.04em;
         }
       }
-      @media (max-height: 450px) and (max-width: 600px) {
+      /* Narrow HUD notices share intrinsic rows: modifiers/boosts can wrap,
+         then the boss and sector notice follow without guessed top offsets. */
+      @media (max-width: 600px) {
+        #hud {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+          grid-auto-rows: max-content;
+          align-content: start;
+          gap: 10px 12px;
+        }
+        #hudleft,
+        #hudright {
+          width: auto;
+          min-width: 0;
+          max-width: none;
+        }
+        #bossbar,
+        #recap,
+        #pulse {
+          position: static;
+          inset: auto;
+          transform: none;
+          grid-column: 1 / -1;
+          width: 100%;
+          max-width: none;
+        }
+        #bossbar {
+          grid-row: 2;
+        }
         #recap {
-          top: auto;
-          bottom: calc(14px + env(safe-area-inset-bottom, 0px));
-          left: 20px;
-          right: auto;
+          grid-row: 3;
+        }
+        #recap.in {
+          animation: none;
+        }
+        #pulse {
+          grid-row: 3;
+          width: fit-content;
+          justify-self: center;
+          align-self: start;
+          max-width: 100%;
+        }
+        #hud:has(#bossbar[hidden]) #recap,
+        #hud:has(#bossbar[hidden]) #pulse {
+          grid-row: 2;
         }
       }
       @media (prefers-reduced-motion: reduce) {
@@ -744,9 +822,17 @@
   <body>
     <div id="game"></div>
     <div id="hud">
-      <div>
-        <div id="weapon">BEAM</div>
+      <div id="hudleft">
+        <div id="weapon-line">
+          <div id="weapon">BEAM</div>
+          <span id="weapon-time" hidden></span>
+        </div>
         <div id="weaponbar"></div>
+        <div id="flight-progress" hidden>
+          <span id="flight-level"></span>
+          <span id="flight-xp"></span>
+          <span id="flight-xp-track" aria-hidden="true"><span id="flight-xp-fill"></span></span>
+        </div>
         <div id="shield">
           <div id="shieldrow">
             <span>shield</span>
@@ -761,21 +847,21 @@
         <div id="players">connecting&hellip;</div>
         <div id="sector"></div>
       </div>
+      <div
+        id="bossbar"
+        hidden
+        role="progressbar"
+        aria-labelledby="bosslabel"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-valuenow="100"
+      >
+        <div id="bosslabel">DREADNOUGHT · PHASE 1</div>
+        <div class="track"><div id="bosshp"></div></div>
+      </div>
+      <div id="recap" hidden></div>
+      <div id="pulse" hidden></div>
     </div>
-    <div
-      id="bossbar"
-      hidden
-      role="progressbar"
-      aria-labelledby="bosslabel"
-      aria-valuemin="0"
-      aria-valuemax="100"
-      aria-valuenow="100"
-    >
-      <div id="bosslabel">DREADNOUGHT · PHASE 1</div>
-      <div class="track"><div id="bosshp"></div></div>
-    </div>
-    <div id="recap" hidden></div>
-    <div id="pulse" hidden></div>
     <div id="combo">
       <div id="comboval">&times;2 &middot; 3</div>
       <div id="combobar"></div>

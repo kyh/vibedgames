@@ -1646,6 +1646,8 @@ export type EnemyState = {
   telegraphUntil: number;
   /** LANCER only: locked-vector charge window. */
   chargeUntil: number;
+  /** Cosmetic accepted shot/brood time; absent on older snapshots. */
+  attackAt?: number;
   /** Damage flicker, as UFO. */
   blinkUntil: number;
   /** SPLITTER children: can't fire/kill while flashing in. */

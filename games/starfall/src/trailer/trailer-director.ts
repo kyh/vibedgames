@@ -133,14 +133,27 @@ const show = (node: HTMLElement | null, on: boolean): void => {
 };
 
 export function bootTrailerDirector(game: Phaser.Game): void {
+  let stopped = false;
+  let retry: number | undefined;
+  const releaseBoot = (): void => {
+    if (stopped) return;
+    stopped = true;
+    window.clearTimeout(retry);
+    retry = undefined;
+    game.events.off("destroy", releaseBoot);
+  };
   const tryBoot = (): void => {
+    if (stopped) return;
+    retry = undefined;
     const scene = game.scene.getScene("Game");
     if (scene instanceof GameScene && game.scene.isActive("Game")) {
+      releaseBoot();
       direct(scene);
       return;
     }
-    window.setTimeout(tryBoot, 60);
+    retry = window.setTimeout(tryBoot, 60);
   };
+  game.events.once("destroy", releaseBoot);
   tryBoot();
 }
 
