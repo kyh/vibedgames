@@ -100,7 +100,6 @@ function fixture() {
   };
   return { scene, graphics, images, motion };
 }
-const crest = { beat: "crest", accent: null, active: true, lockedWarning: false, reset: false };
 
 test("real fracture renderer uses cool facets with no shock ring; ship/boss treatment stays warm", () => {
   const { scene, graphics, images, motion } = fixture();
@@ -146,81 +145,40 @@ test("material traffic retains protected bursts and reuses the fixed36 nodes acr
   }
 });
 
-test("far hulls retain world anchors as camera moves, reframe only on resize and keep bounded nodes", () => {
+test("haze keeps three original color fields through camera resize and scene cleanup", () => {
   const { scene, graphics, images } = fixture();
   const backdrop = new BattleBackdrop(scene);
-  backdrop.update(0, crest);
-  const anchors = structuredClone(backdrop.fleets);
+  backdrop.update("crest");
+  const nodes = [...images];
+  assert.deepEqual(
+    images.map((node) => node.tint),
+    [0x244d86, 0x352765, 0x285260],
+  );
+  assert.ok(
+    images.every((node) => node.depth === -4 && node.scroll === 0.22 && node.alpha === 0.2),
+  );
+  const beforeX = images[0].position[0];
   scene.cameras.main.scrollX += 100;
-  backdrop.update(16, crest);
-  for (let i = 0; i < anchors.length; i++)
-    assert.ok(
-      Math.abs(backdrop.fleets[i].x - anchors[i].x) < 1e-9,
-      "camera does not drag a far hull with it",
-    );
-  const beforeScreen = anchors[0].x;
-  const afterScreen = backdrop.fleets[0].x - scene.cameras.main.scrollX * 0.22;
-  assert.ok(Math.abs(beforeScreen - afterScreen - 22) < 1e-9);
+  backdrop.update("build");
+  assert.ok(Math.abs(images[0].position[0] - beforeX - 22) < 1e-9);
+  assert.ok(images.every((node) => node.alpha === 0.17));
   scene.cameras.main.width = 390;
   scene.cameras.main.height = 844;
   scene.cameras.main.zoom = 0.8;
-  backdrop.update(32, crest);
-  assert.equal(backdrop.fleets.length, 3);
-  assert.equal(graphics.length, 1);
+  backdrop.update("quiet");
+  assert.equal(graphics.length, 0);
   assert.equal(images.length, 3);
-  assert.equal(backdrop.centerFade(0, 0, 0, 0, 390, 844), 0.12);
-});
-
-test("actual far broadsides reach fleet anchors, stay within14/5, and never consume global RNG", () => {
-  const { scene } = fixture();
-  const backdrop = new BattleBackdrop(scene);
-  const random = Math.random;
-  Math.random = () => assert.fail("far formations must use their private cosmetic stream");
-  try {
-    backdrop.update(0, crest);
-    assert.equal(backdrop.salvos.length, 6);
-    for (const salvo of backdrop.salvos) {
-      const endX = salvo.x + Math.cos(salvo.angle) * salvo.speed * 1.25;
-      const endY = salvo.y + Math.sin(salvo.angle) * salvo.speed * 1.25;
-      assert.ok(backdrop.fleets.some((fleet) => Math.hypot(fleet.x - endX, fleet.y - endY) < 1e-8));
-    }
-    for (let t = 16; t < 30000; t += 16) {
-      scene.time.now = t;
-      backdrop.update(t, { ...crest, accent: t % 160 === 0 ? "phase" : null });
-      assert.ok(backdrop.counts().salvos <= 14);
-      assert.ok(backdrop.counts().flashes <= 5);
-    }
-  } finally {
-    Math.random = random;
+  for (const [i, node] of images.entries()) {
+    assert.equal(node, nodes[i]);
+    assert.deepEqual(node.size, [(390 / 0.8) * 1.3, (844 / 0.8) * 1.2]);
+    assert.equal(node.alpha, 0.14);
   }
-});
-
-test("locked warnings/reduced motion/dropout clear far moving effects without queued replay", () => {
-  const { scene, motion } = fixture();
-  const backdrop = new BattleBackdrop(scene);
-  backdrop.update(0, crest);
-  assert.ok(backdrop.counts().salvos > 0);
-  backdrop.update(16, { ...crest, lockedWarning: true });
-  assert.deepEqual(backdrop.counts(), { salvos: 0, flashes: 0 });
-  backdrop.update(32, crest);
-  assert.equal(backdrop.counts().salvos, 0);
-  scene.time.now = 800;
-  backdrop.update(800, crest);
-  assert.ok(backdrop.counts().salvos > 0);
-  motion.matches = true;
-  backdrop.update(816, crest);
-  assert.deepEqual(backdrop.counts(), { salvos: 0, flashes: 0 });
-  motion.matches = false;
-  scene.time.now = 9000;
-  backdrop.update(9000, crest);
-  assert.deepEqual(backdrop.counts(), { salvos: 0, flashes: 0 });
   for (const event of ["shutdown", "destroy"]) {
     const { scene: ownedScene } = fixture();
     const owned = new BattleBackdrop(ownedScene);
-    owned.update(0, crest);
+    owned.update("crest");
     ownedScene.events.emit(event);
-    assert.deepEqual(owned.counts(), { salvos: 0, flashes: 0 });
-    assert.equal(owned.fleets.length, 0);
+    assert.equal(owned.haze.length, 0);
     assert.equal(ownedScene.events.listenerCount("shutdown"), 0);
     assert.equal(ownedScene.events.listenerCount("destroy"), 0);
   }

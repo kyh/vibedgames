@@ -7205,7 +7205,7 @@ export class GameScene extends Phaser.Scene {
       bossAlive: this.world.enemies.some((enemy) => enemy.kind === "dreadnought" && enemy.hp > 0),
       lockedWarning,
     });
-    this.battleBackdrop?.update(this.time.now, frame);
+    this.battleBackdrop?.update(frame.beat);
     sfx.setBattleBeat(frame.beat);
   }
 
@@ -7258,7 +7258,6 @@ export class GameScene extends Phaser.Scene {
         this.bossEncounters.reset();
         this.battleBeat.reset();
         this.fx.reset();
-        this.battleBackdrop?.reset();
         const w = this.world;
         w.enemies = [];
         w.enemyShots = [];
