@@ -2769,6 +2769,9 @@ export class Fx {
     this.chunks.clear();
     this.spikes.clear();
     this.bolts.clear();
+    this.pillars.clear();
+    this.voids.clear();
+    this.ribbons.clear();
     this.telegraphs.clear();
     for (const effect of [...this.rings, ...this.beams, ...this.domes, ...this.cracks]) {
       effect.life = 0;
@@ -2789,6 +2792,7 @@ export class Fx {
       piece.ownMat?.dispose();
     }
     this.zonePieces.clear();
+    this.brewPools.clear();
     this.view.resetImpulses();
   }
 

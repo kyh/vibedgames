@@ -295,6 +295,14 @@ export class VoidPool {
     }
   }
 
+  clear(): void {
+    for (const h of this.holes) {
+      h.live = false;
+      h.t = h.life = 0;
+      h.mesh.visible = false;
+    }
+  }
+
   dispose(): void {
     for (const h of this.holes) {
       h.mesh.removeFromParent();
