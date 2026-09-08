@@ -26,6 +26,10 @@ import { createBurningRockMaterial } from "./fx-rock";
 import { createBeamMaterial, type BeamMaterial } from "./fx-beam";
 import { SpikePool } from "./fx-spikes";
 import { BoltPool } from "./fx-bolt";
+import { PillarPool } from "./fx-pillar";
+import { VoidPool } from "./fx-void";
+import { RibbonPool } from "./fx-ribbon";
+import { createBrewPoolMaterial, type BrewPoolMaterial } from "./fx-pool";
 import { HDR_BRIGHT, ParticlePools, type SpawnOptions } from "./fx-particles";
 import { Telegraphs, groundFxColor } from "./telegraph";
 import type { View } from "./view";
@@ -116,7 +120,14 @@ type Slash = {
 };
 type Crack = { mesh: THREE.Mesh; mat: CrackMaterial; life: number; maxLife: number };
 type Delayed = { at: number; run: () => void };
-type ZoneAnim = { next: number; next2: number; phase: number; seenAt: number; born: boolean };
+type ZoneAnim = {
+  next: number;
+  next2: number;
+  phase: number;
+  seenAt: number;
+  bornAt: number; // sim ms the zone first appeared — pools grow off this
+  born: boolean;
+};
 
 const scratch: SpawnOptions = { x: 0, y: 0, z: 0, size: 0.5, life: 0.3 };
 
@@ -148,6 +159,9 @@ export class Fx {
   readonly chunks: ChunkPool;
   readonly spikes: SpikePool;
   readonly bolts: BoltPool;
+  readonly pillars: PillarPool;
+  readonly voids: VoidPool;
+  readonly ribbons: RibbonPool; // projectile wakes — world-view feeds them per frame
   private rings: Ring[] = [];
   private beams: Beam[] = [];
   private cones: ConeDecal[] = [];
@@ -166,10 +180,12 @@ export class Fx {
   private rimGeoCache = new Map<number, THREE.RingGeometry>();
   private ringPlane = new THREE.PlaneGeometry(2, 2);
   private zonePieces = new Map<string, ZonePiece>();
+  private brewPools = new Map<string, BrewPoolMaterial>(); // the brew zone pieces' materials, by zone id
   private vortexGeo = new THREE.CylinderGeometry(1, 0.72, 1, 20, 1, true);
   private cometGeo = createRockGeometry({ seed: 4, detail: 2, craters: 6, cuts: 8 });
   private rockMat = createBurningRockMaterial(fxClock);
   private pendingWarm: { renderer: THREE.WebGLRenderer; camera: THREE.Camera } | null = null;
+  private warmParked: { mesh: THREE.Mesh; ownMat: boolean }[] = []; // warmRig stand-ins
   private texturesReady = false;
   private boltFrom = new THREE.Vector3();
   private boltTo = new THREE.Vector3();
@@ -220,6 +236,9 @@ export class Fx {
     this.chunks = new ChunkPool(scene);
     this.spikes = new SpikePool(scene);
     this.bolts = new BoltPool(scene, fxClock);
+    this.pillars = new PillarPool(scene, fxClock);
+    this.voids = new VoidPool(scene, fxClock);
+    this.ribbons = new RibbonPool(scene, fxClock);
 
     for (let i = 0; i < RING_POOL; i++) {
       // shader annulus: noise-broken rim + hot edge (see fx-shaders makeRingMaterial)
@@ -371,13 +390,19 @@ export class Fx {
    * Invisible costs nothing to render and still compiles.
    */
   private warmRig(scene: THREE.Scene): void {
-    const park = (mesh: THREE.Mesh) => {
+    // `ownMat`: the stand-in's material exists only for the warm pass and is
+    // disposed with it. The rock's is shared with the meteor and lives with it.
+    const park = (mesh: THREE.Mesh, ownMat: boolean) => {
       mesh.visible = false;
       mesh.frustumCulled = false;
       mesh.position.set(0, -1000, 0);
       scene.add(mesh);
+      this.warmParked.push({ mesh, ownMat });
     };
-    park(new THREE.Mesh(this.cometGeo, this.rockMat));
+    park(new THREE.Mesh(this.cometGeo, this.rockMat), false);
+    // The brew pool is built per zone (its material owns the zone's seed), so
+    // the same stand-in trick covers its program.
+    park(new THREE.Mesh(this.ringPlane, createBrewPoolMaterial(fxClock)), true);
     // The tex* helpers build a fresh MeshBasicMaterial per call, so their
     // programs are never in the scene at warm time either. One stand-in per
     // blend mode covers every one of them — the program key is the same.
@@ -393,6 +418,7 @@ export class Fx {
             side: THREE.DoubleSide,
           }),
         ),
+        true,
       );
     }
   }
@@ -449,6 +475,9 @@ export class Fx {
     this.chunks.update(vdt);
     this.spikes.update(vdt);
     this.bolts.update(vdt);
+    this.pillars.update(vdt);
+    this.voids.update(vdt);
+    this.ribbons.update(vdt);
     this.stepRings(vdt);
     this.stepBeams(vdt);
     this.stepCones(vdt);
@@ -465,6 +494,7 @@ export class Fx {
         this.scene.remove(p.obj);
         p.ownMat?.dispose();
         this.zonePieces.delete(id);
+        this.brewPools.delete(id);
       }
     }
 
@@ -644,8 +674,11 @@ export class Fx {
             break;
           }
           case "hexring": {
-            // grand hex seals: violet implosion, spores, and a comedy of tiny
-            // mushrooms sprouting where the victims stood
+            // grand hex seals: a VOID tears open over the circle and hangs
+            // there swallowing light while the spell takes — then a violet
+            // implosion, spores, and a comedy of tiny mushrooms sprouting
+            // where the victims stood
+            this.voids.open(e.x, terrainHeight(e.x, e.y), e.y, e.radius, { life: 1.7 });
             this.implode(e.x, e.y, 0xb98ae0, e.radius, 10, 0.24);
             this.shockwave(e.x, e.y, 0x7fe08a, e.radius, 0.5, 0.7);
             this.spikes.scatter(e.x, e.y, e.radius * 0.75, 6, 0xb98ae0, {
@@ -668,6 +701,11 @@ export class Fx {
               });
               this.bubbles(hx, hy, 8, 0x9fefa8, hr * 0.7);
             });
+            // light pulled in over the hold — a hole that only sits there is
+            // a black disc; one that is fed reads as pulling
+            for (const t of [0.45, 0.8, 1.15]) {
+              this.delay(t, () => this.implode(hx, hy, 0x9fefa8, hr * 0.9, 8, 0.3));
+            }
             break;
           }
           case "vines": // bog grasp: a jaw of vines SNAPS shut around the point
@@ -696,8 +734,10 @@ export class Fx {
               tiltOut: -0.5,
             });
             break;
-          case "smite": // consecrating smite: heaven ANSWERS — bolt + cracked earth
-            this.strikeDown(e.x, e.y, 12, 0xffe6a0, 0xff9a2e, { life: 0.42, scale: 1.5 });
+          case "smite": // consecrating smite: heaven ANSWERS — the column stands up
+            // on the mark, a star welded to its head, two rings turning about
+            // it; cracked earth and gold sparks where it meets the stone
+            this.pillars.strike(e.x, terrainHeight(e.x, e.y), e.y, e.radius);
             this.texDecal("ground-crack", e.x, e.y, { size: 4.4, life: 1.8, additive: false });
             this.texSprite("electric-splat", e.x, 0.8, e.y, {
               size: 3.2,
@@ -1379,7 +1419,7 @@ export class Fx {
   zoneAmbient(g: GroundEffect, now: number): void {
     let st = this.zoneAnim.get(g.id);
     if (!st) {
-      st = { next: 0, next2: 0, phase: Math.random() * 6, seenAt: now, born: true };
+      st = { next: 0, next2: 0, phase: Math.random() * 6, seenAt: now, bornAt: now, born: true };
       this.zoneAnim.set(g.id, st);
     }
     st.seenAt = now;
@@ -1528,6 +1568,38 @@ export class Fx {
         break;
       }
       case "brew": {
+        // the pool itself: acid standing in etched stone, spreading out from
+        // the spill over the first half second, going inert over the zone's
+        // life, and draining away over its last half second
+        const pool = this.zonePiece(g.id, () => {
+          const mat = createBrewPoolMaterial(fxClock);
+          this.brewPools.set(g.id, mat);
+          const mesh = new THREE.Mesh(this.ringPlane, mat);
+          mesh.rotation.x = -Math.PI / 2;
+          mesh.renderOrder = 4.5; // over the telegraph disc, under the bubbles
+          mesh.position.set(g.x, terrainHeight(g.x, g.y) + 0.06, g.y);
+          mesh.scale.setScalar((r * mat.quad) / 2); // ringPlane is 2×2
+          return { obj: mesh, ownMat: mat };
+        });
+        pool.seenAt = now;
+        const brewPool = this.brewPools.get(g.id);
+        if (brewPool) {
+          const age = (now - st.bornAt) / 1000;
+          const total = Math.max(0.5, (g.until - st.bornAt) / 1000);
+          const spread = Math.min(1, age / 0.42);
+          const left = (g.until - now) / 1000;
+          // the boil envelope: mostly still, with surges (a sine spiked by a
+          // power) — the bubbles below vent on the same beat
+          const surge = Math.pow(0.5 + 0.5 * Math.sin(age * Math.PI + st.phase), 2.6);
+          brewPool.sync({
+            radius: r,
+            grown: r * 1.25 * (1 - (1 - spread) * (1 - spread)),
+            front: 1 - spread,
+            spent: 1 - 0.6 * Math.min(1, age / total),
+            boil: surge * 0.9,
+            fade: Math.min(1, Math.max(0, left / 0.5)),
+          });
+        }
         if (st.born) {
           // the cauldron tips over: a green splash + droplets before it settles
           st.born = false;
@@ -2657,11 +2729,20 @@ export class Fx {
     }
     this.spikes.dispose();
     this.bolts.dispose();
+    this.pillars.dispose();
+    this.voids.dispose();
+    this.ribbons.dispose();
     for (const [, p] of this.zonePieces) {
       this.scene.remove(p.obj);
       p.ownMat?.dispose();
     }
     this.zonePieces.clear();
+    this.brewPools.clear();
+    for (const { mesh, ownMat } of this.warmParked) {
+      this.scene.remove(mesh);
+      if (ownMat && mesh.material instanceof THREE.Material) mesh.material.dispose();
+    }
+    this.warmParked.length = 0;
     for (const g of this.coneGeoCache.values()) g.dispose();
     for (const g of this.rimGeoCache.values()) g.dispose();
     this.ringPlane.dispose();

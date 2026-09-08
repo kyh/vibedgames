@@ -73,9 +73,35 @@ const SHOTS = [
     name: "smite",
     champ: "Aurelius",
     ability: "Consecrating Smite",
-    find: "o.isMesh && o.visible && o.material && o.material.uniforms && o.material.uniforms.uProgress && o.material.uniforms.uProgress.value > 0.9",
-    aim: "o.material.uniforms.uTarget.value",
+    // the column, once its front has reached the top and the star has opened
+    find: "o.isMesh && o.visible && o.material && o.material.uniforms && o.material.uniforms.uGrown && o.material.uniforms.uHeight && o.material.uniforms.uGrown.value > 0.99 && o.material.uniforms.uCharge.value < 0.4",
+    aim: "o.material.uniforms.uCentre.value",
     cam: [7, 5, 9],
+  },
+  {
+    name: "grand-hex",
+    champ: "Grimelda",
+    ability: "Grand Hex",
+    // the singularity, settled after its opening swell
+    find: "o.isMesh && o.visible && o.material && o.material.uniforms && o.material.uniforms.uHorizon && o.material.uniforms.uChurn && o.material.uniforms.uChurn.value < 0.05",
+    cam: [6, 2.5, 7],
+  },
+  {
+    name: "cauldron-brew",
+    champ: "Grimelda",
+    ability: "Cauldron Brew",
+    // the pool, once the corrosion has spread to the footprint
+    find: "o.isMesh && o.visible && o.material && o.material.uniforms && o.material.uniforms.uGrown && o.material.uniforms.uSpent && o.material.uniforms.uFront.value < 0.05",
+    cam: [4, 5.5, 5],
+  },
+  {
+    name: "hex-bolt",
+    champ: "Grimelda",
+    ability: "Hex Bolt",
+    // the helix wake behind the bolt, once it has reached back its full span
+    find: "o.isMesh && o.visible && o.material && o.material.uniforms && o.material.uniforms.uSpan && o.material.uniforms.uHead && o.material.uniforms.uSpan.value > 4.4",
+    aim: "o.material.uniforms.uHead.value",
+    cam: [3, 1.5, 3.5],
   },
   {
     name: "seismic-slam",

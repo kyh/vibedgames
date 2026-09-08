@@ -953,6 +953,20 @@ export class WorldView {
       }
       // additive trail behind the projectile
       this.fx?.trail(mesh.position.x, mesh.position.z, projectileColor(p.kind));
+      // the hex bolt drags a nest of helix ribbons — one draw call, built in
+      // the vertex shader off the nose and heading we hand it here
+      if (p.kind === "hexbolt") {
+        const spd = Math.hypot(p.vx, p.vy) || 1;
+        this.fx?.ribbons.follow(
+          p.id,
+          mesh.position.x,
+          mesh.position.y,
+          mesh.position.z,
+          p.vx / spd,
+          p.vy / spd,
+          p.traveled,
+        );
+      }
       // fireballs drag a smoke tracer — matter under the energy
       if (p.kind === "fireball") {
         this.fireballFlip = !this.fireballFlip;
