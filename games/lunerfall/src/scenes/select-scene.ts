@@ -24,7 +24,6 @@ import { isCoarse } from "../sys/screen";
 export class SelectScene extends Phaser.Scene {
   private index = 0;
   private sprites: Phaser.GameObjects.Sprite[] = [];
-  private ring: Phaser.GameObjects.Ellipse | null = null;
   private showcase: Phaser.GameObjects.Sprite | null = null;
   private backdrop: Phaser.GameObjects.Image | null = null;
   private shade: Phaser.GameObjects.Rectangle | null = null;
@@ -39,9 +38,6 @@ export class SelectScene extends Phaser.Scene {
   private recapRoom: { code: string; mode: "coop" | "vs" } | null = null;
   private roomFull = false;
   private k = 1;
-  private selectedX = 0;
-  private selectedY = 0;
-  private reducedMotion: MediaQueryList | null = null;
 
   constructor() {
     super("select");
@@ -68,14 +64,12 @@ export class SelectScene extends Phaser.Scene {
     this.net = code ? (search.get("mode") === "vs" ? "vs" : "coop") : "off";
     this.recapRoom = this.recap && this.net !== "off" ? { code: this.code, mode: this.net } : null;
     this.syncRoomUrl();
-    this.reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     this.backdrop = this.add
       .image(0, 0, "env:backdrop")
       .setOrigin(0)
       .setTint(0x7385a8)
       .setAlpha(0.85);
     this.shade = this.add.rectangle(0, 0, 1, 1, 0x05070b, 0.22).setOrigin(0);
-    this.ring = this.add.ellipse(0, 0, 46, 16).setStrokeStyle(1.5, 0x34e5c8, 0.95);
     for (const name of HERO_ORDER) {
       const sprite = this.add
         .sprite(0, 0, name, firstFrame(this, name))
@@ -120,7 +114,6 @@ export class SelectScene extends Phaser.Scene {
       this.recap = null;
       this.sprites = [];
       // DisplayList owns these objects, including direct Game.destroy's path.
-      this.ring = null;
       this.showcase = null;
       this.backdrop = null;
       this.shade = null;
@@ -170,23 +163,16 @@ export class SelectScene extends Phaser.Scene {
     const hero = HERO_ORDER[this.index] ?? "axion";
     const stage = view.showcase.getBoundingClientRect();
     const scale = Math.min(stage.width / 58, stage.height / 38, 8) * this.k;
-    this.selectedX = (stage.left + stage.width / 2) * this.k;
-    this.selectedY = (stage.bottom - 22) * this.k;
     const visible = stage.bottom > 0 && stage.top < h;
     this.showcase
-      ?.setPosition(this.selectedX, this.selectedY)
+      ?.setPosition((stage.left + stage.width / 2) * this.k, (stage.bottom - 22) * this.k)
       .setScale(scale)
       .setAlpha(isUnlocked(this.meta, hero) ? 1 : 0.65)
       .setVisible(visible)
       .play(`${hero}:idle`, true);
-    this.ring
-      ?.setPosition(this.selectedX, this.selectedY + 3 * this.k)
-      .setSize(23 * scale, 8 * scale)
-      .setStrokeStyle(2 * this.k, HEROES[hero].color, 0.8)
-      .setVisible(visible);
   };
 
-  update(time: number): void {
+  update(): void {
     this.pad?.update();
     if (this.view?.blocksGameInput()) return;
     if (this.pad?.justPressed("left")) this.move(-1);
@@ -196,8 +182,6 @@ export class SelectScene extends Phaser.Scene {
       if (this.pad?.justPressed("down")) this.move(1);
     }
     if (this.pad?.justPressed("a")) this.confirm();
-    const pulse = this.reducedMotion?.matches ? 0 : Math.sin(time / 460);
-    this.ring?.setScale(1 + pulse * 0.05);
   }
 
   private readonly keyDown = (event: KeyboardEvent): void => {

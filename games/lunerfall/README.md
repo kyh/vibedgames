@@ -4,7 +4,7 @@ TowerFall-feel roguelite dungeon crawl — Phaser, pixel art, five heroes with d
 
 Combat effects reuse scene-owned pools (192 particles, 32 afterimages, 16 labels), cleared between rooms. Hero specials and boss blasts carry their own colors; elite clears and boss defeats get finite payoff cues. Routine camera shake follows the local player. Authored swings, hitboxes, combat freeze and rewards are unchanged.
 
-The start screen showcases your warrior above a compact roster. Choose Solo, Co-op or Versus, then Play. Forge and controls live in their own dialogs; the last descent expands for details.
+The start screen showcases your warrior above a compact roster, with NES-inspired pixel controls and a locally bundled Silkscreen font (license in `public/fonts/OFL.txt`). Choose Solo, Co-op or Versus, then Play. Forge and controls live in their own dialogs; the last descent expands for details.
 
 For online play, use **Copy link** to invite a friend. The link selects the room and mode; each player picks a warrior and presses Play. Or choose the same mode, enter the four-character code, and select Join before Play. Codes ignore letter case. Co-op and Versus rooms stay separate, and a third player sees “Room full.” If clipboard access is unavailable, the full link appears for manual copying.
 

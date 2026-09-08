@@ -82,8 +82,6 @@ export class HubView {
     this.root.setAttribute("aria-label", "Lunerfall warrior selection");
     this.root.tabIndex = -1;
     const mast = element("header", "lf-hub-mast");
-    const brand = element("div", "lf-hub-brand");
-    brand.append(element("h1", "", "LUNERFALL"), this.bank);
     this.forge = button("FORGE", actions.forge);
     this.help = button("HELP", () => this.openHelp());
     this.help.setAttribute("aria-haspopup", "dialog");
@@ -92,7 +90,7 @@ export class HubView {
     const utilities = element("nav", "lf-hub-utilities");
     utilities.setAttribute("aria-label", "Forge and controls");
     utilities.append(this.forge, this.help);
-    mast.append(brand, utilities);
+    mast.append(this.bank, utilities);
     this.content.append(mast);
 
     const roster = element("section", "lf-hub-roster");
@@ -270,6 +268,9 @@ export class HubView {
     this.observer.observe(this.showcase);
     this.observer.observe(grid);
     this.root.addEventListener("scroll", actions.layout);
+    void document.fonts.ready.then(() => {
+      if (!this.disposed) actions.layout();
+    });
   }
 
   private readonly fenceKey = (event: KeyboardEvent): void => {

@@ -146,6 +146,7 @@ globalThis.HTMLInputElement = Input;
 globalThis.HTMLTextAreaElement = class extends Node {};
 globalThis.document = {
   body: new Node("body"),
+  fonts: { ready: Promise.resolve() },
   activeElement: null,
   createElement: (tag) =>
     tag === "button" ? new Button() : tag === "input" ? new Input() : new Node(tag),
