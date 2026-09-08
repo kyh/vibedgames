@@ -189,6 +189,16 @@ export function createHandCamera(onWristX: (x: number) => void, onFist?: () => v
     const recognizeEvery = COARSE_INPUT ? 2 : 1;
     let videoFrame = 0;
 
+    function mediaEnded(): void {
+      if (released) return;
+      fail(attempt, new Error("Camera stream ended"));
+    }
+
+    function videoFailed(): void {
+      if (released || video.srcObject !== stream || !video.error) return;
+      fail(attempt, video.error);
+    }
+
     function predictWebcam(): void {
       if (released) return;
       if (!recognizer || !ctx || !drawingUtils || !vision) return;
@@ -268,7 +278,14 @@ export function createHandCamera(onWristX: (x: number) => void, onFist?: () => v
           return;
         }
         stream = media;
+        const tracks = media.getTracks();
+        for (const track of tracks) track.addEventListener("ended", mediaEnded);
+        video.addEventListener("error", videoFailed);
         video.srcObject = media;
+        if (tracks.some((track) => track.readyState === "ended")) {
+          mediaEnded();
+          return;
+        }
         await video.play();
         if (released) return;
         canvas.width = video.videoWidth;
@@ -284,7 +301,10 @@ export function createHandCamera(onWristX: (x: number) => void, onFist?: () => v
         released = true;
         if (rafId !== null) cancelAnimationFrame(rafId);
         rafId = null;
-        stream?.getTracks().forEach((track) => track.stop());
+        const tracks = stream?.getTracks() ?? [];
+        for (const track of tracks) track.removeEventListener("ended", mediaEnded);
+        video.removeEventListener("error", videoFailed);
+        for (const track of tracks) track.stop();
         stream = null;
         recognizer?.close();
         recognizer = null;

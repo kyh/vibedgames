@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { createTouchControls, setPauseHandlers } from "@repo/embed";
 
-import { disposeSound, isMuted, setMuted, setSoundPaused } from "./fx/sfx";
+import { disposeSound, isMuted, resumeSound, setMuted, setSoundPaused } from "./fx/sfx";
 import { createHandCamera } from "./input/camera";
 import { createPongPauseOverlay } from "./pause-overlay";
 import { DitherPass } from "./render/dither-pass";
@@ -32,19 +32,25 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 container.appendChild(renderer.domElement);
 
 const inputOwner = new AbortController();
+let disposed = false;
+for (const event of ["pointerdown", "keydown"]) {
+  window.addEventListener(event, resumeSound, { capture: true, signal: inputOwner.signal });
+}
 const game = new GameScene();
 const dither = new DitherPass(window.innerWidth, window.innerHeight);
 
 // Wrapper pause: freeze the sim unless a live human opponent is connected
 // (see GameScene.requestPause) — the wrapper's own overlay shows either way.
 const pauseOverlay = createPongPauseOverlay(() => game.hasLiveOpponent());
-setPauseHandlers({
+const releasePause = setPauseHandlers({
   onPause: () => {
+    if (disposed) return;
     game.requestPause();
     setSoundPaused(true);
     pauseOverlay.show();
   },
   onResume: () => {
+    if (disposed) return;
     pauseOverlay.hide();
     game.requestResume();
     setSoundPaused(false);
@@ -62,6 +68,7 @@ function syncSound(): void {
   soundButton.setAttribute("aria-label", isMuted() ? "Turn sound on" : "Turn sound off");
 }
 function changeSound(muted: boolean): void {
+  if (disposed) return;
   setMuted(muted);
   syncSound();
 }
@@ -123,29 +130,32 @@ window.addEventListener(
 );
 
 const timer = new THREE.Timer();
+type Diagnostics = ReturnType<GameScene["diagnostics"]> & {
+  renderer: { calls: number; triangles: number };
+};
+let diagnostics: Diagnostics | undefined;
 renderer.setAnimationLoop((time) => {
+  if (disposed) return;
   timer.update(time);
   const dt = Math.min(timer.getDelta(), MAX_DT);
   game.update(dt);
   renderer.info.reset();
   dither.setInverted(game.isScreenInverted());
   dither.render(renderer, game.scene, game.camera);
-  Object.assign(window, {
-    __GAME_DIAGNOSTICS__: {
-      ...game.diagnostics(),
-      renderer: { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles },
-    },
-  });
+  diagnostics = {
+    ...game.diagnostics(),
+    renderer: { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles },
+  };
+  window.__GAME_DIAGNOSTICS__ = diagnostics;
 });
 
 // Final owner only: visibility and BFCache leave the match recoverable.
-let disposed = false;
 function dispose(): void {
   if (disposed) return;
   disposed = true;
   renderer.setAnimationLoop(null);
   inputOwner.abort();
-  setPauseHandlers({});
+  releasePause();
   pauseOverlay.hide();
   touchControls.destroy();
   handCamera.stop();
@@ -156,29 +166,55 @@ function dispose(): void {
   renderer.dispose();
   renderer.forceContextLoss();
   renderer.domElement.remove();
+  if (window.__pong === game) delete window.__pong;
+  if (window.__pongHand === handleHand) delete window.__pongHand;
+  if (window.__pongCamera === handCamera) delete window.__pongCamera;
+  if (window.__pongDispose === dispose) delete window.__pongDispose;
+  if (window.__GAME_TEST_HOOKS__ === testHooks) delete window.__GAME_TEST_HOOKS__;
+  if (window.__GAME_DIAGNOSTICS__ === diagnostics) delete window.__GAME_DIAGNOSTICS__;
 }
 import.meta.hot?.dispose(dispose);
+
+function handleHand(x: number): void {
+  if (!disposed) game.handleHandPosition(x);
+}
+const testHooks = {
+  seed: (seed: number) => {
+    if (!disposed) game.seed(seed);
+  },
+  setState: (name: string) => {
+    if (!disposed) game.setTestState(name);
+  },
+  setPausedForScreenshot: (paused: boolean) => {
+    if (!disposed) paused ? game.requestPause() : game.requestResume();
+  },
+  setReducedMotion: (enabled: boolean) => {
+    if (!disposed) game.setReducedMotion(enabled);
+  },
+  hand: handleHand,
+};
+declare global {
+  interface Window {
+    __pong?: GameScene;
+    __pongHand?: typeof handleHand;
+    __pongCamera?: ReturnType<typeof createHandCamera>;
+    __pongDispose?: typeof dispose;
+    __GAME_TEST_HOOKS__?: typeof testHooks;
+    __GAME_DIAGNOSTICS__?: Diagnostics;
+  }
+}
 
 // See plugins/tooling/skills/playtest/references/bot-playtest.md. State hooks
 // opt into a solo match, never write a staged score into a live room.
 if (import.meta.env.DEV || new URLSearchParams(window.location.search).get("test") === "1") {
-  Object.assign(window, {
-    __GAME_TEST_HOOKS__: {
-      seed: (seed: number) => game.seed(seed),
-      setState: (name: string) => game.setTestState(name),
-      setPausedForScreenshot: (paused: boolean) =>
-        paused ? game.requestPause() : game.requestResume(),
-      setReducedMotion: (enabled: boolean) => game.setReducedMotion(enabled),
-      hand: (x: number) => game.handleHandPosition(x),
-    },
-  });
+  window.__GAME_TEST_HOOKS__ = testHooks;
 }
 
 if (import.meta.env.DEV) {
   // __pongHand(x): drive the gesture→paddle path synthetically (x ∈ [0,1]).
   Object.assign(window, {
     __pong: game,
-    __pongHand: (x: number) => game.handleHandPosition(x),
+    __pongHand: handleHand,
     __pongCamera: handCamera,
     __pongDispose: dispose,
   });

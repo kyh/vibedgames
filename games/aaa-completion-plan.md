@@ -11,8 +11,8 @@ rules. Keep Crazy Waymo's separate work intact while checking it as the referenc
 
 ## Continued quality work
 
-One game at a time, through PR #327. Ancients', Battle Arena's, Bomberman's and
-Starfall's second checkpoints are pushed with passing CI. Prior receipts below remain historical
+One game at a time, through PR #327. Ancients', Battle Arena's, Bomberman's,
+Starfall's, Lunerfall's and Farm's second checkpoints are pushed with passing CI. Prior receipts below remain historical
 evidence for their exact source versions and measured scopes.
 
 Ancients plan: correct exposed foam centres with the original shoreline art;
@@ -127,6 +127,25 @@ and25 input/rule/world/data leaves stay exact. The26.58-second decoded master mi
 has no clipped samples. Same19-enemy stress:228 native sword contacts in each
 revision; final M1 Max p9511.3ms/max29.9ms, none over33.3ms. This explicitly staged
 load uses durable enemies and protection. Final full gate/build pass.
+
+Pong second plan: recover from a terminal camera source through its existing
+retry control; prevent locked audio from accumulating old contacts; protect
+complete result phrases; release the exact pause/global owner on final teardown.
+Preserve the paper court, curve practice, original physics and all camera/input
+algorithms. No additional mode or effects layer is needed for these defects.
+
+[Pong second-pass evidence](/Users/kyh/.codex/visualizations/2026/09/05/01a072e5-b121-77b0-b7f7-52a06ec3e9e2/aaa-completion/pong-quality/README.md)
+records native retry, practice, four layouts, first serve and paused destruction.
+Terminal media events and rare contacts/results use explicit fixtures. All eight
+sound recipes and the4,822-sample simulation trace remain intact. Both controlled
+M1 Max rallies had p959.2ms and no frames over33.3ms. Full gate/build pass. Camera
+recognition and blocked autoplay use controlled collaborators; no physical claim.
+
+Flappy Dragons second plan: route terminal camera/video and recognizer failures
+through the existing retry; preserve normal missing-pose warm-up; release the
+exact final pause and pose/scene hooks. Keep all90 assets, automatic race,
+optional Canopy Trail, detector thresholds and every input. Verify native retry,
+compact camera layouts, earned race flow and final paused destruction.
 
 Unresolved questions: none blocking this pass.
 

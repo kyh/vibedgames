@@ -27,6 +27,7 @@ function harness({ coarse = false } = {}) {
     frames = new Map(),
     requests = [],
     models = [],
+    drawings = [],
     logs = [],
     wrists = [];
   let nextFrame = 0,
@@ -35,16 +36,31 @@ function harness({ coarse = false } = {}) {
     result = { landmarks: [], gestures: [] };
   let modelResult = null,
     playResult = null;
-  class Element extends EventTarget {
+  class OwnedTarget extends EventTarget {
+    listeners = new Map();
+    addEventListener(type, callback, options) {
+      super.addEventListener(type, callback, options);
+      const listeners = this.listeners.get(type) ?? new Set();
+      listeners.add(callback);
+      this.listeners.set(type, listeners);
+    }
+    removeEventListener(type, callback, options) {
+      super.removeEventListener(type, callback, options);
+      this.listeners.get(type)?.delete(callback);
+    }
+  }
+  class Element extends OwnedTarget {
     dataset = {};
     attributes = new Map();
     currentTime = 0;
     videoWidth = 320;
     videoHeight = 240;
     srcObject = null;
+    error = null;
     removed = false;
     paused = 0;
     closed = 0;
+    played = 0;
     constructor(tag) {
       super();
       this.tag = tag;
@@ -61,6 +77,7 @@ function harness({ coarse = false } = {}) {
       this.paused++;
     }
     play() {
+      this.played++;
       return playResult ?? Promise.resolve();
     }
     getContext() {
@@ -89,7 +106,13 @@ function harness({ coarse = false } = {}) {
       }
     },
     DrawingUtils: class {
-      close() {}
+      constructor() {
+        drawings.push(this);
+      }
+      closed = 0;
+      close() {
+        this.closed++;
+      }
       drawConnectors() {}
       drawLandmarks() {}
     },
@@ -136,17 +159,22 @@ function harness({ coarse = false } = {}) {
   const panel = elements.find((e) => e.tag === "button"),
     video = elements.find((e) => e.tag === "video");
   function stream() {
-    const track = {
-      stopped: 0,
+    const track = new (class extends OwnedTarget {
+      readyState = "live";
+      stopped = 0;
       stop() {
         this.stopped++;
-      },
-    };
+        this.listenersAtStop = [...(this.listeners.get("ended") ?? [])].length;
+        this.readyState = "ended";
+        // Adversarial synchronous event: explicit stop must already be unbound.
+        this.dispatchEvent(new Event("ended"));
+      }
+    })();
     return { track, getTracks: () => [track] };
   }
-  function frame(ms = 17) {
+  function frame(ms = 17, advanceVideo = true) {
     now += ms;
-    video.currentTime += ms / 1000;
+    if (advanceVideo) video.currentTime += ms / 1000;
     const work = [...frames.values()];
     frames.clear();
     for (const callback of work) callback(now);
@@ -158,6 +186,7 @@ function harness({ coarse = false } = {}) {
     video,
     requests,
     models,
+    drawings,
     logs,
     wrists,
     frames,
@@ -304,4 +333,147 @@ test("feed readiness, hand freshness, fist edge and recognition cadence remain h
     assert.ok(times.every((time, i) => i === 0 || time > times[i - 1]));
     h.camera.stop();
   }
+});
+
+for (const terminal of ["ended", "error"]) {
+  test(`live ${terminal} releases exact media owners; stale callbacks cannot kill native retry`, async () => {
+    const h = harness(),
+      states = [];
+    h.api.watchHandCamera((state) => states.push(state));
+    h.camera.enable();
+    await settle();
+    const old = h.stream();
+    h.requests[0].resolve(old);
+    await settle();
+    const ended = [...(old.track.listeners.get("ended") ?? [])];
+    const errors = [...(h.video.listeners.get("error") ?? [])];
+    assert.equal(ended.length, 1);
+    assert.equal(errors.length, 1);
+    if (terminal === "ended") {
+      old.track.readyState = "ended";
+      old.track.dispatchEvent(new Event("ended"));
+    } else {
+      h.video.error = { code: 3, message: "decoder failed" };
+      h.video.dispatchEvent(new Event("error"));
+    }
+    assert.equal(h.api.handCameraState(), "error");
+    assert.equal(h.panel.attributes.get("aria-label"), "Retry hand control camera");
+    assert.equal(old.track.stopped, 1);
+    assert.equal(old.track.listenersAtStop, 0);
+    assert.equal(h.models[0].closed, 1);
+    assert.equal(h.drawings[0].closed, 1);
+    assert.equal(h.frames.size, 0);
+    assert.equal(h.video.srcObject, null);
+    assert.equal(h.video.listeners.get("error").size, 0);
+    assert.equal(h.logs.length, 1);
+
+    // detail0 is the existing keyboard/accessibility click route, not a serve.
+    h.video.error = null;
+    const click = new Event("click");
+    Object.defineProperty(click, "detail", { value: 0 });
+    h.panel.dispatchEvent(click);
+    h.panel.dispatchEvent(click);
+    h.camera.enable();
+    await settle();
+    assert.equal(h.requests.length, 2);
+    const fresh = h.stream();
+    h.requests[1].resolve(fresh);
+    await settle();
+    assert.equal(h.api.handCameraState(), "live");
+    assert.equal(h.frames.size, 1);
+    assert.equal(h.fists, 0);
+    // Retained old callbacks and queued error events after the error cleared.
+    for (const callback of [...ended, ...errors]) callback(new Event("error"));
+    old.track.dispatchEvent(new Event("ended"));
+    h.video.dispatchEvent(new Event("error"));
+    assert.equal(h.api.handCameraState(), "live");
+    assert.equal(fresh.track.stopped, 0);
+    assert.equal(h.models[1].closed, 0);
+    assert.equal(h.logs.length, 1);
+    assert.deepEqual(states, ["loading", "live", "error", "loading", "live"]);
+    h.camera.stop();
+    h.camera.stop();
+    assert.equal(fresh.track.stopped, 1);
+    assert.equal(fresh.track.listenersAtStop, 0);
+    assert.equal(h.video.listeners.get("error").size, 0);
+    assert.equal(h.models[1].closed, 1);
+    assert.equal(h.drawings[1].closed, 1);
+    assert.equal(h.frames.size, 0);
+    for (const callback of [...ended, ...errors]) callback(new Event("error"));
+    assert.equal(h.api.handCameraState(), "off");
+    assert.equal(h.logs.length, 1);
+  });
+}
+
+test("ended media during pending play cannot revive; retry survives the old play rejection", async () => {
+  const h = harness(),
+    play = deferred();
+  h.setPlayPromise(play.promise);
+  h.camera.enable();
+  await settle();
+  const old = h.stream();
+  h.requests[0].resolve(old);
+  await settle();
+  old.track.dispatchEvent(new Event("ended"));
+  assert.equal(h.api.handCameraState(), "error");
+  h.setPlayPromise(null);
+  h.camera.enable();
+  await settle();
+  const fresh = h.stream();
+  h.requests[1].resolve(fresh);
+  await settle();
+  play.reject(new Error("late old play"));
+  await settle();
+  assert.equal(h.api.handCameraState(), "live");
+  assert.equal(h.frames.size, 1);
+  assert.equal(old.track.stopped, 1);
+  assert.equal(fresh.track.stopped, 0);
+  assert.equal(h.logs.length, 1);
+  h.camera.stop();
+});
+
+test("hand absence and a stalled video clock remain live, never a terminal camera failure", async () => {
+  const h = harness();
+  h.camera.enable();
+  await settle();
+  const media = h.stream();
+  h.requests[0].resolve(media);
+  await settle();
+  h.setResult({ landmarks: [[{ x: 0.25 }]], gestures: [] });
+  h.frame();
+  assert.equal(h.panel.dataset.tracking, "tracked");
+  const samples = h.models[0].timestamps.length;
+  h.frame(5000, false);
+  assert.equal(h.panel.dataset.tracking, "lost");
+  assert.equal(h.models[0].timestamps.length, samples);
+  h.setResult({ landmarks: [], gestures: [] });
+  h.frame(5000);
+  assert.equal(h.api.handCameraState(), "live");
+  assert.equal(media.track.stopped, 0);
+  assert.equal(h.models[0].closed, 0);
+  assert.deepEqual(h.logs, []);
+  h.camera.stop();
+});
+
+test("media already ended on admission fails before play and remains retryable", async () => {
+  const h = harness();
+  h.camera.enable();
+  await settle();
+  const ended = h.stream();
+  ended.track.readyState = "ended";
+  h.requests[0].resolve(ended);
+  await settle();
+  assert.equal(h.api.handCameraState(), "error");
+  assert.equal(h.video.played, 0);
+  assert.equal(ended.track.stopped, 1);
+  assert.equal(ended.track.listenersAtStop, 0);
+  assert.equal(h.video.listeners.get("error").size, 0);
+  assert.equal(h.models[0].closed, 1);
+  assert.equal(h.frames.size, 0);
+  h.camera.enable();
+  await settle();
+  h.requests[1].resolve(h.stream());
+  await settle();
+  assert.equal(h.api.handCameraState(), "live");
+  h.camera.stop();
 });
