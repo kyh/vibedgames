@@ -173,6 +173,13 @@ piece. Preserve the voxel well, bag, core rules, special windows and all inputs.
 Verify real browser context loss/restore, hold/lock/retry, compact previews and
 paused final teardown. Before first start, recovery returns to the original title.
 
+[Tetris second-pass evidence](/Users/kyh/.codex/visualizations/2026/09/05/01a072e5-b121-77b0-b7f7-52a06ec3e9e2/aaa-completion/tetris-quality/README.md)
+records real browser graphics loss/restoration, native fixed-run completion and
+retry, camera recovery, compact HOLD feedback and exact final ownership. Active
+runs remain paused after graphics recovery; original deadlines shift on deliberate
+resume. Rare clear/catch states use explicit fixtures. Original rules, detector
+trace, input methods and asset remain intact. Full verification and build pass.
+
 Unresolved questions: none blocking this pass.
 
 ## Completion evidence

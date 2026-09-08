@@ -102,6 +102,7 @@ export class PoseCamera {
   private drawingUtils: DrawingUtils | null = null;
   private tasks: VisionTasks | null = null;
   private stream: MediaStream | null = null;
+  private releaseMediaEvents: (() => void) | null = null;
   private rafId: number | null = null;
   private state: "idle" | "starting" | "live" | "unavailable" | "destroyed" = "idle";
   private attempt = 0;
@@ -173,6 +174,21 @@ export class PoseCamera {
       }
       this.stream = stream;
       this.video.srcObject = stream;
+      const tracks = stream.getTracks();
+      const onEnded = (): void => this.fail(attempt);
+      const onVideoError = (): void => {
+        if (this.video.srcObject === stream && this.video.error !== null) this.fail(attempt);
+      };
+      for (const track of tracks) track.addEventListener("ended", onEnded);
+      this.video.addEventListener("error", onVideoError);
+      this.releaseMediaEvents = () => {
+        for (const track of tracks) track.removeEventListener("ended", onEnded);
+        this.video.removeEventListener("error", onVideoError);
+      };
+      if (tracks.some((track) => track.readyState === "ended")) {
+        this.fail(attempt);
+        return;
+      }
       await this.video.play();
       if (!this.current(attempt)) return;
       this.canvas.width = this.video.videoWidth;
@@ -211,6 +227,8 @@ export class PoseCamera {
   private releaseCapture(): void {
     if (this.rafId !== null) cancelAnimationFrame(this.rafId);
     this.rafId = null;
+    this.releaseMediaEvents?.();
+    this.releaseMediaEvents = null;
     this.video.pause();
     this.video.srcObject = null;
     for (const track of this.stream?.getTracks() ?? []) track.stop();

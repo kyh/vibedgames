@@ -168,6 +168,7 @@ export class GameScene {
   private hudOwner = "";
   private hudNextIdx = -2;
   private hudHoldIdx: number | null = -2;
+  private hudHoldSpent: boolean | null = null;
   private hudCharge = -1;
 
   constructor(aspect: number) {
@@ -921,6 +922,16 @@ export class GameScene {
         const def = this.engine.holdIndex === null ? null : PIECES[this.engine.holdIndex];
         drawPiecePreview(cv, def?.footprint ?? null, def?.color ?? 0);
       }
+    }
+    const holdSpent = this.engine.holdSpent;
+    if (holdSpent !== this.hudHoldSpent) {
+      this.hudHoldSpent = holdSpent;
+      const preview = el("hold-preview");
+      if (preview) preview.dataset.spent = String(holdSpent);
+      const status = el("hold-status");
+      if (status) status.hidden = !holdSpent;
+      const hint = el("hold-hint");
+      if (hint) hint.hidden = !holdSpent;
     }
     const charge = Math.round(this.engine.charge * 100);
     if (charge !== this.hudCharge) {

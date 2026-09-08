@@ -43,7 +43,7 @@ globalThis.requestAnimationFrame = (callback) => {
 };
 globalThis.cancelAnimationFrame = (id) => callbacks.delete(id);
 const { createPauseShell } = await import("../src/pause-shell.ts");
-const { setPauseHandlers, notifyGameStarted, pauseGame, isPausable, watchPausable } =
+const { setPauseHandlers, notifyGameStarted, pauseGame, resumeGame, isPausable, watchPausable } =
   await import("../src/game.ts");
 let modal = false,
   resumes = 0;
@@ -177,7 +177,40 @@ for (const alreadyPaused of [false, true]) {
   releaseOlder();
   releaseLatest();
 }
+let available = false,
+  guardedResumes = 0;
+const releaseGuarded = setPauseHandlers({
+  canResume: () => available,
+  onResume: () => guardedResumes++,
+});
+notifyGameStarted();
+pauseGame();
+const beforeDenied = { messages: messages.length, changes: changes.length };
+resumeGame();
+key("keydown", "Escape");
+key("keyup", "Escape");
+assert.equal(guardedResumes, 0, "unavailable game cannot resume through API or Escape");
+assert.equal(isPausable(), false);
+assert.equal(keyBlocked("keydown"), true);
+assert.equal(keyBlocked("keyup"), true);
+assert.equal(messages.length, beforeDenied.messages, "denied resume never announces start");
+assert.equal(changes.length, beforeDenied.changes, "denied resume does not change pause state");
+available = true;
+resumeGame();
+assert.equal(guardedResumes, 1);
+assert.equal(isPausable(), true);
+assert.equal(keyBlocked("keyup"), false);
+available = false;
+pauseGame();
+let newResumes = 0;
+const releaseUnguarded = setPauseHandlers({ onResume: () => newResumes++ });
+releaseGuarded();
+resumeGame();
+assert.equal(newResumes, 1, "replacement owner keeps default resume permission");
+assert.equal(guardedResumes, 1);
+assert.equal(isPausable(), true);
+releaseUnguarded();
 unwatch();
 console.log(
-  "PASS held-key/fresh-key/modal/Escape ownership; final paused disposal releases keys without resume/message; stale disposal preserves distinct-object and same-object replacements",
+  "PASS held-key/fresh-key/modal/Escape ownership; final paused disposal releases keys without resume/message; stale disposal preserves distinct-object and same-object replacements; denied resume preserves state/keys/messages and replacement permission",
 );

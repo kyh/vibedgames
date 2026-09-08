@@ -21,6 +21,8 @@ export type PauseHandlers = {
   onPause?: () => void;
   /** Undo onPause. Runs right before the game is re-announced as started. */
   onResume?: () => void;
+  /** Keep the current pause while the game cannot resume, e.g. lost graphics. */
+  canResume?: () => boolean;
   /**
    * Gate the built-in Escape shortcut (default: always pause). Return false
    * while Escape currently means something in-game — an open modal, shop,
@@ -163,7 +165,7 @@ export function pauseGame(): void {
 
 /** Resume from a pause — the call a pause UI's "resume" affordance makes. */
 export function resumeGame(): void {
-  if (!paused) return;
+  if (!paused || !(handlers.canResume?.() ?? true)) return;
   paused = false;
   notifyPausableChanged();
   // Removing the gate here means the resuming key's own keyup was already

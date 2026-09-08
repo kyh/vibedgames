@@ -29,6 +29,7 @@ class Surface extends EventTarget {
   currentTime = 0;
   readyState = 4;
   srcObject = null;
+  error = null;
   disabled = false;
   listeners = new Map();
   classes = new Set();
@@ -72,6 +73,19 @@ class Surface extends EventTarget {
     return [...this.listeners.values()].reduce((sum, value) => sum + value.size, 0);
   }
 }
+function mediaStream() {
+  const track = new Surface();
+  track.readyState = "live";
+  const stream = { stops: 0, stopListenerCounts: [], getTracks: () => [track] };
+  track.stop = () => {
+    stream.stops++;
+    stream.stopListenerCounts.push(track.listenerCount);
+    track.readyState = "ended";
+    // Stress exact handler release: a synchronous stop event must be inert.
+    track.dispatchEvent(new Event("ended"));
+  };
+  return stream;
+}
 function setup({ coarse = false, source = current } = {}) {
   const rafs = new Map(),
     stages = [],
@@ -85,7 +99,7 @@ function setup({ coarse = false, source = current } = {}) {
     now = 1000;
   const config = {
     media: async () => {
-      const stream = { stops: 0, getTracks: () => [{ stop: () => stream.stops++ }] };
+      const stream = mediaStream();
       streams.push(stream);
       return stream;
     },
@@ -322,6 +336,129 @@ test("video/model/detection failures are retryable and stale callbacks cannot re
   assert.equal(h.rafs.size, 0);
   assert.equal(h.models[1].closes, 1);
   assert.equal(h.drawings.at(-1).closes, 1);
+});
+
+test("current terminal track loss releases exact media owner and one native retry ignores stale events", async () => {
+  const h = setup();
+  await h.camera.start();
+  h.models[0].next = [landmarks(0)];
+  h.frame(1001, 1);
+  const first = h.streams[0];
+  const track = first.getTracks()[0];
+  const staleEnded = [...(track.listeners.get("ended") ?? [])];
+  const staleError = [...(h.camera.video.listeners.get("error") ?? [])];
+  track.readyState = "ended";
+  track.dispatchEvent(new Event("ended"));
+  assert.equal(h.camera.diagnostics().state, "unavailable");
+  assert.match(h.camera.toggle.attributes.get("aria-label"), /Retry/);
+  assert.equal(h.camera.video.srcObject, null);
+  assert.equal(first.stops, 1);
+  assert.equal(h.models[0].closes, 1);
+  assert.equal(h.drawings[0].closes, 1);
+  assert.equal(track.listenerCount, 0);
+  assert.deepEqual(first.stopListenerCounts, [0]);
+  assert.equal(h.camera.video.listenerCount, 0);
+  assert.equal(h.rafs.size, 0);
+  track.dispatchEvent(new Event("ended"));
+  h.camera.toggle.dispatchEvent(new Event("click"));
+  h.camera.toggle.dispatchEvent(new Event("click"));
+  await settle();
+  assert.equal(h.camera.diagnostics().state, "live");
+  assert.equal(h.streams.length, 2);
+  const before = h.camera.diagnostics();
+  h.camera.video.error = { message: "old decoder callback" };
+  for (const callback of [...staleEnded, ...staleError]) callback(new Event("error"));
+  assert.deepEqual(h.camera.diagnostics(), before);
+  assert.equal(h.streams[1].stops, 0);
+  assert.equal(h.rafs.size, 1);
+  h.camera.video.error = null;
+  h.camera.destroy();
+  h.camera.destroy();
+  assert.equal(first.stops, 1);
+  assert.equal(h.streams[1].stops, 1);
+  assert.deepEqual(h.streams[1].stopListenerCounts, [0]);
+  assert.equal(h.streams[1].getTracks()[0].listenerCount, 0);
+  assert.equal(h.camera.video.listenerCount, 0);
+});
+
+test("video terminal failure requires both the current stream and an actual MediaError", async () => {
+  const h = setup();
+  await h.camera.start();
+  const stream = h.streams[0];
+  h.camera.video.dispatchEvent(new Event("error"));
+  assert.equal(h.camera.diagnostics().state, "live", "an empty queued error is not terminal");
+  h.camera.video.error = { message: "decoder failed" };
+  h.camera.video.srcObject = mediaStream();
+  h.camera.video.dispatchEvent(new Event("error"));
+  assert.equal(h.camera.diagnostics().state, "live", "foreign video source is not this owner");
+  h.camera.video.srcObject = stream;
+  h.camera.video.dispatchEvent(new Event("error"));
+  assert.equal(h.camera.diagnostics().state, "unavailable");
+  assert.equal(stream.stops, 1);
+  assert.equal(h.models[0].closes, 1);
+  assert.equal(h.rafs.size, 0);
+  h.camera.video.dispatchEvent(new Event("error"));
+  assert.equal(stream.stops, 1);
+  h.camera.destroy();
+});
+
+test("already-ended capture is rejected before playback or model startup", async () => {
+  const h = setup();
+  const stream = mediaStream();
+  stream.getTracks()[0].readyState = "ended";
+  h.config.media = async () => stream;
+  await h.camera.start();
+  assert.equal(h.camera.diagnostics().state, "unavailable");
+  assert.equal(stream.stops, 1);
+  assert.equal(stream.getTracks()[0].listenerCount, 0);
+  assert.deepEqual(
+    h.stages.map(([stage]) => stage),
+    ["media"],
+  );
+  h.camera.destroy();
+});
+
+test("terminal loss during playback or model startup cannot revive after retry", async () => {
+  for (const stage of ["play", "model"]) {
+    const h = setup();
+    const pending = deferred();
+    const original = h.config[stage];
+    h.config[stage] = () => pending.promise;
+    const firstStart = h.camera.start();
+    await settle();
+    const first = h.streams[0];
+    first.getTracks()[0].dispatchEvent(new Event("ended"));
+    assert.equal(h.camera.diagnostics().state, "unavailable", stage);
+    h.config[stage] = original;
+    await h.camera.start();
+    const live = h.camera.diagnostics();
+    const oldResult = await original();
+    pending.resolve(oldResult);
+    await firstStart;
+    assert.deepEqual(h.camera.diagnostics(), live, stage);
+    assert.equal(first.stops, 1);
+    assert.equal(h.streams[1].stops, 0);
+    assert.equal(h.rafs.size, 1);
+    if (stage === "model") assert.equal(oldResult.closes, 1);
+    h.camera.destroy();
+  }
+});
+
+test("warm-up, missing pose and stalled video retain the live retry-free camera", async () => {
+  const h = setup();
+  await h.camera.start();
+  h.camera.video.readyState = 2;
+  h.frame(1100, 1);
+  h.camera.video.readyState = 4;
+  h.models[0].next = [];
+  h.frame(1200, 2);
+  h.frame(100000, 2);
+  assert.equal(h.camera.diagnostics().state, "live");
+  assert.equal(h.camera.diagnostics().tracking, false);
+  assert.equal(h.streams[0].stops, 0);
+  assert.equal(h.models[0].closes, 0);
+  assert.equal(h.rafs.size, 1);
+  h.camera.destroy();
 });
 
 async function trace(source) {
