@@ -1,8 +1,10 @@
-// Headless world bake: replaces the 4-step manual flow (?bake=1 in a browser,
-// download, move into public/world/, run the split script) that was run 3×
-// in one day, each ~4 minutes of babysitting with two footguns — forgetting
-// the WORLD_REV bump (stale same-rev bins keep loading, so you "verify" the
-// old world) and forgetting the file move.
+// Headless world bake: replaces the manual flow (?bake=1 in a browser,
+// download, unpack into public/world/) that was run 3× in one day, each ~4
+// minutes of babysitting with two footguns — forgetting the WORLD_REV bump
+// (stale same-rev bins keep loading, so you "verify" the old world) and
+// forgetting the file move. The page downloads ONE container
+// (world-bake.bin, see src/world/bake-download.ts); this unpacks it into
+// world.bin, meta.bin and tiles/*.bin.
 //
 //   pnpm bake:world           # starts its own vite dev server
 //   pnpm bake:world -- 5193   # attach to an already-running dev server port
@@ -10,8 +12,16 @@
 // Refuses to run while public/world/ already holds bins at the CURRENT rev:
 // a rebake without a rev bump means either the bump was forgotten (bug) or
 // nothing changed (pointless).
-import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync } from "node:fs";
+import { spawn } from "node:child_process";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { gunzipSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -39,6 +49,27 @@ function shippedRev() {
   } catch {
     return null;
   }
+}
+
+// The container mirrors world-bin.ts: [u32 headerLen][JSON header][buffers…],
+// header = { tree: { rev, files: [{ name, data: { $buf } }] }, buffers: [{ type, length }] }.
+function unpackContainer(bytes) {
+  const headerLen = new DataView(bytes.buffer, bytes.byteOffset, 4).getUint32(0, true);
+  const header = JSON.parse(new TextDecoder().decode(bytes.subarray(4, 4 + headerLen)));
+  const offsets = [];
+  let cursor = 4 + headerLen;
+  for (const b of header.buffers) {
+    cursor = (cursor + 3) & ~3;
+    offsets.push(cursor);
+    cursor += b.length; // every buffer here is a Uint8Array
+  }
+  return header.tree.files.map((f) => {
+    const i = f.data.$buf;
+    return {
+      name: f.name,
+      data: bytes.subarray(offsets[i], offsets[i] + header.buffers[i].length),
+    };
+  });
 }
 
 const shipped = shippedRev();
@@ -141,17 +172,12 @@ try {
     });
   });
 
-  const downloads = new Map();
-  const gotBoth = new Promise((resolve) => {
+  const gotContainer = new Promise((resolve) => {
     page.on("download", (d) => {
       const name = d.suggestedFilename();
       const target = path.join(dl, name);
-      downloads.set(
-        name,
-        d.saveAs(target).then(() => target),
-      );
       console.log(`[bake] downloading ${name}…`);
-      if (downloads.has("world.bin") && downloads.has("rest.bin")) resolve(null);
+      if (name === "world-bake.bin") resolve(d.saveAs(target).then(() => target));
     });
   });
 
@@ -171,31 +197,34 @@ try {
       .catch(() => {});
   }, 15_000);
   console.log("[bake] generating world (cold build — takes ~30-60s)…");
-  await Promise.race([
-    gotBoth,
+  const container = await Promise.race([
+    gotContainer,
     restSkipped,
     pageFailed,
     new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("bake downloads did not arrive in 30 minutes")), 1_800_000),
+      setTimeout(() => reject(new Error("bake download did not arrive in 30 minutes")), 1_800_000),
     ),
   ]);
-  const saved = await Promise.all(downloads.values());
-  console.log(`[bake] saved ${saved.length} artifacts`);
+  const files = unpackContainer(readFileSync(container));
+  console.log(`[bake] container holds ${files.length} artifacts`);
 
-  // Install + split (split-world-bin reads public/world/{rest,world}.bin).
-  // Clear EVERY existing part, not a hardcoded two: the split count tracks the
-  // world's size, so a shrinking world would otherwise leave an orphan
-  // rest.bin.N behind that rest.parts no longer counts and nothing ever loads.
+  // Install: clear every previous artifact (a shrinking world would otherwise
+  // leave orphan tiles behind that meta.bin no longer lists), keep the parcel
+  // source (a bake INPUT, owned by bake:parcels).
   for (const name of readdirSync(worldDir)) {
-    if (/^(world\.bin|rest\.bin(\.\d+)?|rest\.parts)$/.test(name)) {
-      rmSync(path.join(worldDir, name), { force: true });
+    if (/^(world\.bin|meta\.bin|rest\.bin(\.\d+)?|rest\.parts|tiles)$/.test(name)) {
+      rmSync(path.join(worldDir, name), { force: true, recursive: true });
     }
   }
-  for (const target of saved) renameSync(target, path.join(worldDir, path.basename(target)));
-  execFileSync("node", [path.join(root, "tools/split-world-bin.mjs")], {
-    cwd: root,
-    stdio: "inherit",
-  });
+  const PLATFORM_FILE_CAP = 9.5 * 1024 * 1024;
+  for (const { name, data } of files) {
+    if (data.byteLength > PLATFORM_FILE_CAP) {
+      throw new Error(`${name} is ${data.byteLength} bytes — over the platform's 10 MB file cap`);
+    }
+    const target = path.join(worldDir, name);
+    mkdirSync(path.dirname(target), { recursive: true });
+    writeFileSync(target, data);
+  }
   const finalRev = shippedRev();
   if (finalRev !== codeRev)
     throw new Error(`installed bins report rev ${finalRev}, expected ${codeRev}`);

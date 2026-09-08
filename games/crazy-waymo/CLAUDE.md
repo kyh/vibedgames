@@ -9,7 +9,7 @@ crazy-waymo.vibedgames.com via `vg deploy ./dist`.
 ```bash
 pnpm dev            # dev server (repo root: pnpm dev:crazy-waymo)
 pnpm test           # world-gen, geometry budget and driving invariant harness (no browser)
-pnpm bake:world     # regenerate + install public/world/*.bin (owned headed Chrome)
+pnpm bake:world     # regenerate + install public/world/{world,meta}.bin + tiles/ (owned headed Chrome)
 pnpm bake:world -- 5193   # same, but attach to an already-running dev server
 pnpm bake:parcels   # re-bake public/world/parcels.bin from sf-buildings.raw.json (fetch-buildings.sh)
                     # + the downtown survey. ANY change to it needs a WORLD_REV bump + bake:world:
@@ -69,9 +69,26 @@ bake-network.mts`) from the same park-cleared polylines — car-free-park
   generated files proves they came from one bake — `pnpm test` asserts it, plus
   the cross-representation invariants that catch drift.
 - **Three world sources, one shape**: live gen worker (`gen-worker.ts`) →
-  IndexedDB cache (prod revisits) → baked `public/world/*.bin` (first visit).
+  IndexedDB cache (prod revisits) → baked `public/world/` (first visit).
   Dev bypasses the IDB cache; the bins short-circuit gen when their rev
   matches `WORLD_REV`.
+- **The baked world is TILED and STREAMED** (`world/world-tiles.ts`,
+  `world-fetch.ts`, `bake-download.ts`). `world.bin` = terrain; `meta.bin` =
+  batch instances, base collision boxes, parked cars, lamp heads, decks, the
+  skyline plans and the tile index; `tiles/{ix}_{iz}.bin` = one 320u cell
+  (`CHUNK`): its merged static geometry, its parcel plans + lots
+  (`parcel-pack.ts`, columnar Int16) and its parcel walls. The title gates on
+  the tiles within `GATE_RADIUS` of the spawn (480u on phones, the full hold
+  radius on desktop); the rest stream nearest-first as the camera moves and
+  are evicted past `TILE_HOLD_RADIUS` + hysteresis (`city.installWorldTile` /
+  `evictWorldTile`: merged meshes, parcel cells, tile solids into the physics
+  stream and the `SolidIndex`, all per tile). Nothing in a tile is copied
+  onto the heap: merged geometry stays quantized on the GPU
+  (`quantized-geometry.ts`: normalized Uint16 positions in a bounding-box
+  frame carried by the mesh transform, Int8 normals, Uint8 colours), and a
+  cell's plans are materialized only while its geometry builds. Every
+  artifact is < 10 MB by construction (the platform's file cap; the bake tool
+  refuses otherwise). `city.tileStreamStats()` reports residency.
 - **The car is physics-native**: a Rapier `RaycastVehicle` attaches after
   load (`vehicle/raycast-vehicle.ts`) — drive-feel work goes there, NOT in
   the kinematic branch of `car.update` (that's only the pre-physics fallback).
@@ -154,21 +171,15 @@ bake-parcels.mts` writes it): ~147k footprints — the licensed downtown survey
   This prevents survey/OSM duplicates from stacking storefronts. The streamer
   promotes cells within 220u (176u phones) and keeps a 40u detail hysteresis
   band. Exposed flanks keep shader windows at every tier. The plan is pure
-  and deterministic and runs OFF THE MAIN
-  THREAD (`parcel-worker.ts`, ~5 s): `world-loader.ts` starts it the moment
-  parcels.bin lands, and the worker assembles its own reservation through
-  `world/reservation.ts` — the ONE builder phase 1 also uses, with the depot
-  picker in `world/garages.ts` — so it never waits on the city. Revisits skip
-  it: the plan is cached in IndexedDB (`world-cache.ts`, keyed by build id +
-  WORLD_REV + source bytes; `?cache=1` opts a dev tab in), ready in ~4 s
-  against ~10 s on a miss. An edited city or a worker failure plans on the
-  main thread from the decoded source. Both load paths build the meshes AND
-  the collision solids at the end of their pass (`city.buildParcels`), and
-  NOTHING of it is captured into the bins — the rest capture copies `solids`
-  before the parcels push theirs. So a change to the
-  generator or its palettes needs no rebake and shows in any dev tab; a change
-  that moves what the kit walk reads (coverage, occupancy, the clip) still
-  does. The kerb clip is why 15.9k of the 21k parcels build instead of 2.9k: a
+  and deterministic, and on the BAKED path no player ever computes it: the
+  bake plans the whole city (in its worker, `parcel-worker.ts`) and ships
+  the visible plan, the lots and every collision box inside the tiles, the
+  skyline in `meta.bin`. Only a city that plans itself — edited, `?bake=1`,
+  or the cold fallback with no usable bins — fetches `parcels.bin` and runs
+  the worker (its IndexedDB plan cache in `world-cache.ts` serves that path).
+  On the baked path a generator or palette change is therefore a `WORLD_REV`
+  bump + `bake:world` like any other generation output; a dev tab on the cold
+  path still sees it live. The kerb clip is why 15.9k of the 21k parcels build instead of 2.9k: a
   vertex inside a street's setback is pushed to the setback line on the
   parcel's side, a parcel entirely inside the band is slid back whole, and a
   parcel the clip left shallower than 2.6u is stretched into its block.
@@ -199,8 +210,8 @@ bake-parcels.mts` writes it): ~147k footprints — the licensed downtown survey
   is drawn over them and `pnpm test` carries them as a baseline.
 - **Two load paths, and only some builders run on both.** `buildLandmarks`,
   `buildFreeways` and `buildPiers` are rebuilt live on the cold-gen path AND
-  the baked-rest path. `buildGoldenGate` runs on cold gen ONLY — its meshes go
-  into `rest.bin` — so anything runtime-only it wants to publish (night
+  the baked path. `buildGoldenGate` runs on cold gen ONLY — its meshes go
+  into the tiles — so anything runtime-only it wants to publish (night
   beacons) has to come from `goldenGatePlan` + `goldenGateBeacons`, which
   `city.ts lightGoldenGate()` calls next to `buildLandmarks` on both paths.
   Registering beacons inside a gen-only builder lights the world for nobody.
@@ -288,7 +299,7 @@ time are already IN `public/world/*.bin`; edit the constant and your own tab
 still loads the old value, silently, because the bin's rev still matches. To
 SEE such a change before the rebake, force the cold-gen path — a one-file vite
 config that spreads the repo's and adds a middleware 404ing `/world/world.bin`
-and `/world/rest.bin*` makes `world-fetch` return null and the world generates
+and `/world/meta.bin` makes `world-fetch` return null and the world generates
 live from source. Any before/after screenshot of a baked-vertex change that
 skips this is a photograph of the old world.
 

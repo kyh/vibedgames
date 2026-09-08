@@ -1,5 +1,7 @@
 import * as THREE from "three";
 
+import { normalizedScale } from "./quantized-geometry";
+
 import {
   CEILING,
   ROAD_TILE,
@@ -46,7 +48,41 @@ class BucketGrid {
   }
 }
 
+/**
+ * The index the game queries. The base set (map borders, seawalls, landmarks,
+ * furniture — meta.bin) is there from load; the parcel walls arrive and leave
+ * with their world tile (world-tiles.ts), each tile bucketed on its own, so a
+ * tile swap never rebuilds the city-wide table.
+ */
 export class SolidIndex {
+  private readonly base: SolidBuckets;
+  private readonly tiles = new Map<number, SolidBuckets>();
+
+  constructor(base: readonly Solid[]) {
+    this.base = new SolidBuckets(base);
+  }
+
+  addTile(key: number, solids: readonly Solid[]): void {
+    this.tiles.set(key, new SolidBuckets(solids));
+  }
+
+  removeTile(key: number): void {
+    this.tiles.delete(key);
+  }
+
+  forEachIn(minX: number, maxX: number, minZ: number, maxZ: number, fn: (s: Solid) => void): void {
+    this.base.forEachIn(minX, maxX, minZ, maxZ, fn);
+    for (const t of this.tiles.values()) t.forEachIn(minX, maxX, minZ, maxZ, fn);
+  }
+
+  hitAt(x: number, z: number, y?: number): boolean {
+    if (this.base.hitAt(x, z, y)) return true;
+    for (const t of this.tiles.values()) if (t.hitAt(x, z, y)) return true;
+    return false;
+  }
+}
+
+class SolidBuckets {
   readonly solids: readonly Solid[];
   private readonly grid = new BucketGrid();
   private readonly nz: number;
@@ -345,6 +381,10 @@ export async function harvestCeilingSpans(
     if (!(posAttr instanceof THREE.BufferAttribute)) continue;
     const pos = posAttr.array;
     const stride = posAttr.itemSize;
+    // Packed meshes hold normalized integers (world/quantized-geometry.ts);
+    // their matrixWorld carries the bounding-box frame, so the scale below is
+    // all that stands between the raw array and three's own getX().
+    const norm = normalizedScale(posAttr);
     const index = geo.index;
     const idx = index === null ? null : index.array;
     const count = idx === null ? posAttr.count : idx.length;
@@ -377,16 +417,17 @@ export async function harvestCeilingSpans(
       let hi = -Infinity;
       for (let k = 0; k < 3; k++) {
         const v = (idx === null ? i + k : (idx[i + k] ?? 0)) * stride;
-        const y = yx * (pos[v] ?? 0) + yy * (pos[v + 1] ?? 0) + yz * (pos[v + 2] ?? 0) + yw;
+        const y =
+          (yx * (pos[v] ?? 0) + yy * (pos[v + 1] ?? 0) + yz * (pos[v + 2] ?? 0)) * norm + yw;
         if (y < lo) lo = y;
         if (y > hi) hi = y;
       }
       if (hi - lo > CEILING.flatTol) continue;
       for (let k = 0; k < 3; k++) {
         const v = (idx === null ? i + k : (idx[i + k] ?? 0)) * stride;
-        const x = pos[v] ?? 0;
-        const y = pos[v + 1] ?? 0;
-        const z = pos[v + 2] ?? 0;
+        const x = (pos[v] ?? 0) * norm;
+        const y = (pos[v + 1] ?? 0) * norm;
+        const z = (pos[v + 2] ?? 0) * norm;
         px[k] = xx * x + xy * y + xz * z + xw;
         pz[k] = zx * x + zy * y + zz * z + zw;
       }

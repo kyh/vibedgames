@@ -1,12 +1,13 @@
-import type { CityRestPayload } from "./city";
 import type { CityGenPayload } from "./gen-worker";
-import { deserializeWorldBin, unpackRest, unpackWorld, WORLD_REV } from "./world-bin";
-import type { WorldBinPayload } from "./world-bin";
+import { deserializeWorldBin, unpackMeta, unpackWorld, WORLD_REV } from "./world-bin";
+import type { CityRestMeta, PackedWorldTile, WorldBinPayload, WorldTileRef } from "./world-bin";
 import { PARCEL_SOURCE_VERSION } from "./parcel-source";
 
-// Loader for the pre-baked world shipped as static assets (public/world/*.bin,
-// gzipped by the bake). First visits skip ALL generation: the title needs only
-// world.bin (roads + terrain); rest.bin (the built city) streams behind it.
+// Loader for the pre-baked world shipped as static assets (public/world/,
+// gzipped by the bake). First visits skip ALL generation: world.bin (terrain)
+// and meta.bin (batches, solids, skyline, tile index) come first; the city's
+// static geometry and parcel fabric arrive per 320u tile, nearest first
+// (world/world-tiles.ts), so a phone downloads its neighbourhood, not the map.
 
 async function gunzip(gz: ArrayBuffer): Promise<ArrayBuffer> {
   const ds = new DecompressionStream("gzip");
@@ -17,47 +18,19 @@ async function gunzip(gz: ArrayBuffer): Promise<ArrayBuffer> {
 // paths — the rev query is what lets a rebake reach returning players.
 const bust = (path: string): string => `${path}?v=${WORLD_REV}`;
 
-// The platform caps files at 10MB — big artifacts ship as .0..N parts with a
-// .parts count file. Parts download in parallel.
-async function fetchMaybeParts(path: string): Promise<ArrayBuffer | null> {
-  // The single-file probe must never kill the parts fallback (some servers
-  // abort rather than 404 on the missing unsplit file).
-  try {
-    const single = await fetch(bust(path));
-    if (single.ok) {
-      const buf = await single.arrayBuffer();
-      // SPA fallbacks answer 200 with index.html — a real artifact is binary
-      // and starts with the gzip magic bytes.
-      const head = new Uint8Array(buf, 0, 2);
-      if (head[0] === 0x1f && head[1] === 0x8b) return buf;
-    }
-  } catch {
-    // fall through to parts
-  }
-  const partsRes = await fetch(bust(path.replace(".bin", ".parts")));
-  if (!partsRes.ok) return null;
-  const n = parseInt((await partsRes.text()).trim(), 10);
-  if (!Number.isFinite(n) || n < 1 || n > 64) return null;
-  const parts = await Promise.all(
-    Array.from({ length: n }, (_, i) =>
-      fetch(bust(`${path}.${i}`)).then((r) => (r.ok ? r.arrayBuffer() : null)),
-    ),
-  );
-  if (parts.some((p) => p === null)) return null;
-  const total = parts.reduce((a, p) => a + (p?.byteLength ?? 0), 0);
-  const out = new Uint8Array(total);
-  let off = 0;
-  for (const p of parts) {
-    if (!p) return null;
-    out.set(new Uint8Array(p), off);
-    off += p.byteLength;
-  }
-  return out.buffer;
+async function fetchGz(path: string): Promise<ArrayBuffer | null> {
+  const res = await fetch(bust(path));
+  if (!res.ok) return null;
+  const buf = await res.arrayBuffer();
+  // SPA fallbacks answer 200 with index.html — a real artifact is binary
+  // and starts with the gzip magic bytes.
+  const head = new Uint8Array(buf, 0, 2);
+  return head[0] === 0x1f && head[1] === 0x8b ? buf : null;
 }
 
 async function fetchBin(path: string): Promise<WorldBinPayload | null> {
   try {
-    const gz = await fetchMaybeParts(path);
+    const gz = await fetchGz(path);
     if (!gz) return null;
     const buf = await gunzip(gz);
     const data = deserializeWorldBin(buf);
@@ -84,11 +57,26 @@ export function fetchBakedWorld(): Promise<CityGenPayload | null> {
     });
 }
 
-export function fetchBakedRest(): Promise<CityRestPayload | null> {
-  return fetchBin("world/rest.bin")
-    .then((d) => (d?.rest ? unpackRest(d.rest) : null))
+/** The untiled remainder of the built city, plus the tile index. */
+export function fetchWorldMeta(): Promise<CityRestMeta | null> {
+  return fetchBin("world/meta.bin")
+    .then((d) => (d?.meta ? unpackMeta(d.meta) : null))
     .catch((e) => {
-      console.log(`[world-bin] rest unpack failed: ${e instanceof Error ? e.message : e}`);
+      console.log(`[world-bin] meta unpack failed: ${e instanceof Error ? e.message : e}`);
+      return null;
+    });
+}
+
+export const worldTilePath = (ref: WorldTileRef): string => `world/tiles/${ref.ix}_${ref.iz}.bin`;
+
+/** One world tile. Null on any failure — the streamer retries on its next pass. */
+export function fetchWorldTile(ref: WorldTileRef): Promise<PackedWorldTile | null> {
+  return fetchBin(worldTilePath(ref))
+    .then((d) => d?.tile ?? null)
+    .catch((e) => {
+      console.log(
+        `[world-bin] tile ${ref.ix},${ref.iz} failed: ${e instanceof Error ? e.message : e}`,
+      );
       return null;
     });
 }
@@ -102,7 +90,7 @@ export function fetchBakedRest(): Promise<CityRestPayload | null> {
  * broken one.
  */
 export function fetchParcelSource(): Promise<ArrayBuffer | null> {
-  return fetchMaybeParts("world/parcels.bin")
+  return fetchGz("world/parcels.bin")
     .then(async (gz) => {
       if (!gz) return null;
       const buf = await gunzip(gz);

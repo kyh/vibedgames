@@ -11,6 +11,7 @@ import {
   parcelDetailForDistance,
   STREAM_CELL,
 } from "../src/world/parcel-stream.ts";
+import { packLots, packPlans } from "../src/world/parcel-pack.ts";
 import { buildParcelGeometry, buildParcelGeometrySteps } from "../src/world/parcel-mesh.ts";
 import { visibleParcelPlans } from "../src/world/parcel-visibility.ts";
 import { WORLD_HALF_X, WORLD_HALF_Z } from "../src/shared/constants.ts";
@@ -93,7 +94,8 @@ if (process.argv.includes("--cost")) {
 } else
   for (let run = 0; run < 3; run++) {
     const group = new Group();
-    const stream = new ParcelStreamer(group, fabric, parcels.lots, 1);
+    const stream = new ParcelStreamer(group, 1);
+    stream.addTile(0, packPlans(fabric), packLots(parcels.lots));
     const radius = streamRadiusFor(1, 1);
     stream.update(-740, 604.5, radius);
     const x = (0.738 * 2 - 1) * WORLD_HALF_X;

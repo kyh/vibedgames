@@ -38,15 +38,25 @@ const SOLID_STREAM_IN = 160; // boxes closer than this become colliders
 const SOLID_STREAM_OUT = 200; // resident boxes farther than this are removed
 const SOLID_RESTREAM_DIST = 24; // re-scan after the taxi moves this far
 
-type SolidBox = StaticSolidBox & {
-  readonly reach: number; // conservative footprint radius: max(hx, hz)
-  collider: RAPIER.Collider | null;
+// Struct-of-arrays: x, y, z, hx, hy, hz, yaw, reach per box. The city holds
+// ~250k boxes (every parcel wall), and one object per box was ~35 MB of heap
+// on a phone for a table the stream scan only ever reads numerically. The
+// parcel walls come and go with their world tile, so boxes live in blocks:
+// one for the base city, one per resident tile.
+const BOX_STRIDE = 8;
+const BOX_REACH = 7; // conservative footprint radius: max(hx, hz)
+const BASE_BLOCK = -1;
+
+type SolidBlock = {
+  readonly boxes: Float32Array;
+  readonly count: number;
+  readonly resident: Map<number, RAPIER.Collider>;
 };
 
 export class PhysicsWorld {
   private world: RAPIER.World;
   private acc = 0;
-  private solidBoxes: SolidBox[] = [];
+  private readonly blocks = new Map<number, SolidBlock>();
   private streamX = Infinity;
   private streamZ = Infinity;
 
@@ -110,19 +120,52 @@ export class PhysicsWorld {
   // solids (avenue-aligned buildings) carry their yaw. Nothing becomes a
   // collider here — boxes are precomputed and streamSolids() keeps only the
   // ones near the taxi resident.
-  addStaticSolids(solids: readonly Solid[], terrain: Terrain): void {
+  addStaticSolids(solids: readonly Solid[], terrain: Terrain, tile = BASE_BLOCK): void {
+    this.removeStaticSolids(tile);
+    const boxes = new Float32Array(solids.length * BOX_STRIDE);
+    let count = 0;
     for (const s of solids) {
       if (s.noBody) continue; // tree trunks etc — arcade-collision only
       const cx = (s.minX + s.maxX) / 2;
       const cz = (s.minZ + s.maxZ) / 2;
       if (Math.abs(cx) > WORLD_HALF_X + 30 || Math.abs(cz) > WORLD_HALF_Z + 30) continue;
       const box = staticSolidBox(s, (x, z) => terrain.heightAt(x, z));
-      this.solidBoxes.push({
-        ...box,
-        reach: Math.max(box.hx, box.hz),
-        collider: null,
-      });
+      const o = count * BOX_STRIDE;
+      boxes[o] = box.x;
+      boxes[o + 1] = box.y;
+      boxes[o + 2] = box.z;
+      boxes[o + 3] = box.hx;
+      boxes[o + 4] = box.hy;
+      boxes[o + 5] = box.hz;
+      boxes[o + 6] = box.yaw;
+      boxes[o + BOX_REACH] = Math.max(box.hx, box.hz);
+      count++;
     }
+    this.blocks.set(tile, { boxes, count, resident: new Map() });
+    // A block added mid-drive must stream on the next frame, not after the
+    // taxi moves another SOLID_RESTREAM_DIST.
+    this.streamX = Infinity;
+  }
+
+  /** Drop a tile's boxes, resident colliders included. */
+  removeStaticSolids(tile: number): void {
+    const block = this.blocks.get(tile);
+    if (!block) return;
+    for (const collider of block.resident.values()) this.world.removeCollider(collider, true);
+    this.blocks.delete(tile);
+  }
+
+  private boxAt(b: Float32Array, i: number): StaticSolidBox {
+    const o = i * BOX_STRIDE;
+    return {
+      x: b[o] ?? 0,
+      y: b[o + 1] ?? 0,
+      z: b[o + 2] ?? 0,
+      hx: b[o + 3] ?? 0,
+      hy: b[o + 4] ?? 0,
+      hz: b[o + 5] ?? 0,
+      yaw: b[o + 6] ?? 0,
+    };
   }
 
   // Keep the static-solid colliders near (x, z) resident and evict the rest.
@@ -135,14 +178,18 @@ export class PhysicsWorld {
     if (moved < SOLID_RESTREAM_DIST) return;
     this.streamX = x;
     this.streamZ = z;
-    for (const box of this.solidBoxes) {
-      const d = Math.hypot(x - box.x, z - box.z) - box.reach;
-      if (box.collider === null && d < SOLID_STREAM_IN) {
-        const desc = staticSolidCollider(box);
-        box.collider = this.world.createCollider(desc);
-      } else if (box.collider !== null && d > SOLID_STREAM_OUT) {
-        this.world.removeCollider(box.collider, true);
-        box.collider = null;
+    for (const block of this.blocks.values()) {
+      const b = block.boxes;
+      for (let i = 0; i < block.count; i++) {
+        const o = i * BOX_STRIDE;
+        const d = Math.hypot(x - (b[o] ?? 0), z - (b[o + 2] ?? 0)) - (b[o + BOX_REACH] ?? 0);
+        const collider = block.resident.get(i);
+        if (collider === undefined && d < SOLID_STREAM_IN) {
+          block.resident.set(i, this.world.createCollider(staticSolidCollider(this.boxAt(b, i))));
+        } else if (collider !== undefined && d > SOLID_STREAM_OUT) {
+          this.world.removeCollider(collider, true);
+          block.resident.delete(i);
+        }
       }
     }
   }

@@ -8,6 +8,7 @@ import { pointInRing } from "../src/world/parcel-plan.ts";
 import { SHOP_SIGNS, shopSignIndex } from "../src/world/parcel-signs.ts";
 import type { ParcelPlan } from "../src/world/parcel-plan.ts";
 import { parcelDetailForDistance, ParcelStreamer } from "../src/world/parcel-stream.ts";
+import { packLots, packPlans } from "../src/world/parcel-pack.ts";
 import { visualHeight } from "../src/world/parcel-style.ts";
 
 type Check = (name: string, condition: boolean, detail?: string) => void;
@@ -270,15 +271,12 @@ export function checkParcelFacades(check: Check): void {
   root.position.set(17, 3, 9);
   root.updateMatrixWorld(true);
   root.matrixWorldAutoUpdate = false;
-  const streamer = new ParcelStreamer(
-    root,
-    [placed(0), placed(80), placed(1000), placed(1080)],
-    [],
-    2,
-  );
+  const streamer = new ParcelStreamer(root, 2);
+  streamer.addTile(0, packPlans([placed(0), placed(80), placed(1000), placed(1080)]), packLots([]));
   streamer.update(0, 0, 300);
   const referenceRoot = new Group();
-  const referenceStream = new ParcelStreamer(referenceRoot, [placed(0), placed(80)], [], 2);
+  const referenceStream = new ParcelStreamer(referenceRoot, 2);
+  referenceStream.addTile(0, packPlans([placed(0), placed(80)]), packLots([]));
   referenceStream.update(0, 0, 300);
   const expectedBounds = new Box3().setFromObject(referenceRoot).translate(root.position);
   const editorBounds = new Box3().setFromObject(referenceRoot);
@@ -314,7 +312,8 @@ export function checkParcelFacades(check: Check): void {
   );
   streamer.update(2000, 0, 300);
   const phoneRoot = new Group();
-  const phone = new ParcelStreamer(phoneRoot, [placed(0), placed(880)], [], 1);
+  const phone = new ParcelStreamer(phoneRoot, 1);
+  phone.addTile(0, packPlans([placed(0), placed(880)]), packLots([]));
   phone.update(0, 0, 960);
   check("phone quality upgrades retain the bounded fabric radius", phone.stats().resident === 1);
   phone.update(2000, 0, 300);

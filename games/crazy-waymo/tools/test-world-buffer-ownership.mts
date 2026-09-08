@@ -1,10 +1,17 @@
+import { BufferAttribute, BufferGeometry } from "three";
 import type { CityRestPayload } from "../src/world/city";
+import { packGeometry } from "../src/world/quantized-geometry";
 import { deserializeWorldBin, unpackRest, unpackWorld, WORLD_REV } from "../src/world/world-bin";
 import { packRest, packWorld, serializeWorldBin } from "../src/world/world-bin-pack";
 
 type Check = (name: string, condition: boolean, detail?: string) => void;
 
-/** Runtime geometry must survive releasing the large decoded download buffer. */
+/**
+ * Packed geometry rides the decoded download as views — a tile IS its
+ * geometry, and phones drop the arrays once the GPU has them — while the
+ * raw geometries (BatchedMesh templates, Float32 by contract) own compact
+ * copies so a small surviving mesh cannot pin a whole artifact.
+ */
 export async function checkWorldBufferOwnership(check: Check): Promise<void> {
   const position = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]);
   const indices = [new Uint16Array([0, 1, 2]), new Uint32Array([2, 1, 0]), null];
@@ -27,16 +34,20 @@ export async function checkWorldBufferOwnership(check: Check): Promise<void> {
     index,
     mat,
   }));
+  const packedGeos = indices.map((index) => {
+    const geo = new BufferGeometry();
+    geo.setAttribute(
+      "position",
+      new BufferAttribute(index instanceof Uint32Array ? new Float32Array(65536 * 3) : position, 3),
+    );
+    if (index) geo.setIndex(new BufferAttribute(index, 1));
+    return packGeometry(geo);
+  });
   const rest: CityRestPayload = {
     rawGeos,
-    mergedChunks: rawGeos.map((geo) => ({
-      ...geo,
-      cx: 0,
-      cz: 0,
-      dist: 500,
-      color: null,
-      srcMat: null,
-    })),
+    mergedChunks: packedGeos.map((geo) =>
+      Object.assign({ cx: 0, cz: 0, dist: 500, mat, srcMat: null }, geo),
+    ),
     batchItems: [],
     solids: [],
     parkedCars: [],
@@ -45,7 +56,7 @@ export async function checkWorldBufferOwnership(check: Check): Promise<void> {
   };
   const world = {
     roadParts: [],
-    tiles: indices.map((index) => ({ position, normal: null, color: null, index, x: 0, z: 0 })),
+    tiles: packedGeos.map((geo) => Object.assign({ x: 0, z: 0 }, geo)),
   };
   const packed = serializeWorldBin({
     rev: WORLD_REV,
@@ -58,30 +69,39 @@ export async function checkWorldBufferOwnership(check: Check): Promise<void> {
   if (!decoded.world || !decoded.rest) throw new Error("Missing round-trip payload");
   const runtimeWorld = unpackWorld(decoded.world);
   const runtimeRest = await unpackRest(decoded.rest);
-  const groups = [runtimeWorld.tiles, runtimeRest.mergedChunks, runtimeRest.rawGeos];
-  for (const [i, group] of groups.entries()) {
+  for (const [name, group] of [
+    ["tiles", runtimeWorld.tiles],
+    ["merged chunks", runtimeRest.mergedChunks],
+  ] as const) {
     check(
-      `runtime buffer group ${i} owns compact indices`,
+      `packed ${name} stay views on the decoded artifact`,
       group.every(
-        ({ index }) =>
-          index === null ||
-          (index.buffer !== backing && index.buffer.byteLength === index.byteLength),
+        ({ index, pos }) =>
+          pos.q.buffer === backing && (index === null || index.buffer === backing),
       ),
     );
     check(
-      `runtime buffer group ${i} preserves index width and missing indices`,
+      `packed ${name} preserve index width and missing indices`,
       group[0]?.index instanceof Uint16Array &&
         group[1]?.index instanceof Uint32Array &&
-        group[2]?.index === null,
+        group[2]?.index === null &&
+        group[0]?.pos.q.length === 9,
     );
   }
-  // Detaching models collection/transfer of the source. A retained view becomes empty.
+  check(
+    "raw geometries own compact indices",
+    runtimeRest.rawGeos.every(
+      ({ index }) =>
+        index === null ||
+        (index.buffer !== backing && index.buffer.byteLength === index.byteLength),
+    ),
+  );
+  // Detaching models collection/transfer of the source. Raw copies survive it.
   structuredClone(backing, { transfer: [backing] });
   check(
-    "runtime geometry survives releasing packed backing",
-    groups.every(
-      (group) =>
-        group[0]?.index?.[2] === 2 && group[1]?.index?.[0] === 2 && group[0]?.position.length === 9,
-    ),
+    "raw geometries survive releasing the packed backing",
+    runtimeRest.rawGeos[0]?.index?.[2] === 2 &&
+      runtimeRest.rawGeos[1]?.index?.[0] === 2 &&
+      runtimeRest.rawGeos[0]?.position.length === 9,
   );
 }

@@ -1,6 +1,8 @@
 import * as THREE from "three";
 
-import type { CityRestPayload } from "./city";
+import type { CityRestPayload, MatRec } from "./city";
+import type { PackedGeometry, QPos } from "./quantized-geometry";
+import type { PackedLots, PackedPlans } from "./parcel-pack";
 import type { CityGenPayload } from "./gen-worker";
 
 // Binary serialization for the PRE-BAKED world: the same two payloads the
@@ -142,10 +144,20 @@ import type { CityGenPayload } from "./gen-worker";
 // 94: Trim rail joints and remove generic reservations from authored water.
 // 95: Anchor stepped rail joints and keep trees out of authored pools.
 // 96: Retain authored shoreline shadow policy for fallback instancing.
-export const WORLD_REV = 96;
+// 97: the world ships TILED — meta.bin + tiles/*.bin carry what rest.bin did,
+// per 320u cell, with the parcel plan baked into each tile (parcel-pack.ts);
+// geometry stays quantized on the GPU (quantized-geometry.ts).
+export const WORLD_REV = 98;
 
-export type Typed = Float32Array | Uint16Array | Uint32Array | Int8Array | Uint8Array | Int32Array;
-export type BufRef = { $buf: number; $type: "f32" | "u16" | "u32" | "i8" | "u8" | "i32" };
+export type Typed =
+  | Float32Array
+  | Uint16Array
+  | Int16Array
+  | Uint32Array
+  | Int8Array
+  | Uint8Array
+  | Int32Array;
+export type BufRef = { $buf: number; $type: "f32" | "u16" | "i16" | "u32" | "i8" | "u8" | "i32" };
 
 /** A serialization-tree node: JSON structure with typed arrays at the leaves
  *  (runtime side) or `$buf` refs in their place (wire side). */
@@ -164,6 +176,7 @@ export function isTyped(v: BinTree): v is Typed {
   return (
     v instanceof Float32Array ||
     v instanceof Uint16Array ||
+    v instanceof Int16Array ||
     v instanceof Uint32Array ||
     v instanceof Int8Array ||
     v instanceof Uint8Array ||
@@ -174,13 +187,14 @@ export function isTyped(v: BinTree): v is Typed {
 export function typeTag(v: Typed): BufRef["$type"] {
   if (v instanceof Float32Array) return "f32";
   if (v instanceof Uint16Array) return "u16";
+  if (v instanceof Int16Array) return "i16";
   if (v instanceof Uint32Array) return "u32";
   if (v instanceof Int8Array) return "i8";
   if (v instanceof Uint8Array) return "u8";
   return "i32";
 }
 
-const BYTES = { f32: 4, u32: 4, i32: 4, u16: 2, i8: 1, u8: 1 } satisfies Record<
+const BYTES = { f32: 4, u32: 4, i32: 4, u16: 2, i16: 2, i8: 1, u8: 1 } satisfies Record<
   BufRef["$type"],
   number
 >;
@@ -189,6 +203,7 @@ const CTOR = {
   u32: Uint32Array,
   i32: Int32Array,
   u16: Uint16Array,
+  i16: Int16Array,
   i8: Int8Array,
   u8: Uint8Array,
 } satisfies Record<BufRef["$type"], new (b: ArrayBuffer, o: number, l: number) => Typed>;
@@ -232,75 +247,30 @@ export function deserializeWorldBin(bytes: ArrayBuffer): WorldBinPayload {
 }
 
 // ---------------------------------------------------------------------------
-// Quantized unpacking (the pack side lives in ./world-bin-pack.ts): Int16
-// positions (bbox-normalized), Int8 normals, Uint8 vertex colors, columnar
-// batch items dequantize back to the runtime payload shapes.
+// Quantized payloads (the pack side lives in ./world-bin-pack.ts). The
+// geometry records are NOT dequantized here: world/quantized-geometry.ts
+// builds them straight into normalized GPU attributes. Only the columnar
+// batch items and the solids expand back into their runtime object shapes.
 // ---------------------------------------------------------------------------
 
 const UP_AXIS = new THREE.Vector3(0, 1, 0);
 
-export type QPos = {
-  q: Uint16Array;
-  min: [number, number, number];
-  span: [number, number, number];
-};
-
-function dqPos(p: QPos): Float32Array {
-  const out = new Float32Array(p.q.length);
-  for (let i = 0; i < p.q.length; i += 3) {
-    out[i] = p.min[0] + ((p.q[i] ?? 0) / 65535) * p.span[0];
-    out[i + 1] = p.min[1] + ((p.q[i + 1] ?? 0) / 65535) * p.span[1];
-    out[i + 2] = p.min[2] + ((p.q[i + 2] ?? 0) / 65535) * p.span[2];
-  }
-  return out;
-}
-
-function dqNor(q: Int8Array): Float32Array {
-  const out = new Float32Array(q.length);
-  for (let i = 0; i < q.length; i++) out[i] = (q[i] ?? 0) / 127;
-  return out;
-}
-
-export type QUv = { q: Uint16Array; min: [number, number]; span: [number, number] };
-
-function dqUv(p: QUv): Float32Array {
-  const out = new Float32Array(p.q.length);
-  for (let i = 0; i < p.q.length; i += 2) {
-    out[i] = p.min[0] + ((p.q[i] ?? 0) / 65535) * p.span[0];
-    out[i + 1] = p.min[1] + ((p.q[i + 1] ?? 0) / 65535) * p.span[1];
-  }
-  return out;
-}
-
-function dqCol(q: Uint8Array): Float32Array {
-  const out = new Float32Array(q.length);
-  for (let i = 0; i < q.length; i++) out[i] = (q[i] ?? 0) / 255;
-  return out;
-}
+export type { QPos, QUv } from "./quantized-geometry";
 
 // The packed payload shapes are the contract between the pack side
 // (./world-bin-pack.ts) and this unpack side — packWorld/packRest construct
 // them, serialize/hydrate round-trip them structurally, unpack consumes them.
-export type PackedTile = {
-  pos: QPos;
-  nor: Int8Array | null;
-  col: Uint8Array | null;
-  index: Uint16Array | Uint32Array | null;
+export type PackedTile = PackedGeometry & {
   x: number;
   z: number;
 };
 export type PackedWorld = { tiles: PackedTile[] };
 
-export type PackedMergedChunk = {
+export type PackedMergedChunk = PackedGeometry & {
   cx: number;
   cz: number;
   dist: number;
-  pos: QPos;
-  nor: Int8Array | null;
-  uv: QUv | null;
-  col: Uint8Array | null;
-  index: Uint16Array | Uint32Array | null;
-  mat: CityRestPayload["mergedChunks"][number]["mat"];
+  mat: MatRec;
   srcMat: { url: string; idx: number } | null;
 };
 export type PackedRawGeo = {
@@ -308,7 +278,7 @@ export type PackedRawGeo = {
   nor: Int8Array | null;
   uv: null;
   index: Uint16Array | Uint32Array | null;
-  mat: CityRestPayload["rawGeos"][number]["mat"];
+  mat: MatRec;
 };
 export type PackedBatchItems = {
   urls: string[];
@@ -331,26 +301,84 @@ export type PackedRest = {
   decks: CityRestPayload["decks"];
 };
 
-export type WorldBinPayload = { rev: number; world?: PackedWorld; rest?: PackedRest };
+/** One 320u world tile (shared/constants CHUNK): the merged static geometry
+ *  inside it plus the parcel fabric whose centres fall in it. */
+export type PackedWorldTile = {
+  ix: number;
+  iz: number;
+  cx: number;
+  cz: number;
+  mergedChunks: PackedMergedChunk[];
+  plans: PackedPlans;
+  lots: PackedLots;
+  /** The parcel walls whose centres fall in the tile. */
+  solids: PackedSolids;
+};
+
+export type WorldTileRef = {
+  ix: number;
+  iz: number;
+  cx: number;
+  cz: number;
+  /** Gzipped size, for download progress. */
+  bytes: number;
+};
+
+/** Everything of the built city that is not tiled: batch instances (whose
+ *  templates are shared GLB geometry), the base collision boxes (borders,
+ *  seawalls, landmarks, furniture — the parcel walls ride their tiles), and
+ *  the skyline, which reads from anywhere and is built once. */
+export type PackedMeta = {
+  rawGeos: PackedRawGeo[];
+  items: PackedBatchItems;
+  solids: PackedSolids;
+  parkedCars: CityRestPayload["parkedCars"];
+  lampHeads: CityRestPayload["lampHeads"];
+  decks: CityRestPayload["decks"];
+  skyline: PackedPlans;
+  tiles: WorldTileRef[];
+};
+
+/** A bake's output as one download: each entry is a finished artifact's
+ *  bytes (gzipped) under its public/world path. */
+export type BakeFile = { name: string; data: Uint8Array };
+
+export type WorldBinPayload = {
+  rev: number;
+  world?: PackedWorld;
+  rest?: PackedRest;
+  meta?: PackedMeta;
+  tile?: PackedWorldTile;
+  files?: BakeFile[];
+};
+
+export type CityRestMeta = Omit<CityRestPayload, "mergedChunks"> & {
+  readonly skyline: PackedPlans;
+  readonly tiles: readonly WorldTileRef[];
+};
+
+export async function unpackMeta(p: PackedMeta): Promise<CityRestMeta> {
+  return {
+    rawGeos: unpackRawGeos(p.rawGeos),
+    batchItems: await unpackBatchItems(p.items),
+    solids: unpackSolids(p.solids),
+    parkedCars: p.parkedCars,
+    lampHeads: p.lampHeads,
+    decks: p.decks,
+    skyline: p.skyline,
+    tiles: p.tiles,
+  };
+}
 
 export function unpackWorld(p: PackedWorld): CityGenPayload {
   return {
     roadParts: [], // rest.bin's merged chunks carry the roads
-    tiles: p.tiles.map((t) => ({
-      position: dqPos(t.pos),
-      normal: t.nor ? dqNor(t.nor) : null,
-      color: t.col ? dqCol(t.col) : null,
-      // Decoded views share the entire download. Keep only this geometry's
-      // indices so a small surviving mesh cannot pin megabytes of staging data.
-      index: t.index?.slice() ?? null,
-      x: t.x,
-      z: t.z,
-    })),
+    tiles: p.tiles,
   };
 }
 
-// Time-sliced yield: the unpack runs behind the title screen, and its dq
-// loops over the whole city would otherwise starve the render loop.
+// Time-sliced yield: the unpack runs behind the title screen, and its loops
+// over the whole city would otherwise starve the render loop.
 let lastUnpackYield = 0;
 async function unpackYield(): Promise<void> {
   if (performance.now() - lastUnpackYield < 12) return;
@@ -358,73 +386,84 @@ async function unpackYield(): Promise<void> {
   lastUnpackYield = performance.now();
 }
 
-export async function unpackRest(p: PackedRest): Promise<CityRestPayload> {
+function dqPos(p: QPos): Float32Array {
+  const out = new Float32Array(p.q.length);
+  for (let i = 0; i < p.q.length; i += 3) {
+    out[i] = p.min[0] + ((p.q[i] ?? 0) / 65535) * p.span[0];
+    out[i + 1] = p.min[1] + ((p.q[i + 1] ?? 0) / 65535) * p.span[1];
+    out[i + 2] = p.min[2] + ((p.q[i + 2] ?? 0) / 65535) * p.span[2];
+  }
+  return out;
+}
+
+function dqNor(q: Int8Array): Float32Array {
+  const out = new Float32Array(q.length);
+  for (let i = 0; i < q.length; i++) out[i] = (q[i] ?? 0) / 127;
+  return out;
+}
+
+export async function unpackBatchItems(
+  p: PackedBatchItems,
+): Promise<CityRestPayload["batchItems"]> {
   const exactBy = new Map<number, number>();
-  for (let e = 0; e < p.items.exactIdx.length; e++) {
-    const idx = p.items.exactIdx[e];
+  for (let e = 0; e < p.exactIdx.length; e++) {
+    const idx = p.exactIdx[e];
     if (idx !== undefined) exactBy.set(idx, e);
   }
   const m4 = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   const batchItems: CityRestPayload["batchItems"] = [];
-  for (let i = 0; i < p.items.count; i++) {
+  for (let i = 0; i < p.count; i++) {
     if (i % 4096 === 0) await unpackYield();
-    const u = p.items.urlIdx[i] ?? -1;
-    const tintV = p.items.tints[i] ?? -1;
+    const u = p.urlIdx[i] ?? -1;
+    const tintV = p.tints[i] ?? -1;
     let m: Float32Array;
-    if ((p.items.trs[i * 5 + 4] ?? 0) === 1) {
-      const yaw = p.items.trs[i * 5 + 3] ?? 0;
+    if ((p.trs[i * 5 + 4] ?? 0) === 1) {
+      const yaw = p.trs[i * 5 + 3] ?? 0;
       q.setFromAxisAngle(UP_AXIS, yaw);
       m4.compose(
-        new THREE.Vector3(p.items.trs[i * 5], p.items.trs[i * 5 + 1], p.items.trs[i * 5 + 2]),
+        new THREE.Vector3(p.trs[i * 5], p.trs[i * 5 + 1], p.trs[i * 5 + 2]),
         q,
         new THREE.Vector3(
-          ((p.items.scales[i * 3] ?? 0) / 65535) * 16,
-          ((p.items.scales[i * 3 + 1] ?? 0) / 65535) * 16,
-          ((p.items.scales[i * 3 + 2] ?? 0) / 65535) * 16,
+          ((p.scales[i * 3] ?? 0) / 65535) * 16,
+          ((p.scales[i * 3 + 1] ?? 0) / 65535) * 16,
+          ((p.scales[i * 3 + 2] ?? 0) / 65535) * 16,
         ),
       );
       m = new Float32Array(m4.elements);
     } else {
       const e = exactBy.get(i) ?? 0;
-      m = p.items.exactMats.slice(e * 16, e * 16 + 16);
+      m = p.exactMats.slice(e * 16, e * 16 + 16);
     }
     batchItems.push({
-      url: u >= 0 ? (p.items.urls[Math.floor(u / 4096)] ?? null) : null,
+      url: u >= 0 ? (p.urls[Math.floor(u / 4096)] ?? null) : null,
       idx: u >= 0 ? u % 4096 : 0,
-      raw: u >= 0 ? null : (p.items.rawIdx[i] ?? -1),
+      raw: u >= 0 ? null : (p.rawIdx[i] ?? -1),
       m,
       tint: tintV >= 0 ? tintV : null,
       big: false,
     });
   }
-  const mergedChunks: CityRestPayload["mergedChunks"] = [];
-  for (const r of p.mergedChunks) {
-    await unpackYield();
-    mergedChunks.push({
-      cx: r.cx,
-      cz: r.cz,
-      dist: r.dist,
-      position: dqPos(r.pos),
-      // Legacy (rev ≤18) artifacts ship without normals — mesh build recomputes.
-      normal: r.nor ? dqNor(r.nor) : null,
-      uv: r.uv ? dqUv(r.uv) : null,
-      color: r.col ? dqCol(r.col) : null,
-      index: r.index?.slice() ?? null,
-      mat: r.mat,
-      srcMat: r.srcMat,
-    });
-  }
+  return batchItems;
+}
+
+/** Raw geometries are BatchedMesh templates beside the GLB ones, which are
+ *  Float32 — they stay Float32 so a bucket's layouts match. They are small. */
+export function unpackRawGeos(p: readonly PackedRawGeo[]): CityRestPayload["rawGeos"] {
+  return p.map((g) => ({
+    position: dqPos(g.pos),
+    normal: g.nor ? dqNor(g.nor) : null,
+    uv: null,
+    index: g.index?.slice() ?? null,
+    mat: g.mat,
+  }));
+}
+
+export async function unpackRest(p: PackedRest): Promise<CityRestPayload> {
   return {
-    mergedChunks,
-    rawGeos: p.rawGeos.map((g) => ({
-      position: dqPos(g.pos),
-      normal: g.nor ? dqNor(g.nor) : null,
-      uv: null,
-      index: g.index?.slice() ?? null,
-      mat: g.mat,
-    })),
-    batchItems,
+    mergedChunks: p.mergedChunks,
+    rawGeos: unpackRawGeos(p.rawGeos),
+    batchItems: await unpackBatchItems(p.items),
     solids: unpackSolids(p.solids),
     parkedCars: p.parkedCars,
     lampHeads: p.lampHeads,
@@ -452,7 +491,7 @@ type UnpackedSolid = {
   unseen?: string;
 };
 
-function unpackSolids(p: PackedSolids): CityRestPayload["solids"] {
+export function unpackSolids(p: PackedSolids): CityRestPayload["solids"] {
   const out: CityRestPayload["solids"] = [];
   for (let i = 0; i < p.count; i++) {
     const f = p.flags[i] ?? 0;
