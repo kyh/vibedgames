@@ -109,6 +109,16 @@
         height: 100%;
         background: #9cbbd5;
       }
+      #weapon-mastery {
+        margin-top: 4px;
+        color: #9cbbd5;
+        font:
+          10px/1.4 ui-monospace,
+          "SF Mono",
+          Menlo,
+          monospace;
+      }
+      #weapon-mastery[hidden],
       #flight-progress[hidden],
       #weapon-time[hidden] {
         display: none;
@@ -484,90 +494,6 @@
         text-shadow: 0 0 14px rgba(90, 160, 255, 0.6);
         animation: start-pulse 1.6s ease-in-out infinite;
       }
-      #trial-options {
-        display: flex;
-        flex-wrap: wrap;
-        justify-content: center;
-        gap: 8px;
-        max-width: 440px;
-      }
-      #trial-options span {
-        width: 100%;
-        color: #9fb6e6;
-        font:
-          10px ui-monospace,
-          monospace;
-        letter-spacing: 0.14em;
-      }
-      #trial-options a,
-      #trial-actions a {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-height: 44px;
-        padding: 8px 14px;
-        color: #d5e8ff;
-        background: #09192ce6;
-        border: 1px solid #365679;
-        border-radius: 3px;
-        text-decoration: none;
-        font:
-          12px ui-monospace,
-          monospace;
-      }
-      #trial-options a:hover,
-      #trial-actions a:hover {
-        background: #183655;
-      }
-      #trial-options a:focus-visible,
-      #trial-actions a:focus-visible {
-        outline: 2px solid #b8e8ff;
-        outline-offset: 3px;
-      }
-      #trial-card {
-        position: fixed;
-        z-index: 7;
-        bottom: calc(22px + env(safe-area-inset-bottom, 0px));
-        left: 50%;
-        transform: translateX(-50%);
-        width: min(360px, calc(100vw - 32px));
-        padding: 12px 16px;
-        border: 1px solid #365679;
-        border-left: 2px solid #80ceef;
-        border-radius: 3px;
-        background: #061222eb;
-        color: #cde4ff;
-        font:
-          12px/1.5 ui-monospace,
-          monospace;
-        pointer-events: none;
-      }
-      #trial-card[hidden],
-      #trial-actions[hidden] {
-        display: none;
-      }
-      #trial-title {
-        color: #a4e4ff;
-        letter-spacing: 0.08em;
-        font-weight: 700;
-        font-variant-numeric: tabular-nums;
-      }
-      #trial-progress {
-        margin-top: 5px;
-        color: #88aac6;
-      }
-      #trial-actions {
-        display: flex;
-        gap: 8px;
-        margin-top: 10px;
-        pointer-events: auto;
-      }
-      @media (max-width: 600px) and (min-height: 561px) {
-        #trial-card {
-          top: calc(106px + env(safe-area-inset-top, 0px));
-          bottom: auto;
-        }
-      }
       @media (max-height: 560px) {
         #start {
           gap: 10px;
@@ -577,16 +503,6 @@
         #start h1 img {
           width: min(52vw, 360px);
           min-width: 0;
-        }
-        #trial-options {
-          gap: 5px;
-        }
-        #trial-card {
-          left: 16px;
-          bottom: 12px;
-          transform: none;
-          width: 300px;
-          padding: 8px 12px;
         }
       }
       @keyframes start-pulse {
@@ -828,6 +744,7 @@
           <span id="weapon-time" hidden></span>
         </div>
         <div id="weaponbar"></div>
+        <div id="weapon-mastery" hidden></div>
         <div id="flight-progress" hidden>
           <span id="flight-level"></span>
           <span id="flight-xp"></span>
@@ -870,21 +787,7 @@
       <h1><img src="/title.webp" width="965" height="158" alt="STARFALL" /></h1>
       <div id="start-controls"></div>
       <div id="start-go"></div>
-      <nav id="trial-options" aria-label="Optional weapon trials">
-        <span>SOLO WEAPON TRIALS · 20 SECONDS</span>
-        <a href="?offline=1&amp;trial=railgun&amp;seed=7319">Railgun alignment</a>
-        <a href="?offline=1&amp;trial=glaive&amp;seed=7319">Glaive return path</a>
-      </nav>
     </div>
-    <aside id="trial-card" hidden aria-label="Weapon trial">
-      <div id="trial-title"></div>
-      <div id="trial-detail"></div>
-      <div id="trial-progress"></div>
-      <div id="trial-actions" hidden>
-        <a id="trial-retry" href="?offline=1">Retry route</a>
-        <a href="?offline=1">Free flight</a>
-      </div>
-    </aside>
     <script>
       // A trailer capture is pure gameplay, and this is a full-screen title
       // page (STARFALL wordmark, controls card, "press any key to start"):

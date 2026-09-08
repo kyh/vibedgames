@@ -5,7 +5,14 @@ import { LEVEL_CAP, xpToNext } from "../src/shared/constants.ts";
 
 function fixture() {
   const nodes = new Map(
-    ["flight-progress", "flight-level", "flight-xp", "flight-xp-fill", "weapon-time"].map((id) => {
+    [
+      "flight-progress",
+      "flight-level",
+      "flight-xp",
+      "flight-xp-fill",
+      "weapon-time",
+      "weapon-mastery",
+    ].map((id) => {
       const attrs = new Map();
       return [
         id,
@@ -23,7 +30,14 @@ function fixture() {
   return { nodes, hud: new FlightHud() };
 }
 
-const flight = { level: 1, xp: 35, weaponUntil: 0, now: 1000, active: true };
+const flight = {
+  level: 1,
+  xp: 35,
+  weaponUntil: 0,
+  now: 1000,
+  active: true,
+  mastery: { phase: "idle" },
+};
 
 test("HUD displays actual into-level XP, new-level rollover, death loss and maximum level", () => {
   const { nodes, hud } = fixture();
@@ -80,4 +94,37 @@ test("pause/death/title hide immediately; resume reads live state; reset/dispose
   const absent = new FlightHud();
   absent.update(flight);
   absent.dispose();
+});
+
+test("mastery is passive acquired-weapon text; completion, expiry and final disposal leave no card", () => {
+  const { nodes, hud } = fixture();
+  const mastery = { phase: "active", weapon: "RAILGUN", contacts: 0, completions: 0 };
+  const state = { ...flight, weaponUntil: 21000, mastery };
+  const before = structuredClone(state);
+  hud.update(state);
+  const text = nodes.get("weapon-mastery");
+  assert.equal(text.hidden, false);
+  assert.equal(text.textContent, "Pierce two enemies with one shot.");
+  hud.update({ ...state, mastery: { ...mastery, completions: 2 } });
+  assert.equal(text.textContent, "Aligned shots: 2");
+  hud.update({ ...state, mastery: { ...mastery, weapon: "GLAIVE" } });
+  assert.equal(text.textContent, "Hit the same enemy out and back.");
+  hud.update({ ...state, mastery: { ...mastery, weapon: "GLAIVE", completions: 1 } });
+  assert.equal(text.textContent, "Return hits: 1");
+  for (const hidden of [
+    { ...state, active: false },
+    { ...state, now: 21000 },
+    { ...state, mastery: { phase: "idle" } },
+  ]) {
+    hud.update(hidden);
+    assert.equal(text.hidden, true);
+    assert.equal(text.textContent, "");
+    hud.update(state);
+  }
+  hud.dispose();
+  hud.dispose();
+  hud.update(state);
+  assert.equal(text.hidden, true);
+  assert.equal(text.textContent, "");
+  assert.deepEqual(state, before);
 });

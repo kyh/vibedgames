@@ -4,6 +4,7 @@ import { createRequire, stripTypeScriptTypes } from "node:module";
 import { dirname, join } from "node:path";
 import { environment, settle } from "./audio-harness.mjs";
 import { networkFixture, sceneSource } from "./network-harness.mjs";
+import { WeaponMastery } from "../src/shared/weapon-mastery.ts";
 
 const require = createRequire(import.meta.url);
 const phaserRoot = dirname(require.resolve("phaser/package.json"));
@@ -81,6 +82,7 @@ const make = async ({ offline = false, delayed = false } = {}) => {
   const display = { events, list: [] };
   const scene = Object.assign(network.scene, {
     offline,
+    mastery: new WeaponMastery(),
     events,
     scale,
     input: { keyboard },
@@ -117,6 +119,11 @@ const make = async ({ offline = false, delayed = false } = {}) => {
       },
     },
   });
+  scene.mastery.pickup("RAILGUN", 1000, 21000);
+  const shot = scene.mastery.shot("RAILGUN", 1000);
+  assert.ok(shot);
+  scene.mastery.contact(shot, "target", false, 1100);
+  assert.equal(scene.mastery.trackedShots, 1);
   const sys = new Systems(scene, { key: "Game" });
   sys.events = events;
   scene.sys = sys;
@@ -191,6 +198,8 @@ const check = (f, final = true) => {
   });
   assert.deepEqual(f.handlers(), {});
   assert.equal(f.scene.unwatchControls, null);
+  assert.deepEqual(f.scene.mastery.state, { phase: "idle" });
+  assert.equal(f.scene.mastery.trackedShots, 0);
   assert.equal(f.events.listeners(SceneEvents.SHUTDOWN).includes(f.cleanup), false);
   assert.equal(f.events.listeners(SceneEvents.DESTROY).includes(f.cleanup), false);
   assert.equal(f.scale.listenerCount("resize"), 0);

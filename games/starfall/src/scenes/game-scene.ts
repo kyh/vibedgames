@@ -15,8 +15,7 @@ import Phaser from "phaser";
 
 import { sfx } from "../audio/sfx";
 import type { PlayOpts, SfxName } from "../audio/sfx";
-import { readTrialChoice, WeaponTrial } from "../trials/weapon-trial";
-import { TrialCard } from "../trials/trial-card";
+import { WeaponMastery, type MasteryShot } from "../shared/weapon-mastery";
 import {
   buildControls,
   createStarfallPauseOverlay,
@@ -637,13 +636,9 @@ export class GameScene extends Phaser.Scene {
 
   // my ship + weapon
   private spawned = false;
-  private readonly trialChoice = readTrialChoice(new URLSearchParams(location.search));
-  private readonly trial = this.trialChoice ? new WeaponTrial(this.trialChoice) : null;
-  private trialCard: TrialCard | null = null;
+  private readonly mastery = new WeaponMastery();
+  private readonly masteryShots = new WeakMap<Beam, MasteryShot>();
   private flightHud: FlightHud | null = null;
-  private trialPickupId: string | null = null;
-  private readonly trialBeamIds = new WeakMap<Beam, number>();
-  private nextTrialBeam = 0;
   private shipX = 0;
   private shipY = 0;
   private shipVX = 0;
@@ -1161,6 +1156,7 @@ export class GameScene extends Phaser.Scene {
       releasePauseHandlers();
       this.flightHud?.dispose();
       this.flightHud = null;
+      this.mastery.clear();
       pauseOverlay.hide();
       sfx.clearTransient();
       this.bossEncounters.reset();
@@ -1194,9 +1190,7 @@ export class GameScene extends Phaser.Scene {
     // It's purely additive — the live path below still runs (so the host keeps
     // the shared world ticking and real remote players still render/mix in).
     if (!this.started) this.attract?.update(dt, this.time.now);
-    // A seeded trial starts its simulation with the first input. Time spent
-    // reading must not advance its field or consume gameplay random draws.
-    if (!this.live || (this.trial && !this.started)) {
+    if (!this.live) {
       this.updateBattlePresentation(simNow());
       // Connecting (pre-live): no world to tick, but still flush attract's fx.
       this.fx.update(dt, this.time.now);
@@ -1214,7 +1208,6 @@ export class GameScene extends Phaser.Scene {
 
     this.ensureSpawned();
     this.seedOpeningRocks();
-    this.seedWeaponTrial();
     this.tickRespawn(now);
     // The knob wears the local player's colour, which is only known once the
     // ship exists — so it is pushed per frame rather than fixed at attach.
@@ -1245,7 +1238,7 @@ export class GameScene extends Phaser.Scene {
       this.weapon = baseWeaponForLevel(this.level);
       this.weaponUntil = 0;
     }
-    this.updateWeaponTrial(now);
+    this.updateWeaponMastery(now);
     if (this.streak > 0 && now >= this.comboExpiresAt) {
       this.streak = 0;
       this.comboTier = 1;
@@ -1332,8 +1325,7 @@ export class GameScene extends Phaser.Scene {
       const card = buildControls(touch);
       controls.replaceChildren(...(card ? [card] : []));
     }
-    if (go)
-      go.textContent = `${this.trial ? `${this.trial.choice.weapon} trial · ` : ""}${touch ? "tap to start" : "press any key to start"}`;
+    if (go) go.textContent = touch ? "tap to start" : "press any key to start";
     // Reveals the overlay on the first write — see #start in index.html.
     this.startEl?.classList.add("ready");
   }
@@ -1367,61 +1359,19 @@ export class GameScene extends Phaser.Scene {
     this.beginPlay();
   }
 
-  /** Optional solo opening. Real factories, pickups, AI and damage stay live. */
-  private seedWeaponTrial(): void {
-    if (!this.trial || !this.offline || !this.spawned || this.trialPickupId) return;
-    const weaponIdx = WEAPONS_SPECIAL.findIndex(
-      (weapon) => weapon.name === this.trial?.choice.weapon,
-    );
-    if (weaponIdx < 0) return;
-    const item = spawnItemState(this.shipX, this.shipY, { kind: "weapon", weaponIdx });
-    this.trialPickupId = item.id;
-    this.world.items.push(item);
-    // Leave a clear initial practice lane; the surrounding seeded field and
-    // ordinary spawns remain. This branch is never reached in a shared room.
-    this.world.asteroids = this.world.asteroids.filter(
-      (rock) => Math.hypot(rock.x - this.shipX, rock.y - this.shipY) > 430 + rock.radius,
-    );
-    const targets =
-      this.trial.choice.kind === "railgun"
-        ? [
-            { x: 160, y: 0 },
-            { x: 260, y: 0 },
-          ]
-        : [{ x: 220, y: 0 }];
-    const kind = this.trial.choice.kind === "railgun" ? "drone" : "warden";
-    for (const target of targets) {
-      const enemy = spawnEnemyState(kind, this.shipX + target.x, this.shipY + target.y);
-      enemy.angle = Math.atan2(-target.y, -target.x);
-      this.world.enemies.push(enemy);
-    }
-    this.trialCard = new TrialCard(this.trial.choice);
-    const card = document.getElementById("trial-card");
-    if (card)
-      sealPointerEvents(card, {
-        keepClick: (target) => target instanceof Element && target.closest("a, button") !== null,
-      });
+  private recordMasteryContact(beam: Beam, enemyId: string, now: number): void {
+    const shot = this.masteryShots.get(beam);
+    if (shot) this.mastery.contact(shot, enemyId, beam.glaive?.returning ?? false, now);
   }
 
-  private recordTrialContact(beam: Beam, enemyId: string, now: number): void {
-    if (!this.trial || beam.weapon.name !== this.trial.choice.weapon) return;
-    let id = this.trialBeamIds.get(beam);
-    if (id === undefined) {
-      id = this.nextTrialBeam++;
-      this.trialBeamIds.set(beam, id);
-    }
-    this.trial.contact(id, enemyId, beam.glaive?.returning ?? false, now);
-  }
-
-  private updateWeaponTrial(now: number): void {
-    if (!this.trial) return;
-    const liveShots: number[] = [];
+  private updateWeaponMastery(now: number): void {
+    if (this.mastery.state.phase === "idle") return;
+    const liveShots: MasteryShot[] = [];
     for (const beam of this.beams) {
-      const id = this.trialBeamIds.get(beam);
-      if (id !== undefined && !beam.vanished) liveShots.push(id);
+      const shot = this.masteryShots.get(beam);
+      if (shot && !beam.vanished) liveShots.push(shot);
     }
-    this.trial.advance(now, this.alive, this.weapon.name, liveShots);
-    this.trialCard?.update(this.trial.state, now, this.started && !this.paused);
+    this.mastery.advance(now, this.alive, this.weapon.name, liveShots);
   }
 
   /** Test hook (shared/diag.ts): jump straight into an offline solo run —
@@ -1470,7 +1420,6 @@ export class GameScene extends Phaser.Scene {
     this.frozen = true;
     this.battleBeat.reset();
     this.flightHud?.reset();
-    if (this.trial) this.trialCard?.update(this.trial.state, simNow(), false);
     pauseClock();
     sfx.setSuspended(true);
     this.game.loop.sleep(); // stops update() until wake()
@@ -1492,6 +1441,7 @@ export class GameScene extends Phaser.Scene {
   private pauseToSpectator(): void {
     if (this.paused) return;
     this.paused = true;
+    this.mastery.clear();
     this.flightHud?.reset();
     // Clean despawn. Leaving alive=false + respawnAt=0 means tickRespawn can't
     // fire, and spawned=false hides my ship + gates every my-ship code path.
@@ -2087,6 +2037,10 @@ export class GameScene extends Phaser.Scene {
       b.head.x += Math.cos(angle) * weapon.length;
       b.head.y += Math.sin(angle) * weapon.length;
       b.released = true;
+    }
+    if (!this.trailer) {
+      const shot = this.mastery.shot(weapon.name, now);
+      if (shot) this.masteryShots.set(b, shot);
     }
     return b;
   }
@@ -3020,7 +2974,7 @@ export class GameScene extends Phaser.Scene {
         }
         if (b.hitIds.has(e.id)) continue;
         b.hitIds.add(e.id);
-        this.recordTrialContact(b, e.id, now);
+        this.recordMasteryContact(b, e.id, now);
         const contact = contactPoint(b.tail, b.head, e, r, b.exploding);
         const impactAngle = b.angle;
         this.onBeamHit(b, now);
@@ -3596,6 +3550,7 @@ export class GameScene extends Phaser.Scene {
     sfx.play("shield_break"); // break = death, layered under the boom (§A.4)
     sfx.play("player_death");
     this.alive = false;
+    this.mastery.clear();
     this.respawnAt = now + RESPAWN_DELAY_MS;
     this.invulnUntil = 0;
     this.beams = []; // mines included — they ride in beams[]
@@ -3667,7 +3622,7 @@ export class GameScene extends Phaser.Scene {
           this.weaponUntil = now + SPECIAL_WEAPON_DURATION_MS; // replace resets the timer
           this.windupAcc = 0;
         }
-        if (it.id === this.trialPickupId) this.trial?.begin(now, this.weaponUntil);
+        if (!this.trailer) this.mastery.pickup(this.weapon.name, now, this.weaponUntil);
         this.fx.sparks(this.shipX, this.shipY, 14, weapon.tint, {
           speedMin: 30,
           speedMax: 140,
@@ -7106,6 +7061,7 @@ export class GameScene extends Phaser.Scene {
       level: this.level,
       xp: this.xp,
       weaponUntil: this.weaponUntil,
+      mastery: this.mastery.state,
       now,
       active: presentation && this.spawned && this.alive && !this.paused && !this.frozen,
     });

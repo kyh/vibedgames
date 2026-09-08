@@ -1,4 +1,5 @@
 import { LEVEL_CAP, xpToNext } from "../shared/constants";
+import type { WeaponMasteryState } from "../shared/weapon-mastery";
 
 export type FlightHudState = Readonly<{
   level: number;
@@ -7,6 +8,7 @@ export type FlightHudState = Readonly<{
   weaponUntil: number;
   now: number;
   active: boolean;
+  mastery: WeaponMasteryState;
 }>;
 
 /** A passive view of the pilot's existing state. It owns no clocks, inputs or
@@ -17,6 +19,7 @@ export class FlightHud {
   private readonly xp = document.getElementById("flight-xp");
   private readonly fill = document.getElementById("flight-xp-fill");
   private readonly time = document.getElementById("weapon-time");
+  private readonly mastery = document.getElementById("weapon-mastery");
   private disposed = false;
 
   update(state: FlightHudState): void {
@@ -29,6 +32,20 @@ export class FlightHud {
     const cost = xpToNext(state.level);
     const progress = Math.max(0, Math.min(cost, state.xp));
     const seconds = Math.max(0, Math.ceil((state.weaponUntil - state.now) / 1000));
+    if (this.mastery) {
+      const mastery = state.mastery;
+      this.mastery.hidden = mastery.phase === "idle" || seconds === 0;
+      setText(
+        this.mastery,
+        mastery.phase === "active" && seconds > 0
+          ? mastery.completions > 0
+            ? `${mastery.weapon === "RAILGUN" ? "Aligned shots" : "Return hits"}: ${mastery.completions}`
+            : mastery.weapon === "RAILGUN"
+              ? "Pierce two enemies with one shot."
+              : "Hit the same enemy out and back."
+          : "",
+      );
+    }
     if (this.progress) {
       this.progress.hidden = false;
       const label = capped
@@ -55,6 +72,10 @@ export class FlightHud {
   reset(): void {
     if (this.disposed) return;
     if (this.progress) this.progress.hidden = true;
+    if (this.mastery) {
+      this.mastery.hidden = true;
+      setText(this.mastery, "");
+    }
     if (this.time) {
       this.time.hidden = true;
       setText(this.time, "");

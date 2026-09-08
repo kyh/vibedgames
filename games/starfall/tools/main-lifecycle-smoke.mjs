@@ -20,13 +20,6 @@ const main = stripTypeScriptTypes(
     .replace('import("./trailer/trailer-director")', "loadTrailer()"),
   { mode: "transform" },
 ).replace(/^export \{\};?$/gm, "");
-const choiceSource = /^export function readTrialChoice\([^]*?^}/m.exec(
-  readFileSync(new URL("../src/trials/weapon-trial.ts", import.meta.url), "utf8"),
-)?.[0];
-assert.ok(choiceSource);
-const readTrialChoice = new Function(
-  `${stripTypeScriptTypes(choiceSource.replace("export ", ""))};return readTrialChoice;`,
-)();
 const phaserMethod = (file, name, context = {}) => {
   const text = readFileSync(join(phaserRoot, "src", file), "utf8").replaceAll("\r\n", "\n");
   const found = new RegExp(`^    ${name}: (function[^]*?^    })`, "m").exec(text)?.[1];
@@ -135,7 +128,6 @@ function fixture(search = "", options) {
     GameScene: class GameScene {
       key = "Game";
     },
-    readTrialChoice,
     reseed: (seed) => seeds.push(seed),
     setTimeout(callback, delay) {
       assert.equal(delay, 150);
@@ -244,11 +236,11 @@ test("deferred trailer resolution is inert after destroy; live trailer still boo
   }
 });
 
-test("normal/trial/explicit-seed boot rules are unchanged; normal runs never import trailer", () => {
+test("legacy trial selection is inert; ordinary explicit seed and trailer ownership remain", () => {
   for (const [search, expected] of [
     ["", []],
     ["?seed=83", [83]],
-    ["?offline=1&trial=railgun", [7319]],
+    ["?offline=1&trial=railgun", []],
     ["?offline=1&trial=glaive&seed=17", [17]],
     ["?trial=railgun", []],
   ]) {
