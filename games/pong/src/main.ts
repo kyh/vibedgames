@@ -101,8 +101,8 @@ window.addEventListener(
 syncSound();
 
 // Webcam hand tracking. On failure it shows a status in its panel and the
-// pointer keeps working; a closed fist serves/rematches so a cam-only player
-// never has to touch. Starting it costs ~17 MB of third-party wasm + model and
+// pointer keeps working. A fist serves, arms a power shot, or starts a rematch,
+// so a camera-only player never has to touch. Starting it costs ~17 MB of wasm + model and
 // a camera-permission prompt, so it never runs during boot: a fine pointer
 // still gets it automatically (the hand is the better paddle) but only once
 // the court is up, while a phone — which already steers well with a finger,

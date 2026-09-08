@@ -3,7 +3,7 @@ import { stripTypeScriptTypes } from "node:module";
 import * as THREE from "three";
 import * as constants from "../src/shared/constants.ts";
 import * as spin from "../src/shared/spin.ts";
-import * as curveLesson from "../src/shared/curve-lesson.ts";
+import * as contactShot from "../src/shared/contact-shot.ts";
 import { ParticlePool } from "../src/fx/particles.ts";
 import { RingPool } from "../src/fx/shock-rings.ts";
 import { PhysicalGamepad } from "../../../packages/gamepad/src/physical.ts";
@@ -31,6 +31,7 @@ class TrackedTarget extends EventTarget {
 class Element extends TrackedTarget {
   textContent = "";
   hidden = false;
+  dataset = {};
   disabled = false;
   style = { setProperty() {}, opacity: "" };
   attributes = new Map();
@@ -51,6 +52,9 @@ class Element extends TrackedTarget {
   setAttribute(name, value) {
     this.attributes.set(name, value);
   }
+  getAttribute(name) {
+    return this.attributes.get(name) ?? null;
+  }
   removeAttribute(name) {
     this.attributes.delete(name);
   }
@@ -64,13 +68,13 @@ class Element extends TrackedTarget {
 }
 
 /** Real GameScene/Three/pools; only DOM, transport and external subscriptions are collaborators. */
-export function sceneFixture(sourcePath = "../src/scenes/game-scene.ts") {
+export function sceneFixture(sourcePath = "../src/scenes/game-scene.ts", extra = {}) {
   const window = new TrackedTarget(),
     media = new TrackedTarget(),
     elements = new Map(),
     sessions = [],
-    watchers = new Set(),
     sounds = [],
+    startup = { calls: 0 },
     clock = { ms: 1000 };
   media.matches = false;
   window.innerWidth = 1280;
@@ -83,11 +87,6 @@ export function sceneFixture(sourcePath = "../src/scenes/game-scene.ts") {
       return elements.get(id);
     },
     createElement: () => new Element(),
-  };
-  const watch = (fn) => {
-    const callback = () => fn();
-    watchers.add(callback);
-    return () => watchers.delete(callback);
   };
   class NetSession {
     live = false;
@@ -130,7 +129,7 @@ export function sceneFixture(sourcePath = "../src/scenes/game-scene.ts") {
     THREE,
     ...constants,
     ...spin,
-    ...curveLesson,
+    ...contactShot,
     ParticlePool,
     RingPool,
     PhysicalGamepad,
@@ -138,20 +137,16 @@ export function sceneFixture(sourcePath = "../src/scenes/game-scene.ts") {
     window,
     document,
     performance: { now: () => clock.ms },
-    watchControlContext: watch,
-    watchHandCamera: watch,
-    notifyGameStarted() {},
-    inkChip: (text) => text,
-    connectingPromptPhrases: () => [],
-    rematchNotePhrases: () => [],
-    servePromptPhrases: () => [],
-    curveInstruction: () => "Curve at contact",
+    notifyGameStarted() {
+      startup.calls++;
+    },
     sfx: Object.fromEntries(
       ["serve", "paddleHit", "wall", "score", "win"].map((name) => [
         name,
         (...args) => sounds.push([name, ...args]),
       ]),
     ),
+    ...extra,
     isJsonNumber: Number.isFinite,
     isJsonObject: (value) => Object.prototype.toString.call(value) === "[object Object]",
   };
@@ -160,5 +155,5 @@ export function sceneFixture(sourcePath = "../src/scenes/game-scene.ts") {
     `${compile(sourcePath)};return GameScene;`,
   )(...Object.values(dependencies));
   const game = new Game();
-  return { game, window, media, elements, sessions, watchers, sounds, clock };
+  return { game, window, media, elements, sessions, sounds, startup, clock };
 }

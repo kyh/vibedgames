@@ -40,10 +40,8 @@ const GROUP_LABELS = {
   controller: "PAD",
 } satisfies Readonly<Record<ControlMethod, string>>;
 
-/** The pause card's ink keycap chip — hard border + offset shadow on paper.
- *  Shared with the serve/rematch banner so both instruction surfaces speak
- *  the same visual language. */
-export function inkChip(text: string): HTMLElement {
+/** The pause card's ink keycap chip. */
+function inkChip(text: string): HTMLElement {
   const chip = document.createElement("span");
   chip.textContent = text;
   chip.style.cssText =
@@ -110,7 +108,12 @@ function renderCard(overlay: HTMLElement, matchContinues: boolean): void {
     ? "Live match continues while these controls are open."
     : "Your match is frozen. Take your time.";
   note.style.cssText = "font-size:12px;line-height:1.6;text-align:center;margin:10px 0 4px";
-  body.append(note);
+  const shots = document.createElement("p");
+  shots.textContent =
+    "Every return adds charge. After four, trigger a power shot on your next hit. " +
+    "Hit with your paddle’s left third to slice, center for a flat return, or right third for faster, lower topspin.";
+  shots.style.cssText = "font-size:12px;line-height:1.6;margin:12px 0 4px";
+  body.append(note, shots);
 
   // Controls, grouped by method — filtered fresh each show() so a pad
   // plugged in mid-game earns its PAD section on the next pause.

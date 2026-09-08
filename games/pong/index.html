@@ -78,21 +78,34 @@
         font-weight: 800;
         letter-spacing: 2px;
       }
-      #curve-teaching {
-        max-width: min(340px, 88vw);
-        margin-top: 8px;
-        padding: 6px 9px;
-        background: #d4d4d4;
-        font-size: 11px;
-        line-height: 1.45;
-        text-align: center;
+      #shot-charge {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 10px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        font-variant-numeric: tabular-nums;
       }
-      #curve-teaching-title {
-        font-weight: 800;
-        letter-spacing: 0.5px;
-      }
-      #curve-teaching[hidden] {
+      #shot-charge[hidden] {
         display: none;
+      }
+      #shot-charge-track {
+        width: 64px;
+        height: 5px;
+        background: #aaa;
+        overflow: hidden;
+      }
+      #shot-charge-fill {
+        height: 100%;
+        background: #000;
+        transform: scaleX(0);
+        transform-origin: left;
+        transition: transform 160ms ease-out;
+      }
+      #shot-charge-label {
+        min-width: 3ch;
       }
       #shot-callout {
         position: fixed;
@@ -116,18 +129,11 @@
         opacity: 1;
         transform: translate(-50%, 0);
       }
-      #banner .spin-hint {
-        display: block;
-        margin-top: 15px;
-        font-size: 11px;
-        font-weight: 400;
-        line-height: 1.5;
-        letter-spacing: 0.5px;
-      }
       .reduced-motion #score span,
       .reduced-motion #combo,
       .reduced-motion #banner,
       .reduced-motion #serve-meter,
+      .reduced-motion #shot-charge-fill,
       .reduced-motion #shot-callout {
         animation: none;
         transition: none;
@@ -196,40 +202,39 @@
         background: #000;
       }
 
-      /* Printed on paper rather than floating over the court: unbacked ink text
-         landed on the court's own baseline and centre line, which read as a
-         strikethrough through "PONG". Same framing as the pause card, and the
-         type is sized off the short side so a landscape phone doesn't get a
-         60px headline in 393px of height. */
+      /* The action stays at the court edge; rallies have no banner. */
       #banner {
         position: fixed;
-        top: 50%;
+        bottom: calc(12px + env(safe-area-inset-bottom));
         left: 50%;
-        transform: translate(-50%, -50%);
-        width: max-content;
-        max-width: min(92vw, 520px);
-        max-height: calc(100dvh - 180px);
-        overflow-y: auto;
-        padding: 16px 22px 18px;
+        transform: translateX(-50%);
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        column-gap: 16px;
+        width: min(360px, calc(100vw - 24px));
+        padding: 8px 10px 8px 14px;
         background: #d4d4d4;
         border: 2px solid #000;
-        box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.85);
-        text-align: center;
+        box-shadow: 3px 3px 0 #000;
         font-weight: 800;
-        font-size: clamp(30px, 7vmin, 58px);
-        line-height: 1;
-        letter-spacing: 4px;
+        font-size: 15px;
+        line-height: 1.2;
+        letter-spacing: 1px;
         pointer-events: auto;
       }
       #banner[hidden] {
         display: none;
       }
       #banner-detail {
-        margin-top: 14px;
-        font-size: 12px;
-        line-height: 1.5;
-        letter-spacing: 1px;
+        margin-top: 4px;
+        font-size: 10px;
+        font-weight: 400;
+        letter-spacing: 0;
         font-variant-numeric: tabular-nums;
+      }
+      #banner-detail:empty {
+        display: none;
       }
       #match-action,
       #sound-toggle {
@@ -245,9 +250,11 @@
         touch-action: manipulation;
       }
       #match-action {
-        width: 100%;
-        margin-top: 18px;
-        box-shadow: 3px 3px 0 #999;
+        grid-column: 2;
+        grid-row: 1 / 3;
+        min-width: 104px;
+        padding: 0 12px;
+        box-shadow: 2px 2px 0 #999;
       }
       #match-action:active {
         transform: translate(2px, 2px);
@@ -271,36 +278,6 @@
         #hud {
           padding-top: calc(68px + env(safe-area-inset-top));
         }
-        #banner {
-          padding: 16px;
-        }
-        #banner small {
-          font-size: 12px;
-          letter-spacing: 1px;
-        }
-      }
-      @media (max-height: 500px) {
-        #curve-teaching {
-          max-width: 280px;
-          margin-top: 4px;
-          padding: 4px 6px;
-        }
-        #banner {
-          max-height: calc(100dvh - 30px);
-          width: min(68vw, 480px);
-        }
-        #banner-title {
-          font-size: 28px;
-        }
-        #banner .spin-hint {
-          margin-top: 8px;
-        }
-        #match-action {
-          margin-top: 10px;
-        }
-        #banner-controls small {
-          margin-top: 8px;
-        }
       }
       #point-callout {
         position: fixed;
@@ -313,14 +290,16 @@
         letter-spacing: 3px;
         pointer-events: none;
       }
-      #banner small {
-        display: block;
-        margin-top: 14px;
-        font-weight: 400;
-        font-size: 14px;
-        letter-spacing: 3px;
-      }
       @media (max-height: 500px) {
+        #hud {
+          padding-top: calc(12px + env(safe-area-inset-top));
+        }
+        #netinfo {
+          display: none;
+        }
+        #shot-charge {
+          margin-top: 4px;
+        }
         #sound-toggle {
           left: auto;
           right: calc(12px + env(safe-area-inset-right));
@@ -334,16 +313,6 @@
       @media (max-height: 300px) {
         #hud {
           padding-top: calc(18px + env(safe-area-inset-top));
-        }
-        #banner {
-          width: min(56vw, 480px);
-        }
-        #banner-controls,
-        #banner .spin-hint {
-          display: none;
-        }
-        #banner-detail {
-          margin-top: 8px;
         }
       }
 
@@ -387,9 +356,9 @@
         outline-offset: 5px;
       }
       /* Narrow (portrait phone): sit above the #serve-meter zone. */
-      @media (max-width: 480px) {
+      @media (max-width: 600px) {
         #camera-panel {
-          bottom: calc(64px + env(safe-area-inset-bottom));
+          bottom: calc(80px + env(safe-area-inset-bottom));
         }
       }
       /* A landscape phone has no room in the bottom-right: the player's paddle
@@ -496,10 +465,18 @@
         <span id="opp-label">AI</span>
       </div>
       <div id="netinfo"></div>
-      <div id="match-point" role="status"></div>
-      <div id="curve-teaching" role="status" hidden>
-        <div id="curve-teaching-title"></div>
+      <div
+        id="shot-charge"
+        role="progressbar"
+        aria-label="Power shot charge"
+        aria-valuemin="0"
+        aria-valuemax="4"
+        aria-valuenow="0"
+      >
+        <div id="shot-charge-track" aria-hidden="true"><div id="shot-charge-fill"></div></div>
+        <span id="shot-charge-label">POWER 0/4</span>
       </div>
+      <div id="match-point" role="status"></div>
     </div>
     <button id="sound-toggle" type="button" aria-pressed="false">SOUND OFF</button>
     <div id="combo"></div>
@@ -509,8 +486,6 @@
     <div id="banner" aria-labelledby="banner-title">
       <div id="banner-title"></div>
       <div id="banner-detail"></div>
-      <div id="banner-controls"></div>
-      <span id="banner-hint" class="spin-hint"></span>
       <button id="match-action" type="button">SERVE</button>
     </div>
     <script type="module" src="/src/main.ts"></script>

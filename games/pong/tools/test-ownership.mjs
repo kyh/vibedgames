@@ -149,9 +149,7 @@ test("actual scene construction/disposal releases every unique Three owner and e
     }
     assert.equal(f.window.listenerCount, 5);
     assert.equal(f.media.listenerCount, 1);
-    assert.equal(f.watchers.size, 2);
-    const oldEvent = g.net.options.onEvent,
-      staleWatcher = [...f.watchers][0];
+    const oldEvent = g.net.options.onEvent;
     const frame = g.frame;
     g.dispose();
     g.dispose();
@@ -161,9 +159,7 @@ test("actual scene construction/disposal releases every unique Three owner and e
     assert.equal(g.net.destroyed, 1);
     assert.equal(f.window.listenerCount, 0);
     assert.equal(f.media.listenerCount, 0);
-    assert.equal(f.watchers.size, 0);
     assert.ok([...f.elements.values()].every((element) => element.listenerCount === 0));
-    staleWatcher();
     oldEvent("serve", {}, "a");
     g.update(1);
     g.handleHandPosition(0.4);
@@ -172,7 +168,6 @@ test("actual scene construction/disposal releases every unique Three owner and e
     g.replaceSession(false);
     assert.equal(g.frame, frame);
     assert.equal(f.sessions.length, 1);
-    assert.equal(f.watchers.size, 0);
     assert.equal(f.sounds.length, 0);
   } finally {
     for (const restore of originals) restore();

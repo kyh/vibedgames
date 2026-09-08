@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { sceneFixture } from "./scene-harness.mjs";
-import { GOAL_Y, HAND_RANGE, PADDLE_X_MAX, PADDLE_Y } from "../src/shared/constants.ts";
+import { GOAL_Y, HAND_RANGE, PADDLE_X_MAX, PADDLE_Y, HIT_HALF_X } from "../src/shared/constants.ts";
 
 const hashFile = (path) =>
   createHash("sha256")
@@ -71,23 +71,17 @@ export function simulationTrace(sourcePath) {
       g.update(1 / 60);
       snapshot();
     }
-    // Isolate real contact admission in both directions, including live remote
-    // strokes. A prerequisite pose is staged; updateBall still decides collision.
+    // Stage contact zones; updateBall still decides actual collision admission.
     for (const side of ["player", "ai"]) {
       for (const direction of [0, -1, 1]) {
         g.phase = "rally";
         g.freeze = 0;
         g.playerX = 0;
         g.aiX = 0;
-        g.resetStrokes();
-        if (direction) {
-          const now = f.clock.ms / 1000;
-          for (let i = 0; i < 4; i++)
-            g.stroke.sample(direction * i * 0.3, now - (3 - i) / 60, "hand");
-          g.remoteStrokeIntent = direction;
-          g.remoteStrokeUntil = now + 0.1;
-        }
-        g.ballPos.set(0.1, side === "player" ? -PADDLE_Y + 0.02 : PADDLE_Y - 0.02);
+        g.ballPos.set(
+          direction * HIT_HALF_X * 0.8,
+          side === "player" ? -PADDLE_Y + 0.02 : PADDLE_Y - 0.02,
+        );
         g.ballVel.set(0, side === "player" ? -6 : 6);
         g.updateBall(1 / 120);
         snapshot();
@@ -126,30 +120,89 @@ export function simulationTrace(sourcePath) {
     sha256: createHash("sha256").update(JSON.stringify(trace)).digest("hex"),
   };
 }
-test("solo and host simulation retain the verified baseline across hand input, contacts, curves, walls, points and rematches", () => {
+test("seeded solo and host play covers contacts, slices, walls, points and rematches deterministically", () => {
   const result = simulationTrace();
+  assert.deepEqual(result, simulationTrace());
+  assert.equal(result.frames, 4822);
+  for (const [key, value] of Object.entries(result.coverage)) assert.ok(value > 0, key);
+});
+
+// Only the removed motion sampler is inert in this original-code comparison.
+// Centered neutral returns must retain the original ball/ramp/score/clock trace.
+class StationaryStroke {
+  sample() {}
+  read() {
+    return 0;
+  }
+  reset() {}
+}
+function neutralTrace(path) {
+  const f = sceneFixture(path, { PaddleStroke: StationaryStroke }),
+    g = f.game;
+  const trace = [];
+  const snapshot = () =>
+    trace.push({
+      ball: g.ballPos.toArray(),
+      velocity: g.ballVel.toArray(),
+      paddle: g.myPaddle,
+      phase: g.phase,
+      score: [g.scoreYou, g.scoreAi],
+      speed: g.rallySpeed,
+      hits: g.rallyHits,
+      longest: g.longestRally,
+      arc: g.arc ? { ...g.arc } : null,
+      freeze: g.freeze,
+      serveAt: g.serveAt,
+    });
+  g.seed(7123);
+  g.playSolo();
+  g.confirm();
+  snapshot();
+  for (const hand of [0.5, 0.2, 0.9, 1, 0, 0.51]) {
+    g.handleHandPosition(hand);
+    g.applyPaddleInput(1 / 60);
+    snapshot();
+  }
+  for (let i = 0; i < 20; i++) {
+    const side = i % 2 ? "ai" : "player";
+    g.playerX = 0;
+    g.aiX = 0;
+    g.phase = "rally";
+    g.ballPos.set(0, side === "player" ? -PADDLE_Y + 0.02 : PADDLE_Y - 0.02);
+    g.ballVel.set(0, side === "player" ? -6 : 6);
+    g.updateBall(1 / 120);
+    snapshot();
+  }
+  for (let i = 0; i < 7; i++) {
+    g.phase = "rally";
+    g.ballPos.set(4, GOAL_Y + 0.1);
+    g.ballVel.set(0, 6);
+    g.updateBall(1 / 60);
+    snapshot();
+    if (i < 6) {
+      g.update(0.4);
+      snapshot();
+      g.update(0.72);
+      snapshot();
+    }
+  }
+  assert.equal(g.phase, "won");
+  g.update(1);
+  snapshot();
+  g.confirm();
+  snapshot();
+  g.dispose?.();
+  return trace;
+}
+test("centered ordinary returns retain original hand mapping, ramp, RNG, score, point timing and rematch", () => {
   const baselinePath = "./fixtures/simulation-baseline.txt";
   const manifest = JSON.parse(
     readFileSync(new URL("./fixtures/simulation-baseline.json", import.meta.url), "utf8"),
   );
-
   assert.equal(hashFile(baselinePath), manifest.oracleSha256);
-  for (const [path, expected] of Object.entries(manifest.dependencies))
-    assert.equal(
-      hashFile(`../${path}`),
-      expected,
-      `Original simulation dependency changed: ${path}`,
-    );
-  assert.deepEqual(result.coverage, {
-    soloContacts: 18,
-    hostContacts: 13,
-    points: 18,
-    curves: 6,
-    walls: 17,
-    wonFrames: 4,
-  });
-  assert.equal(result.frames, 4822);
-  // Exact raw values, compared to original code on this runtime. Math.sin/cos
-  // and the engine's exp/pow/hypot may differ by a last bit across architectures.
-  assert.deepEqual(result, simulationTrace(baselinePath));
+  assert.equal(
+    hashFile("../src/shared/constants.ts"),
+    manifest.dependencies["src/shared/constants.ts"],
+  );
+  assert.deepEqual(neutralTrace(), neutralTrace(baselinePath));
 });

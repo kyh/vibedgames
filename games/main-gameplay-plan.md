@@ -9,7 +9,7 @@ This supersedes the optional-mode plans in `aaa-completion-plan.md`.
 | -------------- | ----------------------------------------------------------------------------------------------------------------- |
 | Flappy Dragons | Count and celebrate actual gate milestones in ordinary flights; remove fixed-route mode and its separate records. |
 | Pacman         | Keep full-maze play, pearl chains and chase feedback; remove the short circuit, marked subset and early finish.   |
-| Pong           | Keep curve physics and teach accepted contacts during normal matches; remove separate practice.                   |
+| Pong           | Charge each return for fist power shots; paddle contact controls slice/topspin; keep instructions off the court.  |
 | Starfall       | Track mastery for weapons acquired during normal battles; remove selectable seeded trials.                        |
 | Bomberman      | Introduce arena variety through normal round progression; remove new arena selection.                             |
 | Tetris         | Keep random bags, spatial teaching and HOLD feedback; remove fixed-sequence selection and separate records.       |
@@ -34,11 +34,12 @@ results fit with the camera open. Actual two-client claims, reconnect, host
 migration and host-authorized full-maze rematch pass. All assets stay exact.
 Full verification and build pass.
 
-Pong complete: ordinary serve, accepted pointer curve, first-to-seven result and
-native rematch pass. Compact results fit with the camera open. Actual two-client
-guest curves, reconnect, shared results/rematches and host migration pass. Core
-simulation, inputs and assets stay exact; only the unused practice audio reset
-wrapper is removed. Full verification and build pass.
+Pong update: replace flick shots with four-return charge and a fist-triggered
+power return. Left-third contacts slice; right-third contacts add faster, lower
+topspin. Preserve hand steering and mouse/touch/controller fallbacks. Instructions
+move into the pause menu; serve/rematch stays at the court edge. Validate accepted
+contacts, power consumption, guest ownership/rearming, pause/reconnect/migration,
+compact layouts and normal first-to-seven rematches.
 
 Starfall complete: staged ordinary items activate mastery through real pickup
 handling; native railgun and glaive shots complete their techniques through real
