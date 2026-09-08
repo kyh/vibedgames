@@ -106,6 +106,34 @@ function cityEdited(): boolean {
   );
 }
 
+// Cache writes serialize large object graphs on the main thread. Never during
+// load; a browser without requestIdleCallback gets a plain delay instead.
+function runWhenIdle(cb: () => void): void {
+  if ("requestIdleCallback" in window) requestIdleCallback(cb, { timeout: 30000 });
+  else setTimeout(cb, 8000);
+}
+
+// Work that must not land inside the load at all — an idle deadline can
+// still expire mid-build on a slow phone. Queued until the loading veil
+// drops, then handed to idle time. `hideLoading` only STARTS the veil's
+// 350 ms fade, and the title's first frames follow it; an idle slot between
+// those frames would still take a multi-second put(), so the hand-off waits
+// out the transition first.
+const AFTER_VEIL_MS = 1500;
+let loadFinished = false;
+const afterLoad: (() => void)[] = [];
+function runAfterLoad(cb: () => void): void {
+  if (loadFinished) runWhenIdle(cb);
+  else afterLoad.push(cb);
+}
+function flushAfterLoad(): void {
+  const queued = afterLoad.splice(0);
+  setTimeout(() => {
+    loadFinished = true;
+    for (const cb of queued) runWhenIdle(cb);
+  }, AFTER_VEIL_MS);
+}
+
 function fromWorker(r: ParcelWorkerResponse): ParcelPlanResult {
   return { plans: r.plans, lots: r.lots, stats: r.stats, covered: new Set(r.covered) };
 }
@@ -139,7 +167,10 @@ function runParcelWorker(source: ArrayBuffer): Promise<ParcelPlanResult | null> 
       worker.onmessage = (ev: MessageEvent<ParcelWorkerResponse>) => {
         const r = ev.data;
         console.log(`[parcel-worker] planned ${r.plans.length} parcels in ${r.ms}ms`);
-        writeParcelPlanCache(bytes, r);
+        // The put() serializes ~500k plan objects on the main thread — a
+        // multi-second block on a phone if it lands mid-load. After load,
+        // in idle time only.
+        runAfterLoad(() => writeParcelPlanCache(bytes, r));
         resolve(fromWorker(r));
         worker.terminate();
       };
@@ -419,11 +450,7 @@ async function finishLoad(
   // The rest-cache write serializes ~100MB — idle time only, never at start.
   if (city.restCapture && !restState.fromBake) {
     const restCapture = city.restCapture;
-    const idle =
-      "requestIdleCallback" in window
-        ? (cb: () => void): void => void requestIdleCallback(cb, { timeout: 30000 })
-        : (cb: () => void): void => void setTimeout(cb, 8000);
-    idle(() => writeRestCache(restCapture));
+    runWhenIdle(() => writeRestCache(restCapture));
   }
   await paint();
 
@@ -513,6 +540,7 @@ async function finishLoad(
   deps.showTitle();
   deps.onPlayable();
   deps.hideLoading();
+  flushAfterLoad();
 }
 
 function storageGet(key: string): string | null {

@@ -1,5 +1,7 @@
 import * as THREE from "three";
 
+import { releaseArraysAfterUpload } from "../render/gpu-only-geometry";
+
 export type PropInstance = {
   readonly geo: THREE.BufferGeometry;
   readonly matrix: THREE.Matrix4;
@@ -217,6 +219,13 @@ export class InstancedProps extends THREE.Group {
       color.addUpdateRange(slot * 3, 3);
       color.needsUpdate = true;
     }
+  }
+
+  /** Drop the CPU copy of the unique-geometry batch once the GPU has it
+   *  (render/gpu-only-geometry.ts). The packed groups share ModelCache
+   *  template geometry with everything else and keep theirs. */
+  releaseCpuGeometry(): void {
+    if (this.singles) releaseArraysAfterUpload(this.singles.geometry);
   }
 
   dispose(): void {

@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { setPauseHandlers } from "@repo/embed";
 
 import { FramePacer } from "./render/frame-pacer";
+import { hasReleasedArrays } from "./render/gpu-only-geometry";
 import { PerfGovernor } from "./render/perf-governor";
 import { PostPipeline } from "./render/post";
 import { setRenderCapabilities } from "./render/capabilities";
@@ -13,14 +14,26 @@ import { createPauseOverlay } from "./ui/pause-overlay";
 const container = document.getElementById("game");
 if (!container) throw new Error("missing #game container");
 
-function showFatal(message: string): void {
+let reloadOnVeilTap = false;
+document.getElementById("loading")?.addEventListener("click", () => {
+  if (reloadOnVeilTap) window.location.reload();
+});
+
+function showFatal(message: string, tapToReload = false): void {
   const loading = document.getElementById("loading");
   if (loading) {
     // Trailer boots keep the veil hidden from the first paint (see index.html)
     // — a dead context still has to be reported, so force it back on screen.
     loading.style.display = "flex";
     loading.innerHTML = `<div class="lt">CRAZY WAYMO</div><div class="ls" style="opacity:1;color:#ff8a8a">${message}</div>`;
+    reloadOnVeilTap = tapToReload;
   }
+}
+
+function hideFatal(): void {
+  const loading = document.getElementById("loading");
+  if (loading) loading.style.display = "none";
+  reloadOnVeilTap = false;
 }
 
 // MSAA can't be changed after context creation. On dense phone screens the
@@ -101,6 +114,30 @@ const governor = new PerfGovernor(renderer, game.sunLight, (features) => {
 document.addEventListener("visibilitychange", () => {
   framePacer.setHidden(document.hidden);
   governor.resetTiming();
+});
+
+// A lost WebGL context is what a phone browser hands back when the tab runs
+// out of memory: three stops drawing, the canvas goes blank, and the DOM HUD
+// keeps updating over it as if nothing happened. Say so, and offer the one
+// recovery that works on iOS — a reload (the world caches make it a short
+// one). three already asks the browser for restoration; if it comes, resume.
+renderer.domElement.addEventListener("webglcontextlost", () => {
+  console.error("[crazy-waymo] WebGL context lost");
+  showFatal("The browser stopped the graphics (usually low memory). Tap to reload.", true);
+});
+renderer.domElement.addEventListener("webglcontextrestored", () => {
+  console.warn("[crazy-waymo] WebGL context restored");
+  // Restoration re-uploads every geometry from its heap array. Phones have
+  // released the static ones (render/gpu-only-geometry.ts), so the rebuilt
+  // city would be empty — a reload is the only complete recovery there.
+  if (hasReleasedArrays()) {
+    showFatal("Graphics restored — reloading…");
+    window.location.reload();
+    return;
+  }
+  hideFatal();
+  governor.resetTiming();
+  framePacer.invalidate();
 });
 
 if (import.meta.env.DEV) {

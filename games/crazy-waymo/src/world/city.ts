@@ -13,8 +13,9 @@ import {
   setPropShadowPolicy,
   type PropShadowPolicy,
 } from "../render/prop-shadow";
-import { liveQuality } from "../render/quality";
+import { isCoarsePointer, liveQuality } from "../render/quality";
 import { renderCapabilities } from "../render/capabilities";
+import { releaseArraysAfterUpload } from "../render/gpu-only-geometry";
 import { compatiblePropBatch, type PropBatch, type PropInstance } from "./instanced-props";
 import {
   CHUNK,
@@ -1235,6 +1236,9 @@ export class CityModel {
     await tick(0.87);
     this.buildPhase1();
     console.log(`[city] phase1 ${Math.round(performance.now() - t0)}ms`);
+    // Hook the phase-1 meshes before the loader attaches the group: the
+    // title camera draws them all through the rest of the load.
+    this.releaseStaticGeometryAfterUpload();
     await tick(0.95);
   }
 
@@ -1250,6 +1254,7 @@ export class CityModel {
       // reference for its last consumers; failed rebuilds keep this for retry.
       this.restPayload = null;
       console.log(`[city] rest rebuild ${Math.round(performance.now() - tR)}ms`);
+      this.releaseStaticGeometryAfterUpload();
       await tick(0.97);
       return;
     }
@@ -1262,7 +1267,36 @@ export class CityModel {
     console.log(
       `[city] phase2 ${Math.round(t1 - t0)}ms phase3 ${Math.round(performance.now() - t1)}ms`,
     );
+    this.releaseStaticGeometryAfterUpload();
     await tick(0.97);
+  }
+
+  /** Phones drop the CPU copies of static geometry once the GPU has them
+   *  (render/gpu-only-geometry.ts). Desktop keeps them: the editor and the
+   *  DEV `pick()` raycast read them, and memory is not the constraint there. */
+  private gpuOnlyGeometry(): boolean {
+    return isCoarsePointer() && !editorMode();
+  }
+
+  /** The plain static meshes — merged road chunks, terrain, freeways, piers,
+   *  landmarks — release their arrays DEFERRED: the ceiling harvest
+   *  (scenes/game-scene.ts buildCeilingIndex) still reads their positions after
+   *  the title is up, and arms the release when it finishes. Parcel cells are
+   *  transient (the streamer swaps and disposes them) and are left alone. */
+  private releaseStaticGeometryAfterUpload(): void {
+    if (!this.gpuOnlyGeometry()) return;
+    this.group.traverse((o) => {
+      if (!(o instanceof THREE.Mesh) || o.name.startsWith("parcel-")) return;
+      // Plain meshes only — BatchedMesh/InstancedMesh subclasses own their
+      // buffers differently and were handled at construction.
+      if (Object.getPrototypeOf(o) !== THREE.Mesh.prototype) return;
+      const geometry = o.geometry;
+      const attrs = [...Object.values(geometry.attributes), geometry.index];
+      for (const a of attrs) {
+        if (a instanceof THREE.BufferAttribute && a.usage !== THREE.StaticDrawUsage) return;
+      }
+      releaseArraysAfterUpload(geometry, { deferred: true });
+    });
   }
 
   private phase2!: () => Promise<void>;
@@ -1944,6 +1978,7 @@ export class CityModel {
     onProgress?: (f: number) => void,
   ): Promise<void> {
     const multiDraw = renderCapabilities().multiDraw;
+    const gpuOnly = this.gpuOnlyGeometry();
     // Instances stream on the fine STREAM_CELL grid, not the merge CHUNK grid
     // the caller used for road tiles — see STREAM_CELL.
     const nx = Math.ceil(WORLD_W / STREAM_CELL);
@@ -2150,6 +2185,15 @@ export class CityModel {
         batched.perObjectFrustumCulled = false;
       }
       const mesh = compatiblePropBatch(batched, bucket.items, multiDraw);
+      // Phones: the merged batch is final here, so its vertex arrays only
+      // exist on the GPU from the first draw on (render/gpu-only-geometry.ts).
+      // Desktop keeps the copies — the editor and the DEV `pick()` raycast
+      // read them, and memory is not the constraint there. The instanced
+      // fallback shares ModelCache template geometry and is left alone.
+      if (gpuOnly) {
+        if (mesh instanceof THREE.BatchedMesh) releaseArraysAfterUpload(mesh.geometry);
+        else mesh.releaseCpuGeometry();
+      }
       this.group.add(mesh);
       this.batches.push({ mesh, chunkIds });
     }
