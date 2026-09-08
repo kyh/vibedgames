@@ -10,7 +10,6 @@ import { NetSession, isJsonNumber } from "../net/session";
 import type { JsonObject } from "../net/session";
 import type { Player } from "@vibedgames/multiplayer";
 import { FlightFx } from "./flight-fx";
-import { ForestLandmarks } from "./forest-landmarks";
 import {
   ART_SCALE,
   BEST_KEY,
@@ -143,7 +142,6 @@ export class GameScene extends Phaser.Scene {
   private titleDragon: Phaser.GameObjects.Sprite | null = null;
   private digits: Phaser.GameObjects.Image[] = [];
   private flightFx: FlightFx | null = null;
-  private landmarks: ForestLandmarks | null = null;
 
   // Net bookkeeping.
   private stateAcc = 0;
@@ -243,7 +241,6 @@ export class GameScene extends Phaser.Scene {
     this.bird.play(`fly-${this.skin}`);
 
     this.flightFx = new FlightFx(this);
-    this.landmarks = new ForestLandmarks(this);
 
     // Hidden from boot: the HTML start overlay owns the pre-flap moment now,
     // and this banner would show through its translucent wash.
@@ -1356,7 +1353,6 @@ export class GameScene extends Phaser.Scene {
     for (const layer of this.bgLayers) {
       layer.sprite.tilePositionX = (px * layer.factor) / layer.sprite.tileScaleX;
     }
-    this.landmarks?.update(px, { width: this.viewW(), top: this.viewTop(), floor: COURSE_H });
   }
 }
 

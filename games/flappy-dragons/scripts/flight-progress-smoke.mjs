@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
-import { EventEmitter } from "node:events";
 import { test } from "node:test";
 import * as constants from "../src/shared/constants.ts";
 
@@ -289,87 +288,4 @@ test("online pause gates local input while real update keeps course/gates live, 
   assert.deepEqual(calls.celebrations, ["20 GATES · KEEP FLYING!"]);
   scene.handleInput();
   assert.equal(calls.flaps, 1);
-});
-test("landmark sprites stay bounded and stop touching destroyed nodes", () => {
-  const landmarkSource = readFileSync(
-    new URL("../src/scenes/forest-landmarks.ts", import.meta.url),
-    "utf8",
-  );
-  const Forest = new Function(
-    "Phaser",
-    `${stripTypeScriptTypes(landmarkSource.replace(/^import .*;\n/m, "").replace("export class", "class"), { mode: "strip" })};return ForestLandmarks;`,
-  )({ Scenes: { Events: { SHUTDOWN: "shutdown", DESTROY: "destroy" } } });
-  for (let round = 0; round < 3; round++) {
-    const events = new EventEmitter();
-    const images = [];
-    const scene = {
-      events,
-      add: {
-        image: (_x, _y, key) => {
-          assert.equal(key, "landmark-tree");
-          const image = {
-            destroyed: false,
-            x: 0,
-            y: 0,
-            width: 1082,
-            height: 1454,
-            visible: false,
-            depth: 0,
-          };
-          for (const method of [
-            "setOrigin",
-            "setDepth",
-            "setAlpha",
-            "setPosition",
-            "setScale",
-            "setVisible",
-          ])
-            image[method] = (...values) => {
-              assert.equal(image.destroyed, false, "no calls into destroyed display nodes");
-              if (method === "setPosition") [image.x, image.y] = values;
-              if (method === "setDepth") image.depth = values[0];
-              if (method === "setScale") image.scale = values[0];
-              if (method === "setVisible") image.visible = values[0];
-              return image;
-            };
-          images.push(image);
-          return image;
-        },
-      },
-    };
-    const forest = new Forest(scene);
-    assert.equal(images.length, 7);
-    for (let worldX = 0; worldX < 100000; worldX += 150) {
-      const before = images.map((image) => ({
-        x: image.x,
-        right: image.x + (image.width * image.scale) / 2,
-      }));
-      forest.update(worldX, { width: 480, top: -200, floor: 720 });
-      if (worldX > 0)
-        for (let i = 0; i < images.length; i++) {
-          if (images[i].x - before[i].x > 1000)
-            assert.ok(
-              before[i].right <= 150 * 0.45 + 0.001,
-              "recycle only after the complete silhouette leaves view",
-            );
-        }
-      assert.equal(images.length, 7);
-      assert.ok(images.every((image) => Number.isFinite(image.x) && image.depth < 0));
-    }
-    forest.update(0, { width: 480, top: 0, floor: 720 });
-    const first = images.map((image) => [image.x, image.y, image.visible]);
-    forest.update(14000, { width: 1280, top: 0, floor: 720 });
-    forest.update(0, { width: 480, top: 0, floor: 720 });
-    assert.deepEqual(
-      images.map((image) => [image.x, image.y, image.visible]),
-      first,
-    );
-    for (const image of images) image.destroyed = true;
-    events.emit(round === 1 ? "destroy" : "shutdown");
-    forest.update(0, { width: 480, top: 0, floor: 720 });
-    assert.equal(events.listenerCount("shutdown") + events.listenerCount("destroy"), 0);
-  }
-  console.log(
-    "✓ Seven landmark images stay bounded across long courses, resizes and three owner lifetimes",
-  );
 });
