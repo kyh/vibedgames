@@ -91,44 +91,8 @@
         font-weight: 800;
         letter-spacing: 0.5px;
       }
-      #curve-teaching-hint:not(:empty) {
-        margin-top: 3px;
-      }
-      #practice-tools {
-        display: flex;
-        gap: 8px;
-        margin-top: 6px;
-        pointer-events: auto;
-      }
-      #practice-tools button,
-      #practice-choice {
-        min-height: 44px;
-        padding: 8px 12px;
-        border: 1px solid #000;
-        background: #d4d4d4;
-        color: #000;
-        font:
-          700 11px ui-monospace,
-          monospace;
-        letter-spacing: 0.5px;
-        cursor: pointer;
-        touch-action: manipulation;
-      }
-      #practice-choice {
-        width: 100%;
-        margin-top: 8px;
-      }
-      #curve-teaching[hidden],
-      #practice-tools[hidden],
-      #practice-choice[hidden] {
+      #curve-teaching[hidden] {
         display: none;
-      }
-      .curve-practice #match-point,
-      .curve-practice #combo {
-        display: none;
-      }
-      .curve-practice #curve-teaching {
-        border-top: 1px solid #000;
       }
       #shot-callout {
         position: fixed;
@@ -320,16 +284,6 @@
           max-width: 280px;
           margin-top: 4px;
           padding: 4px 6px;
-        }
-        .curve-practice #netinfo,
-        .curve-practice #curve-teaching-hint {
-          display: none;
-        }
-        #practice-tools {
-          margin-top: 4px;
-        }
-        #practice-tools button {
-          padding-inline: 8px;
         }
         #banner {
           max-height: calc(100dvh - 30px);
@@ -545,11 +499,6 @@
       <div id="match-point" role="status"></div>
       <div id="curve-teaching" role="status" hidden>
         <div id="curve-teaching-title"></div>
-        <div id="curve-teaching-hint"></div>
-      </div>
-      <div id="practice-tools" hidden>
-        <button id="practice-restart" type="button">Restart practice</button>
-        <button id="practice-exit" type="button">Play match</button>
       </div>
     </div>
     <button id="sound-toggle" type="button" aria-pressed="false">SOUND OFF</button>
@@ -563,7 +512,6 @@
       <div id="banner-controls"></div>
       <span id="banner-hint" class="spin-hint"></span>
       <button id="match-action" type="button">SERVE</button>
-      <button id="practice-choice" type="button" hidden>Practice curves</button>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

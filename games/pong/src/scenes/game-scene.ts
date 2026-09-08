@@ -12,7 +12,7 @@ import type { PromptPhrase } from "../controls";
 import { watchHandCamera } from "../input/camera";
 import { inkChip } from "../pause-overlay";
 import { ParticlePool } from "../fx/particles";
-import { clearSound, sfx } from "../fx/sfx";
+import { sfx } from "../fx/sfx";
 import { RingPool } from "../fx/shock-rings";
 import { NetSession, isJsonNumber, isJsonObject } from "../net/session";
 import type { JsonObject, JsonValue } from "../net/session";
@@ -24,8 +24,8 @@ import {
   validatedRemoteStroke,
 } from "../shared/spin";
 import type { Spin } from "../shared/spin";
-import { advanceLesson, advancePractice, practiceObjective } from "../shared/practice";
-import type { CurveLesson, PlayMode } from "../shared/practice";
+import { advanceLesson } from "../shared/curve-lesson";
+import type { CurveLesson } from "../shared/curve-lesson";
 import {
   MP_ROOM,
   MP_MAX_PLAYERS,
@@ -159,7 +159,6 @@ export class GameScene {
   private frame = 0;
   private spinShots = 0;
   private random = Math.random;
-  private playMode: PlayMode = { kind: "match" };
   private curveLesson: CurveLesson = "return";
   private lessonUntil = 0;
 
@@ -258,7 +257,6 @@ export class GameScene {
   private matchPointEl = el("match-point");
   private teachingEl = el("curve-teaching");
   private teachingTitleEl = el("curve-teaching-title");
-  private teachingHintEl = el("curve-teaching-hint");
   private serveMeterShown = false; // cached so we only touch classList on transitions
   private readonly containedPointerEvents = [
     "pointerdown",
@@ -271,10 +269,6 @@ export class GameScene {
   private readonly onMotionChange = (event: MediaQueryListEvent): void => {
     if (!this.disposed) this.setReducedMotion(event.matches);
   };
-  private readonly practiceChoiceEl = el("practice-choice");
-  private readonly practiceRestartEl = el("practice-restart");
-  private readonly practiceExitEl = el("practice-exit");
-  private readonly practiceToolsEl = el("practice-tools");
 
   constructor() {
     this.net = this.createSession(false);
@@ -395,13 +389,9 @@ export class GameScene {
     this.setReducedMotion(this.reducedMotion);
 
     // A scroll inside the instruction card must not become a canvas serve.
-    for (const target of [this.bannerEl, this.practiceToolsEl])
-      for (const eventName of this.containedPointerEvents)
-        target.addEventListener(eventName, this.stopPointer);
+    for (const eventName of this.containedPointerEvents)
+      this.bannerEl.addEventListener(eventName, this.stopPointer);
     this.actionEl.addEventListener("click", this.onConfirm);
-    this.practiceChoiceEl.addEventListener("click", this.onPracticeChoice);
-    this.practiceRestartEl.addEventListener("click", this.onPracticeRestart);
-    this.practiceExitEl.addEventListener("click", this.onPracticeExit);
     this.syncHud();
   }
 
@@ -426,13 +416,9 @@ export class GameScene {
     window.removeEventListener("pointerup", this.onPointerUp);
     window.removeEventListener("pointercancel", this.onPointerUp);
     this.motionQuery.removeEventListener("change", this.onMotionChange);
-    for (const target of [this.bannerEl, this.practiceToolsEl])
-      for (const eventName of this.containedPointerEvents)
-        target.removeEventListener(eventName, this.stopPointer);
+    for (const eventName of this.containedPointerEvents)
+      this.bannerEl.removeEventListener(eventName, this.stopPointer);
     this.actionEl.removeEventListener("click", this.onConfirm);
-    this.practiceChoiceEl.removeEventListener("click", this.onPracticeChoice);
-    this.practiceRestartEl.removeEventListener("click", this.onPracticeRestart);
-    this.practiceExitEl.removeEventListener("click", this.onPracticeExit);
     this.dragging = false;
     this.resetStrokes();
     this.particles.clear();
@@ -692,66 +678,6 @@ export class GameScene {
     if (this.phase === "serving") this.serve();
   }
 
-  private onPracticeChoice = (): void => {
-    if (this.disposed || this.paused || this.hasLiveOpponent() || this.playMode.kind === "practice")
-      return;
-    this.playSolo();
-    this.playMode = { kind: "practice", progress: "return" };
-    this.resetPracticeRound();
-    this.serve();
-  };
-
-  private onPracticeRestart = (): void => {
-    if (this.disposed || this.paused || this.playMode.kind !== "practice") return;
-    this.playMode = { kind: "practice", progress: "return" };
-    this.resetPracticeRound();
-    this.serve();
-  };
-
-  private onPracticeExit = (): void => {
-    if (this.disposed || this.paused || this.playMode.kind !== "practice") return;
-    this.playMode = { kind: "match" };
-    this.replaceSession(false);
-    this.resetPracticeRound();
-    this.syncHud();
-  };
-
-  /** Explicit practice navigation starts a clean table; ordinary rematches retain their rules. */
-  private resetPracticeRound(): void {
-    clearSound();
-    this.scoreYou = 0;
-    this.scoreAi = 0;
-    this.longestRally = 0;
-    this.phase = "serving";
-    this.serveAt = null;
-    this.ballPos.set(0, 0);
-    this.ballVel.set(0, 0);
-    this.playerX = 0;
-    this.aiX = 0;
-    this.arc = null;
-    this.spin = null;
-    this.rallyHits = 0;
-    this.rallySpeed = RALLY_SPEED_BASE;
-    this.resetStrokes();
-    this.freeze = 0;
-    this.trauma = 0;
-    this.invertFlash = 0;
-    this.flashNear = 0;
-    this.flashFar = 0;
-    this.playerPulse = 0;
-    this.aiPulse = 0;
-    this.camKick.set(0, 0, 0);
-    this.trailAcc = 0;
-    this.particles.clear();
-    this.rings.clear();
-    this.pointUntil = 0;
-    this.pointEl.textContent = "";
-    this.shotUntil = 0;
-    this.shotEl.classList.remove("on");
-    this.comboEl.style.opacity = "0";
-    this.lessonUntil = 0;
-  }
-
   /** Only callers that accepted a real contact may teach; guest callers are host-authenticated. */
   private observeLocalContact(slotA: boolean, acceptedStrength: number): void {
     if (slotA !== this.mySlotA) return;
@@ -760,12 +686,6 @@ export class GameScene {
     if (lesson !== this.curveLesson) {
       this.curveLesson = lesson;
       if (lesson === "complete") this.lessonUntil = this.elapsed + 2;
-    }
-    if (this.playMode.kind === "practice") {
-      this.playMode = {
-        kind: "practice",
-        progress: advancePractice(this.playMode.progress, screenStrength),
-      };
     }
     this.syncTeaching();
   }
@@ -792,7 +712,7 @@ export class GameScene {
     });
   }
 
-  /** Explicit mode changes own a new session. Reconnects keep their admitted seat. */
+  /** Session replacements own a new transport. Reconnects keep their admitted seat. */
   private replaceSession(forceOffline: boolean): void {
     if (this.disposed) return;
     this.sessionGeneration += 1;
@@ -1548,7 +1468,6 @@ export class GameScene {
       rallyHits: this.rallyHits,
       longestRally: this.longestRally,
       spinShots: this.spinShots,
-      practice: this.playMode.kind === "practice" ? this.playMode.progress : null,
       curveLesson: this.curveLesson,
       ball: {
         x: this.ballPos.x,
@@ -1642,14 +1561,6 @@ export class GameScene {
       );
     } else if (this.phase === "serving" && this.serveAt === null) {
       this.showBanner("PONG", "FIRST TO 7 WINS", servePromptPhrases(), curveInstruction(), "SERVE");
-    } else if (this.phase === "won" && this.playMode.kind === "practice") {
-      this.showBanner(
-        "PRACTICE",
-        `${this.scoreYou} — ${this.scoreAi} · LONGEST RALLY ${this.longestRally}`,
-        rematchNotePhrases(),
-        practiceObjective(this.playMode.progress),
-        "KEEP PRACTICING",
-      );
     } else if (this.phase === "won") {
       const iWon = this.scoreYou > this.scoreAi;
       this.showBanner(
@@ -1665,32 +1576,12 @@ export class GameScene {
       controlsCopy = false;
     }
     this.bannerEl.hidden = !controlsCopy;
-    this.practiceChoiceEl.hidden =
-      !controlsCopy || this.playMode.kind === "practice" || this.hasLiveOpponent();
-    this.practiceToolsEl.hidden = this.playMode.kind !== "practice";
-    document.documentElement.classList.toggle("curve-practice", this.playMode.kind === "practice");
     this.watchBannerControls(controlsCopy);
-    setText(
-      this.netInfoEl,
-      this.playMode.kind === "practice" ? "CURVE PRACTICE · AI" : this.netInfoText(),
-    );
+    setText(this.netInfoEl, this.netInfoText());
     this.syncTeaching();
   }
 
   private syncTeaching(): void {
-    if (this.playMode.kind === "practice") {
-      this.teachingEl.hidden = false;
-      setText(this.teachingTitleEl, practiceObjective(this.playMode.progress));
-      setText(
-        this.teachingHintEl,
-        this.playMode.progress === "return"
-          ? "Meet the ball with your paddle."
-          : this.playMode.progress === "complete"
-            ? "Keep rallying or take it into a match."
-            : curveInstruction(),
-      );
-      return;
-    }
     this.teachingEl.hidden =
       !this.bannerEl.hidden || (this.curveLesson === "complete" && this.lessonUntil === 0);
     setText(
@@ -1701,7 +1592,6 @@ export class GameScene {
           ? "Flick sideways at contact to curve"
           : "CURVE LANDED",
     );
-    setText(this.teachingHintEl, "");
   }
 
   /** While the banner shows manifest-derived copy, watch for the things that

@@ -34,4 +34,10 @@ results fit with the camera open. Actual two-client claims, reconnect, host
 migration and host-authorized full-maze rematch pass. All assets stay exact.
 Full verification and build pass.
 
+Pong complete: ordinary serve, accepted pointer curve, first-to-seven result and
+native rematch pass. Compact results fit with the camera open. Actual two-client
+guest curves, reconnect, shared results/rematches and host migration pass. Core
+simulation, inputs and assets stay exact; only the unused practice audio reset
+wrapper is removed. Full verification and build pass.
+
 Unresolved questions: none.

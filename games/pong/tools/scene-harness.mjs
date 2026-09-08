@@ -3,7 +3,7 @@ import { stripTypeScriptTypes } from "node:module";
 import * as THREE from "three";
 import * as constants from "../src/shared/constants.ts";
 import * as spin from "../src/shared/spin.ts";
-import * as practice from "../src/shared/practice.ts";
+import * as curveLesson from "../src/shared/curve-lesson.ts";
 import { ParticlePool } from "../src/fx/particles.ts";
 import { RingPool } from "../src/fx/shock-rings.ts";
 import { PhysicalGamepad } from "../../../packages/gamepad/src/physical.ts";
@@ -130,7 +130,7 @@ export function sceneFixture(sourcePath = "../src/scenes/game-scene.ts") {
     THREE,
     ...constants,
     ...spin,
-    ...practice,
+    ...curveLesson,
     ParticlePool,
     RingPool,
     PhysicalGamepad,
@@ -152,7 +152,6 @@ export function sceneFixture(sourcePath = "../src/scenes/game-scene.ts") {
         (...args) => sounds.push([name, ...args]),
       ]),
     ),
-    clearSound() {},
     isJsonNumber: Number.isFinite,
     isJsonObject: (value) => Object.prototype.toString.call(value) === "[object Object]",
   };

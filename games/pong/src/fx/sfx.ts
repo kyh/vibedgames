@@ -66,11 +66,6 @@ function stopVoices(): void {
   }
 }
 
-/** Explicit practice navigation drops old tails, preserving the sound preference. */
-export function clearSound(): void {
-  stopVoices();
-}
-
 /** Stop active and scheduled notes; resuming never replays an old score fanfare. */
 export function setSoundPaused(next: boolean): void {
   if (disposed) return;

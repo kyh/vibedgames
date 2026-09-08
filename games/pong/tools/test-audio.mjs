@@ -89,7 +89,7 @@ export function soundFixture(
   };
   const exports =
     path.endsWith("/src/fx/sfx.ts") && !path.startsWith("/tmp/")
-      ? "{sfx,isMuted,setMuted,setSoundPaused,clearSound,disposeSound,soundDiagnostics,resumeSound}"
+      ? "{sfx,isMuted,setMuted,setSoundPaused,disposeSound,soundDiagnostics,resumeSound}"
       : "{sfx,isMuted,setMuted,setSoundPaused}";
   const sound = new Function(
     "window",
@@ -115,7 +115,8 @@ test("actual audio cancel releases current and future oscillator/gain pairs once
   const f = soundFixture();
   f.sfx.win(true);
   assert.equal(f.soundDiagnostics().ownedVoices, 4);
-  f.clearSound();
+  f.setSoundPaused(true);
+  f.setSoundPaused(false);
   assert.equal(f.soundDiagnostics().ownedVoices, 0);
   assert.ok(f.nodes.every((node) => node.disconnected === 1));
   for (const node of f.nodes) node.dispatchEvent(new Event("ended"));
@@ -236,15 +237,14 @@ test("rejected unlock cannot retry on contact ticks; a fresh native prime recove
   assert.equal(f.soundDiagnostics().ownedVoices, 1);
   f.disposeSound();
 });
-test("mute, pause, practice clear and final disposal cannot replay a pending result after unlock", async () => {
-  for (const operation of ["mute", "pause", "clear", "dispose"]) {
+test("mute, pause and final disposal cannot replay a pending result after unlock", async () => {
+  for (const operation of ["mute", "pause", "dispose"]) {
     const f = soundFixture(undefined, { state: "suspended", active: true });
     f.resumeSound();
     f.sfx.win(true);
     assert.equal(f.nodes.length, 0);
     if (operation === "mute") f.setMuted(true);
     if (operation === "pause") f.setSoundPaused(true);
-    if (operation === "clear") f.clearSound();
     if (operation === "dispose") f.disposeSound();
     f.operations[0]();
     await Promise.resolve();
