@@ -23,6 +23,7 @@ import { burst, floatText, shake } from "../render/fx";
 import { Sound } from "../render/audio";
 import { CharacterAction, FARMER_HURT_MS, SKELETON_CONTACT_MS } from "../render/character-action";
 import { onSceneExit } from "../render/scene-lifetime";
+import { buildMineWorld } from "../render/mine-world";
 
 const MW = 32;
 const MH = 24;
@@ -64,6 +65,7 @@ export class MineScene extends Phaser.Scene {
   private facing = { x: 0, y: 1 };
   private acting = false;
   private readonly characterAction = new CharacterAction();
+  private readonly motion = window.matchMedia("(prefers-reduced-motion: reduce)");
   private hurtUntil = 0;
   /** Trailer-mode scripted movement — read like a stick when real input is silent. */
   trailerMove: { x: number; y: number; run: boolean } | null = null;
@@ -138,6 +140,7 @@ export class MineScene extends Phaser.Scene {
     const scale = this.scale;
     const onResize = this.onResizeHandler;
     onSceneExit(this, () => scale.off("resize", onResize));
+    this.bindCameraMotion();
 
     this.setupInput();
     if (this.trailerNoInput) {
@@ -166,6 +169,19 @@ export class MineScene extends Phaser.Scene {
    *  first landed swing. */
   private baseZoom(): number {
     return this.trailerZoom ?? zoomForWidth(this.scale.width);
+  }
+
+  private bindCameraMotion(): void {
+    const motion = this.motion;
+    const cam = this.cameras.main;
+    const changed = (): void => {
+      if (!motion.matches) return;
+      cam.zoomEffect.reset();
+      cam.shakeEffect.reset();
+      cam.setZoom(this.baseZoom());
+    };
+    motion.addEventListener("change", changed);
+    onSceneExit(this, () => motion.removeEventListener("change", changed));
   }
 
   // ---------------------------------------------------------------- generation
@@ -289,7 +305,7 @@ export class MineScene extends Phaser.Scene {
 
   /** Replace whatever sits on a tile with one ore/stone node (real node path),
    *  so a scripted pickaxe beat can put its subject where the camera is.
-   *  Floor tiles only: wall art is baked into a container at build time, so
+   *  Floor tiles only: wall art is built from the initial grid, so
    *  clearing the collision bit here would leave the block drawn with a crystal
    *  on top of it and the wall quietly walkable. Returns false if refused. */
   trailerStageNode(tx: number, ty: number, kind: "stone" | OreId, hp: number): boolean {
@@ -329,18 +345,7 @@ export class MineScene extends Phaser.Scene {
   // ---------------------------------------------------------------- render
 
   private buildTiles(seeds: NodeSeed[]): void {
-    this.add
-      .tileSprite(0, 0, MW * TILE, MH * TILE, "t-cavefloor")
-      .setOrigin(0, 0)
-      .setDepth(DEPTH.ground);
-    const wallLayer = this.add.container(0, 0).setDepth(DEPTH.entityBase);
-    for (let ty = 0; ty < MH; ty++)
-      for (let tx = 0; tx < MW; tx++)
-        if (this.walls[this.idx(tx, ty)]) {
-          const img = this.add.image(tx * TILE, ty * TILE, "t-cavewall").setOrigin(0, 0);
-          img.setDepth(DEPTH.entityBase + (ty + 1) * TILE);
-          wallLayer.add(img);
-        }
+    buildMineWorld(this, this.walls, MW, MH);
     // ladders
     this.add
       .image(this.ladderUp.tx * TILE + 8, this.ladderUp.ty * TILE + 8, "obj-ladder")
@@ -574,7 +579,7 @@ export class MineScene extends Phaser.Scene {
     // brief i-frames while committing to a swing, so trading blows isn't pure punishment
     this.invulnUntil = Math.max(this.invulnUntil, this.time.now + 350);
     this.player.play("p-attack", true);
-    Sound.chop();
+    Sound.chop("local");
     this.time.delayedCall(180, () => {
       const hx = this.player.x + this.facing.x * 16;
       const hy = this.player.y - 6 + this.facing.y * 14;
@@ -590,9 +595,11 @@ export class MineScene extends Phaser.Scene {
       }
       if (hitAny) {
         shake(this, 0.006, 90);
-        const base = this.baseZoom();
-        this.cameras.main.zoomTo(base * 1.015, 60, "Linear", false);
-        this.time.delayedCall(70, () => this.cameras.main.setZoom(this.baseZoom()));
+        if (!this.motion.matches) {
+          const base = this.baseZoom();
+          this.cameras.main.zoomTo(base * 1.015, 60, "Linear", false);
+          this.time.delayedCall(70, () => this.cameras.main.setZoom(this.baseZoom()));
+        }
       }
     });
     this.characterAction.watch(this.player, "p-attack", () => {
@@ -710,7 +717,9 @@ export class MineScene extends Phaser.Scene {
       const accepted = 1 + bonus - store.inv.add({ kind: "resource", res: node.kind }, 1 + bonus);
       this.visit.gathered += accepted;
       const name = node.kind === "coal" ? "Coal" : node.kind === "copper" ? "Copper" : "Crystal";
-      store.skills.addXP("mining", 4);
+      const lv = store.skills.addXP("mining", 4);
+      if (lv !== null)
+        floatText(this, this.player.x, this.player.y - 26, `Mining Lv.${lv}!`, "#ffe27a");
       floatText(
         this,
         node.spr.x,
@@ -782,7 +791,7 @@ export class MineScene extends Phaser.Scene {
   private damagePlayer(dmg: number, fromDx: number, fromDy: number): void {
     store.damage(dmg);
     this.invulnUntil = this.time.now + PLAYER_INVULN_MS;
-    Sound.thud();
+    Sound.thud("local");
     shake(this, 0.008, 160);
     floatText(this, this.player.x, this.player.y - 22, `-${dmg}`, "#ff6b6b");
     const d = Math.hypot(fromDx, fromDy) || 1;

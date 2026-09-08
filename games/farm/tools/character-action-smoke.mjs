@@ -13,6 +13,8 @@ import {
 } from "../src/render/character-action.ts";
 import { store } from "../src/systems/store.ts";
 import * as config from "../src/config.ts";
+import { xpToNext } from "../src/systems/skills.ts";
+import { onSceneExit } from "../src/render/scene-lifetime.ts";
 
 const base = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (name) => readFileSync(resolve(base, "src/scenes", `${name}-scene.ts`), "utf8");
@@ -40,7 +42,15 @@ const Phaser = {
   Animations: { Events: { ANIMATION_COMPLETE: "animationcomplete" } },
   Cameras: { Scene2D: { Events: { FADE_OUT_COMPLETE: "fadeout" } } },
   TintModes: { FILL: 1 },
+  Scenes: { Events: { SHUTDOWN: "shutdown", DESTROY: "destroy" } },
 };
+const motionEvents = new EventEmitter();
+const motion = {
+  matches: false,
+  addEventListener: (...args) => motionEvents.on(...args),
+  removeEventListener: (...args) => motionEvents.off(...args),
+};
+const texts = [];
 const dependencies = {
   ...config,
   CharacterAction,
@@ -48,10 +58,14 @@ const dependencies = {
   SKELETON_CONTACT_MS,
   ACTION_TIMING: timings,
   Phaser,
+  window: { matchMedia: () => motion },
+  onSceneExit,
   store,
   Sound: { chop() {}, mine() {}, thud() {}, footstep() {} },
   burst() {},
-  floatText() {},
+  floatText(...args) {
+    texts.push(args);
+  },
   shake() {},
   stickMove: () => null,
 };
@@ -74,7 +88,7 @@ const mineMethods = [
   "hitEnemy",
   "killEnemy",
 ];
-const Mine = sceneClass(mineSource, mineMethods);
+const Mine = sceneClass(mineSource, [...mineMethods, "bindCameraMotion"]);
 class Sprite extends EventEmitter {
   scene = {};
   x = 100;
@@ -138,6 +152,8 @@ function fixture(Type = Mine) {
   Object.assign(g, {
     player: new Sprite(),
     characterAction: new CharacterAction(),
+    motion,
+    events: new EventEmitter(),
     hurtUntil: 0,
     time: new Clock(),
     acting: false,
@@ -181,8 +197,11 @@ function fixture(Type = Mine) {
   cam.fadeOut = (duration) => {
     g.fadeDuration = duration;
   };
-  cam.zoomTo = () => {};
-  cam.setZoom = () => {};
+  g.zooms = [];
+  cam.zoomTo = (...args) => g.zooms.push(["to", ...args]);
+  cam.setZoom = (...args) => g.zooms.push(["set", ...args]);
+  cam.zoomEffect = { reset: () => g.zooms.push(["reset-zoom"]) };
+  cam.shakeEffect = { reset: () => g.zooms.push(["reset-shake"]) };
   g.cameras = { main: cam };
   return g;
 }
@@ -290,6 +309,78 @@ mining.player.complete();
 assert.equal(mining.acting, false);
 pass("actual sword180/node440 contacts, damage, energy and original protection");
 
+assert.deepEqual(swing.zooms, [["to", 3 * 1.015, 60, "Linear", false]]);
+swing.baseZoom = () => 4;
+swing.time.runTo(250);
+assert.deepEqual(swing.zooms[1], ["set", 4]);
+motion.matches = true;
+const reduced = fixture();
+const reducedTarget = enemy();
+reduced.enemies = [reducedTarget];
+reduced.swing();
+reduced.time.runTo(179.999);
+assert.equal(reducedTarget.hp, 100);
+reduced.time.runTo(180);
+assert.equal(reducedTarget.hp, 100 - store.skills.swordDamage(config.SWORD_BASE_DAMAGE));
+reduced.time.runTo(250);
+assert.deepEqual(reduced.zooms, []);
+assert.equal(reduced.invulnUntil, 350);
+motion.matches = false;
+const miss = fixture();
+miss.swing();
+miss.time.runTo(250);
+assert.deepEqual(miss.zooms, []);
+pass(
+  "accepted-hit zoom follows live motion preference; contact/protection and resize return unchanged",
+);
+
+const liveMotion = fixture();
+liveMotion.bindCameraMotion();
+liveMotion.enemies = [enemy()];
+liveMotion.swing();
+liveMotion.time.runTo(210);
+liveMotion.baseZoom = () => 5;
+motion.matches = true;
+motionEvents.emit("change");
+assert.deepEqual(liveMotion.zooms.slice(1), [["reset-zoom"], ["reset-shake"], ["set", 5]]);
+liveMotion.time.runTo(250);
+assert.deepEqual(liveMotion.zooms.at(-1), ["set", 5]);
+liveMotion.events.emit("shutdown");
+liveMotion.events.emit("destroy");
+assert.equal(motionEvents.listenerCount("change"), 0);
+assert.equal(liveMotion.events.listenerCount("destroy"), 0);
+for (let visit = 0; visit < 3; visit++) {
+  liveMotion.bindCameraMotion();
+  assert.equal(motionEvents.listenerCount("change"), 1);
+  liveMotion.events.emit("destroy");
+  assert.equal(motionEvents.listenerCount("change"), 0);
+}
+liveMotion.cameras = undefined;
+motionEvents.emit("change");
+motion.matches = false;
+pass(
+  "live preference cancels active punch to current base; both scene exits release listener once",
+);
+
+const Ore = sceneClass(mineSource, ["dropNode"]);
+for (const deficit of [4, 5]) {
+  const ore = fixture(Ore);
+  delete ore.dropNode;
+  ore.awardCombat = (xp) => assert.equal(xp, 0);
+  store.skills.get("mining").xp = xpToNext(0) - deficit;
+  texts.length = 0;
+  ore.dropNode({ kind: "copper", spr: new Sprite() });
+  assert.equal(ore.visit.gathered, 1);
+  assert.equal(ore.persistCalls, 1);
+  assert.equal(store.skills.level("mining"), deficit === 4 ? 1 : 0);
+  assert.equal(store.skills.get("mining").xp, deficit === 4 ? 0 : xpToNext(0) - 1);
+  assert.equal(
+    texts.filter((args) => args[3].startsWith("Mining Lv.")).length,
+    deficit === 4 ? 1 : 0,
+  );
+}
+pass("actual ore bonus XP announces only a crossed level, preserving one drop and four XP");
+
 const hurt = fixture();
 hurt.damagePlayer(9, 1, 0);
 assert.equal(hurt.player.anims.currentAnim.key, "p-hurt");
@@ -379,6 +470,7 @@ const Boot = new Function(
   "window",
   "FARMER_HURT_MS",
   "SKELETON_CONTACT_MS",
+  "Phaser",
   `${bootCode}; return Boot;`,
 )(
   { frameWidth: 96, frameHeight: 64 },
@@ -389,8 +481,10 @@ const Boot = new Function(
   { location: { search: "" } },
   FARMER_HURT_MS,
   SKELETON_CONTACT_MS,
+  Phaser,
 );
 const boot = new Boot();
+boot.events = new EventEmitter();
 boot.load = {
   spritesheet: (key, path, frameSize) => loaded.set(key, { path, frameSize }),
   image() {},

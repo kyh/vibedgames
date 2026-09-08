@@ -45,24 +45,25 @@ declare global {
 
 const game = new Phaser.Game(config);
 let disposed = false;
-if (import.meta.env.DEV) window.__game = game;
+if (import.meta.env.DEV) window["__game"] = game;
+const getDiagnostics = (): FarmDiagnostics => {
+  const scene = disposed
+    ? undefined
+    : game.scene?.getScenes(true).find((s) => s instanceof GameScene || s instanceof MineScene);
+  const playing = scene instanceof GameScene || scene instanceof MineScene;
+  return {
+    frame: game.loop?.frame ?? 0,
+    phase: scene instanceof GameScene ? "farm" : scene instanceof MineScene ? "mine" : "menu",
+    score: store.gold,
+    complete: false, // This world is open-ended; there is no victory flag.
+    player: playing ? { x: scene.player.x, y: scene.player.y } : null,
+    fx: scene ? fxCounts(scene) : null,
+    audio: Sound.diagnostics(),
+  };
+};
 Object.defineProperty(window, "__GAME_DIAGNOSTICS__", {
   configurable: true,
-  get: (): FarmDiagnostics => {
-    const scene = disposed
-      ? undefined
-      : game.scene?.getScenes(true).find((s) => s instanceof GameScene || s instanceof MineScene);
-    const playing = scene instanceof GameScene || scene instanceof MineScene;
-    return {
-      frame: game.loop?.frame ?? 0,
-      phase: scene instanceof GameScene ? "farm" : scene instanceof MineScene ? "mine" : "menu",
-      score: store.gold,
-      complete: false, // This world is open-ended; there is no victory flag.
-      player: playing ? { x: scene.player.x, y: scene.player.y } : null,
-      fx: scene ? fxCounts(scene) : null,
-      audio: Sound.diagnostics(),
-    };
-  },
+  get: getDiagnostics,
 });
 
 // Scale.RESIZE can read stale parent bounds when a resize lands while the tab
@@ -105,7 +106,7 @@ const onEnterMine = (): void => {
 game.events.on("farm-enter-mine", onEnterMine);
 // Bespoke wooden-sign pause overlay (./pause-overlay) — renders CONTROLS and
 // the How-to-Play systems knowledge in the game's own cozy pixel-farm look.
-setPauseHandlers({
+const releasePause = setPauseHandlers({
   onPause: () => {
     if (disposed) return;
     paused = true;
@@ -147,8 +148,12 @@ game.events.once(Phaser.Core.Events.DESTROY, () => {
   window.removeEventListener("resize", refreshScale);
   document.removeEventListener("visibilitychange", onVisibilityChange);
   game.events.off("farm-enter-mine", onEnterMine);
-  setPauseHandlers({});
+  releasePause();
   pauseOverlay.hide();
   destroyTouchControls();
   Sound.dispose();
+  if (window["__game"] === game) delete window["__game"];
+  if (Object.getOwnPropertyDescriptor(window, "__GAME_DIAGNOSTICS__")?.get === getDiagnostics) {
+    Reflect.deleteProperty(window, "__GAME_DIAGNOSTICS__");
+  }
 });

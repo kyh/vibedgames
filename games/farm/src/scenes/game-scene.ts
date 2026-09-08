@@ -28,7 +28,7 @@ import {
 import { isJsonNumber, isJsonObject, isJsonString } from "../json";
 import type { JsonValue } from "../json";
 import { NetSession } from "../net/session";
-import { RemoteFarmers } from "../net/remote-farmers";
+import { RemoteFarmers, farmerPose } from "../net/remote-farmers";
 import { World, GROUND, inBounds, type WorldObject } from "../world/world";
 import { generateFarm, MINE_EXIT, consumedSprites } from "../world/mapgen";
 import { getWorldMap } from "../world/map-store";
@@ -196,6 +196,8 @@ export class GameScene extends Phaser.Scene {
   private net?: NetSession;
   private remoteFarmers?: RemoteFarmers;
   private netAcc = 0;
+  // The same scene instance resumes after mine trips; keep pose revisions monotonic.
+  private poseRevision = 0;
   private clockAcc = 0;
   /** Whether this client has pushed its full farm to the room yet. */
   private worldPublished = false;
@@ -893,6 +895,7 @@ export class GameScene extends Phaser.Scene {
           y: this.player.y,
           f: this.player.flipX,
           m: this.moving,
+          pose: farmerPose(this.player, ++this.poseRevision),
         });
       }
       if (this.amHost) {

@@ -111,6 +111,23 @@ remain intact. Actual master capture decoded58.44seconds with no clipped samples
 Desktop/compact M1 Max stress p9510.5/10.6ms; no frame exceeded33.33ms. Ordinary
 deaths interrupted load, with66.5%/76.7% active frames. Final full gate/build pass.
 
+Farm second plan: use original stone atlas cells for a connected, quieter mine;
+carry actual inventory counts, bindings and selected tools into its HUD; explain
+earned skill perks; show the exact authored co-op farmer clip and frame; protect
+complete local sound phrases; finish reduced-motion and final pause/trailer
+ownership. Keep all80 assets, map/RNG, economy, clock, fishing/tool deadlines and
+controls. A fresh native baseline tilled, planted and watered a crop, opened the
+journal, walked to the cave and entered combat without state/resource grants.
+This is a partial session, not an earned multi-day playthrough.
+
+[Farm second-pass evidence](/Users/kyh/.codex/visualizations/2026/09/05/01a072e5-b121-77b0-b7f7-52a06ec3e9e2/aaa-completion/farm-quality/README.md)
+records six matched layouts, native farming/navigation, connected tool/fishing
+poses, preserved crop state and actual pause/migration/destruction. All80 assets
+and25 input/rule/world/data leaves stay exact. The26.58-second decoded master mix
+has no clipped samples. Same19-enemy stress:228 native sword contacts in each
+revision; final M1 Max p9511.3ms/max29.9ms, none over33.3ms. This explicitly staged
+load uses durable enemies and protection. Final full gate/build pass.
+
 Unresolved questions: none blocking this pass.
 
 ## Completion evidence

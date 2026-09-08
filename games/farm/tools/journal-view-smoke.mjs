@@ -13,6 +13,8 @@ import { store } from "../src/systems/store.ts";
 import { HOTBAR, TOTAL } from "../src/systems/inventory.ts";
 import { itemIcon, itemName, sellValue, isSellable } from "../src/data/items.ts";
 import { SKILL_IDS, SKILL_NAMES, SKILL_ICON, xpToNext } from "../src/systems/skills.ts";
+import { skillPerk } from "../src/render/skill-readout.ts";
+import { slotIconScale } from "../src/render/hotbar-layout.ts";
 import { SEASONS, seasonName, seasonOfDay } from "../src/data/calendar.ts";
 const base = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 class Target {
@@ -251,6 +253,19 @@ pass("fresh key-release close, native button defaults, focus trap and sealed bac
 class Drawable extends EventEmitter {
   x = 0;
   y = 0;
+  width = 16;
+  height = 16;
+  scaleX = 1;
+  scaleY = 1;
+  setTexture(key) {
+    [this.width, this.height] = key === "obj-ore-copper" ? [21, 32] : [16, 16];
+    return this;
+  }
+  setScale(scale) {
+    this.scaleX = scale;
+    this.scaleY = scale;
+    return this;
+  }
   setPosition(x, y) {
     this.x = x;
     this.y = y;
@@ -297,6 +312,8 @@ const InventoryScene = load("src/scenes/inventory-scene.ts", "InventoryScene", {
   SKILL_NAMES,
   SKILL_ICON,
   xpToNext,
+  skillPerk,
+  slotIconScale,
   Sound: { click: () => clicks++ },
   GameScene,
   seasonOfDay,
@@ -327,6 +344,15 @@ for (const [width, height] of [
   const { scene } = inventory(width, height);
   scene.create();
   const { px, py, panelW, panelH } = scene.panel;
+  store.inv.slots[9] = { item: { kind: "resource", res: "copper" }, qty: 99 };
+  scene.draw();
+  assert.equal(scene.icons[0].scaleX, 2, "original 16px item frame still renders at32px");
+  assert.equal(scene.icons[9].width * scene.icons[9].scaleX, 21);
+  assert.equal(
+    scene.icons[9].height * scene.icons[9].scaleY,
+    32,
+    "large ore fits the existing content box",
+  );
   const skill = scene.skillPanel;
   assert.ok(px >= 0 && px + panelW <= width);
   assert.ok(py >= 64 && py + panelH <= height);
@@ -361,6 +387,58 @@ for (const [width, height] of [
 }
 assert.equal(clicks, 6);
 pass("actual inventory bounds at3 target sizes; original2-tap swap across journal; exit cleanup");
+
+for (const [level, perks] of [
+  [
+    0,
+    [
+      "0% chance: +1 crop",
+      "0% chance: +1 ore",
+      "Base catch zone",
+      "0% chance: +1 forage",
+      "Sword +0 · Max HP +0",
+    ],
+  ],
+  [
+    5,
+    [
+      "35% chance: +1 crop",
+      "30% chance: +1 ore",
+      "Wider catch zone",
+      "40% chance: +1 forage",
+      "Sword +10 · Max HP +30",
+    ],
+  ],
+  [
+    10,
+    [
+      "70% chance: +1 crop",
+      "60% chance: +1 ore",
+      "Wider catch zone",
+      "80% chance: +1 forage",
+      "Sword +20 · Max HP +60",
+    ],
+  ],
+]) {
+  const { scene } = inventory(844, 390);
+  for (const id of SKILL_IDS) {
+    for (let n = 0; n < level; n++) store.skills.addXP(id, xpToNext(n));
+    store.skills.addXP(id, 17);
+  }
+  const before = store.skills.toJSON();
+  scene.create();
+  assert.deepEqual(
+    scene.skillPerks.map((text) => text.text),
+    perks,
+  );
+  assert.deepEqual(
+    scene.skillProgress.map((text) => text.text),
+    SKILL_IDS.map(() => (level === 10 ? "MAX" : `17/${xpToNext(level)} XP`)),
+  );
+  assert.deepEqual(store.skills.toJSON(), before, "inspecting skills cannot grant XP or perks");
+  scene.events.emit("shutdown");
+}
+pass("actual skill rows read earned low/mid/capped perks and current-level XP without mutation");
 
 const { scene, game } = inventory(390, 844);
 for (let i = 0; i < 3; i++) {

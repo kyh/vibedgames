@@ -8,6 +8,8 @@ import { GameScene } from "./game-scene";
 import { seasonOfDay } from "../data/calendar";
 import { JournalView } from "../render/journal-view";
 import { onSceneExit } from "../render/scene-lifetime";
+import { skillPerk } from "../render/skill-readout";
+import { slotIconScale } from "../render/hotbar-layout";
 
 const FONT = "ui-monospace, monospace";
 const SZ = 44;
@@ -46,6 +48,8 @@ export class InventoryScene extends Phaser.Scene {
     this.icons = [];
     this.qtys = [];
     this.skillLabels = [];
+    this.skillPerks = [];
+    this.skillProgress = [];
     this.sz = SZ;
     const backdrop = this.add
       .rectangle(0, 0, this.scale.width * 3, this.scale.height * 3, 0x05070d, 0.55)
@@ -279,7 +283,7 @@ export class InventoryScene extends Phaser.Scene {
           .setVisible(true)
           .setTexture(ic.key, ic.frame)
           .setPosition(c.x, c.y)
-          .setScale(sz >= 40 ? 2 : 1.5);
+          .setScale(slotIconScale(icon, sz >= 40 ? 32 : 24));
         qtyt
           .setText(slot.qty > 1 ? `${slot.qty}` : "")
           .setPosition(c.x + sz / 2 - 4, c.y + sz / 2 - 3);
@@ -322,20 +326,30 @@ export class InventoryScene extends Phaser.Scene {
       const need = xpToNext(s.level);
       const frac = need === Infinity ? 1 : Phaser.Math.Clamp(s.xp / need, 0, 1);
       g.fillStyle(0x2a1e0e, 1);
-      g.fillRoundedRect(x + 16, ry + 16, w - 32, 8, 3);
+      g.fillRoundedRect(x + 16, ry + 30, w - 32, 4, 2);
       g.fillStyle(0x5fae3a, 1);
-      g.fillRoundedRect(x + 16, ry + 16, (w - 32) * frac, 8, 3);
+      g.fillRoundedRect(x + 16, ry + 30, (w - 32) * frac, 4, 2);
       ry += this.skillRow;
     }
     this.renderSkillLabels(x, y);
   }
 
   private skillLabels: Phaser.GameObjects.Text[] = [];
+  private skillPerks: Phaser.GameObjects.Text[] = [];
+  private skillProgress: Phaser.GameObjects.Text[] = [];
   private renderSkillLabels(x: number, y: number): void {
     if (this.skillLabels.length === 0) {
       for (let i = 0; i < SKILL_IDS.length; i++) {
         this.skillLabels.push(
-          this.add.text(0, 0, "", { fontFamily: FONT, fontSize: "12px", color: "#3a2a14" }),
+          this.add.text(0, 0, "", { fontFamily: FONT, fontSize: "11px", color: "#3a2a14" }),
+        );
+        this.skillPerks.push(
+          this.add.text(0, 0, "", { fontFamily: FONT, fontSize: "11px", color: "#5c4222" }),
+        );
+        this.skillProgress.push(
+          this.add
+            .text(0, 0, "", { fontFamily: FONT, fontSize: "9px", color: "#5c4222" })
+            .setOrigin(1, 0),
         );
       }
     }
@@ -344,7 +358,12 @@ export class InventoryScene extends Phaser.Scene {
       const lbl = this.skillLabels[i];
       if (!lbl) return;
       const s = store.skills.get(id);
-      lbl.setText(`${SKILL_ICON[id]} ${SKILL_NAMES[id]}  Lv.${s.level}`).setPosition(x + 16, ry);
+      const need = xpToNext(s.level);
+      lbl.setText(`${SKILL_ICON[id]} ${SKILL_NAMES[id]} L${s.level}`).setPosition(x + 16, ry);
+      this.skillPerks[i]?.setText(skillPerk(store.skills, id)).setPosition(x + 16, ry + 15);
+      this.skillProgress[i]
+        ?.setText(need === Infinity ? "MAX" : `${Math.floor(s.xp)}/${need} XP`)
+        .setPosition(x + this.skillPanel.w - 16, ry + 1);
       ry += this.skillRow;
     });
   }

@@ -28,11 +28,19 @@ class TrackedTarget extends EventTarget {
   addEventListener(name, listener, options) {
     if (!this.listeners.has(name)) this.listeners.set(name, new Set());
     this.listeners.get(name).add(listener);
-    super.addEventListener(name, listener, options);
+    super.addEventListener(
+      name,
+      listener,
+      options === true || options === false ? { capture: options } : options,
+    );
   }
   removeEventListener(name, listener, options) {
     this.listeners.get(name)?.delete(listener);
-    super.removeEventListener(name, listener, options);
+    super.removeEventListener(
+      name,
+      listener,
+      options === true || options === false ? { capture: options } : options,
+    );
   }
   count(name) {
     return this.listeners.get(name)?.size ?? 0;
@@ -50,6 +58,24 @@ function fixture(phase = "farm", online = true) {
   let hooks = {},
     seq = 0,
     sceneDestroyed = false;
+  window.parent = window;
+  const embed = new Function(
+    "window",
+    "HTMLElement",
+    "GAME_PAUSED_MESSAGE",
+    "GAME_STARTED_MESSAGE",
+    "isPauseGameMessage",
+    `${source("../../../packages/embed/src/game.ts")}\nreturn { setPauseHandlers, notifyGameStarted, pauseGame, resumeGame, isPausable };`,
+  )(
+    window,
+    class {
+      tagName = "DIV";
+      isContentEditable = false;
+    },
+    "paused",
+    "started",
+    () => false,
+  );
   class GameScene {
     player = { x: 42, y: 64 };
     controlsPaused = false;
@@ -127,6 +153,7 @@ function fixture(phase = "farm", online = true) {
     Phaser: { Game, WEBGL: 1, Scale: { RESIZE: 1 }, Core: { Events: { DESTROY: "destroy" } } },
     setPauseHandlers: (next) => {
       hooks = next;
+      return embed.setPauseHandlers(next);
     },
     pauseOverlay: {
       show: () => calls.push("overlay:show"),
@@ -166,6 +193,7 @@ function fixture(phase = "farm", online = true) {
     touch,
     touchOwner,
     timers,
+    embed,
     hooks: () => hooks,
   };
 }
@@ -260,7 +288,7 @@ await check(
     f.game.runDestroy();
     await settle();
     assert.ok(f.calls.indexOf("scenes:destroy") < f.calls.lastIndexOf("overlay:hide"));
-    assert.deepEqual(f.hooks(), {});
+    assert.equal(f.embed.isPausable(), false);
     assert.equal(f.window.count("resize"), 0);
     assert.equal(f.document.count("visibilitychange"), 0);
     assert.equal(f.timers.size, 0);
@@ -283,10 +311,51 @@ await check(
     assert.equal(f.calls.length, count);
     assert.equal(f.touch.created, 1);
     assert.equal(f.touch.destroyed, 1);
-    const diag = f.window["__GAME_DIAGNOSTICS__"];
-    assert.equal(diag.phase, "menu");
-    assert.equal(diag.player, null);
-    assert.equal(diag.audio.disposed, true);
+    assert.equal(f.window["__GAME_DIAGNOSTICS__"], undefined);
+    assert.equal(f.window["__game"], undefined);
   },
 );
+await check(
+  "paused final destruction releases the actual embed gate without resume or phantom start",
+  async () => {
+    const f = fixture();
+    f.embed.notifyGameStarted();
+    f.embed.pauseGame();
+    assert.equal(f.window.count("keyup"), 1);
+    const count = f.calls.length;
+    f.game.runDestroy();
+    assert.equal(f.window.count("keyup"), 0);
+    assert.equal(f.window.count("keydown"), 1, "module-lifetime Escape listener remains inert");
+    assert.equal(f.embed.isPausable(), false);
+    assert.ok(!f.calls.slice(count).includes("controls:false"));
+    const escape = new Event("keydown");
+    Object.defineProperties(escape, { key: { value: "Escape" }, repeat: { value: false } });
+    const after = f.calls.length;
+    f.window.dispatchEvent(escape);
+    assert.equal(f.calls.length, after);
+    const resumed = [];
+    const release = f.embed.setPauseHandlers({ onPause: () => resumed.push("pause") });
+    f.embed.notifyGameStarted();
+    f.embed.pauseGame();
+    assert.deepEqual(resumed, ["pause"]);
+    release();
+  },
+);
+await check("final release cannot delete replacement pause, diagnostic or DEV owners", async () => {
+  const f = fixture();
+  const replacement = {},
+    getter = () => replacement;
+  f.window["__game"] = replacement;
+  Object.defineProperty(f.window, "__GAME_DIAGNOSTICS__", { configurable: true, get: getter });
+  const calls = [];
+  const release = f.embed.setPauseHandlers({ onPause: () => calls.push("pause") });
+  f.embed.notifyGameStarted();
+  f.game.runDestroy();
+  assert.equal(f.window["__game"], replacement);
+  assert.equal(Object.getOwnPropertyDescriptor(f.window, "__GAME_DIAGNOSTICS__").get, getter);
+  assert.equal(f.embed.isPausable(), true);
+  f.embed.pauseGame();
+  assert.deepEqual(calls, ["pause"]);
+  release();
+});
 console.log(`PASS ${groups} actual main/touch/Phaser destruction groups`);

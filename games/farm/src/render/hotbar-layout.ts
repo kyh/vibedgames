@@ -7,6 +7,20 @@ import { HOTBAR } from "../systems/inventory";
 /** Smallest comfortable touch target, in CSS px. Twelve slots across a portrait
  *  phone leaves 31px — the bar wraps into rows rather than go under this. */
 const MIN_TAP = 44;
+const KEY_LABELS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"];
+
+/** Only the first ten slots have number-key bindings. */
+export function hotbarKey(index: number): string {
+  return KEY_LABELS[index] ?? "";
+}
+
+/** Keep the original 16px UI scale while fitting larger world-object textures. */
+export function slotIconScale(
+  image: { width: number; height: number },
+  contentSize: number,
+): number {
+  return contentSize / Math.max(16, image.width, image.height);
+}
 
 export type HotbarGrid = {
   readonly slot: number;

@@ -26,6 +26,50 @@ await check("locked/paused intent and transient mute remain unchanged", async ()
   assert.equal(timers.size, 1);
   Sound.dispose();
 });
+await check("routine admission cannot truncate an authored two-voice contact", async () => {
+  const { Sound, contexts } = audioHarness();
+  Sound.muted = false;
+  await settle();
+  for (let i = 0; i < 23; i++) Sound.footstep();
+  const before = contexts[0].sources.length;
+  Sound.mine();
+  assert.equal(contexts[0].sources.length, before);
+  assert.equal(Sound.diagnostics().ownedVoices, 23);
+  Sound.dispose();
+});
+await check("local hurt reserves complete phrases beneath important progression", async () => {
+  const { Sound, contexts } = audioHarness();
+  Sound.muted = false;
+  await settle();
+  for (let i = 0; i < 12; i++) Sound.dig();
+  Sound.wake();
+  Sound.wake();
+  const c = contexts[0],
+    before = c.sources.length;
+  Sound.thud("local");
+  assert.equal(c.sources.length - before, 2);
+  assert.equal(Sound.diagnostics().ownedVoices, 28);
+  assert.ok(c.sources.slice(0, 6).every((voice) => voice.stops.includes("now")));
+  assert.ok(c.sources.slice(6).every((voice) => !voice.stops.includes("now")));
+  Sound.wake();
+  assert.equal(Sound.diagnostics().ownedVoices, 32);
+  Sound.dispose();
+});
+await check(
+  "insufficient important capacity drops the whole phrase without partial eviction",
+  async () => {
+    const { Sound, contexts } = audioHarness();
+    Sound.muted = false;
+    await settle();
+    for (let i = 0; i < 10; i++) Sound.coins();
+    const before = contexts[0].sources.length;
+    Sound.wake();
+    assert.equal(contexts[0].sources.length, before);
+    assert.equal(Sound.diagnostics().ownedVoices, 30);
+    assert.equal(Sound.diagnostics().stopped, 0);
+    Sound.dispose();
+  },
+);
 await check(
   "scene handoff tokens stop only owned music, never newer owners or live SFX",
   async () => {

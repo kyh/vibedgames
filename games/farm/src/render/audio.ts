@@ -5,13 +5,16 @@
 const SOUND_KEY = "farm:sound";
 const MAX_VOICES = 32;
 const ROUTINE_LIMIT = 24;
+const LOCAL_LIMIT = 28;
 const MUSIC_LIMIT = 6;
 
-type VoiceKind = "routine" | "important" | "music";
+export type SoundPriority = "routine" | "local" | "important";
+type VoiceKind = SoundPriority | "music";
+type Phrase = { kind: VoiceKind; context: AudioContext };
 type Voice = {
   source: AudioScheduledSourceNode;
   nodes: AudioNode[];
-  kind: VoiceKind;
+  phrase: Phrase;
   startsAt: number;
 };
 type MusicSession = { mode: "farm" | "mine"; step: number };
@@ -27,6 +30,9 @@ export type SoundDiagnostics = Readonly<{
   musicVoices: number;
   voiceLimit: number;
   routineLimit: number;
+  localLimit: number;
+  localVoices: number;
+  ownedPhrases: number;
   musicLimit: number;
   musicMode: "farm" | "mine" | null;
   schedulerCount: number;
@@ -168,35 +174,50 @@ class SoundEngine {
   }
 
   /** Never queue locked-context sounds to replay on a later gesture. */
-  private admit(kind: VoiceKind): AudioContext | null {
+  private admit(kind: VoiceKind, count: number): Phrase | null {
     const c = this.ctx;
     if (this.disposed || this.muted || this.paused || !c || c.state !== "running") return null;
     if (
-      (kind === "routine" && this.voices.size >= ROUTINE_LIMIT) ||
-      (kind === "music" && this.musicVoiceCount() >= MUSIC_LIMIT)
+      (kind === "routine" && this.voices.size + count > ROUTINE_LIMIT) ||
+      (kind === "music" && this.musicVoiceCount() + count > MUSIC_LIMIT)
     ) {
-      this.dropped++;
+      this.dropped += count;
       return null;
     }
-    if (this.voices.size >= MAX_VOICES) {
-      // Harvest, shipping and wake phrases can displace old tool/step noise.
-      const routine = [...this.voices].find((voice) => voice.kind === "routine");
-      if (kind === "routine" || !routine) {
-        this.dropped++;
-        return null;
+    const limit = kind === "local" ? LOCAL_LIMIT : MAX_VOICES;
+    const victims = new Set<Phrase>();
+    let remaining = this.voices.size;
+    // Reserve the entire cue before retiring anything. Music never cuts a
+    // personal cue; progression can retire lower-priority phrases as a unit.
+    for (const voice of this.voices) {
+      if (remaining + count <= limit) break;
+      const phrase = voice.phrase;
+      const lower =
+        (phrase.kind === "routine" && kind !== "routine") ||
+        (phrase.kind === "local" && kind === "important");
+      if (!lower || victims.has(phrase)) continue;
+      victims.add(phrase);
+      for (const owned of this.voices) {
+        if (owned.phrase === phrase) remaining--;
       }
-      this.releaseVoice(routine, true);
     }
-    return c;
+    if (remaining + count > limit) {
+      this.dropped += count;
+      return null;
+    }
+    for (const voice of this.voices) {
+      if (victims.has(voice.phrase)) this.releaseVoice(voice, true);
+    }
+    return { kind, context: c };
   }
 
   private ownVoice(
     source: AudioScheduledSourceNode,
     nodes: AudioNode[],
-    kind: VoiceKind,
+    phrase: Phrase,
     startsAt: number,
   ): void {
-    const voice = { source, nodes, kind, startsAt };
+    const voice = { source, nodes, phrase, startsAt };
     this.voices.add(voice);
     this.accepted++;
     this.peakOwnedVoices = Math.max(this.peakOwnedVoices, this.voices.size);
@@ -216,29 +237,30 @@ class SoundEngine {
 
   private stopVoices(kind?: VoiceKind): void {
     for (const voice of this.voices) {
-      if (kind === undefined || voice.kind === kind) this.releaseVoice(voice, true);
+      if (kind === undefined || voice.phrase.kind === kind) this.releaseVoice(voice, true);
     }
   }
 
   private musicVoiceCount(): number {
     let count = 0;
-    for (const voice of this.voices) if (voice.kind === "music") count++;
+    for (const voice of this.voices) if (voice.phrase.kind === "music") count++;
     return count;
   }
 
-  private tone(opts: {
-    freq: number;
-    type?: OscillatorType;
-    dur: number;
-    vol?: number;
-    decay?: number;
-    slideTo?: number;
-    delay?: number;
-    important?: boolean;
-  }): void {
-    const kind = opts.important ? "important" : "routine";
-    const c = this.admit(kind);
-    if (!c || !this.master) return;
+  private tone(
+    phrase: Phrase,
+    opts: {
+      freq: number;
+      type?: OscillatorType;
+      dur: number;
+      vol?: number;
+      decay?: number;
+      slideTo?: number;
+      delay?: number;
+    },
+  ): void {
+    const c = phrase.context;
+    if (!this.master) return;
     const t0 = c.currentTime + (opts.delay ?? 0);
     const osc = c.createOscillator();
     const g = c.createGain();
@@ -250,20 +272,23 @@ class SoundEngine {
     g.gain.exponentialRampToValueAtTime(vol, t0 + 0.008);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + opts.dur);
     osc.connect(g).connect(this.master);
-    this.ownVoice(osc, [osc, g], kind, t0);
+    this.ownVoice(osc, [osc, g], phrase, t0);
     osc.start(t0);
     osc.stop(t0 + opts.dur + 0.02);
   }
 
-  private noise(opts: {
-    dur: number;
-    vol?: number;
-    hp?: number;
-    lp?: number;
-    delay?: number;
-  }): void {
-    const c = this.admit("routine");
-    if (!c || !this.master) return;
+  private noise(
+    phrase: Phrase,
+    opts: {
+      dur: number;
+      vol?: number;
+      hp?: number;
+      lp?: number;
+      delay?: number;
+    },
+  ): void {
+    const c = phrase.context;
+    if (!this.master) return;
     const t0 = c.currentTime + (opts.delay ?? 0);
     let buf = this.noiseBuffers.get(opts.dur);
     if (!buf) {
@@ -297,64 +322,84 @@ class SoundEngine {
     g.gain.value = opts.vol ?? 0.3;
     node.connect(g).connect(this.master);
     nodes.push(g);
-    this.ownVoice(src, nodes, "routine", t0);
+    this.ownVoice(src, nodes, phrase, t0);
     src.start(t0);
   }
 
   // ---- named sfx ----
-  footstep(): void {
-    this.noise({ dur: 0.08, vol: 0.07, hp: 600, lp: 2200 });
+  footstep(priority: SoundPriority = "routine"): void {
+    const phrase = this.admit(priority, 1);
+    if (!phrase) return;
+    this.noise(phrase, { dur: 0.08, vol: 0.07, hp: 600, lp: 2200 });
   }
-  dig(): void {
-    this.noise({ dur: 0.22, vol: 0.28, hp: 200, lp: 1400 });
-    this.tone({ freq: 150, type: "sine", dur: 0.12, vol: 0.12, slideTo: 80 });
+  dig(priority: SoundPriority = "routine"): void {
+    const phrase = this.admit(priority, 2);
+    if (!phrase) return;
+    this.noise(phrase, { dur: 0.22, vol: 0.28, hp: 200, lp: 1400 });
+    this.tone(phrase, { freq: 150, type: "sine", dur: 0.12, vol: 0.12, slideTo: 80 });
   }
-  water(): void {
-    this.noise({ dur: 0.35, vol: 0.12, hp: 1200, lp: 6000 });
+  water(priority: SoundPriority = "routine"): void {
+    const phrase = this.admit(priority, 1);
+    if (!phrase) return;
+    this.noise(phrase, { dur: 0.35, vol: 0.12, hp: 1200, lp: 6000 });
   }
-  chop(): void {
-    this.tone({ freq: 240, type: "square", dur: 0.1, vol: 0.18, slideTo: 90 });
-    this.noise({ dur: 0.12, vol: 0.18, hp: 300, lp: 2000 });
+  chop(priority: SoundPriority = "routine"): void {
+    const phrase = this.admit(priority, 2);
+    if (!phrase) return;
+    this.tone(phrase, { freq: 240, type: "square", dur: 0.1, vol: 0.18, slideTo: 90 });
+    this.noise(phrase, { dur: 0.12, vol: 0.18, hp: 300, lp: 2000 });
   }
-  mine(): void {
-    this.tone({ freq: 520, type: "square", dur: 0.06, vol: 0.16, slideTo: 200 });
-    this.noise({ dur: 0.1, vol: 0.2, hp: 1500, lp: 7000 });
+  mine(priority: SoundPriority = "routine"): void {
+    const phrase = this.admit(priority, 2);
+    if (!phrase) return;
+    this.tone(phrase, { freq: 520, type: "square", dur: 0.06, vol: 0.16, slideTo: 200 });
+    this.noise(phrase, { dur: 0.1, vol: 0.2, hp: 1500, lp: 7000 });
   }
-  plant(): void {
-    this.tone({ freq: 380, type: "triangle", dur: 0.12, vol: 0.16, slideTo: 560 });
+  plant(priority: SoundPriority = "routine"): void {
+    const phrase = this.admit(priority, 1);
+    if (!phrase) return;
+    this.tone(phrase, { freq: 380, type: "triangle", dur: 0.12, vol: 0.16, slideTo: 560 });
   }
-  harvest(): void {
-    this.tone({ freq: 523, type: "triangle", dur: 0.1, vol: 0.18, important: true });
-    this.tone({ freq: 784, type: "triangle", dur: 0.14, vol: 0.16, delay: 0.08, important: true });
+  harvest(priority: SoundPriority = "important"): void {
+    const phrase = this.admit(priority, 2);
+    if (!phrase) return;
+    this.tone(phrase, { freq: 523, type: "triangle", dur: 0.1, vol: 0.18 });
+    this.tone(phrase, { freq: 784, type: "triangle", dur: 0.14, vol: 0.16, delay: 0.08 });
   }
-  coins(): void {
+  coins(priority: SoundPriority = "important"): void {
+    const phrase = this.admit(priority, 3);
+    if (!phrase) return;
     [880, 1175, 1568].forEach((f, i) =>
-      this.tone({
+      this.tone(phrase, {
         freq: f,
         type: "square",
         dur: 0.12,
         vol: 0.12,
         delay: i * 0.06,
-        important: true,
       }),
     );
   }
-  click(): void {
-    this.tone({ freq: 660, type: "square", dur: 0.05, vol: 0.12 });
+  click(priority: SoundPriority = "routine"): void {
+    const phrase = this.admit(priority, 1);
+    if (!phrase) return;
+    this.tone(phrase, { freq: 660, type: "square", dur: 0.05, vol: 0.12 });
   }
-  thud(): void {
-    this.tone({ freq: 110, type: "sine", dur: 0.2, vol: 0.22, slideTo: 55 });
-    this.noise({ dur: 0.18, vol: 0.18, lp: 800 });
+  thud(priority: SoundPriority = "routine"): void {
+    const phrase = this.admit(priority, 2);
+    if (!phrase) return;
+    this.tone(phrase, { freq: 110, type: "sine", dur: 0.2, vol: 0.22, slideTo: 55 });
+    this.noise(phrase, { dur: 0.18, vol: 0.18, lp: 800 });
   }
-  wake(): void {
+  wake(priority: SoundPriority = "important"): void {
+    const phrase = this.admit(priority, 4);
+    if (!phrase) return;
     [523, 659, 784, 1047].forEach((f, i) =>
-      this.tone({
+      this.tone(phrase, {
         freq: f,
         type: "triangle",
         dur: 0.28,
         vol: 0.14,
         delay: i * 0.1,
-        important: true,
       }),
     );
   }
@@ -420,9 +465,12 @@ class SoundEngine {
     const bass = session.mode === "mine" ? SoundEngine.MINE_BASS : SoundEngine.FARM_BASS;
     const s = session.step % mel.length;
     const note = mel[s];
-    if (note) this.musicNote(note, session.mode === "mine" ? 0.05 : 0.06, stepDur * 1.6);
     const b = bass[s];
-    if (b) this.musicNote(b, 0.05, stepDur * 2.2, "triangle");
+    const phrase = this.admit("music", Number(Boolean(note)) + Number(Boolean(b)));
+    if (phrase) {
+      if (note) this.musicNote(phrase, note, session.mode === "mine" ? 0.05 : 0.06, stepDur * 1.6);
+      if (b) this.musicNote(phrase, b, 0.05, stepDur * 2.2, "triangle");
+    }
     session.step++;
     this.musicId = setTimeout(() => {
       if (this.music !== session) return;
@@ -431,9 +479,15 @@ class SoundEngine {
     }, stepDur * 1000);
   }
 
-  private musicNote(freq: number, vol: number, dur: number, type: OscillatorType = "sine"): void {
-    const c = this.admit("music");
-    if (!c || !this.musicBus) return;
+  private musicNote(
+    phrase: Phrase,
+    freq: number,
+    vol: number,
+    dur: number,
+    type: OscillatorType = "sine",
+  ): void {
+    const c = phrase.context;
+    if (!this.musicBus) return;
     const t0 = c.currentTime;
     const osc = c.createOscillator();
     const g = c.createGain();
@@ -443,7 +497,7 @@ class SoundEngine {
     g.gain.linearRampToValueAtTime(vol, t0 + 0.06);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
     osc.connect(g).connect(this.musicBus);
-    this.ownVoice(osc, [osc, g], "music", t0);
+    this.ownVoice(osc, [osc, g], phrase, t0);
     osc.start(t0);
     osc.stop(t0 + dur + 0.05);
   }
@@ -467,8 +521,14 @@ class SoundEngine {
   /** Counts owned/scheduled sources, not proof that a device is audible. */
   diagnostics(): SoundDiagnostics {
     let scheduledVoices = 0;
+    let localVoices = 0;
+    const phrases = new Set<Phrase>();
     const now = this.ctx?.currentTime ?? 0;
-    for (const voice of this.voices) if (voice.startsAt > now) scheduledVoices++;
+    for (const voice of this.voices) {
+      if (voice.startsAt > now) scheduledVoices++;
+      if (voice.phrase.kind === "local") localVoices++;
+      phrases.add(voice.phrase);
+    }
     return {
       contextState: this.ctx?.state ?? "unavailable",
       muted: this.muted,
@@ -480,6 +540,9 @@ class SoundEngine {
       musicVoices: this.musicVoiceCount(),
       voiceLimit: MAX_VOICES,
       routineLimit: ROUTINE_LIMIT,
+      localLimit: LOCAL_LIMIT,
+      localVoices,
+      ownedPhrases: phrases.size,
       musicLimit: MUSIC_LIMIT,
       musicMode: this.music?.mode ?? null,
       schedulerCount: this.musicId === null ? 0 : 1,

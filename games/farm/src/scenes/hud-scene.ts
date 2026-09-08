@@ -17,7 +17,8 @@ import {
 import { SKILL_NAMES, type SkillId } from "../systems/skills";
 import { Sound } from "../render/audio";
 import { onSceneExit } from "../render/scene-lifetime";
-import { hotbarGrid } from "../render/hotbar-layout";
+import { hotbarGrid, hotbarKey, slotIconScale } from "../render/hotbar-layout";
+import { skillPerk } from "../render/skill-readout";
 import { isPick, isTouchDevice } from "../systems/touch";
 import { GameScene, type DayRecap } from "./game-scene";
 
@@ -61,6 +62,7 @@ export class HudScene extends Phaser.Scene {
   private rightPanel!: Phaser.GameObjects.Graphics;
   private goldText!: Phaser.GameObjects.Text;
   private bars!: Phaser.GameObjects.Graphics;
+  private vitals: { hp: Phaser.GameObjects.Text; energy: Phaser.GameObjects.Text } | null = null;
   private toolTip!: Phaser.GameObjects.Text;
   private actionTip: Phaser.GameObjects.Text | null = null;
   private notices: ToastNotice[] = [];
@@ -126,6 +128,18 @@ export class HudScene extends Phaser.Scene {
       .text(0, 0, "", { fontFamily: FONT, fontSize: "16px", fontStyle: "bold", color: "#ffe27a" })
       .setOrigin(1, 0.5);
     this.bars = this.add.graphics();
+    const vital = () =>
+      this.add
+        .text(0, 0, "", {
+          fontFamily: FONT,
+          fontSize: "10px",
+          fontStyle: "bold",
+          color: "#fff6d5",
+          stroke: "#231a12",
+          strokeThickness: 2,
+        })
+        .setOrigin(0.5);
+    this.vitals = { hp: vital(), energy: vital() };
 
     this.toolTip = this.add
       .text(0, 0, "", {
@@ -175,7 +189,10 @@ export class HudScene extends Phaser.Scene {
 
     const onToast = (text: string, color: string) => this.toast(text, color);
     const onLevelUp = (skill: SkillId, level: number) =>
-      this.toast(`${SKILL_NAMES[skill]} reached Level ${level}!`, "#ffe27a");
+      this.toast(
+        `${SKILL_NAMES[skill]} reached Level ${level}!\n${skillPerk(store.skills, skill)}`,
+        "#ffe27a",
+      );
     const onDayBanner = (day: number, season: Season, weather: Weather, recap?: DayRecap) =>
       this.dayBanner(day, season, weather, recap);
     this.g.events.on("toast", onToast);
@@ -217,7 +234,7 @@ export class HudScene extends Phaser.Scene {
         })
         .setOrigin(1, 1);
       const key = this.add
-        .text(0, 0, `${(i + 1) % 10}`, {
+        .text(0, 0, hotbarKey(i), {
           fontFamily: FONT,
           fontSize: "10px",
           color: "#fff",
@@ -270,7 +287,7 @@ export class HudScene extends Phaser.Scene {
   }
 
   /** Center of hotbar slot `i`. Slots wrap into rows on narrow screens, first
-   *  row on top so the 1–9 order still reads left to right, top to bottom. */
+   *  row on top so number keys read left to right, top to bottom. */
   private slotPos(i: number, W: number, H: number) {
     const pitch = this.slot + PAD;
     const total = this.perRow * pitch - PAD;
@@ -321,6 +338,8 @@ export class HudScene extends Phaser.Scene {
     this.seasonText.setPosition(24 + il, 38 + it);
     this.clockText.setPosition(24 + il, 56 + it);
     this.goldText.setPosition(W - 22 - ir, 28 + it);
+    this.vitals?.hp.setPosition(W - 92 - ir, 50 + it);
+    this.vitals?.energy.setPosition(W - 92 - ir, 64 + it);
     this.toolTip.setPosition(W / 2, this.hotbarTop(H) - 8);
     this.actionTip
       ?.setPosition(W / 2, this.hotbarTop(H) - 29)
@@ -355,6 +374,8 @@ export class HudScene extends Phaser.Scene {
     );
     this.clockText.setText(this.formatClock(this.g.timeMin));
     this.goldText.setText(`${store.gold}g`);
+    this.vitals?.hp.setText(`HP ${Math.ceil(store.hp)}/${store.maxHp()}`);
+    this.vitals?.energy.setText(`Energy ${Math.floor(store.energy)}/${MAX_ENERGY}`);
 
     // tooltip
     const item = store.inv.selectedItem();
@@ -406,14 +427,14 @@ export class HudScene extends Phaser.Scene {
       n.bg.fillRoundedRect(x - slot / 2 + 2, y - slot / 2 + 2, slot - 4, slot - 4, 6);
       n.bg.lineStyle(2, sel ? 0xffe27a : 0x000000, sel ? 1 : 0.3);
       n.bg.strokeRoundedRect(x - slot / 2, y - slot / 2, slot, slot, 7);
-      n.key.setVisible(slot >= 34); // key hints are noise on tiny touch slots
+      n.key.setVisible(slot >= 34 && hotbarKey(i) !== "");
       const invSlot = store.inv.slots[i];
       if (invSlot) {
         const ic = itemIcon(invSlot.item);
         n.icon
           .setVisible(true)
           .setTexture(ic.key, ic.frame)
-          .setScale(slot < 38 ? 1.5 : 2);
+          .setScale(slotIconScale(n.icon, slot < 38 ? 24 : 32));
         n.qty.setText(invSlot.qty > 1 ? `${invSlot.qty}` : "");
       } else {
         n.icon.setVisible(false);
@@ -436,7 +457,7 @@ export class HudScene extends Phaser.Scene {
     g.clear();
     const w = 144;
     // HP
-    const hpFrac = store.hp / store.maxHp();
+    const hpFrac = Phaser.Math.Clamp(store.hp / store.maxHp(), 0, 1);
     g.fillStyle(0x2a1e0e, 1);
     g.fillRoundedRect(x, y, w, 12, 4);
     g.fillStyle(hpFrac > 0.5 ? 0xff7b7b : hpFrac > 0.25 ? 0xffcf4d : 0xff5d5d, 1);
@@ -444,7 +465,7 @@ export class HudScene extends Phaser.Scene {
     g.lineStyle(1, 0xffffff, 0.25);
     g.strokeRoundedRect(x, y, w, 12, 4);
     // energy
-    const enFrac = store.energy / MAX_ENERGY;
+    const enFrac = Phaser.Math.Clamp(store.energy / MAX_ENERGY, 0, 1);
     g.fillStyle(0x2a1e0e, 1);
     g.fillRoundedRect(x, y + 15, w, 10, 4);
     g.fillStyle(enFrac > 0.5 ? 0x7ed957 : enFrac > 0.25 ? 0xffcf4d : 0xff5d5d, 1);
