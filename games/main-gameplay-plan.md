@@ -28,4 +28,10 @@ start and compact results pass. Actual two-client races retain shared seeds,
 pause/reconnect/host migration and automatic respawns. All 90 assets stay exact.
 Full verification and build pass.
 
+Pacman complete: normal keyboard/touch play and full-maze restart pass. A staged
+28-pearl subset leaves the game running; only the final maze pearl wins. Compact
+results fit with the camera open. Actual two-client claims, reconnect, host
+migration and host-authorized full-maze rematch pass. All assets stay exact.
+Full verification and build pass.
+
 Unresolved questions: none.

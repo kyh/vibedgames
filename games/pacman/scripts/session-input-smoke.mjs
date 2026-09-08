@@ -7,6 +7,7 @@ import * as THREE from "three";
 import { PhysicalGamepad } from "../../../packages/gamepad/src/physical.ts";
 import { stickDirection4 } from "../../../packages/gamepad/src/core.ts";
 import * as constants from "../src/shared/constants.ts";
+import { PelletField } from "../src/render/pellet-field.ts";
 
 const source = readFileSync(new URL("../src/scenes/game-scene.ts", import.meta.url), "utf8");
 const main = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
@@ -97,7 +98,8 @@ function harness(text = source, selected = methods) {
     sounds = [],
     notices = [],
     patches = [],
-    releases = [];
+    releases = [],
+    writes = [];
   const window = new Surface();
   const json = adapter.match(/export const isJsonObject[\s\S]*?export type NetSessionOptions/)?.[0];
   assert.ok(json);
@@ -119,9 +121,20 @@ function harness(text = source, selected = methods) {
     watchControlContext: () => () => releases.push("watcher"),
     retrigger() {},
     clearTimeout: (id) => releases.push(["timer", id]),
+    localStorage: { setItem: (key, value) => writes.push([key, value]) },
   };
+  const helpers = ["hash2", "saveBest"].map((name) => {
+    const found = text.match(new RegExp(`^function ${name}\\([^]*?^}`, "m"))?.[0];
+    assert.ok(found, `actual ${name}`);
+    return found;
+  });
+  const combo = ["COMBO_SCALE", "COMBO_WINDOW_S"].map((name) => {
+    const found = text.match(new RegExp(`^const ${name}[^]*?;`, "m"))?.[0];
+    assert.ok(found, `actual ${name}`);
+    return found;
+  });
   const code = stripTypeScriptTypes(
-    `class Subject {\n${selected.map((name) => member(text, name)).join("\n")}\n}`,
+    `${helpers.join("\n")}\n${combo.join("\n")}\nclass Subject {\n${selected.map((name) => member(text, name)).join("\n")}\n}`,
   );
   const Subject = new Function(...Object.keys(deps), `${guards}\n${code}\nreturn Subject;`)(
     ...Object.values(deps),
@@ -158,7 +171,6 @@ function harness(text = source, selected = methods) {
     disposed: false,
     presentationPaused: false,
     phase: "playing",
-    mode: { kind: "normal" },
     pac: {
       x: constants.PACMAN_SPAWN.col,
       z: constants.PACMAN_SPAWN.row,
@@ -194,33 +206,18 @@ function harness(text = source, selected = methods) {
     updateHud() {},
     updateChainHud() {},
     renderBanner() {},
-    refreshCircuit() {},
     addScore(amount) {
       this.score += amount;
     },
     toggleSound: () => notices.push("sound-toggle"),
     fx: { puff() {}, confettiRain: (count) => notices.push(["confetti", count]) },
-    onCircuitEnter() {},
-    onCircuitRetry() {},
-    onCircuitNormal() {},
-    sealCircuitKey() {},
-    sealCircuitPointer() {},
   });
-  for (const key of [
-    "selfieBtnEl",
-    "restartBtnEl",
-    "circuitEnterEl",
-    "circuitRetryEl",
-    "circuitNormalEl",
-    "bannerEl",
-    "resultEl",
-    "teachingEl",
-    "circuitHudEl",
-    "circuitActionsEl",
-    "circuitReceiptEl",
-  ])
+  // Tests can opt into these shipping methods instead of the lightweight defaults.
+  for (const name of ["resetBoard", "addScore", "updateChainHud"])
+    if (selected.includes(name)) delete game[name];
+  for (const key of ["selfieBtnEl", "restartBtnEl", "bannerEl", "resultEl", "teachingEl"])
     game[key] = new Surface();
-  return { game, events, sounds, notices, patches, releases, window, input };
+  return { game, events, sounds, notices, patches, releases, window, input, writes };
 }
 
 const keyEvent = (code, key = code, repeat = false) => ({ code, key, repeat, preventDefault() {} });
@@ -231,6 +228,164 @@ const cellOfType = (type) => {
   }
   assert.fail(`map contains ${type}`);
 };
+
+function boardHarness() {
+  const f = harness(source, [
+    ...methods,
+    "resetBoard",
+    "addScore",
+    "collectPellet",
+    "pelletsLeft",
+    "checkRaceWin",
+    "sharedBoard",
+    "reconcileBoard",
+    "removeCellVisual",
+    "updateChainHud",
+  ]);
+  const { game } = f;
+  const scene = new THREE.Scene();
+  const heartGeo = new THREE.SphereGeometry(0.1, 4, 4);
+  const powerMat = new THREE.MeshBasicMaterial();
+  Object.assign(game, {
+    scene,
+    heartGeo,
+    powerMat,
+    hearts: new Map(),
+    pelletField: new PelletField(scene, constants.GRID_COLS * constants.GRID_ROWS),
+    best: 0,
+    score: 0,
+    comboIdx: 0,
+    lastPelletAt: -Infinity,
+    chainText: "",
+    chainEl: new Surface(),
+    fx: { ...game.fx, heartBurst() {}, ring() {} },
+    shaker: { add() {} },
+  });
+  game.resetBoard();
+  const cells = [];
+  constants.MAP.forEach((row, r) =>
+    row.forEach((type, col) => {
+      if (type === 2 || type === 3) cells.push({ col, row: r, type });
+    }),
+  );
+  const collect = (cell) => {
+    game.pac.x = cell.col;
+    game.pac.z = cell.row;
+    game.t += 0.1;
+    game.collectPellet();
+  };
+  const close = () => {
+    const geometries = new Set([heartGeo]);
+    const materials = new Set([powerMat]);
+    scene.traverse((object) => {
+      if (!(object instanceof THREE.Mesh)) return;
+      geometries.add(object.geometry);
+      for (const material of Array.isArray(object.material) ? object.material : [object.material])
+        materials.add(material);
+    });
+    for (const geometry of geometries) geometry.dispose();
+    for (const material of materials) material.dispose();
+    scene.clear();
+  };
+  return { ...f, cells, collect, close };
+}
+
+test("normal maze requires every pearl and power heart; actual pickups preserve chain, score and ordinary best", () => {
+  const f = boardHarness();
+  const { game, cells, collect, sounds, notices, writes } = f;
+  game.net.offline = true;
+  game.net.isHost = true;
+  game.net.peer = null;
+  const pearls = cells.filter((cell) => cell.type === 2);
+  const hearts = cells.filter((cell) => cell.type === 3);
+  try {
+    assert.ok(pearls.length > 28 && hearts.length > 0);
+    for (const [index, cell] of pearls.entries()) {
+      collect(cell);
+      const score = game.score;
+      const cues = sounds.length;
+      game.collectPellet();
+      assert.equal(game.score, score, "same arrival cannot score twice");
+      assert.equal(sounds.length, cues);
+      assert.equal(game.phase, "playing", `no early completion after pearl ${index + 1}`);
+    }
+    game.updateChainHud();
+    assert.equal(game.chainEl.textContent, `♪ ${pearls.length} PEARL CHAIN`);
+    assert.deepEqual(
+      sounds
+        .filter(([cue]) => cue === "pellet")
+        .slice(0, 3)
+        .map(([, opts]) => opts.rate),
+      [1, Math.pow(2, 2 / 12), Math.pow(2, 4 / 12)],
+    );
+    assert.equal(game.pelletsLeft(), hearts.length, "power hearts also belong to the full maze");
+    for (const [index, cell] of hearts.entries()) {
+      collect(cell);
+      assert.equal(game.scaredMs, constants.SCARED_MS);
+      assert.equal(game.phase, index === hearts.length - 1 ? "win" : "playing");
+    }
+    assert.equal(game.pelletsLeft(), 0);
+    const expected = pearls.length * constants.SCORE_PELLET + hearts.length * constants.SCORE_POWER;
+    assert.equal(game.score, expected);
+    assert.equal(game.best, expected);
+    assert.equal(writes.at(-1)[1], String(expected));
+    assert.ok(writes.every(([key]) => key === constants.BEST_KEY));
+    assert.equal(sounds.filter(([cue]) => cue === "win").length, 1);
+    assert.equal(
+      notices.filter((value) => Array.isArray(value) && value[0] === "confetti").length,
+      1,
+    );
+    game.collectPellet();
+    assert.equal(sounds.filter(([cue]) => cue === "win").length, 1);
+    game.requestRestart();
+    assert.equal(game.phase, "ready");
+    assert.equal(game.readyMs, constants.READY_MS);
+    assert.equal(game.score, 0);
+    assert.equal(game.lives, constants.START_LIVES);
+    assert.equal(game.pelletsLeft(), cells.length);
+    assert.equal(game.best, expected);
+  } finally {
+    f.close();
+  }
+});
+
+test("authoritative shared full-maze clear awards no rival score and guest waits for the host", () => {
+  const f = boardHarness();
+  const { game, cells, sounds } = f;
+  const eaten = Object.fromEntries(
+    cells.slice(0, -1).map((cell) => [constants.cellKey(cell.col, cell.row), 1]),
+  );
+  try {
+    game.net.sharedState = { board: { round: game.boardRound, eaten } };
+    game.reconcileBoard();
+    assert.equal(game.pelletsLeft(), 1);
+    assert.equal(game.phase, "playing");
+    assert.equal(game.score, 0);
+    const last = cells.at(-1);
+    game.net.sharedState = {
+      board: {
+        round: game.boardRound,
+        eaten: { ...eaten, [constants.cellKey(last.col, last.row)]: 1 },
+      },
+    };
+    game.reconcileBoard();
+    game.reconcileBoard();
+    assert.equal(game.pelletsLeft(), 0);
+    assert.equal(game.phase, "win");
+    assert.equal(game.score, 0);
+    assert.equal(sounds.filter(([cue]) => cue === "win").length, 1);
+    game.handleStart();
+    assert.equal(game.phase, "win", "guest cannot locally reset the shared maze");
+    game.net.isHost = true;
+    game.net.playerId = "host";
+    game.handleStart();
+    assert.equal(game.phase, "playing");
+    assert.equal(game.boardRound, 8);
+    assert.equal(game.pelletsLeft(), cells.length);
+  } finally {
+    f.close();
+  }
+});
 
 test("only the current host rejects a pending round claim, once, at the map's value", () => {
   for (const [type, amount] of [
@@ -559,7 +714,6 @@ test("scene disposal releases each unique Three owner and external listener once
     powerMat: material,
     touchControls: { destroy: () => releases.push("touch") },
     remotePacs: { dispose: () => releases.push("remote") },
-    circuitMarkers: { dispose: () => releases.push("circuit") },
     unwatchControls: () => releases.push("watcher"),
     noticeTimer: 42,
   });
@@ -567,17 +721,11 @@ test("scene disposal releases each unique Three owner and external listener once
   game.heldKeys.add("Space");
   game.blockedKeys.add("Space");
   game.bindInput();
-  const buttons = [
-    game.selfieBtnEl,
-    game.restartBtnEl,
-    game.circuitEnterEl,
-    game.circuitRetryEl,
-    game.circuitNormalEl,
-  ];
+  const buttons = [game.selfieBtnEl, game.restartBtnEl];
   assert.equal(window.listenerCount, 6);
   assert.equal(
     buttons.reduce((count, button) => count + button.listenerCount, 0),
-    17,
+    2,
   );
   game.dispose();
   game.dispose();
@@ -589,21 +737,13 @@ test("scene disposal releases each unique Three owner and external listener once
   assert.deepEqual([...counters.values()], [1, 1, 1, 1, 1, 1]);
   assert.equal(instanceDisposes, 1);
   assert.equal(shadowDisposes, 1);
-  assert.deepEqual(releases, ["watcher", "touch", ["timer", 42], "net", "remote", "circuit"]);
+  assert.deepEqual(releases, ["watcher", "touch", ["timer", 42], "net", "remote"]);
   assert.equal(game.scene.children.length, 0);
   assert.equal(
     game.mouthGeoCache.size + game.pendingClaims.size + game.heldKeys.size + game.blockedKeys.size,
     0,
   );
-  for (const key of [
-    "bannerEl",
-    "resultEl",
-    "teachingEl",
-    "circuitHudEl",
-    "circuitActionsEl",
-    "circuitReceiptEl",
-  ])
-    assert.equal(game[key].hidden, true);
+  for (const key of ["bannerEl", "resultEl", "teachingEl"]) assert.equal(game[key].hidden, true);
   const direction = game.pac.dir;
   game.onKeyDown(keyEvent("ArrowLeft"));
   game.onHeadTurnLeft();
