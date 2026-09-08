@@ -147,6 +147,18 @@ exact final pause and pose/scene hooks. Keep all90 assets, automatic race,
 optional Canopy Trail, detector thresholds and every input. Verify native retry,
 compact camera layouts, earned race flow and final paused destruction.
 
+[Flappy second-pass evidence](/Users/kyh/.codex/visualizations/2026/09/05/01a072e5-b121-77b0-b7f7-52a06ec3e9e2/aaa-completion/flappy-dragons-quality/README.md)
+records four native layouts, terminal camera/inference retry, natural deaths,
+actual connected-race recovery and final ownership. Native review also found
+and fixed the expanded desktop preview covering controls. All 90 assets and
+the 1,200-sample detector trace remain exact. Final full gate/build pass.
+
+Pacman second plan: stop stale face gestures when a camera source ends, offer
+the existing retry, and release the exact final pause/global owner. Preserve
+the original plush maze, lullaby, Pearl circuit, rules and detector ordering.
+Verify native retry, compact layouts, accepted movement and paused destruction.
+Keep the existing sound mix; a speculative routing change needs listening.
+
 Unresolved questions: none blocking this pass.
 
 ## Completion evidence

@@ -14,6 +14,7 @@ declare global {
     __fb?: { scene: GameScene; net: NetSession };
     /** Dev-only synthetic pose-jump driver: window.__fbPoseJump(0.8, false) */
     __fbPoseJump?: PoseJumpHandler;
+    __GAME_DIAGNOSTICS__?: ReturnType<GameScene["diagnostics"]>;
   }
 }
 
@@ -82,7 +83,7 @@ const gameScene = (): GameScene | null => {
 let froze = false;
 // Mirrors the start screen's controls card (same manifest).
 const pauseOverlay = createFlappyPauseOverlay(CONTROLS);
-setPauseHandlers({
+const releasePause = setPauseHandlers({
   onPause: () => {
     if (disposed) return;
     wrapperPaused = true;
@@ -110,9 +111,10 @@ game.events.once(Phaser.Core.Events.DESTROY, () => {
   settle = undefined;
   window.removeEventListener("resize", refreshScale);
   document.removeEventListener("visibilitychange", onVisibilityChange);
-  setPauseHandlers({});
+  releasePause();
   pauseOverlay.hide();
   disposePoseCamera();
+  if (window.__fbPoseJump === poseJump) delete window.__fbPoseJump;
 });
 
 if (import.meta.env.DEV) {

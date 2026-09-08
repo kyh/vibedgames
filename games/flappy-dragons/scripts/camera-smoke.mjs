@@ -159,3 +159,195 @@ test("RAF cadence processes only new video frames with increasing timestamps; st
   assert.equal(f.media.length, 2, "fresh touch init still waits for a gesture");
   f.api.disposePoseCamera();
 });
+
+function warm(f, camera, tracker) {
+  tracker.result = {
+    landmarks: [Array.from({ length: 33 }, () => ({ x: 0.5, y: 0.5, z: 0, visibility: 1 }))],
+  };
+  for (let i = 0; i < 20; i++) {
+    camera.ui.video.currentTime += 0.033;
+    f.clock.now += 33;
+    f.frame();
+  }
+  assert.equal(camera.state, "detecting");
+}
+
+for (const terminal of ["ended", "error", "inference"]) {
+  test(`${terminal} releases a warmed attempt; native retry owns fresh media and ignores stale callbacks`, async () => {
+    const f = cameraFixture(),
+      camera = f.init();
+    camera.ui.screen.click();
+    const { feed, tracker } = await connect(f);
+    warm(f, camera, tracker);
+    const ended = [...(feed.track.listenerRecords.get("ended") ?? [])];
+    const errors = [...(camera.ui.video.listenerRecords.get("error") ?? [])];
+    const staleFrame = [...f.frames.values()][0];
+    if (terminal === "ended") feed.track.dispatchEvent(new Event("ended"));
+    else if (terminal === "error") {
+      camera.ui.video.error = { code: 3, message: "decoder failure" };
+      camera.ui.video.dispatchEvent(new Event("error"));
+    } else {
+      tracker.detectForVideo = () => {
+        throw new Error("inference backend unavailable");
+      };
+      camera.ui.video.currentTime += 0.033;
+      f.frame();
+    }
+    assert.equal(camera.state, "idle");
+    assert.equal(ended.length, 1);
+    assert.equal(errors.length, 1);
+    assert.equal(camera.ui.cap.textContent, "📷 RETRY");
+    assert.equal(camera.ui.button.classList.contains("fd-cam__btn--off"), false);
+    assert.equal(feed.track.stopped, 1);
+    assert.equal(feed.track.listenersAtStop, 0);
+    assert.equal(camera.ui.video.listenerCount, 0);
+    assert.equal(camera.ui.video.srcObject, null);
+    assert.equal(tracker.closed, 1);
+    assert.equal(f.drawers[0].closed, 1);
+    assert.equal(f.frames.size, 0);
+
+    camera.ui.video.error = null;
+    camera.ui.button.click();
+    camera.ui.button.click();
+    camera.start();
+    assert.equal(f.media.length, 2);
+    const fresh = await connect(f);
+    warm(f, camera, fresh.tracker);
+    const raf = camera.raf;
+    for (const callback of [...ended, ...errors]) callback(new Event("error"));
+    feed.track.dispatchEvent(new Event("ended"));
+    camera.ui.video.dispatchEvent(new Event("error"));
+    staleFrame();
+    assert.equal(camera.state, "detecting");
+    assert.equal(camera.raf, raf);
+    assert.equal(f.frames.size, 1);
+    assert.equal(fresh.feed.track.stopped, 0);
+    assert.equal(fresh.tracker.closed, 0);
+    assert.deepEqual(f.jumps, []);
+    f.api.disposePoseCamera();
+    f.api.disposePoseCamera();
+    assert.equal(fresh.feed.track.stopped, 1);
+    assert.equal(fresh.feed.track.listenersAtStop, 0);
+    assert.equal(fresh.tracker.closed, 1);
+    assert.equal(f.drawers[1].closed, 1);
+    assert.equal(camera.ui.video.listenerCount, 0);
+    assert.equal(f.frames.size, 0);
+  });
+}
+
+test("ended media before metadata releases listeners; late old metadata/model cannot replace retry", async () => {
+  const f = cameraFixture(),
+    camera = f.init(),
+    feed = stream();
+  camera.start();
+  f.media[0].resolve(feed);
+  await settle();
+  const metadata = [...camera.ui.video.listenerRecords.get("loadedmetadata")][0];
+  feed.track.dispatchEvent(new Event("ended"));
+  assert.equal(camera.state, "idle");
+  assert.equal(camera.ui.video.listenerCount, 0);
+  assert.equal(feed.track.listenersAtStop, 0);
+  camera.ui.button.click();
+  const fresh = await connect(f);
+  metadata();
+  assert.equal(f.models.length, 1);
+  assert.equal(camera.landmarker, fresh.tracker);
+  f.api.disposePoseCamera();
+});
+
+test("ended pending play/model cannot revive after a fresh attempt", async () => {
+  const f = cameraFixture(),
+    camera = f.init(),
+    feed = stream(),
+    play = deferred();
+  camera.ui.video.playResult = play.promise;
+  camera.start();
+  f.media[0].resolve(feed);
+  await settle();
+  camera.ui.video.readyState = 4;
+  camera.ui.video.dispatchEvent(new Event("loadedmetadata"));
+  f.vision[0].resolve({});
+  await settle();
+  const pending = f.models[0];
+  feed.track.dispatchEvent(new Event("ended"));
+  assert.equal(camera.state, "idle");
+  camera.ui.video.playResult = null;
+  camera.ui.button.click();
+  const fresh = await connect(f);
+  const old = model();
+  pending.resolve(old);
+  play.reject(new Error("late old play rejection"));
+  await settle();
+  assert.equal(old.closed, 1);
+  assert.equal(camera.landmarker, fresh.tracker);
+  assert.equal(camera.state, "warming");
+  assert.equal(f.frames.size, 1);
+  f.api.disposePoseCamera();
+});
+
+test("ordinary absent poses and stalled frames keep warm-up/live capture, with no retry or rebaseline", async () => {
+  const f = cameraFixture(),
+    camera = f.init();
+  camera.start();
+  const { feed, tracker } = await connect(f);
+  const sampleCount = tracker.calls.length;
+  f.clock.now += 5000;
+  f.frame();
+  assert.equal(tracker.calls.length, sampleCount);
+  assert.equal(camera.state, "warming");
+  warm(f, camera, tracker);
+  const baseline = camera.baselineY;
+  tracker.result = { landmarks: [] };
+  for (let i = 0; i < 20; i++) {
+    camera.ui.video.currentTime += 0.033;
+    f.frame();
+  }
+  assert.equal(camera.state, "detecting");
+  assert.equal(camera.baselineY, baseline);
+  assert.equal(camera.ui.button.classList.contains("fd-cam__btn--off"), true);
+  assert.equal(feed.track.stopped, 0);
+  assert.equal(tracker.closed, 0);
+  assert.equal(f.media.length, 1);
+  f.api.disposePoseCamera();
+});
+
+test("already-ended admission fails before playback/model; first-frame recognizer failure is retryable", async () => {
+  for (const ended of [true, false]) {
+    const f = cameraFixture(),
+      camera = f.init(),
+      feed = stream();
+    if (ended) feed.track.readyState = "ended";
+    camera.start();
+    f.media[0].resolve(feed);
+    await settle();
+    let tracker;
+    if (!ended) {
+      camera.ui.video.readyState = 4;
+      camera.ui.video.dispatchEvent(new Event("loadedmetadata"));
+      f.vision[0].resolve({});
+      await settle();
+      tracker = model();
+      tracker.detectForVideo = () => {
+        throw new Error("first inference unavailable");
+      };
+      f.models[0].resolve(tracker);
+      await settle();
+    } else {
+      assert.equal(camera.ui.video.plays, 0);
+      assert.equal(f.models.length, 0);
+    }
+    assert.equal(camera.state, "idle");
+    assert.equal(camera.ui.button.classList.contains("fd-cam__btn--off"), false);
+    assert.equal(camera.ui.video.listenerCount, 0);
+    assert.equal(feed.track.stopped, 1);
+    assert.equal(feed.track.listenersAtStop, 0);
+    assert.equal(f.frames.size, 0);
+    if (tracker) assert.equal(tracker.closed, 1);
+    camera.ui.button.click();
+    const fresh = await connect(f);
+    assert.equal(f.media.length, 2);
+    assert.equal(camera.state, "warming");
+    assert.equal(camera.landmarker, fresh.tracker);
+    f.api.disposePoseCamera();
+  }
+});

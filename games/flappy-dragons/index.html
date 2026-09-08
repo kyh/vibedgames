@@ -567,6 +567,22 @@
           gap: 14px;
         }
       }
+      @media (min-width: 600px) {
+        body:has(.fd-cam:not(.fd-cam--collapsed)) #start {
+          padding-right: calc(min(512px, 45vw) + 36px + env(safe-area-inset-right));
+        }
+        #start-card {
+          width: min(640px, 100%);
+        }
+        #start-title,
+        #start-title img,
+        #challenge-start {
+          max-width: 100%;
+        }
+        #start-controls {
+          max-width: min(34ch, 100%);
+        }
+      }
       @media (max-height: 520px) and (min-width: 600px) {
         #start {
           padding: 16px 24px;

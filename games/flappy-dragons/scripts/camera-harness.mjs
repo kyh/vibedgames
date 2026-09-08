@@ -32,6 +32,7 @@ export class Element extends EventTarget {
   videoHeight = 480;
   currentTime = 0;
   srcObject = null;
+  error = null;
   plays = 0;
   pauses = 0;
   playResult = null;
@@ -236,11 +237,15 @@ export function cameraFixture(path = "../src/input/camera.ts", coarse = true) {
   };
 }
 export function stream() {
-  const track = {
-    stopped: 0,
-    stop() {
-      this.stopped++;
-    },
+  const track = new Element();
+  track.readyState = "live";
+  track.stopped = 0;
+  track.stop = () => {
+    track.stopped++;
+    track.listenersAtStop = track.listenerCount;
+    track.readyState = "ended";
+    // Adversarial synchronous event: release must unbind before stopping.
+    track.dispatchEvent(new Event("ended"));
   };
   return { track, getTracks: () => [track] };
 }

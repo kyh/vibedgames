@@ -304,21 +304,23 @@ export class GameScene extends Phaser.Scene {
       window.__fb = { scene: this, net: this.net };
       Object.defineProperty(window, "__GAME_DIAGNOSTICS__", {
         configurable: true,
-        get: () => ({
-          frame: this.game.loop.frame,
-          score: this.score,
-          complete: this.phase === "gameover",
-          player: { x: BIRD_X, y: this.birdY, alive: this.alive },
-          entities: this.pipes.size + this.ghosts.size + 1,
-          phase: this.phase,
-          countdown: this.countingDown,
-          phrasePending: this.phraseTimer !== null,
-          paused: this.presentationPaused,
-          challenge: this.flightMode.kind === "challenge" ? this.flightMode.progress : null,
-        }),
+        get: this.diagnostics,
       });
     }
   }
+
+  readonly diagnostics = () => ({
+    frame: this.game.loop.frame,
+    score: this.score,
+    complete: this.phase === "gameover",
+    player: { x: BIRD_X, y: this.birdY, alive: this.alive },
+    entities: this.pipes.size + this.ghosts.size + 1,
+    phase: this.phase,
+    countdown: this.countingDown,
+    phrasePending: this.phraseTimer !== null,
+    paused: this.presentationPaused,
+    challenge: this.flightMode.kind === "challenge" ? this.flightMode.progress : null,
+  });
 
   private bindExternalInput(): void {
     this.input.on("pointerdown", this.onPointerInput);
@@ -340,6 +342,9 @@ export class GameScene extends Phaser.Scene {
   private readonly releaseExternal = (): void => {
     if (this.externalReleased) return;
     this.externalReleased = true;
+    if (window.__fb?.scene === this) delete window.__fb;
+    if (Object.getOwnPropertyDescriptor(window, "__GAME_DIAGNOSTICS__")?.get === this.diagnostics)
+      delete window.__GAME_DIAGNOSTICS__;
     this.events.off(Phaser.Scenes.Events.SHUTDOWN, this.releaseExternal);
     this.events.off(Phaser.Scenes.Events.DESTROY, this.releaseExternal);
     this.scale.off(Phaser.Scale.Events.RESIZE, this.layout, this);

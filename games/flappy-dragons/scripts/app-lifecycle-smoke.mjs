@@ -35,7 +35,7 @@ const destroyGame = phaserMethod("core/Game.js", "runDestroy", {
   Events: events,
   CanvasPool: { remove() {} },
 });
-function sceneFixture() {
+function sceneFixture(window = {}) {
   const elements = new Map(),
     calls = {
       flap: 0,
@@ -59,6 +59,7 @@ function sceneFixture() {
   const deps = {
     Phaser: { Scenes: { Events: events }, Scale: { Events: { RESIZE: "resize" } } },
     document,
+    window,
     TOUCH: false,
     CONTROLS: [],
     ensureControlsStyle() {},
@@ -247,6 +248,9 @@ test("actual main final Game order closes camera/window/timer/pause owners witho
     Phaser: { Game, WEBGL: 1, Scale: { RESIZE: 1 }, Core: { Events: events } },
     setPauseHandlers: (next) => {
       hooks = next;
+      return () => {
+        hooks = {};
+      };
     },
     CONTROLS: [],
     initPoseCamera: (callback) => {
@@ -291,4 +295,111 @@ test("actual main final Game order closes camera/window/timer/pause owners witho
   assert.equal(timers.size, 0);
   assert.equal(calls.includes("refresh"), false);
   assert.equal(calls.filter((call) => call === "pose").length, 1);
+});
+
+test("scene cleanup removes only its own published scene", () => {
+  for (const replaced of [false, true]) {
+    const window = {};
+    const f = sceneFixture(window);
+    const next = { scene: {}, net: {} };
+    f.scene.diagnostics = () => ({ frame: 1 });
+    const getter = replaced ? () => ({ frame: 2 }) : f.scene.diagnostics;
+    Object.defineProperty(window, "__GAME_DIAGNOSTICS__", { configurable: true, get: getter });
+    window.__fb = replaced ? next : { scene: f.scene, net: f.scene.net };
+    f.scene.releaseExternal();
+    assert.equal(window.__fb, replaced ? next : undefined);
+    assert.equal(
+      Object.getOwnPropertyDescriptor(window, "__GAME_DIAGNOSTICS__")?.get,
+      replaced ? getter : undefined,
+    );
+  }
+});
+
+test("actual main releases the real embed key gate and preserves a newer pause and pose owner", () => {
+  for (const replacement of [false, true]) {
+    class Surface extends Element {
+      addEventListener(type, cb, options) {
+        super.addEventListener(
+          type,
+          cb,
+          options === true || options === false ? { capture: options } : options,
+        );
+      }
+      removeEventListener(type, cb, options) {
+        super.removeEventListener(
+          type,
+          cb,
+          options === true || options === false ? { capture: options } : options,
+        );
+      }
+    }
+    const window = new Surface(),
+      document = new Surface();
+    window.parent = window;
+    const source = stripTypeScriptTypes(
+      readFileSync(new URL("../../../packages/embed/src/game.ts", import.meta.url), "utf8"),
+      { mode: "transform" },
+    )
+      .replace(/^import[^;]*;\s*/gm, "")
+      .replace(/^export /gm, "");
+    const embed = new Function(
+      "window",
+      "HTMLElement",
+      "GAME_PAUSED_MESSAGE",
+      "GAME_STARTED_MESSAGE",
+      "isPauseGameMessage",
+      source + "; return {setPauseHandlers,notifyGameStarted,pauseGame,resumeGame,isPausable};",
+    )(window, Element, "paused", "started", () => false);
+    class GameScene {
+      isOnline() {
+        return false;
+      }
+      setPresentationPaused() {}
+    }
+    const scene = new GameScene();
+    class Game {
+      events = new EventEmitter();
+      scene = { getScene: () => scene, isActive: () => true };
+      scale = { refresh() {} };
+      loop = { sleep() {}, wake() {} };
+    }
+    let closed = 0,
+      resumed = 0;
+    const deps = {
+      Phaser: { Game, WEBGL: 1, Scale: { RESIZE: 1 }, Core: { Events: events } },
+      setPauseHandlers: embed.setPauseHandlers,
+      CONTROLS: [],
+      initPoseCamera() {},
+      disposePoseCamera: () => closed++,
+      createFlappyPauseOverlay: () => ({ show() {}, hide() {} }),
+      BootScene: class {},
+      GameScene,
+      window,
+      document,
+      setTimeout,
+      clearTimeout,
+    };
+    const code = compile("../src/main.ts").replaceAll("import.meta.env.DEV", "true");
+    const game = new Function(...Object.keys(deps), code + "; return game;")(
+      ...Object.values(deps),
+    );
+    embed.notifyGameStarted();
+    embed.pauseGame();
+    assert.equal(window.listenerRecords.get("keyup").size, 1);
+    const nextPose = () => {};
+    let release;
+    if (replacement) {
+      release = embed.setPauseHandlers({ onResume: () => resumed++ });
+      window.__fbPoseJump = nextPose;
+    }
+    game.events.emit("destroy");
+    game.events.emit("destroy");
+    assert.equal(closed, 1);
+    assert.equal(window.__fbPoseJump, replacement ? nextPose : undefined);
+    assert.equal(window.listenerRecords.get("keyup").size, replacement ? 1 : 0);
+    embed.resumeGame();
+    assert.equal(resumed, replacement ? 1 : 0);
+    assert.equal(embed.isPausable(), replacement);
+    release?.();
+  }
 });

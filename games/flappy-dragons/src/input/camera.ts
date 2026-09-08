@@ -129,6 +129,7 @@ class PoseCamera {
   private attempt = 0;
   private raf: number | null = null;
   private metadataListener: (() => void) | null = null;
+  private releaseMediaEvents: (() => void) | null = null;
   private readonly listeners = new AbortController();
   private state: PoseState = "idle";
   private baselineY = 0;
@@ -298,6 +299,8 @@ class PoseCamera {
     if (this.metadataListener)
       this.ui.video.removeEventListener("loadedmetadata", this.metadataListener);
     this.metadataListener = null;
+    this.releaseMediaEvents?.();
+    this.releaseMediaEvents = null;
     this.ui.video.pause();
     this.ui.video.srcObject = null;
     if (this.stream) for (const track of this.stream.getTracks()) track.stop();
@@ -345,6 +348,21 @@ class PoseCamera {
       this.stream = stream;
 
       const video = this.ui.video;
+      const tracks = stream.getTracks();
+      const onEnded = (): void => this.failStart(attempt, "Camera stream ended");
+      const onVideoError = (): void => {
+        if (video.srcObject !== stream || video.error === null) return;
+        this.failStart(
+          attempt,
+          `Camera interrupted: ${video.error.message || "Video playback failed"}`,
+        );
+      };
+      for (const track of tracks) track.addEventListener("ended", onEnded);
+      video.addEventListener("error", onVideoError);
+      this.releaseMediaEvents = () => {
+        for (const track of tracks) track.removeEventListener("ended", onEnded);
+        video.removeEventListener("error", onVideoError);
+      };
       const onMetadata = (): void => {
         if (!this.current(attempt) || this.metadataListener !== onMetadata) return;
         video.removeEventListener("loadedmetadata", onMetadata);
@@ -370,6 +388,10 @@ class PoseCamera {
       this.metadataListener = onMetadata;
       video.addEventListener("loadedmetadata", onMetadata, { once: true });
       video.srcObject = stream;
+      if (tracks.some((track) => track.readyState === "ended")) {
+        onEnded();
+        return;
+      }
       if (video.readyState >= 1 && video.videoWidth > 0) onMetadata();
       if (!this.current(attempt)) return;
       await video.play();
@@ -459,8 +481,7 @@ class PoseCamera {
           }
           this.showReadiness();
         } catch (error) {
-          this.setStatus(`Tracking interrupted: ${errorMessage(error)}`);
-          this.ui.cap.textContent = "📷 CHECK CAM";
+          this.failStart(attempt, `Tracking interrupted: ${errorMessage(error)}`);
         }
       }
 
@@ -733,6 +754,9 @@ function injectStyles(): void {
       cursor: pointer;
       pointer-events: auto; touch-action: manipulation;
       -webkit-tap-highlight-color: transparent;
+    }
+    @media (min-width: 600px) {
+      .fd-cam:not(.fd-cam--collapsed) { width: min(512px, 45vw); }
     }
     @media (max-height: 520px) and (min-width: 600px) {
       .fd-cam:not(.fd-cam--collapsed) { width: min(320px, 45vw); }
