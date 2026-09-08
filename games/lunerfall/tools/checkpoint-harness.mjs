@@ -12,6 +12,7 @@ import * as relics from "../src/data/relics.ts";
 import * as rooms from "../src/data/rooms.ts";
 import * as acting from "../src/data/actor-presentation.ts";
 import * as timing from "../src/data/clip-timing.ts";
+import { specialReadiness } from "../src/data/special-readiness.ts";
 import * as json from "../src/net/json.ts";
 import * as snapshot from "../src/net/snapshot.ts";
 import * as checkpoint from "../src/net/checkpoint.ts";
@@ -104,6 +105,7 @@ export function fixture(id = "left", withPartner = true) {
     bank = [];
   const Phaser = {
     Scene: sceneOwner,
+    TintModes: { FILL: 1, MULTIPLY: 0 },
     Math: { Clamp: (n, a, b) => Math.max(a, Math.min(b, n)), Linear: (a, b, t) => a + (b - a) * t },
     Scenes: { Events: { SHUTDOWN: "shutdown", DESTROY: "destroy" } },
   };
@@ -133,6 +135,7 @@ export function fixture(id = "left", withPartner = true) {
     ...rooms,
     ...acting,
     ...timing,
+    specialReadiness,
     ...json,
     ...snapshot,
     ...checkpoint,

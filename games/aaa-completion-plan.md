@@ -11,8 +11,8 @@ rules. Keep Crazy Waymo's separate work intact while checking it as the referenc
 
 ## Continued quality work
 
-One game at a time, through PR #327. Ancients', Battle Arena's and Bomberman's second
-checkpoints are pushed with passing CI. Prior receipts below remain historical
+One game at a time, through PR #327. Ancients', Battle Arena's, Bomberman's and
+Starfall's second checkpoints are pushed with passing CI. Prior receipts below remain historical
 evidence for their exact source versions and measured scopes.
 
 Ancients plan: correct exposed foam centres with the original shoreline art;
@@ -91,6 +91,25 @@ connected recovery, accepted-time fleet acting and local audio priority. All six
 assets and all sound recipes remain intact. The final full gate/build pass.
 The corrected16.08-second decoded master mix has no clipped samples; listening
 and physical-device behavior are not inferred from desktop captures.
+
+Lunerfall second plan: keep decorative trees behind fighters; soften the hard
+sky bands and distinguish biomes with the existing pixel art; show truthful
+special readiness, route progress, boss names and inspectable relic effects;
+bring accepted co-op combat cues and shared progress into agreement; protect
+local sounds and finish reduced-motion and final pause ownership. Preserve all
+37 assets, atlas timings, room generation, rewards, five hero kits and landscape
+gameplay controls. Verify native expeditions, actual purchases, connected combat,
+compact layouts, pause/destruction and the rendered mix before the checkpoint.
+The first automated baseline remained in the start room because its short jumps
+could not navigate the elevated exit. That is a driver limit, not a pacing finding.
+
+[Lunerfall second-pass evidence](/Users/kyh/.codex/visualizations/2026/09/05/01a072e5-b121-77b0-b7f7-52a06ec3e9e2/aaa-completion/lunerfall-quality/README.md)
+records final native expeditions, real purchases, all23 inspected relics and actual
+co-op combat/migration. Both final native runs reached the first boss and banked
+earned death rewards; neither defeated it. All37 assets and94 core method bodies
+remain intact. Actual master capture decoded58.44seconds with no clipped samples.
+Desktop/compact M1 Max stress p9510.5/10.6ms; no frame exceeded33.33ms. Ordinary
+deaths interrupted load, with66.5%/76.7% active frames. Final full gate/build pass.
 
 Unresolved questions: none blocking this pass.
 

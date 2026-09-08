@@ -31,6 +31,7 @@ import { Door } from "../entities/door";
 import { Enemy } from "../entities/enemy";
 import { Player } from "../entities/player";
 import { rectsOverlap } from "../entities/player-body";
+import { specialReadiness, type SpecialReadiness } from "../data/special-readiness";
 import { isJsonObject, isJsonString } from "../net/json";
 import type { JsonValue } from "../net/json";
 import { Reconciler } from "../net/predict";
@@ -58,6 +59,8 @@ import {
   type Snapshot,
 } from "../net/snapshot";
 import { buildParallax, FG_TREE_NAME } from "../parallax";
+import { PixelSky } from "../render/pixel-sky";
+import { ExpeditionHud, type ExpeditionOffer } from "../expedition-hud";
 import { drawRoom } from "../room";
 import {
   ambientEmbers,
@@ -260,7 +263,8 @@ export class GameScene extends Phaser.Scene {
 
   private roomLayer?: Phaser.GameObjects.Container;
   private parallax: Phaser.GameObjects.GameObject[] = [];
-  private skyBands: Phaser.GameObjects.Rectangle[] = []; // 3 gradient bands, retinted per biome
+  private sky?: PixelSky;
+  private expeditionHud?: ExpeditionHud;
   private fogRect?: Phaser.GameObjects.Rectangle; // per-biome atmosphere wash
   private flashedBiome = 0; // last biome we announced, so a descent flashes the new name
   private roomProp?: Phaser.GameObjects.Sprite;
@@ -336,6 +340,9 @@ export class GameScene extends Phaser.Scene {
   private inSeq = { j: 0, d: 0, a: 0, s: 0 }; // host: last-seen remote press counters
   private enemyPuppets = new Map<number, { view: Enemy; net: NetEnemy }>(); // guest
   private bossPuppet?: { view: Boss; net: NetBoss }; // guest
+  private guestCueBaseline = true;
+  private guestProgressTick = -1;
+  private guestSpecial: SpecialReadiness = { kind: "unknown" };
   private netPlayers: NetPlayer[] = []; // guest: latest wire players (re-lerped each frame)
   // Guest prediction: my own body runs the real fixed-step sim on local input
   // (instant response); each snapshot's authoritative copy folds back in here.
@@ -492,27 +499,7 @@ export class GameScene extends Phaser.Scene {
     this.netPlayers = [];
     this.acc = 0;
 
-    // Screen-pinned sky (scrollFactor 0) — a gradient (dark up top, lighter toward
-    // the horizon). The three bands are retinted per biome in applyBiome; the tree
-    // parallax layers are added per-room in decorateRoom in front of this.
-    this.skyBands = [
-      this.add
-        .rectangle(0, 0, BASE_W, BASE_H, 0x464f66)
-        .setOrigin(0)
-        .setScrollFactor(0)
-        .setDepth(-42),
-      this.add
-        .rectangle(0, BASE_H * 0.32, BASE_W, BASE_H * 0.68, 0x59637b)
-        .setOrigin(0)
-        .setScrollFactor(0)
-        .setDepth(-41),
-      this.add
-        .rectangle(0, BASE_H * 0.58, BASE_W, BASE_H * 0.42, 0x6b768e)
-        .setOrigin(0)
-        .setScrollFactor(0)
-        .setDepth(-40)
-        .setAlpha(0.85),
-    ];
+    this.sky = new PixelSky(this, BASE_W, BASE_H);
     // Thin full-field atmosphere wash, over the world but under the HUD — the
     // cheapest way to make a biome's light read on every tile and silhouette.
     this.fogRect = this.add
@@ -549,6 +536,7 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(1, 0)
       .setScrollFactor(0)
       .setDepth(80);
+    this.expeditionHud = new ExpeditionHud(this, this.heartsText, this.infoText);
     this.banner = this.add
       .text(BASE_W / 2, BASE_H / 2 - 20, "", {
         fontFamily: "monospace",
@@ -691,14 +679,24 @@ export class GameScene extends Phaser.Scene {
 
     let cleaned = false;
     const events = this.events;
+    const motionChanged = (): void => {
+      if (!REDUCED_MOTION.matches) return;
+      this.cameras.main.shakeEffect.reset();
+      this.tweens.killTweensOf(this.comboText);
+      this.comboText.setScale(this.trailerPinScale);
+    };
+    REDUCED_MOTION.addEventListener("change", motionChanged);
     const cleanup = (returnToHub: boolean): void => {
       if (cleaned) return;
       cleaned = true;
       events.off(Phaser.Scenes.Events.SHUTDOWN, shutdown);
       events.off(Phaser.Scenes.Events.DESTROY, destroy);
+      REDUCED_MOTION.removeEventListener("change", motionChanged);
       this.controls.destroy();
       this.gamepad.destroy();
       this.session?.destroy();
+      this.expeditionHud?.destroy();
+      this.expeditionHud = undefined;
       this.runRecap = null;
       this.activeBanner = null;
       this.pendingObjective = null;
@@ -718,32 +716,35 @@ export class GameScene extends Phaser.Scene {
   }
 
   // Both players leave world-space cues; routine camera motion belongs to me.
+  private shake(duration: number, intensity: number) {
+    if (!REDUCED_MOTION.matches) this.cameras.main.shake(duration, intensity);
+  }
+
   private spawnPlayer(hero: HeroDef, grid: Grid, x: number, y: number): Player {
-    const cam = this.cameras.main;
     const pl: Player = new Player(this, grid, x, y, hero, {
       onLand: (impact) => {
-        if (pl === this.player) cam.shake(80, Math.min(0.003 + impact * 0.00002, 0.008));
+        if (pl === this.player) this.shake(80, Math.min(0.003 + impact * 0.00002, 0.008));
         dust(this, pl.x, pl.y);
       },
       onDash: () => {
-        if (pl === this.player) cam.shake(60, 0.0025);
-        sfx.dash();
+        if (pl === this.player) this.shake(60, 0.0025);
+        sfx.dash(pl === this.player ? "local" : "routine");
       },
       // No painted attack VFX — the sprite-sheet swing carries the strike. Just
       // feel: a small camera shake + the swing sound.
       onSwing: () => {
-        if (pl === this.player) cam.shake(50, 0.0015);
-        sfx.slash();
+        if (pl === this.player) this.shake(50, 0.0015);
+        sfx.slash(pl === this.player ? "local" : "routine");
       },
       onSpecial: (kind) => this.onSpecialFx(kind, pl),
       onHurt: () => {
-        if (pl === this.player) cam.shake(180, 0.012);
-        sfx.hurt();
+        if (pl === this.player) this.shake(180, 0.012);
+        sfx.hurt(pl === this.player ? "essential" : "routine");
       },
-      onJump: () => sfx.jump(),
+      onJump: () => sfx.jump(pl === this.player ? "local" : "routine"),
       onWallJump: (side) => {
         wallSmoke(this, pl.x + side * 7, pl.y - 12, side);
-        if (pl === this.player) cam.shake(40, 0.002);
+        if (pl === this.player) this.shake(40, 0.002);
       },
     });
     return pl;
@@ -756,6 +757,10 @@ export class GameScene extends Phaser.Scene {
     this.bossAnnounced = false;
     clearFx(this);
     this.guestPayoff = null;
+    this.guestCueBaseline = true;
+    this.guestProgressTick = -1;
+    this.guestSpecial = { kind: "unknown" };
+    this.netPlayers = [];
     this.roomLayer?.destroy();
     this.parallax.forEach((o) => o.destroy());
     this.parallax = [];
@@ -808,9 +813,7 @@ export class GameScene extends Phaser.Scene {
   // descending into a new biome recolours the whole world.
   private applyBiome(biome: number): BiomePalette {
     const pal = biomePalette(biome);
-    this.skyBands[0]?.setFillStyle(pal.sky[0]);
-    this.skyBands[1]?.setFillStyle(pal.sky[1]);
-    this.skyBands[2]?.setFillStyle(pal.sky[2], 0.85);
+    this.sky?.setPalette(pal);
     this.fogRect?.setFillStyle(pal.fog, pal.fogA);
     return pal;
   }
@@ -929,12 +932,12 @@ export class GameScene extends Phaser.Scene {
     this.bossDeadT = 0;
     const barCol = biomePalette(this.run.biome).oneway;
     this.bossHpBg = this.add
-      .rectangle(BASE_W / 2, 22, 260, 6, 0x000000, 0.5)
+      .rectangle(BASE_W / 2, 47 + gameInset(this).top, 260, 6, 0x000000, 0.5)
       .setStrokeStyle(1, barCol, 0.6)
       .setScrollFactor(0)
       .setDepth(85);
     this.bossHp = this.add
-      .rectangle(BASE_W / 2 - 129, 22, 258, 4, barCol)
+      .rectangle(BASE_W / 2 - 129, 47 + gameInset(this).top, 258, 4, barCol)
       .setOrigin(0, 0.5)
       .setScrollFactor(0)
       .setDepth(86);
@@ -1037,7 +1040,7 @@ export class GameScene extends Phaser.Scene {
     // hearts arrive filled, and a reduced max clamps current hearts down.
     this.maxHearts = Math.max(1, this.mods.maxHearts);
     this.hearts = Math.min(this.hearts + Math.max(0, this.maxHearts - before), this.maxHearts);
-    sfx.pickup();
+    sfx.pickup("local");
     this.updateHud();
   }
 
@@ -1086,7 +1089,7 @@ export class GameScene extends Phaser.Scene {
 
   private heal(n: number) {
     this.hearts = Math.min(this.maxHearts, this.hearts + n);
-    sfx.heal();
+    sfx.heal("local");
     this.updateHud();
   }
 
@@ -1123,6 +1126,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(_t: number, delta: number) {
+    this.expeditionHud?.setVisible(
+      !this.controlsPaused && this.state === "active" && !this.trailerActive,
+    );
     const dts = Math.min(delta, 100) / 1000;
     this.updateBanner(dts * 1000);
     this.demoT += dts;
@@ -1239,7 +1245,7 @@ export class GameScene extends Phaser.Scene {
         this.vs.beginMatch();
         this.vsRespawn();
         this.showBanner("REMATCH — ROUND 1", 1100, "critical");
-        sfx.door();
+        sfx.door("local");
       }
       // Round intro / match end: bodies hold still (gravity still applies).
       const frozen = this.vs.frozen;
@@ -1372,7 +1378,7 @@ export class GameScene extends Phaser.Scene {
         this.vs.beginMatch();
         this.vsRespawn();
         this.showBanner("ROUND 1", 1100, "critical");
-        sfx.door();
+        sfx.door("local");
       } else this.showBanner("PLAYER 2 JOINED", 1000, "status");
     }
   }
@@ -1421,6 +1427,7 @@ export class GameScene extends Phaser.Scene {
     ) {
       this.guestSnapT = snap.t;
       this.seats = { ...c.seats };
+      this.syncGuestProgress(c);
       this.applySnapshot(snap, c.phase.kind === "dead");
       if (c.phase.kind === "dead") this.deadT = c.phase.elapsed;
       this.syncRoomFeatures(c, changedRoom);
@@ -1474,6 +1481,7 @@ export class GameScene extends Phaser.Scene {
     this.gold = s.gold;
     this.netBiome = s.biome;
     this.netDepth = s.depth;
+    if (!this.guestCueBaseline) this.applyRemoteCues(s.players);
     this.netPlayers = s.players;
     const mine = s.players.find((p) => p.id === this.session?.playerId);
     if (mine) this.reconcileSelf(mine);
@@ -1482,6 +1490,7 @@ export class GameScene extends Phaser.Scene {
       // hearts / last-stand / shared-death rules don't apply.
       this.applyNetVersus(s.vs ?? null);
       this.applyNetProj(s.proj);
+      this.guestCueBaseline = false;
       this.updateHud();
       return;
     }
@@ -1490,10 +1499,53 @@ export class GameScene extends Phaser.Scene {
     this.reconcileBoss(s.boss, s.biome, s.room);
     this.applyPayoffEdges(s);
     this.applyNetProj(s.proj);
+    this.guestCueBaseline = false;
     this.doors.forEach((d) => d.setActive(s.cleared));
     this.updateHud();
     // Hearts hit 0 while a last stand is live → downed, not dead (yet).
     if (terminal || (this.hearts <= 0 && !this.netLastStand)) this.guestDie();
+  }
+
+  /** Accepted presentation only: never apply modifiers or bank a guest's rewards. */
+  private syncGuestProgress(c: ExpeditionCheckpoint) {
+    const auth = this.authority;
+    if (
+      this.role !== "guest" ||
+      auth.kind !== "ready" ||
+      c.runId !== auth.runId ||
+      c.term !== auth.term ||
+      c.room !== this.guestRoomSeq ||
+      c.tick < this.guestProgressTick
+    )
+      return;
+    this.guestProgressTick = c.tick;
+    this.score = c.score;
+    this.ownedRelics = new Set(c.relics);
+    const mine = c.players.find((p) => p.id === this.session?.playerId);
+    this.guestSpecial = mine ? specialReadiness(mine.body) : { kind: "unknown" };
+  }
+
+  /** Snapshot edges own remote cues; repeated renders and first admissions stay quiet. */
+  private applyRemoteCues(players: NetPlayer[]) {
+    for (const next of players) {
+      if (next.id === this.session?.playerId) continue;
+      const prev = this.netPlayers.find((p) => p.id === next.id && p.hero === next.hero);
+      if (!prev || next.dead || next.downed) continue;
+      if (next.hurting && !prev.hurting) sfx.hurt("routine");
+      if (next.dashing && !prev.dashing) sfx.dash();
+      if (!next.grounded && prev.grounded && next.vy < 0) sfx.jump();
+      if (next.attackStep > 0 && next.swingId > prev.swingId) sfx.slash();
+      const hero = parseHero(next.hero);
+      if (hero && next.specialActive && next.specialId > prev.specialId)
+        this.showSpecial(
+          HEROES[hero].kit.special.kind,
+          next.x,
+          next.y,
+          next.facing,
+          HEROES[hero].color,
+          false,
+        );
+    }
   }
 
   /** Fresh same-room snapshots only. Initial cleared/dead states are quiet. */
@@ -1504,8 +1556,8 @@ export class GameScene extends Phaser.Scene {
     if (prev && prev.room === s.room) {
       if (prev.bossAlive && s.boss?.dead) {
         this.bossDefeatFx(s.boss.x, s.boss.y, this.netBiome);
-        sfx.boom();
-        this.cameras.main.shake(420, 0.02);
+        sfx.boom("essential");
+        this.shake(420, 0.02);
         this.showBanner(`${bossKind(this.netBiome).name} SLAIN`, 1800, "payoff");
       }
       if (!prev.cleared && s.cleared) this.roomClearFx(this.netRoomType, this.netBiome);
@@ -1612,6 +1664,11 @@ export class GameScene extends Phaser.Scene {
         const view = new Enemy(this, this.grid, ENEMIES[parseEnemy(ne.name)], ne.x, ne.y);
         p = { view, net: ne };
         this.enemyPuppets.set(ne.id, p);
+      } else if (!this.guestCueBaseline && !p.net.dead) {
+        if (ne.dead) {
+          impactRing(this, ne.x, ne.y - p.view.body.kind.h / 2, COLORS.teal, 22);
+          sfx.kill();
+        } else if (ne.flash && !p.net.flash) sfx.hit();
       }
       p.net = ne;
     }
@@ -1628,12 +1685,12 @@ export class GameScene extends Phaser.Scene {
       const view = new Boss(this, this.grid, nb.x, nb.y, biome);
       const barCol = biomePalette(biome).oneway;
       this.bossHpBg = this.add
-        .rectangle(BASE_W / 2, 22, 260, 6, 0x000000, 0.5)
+        .rectangle(BASE_W / 2, 47 + gameInset(this).top, 260, 6, 0x000000, 0.5)
         .setStrokeStyle(1, barCol, 0.6)
         .setScrollFactor(0)
         .setDepth(85);
       this.bossHp = this.add
-        .rectangle(BASE_W / 2 - 129, 22, 258, 4, barCol)
+        .rectangle(BASE_W / 2 - 129, 47 + gameInset(this).top, 258, 4, barCol)
         .setOrigin(0, 0.5)
         .setScrollFactor(0)
         .setDepth(86);
@@ -1647,6 +1704,7 @@ export class GameScene extends Phaser.Scene {
       this.bossHpBg = undefined;
     }
     if (nb && this.bossPuppet) {
+      if (!this.guestCueBaseline && nb.flash && !this.bossPuppet.net.flash) sfx.hit();
       this.bossPuppet.net = nb;
       if (this.bossHp) this.bossHp.width = 258 * nb.hpFrac;
       // A dead/stale first snapshot stays quiet. A later matching live one can
@@ -1747,6 +1805,7 @@ export class GameScene extends Phaser.Scene {
   setControlsPaused(paused: boolean): void {
     if (this.controlsPaused === paused) return;
     this.controlsPaused = paused;
+    this.expeditionHud?.setVisible(!paused && this.state === "active" && !this.trailerActive);
     this.controls?.reset();
     this.player?.body.clearInput();
     this.guestIn = NEUTRAL_INPUT;
@@ -1859,8 +1918,10 @@ export class GameScene extends Phaser.Scene {
       match.restore(c.versus);
       this.netVs = match.encode();
     }
+    this.syncGuestProgress(c);
     this.syncRoomFeatures(c, true);
     this.finishConnecting();
+    this.updateHud();
     if (c.phase.kind === "dead") this.observeTerminal(c);
     this.showAdoptedVersusResult();
     return true;
@@ -2389,7 +2450,7 @@ export class GameScene extends Phaser.Scene {
         impactRing(this, item.x, item.y - 16, RARITY_COLOR[item.relic.rarity], 24);
         popText(this, item.x, item.y - 30, item.relic.name, "#e83fa0");
         popText(this, item.x, item.y - 12, `⬡ -${item.relic.price}`, "#ffd15c");
-        sfx.pickup();
+        sfx.pickup("local");
       }
     }
     if (c.feature) {
@@ -2401,7 +2462,7 @@ export class GameScene extends Phaser.Scene {
         f.g.setVisible(!f.used);
         if (usedNow && !baseline) {
           impactRing(this, f.x, f.y - 14, COLORS.teal, 24);
-          sfx.pickup();
+          sfx.pickup("local");
         }
       }
     }
@@ -2649,8 +2710,8 @@ export class GameScene extends Phaser.Scene {
     if (boss.body.dead) {
       if (this.bossDeadT === 0) {
         this.bossDefeatFx(boss.body.x, boss.body.y, this.run.biome);
-        sfx.boom();
-        this.cameras.main.shake(420, 0.02);
+        sfx.boom("essential");
+        this.shake(420, 0.02);
         this.freeze = Math.max(this.freeze, 0.12);
         this.gainGold(25);
         this.score += 120 * this.run.biome;
@@ -2669,7 +2730,7 @@ export class GameScene extends Phaser.Scene {
       const b = boss.body.pendingBlast;
       explosion(this, b.x, b.y, b.r, boss.body.kind.tint);
       sfx.boom();
-      this.cameras.main.shake(200, 0.014);
+      this.shake(200, 0.014);
       this.freeze = Math.max(this.freeze, 0.07);
       for (const pl of this.livePlayers()) {
         if (!pl.body.dead && Math.hypot(pl.x - b.x, pl.y - 11 - b.y) < b.r + 8)
@@ -2705,7 +2766,7 @@ export class GameScene extends Phaser.Scene {
     hitSpark(this, boss.body.x, boss.body.y - 22, color, boss.body.dead ? 12 : 6);
     if (boss.body.dead) impactRing(this, boss.body.x, boss.body.y - 22, boss.body.kind.tint, 40);
     this.freeze = Math.max(this.freeze, boss.body.dead ? 0.12 : 0.04);
-    this.cameras.main.shake(60, 0.003);
+    this.shake(60, 0.003);
   }
 
   private spawnHazard(x: number, y: number, vx: number, dmg: number) {
@@ -2744,9 +2805,19 @@ export class GameScene extends Phaser.Scene {
   }
 
   private onSpecialFx(kind: string, pl: Player = this.player) {
-    const px = pl.x;
-    const py = pl.y - 11;
-    const color = pl.color;
+    this.showSpecial(kind, pl.x, pl.y, pl.body.facing, pl.color, pl === this.player);
+    if (kind === "aoe") this.freeze = Math.max(this.freeze, 0.06);
+  }
+
+  private showSpecial(
+    kind: string,
+    px: number,
+    feetY: number,
+    facing: number,
+    color: number,
+    local: boolean,
+  ) {
+    const py = feetY - 11;
     if (kind === "blink") hitSpark(this, px, py, color, 12);
     else if (kind === "heal") {
       for (let i = 0; i < 8; i++) {
@@ -2762,12 +2833,11 @@ export class GameScene extends Phaser.Scene {
         });
       }
     } else if (kind === "aoe") {
-      explosion(this, px, pl.y - 6, 30, color);
-      sfx.boom();
-      if (pl === this.player) this.cameras.main.shake(140, 0.01);
-      this.freeze = Math.max(this.freeze, 0.06);
+      explosion(this, px, feetY - 6, 30, color);
+      sfx.boom(local ? "local" : "routine");
+      if (local) this.shake(140, 0.01);
     } else if (kind === "projectile") {
-      hitSpark(this, px + pl.body.facing * 10, py, color, 5);
+      hitSpark(this, px + facing * 10, py, color, 5);
     }
   }
 
@@ -2793,7 +2863,7 @@ export class GameScene extends Phaser.Scene {
           if (!e.body.dead) sfx.hit();
           hitSpark(this, e.body.x, e.body.y - e.body.kind.h / 2, COLORS.teal, e.body.dead ? 10 : 6);
           this.freeze = Math.max(this.freeze, e.body.dead ? 0.09 : 0.05);
-          this.cameras.main.shake(70, e.body.dead ? 0.006 : 0.003);
+          this.shake(70, e.body.dead ? 0.006 : 0.003);
           if (e.body.dead) this.onKill(e);
         }
       }
@@ -2867,7 +2937,7 @@ export class GameScene extends Phaser.Scene {
           sfx.hit();
           hitSpark(this, e.body.x, top, COLORS.white, 8);
           this.freeze = Math.max(this.freeze, 0.08);
-          this.cameras.main.shake(80, 0.006);
+          this.shake(80, 0.006);
           if (e.body.dead) this.onKill(e);
         }
       }
@@ -2912,7 +2982,7 @@ export class GameScene extends Phaser.Scene {
         const b = eb.pendingBlast;
         explosion(this, b.x, b.y, b.r, biomePalette(this.run.biome).oneway);
         sfx.boom();
-        this.cameras.main.shake(160, 0.01);
+        this.shake(160, 0.01);
         this.freeze = Math.max(this.freeze, 0.06);
         for (const pl of this.livePlayers()) {
           if (!pl.body.dead && Math.hypot(pl.x - b.x, pl.y - eb.kind.h / 2 - b.y) < b.r + 8)
@@ -2947,8 +3017,14 @@ export class GameScene extends Phaser.Scene {
       // zoom the HUD is counter-scaled to 1/z, and an absolute "back to 1" here
       // would leave the streak counter rendering at z× everything else.
       const pin = this.trailerPinScale;
-      this.comboText.setScale(1.35 * pin);
-      this.tweens.add({ targets: this.comboText, scale: pin, duration: 200, ease: "Back.easeOut" });
+      this.comboText.setScale(REDUCED_MOTION.matches ? pin : 1.35 * pin);
+      if (!REDUCED_MOTION.matches)
+        this.tweens.add({
+          targets: this.comboText,
+          scale: pin,
+          duration: 200,
+          ease: "Back.easeOut",
+        });
     }
     this.updateHud();
   }
@@ -2990,7 +3066,7 @@ export class GameScene extends Phaser.Scene {
     this.lastStand = { pl, bleedT: BLEED_DUR, reviveT: 0 };
     pl.body.down();
     this.freeze = Math.max(this.freeze, 0.1);
-    this.cameras.main.shake(220, 0.012);
+    this.shake(220, 0.012);
     impactRing(this, pl.x, pl.y - 11, COLORS.magenta, 30);
     sfx.downed();
     this.showBanner(
@@ -3148,7 +3224,7 @@ export class GameScene extends Phaser.Scene {
     } else if (trans === "respawn") {
       this.vsRespawn();
       this.showBanner(`ROUND ${vs.round}`, 1100, "critical");
-      sfx.door();
+      sfx.door("local");
     } else if (trans === "matchEnd") {
       this.showBanner(
         `${this.vsName(vs.winner)} WINS THE MATCH  ·  ${this.rematchHint()}`,
@@ -3216,7 +3292,7 @@ export class GameScene extends Phaser.Scene {
     if (att.body.pendingHeal > 0) {
       this.vs?.heal(this.vsSide(att), att.body.pendingHeal);
       popText(this, att.body.x, att.body.y - 26, "+HP", "#34e5c8");
-      sfx.heal();
+      sfx.heal(att === this.player ? "local" : "routine");
       att.body.pendingHeal = 0;
       this.updateHud();
     }
@@ -3245,7 +3321,7 @@ export class GameScene extends Phaser.Scene {
     this.freeze = Math.max(this.freeze, 0.06);
     hitSpark(this, vic.x, vic.y - 11, COLORS.magenta, 8);
     sfx.hit();
-    this.cameras.main.shake(80, 0.005);
+    this.shake(80, 0.005);
     const ended = vs.damage(this.vsSide(vic), dmg);
     this.updateHud();
     if (ended) this.vsRoundOver(vic);
@@ -3258,7 +3334,7 @@ export class GameScene extends Phaser.Scene {
     if (!vs) return;
     loser.body.dead = true;
     this.freeze = Math.max(this.freeze, 0.12);
-    this.cameras.main.shake(260, 0.014);
+    this.shake(260, 0.014);
     impactRing(this, loser.x, loser.y - 11, COLORS.magenta, 36);
     sfx.die();
     this.showBanner(`${this.vsName(vs.winner)} TAKES THE ROUND`, 1500, "critical");
@@ -3556,7 +3632,7 @@ export class GameScene extends Phaser.Scene {
     this.transT = 0;
     this.transBuilt = false;
     this.pendingOffer = offer;
-    sfx.door();
+    sfx.door("local");
   }
 
   private announceBoss(biome: number) {
@@ -3634,18 +3710,64 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateHud() {
+    const special = this.role === "guest" ? this.guestSpecial : this.player.body.specialReadiness;
+    const visible = !this.controlsPaused && this.state === "active" && !this.trailerActive;
     if (this.mode === "versus") {
       this.updateVersusHud();
+      const phase = this.role === "guest" ? this.netVs?.phase : this.vs?.phase;
+      this.expeditionHud?.updateSpecial(
+        phase && vsPhaseFrozen(phase) ? { kind: "busy" } : special,
+        visible,
+      );
       return;
     }
-    const h = Math.max(0, this.hearts);
-    this.heartsText.setText("♥ ".repeat(h) + "♡ ".repeat(Math.max(0, this.maxHearts - h)));
-    const relics = this.ownedRelics.size > 0 ? `   ✦ ${this.ownedRelics.size}` : "";
     const biome = this.role === "guest" ? this.netBiome : this.run.biome;
     const depth = this.role === "guest" ? this.netDepth : this.run.depth;
-    this.infoText.setText(
-      `${biomePalette(biome).name} ${biome}   DEPTH ${depth}   ⬡ ${this.gold}${relics}   ★ ${this.score}`,
-    );
+    const type = this.role === "guest" ? this.netRoomType : this.run.type;
+    if (!this.trailerActive) {
+      this.banner.setY(type === "merchant" ? 170 : BASE_H / 2 - 20);
+      this.banner.setVisible(
+        !this.expeditionHud?.inspecting || this.activeBanner?.kind === "critical",
+      );
+    }
+    const boss = this.role === "guest" ? this.bossPuppet?.net : this.boss?.body;
+    const bossName = boss && !boss.dead ? bossKind(biome).name : null;
+    if (!this.trailerActive)
+      this.comboText.setY(bossName ? 67 + gameInset(this).top : 42 + gameInset(this).top);
+    let nearest: MerchantItem | undefined;
+    if (type === "merchant") {
+      for (const item of this.merchantItems)
+        if (!nearest || Math.abs(item.x - this.player.x) < Math.abs(nearest.x - this.player.x))
+          nearest = item;
+    }
+    const offer: ExpeditionOffer | null = nearest
+      ? {
+          name: nearest.relic.name,
+          desc: nearest.relic.desc,
+          price: nearest.relic.price,
+          kind: nearest.bought
+            ? "sold"
+            : this.gold >= nearest.relic.price
+              ? "affordable"
+              : "unaffordable",
+        }
+      : null;
+    this.expeditionHud?.update({
+      hearts: this.hearts,
+      maxHearts: this.maxHearts,
+      biomeName: biomePalette(biome).name,
+      biome,
+      depth,
+      bossAt: this.run.bossAt,
+      gold: this.gold,
+      score: this.score,
+      special,
+      bossName,
+      safeRoom: !this.run.isCombat(type),
+      relics: RELICS.filter((r) => this.ownedRelics.has(r.id)),
+      offer,
+      visible,
+    });
   }
 
   // ── trailer-mode hooks ──────────────────────────────────────────────────────
@@ -3785,8 +3907,13 @@ export class GameScene extends Phaser.Scene {
     this.trailerPinScale = 1 / z;
     const cx = BASE_W / 2;
     const cy = BASE_H / 2;
-    const pinned: (Phaser.GameObjects.Rectangle | Phaser.GameObjects.Text | undefined)[] = [
-      ...this.skyBands,
+    const pinned: (
+      | Phaser.GameObjects.Rectangle
+      | Phaser.GameObjects.Text
+      | Phaser.GameObjects.Image
+      | undefined
+    )[] = [
+      this.sky?.image,
       this.fogRect,
       this.fadeRect,
       this.heartsText,
@@ -3804,7 +3931,11 @@ export class GameScene extends Phaser.Scene {
         this.trailerPinBase.set(o, base);
       }
       o.setPosition((base.x - cx) / z + cx, (base.y - cy) / z + cy);
-      o.setScale(1 / z);
+      // The sky texture is half-resolution; retain its logical display size.
+      o.setScale(
+        (o === this.sky?.image ? BASE_W / o.width : 1) / z,
+        (o === this.sky?.image ? BASE_H / o.height : 1) / z,
+      );
     }
   }
 

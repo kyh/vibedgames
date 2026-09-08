@@ -14,11 +14,12 @@ const register = new Function(
   "Phaser",
   "params",
   "mountTouchHud",
+  "REDUCED_MOTION",
   `${stripTypeScriptTypes(source.slice(start, end), { mode: "strip" })};return cleanup;`,
 );
 for (const edge of ["shutdown", "destroy"])
   for (const trailer of [false, true]) {
-    const counts = { physical: 0, virtual: 0, network: 0, mount: 0 };
+    const counts = { physical: 0, virtual: 0, network: 0, mount: 0, motion: 0 };
     const events = new EventEmitter();
     const scene = {
       events,
@@ -42,6 +43,10 @@ for (const edge of ["shutdown", "destroy"])
       { Scenes: { Events } },
       new URLSearchParams(trailer ? "trailer=1" : ""),
       () => counts.mount++,
+      {
+        addEventListener: () => counts.motion++,
+        removeEventListener: () => counts.motion--,
+      },
     );
     if (edge === "shutdown") sys.shutdown();
     else sys.destroy();
@@ -52,6 +57,7 @@ for (const edge of ["shutdown", "destroy"])
       virtual: 1,
       network: 1,
       mount: edge === "shutdown" && !trailer ? 1 : 0,
+      motion: 0,
     });
     assert.equal(scene.runRecap, null);
     assert.equal(scene.adoptedTerminal, null);

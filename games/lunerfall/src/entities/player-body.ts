@@ -1,6 +1,7 @@
 import { TILE } from "../config";
 import type { HeroKit } from "../data/heroes";
 import type { Grid } from "../sys/grid";
+import { specialReadiness, type SpecialReadiness } from "../data/special-readiness";
 
 // ── Feel constants (px, seconds; tuned for 60fps fixed step) ────────────────
 const MAX_RUN = 236;
@@ -280,6 +281,18 @@ export class PlayerBody {
   get specialCdFrac(): number {
     const cd = this.kit.special.cd;
     return cd > 0 ? clamp(this.specialCd / cd, 0, 1) : 0;
+  }
+
+  get specialReadiness(): SpecialReadiness {
+    return specialReadiness({
+      dead: this.dead,
+      downed: this.downed,
+      specialActive: this.specialActive,
+      attackStep: this.attackStep,
+      dashTime: this.dashTime,
+      hurtStun: this.hurtStun,
+      specialCd: this.specialCd,
+    });
   }
 
   buffer(input: BodyInput) {

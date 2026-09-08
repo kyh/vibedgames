@@ -11,7 +11,8 @@ type Tone = {
 };
 type Noise = { kind: "noise"; dur: number; gain: number; filt: number; sweepTo?: number };
 type Note = Tone | Noise;
-type Kind = "routine" | "essential" | "music";
+export type SfxPriority = "routine" | "local" | "essential";
+type Kind = SfxPriority | "music";
 type Bus = { ctx: AudioContext; master: GainNode; music: GainNode };
 type Phrase = { kind: Kind; voices: Set<Voice> };
 type Voice = {
@@ -25,6 +26,7 @@ type Voice = {
 const VOICE_LIMIT = 32;
 const SFX_LIMIT = 26;
 const ROUTINE_LIMIT = 20;
+const LOCAL_LIMIT = 23;
 const MUSIC_LIMIT = 6;
 
 const tone = (
@@ -190,25 +192,29 @@ class Sfx {
       if (voice.phrase.kind === "routine") routine++;
     }
     const sfxCount = this.voices.size - music;
-    const limit = kind === "music" ? MUSIC_LIMIT : SFX_LIMIT;
+    const limit = kind === "music" ? MUSIC_LIMIT : kind === "local" ? LOCAL_LIMIT : SFX_LIMIT;
+    let essential = 0;
+    for (const voice of this.voices) if (voice.phrase.kind === "essential") essential++;
     if (
       !bus ||
       notes.length > limit ||
+      (kind === "local" && essential + notes.length > LOCAL_LIMIT) ||
       (kind === "routine" &&
         (routine + notes.length > ROUTINE_LIMIT || sfxCount + notes.length > SFX_LIMIT))
     ) {
       this.dropped += notes.length;
       return;
     }
-    // Music and combat have independent reserves. Essential combat phrases are
-    // admitted whole, retiring old routine SFX before another important cue.
+    // Music and combat keep independent reserves. Local actions leave three
+    // SFX voices for critical cues; admission always retires whole phrases.
     let owned = kind === "music" ? music : sfxCount;
     while (owned + notes.length > limit) {
       const oldest =
         kind === "music"
           ? this.phrases.find((p) => p.kind === "music")
           : (this.phrases.find((p) => p.kind === "routine") ??
-            this.phrases.find((p) => p.kind === "essential"));
+            this.phrases.find((p) => p.kind === "local") ??
+            (kind === "essential" ? this.phrases.find((p) => p.kind === "essential") : undefined));
       if (!oldest) return;
       owned -= oldest.voices.size;
       this.stopPhrase(oldest);
@@ -277,57 +283,63 @@ class Sfx {
     return 1 + (Math.random() - 0.5) * n;
   }
 
-  slash(): void {
-    this.play([noise(0.12, 0.18, 2600 * this.r(0.2), 900)]);
+  slash(priority: SfxPriority = "routine"): void {
+    this.play([noise(0.12, 0.18, 2600 * this.r(0.2), 900)], priority);
   }
-  hit(): void {
-    this.play([tone(180 * this.r(0.15), 0.1, "square", 0.16, 90), noise(0.07, 0.12, 1400)]);
+  hit(priority: SfxPriority = "routine"): void {
+    this.play(
+      [tone(180 * this.r(0.15), 0.1, "square", 0.16, 90), noise(0.07, 0.12, 1400)],
+      priority,
+    );
   }
-  kill(): void {
-    this.play([tone(140, 0.18, "square", 0.2, 60), noise(0.14, 0.16, 900, 300)]);
+  kill(priority: SfxPriority = "routine"): void {
+    this.play([tone(140, 0.18, "square", 0.2, 60), noise(0.14, 0.16, 900, 300)], priority);
   }
-  dash(): void {
-    this.play([noise(0.18, 0.14, 700 * this.r(0.2), 2400)]);
+  dash(priority: SfxPriority = "routine"): void {
+    this.play([noise(0.18, 0.14, 700 * this.r(0.2), 2400)], priority);
   }
-  jump(): void {
-    this.play([tone(320 * this.r(0.1), 0.14, "sine", 0.12, 620)]);
+  jump(priority: SfxPriority = "routine"): void {
+    this.play([tone(320 * this.r(0.1), 0.14, "sine", 0.12, 620)], priority);
   }
-  hurt(): void {
-    this.play([tone(300, 0.2, "sawtooth", 0.2, 90)], "essential");
+  hurt(priority: SfxPriority = "essential"): void {
+    this.play([tone(300, 0.2, "sawtooth", 0.2, 90)], priority);
   }
-  pickup(): void {
-    this.play([tone(660, 0.09, "triangle", 0.16, 990), tone(990, 0.12, "triangle", 0.12)]);
+  pickup(priority: SfxPriority = "routine"): void {
+    this.play(
+      [tone(660, 0.09, "triangle", 0.16, 990), tone(990, 0.12, "triangle", 0.12)],
+      priority,
+    );
   }
-  boom(): void {
-    this.play([tone(90, 0.4, "sine", 0.32, 38), noise(0.35, 0.24, 500, 120)]);
+  boom(priority: SfxPriority = "routine"): void {
+    this.play([tone(90, 0.4, "sine", 0.32, 38), noise(0.35, 0.24, 500, 120)], priority);
   }
-  heal(): void {
-    this.play([tone(520, 0.14, "sine", 0.14, 780), tone(780, 0.2, "sine", 0.12, 1040)]);
+  heal(priority: SfxPriority = "routine"): void {
+    this.play([tone(520, 0.14, "sine", 0.14, 780), tone(780, 0.2, "sine", 0.12, 1040)], priority);
   }
-  door(): void {
-    this.play([tone(440, 0.18, "triangle", 0.12, 660)]);
+  door(priority: SfxPriority = "routine"): void {
+    this.play([tone(440, 0.18, "triangle", 0.12, 660)], priority);
   }
-  select(): void {
-    this.play([tone(560 * this.r(0.05), 0.07, "square", 0.1, 720)]);
+  select(priority: SfxPriority = "routine"): void {
+    this.play([tone(560 * this.r(0.05), 0.07, "square", 0.1, 720)], priority);
   }
-  die(): void {
-    this.play([tone(260, 0.6, "sawtooth", 0.26, 60), noise(0.5, 0.18, 400, 100)], "essential");
+  die(priority: SfxPriority = "essential"): void {
+    this.play([tone(260, 0.6, "sawtooth", 0.26, 60), noise(0.5, 0.18, 400, 100)], priority);
   }
-  downed(): void {
-    this.play([tone(220, 0.5, "sawtooth", 0.24, 55), noise(0.4, 0.16, 500, 120)], "essential");
+  downed(priority: SfxPriority = "essential"): void {
+    this.play([tone(220, 0.5, "sawtooth", 0.24, 55), noise(0.4, 0.16, 500, 120)], priority);
   }
-  revive(): void {
+  revive(priority: SfxPriority = "essential"): void {
     this.play(
       [
         tone(440, 0.12, "triangle", 0.14, 660),
         tone(660, 0.18, "triangle", 0.12, 990),
         tone(990, 0.24, "sine", 0.1, 1320),
       ],
-      "essential",
+      priority,
     );
   }
-  bossRoar(): void {
-    this.play([tone(70, 0.7, "sawtooth", 0.34, 44), noise(0.6, 0.22, 300, 90)], "essential");
+  bossRoar(priority: SfxPriority = "essential"): void {
+    this.play([tone(70, 0.7, "sawtooth", 0.34, 44), noise(0.6, 0.22, 300, 90)], priority);
   }
 
   private stopMusic(): void {
@@ -385,11 +397,13 @@ class Sfx {
   diagnostics() {
     let musicVoices = 0;
     let routineVoices = 0;
+    let localVoices = 0;
     let scheduledVoices = 0;
     const now = this.bus?.ctx.currentTime ?? 0;
     for (const voice of this.voices) {
       if (voice.phrase.kind === "music") musicVoices++;
       if (voice.phrase.kind === "routine") routineVoices++;
+      if (voice.phrase.kind === "local") localVoices++;
       if (voice.startsAt > now) scheduledVoices++;
     }
     return Object.freeze({
@@ -403,11 +417,13 @@ class Sfx {
       ownedVoices: this.voices.size,
       scheduledVoices,
       routineVoices,
+      localVoices,
       musicVoices,
-      essentialVoices: this.voices.size - routineVoices - musicVoices,
+      essentialVoices: this.voices.size - routineVoices - localVoices - musicVoices,
       phrases: this.phrases.length,
       limit: VOICE_LIMIT,
       routineLimit: ROUTINE_LIMIT,
+      localLimit: LOCAL_LIMIT,
       sfxLimit: SFX_LIMIT,
       musicLimit: MUSIC_LIMIT,
       musicRequested: this.musicRequested,

@@ -8,6 +8,8 @@ const pools = new WeakMap<Phaser.Scene, SceneFx>();
 const PARTICLES = 192;
 const ECHOES = 32;
 const LABELS = 16;
+const reducedMotion =
+  typeof window === "undefined" ? null : window.matchMedia("(prefers-reduced-motion: reduce)");
 
 type SpriteFx = {
   image: Phaser.GameObjects.Image;
@@ -163,7 +165,8 @@ class SceneFx {
   private update(_time: number, delta: number) {
     const ms = Math.max(0, delta);
     this.particles.update(ms);
-    this.echoes.update(ms);
+    if (reducedMotion?.matches) this.echoes.clear();
+    else this.echoes.update(ms);
     for (const s of this.labels) {
       if (s.age >= 600) continue;
       s.age += ms;
@@ -257,6 +260,7 @@ function glow(
   ms: number,
   depth = 60,
 ) {
+  if (reducedMotion?.matches) return;
   fx(scene).particles.spawn(x, y, ms, { color, sx: scale, end: 1.6, depth, add: true });
 }
 
@@ -316,6 +320,7 @@ export function afterImage(
   spr: Phaser.GameObjects.Sprite,
   color: number = COLORS.teal,
 ) {
+  if (reducedMotion?.matches) return;
   fx(scene)
     .echoes.spawn(spr.x, spr.y, 240, {
       key: spr.texture.key,
