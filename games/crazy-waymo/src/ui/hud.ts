@@ -74,7 +74,6 @@ const CHAN_SCALE = "rgba(255, 232, 202, 0.15)";
 const DIAL_FILL_LO = "#fff4e2";
 const DIAL_FILL_MID = "#ffcf6b";
 const DIAL_FILL_HI = "#e0453f";
-const DIAL_FILL_GLOW = "rgba(255, 190, 110, 0.34)";
 const REDLINE_INK = "rgba(224, 69, 63, 0.55)";
 const REDLINE_OVER = "rgba(255, 150, 96, 0.92)";
 const TICK_OUT_R = 24;
@@ -259,21 +258,15 @@ export class Hud {
     }
     const tier = this.driftTier;
     if (tier !== this.railTierShown) {
-      // Promotion (not the first sync, not the post-drift reset) refires the
-      // flare; colors come from fx/tier.ts so rails and sparks agree.
-      const promoted = tier > this.railTierShown && this.railTierShown >= 0 && active;
+      // Colors come from fx/tier.ts so rails and sparks agree.
       this.railTierShown = tier;
       const banked = tierColor(tier);
       const next = RAIL_NEXT_COLOR[tier];
       for (const rail of [this.railL, this.railR]) {
-        rail.classList.remove("t0", "t1", "t2", "pop");
+        rail.classList.remove("t0", "t1", "t2");
         rail.classList.add(`t${tier}`);
         rail.style.setProperty("--cc", banked);
         rail.style.setProperty("--cn", next);
-        if (promoted && !this.reduceMotion) {
-          void rail.offsetWidth;
-          rail.classList.add("pop");
-        }
       }
     }
   }
@@ -418,12 +411,10 @@ export class Hud {
     ctx.beginPath();
     ctx.arc(cx, cy, r, DIAL_A0 + DIAL_SWEEP * REDLINE_FRAC, DIAL_A0 + DIAL_SWEEP);
     ctx.stroke();
-    // Value fill: the cream→gold→red ramp with a soft warm glow; past the
-    // redline it re-lays hot so the needle's arc wins over the red band.
+    // Value fill: the cream→gold→red ramp; past the redline it re-lays hot
+    // so the needle's arc wins over the red band.
     if (frac > 0.005) {
       ctx.save();
-      ctx.shadowColor = DIAL_FILL_GLOW;
-      ctx.shadowBlur = DIAL_W * 0.02;
       ctx.strokeStyle = this.dialValueGrad ?? DIAL_FILL_MID;
       ctx.beginPath();
       ctx.arc(cx, cy, r, DIAL_A0, DIAL_A0 + DIAL_SWEEP * frac);
@@ -478,14 +469,8 @@ export class Hud {
       tailY + py * hw * 0.9,
     );
     ctx.closePath();
-    ctx.save();
-    ctx.shadowColor = "rgba(18, 10, 4, 0.68)";
-    ctx.shadowBlur = DIAL_W * 0.022;
-    ctx.shadowOffsetX = DIAL_W * 0.005;
-    ctx.shadowOffsetY = DIAL_W * 0.01;
     ctx.fillStyle = PAPER;
     ctx.fill();
-    ctx.restore();
     ctx.lineJoin = "round";
     ctx.lineWidth = 1.4;
     ctx.strokeStyle = DIAL_INK;

@@ -509,7 +509,6 @@
             rgba(24, 13, 5, 0.64) 40%,
             rgba(24, 13, 5, 0.5) 100%
           );
-        animation: rail-pulse var(--pulse, 1.1s) var(--e-soft) infinite;
       }
       /* Rungs at exactly ⅓ and ⅔, fixed to the frame, over the bar — height
          becomes a COUNT; cream between ink edges survives any backdrop. */
@@ -540,43 +539,6 @@
             rgba(30, 16, 7, 0.88) calc(66.66% + 3px),
             transparent calc(66.66% + 3px)
           );
-      }
-      /* Tier as temporal frequency. */
-      .rail.t0 {
-        --pulse: 1.1s;
-        --pulse-lo: 0.84;
-      }
-      .rail.t1 {
-        --pulse: 0.7s;
-        --pulse-lo: 0.74;
-      }
-      .rail.t2 {
-        --pulse: 0.4s;
-        --pulse-lo: 0.6;
-      }
-      @keyframes rail-pulse {
-        0%,
-        100% {
-          opacity: var(--pulse-lo, 0.84);
-        }
-        50% {
-          opacity: 1;
-        }
-      }
-      /* Tier-up flare. fill-mode none on purpose: a `both` fill would leave a
-         standing brightness() compositing pass forever. */
-      .rail.pop {
-        animation: rail-pop 0.44s var(--e-out);
-      }
-      @keyframes rail-pop {
-        0% {
-          transform: scaleX(2.4);
-          filter: brightness(2.6);
-        }
-        100% {
-          transform: scaleX(1);
-          filter: brightness(1);
-        }
       }
 
       /* Countdown 3-2-1-GO — the gold display ramp; GO! flips it green. */
@@ -741,15 +703,9 @@
         pointer-events: none;
         cursor: pointer;
         box-shadow: 0 5px 0 rgba(23, 11, 4, 0.4);
-        animation: pulse 1.4s ease-in-out infinite;
       }
       #banner.show #banner-cta {
         pointer-events: auto;
-      }
-      @keyframes pulse {
-        50% {
-          transform: scale(1.05);
-        }
       }
 
       /* Screen flash overlay */
@@ -869,8 +825,6 @@
         justify-content: center;
         font-size: 26px;
         color: #fff;
-        backdrop-filter: blur(4px);
-        -webkit-backdrop-filter: blur(4px);
       }
       .tbtn:active {
         background: rgba(255, 209, 71, 0.4);
@@ -893,8 +847,6 @@
         box-shadow:
           0 5px 0 rgba(0, 0, 0, 0.45),
           inset 0 8px 18px rgba(255, 255, 255, 0.07);
-        backdrop-filter: blur(4px);
-        -webkit-backdrop-filter: blur(4px);
         transition:
           transform 0.06s ease,
           box-shadow 0.06s ease;
@@ -970,8 +922,6 @@
         background: none;
         border: none;
         justify-content: flex-start;
-        backdrop-filter: none;
-        -webkit-backdrop-filter: none;
         filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
       }
       #t-chat:active {
@@ -1027,10 +977,6 @@
           animation: none;
         }
         #timer.low {
-          animation: none;
-        }
-        .rail > i,
-        .rail.pop {
           animation: none;
         }
       }
@@ -1187,7 +1133,6 @@
         border-radius: 20px;
         padding: 18px 22px 14px;
         pointer-events: auto;
-        backdrop-filter: blur(6px);
       }
       #garage .gtitle {
         font:
