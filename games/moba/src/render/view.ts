@@ -1160,7 +1160,8 @@ export class WorldView {
       }
       if (cue && attack && world.now >= cue.resolveAt && v.lastSwingAt !== cue.startedAt) {
         v.lastSwingAt = cue.startedAt;
-        if (u.kind === "hero") this.spawnSwing(v.dx, v.dy, cue.facing, u.projectileSpeed > 0);
+        if (u.kind === "hero")
+          this.spawnSwing(v.dx, v.dy, cue.facing, u.projectileSpeed > 0, u.hero?.defId);
       }
 
       const pose = spellPose(v.spellCue, u.hero?.channel ?? null, world.now, u.facing);
@@ -1299,58 +1300,63 @@ export class WorldView {
 
   /** Hero attack flourish: a sweeping slash arc for melee, a muzzle spark for
    *  ranged — drawn in the facing direction so swings read as deliberate hits. */
-  private spawnSwing(x: number, y: number, facing: number, ranged: boolean): void {
-    if (!this.commonFx.visible(x, y)) return;
-    const s = this.scene;
-    const cx = x + facing * (ranged ? 30 : 40);
-    const cy = y - 22;
+  private spawnSwing(x: number, y: number, facing: number, ranged: boolean, hero?: string): void {
+    const tint = hitColor(hero, ranged);
+    const rotation = facing < 0 ? Math.PI : 0;
+    const priority = "common";
     if (ranged) {
-      const flash = s.add
-        .image(cx, cy, "spark")
-        .setDepth(y + 60)
-        .setScale(1.1)
-        .setTint(0xfff1c0)
-        .setBlendMode(Phaser.BlendModes.ADD);
-      s.tweens.add({
-        targets: flash,
-        scale: 0,
-        alpha: 0,
-        duration: 160,
-        ease: "Quad.Out",
-        onComplete: () => flash.destroy(),
+      this.commonFx.image({
+        texture: "fx-star",
+        x: x + facing * 30,
+        y: y - 22,
+        depth: y + 60,
+        scale: 1.35,
+        scaleY: 0.65,
+        endScale: 0.2,
+        endScaleY: 0.2,
+        tint,
+        rotation,
+        alpha: 0.95,
+        hold: 0.025,
+        life: 0.14,
+        priority,
       });
       return;
     }
-    // melee: a thin bright arc that sweeps down-forward, fading fast. Position the
-    // graphics AT the swing point and draw the arc at its local origin — drawing at
-    // absolute coords and then scaling would pivot around (0,0) and slide the slice
-    // clear across the screen.
-    const g = s.add
-      .graphics()
-      .setPosition(cx, cy)
-      .setDepth(y + 60)
-      .setBlendMode(Phaser.BlendModes.ADD);
-    const baseAng = facing >= 0 ? -0.9 : Math.PI + 0.9;
-    const sweep = facing >= 0 ? 1.8 : -1.8;
-    const r = 46;
-    g.lineStyle(6, 0xffffff, 0.85);
-    g.beginPath();
-    g.arc(0, 0, r, baseAng, baseAng + sweep, sweep < 0);
-    g.strokePath();
-    g.lineStyle(2, 0xbfe6ff, 0.9);
-    g.beginPath();
-    g.arc(0, 0, r + 5, baseAng, baseAng + sweep, sweep < 0);
-    g.strokePath();
-    g.setScale(0.7);
-    s.tweens.add({
-      targets: g,
-      scaleX: 1.1,
-      scaleY: 1.1,
-      alpha: 0,
-      duration: 180,
-      ease: "Quad.Out",
-      onComplete: () => g.destroy(),
+    this.commonFx.image({
+      texture: "fx-cleave",
+      x: x + facing * 14,
+      y: y - 22,
+      depth: y + 60,
+      scale: 1.05,
+      scaleY: 0.85,
+      endScale: this.reducedMotion ? 1.05 : 1.3,
+      endScaleY: this.reducedMotion ? 0.85 : 1,
+      rotation: rotation - facing * 0.22,
+      endRotation: rotation + (this.reducedMotion ? -facing * 0.22 : facing * 0.28),
+      tint,
+      alpha: 0.95,
+      hold: 0.035,
+      life: 0.22,
+      priority,
     });
+    if (!this.focused && !this.reducedMotion)
+      this.commonFx.image({
+        texture: "streak",
+        x: x + facing * 43,
+        y: y - 24,
+        depth: y + 61,
+        scale: 1.7,
+        scaleY: 0.8,
+        endScale: 0.3,
+        endScaleY: 0.2,
+        rotation: rotation + facing * 0.7,
+        tint: 0xfff6dc,
+        dx: facing * 12,
+        alpha: 0.9,
+        life: 0.12,
+        priority,
+      });
   }
 
   /** A short burst of sparks spraying away from the attacker on a hit — the
@@ -1367,9 +1373,9 @@ export class WorldView {
     if (!this.commonFx.visible(x, y)) return;
     const baseAng = Math.atan2(ny, nx);
     const priority = important || crit ? "important" : "common";
-    for (let i = 0; i < (crit ? 7 : 4); i++) {
+    for (let i = 0; i < (this.reducedMotion ? 1 : this.focused ? 2 : crit ? 7 : 4); i++) {
       const a = baseAng + (Math.random() - 0.5) * 1.5;
-      const speed = (crit ? 90 : 60) + Math.random() * 70;
+      const speed = this.reducedMotion ? 0 : (crit ? 90 : 60) + Math.random() * 70;
       this.commonFx.image({
         texture: "spark",
         x,
@@ -1379,12 +1385,12 @@ export class WorldView {
         endScale: 0,
         tint,
         dx: Math.cos(a) * speed,
-        dy: Math.sin(a) * speed + 18,
+        dy: Math.sin(a) * speed + (this.reducedMotion ? 0 : 18),
         life: (230 + Math.random() * 130) / 1000,
         priority,
       });
     }
-    for (let i = 0; i < (crit ? 4 : 2); i++) {
+    for (let i = 0; i < (this.reducedMotion ? 0 : this.focused ? 1 : crit ? 4 : 2); i++) {
       const a = baseAng + (Math.random() - 0.5) * 1.1;
       const speed = (crit ? 130 : 95) + Math.random() * 90;
       this.commonFx.image({
@@ -1392,10 +1398,10 @@ export class WorldView {
         x,
         y,
         depth: y + 321,
-        scale: crit ? 0.8 : 0.55,
-        scaleY: 0.6,
-        endScale: 0,
-        endScaleY: 0.6,
+        scale: crit ? 1.5 : 1.05,
+        scaleY: 0.7,
+        endScale: 0.15,
+        endScaleY: 0.25,
         rotation: a,
         tint,
         alpha: 0.9,
@@ -1732,6 +1738,7 @@ export class WorldView {
    *  brightest and dims as the projectile pulls away, reading as speed. Throttled
    *  per projectile so the trail is a ribbon of a few puffs, not a solid smear. */
   private tickProjTrail(p: Projectile): void {
+    if (this.reducedMotion) return;
     const now = this.scene.time.now;
     if (now - (this.projTrailAt.get(p.id) ?? 0) < (this.focused ? 70 : 22)) return;
     // no point trailing a projectile the camera can't see — a fight on the far side
@@ -1750,15 +1757,18 @@ export class WorldView {
             ? 0xffae4a
             : 0xdfe8ff; // arrows/tower: a faint white streak
     this.commonFx.image({
-      texture: "spark",
+      texture: hot || p.kind === "dynamite" ? "spark" : "streak",
       x: p.x,
       y: p.y,
       depth: p.y + 199,
-      scale: hot ? 0.5 : 0.3,
+      scale: hot ? 0.65 : 1.05,
+      scaleY: hot ? 0.35 : 0.55,
+      endScaleY: 0.1,
+      rotation: Math.atan2(p.ty - p.y, p.tx - p.x),
       endScale: 0,
       tint: col,
       alpha: hot ? 0.75 : 0.5,
-      life: hot ? 0.3 : 0.21,
+      life: hot ? 0.24 : 0.14,
     });
   }
 
@@ -1873,12 +1883,16 @@ export class WorldView {
           (!fx.isAttack && fx.amount >= 60);
         const priority = important ? "important" : "common";
         this.commonFx.image({
-          texture: "spark",
+          texture: "fx-star",
           x: fx.x,
           y: fx.y,
           depth: fx.y + 300,
-          scale: 0.5,
-          endScale: fx.crit ? 2 : 1.35,
+          scale: fx.crit ? 1.8 : 1.05,
+          scaleY: magic ? 1.3 : 0.65,
+          rotation: Math.atan2(fx.ny, fx.nx) + 0.55,
+          endScale: 0.15,
+          endScaleY: 0.1,
+          hold: fx.crit ? 0.045 : 0.025,
           tint: tintCol,
           alpha: 0.85,
           life: fx.crit ? 0.26 : 0.17,
@@ -1887,11 +1901,15 @@ export class WorldView {
         const bigHit = fx.isAttack === true || fx.crit === true || fx.amount >= 30;
         if (bigHit)
           this.commonFx.image({
-            texture: "spark",
+            texture: "streak",
             x: fx.x,
             y: fx.y,
             depth: fx.y + 301,
-            scale: fx.crit ? 1.15 : 0.72,
+            scale: fx.crit ? 2.7 : 1.7,
+            scaleY: fx.crit ? 1.1 : 0.65,
+            endScaleY: 0.1,
+            rotation: Math.atan2(fx.ny, fx.nx) - 0.55,
+            hold: 0.02,
             endScale: 0,
             alpha: 0.95,
             life: fx.crit ? 0.15 : 0.095,
@@ -1951,6 +1969,22 @@ export class WorldView {
           priority: "important",
           radius: fx.radius + 160,
         });
+        // Conflagration's fuse emits an ability cue; only this real detonation
+        // releases the flame columns. Their feet stay inside the damaged area.
+        if (fx.color === 0xff5a1a) {
+          const offsets = this.focused || this.reducedMotion ? [0] : [-0.35, 0, 0.35];
+          for (const offset of offsets)
+            this.commonFx.sprite({
+              sheet: "sp-fire-pillar",
+              x: fx.x + offset * fx.radius,
+              y: fx.y - 76,
+              depth: fx.y + 403,
+              scale: 1.05,
+              startFrame: 1,
+              priority: "important",
+              radius: fx.radius + 160,
+            });
+        }
         // Authored explosion sheets retain their own palette and frame timing.
         const key =
           fx.radius >= 130 && s.anims.exists("fx-explode2") ? "fx-explode2" : "fx-explode1";
@@ -2169,7 +2203,7 @@ export class WorldView {
         // self/aura cast bursts (windfoot, flashfire, powder keg, blink puff…)
         const spec = abilityCastFx(fx.effect);
         if (spec && spec.at === "caster")
-          this.spawnSpellSprite(fx.x, fx.y, spec.sheet, spec.scale, spec.tint);
+          this.spawnSpellSprite(fx.x, fx.y, spec.sheet, spec.scale, spec.tint, spec.startFrame);
         break;
       }
       case "ability": {
@@ -2187,6 +2221,7 @@ export class WorldView {
     sheet: string,
     scale: number,
     tint?: number,
+    startFrame = 0,
   ): void {
     this.commonFx.sprite({
       sheet,
@@ -2196,16 +2231,19 @@ export class WorldView {
       scale,
       tint,
       priority: "important",
+      startFrame,
       radius: 160 + scale * 128,
     });
   }
 
   private playAbilityFx(fx: Extract<FxEvent, { t: "ability" }>): void {
+    // This event starts the fuse. The existing ground zone owns the warning.
+    if (fx.effect === "emberhex:R") return;
     const col = effectColor(fx.effect);
     // targeted spell bursts (shield bash, fanned daggers, death waltz, hex, heal…)
     const spec = abilityCastFx(fx.effect);
     if (spec && spec.at === "target")
-      this.spawnSpellSprite(fx.x2, fx.y2, spec.sheet, spec.scale, spec.tint);
+      this.spawnSpellSprite(fx.x2, fx.y2, spec.sheet, spec.scale, spec.tint, spec.startFrame);
     // the one true skillshot LINE (Piercing Shot) → a soft electric beam, never a
     // bare white line.
     if (fx.effect === "stormcaller:Q") {
@@ -2215,7 +2253,7 @@ export class WorldView {
     // area abilities → a soft radial impact glow sized to the zone (the detailed
     // art is the cast-fx sprite / explosion / ground zone; this just reads the AoE),
     // plus a distance-weighted rumble and, for the big ones, a shockwave ring.
-    if (fx.radius >= 90) {
+    if (fx.radius >= 90 && fx.effect !== "duskblade:W") {
       this.spawnSoftImpact(fx.x2, fx.y2, fx.radius, col);
       this.traumaAt(fx.x2, fx.y2, Phaser.Math.Clamp(fx.radius / 900, 0.08, 0.4));
       if (fx.radius >= 150) this.spawnShockwave(fx.x2, fx.y2, col, 1);
@@ -2225,85 +2263,81 @@ export class WorldView {
   /** A soft glowing energy beam (stretched radial glow + bright core), not a flat
    *  line — for the piercing skillshot. */
   private spawnBeam(x1: number, y1: number, x2: number, y2: number, col: number): void {
-    const s = this.scene;
     const len = Math.hypot(x2 - x1, y2 - y1);
-    const ang = Math.atan2(y2 - y1, x2 - x1);
-    const mx = (x1 + x2) / 2;
-    const my = (y1 + y2) / 2;
+    if (len < 1) return;
+    const rotation = Math.atan2(y2 - y1, x2 - x1);
+    const x = (x1 + x2) / 2;
+    const y = (y1 + y2) / 2;
     const depth = Math.max(y1, y2) + 320;
-    const glow = s.add
-      .image(mx, my, "glow")
-      .setRotation(ang)
-      .setDisplaySize(len, 60)
-      .setTint(col)
-      .setBlendMode(Phaser.BlendModes.ADD)
-      .setAlpha(0.5)
-      .setDepth(depth);
-    const core = s.add
-      .image(mx, my, "glow")
-      .setRotation(ang)
-      .setDisplaySize(len, 16)
-      .setTint(0xeaf6ff)
-      .setBlendMode(Phaser.BlendModes.ADD)
-      .setAlpha(0.95)
-      .setDepth(depth + 1);
-    s.tweens.add({
-      targets: [glow, core],
-      alpha: 0,
-      duration: 300,
-      ease: "Quad.Out",
-      onComplete: () => {
-        glow.destroy();
-        core.destroy();
-      },
+    this.commonFx.image({
+      texture: "glow",
+      x,
+      y,
+      depth,
+      rotation,
+      tint: col,
+      scale: len / 128,
+      scaleY: 0.32,
+      endScale: len / 128,
+      endScaleY: 0.08,
+      alpha: 0.65,
+      hold: 0.04,
+      life: 0.24,
+      priority: "important",
+      radius: len / 2 + 80,
     });
-    // a little crackle along the bolt
-    for (let i = 1; i <= 4; i++) {
-      const t = i / 5;
-      this.spawnHitSparks(
-        x1 + (x2 - x1) * t,
-        y1 + (y2 - y1) * t,
-        Math.cos(ang + 1.6),
-        Math.sin(ang + 1.6),
-        col,
-        false,
-      );
-    }
+    this.commonFx.image({
+      texture: "streak",
+      x,
+      y,
+      depth: depth + 1,
+      rotation,
+      tint: 0xeaf6ff,
+      scale: len / 24,
+      scaleY: 0.8,
+      endScale: len / 24,
+      endScaleY: 0.15,
+      alpha: 0.95,
+      hold: 0.035,
+      life: 0.16,
+      priority: "important",
+      radius: len / 2 + 80,
+    });
+    if (!this.focused && !this.reducedMotion)
+      for (const t of [0.25, 0.75])
+        this.spawnSpellSprite(x1 + (x2 - x1) * t, y1 + (y2 - y1) * t, "sp-arc", 1, undefined, 3);
   }
 
-  /** Soft radial impact glow + faint ring sized to an ability's radius (replaces
-   *  the old harsh hard-stroked ring). */
+  /** A brief ground response; the outer edge stops at the actual event radius. */
   private spawnSoftImpact(x: number, y: number, r: number, col: number): void {
-    if (!this.commonFx.visible(x, y, r + 160)) return;
-    const s = this.scene;
-    const sc = (r * 2.2) / 128; // "glow" is 128px
-    const g = s.add
-      .image(x, y, "glow")
-      .setTint(col)
-      .setBlendMode(Phaser.BlendModes.ADD)
-      .setAlpha(0.5)
-      .setDepth(y + 200)
-      .setScale(sc * 0.6);
-    s.tweens.add({
-      targets: g,
-      scale: sc,
-      alpha: 0,
-      duration: 360,
-      ease: "Quad.Out",
-      onComplete: () => g.destroy(),
+    const scale = (r * 2) / 128;
+    this.commonFx.image({
+      texture: "glow",
+      x,
+      y,
+      depth: y + 200,
+      tint: col,
+      scale: this.reducedMotion ? scale : scale * 0.7,
+      endScale: scale,
+      alpha: 0.4,
+      hold: 0.035,
+      life: 0.3,
+      priority: "important",
+      radius: r + 160,
     });
-    const ring = s.add
-      .circle(x, y, r, col, 0)
-      .setStrokeStyle(3, col, 0.45)
-      .setDepth(y + 201)
-      .setScale(0.5);
-    s.tweens.add({
-      targets: ring,
-      scale: 1.05,
-      alpha: 0,
-      duration: 380,
-      ease: "Quad.Out",
-      onComplete: () => ring.destroy(),
+    const ring = r / 28;
+    this.commonFx.image({
+      texture: "fx-ring",
+      x,
+      y,
+      depth: y + 201,
+      tint: col,
+      scale: this.reducedMotion ? ring : ring * 0.72,
+      endScale: ring,
+      alpha: 0.5,
+      life: 0.32,
+      priority: "important",
+      radius: r + 160,
     });
   }
 }

@@ -4,6 +4,31 @@ import { HERO_BY_ID, valAt } from "../data/heroes";
 import type { AbilityKey, Targeting } from "../data/heroes";
 import type { HeroState } from "../sim/types";
 
+const PORTRAIT_CROPS = {
+  warrior: { x: 22, y: 31, width: 197, height: 182 },
+  pawn: { x: 52, y: 58, width: 149, height: 129 },
+  archer: { x: 64, y: 29, width: 140, height: 160 },
+  torch: { x: 40, y: 63, width: 166, height: 155 },
+  tnt: { x: 58, y: 67, width: 86, height: 68 },
+  barrel: { x: 39, y: 29, width: 50, height: 70 },
+};
+
+/** Original avatar art; TNT and barrel retain their own tightly fitted sprites. */
+export function heroPortrait(defId: string, team: Team) {
+  const sheet = HERO_BY_ID[defId]?.sheet ?? "warrior";
+  const color = team === "radiant" ? "blue" : "red";
+
+  return {
+    texture:
+      sheet === "tnt" || sheet === "barrel"
+        ? `u-${sheet}-${color}`
+        : sheet === "torch"
+          ? "portrait-torch"
+          : `portrait-${sheet}-${color}`,
+    crop: PORTRAIT_CROPS[sheet],
+  };
+}
+
 type Upgrade =
   | { kind: "available" }
   | { kind: "points" }

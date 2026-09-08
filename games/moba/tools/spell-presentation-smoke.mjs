@@ -2,13 +2,14 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 import { HEROES } from "../src/data/heroes.ts";
-import { castAbility, breakChannel } from "../src/sim/abilities.ts";
+import { castAbility, breakChannel, tickAbilities } from "../src/sim/abilities.ts";
 import { createWorld, spawnHero } from "../src/sim/world.ts";
 import { spellPose } from "../src/render/spell-pose.ts";
 import { parseCastActor } from "../src/net/cast-actor.ts";
 import { sharedFxBatch } from "../src/net/snapshot.ts";
 import { abilityNotes, abilityFoley } from "../src/render/ability-sound.ts";
 import { attackRecoveryFrame } from "../src/render/attack-pose.ts";
+import { abilityCastFx, effectColor, hitColor, SPELL_SHEETS } from "../src/render/fx-map.ts";
 
 // Contact cells inspected in the original sheets, not inferred from clip length.
 const contactFrames = new Map([
@@ -130,3 +131,112 @@ for (const actor of [undefined, { unitId: "you", at: -1 }, { unitId: 1, at: 1 }]
   });
   assert.equal(batch[0].actor, undefined, "wire boundary discards malformed actor extension");
 }
+
+// Real render recipes with display/audio collaborators; no second gameplay path.
+const renderMethods = [
+  "spawnSwing",
+  "spawnHitSparks",
+  "spawnBeam",
+  "spawnSoftImpact",
+  "spawnSpellSprite",
+  "spawnShockwave",
+  "playAbilityFx",
+  "playFx",
+].map((name) => {
+  const code = source.match(new RegExp(`^  private ${name}\\([^]*?^  }`, "m"))?.[0];
+  assert.ok(code, name);
+  return code;
+});
+const Effects = new Function(
+  "Phaser",
+  "abilityCastFx",
+  "effectColor",
+  "hitColor",
+  "sfx",
+  `${stripTypeScriptTypes(`class Effects {${renderMethods.join("\n")}}`)}; return Effects;`,
+)(
+  { Math: { Clamp: (value, low, high) => Math.max(low, Math.min(high, value)) } },
+  abilityCastFx,
+  effectColor,
+  hitColor,
+  { ability() {}, explosion() {} },
+);
+function effects(focused = false, reducedMotion = false) {
+  const view = new Effects();
+  const images = [],
+    sprites = [];
+  Object.assign(view, {
+    focused,
+    reducedMotion,
+    scene: { anims: { exists: () => true } },
+    commonFx: { image: (r) => images.push(r), sprite: (r) => sprites.push(r), visible: () => true },
+    soundGainAt: () => 1,
+    stampScorch() {},
+    traumaAt() {},
+  });
+  return { view, images, sprites };
+}
+for (const hero of HEROES)
+  for (const ability of Object.values(hero.abilities)) {
+    const spec = abilityCastFx(ability.effect);
+    if (!spec || spec.startFrame === undefined) continue;
+    const sheet = SPELL_SHEETS.find((sheet) => sheet.key === spec.sheet);
+    assert.ok(sheet, spec.sheet);
+    assert.ok(spec.startFrame >= 0 && spec.startFrame < sheet.frames);
+  }
+{
+  const normal = effects(),
+    reduced = effects(true, true);
+  normal.view.spawnSwing(100, 200, 1, false, "ironvow");
+  reduced.view.spawnSwing(100, 200, 1, false, "ironvow");
+  assert.equal(normal.images[0].texture, "fx-cleave");
+  assert.ok(normal.images[0].hold > 0, "contact gets a brief readable hold");
+  assert.equal(reduced.images.length, 1);
+  assert.equal(reduced.images[0].rotation, reduced.images[0].endRotation);
+  assert.equal(reduced.images[0].scale, reduced.images[0].endScale);
+  const beam = effects();
+  beam.view.spawnBeam(40, 100, 640, 100, 0x8fd0ff);
+  assert.equal(beam.images[1].texture, "streak");
+  assert.equal(beam.images[1].scale * 24, 600, "core uses the exact accepted segment");
+  assert.equal(beam.images[1].x, 340);
+  assert.ok(beam.sprites.every((r) => r.sheet === "sp-arc" && r.startFrame === 3));
+  const impact = effects();
+  impact.view.spawnSoftImpact(40, 100, 150, 0x8fd0ff);
+  assert.equal(impact.images[1].endScale * 28, 150, "ring stops at the actual damage radius");
+}
+{
+  const world = createWorld(812);
+  world.now = 2000;
+  const caster = spawnHero(world, "emberhex", "radiant", "you", false, 0);
+  caster.hero.abilities.R.rank = 1;
+  caster.mp = 1000;
+  assert.equal(
+    castAbility(world, caster, { key: "R", point: { x: caster.x + 100, y: caster.y } }),
+    true,
+  );
+  const fuse = world.fx.find((fx) => fx.t === "ability");
+  assert.ok(fuse);
+  const warning = effects();
+  warning.view.playAbilityFx(fuse);
+  assert.equal(
+    warning.sprites.length + warning.images.length,
+    0,
+    "fuse keeps only the real ground warning",
+  );
+  world.now += 2000;
+  tickAbilities(world, 0.1);
+  const explosion = world.fx.find((fx) => fx.t === "explosion");
+  assert.ok(explosion, "real detonation must precede flame columns");
+  const before = structuredClone(world);
+  for (const focused of [false, true]) {
+    const blast = effects(focused);
+    blast.view.playFx(explosion);
+    const pillars = blast.sprites.filter((r) => r.sheet === "sp-fire-pillar");
+    assert.equal(pillars.length, focused ? 1 : 3);
+    assert.ok(pillars.every((r) => Math.abs(r.x - explosion.x) < explosion.radius));
+  }
+  assert.deepEqual(world, before, "rendering leaves detonation damage and geometry untouched");
+}
+console.log(
+  "✓ authored contact frames, pooled cleave/beam/radius recipes, reduced-motion and real fuse→detonation timing",
+);

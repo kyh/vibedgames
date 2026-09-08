@@ -1,0 +1,50 @@
+{
+  "packing": "Numeric order; original pixels centered, no resize/recolor; lossless WebP. Sources relative to supplied moba folder.",
+  "sequences": [
+    {
+      "output": "sp-arc.webp",
+      "sourceDirectory": "fx/craftpix-671189-pixel-art-magic-sprite-effects-and-icons-pack/PNG/Lightning1",
+      "filenamePattern": "Lightning1_{frame}.png",
+      "frameRange": [1, 12],
+      "cellSize": [128, 128],
+      "outputSize": [1536, 128],
+      "sha256": "914c0faaeac91480573300e65c647fb16cb0e955d676547d3915225eb47ca19b"
+    },
+    {
+      "output": "sp-flare-ring.webp",
+      "sourceDirectory": "fx/craftpix-net-819691-fire-magic-effects-pixel-art/PNG/Fire_shield",
+      "filenamePattern": "fire_shield_{frame}.png",
+      "frameRange": [1, 8],
+      "cellSize": [128, 128],
+      "outputSize": [1024, 128],
+      "sha256": "65c5ae555e243a5990a6761888625cf3f3e28eda6e70f286f50aac2a7573ae2c"
+    },
+    {
+      "output": "sp-fire-pillar.webp",
+      "sourceDirectory": "fx/craftpix-net-819691-fire-magic-effects-pixel-art/PNG/Fire_pillar",
+      "filenamePattern": "fire_pillar_{frame}.png",
+      "frameRange": [1, 8],
+      "cellSize": [160, 160],
+      "outputSize": [1280, 160],
+      "sha256": "a8e7cad88130f8e99e54dd1aea32328f7384aaee30899ecd4ac6542f2022a65a"
+    },
+    {
+      "output": "sp-geyser.webp",
+      "sourceDirectory": "fx/craftpix-net-217136-water-effects-pixel-art-set/PNG/Geyser",
+      "filenamePattern": "{frame}.png",
+      "frameRange": [1, 7],
+      "cellSize": [128, 128],
+      "outputSize": [896, 128],
+      "sha256": "bd138d507a7e275904f2b091eb2aeae72677d8dc19d823402d19c4f3116a9638"
+    },
+    {
+      "output": "sp-skull.webp",
+      "sourceDirectory": "fx/craftpix-net-526500-smoke-effects-pixel-art/PNG/Smoke_scull",
+      "filenamePattern": "Smoke_scull{frame}.png",
+      "frameRange": [1, 20],
+      "cellSize": [128, 128],
+      "outputSize": [2560, 128],
+      "sha256": "2e71eb05ac753d95d48d14e0685b3aed251693a59b4319833fc031e9175ed872"
+    }
+  ]
+}

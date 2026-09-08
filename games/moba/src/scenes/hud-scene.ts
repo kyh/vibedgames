@@ -16,6 +16,7 @@ import {
   abilityExplanation,
   abilityUpgrade,
   experienceProgress,
+  heroPortrait,
   killFeedText,
 } from "../render/hud-presentation";
 import { heroSheetTex } from "../render/sprites";
@@ -132,6 +133,8 @@ export class HudScene extends Phaser.Scene {
   private slots: Slot[] = [];
   private hpBar!: Phaser.GameObjects.Rectangle;
   private mpBar!: Phaser.GameObjects.Rectangle;
+  private hpTrack: Phaser.GameObjects.Rectangle | null = null;
+  private mpTrack: Phaser.GameObjects.Rectangle | null = null;
   private hpText!: Phaser.GameObjects.Text;
   private mpText!: Phaser.GameObjects.Text;
   private xpBg: Phaser.GameObjects.Rectangle | null = null;
@@ -142,6 +145,7 @@ export class HudScene extends Phaser.Scene {
   private respawnTipText: Phaser.GameObjects.Text | null = null;
   private guidanceNextAt = 0;
   private portrait!: Phaser.GameObjects.Image;
+  private portraitFrame: Phaser.GameObjects.Image | null = null;
   private lvlText!: Phaser.GameObjects.Text;
   private goldText!: Phaser.GameObjects.Text;
   private clockText!: Phaser.GameObjects.Text;
@@ -389,6 +393,7 @@ export class HudScene extends Phaser.Scene {
     this.barPanel = this.add
       .nineslice(0, 0, "ui-carved3", 0, this.barW + 120, 64, 24, 24, 18, 18)
       .setDepth(-1);
+    this.portraitFrame = this.add.image(0, 0, "ui-panel").setDisplaySize(74, 74);
     this.portrait = this.add.image(0, 0, "ui-panel").setDisplaySize(74, 74);
     this.lvlText = this.add
       .text(0, 0, "1", {
@@ -400,7 +405,8 @@ export class HudScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    this.add.existing(this.portrait);
+    this.hpTrack = this.add.rectangle(0, 0, this.barW, 16, 0x244333).setOrigin(0, 0.5);
+    this.mpTrack = this.add.rectangle(0, 0, this.barW, 10, 0x253d55).setOrigin(0, 0.5);
     this.hpBar = this.add.rectangle(0, 0, this.barW, 16, 0x44d07a).setOrigin(0, 0.5);
     this.mpBar = this.add.rectangle(0, 0, this.barW, 10, 0x4a8fff).setOrigin(0, 0.5);
     this.hpText = this.add
@@ -427,9 +433,7 @@ export class HudScene extends Phaser.Scene {
       .text(0, 0, "", {
         fontFamily: FONT,
         fontSize: "10px",
-        color: "#fff0b9",
-        stroke: "#302c22",
-        strokeThickness: 2,
+        color: "#513c21",
       })
       .setOrigin(0.5);
 
@@ -565,7 +569,7 @@ export class HudScene extends Phaser.Scene {
         .setInteractive({ useHandCursor: true });
       const img = this.add
         .image(0, 0, "ui-panel")
-        .setDisplaySize(40, 40)
+        .setDisplaySize(44, 44)
         .setDepth(40010)
         .setVisible(false)
         .setInteractive({ useHandCursor: true });
@@ -880,8 +884,9 @@ export class HudScene extends Phaser.Scene {
     const W = this.scale.width;
     const H = this.scale.height;
     const portrait = H > W;
-    const x = this.compact ? this.mapX : 12;
-    const y = this.compact ? this.mapY + this.mapH + 10 : 286;
+    const x = this.compact ? this.mapX : this.infoPanel.x;
+    const y = this.compact ? this.mapY + this.mapH + 10 : this.infoPanel.y + 122;
+    guide.toggle.style.width = `${this.compact ? this.mapW : this.infoPanel.width}px`;
     guide.toggle.style.left = `${x}px`;
     guide.toggle.style.top = `${y}px`;
     guide.panel.style.left = `${x}px`;
@@ -1580,8 +1585,9 @@ export class HudScene extends Phaser.Scene {
     const H = this.scale.height;
     const inset = safeAreaInset();
     const cx = W / 2;
-    const compact = W < 760 || H < 520;
+    const compact = W < 1100 || H < 520;
     const portraitOrient = H > W;
+    const narrowHeader = portraitOrient && W - inset.left - inset.right < 360;
     this.compact = compact;
 
     // flip every dual-form widget to the mode's look (invisible = untappable,
@@ -1616,11 +1622,15 @@ export class HudScene extends Phaser.Scene {
       }
       s.icon.setDisplaySize(compact ? 26 : 30, compact ? 26 : 30);
     }
-    if (this.barPanel) this.barPanel.setVisible(!compact);
+    if (this.barPanel) this.barPanel.setVisible(true);
 
     // minimap: bottom-right on desktop, half-size top-LEFT on phones (the
     // right edge belongs to the thumb arc)
-    const mapK = compact ? 0.5 : 1;
+    const mapK = narrowHeader
+      ? Math.max(72, Math.min(96, W - inset.left - inset.right - 224)) / MINIMAP_SIZE
+      : compact
+        ? 0.5
+        : 1;
     this.mapW = Math.round(MINIMAP_SIZE * mapK);
     this.mapH = Math.round(MINIMAP_H * mapK);
     this.mapScale = this.mapW / WORLD.width;
@@ -1645,14 +1655,14 @@ export class HudScene extends Phaser.Scene {
     const iy = 8 + inset.top;
     const stripX = this.mapX + this.mapW + 22;
     this.goldText.setFontSize(compact ? (portraitOrient ? 12 : 13) : 18);
-    this.clockText.setFontSize(compact ? 11 : 14);
-    this.kdaText.setFontSize(compact ? 11 : 14);
+    this.clockText.setFontSize(compact ? 11 : 14).setOrigin(0, 0);
+    this.kdaText.setFontSize(compact ? 11 : 13);
     if (compact) {
       if (portraitOrient) {
-        this.infoPanel.setPosition(stripX, iy).setSize(150, 40);
+        this.infoPanel.setPosition(stripX, iy).setSize(narrowHeader ? 132 : 150, 40);
         this.goldText.setPosition(stripX + 10, iy + 5);
-        this.clockText.setPosition(stripX + 84, iy + 7);
-        this.kdaText.setPosition(stripX + 10, iy + 23);
+        this.clockText.setPosition(stripX + (narrowHeader ? 10 : 84), iy + (narrowHeader ? 23 : 7));
+        this.kdaText.setPosition(stripX + (narrowHeader ? 60 : 10), iy + 23);
       } else {
         this.infoPanel.setPosition(stripX, iy).setSize(220, 30);
         this.goldText.setPosition(stripX + 12, iy + 6);
@@ -1660,17 +1670,17 @@ export class HudScene extends Phaser.Scene {
         this.kdaText.setPosition(stripX + 134, iy + 8);
       }
     } else {
-      this.infoPanel.setPosition(left, iy).setSize(226, 112);
+      this.infoPanel.setPosition(left, iy).setSize(288, 118);
       this.goldText.setPosition(left + 16, iy + 12);
-      this.clockText.setPosition(left + 16, iy + 38);
-      this.kdaText.setPosition(left + 16, iy + 60);
+      this.clockText.setOrigin(1, 0).setPosition(left + 272, iy + 14);
+      this.kdaText.setPosition(left + 16, iy + 38);
     }
-    this.apText.setPosition(left + 16, iy + 82).setVisible(!compact);
+    this.apText.setVisible(!compact).setOrigin(0.5, 1).setColor("#fff0bf").setStroke("#30291d", 3);
     this.objectiveText
       ?.setPosition(compact ? stripX : cx, compact ? iy + (portraitOrient ? 88 : 78) : 68)
       .setOrigin(compact ? 0 : 0.5, 0)
       .setFontSize(compact ? 11 : 13)
-      .setWordWrapWidth(compact ? W - stripX - 12 : 420);
+      .setWordWrapWidth(compact ? W - stripX - inset.right - (narrowHeader ? 66 : 12) : 420);
 
     // utility buttons: glyph roundels under the info strip on compact, the
     // classic word-pill column under the info panel on desktop
@@ -1679,14 +1689,14 @@ export class HudScene extends Phaser.Scene {
       b.img.setVisible(compact);
       b.txt.setText(compact ? b.glyph : b.word).setFontSize(compact ? 17 : 13);
       if (compact) {
-        const bx = stripX + 20 + i * 46;
+        const bx = stripX + (narrowHeader ? 22 + i * 44 : 20 + i * 46);
         const by = iy + (portraitOrient ? 62 : 52);
         b.img.setPosition(bx, by);
         b.txt.setPosition(bx, by - 1);
       } else {
-        const bx = left + 46;
-        const by = iy + 136 + i * 54;
-        b.bg.setPosition(bx, by);
+        const bx = left + 48 + i * 96;
+        const by = iy + 88;
+        b.bg.setPosition(bx, by).setSize(88, 46);
         b.txt.setPosition(bx, by - 3);
       }
     });
@@ -1711,29 +1721,35 @@ export class HudScene extends Phaser.Scene {
     const itemPos: { x: number; y: number }[] = [];
     let dashPos = { x: 0, y: 0 };
     if (compact) {
-      // bars: docked bottom-LEFT (the floating stick is invisible and spawns
-      // at the touch point, so nothing is displaced by it)
+      // Narrow phones lift the resource card above the lower arc so it remains
+      // readable without shrinking the spell targets or overlapping R.
+      const usableWidth = W - inset.left - inset.right;
+      const liftVitals = portraitOrient && usableWidth < 390;
       const bLeft = 14 + inset.left;
-      const bBot = H - 14 - inset.bottom;
-      this.barW = portraitOrient ? 150 : 170;
-      this.portraitSize = 34;
-      this.portrait.setPosition(bLeft + 17, bBot - 22).setDisplaySize(34, 34);
-      this.lvlText.setPosition(bLeft + 17, bBot - 10).setFontSize(12);
-      const barX = bLeft + 42;
-      this.hpBar.setPosition(barX, bBot - 28);
-      this.hpBar.height = 11;
-      this.mpBar.setPosition(barX, bBot - 12);
-      this.mpBar.height = 7;
-      this.hpText.setPosition(barX + this.barW / 2, bBot - 28).setFontSize(11);
-      this.mpText.setPosition(barX + this.barW / 2, bBot - 12).setFontSize(10);
-      this.xpBg?.setPosition(barX, bBot - 4).setSize(this.barW, 3);
-      this.xpFill?.setPosition(barX, bBot - 4);
-      this.xpText?.setPosition(barX + this.barW / 2, bBot + 4).setFontSize(9);
+      const bBot = H - 12 - inset.bottom - (liftVitals ? 132 : 0);
+      this.barW = portraitOrient ? Math.max(96, Math.min(124, usableWidth - 210)) : 170;
+      this.portraitSize = 42;
+      this.barPanel
+        .setPosition(bLeft + (this.barW + 56) / 2, bBot - 25)
+        .setSize(this.barW + 72, 70);
+      this.portrait.setPosition(bLeft + 23, bBot - 28);
+      this.portraitFrame?.setPosition(bLeft + 23, bBot - 28).setDisplaySize(50, 54);
+      this.lvlText.setPosition(bLeft + 23, bBot - 6).setFontSize(13);
+      const barX = bLeft + 54;
+      this.hpBar.setPosition(barX, bBot - 38);
+      this.hpBar.height = 12;
+      this.mpBar.setPosition(barX, bBot - 23);
+      this.mpBar.height = 8;
+      this.hpText.setPosition(barX + this.barW / 2, bBot - 38).setFontSize(11);
+      this.mpText.setPosition(barX + this.barW / 2, bBot - 23).setFontSize(10);
+      this.xpBg?.setPosition(barX, bBot - 13).setSize(this.barW, 3);
+      this.xpFill?.setPosition(barX, bBot - 13);
+      this.xpText?.setPosition(barX + this.barW / 2, bBot - 4).setFontSize(9);
 
       // ability arc: dash anchors the corner, Q/W/E/R fan on a quarter-arc
       const ax = W - 40 - inset.right;
       const ay = H - 40 - inset.bottom;
-      const arcRadius = portraitOrient ? 100 : 112;
+      const arcRadius = 112;
       dashPos = { x: ax, y: ay };
       for (let i = 0; i < this.slots.length; i++) {
         const phi = (ARC_START_DEG + (i * ARC_SPAN_DEG) / (this.slots.length - 1)) * DEG;
@@ -1744,33 +1760,41 @@ export class HudScene extends Phaser.Scene {
       this.itemColX = ax - 6;
       this.itemColY = ay - arcRadius - 54;
     } else {
-      const baseY = H - 50;
-      this.barW = 200;
-      this.portraitSize = 74;
-      if (this.barPanel) this.barPanel.setPosition(cx - 104, baseY).setSize(this.barW + 130, 86);
-      this.portrait.setPosition(cx - 220, baseY).setDisplaySize(74, 74);
-      this.lvlText.setPosition(cx - 220, baseY + 22).setFontSize(20);
+      // Center a single dock in the space left of the minimap. Every section
+      // shares its baseline; the last item cell cannot sit under the map.
+      const dockLeft = (16 + inset.left + this.mapX - 32 - 768) / 2;
+      const baseY = H - 54 - inset.bottom;
+      this.barW = 184;
+      this.portraitSize = 62;
+      this.barPanel.setPosition(dockLeft + 141, baseY).setSize(282, 92);
+      this.portrait.setPosition(dockLeft + 43, baseY - 2);
+      this.portraitFrame?.setPosition(dockLeft + 43, baseY).setDisplaySize(74, 78);
+      this.lvlText.setPosition(dockLeft + 43, baseY + 27).setFontSize(17);
 
-      const barX = cx - 175;
-      this.hpBar.setPosition(barX, baseY - 14);
+      const barX = dockLeft + 88;
+      this.hpBar.setPosition(barX, baseY - 21);
       this.hpBar.height = 16;
-      this.mpBar.setPosition(barX, baseY + 6);
+      this.mpBar.setPosition(barX, baseY + 1);
       this.mpBar.height = 10;
-      this.hpText.setPosition(barX + this.barW / 2, baseY - 14).setFontSize(12);
-      this.mpText.setPosition(barX + this.barW / 2, baseY + 6).setFontSize(11);
-      this.xpBg?.setPosition(barX, baseY + 22).setSize(this.barW, 3);
-      this.xpFill?.setPosition(barX, baseY + 22);
-      this.xpText?.setPosition(barX + this.barW / 2, baseY + 32).setFontSize(10);
+      this.hpText.setPosition(barX + this.barW / 2, baseY - 21).setFontSize(12);
+      this.mpText.setPosition(barX + this.barW / 2, baseY + 1).setFontSize(11);
+      this.xpBg?.setPosition(barX, baseY + 18).setSize(this.barW, 3);
+      this.xpFill?.setPosition(barX, baseY + 18);
+      this.xpText?.setPosition(barX + this.barW / 2, baseY + 30).setFontSize(10);
 
-      const startX = cx + 60;
-      dashPos = { x: startX - 64, y: baseY };
-      for (let i = 0; i < this.slots.length; i++) slotPos.push({ x: startX + i * 66, y: baseY });
-      // inventory slots: a 3x2 grid to the right of the ability bar
-      const itemX0 = startX + KEYS.length * 66 + 24;
+      dashPos = { x: dockLeft + 318, y: baseY };
+      const startX = dockLeft + 386;
+      for (let i = 0; i < this.slots.length; i++) slotPos.push({ x: startX + i * 68, y: baseY });
+      this.apText.setPosition(startX + 102, baseY - 48).setFontSize(13);
+      const itemX0 = dockLeft + 658;
       for (let i = 0; i < this.itemSlots.length; i++) {
-        itemPos.push({ x: itemX0 + (i % 3) * 42, y: baseY - 20 + Math.floor(i / 3) * 42 });
+        itemPos.push({ x: itemX0 + (i % 3) * 44, y: baseY - 22 + Math.floor(i / 3) * 44 });
       }
     }
+
+    this.hpTrack?.setPosition(this.hpBar.x, this.hpBar.y).setSize(this.barW, this.hpBar.height);
+    this.mpTrack?.setPosition(this.mpBar.x, this.mpBar.y).setSize(this.barW, this.mpBar.height);
+    this.fitPortrait();
 
     if (this.dashBox) {
       this.dashPanel.setPosition(dashPos.x, dashPos.y);
@@ -1819,6 +1843,21 @@ export class HudScene extends Phaser.Scene {
     if (this.vignette) this.vignette.setDisplaySize(W, H).setPosition(0, 0);
     this.layoutAnnouncement();
     this.layoutAbilityGuide();
+  }
+
+  private fitPortrait(): void {
+    const me = this.gs.player;
+    if (!me?.hero) return;
+    const { texture, crop } = heroPortrait(me.hero.defId, me.team);
+    if (!this.textures.exists(texture)) return;
+    this.portrait.setTexture(texture, 0);
+    this.portrait
+      .setCrop(crop.x, crop.y, crop.width, crop.height)
+      .setOrigin(
+        (crop.x + crop.width / 2) / this.portrait.width,
+        (crop.y + crop.height / 2) / this.portrait.height,
+      )
+      .setScale(this.portraitSize / Math.max(crop.width, crop.height));
   }
 
   override update(_t: number, delta: number): void {
@@ -1884,7 +1923,7 @@ export class HudScene extends Phaser.Scene {
     this.kdaText.setText(
       this.compact
         ? `KDA ${h.kills}/${h.deaths}/${h.assists}`
-        : `K ${h.kills}  D ${h.deaths}  A ${h.assists}  ·  LH ${h.lastHits}`,
+        : `KDA ${h.kills}/${h.deaths}/${h.assists}   ·   LAST HITS ${h.lastHits}`,
     );
     this.apText.setText(
       h.abilityPoints > 0
@@ -1929,9 +1968,8 @@ export class HudScene extends Phaser.Scene {
     }
 
     // portrait/level
-    const tex = heroSheetTex(h.defId, me.team);
-    if (this.portrait.texture.key !== tex && this.textures.exists(tex))
-      this.portrait.setTexture(tex, 0).setDisplaySize(this.portraitSize, this.portraitSize);
+    const portrait = heroPortrait(h.defId, me.team);
+    if (this.portrait.texture.key !== portrait.texture) this.fitPortrait();
     this.lvlText.setText(`${h.level}`);
     const experience = experienceProgress(h);
     if (this.xpFill) this.xpFill.width = this.barW * experience.fraction;

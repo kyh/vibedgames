@@ -14,7 +14,9 @@ type ImageFx = PointFx & {
   tint?: number;
   alpha?: number;
   rotation?: number;
+  endRotation?: number;
   life: number;
+  hold?: number;
   ease?: "quad" | "cubic";
 };
 type SpriteFx = PointFx & {
@@ -26,6 +28,7 @@ type SpriteFx = PointFx & {
   flip?: boolean;
   delay?: number;
   additive?: boolean;
+  startFrame?: number;
 };
 type LabelFx = PointFx & {
   group?: string;
@@ -64,6 +67,23 @@ export class CommonFx {
   private focused = false;
 
   constructor(private readonly scene: Phaser.Scene) {
+    if (!scene.textures.exists("fx-cleave")) {
+      const blade = scene.add.graphics();
+      blade.fillStyle(0xffffff, 1).beginPath();
+      blade.moveTo(48 + Math.cos(-0.95) * 42, 48 + Math.sin(-0.95) * 42);
+      for (let i = 1; i <= 24; i++) {
+        const angle = -0.95 + (i / 24) * 1.9;
+        blade.lineTo(48 + Math.cos(angle) * 42, 48 + Math.sin(angle) * 42);
+      }
+      for (let i = 24; i >= 0; i--) {
+        const angle = -0.95 + (i / 24) * 1.9;
+        const radius = 42 - Math.sin((i / 24) * Math.PI) * 15;
+        blade.lineTo(48 + Math.cos(angle) * radius, 48 + Math.sin(angle) * radius);
+      }
+      blade.closePath().fillPath();
+      blade.generateTexture("fx-cleave", 96, 96);
+      blade.destroy();
+    }
     this.images = Array.from({ length: 192 }, () => ({
       node: scene.add.image(0, 0, "spark").setVisible(false),
       live: null,
@@ -174,7 +194,8 @@ export class CommonFx {
       .setVisible((recipe.delay ?? 0) === 0);
     // Inactive sprites are advanced exactly once below, using the view's delta.
     // No completion listeners or scene timers can fire after a slot is reused.
-    if ((recipe.delay ?? 0) === 0) slot.node.play(anim);
+    if ((recipe.delay ?? 0) === 0)
+      slot.node.play({ key: anim, startFrame: recipe.startFrame ?? 0 });
     slot.node.setActive(false);
   }
 
@@ -241,13 +262,21 @@ export class CommonFx {
       const r = live.recipe,
         t = Math.min(1, live.age / r.life);
       const eased = 1 - (1 - t) ** (r.ease === "cubic" ? 3 : 2);
+      const fade = Phaser.Math.Clamp(
+        (live.age - (r.hold ?? 0)) / Math.max(0.001, r.life - (r.hold ?? 0)),
+        0,
+        1,
+      );
       slot.node
         .setPosition(r.x + (r.dx ?? 0) * eased, r.y + (r.dy ?? 0) * eased)
         .setScale(
           r.scale + (r.endScale - r.scale) * eased,
           (r.scaleY ?? r.scale) + ((r.endScaleY ?? r.endScale) - (r.scaleY ?? r.scale)) * eased,
         )
-        .setAlpha((r.alpha ?? 1) * (1 - eased));
+        .setRotation(
+          (r.rotation ?? 0) + ((r.endRotation ?? r.rotation ?? 0) - (r.rotation ?? 0)) * eased,
+        )
+        .setAlpha((r.alpha ?? 1) * (r.hold === undefined ? 1 - eased : (1 - fade) ** 2));
       if (t >= 1) {
         slot.live = null;
         slot.node.setVisible(false);
@@ -260,7 +289,10 @@ export class CommonFx {
       live.age += dt;
       if (live.age < 0) continue;
       if (before < 0) {
-        slot.node.play(live.recipe.anim ?? live.recipe.sheet);
+        slot.node.play({
+          key: live.recipe.anim ?? live.recipe.sheet,
+          startFrame: live.recipe.startFrame ?? 0,
+        });
         slot.node.setVisible(true);
       }
       slot.node.anims.update(this.scene.time.now, (before < 0 ? live.age : dt) * 1000);

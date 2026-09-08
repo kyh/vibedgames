@@ -14,6 +14,11 @@ export const SPELL_SHEETS: SpellSheet[] = [
   { key: "sp-light", frame: 128, frames: 4, fps: 16 },
   { key: "sp-tornado", frame: 128, frames: 11, fps: 18 },
   { key: "sp-gypno", frame: 64, frames: 14, fps: 20 },
+  { key: "sp-arc", frame: 128, frames: 12, fps: 30 },
+  { key: "sp-flare-ring", frame: 128, frames: 8, fps: 24 },
+  { key: "sp-fire-pillar", frame: 160, frames: 8, fps: 22 },
+  { key: "sp-geyser", frame: 128, frames: 7, fps: 22 },
+  { key: "sp-skull", frame: 128, frames: 20, fps: 28 },
 ];
 
 /** Frame order inside `assets/spell/icons.webp` — one packed 6×3 sheet of 64px
@@ -84,6 +89,7 @@ export type SpellCastFx = {
   at: "caster" | "target";
   scale: number;
   tint?: number;
+  startFrame?: number;
 };
 
 export const ABILITY_CAST_FX = {
@@ -91,20 +97,19 @@ export const ABILITY_CAST_FX = {
   "ironvow:W": { sheet: "sp-light", at: "caster", scale: 1.3, tint: 0xbcd6ff },
   "ironvow:R": { sheet: "sp-light", at: "caster", scale: 2.6, tint: 0xbcd6ff },
   "duskblade:Q": { sheet: "sp-smoke", at: "caster", scale: 1.0, tint: 0xb06bff },
-  "duskblade:W": { sheet: "sp-spikes", at: "target", scale: 1.4, tint: 0xc89bff },
-  "duskblade:R": { sheet: "sp-smoke", at: "target", scale: 1.5, tint: 0x9b6bff },
-  "stormcaller:W": { sheet: "sp-light", at: "target", scale: 0.7, tint: 0x6ab8ff },
+  "duskblade:W": { sheet: "sp-spikes", at: "target", scale: 1.4, startFrame: 3 },
+  "duskblade:R": { sheet: "sp-skull", at: "target", scale: 2.2, tint: 0xc89bff, startFrame: 5 },
+  "stormcaller:W": { sheet: "sp-arc", at: "target", scale: 1.2, startFrame: 3 },
   "stormcaller:E": { sheet: "sp-tornado", at: "caster", scale: 1.25, tint: 0xbfe6ff },
-  "stormcaller:R": { sheet: "sp-lightning", at: "target", scale: 1.3, tint: 0x8fd0ff },
-  "emberhex:Q": { sheet: "sp-fire", at: "caster", scale: 0.9, tint: 0xffb27a }, // muzzle flare
-  "emberhex:W": { sheet: "sp-fire", at: "caster", scale: 1.0, tint: 0xff8a4a },
-  "emberhex:E": { sheet: "sp-fire", at: "caster", scale: 1.7, tint: 0xffcaa0 },
-  "emberhex:R": { sheet: "sp-fire", at: "target", scale: 2.1, tint: 0xff7a2a },
+  "stormcaller:R": { sheet: "sp-lightning", at: "target", scale: 1.3, startFrame: 3 },
+  "emberhex:Q": { sheet: "sp-fire", at: "caster", scale: 0.9, startFrame: 3 },
+  "emberhex:W": { sheet: "sp-fire", at: "caster", scale: 1.0, startFrame: 6 },
+  "emberhex:E": { sheet: "sp-flare-ring", at: "caster", scale: 1.1, startFrame: 1 },
   "boomtinker:Q": { sheet: "sp-smoke", at: "caster", scale: 0.9, tint: 0xd8c0a0 }, // toss puff
   "boomtinker:W": { sheet: "sp-smoke", at: "target", scale: 1.0, tint: 0xffd24d },
   "boomtinker:E": { sheet: "sp-light", at: "caster", scale: 1.2, tint: 0xffe08a },
-  "boomtinker:R": { sheet: "sp-fire", at: "caster", scale: 1.6, tint: 0xffd24d },
-  "brewkeeper:Q": { sheet: "sp-water", at: "target", scale: 1.1, tint: 0x8bf0a8 },
+  "boomtinker:R": { sheet: "fx-explode1", at: "target", scale: 1.6 },
+  "brewkeeper:Q": { sheet: "sp-geyser", at: "target", scale: 0.9, startFrame: 2 },
   "brewkeeper:W": { sheet: "sp-gypno", at: "target", scale: 1.9, tint: 0xc78bff },
   "brewkeeper:E": { sheet: "sp-light", at: "caster", scale: 1.5, tint: 0x9bf0b0 },
   "brewkeeper:R": { sheet: "sp-light", at: "caster", scale: 2.3, tint: 0x9bf0b0 }, // last call
