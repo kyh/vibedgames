@@ -19,13 +19,6 @@ import { groupRow } from "../pause-overlay";
 import type { Cell } from "../game/board";
 import { screenToWorld, type ScreenDir } from "../game/camera-correction";
 import { Engine, type LockEvent } from "../game/engine";
-import {
-  createFixedRandom,
-  FIXED_RUN_NAME,
-  readFixedBest,
-  storeFixedBest,
-  type RunMode,
-} from "../game/fixed-run";
 import { RuleTeaching } from "../game/rule-teaching";
 import { ParticlePool } from "../fx/particles";
 import { WellFx, type WellFxState } from "../fx/well-fx";
@@ -92,7 +85,6 @@ export type TetrisDiagnostics = {
   frame: number;
   phase: Status;
   score: number;
-  mode: RunMode["kind"];
   complete: boolean;
   player: Cell | null;
   entities: number;
@@ -148,12 +140,7 @@ export class GameScene {
   private largestClear = 0;
   private orbitTaught = false;
   private bestScore = readBestScore();
-  private fixedBest = readFixedBest();
-  private mode: RunMode = { kind: "normal" };
   private readonly teaching: RuleTeaching;
-  private readonly onFixedEnter = () => this.startMode({ kind: "fixed" });
-  private readonly onFixedRetry = () => this.startIfIdle();
-  private readonly onFixedNormal = () => this.startMode({ kind: "normal" });
   private readonly sealRunPointer = (event: Event) => event.stopPropagation();
   private readonly sealRunKey = (event: KeyboardEvent) => {
     if (event.key === "Enter" || event.key === " ") event.stopPropagation();
@@ -191,9 +178,6 @@ export class GameScene {
     document.body.classList.toggle("touch", this.coarse);
     el("compact-start")?.addEventListener("click", this.onCompactStart);
     this.teaching = new RuleTeaching(el("spatial-rule"));
-    el("fixed-run-enter")?.addEventListener("click", this.onFixedEnter);
-    el("fixed-run-retry")?.addEventListener("click", this.onFixedRetry);
-    el("fixed-run-normal")?.addEventListener("click", this.onFixedNormal);
     el("run-actions")?.addEventListener("keydown", this.sealRunKey);
     el("run-actions")?.addEventListener("keyup", this.sealRunKey);
     el("run-actions")?.addEventListener("pointerdown", this.sealRunPointer);
@@ -242,7 +226,6 @@ export class GameScene {
       frame: this.frame,
       phase: this.engine.state.status,
       score: this.engine.state.score,
-      mode: this.mode.kind,
       complete: this.engine.state.status === "gameOver",
       player: active.length > 0 ? centroid(active) : null,
       entities,
@@ -253,7 +236,7 @@ export class GameScene {
         pieces: this.piecesPlaced,
         rescues: this.rescues,
         largestClear: this.largestClear,
-        bestScore: this.mode.kind === "fixed" ? this.fixedBest : this.bestScore,
+        bestScore: this.bestScore,
       },
       catchRemainingMs: this.catchRemainingMs,
       fx: { ...this.wellFx.counts(), particles: this.particles.count },
@@ -300,9 +283,6 @@ export class GameScene {
     this.unwatchControls = null;
     el("compact-start")?.removeEventListener("click", this.onCompactStart);
     this.teaching.dispose();
-    el("fixed-run-enter")?.removeEventListener("click", this.onFixedEnter);
-    el("fixed-run-retry")?.removeEventListener("click", this.onFixedRetry);
-    el("fixed-run-normal")?.removeEventListener("click", this.onFixedNormal);
     el("run-actions")?.removeEventListener("keydown", this.sealRunKey);
     el("run-actions")?.removeEventListener("keyup", this.sealRunKey);
     el("run-actions")?.removeEventListener("pointerdown", this.sealRunPointer);
@@ -526,36 +506,12 @@ export class GameScene {
     if (s === "title" || s === "gameOver") this.startGame();
   }
 
-  private startMode(mode: RunMode): void {
-    if (this.presentationPaused || this.disposed) return;
-    const phase = this.engine.state.status;
-    if (phase !== "title" && phase !== "gameOver") return;
-    this.mode = mode;
-    this.startGame();
-  }
-
   private refreshRunActions(): void {
     const phase = this.engine.state.status;
     const idle = !this.disposed && (phase === "title" || phase === "gameOver");
-    const fixed = this.mode.kind === "fixed";
     this.touch.setActive(!this.disposed && (phase === "playing" || phase === "collapsing"));
     const actions = el("run-actions");
     if (actions) actions.hidden = !idle;
-    const fixedActions = el("fixed-run-actions");
-    if (fixedActions) fixedActions.hidden = !idle;
-    const start = el("compact-start");
-    if (start) start.hidden = fixed;
-    const enter = el("fixed-run-enter");
-    if (enter) enter.hidden = fixed;
-    const retry = el("fixed-run-retry");
-    if (retry) retry.hidden = !fixed;
-    const normal = el("fixed-run-normal");
-    if (normal) normal.hidden = !fixed;
-    const badge = el("run-mode");
-    if (badge) {
-      badge.hidden = !fixed || this.disposed || phase !== "playing";
-      badge.textContent = `${FIXED_RUN_NAME} · best ${this.fixedBest}`;
-    }
   }
 
   private startGame(): void {
@@ -575,7 +531,7 @@ export class GameScene {
     this.rescues = 0;
     this.largestClear = 0;
     this.orbitTaught = false;
-    this.engine.startGame(this.mode.kind === "fixed" ? createFixedRandom() : null);
+    this.engine.startGame();
     this.boardDirty = true;
     this.needSnap = true;
     this.hMove.dir = 0;
@@ -674,20 +630,15 @@ export class GameScene {
     this.engine.state.status = "gameOver";
     this.well.setAllWallsVisible(true);
     sfx.gameOver();
-    const previous = this.mode.kind === "fixed" ? this.fixedBest : this.bestScore;
+    const previous = this.bestScore;
     const newBest = this.engine.state.score > previous;
     const runBest = Math.max(previous, this.engine.state.score);
-    if (this.mode.kind === "fixed") {
-      this.fixedBest = runBest;
-      if (newBest) storeFixedBest(runBest);
-    } else {
-      this.bestScore = runBest;
-      if (newBest) {
-        try {
-          localStorage.setItem(BEST_SCORE_KEY, String(runBest));
-        } catch {
-          // A blocked store must never block the retry path; keep this visit's best.
-        }
+    this.bestScore = runBest;
+    if (newBest) {
+      try {
+        localStorage.setItem(BEST_SCORE_KEY, String(runBest));
+      } catch {
+        // A blocked store must never block the retry path; keep this visit's best.
       }
     }
     const score = el("result-score");
@@ -700,10 +651,8 @@ export class GameScene {
       stats.textContent = `${lines} ${lines === 1 ? "line" : "lines"} · ${this.piecesPlaced} ${this.piecesPlaced === 1 ? "piece" : "pieces"} placed\n${this.rescues} ${this.rescues === 1 ? "rescue" : "rescues"} · largest clear ${this.largestClear}`;
     }
     this.showBanner(
-      this.mode.kind === "fixed" ? "FIXED SEQUENCE" : "GAME OVER",
-      this.mode.kind === "fixed"
-        ? "Same pieces. New possibilities. Beat your sequence best."
-        : `${this.coarse ? "Tap" : "Enter / Space"} to retry · a fresh stack awaits`,
+      "GAME OVER",
+      `${this.coarse ? "Tap" : "Enter / Space"} to retry · a fresh stack awaits`,
       false,
     );
   }

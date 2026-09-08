@@ -151,20 +151,6 @@
         align-items: center;
         gap: 8px;
       }
-      #run-mode {
-        align-self: flex-start;
-        margin-top: 10px;
-        color: #ffd86b;
-        font-size: 10px;
-      }
-      #run-mode[hidden] {
-        display: none;
-      }
-      body.touch #run-mode {
-        max-width: calc(100vw - min(62vw, 240px) - 24px);
-        white-space: normal;
-        line-height: 1.5;
-      }
       #hotkeys {
         display: flex;
         flex-wrap: wrap;
@@ -292,8 +278,7 @@
         opacity: 0.35;
         cursor: default;
       }
-      .rule-navigation button:focus-visible,
-      .fixed-run-button:focus-visible {
+      .rule-navigation button:focus-visible {
         outline: 2px solid #eef0ff;
         outline-offset: 3px;
       }
@@ -310,32 +295,7 @@
         margin-top: 12px;
         pointer-events: auto;
       }
-      #fixed-run-actions {
-        display: contents;
-      }
-      .fixed-run-button {
-        min-height: 44px;
-        padding: 8px 16px;
-        border: 1px solid #69739d;
-        border-radius: 8px;
-        color: #eef0ff;
-        background: #24293f;
-        font:
-          600 12px/1.4 ui-monospace,
-          monospace;
-        cursor: pointer;
-        touch-action: manipulation;
-      }
-      .fixed-run-button small {
-        display: block;
-        color: #a7aecb;
-        font-size: 10px;
-        font-weight: 400;
-      }
-      #run-actions[hidden],
-      #fixed-run-actions[hidden],
-      .fixed-run-button[hidden],
-      #banner #run-actions #compact-start[hidden] {
+      #run-actions[hidden] {
         display: none;
       }
       #banner[data-phase="title"],
@@ -699,11 +659,7 @@
           gap: 8px;
           margin-top: 8px;
         }
-        #run-actions:has(#fixed-run-enter:not([hidden])) {
-          grid-template-columns: max-content minmax(0, 1fr);
-        }
-        #run-actions #compact-start,
-        #run-actions .fixed-run-button {
+        #run-actions #compact-start {
           min-width: 44px;
           min-height: 44px;
           padding: 7px 10px;
@@ -814,7 +770,6 @@
         <div id="fx-notice" aria-live="polite"></div>
         <div id="height-warning" hidden></div>
       </div>
-      <div class="pill" id="run-mode" hidden></div>
       <div class="bottom">
         <div id="hotkeys">
           <span><kbd>←→↑↓</kbd>move</span>
@@ -850,17 +805,6 @@
       </div>
       <div id="run-actions">
         <button id="compact-start" type="button">Play</button>
-        <div id="fixed-run-actions" hidden>
-          <button id="fixed-run-enter" class="fixed-run-button" type="button">
-            Fixed sequence<small>Same pieces. Beat your score.</small>
-          </button>
-          <button id="fixed-run-retry" class="fixed-run-button" type="button" hidden>
-            Retry sequence
-          </button>
-          <button id="fixed-run-normal" class="fixed-run-button" type="button" hidden>
-            Play normal
-          </button>
-        </div>
       </div>
       <!-- rows rendered from src/controls.ts, one per visible input method -->
       <div id="legend"></div>

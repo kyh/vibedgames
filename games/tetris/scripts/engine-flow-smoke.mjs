@@ -3,13 +3,7 @@ import { createHash } from "node:crypto";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
 import { Engine } from "../src/game/engine.ts";
-import {
-  FIXED_RUN_BEST_KEY,
-  createFixedRandom,
-  parseFixedBest,
-  readFixedBest,
-  storeFixedBest,
-} from "../src/game/fixed-run.ts";
+import { createSeededRandom } from "./fixtures/seeded-random.mjs";
 
 function snapshot(engine) {
   const cubes = [];
@@ -61,8 +55,8 @@ function ordinaryTrace(Core) {
   }
 }
 
-function fixedTrace(cosmeticDraws, engine = new Engine()) {
-  engine.startGame(createFixedRandom());
+function seededTrace(cosmeticDraws, engine = new Engine()) {
+  engine.startGame(createSeededRandom());
   const trace = [];
   for (let turn = 0; turn < 35; turn++) {
     for (let i = 0; i < cosmeticDraws; i++) Math.random();
@@ -126,16 +120,16 @@ test("normal Engine bags/actions retain the original trace and random draw count
   );
 });
 
-test("fixed retry repeats real holds, clears, powers and catches despite unrelated random draws", () => {
+test("injected test bags repeat real holds, clears, powers and catches despite cosmetic draws", () => {
   const engine = new Engine();
-  const first = fixedTrace(0, engine);
-  assert.deepEqual(fixedTrace(19, engine), first);
-  assert.deepEqual(fixedTrace(3, engine), first);
+  const first = seededTrace(0, engine);
+  assert.deepEqual(seededTrace(19, engine), first);
+  assert.deepEqual(seededTrace(3, engine), first);
 });
 
-test("every fixed bag contains all seven pieces and normal start relinquishes the seeded supplier", () => {
+test("every injected test bag contains seven pieces and normal start restores ordinary randomness", () => {
   const engine = new Engine();
-  engine.startGame(createFixedRandom());
+  engine.startGame(createSeededRandom());
   const pieces = [];
   for (let i = 0; i < 70; i++) {
     pieces.push(engine.activePieceIndex());
@@ -157,54 +151,5 @@ test("every fixed bag contains all seven pieces and normal start relinquishes th
     assert.equal(draws, 12);
   } finally {
     Math.random = original;
-  }
-});
-
-test("fixed best has a separate strict key and blocked storage cannot break result/retry", () => {
-  assert.notEqual(FIXED_RUN_BEST_KEY, "tetris-best-score");
-  for (const value of [
-    null,
-    "",
-    " 12",
-    "-1",
-    "1.5",
-    "NaN",
-    "Infinity",
-    "1e2",
-    "01",
-    "9007199254740992",
-  ])
-    assert.equal(parseFixedBest(value), 0);
-  assert.equal(parseFixedBest("12345"), 12345);
-  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
-  const values = new Map();
-  try {
-    Object.defineProperty(globalThis, "localStorage", {
-      configurable: true,
-      value: {
-        getItem: (key) => values.get(key) ?? null,
-        setItem: (key, value) => values.set(key, value),
-      },
-    });
-    storeFixedBest(120);
-    assert.equal(readFixedBest(), 120);
-    assert.deepEqual([...values], [[FIXED_RUN_BEST_KEY, "120"]]);
-    storeFixedBest(NaN);
-    storeFixedBest(-1);
-    assert.equal(readFixedBest(), 120);
-    Object.defineProperty(globalThis, "localStorage", {
-      configurable: true,
-      get() {
-        throw new Error("blocked");
-      },
-    });
-    assert.equal(readFixedBest(), 0);
-    assert.doesNotThrow(() => storeFixedBest(200));
-    const engine = new Engine();
-    engine.startGame(createFixedRandom());
-    assert.equal(engine.state.status, "playing");
-  } finally {
-    if (descriptor) Object.defineProperty(globalThis, "localStorage", descriptor);
-    else delete globalThis.localStorage;
   }
 });

@@ -54,4 +54,14 @@ and host migration preserve the accepted grid; duplicate/stale request tests
 prevent extra rotation. Art, video acting, clocks, fuse and core rules stay exact.
 Full verification and build pass.
 
+Tetris complete: native ordinary random-bag play, HOLD, natural stacking loss,
+normal best and retry pass. Compact results retain one Play again button. Real
+WebGL loss/restoration preserves title, orbit, paused collapse, catch and original
+camera ownership; final teardown releases everything. Engine, assets and input
+detectors stay exact. The seeded generator now exists only in test fixtures.
+Full verification and build pass.
+
+All six mode corrections are complete. Farm, Lunerfall, Ancients and Battle Arena
+already integrate their additions into normal sessions and remain unchanged.
+
 Unresolved questions: none.

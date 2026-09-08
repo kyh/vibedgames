@@ -3,13 +3,13 @@ import { readFileSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 import test from "node:test";
 import { Engine } from "../src/game/engine.ts";
-import { createFixedRandom } from "../src/game/fixed-run.ts";
+import { createSeededRandom } from "./fixtures/seeded-random.mjs";
 import { Piece } from "../src/game/piece.ts";
 import { PIECES, POSE_TIMEOUT_MS } from "../src/shared/constants.ts";
 
 function game() {
   const engine = new Engine();
-  engine.startGame(createFixedRandom());
+  engine.startGame(createSeededRandom());
   return engine;
 }
 
@@ -24,7 +24,7 @@ function collapse(engine) {
 
 test("spent reads and rejected repeats leave the real engine and random supplier unchanged", () => {
   const engine = new Engine();
-  const random = createFixedRandom();
+  const random = createSeededRandom();
   let draws = 0;
   engine.startGame(() => {
     draws++;
@@ -82,7 +82,7 @@ test("spawn collisions do not spend an empty hold or a held-piece swap", () => {
   }
 });
 
-test("top-out stays spent until real rescue; normal retry, fixed retry and reset clear it", () => {
+test("top-out stays spent until real rescue; ordinary retry and reset clear it", () => {
   const engine = game();
   assert.equal(engine.hold(), true);
   collapse(engine);
@@ -91,11 +91,7 @@ test("top-out stays spent until real rescue; normal retry, fixed retry and reset
   assert.equal(engine.resumeAfterCatch(), false);
   assert.equal(engine.holdSpent, false);
   assert.equal(engine.holdIndex, held);
-  for (const restart of [
-    () => engine.startGame(),
-    () => engine.startGame(createFixedRandom()),
-    () => engine.reset(),
-  ]) {
+  for (const restart of [() => engine.startGame(), () => engine.reset()]) {
     assert.equal(engine.hold(), true);
     assert.equal(engine.holdSpent, true);
     restart();
@@ -202,11 +198,11 @@ test("actual HUD changes spent cue independently of held-index changes, includin
   view.update();
   view.spent(false);
   assert.equal(view.heldDraws(), beforeCatch);
-  for (const random of [null, createFixedRandom()]) {
+  for (let retry = 0; retry < 2; retry++) {
     assert.equal(engine.hold(), true);
     view.update();
     view.spent(true);
-    engine.startGame(random);
+    engine.startGame();
     view.update();
     view.spent(false);
   }

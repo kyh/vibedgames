@@ -12,7 +12,6 @@ import { Well } from "../src/render/well.ts";
 import { CubeField } from "../src/render/cube-field.ts";
 import { ParticlePool } from "../src/fx/particles.ts";
 import { WellFx } from "../src/fx/well-fx.ts";
-import { createFixedRandom, FIXED_RUN_NAME, storeFixedBest } from "../src/game/fixed-run.ts";
 import * as constants from "../src/shared/constants.ts";
 
 const read = (name) => readFileSync(new URL(`../src/${name}`, import.meta.url), "utf8");
@@ -63,9 +62,12 @@ const methods = [
   "onFreeTap",
   "requestPause",
   "startIfIdle",
-  "startMode",
   "startGame",
   "refreshRunActions",
+  "finalizeGameOver",
+  "showBanner",
+  "hideBanner",
+  "updateCatchMeter",
   "tryCatch",
   "shiftWallClock",
   "setPresentationPaused",
@@ -79,7 +81,7 @@ const methods = [
   "dispose",
   "setHudMode",
 ];
-function fixture() {
+function fixture(storage = { getItem: () => null, setItem() {} }) {
   const ui = new Map(),
     window = new Surface();
   window.matchMedia = () => ({ matches: false });
@@ -100,9 +102,7 @@ function fixture() {
     ...constants,
     performance: { now: () => now },
     el,
-    createFixedRandom,
-    FIXED_RUN_NAME,
-    storeFixedBest,
+    localStorage: storage,
     notifyGameStarted: () => events.push("start"),
     resetSound() {},
     toggleMute() {},
@@ -111,8 +111,12 @@ function fixture() {
     pauseGame: () => game.setPresentationPaused(true),
     sfx: new Proxy({}, { get: (_, name) => () => sounds.push(name) }),
   };
+  const bestKey = source.match(/^const BEST_SCORE_KEY = .*;$/m)?.[0];
+  const readBest = source.match(/^function readBestScore\(\): number \{[^]*?^}/m)?.[0];
+  assert.ok(bestKey);
+  assert.ok(readBest);
   const Subject = compile(
-    `class Subject {\n${methods.map((name) => member(source, name)).join("\n")}\n}`,
+    `${bestKey}\n${readBest}\nclass Subject {\n${member(source, "bestScore")}\n${methods.map((name) => member(source, name)).join("\n")}\n}`,
     deps,
     "Subject",
   );
@@ -173,9 +177,10 @@ function fixture() {
     well: new Well(scene),
     rig: new CameraRig(1.5),
     engine: new Engine(),
-    mode: { kind: "normal" },
-    fixedBest: 0,
-    bestScore: 0,
+    coarse: false,
+    piecesPlaced: 0,
+    rescues: 0,
+    largestClear: 0,
     presentationPaused: false,
     disposed: false,
     pad,
@@ -194,18 +199,9 @@ function fixture() {
     touchControls: { sync() {}, destroy: () => events.push("embed-dispose") },
     teaching: { dispose: () => events.push("teaching-dispose") },
     unwatchControls: () => events.push("watcher-dispose"),
-    hideBanner() {
-      this.refreshRunActions();
-    },
     updateHud() {},
     handleLock: (ev) => events.push(ev),
-    finalizeGameOver() {
-      this.engine.state.status = "gameOver";
-    },
     onCompactStart() {},
-    onFixedEnter() {},
-    onFixedRetry() {},
-    onFixedNormal() {},
     sealRunKey() {},
     sealRunPointer() {},
   });
@@ -262,9 +258,8 @@ test("paused actual pose, keyboard and touch verbs cannot change run or rescue/s
   g.poseActions.catchCollapse();
   assert.equal(g.engine.state.status, "collapsing");
   g.engine.state.status = "gameOver";
-  g.startMode({ kind: "fixed" });
+  g.startIfIdle();
   assert.equal(g.engine.state.status, "gameOver");
-  assert.equal(g.mode.kind, "normal");
   g.dispose();
 });
 
@@ -384,20 +379,110 @@ test("retry walls retain all four original camera corners and orbit/catch deadli
   g.dispose();
 });
 
-test("fixed retry repeats actual bags and normal exit restores original mode", () => {
-  const { game: g } = fixture();
-  g.engine.state.status = "gameOver";
-  g.startMode({ kind: "fixed" });
-  const first = { active: g.engine.active.index, next: g.engine.nextIndex };
-  g.engine.hold();
-  g.engine.state.status = "gameOver";
+test("ordinary start and retry consume fresh global bags, clear the run and retain scene owners", () => {
+  const { game: g, ui } = fixture();
+  const owners = [g.engine, g.rig, g.well, g.cubes, g.keyboard, g.touch, g.pad];
+  const original = Math.random;
+  let draws = 0;
+  Math.random = () => {
+    draws++;
+    return 0.5;
+  };
+  try {
+    for (const phase of ["title", "gameOver"]) {
+      g.engine.hold();
+      g.engine.board.lock([{ x: 0, y: 0, z: 0 }], 1);
+      g.engine.state.score = 100;
+      g.piecesPlaced = 7;
+      g.rescues = 2;
+      g.largestClear = 3;
+      g.engine.state.status = phase;
+      const before = draws;
+      g.startIfIdle();
+      assert.equal(draws - before, 6);
+      assert.equal(g.engine.state.status, "playing");
+      assert.equal(g.engine.state.score, 0);
+      assert.equal(g.engine.holdSpent, false);
+      assert.equal(g.engine.holdIndex, null);
+      assert.deepEqual(cells(g), []);
+      assert.deepEqual([g.piecesPlaced, g.rescues, g.largestClear], [0, 0, 0]);
+      assert.equal(ui.get("run-actions").hidden, true);
+      const started = boardState(g);
+      g.startIfIdle();
+      assert.equal(draws - before, 6);
+      assert.deepEqual(boardState(g), started);
+    }
+    assert.deepEqual([g.engine, g.rig, g.well, g.cubes, g.keyboard, g.touch, g.pad], owners);
+  } finally {
+    Math.random = original;
+    g.dispose();
+  }
+});
+
+test("actual ordinary result stores only the normal best and keeps receipt and retry behavior", () => {
+  const values = new Map([["tetris-best-score", "120"]]);
+  const writes = [];
+  const { game: g, ui } = fixture({
+    getItem: (key) => values.get(key) ?? null,
+    setItem(key, value) {
+      writes.push([key, value]);
+      values.set(key, value);
+    },
+  });
+  assert.equal(g.bestScore, 120);
+  g.engine.state.score = 145;
+  g.engine.state.lines = 3;
+  g.piecesPlaced = 7;
+  g.rescues = 2;
+  g.largestClear = 2;
+  g.finalizeGameOver();
+  assert.equal(g.engine.state.status, "gameOver");
+  assert.equal(g.bestScore, 145);
+  assert.deepEqual(writes, [["tetris-best-score", "145"]]);
+  assert.equal(ui.get("result-score").textContent, "145");
+  assert.equal(ui.get("result-best").textContent, "NEW BEST 145");
+  assert.equal(
+    ui.get("result-stats").textContent,
+    "3 lines · 7 pieces placed\n2 rescues · largest clear 2",
+  );
+  assert.equal(ui.get("banner-title").textContent, "GAME OVER");
+  assert.equal(ui.get("compact-start").textContent, "Play again");
+  assert.equal(ui.get("run-actions").hidden, false);
+  assert.equal(ui.get("run-summary").hidden, false);
   g.startIfIdle();
-  assert.deepEqual({ active: g.engine.active.index, next: g.engine.nextIndex }, first);
-  assert.equal(g.mode.kind, "fixed");
-  g.engine.state.status = "gameOver";
-  g.startMode({ kind: "normal" });
-  assert.equal(g.mode.kind, "normal");
+  assert.equal(g.bestScore, 145);
+  assert.equal(ui.get("run-summary").hidden, true);
+  g.engine.state.score = 100;
+  g.finalizeGameOver();
+  assert.equal(ui.get("result-best").textContent, "BEST 145");
+  assert.equal(writes.length, 1);
   g.dispose();
+});
+
+test("actual normal result and retry retain the visit best when storage reads or writes are denied", () => {
+  for (const readBlocked of [true, false]) {
+    const { game: g, ui } = fixture({
+      getItem() {
+        if (readBlocked) throw new Error("storage denied");
+        return "120";
+      },
+      setItem() {
+        throw new Error("storage denied");
+      },
+    });
+    assert.equal(g.bestScore, readBlocked ? 0 : 120);
+    g.engine.state.score = 200;
+    assert.doesNotThrow(() => g.finalizeGameOver());
+    assert.equal(g.bestScore, 200);
+    assert.equal(ui.get("result-best").textContent, "NEW BEST 200");
+    assert.doesNotThrow(() => g.startIfIdle());
+    assert.equal(g.engine.state.status, "playing");
+    assert.equal(g.engine.state.score, 0);
+    g.engine.state.score = 100;
+    g.finalizeGameOver();
+    assert.equal(ui.get("result-best").textContent, "BEST 200");
+    g.dispose();
+  }
 });
 
 test("final scene disposes shared Three resources and owners once; retained actions inert", () => {
