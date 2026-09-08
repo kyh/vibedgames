@@ -15,7 +15,7 @@
 // parcel census) run the module with the report flag set — vite-node does not
 // pass the entry path through argv, hence an env flag rather than an argv one:
 //   AUDIT_REPORT=1 pnpm vite-node tools/geometry-audit.mts
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 
 import { GRID_X, GRID_Z, ROAD_TILE, WORLD_HALF_X, WORLD_HALF_Z } from "../src/shared/constants.ts";
@@ -36,7 +36,7 @@ import { RoadNetwork } from "../src/world/network.ts";
 import { decodeParcelSource, type ParcelSource } from "../src/world/parcel-source.ts";
 import { makeTerrain } from "../src/world/sf-map.ts";
 import type { Terrain } from "../src/world/terrain.ts";
-import { deserializeWorldBin, unpackRest, WORLD_REV } from "../src/world/world-bin.ts";
+import { deserializeWorldBin, unpackMeta, WORLD_REV } from "../src/world/world-bin.ts";
 import { treeRootSeatSamples } from "./test-tree-clearance.mts";
 
 // --- baked artifacts --------------------------------------------------------
@@ -47,34 +47,40 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return out;
 }
 
-/**
- * A shipped artifact, gunzipped and rejoined — the bake writes them gzipped
- * (world-fetch.ts inflates in the browser) and splits anything over 9MB into
- * `.0..N` parts with a `.parts` count (tools/split-world-bin.mjs).
- */
+/** A shipped artifact, gunzipped — the bake writes them gzipped (world-fetch.ts
+ *  inflates in the browser). */
 function readArtifact(name: string): ArrayBuffer {
-  const whole = `public/world/${name}.bin`;
-  if (existsSync(whole)) return toArrayBuffer(gunzipSync(readFileSync(whole)));
-  const parts = Number(readFileSync(`public/world/${name}.parts`, "utf8").trim());
-  const chunks: Uint8Array[] = [];
-  for (let i = 0; i < parts; i++) chunks.push(readFileSync(`public/world/${name}.bin.${i}`));
-  return toArrayBuffer(gunzipSync(Buffer.concat(chunks)));
+  return toArrayBuffer(gunzipSync(readFileSync(`public/world/${name}`)));
 }
 
 export type BakedRest = { readonly rev: number; readonly rest: CityRestPayload };
 
-/** The shipped rest.bin: solids, batched prop instances, parked cars, decks. */
+/**
+ * The shipped city, reassembled from meta.bin + every tile: solids, batched
+ * prop instances, parked cars, decks and the merged chunks of all tiles.
+ */
 export async function loadBakedRest(): Promise<BakedRest> {
-  const back = deserializeWorldBin(readArtifact("rest"));
-  if (back.rest === undefined) throw new Error("rest.bin carries no rest payload");
-  return { rev: back.rev, rest: await unpackRest(back.rest) };
+  const back = deserializeWorldBin(readArtifact("meta.bin"));
+  if (back.meta === undefined) throw new Error("meta.bin carries no meta payload");
+  const meta = await unpackMeta(back.meta);
+  const mergedChunks: CityRestPayload["mergedChunks"] = [];
+  for (const ref of meta.tiles) {
+    const tile = deserializeWorldBin(readArtifact(`tiles/${ref.ix}_${ref.iz}.bin`));
+    if (tile.tile === undefined)
+      throw new Error(`tile ${ref.ix},${ref.iz} carries no tile payload`);
+    if (tile.rev !== back.rev)
+      throw new Error(`tile ${ref.ix},${ref.iz} is rev ${tile.rev}, meta ${back.rev}`);
+    mergedChunks.push(...tile.tile.mergedChunks);
+  }
+  const { skyline: _skyline, tiles: _tiles, ...rest } = meta;
+  return { rev: back.rev, rest: { ...rest, mergedChunks } };
 }
 
 export const BAKED_WORLD_REV = WORLD_REV;
 
 /** The shipped parcel source (public/world/parcels.bin) — the plan's input on every load. */
 export function loadParcelSource(): ParcelSource {
-  return decodeParcelSource(readArtifact("parcels"));
+  return decodeParcelSource(readArtifact("parcels.bin"));
 }
 
 // --- oriented boxes ---------------------------------------------------------

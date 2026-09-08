@@ -53,7 +53,6 @@ import { buildShoreline, planShoreline } from "./shoreline";
 import { type LandClassAt, makeLandClassAt, wheelSurface, type WheelSurface } from "./land-class";
 import { buildGridNetwork } from "./grid-network";
 import {
-  bakeConstantColor,
   buildRoads,
   ROAD_MATERIALS,
   roadCollapseTarget,
@@ -61,6 +60,20 @@ import {
   walkFor,
 } from "./roads";
 import type { CityGenPayload } from "./gen-worker";
+import {
+  type CityRestMeta,
+  type PackedMergedChunk,
+  type PackedWorldTile,
+  unpackSolids,
+} from "./world-bin";
+import { fetchWorldTile } from "./world-fetch";
+import { type TileStreamStats, WorldTileStreamer } from "./world-tiles";
+import {
+  buildPackedGeometry,
+  constantColorAttribute,
+  packGeometry,
+  seatPackedMesh,
+} from "./quantized-geometry";
 import { buildFreeways, isFreewayDeckContact, nearFreeway } from "./freeways";
 import { buildPiers } from "./piers";
 import { buildLandmarks, landmarkProtection } from "./landmarks";
@@ -71,7 +84,15 @@ import { stowWaterHeightAt } from "./lake";
 import { buildParcelFabric, parcelDetailLevel, parkOnLots } from "./parcel-build";
 import { visibleParcelPlans } from "./parcel-visibility";
 import { ParcelStreamer, type ParcelStreamStats, streamRadiusFor } from "./parcel-stream";
-import { frontSegment, type ParcelPlanResult, emptyParcelPlan, planParcels } from "./parcel-plan";
+import {
+  frontSegment,
+  type ParcelLot,
+  type ParcelPlan,
+  type ParcelPlanResult,
+  emptyParcelPlan,
+  planParcels,
+} from "./parcel-plan";
+import { packLots, packPlans, unpackPlans } from "./parcel-pack";
 import type { ParcelSource } from "./parcel-source";
 import { buildParcelClearance, type ParcelClearance } from "./parcel-clearance";
 import { buildTreeClearance } from "./tree-clearance";
@@ -172,7 +193,7 @@ function boxesOverlap(a: OccBox, b: OccBox): boolean {
 
 // A streamed tile of static city geometry: its own merged meshes under one
 // group, tagged with a centre + cull radius so it can be hidden when far away.
-type MatRec = {
+export type MatRec = {
   color: number;
   roughness: number;
   metalness: number;
@@ -193,18 +214,8 @@ type MatRec = {
   toneMapped?: boolean;
   propShadow?: PropShadowPolicy;
 };
-export type MergedChunkRec = {
-  cx: number;
-  cz: number;
-  dist: number;
-  position: Float32Array;
-  normal: Float32Array | null;
-  uv: Float32Array | null;
-  color: Float32Array | null;
-  index: Uint16Array | Uint32Array | null;
-  mat: MatRec;
-  srcMat: { url: string; idx: number } | null;
-};
+/** A merged chunk as it ships and draws: quantized (world/quantized-geometry.ts). */
+export type MergedChunkRec = PackedMergedChunk;
 export type BatchItemRec = {
   url: string | null; // GLB source ref…
   idx: number;
@@ -314,15 +325,11 @@ export function matRecOf(mat: THREE.Material): MatRec | null {
   return null;
 }
 
-function geometryFromMergedChunk(rec: MergedChunkRec): THREE.BufferGeometry {
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.BufferAttribute(rec.position, 3));
-  if (rec.uv) geo.setAttribute("uv", new THREE.BufferAttribute(rec.uv, 2));
-  if (rec.color) geo.setAttribute("color", new THREE.BufferAttribute(rec.color, 3));
-  if (rec.index) geo.setIndex(new THREE.BufferAttribute(rec.index, 1));
-  if (rec.normal) geo.setAttribute("normal", new THREE.BufferAttribute(rec.normal, 3));
-  else geo.computeVertexNormals();
-  return geo;
+function meshFromMergedChunk(rec: MergedChunkRec, material: THREE.Material): THREE.Mesh {
+  const mesh = new THREE.Mesh(buildPackedGeometry(rec), material);
+  seatPackedMesh(mesh, rec.pos);
+  mesh.receiveShadow = true;
+  return mesh;
 }
 
 async function buildMergedChunkGroups(options: {
@@ -334,26 +341,13 @@ async function buildMergedChunkGroups(options: {
   readonly onRecord?: (done: number, total: number) => void;
 }): Promise<ChunkMeshGroup[]> {
   const groups = new Map<string, ChunkMeshGroup>();
-  // Legacy baked/cached rest payloads carry SIX flat road materials per
-  // chunk (captured before the vertex-color collapse in roads.ts). Rewrite
-  // those recs onto the two collapsed materials and merge per (chunk, tier,
-  // material) so old artifacts render with the same draw count as a fresh
-  // build. New captures arrive already collapsed and pass straight through.
-  type RoadMerge = {
-    readonly gk: string;
-    readonly mat: THREE.Material;
-    readonly geos: THREE.BufferGeometry[];
-  };
-  const roadMerges = new Map<string, RoadMerge>();
   let n = 0;
   for (const rec of options.records) {
-    // breathe() self-throttles to ~12ms slices — check every chunk, because
-    // one computeVertexNormals over a big legacy chunk can eat a frame.
+    // breathe() self-throttles to ~12ms slices — check every chunk.
     const breathe = options.breathe;
     if (breathe) await breathe();
     n++;
     options.onRecord?.(n, options.records.length);
-    const geo = geometryFromMergedChunk(rec);
     const gk = `${rec.cx},${rec.cz},${rec.dist}`;
     let g = groups.get(gk);
     if (!g) {
@@ -362,46 +356,37 @@ async function buildMergedChunkGroups(options: {
     }
     const runtimeMat = options.runtimeMaterials?.get(rec);
     if (runtimeMat) {
-      const mesh = new THREE.Mesh(geo, runtimeMat);
+      const mesh = meshFromMergedChunk(rec, runtimeMat);
       mesh.castShadow = !propShadowsDisabled(runtimeMat, renderCapabilities().multiDraw);
-      mesh.receiveShadow = true;
       g.group.add(mesh);
       continue;
     }
+    // Road records re-resolve onto the live road material table by the colour
+    // the capture serialized (roadCollapseTarget), so the paint-stencil atlas
+    // — generated in code, zero payload — comes back for free.
     const road = rec.srcMat
       ? null
       : roadCollapseTarget(rec.mat.color, rec.mat.polygonOffset, rec.mat.vertexColors);
     if (road) {
-      // Already-collapsed captures ship their own vertex colors — baking
-      // the uniform white over them would erase the paint.
-      if (!rec.color) bakeConstantColor(geo, road.color);
-      const mk = `${gk}|${road.mat.uuid}|${rec.uv ? "u" : "x"}|${geo.index ? "i" : "n"}`;
-      const rm = roadMerges.get(mk);
-      if (rm) rm.geos.push(geo);
-      else roadMerges.set(mk, { gk, mat: road.mat, geos: [geo] });
+      const mesh = meshFromMergedChunk(rec, road.mat);
+      // Already-collapsed captures ship their own vertex colors — baking the
+      // uniform white over them would erase the paint.
+      if (!rec.col) {
+        mesh.geometry.setAttribute(
+          "color",
+          constantColorAttribute(rec.pos.q.length / 3, road.color),
+        );
+      }
+      g.group.add(mesh);
       continue;
     }
     const srcM = rec.srcMat ? options.cache.srcMesh(rec.srcMat.url, rec.srcMat.idx) : null;
     const srcMatOk = srcM && !Array.isArray(srcM.material) ? srcM.material : null;
-    const mesh = new THREE.Mesh(geo, srcMatOk ?? options.materialFor(rec.mat));
-    if (propShadowPolicy(mesh.material) !== undefined)
-      mesh.castShadow = !propShadowsDisabled(mesh.material, renderCapabilities().multiDraw);
-    mesh.receiveShadow = true;
+    const material = srcMatOk ?? options.materialFor(rec.mat);
+    const mesh = meshFromMergedChunk(rec, material);
+    if (propShadowPolicy(material) !== undefined)
+      mesh.castShadow = !propShadowsDisabled(material, renderCapabilities().multiDraw);
     g.group.add(mesh);
-  }
-  for (const rm of roadMerges.values()) {
-    const g = groups.get(rm.gk);
-    if (!g) continue;
-    const first = rm.geos[0];
-    const merged = rm.geos.length === 1 && first ? first : mergeGeometries(rm.geos, false);
-    // Merge failure (mismatched attrs): draw the pieces individually —
-    // exactly what the un-collapsed path did.
-    const geos = merged ? [merged] : rm.geos;
-    for (const geo of geos) {
-      const mesh = new THREE.Mesh(geo, rm.mat);
-      mesh.receiveShadow = true;
-      g.group.add(mesh);
-    }
   }
   return [...groups.values()];
 }
@@ -421,7 +406,23 @@ type BatchBucket = {
   indices: number;
 };
 
-type Chunk = { cx: number; cz: number; radius: number; dist: number; group: THREE.Object3D };
+export type SolidSink = {
+  readonly add: (tile: number, solids: readonly Solid[]) => void;
+  readonly remove: (tile: number) => void;
+};
+
+type Chunk = {
+  cx: number;
+  cz: number;
+  radius: number;
+  dist: number;
+  group: THREE.Object3D;
+  /** The streamed world tile that owns it (world-tiles.ts); static chunks have none. */
+  tile?: number;
+};
+
+/** Tiles are held this far out — just past the merged chunks' own draw distance. */
+export const TILE_HOLD_RADIUS = DRAW_DISTANCE + 60;
 
 // Batched-instance streaming scratch (per-frame, allocation-free).
 const NEAR_ALWAYS = 170; // cells this close are always on (off-screen shadow casters)
@@ -894,23 +895,14 @@ export class CityModel {
         console.log(`[city] merged mesh untagged texture: ${mat.name || mat.uuid}`);
       }
     }
-    const pos = geo.getAttribute("position");
-    if (!pos) return null;
-    const nor = geo.getAttribute("normal");
-    const uv = geo.getAttribute("uv");
-    const col = geo.getAttribute("color");
-    // SAFETY: merged chunk geometry is built by this file's batcher from
-    // Float32Array attributes with Uint16/Uint32 indices; BufferAttribute.array
-    // only remembers TypedArray.
+    if (!geo.getAttribute("position")) return null;
+    // Quantized at the source: the live build draws the same encoding the
+    // bins ship, so both load paths render one geometry.
     const rec: MergedChunkRec = {
       cx,
       cz,
       dist,
-      position: pos.array as Float32Array,
-      normal: nor ? (nor.array as Float32Array) : null,
-      uv: uv ? (uv.array as Float32Array) : null,
-      color: col ? (col.array as Float32Array) : null,
-      index: geo.index ? (geo.index.array as Uint16Array | Uint32Array) : null,
+      ...packGeometry(geo),
       mat: {
         color: mat.color.getHex(),
         roughness: mat.roughness,
@@ -971,6 +963,15 @@ export class CityModel {
   private chunkVisibleTall: Uint8Array | null = null;
 
   private restPayload: CityRestPayload | null = null;
+  private restMeta: CityRestMeta | null = null;
+  private tileStreamer: WorldTileStreamer | null = null;
+  /** Collision boxes of the resident tiles, by tile key. `solids` holds the
+   *  base set; the physics stream and the solid index take these per tile. */
+  readonly tileSolids = new Map<number, readonly Solid[]>();
+  private solidSink: SolidSink | null = null;
+  /** One material table for every tile: the factory dedupes by descriptor,
+   *  and a per-tile table would compile a shader per tile. */
+  private readonly bakedMaterialFor = materialFactory();
 
   // --- The parcel fabric ----------------------------------------------------
   // Real footprints as procedural buildings (parcel-plan.ts / parcel-mesh.ts).
@@ -1021,6 +1022,14 @@ export class CityModel {
   // The skyline (parcel-stream.ts explains the split) is built once; the
   // rest of the fabric streams around the camera in updateStreaming.
   private parcelStreamer: ParcelStreamer | null = null;
+  /** The visible plan of a live build, for the bake. Null on the baked path. */
+  parcelCapture: {
+    readonly skyline: readonly ParcelPlan[];
+    readonly fabric: readonly ParcelPlan[];
+    /** Every plan, culled ones included — their collision boxes still stand. */
+    readonly all: readonly ParcelPlan[];
+    readonly lots: readonly ParcelLot[];
+  } | null = null;
   parcelStreamStats(): ParcelStreamStats | null {
     return this.parcelStreamer?.stats() ?? null;
   }
@@ -1042,10 +1051,14 @@ export class CityModel {
       this.group.add(c.group);
       this.chunks.push({ cx: c.cx, cz: c.cz, radius: c.radius, dist: c.dist, group: c.group });
     }
-    this.parcelStreamer = new ParcelStreamer(this.group, fabric, lots, detail);
+    this.parcelStreamer = new ParcelStreamer(this.group, detail);
+    this.parcelStreamer.addTile(0, packPlans(fabric), packLots(lots));
     for (const p of plans) for (const so of p.solids) this.solids.push(so);
     const cars = parkOnLots(lots, plans);
     this.parkedCarSpecs = [...this.parkedCarSpecs, ...cars];
+    // The bake reads these (world/bake-download.ts): the visible plan, split
+    // the way the runtime consumes it.
+    this.parcelCapture = { skyline, fabric, all: plans, lots };
     console.log(
       `[city] parcels: ${skyline.length} skyline buildings static (${built.stats.vertices} verts), ` +
         `${fabric.length} streamed over ${this.parcelStreamer.stats().cells} cells, ${lots.length} lots ` +
@@ -1058,6 +1071,32 @@ export class CityModel {
   // title on the baked path) — set before initLate().
   setRestPayload(p: CityRestPayload | null): void {
     this.restPayload = p;
+  }
+
+  /** The baked city's untiled remainder (world-fetch.ts fetchWorldMeta) —
+   *  set before initLate(). Its tiles stream in afterwards. */
+  setRestMeta(m: CityRestMeta | null): void {
+    this.restMeta = m;
+  }
+
+  tileStreamStats(): TileStreamStats | null {
+    return this.tileStreamer?.stats() ?? null;
+  }
+
+  /** Where tile solids go from now on; the tiles already resident are replayed. */
+  setSolidSink(sink: SolidSink): void {
+    this.solidSink = sink;
+    for (const [key, solids] of this.tileSolids) sink.add(key, solids);
+  }
+
+  /** Resolve once the tiles within `radius` of (x, z) are installed. */
+  async streamGate(
+    x: number,
+    z: number,
+    radius: number,
+    onProgress?: (done: number, total: number) => void,
+  ): Promise<void> {
+    await this.tileStreamer?.ensure(x, z, radius, onProgress);
   }
 
   constructor(
@@ -1247,6 +1286,15 @@ export class CityModel {
       onProgress?.(f);
       await new Promise((r) => requestAnimationFrame(() => r(undefined)));
     };
+    if (this.restMeta) {
+      const tR = performance.now();
+      await this.rebuildFromMeta(this.restMeta, onProgress);
+      this.restMeta = null;
+      console.log(`[city] meta rebuild ${Math.round(performance.now() - tR)}ms`);
+      this.releaseStaticGeometryAfterUpload();
+      await tick(0.97);
+      return;
+    }
     if (this.restPayload) {
       const tR = performance.now();
       await this.rebuildRest(this.restPayload, onProgress);
@@ -1793,18 +1841,17 @@ export class CityModel {
     if (this.genPayload) {
       ground = new THREE.Group();
       for (const t of this.genPayload.tiles) {
-        const geo = new THREE.BufferGeometry();
-        geo.setAttribute("position", new THREE.BufferAttribute(t.position, 3));
-        if (t.color) geo.setAttribute("color", new THREE.BufferAttribute(t.color, 3));
-        if (t.index) geo.setIndex(new THREE.BufferAttribute(t.index, 1));
-        if (t.normal) geo.setAttribute("normal", new THREE.BufferAttribute(t.normal, 3));
-        else geo.computeVertexNormals(); // baked artifacts ship without normals
-        const mesh = new THREE.Mesh(geo, groundMat);
-        mesh.position.set(t.x, 0, t.z);
-        mesh.rotation.x = -Math.PI / 2;
+        // The tile's frame (its plane rotation) wraps the packed mesh, which
+        // sits in its own bounding-box frame inside it.
+        const tile = new THREE.Group();
+        tile.position.set(t.x, 0, t.z);
+        tile.rotation.x = -Math.PI / 2;
+        const mesh = new THREE.Mesh(buildPackedGeometry(t), groundMat);
+        seatPackedMesh(mesh, t.pos);
         mesh.receiveShadow = true;
         mesh.name = "terrain-ground";
-        ground.add(mesh);
+        tile.add(mesh);
+        ground.add(tile);
       }
     } else {
       ground = this.terrain.buildMesh(
@@ -1835,11 +1882,10 @@ export class CityModel {
     onProgress?: (f: number) => void,
   ): Promise<void> {
     const cullRadius = CHUNK * 0.71 + ROAD_TILE * 2;
-    const matFor = materialFactory();
     const groups = await buildMergedChunkGroups({
       records: rest.mergedChunks,
       cache: this.cache,
-      materialFor: matFor,
+      materialFor: this.bakedMaterialFor,
       breathe: () => this.breathe(),
       onRecord: (done, total) => {
         if (done % 16 === 0) onProgress?.((done / total) * 0.55);
@@ -1849,6 +1895,103 @@ export class CityModel {
       this.group.add(g.group);
       this.chunks.push({ cx: g.cx, cz: g.cz, radius: cullRadius, dist: g.dist, group: g.group });
     }
+    await this.rebuildCityBody(rest, onProgress);
+    await this.buildParcels();
+  }
+
+  // The baked path: the untiled remainder now, the parcel skyline from the
+  // meta, and two streamers — the tile streamer (world-tiles.ts) hands each
+  // arriving tile to installWorldTile, which feeds the parcel streamer.
+  private async rebuildFromMeta(
+    meta: CityRestMeta,
+    onProgress?: (f: number) => void,
+  ): Promise<void> {
+    await this.rebuildCityBody(meta, onProgress);
+    const t0 = performance.now();
+    const detail = parcelDetailLevel();
+    const skyline = unpackPlans(meta.skyline);
+    const built = await buildParcelFabric(
+      skyline,
+      [],
+      { imposter: IMPOSTER_DISTANCE, midImposter: MID_IMPOSTER_DISTANCE, detail: DETAIL_DISTANCE },
+      detail,
+      () => this.breathe(),
+    );
+    for (const c of built.chunks) {
+      this.group.add(c.group);
+      this.chunks.push({ cx: c.cx, cz: c.cz, radius: c.radius, dist: c.dist, group: c.group });
+    }
+    this.parcelStreamer = new ParcelStreamer(this.group, detail);
+    this.tileStreamer = new WorldTileStreamer(meta.tiles, CHUNK, {
+      fetch: fetchWorldTile,
+      install: (key, tile) => this.installWorldTile(key, tile),
+      evict: (key) => this.evictWorldTile(key),
+    });
+    console.log(
+      `[city] parcels: ${skyline.length} skyline buildings static (${built.stats.vertices} verts), ` +
+        `${meta.tiles.length} tiles to stream in ${Math.round(performance.now() - t0)}ms`,
+    );
+  }
+
+  private async installWorldTile(key: number, tile: PackedWorldTile): Promise<void> {
+    const cullRadius = CHUNK * 0.71 + ROAD_TILE * 2;
+    const groups = await buildMergedChunkGroups({
+      records: tile.mergedChunks,
+      cache: this.cache,
+      materialFor: this.bakedMaterialFor,
+      breathe: () => this.breathe(),
+    });
+    for (const g of groups) {
+      this.group.add(g.group);
+      // The root is sealed after load (freezeStatic): compose the new
+      // subtree's world matrices once, then adopt the static contract.
+      g.group.updateMatrixWorld(true);
+      g.group.traverse((o) => {
+        o.matrixAutoUpdate = false;
+        o.matrixWorldAutoUpdate = this.group.matrixWorldAutoUpdate;
+      });
+      this.chunks.push({
+        cx: g.cx,
+        cz: g.cz,
+        radius: cullRadius,
+        dist: g.dist,
+        group: g.group,
+        tile: key,
+      });
+    }
+    this.releaseStaticGeometryAfterUpload();
+    this.parcelStreamer?.addTile(key, tile.plans, tile.lots);
+    const solids = unpackSolids(tile.solids);
+    this.tileSolids.set(key, solids);
+    this.solidSink?.add(key, solids);
+  }
+
+  private evictWorldTile(key: number): void {
+    const keep: Chunk[] = [];
+    for (const c of this.chunks) {
+      if (c.tile !== key) {
+        keep.push(c);
+        continue;
+      }
+      this.group.remove(c.group);
+      c.group.traverse((o) => {
+        // Materials are shared city-wide (bakedMaterialFor); only the
+        // geometry is this tile's own.
+        if (o instanceof THREE.Mesh) o.geometry.dispose();
+      });
+    }
+    this.chunks = keep;
+    this.parcelStreamer?.removeTile(key);
+    if (this.tileSolids.delete(key)) this.solidSink?.remove(key);
+  }
+
+  /** Batches, game data, ground, landmarks, freeways, piers — everything of
+   *  the built city that is neither a merged chunk nor the parcel fabric. */
+  private async rebuildCityBody(
+    rest: Omit<CityRestPayload, "mergedChunks">,
+    onProgress?: (f: number) => void,
+  ): Promise<void> {
+    const matFor = this.bakedMaterialFor;
     // Model batches from source tags (or the raw-geo table).
     const rawBuilt: { geo: THREE.BufferGeometry; mat: BakedMaterial }[] = [];
     for (const rg of rest.rawGeos) {
@@ -1921,7 +2064,6 @@ export class CityModel {
     this.group.add(buildFreeways(this.terrain, this.network));
     this.group.add(buildPiers(this.terrain));
     this.lightGoldenGate();
-    await this.buildParcels();
   }
 
   // The Golden Gate's MESHES are baked (buildGoldenGate runs on cold gen only,
@@ -2326,6 +2468,7 @@ export class CityModel {
   updateStreaming(camera: THREE.Camera, showAll = false): void {
     const camX = camera.position.x;
     const camZ = camera.position.z;
+    this.tileStreamer?.update(camX, camZ, showAll ? Infinity : TILE_HOLD_RADIUS);
     this.parcelStreamer?.update(
       camX,
       camZ,

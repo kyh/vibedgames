@@ -105,6 +105,13 @@ export class Terrain {
   private nz: number; // cached samples north-south
   private minX: number; // world coordinate of sample 0 (x axis)
   private minZ: number; // world coordinate of sample 0 (z axis)
+  private readonly hillTable: readonly {
+    readonly x: number;
+    readonly z: number;
+    readonly height: number;
+    readonly invDen: number;
+    readonly cull2: number;
+  }[];
 
   constructor(
     private hills: readonly Hill[],
@@ -118,6 +125,20 @@ export class Terrain {
     this.nx = Math.ceil((WORLD_W + MARGIN * 2) / FIELD_STEP) + 1;
     this.nz = Math.ceil((WORLD_H + MARGIN * 2) / FIELD_STEP) + 1;
     this.field = new Float32Array(this.nx * this.nz);
+    // World-space hill table with a cull radius: past it a hill's Gaussian is
+    // below 1e-9 of its height, and the field fill (2.5M samples × every
+    // hill) was a second of the load with the exp evaluated everywhere.
+    this.hillTable = hills.map((hl) => {
+      const r = hl.radius * MAP_REF;
+      const den = r * r * 0.5;
+      return {
+        x: (hl.u - 0.5) * WORLD_W - this.minX,
+        z: (hl.v - 0.5) * WORLD_H - this.minZ,
+        height: hl.height,
+        invDen: 1 / den,
+        cull2: den * 21,
+      };
+    });
     for (let ix = 0; ix < this.nx; ix++) {
       const x = this.minX + ix * FIELD_STEP;
       for (let iz = 0; iz < this.nz; iz++) {
@@ -133,11 +154,14 @@ export class Terrain {
     const landAmt = this.land(u, v); // 0 water .. 1 inland
     const t = THREE.MathUtils.smoothstep(landAmt, 0.28, 0.42);
     let h = THREE.MathUtils.lerp(-SHORE_DROP, 0.3, t);
-    for (const hl of this.hills) {
-      const du = (u - hl.u) * WORLD_W;
-      const dv = (v - hl.v) * WORLD_H;
-      const r = hl.radius * MAP_REF;
-      h += hl.height * t * Math.exp(-(du * du + dv * dv) / (r * r * 0.5));
+    const x0 = x - this.minX;
+    const z0 = z - this.minZ;
+    for (const hl of this.hillTable) {
+      const du = x0 - hl.x;
+      const dv = z0 - hl.z;
+      const d2 = du * du + dv * dv;
+      if (d2 > hl.cull2) continue;
+      h += hl.height * t * Math.exp(-d2 * hl.invDen);
     }
     return this.heightPatch ? this.heightPatch(x, z, h) : h;
   }

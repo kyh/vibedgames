@@ -4,6 +4,13 @@ import { DRAW_DISTANCE, WORLD_HALF_X, WORLD_HALF_Z } from "../shared/constants";
 import { parcelMeshOf } from "./parcel-build";
 import { buildParcelGeometrySteps, type DetailLevel, type ParcelGeometry } from "./parcel-mesh";
 import type { ParcelLot, ParcelPlan } from "./parcel-plan";
+import {
+  packedCentre,
+  type PackedLots,
+  type PackedPlans,
+  unpackLots,
+  unpackPlans,
+} from "./parcel-pack";
 
 // The parcel fabric, STREAMED. Nothing past the fog line is visible, so the
 // city's 130k buildings do not need to be on the GPU at once: the plan is
@@ -87,12 +94,22 @@ export function geometryBytes(geometry: ParcelGeometry): number {
   return bytes;
 }
 
+/** A cell's plans and lots, still packed: materialized only while its
+ *  geometry builds (see world/parcel-pack.ts). */
+type CellSource = {
+  readonly plans: PackedPlans;
+  readonly planIdx: Uint32Array;
+  readonly lots: PackedLots;
+  readonly lotIdx: Uint32Array;
+};
+
 type Cell = {
   readonly key: number;
+  /** The world tile that owns the cell — removeTile drops every cell of one. */
+  readonly tile: number;
   readonly cx: number;
   readonly cz: number;
-  readonly plans: ParcelPlan[];
-  readonly lots: ParcelLot[];
+  readonly source: CellSource;
   /** LOD hysteresis follows the requested level even while a replacement builds. */
   targetDetail: DetailLevel;
   residence:
@@ -122,6 +139,19 @@ type CellBuild = {
   readonly steps: Generator<void, ParcelGeometry>;
 };
 
+/** Which stream cell each packed plan/lot files under, by its centre. */
+function cellIndices(p: PackedPlans | PackedLots): Map<number, number[]> {
+  const cells = new Map<number, number[]>();
+  for (let i = 0; i < p.count; i++) {
+    const [x, z] = packedCentre(p, i);
+    const k = streamCellKey(x, z);
+    const list = cells.get(k);
+    if (list) list.push(i);
+    else cells.set(k, [i]);
+  }
+  return cells;
+}
+
 export class ParcelStreamer {
   private readonly cells = new Map<number, Cell>();
   private readonly resident = new Set<number>();
@@ -132,22 +162,49 @@ export class ParcelStreamer {
 
   constructor(
     private readonly root: THREE.Object3D,
-    plans: readonly ParcelPlan[],
-    lots: readonly ParcelLot[],
     private readonly detail: DetailLevel,
-  ) {
-    for (const [key, c] of streamCells(plans, lots)) {
+  ) {}
+
+  /**
+   * Take on a world tile's fabric. Cells are keyed on the 80u grid inside the
+   * tile; a later update() streams them like any other. A tile already
+   * present is replaced.
+   */
+  addTile(tile: number, plans: PackedPlans, lots: PackedLots): void {
+    this.removeTile(tile);
+    const planCells = cellIndices(plans);
+    const lotCells = cellIndices(lots);
+    const keys = new Set([...planCells.keys(), ...lotCells.keys()]);
+    for (const key of keys) {
       const gx = Math.floor(key / 4096);
       const gz = key % 4096;
-      this.cells.set(key, {
+      const cell: Cell = {
         key,
+        tile,
         cx: (gx + 0.5) * STREAM_CELL - WORLD_HALF_X,
         cz: (gz + 0.5) * STREAM_CELL - WORLD_HALF_Z,
-        plans: c.plans,
-        lots: c.lots,
+        source: {
+          plans,
+          planIdx: Uint32Array.from(planCells.get(key) ?? []),
+          lots,
+          lotIdx: Uint32Array.from(lotCells.get(key) ?? []),
+        },
         targetDetail: 0,
         residence: { kind: "absent" },
-      });
+      };
+      const previous = this.cells.get(key);
+      if (previous) this.free(previous);
+      this.cells.set(key, cell);
+    }
+  }
+
+  /** Drop a tile's cells: resident geometry disposes, queued work is abandoned. */
+  removeTile(tile: number): void {
+    if (this.building && this.building.cell.tile === tile) this.building = null;
+    for (const [key, cell] of this.cells) {
+      if (cell.tile !== tile) continue;
+      this.free(cell);
+      this.cells.delete(key);
     }
   }
 
@@ -227,10 +284,15 @@ export class ParcelStreamer {
       // Finish a valid in-flight cell before starting another. During normal
       // driving the camera barely moves within this short construction window.
       if (!this.building) {
+        const src = next.cell.source;
         this.building = {
           cell: next.cell,
           detail: next.detail,
-          steps: buildParcelGeometrySteps(next.cell.plans, next.detail, next.cell.lots),
+          steps: buildParcelGeometrySteps(
+            unpackPlans(src.plans, src.planIdx),
+            next.detail,
+            unpackLots(src.lots, src.lotIdx),
+          ),
         };
       }
       const job = this.building;

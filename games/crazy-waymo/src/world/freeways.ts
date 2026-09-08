@@ -350,20 +350,23 @@ type ConFace = {
   readonly s?: readonly [number, number, number, number];
 };
 
+// Typed arrays, not the number[] the builder pushes into: the memo lives for
+// the whole session (deck contacts read deckPos per query) and a packed
+// double array costs twice the bytes of a Float32Array on the heap.
 type FreewayBuild = {
   readonly lines: readonly Line[];
   readonly pillars: readonly PillarSpot[];
-  readonly deckPos: number[];
-  readonly deckNor: number[];
-  readonly bodyPos: number[];
-  readonly bodyNor: number[];
-  readonly bodyUv: number[];
-  readonly whitePos: number[];
-  readonly yellowPos: number[];
-  readonly signPos: number[];
-  readonly signNor: number[];
+  readonly deckPos: Float32Array;
+  readonly deckNor: Float32Array;
+  readonly bodyPos: Float32Array;
+  readonly bodyNor: Float32Array;
+  readonly bodyUv: Float32Array;
+  readonly whitePos: Float32Array;
+  readonly yellowPos: Float32Array;
+  readonly signPos: Float32Array;
+  readonly signNor: Float32Array;
   /** deck top + rail faces, non-indexed triangles — the physics surface */
-  readonly physPos: number[];
+  readonly physPos: Float32Array;
 };
 
 function resample(p: readonly number[]): [number, number][] {
@@ -1050,16 +1053,16 @@ function buildData(terrain: Terrain, network?: RoadNetwork): FreewayBuild {
   cachedBuild = {
     lines,
     pillars,
-    deckPos,
-    deckNor,
-    bodyPos,
-    bodyNor,
-    bodyUv,
-    whitePos,
-    yellowPos,
-    signPos,
-    signNor,
-    physPos,
+    deckPos: Float32Array.from(deckPos),
+    deckNor: Float32Array.from(deckNor),
+    bodyPos: Float32Array.from(bodyPos),
+    bodyNor: Float32Array.from(bodyNor),
+    bodyUv: Float32Array.from(bodyUv),
+    whitePos: Float32Array.from(whitePos),
+    yellowPos: Float32Array.from(yellowPos),
+    signPos: Float32Array.from(signPos),
+    signNor: Float32Array.from(signNor),
+    physPos: Float32Array.from(physPos),
   };
   return cachedBuild;
 }
@@ -1276,7 +1279,7 @@ export function freewayPhysics(terrain: Terrain, network?: RoadNetwork): Float32
   const build = buildData(terrain, network);
   // Prepare during the loading-screen collider phase, before the first tire query.
   indexFreewayContacts(build);
-  return new Float32Array(build.physPos);
+  return build.physPos;
 }
 
 function pushQuad(
@@ -1320,18 +1323,22 @@ function pushQuad(
  * shader's documented "no data" opt-out and what three's uv-transform chunks
  * expect to exist.
  */
-function geoFrom(pos: number[], nor: number[] | null, uv?: number[]): THREE.BufferGeometry {
+function geoFrom(
+  pos: Float32Array,
+  nor: Float32Array | null,
+  uv?: Float32Array,
+): THREE.BufferGeometry {
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(pos), 3));
+  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
   if (nor) {
-    geo.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(nor), 3));
+    geo.setAttribute("normal", new THREE.BufferAttribute(nor, 3));
   } else {
     const up = new Float32Array(pos.length);
     for (let i = 1; i < up.length; i += 3) up[i] = 1;
     geo.setAttribute("normal", new THREE.BufferAttribute(up, 3));
   }
   const n = (pos.length / 3) * 2;
-  const src = uv && uv.length === n ? new Float32Array(uv) : new Float32Array(n);
+  const src = uv && uv.length === n ? uv : new Float32Array(n);
   geo.setAttribute("uv", new THREE.BufferAttribute(src, 2));
   return geo;
 }

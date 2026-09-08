@@ -63,7 +63,14 @@ import {
   TRANSIT_GEN_ID,
   TRANSIT_MODES,
 } from "../src/world/sf-transit.ts";
-import { deserializeWorldBin, unpackWorld, WORLD_REV } from "../src/world/world-bin.ts";
+import {
+  deserializeWorldBin,
+  type PackedTile,
+  unpackWorld,
+  WORLD_REV,
+} from "../src/world/world-bin.ts";
+import { packGeometry } from "../src/world/quantized-geometry.ts";
+import { BufferAttribute, BufferGeometry } from "three";
 import { packWorld, serializeWorldBin } from "../src/world/world-bin-pack.ts";
 import { checkRoadSurfaces } from "./test-road-surfaces.mts";
 import { checkHistoricCorners, checkParcelFacades } from "./test-parcel-facades.mts";
@@ -287,18 +294,21 @@ await checkVehicleParking(check);
 // --- 6. Bake round-trip: pack → serialize → deserialize → unpack preserves
 // the payload (world-bin is the most cast-heavy, least-observable file).
 {
-  const tiles = [
-    {
-      position: new Float32Array([1.5, 2.5, 3.5, 4.5, 5.5, 6.5]),
-      normal: new Float32Array([0, 1, 0, 0, 1, 0]),
-      color: new Float32Array([0.2, 0.4, 0.6, 0.8, 1.0, 0.1]),
-      index: new Uint16Array([0, 1, 0]),
-      x: 12.25,
-      z: -8.75,
-    },
-  ];
-  // roadParts are intentionally NOT in world.bin (rest.bin's merged chunks
-  // carry the roads); tile buffers are QUANTIZED — compare with tolerance.
+  const fixture = new BufferGeometry();
+  fixture.setAttribute(
+    "position",
+    new BufferAttribute(new Float32Array([1.5, 2.5, 3.5, 4.5, 5.5, 6.5]), 3),
+  );
+  fixture.setAttribute("normal", new BufferAttribute(new Float32Array([0, 1, 0, 0, 1, 0]), 3));
+  fixture.setAttribute(
+    "color",
+    new BufferAttribute(new Float32Array([0.2, 0.4, 0.6, 0.8, 1.0, 0.1]), 3),
+  );
+  fixture.setIndex(new BufferAttribute(new Uint16Array([0, 1, 0]), 1));
+  const tiles = [{ ...packGeometry(fixture), x: 12.25, z: -8.75 }];
+  // roadParts are intentionally NOT in world.bin (the merged chunks carry the
+  // roads); tile buffers are QUANTIZED and stay so — the runtime seats the
+  // mesh in the record's bounding-box frame, so compare the decoded values.
   const payload = { roadParts: [], tiles };
   const bin = serializeWorldBin({ rev: WORLD_REV, world: packWorld(payload) });
   const back = deserializeWorldBin(bin instanceof Uint8Array ? bin.buffer : bin);
@@ -307,19 +317,19 @@ await checkVehicleParking(check);
   const tile = world?.tiles[0];
   const near = (a: number | undefined, b: number, eps: number): boolean =>
     a !== undefined && Math.abs(a - b) <= eps;
+  const posAt = (t: PackedTile, i: number): number =>
+    t.pos.min[i % 3] + ((t.pos.q[i] ?? 0) / 65535) * t.pos.span[i % 3];
   check(
     "bake tile buffers survive quantization",
     !!tile &&
       tile.x === 12.25 &&
       tile.z === -8.75 &&
-      tile.position.length === 6 &&
-      near(tile.position[3], 4.5, 0.05) &&
-      near(tile.color?.[2], 0.6, 1 / 128) &&
-      near(tile.normal?.[1], 1, 0.02) &&
+      tile.pos.q.length === 6 &&
+      near(posAt(tile, 3), 4.5, 0.05) &&
+      near((tile.col?.[2] ?? 0) / 255, 0.6, 1 / 128) &&
+      near((tile.nor[1] ?? 0) / 127, 1, 0.02) &&
       tile.index?.[1] === 1,
-    tile
-      ? `pos[3]=${tile.position[3]?.toFixed(3)} col[2]=${tile.color?.[2]?.toFixed(3)}`
-      : "no tile",
+    tile ? `pos[3]=${posAt(tile, 3).toFixed(3)} col[2]=${tile.col?.[2]}` : "no tile",
   );
   check("world.bin carries no road parts (by design)", world?.roadParts.length === 0);
 }

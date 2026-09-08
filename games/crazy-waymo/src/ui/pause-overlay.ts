@@ -57,9 +57,7 @@ const CSS = `
   font: 900 italic clamp(42px, 9vw, 92px) / 0.95 system-ui, sans-serif;
   color: #ffd147;
   letter-spacing: -2px;
-  text-shadow:
-    0 6px 0 rgba(0, 0, 0, 0.45),
-    0 0 40px rgba(255, 160, 40, 0.5);
+  text-shadow: 0 6px 0 rgba(0, 0, 0, 0.45);
 }
 #waymo-pause .psub {
   margin-top: 20px;

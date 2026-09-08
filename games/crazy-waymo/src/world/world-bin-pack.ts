@@ -9,11 +9,10 @@ import type {
   PackedRest,
   PackedSolids,
   PackedWorld,
-  QPos,
-  QUv,
   Typed,
   WorldBinPayload,
 } from "./world-bin";
+import { packIndex, qNor, qPos } from "./quantized-geometry";
 
 // WRITE side of the world-bin split (bake-only, lazy-loaded): pack/serialize
 // must mirror the unpack side in ./world-bin.ts exactly — change them together.
@@ -62,108 +61,14 @@ export function serializeWorldBin(payload: WorldBinPayload): Uint8Array {
 }
 
 // ---------------------------------------------------------------------------
-// Quantized packing: Float32 geometry gzips terribly (~150MB artifacts). Per-
-// record Int16 positions (bbox-normalized, ≤8mm error on chunk-sized pieces),
-// Int8 normals, Uint8 vertex colors, columnar batch items. world.bin carries
-// TERRAIN ONLY — with rest.bin present, the merged chunks already contain the
-// roads, so shipping roadParts would double them.
+// Quantized packing: the geometry records arrive already packed
+// (world/quantized-geometry.ts — the capture and the gen worker quantize at
+// the source, and the runtime draws the same encoding). Batch items go
+// columnar: nearly every instance is translate+yaw+scale — 20 bytes beats 64.
 // ---------------------------------------------------------------------------
 
-function qPos(a: Float32Array): QPos {
-  let minX = Infinity,
-    minY = Infinity,
-    minZ = Infinity;
-  let maxX = -Infinity,
-    maxY = -Infinity,
-    maxZ = -Infinity;
-  for (let i = 0; i < a.length; i += 3) {
-    const x = a[i] ?? 0,
-      y = a[i + 1] ?? 0,
-      z = a[i + 2] ?? 0;
-    if (x < minX) minX = x;
-    if (x > maxX) maxX = x;
-    if (y < minY) minY = y;
-    if (y > maxY) maxY = y;
-    if (z < minZ) minZ = z;
-    if (z > maxZ) maxZ = z;
-  }
-  const sx = maxX - minX || 1,
-    sy = maxY - minY || 1,
-    sz = maxZ - minZ || 1;
-  const q = new Uint16Array(a.length);
-  for (let i = 0; i < a.length; i += 3) {
-    q[i] = Math.round((((a[i] ?? 0) - minX) / sx) * 65535);
-    q[i + 1] = Math.round((((a[i + 1] ?? 0) - minY) / sy) * 65535);
-    q[i + 2] = Math.round((((a[i + 2] ?? 0) - minZ) / sz) * 65535);
-  }
-  return { q, min: [minX, minY, minZ], span: [sx, sy, sz] };
-}
-
-function qNor(a: Float32Array): Int8Array {
-  const q = new Int8Array(a.length);
-  for (let i = 0; i < a.length; i++) q[i] = Math.round((a[i] ?? 0) * 127);
-  return q;
-}
-
-/** An all-zero uv channel carries no information — drop it rather than pay
- *  2 bytes per vertex for it. */
-function allZero(a: Float32Array): boolean {
-  for (let i = 0; i < a.length; i++) if (a[i] !== 0) return false;
-  return true;
-}
-
-function qUv(a: Float32Array): QUv {
-  let minU = Infinity,
-    minV = Infinity,
-    maxU = -Infinity,
-    maxV = -Infinity;
-  for (let i = 0; i < a.length; i += 2) {
-    const u = a[i] ?? 0,
-      v = a[i + 1] ?? 0;
-    if (u < minU) minU = u;
-    if (u > maxU) maxU = u;
-    if (v < minV) minV = v;
-    if (v > maxV) maxV = v;
-  }
-  const su = maxU - minU || 1,
-    sv = maxV - minV || 1;
-  const q = new Uint16Array(a.length);
-  for (let i = 0; i < a.length; i += 2) {
-    q[i] = Math.round((((a[i] ?? 0) - minU) / su) * 65535);
-    q[i + 1] = Math.round((((a[i + 1] ?? 0) - minV) / sv) * 65535);
-  }
-  return { q, min: [minU, minV], span: [su, sv] };
-}
-
-function packIndex(
-  idx: Uint16Array | Uint32Array | null,
-  vertCount: number,
-): Uint16Array | Uint32Array | null {
-  if (!idx) return null;
-  if (idx instanceof Uint16Array || vertCount > 65535) return idx;
-  return Uint16Array.from(idx);
-}
-
-function qCol(a: Float32Array): Uint8Array {
-  const q = new Uint8Array(a.length);
-  for (let i = 0; i < a.length; i++) q[i] = Math.round(Math.min(1, Math.max(0, a[i] ?? 0)) * 255);
-  return q;
-}
-
-// Terrain-only world payload. Normals ship as Int8 (rev 19+): they gzip to
-// almost nothing and their absence forced a computeVertexNormals pass over
-// the whole map on EVERY visit — a main-thread freeze on phones.
 export function packWorld(world: CityGenPayload): PackedWorld {
-  return {
-    tiles: world.tiles.map((t) => ({
-      pos: qPos(t.position),
-      nor: t.normal ? qNor(t.normal) : null,
-      col: t.color ? qCol(t.color) : null,
-      index: t.index,
-      x: t.x,
-      z: t.z,
-    })),
-  };
+  return { tiles: world.tiles };
 }
 
 export function packRest(rest: CityRestPayload): PackedRest {
@@ -173,8 +78,6 @@ export function packRest(rest: CityRestPayload): PackedRest {
   const urlIdx = new Int32Array(n);
   const rawIdx = new Int32Array(n);
   const tints = new Int32Array(n);
-  // Matrices: nearly every instance is translate+yaw+scale — 20 bytes beats
-  // 64. Non-yaw rotations (tilted props) go to an exact f32 fallback list.
   const trs = new Float32Array(n * 5); // x, y, z, yaw, — scale packed below
   const scales = new Uint16Array(n * 3); // per-axis, quantized 0..16
   const exact = new Map<number, Float32Array>();
@@ -227,26 +130,7 @@ export function packRest(rest: CityRestPayload): PackedRest {
     e++;
   }
   return {
-    mergedChunks: rest.mergedChunks.map((r) => ({
-      cx: r.cx,
-      cz: r.cz,
-      dist: r.dist,
-      pos: qPos(r.position),
-      nor: r.normal ? qNor(r.normal) : null,
-      // uv used to be kept only on textured (srcMat) records. That silently
-      // stripped the ROADS' two untextured uv channels on the baked path — the
-      // asphalt's across-road lateral coordinate (no gutter grime, no wheel
-      // paths, because the shader reads v=0 as its documented opt-out) and the
-      // paint stencils' atlas window (every glyph lands in the transparent
-      // padding and alphaTest deletes it). Gate on the data instead: a record
-      // that filled its uv in gets to keep it, and the ~90% of road records
-      // that left it zeroed still cost nothing.
-      uv: r.uv && !allZero(r.uv) ? qUv(r.uv) : null,
-      col: r.color ? qCol(r.color) : null,
-      index: packIndex(r.index, r.position.length / 3),
-      mat: r.mat,
-      srcMat: r.srcMat,
-    })),
+    mergedChunks: rest.mergedChunks,
     rawGeos: rest.rawGeos.map((g) => ({
       pos: qPos(g.position),
       nor: g.normal ? qNor(g.normal) : null,
@@ -262,7 +146,7 @@ export function packRest(rest: CityRestPayload): PackedRest {
   };
 }
 
-function packSolids(solids: CityRestPayload["solids"]): PackedSolids {
+export function packSolids(solids: CityRestPayload["solids"]): PackedSolids {
   const n = solids.length;
   const data = new Float32Array(n * 6);
   const flags = new Uint8Array(n);

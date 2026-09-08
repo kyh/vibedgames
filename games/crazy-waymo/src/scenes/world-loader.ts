@@ -17,7 +17,7 @@ import { PhysicsWorld } from "../physics/physics-world";
 import { Rng } from "../shared/rng";
 import { Car, skinById, skinModelUrl } from "../vehicle/car";
 import { RaycastVehicle } from "../vehicle/raycast-vehicle";
-import { CityModel, type CityRestPayload } from "../world/city";
+import { CityModel, type CityRestPayload, TILE_HOLD_RADIUS } from "../world/city";
 import { editorMode, loadLocalOverrides } from "../world/custom-map";
 import { freewayPhysics } from "../world/freeways";
 import { surfaceDeckPhysics } from "../world/surface-decks";
@@ -36,7 +36,9 @@ import type { ParcelPlanResult } from "../world/parcel-plan";
 import type { PlayerSpawn } from "../world/player-spawn";
 import { decodeParcelSource, type ParcelSource } from "../world/parcel-source";
 import type { ParcelWorkerRequest, ParcelWorkerResponse } from "../world/parcel-worker";
-import { fetchBakedRest, fetchBakedWorld, fetchParcelSource } from "../world/world-fetch";
+import { fetchBakedWorld, fetchParcelSource, fetchWorldMeta } from "../world/world-fetch";
+import type { CityRestMeta } from "../world/world-bin";
+import { isCoarsePointer } from "../render/quality";
 import { Minimap } from "../ui/minimap";
 
 export type WorldSpawn = PlayerSpawn;
@@ -58,9 +60,18 @@ export type WorldLoadResult = {
   readonly ready: Promise<void>;
 };
 
-type RestState = {
-  fromBake: boolean;
+/** The built city, from whichever source answered: the baked meta (its
+ *  tiles stream separately), the IndexedDB rest cache of a cold gen, or
+ *  neither (generate). */
+type RestSource = {
+  readonly meta: CityRestMeta | null;
+  readonly rest: CityRestPayload | null;
 };
+
+// The title waits for the tiles this close to the spawn. A phone downloads
+// its neighbourhood and lets the rest stream in behind the title (the fog
+// hides most of it); a desktop pipe takes everything in draw range up front.
+const GATE_RADIUS = isCoarsePointer() ? 480 : TILE_HOLD_RADIUS;
 
 type WorldLoaderDeps = {
   readonly scene: THREE.Scene;
@@ -246,14 +257,18 @@ export async function loadWorld(deps: WorldLoaderDeps): Promise<WorldLoadResult>
   // Fetch terrain and city dressing concurrently. The complete-scene loading
   // gate waits for both; failures fall back to the worker + IndexedDB path.
   const bakedWorldPromise = skipBaked ? Promise.resolve(null) : fetchBakedWorld();
-  const bakedRestPromise = skipBaked ? Promise.resolve(null) : fetchBakedRest();
-  // The parcel source is an INPUT to the city, not a baked output: every
-  // path fetches it, bake mode included. The plan starts in its worker the
-  // moment the bytes land — it assembles its own reservation — so it runs
-  // alongside the model download.
+  const metaPromise: Promise<CityRestMeta | null> = skipBaked
+    ? Promise.resolve(null)
+    : fetchWorldMeta();
+  // The baked tiles carry the parcel plan; only a city that plans itself —
+  // edited, baking, or a cold fallback with no usable bins — needs the
+  // source. The plan then starts in its worker the moment the bytes land
+  // (it assembles its own reservation), alongside the model download.
   // An edited city has a grid-derived network the worker does not have and
   // plans itself, later, from the decoded source.
-  const parcelPromise: Promise<ParcelResolved> = fetchParcelSource().then(async (bytes) => {
+  const parcelPromise: Promise<ParcelResolved> = metaPromise.then(async (meta) => {
+    if (meta) return { plan: null, source: null };
+    const bytes = await fetchParcelSource();
     if (!bytes) return { plan: null, source: null };
     if (edited) return { plan: null, source: decodeParcelSource(bytes) };
     // A revisit has the plan already (world-cache.ts): the same build, rev
@@ -269,10 +284,9 @@ export async function loadWorld(deps: WorldLoaderDeps): Promise<WorldLoadResult>
     return { plan, source: plan ? null : decodeParcelSource(copy) };
   });
   const genPromise = bakedWorldPromise.then((baked) => baked ?? startGenWorker());
-  const restState: RestState = { fromBake: false };
-  const restPromise = bakedRestPromise.then((baked) => {
-    if (baked) restState.fromBake = true;
-    return baked ? baked : edited ? null : readRestCache();
+  const restPromise: Promise<RestSource> = metaPromise.then(async (meta) => {
+    if (meta) return { meta, rest: null };
+    return { meta: null, rest: edited ? null : await readRestCache() };
   });
   // Two-stage preload overlaps the small player/terrain set with the rest
   // of the city. The loading screen stays up until the complete scene is
@@ -327,7 +341,6 @@ export async function loadWorld(deps: WorldLoaderDeps): Promise<WorldLoadResult>
     parcelPromise,
     latePreload,
     payload,
-    restState,
   );
   return {
     city,
@@ -345,29 +358,39 @@ async function finishLoad(
   city: CityModel,
   car: Car,
   spawn: WorldSpawn,
-  restPromise: Promise<CityRestPayload | null>,
+  restPromise: Promise<RestSource>,
   parcelPromise: Promise<ParcelResolved>,
   latePreload: Promise<void>,
   bakePayload: CityGenPayload | null,
-  restState: RestState,
 ): Promise<void> {
   const paint = (): Promise<void> =>
     new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
   deps.setStage("DOWNLOADING THE CITY…");
   deps.glideLoading(0.64, 12, "Building San Francisco…");
-  const [rest, parcels] = await Promise.all([restPromise, parcelPromise, latePreload]);
+  const [{ meta, rest }, parcels] = await Promise.all([restPromise, parcelPromise, latePreload]);
+  city.setRestMeta(meta);
   city.setRestPayload(rest);
   city.setParcelPlan(parcels.plan);
   city.setParcelSource(parcels.source);
+  // The baked path spends its time downloading tiles, the generated one
+  // building; the bar splits the same span between them either way.
+  const buildTo = meta ? 0.7 : 0.84;
   let lastPct = -1;
   await city.initLate((f) => {
     const pct = Math.min(99, Math.round(f * 100));
     if (pct !== lastPct) {
       lastPct = pct;
       deps.setStage(`FINISHING THE CITY… ${pct}%`);
-      deps.setLoading(0.64 + f * 0.2, "Building San Francisco…");
+      deps.setLoading(0.64 + f * (buildTo - 0.64), "Building San Francisco…");
     }
   });
+  if (meta) {
+    deps.setStage("DOWNLOADING THE CITY…");
+    await city.streamGate(spawn.x, spawn.z, GATE_RADIUS, (done, total) => {
+      const f = total > 0 ? done / total : 1;
+      deps.setLoading(buildTo + f * (0.84 - buildTo), "Downloading San Francisco…");
+    });
+  }
   // Static city built: freeze its matrices (editor sessions keep them live
   // so props/streets can be rebuilt and dragged).
   if (!editorMode()) city.freezeStatic();
@@ -385,7 +408,7 @@ async function finishLoad(
   // Downtown's mast luminaires come from the batch records — the baked
   // payload on the deployed path, the live capture on the generated/editor
   // path — and must register before attachNightAndLife drains the beacons.
-  const propItems = rest?.batchItems ?? city.restCapture?.batchItems;
+  const propItems = meta?.batchItems ?? rest?.batchItems ?? city.restCapture?.batchItems;
   if (propItems) registerStreetLuminaires(propItems);
   const minimap = new Minimap(city.plan, city.getDecks());
   deps.onCoreSystems({ solidIndex, fares, skids, trails, lampGlow, minimap });
@@ -448,13 +471,25 @@ async function finishLoad(
   await paint();
 
   // The rest-cache write serializes ~100MB — idle time only, never at start.
-  if (city.restCapture && !restState.fromBake) {
+  if (city.restCapture && !meta) {
     const restCapture = city.restCapture;
     runWhenIdle(() => writeRestCache(restCapture));
   }
   await paint();
 
   physics.addStaticSolids(city.solids, city.terrain);
+  // The parcel walls ride their world tiles: whatever is resident now, and
+  // every tile that streams in or out from here on.
+  city.setSolidSink({
+    add: (tile, solids) => {
+      solidIndex.addTile(tile, solids);
+      physics.addStaticSolids(solids, city.terrain, tile);
+    },
+    remove: (tile) => {
+      solidIndex.removeTile(tile);
+      physics.removeStaticSolids(tile);
+    },
+  });
   // Seed the first resident set at the spawn NOW so the initial insert burst
   // (+ its BVH incorporation) lands during load, not on a live frame.
   physics.streamSolids(car.position.x, car.position.z);
@@ -534,7 +569,7 @@ async function finishLoad(
   // Machinery lives in world/bake-download.ts, lazy-loaded behind the param.
   if (new URLSearchParams(window.location.search).has("bake")) {
     const { downloadWorldArtifacts } = await import("../world/bake-download");
-    await downloadWorldArtifacts(bakePayload, city.restCapture);
+    await downloadWorldArtifacts(bakePayload, city);
   }
   deps.setLoading(1, "Ready to drive");
   deps.showTitle();

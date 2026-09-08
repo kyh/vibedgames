@@ -8,6 +8,7 @@ import {
 } from "../src/world/parcel-mesh.ts";
 import type { ParcelLot, ParcelPlan } from "../src/world/parcel-plan.ts";
 import { ParcelStreamer } from "../src/world/parcel-stream.ts";
+import { packLots, packPlans } from "../src/world/parcel-pack.ts";
 
 type Check = (name: string, condition: boolean, detail?: string) => void;
 
@@ -38,6 +39,17 @@ const block = (x: number, z = 0): ParcelPlan[] =>
   Array.from({ length: 16 }, (_, index) =>
     house(x + (index % 4) * 5, z + Math.floor(index / 4) * 7, index),
   );
+
+function streamer(
+  root: Group,
+  plans: readonly ParcelPlan[],
+  lots: readonly ParcelLot[],
+  detail: DetailLevel,
+): ParcelStreamer {
+  const stream = new ParcelStreamer(root, detail);
+  stream.addTile(0, packPlans(plans), packLots(lots));
+  return stream;
+}
 
 function drain(stream: ParcelStreamer, x: number, z: number, radius: number): number {
   let frames = 0;
@@ -87,7 +99,7 @@ export async function checkParcelStreaming(check: Check): Promise<void> {
   try {
     const root = new Group();
     const destination = Array.from({ length: 5 }, (_, cell) => block(960 + cell * 80)).flat();
-    const stream = new ParcelStreamer(root, [...plans, ...destination, ...block(-1000)], [], 1);
+    const stream = streamer(root, [...plans, ...destination, ...block(-1000)], [], 1);
     stream.update(0, 0, 450);
     const sourceMeshes = root.children.flatMap((group) => group.children);
     let disposed = 0;
@@ -112,12 +124,7 @@ export async function checkParcelStreaming(check: Check): Promise<void> {
     );
     const frames = drain(stream, 1000, 0, 450);
     const expectedRoot = new Group();
-    const expected = new ParcelStreamer(
-      expectedRoot,
-      [...plans, ...destination, ...block(-1000)],
-      [],
-      1,
-    );
+    const expected = streamer(expectedRoot, [...plans, ...destination, ...block(-1000)], [], 1);
     expected.update(1000, 0, 450);
     check(
       "budgeted destination converges to the synchronous geometry and residency",
@@ -140,7 +147,7 @@ export async function checkParcelStreaming(check: Check): Promise<void> {
     stream.update(4000, 4000, 0);
 
     const lodRoot = new Group();
-    const lod = new ParcelStreamer(lodRoot, block(240), [], 2);
+    const lod = streamer(lodRoot, block(240), [], 2);
     lod.update(0, 0, 500);
     const previous = [...lodRoot.children];
     lod.update(150, 0, 500);
@@ -164,7 +171,7 @@ export async function checkParcelStreaming(check: Check): Promise<void> {
     lod.update(4000, 4000, 0);
 
     const editorRoot = new Group();
-    const editor = new ParcelStreamer(editorRoot, [...plans, ...destination], [lot], 2);
+    const editor = streamer(editorRoot, [...plans, ...destination], [lot], 2);
     editor.update(0, 0, 300);
     editor.update(0, 0, Infinity);
     const bounds = new Box3().setFromObject(editorRoot);
@@ -180,7 +187,7 @@ export async function checkParcelStreaming(check: Check): Promise<void> {
 
     clockStep = 10; // scanning alone has already exceeded the soft deadline
     const slowRoot = new Group();
-    const slow = new ParcelStreamer(slowRoot, [...plans, ...block(1000)], [], 1);
+    const slow = streamer(slowRoot, [...plans, ...block(1000)], [], 1);
     slow.update(0, 0, 300);
     slow.update(1000, 0, 300);
     const slowFrames = drain(slow, 1000, 0, 300);
