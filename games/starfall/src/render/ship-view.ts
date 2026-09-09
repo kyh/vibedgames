@@ -1,6 +1,5 @@
-import type Phaser from "phaser";
 import { BlendModes, Math as PhaserMath } from "phaser";
-import type { GameScene } from "../scenes/game-scene";
+import type Phaser from "phaser";
 import {
   BOOSTER_SPECS,
   INVULNERABLE_MS,
@@ -17,11 +16,19 @@ import {
   TWIN_ORBIT_RADIUS,
 } from "../shared/constants";
 import type { PlayerNetState, ShieldModNetState } from "../shared/constants";
+import type { Link } from "../state/link";
+import type { Pilot } from "../state/pilot";
 import { DEG } from "../sys/geometry";
+import type { Progression } from "../sys/progression";
 import { TESLA_TINT } from "../sys/shield";
+import type { Shield } from "../sys/shield";
 import { SENTRY_WEAPON, twinAngle } from "../sys/weapons";
+import type { Weapons } from "../sys/weapons";
 import { PARTICLE_SOFT_BUDGET } from "./fx-pool";
+import type { FxPool } from "./fx-pool";
+import type { Layers } from "./layers";
 import { cssToInt, weaponTint } from "./tint";
+import type { TraumaCamera } from "./trauma-camera";
 import {
   shipAlpha,
   shipHullPoints,
@@ -29,32 +36,7 @@ import {
   strokeClosed,
   strokeRegularPolygon,
 } from "./vector-shapes";
-
-type ShipViewScene = Pick<
-  GameScene,
-  | "add"
-  | "alive"
-  | "boosts"
-  | "cameras"
-  | "fx"
-  | "haloGfx"
-  | "invulnUntil"
-  | "myId"
-  | "peerStates"
-  | "peers"
-  | "progress"
-  | "shield"
-  | "shipAngle"
-  | "shipX"
-  | "shipY"
-  | "spawned"
-  | "thrust"
-  | "trailer"
-  | "trauma"
-  | "view"
-  | "weapon"
-  | "weapons"
->;
+import type { WorldView } from "./world-view";
 
 export interface ShipObjs {
   gfx: Phaser.GameObjects.Graphics;
@@ -82,7 +64,7 @@ export interface ShipObjs {
   regenUntil: number;
 }
 
-/** Authored thruster-puff size (see GameScene.hullGlow for the one thing that
+/** Authored thruster-puff size (see WorldView.hullGlow for the one thing that
  *  ever scales it down). */
 export const TRAIL_PARTICLE_SCALE = 0.5;
 
@@ -120,6 +102,19 @@ export const configureTrail = (
   }
 };
 
+export interface ShipViewDeps {
+  scene: Phaser.Scene;
+  pilot: Pilot;
+  link: Link;
+  fx: FxPool;
+  layers: Layers;
+  trauma: TraumaCamera;
+  view: WorldView;
+  shield: Shield;
+  weapons: Weapons;
+  progress: Progression;
+}
+
 /** Ship rendering for me and every remote: hull graphics per level, thruster trails, shield ring/halo, impact arcs, and the twin/windup/tesla/sentry decor. */
 export class ShipView {
   // display caches
@@ -127,10 +122,37 @@ export class ShipView {
 
   private remoteTrailCount = 0;
 
-  private readonly scene: ShipViewScene;
+  private readonly scene: Phaser.Scene;
 
-  constructor(scene: ShipViewScene) {
-    this.scene = scene;
+  private readonly pilot: Pilot;
+
+  private readonly link: Link;
+
+  private readonly fx: FxPool;
+
+  private readonly layers: Layers;
+
+  private readonly trauma: TraumaCamera;
+
+  private readonly view: WorldView;
+
+  private readonly shield: Shield;
+
+  private readonly weapons: Weapons;
+
+  private readonly progress: Progression;
+
+  constructor(deps: ShipViewDeps) {
+    this.scene = deps.scene;
+    this.pilot = deps.pilot;
+    this.link = deps.link;
+    this.fx = deps.fx;
+    this.layers = deps.layers;
+    this.trauma = deps.trauma;
+    this.view = deps.view;
+    this.shield = deps.shield;
+    this.weapons = deps.weapons;
+    this.progress = deps.progress;
   }
 
   private makeTrailEmitter(tint: number): Phaser.GameObjects.Particles.ParticleEmitter {
@@ -148,48 +170,16 @@ export class ShipView {
     return e;
   }
 
-  /**
-   * TRAILER ONLY: how much of its authored size the pilot's own additive glow
-   * keeps at this shot's zoom.
-   *
-   * The hull is a 1px vector stroke ~16 world px across; the glow around it —
-   * thruster puffs, muzzle sparks, the shield-impact burst — is the 32px soft
-   * "spark" dot on ADD. Both are world-space, so both scale with the camera,
-   * but only one of them GROWS: a stroked outline gains no ink when it is
-   * magnified, while a soft additive dot gains area (and therefore saturates)
-   * as the square of the zoom. At the reel's 1.9-2.5 zooms that inverted the
-   * shot — measured on the last capture, the player read as a formless white
-   * splat in calm-open, elite-behaviours, chain-reactor and pvp-duel while the
-   * ENEMIES, which are pure stroke, read cleanly. The hero was the least
-   * legible object in its own tight shots.
-   *
-   * So inside ?trailer=1 the glow is pinned to the SCREEN size it has at zoom
-   * 1 (the framing the game itself ships) and the hull is the only thing the
-   * tightening magnifies. Clamped at 1 so it can only ever damp — a shot below
-   * zoom 1 would be wider than normal play, which the framing contract forbids
-   * anyway. Outside trailer mode this is a constant 1 and every call site is
-   * unchanged arithmetic.
-   */
-  hullGlow(): number {
-    if (!this.scene.trailer) {
-      return 1;
-    }
-    // Quantised: three scenes lerp their zoom, and the trail's scale lives in
-    // the emitter CONFIG — re-parsing it every frame to chase a continuous
-    // ramp buys nothing the eye can see.
-    return Math.min(1, Math.round(20 / this.scene.cameras.main.zoom) / 20);
-  }
-
   syncShips(now: number, dt: number): void {
     // Time-based smoothing (~0.35/frame at 60fps) so remote-ship glide speed
     // is refresh-rate independent.
     const blend = 1 - Math.exp(-25 * dt);
     // Over the soft particle budget: trails throttle ×2 (vfx skill rule).
-    const throttled = this.scene.fx.aliveParticles() > PARTICLE_SOFT_BUDGET;
+    const throttled = this.fx.aliveParticles() > PARTICLE_SOFT_BUDGET;
     const seen = new Set<string>();
-    const { myId } = this.scene;
-    this.scene.haloGfx.clear();
-    for (const [id, player] of Object.entries(this.scene.peers)) {
+    const { myId } = this.link;
+    this.layers.haloGfx.clear();
+    for (const [id, player] of Object.entries(this.link.peers)) {
       seen.add(id);
       const rec = this.shipRec(id, player.color);
       if (id === myId) {
@@ -221,13 +211,13 @@ export class ShipView {
     }
     const tint = cssToInt(color);
     let trail: Phaser.GameObjects.Particles.ParticleEmitter | null = null;
-    if (id === this.scene.myId) {
+    if (id === this.link.myId) {
       trail = this.makeTrailEmitter(tint);
     } else if (this.remoteTrailCount < 8) {
       trail = this.makeTrailEmitter(tint);
       this.remoteTrailCount += 1;
     }
-    const lvl0 = id === this.scene.myId ? this.scene.progress.level : 1;
+    const lvl0 = id === this.link.myId ? this.progress.level : 1;
     const rec: ShipObjs = {
       alive: true,
       flashUntil: 0,
@@ -246,33 +236,28 @@ export class ShipView {
   }
 
   private syncMyShip(rec: ShipObjs, throttled: boolean, now: number): void {
-    this.ensureShipLevel(rec, this.scene.progress.level);
+    this.ensureShipLevel(rec, this.progress.level);
     // Only the PILOT's glow is damped: the reel's tight shots need the
     // contrast between a hull that grew and a glow that did not, and the
     // enemies (pure stroke) never had the problem in the first place.
-    configureTrail(rec, this.scene.boosts.has("nitro"), throttled, this.hullGlow());
-    rec.gfx.setPosition(this.scene.shipX, this.scene.shipY).setRotation(this.scene.shipAngle);
-    rec.gfx.setVisible(this.scene.spawned && this.scene.alive);
-    const phased = now < this.scene.shield.phasedUntil;
-    rec.gfx.setAlpha(shipAlpha(phased, now < this.scene.invulnUntil, now));
-    rec.alive = this.scene.alive;
+    configureTrail(rec, this.pilot.boosts.has("nitro"), throttled, this.view.hullGlow());
+    rec.gfx.setPosition(this.pilot.shipX, this.pilot.shipY).setRotation(this.pilot.shipAngle);
+    rec.gfx.setVisible(this.pilot.spawned && this.pilot.alive);
+    const phased = now < this.shield.phasedUntil;
+    rec.gfx.setAlpha(shipAlpha(phased, now < this.pilot.invulnUntil, now));
+    rec.alive = this.pilot.alive;
     if (rec.trail) {
-      rec.trail.emitting = this.scene.alive && this.scene.spawned && this.scene.thrust > 0.3;
+      rec.trail.emitting = this.pilot.alive && this.pilot.spawned && this.pilot.thrust > 0.3;
       rec.trail.setPosition(
-        this.scene.shipX - Math.cos(this.scene.shipAngle) * 10,
-        this.scene.shipY - Math.sin(this.scene.shipAngle) * 10,
+        this.pilot.shipX - Math.cos(this.pilot.shipAngle) * 10,
+        this.pilot.shipY - Math.sin(this.pilot.shipAngle) * 10,
       );
     }
-    if (this.scene.alive && this.scene.spawned) {
+    if (this.pilot.alive && this.pilot.spawned) {
       this.drawMyShipDecor(now);
     }
-    if (this.scene.weapons.sentry && now < this.scene.weapons.sentry.until) {
-      this.drawSentry(
-        this.scene.weapons.sentry.x,
-        this.scene.weapons.sentry.y,
-        this.scene.weapons.sentry.until,
-        now,
-      );
+    if (this.weapons.sentry && now < this.weapons.sentry.until) {
+      this.drawSentry(this.weapons.sentry.x, this.weapons.sentry.y, this.weapons.sentry.until, now);
     }
   }
 
@@ -280,45 +265,45 @@ export class ShipView {
    *  glow and TESLA aura around the pilot's hull. */
   private drawMyShipDecor(now: number): void {
     this.drawShield(
-      this.scene.shipX,
-      this.scene.shipY,
-      this.scene.shipAngle,
-      this.scene.shield.shieldHp,
-      this.scene.shield.overHp,
-      this.scene.shield.shieldModNetState(now),
+      this.pilot.shipX,
+      this.pilot.shipY,
+      this.pilot.shipAngle,
+      this.shield.shieldHp,
+      this.shield.overHp,
+      this.shield.shieldModNetState(now),
       now,
       {
-        flash: now < this.scene.shield.haloFlashUntil,
-        regen: this.scene.shield.regenActive || now < this.scene.shield.repairSweepUntil,
-        siphonPulse: now < this.scene.shield.siphonPulseUntil,
+        flash: now < this.shield.haloFlashUntil,
+        regen: this.shield.regenActive || now < this.shield.repairSweepUntil,
+        siphonPulse: now < this.shield.siphonPulseUntil,
       },
     );
     this.drawImpactArcs(now);
-    if (now < this.scene.invulnUntil && !this.scene.trailer) {
+    if (now < this.pilot.invulnUntil && !this.link.trailer) {
       // The existing two-second protection, drawn outside the shield.
-      const remaining = PhaserMath.Clamp((this.scene.invulnUntil - now) / INVULNERABLE_MS, 0, 1);
-      this.scene.haloGfx.lineStyle(1.5, 0x7d_d3_fc, 0.8).beginPath();
-      this.scene.haloGfx.arc(
-        this.scene.shipX,
-        this.scene.shipY,
+      const remaining = PhaserMath.Clamp((this.pilot.invulnUntil - now) / INVULNERABLE_MS, 0, 1);
+      this.layers.haloGfx.lineStyle(1.5, 0x7d_d3_fc, 0.8).beginPath();
+      this.layers.haloGfx.arc(
+        this.pilot.shipX,
+        this.pilot.shipY,
         SHIELD_RING_RADIUS + 6,
         -Math.PI / 2,
         -Math.PI / 2 + Math.PI * 2 * remaining,
       );
-      this.scene.haloGfx.strokePath();
+      this.layers.haloGfx.strokePath();
     }
-    if (this.scene.boosts.has("twin")) {
-      this.drawTwinDrone(this.scene.shipX, this.scene.shipY, twinAngle());
+    if (this.pilot.boosts.has("twin")) {
+      this.drawTwinDrone(this.pilot.shipX, this.pilot.shipY, twinAngle());
     }
     this.drawWindupGlow(
-      this.scene.shipX,
-      this.scene.shipY,
-      this.scene.shipAngle,
-      this.scene.weapons.windupFrac(),
-      this.scene.weapon.tint,
+      this.pilot.shipX,
+      this.pilot.shipY,
+      this.pilot.shipAngle,
+      this.weapons.windupFrac(),
+      this.pilot.weapon.tint,
     );
-    if (this.scene.weapons.teslaActive(now)) {
-      this.drawTeslaAura(this.scene.shipX, this.scene.shipY, now);
+    if (this.weapons.teslaActive(now)) {
+      this.drawTeslaAura(this.pilot.shipX, this.pilot.shipY, now);
     }
   }
 
@@ -329,7 +314,7 @@ export class ShipView {
     throttled: boolean,
     now: number,
   ): void {
-    const st = this.scene.peerStates.get(id) ?? null;
+    const st = this.link.peerStates.get(id) ?? null;
     if (!st) {
       rec.gfx.setVisible(false);
       if (rec.trail) {
@@ -359,12 +344,12 @@ export class ShipView {
       rec.lastShieldHp = st.shieldHp;
     }
     if (rec.alive && !st.alive) {
-      this.scene.fx.battle.burst(rec.gfx.x, rec.gfx.y, 95, rec.tint, "death", st.angle);
-      this.scene.view.splinterBurst(rec.gfx.x, rec.gfx.y, 50, 30, now);
-      this.scene.fx.shatter(rec.gfx.x, rec.gfx.y, shipHullPoints(), st.angle, rec.tint);
-      this.scene.fx.ring(rec.gfx.x, rec.gfx.y, 10, 90, 400, 0xff_ff_ff, 0.7);
-      if (this.scene.view.onScreen(rec.gfx.x, rec.gfx.y)) {
-        this.scene.trauma.add(0.2);
+      this.fx.battle.burst(rec.gfx.x, rec.gfx.y, 95, rec.tint, "death", st.angle);
+      this.view.splinterBurst(rec.gfx.x, rec.gfx.y, 50, 30, now);
+      this.fx.shatter(rec.gfx.x, rec.gfx.y, shipHullPoints(), st.angle, rec.tint);
+      this.fx.ring(rec.gfx.x, rec.gfx.y, 10, 90, 400, 0xff_ff_ff, 0.7);
+      if (this.view.onScreen(rec.gfx.x, rec.gfx.y)) {
+        this.trauma.add(0.2);
       }
     }
     // respawn: snap, don't glide
@@ -401,7 +386,7 @@ export class ShipView {
     // Drains are visible as shieldHp drops between snapshots: flash + sparks.
     if (st.shieldHp < rec.lastShieldHp) {
       rec.flashUntil = now + 80;
-      this.scene.fx.sparks(rec.gfx.x, rec.gfx.y, 6, SHIELD_RING_TINT, {
+      this.fx.sparks(rec.gfx.x, rec.gfx.y, 6, SHIELD_RING_TINT, {
         lifeMax: 250,
         lifeMin: 150,
       });
@@ -439,7 +424,7 @@ export class ShipView {
     now: number,
     opts: { flash: boolean; regen: boolean },
   ): void {
-    const g = this.scene.haloGfx;
+    const g = this.layers.haloGfx;
     let alpha = 0.15 + 0.45 * frac + (opts.regen ? 0.15 : 0);
     if (frac < SHIELD_LOW_FRACTION) {
       // Low shield: pulse 0.2↔0.7 at 6Hz.
@@ -487,7 +472,7 @@ export class ShipView {
     now: number,
     opts: { flash: boolean; regen: boolean; siphonPulse: boolean },
   ): void {
-    const g = this.scene.haloGfx;
+    const g = this.layers.haloGfx;
     const frac = Math.max(0, Math.min(1, shieldHp / SHIELD_MAX));
     if (frac > 0) {
       this.drawShieldRing(x, y, angle, shieldHp, frac, now, opts);
@@ -580,15 +565,15 @@ export class ShipView {
 
   /** 60° white impact arcs at the incoming-damage angle, alpha 1→0 / 150ms. */
   private drawImpactArcs(now: number): void {
-    this.scene.shield.impactArcs = this.scene.shield.impactArcs.filter((ia) => now < ia.diesAt);
-    const g = this.scene.haloGfx;
-    for (const ia of this.scene.shield.impactArcs) {
+    this.shield.impactArcs = this.shield.impactArcs.filter((ia) => now < ia.diesAt);
+    const g = this.layers.haloGfx;
+    for (const ia of this.shield.impactArcs) {
       const alpha = Math.max(0, (ia.diesAt - now) / 150);
       g.lineStyle(2, 0xff_ff_ff, alpha);
       g.beginPath();
       g.arc(
-        this.scene.shipX,
-        this.scene.shipY,
+        this.pilot.shipX,
+        this.pilot.shipY,
         SHIELD_RING_RADIUS,
         ia.angle - 30 * DEG,
         ia.angle + 30 * DEG,
@@ -599,7 +584,7 @@ export class ShipView {
 
   /** TWIN: 3px wireframe drone orbiting at r=28 (remotes drive it from boosts). */
   private drawTwinDrone(cx: number, cy: number, orbitAngle: number): void {
-    const g = this.scene.haloGfx;
+    const g = this.layers.haloGfx;
     const x = cx + Math.cos(orbitAngle) * TWIN_ORBIT_RADIUS;
     const y = cy + Math.sin(orbitAngle) * TWIN_ORBIT_RADIUS;
     g.lineStyle(1, BOOSTER_SPECS.twin.tint, 0.9);
@@ -613,12 +598,12 @@ export class ShipView {
     if (frac <= 0.02) {
       return;
     }
-    const g = this.scene.haloGfx;
+    const g = this.layers.haloGfx;
     g.fillStyle(tint, 0.35 + 0.45 * frac);
     g.fillCircle(
       x + Math.cos(angle) * (SHIP_RADIUS + 2),
       y + Math.sin(angle) * (SHIP_RADIUS + 2),
-      6 * frac * this.hullGlow(),
+      6 * frac * this.view.hullGlow(),
     );
   }
 
@@ -626,7 +611,7 @@ export class ShipView {
    *  electric flicker), driven locally for the owner and by the serialized
    *  flag for remotes. */
   private drawTeslaAura(x: number, y: number, now: number): void {
-    const g = this.scene.haloGfx;
+    const g = this.layers.haloGfx;
     g.lineStyle(1, TESLA_TINT, 0.7);
     const base = (now / 1000) * 240 * DEG;
     for (let i = 0; i < 5; i += 1) {
@@ -645,7 +630,7 @@ export class ShipView {
     if (left <= 0) {
       return;
     }
-    const g = this.scene.haloGfx;
+    const g = this.layers.haloGfx;
     const alpha = 0.9 * Math.min(1, left / 2000);
     g.lineStyle(1, SENTRY_WEAPON.tint, alpha);
     // base
@@ -659,7 +644,7 @@ export class ShipView {
     const g = this.scene.add.graphics().setDepth(10);
     const L = Math.max(1, Math.min(LEVEL_CAP, Math.round(level)));
     const s = shipScaleForLevel(L);
-    const sw = this.scene.view.strokeScale();
+    const sw = this.view.strokeScale();
     const hull = shipHullPoints(L);
     g.fillStyle(0x05_0c_17, 0.94).fillPoints(
       hull.map((p) => new PhaserMath.Vector2(p.x, p.y)),

@@ -1,6 +1,7 @@
 import type { MultiplayerClient } from "@vibedgames/multiplayer";
 import { kindIndex } from "../net/wire-read";
-import type { GameScene } from "../scenes/game-scene";
+import type { WireRecord } from "../net/wire-read";
+import type { SceneInternals } from "../scenes/game-scene";
 import { now as simNow } from "../shared/clock";
 import {
   BOOSTER_KINDS,
@@ -27,6 +28,7 @@ import type {
   EnemyKind,
   ItemDrop,
   ItemState,
+  SharedState,
   ShieldModKind,
 } from "../shared/constants";
 
@@ -66,9 +68,20 @@ export interface StarfallSummary {
 
 /** The dev-only driving hooks installed on `window.__starfall` (DEV builds
  *  only — headless reviewers poke the game through these). */
+/** `__starfall.scene`: the live-state probes the two-client harness reads. */
+export interface StarfallSceneProbe {
+  readonly world: SharedState;
+  readonly shipX: number;
+  readonly shipY: number;
+  readonly paused: boolean;
+  readonly wasHost: boolean;
+  readonly hostSnapshotReady: boolean;
+  netSendEvent: (event: string, payload: WireRecord) => void;
+}
+
 export interface StarfallDevHooks {
-  scene: GameScene;
-  client: MultiplayerClient;
+  scene: StarfallSceneProbe;
+  client: MultiplayerClient | null;
   spawnEnemy: (kind: EnemyKind, x?: number, y?: number) => string | null;
   damageEnemy: (id: string, amount: number) => number | null;
   grantShield: (raw: string) => void;
@@ -91,20 +104,27 @@ declare global {
   }
 }
 
-export const installDevHooks = (scene: GameScene): void => {
+export const installDevHooks = (scene: SceneInternals): void => {
   if (!import.meta.env.DEV) {
     return;
   }
   window.__starfall = {
-    client: scene.client,
+    client: scene.link.rawClient,
     /** Run a drain through the real applyDamage pipeline. */
     damage: (amount: number): string =>
-      scene.shield.applyDamage(amount, scene.shipX + 12, scene.shipY, "DEV", null, simNow()),
+      scene.shield.applyDamage(
+        amount,
+        scene.pilot.shipX + 12,
+        scene.pilot.shipY,
+        "DEV",
+        null,
+        simNow(),
+      ),
     /** Host only: run damage through the real hostDamageEnemy pipeline
      *  (warden DR, boss phase floors, kill/loot). Returns the enemy's
      *  post-damage hp, or null if it died/never existed. */
     damageEnemy: (id: string, amount: number): number | null => {
-      if (!scene.amHost) {
+      if (!scene.link.amHost) {
         return null;
       }
       scene.hostCombat.hostDamageEnemy(id, amount, 0, 0);
@@ -112,10 +132,10 @@ export const installDevHooks = (scene: GameScene): void => {
     },
     /** Host only: shed score shards near the ship. */
     dropShards: (count: number, x?: number, y?: number): void => {
-      if (!scene.amHost) {
+      if (!scene.link.amHost) {
         return;
       }
-      scene.hostCombat.hostSpawnShards(x ?? scene.shipX + 120, y ?? scene.shipY, count);
+      scene.hostCombat.hostSpawnShards(x ?? scene.pilot.shipX + 120, y ?? scene.pilot.shipY, count);
     },
     /** Fire one volley of the current weapon, no pointer needed. */
     fire: (): void => {
@@ -131,7 +151,7 @@ export const installDevHooks = (scene: GameScene): void => {
         scene.shield.shieldHp = Math.max(scene.shield.shieldHp, SHIELD_MAX);
         scene.shield.lastDamageAt = 0;
       } else {
-        scene.boosts.set(kind, simNow() + BOOSTER_SPECS[kind].durationMs);
+        scene.pilot.boosts.set(kind, simNow() + BOOSTER_SPECS[kind].durationMs);
       }
     },
     /** Grant a shield MOD by kind name (validated — bad kinds are ignored). */
@@ -154,23 +174,41 @@ export const installDevHooks = (scene: GameScene): void => {
       if (!weapon) {
         return;
       }
-      scene.specialBase = weapon;
-      scene.weapon = scaleWeaponForLevel(weapon, scene.progress.level);
-      scene.weaponUntil = simNow() + SPECIAL_WEAPON_DURATION_MS;
+      scene.pilot.specialBase = weapon;
+      scene.pilot.weapon = scaleWeaponForLevel(weapon, scene.progress.level);
+      scene.pilot.weaponUntil = simNow() + SPECIAL_WEAPON_DURATION_MS;
       scene.weapons.windupAcc = 0;
     },
     intensity: (): number =>
       arenaIntensity(Math.max(0, (simNow() - scene.world.arenaEpoch) / 1000)),
-    scene,
+    scene: {
+      get hostSnapshotReady() {
+        return scene.link.hostSnapshotReady;
+      },
+      netSendEvent: (event, payload) => scene.link.send(event, payload),
+      get paused() {
+        return scene.link.paused;
+      },
+      get shipX() {
+        return scene.pilot.shipX;
+      },
+      get shipY() {
+        return scene.pilot.shipY;
+      },
+      get wasHost() {
+        return scene.host.wasHost;
+      },
+      get world() {
+        return scene.world;
+      },
+    },
     /** Host only: rewind/forward the intensity director. */
     setArenaEpoch: (epochMs: number): void => {
-      if (!scene.amHost) {
+      if (!scene.link.amHost) {
         return;
       }
       scene.world.arenaEpoch = epochMs;
-      if (!scene.offline) {
-        scene.client.updateSharedState({ arenaEpoch: epochMs });
-      }
+      scene.link.patchShared({ arenaEpoch: epochMs });
     },
     /** Set the base shield directly; stamps the damage clock so regen
      *  behaves as after a real drain. 0 = death (via the real pipeline). */
@@ -179,7 +217,7 @@ export const installDevHooks = (scene: GameScene): void => {
       scene.shield.shieldHp = Math.min(SIPHON_OVERHEAL_MAX, hp);
       scene.shield.lastDamageAt = now;
       scene.shield.regenActive = false;
-      if (scene.shield.shieldHp <= 0 && scene.alive) {
+      if (scene.shield.shieldHp <= 0 && scene.pilot.alive) {
         scene.shield.die(now, null, "DEV");
       }
     },
@@ -187,12 +225,12 @@ export const installDevHooks = (scene: GameScene): void => {
      *  Custom charge/active seconds exist for compressed-timer e2e probes;
      *  the real cadence gates are deliberately bypassed. */
     spawnBeacon: (x?: number, y?: number, chargeS?: number, activeS?: number): boolean => {
-      if (!scene.amHost) {
+      if (!scene.link.amHost) {
         return false;
       }
       scene.host.hostSpawnBeacon(
-        x ?? scene.shipX + 200,
-        y ?? scene.shipY,
+        x ?? scene.pilot.shipX + 200,
+        y ?? scene.pilot.shipY,
         simNow(),
         chargeS,
         activeS,
@@ -203,22 +241,22 @@ export const installDevHooks = (scene: GameScene): void => {
      *  the same qa-018 level-scaled HP stamp as the organic spawn path, so
      *  probes measure shipping durability. */
     spawnEnemy: (kind: EnemyKind, x?: number, y?: number): string | null => {
-      if (!scene.amHost) {
+      if (!scene.link.amHost) {
         return null;
       }
-      const e = spawnEnemyState(kind, x ?? scene.shipX + 320, y ?? scene.shipY);
+      const e = spawnEnemyState(kind, x ?? scene.pilot.shipX + 320, y ?? scene.pilot.shipY);
       if (ELITE_HP_BASE.has(kind)) {
         e.hp = eliteHp(kind, scene.host.maxPresentLevel());
         e.maxHp = e.hp;
       }
       scene.world.enemies.push(e);
-      scene.host.dirty.enemies = true;
+      scene.dirty.enemies = true;
       return e.id;
     },
     /** Host only: drop a live item at (x,y) (defaults to the ship, so it gets
      *  picked up next frame, which is how stacking is exercised). */
     spawnItem: (cls: "weapon" | "shield" | "booster", name: string, x?: number, y?: number) => {
-      if (!scene.amHost) {
+      if (!scene.link.amHost) {
         return;
       }
       let drop: ItemDrop | null = null;
@@ -241,18 +279,18 @@ export const installDevHooks = (scene: GameScene): void => {
       if (!drop) {
         return;
       }
-      scene.world.items.push(spawnItemState(x ?? scene.shipX, y ?? scene.shipY, drop));
-      scene.host.dirty.items = true;
+      scene.world.items.push(spawnItemState(x ?? scene.pilot.shipX, y ?? scene.pilot.shipY, drop));
+      scene.dirty.items = true;
     },
     summary: (): StarfallSummary => ({
-      alive: scene.alive,
+      alive: scene.pilot.alive,
       asteroids: scene.world.asteroids.length,
       beams: scene.weapons.beams.length,
       boosts: scene.net.boostsNetState(),
       enemies: scene.world.enemies.map((e) => e.kind),
       enemyShots: scene.world.enemyShots.length,
       intensity: arenaIntensity(Math.max(0, (simNow() - scene.world.arenaEpoch) / 1000)),
-      isHost: scene.amHost,
+      isHost: scene.link.amHost,
       items: scene.world.items.map((it) => it.kind),
       level: scene.progress.level,
       mines: scene.weapons.beams.filter((b) => b.mine && !b.exploding && !b.vanished).length,
@@ -263,9 +301,12 @@ export const installDevHooks = (scene: GameScene): void => {
       overHp: scene.shield.overHp,
       pulls: scene.world.pulls.length,
       recovery: {
-        protectionMs: scene.alive ? Math.max(0, scene.invulnUntil - simNow()) : 0,
+        protectionMs: scene.pilot.alive ? Math.max(0, scene.pilot.invulnUntil - simNow()) : 0,
         recapUntil: scene.hud.recapUntil,
-        remainingMs: scene.spawned && !scene.alive ? Math.max(0, scene.respawnAt - simNow()) : 0,
+        remainingMs:
+          scene.pilot.spawned && !scene.pilot.alive
+            ? Math.max(0, scene.pilot.respawnAt - simNow())
+            : 0,
       },
       regen: scene.shield.regenActive,
       runXp: scene.progress.runXp,
@@ -282,8 +323,8 @@ export const installDevHooks = (scene: GameScene): void => {
       shards: scene.world.shards.length,
       shieldHp: Math.round(scene.shield.shieldHp * 10) / 10,
       streak: scene.progress.streak,
-      weapon: scene.weapon.name,
-      weaponUntil: scene.weaponUntil,
+      weapon: scene.pilot.weapon.name,
+      weaponUntil: scene.pilot.weaponUntil,
       windup: scene.weapons.windupFrac(),
       xp: scene.progress.xp,
       xpToNext: xpToNext(scene.progress.level),

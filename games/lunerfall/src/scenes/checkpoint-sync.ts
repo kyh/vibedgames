@@ -17,90 +17,69 @@ import type {
 import type { JsonValue } from "../net/json";
 import { parseHero } from "../net/parse";
 import type { NetRoom } from "../net/snapshot";
+import type { RoomState } from "../state/room-state";
+import type { RunState } from "../state/run-state";
+import { combatState, duelHits, livePlayers, ownerId, seatPlayer } from "../state/seat-state";
+import type { SeatState } from "../state/seat-state";
 import { impactRing, popText } from "../sys/fx";
 import { checkpointRng, restoreRng } from "../sys/rng";
 import { VersusMatch } from "../sys/versus";
-import type { GameScene } from "./game-scene";
-
-type CheckpointCtx = Scene &
-  Pick<
-    GameScene,
-    | "acc"
-    | "arrows"
-    | "authority"
-    | "banners"
-    | "boss"
-    | "bossDeadT"
-    | "cleared"
-    | "combat"
-    | "combatStates"
-    | "combo"
-    | "comboT"
-    | "controlsPaused"
-    | "cs"
-    | "deadT"
-    | "deadTimers"
-    | "doors"
-    | "enemies"
-    | "fadeRect"
-    | "feature"
-    | "freeze"
-    | "gold"
-    | "grid"
-    | "guest"
-    | "hazards"
-    | "hearts"
-    | "heroName"
-    | "hostNet"
-    | "lastStand"
-    | "livePlayers"
-    | "maxHearts"
-    | "merchantItems"
-    | "mode"
-    | "mods"
-    | "neutralOnAdmission"
-    | "offers"
-    | "ownedRelics"
-    | "ownerId"
-    | "pendingOffer"
-    | "player"
-    | "progress"
-    | "remote"
-    | "remoteId"
-    | "roomSpawn"
-    | "rooms"
-    | "run"
-    | "runRecap"
-    | "score"
-    | "seatPlayer"
-    | "seats"
-    | "session"
-    | "shots"
-    | "spawnPlayer"
-    | "state"
-    | "transBuilt"
-    | "transT"
-    | "updateHud"
-    | "versus"
-  >;
+import type { RunManager } from "../sys/run";
+import type { BannerHud } from "./banner-hud";
+import type { Combat } from "./combat";
+import type { RoomBuilder } from "./room-builder";
+import type { SceneChrome, SceneHooks } from "./scene-hooks";
+import type { VersusFlow } from "./versus-flow";
 
 // The expedition checkpoint: the host encodes its full private state for a
 // takeover; a promoted host adopts it, and a guest replays its room features.
 // Reads of the shared checkpoint are cached by reference so a frame never
 // re-validates unchanged wire JSON.
 export class CheckpointSync {
-  private readonly scene: CheckpointCtx;
-  ref: JsonValue | undefined;
-  roomRef: JsonValue | undefined;
-  cache: CheckpointRead = { kind: "absent" };
+  private readonly scene: Scene;
+  private readonly run: RunState;
+  private readonly expedition: RunManager;
+  private readonly room: RoomState;
+  private readonly seat: SeatState;
+  private readonly banners: BannerHud;
+  private readonly combat: Combat;
+  private readonly rooms: RoomBuilder;
+  private readonly versus: VersusFlow;
+  private readonly chrome: SceneChrome;
+  private readonly hooks: SceneHooks;
+  private ref: JsonValue | undefined;
+  private roomRef: JsonValue | undefined;
+  private cache: CheckpointRead = { kind: "absent" };
   adoptedTerminal: ExpeditionCheckpoint | null = null;
 
-  constructor(scene: CheckpointCtx) {
+  constructor(
+    scene: Scene,
+    run: RunState,
+    expedition: RunManager,
+    room: RoomState,
+    seat: SeatState,
+    banners: BannerHud,
+    combat: Combat,
+    rooms: RoomBuilder,
+    versus: VersusFlow,
+    chrome: SceneChrome,
+    hooks: SceneHooks,
+  ) {
     this.scene = scene;
+    this.run = run;
+    this.expedition = expedition;
+    this.room = room;
+    this.seat = seat;
+    this.banners = banners;
+    this.combat = combat;
+    this.rooms = rooms;
+    this.versus = versus;
+    this.chrome = chrome;
+    this.hooks = hooks;
   }
 
   accepted(): CheckpointRead {
-    const shared = this.scene.session?.sharedState ?? null;
+    const shared = this.seat.session?.sharedState ?? null;
     if (shared?.checkpoint !== this.ref || shared?.room !== this.roomRef) {
       this.ref = shared?.checkpoint;
       this.roomRef = shared?.room;
@@ -110,61 +89,61 @@ export class CheckpointSync {
   }
 
   phase(): CheckpointPhase {
-    if (this.scene.state === "dead") {
-      return { elapsed: this.scene.deadT, kind: "dead" };
+    if (this.run.state === "dead") {
+      return { elapsed: this.run.deadT, kind: "dead" };
     }
-    if (this.scene.state === "transition" && this.scene.pendingOffer) {
+    if (this.run.state === "transition" && this.run.pendingOffer) {
       return {
-        built: this.scene.transBuilt,
-        elapsed: this.scene.transT,
+        built: this.run.transBuilt,
+        elapsed: this.run.transT,
         kind: "transition",
-        offer: this.scene.pendingOffer.type,
+        offer: this.run.pendingOffer.type,
       };
     }
     return { kind: "active" };
   }
 
   encode(): ExpeditionCheckpoint | null {
-    const auth = this.scene.authority;
-    const writer = this.scene.session?.playerId;
+    const auth = this.seat.authority;
+    const writer = this.seat.session?.playerId;
     if (auth.kind !== "ready" || !writer) {
       return null;
     }
     // An unassigned late successor cannot replace either terminal roster body.
     // Keep the accepted result intact until an explicit same-party restart.
-    if (this.scene.state === "dead" && this.adoptedTerminal) {
+    if (this.run.state === "dead" && this.adoptedTerminal) {
       return {
         ...structuredClone(this.adoptedTerminal),
-        phase: { elapsed: this.scene.deadT, kind: "dead" },
+        phase: { elapsed: this.run.deadT, kind: "dead" },
         term: auth.term,
-        tick: this.scene.hostNet.tick,
+        tick: this.run.tick,
         writer,
       };
     }
-    const enemies = this.scene.enemies.map((e) => {
-      let id = this.scene.hostNet.enemyId.get(e);
+    const enemies = this.room.enemies.map((e) => {
+      let id = this.room.enemyIds.get(e);
       if (id === undefined) {
-        id = this.scene.hostNet.enemyIdNext;
-        this.scene.hostNet.enemyIdNext += 1;
-        this.scene.hostNet.enemyId.set(e, id);
+        id = this.room.nextEnemyId;
+        this.room.nextEnemyId += 1;
+        this.room.enemyIds.set(e, id);
       }
       return {
         body: e.body.checkpoint(),
-        deathAge: this.scene.deadTimers.get(e) ?? null,
+        deathAge: this.room.deadTimers.get(e) ?? null,
         id,
         name: e.body.kind.name,
         tint: e.baseTint,
       };
     });
-    const liveEnemies = new Set(this.scene.enemies);
+    const liveEnemies = new Set(this.room.enemies);
     const enemyIds = (set: Set<Enemy>): number[] =>
       [...set].flatMap((e) => {
-        const id = liveEnemies.has(e) ? this.scene.hostNet.enemyId.get(e) : undefined;
+        const id = liveEnemies.has(e) ? this.room.enemyIds.get(e) : undefined;
         return id === undefined ? [] : [id];
       });
     const players: CheckpointPlayer[] = [];
-    for (const pl of this.scene.livePlayers()) {
-      const id = this.scene.ownerId(pl);
+    for (const pl of livePlayers(this.seat)) {
+      const id = ownerId(this.seat, pl);
       if (!id) {
         continue;
       }
@@ -172,7 +151,7 @@ export class CheckpointSync {
       if (!hero) {
         continue;
       }
-      const c = this.scene.cs(pl);
+      const c = combatState(this.seat, pl);
       players.push({
         body: pl.body.checkpoint(),
         combat: {
@@ -185,13 +164,13 @@ export class CheckpointSync {
         },
         hero,
         id,
-        versusHits: { ...this.scene.versus.seq(pl) },
+        versusHits: { ...duelHits(this.seat, pl) },
       });
     }
     const playerIds = new Set(players.map((p) => p.id));
     const common = {
-      accumulator: this.scene.acc,
-      arrows: this.scene.arrows.map((a) => ({
+      accumulator: this.run.acc,
+      arrows: this.room.arrows.map((a) => ({
         dmg: a.dmg,
         life: a.life,
         vx: a.vx,
@@ -199,18 +178,18 @@ export class CheckpointSync {
         x: a.x,
         y: a.y,
       })),
-      boss: this.scene.boss?.body.checkpoint() ?? null,
-      bossDeathAge: this.scene.bossDeadT,
-      cleared: this.scene.cleared,
-      combo: this.scene.combo,
-      comboTime: this.scene.comboT,
+      boss: this.room.boss?.body.checkpoint() ?? null,
+      bossDeathAge: this.run.bossDeadT,
+      cleared: this.run.cleared,
+      combo: this.run.combo,
+      comboTime: this.run.comboT,
       enemies,
-      feature: this.scene.feature
-        ? { used: this.scene.feature.used, x: this.scene.feature.x, y: this.scene.feature.y }
+      feature: this.room.feature
+        ? { used: this.room.feature.used, x: this.room.feature.x, y: this.room.feature.y }
         : null,
-      freeze: this.scene.freeze,
-      gold: this.scene.gold,
-      hazards: this.scene.hazards.map((h) => ({
+      freeze: this.run.freeze,
+      gold: this.run.gold,
+      hazards: this.room.hazards.map((h) => ({
         dmg: h.dmg,
         hitPlayer: h.hitPlayer,
         life: h.life,
@@ -218,38 +197,38 @@ export class CheckpointSync {
         x: h.x,
         y: h.y,
       })),
-      hearts: this.scene.hearts,
-      maxHearts: this.scene.maxHearts,
-      merchant: this.scene.merchantItems.map((m) => ({
+      hearts: this.run.hearts,
+      maxHearts: this.run.maxHearts,
+      merchant: this.room.merchantItems.map((m) => ({
         bought: m.bought,
         relic: m.relic.id,
         x: m.x,
         y: m.y,
       })),
-      mods: { ...this.scene.mods },
-      nextEnemyId: this.scene.hostNet.enemyIdNext,
+      mods: { ...this.run.mods },
+      nextEnemyId: this.room.nextEnemyId,
       phase: this.phase(),
       players,
-      relics: [...this.scene.ownedRelics],
+      relics: [...this.run.ownedRelics],
       rng: checkpointRng(),
-      room: this.scene.hostNet.roomSeq,
+      room: this.room.seq,
       run: {
-        biome: this.scene.run.biome,
-        depth: this.scene.run.depth,
-        offers: this.scene.offers.map((o) => o.type),
-        type: this.scene.run.type,
+        biome: this.expedition.biome,
+        depth: this.expedition.depth,
+        offers: this.run.offers.map((o) => o.type),
+        type: this.expedition.type,
       },
       runId: auth.runId,
-      score: this.scene.score,
-      seats: { ...this.scene.seats },
-      shots: this.scene.shots.map((s) => {
-        const owner = s.owner ? this.scene.ownerId(s.owner) : null;
+      score: this.run.score,
+      seats: { ...this.seat.seats },
+      shots: this.room.shots.map((s) => {
+        const owner = s.owner ? ownerId(this.seat, s.owner) : null;
         return {
           dmg: s.dmg,
           hit: enemyIds(s.hit),
           hitBoss: s.hitBoss,
           hitP: [...s.hitP].flatMap((p) => {
-            const id = this.scene.ownerId(p);
+            const id = ownerId(this.seat, p);
             return id && playerIds.has(id) ? [id] : [];
           }),
           life: s.life,
@@ -261,29 +240,27 @@ export class CheckpointSync {
         };
       }),
       term: auth.term,
-      tick: this.scene.hostNet.tick,
+      tick: this.run.tick,
       version: 1,
       writer,
     } satisfies Omit<ExpeditionCheckpoint, "mode" | "versus" | "lastStand">;
-    if (this.scene.mode === "versus" && this.scene.versus.match) {
+    if (this.seat.mode === "versus" && this.run.match) {
       return {
         ...common,
         lastStand: null,
         mode: "versus",
-        versus: this.scene.versus.match.checkpoint(),
+        versus: this.run.match.checkpoint(),
       };
     }
-    const downedId = this.scene.lastStand.live
-      ? this.scene.ownerId(this.scene.lastStand.live.pl)
-      : null;
+    const downedId = this.run.downed ? ownerId(this.seat, this.run.downed.pl) : null;
     return {
       ...common,
       lastStand:
-        this.scene.lastStand.live && downedId
+        this.run.downed && downedId
           ? {
-              bleed: this.scene.lastStand.live.bleedT,
+              bleed: this.run.downed.bleedT,
               id: downedId,
-              revive: this.scene.lastStand.live.reviveT,
+              revive: this.run.downed.reviveT,
             }
           : null,
       mode: "coop",
@@ -294,134 +271,123 @@ export class CheckpointSync {
   /** Restore accepted simulation data without rerolling or replaying rewards. */
   adopt(c: ExpeditionCheckpoint, room: NetRoom): void {
     this.adoptedTerminal = c.phase.kind === "dead" ? structuredClone(c) : null;
-    this.scene.mode = c.mode;
-    this.scene.guest.biome = c.run.biome;
-    this.scene.guest.depth = c.run.depth;
-    this.scene.run.biome = c.run.biome;
-    this.scene.run.depth = c.run.depth;
-    this.scene.run.type = c.run.type;
-    this.scene.rooms.buildFromNet(room);
-    this.scene.banners.clear();
-    this.scene.progress.bossAnnounced = true;
+    this.seat.mode = c.mode;
+    this.expedition.biome = c.run.biome;
+    this.expedition.depth = c.run.depth;
+    this.expedition.type = c.run.type;
+    this.rooms.buildFromNet(room, c.run.biome);
+    this.banners.clear();
+    this.room.bossAnnounced = true;
     this.adoptProgress(c);
     this.adoptPlayers(c);
     const byEnemyId = this.adoptEnemies(c);
     this.adoptCombat(c, byEnemyId);
     if (c.boss) {
-      this.adoptBoss(c.boss, c.run.biome, c.room);
+      this.adoptBoss(c.boss, c.run.biome);
     }
     this.adoptProjectiles(c, byEnemyId);
     this.syncRoomFeatures(c, true);
-    this.scene.versus.match = c.mode === "versus" ? new VersusMatch() : null;
+    this.run.match = c.mode === "versus" ? new VersusMatch() : null;
     if (c.mode === "versus") {
-      this.scene.versus.match?.restore(c.versus);
+      this.run.match?.restore(c.versus);
     }
-    this.scene.versus.spawns = [
-      this.scene.roomSpawn,
-      { x: this.scene.grid.cols * TILE - this.scene.roomSpawn.x, y: this.scene.roomSpawn.y },
+    this.room.vsSpawns = [
+      this.room.roomSpawn,
+      { x: this.room.grid.cols * TILE - this.room.roomSpawn.x, y: this.room.roomSpawn.y },
     ];
     this.adoptLastStand(c);
-    this.scene.lastStand.net = null;
-    this.scene.versus.net = null;
-    this.scene.hostNet.remoteInputOwner = null;
-    this.scene.guest.payoff = null;
-    this.scene.guest.snapT = -1;
-    this.scene.guest.reconciler.reset();
+    this.run.downedNet = null;
+    this.run.matchNet = null;
+    this.seat.remoteInputOwner = null;
+    this.room.guest.payoff = null;
+    this.room.guest.snapT = -1;
+    this.room.guest.reconciler.reset();
     this.adoptPhase(c);
-    this.scene.fadeRect.setAlpha(0);
-    this.scene.player.sprite.setVisible(true);
-    this.scene.rooms.setupCamera();
-    this.scene.updateHud();
-    this.scene.versus.showAdoptedResult();
+    this.chrome.fadeRect.setAlpha(0);
+    this.seat.player.sprite.setVisible(true);
+    this.rooms.setupCamera();
+    this.hooks.updateHud();
+    this.versus.showAdoptedResult();
     // construction above has no gameplay draws; restore last
     restoreRng(c.rng);
   }
 
   private adoptProgress(c: ExpeditionCheckpoint) {
-    this.scene.hostNet.roomSeq = c.room;
-    this.scene.hostNet.tick = c.tick;
-    this.scene.hostNet.acc = 0;
-    this.scene.hostNet.checkpointAcc = 0;
-    this.scene.hostNet.checkpointMark = null;
-    this.scene.hostNet.enemyId = new WeakMap();
-    this.scene.hostNet.enemyIdNext = c.nextEnemyId;
-    this.scene.seats = { ...c.seats };
-    this.scene.mods = { ...c.mods };
-    this.scene.ownedRelics = new Set(c.relics);
-    this.scene.offers = c.run.offers.map((type) => ({ type }));
-    this.scene.hearts = c.hearts;
-    this.scene.maxHearts = c.maxHearts;
-    this.scene.gold = c.gold;
-    this.scene.score = c.score;
-    this.scene.combo = c.combo;
-    this.scene.comboT = c.comboTime;
-    this.scene.freeze = c.freeze;
-    this.scene.acc = c.accumulator;
-    this.scene.cleared = c.cleared;
-    for (const door of this.scene.doors) {
+    this.room.seq = c.room;
+    this.run.tick = c.tick;
+    this.room.enemyIds = new WeakMap();
+    this.room.nextEnemyId = c.nextEnemyId;
+    this.seat.seats = { ...c.seats };
+    this.run.mods = { ...c.mods };
+    this.run.ownedRelics = new Set(c.relics);
+    this.run.offers = c.run.offers.map((type) => ({ type }));
+    this.run.hearts = c.hearts;
+    this.run.maxHearts = c.maxHearts;
+    this.run.gold = c.gold;
+    this.run.score = c.score;
+    this.run.combo = c.combo;
+    this.run.comboT = c.comboTime;
+    this.run.freeze = c.freeze;
+    this.run.acc = c.accumulator;
+    this.run.cleared = c.cleared;
+    for (const door of this.room.doors) {
       door.setActive(c.cleared);
     }
-    this.scene.bossDeadT = c.bossDeathAge;
+    this.run.bossDeadT = c.bossDeathAge;
   }
 
   // My body restores in place (respawned only on a hero mismatch); the peer's
   // body is rebuilt from whichever checkpoint player is not me.
   private adoptPlayers(c: ExpeditionCheckpoint) {
-    const me = c.players.find((p) => p.id === this.scene.session?.playerId);
-    if (me && me.hero !== this.scene.heroName) {
-      this.scene.player.destroy();
-      this.scene.heroName = me.hero;
-      this.scene.player = this.scene.spawnPlayer(
+    const me = c.players.find((p) => p.id === this.seat.session?.playerId);
+    if (me && me.hero !== this.seat.heroName) {
+      this.seat.player.destroy();
+      this.seat.heroName = me.hero;
+      this.seat.player = this.hooks.spawnPlayer(
         HEROES[me.hero],
-        this.scene.grid,
+        this.room.grid,
         me.body.x,
         me.body.y,
       );
     }
     if (me) {
-      this.scene.player.body.restore(me.body);
+      this.seat.player.body.restore(me.body);
     }
-    if (this.scene.controlsPaused || this.scene.neutralOnAdmission) {
-      this.scene.player.body.clearInput();
+    if (this.seat.controlsPaused || this.seat.neutralOnAdmission) {
+      this.seat.player.body.clearInput();
     }
-    this.scene.neutralOnAdmission = false;
-    this.scene.remote?.destroy();
-    this.scene.remote = undefined;
-    this.scene.remoteId = null;
-    const peerId = this.scene.session?.otherPlayer()?.id;
+    this.seat.neutralOnAdmission = false;
+    this.seat.remote?.destroy();
+    this.seat.remote = undefined;
+    this.seat.remoteId = null;
+    const peerId = this.seat.session?.otherPlayer()?.id;
     const other =
       c.players.find((p) => p.id === peerId) ??
-      c.players.find((p) => p.id !== this.scene.session?.playerId);
+      c.players.find((p) => p.id !== this.seat.session?.playerId);
     if (other) {
-      this.scene.remote = this.scene.spawnPlayer(
+      this.seat.remote = this.hooks.spawnPlayer(
         HEROES[other.hero],
-        this.scene.grid,
+        this.room.grid,
         other.body.x,
         other.body.y,
       );
-      this.scene.remote.body.restore(other.body);
-      this.scene.remoteId = other.id;
+      this.seat.remote.body.restore(other.body);
+      this.seat.remoteId = other.id;
     }
   }
 
   private adoptEnemies(c: ExpeditionCheckpoint): Map<number, Enemy> {
     const byEnemyId = new Map<number, Enemy>();
     for (const data of c.enemies) {
-      const e = new Enemy(
-        this.scene,
-        this.scene.grid,
-        ENEMIES[data.name],
-        data.body.x,
-        data.body.y,
-      );
+      const e = new Enemy(this.scene, this.room.grid, ENEMIES[data.name], data.body.x, data.body.y);
       e.body.restore(data.body);
       e.baseTint = data.tint;
       e.sprite.setTint(data.tint);
-      this.scene.enemies.push(e);
-      this.scene.hostNet.enemyId.set(e, data.id);
+      this.room.enemies.push(e);
+      this.room.enemyIds.set(e, data.id);
       byEnemyId.set(data.id, e);
       if (data.deathAge !== null) {
-        this.scene.deadTimers.set(e, data.deathAge);
+        this.room.deadTimers.set(e, data.deathAge);
       }
     }
     return byEnemyId;
@@ -437,60 +403,43 @@ export class CheckpointSync {
         }),
       );
     for (const p of c.players) {
-      const pl = this.scene.seatPlayer(p.id);
+      const pl = seatPlayer(this.seat, p.id);
       if (!pl) {
         continue;
       }
-      this.scene.combatStates.set(pl, {
+      this.seat.combatStates.set(pl, {
         ...p.combat,
         hitSpecial: enemiesOf(p.combat.hitSpecial),
         hitSwing: enemiesOf(p.combat.hitSwing),
       });
-      this.scene.versus.hitSeq.set(pl, { ...p.versusHits });
+      this.seat.duelHits.set(pl, { ...p.versusHits });
     }
   }
 
-  private adoptBoss(boss: BossBodyCheckpoint, biome: number, room: number) {
-    this.scene.guest.reconcileBoss(
-      {
-        clip: "salamander:idle",
-        dead: boss.dead,
-        flash: false,
-        flip: boss.facing < 0,
-        hpFrac: 1,
-        telegraph: false,
-        x: boss.x,
-        y: boss.y,
-      },
-      biome,
-      room,
-    );
-    const view = this.scene.guest.bossPuppet?.view;
-    if (view) {
-      this.scene.boss = view;
-      view.body.restore(boss);
-      this.scene.guest.bossPuppet = undefined;
-    }
+  private adoptBoss(boss: BossBodyCheckpoint, biome: number) {
+    const view = this.rooms.bossView(boss.x, boss.y, biome);
+    view.body.restore(boss);
+    this.room.boss = view;
   }
 
   private adoptProjectiles(c: ExpeditionCheckpoint, byEnemyId: Map<number, Enemy>) {
     for (const a of c.arrows) {
-      this.scene.combat.spawnArrow(a.x, a.y, a.vx, a.vy, a.dmg);
-      const view = this.scene.arrows.at(-1);
+      this.combat.spawnArrow(a.x, a.y, a.vx, a.vy, a.dmg);
+      const view = this.room.arrows.at(-1);
       if (view) {
         view.life = a.life;
       }
     }
     for (const s of c.shots) {
-      this.scene.combat.spawnShot(
+      this.combat.spawnShot(
         s.x,
         s.y,
         s.vx,
         s.vy,
         s.dmg,
-        s.owner ? (this.scene.seatPlayer(s.owner) ?? null) : null,
+        s.owner ? (seatPlayer(this.seat, s.owner) ?? null) : null,
       );
-      const view = this.scene.shots.at(-1);
+      const view = this.room.shots.at(-1);
       if (view) {
         view.life = s.life;
         view.hitBoss = s.hitBoss;
@@ -502,15 +451,15 @@ export class CheckpointSync {
         );
         view.hitP = new Set(
           s.hitP.flatMap((id) => {
-            const p = this.scene.seatPlayer(id);
+            const p = seatPlayer(this.seat, id);
             return p ? [p] : [];
           }),
         );
       }
     }
     for (const h of c.hazards) {
-      this.scene.combat.spawnHazard(h.x, h.y, h.vx, h.dmg);
-      const view = this.scene.hazards.at(-1);
+      this.combat.spawnHazard(h.x, h.y, h.vx, h.dmg);
+      const view = this.room.hazards.at(-1);
       if (view) {
         view.life = h.life;
         view.hitPlayer = h.hitPlayer;
@@ -519,8 +468,8 @@ export class CheckpointSync {
   }
 
   private adoptLastStand(c: ExpeditionCheckpoint) {
-    const downed = c.lastStand ? this.scene.seatPlayer(c.lastStand.id) : undefined;
-    this.scene.lastStand.live =
+    const downed = c.lastStand ? seatPlayer(this.seat, c.lastStand.id) : undefined;
+    this.run.downed =
       c.lastStand && downed
         ? { bleedT: c.lastStand.bleed, pl: downed, reviveT: c.lastStand.revive }
         : null;
@@ -530,21 +479,21 @@ export class CheckpointSync {
       c.phase.kind !== "dead" &&
       c.lastStand &&
       !downed &&
-      !this.scene.session?.players[c.lastStand.id]
+      !this.seat.session?.players[c.lastStand.id]
     ) {
-      this.scene.hearts = Math.max(this.scene.hearts, 1);
+      this.run.hearts = Math.max(this.run.hearts, 1);
     }
   }
 
   private adoptPhase(c: ExpeditionCheckpoint) {
-    this.scene.state = c.phase.kind;
+    this.run.state = c.phase.kind;
     if (c.phase.kind !== "dead") {
-      this.scene.runRecap = null;
+      this.run.runRecap = null;
     }
-    this.scene.deadT = c.phase.kind === "dead" ? c.phase.elapsed : 0;
-    this.scene.transT = c.phase.kind === "transition" ? c.phase.elapsed : 0;
-    this.scene.transBuilt = c.phase.kind === "transition" && c.phase.built;
-    this.scene.pendingOffer = c.phase.kind === "transition" ? { type: c.phase.offer } : null;
+    this.run.deadT = c.phase.kind === "dead" ? c.phase.elapsed : 0;
+    this.run.transT = c.phase.kind === "transition" ? c.phase.elapsed : 0;
+    this.run.transBuilt = c.phase.kind === "transition" && c.phase.built;
+    this.run.pendingOffer = c.phase.kind === "transition" ? { type: c.phase.offer } : null;
     if (c.phase.kind === "dead") {
       this.observeTerminal(c);
     }
@@ -553,18 +502,18 @@ export class CheckpointSync {
   observeTerminal(c: ExpeditionCheckpoint): void {
     // Receipts belong to local storage. An adopted result never banks twice or
     // claims the former host's banked amount as this client's earnings.
-    if (!this.scene.runRecap) {
-      this.scene.runRecap = {
+    if (!this.run.runRecap) {
+      this.run.runRecap = {
         biome: c.run.biome,
         depth: c.run.depth,
         gold: c.gold,
-        hero: this.scene.heroName,
+        hero: this.seat.heroName,
         kind: "coop-guest",
       };
     }
-    this.scene.state = "dead";
-    this.scene.deadT = c.phase.kind === "dead" ? c.phase.elapsed : 0;
-    this.scene.player.sprite.play(`${this.scene.heroName}:death`);
+    this.run.state = "dead";
+    this.run.deadT = c.phase.kind === "dead" ? c.phase.elapsed : 0;
+    this.seat.player.sprite.play(`${this.seat.heroName}:death`);
   }
 
   syncRoomFeatures(c: ExpeditionCheckpoint, baseline: boolean): void {
@@ -573,14 +522,14 @@ export class CheckpointSync {
       if (!offer) {
         continue;
       }
-      let item = this.scene.merchantItems[i];
+      let item = this.room.merchantItems[i];
       if (!item) {
         const relic = RELICS.find((r) => r.id === offer.relic);
         if (!relic) {
           continue;
         }
-        this.scene.rooms.buildMerchantItem(relic, offer.x, offer.y, offer.bought);
-        item = this.scene.merchantItems[i];
+        this.rooms.buildMerchantItem(relic, offer.x, offer.y, offer.bought);
+        item = this.room.merchantItems[i];
       }
       if (!item) {
         continue;
@@ -596,10 +545,10 @@ export class CheckpointSync {
       }
     }
     if (c.feature) {
-      if (!this.scene.feature) {
-        this.scene.rooms.buildFeature(c.feature.x, c.feature.y);
+      if (!this.room.feature) {
+        this.rooms.buildFeature(c.feature.x, c.feature.y);
       }
-      const f = this.scene.feature;
+      const f = this.room.feature;
       if (f) {
         const usedNow = !f.used && c.feature.used;
         f.used = c.feature.used;

@@ -6,69 +6,68 @@ import type { Player } from "../entities/player";
 import { rectsOverlap } from "../entities/player-body";
 import type { NetSession } from "../net/session";
 import type { NetVersus } from "../net/snapshot";
+import type { RoomState } from "../state/room-state";
+import type { RunState } from "../state/run-state";
+import { duelHits, livePlayers, ownerId, seatPlayer } from "../state/seat-state";
+import type { SeatState } from "../state/seat-state";
 import { hitSpark, impactRing, popText } from "../sys/fx";
 import { VS_HEARTS, VS_WIN_SCORE, vsPhaseFrozen } from "../sys/versus";
-import type { VersusMatch, VsSide } from "../sys/versus";
-import type { GameScene } from "./game-scene";
-
-type VersusCtx = Scene &
-  Pick<
-    GameScene,
-    | "banners"
-    | "combat"
-    | "freeze"
-    | "grid"
-    | "guest"
-    | "heartsText"
-    | "infoText"
-    | "livePlayers"
-    | "mode"
-    | "ownerId"
-    | "player"
-    | "remote"
-    | "role"
-    | "roomSpawn"
-    | "seatPlayer"
-    | "seats"
-    | "session"
-    | "shake"
-    | "shots"
-    | "touch"
-    | "updateHud"
-  >;
+import type { VsSide } from "../sys/versus";
+import type { BannerHud } from "./banner-hud";
+import type { Combat, DuelTarget } from "./combat";
+import type { SceneChrome, SceneHooks } from "./scene-hooks";
 
 // Online versus (mode "versus"): the host runs the pure match machine
 // (sys/versus.ts) and resolves the duel; guests mirror its broadcast into
-// `net`. Everything here is null/idle in solo and co-op.
-export class VersusFlow {
-  private readonly scene: VersusCtx;
-  // host-authoritative match state
-  match: VersusMatch | null = null;
-  // guest: from the snapshot
-  net: NetVersus | null = null;
-  // [host, guest], mirrored
-  spawns: { x: number; y: number }[] = [];
-  hitSeq = new WeakMap<Player, { swing: number; special: number }>();
+// `run.matchNet`. Everything here is null/idle in solo and co-op.
+export class VersusFlow implements DuelTarget {
+  private readonly scene: Scene;
+  private readonly run: RunState;
+  private readonly room: RoomState;
+  private readonly seat: SeatState;
+  private readonly banners: BannerHud;
+  private readonly combat: Combat;
+  private readonly chrome: SceneChrome;
+  private readonly touch: boolean;
+  private readonly hooks: SceneHooks;
   // guest: opponent-left banner fired
   opponentGone = false;
 
-  constructor(scene: VersusCtx) {
+  constructor(
+    scene: Scene,
+    run: RunState,
+    room: RoomState,
+    seat: SeatState,
+    banners: BannerHud,
+    combat: Combat,
+    chrome: SceneChrome,
+    touch: boolean,
+    hooks: SceneHooks,
+  ) {
     this.scene = scene;
+    this.run = run;
+    this.room = room;
+    this.seat = seat;
+    this.banners = banners;
+    this.combat = combat;
+    this.chrome = chrome;
+    this.touch = touch;
+    this.hooks = hooks;
   }
 
   // Versus: the host walked away — nothing will ever update again; say so.
   noticeOpponentGone(sess: NetSession) {
     if (
-      this.scene.mode !== "versus" ||
+      this.seat.mode !== "versus" ||
       this.opponentGone ||
-      this.scene.guest.snapT <= 0 ||
+      this.room.guest.snapT <= 0 ||
       sess.otherPlayer()
     ) {
       return;
     }
     this.opponentGone = true;
-    this.scene.banners.show(
-      this.scene.touch ? "OPPONENT LEFT — EXIT FOR HUB" : "OPPONENT LEFT — ESC FOR HUB",
+    this.banners.show(
+      this.touch ? "OPPONENT LEFT — EXIT FOR HUB" : "OPPONENT LEFT — ESC FOR HUB",
       60_000,
       "critical",
     );
@@ -77,21 +76,21 @@ export class VersusFlow {
   // Guest: mirror the versus match state; edge-detect phase changes for the
   // banners + stings (scores/hearts render from the snapshot every frame).
   applyNet(v: NetVersus | null) {
-    const prev = this.net;
-    this.net = v;
+    const prev = this.run.matchNet;
+    this.run.matchNet = v;
     if (!v || v.phase === (prev?.phase ?? "")) {
       return;
     }
     if (v.phase === "countdown") {
-      this.scene.banners.show(v.round === 1 ? "ROUND 1" : `ROUND ${v.round}`, 1100, "critical");
+      this.banners.show(v.round === 1 ? "ROUND 1" : `ROUND ${v.round}`, 1100, "critical");
     } else if (v.phase === "fighting") {
-      this.scene.banners.show("FIGHT!", 700, "critical");
+      this.banners.show("FIGHT!", 700, "critical");
       sfx.bossRoar();
     } else if (v.phase === "roundEnd") {
-      this.scene.banners.show(`${this.name(v.winner)} TAKES THE ROUND`, 1500, "critical");
+      this.banners.show(`${this.name(v.winner)} TAKES THE ROUND`, 1500, "critical");
       sfx.die();
     } else if (v.phase === "matchEnd") {
-      this.scene.banners.show(
+      this.banners.show(
         `${this.name(v.winner)} WINS THE MATCH  ·  ${this.rematchHint()}`,
         60_000,
         "critical",
@@ -100,9 +99,9 @@ export class VersusFlow {
   }
 
   showAdoptedResult(): void {
-    const match = this.scene.role === "guest" ? this.net : this.match?.encode();
+    const match = this.seat.role === "guest" ? this.run.matchNet : this.run.match?.encode();
     if (match?.phase === "matchEnd") {
-      this.scene.banners.show(
+      this.banners.show(
         `${this.name(match.winner)} WINS THE MATCH  ·  ${this.rematchHint()}`,
         60_000,
         "critical",
@@ -113,57 +112,57 @@ export class VersusFlow {
   // Host: the duel sim — two players + their projectiles + PvP resolution. No
   // enemies, doors, features, shared hearts, or last stand in this mode.
   simStep(dt: number) {
-    const { match: vs } = this;
+    const vs = this.run.match;
     if (!vs) {
       return;
     }
     const trans = vs.step(dt);
     if (trans === "fight") {
-      this.scene.banners.show("FIGHT!", 700, "critical");
+      this.banners.show("FIGHT!", 700, "critical");
       sfx.bossRoar();
     } else if (trans === "respawn") {
       this.respawn();
-      this.scene.banners.show(`ROUND ${vs.round}`, 1100, "critical");
+      this.banners.show(`ROUND ${vs.round}`, 1100, "critical");
       sfx.door("local");
     } else if (trans === "matchEnd") {
-      this.scene.banners.show(
+      this.banners.show(
         `${this.name(vs.winner)} WINS THE MATCH  ·  ${this.rematchHint()}`,
         60_000,
         "critical",
       );
     }
-    for (const pl of this.scene.livePlayers()) {
+    for (const pl of livePlayers(this.seat)) {
       pl.step(dt);
     }
-    this.scene.combat.stepShots(dt);
-    if (vs.phase === "fighting" && this.scene.remote) {
-      this.offense(this.scene.player, this.scene.remote);
-      this.offense(this.scene.remote, this.scene.player);
+    this.combat.stepShots(dt, vs.phase === "fighting" ? this : null);
+    if (vs.phase === "fighting" && this.seat.remote) {
+      this.offense(this.seat.player, this.seat.remote);
+      this.offense(this.seat.remote, this.seat.player);
     }
-    this.scene.updateHud();
+    this.hooks.updateHud();
   }
 
   // Reset both duelists onto their mirrored spawn points (round start / lobby).
   respawn() {
-    for (const s of this.scene.shots) {
+    for (const s of this.room.shots) {
       s.spr.destroy();
     }
-    this.scene.shots = [];
-    const pls = [this.scene.player, this.scene.remote];
+    this.room.shots = [];
+    const pls = [this.seat.player, this.seat.remote];
     for (const pl of pls) {
       if (!pl) {
         continue;
       }
-      const s = this.spawns[this.side(pl) === "host" ? 0 : 1] ?? this.scene.roomSpawn;
+      const s = this.room.vsSpawns[this.side(pl) === "host" ? 0 : 1] ?? this.room.roomSpawn;
       pl.body.dead = false;
-      pl.enterRoom(this.scene.grid, s.x, s.y);
+      pl.enterRoom(this.room.grid, s.x, s.y);
     }
-    this.scene.updateHud();
+    this.hooks.updateHud();
   }
 
   // One duelist's melee / special / stomp / projectile intents against the other.
   private offense(att: Player, vic: Player) {
-    const seq = this.seq(att);
+    const seq = duelHits(this.seat, att);
     const dir = Math.sign(vic.body.x - att.body.x) || att.body.facing;
     const ab = att.body.attackBox();
     // Burn the swing id only when the hit actually LANDS. Marking it on mere
@@ -200,15 +199,15 @@ export class VersusFlow {
   private intents(att: Player) {
     if (att.body.pendingShot) {
       const s = att.body.pendingShot;
-      this.scene.combat.spawnShot(s.x, s.y, s.vx, s.vy, s.dmg, att);
+      this.combat.spawnShot(s.x, s.y, s.vx, s.vy, s.dmg, att);
       att.body.pendingShot = null;
     }
     if (att.body.pendingHeal > 0) {
-      this.match?.heal(this.side(att), att.body.pendingHeal);
+      this.run.match?.heal(this.side(att), att.body.pendingHeal);
       popText(this.scene, att.body.x, att.body.y - 26, "+HP", "#34e5c8");
-      sfx.heal(att === this.scene.player ? "local" : "routine");
+      sfx.heal(att === this.seat.player ? "local" : "routine");
       att.body.pendingHeal = 0;
-      this.scene.updateHud();
+      this.hooks.updateHud();
     }
   }
 
@@ -226,19 +225,19 @@ export class VersusFlow {
   // stand); dash/hurt i-frames still gate it. A fatal hit ends the round.
   // Returns whether the hit actually connected (see the swing-id guard above).
   hurt(vic: Player, dmg: number, dir: number): boolean {
-    const { match: vs } = this;
+    const vs = this.run.match;
     if (!vs || vs.phase !== "fighting") {
       return false;
     }
     if (!vic.body.applyHurt(dir)) {
       return false;
     }
-    this.scene.freeze = Math.max(this.scene.freeze, 0.06);
+    this.run.freeze = Math.max(this.run.freeze, 0.06);
     hitSpark(this.scene, vic.x, vic.y - 11, COLORS.magenta, 8);
     sfx.hit();
-    this.scene.shake(80, 0.005);
+    this.hooks.shake(80, 0.005);
     const ended = vs.damage(this.side(vic), dmg);
-    this.scene.updateHud();
+    this.hooks.updateHud();
     if (ended) {
       this.roundOver(vic);
     }
@@ -247,56 +246,46 @@ export class VersusFlow {
 
   // The fatal hit: drop the loser where they stand and bank the round.
   private roundOver(loser: Player) {
-    const { match: vs } = this;
+    const vs = this.run.match;
     if (!vs) {
       return;
     }
     loser.body.dead = true;
-    this.scene.freeze = Math.max(this.scene.freeze, 0.12);
-    this.scene.shake(260, 0.014);
+    this.run.freeze = Math.max(this.run.freeze, 0.12);
+    this.hooks.shake(260, 0.014);
     impactRing(this.scene, loser.x, loser.y - 11, COLORS.magenta, 36);
     sfx.die();
-    this.scene.banners.show(`${this.name(vs.winner)} TAKES THE ROUND`, 1500, "critical");
-    this.scene.updateHud();
-  }
-
-  // Per-attacker swing/special dedup so one strike lands on the victim once.
-  seq(pl: Player): { swing: number; special: number } {
-    let s = this.hitSeq.get(pl);
-    if (!s) {
-      s = { special: 0, swing: 0 };
-      this.hitSeq.set(pl, s);
-    }
-    return s;
+    this.banners.show(`${this.name(vs.winner)} TAKES THE ROUND`, 1500, "critical");
+    this.hooks.updateHud();
   }
 
   // Which wire side a Player object is — only meaningful on the host, where
-  // scene.player IS the host duelist.
+  // seat.player IS the host duelist.
   private side(pl: Player): VsSide {
-    const id = this.scene.ownerId(pl);
+    const id = ownerId(this.seat, pl);
     if (id) {
-      return id === this.scene.seats.host ? "host" : "guest";
+      return id === this.seat.seats.host ? "host" : "guest";
     }
-    return pl === this.scene.player ? "host" : "guest";
+    return pl === this.seat.player ? "host" : "guest";
   }
 
   // The Player rendering a wire side on THIS client (host: player/remote;
   // guest: remote is the host's puppet).
   private duelist(side: VsSide): Player | undefined {
-    if (this.scene.session) {
-      const id = this.scene.seats[side];
-      return id ? this.scene.seatPlayer(id) : undefined;
+    if (this.seat.session) {
+      const id = this.seat.seats[side];
+      return id ? seatPlayer(this.seat, id) : undefined;
     }
-    if (this.scene.role === "guest") {
-      return side === "guest" ? this.scene.player : this.scene.remote;
+    if (this.seat.role === "guest") {
+      return side === "guest" ? this.seat.player : this.seat.remote;
     }
-    return side === "host" ? this.scene.player : this.scene.remote;
+    return side === "host" ? this.seat.player : this.seat.remote;
   }
 
   // Input-aware match-end hint: touch players rematch with ATK / leave via the
   // on-screen EXIT button; keyboard keeps J / ESC.
   private rematchHint(): string {
-    return this.scene.touch ? "ATK REMATCH · EXIT HUB" : "J REMATCH · ESC HUB";
+    return this.touch ? "ATK REMATCH · EXIT HUB" : "J REMATCH · ESC HUB";
   }
 
   // Banner-friendly duelist name, flagged when it's the local player. The
@@ -310,23 +299,23 @@ export class VersusFlow {
     if (!pl) {
       return tag;
     }
-    return pl === this.scene.player ? `${tag} ${pl.title} (YOU)` : `${tag} ${pl.title}`;
+    return pl === this.seat.player ? `${tag} ${pl.title} (YOU)` : `${tag} ${pl.title}`;
   }
 
   // Versus HUD, on both clients: host duelist on the left, guest on the right —
   // hero name, this round's hearts, and round-win pips. ▸ marks the local side.
   updateHud() {
-    const v = this.scene.role === "guest" ? this.net : (this.match?.encode() ?? null);
+    const v = this.seat.role === "guest" ? this.run.matchNet : (this.run.match?.encode() ?? null);
     if (!v) {
       return;
     }
-    this.scene.infoText.setFontSize(12);
+    this.chrome.infoText.setFontSize(12);
     const line = (side: VsSide, hp: number, score: number): string => {
       const pl = this.duelist(side);
       if (!pl) {
         return "AWAITING CHALLENGER…";
       }
-      const you = pl === this.scene.player ? "▸" : " ";
+      const you = pl === this.seat.player ? "▸" : " ";
       const hearts = "♥".repeat(Math.max(0, hp)) + "♡".repeat(Math.max(0, VS_HEARTS - hp));
       const pips = "●".repeat(score) + "○".repeat(Math.max(0, VS_WIN_SCORE - score));
       return `${you}${pl.title}  ${hearts}  ${pips}`;
@@ -335,12 +324,12 @@ export class VersusFlow {
       const pl = this.duelist(side);
       return pl ? `#${pl.color.toString(16).padStart(6, "0")}` : "#8b95a1";
     };
-    this.scene.heartsText.setText(line("host", v.hostHp, v.hostScore)).setColor(hex("host"));
-    this.scene.infoText.setText(line("guest", v.guestHp, v.guestScore)).setColor(hex("guest"));
+    this.chrome.heartsText.setText(line("host", v.hostHp, v.hostScore)).setColor(hex("host"));
+    this.chrome.infoText.setText(line("guest", v.guestHp, v.guestScore)).setColor(hex("guest"));
   }
 
   frozen(): boolean {
-    const phase = this.scene.role === "guest" ? this.net?.phase : this.match?.phase;
+    const phase = this.seat.role === "guest" ? this.run.matchNet?.phase : this.run.match?.phase;
     return phase !== undefined && vsPhaseFrozen(phase);
   }
 }

@@ -1,5 +1,4 @@
 import { Math as PhaserMath } from "phaser";
-import type { GameScene } from "../scenes/game-scene";
 import { now as simNow } from "../shared/clock";
 import {
   ASTEROID_CULL_MARGIN,
@@ -61,7 +60,7 @@ import {
   spawnUfoState,
   wavePulse,
 } from "../shared/constants";
-import type { EnemyKind, Vec } from "../shared/constants";
+import type { EnemyKind, SharedState, Vec } from "../shared/constants";
 import { rand } from "../shared/rng";
 import {
   asteroidToWire,
@@ -73,30 +72,23 @@ import {
   shardToWire,
   ufoToWire,
 } from "../shared/wire";
+import { setAllDirty } from "../state/dirty-flags";
+import type { DirtyFlags } from "../state/dirty-flags";
+import type { Link } from "../state/link";
+import type { Pilot } from "../state/pilot";
+import type { EnemyAi } from "../sys/enemy-ai";
 import { inWorld, magnetPull } from "../sys/geometry";
+import type { Progression } from "../sys/progression";
+import type { HostCombat } from "./host-combat";
 import type { sharedToPatch } from "./shared-world";
 
-type HostScene = Pick<
-  GameScene,
-  | "ai"
-  | "alive"
-  | "boosts"
-  | "client"
-  | "connected"
-  | "hostCombat"
-  | "myId"
-  | "offline"
-  | "peerStates"
-  | "peers"
-  | "progress"
-  | "shield"
-  | "shipX"
-  | "shipY"
-  | "spawned"
-  | "sync"
-  | "trailer"
-  | "world"
->;
+/** Late-built collaborators the director consults. */
+export interface HostDirectorHooks {
+  /** WorldSync.prepareHost — adopt the accepted room world before any host tick/command (sync is built after the director). */
+  prepareHost: () => boolean;
+  /** My PHASE shield-mod window end (Shield is built after the director). */
+  phasedUntil: () => number;
+}
 
 /** Host suppresses enemy spawns for the arena's first seconds (safe opening). */
 export const ARENA_SAFE_MS = 6000;
@@ -122,6 +114,17 @@ export const weightedEnemyRoll = (
   return kinds.at(-1) ?? null;
 };
 
+export interface HostDirectorDeps {
+  world: SharedState;
+  pilot: Pilot;
+  link: Link;
+  dirty: DirtyFlags;
+  ai: EnemyAi;
+  hostCombat: HostCombat;
+  progress: Progression;
+  hooks: HostDirectorHooks;
+}
+
 /** Host-only world director: the authoritative tick (asteroid/UFO/enemy spawn cadence, pulls, magnets, breathers, boss guarantee, BEACON control) and the dirty-flag share of the world to guests. */
 export class HostDirector {
   // boss (host-private; recomputed from the world each tick so migration adopts it)
@@ -133,17 +136,6 @@ export class HostDirector {
   private playBoundsDirty = false;
 
   private shareAcc = 0;
-
-  dirty = {
-    asteroids: false,
-    beacon: false,
-    enemies: false,
-    enemyShots: false,
-    items: false,
-    pulls: false,
-    shards: false,
-    ufo: false,
-  };
 
   lastAsteroidSpawnAt = 0;
 
@@ -163,24 +155,45 @@ export class HostDirector {
    *  is live (worst case one trough of extra delay after a migration). */
   private lastBeaconStartedAt = 0;
 
-  private readonly scene: HostScene;
+  private readonly world: SharedState;
 
-  constructor(scene: HostScene) {
-    this.scene = scene;
+  private readonly pilot: Pilot;
+
+  private readonly link: Link;
+
+  private readonly dirty: DirtyFlags;
+
+  private readonly ai: EnemyAi;
+
+  private readonly hostCombat: HostCombat;
+
+  private readonly progress: Progression;
+
+  private readonly hooks: HostDirectorHooks;
+
+  constructor(deps: HostDirectorDeps) {
+    this.world = deps.world;
+    this.pilot = deps.pilot;
+    this.link = deps.link;
+    this.dirty = deps.dirty;
+    this.ai = deps.ai;
+    this.hostCombat = deps.hostCombat;
+    this.progress = deps.progress;
+    this.hooks = deps.hooks;
   }
 
   hostTick(now: number, dt: number, delta: number): void {
-    if (!this.scene.sync.prepareHost()) {
+    if (!this.hooks.prepareHost()) {
       return;
     }
     if (!this.wasHost) {
       this.hostAdoptClocks(now);
     }
-    const w = this.scene.world;
+    const w = this.world;
     const d = this.dirty;
     const tSec = Math.max(0, (now - w.arenaEpoch) / 1000);
     const intensity = arenaIntensity(tSec);
-    const pc = Math.max(1, Object.keys(this.scene.peers).length);
+    const pc = Math.max(1, Object.keys(this.link.peers).length);
     const pressure = playerPressure(pc);
     const wave = wavePulse(tSec);
     // Grow the play area with player count (grow-only within an arena, so it
@@ -201,7 +214,7 @@ export class HostDirector {
     this.hostTickBeacon(now, tSec, players);
     this.hostSpawnEnemies(now, tSec, intensity, pressure, wave, players);
     this.hostMaybeSpawnBoss(now, intensity, players);
-    this.scene.ai.hostSimEnemies(now, dt, players);
+    this.ai.hostSimEnemies(now, dt, players);
     // After the sim: the pull overrides steering for dragged enemies.
     this.hostApplyPulls(now);
     const livePulls = w.pulls.filter((p) => p.until > now);
@@ -211,7 +224,7 @@ export class HostDirector {
     }
     // Trailer: staged crowds are deliberately far over the cap and the wide
     // zooms put the despawn line on camera — never cull them mid-shot.
-    if (!this.scene.trailer) {
+    if (!this.link.trailer) {
       this.hostDespawnBreather(now, intensity, pressure, wave, players);
     }
 
@@ -242,16 +255,16 @@ export class HostDirector {
     // (activeAt − CHARGE); with none live, a mid-run promotion stamps `now`
     // (worst case one trough of extra delay) while a fresh arena keeps 0 so
     // the first beacon still lands at t≈90.
-    const b = this.scene.world.beacon;
+    const b = this.world.beacon;
     if (b) {
       this.lastBeaconStartedAt = b.activeAt - BEACON_CHARGE_S * 1000;
-    } else if ((now - this.scene.world.arenaEpoch) / 1000 >= BEACON_MIN_T_S) {
+    } else if ((now - this.world.arenaEpoch) / 1000 >= BEACON_MIN_T_S) {
       this.lastBeaconStartedAt = now;
     }
   }
 
   private hostTickAsteroids(now: number, intensity: number, pressure: number, wave: number): void {
-    const w = this.scene.world;
+    const w = this.world;
     if (
       w.asteroids.length < asteroidCap(intensity, pressure, wave) &&
       now - this.lastAsteroidSpawnAt > asteroidSpawnIntervalMs(intensity)
@@ -273,9 +286,9 @@ export class HostDirector {
    *  Trailer mode: never — a wandering piñata (and its weapon drop landing
    *  in the player's pickup radius) would derail a staged shot. */
   private hostTickUfo(now: number, dt: number): void {
-    const w = this.scene.world;
+    const w = this.world;
     const weaponItemsInFlight = w.items.filter((it) => it.kind === "weapon").length;
-    if (!w.ufo && !this.scene.trailer && weaponItemsInFlight < 2 && rand() < UFO_SPAWN_RATE * dt) {
+    if (!w.ufo && !this.link.trailer && weaponItemsInFlight < 2 && rand() < UFO_SPAWN_RATE * dt) {
       w.ufo = spawnUfoState(w.playW, w.playH);
       this.dirty.ufo = true;
     }
@@ -288,7 +301,7 @@ export class HostDirector {
 
   /** Expire items + shards, then run the magnet pass. */
   private hostTickPickups(now: number): void {
-    const w = this.scene.world;
+    const w = this.world;
     const liveItems = w.items.filter((it) => it.diesAt > now);
     if (liveItems.length !== w.items.length) {
       w.items = liveItems;
@@ -304,7 +317,7 @@ export class HostDirector {
 
   /** Continuous motion dirties whatever is actually moving. */
   private hostMarkMotionDirty(): void {
-    const w = this.scene.world;
+    const w = this.world;
     const d = this.dirty;
     if (w.asteroids.length > 0) {
       d.asteroids = true;
@@ -328,7 +341,7 @@ export class HostDirector {
 
   /** Send the dirty fields as one shallow-merge patch, then clear the flags. */
   private hostShareWorld(): void {
-    const w = this.scene.world;
+    const w = this.world;
     const d = this.dirty;
     // Quantize at the serialization boundary (shared/wire.ts) — the working
     // arrays keep full precision, only the outgoing snapshot is rounded.
@@ -367,50 +380,38 @@ export class HostDirector {
       patch["sectorBossIdx"] = w.sectorBossIdx;
     }
     this.playBoundsDirty = false;
-    if (!this.scene.offline && this.scene.connected && Object.keys(patch).length > 0) {
-      this.scene.client.updateSharedState(patch);
+    if (Object.keys(patch).length > 0) {
+      this.link.patchShared(patch);
     }
-    this.dirty = {
-      asteroids: false,
-      beacon: false,
-      enemies: false,
-      enemyShots: false,
-      items: false,
-      pulls: false,
-      shards: false,
-      ufo: false,
-    };
+    setAllDirty(this.dirty, false);
   }
 
   /** Next share sends the whole world (bounds and boss marker included). */
   markWorldDirty(): void {
-    this.dirty = {
-      asteroids: true,
-      beacon: true,
-      enemies: true,
-      enemyShots: true,
-      items: true,
-      pulls: true,
-      shards: true,
-      ufo: true,
-    };
+    setAllDirty(this.dirty, true);
     this.playBoundsDirty = true;
+  }
+
+  /** Boss down: free the arena-wide slot and arm the spawn cooldown. */
+  noteBossKilled(now: number): void {
+    this.bossAlive = false;
+    this.lastBossKilledAt = now;
   }
 
   /** Alive+present players with ids — the beacon control census. Phased ships
    *  still count (they are IN the arena; only enemy targeting ignores them). */
   private beaconOccupants(cx: number, cy: number): string[] {
     const out: string[] = [];
-    const { myId } = this.scene;
+    const { myId } = this.link;
     if (
       myId &&
-      this.scene.alive &&
-      this.scene.spawned &&
-      Math.hypot(this.scene.shipX - cx, this.scene.shipY - cy) <= BEACON_RADIUS
+      this.pilot.alive &&
+      this.pilot.spawned &&
+      Math.hypot(this.pilot.shipX - cx, this.pilot.shipY - cy) <= BEACON_RADIUS
     ) {
       out.push(myId);
     }
-    for (const [id, st] of this.scene.peerStates) {
+    for (const [id, st] of this.link.peerStates) {
       if (id === myId || !st || !st.alive || !st.present) {
         continue;
       }
@@ -425,7 +426,7 @@ export class HostDirector {
    *  payout. Phases themselves are DERIVED from the shared timestamps (never
    *  stored), so a promoted host resumes mid-phase from the snapshot alone. */
   private hostTickBeacon(now: number, tSec: number, players: Vec[]): void {
-    const w = this.scene.world;
+    const w = this.world;
     const b = w.beacon;
     if (b) {
       if (now >= b.diesAt) {
@@ -435,7 +436,7 @@ export class HostDirector {
         // owner-simulated client-side off this same final snapshot; the gold
         // shockwave fx is drawn by every client in tickBeaconClient.
         if (b.controllerId !== null && !b.contested) {
-          this.scene.hostCombat.hostRollLoot(b.x, b.y, 1, true, true);
+          this.hostCombat.hostRollLoot(b.x, b.y, 1, true, true);
         }
         w.beacon = null;
         this.dirty.beacon = true;
@@ -515,7 +516,7 @@ export class HostDirector {
     chargeS = BEACON_CHARGE_S,
     activeS = BEACON_ACTIVE_S,
   ): void {
-    this.scene.world.beacon = {
+    this.world.beacon = {
       activeAt: now + chargeS * 1000,
       contested: false,
       controllerId: null,
@@ -530,12 +531,12 @@ export class HostDirector {
   /** Position of a player by id (me from the live ship, remotes from their
    *  net state). Null when unknown/absent. */
   playerPos(id: string): Vec | null {
-    if (id === this.scene.myId) {
-      return this.scene.spawned && this.scene.alive
-        ? { x: this.scene.shipX, y: this.scene.shipY }
+    if (id === this.link.myId) {
+      return this.pilot.spawned && this.pilot.alive
+        ? { x: this.pilot.shipX, y: this.pilot.shipY }
         : null;
     }
-    const st = this.scene.peerStates.get(id);
+    const st = this.link.peerStates.get(id);
     return st && st.alive ? { x: st.x, y: st.y } : null;
   }
 
@@ -547,11 +548,11 @@ export class HostDirector {
    * dead-reckon the same motion.
    */
   private hostApplyPulls(now: number): void {
-    for (const p of this.scene.world.pulls) {
+    for (const p of this.world.pulls) {
       if (p.until <= now) {
         continue;
       }
-      for (const a of this.scene.world.asteroids) {
+      for (const a of this.world.asteroids) {
         const d = Math.hypot(p.x - a.x, p.y - a.y);
         if (d > SINGULARITY_PULL_RANGE || d < 1) {
           continue;
@@ -560,7 +561,7 @@ export class HostDirector {
         a.vx = ((p.x - a.x) / d) * sp;
         a.vy = ((p.y - a.y) / d) * sp;
       }
-      for (const e of this.scene.world.enemies) {
+      for (const e of this.world.enemies) {
         const d = Math.hypot(p.x - e.x, p.y - e.y);
         if (d > SINGULARITY_PULL_RANGE || d < 1) {
           continue;
@@ -579,7 +580,7 @@ export class HostDirector {
    * Holders are read from per-player `boosts` state (mine locally).
    */
   private hostMagnetItems(now: number): void {
-    const w = this.scene.world;
+    const w = this.world;
     if (w.items.length === 0 && w.shards.length === 0) {
       return;
     }
@@ -600,12 +601,12 @@ export class HostDirector {
   /** Positions of every living ship with a live MAGNET booster. */
   private magnetHolders(now: number): Vec[] {
     const holders: Vec[] = [];
-    const mine = this.scene.boosts.get("magnet");
-    if (mine !== undefined && mine > now && this.scene.alive && this.scene.spawned) {
-      holders.push({ x: this.scene.shipX, y: this.scene.shipY });
+    const mine = this.pilot.boosts.get("magnet");
+    if (mine !== undefined && mine > now && this.pilot.alive && this.pilot.spawned) {
+      holders.push({ x: this.pilot.shipX, y: this.pilot.shipY });
     }
-    const { myId } = this.scene;
-    for (const [id, st] of this.scene.peerStates) {
+    const { myId } = this.link;
+    for (const [id, st] of this.link.peerStates) {
       if (id === myId) {
         continue;
       }
@@ -623,9 +624,9 @@ export class HostDirector {
    *  unknowable). Drives elite HP stamping at spawn (host) and elite kill XP
    *  (shooter) — qa-018: the same multiplier moves cost and reward together. */
   maxPresentLevel(): number {
-    let max = this.scene.spawned ? this.scene.progress.level : 1;
-    const { myId } = this.scene;
-    for (const [id, st] of this.scene.peerStates) {
+    let max = this.pilot.spawned ? this.progress.level : 1;
+    const { myId } = this.link;
+    for (const [id, st] of this.link.peerStates) {
       if (id === myId || !st || !st.present) {
         continue;
       }
@@ -639,11 +640,11 @@ export class HostDirector {
   /** Living player positions (mine locally + remotes from net state). */
   private livingPlayers(): Vec[] {
     const out: Vec[] = [];
-    if (this.scene.alive && this.scene.spawned && simNow() >= this.scene.shield.phasedUntil) {
-      out.push({ x: this.scene.shipX, y: this.scene.shipY });
+    if (this.pilot.alive && this.pilot.spawned && simNow() >= this.hooks.phasedUntil()) {
+      out.push({ x: this.pilot.shipX, y: this.pilot.shipY });
     }
-    const { myId } = this.scene;
-    for (const [id, st] of this.scene.peerStates) {
+    const { myId } = this.link;
+    for (const [id, st] of this.link.peerStates) {
       if (id === myId) {
         continue;
       }
@@ -669,7 +670,7 @@ export class HostDirector {
     if (now < this.debutSuppressUntil) {
       return;
     }
-    const w = this.scene.world;
+    const w = this.world;
     const early = tSec < EARLY_SPAWN_WINDOW_S;
     if (early && !this.debuted.has("drone") && w.enemies.length === 0 && players.length > 0) {
       this.hostSeedDebutWave(now, players);
@@ -716,7 +717,7 @@ export class HostDirector {
    *  the convergence ring at once so the arena's first threats are already
    *  visibly inbound. This IS the drone debut (suppression follows as usual). */
   private hostSeedDebutWave(now: number, players: Vec[]): void {
-    const w = this.scene.world;
+    const w = this.world;
     for (let i = 0; i < EARLY_FODDER_SEED_COUNT; i += 1) {
       const placed = this.ringPlacementNear(players, EARLY_SEED_RING_MAX);
       if (!placed) {
@@ -756,7 +757,7 @@ export class HostDirector {
     early: boolean,
     players: Vec[],
   ): { x: number; y: number; ang: number } | null {
-    const w = this.scene.world;
+    const w = this.world;
     let placed: { x: number; y: number; ang: number } | null = null;
     if (early && EARLY_FODDER_KINDS.includes(kind) && players.length > 0) {
       placed = this.ringPlacementNear(players);
@@ -799,8 +800,8 @@ export class HostDirector {
         anchor.y,
         ENEMY_SPAWN_CLEARANCE,
         maxR,
-        this.scene.world.playW,
-        this.scene.world.playH,
+        this.world.playW,
+        this.world.playH,
       );
       const clear = players.every((p) => Math.hypot(p.x - c.x, p.y - c.y) >= ENEMY_SPAWN_CLEARANCE);
       if (clear) {
@@ -823,7 +824,7 @@ export class HostDirector {
     wave: number,
     players: Vec[],
   ): void {
-    const w = this.scene.world;
+    const w = this.world;
     if (w.enemies.length <= enemyCap(intensity, pressure, wave) + ENEMY_DESPAWN_SLACK) {
       return;
     }
@@ -858,7 +859,7 @@ export class HostDirector {
       return;
     }
     w.enemies.splice(farIdx, 1);
-    this.scene.ai.enemySim.delete(e.id);
+    this.ai.enemySim.delete(e.id);
     this.lastBreatherDespawnAt = now;
     this.dirty.enemies = true;
   }
@@ -866,7 +867,7 @@ export class HostDirector {
   /** Boss spawn trigger: near a wave peak, in a busy room (or after the cooldown
    *  in a quiet one). One boss arena-wide. Called each host tick. */
   private hostMaybeSpawnBoss(now: number, intensity: number, players: Vec[]): void {
-    const w = this.scene.world;
+    const w = this.world;
     // Recompute from the world so a migrated host adopts the flag.
     this.bossAlive = w.enemies.some((e) => e.kind === "dreadnought");
     if (this.bossAlive) {
@@ -899,14 +900,14 @@ export class HostDirector {
     if (players.length === 0) {
       return;
     }
-    const busy = Object.keys(this.scene.peers).length >= BOSS_SPAWN_MIN_PLAYERS;
+    const busy = Object.keys(this.link.peers).length >= BOSS_SPAWN_MIN_PLAYERS;
     // Quiet rooms only get one once the cooldown has fully elapsed since the last.
     if (!busy && this.lastBossKilledAt === 0 && now < BOSS_SPAWN_COOLDOWN_MS) {
       return;
     }
     let placed: { x: number; y: number; ang: number } | null = null;
     for (let i = 0; i < 8 && !placed; i += 1) {
-      const c = edgeSpawn(30, this.scene.world.playW, this.scene.world.playH);
+      const c = edgeSpawn(30, this.world.playW, this.world.playH);
       if (players.every((p) => Math.hypot(p.x - c.x, p.y - c.y) >= ENEMY_SPAWN_CLEARANCE)) {
         placed = c;
       }
@@ -916,7 +917,7 @@ export class HostDirector {
     }
     const e = spawnEnemyState("dreadnought", placed.x, placed.y);
     e.angle = placed.ang;
-    e.hp = bossHp(Math.max(1, Object.keys(this.scene.peers).length));
+    e.hp = bossHp(Math.max(1, Object.keys(this.link.peers).length));
     e.maxHp = e.hp;
     w.enemies.push(e);
     this.bossAlive = true;
@@ -931,7 +932,7 @@ export class HostDirector {
    *  duplicated (not extracted) so the organic block stays byte-identical
    *  for diff inspection (spec criterion 6). */
   private hostForceSpawnBoss(players: Vec[]): boolean {
-    const w = this.scene.world;
+    const w = this.world;
     let placed: { x: number; y: number; ang: number } | null = null;
     for (let i = 0; i < 8 && !placed; i += 1) {
       const c = edgeSpawn(30, w.playW, w.playH);
@@ -944,7 +945,7 @@ export class HostDirector {
     }
     const e = spawnEnemyState("dreadnought", placed.x, placed.y);
     e.angle = placed.ang;
-    e.hp = bossHp(Math.max(1, Object.keys(this.scene.peers).length));
+    e.hp = bossHp(Math.max(1, Object.keys(this.link.peers).length));
     e.maxHp = e.hp;
     w.enemies.push(e);
     this.bossAlive = true;

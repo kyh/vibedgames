@@ -1,11 +1,15 @@
 import { Math as PhaserMath } from "phaser";
+import type Phaser from "phaser";
 import { sfx } from "../audio/sfx";
 import type { PlayOpts } from "../audio/sfx";
 import { weaponSound } from "../audio/weapon-sound";
+import type { HostCombat } from "../net/host-combat";
 import { weaponLook } from "../render/combat-visuals";
 import type { WeaponLook } from "../render/combat-visuals";
+import type { FxPool } from "../render/fx-pool";
 import { lerpTint } from "../render/tint";
-import type { GameScene } from "../scenes/game-scene";
+import type { TraumaCamera } from "../render/trauma-camera";
+import type { WorldView } from "../render/world-view";
 import { now as simNow } from "../shared/clock";
 import {
   ARC_CAST_CONE_DEG,
@@ -33,40 +37,26 @@ import {
   XP,
   asteroidDestroyedBy,
 } from "../shared/constants";
-import type { AsteroidState, Vec, Weapon } from "../shared/constants";
+import type { AsteroidState, SharedState, Vec, Weapon } from "../shared/constants";
 import { rand } from "../shared/rng";
+import type { Link } from "../state/link";
+import type { Pilot } from "../state/pilot";
 import { BEAM_CULL_MARGIN, targetKey } from "./beam";
 import type { Beam, TargetRef } from "./beam";
 import { DEG, dist2, inWorld, rotateToward, wrapAngle } from "./geometry";
+import type { Progression } from "./progression";
+import type { Shield } from "./shield";
+import type { ShooterHits } from "./shooter-hits";
 
-type WeaponsScene = Pick<
-  GameScene,
-  | "alive"
-  | "boosts"
-  | "fx"
-  | "hits"
-  | "hostCombat"
-  | "isFiring"
-  | "kickX"
-  | "kickY"
-  | "mastery"
-  | "myId"
-  | "netSendEvent"
-  | "peerStates"
-  | "progress"
-  | "shield"
-  | "shipAngle"
-  | "shipView"
-  | "shipX"
-  | "shipY"
-  | "spawned"
-  | "time"
-  | "trailer"
-  | "trauma"
-  | "view"
-  | "weapon"
-  | "world"
->;
+/** Scene input + late-built collaborators weapons reports into. */
+export interface WeaponsHooks {
+  /** Scene input: is the trigger held this frame. */
+  isFiring: () => boolean;
+  /** Built after weapons; resolved at call time. */
+  hits: () => ShooterHits;
+  /** Built after weapons; resolved at call time. */
+  shield: () => Shield;
+}
 
 /** Transient muzzle flash strokes (1–2 frames), drawn additively. */
 export interface MuzzleFlash {
@@ -111,6 +101,19 @@ export const muzzleBurstSize = (look: WeaponLook): number => {
   return 19;
 };
 
+export interface WeaponsDeps {
+  world: SharedState;
+  pilot: Pilot;
+  link: Link;
+  fx: FxPool;
+  trauma: TraumaCamera;
+  clock: Phaser.Time.Clock;
+  view: WorldView;
+  progress: Progression;
+  hostCombat: HostCombat;
+  hooks: WeaponsHooks;
+}
+
 /** The owner-simulated arsenal: trigger cadence and windup, every fire mode (pellets, arc, tesla aura, mines, cluster, nova, sentry), beam flight and its hits, and the muzzle feedback. */
 export class Weapons {
   shootCooldown = 0;
@@ -125,33 +128,60 @@ export class Weapons {
 
   muzzleFlashes: MuzzleFlash[] = [];
 
-  private readonly scene: WeaponsScene;
+  private readonly world: SharedState;
 
-  constructor(scene: WeaponsScene) {
-    this.scene = scene;
+  private readonly pilot: Pilot;
+
+  private readonly link: Link;
+
+  private readonly fx: FxPool;
+
+  private readonly trauma: TraumaCamera;
+
+  private readonly clock: Phaser.Time.Clock;
+
+  private readonly view: WorldView;
+
+  private readonly progress: Progression;
+
+  private readonly hostCombat: HostCombat;
+
+  private readonly hooks: WeaponsHooks;
+
+  constructor(deps: WeaponsDeps) {
+    this.world = deps.world;
+    this.pilot = deps.pilot;
+    this.link = deps.link;
+    this.fx = deps.fx;
+    this.trauma = deps.trauma;
+    this.clock = deps.clock;
+    this.view = deps.view;
+    this.progress = deps.progress;
+    this.hostCombat = deps.hostCombat;
+    this.hooks = deps.hooks;
   }
 
   handleShooting(delta: number, now: number): void {
-    if (!this.scene.alive || !this.scene.spawned) {
+    if (!this.pilot.alive || !this.pilot.spawned) {
       return;
     }
     // The cooldown runs into (bounded) deficit and each shot pays intervalMs
     // back, so the leftover carries between shots — true average cadence on
     // any refresh rate instead of rounding up to whole frames. OVERDRIVE
     // multiplies intervalMs and windupMs at fire time (+50% rate).
-    const rateMult = this.scene.boosts.has("overdrive") ? OVERDRIVE_RATE_MULT : 1;
-    const interval = this.scene.weapon.intervalMs * rateMult;
+    const rateMult = this.pilot.boosts.has("overdrive") ? OVERDRIVE_RATE_MULT : 1;
+    const interval = this.pilot.weapon.intervalMs * rateMult;
     this.shootCooldown = Math.max(-interval, this.shootCooldown - delta);
-    if (!this.scene.alive || !this.scene.spawned || now < this.scene.shield.phasedUntil) {
+    if (!this.pilot.alive || !this.pilot.spawned || now < this.hooks.shield().phasedUntil) {
       this.windupAcc = 0;
       return;
     }
-    if (!this.scene.isFiring()) {
+    if (!this.hooks.isFiring()) {
       // releasing mid-windup cancels
       this.windupAcc = 0;
       return;
     }
-    const windupMs = this.scene.weapon.windupMs * rateMult;
+    const windupMs = this.pilot.weapon.windupMs * rateMult;
     if (windupMs > 0) {
       // Charge runs inside the interval (cycle = max(interval, windup)) and
       // auto-repeats while held — the one-button identity holds.
@@ -172,18 +202,18 @@ export class Weapons {
 
   /** 0–1 charge fraction of a windup weapon (0 for everything else). */
   windupFrac(): number {
-    const rateMult = this.scene.boosts.has("overdrive") ? OVERDRIVE_RATE_MULT : 1;
-    const windupMs = this.scene.weapon.windupMs * rateMult;
+    const rateMult = this.pilot.boosts.has("overdrive") ? OVERDRIVE_RATE_MULT : 1;
+    const windupMs = this.pilot.weapon.windupMs * rateMult;
     return windupMs > 0 ? Math.min(1, this.windupAcc / windupMs) : 0;
   }
 
   /** One volley of the current weapon (pellets / arc cast / mine / nova). */
   fireWeapon(now: number): void {
     const nose = {
-      x: this.scene.shipX + Math.cos(this.scene.shipAngle) * SHIP_RADIUS,
-      y: this.scene.shipY + Math.sin(this.scene.shipAngle) * SHIP_RADIUS,
+      x: this.pilot.shipX + Math.cos(this.pilot.shipAngle) * SHIP_RADIUS,
+      y: this.pilot.shipY + Math.sin(this.pilot.shipAngle) * SHIP_RADIUS,
     };
-    const w = this.scene.weapon;
+    const w = this.pilot.weapon;
     const { arc } = w;
     let gainScale = 1;
     if (arc && w.aura) {
@@ -204,17 +234,17 @@ export class Weapons {
       // NOVA: radial shockwave centered on the ship — serialized as an
       // exploding beam (existing fields), so victims/remotes need zero new code.
       const b = this.makeBeam(
-        { x: this.scene.shipX, y: this.scene.shipY },
-        this.scene.shipAngle,
+        { x: this.pilot.shipX, y: this.pilot.shipY },
+        this.pilot.shipAngle,
         w,
         now,
       );
       b.released = true;
       b.exploding = true;
       this.beams.push(b);
-      this.scene.fx.battle.burst(
-        this.scene.shipX,
-        this.scene.shipY,
+      this.fx.battle.burst(
+        this.pilot.shipX,
+        this.pilot.shipY,
         Math.min(260, w.explosion.range * 0.85),
         w.tint,
         "detonation",
@@ -228,22 +258,22 @@ export class Weapons {
       }
       // PLASMA: per-shot tint lerps the hot pink->orange gradient.
       const vw = w.sfx === "plasma" ? { ...w, tint: lerpTint(PLASMA_TINT_A, PLASMA_TINT_B) } : w;
-      this.firePellets(nose, this.scene.shipAngle, vw, now);
+      this.firePellets(nose, this.pilot.shipAngle, vw, now);
       if (vw.mirror) {
         // MIRROR: the 180-deg copy launches from the tail.
         const back = {
-          x: this.scene.shipX - Math.cos(this.scene.shipAngle) * SHIP_RADIUS,
-          y: this.scene.shipY - Math.sin(this.scene.shipAngle) * SHIP_RADIUS,
+          x: this.pilot.shipX - Math.cos(this.pilot.shipAngle) * SHIP_RADIUS,
+          y: this.pilot.shipY - Math.sin(this.pilot.shipAngle) * SHIP_RADIUS,
         };
-        this.firePellets(back, this.scene.shipAngle + Math.PI, vw, now);
+        this.firePellets(back, this.pilot.shipAngle + Math.PI, vw, now);
       }
       // TWIN mirrors beams only (mines/nova excluded above by branch).
       const twin = this.twinPos();
       if (twin) {
         const tw = { ...vw, power: vw.power * TWIN_POWER_MULT };
-        this.firePellets(twin, this.scene.shipAngle, tw, now);
+        this.firePellets(twin, this.pilot.shipAngle, tw, now);
         if (tw.mirror) {
-          this.firePellets(twin, this.scene.shipAngle + Math.PI, tw, now);
+          this.firePellets(twin, this.pilot.shipAngle + Math.PI, tw, now);
         }
       }
     }
@@ -259,23 +289,23 @@ export class Weapons {
     const r2 = spec.castRange * spec.castRange;
     let best: { ref: TargetRef; x: number; y: number } | null = null;
     let bestD = Infinity;
-    for (const e of this.scene.world.enemies) {
-      const d = dist2(e.x, e.y, this.scene.shipX, this.scene.shipY);
+    for (const e of this.world.enemies) {
+      const d = dist2(e.x, e.y, this.pilot.shipX, this.pilot.shipY);
       if (d <= r2 && d < bestD) {
         bestD = d;
         best = { ref: { id: e.id, kind: "enemy" }, x: e.x, y: e.y };
       }
     }
-    const u = this.scene.world.ufo;
+    const u = this.world.ufo;
     if (u) {
-      const d = dist2(u.x, u.y, this.scene.shipX, this.scene.shipY);
+      const d = dist2(u.x, u.y, this.pilot.shipX, this.pilot.shipY);
       if (d <= r2 && d < bestD) {
         bestD = d;
         best = { ref: { kind: "ufo" }, x: u.x, y: u.y };
       }
     }
-    for (const a of this.scene.world.asteroids) {
-      const d = dist2(a.x, a.y, this.scene.shipX, this.scene.shipY);
+    for (const a of this.world.asteroids) {
+      const d = dist2(a.x, a.y, this.pilot.shipX, this.pilot.shipY);
       if (d <= r2 && d < bestD) {
         bestD = d;
         best = { ref: { id: a.id, kind: "asteroid" }, x: a.x, y: a.y };
@@ -284,14 +314,14 @@ export class Weapons {
     if (!best) {
       return false;
     }
-    const origin = { x: this.scene.shipX, y: this.scene.shipY };
+    const origin = { x: this.pilot.shipX, y: this.pilot.shipY };
     const chain: Vec[] = [origin, { x: best.x, y: best.y }];
-    this.applyArcDamage(best.ref, best.x, best.y, this.scene.weapon.power * 100, now);
+    this.applyArcDamage(best.ref, best.x, best.y, this.pilot.weapon.power * 100, now);
     this.beams.push({
       ...this.makeBeam(
         origin,
-        Math.atan2(best.y - this.scene.shipY, best.x - this.scene.shipX),
-        this.scene.weapon,
+        Math.atan2(best.y - this.pilot.shipY, best.x - this.pilot.shipX),
+        this.pilot.weapon,
         now,
       ),
       chain,
@@ -305,16 +335,16 @@ export class Weapons {
    *  drag-firing doesn't machine-gun the sound. */
   private placeSentry(now: number): void {
     const prev = this.sentry;
-    const moved = !prev || dist2(prev.x, prev.y, this.scene.shipX, this.scene.shipY) > 100 * 100;
+    const moved = !prev || dist2(prev.x, prev.y, this.pilot.shipX, this.pilot.shipY) > 100 * 100;
     this.sentry = {
       nextFireAt: prev?.nextFireAt ?? 0,
       until: now + SENTRY_LIFETIME_MS,
-      x: this.scene.shipX,
-      y: this.scene.shipY,
+      x: this.pilot.shipX,
+      y: this.pilot.shipY,
     };
     if (moved) {
       sfx.play("sentry_place", { priority: "local" });
-      this.scene.fx.ring(this.scene.shipX, this.scene.shipY, 4, 18, 200, SENTRY_WEAPON.tint, 0.6);
+      this.fx.ring(this.pilot.shipX, this.pilot.shipY, 4, 18, 200, SENTRY_WEAPON.tint, 0.6);
     }
   }
 
@@ -326,7 +356,7 @@ export class Weapons {
     if (!s) {
       return;
     }
-    if (!this.scene.alive || now >= s.until) {
+    if (!this.pilot.alive || now >= s.until) {
       this.sentry = null;
       return;
     }
@@ -336,7 +366,7 @@ export class Weapons {
     const r2 = SENTRY_RANGE * SENTRY_RANGE;
     let best: Vec | null = null;
     let bestD = Infinity;
-    for (const e of this.scene.world.enemies) {
+    for (const e of this.world.enemies) {
       const d = dist2(e.x, e.y, s.x, s.y);
       if (d <= r2 && d < bestD) {
         bestD = d;
@@ -344,7 +374,7 @@ export class Weapons {
       }
     }
     if (!best) {
-      for (const a of this.scene.world.asteroids) {
+      for (const a of this.world.asteroids) {
         const d = dist2(a.x, a.y, s.x, s.y);
         if (d <= r2 && d < bestD) {
           bestD = d;
@@ -359,13 +389,13 @@ export class Weapons {
     const ang = Math.atan2(best.y - s.y, best.x - s.x);
     this.beams.push(this.makeBeam({ x: s.x, y: s.y }, ang, SENTRY_WEAPON, now));
     s.nextFireAt = now + SENTRY_FIRE_MS;
-    this.scene.fx.battle.burst(s.x, s.y, 18, SENTRY_WEAPON.tint, "muzzle", ang);
-    this.scene.fx.sparks(s.x, s.y, 2, SENTRY_WEAPON.tint, {
+    this.fx.battle.burst(s.x, s.y, 18, SENTRY_WEAPON.tint, "muzzle", ang);
+    this.fx.sparks(s.x, s.y, 2, SENTRY_WEAPON.tint, {
       lifeMax: 140,
       lifeMin: 80,
       scale: 0.4,
     });
-    if (this.scene.view.onScreen(s.x, s.y)) {
+    if (this.view.onScreen(s.x, s.y)) {
       sfx.play("fire_pulse", { gain: 0.35, rate: 1.15 });
     }
   }
@@ -373,11 +403,11 @@ export class Weapons {
   /** TESLA AURA live = weapon held and able to fire (mirrored to the wire). */
   teslaActive(now: number): boolean {
     return (
-      this.scene.weapon.aura &&
-      this.scene.alive &&
-      this.scene.spawned &&
-      this.scene.isFiring() &&
-      now >= this.scene.shield.phasedUntil
+      this.pilot.weapon.aura &&
+      this.pilot.alive &&
+      this.pilot.spawned &&
+      this.hooks.isFiring() &&
+      now >= this.hooks.shield().phasedUntil
     );
   }
 
@@ -394,13 +424,13 @@ export class Weapons {
 
   /** TWIN drone position while the booster is live, else null. */
   private twinPos(): Vec | null {
-    if (!this.scene.boosts.has("twin")) {
+    if (!this.pilot.boosts.has("twin")) {
       return null;
     }
     const a = twinAngle();
     return {
-      x: this.scene.shipX + Math.cos(a) * TWIN_ORBIT_RADIUS,
-      y: this.scene.shipY + Math.sin(a) * TWIN_ORBIT_RADIUS,
+      x: this.pilot.shipX + Math.cos(a) * TWIN_ORBIT_RADIUS,
+      y: this.pilot.shipY + Math.sin(a) * TWIN_ORBIT_RADIUS,
     };
   }
 
@@ -414,23 +444,23 @@ export class Weapons {
       return;
     }
     const launch = (): void => {
-      if (!this.scene.alive || !this.scene.spawned) {
+      if (!this.pilot.alive || !this.pilot.spawned) {
         return;
       }
       const t = simNow();
       const nose = {
-        x: this.scene.shipX + Math.cos(this.scene.shipAngle) * SHIP_RADIUS,
-        y: this.scene.shipY + Math.sin(this.scene.shipAngle) * SHIP_RADIUS,
+        x: this.pilot.shipX + Math.cos(this.pilot.shipAngle) * SHIP_RADIUS,
+        y: this.pilot.shipY + Math.sin(this.pilot.shipAngle) * SHIP_RADIUS,
       };
-      this.firePellets(nose, this.scene.shipAngle, w, t);
+      this.firePellets(nose, this.pilot.shipAngle, w, t);
       const twin = this.twinPos();
       if (twin) {
-        this.firePellets(twin, this.scene.shipAngle, { ...w, power: w.power * TWIN_POWER_MULT }, t);
+        this.firePellets(twin, this.pilot.shipAngle, { ...w, power: w.power * TWIN_POWER_MULT }, t);
       }
     };
     launch();
     for (let i = 1; i < spec.missiles; i += 1) {
-      this.scene.time.delayedCall(spec.staggerMs * i, launch);
+      this.clock.delayedCall(spec.staggerMs * i, launch);
     }
   }
 
@@ -443,22 +473,14 @@ export class Weapons {
         // Over the cap: the oldest detonates harmlessly at 30% scale.
         oldest.vanished = true;
         const range = oldest.weapon.explosion?.range ?? 90;
-        this.scene.fx.ring(
-          oldest.head.x,
-          oldest.head.y,
-          4,
-          range * 0.3,
-          200,
-          oldest.weapon.tint,
-          0.4,
-        );
+        this.fx.ring(oldest.head.x, oldest.head.y, 4, range * 0.3, 200, oldest.weapon.tint, 0.4);
       }
     }
     const tail = {
-      x: this.scene.shipX - Math.cos(this.scene.shipAngle) * (SHIP_RADIUS + 4),
-      y: this.scene.shipY - Math.sin(this.scene.shipAngle) * (SHIP_RADIUS + 4),
+      x: this.pilot.shipX - Math.cos(this.pilot.shipAngle) * (SHIP_RADIUS + 4),
+      y: this.pilot.shipY - Math.sin(this.pilot.shipAngle) * (SHIP_RADIUS + 4),
     };
-    const b = this.makeBeam(tail, this.scene.shipAngle, this.scene.weapon, now);
+    const b = this.makeBeam(tail, this.pilot.shipAngle, this.pilot.weapon, now);
     b.released = true;
     b.mine = { armAt: now + MINE_ARM_MS };
     b.diesAt = now + MINE_LIFETIME_MS;
@@ -480,7 +502,7 @@ export class Weapons {
       glaive: weapon.boomerang ? { returning: false, traveled: 0 } : null,
       head: { ...nose },
       hitIds: new Set(),
-      mastery: this.scene.trailer ? null : this.scene.mastery.shot(weapon.name, now),
+      mastery: this.link.trailer ? null : this.pilot.mastery.shot(weapon.name, now),
       mine: null,
       released: false,
       // desync glaive spin phases a little
@@ -502,7 +524,7 @@ export class Weapons {
 
   /** Muzzle flash + camera kick + fire sfx, per weapon family (§9). */
   private muzzleFx(nose: Vec, now: number, gainScale = 1): void {
-    const w = this.scene.weapon;
+    const w = this.pilot.weapon;
     const sound = weaponSound(w.sfx);
     const playOpts: PlayOpts = { gain: sound.gain * gainScale, priority: "local" };
     if (sound.rate !== undefined) {
@@ -511,23 +533,23 @@ export class Weapons {
     sfx.play(sound.name, playOpts);
     // Every burst below sits ON the pilot's nose, so all of it damps together
     // in trailer mode (1 everywhere else — see hullGlow).
-    const glow = this.scene.shipView.hullGlow();
+    const glow = this.view.hullGlow();
     const look = weaponLook(w);
     if (look !== "nova") {
       const size = muzzleBurstSize(look);
-      this.scene.fx.battle.burst(
+      this.fx.battle.burst(
         nose.x,
         nose.y,
         size * glow,
         w.tint,
         "muzzle",
-        this.scene.shipAngle,
+        this.pilot.shipAngle,
         "important",
       );
     }
     // OVERDRIVE: muzzle flashes gain a gold outer spark.
-    if (this.scene.boosts.has("overdrive")) {
-      this.scene.fx.sparks(nose.x, nose.y, 2, 0xfa_cc_15, {
+    if (this.pilot.boosts.has("overdrive")) {
+      this.fx.sparks(nose.x, nose.y, 2, 0xfa_cc_15, {
         lifeMax: 180,
         lifeMin: 100,
         scale: 0.5 * glow,
@@ -535,11 +557,11 @@ export class Weapons {
         speedMin: 150,
       });
     }
-    const aimDeg = this.scene.shipAngle / DEG;
+    const aimDeg = this.pilot.shipAngle / DEG;
     switch (w.sfx) {
       case "mine": {
         // Drop, not a shot: tiny puff, no kick.
-        this.scene.fx.sparks(nose.x, nose.y, 2, w.tint, {
+        this.fx.sparks(nose.x, nose.y, 2, w.tint, {
           lifeMax: 160,
           lifeMin: 100,
           scale: 0.4 * glow,
@@ -552,7 +574,7 @@ export class Weapons {
       }
       case "rail": {
         // Heavy release (§C): kick 5px, trauma +0.08.
-        this.scene.fx.sparks(nose.x, nose.y, 5, w.tint, {
+        this.fx.sparks(nose.x, nose.y, 5, w.tint, {
           angleMax: aimDeg + 12,
           angleMin: aimDeg - 12,
           lifeMax: 200,
@@ -562,7 +584,7 @@ export class Weapons {
           speedMin: 250,
         });
         this.muzzleFlashes.push({
-          angle: this.scene.shipAngle,
+          angle: this.pilot.shipAngle,
           diesAt: now + 50,
           kind: "cross",
           size: 12,
@@ -570,7 +592,7 @@ export class Weapons {
           x: nose.x,
           y: nose.y,
         });
-        this.scene.trauma.add(0.08);
+        this.trauma.add(0.08);
         this.kick(5);
         break;
       }
@@ -582,7 +604,7 @@ export class Weapons {
       case "glaive":
       case "drill":
       case "singularity": {
-        this.scene.fx.sparks(nose.x, nose.y, 5, w.tint, {
+        this.fx.sparks(nose.x, nose.y, 5, w.tint, {
           angleMax: aimDeg + 15,
           angleMin: aimDeg - 15,
           lifeMax: 200,
@@ -592,7 +614,7 @@ export class Weapons {
           speedMin: 200,
         });
         this.muzzleFlashes.push({
-          angle: this.scene.shipAngle,
+          angle: this.pilot.shipAngle,
           diesAt: now + 50,
           kind: "cross",
           size: 10,
@@ -600,13 +622,13 @@ export class Weapons {
           x: nose.x,
           y: nose.y,
         });
-        this.scene.trauma.add(0.06);
+        this.trauma.add(0.06);
         this.kick(4);
         break;
       }
       case "zap": {
         this.muzzleFlashes.push({
-          angle: this.scene.shipAngle,
+          angle: this.pilot.shipAngle,
           diesAt: now + 60,
           kind: "line",
           size: 14,
@@ -619,7 +641,7 @@ export class Weapons {
       }
       case "arc":
       case "seek": {
-        this.scene.fx.sparks(nose.x, nose.y, 4, w.tint, {
+        this.fx.sparks(nose.x, nose.y, 4, w.tint, {
           lifeMax: 160,
           lifeMin: 100,
           scale: 0.5 * glow,
@@ -640,7 +662,7 @@ export class Weapons {
       }
       default: {
         // pulse family (NORMAL, TINY, SCATTER, EXPLOSION)
-        this.scene.fx.sparks(nose.x, nose.y, 3, w.tint, {
+        this.fx.sparks(nose.x, nose.y, 3, w.tint, {
           angleMax: aimDeg + 15,
           angleMin: aimDeg - 15,
           lifeMax: 180,
@@ -650,7 +672,7 @@ export class Weapons {
           speedMin: 200,
         });
         this.muzzleFlashes.push({
-          angle: this.scene.shipAngle,
+          angle: this.pilot.shipAngle,
           diesAt: now + 30,
           kind: "cross",
           size: 6,
@@ -666,8 +688,8 @@ export class Weapons {
 
   /** Directional camera recoil opposite the shot. */
   private kick(px: number): void {
-    this.scene.kickX -= Math.cos(this.scene.shipAngle) * px;
-    this.scene.kickY -= Math.sin(this.scene.shipAngle) * px;
+    this.pilot.kickX -= Math.cos(this.pilot.shipAngle) * px;
+    this.pilot.kickY -= Math.sin(this.pilot.shipAngle) * px;
   }
 
   /** HOMING lock: nearest target in a front cone, enemies > players > UFO > asteroids. */
@@ -679,11 +701,11 @@ export class Weapons {
         return null;
       }
       const ang = Math.atan2(y - nose.y, x - nose.x);
-      return Math.abs(wrapAngle(ang - this.scene.shipAngle)) <= half ? d : null;
+      return Math.abs(wrapAngle(ang - this.pilot.shipAngle)) <= half ? d : null;
     };
     let bestD = Infinity;
     let best: TargetRef | null = null;
-    for (const e of this.scene.world.enemies) {
+    for (const e of this.world.enemies) {
       const d = inCone(e.x, e.y);
       if (d !== null && d < bestD) {
         bestD = d;
@@ -693,8 +715,8 @@ export class Weapons {
     if (best) {
       return best;
     }
-    const { myId } = this.scene;
-    for (const [id, st] of this.scene.peerStates) {
+    const { myId } = this.link;
+    for (const [id, st] of this.link.peerStates) {
       if (id === myId) {
         continue;
       }
@@ -710,11 +732,11 @@ export class Weapons {
     if (best) {
       return best;
     }
-    const u = this.scene.world.ufo;
+    const u = this.world.ufo;
     if (u && inCone(u.x, u.y) !== null) {
       return { kind: "ufo" };
     }
-    for (const a of this.scene.world.asteroids) {
+    for (const a of this.world.asteroids) {
       const d = inCone(a.x, a.y);
       if (d !== null && d < bestD) {
         bestD = d;
@@ -728,19 +750,19 @@ export class Weapons {
   private resolveTarget(ref: TargetRef): Vec | null {
     switch (ref.kind) {
       case "enemy": {
-        const e = this.scene.world.enemies.find((x) => x.id === ref.id);
+        const e = this.world.enemies.find((x) => x.id === ref.id);
         return e ? { x: e.x, y: e.y } : null;
       }
       case "player": {
-        const st = this.scene.peerStates.get(ref.id) ?? null;
+        const st = this.link.peerStates.get(ref.id) ?? null;
         return st && st.alive ? { x: st.x, y: st.y } : null;
       }
       case "ufo": {
-        const u = this.scene.world.ufo;
+        const u = this.world.ufo;
         return u ? { x: u.x, y: u.y } : null;
       }
       case "asteroid": {
-        const a = this.scene.world.asteroids.find((x) => x.id === ref.id);
+        const a = this.world.asteroids.find((x) => x.id === ref.id);
         return a ? { x: a.x, y: a.y } : null;
       }
       default: {
@@ -766,7 +788,7 @@ export class Weapons {
         continue;
       }
       const ang = Math.atan2(c.y - nose.y, c.x - nose.x);
-      if (Math.abs(wrapAngle(ang - this.scene.shipAngle)) > half) {
+      if (Math.abs(wrapAngle(ang - this.pilot.shipAngle)) > half) {
         continue;
       }
       bestD = d;
@@ -775,7 +797,7 @@ export class Weapons {
     if (!first) {
       // Fizzle: 80px jittered bolt, no damage, never serialized (a fizzle must
       // not hit-test against PvP victims); fireWeapon quiets the zap.
-      const jang = this.scene.shipAngle + (Math.random() * 2 - 1) * 10 * DEG;
+      const jang = this.pilot.shipAngle + (Math.random() * 2 - 1) * 10 * DEG;
       const chain: Vec[] = [
         { ...nose },
         {
@@ -784,7 +806,7 @@ export class Weapons {
         },
       ];
       this.beams.push({
-        ...this.makeBeam(nose, this.scene.shipAngle, this.scene.weapon, now),
+        ...this.makeBeam(nose, this.pilot.shipAngle, this.pilot.weapon, now),
         chain,
         diesAt: now + ARC_RENDER_MS,
         fizzle: true,
@@ -815,14 +837,14 @@ export class Weapons {
       cur = next;
     }
     const chain: Vec[] = [{ ...nose }];
-    let dmg = this.scene.weapon.power * 100;
+    let dmg = this.pilot.weapon.power * 100;
     for (const t of hitRefs) {
       chain.push({ x: t.x, y: t.y });
       this.applyArcDamage(t.ref, t.x, t.y, dmg, now);
       dmg *= spec.falloff;
     }
     this.beams.push({
-      ...this.makeBeam(nose, this.scene.shipAngle, this.scene.weapon, now),
+      ...this.makeBeam(nose, this.pilot.shipAngle, this.pilot.weapon, now),
       chain,
       diesAt: now + ARC_RENDER_MS,
     });
@@ -831,11 +853,11 @@ export class Weapons {
 
   private arcCandidates(): { ref: TargetRef; x: number; y: number }[] {
     const out: { ref: TargetRef; x: number; y: number }[] = [];
-    for (const e of this.scene.world.enemies) {
+    for (const e of this.world.enemies) {
       out.push({ ref: { id: e.id, kind: "enemy" }, x: e.x, y: e.y });
     }
-    const { myId } = this.scene;
-    for (const [id, st] of this.scene.peerStates) {
+    const { myId } = this.link;
+    for (const [id, st] of this.link.peerStates) {
       if (id === myId) {
         continue;
       }
@@ -843,71 +865,66 @@ export class Weapons {
         out.push({ ref: { id, kind: "player" }, x: st.x, y: st.y });
       }
     }
-    const u = this.scene.world.ufo;
+    const u = this.world.ufo;
     if (u) {
       out.push({ ref: { kind: "ufo" }, x: u.x, y: u.y });
     }
-    for (const a of this.scene.world.asteroids) {
+    for (const a of this.world.asteroids) {
       out.push({ ref: { id: a.id, kind: "asteroid" }, x: a.x, y: a.y });
     }
     return out;
   }
 
   private applyArcDamage(ref: TargetRef, x: number, y: number, dmgHp: number, now: number): void {
-    this.scene.fx.battle.burst(
+    this.fx.battle.burst(
       x,
       y,
       22,
-      this.scene.weapon.tint,
+      this.pilot.weapon.tint,
       "impact",
-      Math.atan2(y - this.scene.shipY, x - this.scene.shipX),
+      Math.atan2(y - this.pilot.shipY, x - this.pilot.shipX),
     );
-    this.scene.fx.sparks(x, y, 9, this.scene.weapon.tint, { lifeMax: 300, lifeMin: 150 });
+    this.fx.sparks(x, y, 9, this.pilot.weapon.tint, { lifeMax: 300, lifeMin: 150 });
     sfx.play("hit_spark", { gain: 0.4 });
     switch (ref.kind) {
       case "enemy": {
-        const e = this.scene.world.enemies.find((en) => en.id === ref.id);
+        const e = this.world.enemies.find((en) => en.id === ref.id);
         if (!e) {
           return;
         }
         e.blinkUntil = now + 150;
         if (e.hp - dmgHp <= 0) {
-          this.scene.hits.predictKill(
-            e.id,
-            this.scene.hostCombat.enemyKillXp(e.kind),
-            "enemy",
-            e.x,
-            e.y,
-            now,
-          );
+          this.hooks
+            .hits()
+            .predictKill(e.id, this.hostCombat.enemyKillXp(e.kind), "enemy", e.x, e.y, now);
         }
-        this.scene.netSendEvent("enemy_hit", { damage: dmgHp, enemyId: e.id });
+        this.link.send("enemy_hit", { damage: dmgHp, enemyId: e.id });
         return;
       }
       case "asteroid": {
-        const a = this.scene.world.asteroids.find((as) => as.id === ref.id);
+        const a = this.world.asteroids.find((as) => as.id === ref.id);
         if (!a) {
           return;
         }
         const power = dmgHp / 100;
         const predicted =
           asteroidDestroyedBy(a.radius, power) &&
-          this.scene.hits.predictKill(a.id, XP.ASTEROID_DESTROY, "asteroid", a.x, a.y, now);
+          this.hooks.hits().predictKill(a.id, XP.ASTEROID_DESTROY, "asteroid", a.x, a.y, now);
         if (!predicted) {
-          this.scene.progress.gainXp(XP.ASTEROID_CHIP, now);
+          this.progress.gainXp(XP.ASTEROID_CHIP, now);
         }
-        this.scene.netSendEvent("asteroid_hit", { asteroidId: a.id, damage: power });
+        this.link.send("asteroid_hit", { asteroidId: a.id, damage: power });
         return;
       }
       case "ufo": {
-        const u = this.scene.world.ufo;
+        const u = this.world.ufo;
         if (!u) {
           return;
         }
         if (u.hp - dmgHp <= 0) {
-          this.scene.hits.predictKill(u.id, XP.UFO_DESTROY, "ufo", u.x, u.y, now);
+          this.hooks.hits().predictKill(u.id, XP.UFO_DESTROY, "ufo", u.x, u.y, now);
         }
-        this.scene.netSendEvent("ufo_hit", { damage: dmgHp / 100 });
+        this.link.send("ufo_hit", { damage: dmgHp / 100 });
         break;
       }
       case "player": {
@@ -998,10 +1015,10 @@ export class Weapons {
     b.spin += 12 * dt;
     let step: number;
     if (gl.returning) {
-      const dx = this.scene.shipX - b.head.x;
-      const dy = this.scene.shipY - b.head.y;
+      const dx = this.pilot.shipX - b.head.x;
+      const dy = this.pilot.shipY - b.head.y;
       const dist = Math.hypot(dx, dy);
-      if (!this.scene.alive || dist < SHIP_RADIUS + 6) {
+      if (!this.pilot.alive || dist < SHIP_RADIUS + 6) {
         b.vanished = true;
         return;
       }
@@ -1022,9 +1039,7 @@ export class Weapons {
     b.head.y += Math.sin(b.angle) * step;
     b.tail.x = b.head.x - Math.cos(b.angle) * b.weapon.length;
     b.tail.y = b.head.y - Math.sin(b.angle) * b.weapon.length;
-    if (
-      !inWorld(b.head.x, b.head.y, BEAM_CULL_MARGIN, this.scene.world.playW, this.scene.world.playH)
-    ) {
+    if (!inWorld(b.head.x, b.head.y, BEAM_CULL_MARGIN, this.world.playW, this.world.playH)) {
       b.vanished = true;
     }
   }
@@ -1055,15 +1070,10 @@ export class Weapons {
       return;
     }
     // RICOCHET: bounce off the world edge while bounces remain.
-    if (
-      b.bouncesLeft > 0 &&
-      !inWorld(b.head.x, b.head.y, 0, this.scene.world.playW, this.scene.world.playH)
-    ) {
+    if (b.bouncesLeft > 0 && !inWorld(b.head.x, b.head.y, 0, this.world.playW, this.world.playH)) {
       this.ricochetEdgeBounce(b);
     }
-    if (
-      !inWorld(b.head.x, b.head.y, BEAM_CULL_MARGIN, this.scene.world.playW, this.scene.world.playH)
-    ) {
+    if (!inWorld(b.head.x, b.head.y, BEAM_CULL_MARGIN, this.world.playW, this.world.playH)) {
       b.vanished = true;
       return;
     }
@@ -1100,17 +1110,17 @@ export class Weapons {
    *  targetable remote player (alive, not invulnerable, not phased). */
   private mineTriggered(x: number, y: number): boolean {
     const r2 = MINE_TRIGGER_RADIUS * MINE_TRIGGER_RADIUS;
-    for (const e of this.scene.world.enemies) {
+    for (const e of this.world.enemies) {
       if (dist2(e.x, e.y, x, y) <= r2) {
         return true;
       }
     }
-    const u = this.scene.world.ufo;
+    const u = this.world.ufo;
     if (u && dist2(u.x, u.y, x, y) <= r2) {
       return true;
     }
-    const { myId } = this.scene;
-    for (const [id, st] of this.scene.peerStates) {
+    const { myId } = this.link;
+    for (const [id, st] of this.link.peerStates) {
       if (id === myId) {
         continue;
       }
@@ -1126,12 +1136,12 @@ export class Weapons {
 
   /** Standard explosion through the existing exploding/explosionRadius path. */
   private detonateMine(b: Beam): void {
-    this.scene.fx.battle.burst(b.head.x, b.head.y, 70, b.weapon.tint, "detonation");
+    this.fx.battle.burst(b.head.x, b.head.y, 70, b.weapon.tint, "detonation");
     b.exploding = true;
     b.explosionRadius = 0;
-    if (this.scene.view.onScreen(b.head.x, b.head.y)) {
+    if (this.view.onScreen(b.head.x, b.head.y)) {
       sfx.play("fire_heavy", { gain: 0.8, rate: 0.85 });
-      this.scene.trauma.add(0.06);
+      this.trauma.add(0.06);
     }
   }
 
@@ -1147,7 +1157,7 @@ export class Weapons {
       return;
     }
     if (b.weapon.explosion) {
-      this.scene.fx.battle.burst(
+      this.fx.battle.burst(
         b.head.x,
         b.head.y,
         b.weapon.explosion.range * 0.75,
@@ -1182,17 +1192,17 @@ export class Weapons {
       fb.hitIds = new Set(b.hitIds);
       this.beams.push(fb);
     }
-    this.scene.fx.battle.burst(
+    this.fx.battle.burst(
       b.head.x,
       b.head.y,
       spec.fragments > 8 ? 95 : 65,
       b.weapon.tint,
       "detonation",
     );
-    this.scene.fx.ring(b.head.x, b.head.y, 4, 36, 200, b.weapon.tint, 0.7);
-    if (this.scene.view.onScreen(b.head.x, b.head.y)) {
+    this.fx.ring(b.head.x, b.head.y, 4, 36, 200, b.weapon.tint, 0.7);
+    if (this.view.onScreen(b.head.x, b.head.y)) {
       sfx.play("fire_scatter", { gain: 0.7, rate: 0.9 });
-      this.scene.trauma.add(0.04);
+      this.trauma.add(0.04);
     }
   }
 
@@ -1210,8 +1220,8 @@ export class Weapons {
     b.collapseUntil = now + pullMs;
     b.diesAt = 0;
     b.tail = { ...b.head };
-    this.scene.netSendEvent("singularity", { until: b.collapseUntil, x: b.head.x, y: b.head.y });
-    if (this.scene.view.onScreen(b.head.x, b.head.y)) {
+    this.link.send("singularity", { until: b.collapseUntil, x: b.head.x, y: b.head.y });
+    if (this.view.onScreen(b.head.x, b.head.y)) {
       sfx.play("fire_laser", { gain: 0.6, rate: 0.5 });
     }
   }
@@ -1223,12 +1233,12 @@ export class Weapons {
     b.exploding = true;
     b.explosionRadius = 0;
     b.hitIds.clear();
-    this.scene.fx.battle.burst(b.head.x, b.head.y, 125, b.weapon.tint, "detonation");
-    this.scene.fx.ring(b.head.x, b.head.y, 6, 90, 250, b.weapon.tint, 0.8);
-    if (this.scene.view.onScreen(b.head.x, b.head.y)) {
+    this.fx.battle.burst(b.head.x, b.head.y, 125, b.weapon.tint, "detonation");
+    this.fx.ring(b.head.x, b.head.y, 6, 90, 250, b.weapon.tint, 0.8);
+    if (this.view.onScreen(b.head.x, b.head.y)) {
       // The boom, dropped well below the EXPLOSION family's pitch.
       sfx.play("fire_heavy", { gain: 1.2, rate: 0.55 });
-      this.scene.trauma.add(0.12);
+      this.trauma.add(0.12);
     }
   }
 
@@ -1238,16 +1248,16 @@ export class Weapons {
     let ny = 0;
     if (b.head.x < 0) {
       nx = 1;
-    } else if (b.head.x > this.scene.world.playW) {
+    } else if (b.head.x > this.world.playW) {
       nx = -1;
     }
     if (b.head.y < 0) {
       ny = 1;
-    } else if (b.head.y > this.scene.world.playH) {
+    } else if (b.head.y > this.world.playH) {
       ny = -1;
     }
-    b.head.x = PhaserMath.Clamp(b.head.x, 0, this.scene.world.playW);
-    b.head.y = PhaserMath.Clamp(b.head.y, 0, this.scene.world.playH);
+    b.head.x = PhaserMath.Clamp(b.head.x, 0, this.world.playW);
+    b.head.y = PhaserMath.Clamp(b.head.y, 0, this.world.playH);
     const len = Math.hypot(nx, ny) || 1;
     this.ricochetBounce(b, nx / len, ny / len);
   }
@@ -1265,8 +1275,8 @@ export class Weapons {
     this.retargetRicochet(b);
     b.tail = { ...b.head };
     b.released = false;
-    this.scene.fx.battle.burst(b.head.x, b.head.y, 20, b.weapon.tint, "impact", b.angle);
-    this.scene.fx.sparks(b.head.x, b.head.y, 3, b.weapon.tint, {
+    this.fx.battle.burst(b.head.x, b.head.y, 20, b.weapon.tint, "impact", b.angle);
+    this.fx.sparks(b.head.x, b.head.y, 3, b.weapon.tint, {
       lifeMax: 180,
       lifeMin: 100,
       scale: 0.4,
@@ -1283,7 +1293,7 @@ export class Weapons {
     const r2 = range * range;
     let best: Vec | null = null;
     let bestD = Infinity;
-    for (const e of this.scene.world.enemies) {
+    for (const e of this.world.enemies) {
       if (b.hitIds.has(e.id)) {
         continue;
       }
@@ -1294,7 +1304,7 @@ export class Weapons {
       }
     }
     if (!best) {
-      for (const a of this.scene.world.asteroids) {
+      for (const a of this.world.asteroids) {
         if (b.hitIds.has(a.id)) {
           continue;
         }

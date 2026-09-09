@@ -1,5 +1,4 @@
 import { Math as PhaserMath } from "phaser";
-import type { GameScene } from "../scenes/game-scene";
 import {
   BEACON_RETARGET_RANGE,
   BOSS_BROOD_CAP,
@@ -66,11 +65,10 @@ import {
   entityId,
   spawnEnemyState,
 } from "../shared/constants";
-import type { EnemyState, Vec } from "../shared/constants";
+import type { EnemyState, SharedState, Vec } from "../shared/constants";
 import { rand } from "../shared/rng";
+import type { DirtyFlags } from "../state/dirty-flags";
 import { DEG, nearestOf, nearestPlayers, rotateToward, wrapAngle } from "./geometry";
-
-type AiScene = Pick<GameScene, "host" | "world">;
 
 /** Host-private per-enemy AI bookkeeping (lost on migration — acceptable). */
 export interface EnemySim {
@@ -109,15 +107,23 @@ export interface EnemyAim {
   desired: number;
 }
 
+export interface EnemyAiDeps {
+  world: SharedState;
+  dirty: DirtyFlags;
+}
+
 /** Host-side enemy steering and attack patterns per kind (drone, wasp, lancer, warden, sniper, spawner) and the three dreadnought phases. Per-enemy bookkeeping is host-private and rebuilt on migration. */
 export class EnemyAi {
   // host-only director state (lost on migration — acceptable per design)
   enemySim = new Map<string, EnemySim>();
 
-  private readonly scene: AiScene;
+  private readonly world: SharedState;
 
-  constructor(scene: AiScene) {
-    this.scene = scene;
+  private readonly dirty: DirtyFlags;
+
+  constructor(deps: EnemyAiDeps) {
+    this.world = deps.world;
+    this.dirty = deps.dirty;
   }
 
   simFor(id: string): EnemySim {
@@ -146,8 +152,8 @@ export class EnemyAi {
 
   private hostSpawnShot(enemy: EnemyState, angle: number, speed: number, now: number): void {
     enemy.attackAt = now;
-    this.scene.host.dirty.enemies = true;
-    this.scene.world.enemyShots.push({
+    this.dirty.enemies = true;
+    this.world.enemyShots.push({
       diesAt: now + ENEMY_SHOT_TTL_MS,
       id: entityId(),
       vx: Math.cos(angle) * speed,
@@ -155,12 +161,12 @@ export class EnemyAi {
       x: enemy.x,
       y: enemy.y,
     });
-    this.scene.host.dirty.enemyShots = true;
+    this.dirty.enemyShots = true;
   }
 
   /** Host AI: steering, telegraphs and firing for every enemy (§6.1). */
   hostSimEnemies(now: number, dt: number, players: Vec[]): void {
-    for (const e of this.scene.world.enemies) {
+    for (const e of this.world.enemies) {
       const sim = this.simFor(e.id);
       // Knockback decays independently of steering (≈ gone in a second).
       const kbDecay = Math.exp(-4 * dt);
@@ -185,8 +191,8 @@ export class EnemyAi {
       }
     }
     // Garbage-collect sims for enemies that no longer exist.
-    if (this.enemySim.size > this.scene.world.enemies.length + 8) {
-      const live = new Set(this.scene.world.enemies.map((e) => e.id));
+    if (this.enemySim.size > this.world.enemies.length + 8) {
+      const live = new Set(this.world.enemies.map((e) => e.id));
       for (const id of this.enemySim.keys()) {
         if (!live.has(id)) {
           this.enemySim.delete(id);
@@ -200,7 +206,7 @@ export class EnemyAi {
    *  zone is closer and wins). */
   private enemyTarget(e: EnemyState, players: Vec[]): Vec | null {
     const target = nearestOf(players, e.x, e.y);
-    const { beacon } = this.scene.world;
+    const { beacon } = this.world;
     if (beacon && (e.kind === "drone" || e.kind === "wasp")) {
       const bd = Math.hypot(beacon.x - e.x, beacon.y - e.y);
       if (
@@ -361,9 +367,9 @@ export class EnemyAi {
         if (
           now >= sim.phaseUntil ||
           e.x <= 0 ||
-          e.x >= this.scene.world.playW ||
+          e.x >= this.world.playW ||
           e.y <= 0 ||
-          e.y >= this.scene.world.playH
+          e.y >= this.world.playH
         ) {
           sim.lancerPhase = "recover";
           sim.phaseUntil = now + LANCER_RECOVER_MS;
@@ -598,7 +604,7 @@ export class EnemyAi {
   /** SPAWNER / BOSS: birth `n` mites (grace'd drones) around the parent. They
    *  bypass enemyCap like splitter children; broodCount self-caps the spawner. */
   private hostBirthMites(parent: EnemyState, n: number, now: number): void {
-    const w = this.scene.world;
+    const w = this.world;
     const psim = this.simFor(parent.id);
     if (n > 0) {
       parent.attackAt = now;
@@ -620,6 +626,6 @@ export class EnemyAi {
       w.enemies.push(m);
       psim.broodCount += 1;
     }
-    this.scene.host.dirty.enemies = true;
+    this.dirty.enemies = true;
   }
 }

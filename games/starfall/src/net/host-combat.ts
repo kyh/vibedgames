@@ -1,4 +1,3 @@
-import type { GameScene } from "../scenes/game-scene";
 import { now as simNow } from "../shared/clock";
 import {
   ASTEROID_DROP_CHANCE,
@@ -37,14 +36,21 @@ import {
   spawnShardState,
   spawnWeaponItemState,
 } from "../shared/constants";
-import type { EnemyKind, ItemDrop, LootClass } from "../shared/constants";
+import type { EnemyKind, ItemDrop, LootClass, SharedState } from "../shared/constants";
 import { rand } from "../shared/rng";
+import type { DirtyFlags } from "../state/dirty-flags";
+import type { EnemyAi } from "../sys/enemy-ai";
 import { DEG } from "../sys/geometry";
-import type { HostDirector } from "./host-director";
 import { wireNum, wireStr } from "./wire-read";
 import type { WireRecord } from "./wire-read";
 
-type HostCombatScene = Pick<GameScene, "ai" | "host" | "world">;
+/** Director state HostCombat reports into; the director is built after it. */
+export interface HostCombatHooks {
+  /** Highest level among present players (elite HP scaling). */
+  maxPresentLevel: () => number;
+  /** Frees the arena-wide boss slot and arms the spawn cooldown. */
+  onBossKilled: (now: number) => void;
+}
 
 /** Lowest HP a hit may leave the boss at. While the phase floor is `held`
  *  the current phase's lower boundary holds; afterwards one hit may only
@@ -63,15 +69,31 @@ export const bossHpFloor = (phase: 1 | 2 | 3, held: boolean, maxHp: number): num
   return phase === 2 ? 1 : 0;
 };
 
+export interface HostCombatDeps {
+  world: SharedState;
+  dirty: DirtyFlags;
+  ai: EnemyAi;
+  hooks: HostCombatHooks;
+}
+
 /** Host-side resolution of reported hits: damage the shared asteroid/UFO/enemy, kill and split, shed shards, roll loot with per-class pity. */
 export class HostCombat {
   /** Per-class pity counters (host-local, lost on migration — acceptable). */
   private lootPity = { booster: 0, shield: 0, weapon: 0 } satisfies Record<LootClass, number>;
 
-  private readonly scene: HostCombatScene;
+  private readonly world: SharedState;
 
-  constructor(scene: HostCombatScene) {
-    this.scene = scene;
+  private readonly dirty: DirtyFlags;
+
+  private readonly ai: EnemyAi;
+
+  private readonly hooks: HostCombatHooks;
+
+  constructor(deps: HostCombatDeps) {
+    this.world = deps.world;
+    this.dirty = deps.dirty;
+    this.ai = deps.ai;
+    this.hooks = deps.hooks;
   }
 
   /** Host: apply a client's reported hit to the shared entity. */
@@ -103,7 +125,7 @@ export class HostCombat {
   hostRemoveById<T extends { id: string }>(
     list: T[],
     id: string | null,
-    field: keyof HostDirector["dirty"],
+    field: keyof DirtyFlags,
   ): void {
     if (id === null) {
       return;
@@ -111,7 +133,7 @@ export class HostCombat {
     const idx = list.findIndex((e) => e.id === id);
     if (idx !== -1) {
       list.splice(idx, 1);
-      this.scene.host.dirty[field] = true;
+      this.dirty[field] = true;
     }
   }
 
@@ -124,11 +146,11 @@ export class HostCombat {
     if (!ELITE_HP_BASE.has(kind)) {
       return base;
     }
-    return Math.round(base * eliteHpMult(this.scene.host.maxPresentLevel()));
+    return Math.round(base * eliteHpMult(this.hooks.maxPresentLevel()));
   }
 
   private hostDamageAsteroid(id: string, damage: number): void {
-    const w = this.scene.world;
+    const w = this.world;
     const idx = w.asteroids.findIndex((a) => a.id === id);
     if (idx === -1) {
       return;
@@ -154,27 +176,27 @@ export class HostCombat {
       a.vx = Math.cos(ang) * speed;
       a.vy = Math.sin(ang) * speed;
     }
-    this.scene.host.dirty.asteroids = true;
+    this.dirty.asteroids = true;
   }
 
   private hostDamageUfo(damage: number): void {
-    const u = this.scene.world.ufo;
+    const u = this.world.ufo;
     if (!u) {
       return;
     }
     u.hp -= damage * 100;
     u.blinkUntil = simNow() + UFO_BLINK_MS;
     if (u.hp <= 0) {
-      this.scene.world.items.push(spawnWeaponItemState(u.x, u.y));
-      this.scene.world.ufo = null;
-      this.scene.host.dirty.items = true;
+      this.world.items.push(spawnWeaponItemState(u.x, u.y));
+      this.world.ufo = null;
+      this.dirty.items = true;
     }
-    this.scene.host.dirty.ufo = true;
+    this.dirty.ufo = true;
   }
 
   /** Apply reported damage + knockback; kill (split, loot) at ≤0 HP. */
   hostDamageEnemy(id: string, damageHp: number, kx: number, ky: number): void {
-    const w = this.scene.world;
+    const w = this.world;
     const idx = w.enemies.findIndex((e) => e.id === id);
     if (idx === -1) {
       return;
@@ -194,7 +216,7 @@ export class HostCombat {
       // (phase 3's boundary = death). Once the window has run, one hit can
       // still only reach the TOP of the next phase — so no phase is ever
       // skipped outright, even by stacked specials in a full room.
-      const sim = this.scene.ai.simFor(e.id);
+      const sim = this.ai.simFor(e.id);
       const now = simNow();
       const phase = bossPhase(e.hp, e.maxHp);
       if (sim.bossPhaseSeen !== phase) {
@@ -228,7 +250,7 @@ export class HostCombat {
     } else if (e.kind === "dreadnought") {
       // no knockback
     } else {
-      const sim = this.scene.ai.simFor(e.id);
+      const sim = this.ai.simFor(e.id);
       sim.kbVx += kx;
       sim.kbVy += ky;
     }
@@ -236,25 +258,25 @@ export class HostCombat {
     if (e.hp <= 0) {
       this.hostKillEnemy(idx);
     }
-    this.scene.host.dirty.enemies = true;
+    this.dirty.enemies = true;
   }
 
   hostKillEnemy(idx: number): void {
-    const w = this.scene.world;
+    const w = this.world;
     const e = w.enemies[idx];
     if (!e) {
       return;
     }
     // A dying mite frees a slot in its parent's brood cap.
-    const broodParent = this.scene.ai.enemySim.get(e.id)?.broodParent;
+    const broodParent = this.ai.enemySim.get(e.id)?.broodParent;
     if (broodParent) {
-      const psim = this.scene.ai.enemySim.get(broodParent);
+      const psim = this.ai.enemySim.get(broodParent);
       if (psim) {
         psim.broodCount = Math.max(0, psim.broodCount - 1);
       }
     }
     w.enemies.splice(idx, 1);
-    this.scene.ai.enemySim.delete(e.id);
+    this.ai.enemySim.delete(e.id);
     const now = simNow();
     if (e.kind === "dreadnought") {
       // Marquee reward: an XP fountain (past SHARDS_MAX_LIVE the oldest
@@ -264,9 +286,8 @@ export class HostCombat {
       this.hostSpawnShards(e.x, e.y, BOSS_REWARD_SHARDS);
       this.hostRollLoot(e.x, e.y, 1, true);
       this.hostRollLoot(e.x, e.y, 1, true);
-      this.scene.host.bossAlive = false;
-      this.scene.host.lastBossKilledAt = now;
-      this.scene.host.dirty.enemies = true;
+      this.hooks.onBossKilled(now);
+      this.dirty.enemies = true;
       return;
     }
     if (e.kind === "splitter") {
@@ -278,7 +299,7 @@ export class HostCombat {
         child.vx = Math.cos(ang) * SPLITTER_CHILD_SPEED;
         child.vy = Math.sin(ang) * SPLITTER_CHILD_SPEED;
         child.graceUntil = now + SPLITTER_GRACE_MS;
-        const sim = this.scene.ai.simFor(child.id);
+        const sim = this.ai.simFor(child.id);
         sim.nextAttackAt = child.graceUntil + 400;
         // children bypass the cap
         w.enemies.push(child);
@@ -297,21 +318,21 @@ export class HostCombat {
     } else {
       this.hostRollLoot(e.x, e.y, 1, true);
     }
-    this.scene.host.dirty.enemies = true;
+    this.dirty.enemies = true;
   }
 
   /** Spawn `count` score shards at (x,y); oldest culled past the hard cap so
    *  a swarm wipe can't flood the wire (separate array; ITEMS_MAX_LIVE
    *  untouched). */
   hostSpawnShards(x: number, y: number, count: number): void {
-    const w = this.scene.world;
+    const w = this.world;
     for (let i = 0; i < count; i += 1) {
       w.shards.push(spawnShardState(x, y));
     }
     if (w.shards.length > SHARDS_MAX_LIVE) {
       w.shards.splice(0, w.shards.length - SHARDS_MAX_LIVE);
     }
-    this.scene.host.dirty.shards = true;
+    this.dirty.shards = true;
   }
 
   /**
@@ -324,7 +345,7 @@ export class HostCombat {
   /** `bypassCap` (UFO-drop precedent): a GUARANTEED payout — the beacon hold
    *  crystal — must never be silently skipped by the in-flight item cap. */
   hostRollLoot(x: number, y: number, chance: number, feedPity: boolean, bypassCap = false): void {
-    const w = this.scene.world;
+    const w = this.world;
     const bumpAll = (): void => {
       if (!feedPity) {
         return;
@@ -379,6 +400,6 @@ export class HostCombat {
       drop = { kind: "weapon", weaponIdx: Math.floor(rand() * WEAPONS_SPECIAL.length) };
     }
     w.items.push(spawnItemState(x, y, drop));
-    this.scene.host.dirty.items = true;
+    this.dirty.items = true;
   }
 }

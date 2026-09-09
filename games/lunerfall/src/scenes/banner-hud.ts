@@ -2,8 +2,9 @@ import type Phaser from "phaser";
 import type { Scene } from "phaser";
 
 import { BASE_H, BASE_W } from "../config";
+import type { RunState } from "../state/run-state";
 import { REDUCED_MOTION } from "../sys/screen";
-import type { GameScene } from "./game-scene";
+import type { SceneHooks } from "./scene-hooks";
 
 export type BannerKind = "status" | "objective" | "arrival" | "payoff" | "critical" | "connecting";
 const BANNER_PRIORITY = {
@@ -34,18 +35,20 @@ interface PendingObjective {
   remaining: number;
 }
 
-type BannerCtx = Scene & Pick<GameScene, "lastStand" | "state" | "trailer">;
-
 // Centre-screen cue line: one active banner and one replaceable objective,
 // ranked by kind so a payoff never loses to a room label.
 export class BannerHud {
-  private readonly scene: BannerCtx;
+  private readonly scene: Scene;
+  private readonly run: RunState;
+  private readonly hooks: SceneHooks;
   text!: Phaser.GameObjects.Text;
   active: BannerEntry | null = null;
   pending: PendingObjective | null = null;
 
-  constructor(scene: BannerCtx) {
+  constructor(scene: Scene, run: RunState, hooks: SceneHooks) {
     this.scene = scene;
+    this.run = run;
+    this.hooks = hooks;
   }
 
   mount() {
@@ -66,7 +69,7 @@ export class BannerHud {
   show(text: string, ms: number, kind: BannerKind) {
     if (
       kind !== "critical" &&
-      (this.scene.state === "dead" || this.scene.lastStand.live || this.scene.lastStand.net)
+      (this.run.state === "dead" || this.run.downed || this.run.downedNet)
     ) {
       return;
     }
@@ -94,7 +97,7 @@ export class BannerHud {
       .setAlign("center")
       .setColor(BANNER_COLORS[entry.kind])
       .setAlpha(1)
-      .setScale(this.scene.trailer.pinScale);
+      .setScale(this.hooks.pinScale());
   }
 
   // Scene delta advances during hitstop/death/connecting, but freezes when the
@@ -113,15 +116,10 @@ export class BannerHud {
     active.age += ms;
     if (active.age >= active.hold + 350) {
       this.active = null;
-      this.text.setAlpha(0).setScale(this.scene.trailer.pinScale);
+      this.text.setAlpha(0).setScale(this.hooks.pinScale());
       const { pending } = this;
       this.pending = null;
-      if (
-        pending &&
-        this.scene.state === "active" &&
-        !this.scene.lastStand.live &&
-        !this.scene.lastStand.net
-      ) {
+      if (pending && this.run.state === "active" && !this.run.downed && !this.run.downedNet) {
         this.begin({ age: 0, hold: pending.hold, kind: "objective", text: pending.text });
       }
       return;
@@ -131,12 +129,12 @@ export class BannerHud {
       active.kind === "arrival" && !REDUCED_MOTION.matches
         ? 1 + 0.04 * Math.max(0, 1 - active.age / 180)
         : 1;
-    this.text.setAlpha(alpha).setScale(this.scene.trailer.pinScale * settle);
+    this.text.setAlpha(alpha).setScale(this.hooks.pinScale() * settle);
   }
 
   clear() {
     this.active = null;
     this.pending = null;
-    this.text.setAlpha(0).setScale(this.scene.trailer.pinScale);
+    this.text.setAlpha(0).setScale(this.hooks.pinScale());
   }
 }

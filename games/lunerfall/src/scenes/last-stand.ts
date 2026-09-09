@@ -7,8 +7,12 @@ import { COLORS } from "../config";
 import type { Player } from "../entities/player";
 import { rectsOverlap } from "../entities/player-body";
 import type { NetLastStand, Snapshot } from "../net/snapshot";
+import type { RunState } from "../state/run-state";
+import { livePlayers } from "../state/seat-state";
+import type { SeatState } from "../state/seat-state";
 import { impactRing, popText } from "../sys/fx";
-import type { GameScene } from "./game-scene";
+import type { BannerHud } from "./banner-hud";
+import type { SceneHooks } from "./scene-hooks";
 
 // Co-op last stand: a fatal hit with both players up downs the victim instead of
 // wiping; the partner has BLEED_DUR to hold within REVIVE_RANGE for REVIVE_HOLD.
@@ -21,87 +25,70 @@ const REVIVE_RANGE = 22;
 // shared hearts restored on revive
 const REVIVE_HEARTS = 2;
 
-type LastStandCtx = Scene &
-  Pick<
-    GameScene,
-    | "banners"
-    | "freeze"
-    | "hearts"
-    | "livePlayers"
-    | "maxHearts"
-    | "player"
-    | "playerDie"
-    | "remote"
-    | "role"
-    | "session"
-    | "shake"
-    | "updateHud"
-  >;
-
 // Co-op last stand: the host simulates the downed player's bleed-out clock and
 // the rescuer's revive hold; guests mirror the broadcast. Both render the
 // downed marker.
 export class LastStand {
-  private readonly scene: LastStandCtx;
-  // host-simulated: the downed player + its bleed-out clock and revive-hold progress
-  live: { pl: Player; bleedT: number; reviveT: number } | null = null;
-  // guest: from the snapshot
-  net: NetLastStand | null = null;
+  private readonly scene: Scene;
+  private readonly run: RunState;
+  private readonly seat: SeatState;
+  private readonly banners: BannerHud;
+  private readonly hooks: SceneHooks;
   // downed marker (ring + bars)
   g?: Phaser.GameObjects.Graphics;
   label?: Phaser.GameObjects.Text;
 
-  constructor(scene: LastStandCtx) {
+  constructor(scene: Scene, run: RunState, seat: SeatState, banners: BannerHud, hooks: SceneHooks) {
     this.scene = scene;
+    this.run = run;
+    this.seat = seat;
+    this.banners = banners;
+    this.hooks = hooks;
   }
 
   // Guest: mirror the host's last-stand state; edge-detect enter/exit for the
   // banner + sting (the marker itself renders from the snapshot every frame).
   applyNet(s: Snapshot) {
     const ls = s.lastStand ?? null;
-    if (ls && !this.net) {
-      const mine = s.players.find((p) => p.downed)?.id === this.scene.session?.playerId;
+    if (ls && !this.run.downedNet) {
+      const mine = s.players.find((p) => p.downed)?.id === this.seat.session?.playerId;
       sfx.downed();
-      this.scene.banners.show(
-        mine ? "YOU'RE DOWN — HOLD ON" : "ALLY DOWN — REVIVE!",
-        1800,
-        "critical",
-      );
-    } else if (!ls && this.net && s.hearts > 0) {
+      this.banners.show(mine ? "YOU'RE DOWN — HOLD ON" : "ALLY DOWN — REVIVE!", 1800, "critical");
+    } else if (!ls && this.run.downedNet && s.hearts > 0) {
       sfx.revive();
-      this.scene.banners.show("REVIVED", 1200, "critical");
+      this.banners.show("REVIVED", 1200, "critical");
     }
-    this.net = ls;
+    this.run.downedNet = ls;
   }
 
   // Only in co-op, with both players up and no one already down. A hit taken
   // while a last stand is active (hearts ≤ 0 again) therefore wipes.
   can(): boolean {
-    if (this.live || !this.scene.remote) {
+    if (this.run.downed || !this.seat.remote) {
       return false;
     }
-    return this.scene.livePlayers().every((p) => !p.body.dead && !p.body.downed);
+    return livePlayers(this.seat).every((p) => !p.body.dead && !p.body.downed);
   }
 
   enter(pl: Player) {
-    this.scene.hearts = 0;
-    this.live = { bleedT: BLEED_DUR, pl, reviveT: 0 };
+    this.run.hearts = 0;
+    this.run.downed = { bleedT: BLEED_DUR, pl, reviveT: 0 };
     pl.body.down();
-    this.scene.freeze = Math.max(this.scene.freeze, 0.1);
-    this.scene.shake(220, 0.012);
+    this.run.freeze = Math.max(this.run.freeze, 0.1);
+    this.hooks.shake(220, 0.012);
     impactRing(this.scene, pl.x, pl.y - 11, COLORS.magenta, 30);
     sfx.downed();
-    this.scene.banners.show(
-      pl === this.scene.player ? "YOU'RE DOWN — HOLD ON" : "ALLY DOWN — REVIVE!",
+    this.banners.show(
+      pl === this.seat.player ? "YOU'RE DOWN — HOLD ON" : "ALLY DOWN — REVIVE!",
       1800,
       "critical",
     );
-    this.scene.updateHud();
+    this.hooks.updateHud();
   }
 
   // Host: tick the bleed-out clock and the rescuer's revive overlap.
   step(dt: number) {
-    const ls = this.live;
+    const ls = this.run.downed;
     if (!ls) {
       return;
     }
@@ -110,7 +97,7 @@ export class LastStand {
       this.fail();
       return;
     }
-    const rescuer = this.scene.livePlayers().find((p) => p !== ls.pl);
+    const rescuer = livePlayers(this.seat).find((p) => p !== ls.pl);
     if (!rescuer || rescuer.body.dead) {
       this.fail();
       return;
@@ -133,47 +120,44 @@ export class LastStand {
   }
 
   private completeRevive() {
-    const ls = this.live;
+    const ls = this.run.downed;
     if (!ls) {
       return;
     }
-    this.live = null;
+    this.run.downed = null;
     ls.pl.body.revive();
     // On top of anything healed into the pool while down (e.g. mooni's special).
-    this.scene.hearts = Math.min(
-      this.scene.maxHearts,
-      Math.max(0, this.scene.hearts) + REVIVE_HEARTS,
-    );
+    this.run.hearts = Math.min(this.run.maxHearts, Math.max(0, this.run.hearts) + REVIVE_HEARTS);
     this.destroyUi();
     impactRing(this.scene, ls.pl.x, ls.pl.y - 11, COLORS.teal, 34);
     popText(this.scene, ls.pl.x, ls.pl.y - 30, "REVIVED", "#34e5c8");
     sfx.revive();
-    this.scene.banners.show("REVIVED", 1200, "critical");
-    this.scene.updateHud();
+    this.banners.show("REVIVED", 1200, "critical");
+    this.hooks.updateHud();
   }
 
   // Bleed-out expired (or the rescuer fell): the shared run is over.
   private fail() {
-    this.live = null;
+    this.run.downed = null;
     this.destroyUi();
-    this.scene.playerDie();
+    this.hooks.playerDie();
   }
 
   private view(): NetLastStand | null {
-    if (this.scene.role === "guest") {
-      return this.net;
+    if (this.seat.role === "guest") {
+      return this.run.downedNet;
     }
-    if (!this.live) {
+    if (!this.run.downed) {
       return null;
     }
-    return { bleed: this.live.bleedT, rev: this.live.reviveT / REVIVE_HOLD };
+    return { bleed: this.run.downed.bleedT, rev: this.run.downed.reviveT / REVIVE_HOLD };
   }
 
   // Downed marker, drawn each frame on BOTH clients: a pulsing revive ring, a
   // shrinking bleed-out bar, a teal revive-progress bar, and the rescuer prompt.
   render() {
     const ls = this.view();
-    const downed = this.scene.livePlayers().find((p) => p.body.downed);
+    const downed = livePlayers(this.seat).find((p) => p.body.downed);
     if (!ls || !downed) {
       this.destroyUi();
       return;
@@ -204,7 +188,7 @@ export class LastStand {
       g.fillStyle(COLORS.teal, 0.95);
       g.fillRect(x - w / 2, y - 32, w * Math.min(1, ls.rev), 2);
     }
-    const mine = downed === this.scene.player;
+    const mine = downed === this.seat.player;
     this.label
       .setPosition(x, y - 39)
       .setText(mine ? `HOLD ON ${Math.ceil(ls.bleed)}` : `REVIVE ${Math.ceil(ls.bleed)}`)

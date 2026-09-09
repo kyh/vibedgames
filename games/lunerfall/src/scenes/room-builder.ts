@@ -1,7 +1,7 @@
 import type Phaser from "phaser";
 import type { Scene } from "phaser";
 
-import { BASE_W, COLORS, TILE } from "../config";
+import { BASE_H, BASE_W, COLORS, TILE } from "../config";
 import type { EnemyName } from "../data/animations";
 import { rollAffix } from "../data/affixes";
 import type { Affix } from "../data/affixes";
@@ -17,13 +17,19 @@ import { Door } from "../entities/door";
 import { Enemy } from "../entities/enemy";
 import type { NetRoom } from "../net/snapshot";
 import { buildParallax } from "../parallax";
+import { PixelSky } from "../render/pixel-sky";
 import { drawRoom } from "../room";
+import type { RoomState } from "../state/room-state";
+import type { RunState } from "../state/run-state";
+import type { SeatState } from "../state/seat-state";
 import { ambientEmbers, clearFx } from "../sys/fx";
 import { Grid } from "../sys/grid";
 import { rand } from "../sys/rng";
 import { gameInset } from "../sys/screen";
 import { VS_BIOME } from "../sys/versus";
-import type { GameScene } from "./game-scene";
+import type { RunManager } from "../sys/run";
+import type { BannerHud } from "./banner-hud";
+import type { RoomProgress } from "./room-progress";
 
 const FEATURE_COLORS = new Map<RoomType, number>([
   ["rest", COLORS.teal],
@@ -53,70 +59,62 @@ export const applyAffix = (e: Enemy, a: Affix = rollAffix()) => {
   e.sprite.setTint(a.tint);
 };
 
-type RoomCtx = Scene &
-  Pick<
-    GameScene,
-    | "arrows"
-    | "banners"
-    | "boss"
-    | "bossDeadT"
-    | "bossHp"
-    | "bossHpBg"
-    | "cleared"
-    | "combatStates"
-    | "deadTimers"
-    | "doors"
-    | "enemies"
-    | "feature"
-    | "fogRect"
-    | "grid"
-    | "guest"
-    | "hazards"
-    | "hostNet"
-    | "merchantItems"
-    | "mode"
-    | "mustClear"
-    | "offers"
-    | "ownedRelics"
-    | "player"
-    | "progress"
-    | "remote"
-    | "role"
-    | "roomSpawn"
-    | "run"
-    | "seats"
-    | "session"
-    | "shots"
-    | "sky"
-    | "versus"
-  >;
-
 // Builds and tears down one room's world: tiles, parallax, props, enemies,
 // boss, doors, features and merchant stock — from a RoomDef (host/solo) or
 // the host's wire broadcast (guest).
 export class RoomBuilder {
-  private readonly scene: RoomCtx;
+  private readonly scene: Scene;
+  private readonly run: RunState;
+  private readonly expedition: RunManager;
+  private readonly room: RoomState;
+  private readonly seat: SeatState;
+  private readonly banners: BannerHud;
+  private readonly progress: RoomProgress;
   private layer?: Phaser.GameObjects.Container;
   parallax: Phaser.GameObjects.GameObject[] = [];
   private prop?: Phaser.GameObjects.Sprite;
   private embers?: Phaser.GameObjects.Particles.ParticleEmitter;
-  // last biome we announced, so a descent flashes the new name
-  flashedBiome = 0;
 
-  constructor(scene: RoomCtx) {
+  constructor(
+    scene: Scene,
+    run: RunState,
+    expedition: RunManager,
+    room: RoomState,
+    seat: SeatState,
+    banners: BannerHud,
+    progress: RoomProgress,
+  ) {
     this.scene = scene;
+    this.run = run;
+    this.expedition = expedition;
+    this.room = room;
+    this.seat = seat;
+    this.banners = banners;
+    this.progress = progress;
+  }
+
+  // The screen-pinned sky and the thin full-field atmosphere wash — over the
+  // world but under the HUD, the cheapest way to make a biome's light read on
+  // every tile and silhouette. Repainted per biome by applyBiome.
+  mount() {
+    this.room.sky = new PixelSky(this.scene, BASE_W, BASE_H);
+    this.room.fogRect = this.scene.add
+      .rectangle(0, 0, BASE_W, BASE_H, 0x00_00_00, 0)
+      .setOrigin(0)
+      .setScrollFactor(0)
+      .setDepth(60);
   }
 
   // Tear down every per-room object (host sim entities + guest puppets alike).
   teardown() {
-    this.scene.banners.clear();
-    this.scene.progress.bossAnnounced = false;
+    this.banners.clear();
+    this.room.bossAnnounced = false;
     clearFx(this.scene);
-    this.scene.guest.payoff = null;
-    this.scene.guest.cueBaseline = true;
-    this.scene.guest.progressTick = -1;
-    this.scene.guest.special = { kind: "unknown" };
-    this.scene.guest.players = [];
+    this.room.guest.payoff = null;
+    this.room.guest.cueBaseline = true;
+    this.room.guest.progressTick = -1;
+    this.room.guest.special = { kind: "unknown" };
+    this.room.guest.players = [];
     this.layer?.destroy();
     for (const o of this.parallax) {
       o.destroy();
@@ -126,59 +124,59 @@ export class RoomBuilder {
     this.prop = undefined;
     this.embers?.destroy();
     this.embers = undefined;
-    for (const d of this.scene.doors) {
+    for (const d of this.room.doors) {
       d.destroy();
     }
-    for (const e of this.scene.enemies) {
+    for (const e of this.room.enemies) {
       e.destroy();
     }
-    for (const a of this.scene.arrows) {
+    for (const a of this.room.arrows) {
       a.spr.destroy();
     }
-    for (const s of this.scene.shots) {
+    for (const s of this.room.shots) {
       s.spr.destroy();
     }
-    for (const h of this.scene.hazards) {
+    for (const h of this.room.hazards) {
       h.spr.destroy();
     }
-    for (const m of this.scene.merchantItems) {
+    for (const m of this.room.merchantItems) {
       m.g.destroy();
     }
-    this.scene.merchantItems = [];
-    this.scene.boss?.destroy();
-    this.scene.bossHp?.destroy();
-    this.scene.bossHpBg?.destroy();
-    this.scene.feature?.g.destroy();
-    this.scene.doors = [];
-    this.scene.enemies = [];
-    this.scene.arrows = [];
-    this.scene.shots = [];
-    this.scene.hazards = [];
-    this.scene.boss = null;
-    this.scene.bossHp = undefined;
-    this.scene.bossHpBg = undefined;
-    this.scene.bossDeadT = 0;
-    this.scene.feature = null;
-    this.scene.deadTimers = new WeakMap();
-    this.scene.combatStates = new WeakMap();
-    for (const p of this.scene.guest.enemyPuppets.values()) {
+    this.room.merchantItems = [];
+    this.room.boss?.destroy();
+    this.room.bossHp?.destroy();
+    this.room.bossHpBg?.destroy();
+    this.room.feature?.g.destroy();
+    this.room.doors = [];
+    this.room.enemies = [];
+    this.room.arrows = [];
+    this.room.shots = [];
+    this.room.hazards = [];
+    this.room.boss = null;
+    this.room.bossHp = undefined;
+    this.room.bossHpBg = undefined;
+    this.run.bossDeadT = 0;
+    this.room.feature = null;
+    this.room.deadTimers = new WeakMap();
+    this.seat.combatStates = new WeakMap();
+    for (const p of this.room.guest.enemyPuppets.values()) {
       p.view.destroy();
     }
-    this.scene.guest.enemyPuppets.clear();
-    this.scene.guest.bossPuppet?.view.destroy();
-    this.scene.guest.bossPuppet = undefined;
-    for (const s of this.scene.guest.proj) {
+    this.room.guest.enemyPuppets.clear();
+    this.room.guest.bossPuppet?.view.destroy();
+    this.room.guest.bossPuppet = undefined;
+    for (const s of this.room.guest.proj) {
       s.destroy();
     }
-    this.scene.guest.proj = [];
+    this.room.guest.proj = [];
   }
 
   // Bind the camera to the current room's pixel extent and follow the local
   // player, so bigger-than-screen rooms scroll. Called after every room (re)build.
   setupCamera() {
     const cam = this.scene.cameras.main;
-    cam.setBounds(0, 0, this.scene.grid.cols * TILE, this.scene.grid.rows * TILE);
-    cam.startFollow(this.scene.player.sprite, true, 0.22, 0.24);
+    cam.setBounds(0, 0, this.room.grid.cols * TILE, this.room.grid.rows * TILE);
+    cam.startFollow(this.seat.player.sprite, true, 0.22, 0.24);
     cam.setDeadzone(36, 28);
   }
 
@@ -187,64 +185,65 @@ export class RoomBuilder {
   // descending into a new biome recolours the whole world.
   applyBiome(biome: number): BiomePalette {
     const pal = biomePalette(biome);
-    this.scene.sky?.setPalette(pal);
-    this.scene.fogRect?.setFillStyle(pal.fog, pal.fogA);
+    this.room.sky?.setPalette(pal);
+    this.room.fogRect?.setFillStyle(pal.fog, pal.fogA);
     return pal;
   }
 
   build(def: RoomDef) {
     this.teardown();
-    this.scene.grid = def.grid;
-    const pal = this.applyBiome(this.scene.run.biome);
-    const enteredBiome = this.flashedBiome !== 0 && this.scene.run.biome !== this.flashedBiome;
-    this.flashedBiome = this.scene.run.biome;
+    this.room.grid = def.grid;
+    const pal = this.applyBiome(this.expedition.biome);
+    const enteredBiome =
+      this.run.flashedBiome !== 0 && this.expedition.biome !== this.run.flashedBiome;
+    this.run.flashedBiome = this.expedition.biome;
     this.parallax = buildParallax(this.scene, def.grid.cols * TILE, def.grid.rows * TILE, pal);
     this.layer = drawRoom(this.scene, def.grid, pal).setDepth(0);
     this.decorate(def);
     this.embers = ambientEmbers(this.scene, pal.oneway, def.grid.cols * TILE, def.grid.rows * TILE);
-    this.scene.player.enterRoom(def.grid, def.playerSpawn.x, def.playerSpawn.y);
-    this.scene.remote?.enterRoom(def.grid, def.playerSpawn.x, def.playerSpawn.y);
-    this.scene.roomSpawn = { x: def.playerSpawn.x, y: def.playerSpawn.y };
+    this.seat.player.enterRoom(def.grid, def.playerSpawn.x, def.playerSpawn.y);
+    this.seat.remote?.enterRoom(def.grid, def.playerSpawn.x, def.playerSpawn.y);
+    this.room.roomSpawn = { x: def.playerSpawn.x, y: def.playerSpawn.y };
     this.setupCamera();
 
-    this.scene.mustClear = this.scene.run.isCombat();
-    this.scene.cleared = !this.scene.mustClear;
+    this.run.mustClear = this.expedition.isCombat();
+    this.run.cleared = !this.run.mustClear;
 
-    if (this.scene.run.type === "boss") {
+    if (this.expedition.type === "boss") {
       this.spawnBoss(def);
-    } else if (this.scene.mustClear) {
+    } else if (this.run.mustClear) {
       this.spawnEnemies(def);
-    } else if (this.scene.run.type === "merchant") {
+    } else if (this.expedition.type === "merchant") {
       this.buildMerchant();
     } else if (def.featureSpot) {
       this.buildFeature(def.featureSpot.x, def.featureSpot.y);
     }
 
-    this.scene.offers = this.scene.run.offers();
+    this.run.offers = this.expedition.offers();
     for (const [i, slot] of def.doorSlots.entries()) {
-      const offer = this.scene.offers[i];
+      const offer = this.run.offers[i];
       if (!offer) {
         continue;
       }
       const d = new Door(this.scene, slot.x, slot.y, offer.type, i);
-      d.setActive(this.scene.cleared);
-      this.scene.doors.push(d);
+      d.setActive(this.run.cleared);
+      this.room.doors.push(d);
     }
 
-    this.scene.hostNet.roomSeq += 1;
-    if (this.scene.role === "host") {
-      this.scene.hostNet.roomDirty = true;
+    this.room.seq += 1;
+    if (this.seat.role === "host") {
+      this.room.dirty = true;
     }
     // Boss rooms announce the boss by name in spawnBoss; don't overwrite it here.
     // Descending into a new biome announces the biome instead of the room label.
-    if (this.scene.run.type !== "boss") {
+    if (this.expedition.type !== "boss") {
       if (enteredBiome) {
-        this.scene.banners.show(`▼  ${pal.name}  ▼`, 1600, "status");
+        this.banners.show(`▼  ${pal.name}  ▼`, 1600, "status");
       } else {
-        this.scene.banners.show(
-          this.scene.mustClear
-            ? ROOM_LABEL[this.scene.run.type]
-            : `${ROOM_LABEL[this.scene.run.type]} — pick a path`,
+        this.banners.show(
+          this.run.mustClear
+            ? ROOM_LABEL[this.expedition.type]
+            : `${ROOM_LABEL[this.expedition.type]} — pick a path`,
           1100,
           "status",
         );
@@ -257,7 +256,7 @@ export class RoomBuilder {
   buildVersus() {
     this.teardown();
     const def = VERSUS();
-    this.scene.grid = def.grid;
+    this.room.grid = def.grid;
     const pal = this.applyBiome(VS_BIOME);
     this.parallax = buildParallax(this.scene, def.grid.cols * TILE, def.grid.rows * TILE, pal);
     this.layer = drawRoom(this.scene, def.grid, pal).setDepth(0);
@@ -268,18 +267,18 @@ export class RoomBuilder {
       def.grid.rows * TILE,
     );
     const mirror = { x: def.grid.cols * TILE - def.playerSpawn.x, y: def.playerSpawn.y };
-    this.scene.versus.spawns = [def.playerSpawn, mirror];
-    this.scene.roomSpawn = def.playerSpawn;
-    this.scene.player.enterRoom(def.grid, def.playerSpawn.x, def.playerSpawn.y);
-    this.scene.remote?.enterRoom(def.grid, mirror.x, mirror.y);
+    this.room.vsSpawns = [def.playerSpawn, mirror];
+    this.room.roomSpawn = def.playerSpawn;
+    this.seat.player.enterRoom(def.grid, def.playerSpawn.x, def.playerSpawn.y);
+    this.seat.remote?.enterRoom(def.grid, mirror.x, mirror.y);
     this.setupCamera();
-    this.scene.mustClear = false;
-    this.scene.cleared = true;
-    this.scene.hostNet.roomSeq += 1;
-    if (this.scene.role === "host") {
-      this.scene.hostNet.roomDirty = true;
+    this.run.mustClear = false;
+    this.run.cleared = true;
+    this.room.seq += 1;
+    if (this.seat.role === "host") {
+      this.room.dirty = true;
     }
-    this.scene.banners.show("VERSUS — WAITING FOR A CHALLENGER", 2600, "critical");
+    this.banners.show("VERSUS — WAITING FOR A CHALLENGER", 2600, "critical");
   }
 
   // Weighted-random enemy type, rolled per spawn so encounters vary run to run
@@ -287,7 +286,7 @@ export class RoomBuilder {
   // heavy types get commoner in deeper biomes and elite rooms. Host-authoritative:
   // guests replicate whatever the host rolled via the enemy name on the wire.
   private pickEnemy(): EnemyName {
-    const pool = enemyPool(this.scene.run.biome, this.scene.run.type === "elite");
+    const pool = enemyPool(this.expedition.biome, this.expedition.type === "elite");
     const total = pool.reduce((s, p) => s + p[1], 0);
     let r = rand() * total;
     for (const [name, w] of pool) {
@@ -300,38 +299,45 @@ export class RoomBuilder {
   }
 
   private spawnEnemies(def: RoomDef) {
-    const elite = this.scene.run.type === "elite";
+    const elite = this.expedition.type === "elite";
     for (const s of def.enemySpawns) {
-      const e = new Enemy(this.scene, this.scene.grid, ENEMIES[this.pickEnemy()], s.x, s.y);
-      e.body.hp += Math.floor((this.scene.run.biome - 1) / 2);
+      const e = new Enemy(this.scene, this.room.grid, ENEMIES[this.pickEnemy()], s.x, s.y);
+      e.body.hp += Math.floor((this.expedition.biome - 1) / 2);
       if (elite) {
         applyAffix(e);
       }
-      this.scene.enemies.push(e);
+      this.room.enemies.push(e);
     }
   }
 
   private spawnBoss(def: RoomDef) {
     const bx = def.bossSpawn?.x ?? BASE_W / 2;
-    const by = def.bossSpawn?.y ?? (this.scene.grid.rows - 3) * TILE;
-    this.scene.boss = new Boss(this.scene, this.scene.grid, bx, by, this.scene.run.biome);
-    this.scene.bossDeadT = 0;
-    const barCol = biomePalette(this.scene.run.biome).oneway;
-    this.scene.bossHpBg = this.scene.add
+    const by = def.bossSpawn?.y ?? (this.room.grid.rows - 3) * TILE;
+    this.room.boss = this.bossView(bx, by, this.expedition.biome);
+    this.run.bossDeadT = 0;
+    this.progress.announceBoss(this.expedition.biome);
+  }
+
+  // The boss actor plus its screen-pinned HP bar — for a fresh spawn, a guest
+  // puppet, or a checkpoint restore alike.
+  bossView(x: number, y: number, biome: number): Boss {
+    const boss = new Boss(this.scene, this.room.grid, x, y, biome);
+    const barCol = biomePalette(biome).oneway;
+    this.room.bossHpBg = this.scene.add
       .rectangle(BASE_W / 2, 47 + gameInset(this.scene).top, 260, 6, 0x00_00_00, 0.5)
       .setStrokeStyle(1, barCol, 0.6)
       .setScrollFactor(0)
       .setDepth(85);
-    this.scene.bossHp = this.scene.add
+    this.room.bossHp = this.scene.add
       .rectangle(BASE_W / 2 - 129, 47 + gameInset(this.scene).top, 258, 4, barCol)
       .setOrigin(0, 0.5)
       .setScrollFactor(0)
       .setDepth(86);
-    this.scene.progress.announceBoss(this.scene.run.biome);
+    return boss;
   }
 
   buildFeature(x: number, y: number) {
-    const { type } = this.scene.run;
+    const { type } = this.expedition;
     const color = FEATURE_COLORS.get(type) ?? COLORS.magenta;
     const g = this.scene.add.container(x, y).setDepth(8);
     const glow = this.scene.add.ellipse(0, -10, 26, 30, color, 0.2);
@@ -362,13 +368,13 @@ export class RoomBuilder {
       targets: glow,
       yoyo: true,
     });
-    this.scene.feature = { g, used: false, x, y };
+    this.room.feature = { g, used: false, x, y };
   }
 
   // A themed animated prop dresses each non-combat room (fountain / campfire /
   // column fire / flag), placed to the side on the floor, behind the entities.
   private decorate(def: RoomDef) {
-    const cfg = ROOM_PROPS.get(this.scene.run.type);
+    const cfg = ROOM_PROPS.get(this.expedition.type);
     if (!cfg) {
       return;
     }
@@ -381,8 +387,8 @@ export class RoomBuilder {
   }
 
   private buildMerchant() {
-    const offers = pickRelics(3, this.scene.ownedRelics);
-    const y = (this.scene.grid.rows - 3 + 1) * TILE;
+    const offers = pickRelics(3, this.run.ownedRelics);
+    const y = (this.room.grid.rows - 3 + 1) * TILE;
     for (const [i, relic] of offers.entries()) {
       this.buildMerchantItem(relic, (0.3 + i * 0.2) * BASE_W, y, false);
     }
@@ -419,38 +425,37 @@ export class RoomBuilder {
       yoyo: true,
     });
     g.setVisible(!bought);
-    this.scene.merchantItems.push({ bought, g, relic, x, y });
+    this.room.merchantItems.push({ bought, g, relic, x, y });
   }
 
   // Guest: rebuild the room view from the host's broadcast (no RunManager).
-  buildFromNet(room: NetRoom) {
+  buildFromNet(room: NetRoom, biome: number) {
     this.teardown();
     const g = new Grid(room.cols, room.rows);
     g.cells.set(room.cells);
-    this.scene.grid = g;
+    this.room.grid = g;
     const vs = room.mode === "vs";
     // the host's room broadcast is authoritative
     if (vs) {
-      this.scene.mode = "versus";
+      this.seat.mode = "versus";
     }
-    const pal = this.applyBiome(vs ? VS_BIOME : this.scene.guest.biome);
+    const pal = this.applyBiome(vs ? VS_BIOME : biome);
     this.parallax = buildParallax(this.scene, g.cols * TILE, g.rows * TILE, pal);
     this.layer = drawRoom(this.scene, g, pal).setDepth(0);
     const type = parseRoomType(room.type) ?? "combat";
-    this.scene.guest.roomType = type;
     if (room.propKey) {
       this.placeProp(type, room.propKey, room.spawnY);
     }
     this.embers = ambientEmbers(this.scene, pal.oneway, g.cols * TILE, g.rows * TILE);
-    this.scene.roomSpawn = { x: room.spawnX, y: room.spawnY };
+    this.room.roomSpawn = { x: room.spawnX, y: room.spawnY };
     // Versus: the guest duels from the mirrored right-hand spawn.
-    const ownRight = vs && this.scene.seats.guest === this.scene.session?.playerId;
-    this.scene.player.enterRoom(
+    const ownRight = vs && this.seat.seats.guest === this.seat.session?.playerId;
+    this.seat.player.enterRoom(
       g,
       ownRight ? g.cols * TILE - room.spawnX : room.spawnX,
       room.spawnY,
     );
-    this.scene.remote?.enterRoom(
+    this.seat.remote?.enterRoom(
       g,
       vs && !ownRight ? g.cols * TILE - room.spawnX : room.spawnX,
       room.spawnY,
@@ -459,15 +464,15 @@ export class RoomBuilder {
     for (const nd of room.doors) {
       const d = new Door(this.scene, nd.x, nd.y, parseRoomType(nd.type) ?? "combat", nd.index);
       d.setActive(false);
-      this.scene.doors.push(d);
+      this.room.doors.push(d);
     }
-    this.scene.mustClear = room.mustClear;
-    this.scene.cleared = !room.mustClear;
-    this.scene.guest.roomSeq = room.seq;
+    this.run.mustClear = room.mustClear;
+    this.run.cleared = !room.mustClear;
+    this.room.seq = room.seq;
     // fresh room, fresh trajectory
-    this.scene.guest.reconciler.reset();
-    this.scene.guest.selfHurting = false;
-    this.scene.banners.show(vs ? "VERSUS" : ROOM_LABEL[type], 1000, vs ? "critical" : "status");
+    this.room.guest.reconciler.reset();
+    this.room.guest.selfHurting = false;
+    this.banners.show(vs ? "VERSUS" : ROOM_LABEL[type], 1000, vs ? "critical" : "status");
   }
 
   private placeProp(type: RoomType, propKey: string, floorY: number) {

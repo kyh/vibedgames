@@ -1,8 +1,13 @@
+import type Phaser from "phaser";
 import { sfx } from "../audio/sfx";
+import type { HostCombat } from "../net/host-combat";
 import { REDUCED_MOTION } from "../render/battle-fx";
+import type { FxPool } from "../render/fx-pool";
 import { DEATH_HINTS } from "../render/hud-dom";
+import type { Layers } from "../render/layers";
+import type { TraumaCamera } from "../render/trauma-camera";
 import { shipHullPoints } from "../render/vector-shapes";
-import type { GameScene } from "../scenes/game-scene";
+import type { WorldView } from "../render/world-view";
 import { now as simNow } from "../shared/clock";
 import {
   AEGIS_REGEN_DELAY_MS,
@@ -58,49 +63,25 @@ import type {
   PlayerNetState,
   ShieldModKind,
   ShieldModNetState,
+  SharedState,
   Vec,
   Weapon,
 } from "../shared/constants";
+import type { DirtyFlags } from "../state/dirty-flags";
+import type { Link } from "../state/link";
+import type { Pilot } from "../state/pilot";
 import { serializedBeamHitSeg } from "./beam";
 import { DEG, dist2, segHitsCircle } from "./geometry";
+import type { Progression } from "./progression";
+import type { ShooterHits } from "./shooter-hits";
+import type { Weapons } from "./weapons";
 
-type ShieldScene = Pick<
-  GameScene,
-  | "alive"
-  | "amHost"
-  | "boosts"
-  | "flashRect"
-  | "fx"
-  | "hits"
-  | "host"
-  | "hostCombat"
-  | "invulnUntil"
-  | "myId"
-  | "myTint"
-  | "net"
-  | "netSendEvent"
-  | "peerStates"
-  | "progress"
-  | "regenMult"
-  | "respawnAt"
-  | "scale"
-  | "shipAngle"
-  | "shipVX"
-  | "shipVY"
-  | "shipView"
-  | "shipX"
-  | "shipY"
-  | "spawned"
-  | "specialBase"
-  | "trailer"
-  | "trauma"
-  | "tweens"
-  | "view"
-  | "weapon"
-  | "weaponUntil"
-  | "weapons"
-  | "world"
->;
+/** Scene lookups + the late-built net push the shield needs. */
+export interface ShieldHooks {
+  myTint: () => number;
+  /** Immediate net push on death (PlayerNet is built after the shield). */
+  pushMyState: (now: number) => void;
+}
 
 /** ARC per-hop falloff for victim-side chain drains. SerializedBeam carries
  *  no weapon ref, so read it from the ARC spec (TESLA also carries an arc
@@ -139,6 +120,24 @@ export const hullContactDamage = (kind: EnemyKind): number => {
   }
   return DMG.ENEMY_HULL;
 };
+
+export interface ShieldDeps {
+  world: SharedState;
+  pilot: Pilot;
+  link: Link;
+  fx: FxPool;
+  layers: Layers;
+  trauma: TraumaCamera;
+  dirty: DirtyFlags;
+  tweens: Phaser.Tweens.TweenManager;
+  scale: Phaser.Scale.ScaleManager;
+  hits: ShooterHits;
+  weapons: Weapons;
+  progress: Progression;
+  view: WorldView;
+  hostCombat: HostCombat;
+  hooks: ShieldHooks;
+}
 
 /** Victim-side adjudication: every incoming damage source (rocks, hulls, enemy shots, UFO, PvP beams and rams) drains my shield here, with regen, mods (overshield/phase/reflect/bulwark/aegis…) and death. */
 export class Shield {
@@ -192,15 +191,57 @@ export class Shield {
 
   private deathCounts = new Map<string, number>();
 
-  private readonly scene: ShieldScene;
+  private readonly world: SharedState;
 
-  constructor(scene: ShieldScene) {
-    this.scene = scene;
+  private readonly pilot: Pilot;
+
+  private readonly link: Link;
+
+  private readonly fx: FxPool;
+
+  private readonly layers: Layers;
+
+  private readonly trauma: TraumaCamera;
+
+  private readonly dirty: DirtyFlags;
+
+  private readonly tweens: Phaser.Tweens.TweenManager;
+
+  private readonly scale: Phaser.Scale.ScaleManager;
+
+  private readonly hits: ShooterHits;
+
+  private readonly weapons: Weapons;
+
+  private readonly progress: Progression;
+
+  private readonly view: WorldView;
+
+  private readonly hostCombat: HostCombat;
+
+  private readonly hooks: ShieldHooks;
+
+  constructor(deps: ShieldDeps) {
+    this.world = deps.world;
+    this.pilot = deps.pilot;
+    this.link = deps.link;
+    this.fx = deps.fx;
+    this.layers = deps.layers;
+    this.trauma = deps.trauma;
+    this.dirty = deps.dirty;
+    this.tweens = deps.tweens;
+    this.scale = deps.scale;
+    this.hits = deps.hits;
+    this.weapons = deps.weapons;
+    this.progress = deps.progress;
+    this.view = deps.view;
+    this.hostCombat = deps.hostCombat;
+    this.hooks = deps.hooks;
   }
 
   private ramArmed(): boolean {
     return (
-      this.shieldMod === "ram" && Math.hypot(this.scene.shipVX, this.scene.shipVY) > RAM_ARM_SPEED
+      this.shieldMod === "ram" && Math.hypot(this.pilot.shipVX, this.pilot.shipVY) > RAM_ARM_SPEED
     );
   }
 
@@ -211,38 +252,38 @@ export class Shield {
 
   /** Reflect my velocity off the obstacle at (cx,cy), scaled, plus a nudge out. */
   private bounceOff(cx: number, cy: number, scale: number): void {
-    let nx = this.scene.shipX - cx;
-    let ny = this.scene.shipY - cy;
+    let nx = this.pilot.shipX - cx;
+    let ny = this.pilot.shipY - cy;
     const len = Math.hypot(nx, ny) || 1;
     nx /= len;
     ny /= len;
-    const dot = this.scene.shipVX * nx + this.scene.shipVY * ny;
+    const dot = this.pilot.shipVX * nx + this.pilot.shipVY * ny;
     if (dot < 0) {
-      this.scene.shipVX = (this.scene.shipVX - 2 * dot * nx) * scale;
-      this.scene.shipVY = (this.scene.shipVY - 2 * dot * ny) * scale;
+      this.pilot.shipVX = (this.pilot.shipVX - 2 * dot * nx) * scale;
+      this.pilot.shipVY = (this.pilot.shipVY - 2 * dot * ny) * scale;
     } else {
-      this.scene.shipVX *= scale;
-      this.scene.shipVY *= scale;
+      this.pilot.shipVX *= scale;
+      this.pilot.shipVY *= scale;
     }
-    this.scene.shipX += nx * 2;
-    this.scene.shipY += ny * 2;
+    this.pilot.shipX += nx * 2;
+    this.pilot.shipY += ny * 2;
   }
 
   /** Ring flash + 60° impact arc + sparks + retuned trauma + pitched ping. */
   private shieldHitFx(now: number, impactX: number, impactY: number, amount: number): void {
     this.haloFlashUntil = now + 80;
-    const ang = Math.atan2(impactY - this.scene.shipY, impactX - this.scene.shipX);
+    const ang = Math.atan2(impactY - this.pilot.shipY, impactX - this.pilot.shipX);
     this.impactArcs.push({ angle: ang, diesAt: now + 150 });
-    this.scene.fx.battle.burst(
-      this.scene.shipX + Math.cos(ang) * SHIELD_RING_RADIUS,
-      this.scene.shipY + Math.sin(ang) * SHIELD_RING_RADIUS,
+    this.fx.battle.burst(
+      this.pilot.shipX + Math.cos(ang) * SHIELD_RING_RADIUS,
+      this.pilot.shipY + Math.sin(ang) * SHIELD_RING_RADIUS,
       27,
       SHIELD_RING_TINT,
       "impact",
       ang,
       "important",
     );
-    this.scene.fx.sparks(impactX, impactY, 8, SHIELD_RING_TINT, {
+    this.fx.sparks(impactX, impactY, 8, SHIELD_RING_TINT, {
       angleMax: ang / DEG + 22.5,
       angleMin: ang / DEG - 22.5,
       importance: "important",
@@ -250,20 +291,20 @@ export class Shield {
       lifeMin: 150,
       // Hull-local, and the reel's crowd shots take one of these every few
       // frames — the single biggest contributor to the white splat.
-      scale: 0.6 * this.scene.shipView.hullGlow(),
+      scale: 0.6 * this.view.hullGlow(),
     });
     // Hits sound lower as you get closer to death (§A.5).
     const fraction = Math.max(0, Math.min(1, this.shieldHp / SHIELD_MAX));
     sfx.play("shield_hit", { rate: 0.85 + 0.3 * fraction });
-    this.scene.trauma.add(amount >= 40 ? 0.25 : 0.12);
+    this.trauma.add(amount >= 40 ? 0.25 : 0.12);
   }
 
   /** Halo break flash (PHASE blinks; death layers shield_break in die()). */
   private shieldBreakFx(now: number): void {
     this.haloFlashUntil = now + 80;
-    this.scene.fx.ring(
-      this.scene.shipX,
-      this.scene.shipY,
+    this.fx.ring(
+      this.pilot.shipX,
+      this.pilot.shipY,
       SHIELD_RING_RADIUS,
       40,
       300,
@@ -271,7 +312,7 @@ export class Shield {
       0.7,
       "important",
     );
-    this.scene.trauma.add(0.3);
+    this.trauma.add(0.3);
   }
 
   /**
@@ -288,7 +329,7 @@ export class Shield {
     killerId: string | null,
     now: number,
   ): "phased" | "dead" | "drained" {
-    if (!this.scene.alive) {
+    if (!this.pilot.alive) {
       return "dead";
     }
     // PHASE auto-blink: negate haymakers (≥40) and killing blows entirely.
@@ -312,7 +353,7 @@ export class Shield {
     let mitigated = amount;
     if (this.shieldMod === "bulwark" && now < this.shieldModUntil) {
       let rel =
-        Math.atan2(fromY - this.scene.shipY, fromX - this.scene.shipX) - this.scene.shipAngle;
+        Math.atan2(fromY - this.pilot.shipY, fromX - this.pilot.shipX) - this.pilot.shipAngle;
       // wrap to [-π, π]
       rel = Math.atan2(Math.sin(rel), Math.cos(rel));
       if (Math.abs(rel) <= ((BULWARK_CONE_DEG / 2) * Math.PI) / 180) {
@@ -333,7 +374,7 @@ export class Shield {
     // with no death beat cannot lose its pilot. Enemy shots skip contact
     // i-frames and several resolve inside one sim step, so a between-frames
     // top-up always races them; the guarantee has to live at the kill itself.
-    if (this.shieldHp <= 0 && this.scene.trailer?.deathless === true) {
+    if (this.shieldHp <= 0 && this.link.trailer?.deathless === true) {
       this.shieldHp = 1;
     }
     if (this.shieldHp <= 0) {
@@ -342,7 +383,7 @@ export class Shield {
     }
     this.shieldHitFx(now, fromX, fromY, amount);
     if (!wasLow && this.shieldHp < SHIELD_MAX * SHIELD_LOW_FRACTION) {
-      this.scene.trauma.add(0.15);
+      this.trauma.add(0.15);
     }
     return "drained";
   }
@@ -354,12 +395,12 @@ export class Shield {
       // remaining OVERSHIELD bonus vanishes with the mod
       this.overHp = 0;
     }
-    for (const [kind, until] of this.scene.boosts) {
+    for (const [kind, until] of this.pilot.boosts) {
       if (now >= until) {
-        this.scene.boosts.delete(kind);
+        this.pilot.boosts.delete(kind);
       }
     }
-    if (!this.scene.alive) {
+    if (!this.pilot.alive) {
       return;
     }
     // SIPHON overheal above 100 bleeds off and never regens.
@@ -376,7 +417,7 @@ export class Shield {
       const rate =
         (SHIELD_MAX / (SHIELD_REGEN_FULL_MS / 1000)) *
         // levelling: faster recovery, not more max HP
-        this.scene.regenMult *
+        this.pilot.regenMult *
         (this.shieldMod === "aegis" ? AEGIS_REGEN_MULT : 1);
       this.shieldHp = Math.min(SHIELD_MAX, this.shieldHp + rate * dt);
       if (this.shieldHp >= SHIELD_MAX) {
@@ -399,22 +440,22 @@ export class Shield {
 
   /** Locally remove an enemy shot + tell the host (it owns the array). */
   private consumeShot(shot: EnemyShotState): void {
-    const idx = this.scene.world.enemyShots.findIndex((s) => s.id === shot.id);
+    const idx = this.world.enemyShots.findIndex((s) => s.id === shot.id);
     if (idx !== -1) {
-      this.scene.world.enemyShots.splice(idx, 1);
+      this.world.enemyShots.splice(idx, 1);
     }
     this.recentConsumedShots.set(shot.id, simNow());
-    if (this.scene.amHost) {
-      this.scene.host.dirty.enemyShots = true;
+    if (this.link.amHost) {
+      this.dirty.enemyShots = true;
     }
-    this.scene.netSendEvent("proj_consumed", { shotId: shot.id });
+    this.link.send("proj_consumed", { shotId: shot.id });
   }
 
   /** REFLECT return shot: NORMAL-stat beam along the reversed incoming vector. */
   private fireReflectBeam(angle: number, now: number): void {
     const weapon: Weapon = { ...WEAPON_DEFAULT, tint: SHIELD_MOD_SPECS.reflect.tint };
-    this.scene.weapons.beams.push(
-      this.scene.weapons.makeBeam({ x: this.scene.shipX, y: this.scene.shipY }, angle, weapon, now),
+    this.weapons.beams.push(
+      this.weapons.makeBeam({ x: this.pilot.shipX, y: this.pilot.shipY }, angle, weapon, now),
     );
   }
 
@@ -425,7 +466,7 @@ export class Shield {
    * pipeline; the victim reports its own killer and adjudicates its own mods.
    */
   detectIncomingDamage(now: number, dt: number): void {
-    if (!this.scene.alive || !this.scene.spawned) {
+    if (!this.pilot.alive || !this.pilot.spawned) {
       return;
     }
     // intangible: no collisions either way
@@ -433,21 +474,21 @@ export class Shield {
       return;
     }
     // respawn invuln: zero shield interaction
-    if (now < this.scene.invulnUntil) {
+    if (now < this.pilot.invulnUntil) {
       return;
     }
     // Each source returns false once a drain ended the frame (death / phase
     // blink); the alive re-check covers drains that killed without saying so.
-    if (!this.asteroidContactDamage(now) || !this.scene.alive) {
+    if (!this.asteroidContactDamage(now) || !this.pilot.alive) {
       return;
     }
-    if (!this.enemyContactDamage(now) || !this.scene.alive) {
+    if (!this.enemyContactDamage(now) || !this.pilot.alive) {
       return;
     }
-    if (!this.enemyShotDamage(now, dt) || !this.scene.alive) {
+    if (!this.enemyShotDamage(now, dt) || !this.pilot.alive) {
       return;
     }
-    if (!this.ufoContactDamage(now) || !this.scene.alive) {
+    if (!this.ufoContactDamage(now) || !this.pilot.alive) {
       return;
     }
     this.playerDamage(now);
@@ -455,8 +496,8 @@ export class Shield {
 
   /** Asteroid contact: one drain per CONTACT_IFRAME window. */
   private asteroidContactDamage(now: number): boolean {
-    for (const a of this.scene.world.asteroids) {
-      if (dist2(a.x, a.y, this.scene.shipX, this.scene.shipY) > a.radius * a.radius) {
+    for (const a of this.world.asteroids) {
+      if (dist2(a.x, a.y, this.pilot.shipX, this.pilot.shipY) > a.radius * a.radius) {
         continue;
       }
       if (this.ramArmed()) {
@@ -467,18 +508,18 @@ export class Shield {
         }
         this.ramImmunity.set(a.id, now + RAM_IMMUNITY_MS);
         if (a.radius <= RAM_ASTEROID_DESTROY_R) {
-          this.scene.hits.predictKill(a.id, XP.ASTEROID_DESTROY, "asteroid", a.x, a.y, now);
-          this.scene.netSendEvent("asteroid_hit", { asteroidId: a.id, damage: 1 });
-          this.scene.fx.sparks(a.x, a.y, 8, SHIELD_MOD_SPECS.ram.tint, {
+          this.hits.predictKill(a.id, XP.ASTEROID_DESTROY, "asteroid", a.x, a.y, now);
+          this.link.send("asteroid_hit", { asteroidId: a.id, damage: 1 });
+          this.fx.sparks(a.x, a.y, 8, SHIELD_MOD_SPECS.ram.tint, {
             lifeMax: 250,
             lifeMin: 150,
           });
           sfx.play("hit_spark");
-          this.scene.trauma.add(0.1);
+          this.trauma.add(0.1);
           continue;
         }
-        this.scene.progress.gainXp(XP.ASTEROID_CHIP, now);
-        this.scene.netSendEvent("asteroid_hit", { asteroidId: a.id, damage: RAM_ASTEROID_CHIP });
+        this.progress.gainXp(XP.ASTEROID_CHIP, now);
+        this.link.send("asteroid_hit", { asteroidId: a.id, damage: RAM_ASTEROID_CHIP });
         this.bounceOff(a.x, a.y, 0.6);
         if (this.applyDamage(RAM_SELF_DRAIN, a.x, a.y, "ASTEROID", null, now) !== "drained") {
           return false;
@@ -508,18 +549,18 @@ export class Shield {
 
   /** Enemy hull contact + LANCER charge. */
   private enemyContactDamage(now: number): boolean {
-    for (const e of this.scene.world.enemies) {
+    for (const e of this.world.enemies) {
       // flashing in: harmless
       if (e.graceUntil > now) {
         continue;
       }
       const charging = e.kind === "lancer" && e.chargeUntil > now;
       const r = charging ? LANCER_CHARGE_HIT_RADIUS : ENEMY_SPECS[e.kind].hitRadius;
-      if (dist2(e.x, e.y, this.scene.shipX, this.scene.shipY) > r * r) {
+      if (dist2(e.x, e.y, this.pilot.shipX, this.pilot.shipY) > r * r) {
         continue;
       }
-      let nx = e.x - this.scene.shipX;
-      let ny = e.y - this.scene.shipY;
+      let nx = e.x - this.pilot.shipX;
+      let ny = e.y - this.pilot.shipY;
       const nlen = Math.hypot(nx, ny) || 1;
       nx /= nlen;
       ny /= nlen;
@@ -532,16 +573,9 @@ export class Shield {
         }
         this.ramImmunity.set(e.id, now + RAM_IMMUNITY_MS);
         if (e.hp - RAM_DAMAGE <= 0) {
-          this.scene.hits.predictKill(
-            e.id,
-            this.scene.hostCombat.enemyKillXp(e.kind),
-            "enemy",
-            e.x,
-            e.y,
-            now,
-          );
+          this.hits.predictKill(e.id, this.hostCombat.enemyKillXp(e.kind), "enemy", e.x, e.y, now);
         }
-        this.scene.netSendEvent("enemy_hit", {
+        this.link.send("enemy_hit", {
           damage: RAM_DAMAGE,
           enemyId: e.id,
           kx: nx * RAM_KNOCKBACK,
@@ -550,7 +584,7 @@ export class Shield {
         e.blinkUntil = now + 150;
         if (charging) {
           this.bounceOff(e.x, e.y, 0.6);
-          this.scene.trauma.add(0.3);
+          this.trauma.add(0.3);
         }
         const drain = charging ? RAM_LANCER_DRAIN : RAM_SELF_DRAIN;
         if (this.applyDamage(drain, e.x, e.y, ENEMY_SPECS[e.kind].name, null, now) !== "drained") {
@@ -568,7 +602,7 @@ export class Shield {
       }
       this.bounceOff(e.x, e.y, 0.5);
       // knock both back (kept from v1)
-      this.scene.netSendEvent("enemy_hit", {
+      this.link.send("enemy_hit", {
         damage: 0,
         enemyId: e.id,
         kx: nx * RAM_KNOCKBACK * 0.5,
@@ -584,8 +618,8 @@ export class Shield {
    *  beams). Shots ignore contact i-frames and are always consumed. */
   private enemyShotDamage(now: number, dt: number): boolean {
     // Reverse index loop: consumeShot splices mid-iteration.
-    for (let i = this.scene.world.enemyShots.length - 1; i >= 0; i -= 1) {
-      const s = this.scene.world.enemyShots[i];
+    for (let i = this.world.enemyShots.length - 1; i >= 0; i -= 1) {
+      const s = this.world.enemyShots[i];
       // consumed; host echo pending
       if (!s || this.recentConsumedShots.has(s.id)) {
         continue;
@@ -595,8 +629,8 @@ export class Shield {
         s.y - s.vy * dt,
         s.x,
         s.y,
-        this.scene.shipX,
-        this.scene.shipY,
+        this.pilot.shipX,
+        this.pilot.shipY,
         SHIP_RADIUS,
       );
       if (!hit) {
@@ -625,8 +659,8 @@ export class Shield {
 
   /** UFO contact (treated as a hull). */
   private ufoContactDamage(now: number): boolean {
-    const u = this.scene.world.ufo;
-    if (!u || dist2(u.x, u.y, this.scene.shipX, this.scene.shipY) > UFO_RADIUS * UFO_RADIUS) {
+    const u = this.world.ufo;
+    if (!u || dist2(u.x, u.y, this.pilot.shipX, this.pilot.shipY) > UFO_RADIUS * UFO_RADIUS) {
       return true;
     }
     if (this.ramArmed()) {
@@ -634,9 +668,9 @@ export class Shield {
       if (imm === undefined || now >= imm) {
         this.ramImmunity.set(u.id, now + RAM_IMMUNITY_MS);
         if (u.hp - RAM_DAMAGE <= 0) {
-          this.scene.hits.predictKill(u.id, XP.UFO_DESTROY, "ufo", u.x, u.y, now);
+          this.hits.predictKill(u.id, XP.UFO_DESTROY, "ufo", u.x, u.y, now);
         }
-        this.scene.netSendEvent("ufo_hit", { damage: RAM_DAMAGE / 100 });
+        this.link.send("ufo_hit", { damage: RAM_DAMAGE / 100 });
         if (this.applyDamage(RAM_SELF_DRAIN, u.x, u.y, "UFO", null, now) !== "drained") {
           return false;
         }
@@ -654,8 +688,8 @@ export class Shield {
 
   /** Other players: armed-RAM hull contact + the beam volley rule (§A.2). */
   private playerDamage(now: number): void {
-    const { myId } = this.scene;
-    for (const [id, st] of this.scene.peerStates) {
+    const { myId } = this.link;
+    for (const [id, st] of this.link.peerStates) {
       if (id === myId) {
         continue;
       }
@@ -675,7 +709,7 @@ export class Shield {
    *  adjudicates); my own armed RAM costs me 10 (they take their 35). */
   private playerRamDamage(id: string, st: PlayerNetState, now: number): boolean {
     const contact2 = SHIP_RADIUS * 2 * (SHIP_RADIUS * 2);
-    const touching = dist2(st.x, st.y, this.scene.shipX, this.scene.shipY) <= contact2;
+    const touching = dist2(st.x, st.y, this.pilot.shipX, this.pilot.shipY) <= contact2;
     if (
       touching &&
       st.shieldMod?.kind === "ram" &&
@@ -755,12 +789,12 @@ export class Shield {
     // aura and any stray beam clamp + i-frame together.
     if (
       st.tesla &&
-      dist2(st.x, st.y, this.scene.shipX, this.scene.shipY) <= TESLA_RANGE * TESLA_RANGE
+      dist2(st.x, st.y, this.pilot.shipX, this.pilot.shipY) <= TESLA_RANGE * TESLA_RANGE
     ) {
       v.beamDrain += TESLA_POWER * 100 * PVP_DAMAGE_MULT;
       v.maxPower = Math.max(v.maxPower, TESLA_POWER);
       v.impact = { x: st.x, y: st.y };
-      v.reflectAngle = Math.atan2(st.y - this.scene.shipY, st.x - this.scene.shipX);
+      v.reflectAngle = Math.atan2(st.y - this.pilot.shipY, st.x - this.pilot.shipX);
     }
     for (const sb of st.beams) {
       // inert mines never hit-test
@@ -775,7 +809,7 @@ export class Shield {
       if (st.tesla && sb.chain) {
         continue;
       }
-      const chainSeg = serializedBeamHitSeg(sb, this.scene.shipX, this.scene.shipY);
+      const chainSeg = serializedBeamHitSeg(sb, this.pilot.shipX, this.pilot.shipY);
       if (chainSeg === null) {
         continue;
       }
@@ -802,82 +836,78 @@ export class Shield {
   }
 
   die(now: number, killerId: string | null, cause: string): void {
-    this.scene.fx.battle.burst(
-      this.scene.shipX,
-      this.scene.shipY,
+    this.fx.battle.burst(
+      this.pilot.shipX,
+      this.pilot.shipY,
       110,
-      this.scene.myTint(),
+      this.hooks.myTint(),
       "death",
-      this.scene.shipAngle,
+      this.pilot.shipAngle,
       "important",
     );
-    this.scene.view.splinterBurst(this.scene.shipX, this.scene.shipY, 50, 30, now);
-    this.scene.fx.shatter(
-      this.scene.shipX,
-      this.scene.shipY,
+    this.view.splinterBurst(this.pilot.shipX, this.pilot.shipY, 50, 30, now);
+    this.fx.shatter(
+      this.pilot.shipX,
+      this.pilot.shipY,
       shipHullPoints(),
-      this.scene.shipAngle,
-      this.scene.myTint(),
+      this.pilot.shipAngle,
+      this.hooks.myTint(),
       "important",
     );
-    this.scene.fx.ring(
-      this.scene.shipX,
-      this.scene.shipY,
-      10,
-      90,
-      400,
-      0xff_ff_ff,
-      0.7,
-      "important",
-    );
+    this.fx.ring(this.pilot.shipX, this.pilot.shipY, 10, 90, 400, 0xff_ff_ff, 0.7, "important");
     this.screenFlash();
-    this.scene.trauma.add(0.55);
+    this.trauma.add(0.55);
     // break = death, layered under the boom (§A.4)
     sfx.play("shield_break");
     sfx.play("player_death");
-    this.scene.alive = false;
-    this.scene.respawnAt = now + RESPAWN_DELAY_MS;
-    this.scene.invulnUntil = 0;
+    this.pilot.alive = false;
+    this.pilot.respawnAt = now + RESPAWN_DELAY_MS;
+    this.pilot.invulnUntil = 0;
     // mines included — they ride in beams[]
-    this.scene.weapons.beams = [];
+    this.weapons.beams = [];
     // the turret dies with its owner
-    this.scene.weapons.sentry = null;
+    this.weapons.sentry = null;
     // Death tax: lose XP (and maybe one level), then revert to the new level's
     // base weapon. Mod + boosters lost, combo resets.
-    this.scene.progress.applyDeathXpPenalty();
-    this.scene.specialBase = null;
-    this.scene.weapon = baseWeaponForLevel(this.scene.progress.level);
-    this.scene.weaponUntil = 0;
-    this.scene.regenMult = baseRegenMult(this.scene.progress.level);
+    this.progress.applyDeathXpPenalty();
+    this.pilot.specialBase = null;
+    this.pilot.weapon = baseWeaponForLevel(this.progress.level);
+    this.pilot.weaponUntil = 0;
+    this.pilot.regenMult = baseRegenMult(this.progress.level);
     this.shieldHp = 0;
     this.overHp = 0;
     this.shieldMod = null;
     this.shieldModUntil = 0;
-    this.scene.boosts.clear();
-    this.scene.weapons.windupAcc = 0;
+    this.pilot.boosts.clear();
+    this.weapons.windupAcc = 0;
     this.regenActive = false;
     this.impactArcs = [];
     this.phasedUntil = 0;
-    this.scene.progress.streak = 0;
-    this.scene.progress.comboTier = 1;
+    this.progress.streak = 0;
+    this.progress.comboTier = 1;
     this.deathCause = cause;
     const count = (this.deathCounts.get(cause) ?? 0) + 1;
     this.deathCounts.set(cause, count);
     this.deathHint = count >= 3 ? (DEATH_HINTS.get(cause) ?? "") : "";
-    const { myId } = this.scene;
+    const { myId } = this.link;
     if (killerId && myId) {
-      this.scene.netSendEvent("player_killed", { cause, killerId, victimId: myId });
+      this.link.send("player_killed", { cause, killerId, victimId: myId });
     }
     // immediate, so remote ships hide without 50ms lag
-    this.scene.net.pushMyState(now);
+    this.hooks.pushMyState(now);
   }
 
   /** 50ms full-screen white at 0.25, fading 200ms (§9 player death). */
   private screenFlash(): void {
-    this.scene.flashRect.setSize(this.scene.scale.width + 8, this.scene.scale.height + 8);
-    this.scene.flashRect.setAlpha(REDUCED_MOTION.matches ? 0 : 0.25);
-    this.scene.tweens.killTweensOf(this.scene.flashRect);
-    this.scene.tweens.add({ alpha: 0, delay: 50, duration: 200, targets: this.scene.flashRect });
+    this.layers.flashRect.setSize(this.scale.width + 8, this.scale.height + 8);
+    this.layers.flashRect.setAlpha(REDUCED_MOTION.matches ? 0 : 0.25);
+    this.tweens.killTweensOf(this.layers.flashRect);
+    this.tweens.add({
+      alpha: 0,
+      delay: 50,
+      duration: 200,
+      targets: this.layers.flashRect,
+    });
   }
 
   /** Wire shape of my shield mod: `active` = ram-armed / reflect->40 / phase-ready. */

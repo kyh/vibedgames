@@ -1,7 +1,8 @@
 import { sfx } from "../audio/sfx";
+import type { HostCombat } from "../net/host-combat";
 import { contactPoint } from "../render/combat-visuals";
 import { HITSPARK_SKIP_BUDGET } from "../render/fx-pool";
-import type { GameScene } from "../scenes/game-scene";
+import type { FxPool } from "../render/fx-pool";
 import {
   ENEMY_SPECS,
   LANCER_CHARGE_HIT_RADIUS,
@@ -9,16 +10,25 @@ import {
   XP,
   asteroidDestroyedBy,
 } from "../shared/constants";
-import type { Vec } from "../shared/constants";
+import type { SharedState, Vec } from "../shared/constants";
+import type { Link } from "../state/link";
+import type { Pilot } from "../state/pilot";
 import { beamHitsCircle } from "./beam";
 import type { Beam } from "./beam";
 import { DEG } from "./geometry";
+import type { Progression } from "./progression";
 import { NO_ASTEROIDS } from "./weapons";
+import type { Weapons } from "./weapons";
 
-type HitsScene = Pick<
-  GameScene,
-  "fx" | "hostCombat" | "mastery" | "netSendEvent" | "progress" | "spawned" | "weapons" | "world"
->;
+export interface ShooterHitsDeps {
+  world: SharedState;
+  pilot: Pilot;
+  link: Link;
+  fx: FxPool;
+  weapons: Weapons;
+  progress: Progression;
+  hostCombat: HostCombat;
+}
 
 /** Shooter-side hit detection: my beams against host-owned targets, reported as damage events with the destroy bonus predicted locally. */
 export class ShooterHits {
@@ -27,15 +37,33 @@ export class ShooterHits {
    *  and re-intersects every frame until the host's echo lands). */
   predictedKills = new Map<string, number>();
 
-  private readonly scene: HitsScene;
+  private readonly world: SharedState;
 
-  constructor(scene: HitsScene) {
-    this.scene = scene;
+  private readonly pilot: Pilot;
+
+  private readonly link: Link;
+
+  private readonly fx: FxPool;
+
+  private readonly weapons: Weapons;
+
+  private readonly progress: Progression;
+
+  private readonly hostCombat: HostCombat;
+
+  constructor(deps: ShooterHitsDeps) {
+    this.world = deps.world;
+    this.pilot = deps.pilot;
+    this.link = deps.link;
+    this.fx = deps.fx;
+    this.weapons = deps.weapons;
+    this.progress = deps.progress;
+    this.hostCombat = deps.hostCombat;
   }
 
   private recordMasteryContact(beam: Beam, enemyId: string, now: number): void {
     if (beam.mastery) {
-      this.scene.mastery.contact(beam.mastery, enemyId, beam.glaive?.returning ?? false, now);
+      this.pilot.mastery.contact(beam.mastery, enemyId, beam.glaive?.returning ?? false, now);
     }
   }
 
@@ -53,7 +81,7 @@ export class ShooterHits {
       return false;
     }
     this.predictedKills.set(id, now);
-    this.scene.progress.registerKill(xp, now, kind, x, y);
+    this.progress.registerKill(xp, now, kind, x, y);
     return true;
   }
 
@@ -64,13 +92,13 @@ export class ShooterHits {
    * the host runs.
    */
   detectMyHits(now: number): void {
-    if (!this.scene.spawned) {
+    if (!this.pilot.spawned) {
       return;
     }
     // Crowd-scale FX budget: skip non-kill hit-spark spawns over the cap
     // (the victim's white flash stays — it's the readability signal).
-    const sparksOk = this.scene.fx.aliveParticles() <= HITSPARK_SKIP_BUDGET;
-    for (const b of this.scene.weapons.beams) {
+    const sparksOk = this.fx.aliveParticles() <= HITSPARK_SKIP_BUDGET;
+    for (const b of this.weapons.beams) {
       // ARC damage applied at cast
       if (b.vanished || b.chain) {
         continue;
@@ -98,7 +126,7 @@ export class ShooterHits {
 
   /** Impact burst + sparks at the contact point, in the beam's tint. */
   private hitSparks(b: Beam, contact: Vec, impactAngle: number): void {
-    this.scene.fx.battle.burst(
+    this.fx.battle.burst(
       contact.x,
       contact.y,
       Math.min(32, 12 + b.weapon.power * 12),
@@ -106,7 +134,7 @@ export class ShooterHits {
       "impact",
       impactAngle,
     );
-    this.scene.fx.sparks(contact.x, contact.y, 9, b.weapon.tint, {
+    this.fx.sparks(contact.x, contact.y, 9, b.weapon.tint, {
       angleMax: impactAngle / DEG + 65,
       angleMin: impactAngle / DEG - 65,
       lifeMax: 300,
@@ -116,14 +144,14 @@ export class ShooterHits {
 
   private hitAsteroids(b: Beam, sparksOk: boolean, now: number): void {
     // PHASE LANCE: no asteroid hit-test at all — rocks aren't cover.
-    const rocks = b.weapon.phasesRock ? NO_ASTEROIDS : this.scene.world.asteroids;
+    const rocks = b.weapon.phasesRock ? NO_ASTEROIDS : this.world.asteroids;
     for (const a of rocks) {
       if (!beamHitsCircle(b, a.x, a.y, a.radius)) {
         continue;
       }
       if (b.weapon.singularity && !b.exploding) {
         // Flight contact collapses the orb; damage comes from the pop.
-        this.scene.weapons.startCollapse(b, now);
+        this.weapons.startCollapse(b, now);
         break;
       }
       if (b.hitIds.has(a.id)) {
@@ -137,22 +165,22 @@ export class ShooterHits {
         const nx = b.head.x - a.x;
         const ny = b.head.y - a.y;
         const nl = Math.hypot(nx, ny) || 1;
-        this.scene.weapons.ricochetBounce(b, nx / nl, ny / nl);
+        this.weapons.ricochetBounce(b, nx / nl, ny / nl);
       } else {
-        this.scene.weapons.onBeamHit(b, now);
+        this.weapons.onBeamHit(b, now);
       }
       const destroyed = asteroidDestroyedBy(a.radius, b.weapon.power);
       const predicted =
         destroyed && this.predictKill(a.id, XP.ASTEROID_DESTROY, "asteroid", a.x, a.y, now);
       // flat, never multiplied
       if (!predicted) {
-        this.scene.progress.gainXp(XP.ASTEROID_CHIP, now);
+        this.progress.gainXp(XP.ASTEROID_CHIP, now);
       }
       if (sparksOk || destroyed) {
         this.hitSparks(b, contact, impactAngle);
       }
       sfx.play("hit_spark", { gain: 0.4 });
-      this.scene.netSendEvent("asteroid_hit", { asteroidId: a.id, damage: b.weapon.power });
+      this.link.send("asteroid_hit", { asteroidId: a.id, damage: b.weapon.power });
       // AoE circle keeps testing every target
       if (!b.exploding) {
         break;
@@ -161,13 +189,13 @@ export class ShooterHits {
   }
 
   private hitEnemies(b: Beam, sparksOk: boolean, now: number): void {
-    for (const e of this.scene.world.enemies) {
+    for (const e of this.world.enemies) {
       const r = e.chargeUntil > now ? LANCER_CHARGE_HIT_RADIUS : ENEMY_SPECS[e.kind].hitRadius;
       if (!beamHitsCircle(b, e.x, e.y, r)) {
         continue;
       }
       if (b.weapon.singularity && !b.exploding) {
-        this.scene.weapons.startCollapse(b, now);
+        this.weapons.startCollapse(b, now);
         break;
       }
       if (b.hitIds.has(e.id)) {
@@ -177,11 +205,11 @@ export class ShooterHits {
       this.recordMasteryContact(b, e.id, now);
       const contact = contactPoint(b.tail, b.head, e, r, b.exploding);
       const impactAngle = b.angle;
-      this.scene.weapons.onBeamHit(b, now);
+      this.weapons.onBeamHit(b, now);
       const dmg = b.weapon.power * 100;
       const killed = e.hp - dmg <= 0;
       if (killed) {
-        this.predictKill(e.id, this.scene.hostCombat.enemyKillXp(e.kind), "enemy", e.x, e.y, now);
+        this.predictKill(e.id, this.hostCombat.enemyKillXp(e.kind), "enemy", e.x, e.y, now);
       }
       // immediate local feedback; host echoes
       e.blinkUntil = now + 150;
@@ -189,7 +217,7 @@ export class ShooterHits {
         this.hitSparks(b, contact, impactAngle);
       }
       sfx.play("hit_spark", { gain: 0.4 });
-      this.scene.netSendEvent("enemy_hit", { damage: dmg, enemyId: e.id });
+      this.link.send("enemy_hit", { damage: dmg, enemyId: e.id });
       // AoE circle keeps testing every target
       if (!b.exploding) {
         break;
@@ -198,13 +226,13 @@ export class ShooterHits {
   }
 
   private hitUfo(b: Beam, sparksOk: boolean, now: number): void {
-    const u = this.scene.world.ufo;
+    const u = this.world.ufo;
     if (!u) {
       return;
     }
     const hit = beamHitsCircle(b, u.x, u.y, UFO_RADIUS);
     if (hit && b.weapon.singularity && !b.exploding) {
-      this.scene.weapons.startCollapse(b, now);
+      this.weapons.startCollapse(b, now);
       return;
     }
     if (!hit || b.hitIds.has(u.id)) {
@@ -213,7 +241,7 @@ export class ShooterHits {
     b.hitIds.add(u.id);
     const contact = contactPoint(b.tail, b.head, u, UFO_RADIUS, b.exploding);
     const impactAngle = b.angle;
-    this.scene.weapons.onBeamHit(b, now);
+    this.weapons.onBeamHit(b, now);
     const killed = u.hp - b.weapon.power * 100 <= 0;
     if (killed) {
       this.predictKill(u.id, XP.UFO_DESTROY, "ufo", u.x, u.y, now);
@@ -222,6 +250,6 @@ export class ShooterHits {
       this.hitSparks(b, contact, impactAngle);
     }
     sfx.play("hit_spark", { gain: 0.4 });
-    this.scene.netSendEvent("ufo_hit", { damage: b.weapon.power });
+    this.link.send("ufo_hit", { damage: b.weapon.power });
   }
 }

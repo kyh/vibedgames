@@ -1,6 +1,7 @@
 import { Math as PhaserMath } from "phaser";
 import { sfx } from "../audio/sfx";
-import type { GameScene } from "../scenes/game-scene";
+import type { FxPool } from "../render/fx-pool";
+import type { TraumaCamera } from "../render/trauma-camera";
 import {
   BEACON_CHARGE_S,
   BEACON_HOLD_BONUS_XP,
@@ -9,12 +10,19 @@ import {
   BEACON_TINT,
   BEACON_XP_PER_TICK,
 } from "../shared/constants";
-import type { BeaconState } from "../shared/constants";
+import type { BeaconState, SharedState } from "../shared/constants";
+import type { Link } from "../state/link";
+import type { Pilot } from "../state/pilot";
+import type { Progression } from "./progression";
 
-type BeaconScene = Pick<
-  GameScene,
-  "alive" | "fx" | "myId" | "progress" | "shipX" | "shipY" | "trauma" | "world"
->;
+export interface BeaconClientDeps {
+  world: SharedState;
+  pilot: Pilot;
+  link: Link;
+  fx: FxPool;
+  trauma: TraumaCamera;
+  progress: Progression;
+}
 
 /** Every client's view of the BEACON event: owner-simulated trickle/hold awards, charge blips and the armed/clash/payout cues. */
 export class BeaconClient {
@@ -33,10 +41,25 @@ export class BeaconClient {
 
   private beaconLastClashAt = 0;
 
-  private readonly scene: BeaconScene;
+  private readonly world: SharedState;
 
-  constructor(scene: BeaconScene) {
-    this.scene = scene;
+  private readonly pilot: Pilot;
+
+  private readonly link: Link;
+
+  private readonly fx: FxPool;
+
+  private readonly trauma: TraumaCamera;
+
+  private readonly progress: Progression;
+
+  constructor(deps: BeaconClientDeps) {
+    this.world = deps.world;
+    this.pilot = deps.pilot;
+    this.link = deps.link;
+    this.fx = deps.fx;
+    this.trauma = deps.trauma;
+    this.progress = deps.progress;
   }
 
   /** BEACON client side (every client, host included): the owner-simulated XP
@@ -44,7 +67,7 @@ export class BeaconClient {
    *  HOST-written controllerId/contested — the same snapshot everywhere — so
    *  each client granting itself XP stays consistent (existing XP model). */
   tickBeaconClient(now: number): void {
-    const raw = this.scene.world.beacon;
+    const raw = this.world.beacon;
     // A locally-elapsed beacon is already gone (guests see expiry up to one
     // snapshot before the host's null patch arrives).
     const b = raw && now < raw.diesAt ? raw : null;
@@ -78,23 +101,23 @@ export class BeaconClient {
 
   /** Beacon audio falls off with distance from my ship. */
   private beaconGain(x: number, y: number): number {
-    const d = Math.hypot(x - this.scene.shipX, y - this.scene.shipY);
+    const d = Math.hypot(x - this.pilot.shipX, y - this.pilot.shipY);
     return PhaserMath.Clamp(1 - d / 3500, 0.2, 1);
   }
 
   /** Gold shockwave — fx only, no damage; every client draws it. The
    *  controller alone banks the hold bonus. */
   private beaconPayoutFx(prev: BeaconState, now: number): void {
-    this.scene.fx.ring(prev.x, prev.y, 40, BEACON_RADIUS, 650, BEACON_TINT, 0.9);
-    this.scene.fx.sparks(prev.x, prev.y, 14, BEACON_TINT, {
+    this.fx.ring(prev.x, prev.y, 40, BEACON_RADIUS, 650, BEACON_TINT, 0.9);
+    this.fx.sparks(prev.x, prev.y, 14, BEACON_TINT, {
       lifeMax: 500,
       lifeMin: 250,
       speedMax: 260,
       speedMin: 80,
     });
-    if (prev.controllerId === this.scene.myId) {
-      this.scene.progress.gainXp(BEACON_HOLD_BONUS_XP, now);
-      this.scene.trauma.add(0.08);
+    if (prev.controllerId === this.link.myId) {
+      this.progress.gainXp(BEACON_HOLD_BONUS_XP, now);
+      this.trauma.add(0.08);
       sfx.play("beacon_active", { rate: 1.4 });
     }
   }
@@ -113,7 +136,7 @@ export class BeaconClient {
       // CHARGE → ACTIVE: arena-audible chime + full-ring flash.
       this.beaconArmedFxDone = true;
       sfx.play("beacon_active");
-      this.scene.fx.ring(b.x, b.y, BEACON_RADIUS * 0.6, BEACON_RADIUS * 1.2, 500, BEACON_TINT, 0.9);
+      this.fx.ring(b.x, b.y, BEACON_RADIUS * 0.6, BEACON_RADIUS * 1.2, 500, BEACON_TINT, 0.9);
     }
     if (b.contested && now - this.beaconLastClashAt > 700) {
       this.beaconLastClashAt = now;
@@ -127,9 +150,9 @@ export class BeaconClient {
     if (tickIdx > this.beaconTickIdx) {
       const elapsed = Math.min(tickIdx - this.beaconTickIdx, 2);
       this.beaconTickIdx = tickIdx;
-      if (b.controllerId === this.scene.myId && !b.contested && this.scene.alive) {
-        this.scene.progress.gainXp(BEACON_XP_PER_TICK * elapsed, now);
-        this.scene.fx.converge(this.scene.shipX, this.scene.shipY, 3, 60, 320, BEACON_TINT);
+      if (b.controllerId === this.link.myId && !b.contested && this.pilot.alive) {
+        this.progress.gainXp(BEACON_XP_PER_TICK * elapsed, now);
+        this.fx.converge(this.pilot.shipX, this.pilot.shipY, 3, 60, 320, BEACON_TINT);
       }
     }
   }

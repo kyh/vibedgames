@@ -1,6 +1,6 @@
 import type { MultiplayerClient } from "@vibedgames/multiplayer";
 import { Math as PhaserMath } from "phaser";
-import type { GameScene } from "../scenes/game-scene";
+import type { Hud } from "../render/hud";
 import {
   ASTEROID_ROT_SPEED,
   ASTEROID_SEED_COUNT,
@@ -14,7 +14,13 @@ import {
   spawnAsteroidState,
 } from "../shared/constants";
 import type { SharedState } from "../shared/constants";
+import type { Link } from "../state/link";
+import type { EnemyAi } from "../sys/enemy-ai";
+import type { Pickups } from "../sys/pickups";
+import type { Shield } from "../sys/shield";
+import type { HostDirector } from "./host-director";
 import {
+  adoptShared,
   blendPos,
   cloneAsteroid,
   emptyShared,
@@ -24,22 +30,15 @@ import {
   sharedToPatch,
 } from "./shared-world";
 
-type SyncScene = Pick<
-  GameScene,
-  | "ai"
-  | "amHost"
-  | "client"
-  | "connected"
-  | "host"
-  | "hostSnapshotReady"
-  | "hud"
-  | "live"
-  | "offline"
-  | "peers"
-  | "pickups"
-  | "shield"
-  | "world"
->;
+export interface WorldSyncDeps {
+  world: SharedState;
+  link: Link;
+  hud: Hud;
+  shield: Shield;
+  pickups: Pickups;
+  host: HostDirector;
+  ai: EnemyAi;
+}
 
 /** Host↔shared reconcile: seeding the room world, adopting it on host admission, and the guest-side blend of each 20Hz snapshot into the dead-reckoned working copy. */
 export class WorldSync {
@@ -47,10 +46,28 @@ export class WorldSync {
 
   offlineSeeded = false;
 
-  private readonly scene: SyncScene;
+  private readonly world: SharedState;
 
-  constructor(scene: SyncScene) {
-    this.scene = scene;
+  private readonly link: Link;
+
+  private readonly hud: Hud;
+
+  private readonly shield: Shield;
+
+  private readonly pickups: Pickups;
+
+  private readonly host: HostDirector;
+
+  private readonly ai: EnemyAi;
+
+  constructor(deps: WorldSyncDeps) {
+    this.world = deps.world;
+    this.link = deps.link;
+    this.hud = deps.hud;
+    this.shield = deps.shield;
+    this.pickups = deps.pickups;
+    this.host = deps.host;
+    this.ai = deps.ai;
   }
 
   onUpdate(): void {
@@ -61,18 +78,19 @@ export class WorldSync {
     // Reconcile only when the shared object identity changed (i.e. a real
     // state patch) — notify() also fires for player-state traffic, and
     // re-blending toward a stale snapshot would drag entities backwards.
-    if (this.scene.live && this.scene.client.sharedState !== this.lastSharedRef) {
-      this.lastSharedRef = this.scene.client.sharedState;
+    if (this.link.live && this.link.sharedState !== this.lastSharedRef) {
+      this.lastSharedRef = this.link.sharedState;
       this.reconcileFromShared();
     }
   }
 
   shared(): SharedState | null {
     // local world is authoritative solo
-    if (this.scene.offline) {
-      return this.scene.world;
+    if (this.link.offline) {
+      return this.world;
     }
-    return isShared(this.scene.client.sharedState) ? this.scene.client.sharedState : null;
+    const s = this.link.sharedState;
+    return s && isShared(s) ? s : null;
   }
 
   /** Server election alone is not adoption. A reconnect may admit us as host
@@ -80,14 +98,14 @@ export class WorldSync {
    * Adopt once before host commands/ticks; never alias the SDK's shallow cache.
    * Local ship, rewards and pending pickup guards remain owner-controlled. */
   prepareHost(): boolean {
-    if (this.scene.offline) {
+    if (this.link.offline) {
       return true;
     }
-    if (!this.scene.amHost) {
-      this.scene.hostSnapshotReady = false;
+    if (!this.link.amHost) {
+      this.link.hostSnapshotReady = false;
       return false;
     }
-    if (this.scene.hostSnapshotReady) {
+    if (this.link.hostSnapshotReady) {
       return true;
     }
     const shared = this.shared();
@@ -95,39 +113,39 @@ export class WorldSync {
       return false;
     }
     const accepted = structuredClone(shared);
-    this.scene.world = {
+    adoptShared(this.world, {
       ...accepted,
       arenaEpoch: Number.isFinite(accepted.arenaEpoch)
         ? accepted.arenaEpoch
-        : this.scene.world.arenaEpoch,
+        : this.world.arenaEpoch,
       beacon: accepted.beacon ?? null,
       enemies: accepted.enemies ?? [],
       enemyShots: accepted.enemyShots ?? [],
       items: accepted.items ?? [],
       playH: Number.isFinite(accepted.playH)
         ? PhaserMath.Clamp(accepted.playH, BASE_WORLD_H, WORLD_H)
-        : this.scene.world.playH,
+        : this.world.playH,
       playW: Number.isFinite(accepted.playW)
         ? PhaserMath.Clamp(accepted.playW, BASE_WORLD_W, WORLD_W)
-        : this.scene.world.playW,
+        : this.world.playW,
       pulls: accepted.pulls ?? [],
       sectorBossIdx: Number.isFinite(accepted.sectorBossIdx)
         ? accepted.sectorBossIdx
-        : this.scene.world.sectorBossIdx,
+        : this.world.sectorBossIdx,
       shards: accepted.shards ?? [],
       ufo: accepted.ufo ?? null,
-    };
-    this.scene.hostSnapshotReady = true;
-    this.lastSharedRef = this.scene.client.sharedState;
+    });
+    this.link.hostSnapshotReady = true;
+    this.lastSharedRef = this.link.sharedState;
     // Existing migration policy: host-local AI is reconstructed, and the first
     // host tick rearms spawn/beacon cadence instead of bursting overdue spawns.
-    this.scene.ai.enemySim.clear();
-    this.scene.host.wasHost = false;
+    this.ai.enemySim.clear();
+    this.host.wasHost = false;
     // Admission is a baseline, not evidence that a missed encounter just
     // happened. Fresh events on the admitted world still announce normally.
-    this.scene.hud.bossEncounters.reset();
-    this.scene.hud.battleBeat.reset();
-    this.scene.hud.observeBossEncounters(this.scene.world);
+    this.hud.bossEncounters.reset();
+    this.hud.battleBeat.reset();
+    this.hud.observeBossEncounters(this.world);
     return true;
   }
 
@@ -142,31 +160,31 @@ export class WorldSync {
     // player count (so a multi-player arena opens fully populated, not just the
     // base 1-player box).
     const seedField = (s: SharedState): void => {
-      const pc = Math.max(1, Object.keys(this.scene.peers).length);
+      const pc = Math.max(1, Object.keys(this.link.peers).length);
       s.playW = playWidthForPlayers(pc);
       s.playH = playHeightForPlayers(pc);
       for (let i = 0; i < ASTEROID_SEED_COUNT; i += 1) {
         s.asteroids.push(spawnAsteroidState(s.playW, s.playH));
       }
     };
-    if (this.scene.offline) {
+    if (this.link.offline) {
       // Solo arena: seed the local world directly, nothing to broadcast.
       if (!this.offlineSeeded) {
         this.offlineSeeded = true;
         const seeded = emptyShared();
         seedField(seeded);
-        this.scene.world = seeded;
+        adoptShared(this.world, seeded);
       }
       return;
     }
-    if (this.scene.amHost && this.scene.connected && !this.shared()) {
+    if (this.link.amHost && this.link.connected && !this.shared()) {
       const seeded = emptyShared();
       seedField(seeded);
-      this.scene.world = seeded;
+      adoptShared(this.world, seeded);
       // We authored this empty-room seed at full precision. A synchronous SDK
       // notification must not replace it with its quantized outgoing copy.
-      this.scene.hostSnapshotReady = true;
-      this.scene.client.updateSharedState(sharedToPatch(seeded));
+      this.link.hostSnapshotReady = true;
+      this.link.patchShared(sharedToPatch(seeded));
     }
   }
 
@@ -176,18 +194,18 @@ export class WorldSync {
     if (!s) {
       return;
     }
-    this.scene.hud.observeBossEncounters(s);
+    this.hud.observeBossEncounters(s);
     this.reconcileArena(s);
     this.reconcileAsteroids(s);
     this.reconcileUfo(s);
-    const w = this.scene.world;
-    w.items = reconcileDrifters(w.items, s.items ?? [], this.scene.pickups.recentPickups);
+    const w = this.world;
+    w.items = reconcileDrifters(w.items, s.items ?? [], this.pickups.recentPickups);
     this.reconcileEnemies(s);
-    w.shards = reconcileDrifters(w.shards, s.shards ?? [], this.scene.pickups.recentShardPickups);
+    w.shards = reconcileDrifters(w.shards, s.shards ?? [], this.pickups.recentShardPickups);
     w.enemyShots = reconcileDrifters(
       w.enemyShots,
       s.enemyShots ?? [],
-      this.scene.shield.recentConsumedShots,
+      this.shield.recentConsumedShots,
     );
     // Pulls are static entries — adopt wholesale (the vortex renders from
     // them; the host moves the affected bodies).
@@ -198,7 +216,7 @@ export class WorldSync {
   }
 
   private reconcileArena(s: SharedState): void {
-    const w = this.scene.world;
+    const w = this.world;
     if (Number.isFinite(s.arenaEpoch)) {
       w.arenaEpoch = s.arenaEpoch;
     }
@@ -217,7 +235,7 @@ export class WorldSync {
   }
 
   private reconcileAsteroids(s: SharedState): void {
-    const w = this.scene.world;
+    const w = this.world;
     const localAsteroids = indexById(w.asteroids);
     const asteroidIds = new Set<string>();
     for (const a of s.asteroids) {
@@ -237,7 +255,7 @@ export class WorldSync {
   }
 
   private reconcileUfo(s: SharedState): void {
-    const w = this.scene.world;
+    const w = this.world;
     if (!s.ufo) {
       w.ufo = null;
     } else if (!w.ufo || w.ufo.id !== s.ufo.id) {
@@ -253,7 +271,7 @@ export class WorldSync {
   }
 
   private reconcileEnemies(s: SharedState): void {
-    const w = this.scene.world;
+    const w = this.world;
     const localEnemies = indexById(w.enemies);
     const enemyIds = new Set<string>();
     for (const e of s.enemies ?? []) {
@@ -285,12 +303,12 @@ export class WorldSync {
 
   /** Movement integration — runs on every client for 60fps-smooth motion. */
   advanceWorld(dt: number): void {
-    for (const a of this.scene.world.asteroids) {
+    for (const a of this.world.asteroids) {
       a.x += a.vx * dt;
       a.y += a.vy * dt;
       a.rot += ASTEROID_ROT_SPEED * dt;
     }
-    const u = this.scene.world.ufo;
+    const u = this.world.ufo;
     if (u) {
       const dx = u.destX - u.x;
       const dy = u.destY - u.y;
@@ -305,19 +323,19 @@ export class WorldSync {
         u.y = u.destY;
       }
     }
-    for (const it of this.scene.world.items) {
+    for (const it of this.world.items) {
       it.x += it.vx * dt;
       it.y += it.vy * dt;
     }
-    for (const s of this.scene.world.shards) {
+    for (const s of this.world.shards) {
       s.x += s.vx * dt;
       s.y += s.vy * dt;
     }
-    for (const e of this.scene.world.enemies) {
-      e.x = PhaserMath.Clamp(e.x + e.vx * dt, -40, this.scene.world.playW + 40);
-      e.y = PhaserMath.Clamp(e.y + e.vy * dt, -40, this.scene.world.playH + 40);
+    for (const e of this.world.enemies) {
+      e.x = PhaserMath.Clamp(e.x + e.vx * dt, -40, this.world.playW + 40);
+      e.y = PhaserMath.Clamp(e.y + e.vy * dt, -40, this.world.playH + 40);
     }
-    for (const s of this.scene.world.enemyShots) {
+    for (const s of this.world.enemyShots) {
       s.x += s.vx * dt;
       s.y += s.vy * dt;
     }

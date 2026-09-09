@@ -90,6 +90,24 @@ export const emptyShared = (): SharedState =>
     ufo: null,
   });
 
+/** Replace every field of the working copy in place. The world record is
+ *  shared by reference with every collaborator, so adoption (host admission,
+ *  solo seed) must mutate it rather than swap the object. */
+export const adoptShared = (target: SharedState, next: SharedState): void => {
+  target.arenaEpoch = next.arenaEpoch;
+  target.asteroids = next.asteroids;
+  target.beacon = next.beacon;
+  target.enemies = next.enemies;
+  target.enemyShots = next.enemyShots;
+  target.items = next.items;
+  target.playH = next.playH;
+  target.playW = next.playW;
+  target.pulls = next.pulls;
+  target.sectorBossIdx = next.sectorBossIdx;
+  target.shards = next.shards;
+  target.ufo = next.ufo;
+};
+
 export const isShared = (v: MultiplayerClient["sharedState"]): v is SharedState =>
   Array.isArray(v["asteroids"]);
 

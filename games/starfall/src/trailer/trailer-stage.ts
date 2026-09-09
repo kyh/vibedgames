@@ -25,7 +25,7 @@ import {
 } from "../shared/constants";
 import type { EnemyState, ItemDrop } from "../shared/constants";
 import { dist2 } from "../sys/geometry";
-import type { GameScene } from "../scenes/game-scene";
+import type { SceneInternals } from "../scenes/game-scene";
 import type { TrailerStageApi, TrailerStaging } from "./trailer-staging";
 
 /** Trailer staging levers (?trailer=1 only): every lever routes through the same gameplay paths the live game uses, so staged shots are real gameplay. */
@@ -36,7 +36,7 @@ import type { TrailerStageApi, TrailerStaging } from "./trailer-staging";
  *  of this runs in normal play. Every lever routes through the same code
  *  paths gameplay uses — spawn factories, hostDamageEnemy, gainXp, die —
  *  so staged shots are real gameplay. */
-export const installTrailerStage = (scene: GameScene): TrailerStageApi => {
+export const installTrailerStage = (scene: SceneInternals): TrailerStageApi => {
   const staging: TrailerStaging = {
     camPos: null,
     deathless: true,
@@ -45,7 +45,7 @@ export const installTrailerStage = (scene: GameScene): TrailerStageApi => {
     peers: null,
     steer: null,
   };
-  scene.trailer = staging;
+  scene.link.trailer = staging;
   return {
     clearAsteroids: (): void => {
       // Silent: the display sweep in syncAsteroids bursts any rock whose
@@ -56,7 +56,7 @@ export const installTrailerStage = (scene: GameScene): TrailerStageApi => {
         rec.gfx.destroy();
       }
       scene.view.asteroidObjs.clear();
-      scene.host.dirty.asteroids = true;
+      scene.dirty.asteroids = true;
     },
     clearWorld: (): void => {
       sfx.stopAll();
@@ -111,13 +111,13 @@ export const installTrailerStage = (scene: GameScene): TrailerStageApi => {
       scene.shield.overHp = 0;
       scene.shield.shieldMod = null;
       scene.shield.shieldModUntil = 0;
-      scene.boosts.clear();
-      scene.invulnUntil = 0;
+      scene.pilot.boosts.clear();
+      scene.pilot.invulnUntil = 0;
       scene.shield.phasedUntil = 0;
       scene.shield.contactIframeUntil = 0;
       scene.shield.impactArcs = [];
-      scene.kickX = 0;
-      scene.kickY = 0;
+      scene.pilot.kickX = 0;
+      scene.pilot.kickY = 0;
     },
     damageEnemy: (id, amount): void => scene.hostCombat.hostDamageEnemy(id, amount, 0, 0),
     enemies: (): readonly Readonly<EnemyState>[] => scene.world.enemies,
@@ -127,7 +127,7 @@ export const installTrailerStage = (scene: GameScene): TrailerStageApi => {
         scene.shield.shieldHp = Math.max(scene.shield.shieldHp, SHIELD_MAX);
         scene.shield.lastDamageAt = 0;
       } else {
-        scene.boosts.set(kind, simNow() + BOOSTER_SPECS[kind].durationMs);
+        scene.pilot.boosts.set(kind, simNow() + BOOSTER_SPECS[kind].durationMs);
       }
     },
     grantShieldMod: (kind): void => {
@@ -143,9 +143,9 @@ export const installTrailerStage = (scene: GameScene): TrailerStageApi => {
       if (!weapon) {
         return;
       }
-      scene.specialBase = weapon;
-      scene.weapon = scaleWeaponForLevel(weapon, scene.progress.level);
-      scene.weaponUntil = simNow() + SPECIAL_WEAPON_DURATION_MS;
+      scene.pilot.specialBase = weapon;
+      scene.pilot.weapon = scaleWeaponForLevel(weapon, scene.progress.level);
+      scene.pilot.weaponUntil = simNow() + SPECIAL_WEAPON_DURATION_MS;
       scene.weapons.windupAcc = 0;
       // A staged swap starts its cadence now. Left alone, the outgoing
       // weapon's residual cooldown carries over, so a mid-shot swap to a
@@ -161,7 +161,7 @@ export const installTrailerStage = (scene: GameScene): TrailerStageApi => {
       }
     },
     killPlayer: (cause): void => {
-      if (!scene.alive) {
+      if (!scene.pilot.alive) {
         return;
       }
       scene.shield.shieldHp = 0;
@@ -169,15 +169,15 @@ export const installTrailerStage = (scene: GameScene): TrailerStageApi => {
       scene.shield.die(simNow(), null, cause);
     },
     player: () => ({
-      alive: scene.alive,
-      angle: scene.shipAngle,
+      alive: scene.pilot.alive,
+      angle: scene.pilot.shipAngle,
       level: scene.progress.level,
       shieldHp: scene.shield.shieldHp,
-      vx: scene.shipVX,
-      vy: scene.shipVY,
-      weapon: scene.weapon.name,
-      x: scene.shipX,
-      y: scene.shipY,
+      vx: scene.pilot.shipVX,
+      vy: scene.pilot.shipVY,
+      weapon: scene.pilot.weapon.name,
+      x: scene.pilot.shipX,
+      y: scene.pilot.shipY,
     }),
     setEnemyHp: (id, hp): void => {
       const e = scene.world.enemies.find((en) => en.id === id);
@@ -188,24 +188,24 @@ export const installTrailerStage = (scene: GameScene): TrailerStageApi => {
     setLevel: (level, xpIntoLevel = 0): void => {
       scene.progress.level = Math.max(1, Math.min(LEVEL_CAP, Math.round(level)));
       scene.progress.xp = Math.max(0, xpIntoLevel);
-      scene.specialBase = null;
-      scene.weaponUntil = 0;
+      scene.pilot.specialBase = null;
+      scene.pilot.weaponUntil = 0;
       scene.progress.applyBaseLoadout(simNow());
     },
     setPlayerPose: (pose): void => {
-      scene.spawned = true;
-      scene.alive = true;
-      scene.paused = false;
-      scene.respawnAt = 0;
+      scene.pilot.spawned = true;
+      scene.pilot.alive = true;
+      scene.link.paused = false;
+      scene.pilot.respawnAt = 0;
       // no spawn blink on camera
-      scene.invulnUntil = 0;
-      scene.shipX = pose.x;
-      scene.shipY = pose.y;
+      scene.pilot.invulnUntil = 0;
+      scene.pilot.shipX = pose.x;
+      scene.pilot.shipY = pose.y;
       if (pose.angle !== undefined) {
-        scene.shipAngle = pose.angle;
+        scene.pilot.shipAngle = pose.angle;
       }
-      scene.shipVX = pose.vx ?? 0;
-      scene.shipVY = pose.vy ?? 0;
+      scene.pilot.shipVX = pose.vx ?? 0;
+      scene.pilot.shipVY = pose.vy ?? 0;
       // Rocks deliberately survive clearWorld() (they are the arena's only
       // ambience), which means one staged for an earlier shot can be sitting
       // exactly where a later shot puts the ship — and asteroidContactDamage
@@ -228,7 +228,7 @@ export const installTrailerStage = (scene: GameScene): TrailerStageApi => {
           rec.gfx.destroy();
           scene.view.asteroidObjs.delete(a.id);
         }
-        scene.host.dirty.asteroids = true;
+        scene.dirty.asteroids = true;
       }
       scene.cameras.main.centerOn(pose.x, pose.y);
     },
@@ -247,7 +247,7 @@ export const installTrailerStage = (scene: GameScene): TrailerStageApi => {
       a.vx = 0;
       a.vy = 0;
       scene.world.asteroids.push(a);
-      scene.host.dirty.asteroids = true;
+      scene.dirty.asteroids = true;
     },
     spawnBeacon: (x, y, chargeS, activeS): void =>
       scene.host.hostSpawnBeacon(x, y, simNow(), chargeS, activeS),
@@ -257,14 +257,14 @@ export const installTrailerStage = (scene: GameScene): TrailerStageApi => {
         e.angle = Math.atan2(aimAt.y - y, aimAt.x - x);
       }
       if (kind === "dreadnought") {
-        e.hp = bossHp(Math.max(1, Object.keys(scene.peers).length));
+        e.hp = bossHp(Math.max(1, Object.keys(scene.link.peers).length));
         e.maxHp = e.hp;
       } else if (ELITE_HP_BASE.has(kind)) {
         e.hp = eliteHp(kind, scene.host.maxPresentLevel());
         e.maxHp = e.hp;
       }
       scene.world.enemies.push(e);
-      scene.host.dirty.enemies = true;
+      scene.dirty.enemies = true;
       return e.id;
     },
     spawnItem: (cls, name, x, y): void => {
@@ -295,7 +295,7 @@ export const installTrailerStage = (scene: GameScene): TrailerStageApi => {
       item.vx = 0;
       item.vy = 0;
       scene.world.items.push(item);
-      scene.host.dirty.items = true;
+      scene.dirty.items = true;
     },
     spawnShards: (count, x, y): void => scene.hostCombat.hostSpawnShards(x, y, count),
     staging,

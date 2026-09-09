@@ -4,7 +4,8 @@
 
 import { HERO_BY_ID } from "../data/heroes";
 import type { AbilityKey } from "../data/heroes";
-import type { GameScene } from "../scenes/game-scene";
+import type { MatchResult } from "../scenes/game-scene";
+import type { Unit } from "../sim/types";
 import { FONT } from "./font";
 import { abilityExplanation, experienceProgress } from "./hud-presentation";
 
@@ -50,6 +51,14 @@ export interface GuidePlacement {
   toggleWidth: number;
   panelWidth: number;
   maxHeight: number;
+}
+
+/** What the guide reads each refresh: whose kit to show, whether the
+ * match is over (the panel closes on a result), and whether input is paused. */
+export interface GuideView {
+  readonly player: Unit | undefined;
+  readonly matchResult: MatchResult | null;
+  readonly controlsPaused: boolean;
 }
 
 export interface AbilityGuideOptions {
@@ -98,10 +107,10 @@ export class AbilityGuide {
   private readonly more = el("p", "guide-more", "Scroll for more ↓");
   private selected: AbilityKey = "Q";
   private signature = "";
-  private readonly gs: GameScene;
+  private readonly gs: GuideView;
   private readonly options: AbilityGuideOptions;
 
-  constructor(gs: GameScene, options: AbilityGuideOptions) {
+  constructor(gs: GuideView, options: AbilityGuideOptions) {
     this.gs = gs;
     this.options = options;
     this.style.textContent = CSS;
