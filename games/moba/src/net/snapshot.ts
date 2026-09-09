@@ -6,7 +6,6 @@ import type { MultiplayerClient } from "@vibedgames/multiplayer";
 
 import type { FxEvent, GroundEffect, Mine, Projectile, Unit, World } from "../sim/types";
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 export type Snapshot = {
   now: number;
   gameTime: number;

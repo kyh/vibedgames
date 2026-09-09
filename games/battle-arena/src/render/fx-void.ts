@@ -176,7 +176,6 @@ void main() {
   gl_FragColor = vec4(color * (1.0 - shadow), alpha);
 }`;
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 type VoidUniforms = {
   uTime: { value: number };
   uSize: { value: number };

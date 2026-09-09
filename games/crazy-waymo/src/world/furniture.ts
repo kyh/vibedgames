@@ -96,7 +96,6 @@ export interface FurnitureCtx {
   readonly worldZ: (gz: number) => number;
 }
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature BinTree needs
 export type ParkedSpec = {
   x: number;
   z: number;
@@ -105,7 +104,6 @@ export type ParkedSpec = {
 };
 // World position of a lamp's light source + the pavement under it — the
 // night-time glow pass (fx/lamp-glow.ts) draws halos and light pools here.
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature BinTree needs
 export type LampHead = {
   x: number;
   y: number;

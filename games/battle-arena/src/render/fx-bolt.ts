@@ -271,7 +271,6 @@ void main() {
 
 /** One pass's uniform block. Named rather than an open dictionary so the
  *  colour and vector values keep their types all the way to the write site. */
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 type BoltUniforms = {
   uTime: { value: number };
   uOrigin: { value: THREE.Vector3 };

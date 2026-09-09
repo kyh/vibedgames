@@ -95,7 +95,6 @@ interface Bolt {
 type CrewMode = "idle" | "combat" | "duel";
 
 /** The peer-state keys a real client serializes — what readNetState consumes. */
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 type PeerNetState = {
   x: number;
   y: number;

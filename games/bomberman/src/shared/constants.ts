@@ -57,21 +57,18 @@ export const DIR_VECT = {
 
 export type PowerupKind = "bomb" | "fire" | "speed";
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonRecord needs
 export type Powerup = {
   col: number;
   row: number;
   kind: PowerupKind;
 };
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonRecord needs
 export type PlayerStats = {
   bombs: number;
   range: number;
   speed: number;
 };
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonRecord needs
 export type Bomb = {
   id: string;
   ownerId: string;
@@ -81,7 +78,6 @@ export type Bomb = {
   range: number;
 };
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonRecord needs
 export type Blast = {
   id: string;
   tiles: { col: number; row: number }[];
@@ -92,21 +88,19 @@ export type Blast = {
  * Per-player networked state. `dir`/`moving` let remote clients pick the
  * right walk animation; `col`/`row` are the authoritative grid position.
  */
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonRecord needs
-export type PlayerState = {
+export interface PlayerState {
   col: number;
   row: number;
   colorIdx: number;
   dir: Dir;
   moving: boolean;
-};
+}
 
 /**
  * A host-controlled CPU fighter. Lives in shared state (not a real
  * connection), so every client renders it identically and a promoted host
  * keeps driving it. `nextMoveAt` is a host-clock timestamp gating its cadence.
  */
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonRecord needs
 export type Bot = {
   id: string;
   col: number;
@@ -122,7 +116,6 @@ export type Bot = {
  * (`{...prev, ...patch}`), so the host always rewrites each nested object
  * wholesale — every field that can reset MUST be present in `emptyShared()`.
  */
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonRecord needs
 export type SharedState = {
   /** Missing only in legacy rooms; read through readArena at the boundary. */
   arena?: Arena;

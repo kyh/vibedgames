@@ -19,7 +19,6 @@ export type GamePhase = "lobby" | "playing" | "ended";
 // or shows up to AI/economy/HUD (their filters are hero/creep opt-in).
 export type UnitKind = "hero" | "boss" | "dummy" | "creep" | "prop";
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type AbilitySlot = {
   rank: number;
   readyAt: number;
@@ -58,7 +57,6 @@ export type Status =
   | { kind: "hex"; until: number; pct: number; id?: string };
 
 // ── Unit ─────────────────────────────────────────────────────────────────────
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type Unit = {
   id: string;
   kind: UnitKind;
@@ -201,7 +199,6 @@ export type ProjectileHit =
   | { tag: "root"; duration: number }
   | { tag: "burn"; dps: number; duration: number };
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type Projectile = {
   id: string;
   ownerId: string;
@@ -241,7 +238,6 @@ export type Projectile = {
 };
 
 // ── Ground effects (AoE zones, telegraphs, delayed nukes) ────────────────────
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type GroundEffect = {
   id: string;
   ownerId: string;
@@ -282,7 +278,6 @@ export type GroundEffect = {
 // actually connects (or a jump-attack lands). Plain data — rides snapshots so
 // a host migration can't drop a mid-swing strike. The hit shape re-tests at
 // resolve time, so a scheduled strike is dodgeable.
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type PendingStrike = {
   // ms — when the blade/slam connects
   at: number;
@@ -302,7 +297,6 @@ export type PendingStrike = {
 };
 
 // ── Signature-mechanic entities ──────────────────────────────────────────────
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type Coin = {
   id: string;
   x: number;
@@ -318,7 +312,6 @@ export type Coin = {
   loot?: boolean;
 };
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type Delivery = {
   id: string;
   x: number;
@@ -327,7 +320,6 @@ export type Delivery = {
   expireAt: number;
 };
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type BossState = {
   x: number;
   y: number;
@@ -389,8 +381,7 @@ export type FxEvent =
   | { t: "notify"; text: string; kind: string };
 
 // ── The World ────────────────────────────────────────────────────────────────
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
-export type World = {
+export interface World {
   // ms host clock
   now: number;
   // s since match start
@@ -427,7 +418,7 @@ export type World = {
   seq: number;
   // mulberry32 state
   rngState: number;
-};
+}
 
 /** Monotonic id within a World. */
 export const nextId = (w: World, prefix: string): string => {

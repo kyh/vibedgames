@@ -68,7 +68,6 @@ export type Order =
   | { type: "fountain" };
 
 // ---- hero / creep / structure detail --------------------------------------
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type AbilitySlot = {
   rank: number;
   // ms host-clock when off cooldown
@@ -76,7 +75,6 @@ export type AbilitySlot = {
   // transient per-cast bookkeeping handled in abilities.ts
 };
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type ChannelState = {
   effect: string;
   key: AbilityKey;
@@ -86,7 +84,6 @@ export type ChannelState = {
   point: Vec2;
 };
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type HeroState = {
   defId: string;
   // multiplayer connection id, or "bot:<n>"
@@ -129,7 +126,6 @@ export type HeroState = {
   botRetreating: boolean;
 };
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type CreepState = {
   ckind: CreepKind;
   lane: LaneId;
@@ -144,7 +140,6 @@ export type CreepState = {
   boss?: boolean;
 };
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type StructureState = {
   tier: StructTier;
   lane: LaneId | "base";
@@ -157,7 +152,6 @@ export type StructureState = {
 };
 
 // ---- the unit --------------------------------------------------------------
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type Unit = {
   id: string;
   kind: UnitKind;
@@ -219,7 +213,6 @@ export type Unit = {
 };
 
 // ---- projectiles -----------------------------------------------------------
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type Projectile = {
   id: string;
   ownerId: string;
@@ -338,7 +331,6 @@ export const rand = (w: World): number => {
 };
 /* oxlint-enable no-bitwise, unicorn/prefer-math-trunc */
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type Mine = {
   id: string;
   ownerId: string;
@@ -352,7 +344,6 @@ export type Mine = {
   slowPct: number;
 };
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type GroundEffect = {
   id: string;
   ownerId: string;

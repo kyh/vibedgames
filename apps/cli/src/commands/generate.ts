@@ -18,12 +18,10 @@ import { isJsonOutput, outputArgs, writeJson, writeStructured } from "../lib/out
 import { isJsonNumber, isJsonObject, isJsonString } from "../lib/types.js";
 import type { JsonObject, JsonValue } from "../lib/types.js";
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- an interface has no index signature, so it cannot be an OutputValue
 type DownloadFailure = {
   url: string;
   error: string;
 };
-// oxlint-disable-next-line typescript/consistent-type-definitions -- same: it must satisfy OutputValue
 type FormatMismatch = {
   path: string;
   actual: string;
@@ -33,7 +31,6 @@ type FormatMismatch = {
 // the raw fal payload under `result:` so fal's own keys can't clobber
 // our top-level (action / endpoint_id / request_id). `status` cherry-
 // picks known fields for the same reason.
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 type ActionFields = {
   status?: string;
   queue_position?: number;
@@ -303,7 +300,6 @@ const runCommand = defineCommand({
   },
 });
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 type RunCompletedPayload = {
   status: string;
   endpoint_id: string;
@@ -314,7 +310,6 @@ type RunCompletedPayload = {
   download_format_mismatches?: FormatMismatch[];
 };
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 type CodexRunPayload = {
   status: string;
   provider: string;

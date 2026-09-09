@@ -7,19 +7,16 @@ export const PAUSE_GAME_MESSAGE = "vibedgames:pause-game";
 export const GAME_PAUSED_MESSAGE = "vibedgames:game-paused";
 
 /** Game → wrapper: active play began (or resumed) — hide the wrapper chrome. */
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 export type GameStartedMessage = {
   readonly type: typeof GAME_STARTED_MESSAGE;
 };
 
 /** Wrapper → game: the player asked for the wrapper back — pause the game. */
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 export type PauseGameMessage = {
   readonly type: typeof PAUSE_GAME_MESSAGE;
 };
 
 /** Game → wrapper: the game paused itself (Escape) — show the wrapper chrome. */
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 export type GamePausedMessage = {
   readonly type: typeof GAME_PAUSED_MESSAGE;
 };

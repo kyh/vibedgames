@@ -1,7 +1,6 @@
 // Pure 2D vector + geometry helpers shared by the simulation and renderer.
 // No Phaser imports — this stays runnable in plain node for tests/headless sim.
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type Vec2 = {
   x: number;
   y: number;

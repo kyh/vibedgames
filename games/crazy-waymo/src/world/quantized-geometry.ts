@@ -9,14 +9,12 @@ import * as THREE from "three";
 // three's raycast does, and the ceiling harvest (world/solid-index.ts) scales
 // the raw integers itself. A Float32 copy of a road tile is never made.
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature BinTree needs
 export type QPos = {
   q: Uint16Array;
   min: [number, number, number];
   span: [number, number, number];
 };
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature BinTree needs
 export type QUv = {
   q: Uint16Array;
   min: [number, number];
@@ -24,7 +22,6 @@ export type QUv = {
 };
 
 /** One static mesh's attributes as they ship: quantized, normals mandatory. */
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature BinTree needs
 export type PackedGeometry = {
   pos: QPos;
   nor: Int8Array;

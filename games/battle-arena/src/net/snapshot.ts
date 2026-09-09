@@ -16,7 +16,6 @@ import type {
   World,
 } from "../sim/types";
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 export type Snapshot = {
   now: number;
   gameTime: number;

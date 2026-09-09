@@ -38,7 +38,6 @@ export const DEFAULT_TOLERANCES: Tolerances = {
   maxWidthOverflowPct: 0.12,
 };
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 export type Measurement = {
   frame: string;
   source: string;
@@ -58,7 +57,6 @@ export interface EmptySummary {
   frameSize: null;
 }
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 export type PopulatedSummary = {
   frames: number;
   nonEmptyFrames: number;

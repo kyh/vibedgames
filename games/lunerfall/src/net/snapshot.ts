@@ -7,9 +7,7 @@
 
 import { isJsonObject } from "./json";
 import type { JsonValue } from "./json";
-import type { BossAction, EnemyAction } from "../data/actor-presentation";
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 export type NetPlayer = {
   id: string;
   hero: string;
@@ -33,7 +31,6 @@ export type NetPlayer = {
 
 // Enemies/boss travel as the clip the host is already playing (read after its
 // render) so the guest just re-plays it — no state-enum re-derivation, no drift.
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 export type NetEnemy = {
   id: number;
   name: string;
@@ -43,10 +40,7 @@ export type NetEnemy = {
   flip: boolean;
   dead: boolean;
   flash: boolean;
-  action?: EnemyAction;
-  tint?: number;
 };
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 export type NetBoss = {
   clip: string;
   x: number;
@@ -56,13 +50,11 @@ export type NetBoss = {
   flash: boolean;
   telegraph: boolean;
   dead: boolean;
-  action?: BossAction;
 };
 
 // Guest → host input. Held state travels as booleans; each action carries a
 // monotonic counter so a press is never lost even if the net tick is slower than
 // the frame rate (the host derives an edge when a counter increments).
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 export type NetInput = {
   left: boolean;
   right: boolean;
@@ -74,7 +66,6 @@ export type NetInput = {
   a: number;
   s: number;
 };
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 export type NetProj = {
   k: "arrow" | "shot" | "hazard";
   x: number;
@@ -85,7 +76,6 @@ export type NetProj = {
 // Co-op last stand: broadcast while a player is downed. bleed = seconds left on
 // the bleed-out clock; rev = 0..1 revive-hold progress. Which player is downed
 // travels on NetPlayer.downed; both clients render the marker from these.
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 export type NetLastStand = {
   bleed: number;
   rev: number;
@@ -94,7 +84,6 @@ export type NetLastStand = {
 // Online versus: the match state, broadcast every snapshot while in versus mode.
 // Sides are fixed (host = left duelist, guest = right) so hearts/scores never
 // need a player-id mapping on either client.
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 export type NetVersus = {
   phase: "waiting" | "countdown" | "fighting" | "roundEnd" | "matchEnd";
   // 1-based; 0 while waiting for the challenger
@@ -109,10 +98,7 @@ export type NetVersus = {
   winner: "host" | "guest" | null;
 };
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 export type Snapshot = {
-  runId?: string;
-  term?: number;
   // host frame counter — interpolation + stall detection
   t: number;
   // room seq; guest rebuilds its room when this changes
@@ -134,7 +120,6 @@ export type Snapshot = {
 };
 
 // Full room layout — sent once per room (not per frame).
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 export type NetDoor = {
   index: number;
   x: number;
@@ -143,7 +128,6 @@ export type NetDoor = {
   label: string;
   danger: boolean;
 };
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 export type NetRoom = {
   seq: number;
   // "coop" | "vs" — versus arenas mirror the guest spawn, no doors
