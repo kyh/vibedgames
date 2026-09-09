@@ -189,16 +189,6 @@ const roundScoreMode = (fighting: boolean, aliveCount: number): "duel" | "playin
   return aliveCount === 2 ? "duel" : "playing";
 };
 
-const syncSoundButton = (): void => {
-  const button = document.querySelector("#start-sound");
-  if (!button) {
-    return;
-  }
-  const on = !isMuted();
-  button.textContent = on ? "Sound on" : "Sound off";
-  button.setAttribute("aria-pressed", String(on));
-};
-
 const writeUiText = (id: string, text: string): void => {
   const el = document.querySelector(`#${id}`);
   if (el && el.textContent !== text) {
@@ -938,7 +928,6 @@ export class GameScene extends Scene {
         return;
       }
       setMuted(!isMuted());
-      syncSoundButton();
     });
 
     const KEY_TO_DIR: [string, Dir][] = [
@@ -2093,11 +2082,6 @@ export class GameScene extends Scene {
       }
     });
     document.querySelector("#start-play")?.addEventListener("click", () => this.beginPlay());
-    document.querySelector("#start-sound")?.addEventListener("click", () => {
-      setMuted(!isMuted());
-      syncSoundButton();
-    });
-    syncSoundButton();
   }
 
   private onStartKeyUp(event: KeyboardEvent): void {
