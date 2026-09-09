@@ -167,39 +167,45 @@ const CSS = `
 `;
 
 const METHOD_LABELS = {
+  camera: "CAMERA",
+  controller: "GAMEPAD",
   keys: "KEYBOARD",
   mouse: "MOUSE",
   touch: "TOUCH",
-  camera: "CAMERA",
-  controller: "GAMEPAD",
 } satisfies Record<ControlMethod, string>;
 
 /** Inject the shared control-card styles (pause overlay AND start screen). */
-export function ensureStyle(): void {
-  if (document.getElementById(STYLE_ID)) return;
+export const ensureStyle = (): void => {
+  if (document.querySelector(`#${STYLE_ID}`)) {
+    return;
+  }
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = CSS;
   document.head.append(style);
-}
+};
 
-function el(className: string, text?: string): HTMLDivElement {
+const el = (className: string, text?: string): HTMLDivElement => {
   const node = document.createElement("div");
   node.className = className;
-  if (text !== undefined) node.textContent = text;
+  if (text !== undefined) {
+    node.textContent = text;
+  }
   return node;
-}
+};
 
 /**
  * The grouped keycap rows both instruction surfaces render — the start screen
  * and the pause overlay teach controls with the SAME UI. Null when nothing is
  * visible for the current device/pad context.
  */
-export function buildControls(coarse: boolean): HTMLElement | null {
+export const buildControls = (coarse: boolean): HTMLElement | null => {
   // Fresh groups every render: touch rows on coarse pointers, keyboard rows
   // on fine ones, gamepad rows only while a pad is actually connected.
   const groups = controlGroups(CONTROLS, { coarse });
-  if (groups.length === 0) return null;
+  if (groups.length === 0) {
+    return null;
+  }
   const wrap = document.createElement("div");
   for (const group of groups) {
     wrap.append(el("bm-pause-method", METHOD_LABELS[group.method]));
@@ -216,28 +222,16 @@ export function buildControls(coarse: boolean): HTMLElement | null {
     wrap.append(rows);
   }
   return wrap;
-}
+};
 
-export type BombermanPauseOverlay = {
+export interface BombermanPauseOverlay {
   /** Mount the overlay. Idempotent while shown. */
   show: () => void;
   /** Unmount (fade out). Idempotent while hidden. */
   hide: () => void;
-};
-
-/**
- * Build Bomberman's pause overlay on the shared @repo/embed pause shell — the
- * shell owns resume behavior (pointerup / non-Escape keyup / fresh pad press),
- * this file owns the arcade attract-card look.
- */
-export function createBombermanPauseOverlay(): BombermanPauseOverlay {
-  return createPauseShell({
-    className: "bm-pause",
-    render: renderCard,
-  });
 }
 
-function renderCard(overlay: HTMLElement): void {
+const renderCard = (overlay: HTMLElement): void => {
   ensureStyle();
   const coarse = window.matchMedia("(pointer: coarse)").matches;
 
@@ -278,7 +272,19 @@ function renderCard(overlay: HTMLElement): void {
   card.append(el("bm-pause-hint", coarse ? "TAP TO RESUME" : "CLICK OR PRESS ANY KEY TO RESUME"));
 
   const controlsEl = buildControls(coarse);
-  if (controlsEl) card.append(el("bm-pause-rule"), controlsEl);
+  if (controlsEl) {
+    card.append(el("bm-pause-rule"), controlsEl);
+  }
 
   overlay.append(card);
-}
+};
+/**
+ * Build Bomberman's pause overlay on the shared @repo/embed pause shell — the
+ * shell owns resume behavior (pointerup / non-Escape keyup / fresh pad press),
+ * this file owns the arcade attract-card look.
+ */
+export const createBombermanPauseOverlay = (): BombermanPauseOverlay =>
+  createPauseShell({
+    className: "bm-pause",
+    render: renderCard,
+  });

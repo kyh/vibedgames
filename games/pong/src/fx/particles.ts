@@ -7,7 +7,7 @@ import * as THREE from "three";
 
 import { BG, INK } from "../shared/constants";
 
-export type BurstOptions = {
+export interface BurstOptions {
   x: number;
   y: number;
   z: number;
@@ -26,16 +26,16 @@ export type BurstOptions = {
   life: number;
   /** Nominal radius in world units (randomized per particle). */
   size: number;
-};
+}
 
-type Particle = {
+interface Particle {
   pos: THREE.Vector3;
   vel: THREE.Vector3;
   age: number;
   life: number;
   size: number;
   gravity: number;
-};
+}
 
 const INK_COLOR = new THREE.Color(INK);
 const PAPER_COLOR = new THREE.Color(BG);
@@ -60,16 +60,17 @@ export class ParticlePool {
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.count = 0;
     this.mesh.frustumCulled = false;
-    for (let i = 0; i < max; i++) {
+    for (let i = 0; i < max; i += 1) {
       this.pool.push({
-        pos: new THREE.Vector3(),
-        vel: new THREE.Vector3(),
         age: 0,
-        life: 1,
-        size: 1,
         gravity: 0,
+        life: 1,
+        pos: new THREE.Vector3(),
+        size: 1,
+        vel: new THREE.Vector3(),
       });
-      this.mesh.setColorAt(i, PAPER_COLOR); // allocates the instanceColor buffer
+      // allocates the instanceColor buffer
+      this.mesh.setColorAt(i, PAPER_COLOR);
     }
     scene.add(this.mesh);
   }
@@ -78,9 +79,11 @@ export class ParticlePool {
     const hasDir = opts.dirX !== undefined || opts.dirY !== undefined;
     const dir = Math.atan2(opts.dirY ?? 0, opts.dirX ?? 0);
     const spread = opts.spread ?? Math.PI * 2;
-    for (let i = 0; i < opts.count; i++) {
+    for (let i = 0; i < opts.count; i += 1) {
       const p = this.take();
-      if (!p) return;
+      if (!p) {
+        return;
+      }
       const angle = hasDir ? dir + (Math.random() - 0.5) * spread : Math.random() * Math.PI * 2;
       const speed = opts.speedMin + Math.random() * (opts.speedMax - opts.speedMin);
       p.pos.set(opts.x, opts.y, opts.z);
@@ -99,7 +102,9 @@ export class ParticlePool {
   /** Stationary fading ghost — spawned per frame these draw a motion trail. */
   ghost(x: number, y: number, z: number, size: number, life: number): void {
     const p = this.take();
-    if (!p) return;
+    if (!p) {
+      return;
+    }
     p.pos.set(x, y, z);
     p.vel.set(0, 0, 0);
     p.age = 0;
@@ -113,7 +118,9 @@ export class ParticlePool {
     let i = 0;
     while (i < this.live) {
       const p = this.pool[i];
-      if (!p) break;
+      if (!p) {
+        break;
+      }
       p.age += dt;
       if (p.age >= p.life) {
         this.live -= 1;
@@ -129,9 +136,11 @@ export class ParticlePool {
       i += 1;
     }
 
-    for (let j = 0; j < this.live; j++) {
+    for (let j = 0; j < this.live; j += 1) {
       const p = this.pool[j];
-      if (!p) break;
+      if (!p) {
+        break;
+      }
       const t = p.age / p.life;
       const scale = Math.max(1e-4, p.size * (1 - t));
       SCRATCH_MATRIX.compose(p.pos, SCRATCH_QUAT, SCRATCH_SCALE.setScalar(scale));
@@ -141,13 +150,19 @@ export class ParticlePool {
     }
     this.mesh.count = this.live;
     this.mesh.instanceMatrix.needsUpdate = true;
-    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+    if (this.mesh.instanceColor) {
+      this.mesh.instanceColor.needsUpdate = true;
+    }
   }
 
   private take(): Particle | null {
-    if (this.live >= this.pool.length) return null;
+    if (this.live >= this.pool.length) {
+      return null;
+    }
     const p = this.pool[this.live];
-    if (!p) return null;
+    if (!p) {
+      return null;
+    }
     this.live += 1;
     return p;
   }

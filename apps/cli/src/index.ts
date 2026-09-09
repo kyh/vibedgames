@@ -20,37 +20,37 @@ import { maybeScheduleAutoUpdate } from "./lib/update.js";
 
 // SAFETY: this is the CLI's own package.json, shipped alongside dist — npm
 // refuses to publish a package without a string `version`.
-const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
+const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf-8")) as {
   version: string;
 };
 
 const main = defineCommand({
   meta: {
-    name: "vg",
-    version: pkg.version,
     description:
       "vibedgames CLI — agent-native game deploy & asset tooling (use --json for machine-readable output)",
+    name: "vg",
+    version: pkg.version,
   },
   subCommands: {
-    new: newCommand,
-    init: initCommand,
-    login: loginCommand,
-    logout: logoutCommand,
+    completions: completionsCommand,
+    credits: creditsCommand,
     deploy: deployCommand,
-    playtest: playtestCommand,
     factory: factoryCommand,
     fork: forkCommand,
     generate: generateCommand,
-    credits: creditsCommand,
+    init: initCommand,
+    login: loginCommand,
+    logout: logoutCommand,
+    new: newCommand,
+    playtest: playtestCommand,
     update: updateCommand,
-    completions: completionsCommand,
     whoami: whoamiCommand,
   },
 });
 
 // Skip for update/init (they already update) and completions (runs in shell
 // startup — must stay side-effect free).
-const subcommand = process.argv[2];
+const subcommand = process.argv.at(2);
 if (subcommand && !["update", "init", "completions"].includes(subcommand)) {
   maybeScheduleAutoUpdate();
 }

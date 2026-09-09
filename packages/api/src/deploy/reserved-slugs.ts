@@ -22,6 +22,4 @@ export const RESERVED_SLUGS = new Set<string>([
   "_v",
 ]);
 
-export function isSlugReserved(slug: string): boolean {
-  return RESERVED_SLUGS.has(slug.toLowerCase());
-}
+export const isSlugReserved = (slug: string): boolean => RESERVED_SLUGS.has(slug.toLowerCase());

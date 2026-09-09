@@ -10,170 +10,51 @@ import { CHAMPIONS } from "../data/champions";
 import { buildControlsStrip, ensureControlCardStyle } from "../render/pause-overlay";
 import { abilityIcon, champSigil } from "../data/icons";
 import { isTouchInput } from "../input/touch";
-import { ALL_ABILITY_KEYS, type AbilityKey } from "../sim/types";
+import { ALL_ABILITY_KEYS } from "../sim/types";
+import type { AbilityKey } from "../sim/types";
 import { roomId } from "../net/protocol";
 import type { SceneOpts } from "./game-scene";
 
-const hex = (n: number): string => "#" + n.toString(16).padStart(6, "0");
+const hex = (n: number): string => `#${n.toString(16).padStart(6, "0")}`;
 // escape user-supplied strings dropped into attribute values (name/room prefill)
 const esc = (s: string): string =>
-  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  s
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 const dots = (difficulty: number): string =>
   "●".repeat(difficulty) + "○".repeat(Math.max(0, 3 - difficulty));
 // display keycaps match the actual binds (1-4 + Shift/Space), not QWER letters
 const KEYCAP = {
-  Q: "1",
-  W: "2",
-  E: "3",
-  R: "4",
   DASH: "⇧",
+  E: "3",
   JUMP: "␣",
+  Q: "1",
+  R: "4",
+  W: "2",
 } satisfies Record<AbilityKey, string>;
 
-export type MenuOpts = {
+export interface MenuOpts {
   initial: string;
   onSelect: (id: string) => void;
   onStart: (opts: SceneOpts) => void;
-};
-
-export class Menu {
-  private el: HTMLDivElement;
-  private selected: string;
-  private unwatchControls: () => void;
-
-  constructor(private opts: MenuOpts) {
-    this.selected = opts.initial;
-    this.el = document.createElement("div");
-    this.el.id = "ba-menu";
-    document.body.appendChild(this.el);
-    injectStyle();
-    this.build();
-    // the help line lists controller rows only while a pad is connected —
-    // re-render if one appears (or vanishes) while the lobby is up
-    this.unwatchControls = watchControlContext(() => this.renderHelp());
-  }
-
-  private build(): void {
-    const params = new URLSearchParams(location.search);
-    const name = params.get("name") ?? localStorage.getItem("ba-name") ?? "";
-    // ?offline=1 forbids any socket, so the online affordances are dropped
-    // rather than left as controls that silently start a bot match.
-    const offline = isOfflineRequested();
-    const chips = CHAMPIONS.map(
-      (c) =>
-        `<button class="ba-chip" data-id="${c.id}" style="--accent:${hex(c.tint)}">
-          <img class="ba-cs" src="${champSigil(c.id)}" alt="">
-          <span class="ba-cn">${c.name}</span>
-          <span class="ba-cr">${c.role}</span>
-          <span class="ba-cd2">${dots(c.difficulty)}</span>
-        </button>`,
-    ).join("");
-
-    this.el.innerHTML = `
-      <div class="ba-top">
-        <div class="ba-logo">BATTLE ARENA</div>
-        <div class="ba-tag">Contest the throne. Grab the coins. Don't let anyone run away with it.</div>
-        <div class="ba-info" id="ba-info"></div>
-      </div>
-      <div class="ba-bottom">
-        <div class="ba-chips">${chips}</div>
-        <div class="ba-row2">
-          <input id="ba-name" maxlength="14" placeholder="Your name" value="${esc(name)}" />
-          ${offline ? "" : `<input id="ba-room" maxlength="12" placeholder="Room code (optional)" value="${esc(params.get("room") ?? "")}" />`}
-        </div>
-        <div class="ba-actions">
-          <button id="ba-bots" class="ba-go bots">PLAY vs BOTS</button>
-          ${offline ? "" : `<button id="ba-online" class="ba-go online">PLAY ONLINE</button>`}
-        </div>
-        <div class="ba-help"></div>
-      </div>`;
-    this.renderHelp();
-
-    this.el.querySelectorAll<HTMLButtonElement>(".ba-chip").forEach((btn) => {
-      btn.addEventListener("click", () => this.opts.onSelect(btn.dataset["id"]!));
-    });
-
-    const nameOf = (): string => {
-      const el = document.getElementById("ba-name");
-      return (el instanceof HTMLInputElement ? el.value.trim() : "") || "Player";
-    };
-    const codeOf = (): string => {
-      const el = document.getElementById("ba-room");
-      return el instanceof HTMLInputElement ? el.value.trim() : "";
-    };
-    document
-      .getElementById("ba-bots")
-      ?.addEventListener("click", () =>
-        this.start({ champId: this.selected, name: nameOf(), online: false, room: "" }),
-      );
-    document.getElementById("ba-online")?.addEventListener("click", () =>
-      this.start({
-        champId: this.selected,
-        name: nameOf(),
-        online: true,
-        room: roomId(codeOf()),
-      }),
-    );
-
-    this.setSelected(this.selected);
-  }
-
-  /** Reflect the current selection (called by MenuStage on click / chip click). */
-  setSelected(id: string): void {
-    this.selected = id;
-    this.el.querySelectorAll<HTMLButtonElement>(".ba-chip").forEach((b) => {
-      b.classList.toggle("sel", b.dataset["id"] === id);
-    });
-    const c = CHAMPIONS.find((x) => x.id === id);
-    const info = document.getElementById("ba-info");
-    if (c && info) {
-      const ab = ALL_ABILITY_KEYS.map(
-        (k) =>
-          `<span class="ba-i-a"><img src="${abilityIcon(c.id, k)}" alt=""><i>${KEYCAP[k]}</i><em>${c.abilities[k].name}</em></span>`,
-      ).join("");
-      info.style.setProperty("--accent", hex(c.tint));
-      info.innerHTML = `<span class="ba-i-name">${c.name}</span><span class="ba-i-title">${c.title}</span>
-        <span class="ba-i-role">${c.role} · ${c.primary.toUpperCase()} · <span class="ba-i-diff">${dots(c.difficulty)}</span></span>
-        <span class="ba-i-blurb">${c.blurb}</span>
-        <span class="ba-i-abrow">${ab}</span>`;
-    }
-  }
-
-  /** The help block, straight from the controls manifest (device-filtered by
-   *  @repo/embed — touch copy on coarse pointers, controller rows only while a
-   *  pad is connected). Renders the pause tablet's control language — method
-   *  headers + gold keycap chips — as a compact inline strip. */
-  private renderHelp(): void {
-    const el = this.el.querySelector<HTMLDivElement>(".ba-help");
-    if (!el) return;
-    ensureControlCardStyle();
-    el.replaceChildren();
-    const lead = document.createElement("div");
-    lead.className = "ba-help-lead";
-    lead.textContent = isTouchInput() ? "tap a champion" : "click a champion";
-    el.append(lead);
-    const coarse = window.matchMedia("(pointer: coarse)").matches;
-    const strip = buildControlsStrip(coarse);
-    if (strip) el.append(strip);
-  }
-
-  remove(): void {
-    this.unwatchControls();
-    this.el.remove();
-  }
-
-  private start(opts: SceneOpts): void {
-    // persist the pick — bare-URL quick-starts reuse it (chosenChamp/chosenName)
-    localStorage.setItem("ba-champ", opts.champId);
-    localStorage.setItem("ba-name", opts.name);
-    this.remove();
-    this.opts.onStart(opts);
-  }
 }
 
+const nameOf = (): string => {
+  const el = document.querySelector<HTMLElement>("#ba-name");
+  return (el instanceof HTMLInputElement ? el.value.trim() : "") || "Player";
+};
+const codeOf = (): string => {
+  const el = document.querySelector<HTMLElement>("#ba-room");
+  return el instanceof HTMLInputElement ? el.value.trim() : "";
+};
+
 let styled = false;
-function injectStyle(): void {
-  if (styled) return;
+const injectStyle = (): void => {
+  if (styled) {
+    return;
+  }
   styled = true;
   const s = document.createElement("style");
   s.textContent = `
@@ -248,5 +129,138 @@ function injectStyle(): void {
   #ba-menu .ba-bottom{padding:0 calc(12px + env(safe-area-inset-right,0px)) calc(10px + env(safe-area-inset-bottom,0px)) calc(12px + env(safe-area-inset-left,0px))}
 }
 `;
-  document.head.appendChild(s);
+  document.head.append(s);
+};
+
+export class Menu {
+  private el: HTMLDivElement;
+  private selected: string;
+  private unwatchControls: () => void;
+  private opts: MenuOpts;
+
+  constructor(opts: MenuOpts) {
+    this.opts = opts;
+    this.selected = opts.initial;
+    this.el = document.createElement("div");
+    this.el.id = "ba-menu";
+    document.body.append(this.el);
+    injectStyle();
+    this.build();
+    // the help line lists controller rows only while a pad is connected —
+    // re-render if one appears (or vanishes) while the lobby is up
+    this.unwatchControls = watchControlContext(() => this.renderHelp());
+  }
+
+  private build(): void {
+    const params = new URLSearchParams(location.search);
+    const name = params.get("name") ?? localStorage.getItem("ba-name") ?? "";
+    // ?offline=1 forbids any socket, so the online affordances are dropped
+    // rather than left as controls that silently start a bot match.
+    const offline = isOfflineRequested();
+    const chips = CHAMPIONS.map(
+      (c) =>
+        `<button class="ba-chip" data-id="${c.id}" style="--accent:${hex(c.tint)}">
+          <img class="ba-cs" src="${champSigil(c.id)}" alt="">
+          <span class="ba-cn">${c.name}</span>
+          <span class="ba-cr">${c.role}</span>
+          <span class="ba-cd2">${dots(c.difficulty)}</span>
+        </button>`,
+    ).join("");
+
+    this.el.innerHTML = `
+      <div class="ba-top">
+        <div class="ba-logo">BATTLE ARENA</div>
+        <div class="ba-tag">Contest the throne. Grab the coins. Don't let anyone run away with it.</div>
+        <div class="ba-info" id="ba-info"></div>
+      </div>
+      <div class="ba-bottom">
+        <div class="ba-chips">${chips}</div>
+        <div class="ba-row2">
+          <input id="ba-name" maxlength="14" placeholder="Your name" value="${esc(name)}" />
+          ${offline ? "" : `<input id="ba-room" maxlength="12" placeholder="Room code (optional)" value="${esc(params.get("room") ?? "")}" />`}
+        </div>
+        <div class="ba-actions">
+          <button id="ba-bots" class="ba-go bots">PLAY vs BOTS</button>
+          ${offline ? "" : `<button id="ba-online" class="ba-go online">PLAY ONLINE</button>`}
+        </div>
+        <div class="ba-help"></div>
+      </div>`;
+    this.renderHelp();
+
+    for (const btn of this.el.querySelectorAll<HTMLButtonElement>(".ba-chip")) {
+      btn.addEventListener("click", () => this.opts.onSelect(btn.dataset["id"] ?? ""));
+    }
+
+    document
+      .querySelector("#ba-bots")
+      ?.addEventListener("click", () =>
+        this.start({ champId: this.selected, name: nameOf(), online: false, room: "" }),
+      );
+    document.querySelector<HTMLElement>("#ba-online")?.addEventListener("click", () =>
+      this.start({
+        champId: this.selected,
+        name: nameOf(),
+        online: true,
+        room: roomId(codeOf()),
+      }),
+    );
+
+    this.setSelected(this.selected);
+  }
+
+  /** Reflect the current selection (called by MenuStage on click / chip click). */
+  setSelected(id: string): void {
+    this.selected = id;
+    for (const b of this.el.querySelectorAll<HTMLButtonElement>(".ba-chip")) {
+      b.classList.toggle("sel", b.dataset["id"] === id);
+    }
+    const c = CHAMPIONS.find((x) => x.id === id);
+    const info = document.querySelector<HTMLElement>("#ba-info");
+    if (c && info) {
+      const ab = ALL_ABILITY_KEYS.map(
+        (k) =>
+          `<span class="ba-i-a"><img src="${abilityIcon(c.id, k)}" alt=""><i>${KEYCAP[k]}</i><em>${c.abilities[k].name}</em></span>`,
+      ).join("");
+      info.style.setProperty("--accent", hex(c.tint));
+      info.innerHTML = `<span class="ba-i-name">${c.name}</span><span class="ba-i-title">${c.title}</span>
+        <span class="ba-i-role">${c.role} · ${c.primary.toUpperCase()} · <span class="ba-i-diff">${dots(c.difficulty)}</span></span>
+        <span class="ba-i-blurb">${c.blurb}</span>
+        <span class="ba-i-abrow">${ab}</span>`;
+    }
+  }
+
+  /** The help block, straight from the controls manifest (device-filtered by
+   *  the embed package — touch copy on coarse pointers, controller rows only while a
+   *  pad is connected). Renders the pause tablet's control language — method
+   *  headers + gold keycap chips — as a compact inline strip. */
+  private renderHelp(): void {
+    const el = this.el.querySelector<HTMLDivElement>(".ba-help");
+    if (!el) {
+      return;
+    }
+    ensureControlCardStyle();
+    el.replaceChildren();
+    const lead = document.createElement("div");
+    lead.className = "ba-help-lead";
+    lead.textContent = isTouchInput() ? "tap a champion" : "click a champion";
+    el.append(lead);
+    const coarse = window.matchMedia("(pointer: coarse)").matches;
+    const strip = buildControlsStrip(coarse);
+    if (strip) {
+      el.append(strip);
+    }
+  }
+
+  remove(): void {
+    this.unwatchControls();
+    this.el.remove();
+  }
+
+  private start(opts: SceneOpts): void {
+    // persist the pick — bare-URL quick-starts reuse it (chosenChamp/chosenName)
+    localStorage.setItem("ba-champ", opts.champId);
+    localStorage.setItem("ba-name", opts.name);
+    this.remove();
+    this.opts.onStart(opts);
+  }
 }

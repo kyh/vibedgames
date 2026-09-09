@@ -7,16 +7,19 @@ export const PAUSE_GAME_MESSAGE = "vibedgames:pause-game";
 export const GAME_PAUSED_MESSAGE = "vibedgames:game-paused";
 
 /** Game → wrapper: active play began (or resumed) — hide the wrapper chrome. */
+// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 export type GameStartedMessage = {
   readonly type: typeof GAME_STARTED_MESSAGE;
 };
 
 /** Wrapper → game: the player asked for the wrapper back — pause the game. */
+// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 export type PauseGameMessage = {
   readonly type: typeof PAUSE_GAME_MESSAGE;
 };
 
 /** Game → wrapper: the game paused itself (Escape) — show the wrapper chrome. */
+// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 export type GamePausedMessage = {
   readonly type: typeof GAME_PAUSED_MESSAGE;
 };
@@ -33,14 +36,11 @@ export type MessageData =
 const hasType = (value: MessageData, type: string): boolean =>
   value instanceof Object && !Array.isArray(value) && value.type === type;
 
-export function isGameStartedMessage(value: MessageData): value is GameStartedMessage {
-  return hasType(value, GAME_STARTED_MESSAGE);
-}
+export const isGameStartedMessage = (value: MessageData): value is GameStartedMessage =>
+  hasType(value, GAME_STARTED_MESSAGE);
 
-export function isPauseGameMessage(value: MessageData): value is PauseGameMessage {
-  return hasType(value, PAUSE_GAME_MESSAGE);
-}
+export const isPauseGameMessage = (value: MessageData): value is PauseGameMessage =>
+  hasType(value, PAUSE_GAME_MESSAGE);
 
-export function isGamePausedMessage(value: MessageData): value is GamePausedMessage {
-  return hasType(value, GAME_PAUSED_MESSAGE);
-}
+export const isGamePausedMessage = (value: MessageData): value is GamePausedMessage =>
+  hasType(value, GAME_PAUSED_MESSAGE);

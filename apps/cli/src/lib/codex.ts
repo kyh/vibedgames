@@ -1,13 +1,14 @@
 import { randomBytes } from "node:crypto";
 import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, statSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { basename, dirname, extname, join, resolve } from "node:path";
+import path from "node:path";
 
 import spawn from "cross-spawn";
 
 import { readExplicitLocalFile } from "./media-args.js";
 import { disambiguateTargets } from "./media-download.js";
-import { isJsonNumber, isJsonString, type JsonObject } from "./types.js";
+import { isJsonNumber, isJsonString } from "./types.js";
+import type { JsonObject } from "./types.js";
 
 // `vg generate run` can execute against the vibedgames model runner
 // (default) or delegate image generation to a locally-installed Codex
@@ -39,14 +40,16 @@ export class CodexError extends Error {
  * default. Unknown values throw so a typo (`--provider coddex`) fails
  * loudly instead of silently hitting the paid backend.
  */
-export function resolveProvider(flag?: string): Provider {
+export const resolveProvider = (flag?: string): Provider => {
   const raw = (flag ?? process.env.VG_GENERATE_PROVIDER ?? "").trim().toLowerCase();
-  if (raw === "codex") return "codex";
+  if (raw === "codex") {
+    return "codex";
+  }
   if (raw === "" || raw === "vibedgames" || raw === "fal" || raw === "default") {
     return "vibedgames";
   }
   throw new Error(`Unknown --provider "${raw}". Supported: vibedgames (default), codex.`);
-}
+};
 
 // Input keys we map onto Codex's natural-language image request. Codex
 // only exposes a single built-in image model, so most fal-style params
@@ -69,12 +72,30 @@ const MAX_IMAGES = 8;
 
 const IMAGE_EXT = new Set(["png", "jpg", "jpeg", "webp", "gif"]);
 
-export type CodexInput = {
+export interface CodexInput {
   prompt: string;
   count: number;
   sizeHint?: string;
   /** Raw reference values from the input; may be local paths or URLs. */
   referenceCandidates: string[];
+}
+
+const buildSizeHint = (input: JsonObject): string | undefined => {
+  const parts: string[] = [];
+  const size = input.image_size ?? input.size;
+  if (isJsonString(size) && size.trim().length > 0) {
+    parts.push(size.trim());
+  }
+  const aspect = input.aspect_ratio;
+  if (isJsonString(aspect) && aspect.trim().length > 0) {
+    parts.push(`aspect ratio ${aspect.trim()}`);
+  }
+  const w = input.width;
+  const h = input.height;
+  if (isJsonNumber(w) && isJsonNumber(h)) {
+    parts.push(`${w}x${h}px`);
+  }
+  return parts.length > 0 ? parts.join(", ") : undefined;
 };
 
 /**
@@ -82,7 +103,7 @@ export type CodexInput = {
  * no filesystem access, so the reference values are returned verbatim and
  * resolved to local files later.
  */
-export function parseCodexInput(input: JsonObject): CodexInput {
+export const parseCodexInput = (input: JsonObject): CodexInput => {
   let prompt = "";
   for (const key of PROMPT_KEYS) {
     const v = input[key];
@@ -104,39 +125,30 @@ export function parseCodexInput(input: JsonObject): CodexInput {
   const referenceCandidates: string[] = [];
   for (const key of REF_KEYS) {
     const v = input[key];
-    if (isJsonString(v)) referenceCandidates.push(v);
-    else if (Array.isArray(v)) {
-      for (const item of v) if (isJsonString(item)) referenceCandidates.push(item);
+    if (isJsonString(v)) {
+      referenceCandidates.push(v);
+    } else if (Array.isArray(v)) {
+      for (const item of v) {
+        if (isJsonString(item)) {
+          referenceCandidates.push(item);
+        }
+      }
     }
   }
 
-  return { prompt, count, sizeHint: buildSizeHint(input), referenceCandidates };
-}
-
-function buildSizeHint(input: JsonObject): string | undefined {
-  const parts: string[] = [];
-  const size = input.image_size ?? input.size;
-  if (isJsonString(size) && size.trim().length > 0) parts.push(size.trim());
-  const aspect = input.aspect_ratio;
-  if (isJsonString(aspect) && aspect.trim().length > 0) {
-    parts.push(`aspect ratio ${aspect.trim()}`);
-  }
-  const w = input.width;
-  const h = input.height;
-  if (isJsonNumber(w) && isJsonNumber(h)) parts.push(`${w}x${h}px`);
-  return parts.length > 0 ? parts.join(", ") : undefined;
-}
+  return { count, prompt, referenceCandidates, sizeHint: buildSizeHint(input) };
+};
 
 /**
  * Build the natural-language instruction handed to `codex exec`. We pin
  * exact output filenames and the working directory so the generated
  * files land somewhere we can deterministically collect them.
  */
-export function buildCodexPrompt(
+export const buildCodexPrompt = (
   input: CodexInput,
   filenames: string[],
   hasReferences: boolean,
-): string {
+): string => {
   const n = filenames.length;
   const noun = n === 1 ? "image" : `${n} images`;
   const lines = [
@@ -145,14 +157,16 @@ export function buildCodexPrompt(
       : `Generate ${noun} using your built-in image generation.`,
     `Prompt: ${input.prompt}`,
   ];
-  if (input.sizeHint) lines.push(`Size: ${input.sizeHint}.`);
+  if (input.sizeHint) {
+    lines.push(`Size: ${input.sizeHint}.`);
+  }
   lines.push(
     `Save the output as PNG into the current working directory using exactly ` +
       `these filenames: ${filenames.join(", ")}.`,
     `Do not read, create, or modify any other files, and do not write or run code. $imagegen`,
   );
   return lines.join("\n");
-}
+};
 
 /**
  * Choose the on-disk destination for a collected Codex output, mirroring
@@ -160,15 +174,15 @@ export function buildCodexPrompt(
  * ({index}, {ext}, {request_id} placeholders; bare path treated as a
  * directory or a literal file by extension).
  */
-export function renderLocalTarget(
+export const renderLocalTarget = (
   template: string | undefined,
   index: number,
   ext: string,
   requestId: string,
   count: number,
-): string {
+): string => {
   if (!template) {
-    return resolve(process.cwd(), `codex-image-${requestId}-${index}.${ext}`);
+    return path.resolve(process.cwd(), `codex-image-${requestId}-${index}.${ext}`);
   }
   if (template.includes("{")) {
     const rendered = template
@@ -176,18 +190,20 @@ export function renderLocalTarget(
       .replaceAll("{ext}", ext)
       .replaceAll("{request_id}", requestId)
       .replaceAll("{name}", "output");
-    return resolve(rendered);
+    return path.resolve(rendered);
   }
-  if (extname(template)) {
-    if (count <= 1) return resolve(template);
-    const e = extname(template);
+  if (path.extname(template)) {
+    if (count <= 1) {
+      return path.resolve(template);
+    }
+    const e = path.extname(template);
     const stem = template.slice(0, template.length - e.length);
-    return resolve(index === 0 ? template : `${stem}_${index}${e}`);
+    return path.resolve(index === 0 ? template : `${stem}_${index}${e}`);
   }
-  return resolve(template, `codex-image-${index}.${ext}`);
-}
+  return path.resolve(template, `codex-image-${index}.${ext}`);
+};
 
-type CodexRun = {
+interface CodexRun {
   requestId: string;
   prompt: string;
   /** Absolute paths to the images Codex produced, in a stable order. */
@@ -199,13 +215,11 @@ type CodexRun = {
    * a suppressed logger would vanish.
    */
   ignoredReferences: string[];
-};
-
-function codexHome(): string {
-  return process.env.CODEX_HOME ?? join(homedir(), ".codex");
 }
 
-function listImages(dir: string): string[] {
+const codexHome = (): string => process.env.CODEX_HOME ?? path.join(homedir(), ".codex");
+
+const listImages = (dir: string): string[] => {
   let names: string[];
   try {
     names = readdirSync(dir);
@@ -214,37 +228,77 @@ function listImages(dir: string): string[] {
   }
   const out: string[] = [];
   for (const name of names) {
-    const ext = extname(name).slice(1).toLowerCase();
-    if (!IMAGE_EXT.has(ext)) continue;
-    const full = join(dir, name);
+    const ext = path.extname(name).slice(1).toLowerCase();
+    if (!IMAGE_EXT.has(ext)) {
+      continue;
+    }
+    const full = path.join(dir, name);
     try {
-      if (statSync(full).isFile()) out.push(full);
+      if (statSync(full).isFile()) {
+        out.push(full);
+      }
     } catch {
       // Raced away between readdir and stat; skip.
     }
   }
   return out.toSorted();
-}
+};
 
 // Keep the `limit` most-recently-modified paths (by mtime), returned in
 // stable name order. Used to bound the shared-store fallback.
-function pickNewest(paths: string[], limit: number): string[] {
-  if (paths.length <= limit) return paths;
+const pickNewest = (paths: string[], limit: number): string[] => {
+  if (paths.length <= limit) {
+    return paths;
+  }
   const withTime = paths.map((p) => {
     let mtimeMs = 0;
     try {
-      mtimeMs = statSync(p).mtimeMs;
+      ({ mtimeMs } = statSync(p));
     } catch {
       // Gone between listing and stat; sort it oldest.
     }
-    return { p, mtimeMs };
+    return { mtimeMs, p };
   });
   return withTime
     .toSorted((a, b) => b.mtimeMs - a.mtimeMs)
     .slice(0, limit)
     .map((x) => x.p)
     .toSorted();
-}
+};
+
+const spawnCodex = (
+  bin: string,
+  args: string[],
+  cwd: string,
+): Promise<{ code: number; output: string; notFound: boolean }> =>
+  // oxlint-disable-next-line promise/avoid-new -- child_process.spawn is event-based
+  new Promise((resolve) => {
+    const child = spawn(bin, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    let output = "";
+    // Forward Codex's own stdout/stderr straight to our stderr so the user
+    // sees its progress and messages directly. It goes to stderr (never
+    // stdout) so it can't corrupt our `--json` payload. We also buffer it
+    // so a failure can surface the tail even for a caller that isn't
+    // watching the live stream.
+    child.stdout?.on("data", (c: Buffer) => {
+      output += c.toString("utf-8");
+      process.stderr.write(c);
+    });
+    child.stderr?.on("data", (c: Buffer) => {
+      output += c.toString("utf-8");
+      process.stderr.write(c);
+    });
+    child.on("error", (err: NodeJS.ErrnoException) => {
+      resolve({
+        code: 1,
+        notFound: err.code === "ENOENT",
+        output: output + err.message,
+      });
+    });
+    child.on("close", (code) => {
+      resolve({ code: code ?? 1, notFound: false, output });
+    });
+  });
 
 /**
  * Delegate image generation to the local `codex` CLI. Runs
@@ -253,7 +307,7 @@ function pickNewest(paths: string[], limit: number): string[] {
  * `generated_images` store). Throws with actionable guidance when Codex
  * is missing, fails, or produces nothing.
  */
-export async function generateImagesWithCodex(opts: { input: JsonObject }): Promise<CodexRun> {
+export const generateImagesWithCodex = async (opts: { input: JsonObject }): Promise<CodexRun> => {
   const parsed = parseCodexInput(opts.input);
   if (!parsed.prompt) {
     throw new CodexError("codex image generation requires a prompt (--prompt).");
@@ -266,12 +320,15 @@ export async function generateImagesWithCodex(opts: { input: JsonObject }): Prom
   const ignoredReferences: string[] = [];
   for (const candidate of parsed.referenceCandidates) {
     const local = readExplicitLocalFile(candidate);
-    if (local) references.push(local.path);
-    else ignoredReferences.push(candidate);
+    if (local) {
+      references.push(local.path);
+    } else {
+      ignoredReferences.push(candidate);
+    }
   }
 
   const requestId = randomBytes(4).toString("hex");
-  const workDir = mkdtempSync(join(tmpdir(), "vg-codex-"));
+  const workDir = mkdtempSync(path.join(tmpdir(), "vg-codex-"));
   const filenames = Array.from({ length: parsed.count }, (_, i) => `output-${i}.png`);
   const prompt = buildCodexPrompt(parsed, filenames, references.length > 0);
 
@@ -289,7 +346,7 @@ export async function generateImagesWithCodex(opts: { input: JsonObject }): Prom
 
   // Snapshot Codex's default image store so we can tell which files this
   // run produced if the model saves there instead of the workspace.
-  const storeDir = join(codexHome(), "generated_images");
+  const storeDir = path.join(codexHome(), "generated_images");
   const before = new Set(listImages(storeDir));
 
   const outcome = await spawnCodex(bin, args, workDir);
@@ -312,7 +369,7 @@ export async function generateImagesWithCodex(opts: { input: JsonObject }): Prom
   // workspace must NOT count as output nor suppress the store fallback.
   const pinned = new Set(filenames);
   const fromWork = listImages(workDir);
-  const pinnedWork = fromWork.filter((p) => pinned.has(basename(p)));
+  const pinnedWork = fromWork.filter((p) => pinned.has(path.basename(p)));
   // Fallback for when Codex ignored the workspace and wrote to its shared
   // store instead. That store is not scoped to this invocation, so cap to
   // the newest `count` new files to limit picking up a concurrent run's
@@ -326,12 +383,12 @@ export async function generateImagesWithCodex(opts: { input: JsonObject }): Prom
   // any workspace PNG (Codex saved images but chose different names) —
   // capped to `count` like the store branch so an unexpected extra file
   // can't inflate the output set.
-  const rawFiles =
-    pinnedWork.length > 0
-      ? pinnedWork
-      : fromStore.length > 0
-        ? fromStore
-        : pickNewest(fromWork, parsed.count);
+  let rawFiles = pickNewest(fromWork, parsed.count);
+  if (pinnedWork.length > 0) {
+    rawFiles = pinnedWork;
+  } else if (fromStore.length > 0) {
+    rawFiles = fromStore;
+  }
   if (rawFiles.length === 0) {
     throw new CodexError(
       `codex produced no image files. It may have declined the request or lack ` +
@@ -340,19 +397,19 @@ export async function generateImagesWithCodex(opts: { input: JsonObject }): Prom
     );
   }
 
-  return { requestId, prompt, rawFiles, ignoredReferences };
-}
+  return { ignoredReferences, prompt, rawFiles, requestId };
+};
 
 /**
  * Copy Codex's raw outputs to their final destinations per the
  * `--download` template (or default cwd naming). Returns the written
  * paths and any per-file failures.
  */
-export function placeCodexOutputs(
+export const placeCodexOutputs = (
   rawFiles: string[],
   template: string | undefined,
   requestId: string,
-) {
+) => {
   const downloaded: string[] = [];
   // Keyed `url` (holding the source path) to match the shape the
   // vibedgames run/status paths use for `download_failures`, so agents
@@ -364,55 +421,24 @@ export function placeCodexOutputs(
   // {index} (e.g. `{request_id}.{ext}` or a fixed filename) would
   // otherwise overwrite earlier outputs while still reporting each path.
   const rendered = rawFiles.map((source, index) => {
-    const ext = extname(source).slice(1).toLowerCase() || "png";
+    const ext = path.extname(source).slice(1).toLowerCase() || "png";
     return renderLocalTarget(template, index, ext, requestId, rawFiles.length);
   });
   const targets = disambiguateTargets(rendered);
-  rawFiles.forEach((source, index) => {
-    const target = targets[index]!;
+  for (const [index, source] of rawFiles.entries()) {
+    const target = targets[index];
+    if (target === undefined) {
+      continue;
+    }
     try {
-      if (resolve(source) !== target) {
-        mkdirSync(dirname(target), { recursive: true });
+      if (path.resolve(source) !== target) {
+        mkdirSync(path.dirname(target), { recursive: true });
         copyFileSync(source, target);
       }
       downloaded.push(target);
-    } catch (err) {
-      failed.push({ url: source, error: err instanceof Error ? err.message : String(err) });
+    } catch (error) {
+      failed.push({ error: error instanceof Error ? error.message : String(error), url: source });
     }
-  });
+  }
   return { downloaded, failed };
-}
-
-function spawnCodex(
-  bin: string,
-  args: string[],
-  cwd: string,
-): Promise<{ code: number; output: string; notFound: boolean }> {
-  return new Promise((resolvePromise) => {
-    const child = spawn(bin, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
-    let output = "";
-    // Forward Codex's own stdout/stderr straight to our stderr so the user
-    // sees its progress and messages directly. It goes to stderr (never
-    // stdout) so it can't corrupt our `--json` payload. We also buffer it
-    // so a failure can surface the tail even for a caller that isn't
-    // watching the live stream.
-    child.stdout?.on("data", (c: Buffer) => {
-      output += c.toString("utf8");
-      process.stderr.write(c);
-    });
-    child.stderr?.on("data", (c: Buffer) => {
-      output += c.toString("utf8");
-      process.stderr.write(c);
-    });
-    child.on("error", (err: NodeJS.ErrnoException) => {
-      resolvePromise({
-        code: 1,
-        output: output + err.message,
-        notFound: err.code === "ENOENT",
-      });
-    });
-    child.on("close", (code) => {
-      resolvePromise({ code: code ?? 1, output, notFound: false });
-    });
-  });
-}
+};

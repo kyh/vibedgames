@@ -1,8 +1,10 @@
-import Phaser from "phaser";
+import { Game, Scale, WEBGL } from "phaser";
+import type { Types } from "phaser";
 import { setPauseHandlers } from "@repo/embed";
 
 import { CONTROLS } from "./controls";
-import { initPoseCamera, type PoseJumpHandler } from "./input/camera";
+import { initPoseCamera } from "./input/camera";
+import type { PoseJumpHandler } from "./input/camera";
 import type { NetSession } from "./net/session";
 import { createFlappyPauseOverlay } from "./pause-overlay";
 import { BootScene } from "./scenes/boot-scene";
@@ -17,21 +19,21 @@ declare global {
   }
 }
 
-const config: Phaser.Types.Core.GameConfig = {
-  type: Phaser.WEBGL,
-  parent: "game",
+const config: Types.Core.GameConfig = {
   backgroundColor: "#c6ecff",
+  parent: "game",
+  pixelArt: true,
   scale: {
     // Fill the window; GameScene re-lays-out the backdrop + HUD on resize.
-    mode: Phaser.Scale.RESIZE,
-    width: "100%",
     height: "100%",
+    mode: Scale.RESIZE,
+    width: "100%",
   },
-  pixelArt: true,
   scene: [BootScene, GameScene],
+  type: WEBGL,
 };
 
-const game = new Phaser.Game(config);
+const game = new Game(config);
 
 // Scale.RESIZE can read stale parent bounds when a resize lands while the tab
 // is hidden or the browser throttles events (tab switch, phone rotation): the
@@ -43,7 +45,9 @@ const refreshScale = (): void => {
 };
 window.addEventListener("resize", refreshScale);
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) refreshScale();
+  if (!document.hidden) {
+    refreshScale();
+  }
 });
 
 // Webcam pose-jump (legacy signature feature): detected physical jumps route
@@ -54,7 +58,9 @@ document.addEventListener("visibilitychange", () => {
 // PAUSED screen.
 let wrapperPaused = false;
 const poseJump: PoseJumpHandler = (strength, refire) => {
-  if (wrapperPaused) return;
+  if (wrapperPaused) {
+    return;
+  }
   const scene = game.scene.getScene("Game");
   if (game.scene.isActive("Game") && scene instanceof GameScene) {
     scene.poseJump(strength, refire);
@@ -80,7 +86,9 @@ setPauseHandlers({
     wrapperPaused = true;
     pauseOverlay.show();
     gameScene()?.setCountdownPaused(true);
-    if (gameScene()?.isOnline() ?? false) return;
+    if (gameScene()?.isOnline() ?? false) {
+      return;
+    }
     froze = true;
     game.loop.sleep();
     game.sound.pauseAll();
@@ -89,7 +97,9 @@ setPauseHandlers({
     wrapperPaused = false;
     pauseOverlay.hide();
     gameScene()?.setCountdownPaused(false);
-    if (!froze) return;
+    if (!froze) {
+      return;
+    }
     froze = false;
     game.loop.wake();
     game.sound.resumeAll();

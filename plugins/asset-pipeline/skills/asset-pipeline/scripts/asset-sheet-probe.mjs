@@ -7,7 +7,6 @@
  *   node asset-sheet-probe.mjs path/to/folder --frame 16x16 --list --json tmp/probe.json
  */
 import {
-  fail,
   failUsage,
   getFlag,
   getString,
@@ -19,31 +18,42 @@ import {
   writeJsonFile,
 } from "./_lib/asset-tools.mjs";
 
+const format = (pairs) => `[${pairs.map(([c, r]) => `(${c}, ${r})`).join(", ")}]`;
+
 main(() => {
   const args = parseArgs(process.argv.slice(2), {
-    values: ["frame", "json"],
     booleans: ["list", "show-empty"],
+    values: ["frame", "json"],
   });
-  const target = args.positionals[0];
-  if (!target) failUsage("A PNG file or folder path is required.");
+  const [target] = args.positionals;
+  if (!target) {
+    failUsage("A PNG file or folder path is required.");
+  }
 
   const frameSpec = getString(args, "frame");
-  if (!frameSpec) failUsage("--frame is required, e.g. --frame 32x32");
+  if (!frameSpec) {
+    failUsage("--frame is required, e.g. --frame 32x32");
+  }
   const frame = parseFrame(frameSpec);
   const showEmpty = getFlag(args, "show-empty");
 
-  const results = resolveTargets(target).map((path) => probeSheet(path, frame, showEmpty));
-  const format = (pairs) => `[${pairs.map(([c, r]) => `(${c}, ${r})`).join(", ")}]`;
+  const results = resolveTargets(target).map((sheet) => probeSheet(sheet, frame, showEmpty));
 
   for (const result of results) {
     console.log(
       `${result.path}  grid=${result.grid.columns}x${result.grid.rows}` +
         `  non_empty=${result.non_empty.length}  empty=${result.empty_count}`,
     );
-    if (getFlag(args, "list")) console.log(`  non_empty=${format(result.non_empty)}`);
-    if (showEmpty) console.log(`  empty=${format(result.empty ?? [])}`);
+    if (getFlag(args, "list")) {
+      console.log(`  non_empty=${format(result.non_empty)}`);
+    }
+    if (showEmpty) {
+      console.log(`  empty=${format(result.empty ?? [])}`);
+    }
   }
 
   const json = getString(args, "json");
-  if (json) writeJsonFile(json, results);
+  if (json) {
+    writeJsonFile(json, results);
+  }
 });

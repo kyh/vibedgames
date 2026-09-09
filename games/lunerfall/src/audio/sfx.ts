@@ -3,6 +3,9 @@
 
 type Ctx = AudioContext & { createGain: () => GainNode };
 
+// View-only pitch jitter, so repeated hits don't sound identical.
+const jitter = (n: number): number => 1 + (Math.random() - 0.5) * n;
+
 class Sfx {
   private ctx: Ctx | null = null;
   private master: GainNode | null = null;
@@ -12,10 +15,14 @@ class Sfx {
   muted = false;
 
   private ensure(): Ctx | null {
-    if (this.muted) return null;
+    if (this.muted) {
+      return null;
+    }
     if (!this.ctx) {
       const AC = window.AudioContext;
-      if (!AC) return null;
+      if (!AC) {
+        return null;
+      }
       this.ctx = new AC();
       this.master = this.ctx.createGain();
       this.master.gain.value = 0.5;
@@ -24,20 +31,25 @@ class Sfx {
       this.musicGain.gain.value = 0.32;
       this.musicGain.connect(this.master);
     }
-    if (this.ctx.state === "suspended") void this.ctx.resume();
+    if (this.ctx.state === "suspended") {
+      void this.ctx.resume();
+    }
     return this.ctx;
   }
 
   // Call once — resumes audio + starts music on the first key/pointer.
   unlock() {
     this.ensure();
-    if (this.ctx && !this.musicTimer && !this.muted) this.startMusic();
+    if (this.ctx && !this.musicTimer && !this.muted) {
+      this.startMusic();
+    }
   }
 
   toggleMute() {
     this.muted = !this.muted;
-    if (this.master && this.ctx)
+    if (this.master && this.ctx) {
       this.master.gain.setValueAtTime(this.muted ? 0 : 0.5, this.ctx.currentTime);
+    }
   }
 
   private tone(
@@ -49,13 +61,17 @@ class Sfx {
     dest?: AudioNode,
   ) {
     const ctx = this.ensure();
-    if (!ctx || !this.master) return;
+    if (!ctx || !this.master) {
+      return;
+    }
     const o = ctx.createOscillator();
     const g = ctx.createGain();
     const t = ctx.currentTime;
     o.type = type;
     o.frequency.setValueAtTime(freq, t);
-    if (slideTo) o.frequency.exponentialRampToValueAtTime(Math.max(1, slideTo), t + dur);
+    if (slideTo) {
+      o.frequency.exponentialRampToValueAtTime(Math.max(1, slideTo), t + dur);
+    }
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(gain, t + 0.005);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
@@ -66,17 +82,23 @@ class Sfx {
 
   private noise(dur: number, gain: number, filt: number, sweepTo?: number) {
     const ctx = this.ensure();
-    if (!ctx || !this.master) return;
+    if (!ctx || !this.master) {
+      return;
+    }
     const n = Math.floor(ctx.sampleRate * dur);
     const buf = ctx.createBuffer(1, n, ctx.sampleRate);
     const d = buf.getChannelData(0);
-    for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+    for (let i = 0; i < n; i += 1) {
+      d[i] = Math.random() * 2 - 1;
+    }
     const src = ctx.createBufferSource();
     src.buffer = buf;
     const bp = ctx.createBiquadFilter();
     bp.type = "bandpass";
     bp.frequency.setValueAtTime(filt, ctx.currentTime);
-    if (sweepTo) bp.frequency.exponentialRampToValueAtTime(sweepTo, ctx.currentTime + dur);
+    if (sweepTo) {
+      bp.frequency.exponentialRampToValueAtTime(sweepTo, ctx.currentTime + dur);
+    }
     const g = ctx.createGain();
     g.gain.setValueAtTime(gain, ctx.currentTime);
     g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur);
@@ -85,15 +107,11 @@ class Sfx {
     src.stop(ctx.currentTime + dur + 0.02);
   }
 
-  private r(n: number) {
-    return 1 + (Math.random() - 0.5) * n;
-  }
-
   slash() {
-    this.noise(0.12, 0.18, 2600 * this.r(0.2), 900);
+    this.noise(0.12, 0.18, 2600 * jitter(0.2), 900);
   }
   hit() {
-    this.tone(180 * this.r(0.15), 0.1, "square", 0.16, 90);
+    this.tone(180 * jitter(0.15), 0.1, "square", 0.16, 90);
     this.noise(0.07, 0.12, 1400);
   }
   kill() {
@@ -101,10 +119,10 @@ class Sfx {
     this.noise(0.14, 0.16, 900, 300);
   }
   dash() {
-    this.noise(0.18, 0.14, 700 * this.r(0.2), 2400);
+    this.noise(0.18, 0.14, 700 * jitter(0.2), 2400);
   }
   jump() {
-    this.tone(320 * this.r(0.1), 0.14, "sine", 0.12, 620);
+    this.tone(320 * jitter(0.1), 0.14, "sine", 0.12, 620);
   }
   hurt() {
     this.tone(300, 0.2, "sawtooth", 0.2, 90);
@@ -125,7 +143,7 @@ class Sfx {
     this.tone(440, 0.18, "triangle", 0.12, 660);
   }
   select() {
-    this.tone(560 * this.r(0.05), 0.07, "square", 0.1, 720);
+    this.tone(560 * jitter(0.05), 0.07, "square", 0.1, 720);
   }
   die() {
     this.tone(260, 0.6, "sawtooth", 0.26, 60);
@@ -148,20 +166,30 @@ class Sfx {
   // Sparse pentatonic bass + soft kick — a moody neon-shrine bed.
   private startMusic() {
     const ctx = this.ensure();
-    if (!ctx || !this.musicGain) return;
+    if (!ctx || !this.musicGain) {
+      return;
+    }
     const mg = this.musicGain;
-    const bass = [55, 82.4, 61.7, 73.4]; // A1 E2 B1 D2
+    // A1 E2 B1 D2
+    const bass = [55, 82.4, 61.7, 73.4];
     this.musicTimer = setInterval(() => {
-      if (this.muted) return;
+      if (this.muted) {
+        return;
+      }
       const i = this.step % 16;
-      if (i % 4 === 0) this.tone(90, 0.16, "sine", 0.5, 40, mg); // kick
+      if (i % 4 === 0) {
+        this.tone(90, 0.16, "sine", 0.5, 40, mg);
+        // kick
+      }
       if (i % 8 === 0) {
         const root = bass[Math.floor(this.step / 8) % bass.length] ?? 55;
         this.tone(root, 1.4, "triangle", 0.4, undefined, mg);
         this.tone(root * 1.5, 1.2, "sine", 0.18, undefined, mg);
       }
-      if (i === 6 || i === 12) this.tone(880 * this.r(0.02), 0.12, "sine", 0.1, undefined, mg);
-      this.step++;
+      if (i === 6 || i === 12) {
+        this.tone(880 * jitter(0.02), 0.12, "sine", 0.1, undefined, mg);
+      }
+      this.step += 1;
     }, 200);
   }
 }

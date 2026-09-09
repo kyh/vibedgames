@@ -13,30 +13,30 @@ import { API_KEY_SESSION_PREFIX, resolveApiKeySession } from "./auth/api-key";
  * inferred `AppRouter` type does not carry a transitive reference to
  * that package; consumers (e.g. the CLI) would otherwise need it too.
  */
-export type R2BucketLike = {
-  get(key: string): Promise<{
+export interface R2BucketLike {
+  get: (key: string) => Promise<{
     size: number;
     httpMetadata?: { contentType?: string };
-    arrayBuffer(): Promise<ArrayBuffer>;
+    arrayBuffer: () => Promise<ArrayBuffer>;
   } | null>;
-  head(key: string): Promise<{
+  head: (key: string) => Promise<{
     size: number;
     httpMetadata?: { contentType?: string };
   } | null>;
-  list(options: { prefix?: string; cursor?: string; limit?: number }): Promise<{
-    objects: Array<{ key: string }>;
+  list: (options: { prefix?: string; cursor?: string; limit?: number }) => Promise<{
+    objects: { key: string }[];
     truncated: boolean;
     cursor?: string;
   }>;
-  delete(key: string): Promise<void>;
+  delete: (key: string) => Promise<void>;
   // The real binding resolves with the written object's metadata; this
   // package only ever awaits the write, so just the key is modeled.
-  put(
+  put: (
     key: string,
     value: ArrayBuffer | ArrayBufferView | ReadableStream | string,
     options?: { httpMetadata?: { contentType?: string } },
-  ): Promise<{ key: string } | null>;
-};
+  ) => Promise<{ key: string } | null>;
+}
 
 /**
  * R2 credentials needed for minting S3 presigned URLs. The R2 *binding* can
@@ -49,7 +49,7 @@ export type R2BucketLike = {
  * resolves to (Miniflare-simulated locally, real R2 in prod). Keeps dev fully
  * isolated from prod R2.
  */
-export type R2Config = {
+export interface R2Config {
   bucket: R2BucketLike;
   bucketName: string;
   accountId: string;
@@ -57,7 +57,7 @@ export type R2Config = {
   secretAccessKey: string;
   proxyUploadBaseUrl?: string;
   proxyUploadSecret?: string;
-};
+}
 
 /**
  * Server-held config for the fal proxy that backs `generate.forward`. fal
@@ -65,13 +65,13 @@ export type R2Config = {
  * deployments point each fal target at a Cloudflare AI Gateway prefix
  * for caching, rate limits, fallbacks, and observability.
  */
-export type MediaProviderConfig = {
+export interface MediaProviderConfig {
   fal?: string;
   falQueueBaseUrl?: string;
   falPlatformBaseUrl?: string;
   falDocsBaseUrl?: string;
   falStorageBaseUrl?: string;
-};
+}
 
 /**
  * Per-request context.
@@ -80,14 +80,14 @@ export type MediaProviderConfig = {
  * the Worker `env` bindings, so the caller (route handler) builds them and
  * passes them in.
  */
-export type CreateORPCContextOptions = {
+export interface CreateORPCContextOptions {
   headers: Headers;
   db: Db;
   auth: Auth;
   productionURL?: string;
   r2?: R2Config;
   media?: MediaProviderConfig;
-};
+}
 
 export const createORPCContext = async (opts: CreateORPCContextOptions) => {
   // Try a normal better-auth session first (cookie or session bearer token).
@@ -98,13 +98,13 @@ export const createORPCContext = async (opts: CreateORPCContextOptions) => {
     (await resolveApiKeySession(opts.auth, opts.db, opts.headers));
 
   return {
-    session,
-    db: opts.db,
     auth: opts.auth,
+    db: opts.db,
     headers: opts.headers,
+    media: opts.media,
     productionURL: opts.productionURL,
     r2: opts.r2,
-    media: opts.media,
+    session,
   };
 };
 

@@ -1,16 +1,19 @@
 // Derived stats + status resolvers. recomputeStats() bakes champ base+growth+
 // items onto the Unit; the effective* helpers fold transient statuses on top.
 import { CHAMP_BY_ID, champStatAt } from "../data/champions";
-import { HERO_MAGIC_RESIST, type DamageType } from "../data/config";
+import { HERO_MAGIC_RESIST } from "../data/config";
+import type { DamageType } from "../data/config";
 import { sumItemStats } from "../data/items";
 import { clamp } from "./math";
 import type { Status, Unit } from "./types";
 
 /** Recompute a hero's derived combat stats from champ + level + items.
  *  Preserves the current hp/mp *fraction* when maxima change. */
-export function recomputeStats(u: Unit): void {
+export const recomputeStats = (u: Unit): void => {
   const def = CHAMP_BY_ID[u.champId];
-  if (!def) return;
+  if (!def) {
+    return;
+  }
   const lvl = u.level;
   const items = sumItemStats(u.items);
 
@@ -29,29 +32,30 @@ export function recomputeStats(u: Unit): void {
   u.lifesteal = items.lifesteal;
 
   u.hp = u.alive ? Math.min(u.maxHp, hpFrac * u.maxHp) : u.hp;
-}
+};
 
 // ── Status helpers ───────────────────────────────────────────────────────────
 
-export function addStatus(u: Unit, st: Status): void {
+export const addStatus = (u: Unit, st: Status): void => {
   if (st.id) {
     const i = u.statuses.findIndex((s) => s.kind === st.kind && s.id === st.id);
-    if (i >= 0) {
+    if (i !== -1) {
       u.statuses[i] = st;
       return;
     }
   }
   u.statuses.push(st);
-}
+};
 
-export function expireStatuses(u: Unit, now: number): void {
-  if (u.statuses.length === 0) return;
+export const expireStatuses = (u: Unit, now: number): void => {
+  if (u.statuses.length === 0) {
+    return;
+  }
   u.statuses = u.statuses.filter((s) => s.until > now);
-}
+};
 
-export function hasStatus(u: Unit, kind: Status["kind"]): boolean {
-  return u.statuses.some((s) => s.kind === kind);
-}
+export const hasStatus = (u: Unit, kind: Status["kind"]): boolean =>
+  u.statuses.some((s) => s.kind === kind);
 
 export const isUnstoppable = (u: Unit): boolean => hasStatus(u, "unstoppable");
 /** Can't attack or act (stun; hex polymorphs share the gate — mushrooms don't swing). */
@@ -67,7 +71,7 @@ export const isUntargetable = (u: Unit): boolean =>
   hasStatus(u, "untargetable") || hasStatus(u, "stealth");
 
 /** Remove disables + slows (cleanse). Strips hex too — a cleanse un-mushrooms. */
-export function cleanseDisables(u: Unit): void {
+export const cleanseDisables = (u: Unit): void => {
   u.statuses = u.statuses.filter(
     (s) =>
       s.kind !== "stun" &&
@@ -76,53 +80,70 @@ export function cleanseDisables(u: Unit): void {
       s.kind !== "slow" &&
       s.kind !== "hex",
   );
-}
+};
 
-export function breakStealth(u: Unit): void {
+export const breakStealth = (u: Unit): void => {
   u.statuses = u.statuses.filter((s) => s.kind !== "stealth");
-}
+};
 
 // ── Effective (status-folded) stats ──────────────────────────────────────────
 
-export function effectiveMoveSpeed(u: Unit): number {
+export const effectiveMoveSpeed = (u: Unit): number => {
   let speedPct = 0;
   let strongestSlow = 0;
   for (const s of u.statuses) {
-    if (s.kind === "speed") speedPct += s.pct;
-    else if (s.kind === "slow" || s.kind === "hex") strongestSlow = Math.max(strongestSlow, s.pct);
+    if (s.kind === "speed") {
+      speedPct += s.pct;
+    } else if (s.kind === "slow" || s.kind === "hex") {
+      strongestSlow = Math.max(strongestSlow, s.pct);
+    }
   }
-  if (isUnstoppable(u)) strongestSlow = 0;
+  if (isUnstoppable(u)) {
+    strongestSlow = 0;
+  }
   const ms = u.moveSpeed * (1 + speedPct / 100) * (1 - strongestSlow / 100);
   return Math.max(2, ms);
-}
+};
 
-export function effectiveArmor(u: Unit): number {
+export const effectiveArmor = (u: Unit): number => {
   let bonus = 0;
-  for (const s of u.statuses) if (s.kind === "armor") bonus += s.amount;
+  for (const s of u.statuses) {
+    if (s.kind === "armor") {
+      bonus += s.amount;
+    }
+  }
   return u.armor + bonus;
-}
+};
 
-export function effectiveAttackSpeed(u: Unit): number {
+export const effectiveAttackSpeed = (u: Unit): number => {
   let pct = 0;
-  for (const s of u.statuses) if (s.kind === "attackSpeed") pct += s.amount;
+  for (const s of u.statuses) {
+    if (s.kind === "attackSpeed") {
+      pct += s.amount;
+    }
+  }
   return clamp(u.attackSpeed * (1 + pct / 100), 0.1, 5);
-}
+};
 
-export function damageAmpOn(u: Unit): number {
+export const damageAmpOn = (u: Unit): number => {
   let pct = 0;
-  for (const s of u.statuses) if (s.kind === "damageAmp") pct += s.pct;
+  for (const s of u.statuses) {
+    if (s.kind === "damageAmp") {
+      pct += s.pct;
+    }
+  }
   return pct / 100;
-}
+};
 
 // ── Damage + shields ─────────────────────────────────────────────────────────
 
 /** Mitigate raw damage by type. attackerAp adds % to magic damage. */
-export function computeDamage(
+export const computeDamage = (
   victim: Unit,
   raw: number,
   dtype: DamageType,
   attackerAp = 0,
-): number {
+): number => {
   let dmg = raw;
   if (dtype === "physical") {
     const armor = effectiveArmor(victim);
@@ -134,18 +155,22 @@ export function computeDamage(
   }
   dmg *= 1 + damageAmpOn(victim);
   return Math.max(0, dmg);
-}
+};
 
 /** Consume shield statuses; returns leftover damage to apply to hp. */
-export function absorbShield(u: Unit, dmg: number): number {
+export const absorbShield = (u: Unit, dmg: number): number => {
   let remaining = dmg;
   for (const s of u.statuses) {
-    if (s.kind !== "shield") continue;
-    if (remaining <= 0) break;
+    if (s.kind !== "shield") {
+      continue;
+    }
+    if (remaining <= 0) {
+      break;
+    }
     const used = Math.min(s.amount, remaining);
     s.amount -= used;
     remaining -= used;
   }
   u.statuses = u.statuses.filter((s) => s.kind !== "shield" || s.amount > 0.5);
   return remaining;
-}
+};

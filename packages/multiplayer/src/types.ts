@@ -8,9 +8,11 @@ export type JsonValue =
   | { [key: string]: JsonValue };
 
 /** A JSON object map — the shape of shared/player state and their patches. */
-export type JsonRecord = { [key: string]: JsonValue };
+export interface JsonRecord {
+  [key: string]: JsonValue;
+}
 
-export type MultiplayerOptions = {
+export interface MultiplayerOptions {
   host: string;
   party: string;
   room: string;
@@ -24,7 +26,7 @@ export type MultiplayerOptions = {
    */
   maxPlayers?: number;
   onEvent?: (event: string, payload: JsonValue, from: string) => void;
-};
+}
 
 /**
  * Query-string key the SDK uses to advertise a room's player cap to the
@@ -67,7 +69,7 @@ export type MultiplayerConnectionStatus = "connecting" | "connected" | "disconne
 
 export type PlayerState<T = JsonRecord> = T;
 
-export type Player = {
+export interface Player {
   id: string;
   color?: string;
   hue?: string;
@@ -79,7 +81,7 @@ export type Player = {
    * reconnection grace; treat missing as connected.
    */
   connected?: boolean;
-};
+}
 
 export type PlayerMap = Record<string, Player>;
 
@@ -102,11 +104,11 @@ export type PlayerMap = Record<string, Player>;
  * those fields and falls back to broadcasting to everyone. Coalescing is
  * client-side only and works against any server.
  */
-export type SendEventOptions = {
+export interface SendEventOptions {
   to?: string | string[];
   except?: string | string[];
   coalesce?: boolean;
-};
+}
 
 export type ClientMessage =
   | { type: "state_patch"; data: JsonRecord }
@@ -163,10 +165,10 @@ export type ServerMessage =
   // Liveness probe; the client answers with `pong`. See EVICTION_TIMEOUT_MS.
   | { type: "ping" };
 
-export type MultiplayerRoomState = {
+export interface MultiplayerRoomState {
   connectionStatus: MultiplayerConnectionStatus;
   playerId: string | null;
   hostId: string | null;
   sharedState: JsonRecord;
   players: PlayerMap;
-};
+}

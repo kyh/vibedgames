@@ -26,7 +26,7 @@
  *     --out-dir runs/hero-attack-img
  */
 import { existsSync, mkdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import path from "node:path";
 
 import {
   actionFacts,
@@ -56,7 +56,7 @@ import {
 const frameName = (i) => `frame-${String(i).padStart(2, "0")}.png`;
 
 /** Uniform grid slice — the default, and the fallback when recovery fails. */
-function sliceGrid(board, rows, cols, frames, outDir) {
+const sliceGrid = (board, rows, cols, frames, outDir) => {
   const image = Bitmap.fromFile(board);
   if (image.width % cols || image.height % rows) {
     process.stderr.write(
@@ -72,11 +72,11 @@ function sliceGrid(board, rows, cols, frames, outDir) {
     const r = Math.floor(i / cols);
     const c = i - r * cols;
     image
-      .crop({ left: c * cw, top: r * ch, right: (c + 1) * cw, bottom: (r + 1) * ch })
-      .toFile(join(outDir, frameName(i + 1)));
+      .crop({ bottom: (r + 1) * ch, left: c * cw, right: (c + 1) * cw, top: r * ch })
+      .toFile(path.join(outDir, frameName(i + 1)));
   }
   return count;
-}
+};
 
 /**
  * Connected-component recovery, which re-centres a pose that drifted off-grid.
@@ -84,17 +84,19 @@ function sliceGrid(board, rows, cols, frames, outDir) {
  * two cells reads as a single component), so a failure falls back to a uniform
  * slice rather than aborting — passing --recover is always safe.
  */
-function recoverGrid(board, rows, cols, frames, outDir) {
+const recoverGrid = (board, rows, cols, frames, outDir) => {
   try {
-    const { crops } = recoverFrames(board, { rows, cols, frames, threshold: 15 });
-    for (const crop of crops) crop.image.toFile(join(outDir, `frame-${crop.label}.png`));
+    const { crops } = recoverFrames(board, { cols, frames, rows, threshold: 15 });
+    for (const crop of crops) {
+      crop.image.toFile(path.join(outDir, `frame-${crop.label}.png`));
+    }
     return crops.length;
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     process.stderr.write(`[process_sheet] --recover fell back to uniform slice: ${reason}\n`);
     return sliceGrid(board, rows, cols, frames, outDir);
   }
-}
+};
 
 /**
  * Snap every frame onto ONE shared native pixel grid, in place, before
@@ -107,9 +109,11 @@ function recoverGrid(board, rows, cols, frames, outDir) {
  * normalize re-centres but cannot rescale away. One strip = one pitch = one
  * scale.
  */
-function pixelSnapFrames(framesDir, kColors) {
+const pixelSnapFrames = (framesDir, kColors) => {
   const paths = globFrames(framesDir, "frame-*.png");
-  if (paths.length === 0) return;
+  if (paths.length === 0) {
+    return;
+  }
 
   const images = paths.map((p) => Bitmap.fromFile(p));
   const n = images.length;
@@ -117,13 +121,13 @@ function pixelSnapFrames(framesDir, kColors) {
   const ch = Math.max(...images.map((im) => im.height));
 
   const strip = Bitmap.create(cw * n, ch);
-  images.forEach((im, i) => {
+  for (const [i, im] of images.entries()) {
     const x = i * cw + Math.floor((cw - im.width) / 2);
     const y = Math.floor((ch - im.height) / 2);
     strip.pasteMasked(im, x, y, im.channel(3));
-  });
+  }
 
-  const stripPath = join(framesDir, "_snap_strip.png");
+  const stripPath = path.join(framesDir, "_snap_strip.png");
   strip.toFile(stripPath);
   const snapped = snapImage(stripPath, { ...DEFAULT_SNAP_CONFIG, kColors });
   unlinkSync(stripPath);
@@ -131,38 +135,47 @@ function pixelSnapFrames(framesDir, kColors) {
   // The character sits in the centred margin, so a sub-pixel boundary drift
   // lands in empty space and normalize re-crops it away.
   const fw = Math.floor(snapped.width / n);
-  paths.forEach((path, i) => {
+  for (const [i, framePath] of paths.entries()) {
     const right = i === n - 1 ? snapped.width : (i + 1) * fw;
-    snapped.crop({ left: i * fw, top: 0, right, bottom: snapped.height }).toFile(path);
-  });
-}
+    snapped.crop({ bottom: snapped.height, left: i * fw, right, top: 0 }).toFile(framePath);
+  }
+};
 
-main(() => {
-  const args = parseArgs(process.argv.slice(2), {
-    values: ["action", "char-fill", "chroma", "cols", "frames", "out-dir", "rows", "snap-k-colors"],
-    booleans: ["json", "no-pixel-snap", "no-qc", "recover"],
-  });
-  const board = args.positionals[0];
-  if (!board) failUsage("a pose board PNG is required");
-  if (!existsSync(board)) fail(`board not found: ${board}`);
+/** Parse and validate the CLI options; every failure exits through `fail`. */
+const readOptions = (args) => {
+  const [board] = args.positionals;
+  if (!board) {
+    failUsage("a pose board PNG is required");
+  }
+  if (!existsSync(board)) {
+    fail(`board not found: ${board}`);
+  }
 
   const action = getString(args, "action");
-  if (!action) failUsage("--action is required");
+  if (!action) {
+    failUsage("--action is required");
+  }
   const outDir = getString(args, "out-dir");
-  if (!outDir) failUsage("--out-dir is required");
+  if (!outDir) {
+    failUsage("--out-dir is required");
+  }
 
   const rows = getInt(args, "rows", 0);
   const cols = getInt(args, "cols", 0);
-  if (rows <= 0 || cols <= 0) fail("--rows and --cols must be positive integers");
+  if (rows <= 0 || cols <= 0) {
+    fail("--rows and --cols must be positive integers");
+  }
 
   const charFill = getNumber(args, "char-fill", 0.5);
-  if (!(charFill > 0 && charFill <= 1)) fail("--char-fill must be in (0, 1]");
+  if (!(charFill > 0 && charFill <= 1)) {
+    fail("--char-fill must be in (0, 1]");
+  }
   const snapKColors = getInt(args, "snap-k-colors", 16);
-  if (snapKColors <= 0) fail("--snap-k-colors must be a positive integer");
+  if (snapKColors <= 0) {
+    fail("--snap-k-colors must be a positive integer");
+  }
 
   const facts = actionFacts(action);
-  const fps = facts.fps;
-  const cells = rows * cols;
   // Default to the preset's recommended frame count (the board was prompted
   // for that many), not rows*cols — trailing grid cells are flat chroma and
   // would pack as junk.
@@ -171,15 +184,30 @@ main(() => {
     fail("--frames must be a positive integer");
   }
   const frames =
-    requested === undefined ? Math.min(facts.defaultFrames, cells) : getInt(args, "frames", 0);
+    requested === undefined
+      ? Math.min(facts.defaultFrames, rows * cols)
+      : getInt(args, "frames", 0);
 
-  const dCells = join(outDir, "cells");
-  const dKeyed = join(outDir, "_keyed");
-  const dRuntime = join(outDir, "runtime");
-  const dReview = join(outDir, "review");
+  return { action, board, charFill, cols, fps: facts.fps, frames, outDir, rows, snapKColors };
+};
+
+main(() => {
+  const args = parseArgs(process.argv.slice(2), {
+    booleans: ["json", "no-pixel-snap", "no-qc", "recover"],
+    values: ["action", "char-fill", "chroma", "cols", "frames", "out-dir", "rows", "snap-k-colors"],
+  });
+  const { action, board, charFill, cols, fps, frames, outDir, rows, snapKColors } =
+    readOptions(args);
+
+  const dCells = path.join(outDir, "cells");
+  const dKeyed = path.join(outDir, "_keyed");
+  const dRuntime = path.join(outDir, "runtime");
+  const dReview = path.join(outDir, "review");
   // Clear intermediates so a rerun (especially with fewer --frames) cannot
   // pack stale frames.
-  for (const dir of [dCells, dKeyed, dRuntime]) rmSync(dir, { recursive: true, force: true });
+  for (const dir of [dCells, dKeyed, dRuntime]) {
+    rmSync(dir, { force: true, recursive: true });
+  }
 
   const recover = getFlag(args, "recover");
   const n = recover
@@ -187,31 +215,33 @@ main(() => {
     : sliceGrid(board, rows, cols, frames, dCells);
 
   const chroma = parseColor(getString(args, "chroma") ?? "#00FF00").slice(0, 3);
-  for (const path of globFrames(dCells, "frame-*.png")) {
-    const result = cleanChroma(Bitmap.fromFile(path), { chroma });
-    result.image.toFile(join(dKeyed, path.slice(dCells.length + 1)));
+  for (const framePath of globFrames(dCells, "frame-*.png")) {
+    const result = cleanChroma(Bitmap.fromFile(framePath), { chroma });
+    result.image.toFile(path.join(dKeyed, framePath.slice(dCells.length + 1)));
   }
 
-  if (!getFlag(args, "no-pixel-snap")) pixelSnapFrames(dKeyed, snapKColors);
+  if (!getFlag(args, "no-pixel-snap")) {
+    pixelSnapFrames(dKeyed, snapKColors);
+  }
 
   normalizeCanvas(dKeyed, dRuntime, {
-    glob: "frame-*.png",
-    canvas: { width: 256, height: 256 },
+    canvas: { height: 256, width: 256 },
     charFill,
+    glob: "frame-*.png",
   });
 
-  const sheetPng = join(outDir, "spritesheet.png");
-  const sheetJson = join(outDir, "spritesheet.json");
-  const packed = packSpritesheet(dRuntime, sheetPng, { glob: "frame-*.png", fps, action });
+  const sheetPng = path.join(outDir, "spritesheet.png");
+  const sheetJson = path.join(outDir, "spritesheet.json");
+  const packed = packSpritesheet(dRuntime, sheetPng, { action, fps, glob: "frame-*.png" });
   packed.sheet.toFile(sheetPng);
   writeJsonFile(sheetJson, packed.manifest);
 
-  const gif = join(dReview, `${action}.gif`);
+  const gif = path.join(dReview, `${action}.gif`);
   const delay = Math.round(1000 / fps);
   const gifBytes = buildSequenceGif(
     Array.from({ length: n }, (_, i) => ({
-      path: join(dRuntime, frameName(i + 1)),
       delayMs: delay,
+      path: path.join(dRuntime, frameName(i + 1)),
     })),
     null,
   );
@@ -222,19 +252,21 @@ main(() => {
 
   const summary = {
     action,
-    frames: n,
     fps,
-    path: "image",
-    slicing: recover ? "recover" : "naive",
-    pixelSnap: !getFlag(args, "no-pixel-snap"),
-    spritesheet: sheetPng,
+    frames: n,
     gif,
-    runtimeFrames: dRuntime,
+    path: "image",
+    pixelSnap: !getFlag(args, "no-pixel-snap"),
     qc: qc ? qc.verdict : "skipped",
+    runtimeFrames: dRuntime,
+    slicing: recover ? "recover" : "naive",
+    spritesheet: sheetPng,
   };
 
   if (getFlag(args, "json")) {
-    if (qc) summary.qcChecks = qc.checks;
+    if (qc) {
+      summary.qcChecks = qc.checks;
+    }
     console.log(toPythonJson(summary));
     return;
   }

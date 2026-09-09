@@ -3,54 +3,67 @@
 // each cell is an iso cube whose three visible faces use the same top/side
 // shading as the in-well cube material, so the previews read as the real piece.
 
-const TOP_SHADE = 1.0;
+const TOP_SHADE = 1;
 const LEFT_SHADE = 0.6;
 const RIGHT_SHADE = 0.82;
 
-function shade(hex: number, f: number): string {
-  const r = Math.min(255, ((hex >> 16) & 255) * f) | 0;
-  const g = Math.min(255, ((hex >> 8) & 255) * f) | 0;
-  const b = Math.min(255, (hex & 255) * f) | 0;
+/* oxlint-disable no-bitwise -- unpacking the 0xRRGGBB channels of a color word */
+const shade = (hex: number, f: number): string => {
+  const r = Math.trunc(Math.min(255, ((hex >> 16) & 255) * f));
+  const g = Math.trunc(Math.min(255, ((hex >> 8) & 255) * f));
+  const b = Math.trunc(Math.min(255, (hex & 255) * f));
   return `rgb(${r},${g},${b})`;
-}
+};
+/* oxlint-enable no-bitwise */
 
 /** Cells (col, row) that are filled in the footprint. */
-function cells(footprint: number[][]): { c: number; r: number }[] {
+const cells = (footprint: number[][]): { c: number; r: number }[] => {
   const out: { c: number; r: number }[] = [];
-  for (let r = 0; r < footprint.length; r++) {
+  for (let r = 0; r < footprint.length; r += 1) {
     const row = footprint[r] ?? [];
-    for (let c = 0; c < row.length; c++) {
-      if (row[c]) out.push({ c, r });
+    for (let c = 0; c < row.length; c += 1) {
+      if (row[c]) {
+        out.push({ c, r });
+      }
     }
   }
   return out;
-}
+};
 
 /** Render (or clear, if footprint is null) a preview into the canvas. */
-export function drawPiecePreview(
+export const drawPiecePreview = (
   canvas: HTMLCanvasElement,
   footprint: number[][] | null,
   colorHex: number,
-): void {
+): void => {
   const ctx = canvas.getContext("2d");
-  if (!ctx) return;
+  if (!ctx) {
+    return;
+  }
   const W = canvas.width;
   const H = canvas.height;
   ctx.clearRect(0, 0, W, H);
-  if (!footprint) return;
+  if (!footprint) {
+    return;
+  }
 
   const pts = cells(footprint);
-  if (pts.length === 0) return;
+  if (pts.length === 0) {
+    return;
+  }
 
   // Iso projection: a unit cell is `tw` wide, `tw/2` tall; cube height `d`.
   // Pick tw so the whole cluster fits with padding.
   const colsSpan = footprint[0]?.length ?? 1;
   const rowsSpan = footprint.length;
-  const isoW = colsSpan + rowsSpan; // diamond width in half-tiles
+  // diamond width in half-tiles
+  const isoW = colsSpan + rowsSpan;
   const tw = Math.min((W - 8) / (isoW * 0.5), (H - 10) / (isoW * 0.5 + 1));
   const hw = tw / 2;
-  const hh = tw / 4; // 2:1 iso
-  const d = tw * 0.5; // cube vertical height
+  // 2:1 iso
+  const hh = tw / 4;
+  // cube vertical height
+  const d = tw * 0.5;
 
   // Cluster bounds in iso space, to centre it.
   let minX = Infinity;
@@ -80,12 +93,16 @@ export function drawPiecePreview(
     const cy = oy + (c + r) * hh;
     const face = (path: [number, number][], fill: string): void => {
       ctx.beginPath();
-      const first = path[0];
-      if (!first) return;
+      const [first] = path;
+      if (!first) {
+        return;
+      }
       ctx.moveTo(first[0], first[1]);
-      for (let i = 1; i < path.length; i++) {
+      for (let i = 1; i < path.length; i += 1) {
         const p = path[i];
-        if (p) ctx.lineTo(p[0], p[1]);
+        if (p) {
+          ctx.lineTo(p[0], p[1]);
+        }
       }
       ctx.closePath();
       ctx.fillStyle = fill;
@@ -123,4 +140,4 @@ export function drawPiecePreview(
       top,
     );
   }
-}
+};

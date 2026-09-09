@@ -9,29 +9,30 @@ import { PoseControls } from "../src/input/pose-control";
 import { WELL_DEPTH, WELL_WIDTH } from "../src/shared/constants";
 
 let failures = 0;
-function check(label: string, cond: boolean): void {
+const check = (label: string, cond: boolean): void => {
   if (cond) {
     console.log(`  ok   ${label}`);
   } else {
     console.error(`  FAIL ${label}`);
     failures += 1;
   }
-}
+};
 
 // 1) Full layer clears on both axes and empties the board.
 {
   const b = new Board();
   const cells = [];
-  for (let x = 0; x < WELL_WIDTH; x++) {
-    for (let z = 0; z < WELL_DEPTH; z++) cells.push({ x, y: 0, z });
+  for (let x = 0; x < WELL_WIDTH; x += 1) {
+    for (let z = 0; z < WELL_DEPTH; z += 1) {
+      cells.push({ x, y: 0, z });
+    }
   }
   b.lock(cells, 1);
   const r = b.clearLayer(0);
   check("full layer: xColumns = width", r.xColumns === WELL_WIDTH);
   check("full layer: zRows = depth", r.zRows === WELL_DEPTH);
   check("full layer: lines = width+depth", r.lines === WELL_WIDTH + WELL_DEPTH);
-  let remaining = 0;
-  b.forEachCube(() => (remaining += 1));
+  const remaining = [...b.cubes()].length;
   check("full layer: board empty after", remaining === 0);
 }
 
@@ -39,9 +40,12 @@ function check(label: string, cond: boolean): void {
 {
   const b = new Board();
   const col = [];
-  for (let z = 0; z < WELL_DEPTH; z++) col.push({ x: 0, y: 0, z });
+  for (let z = 0; z < WELL_DEPTH; z += 1) {
+    col.push({ x: 0, y: 0, z });
+  }
   b.lock(col, 1);
-  b.lock([{ x: 0, y: 1, z: 0 }], 2); // a cube sitting above the cleared column
+  // a cube sitting above the cleared column
+  b.lock([{ x: 0, y: 1, z: 0 }], 2);
   const r = b.clearLayer(0);
   check("single column: 1 xColumn, 0 zRows", r.xColumns === 1 && r.zRows === 0);
   check("single column: cube above dropped to y=0", b.occupied(0, 0, 0));
@@ -52,8 +56,14 @@ function check(label: string, cond: boolean): void {
 {
   const b = new Board();
   const cells = [];
-  for (let z = 0; z < WELL_DEPTH; z++) cells.push({ x: 0, y: 0, z }); // column x=0
-  for (let x = 1; x < WELL_WIDTH; x++) cells.push({ x, y: 0, z: 0 }); // row z=0 (x=0 already added)
+  for (let z = 0; z < WELL_DEPTH; z += 1) {
+    cells.push({ x: 0, y: 0, z });
+    // column x=0
+  }
+  for (let x = 1; x < WELL_WIDTH; x += 1) {
+    cells.push({ x, y: 0, z: 0 });
+    // row z=0 (x=0 already added)
+  }
   b.lock(cells, 1);
   const r = b.clearLayer(0);
   check("dual axis: 1 xColumn + 1 zRow", r.xColumns === 1 && r.zRows === 1);
@@ -63,7 +73,8 @@ function check(label: string, cond: boolean): void {
 // 4) Piece moves, rotates, and lands via the board.
 {
   const b = new Board();
-  const p = new Piece(0, b); // I piece
+  // I piece
+  const p = new Piece(0, b);
   const before = JSON.stringify(p.cells());
   check("piece: moves in +x", p.move(b, 1, 0));
   check("piece: position changed", JSON.stringify(p.cells()) !== before);
@@ -82,9 +93,11 @@ function check(label: string, cond: boolean): void {
   check("engine: has active piece", e.activeCells().length > 0);
   // Drive ~30s of gravity in 16ms ticks — pieces lock & stack.
   let locks = 0;
-  for (let i = 0; i < 2000 && e.state.status === "playing"; i++) {
+  for (let i = 0; i < 2000 && e.state.status === "playing"; i += 1) {
     const ev = e.tick(16, false);
-    if (ev) locks += 1;
+    if (ev) {
+      locks += 1;
+    }
   }
   check("engine: locked many pieces over time", locks > 3);
 }
@@ -114,7 +127,8 @@ function check(label: string, cond: boolean): void {
   const e = new Engine();
   e.startGame();
   check("engine: not charged at start", e.canPower() === false);
-  e.charge = 1; // simulate a full meter
+  // simulate a full meter
+  e.charge = 1;
   // lay a cube on the floor so there's something to sweep
   e.board.lock([{ x: 0, y: 0, z: 0 }], 1);
   const removed = e.power();
@@ -137,38 +151,53 @@ function check(label: string, cond: boolean): void {
   const W = 640;
   const H = 480;
   const makePose = (rwx: number, rwy: number): Pose => ({
-    width: W,
     height: H,
     keypoints: [
-      { name: "nose", x: 320, y: 150, score: 1 },
-      { name: "left_shoulder", x: 260, y: 240, score: 1 },
-      { name: "right_shoulder", x: 380, y: 240, score: 1 },
-      { name: "left_hip", x: 270, y: 360, score: 1 },
-      { name: "right_hip", x: 370, y: 360, score: 1 },
-      { name: "left_wrist", x: 250, y: 250, score: 1 }, // resting hand
-      { name: "right_wrist", x: rwx, y: rwy, score: 1 }, // the circling hand
+      { name: "nose", score: 1, x: 320, y: 150 },
+      { name: "left_shoulder", score: 1, x: 260, y: 240 },
+      { name: "right_shoulder", score: 1, x: 380, y: 240 },
+      { name: "left_hip", score: 1, x: 270, y: 360 },
+      { name: "right_hip", score: 1, x: 370, y: 360 },
+      // resting hand
+      { name: "left_wrist", score: 1, x: 250, y: 250 },
+      // the circling hand
+      { name: "right_wrist", score: 1, x: rwx, y: rwy },
     ],
+    width: W,
   });
 
   const feed = (circle: boolean): number => {
     let orbits = 0;
     const controls = new PoseControls({
-      steer: () => {},
-      rotate: () => false,
+      catchCollapse: () => {
+        /* empty */
+      },
+      hold: () => {
+        /* empty */
+      },
       orbit: () => {
         orbits += 1;
       },
-      hold: () => {},
-      power: () => {},
-      catchCollapse: () => {},
+      power: () => {
+        /* empty */
+      },
+      rotate: () => false,
+      steer: () => {
+        /* empty */
+      },
     });
-    for (let i = 0; i < 24; i++) controls.handlePose(makePose(390, 250), null); // calibrate (still)
-    for (let i = 0; i < 48; i++) {
+    for (let i = 0; i < 24; i += 1) {
+      controls.handlePose(makePose(390, 250), null);
+      // calibrate (still)
+    }
+    for (let i = 0; i < 48; i += 1) {
       if (circle) {
-        const a = (i / 16) * Math.PI * 2; // ~3 loops, raised above shoulders
+        // ~3 loops, raised above shoulders
+        const a = (i / 16) * Math.PI * 2;
         controls.handlePose(makePose(384 + Math.cos(a) * 60, 130 + Math.sin(a) * 60), null);
       } else {
-        controls.handlePose(makePose(384, 130), null); // raised but still
+        // raised but still
+        controls.handlePose(makePose(384, 130), null);
       }
     }
     return orbits;

@@ -303,7 +303,7 @@ the authoring step calls for). Details and traps: `references/spec-contract.md`.
   internals that change upstream — safety is enforced at the typed import site.
 
 Name it `<object>-factory.generated.ts` — the `.generated.ts` suffix is what
-`.oxlintrc.json` ignores (keeping the generator's `Record<string, any>` out of
+`oxlint.config.ts` ignores (keeping the generator's `Record<string, any>` out of
 `pnpm lint`), and the object-named prefix keeps a second prop from colliding.
 Pass `--keep-action-profile` if you read colliders or fracture groups at
 runtime.

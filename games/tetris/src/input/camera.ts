@@ -1,4 +1,5 @@
 import type { NormalizedLandmark, PoseLandmarker } from "@mediapipe/tasks-vision";
+import type * as TasksVision from "@mediapipe/tasks-vision";
 
 import { isCoarsePointer } from "./touch";
 
@@ -21,7 +22,7 @@ import { isCoarsePointer } from "./touch";
 
 /** MediaPipe's wrapper JS is ~135 KB of the bundle and is dead weight until the
  *  player actually grants the camera, so it loads with the model, not at boot. */
-type VisionTasks = typeof import("@mediapipe/tasks-vision");
+type VisionTasks = typeof TasksVision;
 
 const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm";
 const MODEL_URL =
@@ -31,20 +32,20 @@ const MODEL_URL =
  * Keypoint with pixel coordinates, matching the interface previously provided
  * by @tensorflow-models/pose-detection (legacy-compatible names).
  */
-export type Keypoint = {
+export interface Keypoint {
   name: string;
   x: number;
   y: number;
   score: number;
-};
+}
 
-export type Pose = {
+export interface Pose {
   keypoints: Keypoint[];
   /** Source video frame dimensions (px) — keypoints are in this space, so
    *  pose interpretation normalises against these (no frozen-refW drift). */
   width: number;
   height: number;
-};
+}
 
 /** Called once per detected frame, after the skeleton has been drawn. */
 export type PoseHandler = (pose: Pose, overlay: CanvasRenderingContext2D | null) => void;
@@ -77,19 +78,20 @@ const LANDMARK_NAMES = new Map<number, string>([
 ]);
 
 /** Convert MediaPipe normalized landmarks to pixel-coordinate keypoints. */
-function landmarksToKeypoints(
+const landmarksToKeypoints = (
   landmarks: NormalizedLandmark[],
   width: number,
   height: number,
-): Keypoint[] {
-  return landmarks
+): Keypoint[] =>
+  landmarks
     .map((lm, i) => {
       const name = LANDMARK_NAMES.get(i);
-      if (!name) return null;
-      return { name, x: lm.x * width, y: lm.y * height, score: lm.visibility };
+      if (!name) {
+        return null;
+      }
+      return { name, score: lm.visibility, x: lm.x * width, y: lm.y * height };
     })
     .filter((kp): kp is Keypoint => kp !== null);
-}
 
 export class PoseCamera {
   private readonly onPose: PoseHandler;
@@ -110,7 +112,7 @@ export class PoseCamera {
     const deferred = isCoarsePointer();
 
     // Never stack a second panel if the game is re-initialised.
-    document.getElementById("camera-panel")?.remove();
+    document.querySelector("#camera-panel")?.remove();
 
     this.panel = document.createElement("div");
     this.panel.id = "camera-panel";
@@ -123,26 +125,32 @@ export class PoseCamera {
     this.panel.append(this.video, this.canvas, this.status);
     // Small screens shrink the panel (CSS); tapping toggles the expanded size.
     // The attribute keeps the virtual gamepad from claiming taps on the panel.
-    this.panel.setAttribute("data-gamepad-ignore", "");
+    this.panel.dataset.gamepadIgnore = "";
     this.panel.addEventListener("click", () => {
       this.panel.classList.toggle("expanded");
-      if (deferred) void this.start();
+      if (deferred) {
+        void this.start();
+      }
     });
-    document.body.appendChild(this.panel);
+    document.body.append(this.panel);
   }
 
   /** Request the camera, then load the model. Idempotent: the panel tap that
    *  opts a phone in also toggles the expanded size, and may fire again later. */
   async start(): Promise<void> {
-    if (this.started) return;
+    if (this.started) {
+      return;
+    }
     this.started = true;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user" },
         audio: false,
+        video: { facingMode: "user" },
       });
       if (this.destroyed) {
-        stream.getTracks().forEach((track) => track.stop());
+        for (const track of stream.getTracks()) {
+          track.stop();
+        }
         return;
       }
 
@@ -152,7 +160,9 @@ export class PoseCamera {
       this.canvas.height = this.video.videoHeight;
 
       await this.loadModel();
-      if (this.destroyed) return;
+      if (this.destroyed) {
+        return;
+      }
 
       this.setStatus(null);
       this.detectFrame();
@@ -160,9 +170,12 @@ export class PoseCamera {
       // Denied/unavailable camera or model load failure: keyboard keeps
       // working, the panel just reports why the webcam path is inactive.
       // Stop any acquired stream so the webcam LED matches the status text.
-      this.started = false; // another tap on the panel retries
+      // another tap on the panel retries
+      this.started = false;
       if (this.video.srcObject instanceof MediaStream) {
-        this.video.srcObject.getTracks().forEach((track) => track.stop());
+        for (const track of this.video.srcObject.getTracks()) {
+          track.stop();
+        }
         this.video.srcObject = null;
       }
       console.error("Error starting camera or loading model:", error);
@@ -176,11 +189,15 @@ export class PoseCamera {
 
   destroy(): void {
     this.destroyed = true;
-    if (this.rafId !== null) cancelAnimationFrame(this.rafId);
+    if (this.rafId !== null) {
+      cancelAnimationFrame(this.rafId);
+    }
     this.rafId = null;
     const src = this.video.srcObject;
     if (src instanceof MediaStream) {
-      src.getTracks().forEach((track) => track.stop());
+      for (const track of src.getTracks()) {
+        track.stop();
+      }
     }
     this.landmarker?.close();
     this.landmarker = null;
@@ -193,18 +210,20 @@ export class PoseCamera {
     const vision = await tasks.FilesetResolver.forVisionTasks(WASM_URL);
     this.landmarker = await tasks.PoseLandmarker.createFromOptions(vision, {
       baseOptions: {
-        modelAssetPath: MODEL_URL,
         delegate: "GPU",
+        modelAssetPath: MODEL_URL,
       },
-      runningMode: "VIDEO",
       numPoses: 1,
+      runningMode: "VIDEO",
     });
   }
 
   private detectFrame = (): void => {
-    if (this.destroyed) return;
-    const video = this.video;
-    const landmarker = this.landmarker;
+    if (this.destroyed) {
+      return;
+    }
+    const { video } = this;
+    const { landmarker } = this;
 
     if (video.readyState !== 4 || !landmarker) {
       this.rafId = requestAnimationFrame(this.detectFrame);
@@ -220,12 +239,12 @@ export class PoseCamera {
 
       try {
         const result = landmarker.detectForVideo(video, timestamp);
-        const landmarks = result.landmarks[0];
+        const [landmarks] = result.landmarks;
         if (landmarks) {
           this.drawSkeleton(landmarks);
           const keypoints = landmarksToKeypoints(landmarks, video.videoWidth, video.videoHeight);
           this.onPose(
-            { keypoints, width: video.videoWidth, height: video.videoHeight },
+            { height: video.videoHeight, keypoints, width: video.videoWidth },
             this.canvas.getContext("2d"),
           );
         }
@@ -239,16 +258,18 @@ export class PoseCamera {
 
   private drawSkeleton(landmarks: NormalizedLandmark[]): void {
     const ctx = this.canvas.getContext("2d");
-    const tasks = this.tasks;
-    if (!ctx || !tasks) return;
+    const { tasks } = this;
+    if (!ctx || !tasks) {
+      return;
+    }
 
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
     const drawingUtils = new tasks.DrawingUtils(ctx);
     drawingUtils.drawLandmarks(landmarks, {
-      radius: 3,
       color: "red",
       fillColor: "red",
+      radius: 3,
     });
     drawingUtils.drawConnectors(landmarks, tasks.PoseLandmarker.POSE_CONNECTIONS, {
       color: "blue",

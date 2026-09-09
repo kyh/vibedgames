@@ -16,69 +16,79 @@
 export type MusicIntensity = 0 | 1 | 2 | 3;
 
 // D minor pitch set (Hz)
-const A1 = 55.0;
+const A1 = 55;
 const D2 = 73.42;
 const F2 = 87.31;
 const C3 = 130.81;
 const D3 = 146.83;
 const E3 = 164.81;
 const F3 = 174.61;
-const G3 = 196.0;
-const A3 = 220.0;
+const G3 = 196;
+const A3 = 220;
 const BB3 = 233.08;
 const D4 = 293.66;
 const F4 = 349.23;
-const A4 = 440.0;
+const A4 = 440;
 const C5 = 523.25;
 
-const PULSE_PATTERN: number[] = [D2, D2, F2, D2, A1, D2, C3, D2]; // 8ths
-const LEAD_PATTERN: number[] = [D4, F4, A4, C5, A4, F4]; // 16ths
+// 8ths
+const PULSE_PATTERN: number[] = [D2, D2, F2, D2, A1, D2, C3, D2];
+// 16ths
+const LEAD_PATTERN: number[] = [D4, F4, A4, C5, A4, F4];
 
 const SCHEDULER_MS = 45;
 const LOOKAHEAD_S = 0.18;
 const FADE_S = 1.5;
-const BUS_GAIN = 0.32; // musicBus baseline (duck target 0.19, restored +0.4s)
+// musicBus baseline (duck target 0.19, restored +0.4s)
+const BUS_GAIN = 0.32;
 
 type LayerName = "drone" | "pulse" | "kit" | "lead";
 const LAYER_NAMES: LayerName[] = ["drone", "pulse", "kit", "lead"];
-const LAYER_MIN = { drone: 0, pulse: 1, kit: 1, lead: 2 } satisfies Record<LayerName, number>;
+const LAYER_MIN = { drone: 0, kit: 1, lead: 2, pulse: 1 } satisfies Record<LayerName, number>;
 
 export class Music {
   private gains: Record<LayerName, GainNode> | null = null;
-  private targets = { drone: 1, pulse: 0, kit: 0, lead: 0 } satisfies Record<LayerName, number>;
-  private fadeEnds = { drone: 0, pulse: 0, kit: 0, lead: 0 } satisfies Record<LayerName, number>;
+  private targets = { drone: 1, kit: 0, lead: 0, pulse: 0 } satisfies Record<LayerName, number>;
+  private fadeEnds = { drone: 0, kit: 0, lead: 0, pulse: 0 } satisfies Record<LayerName, number>;
   private droneOscs: OscillatorNode[] = [];
   private noiseBuf: AudioBuffer | null = null;
   private timer: number | null = null;
   private nextTime = 0;
-  private step = 0; // global 8th-note counter (16ths derive from step*2)
+  // global 8th-note counter (16ths derive from step*2)
+  private step = 0;
   private bpm = 96;
   private intensity: MusicIntensity = 0;
   private running = false;
 
-  constructor(
-    private ctx: AudioContext,
-    private bus: GainNode,
-  ) {}
+  private readonly ctx: AudioContext;
+  private readonly bus: GainNode;
+
+  constructor(ctx: AudioContext, bus: GainNode) {
+    this.ctx = ctx;
+    this.bus = bus;
+  }
 
   /** Begin the scheduler + drone. Call once, on the audio unlock gesture. */
   start(): void {
-    if (this.running) return;
+    if (this.running) {
+      return;
+    }
     this.running = true;
     this.ensureNoise();
     const t = this.ctx.currentTime;
     const gains = {
       drone: this.ctx.createGain(),
-      pulse: this.ctx.createGain(),
       kit: this.ctx.createGain(),
       lead: this.ctx.createGain(),
+      pulse: this.ctx.createGain(),
     } satisfies Record<LayerName, GainNode>;
     for (const name of LAYER_NAMES) {
       gains[name].gain.value = this.targets[name];
       gains[name].connect(this.bus);
     }
     this.gains = gains;
-    this.applyIntensityGains(); // in case setIntensity ran before start
+    // in case setIntensity ran before start
+    this.applyIntensityGains();
     this.startDrone(gains.drone, t);
     this.nextTime = t + 0.06;
     this.step = 0;
@@ -87,7 +97,9 @@ export class Music {
 
   /** Crossfade the layer stack (1.5s); tempo shifts to 112 on the next bar at 3. */
   setIntensity(n: MusicIntensity): void {
-    if (n === this.intensity) return;
+    if (n === this.intensity) {
+      return;
+    }
     this.intensity = n;
     this.applyIntensityGains();
   }
@@ -114,7 +126,9 @@ export class Music {
         g.linearRampToValueAtTime(0, t + 0.25);
       }
     }
-    for (const osc of this.droneOscs) osc.stop(t + 0.3);
+    for (const osc of this.droneOscs) {
+      osc.stop(t + 0.3);
+    }
     this.droneOscs.length = 0;
     this.gains = null;
     this.running = false;
@@ -131,23 +145,29 @@ export class Music {
       this.sawStackNote(F3, t, 1.2, 0.07);
       this.sawStackNote(A3, t, 1.2, 0.07);
     } else {
-      this.sawStackNote(E3, t, 1.0, 0.06, 0.84);
-      this.sawStackNote(G3, t, 1.0, 0.06, 0.84);
-      this.sawStackNote(BB3, t, 1.0, 0.06, 0.84);
+      this.sawStackNote(E3, t, 1, 0.06, 0.84);
+      this.sawStackNote(G3, t, 1, 0.06, 0.84);
+      this.sawStackNote(BB3, t, 1, 0.06, 0.84);
     }
   }
 
   // ── scheduler ──────────────────────────────────────────────────────────────
 
   private tick(): void {
-    if (!this.running) return;
+    if (!this.running) {
+      return;
+    }
     const horizon = this.ctx.currentTime + LOOKAHEAD_S;
     while (this.nextTime < horizon) {
-      if (this.step % 8 === 0) this.bpm = this.intensity === 3 ? 112 : 96; // bar boundary
-      const stepDur = 60 / this.bpm / 2; // one 8th
+      if (this.step % 8 === 0) {
+        this.bpm = this.intensity === 3 ? 112 : 96;
+        // bar boundary
+      }
+      // one 8th
+      const stepDur = 60 / this.bpm / 2;
       this.scheduleStep(this.step, this.nextTime, stepDur);
       this.nextTime += stepDur;
-      this.step++;
+      this.step += 1;
     }
   }
 
@@ -160,9 +180,15 @@ export class Music {
     }
     // kit — kick / snare / hats
     if (this.layerAudible("kit")) {
-      if (s8 === 0 || s8 === 4) this.tone("kit", "sine", 110, t, 0.12, 0.15, 45);
-      if (s8 === 4) this.noise("kit", t, 0.09, 0.1, "bandpass", 1800);
-      if (s8 % 2 === 1 || this.intensity === 3) this.noise("kit", t, 0.03, 0.045, "highpass", 6000);
+      if (s8 === 0 || s8 === 4) {
+        this.tone("kit", "sine", 110, t, 0.12, 0.15, 45);
+      }
+      if (s8 === 4) {
+        this.noise("kit", t, 0.09, 0.1, "bandpass", 1800);
+      }
+      if (s8 % 2 === 1 || this.intensity === 3) {
+        this.noise("kit", t, 0.03, 0.045, "highpass", 6000);
+      }
     }
     // lead — 16th arp (two notes per 8th step)
     if (this.layerAudible("lead")) {
@@ -191,10 +217,14 @@ export class Music {
     const t = this.ctx.currentTime;
     for (const name of LAYER_NAMES) {
       const target = this.intensity >= LAYER_MIN[name] ? 1 : 0;
-      if (target === this.targets[name]) continue;
+      if (target === this.targets[name]) {
+        continue;
+      }
       this.targets[name] = target;
       this.fadeEnds[name] = t + FADE_S;
-      if (!this.gains) continue;
+      if (!this.gains) {
+        continue;
+      }
       const g = this.gains[name].gain;
       g.cancelScheduledValues(t);
       g.setValueAtTime(g.value, t);
@@ -205,10 +235,14 @@ export class Music {
   // ── voices ─────────────────────────────────────────────────────────────────
 
   private ensureNoise(): void {
-    if (this.noiseBuf) return;
+    if (this.noiseBuf) {
+      return;
+    }
     const buf = this.ctx.createBuffer(1, this.ctx.sampleRate, this.ctx.sampleRate);
     const data = buf.getChannelData(0);
-    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    for (let i = 0; i < data.length; i += 1) {
+      data[i] = Math.random() * 2 - 1;
+    }
     this.noiseBuf = buf;
   }
 
@@ -229,8 +263,9 @@ export class Music {
     const osc = this.ctx.createOscillator();
     osc.type = type;
     osc.frequency.setValueAtTime(freq, t);
-    if (slideTo !== undefined)
+    if (slideTo !== undefined) {
       osc.frequency.exponentialRampToValueAtTime(Math.max(20, slideTo), t + dur);
+    }
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(gain, t + 0.008);
@@ -256,7 +291,9 @@ export class Music {
     ftype: BiquadFilterType,
     ffreq: number,
   ): void {
-    if (!this.noiseBuf) return;
+    if (!this.noiseBuf) {
+      return;
+    }
     const src = this.ctx.createBufferSource();
     src.buffer = this.noiseBuf;
     const f = this.ctx.createBiquadFilter();
@@ -302,8 +339,9 @@ export class Music {
       const osc = this.ctx.createOscillator();
       osc.type = "sawtooth";
       osc.frequency.setValueAtTime(freq * det, t);
-      if (fallTo !== undefined)
+      if (fallTo !== undefined) {
         osc.frequency.exponentialRampToValueAtTime(freq * det * fallTo, t + dur);
+      }
       osc.connect(filter);
       osc.start(t);
       osc.stop(t + dur + 0.05);

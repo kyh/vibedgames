@@ -3,20 +3,18 @@ import { createFileRoute, Outlet } from "@tanstack/react-router";
 
 const authSearchSchema = z.object({
   callbackUrl: z.string().optional(),
-  nextPath: z.string().optional(),
   invite: z.string().optional(),
+  nextPath: z.string().optional(),
 });
+
+const AuthLayout = () => (
+  <div className="relative flex min-h-dvh items-center justify-center px-4">
+    <Outlet />
+  </div>
+);
 
 export const Route = createFileRoute("/auth")({
-  validateSearch: authSearchSchema,
-  head: () => ({ meta: [{ title: "Authentication" }] }),
   component: AuthLayout,
+  head: () => ({ meta: [{ title: "Authentication" }] }),
+  validateSearch: authSearchSchema,
 });
-
-function AuthLayout() {
-  return (
-    <div className="relative flex min-h-dvh items-center justify-center px-4">
-      <Outlet />
-    </div>
-  );
-}

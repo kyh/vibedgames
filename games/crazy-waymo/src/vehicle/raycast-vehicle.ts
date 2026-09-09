@@ -1,4 +1,5 @@
-import RAPIER from "@dimforge/rapier3d-compat";
+import { ColliderDesc, RigidBodyDesc } from "@dimforge/rapier3d-compat";
+import type { DynamicRayCastVehicleController, RigidBody, Vector } from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
 
 import type { PhysicsWorld } from "../physics/physics-world";
@@ -18,24 +19,28 @@ import type { WaterContact } from "./water-contact";
 // Units: ours (1u ≈ 1m), gravity 30 (arcade — snappier than 9.82), speeds in
 // u/s to match the rest of the game (CAR.maxSpeed 30, boostSpeed 44).
 
-export type VehicleParams = {
+export interface VehicleParams {
   // engine
   engineForce: number;
   boostMultiplier: number;
-  cruiseSpeed: number; // top speed on throttle alone (u/s)
-  maxSpeed: number; // top speed while boosting
+  // top speed on throttle alone (u/s)
+  cruiseSpeed: number;
+  // top speed while boosting
+  maxSpeed: number;
   reverseFactor: number;
   // steering — the front wheels ARE the turn (pure tire physics)
   maxSteer: number;
   steerSpeed: number;
-  highSpeedSteer: number; // steer-lock fraction kept at cruise (agile slow, stable fast)
+  // steer-lock fraction kept at cruise (agile slow, stable fast)
+  highSpeedSteer: number;
   // brake — ONE pedal (↓/S/Space). Straight = a plain progressive brake:
   // a CAPPED deceleration applied in velocity space (Rapier wheel-brake
   // torque is bang-bang — any bite that matters locks the wheels and tire
   // friction dumps 60+ u/s², an anchor, not a racing brake). Pressure ramps
   // in over brakeRamp seconds, so a tap or a brake-then-turn-in press only
   // feathers. Pedal + steer = DRIFT (see below) — the drift never brakes.
-  brakeDecel: number; // u/s² at full pressure
+  // u/s² at full pressure
+  brakeDecel: number;
   brakeRamp: number;
   // drift — Mario Kart architecture: a committed STATE, not emergent tire
   // slip. Entering (pedal + steer at speed) locks a direction; the state then
@@ -45,14 +50,22 @@ export type VehicleParams = {
   // Holding the drift charges a mini-turbo: tier 1 at turbo1T seconds, tier 2
   // at turbo2T; releasing fires a forward impulse (turbo1/2Boost). Rapier
   // keeps suspension/collisions/hills the whole time.
-  slideAngle: number; // rad the nose points inside the velocity arc — the LOOK
-  arcMin: number; // arc rate (rad/s) steering fully AWAY from the drift
-  arcMax: number; // arc rate (rad/s) steering fully INTO the drift
-  driftDecay: number; // u/s speed bled while drifting (≈0 = MK speed hold)
-  turbo1T: number; // seconds of drift to arm mini-turbo tier 1
-  turbo2T: number; // seconds of drift to arm tier 2
-  turbo1Boost: number; // release impulse (u/s) at tier 1
-  turbo2Boost: number; // release impulse (u/s) at tier 2
+  // rad the nose points inside the velocity arc — the LOOK
+  slideAngle: number;
+  // arc rate (rad/s) steering fully AWAY from the drift
+  arcMin: number;
+  // arc rate (rad/s) steering fully INTO the drift
+  arcMax: number;
+  // u/s speed bled while drifting (≈0 = MK speed hold)
+  driftDecay: number;
+  // seconds of drift to arm mini-turbo tier 1
+  turbo1T: number;
+  // seconds of drift to arm tier 2
+  turbo2T: number;
+  // release impulse (u/s) at tier 1
+  turbo1Boost: number;
+  // release impulse (u/s) at tier 2
+  turbo2Boost: number;
   airborneGravityScale: number;
   // suspension / tires
   suspensionStiffness: number;
@@ -64,17 +77,20 @@ export type VehicleParams = {
   // chassis
   mass: number;
   angularDamping: number;
-  inertiaScale: number; // pitch/roll inertia multiplier (harder to flip)
+  // pitch/roll inertia multiplier (harder to flip)
+  inertiaScale: number;
   // assists
   antiWheelie: boolean;
-  tiltClampAirborne: number; // max pitch/roll spin (rad/s) while airborne
+  // max pitch/roll spin (rad/s) while airborne
+  tiltClampAirborne: number;
   uprightAssist: boolean;
   cornerLiftDamping: number;
   gripLoadCap: number;
   landingGripTime: number;
   landingGripFactor: number;
-};
+}
 
+// oxlint-disable-next-line sort-keys -- grouped by subsystem (engine, steering, drift, assists) with a tuning note per value
 export const DEFAULT_VEHICLE_PARAMS: VehicleParams = {
   engineForce: 3000,
   boostMultiplier: 1.8,
@@ -125,9 +141,37 @@ const WHEEL_CONNECTION = { x: 0.72, y: 0.12, z: 1.12 };
 
 const UP = new THREE.Vector3(0, 1, 0);
 
+type PedalMode = "brake" | "coast" | "drift" | "drive" | "reverse";
+
+// ONE pedal state per step, Mario Kart style, priority top-down:
+//   drift   — the state machine owns the car; pedals sit out entirely
+//   brake   — rolling forward with the pedal down: capped velocity decel
+//   reverse — pedal down at (near) standstill: the parking move. Beats the
+//             gas, so a thumb parked on the touch GAS pedal can't block it.
+//   drive   — gas (or boost, which pins the throttle open)
+//   coast   — nothing held: a light roll-off
+const pedalMode = (
+  inDrift: boolean,
+  pedalDown: boolean,
+  gas: boolean,
+  fwdSpeed: number,
+  cruiseSpeed: number,
+): PedalMode => {
+  if (inDrift) {
+    return "drift";
+  }
+  if (pedalDown && fwdSpeed > 0.5) {
+    return "brake";
+  }
+  if (pedalDown && fwdSpeed > -cruiseSpeed * 0.4) {
+    return "reverse";
+  }
+  return gas ? "drive" : "coast";
+};
+
 export class RaycastVehicle {
-  readonly chassis: RAPIER.RigidBody;
-  readonly controller: RAPIER.DynamicRayCastVehicleController;
+  readonly chassis: RigidBody;
+  readonly controller: DynamicRayCastVehicleController;
   readonly params: VehicleParams;
   private readonly flotation: Flotation;
 
@@ -135,11 +179,14 @@ export class RaycastVehicle {
   private airborneTime = 0;
   private gripRecoveryT = 1;
   private brakeInput = 0;
-  private brakeHeldT = 0; // seconds the brake has been held (drives the bite ramp)
+  // seconds the brake has been held (drives the bite ramp)
+  private brakeHeldT = 0;
   // Drift state: 0 = idle, ±1 = committed direction (sign of steer at entry).
   private driftDir: 0 | 1 | -1 = 0;
-  private driftChargeT = 0; // seconds the current drift has been held
-  private turboFired: 0 | 1 | 2 = 0; // latched on release; consumed by Car
+  // seconds the current drift has been held
+  private driftChargeT = 0;
+  // latched on release; consumed by Car
+  private turboFired: 0 | 1 | 2 = 0;
   private stuckT = 0;
   private boosting = false;
   private throttle = 0;
@@ -149,20 +196,17 @@ export class RaycastVehicle {
   private v = new THREE.Vector3();
   private v2 = new THREE.Vector3();
 
-  constructor(
-    private readonly physics: Pick<PhysicsWorld, "raw">,
-    x: number,
-    y: number,
-    z: number,
-    yaw: number,
-  ) {
+  private readonly physics: Pick<PhysicsWorld, "raw">;
+
+  constructor(physics: Pick<PhysicsWorld, "raw">, x: number, y: number, z: number, yaw: number) {
+    this.physics = physics;
     const world = physics.raw();
     const p = DEFAULT_VEHICLE_PARAMS;
     this.params = { ...p };
     this.chassis = world.createRigidBody(
-      RAPIER.RigidBodyDesc.dynamic()
+      RigidBodyDesc.dynamic()
         .setTranslation(x, y, z)
-        .setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) })
+        .setRotation({ w: Math.cos(yaw / 2), x: 0, y: Math.sin(yaw / 2), z: 0 })
         .setAngularDamping(p.angularDamping)
         .setCcdEnabled(true),
     );
@@ -170,7 +214,7 @@ export class RaycastVehicle {
     // Rounded corners (the reference uses corner spheres for the same reason):
     // the chassis slides over curb lips and debris instead of catching.
     world.createCollider(
-      RAPIER.ColliderDesc.roundCuboid(HALF.x - 0.12, HALF.y - 0.1, HALF.z - 0.12, 0.12)
+      ColliderDesc.roundCuboid(HALF.x - 0.12, HALF.y - 0.1, HALF.z - 0.12, 0.12)
         .setFriction(0.25)
         .setMass(0.001),
       this.chassis,
@@ -183,9 +227,10 @@ export class RaycastVehicle {
     const iz = (m / 12) * (4 * HALF.x * HALF.x + 4 * HALF.y * HALF.y) * p.inertiaScale;
     this.chassis.setAdditionalMassProperties(
       m,
-      { x: 0, y: -0.25, z: 0 }, // low centre of mass
+      // low centre of mass
+      { x: 0, y: -0.25, z: 0 },
       { x: ix, y: iy, z: iz },
-      { x: 0, y: 0, z: 0, w: 1 },
+      { w: 1, x: 0, y: 0, z: 0 },
       true,
     );
 
@@ -196,15 +241,21 @@ export class RaycastVehicle {
     const axleCs = { x: -1, y: 0, z: 0 };
     const c = WHEEL_CONNECTION;
     const corners = [
-      { x: -c.x, y: c.y, z: c.z }, // FL
-      { x: c.x, y: c.y, z: c.z }, // FR
-      { x: -c.x, y: c.y, z: -c.z }, // RL
-      { x: c.x, y: c.y, z: -c.z }, // RR
+      // FL
+      { x: -c.x, y: c.y, z: c.z },
+      // FR
+      { x: c.x, y: c.y, z: c.z },
+      // RL
+      { x: -c.x, y: c.y, z: -c.z },
+      // RR
+      { x: c.x, y: c.y, z: -c.z },
     ];
     for (const corner of corners) {
       this.controller.addWheel(corner, dirCs, axleCs, p.suspensionRestLength, WHEEL_RADIUS);
     }
-    for (let i = 0; i < 4; i++) this.applyWheelParams(i);
+    for (let i = 0; i < 4; i += 1) {
+      this.applyWheelParams(i);
+    }
   }
 
   applyWheelParams(i: number): void {
@@ -215,10 +266,10 @@ export class RaycastVehicle {
     this.controller.setWheelSuspensionCompression(i, p.dampingCompression);
     this.controller.setWheelSuspensionRelaxation(i, p.dampingRelaxation);
     this.controller.setWheelFrictionSlip(i, p.frictionSlip);
-    this.controller.setWheelMaxSuspensionForce(i, 120000);
+    this.controller.setWheelMaxSuspensionForce(i, 120_000);
   }
 
-  get position(): RAPIER.Vector {
+  get position(): Vector {
     return this.chassis.translation();
   }
 
@@ -247,14 +298,18 @@ export class RaycastVehicle {
 
   groundedWheels(): number {
     let n = 0;
-    for (let i = 0; i < 4; i++) if (this.controller.wheelIsInContact(i)) n++;
+    for (let i = 0; i < 4; i += 1) {
+      if (this.controller.wheelIsInContact(i)) {
+        n += 1;
+      }
+    }
     return n;
   }
 
   wheelVisual(i: number) {
     return {
-      steering: this.controller.wheelSteering(i) ?? 0,
       rotation: this.controller.wheelRotation(i) ?? 0,
+      steering: this.controller.wheelSteering(i) ?? 0,
       suspension: this.controller.wheelSuspensionLength(i) ?? this.params.suspensionRestLength,
     };
   }
@@ -272,9 +327,15 @@ export class RaycastVehicle {
   }
   // 0 charging → 1 tier-1 armed → 2 tier-2 armed
   get driftTier(): 0 | 1 | 2 {
-    if (this.driftDir === 0) return 0;
-    if (this.driftChargeT >= this.params.turbo2T) return 2;
-    if (this.driftChargeT >= this.params.turbo1T) return 1;
+    if (this.driftDir === 0) {
+      return 0;
+    }
+    if (this.driftChargeT >= this.params.turbo2T) {
+      return 2;
+    }
+    if (this.driftChargeT >= this.params.turbo1T) {
+      return 1;
+    }
     return 0;
   }
   get driftCharge01(): number {
@@ -298,7 +359,7 @@ export class RaycastVehicle {
   teleport(x: number, y: number, z: number, yaw: number): void {
     this.flotation.reset();
     this.chassis.setTranslation({ x, y, z }, true);
-    this.chassis.setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) }, true);
+    this.chassis.setRotation({ w: Math.cos(yaw / 2), x: 0, y: Math.sin(yaw / 2), z: 0 }, true);
     this.chassis.setLinvel({ x: 0, y: 0, z: 0 }, true);
     this.chassis.setAngvel({ x: 0, y: 0, z: 0 }, true);
     this.currentSteer = 0;
@@ -317,49 +378,20 @@ export class RaycastVehicle {
   // always runs at FIXED_DT, exactly like the reference.
   fixedStep(dt: number): void {
     if (this.flotation.step(dt, this.throttle, this.brakeInput, this.steerInput, this.boosting)) {
-      this.driftDir = 0;
-      this.driftChargeT = 0;
-      this.turboFired = 0;
-      this.airborneTime = 0;
-      this.gripRecoveryT = 1;
-      this.stuckT = 0;
-      for (let i = 0; i < 4; i++) {
-        this.controller.setWheelEngineForce(i, 0);
-        this.controller.setWheelBrake(i, 0);
-        this.controller.setWheelFrictionSlip(i, 0.8);
-      }
-      // Shallow-water tires still find the bank and lift the hull before its
-      // centre leaves the water footprint. Freezing these rays beaches the
-      // low floating chassis on the shore during a reverse exit.
-      this.controller.updateVehicle(dt);
+      this.waterStep(dt);
       return;
     }
     const p = this.params;
     const fwd = this.forwardDir(this.v);
     const vel = this.velocity(this.v2);
     const fwdSpeed = vel.dot(fwd);
-    const startPlanarSpeed = Math.hypot(vel.x, vel.z); // pre-tire, for the drift's speed hold
+    // pre-tire, for the drift's speed hold
+    const startPlanarSpeed = Math.hypot(vel.x, vel.z);
     const speedFrac = THREE.MathUtils.clamp(Math.abs(fwdSpeed) / p.cruiseSpeed, 0, 1);
 
-    // ONE pedal state per step, Mario Kart style, priority top-down:
-    //   drift   — the state machine owns the car; pedals sit out entirely
-    //   brake   — rolling forward with the pedal down: capped velocity decel
-    //   reverse — pedal down at (near) standstill: the parking move. Beats the
-    //             gas, so a thumb parked on the touch GAS pedal can't block it.
-    //   drive   — gas (or boost, which pins the throttle open)
-    //   coast   — nothing held: a light roll-off
     const gas = this.throttle > 0.05;
     const pedalDown = this.brakeInput > 0.05;
-    const mode =
-      this.driftDir !== 0
-        ? "drift"
-        : pedalDown && fwdSpeed > 0.5
-          ? "brake"
-          : pedalDown && fwdSpeed > -p.cruiseSpeed * 0.4
-            ? "reverse"
-            : gas
-              ? "drive"
-              : "coast";
+    const mode = pedalMode(this.driftDir !== 0, pedalDown, gas, fwdSpeed, p.cruiseSpeed);
     const drifting = mode === "drift";
     // Brake pressure ramps in over brakeRamp seconds of HOLDING — a tap or a
     // brake-then-turn-in press only ever feathers, while a held straight
@@ -381,6 +413,61 @@ export class RaycastVehicle {
     this.controller.setWheelSteering(0, this.currentSteer);
     this.controller.setWheelSteering(1, this.currentSteer);
 
+    this.applyEngine(mode, gas, fwdSpeed, brakeBuild);
+
+    // --- Wheels never carry the stop (torque brakes lock and anchor-halt
+    // the car) — braking decel is applied in velocity space after
+    // updateVehicle below. Coasting rolls off gently. ---
+    const coast = mode === "coast" ? 14 : 0;
+    for (let i = 0; i < 4; i += 1) {
+      this.controller.setWheelBrake(i, coast);
+    }
+
+    // --- Assists ---
+    const grounded = this.groundedWheels();
+    const holding = mode === "coast" && grounded >= 2 && startPlanarSpeed < 0.8;
+    if (grounded === 0) {
+      this.airborneTime += dt;
+    } else {
+      if (this.airborneTime > 0.15) {
+        this.gripRecoveryT = 0;
+        // just landed
+      }
+      this.airborneTime = 0;
+      this.gripRecoveryT += dt;
+    }
+
+    this.applyGrip(drifting);
+    this.applyAirborneForces(grounded);
+    this.applyUprightAssist(dt);
+    this.applyUnstick(dt, grounded);
+    this.updateDriftState(dt, fwdSpeed, grounded);
+
+    this.controller.updateVehicle(dt);
+
+    this.applyPostStepVelocity(dt, mode, grounded, holding, startPlanarSpeed, brakeBuild);
+  }
+
+  private waterStep(dt: number): void {
+    this.driftDir = 0;
+    this.driftChargeT = 0;
+    this.turboFired = 0;
+    this.airborneTime = 0;
+    this.gripRecoveryT = 1;
+    this.stuckT = 0;
+    for (let i = 0; i < 4; i += 1) {
+      this.controller.setWheelEngineForce(i, 0);
+      this.controller.setWheelBrake(i, 0);
+      this.controller.setWheelFrictionSlip(i, 0.8);
+    }
+    // Shallow-water tires still find the bank and lift the hull before its
+    // centre leaves the water footprint. Freezing these rays beaches the
+    // low floating chassis on the shore during a reverse exit.
+    this.controller.updateVehicle(dt);
+  }
+
+  private applyEngine(mode: PedalMode, gas: boolean, fwdSpeed: number, brakeBuild: number): void {
+    const p = this.params;
     // --- Engine (rear-wheel drive, cruise/boost speed caps). Gas stays
     // commanded while braking — it fades with brake pressure and snaps back
     // the moment the pedal lifts, so a brake release relaunches instantly. ---
@@ -403,30 +490,17 @@ export class RaycastVehicle {
     }
     this.controller.setWheelEngineForce(2, force);
     this.controller.setWheelEngineForce(3, force);
+  }
 
-    // --- Wheels never carry the stop (torque brakes lock and anchor-halt
-    // the car) — braking decel is applied in velocity space after
-    // updateVehicle below. Coasting rolls off gently. ---
-    const coast = mode === "coast" ? 14 : 0;
-    for (let i = 0; i < 4; i++) this.controller.setWheelBrake(i, coast);
-
-    // --- Assists ---
-    const grounded = this.groundedWheels();
-    const holding = mode === "coast" && grounded >= 2 && startPlanarSpeed < 0.8;
-    if (grounded === 0) this.airborneTime += dt;
-    else {
-      if (this.airborneTime > 0.15) this.gripRecoveryT = 0; // just landed
-      this.airborneTime = 0;
-      this.gripRecoveryT += dt;
-    }
-
+  private applyGrip(drifting: boolean): void {
+    const p = this.params;
     // Natural grip: load cap + landing fade-in. While DRIFTING the tires drop
     // to a token grip so the tire sim can't fight the state's velocity — the
     // slide is scripted, the wheels just roll and hold suspension.
     const staticLoad = (p.mass * GRAVITY) / 4;
     const landingBlend = THREE.MathUtils.clamp(this.gripRecoveryT / p.landingGripTime, 0, 1);
     const landingScale = p.landingGripFactor + (1 - p.landingGripFactor) * landingBlend;
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 4; i += 1) {
       const load = Math.max(this.controller.wheelSuspensionForce(i) ?? staticLoad, staticLoad);
       const loadScale = Math.min(1, (p.gripLoadCap * staticLoad) / load);
       this.controller.setWheelFrictionSlip(
@@ -434,7 +508,10 @@ export class RaycastVehicle {
         drifting ? 0.4 : p.frictionSlip * loadScale * landingScale,
       );
     }
+  }
 
+  private applyAirborneForces(grounded: number): void {
+    const p = this.params;
     // Extra gravity while airborne so arcs stay snappy (forces are cleared
     // and re-applied every fixed step).
     this.chassis.resetForces(true);
@@ -455,7 +532,10 @@ export class RaycastVehicle {
     if (grounded > 0 && grounded < 4 && p.cornerLiftDamping < 1) {
       this.scaleLocalTilt(p.cornerLiftDamping);
     }
+  }
 
+  private applyUprightAssist(dt: number): void {
+    const p = this.params;
     // Upright assist: past ~40° of tilt, torque back toward flat and bleed
     // pitch/roll spin — never fights fast intentional ramp driving.
     if (p.uprightAssist) {
@@ -477,7 +557,10 @@ export class RaycastVehicle {
         this.scaleLocalTilt(0.88);
       }
     }
+  }
 
+  private applyUnstick(dt: number, grounded: number): void {
+    const p = this.params;
     // Unstick assist: a pedal held but beached (barely moving, uneven wheel
     // contact) — give a small nudge along the pedal's direction so players
     // never sit trapped on a curb lip or a wreck.
@@ -496,7 +579,10 @@ export class RaycastVehicle {
     } else {
       this.stuckT = 0;
     }
+  }
 
+  private updateDriftState(dt: number, fwdSpeed: number, grounded: number): void {
+    const p = this.params;
     // --- Drift state machine (Mario Kart) ---
     // ENTER: pedal + real steer at speed, on the ground. The steer sign at
     // entry commits the drift direction for its whole life. The brake ramp
@@ -530,10 +616,20 @@ export class RaycastVehicle {
       this.driftChargeT = 0;
       this.brakeHeldT = 0;
     }
-    if (this.driftDir !== 0) this.driftChargeT += dt;
+    if (this.driftDir !== 0) {
+      this.driftChargeT += dt;
+    }
+  }
 
-    this.controller.updateVehicle(dt);
-
+  private applyPostStepVelocity(
+    dt: number,
+    mode: PedalMode,
+    grounded: number,
+    holding: boolean,
+    startPlanarSpeed: number,
+    brakeBuild: number,
+  ): void {
+    const p = this.params;
     // ACTIVE drift, written AFTER updateVehicle so it is the last word on the
     // planar velocity — updateVehicle applies tire impulses IMMEDIATELY (not
     // in world.step), and letting them land after our write bled ~12 u/s of
@@ -544,7 +640,8 @@ export class RaycastVehicle {
     // and gravity/suspension stay Rapier's.
     if (this.driftDir !== 0) {
       const dir = this.driftDir;
-      const into = (this.steerInput * dir + 1) / 2; // 0 counter .. 1 full into
+      // 0 counter .. 1 full into
+      const into = (this.steerInput * dir + 1) / 2;
       const arcRate = THREE.MathUtils.lerp(p.arcMin, p.arcMax, into);
       const av = this.chassis.angvel();
       this.chassis.setAngvel({ x: av.x, y: -dir * arcRate, z: av.z }, true);
@@ -553,7 +650,8 @@ export class RaycastVehicle {
       const noseHeading = Math.atan2(f.x, f.z);
       const lv = this.chassis.linvel();
       const cur = Math.atan2(lv.x, lv.z);
-      const target = noseHeading + dir * p.slideAngle; // velocity trails outside the nose
+      // velocity trails outside the nose
+      const target = noseHeading + dir * p.slideAngle;
       const delta = ((target - cur + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
       const heading = cur + delta * Math.min(1, dt * 9);
       // Magnitude from the step's START (before updateVehicle's tire impulses

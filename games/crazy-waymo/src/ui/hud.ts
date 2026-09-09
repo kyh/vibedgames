@@ -1,14 +1,15 @@
 import { TIER_COLORS, tierColor } from "../fx/tier";
 
-function el(id: string): HTMLElement {
-  const node = document.getElementById(id);
-  if (!node) throw new Error(`missing #${id}`);
+const el = (id: string): HTMLElement => {
+  const node = document.querySelector<HTMLElement>(`#${id}`);
+  if (!node) {
+    throw new Error(`missing #${id}`);
+  }
   return node;
-}
+};
 
-function damp(current: number, target: number, lambda: number, dt: number): number {
-  return current + (target - current) * (1 - Math.exp(-lambda * dt));
-}
+const damp = (current: number, target: number, lambda: number, dt: number): number =>
+  current + (target - current) * (1 - Math.exp(-lambda * dt));
 
 // ---- Drift rails (tuning knobs) -------------------------------------------
 // Rail fill is LADDER position, (tier + charge) / steps — never within-tier
@@ -66,8 +67,10 @@ const DIAL_A0 = Math.PI * (5 / 6);
 const DIAL_SWEEP = Math.PI * (4 / 3);
 const DIAL_MAX_MPH = 100;
 const REDLINE_FRAC = 0.85;
-const CHAN_W = 7; // channel groove width
-const CHAN_FILL_FRAC = 0.78; // fill/scale width inside the groove
+// channel groove width
+const CHAN_W = 7;
+// fill/scale width inside the groove
+const CHAN_FILL_FRAC = 0.78;
 const CHAN_INK = "rgba(18, 10, 4, 0.64)";
 // ONE flat low value — a low-alpha ramp behind the fill reads as a fault.
 const CHAN_SCALE = "rgba(255, 232, 202, 0.15)";
@@ -90,40 +93,62 @@ const PAPER = "#fff4e2";
 const DIAL_INK = "rgba(18, 10, 4, 0.92)";
 const DIAL_FONT = '"Avenir Next Condensed", "Roboto Condensed", "Arial Narrow", sans-serif';
 
-function sub(selector: string): HTMLElement {
+const sub = (selector: string): HTMLElement => {
   const node = document.querySelector(selector);
-  if (!(node instanceof HTMLElement)) throw new Error(`missing ${selector}`);
+  if (!(node instanceof HTMLElement)) {
+    throw new Error(`missing ${selector}`);
+  }
   return node;
-}
+};
 
 /** The pre-bundle bar creep, published by the inline script in index.html. */
-type BootBar = { stop(): void; at(): number };
-
-function boot(): BootBar | null {
-  // SAFETY: __bootBar is published only by the inline script in index.html,
-  // which sets it to { stop, at }; both members are verified callable below.
-  const c = (globalThis as { __bootBar?: Partial<BootBar> }).__bootBar;
-  if (!c || !(c.stop instanceof Function) || !(c.at instanceof Function)) return null;
-  // SAFETY: stop and at were just verified callable, so c is a working BootBar.
-  return c as BootBar;
+interface BootBar {
+  stop: () => void;
+  at: () => number;
 }
 
+const boot = (): BootBar | null => {
+  // SAFETY: __bootBar is read as Partial, so every member is checked below
+  // before use; the inline script in index.html sets it to plain closures.
+  const { at, stop } = (globalThis as { __bootBar?: Partial<BootBar> }).__bootBar ?? {};
+  if (!(at && stop)) {
+    return null;
+  }
+  return { at, stop };
+};
+
+const patienceColor = (frac: number): string => {
+  if (frac > 0.5) {
+    return "#7ef0a4";
+  }
+  return frac > 0.25 ? "#ffb64d" : "#e0453f";
+};
+
 /** One keycap group: the keys that do it, and what they do. */
-export type ControlHint = { readonly keys: readonly string[]; readonly label: string };
+export interface ControlHint {
+  readonly keys: readonly string[];
+  readonly label: string;
+}
 
 /** One input method's row: the pause overlay's KEYS/TOUCH/PAD tag + its chips. */
-export type ControlHintGroup = { readonly tag: string; readonly hints: readonly ControlHint[] };
+export interface ControlHintGroup {
+  readonly tag: string;
+  readonly hints: readonly ControlHint[];
+}
 
-export type BannerSpec = {
+export interface BannerSpec {
   readonly title: string;
   readonly sub: string;
   readonly stats?: string;
   /** Control legend. Landing screen only — never shown over live gameplay. */
   readonly controls?: readonly ControlHintGroup[];
   readonly cta: string;
-};
+}
 
-export type ReceiptLine = { readonly text: string; readonly color: string };
+export interface ReceiptLine {
+  readonly text: string;
+  readonly color: string;
+}
 
 export class Hud {
   private timer = el("timer");
@@ -134,7 +159,8 @@ export class Hud {
   private scoreVal = el("score").querySelector<HTMLElement>(".value");
   private scorePill = el("score");
   private scoreLabel = el("score").querySelector<HTMLElement>(".label");
-  private boostPill = el("speed"); // boost meter lives inside the MPH card
+  // boost meter lives inside the MPH card
+  private boostPill = el("speed");
   private boostFill = el("boost-fill");
   private dial = el("dash-dial");
   private dialCtx: CanvasRenderingContext2D | null = null;
@@ -193,7 +219,11 @@ export class Hud {
 
   // `coarseUi` (mobile): skip sub-mph dial redraws — the needle moves less
   // than a pixel between same-rounded values. Desktop redraws while moving.
-  constructor(private coarseUi = false) {}
+  private coarseUi: boolean;
+
+  constructor(coarseUi = false) {
+    this.coarseUi = coarseUi;
+  }
 
   update(dt: number): void {
     if (this.scoreShown !== this.scoreTarget) {
@@ -212,7 +242,7 @@ export class Hud {
       // brake makes the needle overshoot slightly, like a gauge with mass.
       // Two substeps keep it stable across a clamped 50ms frame.
       const h = Math.min(dt, 0.05) / 2;
-      for (let i = 0; i < 2; i++) {
+      for (let i = 0; i < 2; i += 1) {
         this.mphVel += (190 * (this.mphTarget - this.mphShown) - 16 * this.mphVel) * h;
         this.mphShown += this.mphVel * h;
       }
@@ -281,19 +311,23 @@ export class Hud {
     this.timeBonus.animate(
       [
         { opacity: 0, transform: "translateX(-50%) translateY(8px) scale(0.8)" },
-        { opacity: 1, transform: "translateX(-50%) translateY(0) scale(1.1)", offset: 0.3 },
+        { offset: 0.3, opacity: 1, transform: "translateX(-50%) translateY(0) scale(1.1)" },
         { opacity: 0, transform: "translateX(-50%) translateY(-18px) scale(1)" },
       ],
       { duration: 1100, easing: "ease-out" },
     );
   }
   setScore(n: number): void {
-    if (this.scoreTarget === n) return;
+    if (this.scoreTarget === n) {
+      return;
+    }
     this.scoreTarget = n;
     // Throttle the pop: drift score trickles in every frame and would restart
     // the animation forever.
     const now = performance.now();
-    if (now - this.lastScorePop < 300) return;
+    if (now - this.lastScorePop < 300) {
+      return;
+    }
     this.lastScorePop = now;
     this.scorePill.animate(
       [{ transform: "scale(1)" }, { transform: "scale(1.1)" }, { transform: "scale(1)" }],
@@ -304,7 +338,9 @@ export class Hud {
   resetScore(n: number): void {
     this.scoreTarget = n;
     this.scoreShown = n;
-    if (this.scoreVal) this.scoreVal.textContent = `$${n.toLocaleString("en-US")}`;
+    if (this.scoreVal) {
+      this.scoreVal.textContent = `$${n.toLocaleString("en-US")}`;
+    }
   }
   // Persistent top-centre area label (always current while driving).
   setArea(name: string): void {
@@ -321,8 +357,8 @@ export class Hud {
     this.district.animate(
       [
         { opacity: 0, transform: "translateX(-50%) translateY(-8px)" },
-        { opacity: 1, transform: "translateX(-50%) translateY(0)", offset: 0.18 },
-        { opacity: 1, transform: "translateX(-50%) translateY(0)", offset: 0.78 },
+        { offset: 0.18, opacity: 1, transform: "translateX(-50%) translateY(0)" },
+        { offset: 0.78, opacity: 1, transform: "translateX(-50%) translateY(0)" },
         { opacity: 0, transform: "translateX(-50%) translateY(0)" },
       ],
       { duration: 2600, easing: "ease-out" },
@@ -346,7 +382,9 @@ export class Hud {
   // sweep's bottom gap under the hub.
   private drawDial(mph: number): void {
     const canvas = this.dial;
-    if (!(canvas instanceof HTMLCanvasElement)) return;
+    if (!(canvas instanceof HTMLCanvasElement)) {
+      return;
+    }
     if (!this.dialCtx) {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       canvas.width = DIAL_W * dpr;
@@ -355,7 +393,9 @@ export class Hud {
       this.dialCtx?.scale(dpr, dpr);
     }
     const ctx = this.dialCtx;
-    if (!ctx) return;
+    if (!ctx) {
+      return;
+    }
     const cx = DIAL_CX;
     const cy = DIAL_CY;
     const r = DIAL_R;
@@ -519,8 +559,12 @@ export class Hud {
   setCombo(mult: number, frac: number): void {
     const show = mult > 1;
     this.comboMeter.classList.toggle("show", show);
-    if (!show) return;
-    if (this.comboMult) this.comboMult.textContent = `${mult}× COMBO`;
+    if (!show) {
+      return;
+    }
+    if (this.comboMult) {
+      this.comboMult.textContent = `${mult}× COMBO`;
+    }
     this.comboFill.style.width = `${Math.round(Math.max(0, Math.min(1, frac)) * 100)}%`;
     this.comboMeter.classList.toggle("urgent", frac < 0.3);
   }
@@ -528,11 +572,15 @@ export class Hud {
   // Carry-only fare card: destination, distance, passenger patience.
   setFareCard(title: string, distance: number, patienceFrac: number): void {
     this.fareCard.classList.add("show");
-    if (this.fareWho) this.fareWho.textContent = title;
-    if (this.fareDist) this.fareDist.textContent = `${Math.round(distance)} m`;
+    if (this.fareWho) {
+      this.fareWho.textContent = title;
+    }
+    if (this.fareDist) {
+      this.fareDist.textContent = `${Math.round(distance)} m`;
+    }
     const f = Math.max(0, Math.min(1, patienceFrac));
     this.patienceFill.style.width = `${Math.round(f * 100)}%`;
-    this.patienceFill.style.background = f > 0.5 ? "#7ef0a4" : f > 0.25 ? "#ffb64d" : "#e0453f";
+    this.patienceFill.style.background = patienceColor(f);
   }
   hideFareCard(): void {
     this.fareCard.classList.remove("show");
@@ -544,8 +592,8 @@ export class Hud {
     this.combo.animate(
       [
         { opacity: 0, transform: "translate(-50%,10px) scale(0.5) rotate(-6deg)" },
-        { opacity: 1, transform: "translate(-50%,0) scale(1.15) rotate(-3deg)", offset: 0.25 },
-        { opacity: 1, transform: "translate(-50%,0) scale(1) rotate(-3deg)", offset: 0.7 },
+        { offset: 0.25, opacity: 1, transform: "translate(-50%,0) scale(1.15) rotate(-3deg)" },
+        { offset: 0.7, opacity: 1, transform: "translate(-50%,0) scale(1) rotate(-3deg)" },
         { opacity: 0, transform: "translate(-50%,-26px) scale(1) rotate(-3deg)" },
       ],
       { duration: 1200, easing: "cubic-bezier(.2,.9,.3,1)" },
@@ -556,7 +604,9 @@ export class Hud {
   // Operator branding: the EARNED pill carries the equipped robotaxi's name
   // and brand color — swapping cars re-skins the meter.
   setOperator(label: string, accent: string): void {
-    if (this.scoreLabel) this.scoreLabel.textContent = label;
+    if (this.scoreLabel) {
+      this.scoreLabel.textContent = label;
+    }
     // The plate's accent slot: rim-light gradient + label tint both key off
     // --accent, so the brand color lands in one write.
     this.scorePill.style.setProperty("--accent", accent);
@@ -568,8 +618,8 @@ export class Hud {
     this.announceMinorEl.animate(
       [
         { opacity: 0, transform: "translate(-50%,8px) scale(0.7)" },
-        { opacity: 1, transform: "translate(-50%,0) scale(1.05)", offset: 0.25 },
-        { opacity: 1, transform: "translate(-50%,0) scale(1)", offset: 0.65 },
+        { offset: 0.25, opacity: 1, transform: "translate(-50%,0) scale(1.05)" },
+        { offset: 0.65, opacity: 1, transform: "translate(-50%,0) scale(1)" },
         { opacity: 0, transform: "translate(-50%,-18px) scale(1)" },
       ],
       { duration: 850, easing: "ease-out" },
@@ -579,22 +629,22 @@ export class Hud {
   // Itemized dropoff receipt, lines staggered 150ms apart.
   showReceipt(lines: readonly ReceiptLine[]): void {
     this.receipt.replaceChildren();
-    lines.forEach((line, i) => {
+    for (const [i, line] of lines.entries()) {
       const div = document.createElement("div");
       div.textContent = line.text;
       div.style.color = line.color;
       div.style.opacity = "0";
-      this.receipt.appendChild(div);
+      this.receipt.append(div);
       div.animate(
         [
           { opacity: 0, transform: "translateX(30px) scale(0.8)" },
-          { opacity: 1, transform: "translateX(0) scale(1.06)", offset: 0.25 },
-          { opacity: 1, transform: "translateX(0) scale(1)", offset: 0.75 },
+          { offset: 0.25, opacity: 1, transform: "translateX(0) scale(1.06)" },
+          { offset: 0.75, opacity: 1, transform: "translateX(0) scale(1)" },
           { opacity: 0, transform: "translateY(-14px)" },
         ],
-        { duration: 1500, delay: i * 150, easing: "ease-out", fill: "forwards" },
+        { delay: i * 150, duration: 1500, easing: "ease-out", fill: "forwards" },
       );
-    });
+    }
   }
 
   showCountdown(text: string, big: boolean): void {
@@ -605,9 +655,9 @@ export class Hud {
     this.countdown.animate(
       [
         { opacity: 0, transform: `translate(-50%,-50%) scale(${big ? 1.6 : 1.35})` },
-        { opacity: 1, transform: "translate(-50%,-50%) scale(1.06)", offset: 0.28 },
-        { opacity: 1, transform: "translate(-50%,-50%) scale(1)", offset: 0.5 },
-        { opacity: 1, transform: "translate(-50%,-50%) scale(1)", offset: 0.8 },
+        { offset: 0.28, opacity: 1, transform: "translate(-50%,-50%) scale(1.06)" },
+        { offset: 0.5, opacity: 1, transform: "translate(-50%,-50%) scale(1)" },
+        { offset: 0.8, opacity: 1, transform: "translate(-50%,-50%) scale(1)" },
         { opacity: 0, transform: "translate(-50%,-50%) scale(0.92)" },
       ],
       { duration: big ? 700 : 480, easing: "ease-out" },
@@ -635,19 +685,29 @@ export class Hud {
   arrowBounds() {
     const now = performance.now();
     const cached = this.arrowBox;
-    if (cached && now - this.arrowBoxAt < ARROW_BOX_MS) return cached;
+    if (cached && now - this.arrowBoxAt < ARROW_BOX_MS) {
+      return cached;
+    }
     const w = window.innerWidth;
     const h = window.innerHeight;
     const mid = h / 2;
     let top = 0;
     let bottom = h;
     for (const id of ARROW_OBSTACLES) {
-      const node = document.getElementById(id);
-      if (!node) continue;
+      const node = document.querySelector<HTMLElement>(`#${id}`);
+      if (!node) {
+        continue;
+      }
       const r = node.getBoundingClientRect();
-      if (r.width <= 0 || r.height <= 0) continue; // hidden — claims no space
-      if (r.top + r.height / 2 < mid) top = Math.max(top, r.bottom);
-      else bottom = Math.min(bottom, r.top);
+      if (r.width <= 0 || r.height <= 0) {
+        continue;
+        // hidden — claims no space
+      }
+      if (r.top + r.height / 2 < mid) {
+        top = Math.max(top, r.bottom);
+      } else {
+        bottom = Math.min(bottom, r.top);
+      }
     }
     const pad = ARROW_HALF + ARROW_GUTTER;
     // A short landscape phone can run the two bands together; keep a strip.
@@ -657,10 +717,10 @@ export class Hud {
       bottom = centre + ARROW_MIN_BAND / 2;
     }
     const box = {
-      minX: pad,
       maxX: w - pad,
-      minY: Math.max(pad, top + pad),
       maxY: Math.min(h - pad, bottom - pad),
+      minX: pad,
+      minY: Math.max(pad, top + pad),
     };
     this.arrowBox = box;
     this.arrowBoxAt = now;
@@ -675,7 +735,9 @@ export class Hud {
     }
     this.arrow.style.opacity = "1";
     this.arrow.style.transform = `translate(${x}px, ${y}px) rotate(${rot}rad)`;
-    if (color && this.arrowPoly) this.arrowPoly.setAttribute("fill", color);
+    if (color && this.arrowPoly) {
+      this.arrowPoly.setAttribute("fill", color);
+    }
   }
 
   showBanner(spec: BannerSpec): void {
@@ -726,6 +788,7 @@ export class Hud {
 
   /** Landing screen: banner owns the screen. Hides the gameplay HUD (pills,
    *  minimap, driver count, touch pad) and reveals the sound button. */
+  // oxlint-disable-next-line class-methods-use-this -- part of the Hud facade; callers hold the instance, not the class
   setLanding(on: boolean): void {
     document.body.classList.toggle("landing", on);
   }
@@ -738,27 +801,37 @@ export class Hud {
     let touch: { id: number; x: number; y: number } | null = null;
     let touchClickPending = false;
     const cancel = (event: PointerEvent): void => {
-      if (touch?.id === event.pointerId) touch = null;
+      if (touch?.id === event.pointerId) {
+        touch = null;
+      }
     };
     this.bannerCta.addEventListener("pointerdown", (event) => {
       if (event.pointerType !== "touch") {
         touchClickPending = false;
         return;
       }
-      if (!event.isPrimary || this.banner.inert) return;
+      if (!event.isPrimary || this.banner.inert) {
+        return;
+      }
       touch = { id: event.pointerId, x: event.clientX, y: event.clientY };
       touchClickPending = true;
     });
     this.bannerCta.addEventListener("pointermove", (event) => {
-      if (touch?.id !== event.pointerId) return;
-      if (Math.hypot(event.clientX - touch.x, event.clientY - touch.y) > 12) touch = null;
+      if (touch?.id !== event.pointerId) {
+        return;
+      }
+      if (Math.hypot(event.clientX - touch.x, event.clientY - touch.y) > 12) {
+        touch = null;
+      }
     });
     this.bannerCta.addEventListener("pointercancel", cancel);
     this.bannerCta.addEventListener("lostpointercapture", cancel);
     this.bannerCta.addEventListener("pointerup", (event) => {
       const started = touch;
       cancel(event);
-      if (!started || started.id !== event.pointerId || this.banner.inert) return;
+      if (!started || started.id !== event.pointerId || this.banner.inert) {
+        return;
+      }
       const rect = this.bannerCta.getBoundingClientRect();
       if (
         Math.hypot(event.clientX - started.x, event.clientY - started.y) > 12 ||
@@ -781,7 +854,9 @@ export class Hud {
         event.preventDefault();
         return;
       }
-      if (!this.banner.inert) fn();
+      if (!this.banner.inert) {
+        fn();
+      }
     });
   }
   flash(rgb: string, alpha: number): void {
@@ -815,7 +890,9 @@ export class Hud {
       this.loadLabel = label;
       this.loadSub.textContent = label;
     }
-    if (frac <= this.loadFrac) return;
+    if (frac <= this.loadFrac) {
+      return;
+    }
     this.loadFrac = frac;
     this.barFill.style.transition = `transform ${seconds}s linear`;
     this.barFill.style.transform = `scaleX(${frac.toFixed(4)})`;

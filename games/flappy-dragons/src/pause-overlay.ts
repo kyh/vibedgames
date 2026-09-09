@@ -13,11 +13,11 @@ import { controlGroups, createPauseShell } from "@repo/embed";
 import type { ControlMethod, ControlsManifest } from "@repo/embed";
 
 const METHOD_LABELS = {
+  camera: "camera",
+  controller: "controller",
   keys: "keyboard",
   mouse: "mouse",
   touch: "touch",
-  camera: "camera",
-  controller: "controller",
 } satisfies Record<ControlMethod, string>;
 
 const STYLE_ID = "fdp-style";
@@ -78,22 +78,26 @@ const CSS = `
 }`;
 
 /** Inject the shared control-card styles (pause overlay AND start screen). */
-export function ensureStyle(): void {
-  if (document.getElementById(STYLE_ID)) return;
+export const ensureStyle = (): void => {
+  if (document.querySelector(`#${STYLE_ID}`)) {
+    return;
+  }
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = CSS;
   document.head.append(style);
-}
+};
 
 /**
  * The grouped keycap card both instruction surfaces render — the start screen
  * and the pause overlay teach controls with the SAME UI. Null when nothing is
  * visible for the current device/pad context.
  */
-export function buildControls(controls: ControlsManifest, coarse: boolean): HTMLElement | null {
+export const buildControls = (controls: ControlsManifest, coarse: boolean): HTMLElement | null => {
   const groups = controlGroups(controls, { coarse });
-  if (groups.length === 0) return null;
+  if (groups.length === 0) {
+    return null;
+  }
   const wrap = document.createElement("div");
   wrap.className = "fdp-controls";
   for (const group of groups) {
@@ -119,23 +123,16 @@ export function buildControls(controls: ControlsManifest, coarse: boolean): HTML
     wrap.append(section);
   }
   return wrap;
-}
+};
 
-export type FlappyPauseOverlay = {
+export interface FlappyPauseOverlay {
   /** Mount the overlay. Idempotent while shown. */
   show: () => void;
   /** Unmount (fade out). Idempotent while hidden. */
   hide: () => void;
-};
-
-export function createFlappyPauseOverlay(controls: ControlsManifest): FlappyPauseOverlay {
-  return createPauseShell({
-    className: "fdp-root",
-    render: (overlay) => renderCard(overlay, controls),
-  });
 }
 
-function renderCard(overlay: HTMLElement, controls: ControlsManifest): void {
+const renderCard = (overlay: HTMLElement, controls: ControlsManifest): void => {
   ensureStyle();
   // Fresh every show(): hint copy and control rows match the device / pad
   // connected the moment we pause.
@@ -163,7 +160,14 @@ function renderCard(overlay: HTMLElement, controls: ControlsManifest): void {
 
   card.append(title, hint);
   const controlsEl = buildControls(controls, coarse);
-  if (controlsEl) card.append(controlsEl);
+  if (controlsEl) {
+    card.append(controlsEl);
+  }
 
   overlay.append(clouds, card);
-}
+};
+export const createFlappyPauseOverlay = (controls: ControlsManifest): FlappyPauseOverlay =>
+  createPauseShell({
+    className: "fdp-root",
+    render: (overlay) => renderCard(overlay, controls),
+  });

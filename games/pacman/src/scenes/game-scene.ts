@@ -20,7 +20,9 @@ import { PhysicalGamepad, stickDirection4 } from "@vibedgames/gamepad";
 import type { Dir4 } from "@vibedgames/gamepad";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 
-import { isSoundOn, music, sfx, unlockAudio } from "../audio/sfx";
+import { music } from "../audio/music";
+import { sfx, unlockAudio } from "../audio/sfx";
+import { isSoundOn } from "../audio/sound-pref";
 import { restartHint } from "../controls";
 import { IS_TOUCH } from "../input/input-mode";
 import { buildControls, ensureStyle as ensureControlsStyle } from "../pause-overlay";
@@ -120,15 +122,15 @@ import {
 
 type Phase = "title" | "ready" | "playing" | "win" | "gameover";
 
-type PacBody = {
+interface PacBody {
   x: number;
   z: number;
   dir: Dir;
   isMoving: boolean;
   target: { x: number; z: number };
-};
+}
 
-type Ghost = {
+interface Ghost {
   x: number;
   z: number;
   dir: Dir;
@@ -143,16 +145,16 @@ type Ghost = {
   /** 0→1 grow-in after a respawn teleport (nothing pops). */
   spawnScale: number;
   scale: number;
-};
+}
 
-type Heart = {
+interface Heart {
   mesh: THREE.Mesh;
   /** Per-cell phase so the hearts breathe out of sync. */
   phase: number;
-};
+}
 
 /** Pentatonic combo ladder for quick pellet streaks (semitones above root). */
-const COMBO_SCALE: ReadonlyArray<number> = [0, 2, 4, 7, 9, 12, 14, 16, 19];
+const COMBO_SCALE: readonly number[] = [0, 2, 4, 7, 9, 12, 14, 16, 19];
 /** Streak window: pellets eaten within this many seconds keep climbing. */
 const COMBO_WINDOW_S = 0.9;
 
@@ -187,6 +189,297 @@ const TOUCH_CONTROLS_CSS = `
 }
 `;
 
+const el = (id: string): HTMLElement => {
+  const node = document.querySelector<HTMLElement>(`#${id}`);
+  if (!node) {
+    throw new Error(`missing #${id}`);
+  }
+  return node;
+};
+/**
+ * Hor+ vertical FOV. `PerspectiveCamera.fov` is the VERTICAL angle, so holding
+ * BASE_FOV on a portrait phone collapses the horizontal field to ~39° — ghosts
+ * one corridor over are invisible until they touch you. Below square, solve the
+ * vertical angle that keeps the horizontal field at its square-aspect value
+ * (same construction as games/tetris/src/render/camera-rig.ts), capped so an
+ * extreme ratio stops widening rather than turning into a fish-eye.
+ */
+const fovForAspect = (aspect: number): number => {
+  if (aspect >= 1) {
+    return BASE_FOV;
+  }
+  const vertical = (Math.atan(Math.tan((BASE_FOV * Math.PI) / 360) / aspect) * 360) / Math.PI;
+  return Math.min(MAX_FOV, vertical);
+};
+/**
+ * Butter-yellow plush ball with the animated mouth wedge, plus a face you
+ * only meet in the selfie cam: lens eyes and blush cheeks. Face is on +x
+ * (the mouth wedge's home), matching the "right" rest orientation.
+ */
+const buildPacman = (): THREE.Group => {
+  const group = new THREE.Group();
+  group.name = "pacman";
+  const body = new THREE.Mesh(
+    new THREE.SphereGeometry(PAC_RADIUS, 32, 32),
+    new THREE.MeshStandardMaterial({ color: COLORS.pacman, roughness: 0.5 }),
+  );
+  body.castShadow = true;
+  group.add(body);
+
+  const mouth = new THREE.Mesh(
+    new THREE.SphereGeometry(MOUTH_RADIUS, 32, 32, MOUTH_PHI_START, MOUTH_PHI_LENGTH, 0, 0.001),
+    new THREE.MeshStandardMaterial({ color: COLORS.mouth, side: THREE.BackSide }),
+  );
+  mouth.name = "mouth";
+  mouth.visible = false;
+  group.add(mouth);
+
+  const eyeMat = new THREE.MeshStandardMaterial({ color: COLORS.eye, roughness: 0.3 });
+  for (const side of [1, -1]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 12), eyeMat);
+    eye.position.set(0.39, 0.2, 0.175 * side);
+    group.add(eye);
+  }
+  const blushMat = new THREE.MeshStandardMaterial({ color: COLORS.blush, roughness: 0.8 });
+  for (const side of [1, -1]) {
+    const blush = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 12), blushMat);
+    blush.position.set(0.34, 0.02, 0.34 * side);
+    blush.scale.set(0.4, 0.7, 1);
+    group.add(blush);
+  }
+  return group;
+};
+/**
+ * Ghost as a Baymax-style marshmallow: pastel capsule, two black lens eyes
+ * joined by a thin line, blush cheeks, and a hidden worried "o" mouth that
+ * appears while scared. Face is on -z; the bob group yaws toward travel.
+ */
+const buildGhost = (color: number) => {
+  const group = new THREE.Group();
+  const bob = new THREE.Group();
+  group.add(bob);
+
+  const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.6 });
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.34, 0.24, 6, 20), bodyMat);
+  body.castShadow = true;
+  bob.add(body);
+
+  const darkMat = new THREE.MeshStandardMaterial({ color: COLORS.eye, roughness: 0.3 });
+  for (const side of [1, -1]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 12), darkMat);
+    eye.position.set(0.13 * side, 0.1, -0.3);
+    bob.add(eye);
+  }
+  const line = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.26, 8), darkMat);
+  line.rotation.z = Math.PI / 2;
+  line.position.set(0, 0.1, -0.345);
+  bob.add(line);
+
+  const blushMat = new THREE.MeshStandardMaterial({ color: COLORS.blush, roughness: 0.8 });
+  for (const side of [1, -1]) {
+    const blush = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 12), blushMat);
+    blush.position.set(0.23 * side, -0.05, -0.245);
+    blush.scale.set(1, 0.6, 0.4);
+    bob.add(blush);
+  }
+
+  const worry = new THREE.Mesh(new THREE.TorusGeometry(0.04, 0.013, 8, 16), darkMat);
+  worry.position.set(0, -0.06, -0.33);
+  worry.visible = false;
+  bob.add(worry);
+
+  return { bob, bodyMat, group, worry };
+};
+/** Yaw (rotation.y) that points the -z face along a grid direction. */
+const dirYaw = (dir: Dir): number => {
+  switch (dir) {
+    case "up": {
+      return 0;
+    }
+    case "down": {
+      return Math.PI;
+    }
+    case "left": {
+      return Math.PI / 2;
+    }
+    case "right": {
+      return -Math.PI / 2;
+    }
+    // no default
+  }
+};
+/** Shortest-arc angle lerp. */
+const lerpAngle = (from: number, to: number, k: number): number => {
+  let delta = (to - from) % (Math.PI * 2);
+  if (delta > Math.PI) {
+    delta -= Math.PI * 2;
+  }
+  if (delta < -Math.PI) {
+    delta += Math.PI * 2;
+  }
+  return from + delta * k;
+};
+/** Deterministic per-cell hash in [0, 1) — stable tint/height/phase wobble. */
+const hash2 = (col: number, row: number): number => {
+  const n = Math.sin(col * 127.1 + row * 311.7) * 43_758.5453;
+  return n - Math.floor(n);
+};
+/** All MAP cells of a given type (1 wall, 2 pellet, 3 power heart). */
+const mapCells = (type: number): { col: number; row: number }[] => {
+  const cells: { col: number; row: number }[] = [];
+  for (let row = 0; row < GRID_ROWS; row += 1) {
+    for (let col = 0; col < GRID_COLS; col += 1) {
+      if (MAP[row]?.[col] === type) {
+        cells.push({ col, row });
+      }
+    }
+  }
+  return cells;
+};
+/** Restart a CSS animation by re-applying its class. */
+const retrigger = (node: HTMLElement, cls: string): void => {
+  node.classList.remove(cls);
+  void node.offsetWidth;
+  node.classList.add(cls);
+};
+const hexCss = (hex: number): string => `#${hex.toString(16).padStart(6, "0")}`;
+/** Cream weave with soft polka dots — repeats across the plush floor. */
+const polkaDotTexture = (): THREE.CanvasTexture => {
+  const size = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    ctx.fillStyle = hexCss(COLORS.floor);
+    ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = hexCss(COLORS.floorDot);
+    const r = 11;
+    // Center dot + quarter dots in each corner = staggered diagonal grid.
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, r, 0, Math.PI * 2);
+    ctx.fill();
+    for (const [cx, cy] of [
+      [0, 0],
+      [size, 0],
+      [0, size],
+      [size, size],
+    ] as const) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+};
+/**
+ * Advance a ghost `dist` cells along its dir, re-deciding at every grid
+ * center via `decide` (null = stop). Movement is broken at cell boundaries so
+ * decisions land exactly on centers; no wraparound (out-of-bounds is wall).
+ */
+const stepGhost = (
+  g: { x: number; z: number; dir: Dir },
+  distance: number,
+  decide: (col: number, row: number) => Dir | null,
+): void => {
+  let dist = distance;
+  let guard = 16;
+  while (dist > EPS && guard > 0) {
+    guard -= 1;
+    const col = Math.round(g.x);
+    const row = Math.round(g.z);
+    if (Math.abs(g.x - col) < EPS && Math.abs(g.z - row) < EPS) {
+      g.x = col;
+      g.z = row;
+      const next = decide(col, row);
+      if (next === null) {
+        break;
+      }
+      g.dir = next;
+    }
+    const [dx, dz] = DIR_VECT[g.dir];
+    let step: number;
+    if (dx === 0) {
+      const target = dz > 0 ? Math.floor(g.z + EPS) + 1 : Math.ceil(g.z - EPS) - 1;
+      step = Math.min(dist, Math.abs(target - g.z));
+      g.z += dz * step;
+    } else {
+      const target = dx > 0 ? Math.floor(g.x + EPS) + 1 : Math.ceil(g.x - EPS) - 1;
+      step = Math.min(dist, Math.abs(target - g.x));
+      g.x += dx * step;
+    }
+    dist -= step;
+  }
+};
+const pick = <T>(arr: readonly T[]): T | undefined => arr[Math.floor(Math.random() * arr.length)];
+/**
+ * Ghost AI, evaluated at each grid center (legacy moveGhostsOnGrid): never
+ * reverse unless dead-ended; scared = uniform random; otherwise 70% greedy
+ * (random among strictly distance-reducing options, falling back to random)
+ * / 30% pure random.
+ */
+const chooseGhostDir = (
+  col: number,
+  row: number,
+  dir: Dir,
+  scared: boolean,
+  pacX: number,
+  pacZ: number,
+): Dir | null => {
+  const open = DIRS.filter((d) => {
+    const [dx, dz] = DIR_VECT[d];
+    return isOpen(col + dx, row + dz);
+  });
+  if (open.length === 0) {
+    return null;
+  }
+  const ahead = open.filter((d) => d !== OPPOSITE[dir]);
+  const options = ahead.length > 0 ? ahead : open;
+  if (scared) {
+    return pick(options) ?? null;
+  }
+  if (Math.random() < CHASE_CHANCE) {
+    const here = (col - pacX) ** 2 + (row - pacZ) ** 2;
+    const closer = options.filter((d) => {
+      const [dx, dz] = DIR_VECT[d];
+      return (col + dx - pacX) ** 2 + (row + dz - pacZ) ** 2 < here;
+    });
+    if (closer.length > 0) {
+      return pick(closer) ?? null;
+    }
+  }
+  return pick(options) ?? null;
+};
+const loadBest = (): number => {
+  try {
+    const raw = localStorage.getItem(BEST_KEY);
+    const n = raw === null ? 0 : Math.trunc(Number(raw));
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  } catch {
+    return 0;
+  }
+};
+const saveBest = (best: number): void => {
+  try {
+    localStorage.setItem(BEST_KEY, String(best));
+  } catch {
+    // storage unavailable (private mode) — best just won't persist
+  }
+};
+/** Ghost body tint: its own color normally, the scared blue while scared, and
+ *  the blink color on the warning strobe. */
+const scaredTint = (scared: boolean, blinkOut: boolean, own: number): number => {
+  if (!scared) {
+    return own;
+  }
+  return blinkOut ? COLORS.scaredBlink : COLORS.scared;
+};
+
 export class GameScene {
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
@@ -194,11 +487,11 @@ export class GameScene {
   // ---- simulation state ------------------------------------------------------
   private phase: Phase = "title";
   private pac: PacBody = {
-    x: PACMAN_SPAWN.col,
-    z: PACMAN_SPAWN.row,
     dir: "right",
     isMoving: false,
     target: { x: PACMAN_SPAWN.col, z: PACMAN_SPAWN.row },
+    x: PACMAN_SPAWN.col,
+    z: PACMAN_SPAWN.row,
   };
   private ghosts: Ghost[] = [];
   private pelletField: PelletField;
@@ -211,17 +504,19 @@ export class GameScene {
   // host owns the authoritative set of eaten cells; players race to grab them.
   // Ghosts stay LOCAL — each player dodges their own. Solo/offline is unchanged.
   private net = new NetSession({
-    room: MP_ROOM,
-    maxPlayers: MP_MAX_PLAYERS,
     fallbackMs: OFFLINE_FALLBACK_MS,
+    maxPlayers: MP_MAX_PLAYERS,
     onEvent: (event, payload, from) => this.handleNetEvent(event, payload, from),
+    room: MP_ROOM,
   });
   private remotePacs: RemotePacs;
   private netAcc = 0;
   private boardRound = 0;
   private boardSig = "";
-  private hostEaten = new Set<string>(); // host: authoritative eaten cells
-  private appliedEaten = new Set<string>(); // cells already removed locally
+  // host: authoritative eaten cells
+  private hostEaten = new Set<string>();
+  // cells already removed locally
+  private appliedEaten = new Set<string>();
   /** Last shared board object reconciled (patches replace it, so `===` detects change). */
   private lastBoardRef: JsonValue | undefined = null;
   /** Whether we were host when lastBoardRef was reconciled — a promotion must re-adopt. */
@@ -252,13 +547,15 @@ export class GameScene {
   private touchControls: TouchControls = createTouchControls({
     className: "pac-touch",
     css: TOUCH_CONTROLS_CSS,
-    styleId: "pacman-touch-controls-style",
     mute: {
       get: () => !isSoundOn(),
       set: (muted) => {
-        if (muted !== !isSoundOn()) this.toggleSound();
+        if (muted !== !isSoundOn()) {
+          this.toggleSound();
+        }
       },
     },
+    styleId: "pacman-touch-controls-style",
   });
 
   // ---- display objects -----------------------------------------------------------
@@ -328,7 +625,9 @@ export class GameScene {
 
     this.pacGroup = buildPacman();
     const mouth = this.pacGroup.getObjectByName("mouth");
-    if (!(mouth instanceof THREE.Mesh)) throw new Error("pacman mouth missing");
+    if (!(mouth instanceof THREE.Mesh)) {
+      throw new Error("pacman mouth missing");
+    }
     this.mouthMesh = mouth;
     this.pacRig.add(this.pacGroup);
     this.scene.add(this.pacRig);
@@ -339,17 +638,17 @@ export class GameScene {
       group.position.set(spawn.col, 0, spawn.row);
       this.scene.add(group);
       return {
-        x: spawn.col,
-        z: spawn.row,
-        dir: spawn.dir,
-        color,
-        group,
         bob,
         bodyMat,
-        worry,
-        yaw: dirYaw(spawn.dir),
-        spawnScale: 1,
+        color,
+        dir: spawn.dir,
+        group,
         scale: 1,
+        spawnScale: 1,
+        worry,
+        x: spawn.col,
+        yaw: dirYaw(spawn.dir),
+        z: spawn.row,
       };
     });
 
@@ -374,17 +673,21 @@ export class GameScene {
     if (event === "eat" && this.net.isHost) {
       // Stale claims (buffered during connect, or from a previous round) must
       // not chew pellets out of the current board.
-      if (p["round"] !== this.boardRound) return;
-      const key = p["key"];
-      if (isJsonString(key)) this.hostArbitrate(key, from);
+      if (p["round"] !== this.boardRound) {
+        return;
+      }
+      const { key } = p;
+      if (isJsonString(key)) {
+        this.hostArbitrate(key, from);
+      }
       return;
     }
     // Loser of a contested cell rolls back the points it awarded optimistically.
     // Only the host may order a rollback — otherwise a guest could forge a
     // `reject` to drive a rival's score down.
     if (event === "reject" && from === this.net.hostId) {
-      const key = p["key"];
-      const amount = p["amount"];
+      const { key } = p;
+      const { amount } = p;
       if (p["to"] === this.net.playerId && isJsonString(key) && isJsonNumber(amount)) {
         // Clamp to the max a legitimate cell is worth (defence-in-depth).
         this.addScore(-Math.max(0, Math.min(SCORE_POWER, amount)));
@@ -393,22 +696,33 @@ export class GameScene {
   }
 
   /** Parse a cell key into in-bounds integer coordinates. */
-  private parseCellKey(key: string): { col: number; row: number } | null {
+  private static parseCellKey(key: string): { col: number; row: number } | null {
     const parts = key.split(",");
-    if (parts.length !== 2) return null;
+    if (parts.length !== 2) {
+      return null;
+    }
     const col = Number(parts[0]);
     const row = Number(parts[1]);
-    if (!Number.isInteger(col) || !Number.isInteger(row)) return null;
-    if (col < 0 || row < 0 || col >= GRID_COLS || row >= GRID_ROWS) return null;
+    if (!Number.isInteger(col) || !Number.isInteger(row)) {
+      return null;
+    }
+    if (col < 0 || row < 0 || col >= GRID_COLS || row >= GRID_ROWS) {
+      return null;
+    }
     return { col, row };
   }
 
   /** Parse + validate a wire cell key: it must be an in-bounds eatable cell. */
-  private parseEatKey(key: string): { col: number; row: number } | null {
-    const cell = this.parseCellKey(key);
-    if (!cell) return null;
+  private static parseEatKey(key: string): { col: number; row: number } | null {
+    const cell = GameScene.parseCellKey(key);
+    if (!cell) {
+      return null;
+    }
     const type = MAP[cell.row]?.[cell.col];
-    if (type !== 2 && type !== 3) return null; // 2 = pellet, 3 = power
+    // 2 = pellet, 3 = power
+    if (type !== 2 && type !== 3) {
+      return null;
+    }
     return cell;
   }
 
@@ -419,12 +733,18 @@ export class GameScene {
    * amount is derived from the map, never trusted from the wire.
    */
   private hostArbitrate(key: string, claimer: string): void {
-    const cell = this.parseEatKey(key);
-    if (!cell) return; // malformed / out-of-bounds / not a pellet cell — drop it
+    const cell = GameScene.parseEatKey(key);
+    // malformed / out-of-bounds / not a pellet cell — drop it
+    if (!cell) {
+      return;
+    }
     if (this.hostEaten.has(key)) {
       const amount = MAP[cell.row]?.[cell.col] === 3 ? SCORE_POWER : SCORE_PELLET;
-      if (claimer === (this.net.playerId ?? "solo")) this.addScore(-amount);
-      else this.net.sendEvent("reject", { key, amount, to: claimer });
+      if (claimer === (this.net.playerId ?? "solo")) {
+        this.addScore(-amount);
+      } else {
+        this.net.sendEvent("reject", { amount, key, to: claimer });
+      }
       return;
     }
     this.hostEaten.add(key);
@@ -432,17 +752,23 @@ export class GameScene {
   }
 
   private broadcastBoard(): void {
-    if (this.net.offline) return;
+    if (this.net.offline) {
+      return;
+    }
     const eaten: Record<string, number> = {};
-    for (const k of this.hostEaten) eaten[k] = 1;
-    this.net.patchShared({ board: { round: this.boardRound, eaten } });
+    for (const k of this.hostEaten) {
+      eaten[k] = 1;
+    }
+    this.net.patchShared({ board: { eaten, round: this.boardRound } });
   }
 
   /** Record that the LOCAL player ate a cell (already removed + scored locally),
    *  and propagate it to the shared board. */
   private markEaten(col: number, row: number): void {
     const key = cellKey(col, row);
-    if (this.appliedEaten.has(key)) return;
+    if (this.appliedEaten.has(key)) {
+      return;
+    }
     this.appliedEaten.add(key);
     if (this.net.isHost) {
       // Route the host's own eat through arbitration too, so it rolls back if a
@@ -472,7 +798,9 @@ export class GameScene {
       return;
     }
     const board = this.sharedBoard();
-    if (!board) return;
+    if (!board) {
+      return;
+    }
     if (board.round !== this.boardRound) {
       this.applyNewRound(board.round);
       return;
@@ -483,8 +811,12 @@ export class GameScene {
       // A promoted host must adopt the accumulated set, or its next broadcast
       // (rebuilt from hostEaten alone) would resurrect every earlier pellet
       // for late joiners.
-      if (this.net.isHost) this.hostEaten.add(key);
-      if (this.appliedEaten.has(key)) continue;
+      if (this.net.isHost) {
+        this.hostEaten.add(key);
+      }
+      if (this.appliedEaten.has(key)) {
+        continue;
+      }
       this.appliedEaten.add(key);
       this.removeCellVisual(key);
     }
@@ -501,10 +833,12 @@ export class GameScene {
   private sharedBoard(): { round: number; eaten: ReadonlySet<string> } | null {
     const s = this.net.sharedState;
     const b = s?.["board"];
-    if (!isJsonObject(b)) return null;
+    if (!isJsonObject(b)) {
+      return null;
+    }
     const round = isJsonNumber(b["round"]) ? b["round"] : 0;
     const eaten = isJsonObject(b["eaten"]) ? new Set(Object.keys(b["eaten"])) : new Set<string>();
-    return { round, eaten };
+    return { eaten, round };
   }
 
   /** Remove a pellet/heart at a cell key that a rival ate (no score, no sfx). */
@@ -515,8 +849,10 @@ export class GameScene {
       this.hearts.delete(key);
       return;
     }
-    const cell = this.parseCellKey(key);
-    if (cell) this.pelletField.collect(cell.col, cell.row);
+    const cell = GameScene.parseCellKey(key);
+    if (cell) {
+      this.pelletField.collect(cell.col, cell.row);
+    }
   }
 
   /** Host starts a fresh round; everyone resets when they see the new number. */
@@ -551,7 +887,9 @@ export class GameScene {
         // Only the host can start the next round; a guest flipping to
         // "playing" here would bounce straight back on the next reconcile,
         // replaying the win fanfare every press.
-        if (this.net.isHost) this.hostNewRound();
+        if (this.net.isHost) {
+          this.hostNewRound();
+        }
         return;
       }
       this.resetPacman();
@@ -567,7 +905,7 @@ export class GameScene {
       this.netAcc += dt;
       if (this.netAcc >= 1 / NET_TICK_HZ) {
         this.netAcc = 0;
-        this.net.updateMyState({ x: this.pac.x, z: this.pac.z, score: this.score });
+        this.net.updateMyState({ score: this.score, x: this.pac.x, z: this.pac.z });
         // Roster/standings work only needs to track the ~NET_TICK_HZ updates;
         // the smoothing in remotePacs.update below still runs every frame.
         this.remotePacs.sync(this.net.players, this.net.playerId);
@@ -578,35 +916,40 @@ export class GameScene {
   }
 
   private updateNetHud(): void {
-    const netInfo =
-      !this.net.live || this.net.offline
-        ? ""
-        : this.racing
-          ? `RACE · ${Object.keys(this.net.players).length} PLAYERS`
-          : "ONLINE · WAITING";
+    let netInfo = "";
+    if (this.net.live && !this.net.offline) {
+      netInfo = this.racing
+        ? `RACE · ${Object.keys(this.net.players).length} PLAYERS`
+        : "ONLINE · WAITING";
+    }
     if (netInfo !== this.netInfoText) {
       this.netInfoText = netInfo;
       this.netInfoEl.textContent = netInfo;
     }
     if (!this.racing) {
-      if (this.boardEl.childElementCount > 0) this.boardEl.replaceChildren();
+      if (this.boardEl.childElementCount > 0) {
+        this.boardEl.replaceChildren();
+      }
       this.boardSig = "";
       return;
     }
     const me = this.net.playerId;
-    const rows: Array<{ id: string; score: number; me: boolean }> = [];
+    const rows: { id: string; score: number; me: boolean }[] = [];
     for (const [id, player] of Object.entries(this.net.players)) {
-      if (id === me) rows.push({ id, score: this.score, me: true });
-      else {
+      if (id === me) {
+        rows.push({ id, me: true, score: this.score });
+      } else {
         const sc = player.state?.["score"];
-        rows.push({ id, score: isJsonNumber(sc) ? sc : 0, me: false });
+        rows.push({ id, me: false, score: isJsonNumber(sc) ? sc : 0 });
       }
     }
     rows.sort((a, b) => b.score - a.score);
     // The board only changes when someone scores or joins/leaves — skip the
     // DOM rebuild (60 Hz otherwise) while the standings are unchanged.
     const sig = rows.map((r) => `${r.id}:${r.score}`).join("|");
-    if (sig === this.boardSig) return;
+    if (sig === this.boardSig) {
+      return;
+    }
     this.boardSig = sig;
     const frag = document.createDocumentFragment();
     for (const r of rows.slice(0, 4)) {
@@ -643,14 +986,18 @@ export class GameScene {
 
     if (this.phase === "ready") {
       this.readyMs -= dtMs;
-      if (this.readyMs <= 0) this.setPhase("playing");
+      if (this.readyMs <= 0) {
+        this.setPhase("playing");
+      }
     } else if (this.phase === "playing") {
       // Legacy semantics: a chomp during the step animation is dropped, not queued.
       if (this.stepRequested) {
         this.stepRequested = false;
         this.takeStep();
       }
-      if (this.movePacman(dt)) this.collectPellet();
+      if (this.movePacman(dt)) {
+        this.collectPellet();
+      }
       if (this.phase === "playing") {
         this.scaredMs = Math.max(0, this.scaredMs - dtMs);
         this.graceMs = Math.max(0, this.graceMs - dtMs);
@@ -736,16 +1083,16 @@ export class GameScene {
     // translucency flips between "invisible" and "blended" depending on
     // which way the chase cam faces (measured 7.5× direction asymmetry).
     const wallMat = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
+      color: 0xff_ff_ff,
+      depthWrite: false,
+      opacity: WALL_OPACITY,
       roughness: 0.85,
       transparent: true,
-      opacity: WALL_OPACITY,
-      depthWrite: false,
     });
     const walls = new THREE.InstancedMesh(wallGeo, wallMat, cells.length);
     const dummy = new THREE.Object3D();
     const tint = new THREE.Color();
-    cells.forEach(({ col, row }, i) => {
+    for (const [i, { col, row }] of cells.entries()) {
       const h = hash2(col, row);
       dummy.position.set(col, 0.44, row);
       dummy.scale.set(1, 0.94 + h * 0.1, 1);
@@ -753,22 +1100,24 @@ export class GameScene {
       walls.setMatrixAt(i, dummy.matrix);
       tint.setHex(COLORS.wall).offsetHSL(0, 0, (h - 0.5) * 2 * WALL_TINT_WOBBLE);
       walls.setColorAt(i, tint);
-    });
+    }
     walls.castShadow = true;
     walls.receiveShadow = true;
     this.scene.add(walls);
   }
 
   private resetBoard(): void {
-    for (const heart of this.hearts.values()) this.scene.remove(heart.mesh);
+    for (const heart of this.hearts.values()) {
+      this.scene.remove(heart.mesh);
+    }
     this.hearts.clear();
     const pearls: PelletCell[] = [];
-    for (let row = 0; row < GRID_ROWS; row++) {
-      for (let col = 0; col < GRID_COLS; col++) {
+    for (let row = 0; row < GRID_ROWS; row += 1) {
+      for (let col = 0; col < GRID_COLS; col += 1) {
         const cell = MAP[row]?.[col];
         const phase = hash2(col, row) * Math.PI * 2;
         if (cell === 2) {
-          pearls.push({ col, row, phase });
+          pearls.push({ col, phase, row });
         } else if (cell === 3) {
           const mesh = new THREE.Mesh(this.heartGeo, this.powerMat);
           mesh.position.set(col, HEART_Y, row);
@@ -805,7 +1154,9 @@ export class GameScene {
     sfx.setEnabled(on);
     // The cluster seals its own pointer events, so the window listener that
     // normally unlocks audio never sees the tap that turned sound on.
-    if (on) unlockAudio();
+    if (on) {
+      unlockAudio();
+    }
     this.touchControls.sync();
     this.showNotice(on ? "♪ sound on" : "♪ sound off");
   }
@@ -819,7 +1170,9 @@ export class GameScene {
 
   /** ↻ pill — R-equivalent (also starts from the title). */
   private requestRestart(): void {
-    if (this.phase !== "ready") this.handleStart();
+    if (this.phase !== "ready") {
+      this.handleStart();
+    }
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
@@ -845,31 +1198,41 @@ export class GameScene {
       // Legacy keyboard semantics: arrows are RELATIVE to the current heading
       // and apply instantly without wall validation. ArrowUp re-sets the
       // current heading (effectively a no-op).
-      case "ArrowUp":
+      case "ArrowUp": {
         e.preventDefault();
         break;
-      case "ArrowDown":
+      }
+      case "ArrowDown": {
         e.preventDefault();
         this.steer("reverse");
         break;
-      case "ArrowLeft":
+      }
+      case "ArrowLeft": {
         e.preventDefault();
         this.steer("left");
         break;
-      case "ArrowRight":
+      }
+      case "ArrowRight": {
         e.preventDefault();
         this.steer("right");
         break;
+      }
       // Keyboard fallback for the chomp (legacy couldn't move without a webcam).
-      case "Space":
+      case "Space": {
         e.preventDefault();
         this.chomp();
         break;
+      }
+      default: {
+        break;
+      }
     }
   };
 
   private onKeyUp = (e: KeyboardEvent): void => {
-    if (e.key === "Shift") this.shiftHeld = false;
+    if (e.key === "Shift") {
+      this.shiftHeld = false;
+    }
   };
 
   private onBlur = (): void => {
@@ -879,7 +1242,9 @@ export class GameScene {
   private onPointerDown = (e: PointerEvent): void => {
     // Taps on the HUD pills / webcam porthole are UI, not game input — they
     // must not swipe-steer or tap-start underneath.
-    if (e.target instanceof Element && e.target.closest("#controls, #webcam")) return;
+    if (e.target instanceof Element && e.target.closest("#controls, #webcam")) {
+      return;
+    }
     this.swipeOrigin = { x: e.clientX, y: e.clientY };
     this.swiped = false;
   };
@@ -887,10 +1252,14 @@ export class GameScene {
   // Touch fallback: horizontal swipe = relative turn, swipe up = step forward,
   // swipe down = reverse. Tap = start/restart.
   private onPointerMove = (e: PointerEvent): void => {
-    if (!this.swipeOrigin || this.swiped) return;
+    if (!this.swipeOrigin || this.swiped) {
+      return;
+    }
     const dx = e.clientX - this.swipeOrigin.x;
     const dy = e.clientY - this.swipeOrigin.y;
-    if (dx * dx + dy * dy < SWIPE_MIN_PX * SWIPE_MIN_PX) return;
+    if (dx * dx + dy * dy < SWIPE_MIN_PX * SWIPE_MIN_PX) {
+      return;
+    }
     this.swiped = true;
     // On a banner, ANY deliberate gesture starts the round — the same as a
     // mouth chomp, a head turn or pad A. Steering there is a no-op, and the
@@ -900,13 +1269,19 @@ export class GameScene {
       this.handleStart();
       return;
     }
-    if (Math.abs(dx) > Math.abs(dy)) this.steer(dx > 0 ? "right" : "left");
-    else if (dy > 0) this.steer("reverse");
-    else this.chomp();
+    if (Math.abs(dx) > Math.abs(dy)) {
+      this.steer(dx > 0 ? "right" : "left");
+    } else if (dy > 0) {
+      this.steer("reverse");
+    } else {
+      this.chomp();
+    }
   };
 
   private onPointerUp = (): void => {
-    if (!this.swiped && this.swipeOrigin && this.onBanner) this.handleStart();
+    if (!this.swiped && this.swipeOrigin && this.onBanner) {
+      this.handleStart();
+    }
     this.swipeOrigin = null;
   };
 
@@ -918,8 +1293,11 @@ export class GameScene {
   /** One chomp: a grid step while playing, the start gesture on a banner.
    *  Every chomp input (mouth, SPACE, swipe ↑, pad A / stick ↑) lands here. */
   private chomp(): void {
-    if (this.onBanner) this.handleStart();
-    else this.stepRequested = true;
+    if (this.onBanner) {
+      this.handleStart();
+    } else {
+      this.stepRequested = true;
+    }
   }
 
   /** Physical pad, polled per frame. Buttons mirror the keyboard: A = SPACE
@@ -928,32 +1306,53 @@ export class GameScene {
    *  snapped direction CHANGING, so a held deflection is one turn, not sixty. */
   private pollPad(): void {
     this.pad.update();
-    if (this.pad.justPressed("a")) this.chomp();
-    if (this.pad.justPressed("start")) this.requestRestart();
-    if (this.pad.justPressed("left")) this.steer("left");
-    if (this.pad.justPressed("right")) this.steer("right");
-    if (this.pad.justPressed("down")) this.steer("reverse");
+    if (this.pad.justPressed("a")) {
+      this.chomp();
+    }
+    if (this.pad.justPressed("start")) {
+      this.requestRestart();
+    }
+    if (this.pad.justPressed("left")) {
+      this.steer("left");
+    }
+    if (this.pad.justPressed("right")) {
+      this.steer("right");
+    }
+    if (this.pad.justPressed("down")) {
+      this.steer("reverse");
+    }
     const dir = stickDirection4(this.pad.getStick());
     if (dir !== this.padStickDir) {
       this.padStickDir = dir;
-      if (dir === "left" || dir === "right") this.steer(dir);
-      else if (dir === "down") this.steer("reverse");
-      else if (dir === "up") this.chomp();
+      if (dir === "left" || dir === "right") {
+        this.steer(dir);
+      } else if (dir === "down") {
+        this.steer("reverse");
+      } else if (dir === "up") {
+        this.chomp();
+      }
     }
   }
 
   /** Heading change — instant, unvalidated, relative to current facing (legacy). */
   private steer(action: "left" | "right" | "reverse"): void {
-    if (this.phase !== "playing" && this.phase !== "ready") return;
-    if (action === "reverse") this.pac.dir = OPPOSITE[this.pac.dir];
-    else if (action === "left") this.pac.dir = TURN_LEFT[this.pac.dir];
-    else this.pac.dir = TURN_RIGHT[this.pac.dir];
+    if (this.phase !== "playing" && this.phase !== "ready") {
+      return;
+    }
+    if (action === "reverse") {
+      this.pac.dir = OPPOSITE[this.pac.dir];
+    } else if (action === "left") {
+      this.pac.dir = TURN_LEFT[this.pac.dir];
+    } else {
+      this.pac.dir = TURN_RIGHT[this.pac.dir];
+    }
     // Audible "turn registered" tick — vital for face input, where the only
     // other confirmation is the slow camera swing. Throttled against
     // key-repeat spam from held arrows.
     if (this.t - this.lastTurnTickAt > 0.06) {
       this.lastTurnTickAt = this.t;
-      const rate = action === "left" ? 0.94 : action === "right" ? 1.06 : 0.85;
+      const rates = { left: 0.94, reverse: 0.85, right: 1.06 };
+      const rate = rates[action];
       sfx.play("turn", { gain: 0.5, rate });
     }
   }
@@ -964,26 +1363,36 @@ export class GameScene {
   onMouthChange(open: boolean): void {
     const wasOpen = this.prevMouthOpen;
     this.prevMouthOpen = open;
-    if (!open || wasOpen) return;
+    if (!open || wasOpen) {
+      return;
+    }
     this.chomp();
   }
 
   /** Legacy fired a synthetic ArrowLeft on head-turn-left. */
   onHeadTurnLeft(): void {
-    if (this.onBanner) this.handleStart();
-    else this.steer("left");
+    if (this.onBanner) {
+      this.handleStart();
+    } else {
+      this.steer("left");
+    }
   }
 
   onHeadTurnRight(): void {
-    if (this.onBanner) this.handleStart();
-    else this.steer("right");
+    if (this.onBanner) {
+      this.handleStart();
+    } else {
+      this.steer("right");
+    }
   }
 
   // ---- simulation ----------------------------------------------------------
 
   /** One grid step in the current heading, if the next cell is open (legacy takeStep). */
   private takeStep(): void {
-    if (this.pac.isMoving) return;
+    if (this.pac.isMoving) {
+      return;
+    }
     const [dx, dz] = DIR_VECT[this.pac.dir];
     const col = Math.round(this.pac.x) + dx;
     const row = Math.round(this.pac.z) + dz;
@@ -996,7 +1405,7 @@ export class GameScene {
         new THREE.Vector3(this.pac.x + dx * 0.55, 0.15, this.pac.z + dz * 0.55),
         4,
         COLORS.wall,
-        { speed: 0.8, sizeMin: 0.05, sizeMax: 0.1 },
+        { sizeMax: 0.1, sizeMin: 0.05, speed: 0.8 },
       );
       return;
     }
@@ -1008,7 +1417,9 @@ export class GameScene {
   /** Advances the step animation; returns true if this was a movement frame. */
   private movePacman(dt: number): boolean {
     const p = this.pac;
-    if (!p.isMoving) return false;
+    if (!p.isMoving) {
+      return false;
+    }
     const step = PACMAN_STEP_SPEED * dt;
     const dx = p.target.x - p.x;
     const dz = p.target.z - p.z;
@@ -1046,19 +1457,21 @@ export class GameScene {
       sfx.play("power");
     } else if (this.pelletField.collect(col, row)) {
       this.addScore(SCORE_PELLET);
-      this.fx.puff(at, 6, COLORS.pellet, { sizeMin: 0.06, sizeMax: 0.14 });
+      this.fx.puff(at, 6, COLORS.pellet, { sizeMax: 0.14, sizeMin: 0.06 });
       // Quick streaks climb a pentatonic ladder — eating fast plays a melody.
       this.comboIdx = this.t - this.lastPelletAt < COMBO_WINDOW_S ? this.comboIdx + 1 : 0;
       this.lastPelletAt = this.t;
       const semis = COMBO_SCALE[Math.min(this.comboIdx, COMBO_SCALE.length - 1)] ?? 0;
-      sfx.play("pellet", { rate: Math.pow(2, semis / 12) });
+      sfx.play("pellet", { rate: 2 ** (semis / 12) });
     } else {
       return;
     }
     // Claim this cell on the shared board so rivals see it vanish too.
     this.markEaten(col, row);
     this.updateHud();
-    if (this.pelletsLeft() === 0) this.setPhase("win");
+    if (this.pelletsLeft() === 0) {
+      this.setPhase("win");
+    }
   }
 
   private moveGhosts(dt: number): void {
@@ -1088,7 +1501,9 @@ export class GameScene {
     for (const g of this.ghosts) {
       const dist = Math.hypot(g.x - this.pac.x, g.z - this.pac.z);
       if (scared) {
-        if (dist < EAT_DIST) this.eatGhost(g);
+        if (dist < EAT_DIST) {
+          this.eatGhost(g);
+        }
       } else if (dist < CATCH_DIST && this.graceMs <= 0) {
         this.caught();
         return;
@@ -1100,7 +1515,7 @@ export class GameScene {
   private eatGhost(g: Ghost): void {
     this.addScore(SCORE_GHOST);
     const at = new THREE.Vector3(g.x, GHOST_BOB_BASE, g.z);
-    this.fx.puff(at, 14, 0xffffff, { speed: 2, sizeMin: 0.12, sizeMax: 0.26 });
+    this.fx.puff(at, 14, 0xff_ff_ff, { sizeMax: 0.26, sizeMin: 0.12, speed: 2 });
     this.fx.heartBurst(at, 5);
     this.shaker.add(TRAUMA_GHOST_EATEN);
     sfx.play("ghost_eaten");
@@ -1119,7 +1534,8 @@ export class GameScene {
     this.fx.puff(new THREE.Vector3(this.pac.x, 0.4, this.pac.z), 12, COLORS.power, {
       speed: 1.6,
     });
-    this.squashKick = 1.6; // deflate, Baymax-style
+    // deflate, Baymax-style
+    this.squashKick = 1.6;
     this.softFlash();
     sfx.play("caught");
     music.duck();
@@ -1175,14 +1591,16 @@ export class GameScene {
     this.resetBoard();
     this.resetPacman();
     this.squashKick = 0;
-    this.ghosts.forEach((g, i) => {
+    for (const [i, g] of this.ghosts.entries()) {
       const spawn = GHOST_SPAWNS[i % GHOST_SPAWNS.length];
-      if (!spawn) return;
+      if (!spawn) {
+        continue;
+      }
       g.x = spawn.col;
       g.z = spawn.row;
       g.dir = spawn.dir;
       g.spawnScale = 1;
-    });
+    }
     this.updateHud();
     this.beginReady();
   }
@@ -1197,7 +1615,9 @@ export class GameScene {
   private setPhase(phase: Phase): void {
     this.phase = phase;
     this.renderBanner();
-    if (phase !== "playing") retrigger(this.bannerEl, "pop");
+    if (phase !== "playing") {
+      retrigger(this.bannerEl, "pop");
+    }
     // Instruction banners keep a watcher so controller rows appear the moment
     // a pad is plugged in (and vanish when it's pulled); other phases drop it.
     this.unwatchControls?.();
@@ -1221,11 +1641,11 @@ export class GameScene {
    *  short prose state lines. */
   private renderBanner(): void {
     const texts = {
-      title: ["PAC·MAN", ""],
-      ready: ["READY?", ""],
-      playing: ["", ""],
-      win: ["MAZE CLEAR!", `every crumb tidied up ♥ chomp or ${restartHint()} to play again`],
       gameover: ["OHH NO…", `you did your best ♥ chomp or ${restartHint()} to try again`],
+      playing: ["", ""],
+      ready: ["READY?", ""],
+      title: ["PAC·MAN", ""],
+      win: ["MAZE CLEAR!", `every crumb tidied up ♥ chomp or ${restartHint()} to play again`],
     } satisfies Record<Phase, readonly [string, string]>;
     const [title, sub] = texts[this.phase];
     this.bannerTitleEl.textContent = title;
@@ -1248,7 +1668,9 @@ export class GameScene {
   /** Borrow the stats pill for a transient message (e.g. music toggled). */
   private showNotice(text: string): void {
     this.statsEl.textContent = text;
-    if (this.noticeTimer !== null) clearTimeout(this.noticeTimer);
+    if (this.noticeTimer !== null) {
+      clearTimeout(this.noticeTimer);
+    }
     this.noticeTimer = setTimeout(() => {
       this.noticeTimer = null;
       this.updateHud();
@@ -1278,9 +1700,13 @@ export class GameScene {
     // Facing: legacy orientation (rotation reset, then one axis).
     const g = this.pacGroup;
     g.rotation.set(0, 0, 0);
-    if (this.pac.dir === "up") g.rotation.x = -Math.PI / 2;
-    else if (this.pac.dir === "down") g.rotation.x = Math.PI / 2;
-    else if (this.pac.dir === "left") g.rotation.y = Math.PI;
+    if (this.pac.dir === "up") {
+      g.rotation.x = -Math.PI / 2;
+    } else if (this.pac.dir === "down") {
+      g.rotation.x = Math.PI / 2;
+    } else if (this.pac.dir === "left") {
+      g.rotation.y = Math.PI;
+    }
     // right is the default orientation
 
     // Mouth wedge: lerp toward PI/4 while moving (legacy rate delta*10), and
@@ -1296,7 +1722,7 @@ export class GameScene {
       scared &&
       this.scaredMs < SCARED_WARN_MS &&
       Math.floor(this.scaredMs / SCARED_BLINK_INTERVAL_MS) % 2 === 0;
-    this.ghosts.forEach((ghost, i) => {
+    for (const [i, ghost] of this.ghosts.entries()) {
       const phase = i * GHOST_BOB_STAGGER;
       const bobY = Math.sin(tMs * GHOST_BOB_FREQ + phase) * GHOST_BOB_AMP + GHOST_BOB_BASE;
       ghost.group.position.set(ghost.x, 0, ghost.z);
@@ -1306,16 +1732,14 @@ export class GameScene {
         : 0;
       ghost.yaw = lerpAngle(ghost.yaw, dirYaw(ghost.dir), Math.min(1, dt * GHOST_YAW_RATE));
       ghost.bob.rotation.y = ghost.yaw;
-      ghost.bodyMat.color.setHex(
-        scared ? (blinkOut ? COLORS.scaredBlink : COLORS.scared) : ghost.color,
-      );
+      ghost.bodyMat.color.setHex(scaredTint(scared, blinkOut, ghost.color));
       ghost.worry.visible = scared;
       ghost.spawnScale = Math.min(1, ghost.spawnScale + dt * 3);
       const grow = 1 - (1 - ghost.spawnScale) * (1 - ghost.spawnScale);
       const targetScale = (scared ? GHOST_SCARED_SCALE : 1) * grow;
       ghost.scale += (targetScale - ghost.scale) * Math.min(1, dt * 8);
       ghost.group.scale.setScalar(Math.max(ghost.scale, 1e-3));
-    });
+    }
 
     // Pearls shimmer (instanced); power hearts breathe and twirl.
     this.pelletField.update(this.t);
@@ -1330,7 +1754,9 @@ export class GameScene {
   private syncMouth(angle: number): void {
     const bucket = Math.round(angle / MOUTH_ANGLE_QUANT);
     this.mouthMesh.visible = bucket > 0;
-    if (!this.mouthMesh.visible || bucket === this.mouthBuiltBucket) return;
+    if (!this.mouthMesh.visible || bucket === this.mouthBuiltBucket) {
+      return;
+    }
     let geo = this.mouthGeoCache.get(bucket);
     if (!geo) {
       geo = new THREE.SphereGeometry(
@@ -1421,280 +1847,3 @@ export class GameScene {
 }
 
 // ---- pure helpers ---------------------------------------------------------------
-
-function el(id: string): HTMLElement {
-  const node = document.getElementById(id);
-  if (!node) throw new Error(`missing #${id}`);
-  return node;
-}
-
-/**
- * Hor+ vertical FOV. `PerspectiveCamera.fov` is the VERTICAL angle, so holding
- * BASE_FOV on a portrait phone collapses the horizontal field to ~39° — ghosts
- * one corridor over are invisible until they touch you. Below square, solve the
- * vertical angle that keeps the horizontal field at its square-aspect value
- * (same construction as games/tetris/src/render/camera-rig.ts), capped so an
- * extreme ratio stops widening rather than turning into a fish-eye.
- */
-function fovForAspect(aspect: number): number {
-  if (aspect >= 1) return BASE_FOV;
-  const vertical = (Math.atan(Math.tan((BASE_FOV * Math.PI) / 360) / aspect) * 360) / Math.PI;
-  return Math.min(MAX_FOV, vertical);
-}
-
-/**
- * Butter-yellow plush ball with the animated mouth wedge, plus a face you
- * only meet in the selfie cam: lens eyes and blush cheeks. Face is on +x
- * (the mouth wedge's home), matching the "right" rest orientation.
- */
-function buildPacman(): THREE.Group {
-  const group = new THREE.Group();
-  group.name = "pacman";
-  const body = new THREE.Mesh(
-    new THREE.SphereGeometry(PAC_RADIUS, 32, 32),
-    new THREE.MeshStandardMaterial({ color: COLORS.pacman, roughness: 0.5 }),
-  );
-  body.castShadow = true;
-  group.add(body);
-
-  const mouth = new THREE.Mesh(
-    new THREE.SphereGeometry(MOUTH_RADIUS, 32, 32, MOUTH_PHI_START, MOUTH_PHI_LENGTH, 0, 0.001),
-    new THREE.MeshStandardMaterial({ color: COLORS.mouth, side: THREE.BackSide }),
-  );
-  mouth.name = "mouth";
-  mouth.visible = false;
-  group.add(mouth);
-
-  const eyeMat = new THREE.MeshStandardMaterial({ color: COLORS.eye, roughness: 0.3 });
-  for (const side of [1, -1]) {
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 12), eyeMat);
-    eye.position.set(0.39, 0.2, 0.175 * side);
-    group.add(eye);
-  }
-  const blushMat = new THREE.MeshStandardMaterial({ color: COLORS.blush, roughness: 0.8 });
-  for (const side of [1, -1]) {
-    const blush = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 12), blushMat);
-    blush.position.set(0.34, 0.02, 0.34 * side);
-    blush.scale.set(0.4, 0.7, 1);
-    group.add(blush);
-  }
-  return group;
-}
-
-/**
- * Ghost as a Baymax-style marshmallow: pastel capsule, two black lens eyes
- * joined by a thin line, blush cheeks, and a hidden worried "o" mouth that
- * appears while scared. Face is on -z; the bob group yaws toward travel.
- */
-function buildGhost(color: number) {
-  const group = new THREE.Group();
-  const bob = new THREE.Group();
-  group.add(bob);
-
-  const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.6 });
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.34, 0.24, 6, 20), bodyMat);
-  body.castShadow = true;
-  bob.add(body);
-
-  const darkMat = new THREE.MeshStandardMaterial({ color: COLORS.eye, roughness: 0.3 });
-  for (const side of [1, -1]) {
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 12), darkMat);
-    eye.position.set(0.13 * side, 0.1, -0.3);
-    bob.add(eye);
-  }
-  const line = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.26, 8), darkMat);
-  line.rotation.z = Math.PI / 2;
-  line.position.set(0, 0.1, -0.345);
-  bob.add(line);
-
-  const blushMat = new THREE.MeshStandardMaterial({ color: COLORS.blush, roughness: 0.8 });
-  for (const side of [1, -1]) {
-    const blush = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 12), blushMat);
-    blush.position.set(0.23 * side, -0.05, -0.245);
-    blush.scale.set(1, 0.6, 0.4);
-    bob.add(blush);
-  }
-
-  const worry = new THREE.Mesh(new THREE.TorusGeometry(0.04, 0.013, 8, 16), darkMat);
-  worry.position.set(0, -0.06, -0.33);
-  worry.visible = false;
-  bob.add(worry);
-
-  return { group, bob, bodyMat, worry };
-}
-
-/** Yaw (rotation.y) that points the -z face along a grid direction. */
-function dirYaw(dir: Dir): number {
-  switch (dir) {
-    case "up":
-      return 0;
-    case "down":
-      return Math.PI;
-    case "left":
-      return Math.PI / 2;
-    case "right":
-      return -Math.PI / 2;
-  }
-}
-
-/** Shortest-arc angle lerp. */
-function lerpAngle(from: number, to: number, k: number): number {
-  let delta = (to - from) % (Math.PI * 2);
-  if (delta > Math.PI) delta -= Math.PI * 2;
-  if (delta < -Math.PI) delta += Math.PI * 2;
-  return from + delta * k;
-}
-
-/** Deterministic per-cell hash in [0, 1) — stable tint/height/phase wobble. */
-function hash2(col: number, row: number): number {
-  const n = Math.sin(col * 127.1 + row * 311.7) * 43758.5453;
-  return n - Math.floor(n);
-}
-
-/** All MAP cells of a given type (1 wall, 2 pellet, 3 power heart). */
-function mapCells(type: number): Array<{ col: number; row: number }> {
-  const cells: Array<{ col: number; row: number }> = [];
-  for (let row = 0; row < GRID_ROWS; row++) {
-    for (let col = 0; col < GRID_COLS; col++) {
-      if (MAP[row]?.[col] === type) cells.push({ col, row });
-    }
-  }
-  return cells;
-}
-
-/** Restart a CSS animation by re-applying its class. */
-function retrigger(el: HTMLElement, cls: string): void {
-  el.classList.remove(cls);
-  void el.offsetWidth;
-  el.classList.add(cls);
-}
-
-/** Cream weave with soft polka dots — repeats across the plush floor. */
-function polkaDotTexture(): THREE.CanvasTexture {
-  const size = 128;
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext("2d");
-  if (ctx) {
-    ctx.fillStyle = hexCss(COLORS.floor);
-    ctx.fillRect(0, 0, size, size);
-    ctx.fillStyle = hexCss(COLORS.floorDot);
-    const r = 11;
-    // Center dot + quarter dots in each corner = staggered diagonal grid.
-    ctx.beginPath();
-    ctx.arc(size / 2, size / 2, r, 0, Math.PI * 2);
-    ctx.fill();
-    for (const [cx, cy] of [
-      [0, 0],
-      [size, 0],
-      [0, size],
-      [size, size],
-    ] as const) {
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
-  return tex;
-}
-
-function hexCss(hex: number): string {
-  return `#${hex.toString(16).padStart(6, "0")}`;
-}
-
-/**
- * Advance a ghost `dist` cells along its dir, re-deciding at every grid
- * center via `decide` (null = stop). Movement is broken at cell boundaries so
- * decisions land exactly on centers; no wraparound (out-of-bounds is wall).
- */
-function stepGhost(
-  g: { x: number; z: number; dir: Dir },
-  dist: number,
-  decide: (col: number, row: number) => Dir | null,
-): void {
-  let guard = 16;
-  while (dist > EPS && guard-- > 0) {
-    const col = Math.round(g.x);
-    const row = Math.round(g.z);
-    if (Math.abs(g.x - col) < EPS && Math.abs(g.z - row) < EPS) {
-      g.x = col;
-      g.z = row;
-      const next = decide(col, row);
-      if (next === null) break;
-      g.dir = next;
-    }
-    const [dx, dz] = DIR_VECT[g.dir];
-    let step: number;
-    if (dx !== 0) {
-      const target = dx > 0 ? Math.floor(g.x + EPS) + 1 : Math.ceil(g.x - EPS) - 1;
-      step = Math.min(dist, Math.abs(target - g.x));
-      g.x += dx * step;
-    } else {
-      const target = dz > 0 ? Math.floor(g.z + EPS) + 1 : Math.ceil(g.z - EPS) - 1;
-      step = Math.min(dist, Math.abs(target - g.z));
-      g.z += dz * step;
-    }
-    dist -= step;
-  }
-}
-
-/**
- * Ghost AI, evaluated at each grid center (legacy moveGhostsOnGrid): never
- * reverse unless dead-ended; scared = uniform random; otherwise 70% greedy
- * (random among strictly distance-reducing options, falling back to random)
- * / 30% pure random.
- */
-function chooseGhostDir(
-  col: number,
-  row: number,
-  dir: Dir,
-  scared: boolean,
-  pacX: number,
-  pacZ: number,
-): Dir | null {
-  const open = DIRS.filter((d) => {
-    const [dx, dz] = DIR_VECT[d];
-    return isOpen(col + dx, row + dz);
-  });
-  if (open.length === 0) return null;
-  const ahead = open.filter((d) => d !== OPPOSITE[dir]);
-  const options = ahead.length > 0 ? ahead : open;
-  if (scared) return pick(options) ?? null;
-  if (Math.random() < CHASE_CHANCE) {
-    const here = (col - pacX) ** 2 + (row - pacZ) ** 2;
-    const closer = options.filter((d) => {
-      const [dx, dz] = DIR_VECT[d];
-      return (col + dx - pacX) ** 2 + (row + dz - pacZ) ** 2 < here;
-    });
-    if (closer.length > 0) return pick(closer) ?? null;
-  }
-  return pick(options) ?? null;
-}
-
-function pick<T>(arr: ReadonlyArray<T>): T | undefined {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
-
-function loadBest(): number {
-  try {
-    const raw = localStorage.getItem(BEST_KEY);
-    const n = raw === null ? 0 : Number.parseInt(raw, 10);
-    return Number.isFinite(n) && n > 0 ? n : 0;
-  } catch {
-    return 0;
-  }
-}
-
-function saveBest(best: number): void {
-  try {
-    localStorage.setItem(BEST_KEY, String(best));
-  } catch {
-    // storage unavailable (private mode) — best just won't persist
-  }
-}

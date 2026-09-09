@@ -1,4 +1,5 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
+import { Math as PhaserMath } from "phaser";
 
 import type { PlayerMap } from "@vibedgames/multiplayer";
 
@@ -10,17 +11,26 @@ import type { JsonValue } from "../json";
 // same character sprite as the local player, name-tagged and depth-sorted with
 // everything else, smoothed toward the ~12 Hz position updates.
 
-export type FarmerState = { x: number; y: number; f: boolean; m: boolean };
-
-export function readFarmer(state: JsonValue | undefined): FarmerState | null {
-  if (!isJsonObject(state)) return null;
-  const x = state["x"];
-  const y = state["y"];
-  if (!isJsonNumber(x) || !isJsonNumber(y)) return null;
-  return { x, y, f: state["f"] === true, m: state["m"] === true };
+export interface FarmerState {
+  x: number;
+  y: number;
+  f: boolean;
+  m: boolean;
 }
 
-type Farmer = {
+export const readFarmer = (state: JsonValue | undefined): FarmerState | null => {
+  if (!isJsonObject(state)) {
+    return null;
+  }
+  const { x } = state;
+  const { y } = state;
+  if (!isJsonNumber(x) || !isJsonNumber(y)) {
+    return null;
+  }
+  return { f: state["f"] === true, m: state["m"] === true, x, y };
+};
+
+interface Farmer {
   sprite: Phaser.GameObjects.Sprite;
   shadow: Phaser.GameObjects.Sprite;
   label: Phaser.GameObjects.Text;
@@ -28,26 +38,35 @@ type Farmer = {
   ty: number;
   seeded: boolean;
   moving: boolean;
-};
+}
 
 const LERP = 12;
 
 export class RemoteFarmers {
   private farmers = new Map<string, Farmer>();
+  private readonly scene: Phaser.Scene;
 
-  constructor(private readonly scene: Phaser.Scene) {}
+  constructor(scene: Phaser.Scene) {
+    this.scene = scene;
+  }
 
   sync(players: PlayerMap, myId: string | null): void {
     const seen = new Set<string>();
     for (const [id, player] of Object.entries(players)) {
-      if (id === myId) continue;
+      if (id === myId) {
+        continue;
+      }
       // SAFETY: player state is decoded JSON off the wire; the package types it
       // `Record<string, unknown>` only because it cannot know game schemas.
       const st = readFarmer(player.state as JsonValue | undefined);
-      if (!st) continue;
+      if (!st) {
+        continue;
+      }
       seen.add(id);
       let f = this.farmers.get(id);
-      if (!f) f = this.spawn(id, st);
+      if (!f) {
+        f = this.spawn(id, st);
+      }
       f.tx = st.x;
       f.ty = st.y;
       f.moving = st.m;
@@ -71,14 +90,16 @@ export class RemoteFarmers {
         f.sprite.y = f.ty;
         f.seeded = false;
       } else {
-        f.sprite.x = Phaser.Math.Linear(f.sprite.x, f.tx, k);
-        f.sprite.y = Phaser.Math.Linear(f.sprite.y, f.ty, k);
+        f.sprite.x = PhaserMath.Linear(f.sprite.x, f.tx, k);
+        f.sprite.y = PhaserMath.Linear(f.sprite.y, f.ty, k);
       }
       f.sprite.setDepth(DEPTH.entityBase + f.sprite.y);
       f.shadow.setPosition(f.sprite.x, f.sprite.y + 1).setDepth(f.sprite.depth - 1);
       f.label.setPosition(f.sprite.x, f.sprite.y - 26).setDepth(f.sprite.depth + 1);
       const anim = f.moving ? "p-walk" : "p-idle";
-      if (f.sprite.anims.currentAnim?.key !== anim) f.sprite.play(anim, true);
+      if (f.sprite.anims.currentAnim?.key !== anim) {
+        f.sprite.play(anim, true);
+      }
     }
   }
 
@@ -99,14 +120,14 @@ export class RemoteFarmers {
     sprite.play("p-idle");
     const label = this.scene.add
       .text(st.x, st.y - 26, id.slice(0, 4), {
-        fontSize: "8px",
+        backgroundColor: "rgba(20,24,40,0.55)",
         color: "#ffffff",
         fontFamily: "monospace",
-        backgroundColor: "rgba(20,24,40,0.55)",
-        padding: { left: 2, right: 2, top: 1, bottom: 1 },
+        fontSize: "8px",
+        padding: { bottom: 1, left: 2, right: 2, top: 1 },
       })
       .setOrigin(0.5, 1);
-    const f: Farmer = { sprite, shadow, label, tx: st.x, ty: st.y, seeded: true, moving: false };
+    const f: Farmer = { label, moving: false, seeded: true, shadow, sprite, tx: st.x, ty: st.y };
     this.farmers.set(id, f);
     return f;
   }

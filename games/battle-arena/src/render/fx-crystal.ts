@@ -19,72 +19,79 @@ import { NOISE_GLSL } from "./fx-noise";
 
 /** Shading controls. One literal — the sandbox's 90-odd live sliders, frozen. */
 const ICE = {
-  depthTint: 1.05, // how much a head-on facet darkens toward the deep tone
+  birthGlow: 3,
+  // how much a head-on facet darkens toward the deep tone
+  depthTint: 1.05,
+  edgeGlow: 1.25,
+  // posterise steps across the body — the toon term
+  facetBands: 4,
+  // lift on facets pointing at the camera
+  facetSharp: 0.72,
+  fracture: 0.6,
+  // low: at our camera distance the sandbox's 6.5 streaked
+  fractureScale: 3,
   fresnel: 1.9,
   fresnelPower: 2.2,
-  translucency: 1.1,
-  facetSharp: 0.72, // lift on facets pointing at the camera
-  facetBands: 4, // posterise steps across the body — the toon term
-  fracture: 0.6,
-  fractureScale: 3.0, // low: at our camera distance the sandbox's 6.5 streaked
-  veins: 0.45,
-  veinScale: 3.0,
-  sparkle: 1.3,
-  sparkleScale: 18, // lower than the sandbox: our camera sits farther out and
-  sparkleSpeed: 0.6, // its 34 aliased into moving grain at this distance
-  frostLine: 0.55, // rime gathering where the crystal left the floor
-  glow: 1.0,
-  edgeGlow: 1.25,
-  birthGlow: 3.0,
+  // rime gathering where the crystal left the floor
+  frostLine: 0.55,
+  glow: 1,
   opacity: 0.94,
+  sparkle: 1.3,
+  // lower than the sandbox: our camera sits farther out and
+  sparkleScale: 18,
+  // its 34 aliased into moving grain at this distance
+  sparkleSpeed: 0.6,
+  translucency: 1.1,
+  veinScale: 3,
+  veins: 0.45,
 } as const;
 
 /**
  * @param clock the shared hit-stop-scaled FX clock, so eruptions freeze with
  *   everything else during a hard hit.
  */
-export function createCrystalMaterial(clock: { value: number }): THREE.MeshStandardMaterial {
+export const createCrystalMaterial = (clock: { value: number }): THREE.MeshStandardMaterial => {
   const material = new THREE.MeshStandardMaterial({
-    color: 0xffffff,
-    roughness: 0.18,
-    metalness: 0.0,
+    color: 0xff_ff_ff,
+    // Kept on: these are near-opaque, and writing depth is what stops a field
+    // from sorting through itself.
+    depthWrite: true,
     flatShading: true,
-    transparent: true,
+    metalness: 0,
+    opacity: ICE.opacity,
+    roughness: 0.18,
     // A crystal is translucent, so the far wall is part of what you see through
     // the near one. Culling it leaves the interior empty and thin shards read
     // as hollow shells.
     side: THREE.DoubleSide,
-    // Kept on: these are near-opaque, and writing depth is what stops a field
-    // from sorting through itself.
-    depthWrite: true,
-    opacity: ICE.opacity,
+    transparent: true,
   });
 
   const uniforms = {
-    uTime: clock,
+    uBirthGlow: { value: ICE.birthGlow },
+    uCore: { value: new THREE.Color(0xa8_e6_ff) },
     // The colour a facet reaches at full thickness. Darker than it looks: the
     // banded mix runs all the way to it now, where it used to overshoot past a
     // lighter value and land here anyway.
-    uDeep: { value: new THREE.Color(0x135c91) },
-    uRim: { value: new THREE.Color(0xdff2ff) },
-    uCore: { value: new THREE.Color(0xa8e6ff) },
+    uDeep: { value: new THREE.Color(0x13_5c_91) },
     uDensity: { value: ICE.depthTint },
-    uFresnel: { value: ICE.fresnel },
-    uFresnelPower: { value: ICE.fresnelPower },
-    uTranslucency: { value: ICE.translucency },
-    uFacetSharp: { value: ICE.facetSharp },
+    uEdgeGlow: { value: ICE.edgeGlow },
     uFacetBands: { value: ICE.facetBands },
+    uFacetSharp: { value: ICE.facetSharp },
     uFracture: { value: ICE.fracture },
     uFractureScale: { value: ICE.fractureScale },
-    uVeins: { value: ICE.veins },
-    uVeinScale: { value: ICE.veinScale },
+    uFresnel: { value: ICE.fresnel },
+    uFresnelPower: { value: ICE.fresnelPower },
+    uFrostLine: { value: ICE.frostLine },
+    uGlow: { value: ICE.glow },
+    uRim: { value: new THREE.Color(0xdf_f2_ff) },
     uSparkle: { value: ICE.sparkle },
     uSparkleScale: { value: ICE.sparkleScale },
     uSparkleSpeed: { value: ICE.sparkleSpeed },
-    uFrostLine: { value: ICE.frostLine },
-    uGlow: { value: ICE.glow },
-    uEdgeGlow: { value: ICE.edgeGlow },
-    uBirthGlow: { value: ICE.birthGlow },
+    uTime: clock,
+    uTranslucency: { value: ICE.translucency },
+    uVeinScale: { value: ICE.veinScale },
+    uVeins: { value: ICE.veins },
   };
 
   material.onBeforeCompile = (shader) => {
@@ -93,7 +100,7 @@ export function createCrystalMaterial(clock: { value: number }): THREE.MeshStand
     shader.vertexShader = shader.vertexShader
       .replace(
         "#include <common>",
-        /* glsl */ `#include <common>
+        `#include <common>
         attribute float aSeed;
         attribute float aBirth;
         varying vec3  vCrystalLocal;
@@ -103,7 +110,7 @@ export function createCrystalMaterial(clock: { value: number }): THREE.MeshStand
       )
       .replace(
         "#include <begin_vertex>",
-        /* glsl */ `#include <begin_vertex>
+        `#include <begin_vertex>
         vCrystalLocal = transformed;
         vCrystalSeed = aSeed;
         vCrystalBirth = aBirth;
@@ -117,7 +124,7 @@ export function createCrystalMaterial(clock: { value: number }): THREE.MeshStand
     shader.fragmentShader = shader.fragmentShader
       .replace(
         "#include <common>",
-        /* glsl */ `#include <common>
+        `#include <common>
         uniform float uTime;
         uniform vec3  uDeep;
         uniform vec3  uRim;
@@ -150,7 +157,7 @@ export function createCrystalMaterial(clock: { value: number }): THREE.MeshStand
       // normal that <normal_fragment_begin> derives from derivatives.
       .replace(
         "#include <emissivemap_fragment>",
-        /* glsl */ `#include <emissivemap_fragment>
+        `#include <emissivemap_fragment>
         {
           vec3  N   = normalize(normal);
           float ndv = clamp(dot(N, normalize(vViewPosition)), 0.0, 1.0);
@@ -217,4 +224,4 @@ export function createCrystalMaterial(clock: { value: number }): THREE.MeshStand
   };
 
   return material;
-}
+};

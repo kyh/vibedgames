@@ -36,42 +36,46 @@ export const PAINT_ENV_FACE_SCALE = 0.82;
 export const PAINT_ENV_GRAZE_SCALE = 1.3;
 export const PAINT_ENV_FACE_CHROMA = 0.45;
 export const PAINT_ENV_GRAZE_CHROMA = 0.26;
-export const PAINT_ENV_POWER = 3.0;
+export const PAINT_ENV_POWER = 3;
 
 const TEX_SIZE = 256;
 // Slope gain applied when the height fields become normal maps — sets how
 // much of the [-1,1] tangent range each map uses before the *_NORMAL_SCALE.
-const BASE_SOBEL_GAIN = 3.0;
-const COAT_SOBEL_GAIN = 5.0;
+const BASE_SOBEL_GAIN = 3;
+const COAT_SOBEL_GAIN = 5;
 const SWIRL_COUNT = 46;
 const SWIRL_ALPHA = 0.13;
 
-function lcg(seed: number): () => number {
+const lcg = (seed: number): (() => number) => {
+  /* oxlint-disable no-bitwise -- LCG needs the uint32 wrap */
   let s = seed >>> 0;
   return () => {
-    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
-    return s / 4294967296;
+    s = (Math.imul(s, 1_664_525) + 1_013_904_223) >>> 0;
+    return s / 4_294_967_296;
   };
-}
+  /* oxlint-enable no-bitwise */
+};
 
 // Seamless value noise: bilinear-smoothstep interpolation of a wrapped random
 // lattice. `cells` must divide `size`.
-function addNoise(
+const addNoise = (
   field: Float32Array,
   size: number,
   cells: number,
   amp: number,
   rand: () => number,
-): void {
+): void => {
   const lattice = new Float32Array(cells * cells);
-  for (let i = 0; i < lattice.length; i++) lattice[i] = rand() * 2 - 1;
+  for (let i = 0; i < lattice.length; i += 1) {
+    lattice[i] = rand() * 2 - 1;
+  }
   const step = size / cells;
-  for (let y = 0; y < size; y++) {
+  for (let y = 0; y < size; y += 1) {
     const cy = Math.floor(y / step);
     const fy = THREE.MathUtils.smoothstep((y - cy * step) / step, 0, 1);
     const y0 = cy % cells;
     const y1 = (cy + 1) % cells;
-    for (let x = 0; x < size; x++) {
+    for (let x = 0; x < size; x += 1) {
       const cx = Math.floor(x / step);
       const fx = THREE.MathUtils.smoothstep((x - cx * step) / step, 0, 1);
       const x0 = cx % cells;
@@ -85,18 +89,20 @@ function addNoise(
       field[idx] = (field[idx] ?? 0) + v * amp;
     }
   }
-}
+};
 
 // Faint polish-swirl arc strokes composited into a height field via canvas.
 // Returns the field unchanged when no 2d context exists (headless boots).
-function addSwirls(field: Float32Array, size: number, rand: () => number): Float32Array {
+const addSwirls = (field: Float32Array, size: number, rand: () => number): Float32Array => {
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  if (!ctx) return field;
+  if (!ctx) {
+    return field;
+  }
   const img = ctx.createImageData(size, size);
-  for (let i = 0; i < field.length; i++) {
+  for (let i = 0; i < field.length; i += 1) {
     const v = Math.round(THREE.MathUtils.clamp((field[i] ?? 0) * 0.5 + 0.5, 0, 1) * 255);
     img.data[i * 4] = v;
     img.data[i * 4 + 1] = v;
@@ -106,7 +112,7 @@ function addSwirls(field: Float32Array, size: number, rand: () => number): Float
   ctx.putImageData(img, 0, 0);
   ctx.globalAlpha = SWIRL_ALPHA;
   ctx.strokeStyle = "#ffffff";
-  for (let i = 0; i < SWIRL_COUNT; i++) {
+  for (let i = 0; i < SWIRL_COUNT; i += 1) {
     ctx.lineWidth = 1.8 + rand() * 1.6;
     const r = size * (0.1 + rand() * 0.45);
     const a0 = rand() * Math.PI * 2;
@@ -115,13 +121,13 @@ function addSwirls(field: Float32Array, size: number, rand: () => number): Float
     ctx.stroke();
   }
   const out = ctx.getImageData(0, 0, size, size);
-  for (let i = 0; i < field.length; i++) {
+  for (let i = 0; i < field.length; i += 1) {
     field[i] = ((out.data[i * 4] ?? 128) / 255) * 2 - 1;
   }
   return field;
-}
+};
 
-function makeTexture(data: Uint8Array, size: number): THREE.DataTexture {
+const makeTexture = (data: Uint8Array, size: number): THREE.DataTexture => {
   const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
@@ -130,15 +136,15 @@ function makeTexture(data: Uint8Array, size: number): THREE.DataTexture {
   tex.generateMipmaps = true;
   tex.needsUpdate = true;
   return tex;
-}
+};
 
 // Wrapped central-difference slopes -> tangent-space normal map.
-function normalMapFrom(field: Float32Array, size: number, gain: number): THREE.DataTexture {
+const normalMapFrom = (field: Float32Array, size: number, gain: number): THREE.DataTexture => {
   const data = new Uint8Array(size * size * 4);
-  for (let y = 0; y < size; y++) {
+  for (let y = 0; y < size; y += 1) {
     const yn = (y + size - 1) % size;
     const yp = (y + 1) % size;
-    for (let x = 0; x < size; x++) {
+    for (let x = 0; x < size; x += 1) {
       const xn = (x + size - 1) % size;
       const xp = (x + 1) % size;
       const dx = ((field[y * size + xp] ?? 0) - (field[y * size + xn] ?? 0)) * 0.5 * gain;
@@ -152,11 +158,11 @@ function normalMapFrom(field: Float32Array, size: number, gain: number): THREE.D
     }
   }
   return makeTexture(data, size);
-}
+};
 
-function grayMapFrom(field: Float32Array, size: number): THREE.DataTexture {
+const grayMapFrom = (field: Float32Array, size: number): THREE.DataTexture => {
   const data = new Uint8Array(size * size * 4);
-  for (let i = 0; i < field.length; i++) {
+  for (let i = 0; i < field.length; i += 1) {
     const v = Math.round(THREE.MathUtils.clamp((field[i] ?? 0) * 0.5 + 0.5, 0, 1) * 255);
     data[i * 4] = v;
     data[i * 4 + 1] = v;
@@ -164,21 +170,23 @@ function grayMapFrom(field: Float32Array, size: number): THREE.DataTexture {
     data[i * 4 + 3] = 255;
   }
   return makeTexture(data, size);
-}
+};
 
-type LacquerMaps = {
+interface LacquerMaps {
   readonly baseNormal: THREE.DataTexture;
   readonly coatNormal: THREE.DataTexture;
   readonly coatRough: THREE.DataTexture;
-};
+}
 
 let baked: LacquerMaps | null = null;
 
-function lacquerMaps(): LacquerMaps {
-  if (baked) return baked;
+const lacquerMaps = (): LacquerMaps => {
+  if (baked) {
+    return baked;
+  }
   // Base coat: ~6mm dimple (8px at the 167mm tile) + a finer half-amp octave
   // + polish swirls.
-  const rand = lcg(0x5eed_ca11);
+  const rand = lcg(0x5e_ed_ca_11);
   const base = new Float32Array(TEX_SIZE * TEX_SIZE);
   addNoise(base, TEX_SIZE, 32, 0.6, rand);
   addNoise(base, TEX_SIZE, 64, 0.25, rand);
@@ -199,11 +207,11 @@ function lacquerMaps(): LacquerMaps {
     coatRough: grayMapFrom(rough, TEX_SIZE),
   };
   return baked;
-}
+};
 
 const LUMA = "vec3( 0.2126, 0.7152, 0.0722 )";
 
-const LACQUER_PARS = /* glsl */ `
+const LACQUER_PARS = `
 #include <common>
 uniform sampler2D uPeelBase;
 uniform sampler2D uPeelCoat;
@@ -231,7 +239,7 @@ mat3 lacquerTangentFrame( vec3 eye_pos, vec3 surf_norm, vec2 uv ) {
 }
 `;
 
-const BASE_PEEL = /* glsl */ `
+const BASE_PEEL = `
 #include <normal_fragment_maps>
 {
 	vec2 peelUv = lacquerUv( ${PAINT_TILE.toFixed(4)} );
@@ -241,7 +249,7 @@ const BASE_PEEL = /* glsl */ `
 }
 `;
 
-const COAT_PEEL = /* glsl */ `
+const COAT_PEEL = `
 #include <clearcoat_normal_fragment_maps>
 #ifdef USE_CLEARCOAT
 {
@@ -255,14 +263,14 @@ const COAT_PEEL = /* glsl */ `
 
 // Overrides the include's uniform clearcoatRoughness; geometryRoughness (the
 // derivative anti-alias term) is re-added because the assignment drops it.
-const COAT_ROUGH = /* glsl */ `
+const COAT_ROUGH = `
 #include <lights_physical_fragment>
 #ifdef USE_CLEARCOAT
 material.clearcoatRoughness = min( mix( ${COAT_ROUGH_MIN.toFixed(4)}, ${COAT_ROUGH_MAX.toFixed(4)}, texture2D( uCoatRough, lacquerUv( ${COAT_TILE.toFixed(4)} ) ).g ) + geometryRoughness, 1.0 );
 #endif
 `;
 
-const ENV_RESPONSE = /* glsl */ `
+const ENV_RESPONSE = `
 {
 	float envF = pow( 1.0 - saturate( dot( geometryNormal, geometryViewDir ) ), ${PAINT_ENV_POWER.toFixed(2)} );
 	float envScale = mix( ${PAINT_ENV_FACE_SCALE.toFixed(2)}, ${PAINT_ENV_GRAZE_SCALE.toFixed(2)}, envF );
@@ -280,7 +288,7 @@ const ENV_RESPONSE = /* glsl */ `
  * player-class clearcoat clone. The material's own clearcoatRoughness value
  * becomes dead — the baked map drives it.
  */
-export function applyLacquer(m: THREE.MeshPhysicalMaterial, rimStrength: number): void {
+export const applyLacquer = (m: THREE.MeshPhysicalMaterial, rimStrength: number): void => {
   const maps = lacquerMaps();
   m.onBeforeCompile = (shader) => {
     shader.uniforms.uPeelBase = { value: maps.baseNormal };
@@ -306,4 +314,4 @@ export function applyLacquer(m: THREE.MeshPhysicalMaterial, rimStrength: number)
   };
   const key = `waymo-lacquer|rim:${rimStrength.toFixed(2)}`;
   m.customProgramCacheKey = () => key;
-}
+};

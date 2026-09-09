@@ -1,4 +1,5 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
+import { BlendModes, Math as PhaserMath } from "phaser";
 
 import {
   BASES,
@@ -46,7 +47,8 @@ const D_CLIFF = -95;
 const D_WASH = -92;
 const D_RING = -90;
 const D_BRIDGE_SHADOW = -89;
-const D_BRIDGE = -84; // minus a per-strip index (northern strips on top), stays above the shadow
+// minus a per-strip index (northern strips on top), stays above the shadow
+const D_BRIDGE = -84;
 const DEPTH_DECAL = -50;
 
 // Terrain autotile tables (flat/elevated grass), cliff + slope frames live in
@@ -58,12 +60,12 @@ const BRIDGE_R = 2;
 const BRIDGE_SHADOW = 11;
 
 /** Deterministic 0..1 hash so decoration scatter is stable across reloads/peers. */
-function rng2(x: number, y: number): number {
-  const v = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
+const rng2 = (x: number, y: number): number => {
+  const v = Math.sin(x * 127.1 + y * 311.7) * 43_758.5453;
   return v - Math.floor(v);
-}
+};
 
-type UnitView = {
+interface UnitView {
   container: Phaser.GameObjects.Container;
   sprite: Phaser.GameObjects.Sprite;
   shadow: Phaser.GameObjects.Image;
@@ -75,31 +77,114 @@ type UnitView = {
   dx: number;
   dy: number;
   curAnim: string;
-  lastAttackAt: number; // detect a fresh swing to play the attack anim once
-  lastDustAt: number; // throttle the running dust puffs
-  dead: boolean; // playing/played the death anim while hidden (heroes)
-  recoilX: number; // hit knockback offset (decays each frame)
+  // detect a fresh swing to play the attack anim once
+  lastAttackAt: number;
+  // throttle the running dust puffs
+  lastDustAt: number;
+  // playing/played the death anim while hidden (heroes)
+  dead: boolean;
+  // hit knockback offset (decays each frame)
+  recoilX: number;
   recoilY: number;
-  flashUntil: number; // ms; sprite shows a red damage flash until then
-  stunStars: Phaser.GameObjects.Image[]; // orbiting stars while stunned/taunted
-  shieldFx: Phaser.GameObjects.Arc | null; // shimmer ring while shielded
-};
+  // ms; sprite shows a red damage flash until then
+  flashUntil: number;
+  // orbiting stars while stunned/taunted
+  stunStars: Phaser.GameObjects.Image[];
+  // shimmer ring while shielded
+  shieldFx: Phaser.GameObjects.Arc | null;
+}
 
 /** A live ground zone's display: the coloured ring + any looping effect sprites
  *  (each kept with its offset from the zone centre so followOwner zones can track). */
-type GroundView = {
+interface GroundView {
   arc: Phaser.GameObjects.Arc;
-  sprites: Array<{ sp: Phaser.GameObjects.Sprite; ox: number; oy: number }>;
-  nextStrikeAt: number; // for storm zones: when to drop the next lightning bolt
-};
+  sprites: { sp: Phaser.GameObjects.Sprite; ox: number; oy: number }[];
+  // for storm zones: when to drop the next lightning bolt
+  nextStrikeAt: number;
+}
 
-type StructView = {
+interface StructView {
   sprite: Phaser.GameObjects.Image;
   hpBg: Phaser.GameObjects.Rectangle;
   hpFill: Phaser.GameObjects.Rectangle;
   range: Phaser.GameObjects.Arc | null;
-  fires: Phaser.GameObjects.Sprite[]; // burning-damage flames, count scales with lost HP
+  // burning-damage flames, count scales with lost HP
+  fires: Phaser.GameObjects.Sprite[];
   dead: boolean;
+}
+
+const teamHpColor = (team: string): number => (team === "radiant" ? 0x44_d0_7a : 0xff_5d_5d);
+
+/** Unit health-bar fill: neutral gold, else the team colour. */
+const unitHpColor = (u: Unit): number => {
+  if (u.neutral) {
+    return 0xe0_a9_3a;
+  }
+  return teamHpColor(u.team);
+};
+
+/** Selection ring: neutral amber, else the team colour. */
+const unitRingColor = (u: Unit): number => {
+  if (u.neutral) {
+    return 0xd0_a2_3a;
+  }
+  return u.team === "radiant" ? 0x4f_a3_ff : 0xff_5a_4a;
+};
+
+/** Ring opacity: the played hero is always solid, stunned units flash, other
+ *  heroes sit faint, creeps show none. */
+const unitRingAlpha = (u: Unit, isPlayer: boolean, stunned: boolean): number => {
+  if (isPlayer) {
+    return 1;
+  }
+  if (stunned) {
+    return 0.9;
+  }
+  return u.kind === "hero" ? 0.5 : 0;
+};
+
+/** Trail tint per projectile kind. */
+const projTrailColor = (kind: Projectile["kind"]): number => {
+  if (kind === "fireball") {
+    return 0xff_9a_3a;
+  }
+  if (kind === "bolt") {
+    return 0xb9_8b_ff;
+  }
+  if (kind === "dynamite") {
+    return 0xff_ae_4a;
+  }
+  // arrows/tower: a faint white streak
+  return 0xdf_e8_ff;
+};
+const projTex = (p: Projectile): string => {
+  if (p.kind === "fireball") {
+    return "glow";
+  }
+  if (p.kind === "dynamite") {
+    return "spark";
+  }
+  return "fx-arrow";
+};
+const groundColor = (g: GroundEffect): number => {
+  if (g.allyHealPerTick) {
+    return 0x6b_e0_7a;
+  }
+  if (g.effect.includes("storm")) {
+    return 0x6a_a8_ff;
+  }
+  return 0xff_6a_2a;
+};
+const shortName = (defId: string): string => {
+  const m = new Map([
+    ["ironvow", "Garran"],
+    ["duskblade", "Vesper"],
+    ["stormcaller", "Aelwyn"],
+    ["emberhex", "Grix"],
+    ["boomtinker", "Fizzle"],
+    ["brewkeeper", "Bramble"],
+  ]);
+  return m.get(defId) ?? defId;
 };
 
 export class WorldView {
@@ -107,14 +192,19 @@ export class WorldView {
   private units = new Map<string, UnitView>();
   private structs = new Map<string, StructView>();
   private projs = new Map<string, Phaser.GameObjects.Image | Phaser.GameObjects.Sprite>();
-  private projTrailAt = new Map<string, number>(); // throttle per-projectile trail puffs
+  // throttle per-projectile trail puffs
+  private projTrailAt = new Map<string, number>();
   private grounds = new Map<string, GroundView>();
   private mines = new Map<string, Phaser.GameObjects.Arc>();
-  private shoreCells: Array<{ x: number; y: number }> = []; // water cells touching land, for ambient splashes
+  // water cells touching land, for ambient splashes
+  private shoreCells: { x: number; y: number }[] = [];
   private splashAcc = 0;
-  private scorches: Phaser.GameObjects.Image[] = []; // lingering blast marks (capped)
-  private reticle: Phaser.GameObjects.Image | null = null; // target marker (Cursor_04)
-  private reticleId = ""; // unit the player is currently targeting/hovering
+  // lingering blast marks (capped)
+  private scorches: Phaser.GameObjects.Image[] = [];
+  // target marker (Cursor_04)
+  private reticle: Phaser.GameObjects.Image | null = null;
+  // unit the player is currently targeting/hovering
+  private reticleId = "";
   playerHeroId = "";
   playerTeam: "radiant" | "dire" = "radiant";
 
@@ -138,7 +228,9 @@ export class WorldView {
   private playLoop(sprite: Phaser.GameObjects.Sprite, key: string, startSeed = 0): void {
     const anim = this.scene.anims.get(key);
     const n = anim?.frames.length ?? 0;
-    if (n <= 0) return;
+    if (n <= 0) {
+      return;
+    }
     sprite.play({ key, startFrame: ((Math.floor(startSeed) % n) + n) % n });
   }
 
@@ -170,27 +262,29 @@ export class WorldView {
     // 7) fountains (healing pools at the castle's foot) + a couple of village houses
     for (const team of ["radiant", "dire"] as const) {
       const b = BASES[team];
-      const col = team === "radiant" ? 0x4fa3ff : 0xff5a4a;
+      const col = team === "radiant" ? 0x4f_a3_ff : 0xff_5a_4a;
       s.add.circle(b.fountain.x, b.fountain.y, b.fountainRadius, col, 0.05).setDepth(D_RING);
       // carved pool: stone lip, teal water, bright centre, slow pulsing ring
-      s.add.ellipse(b.fountain.x, b.fountain.y, 168, 122, 0x6a7a82, 1).setDepth(DEPTH_DECAL - 2);
-      s.add.ellipse(b.fountain.x, b.fountain.y, 146, 102, 0x2e8f8a, 1).setDepth(DEPTH_DECAL - 1);
-      s.add.ellipse(b.fountain.x, b.fountain.y - 4, 104, 68, 0x6fd6cf, 0.85).setDepth(DEPTH_DECAL);
+      s.add.ellipse(b.fountain.x, b.fountain.y, 168, 122, 0x6a_7a_82, 1).setDepth(DEPTH_DECAL - 2);
+      s.add.ellipse(b.fountain.x, b.fountain.y, 146, 102, 0x2e_8f_8a, 1).setDepth(DEPTH_DECAL - 1);
       s.add
-        .ellipse(b.fountain.x, b.fountain.y - 6, 56, 34, 0xc9f3ef, 0.9)
+        .ellipse(b.fountain.x, b.fountain.y - 4, 104, 68, 0x6f_d6_cf, 0.85)
+        .setDepth(DEPTH_DECAL);
+      s.add
+        .ellipse(b.fountain.x, b.fountain.y - 6, 56, 34, 0xc9_f3_ef, 0.9)
         .setDepth(DEPTH_DECAL + 1);
       const pulse = s.add
         .ellipse(b.fountain.x, b.fountain.y - 4, 70, 44, col, 0)
-        .setStrokeStyle(3, 0xeafffd, 0.8)
+        .setStrokeStyle(3, 0xea_ff_fd, 0.8)
         .setDepth(DEPTH_DECAL + 2);
       s.tweens.add({
-        targets: pulse,
-        scaleX: 1.7,
-        scaleY: 1.7,
         alpha: 0,
         duration: 2200,
-        repeat: -1,
         ease: "Sine.Out",
+        repeat: -1,
+        scaleX: 1.7,
+        scaleY: 1.7,
+        targets: pulse,
       });
       // splash sparkle: the pool joins the ambient splash pool
       this.shoreCells.push({ x: b.fountain.x, y: b.fountain.y });
@@ -201,7 +295,9 @@ export class WorldView {
           [b.fountain.x + sign * 110, b.fountain.y - 250],
           [b.fountain.x + sign * 90, b.fountain.y + 240],
         ] as const) {
-          if (!isLandCell(Math.floor(hx / CELL), Math.floor(hy / CELL))) continue;
+          if (!isLandCell(Math.floor(hx / CELL), Math.floor(hy / CELL))) {
+            continue;
+          }
           s.add.image(hx, hy, houseTex).setOrigin(0.5, 0.8).setDepth(hy);
         }
       }
@@ -213,7 +309,9 @@ export class WorldView {
     // 7c) gold mines behind the large jungle camps (flavour landmarks)
     if (s.textures.exists("deco-goldmine")) {
       for (const c of NEUTRAL_CAMPS) {
-        if (c.kind !== "large") continue;
+        if (c.kind !== "large") {
+          continue;
+        }
         s.add
           .image(c.x, c.y - 64, "deco-goldmine")
           .setOrigin(0.5, 0.78)
@@ -231,8 +329,8 @@ export class WorldView {
     for (const c of NEUTRAL_CAMPS) {
       const boss = c.kind === "roshan";
       s.add
-        .circle(c.x, c.y, boss ? 130 : 70, 0x000000, 0)
-        .setStrokeStyle(boss ? 4 : 3, boss ? 0x8a3a2a : 0x4a6a34, boss ? 0.4 : 0.3)
+        .circle(c.x, c.y, boss ? 130 : 70, 0x00_00_00, 0)
+        .setStrokeStyle(boss ? 4 : 3, boss ? 0x8a_3a_2a : 0x4a_6a_34, boss ? 0.4 : 0.3)
         .setDepth(D_RING);
     }
 
@@ -249,33 +347,33 @@ export class WorldView {
   private buildLightMotes(): void {
     const s = this.scene;
     const COUNT = 18;
-    for (let i = 0; i < COUNT; i++) {
+    for (let i = 0; i < COUNT; i += 1) {
       const x = rng2(i * 7, 3) * WORLD.width;
       const y = rng2(2, i * 11) * WORLD.height;
       const m = s.add
         .image(x, y, "spark")
         .setScale(0.12 + rng2(i, i) * 0.13)
         .setAlpha(0.28 + rng2(i, 4) * 0.22)
-        .setTint(0xfff6d8)
+        .setTint(0xff_f6_d8)
         .setDepth(8600)
-        .setBlendMode(Phaser.BlendModes.ADD);
+        .setBlendMode(BlendModes.ADD);
       s.tweens.add({
+        duration: 9000 + rng2(i, 2) * 8000,
+        ease: "Sine.InOut",
+        repeat: -1,
         targets: m,
         x: x + (rng2(i, 5) - 0.5) * 150,
         y: y - 60 - rng2(i, 9) * 130,
-        duration: 9000 + rng2(i, 2) * 8000,
         yoyo: true,
-        repeat: -1,
-        ease: "Sine.InOut",
       });
       s.tweens.add({
-        targets: m,
         alpha: 0.08,
-        duration: 2200 + rng2(i, 6) * 2600,
-        yoyo: true,
-        repeat: -1,
-        ease: "Sine.InOut",
         delay: rng2(i, i) * 3000,
+        duration: 2200 + rng2(i, 6) * 2600,
+        ease: "Sine.InOut",
+        repeat: -1,
+        targets: m,
+        yoyo: true,
       });
     }
   }
@@ -284,15 +382,17 @@ export class WorldView {
   private buildRoshanPit(): void {
     const s = this.scene;
     const pit = NEUTRAL_CAMPS.find((c) => c.kind === "roshan");
-    if (!pit) return;
+    if (!pit) {
+      return;
+    }
     s.add
-      .ellipse(pit.x, pit.y, 330, 240, 0x3a2c20, 0.3)
+      .ellipse(pit.x, pit.y, 330, 240, 0x3a_2c_20, 0.3)
       .setDepth(D_RING - 1)
-      .setBlendMode(Phaser.BlendModes.MULTIPLY);
+      .setBlendMode(BlendModes.MULTIPLY);
     s.add
-      .ellipse(pit.x, pit.y, 220, 156, 0x2c2118, 0.25)
+      .ellipse(pit.x, pit.y, 220, 156, 0x2c_21_18, 0.25)
       .setDepth(D_RING - 1)
-      .setBlendMode(Phaser.BlendModes.MULTIPLY);
+      .setBlendMode(BlendModes.MULTIPLY);
     const props = [
       "deco-14",
       "deco-15",
@@ -303,8 +403,10 @@ export class WorldView {
       "deco-15",
       "deco-14",
     ];
-    props.forEach((key, i) => {
-      if (!s.textures.exists(key)) return;
+    for (const [i, key] of props.entries()) {
+      if (!s.textures.exists(key)) {
+        continue;
+      }
       const a = (i / props.length) * Math.PI * 2 + 0.5;
       const r = 95 + rng2(i * 13, i * 7) * 75;
       const x = pit.x + Math.cos(a) * r * 1.25;
@@ -314,7 +416,7 @@ export class WorldView {
         .setScale(0.85 + rng2(i, i * 3) * 0.3)
         .setAngle((rng2(i * 5, i) - 0.5) * 50)
         .setDepth(y);
-    });
+    }
   }
 
   /** Animated 192px foam sprites on every water cell touching land —
@@ -322,9 +424,11 @@ export class WorldView {
   private buildFoam(): void {
     const s = this.scene;
     const hasFoam = s.textures.exists("foam");
-    for (let cy = 0; cy < ROWS; cy++) {
-      for (let cx = 0; cx < COLS; cx++) {
-        if (isLandCell(cx, cy)) continue;
+    for (let cy = 0; cy < ROWS; cy += 1) {
+      for (let cx = 0; cx < COLS; cx += 1) {
+        if (isLandCell(cx, cy)) {
+          continue;
+        }
         const touches = (
           [
             [-1, 0],
@@ -335,13 +439,17 @@ export class WorldView {
             [1, -1],
             [-1, 1],
             [1, 1],
-          ] satisfies Array<[number, number]>
+          ] satisfies [number, number][]
         ).some(([dx, dy]) => isLandCell(cx + dx, cy + dy));
-        if (!touches) continue;
+        if (!touches) {
+          continue;
+        }
         const x = cx * CELL + CELL / 2;
         const y = cy * CELL + CELL / 2;
         this.shoreCells.push({ x, y });
-        if (!hasFoam) continue;
+        if (!hasFoam) {
+          continue;
+        }
         const f = s.add.sprite(x, y, "foam", 0).setDepth(D_FOAM);
         this.playLoop(f, "foam-loop", cx * 7 + cy * 5);
       }
@@ -352,15 +460,17 @@ export class WorldView {
    *  `yOff` lifts the layer up (elevated grass) so plateaus read as raised. */
   private buildGroundLayer(elevated: boolean, depth: number, yOff = 0): void {
     const s = this.scene;
-    if (!s.textures.exists("tiles-img")) return;
+    if (!s.textures.exists("tiles-img")) {
+      return;
+    }
     const inSet = (cx: number, cy: number): boolean =>
       elevated ? isHighCell(cx, cy) : isLandCell(cx, cy) && !isHighCell(cx, cy);
     const out = (cx: number, cy: number): boolean =>
       elevated ? !isHighCell(cx, cy) : !isLandCell(cx, cy);
     const data: number[][] = [];
-    for (let cy = 0; cy < ROWS; cy++) {
+    for (let cy = 0; cy < ROWS; cy += 1) {
       const row: number[] = [];
-      for (let cx = 0; cx < COLS; cx++) {
+      for (let cx = 0; cx < COLS; cx += 1) {
         if (!inSet(cx, cy)) {
           row.push(-1);
           continue;
@@ -369,19 +479,25 @@ export class WorldView {
       }
       data.push(row);
     }
-    const map = s.make.tilemap({ data, tileWidth: CELL, tileHeight: CELL });
+    const map = s.make.tilemap({ data, tileHeight: CELL, tileWidth: CELL });
     const tiles = map.addTilesetImage(elevated ? "tilesE" : "tilesF", "tiles-img");
-    if (tiles) map.createLayer(0, tiles, 0, yOff)?.setDepth(depth);
+    if (tiles) {
+      map.createLayer(0, tiles, 0, yOff)?.setDepth(depth);
+    }
   }
 
   /** Drop shadow under the elevated footprint, shifted one tile down
    *  (layered between the flat and elevated ground layers). */
   private buildPlateauShadows(): void {
     const s = this.scene;
-    if (!s.textures.exists("tshadow")) return;
-    for (let cy = 0; cy < ROWS; cy++) {
-      for (let cx = 0; cx < COLS; cx++) {
-        if (!isHighCell(cx, cy)) continue;
+    if (!s.textures.exists("tshadow")) {
+      return;
+    }
+    for (let cy = 0; cy < ROWS; cy += 1) {
+      for (let cx = 0; cx < COLS; cx += 1) {
+        if (!isHighCell(cx, cy)) {
+          continue;
+        }
         s.add
           .image(cx * CELL + CELL / 2, (cy + 1) * CELL + CELL / 2, "tshadow")
           .setDepth(D_SHADOW)
@@ -395,27 +511,36 @@ export class WorldView {
    *  block. Skipped where a ramp descends (the ramp grass shows there instead). */
   private buildCliffs(): void {
     const s = this.scene;
-    if (!s.textures.exists("tiles")) return;
-    for (let cy = 0; cy < ROWS; cy++) {
-      for (let cx = 0; cx < COLS; cx++) {
-        if (!isHighCell(cx, cy) || isHighCell(cx, cy + 1)) continue; // south edge only
-        if (isRampCell(cx, cy + 1)) continue; // a ramp descends here — leave it open
+    if (!s.textures.exists("tiles")) {
+      return;
+    }
+    for (let cy = 0; cy < ROWS; cy += 1) {
+      for (let cx = 0; cx < COLS; cx += 1) {
+        if (!isHighCell(cx, cy) || isHighCell(cx, cy + 1)) {
+          continue;
+          // south edge only
+        }
+        if (isRampCell(cx, cy + 1)) {
+          continue;
+          // a ramp descends here — leave it open
+        }
         const cxp = cx * CELL + CELL / 2;
         // a run ends where the neighbour isn't a south-edge wall (incl. ramp gaps)
         const leftEnd =
           !isHighCell(cx - 1, cy) || isHighCell(cx - 1, cy + 1) || isRampCell(cx - 1, cy + 1);
         const rightEnd =
           !isHighCell(cx + 1, cy) || isHighCell(cx + 1, cy + 1) || isRampCell(cx + 1, cy + 1);
-        const narrow = leftEnd && rightEnd;
-        const tile = narrow
-          ? CLIFF_FRAMES.topNarrow
-          : leftEnd
-            ? CLIFF_FRAMES.topL
-            : rightEnd
-              ? CLIFF_FRAMES.topR
-              : CLIFF_FRAMES.topM;
+        let end: "L" | "M" | "Narrow" | "R" = "M";
+        if (leftEnd && rightEnd) {
+          end = "Narrow";
+        } else if (leftEnd) {
+          end = "L";
+        } else if (rightEnd) {
+          end = "R";
+        }
+        const tile = CLIFF_FRAMES[`top${end}`];
         const wallTopY = (cy + 1) * CELL - LIFT;
-        s.add.ellipse(cxp, wallTopY + CELL + 2, CELL + 10, 16, 0x05080e, 0.3).setDepth(D_SHADOW);
+        s.add.ellipse(cxp, wallTopY + CELL + 2, CELL + 10, 16, 0x05_08_0e, 0.3).setDepth(D_SHADOW);
         // a natural-height tile from the lifted lip; its base laps slightly past the
         // ground line so the stone meets the grass below cleanly.
         s.add.image(cxp, wallTopY, "tiles", tile).setOrigin(0.5, 0).setDepth(D_CLIFF);
@@ -428,12 +553,17 @@ export class WorldView {
    *  behind the slope so there are no holes; units crossing rise smoothly. */
   private buildRamps(): void {
     const s = this.scene;
-    if (!s.textures.exists("tiles-img") || !s.textures.exists("tiles")) return;
-    const FILL = FLAT_AUTOTILE.get(0) ?? 10; // grass interior, to back-fill the slope
-    for (let cy = 0; cy < ROWS; cy++) {
-      for (let cx = 0; cx < COLS; cx++) {
+    if (!s.textures.exists("tiles-img") || !s.textures.exists("tiles")) {
+      return;
+    }
+    // grass interior, to back-fill the slope
+    const FILL = FLAT_AUTOTILE.get(0) ?? 10;
+    for (let cy = 0; cy < ROWS; cy += 1) {
+      for (let cx = 0; cx < COLS; cx += 1) {
         const r = rampAt(cx, cy);
-        if (!r) continue;
+        if (!r) {
+          continue;
+        }
         const cxp = cx * CELL + CELL / 2;
         const lift = elevationFrac(cxp, cy * CELL + CELL / 2) * LIFT;
         // grass fill behind the slope (lifted to this cell's height, stretched down)
@@ -444,15 +574,9 @@ export class WorldView {
           .setDepth(D_CLIFF + 1);
         // diagonal slope tile on top: top vs bottom row of the ramp, left vs right
         // facing by ascent direction (W = plateau to the west = east-descending).
-        const left = r.dir === "E";
-        const tile =
-          cy === r.y0
-            ? left
-              ? SLOPE_FRAMES.leftTop
-              : SLOPE_FRAMES.rightTop
-            : left
-              ? SLOPE_FRAMES.leftBot
-              : SLOPE_FRAMES.rightBot;
+        const side = r.dir === "E" ? "left" : "right";
+        const row = cy === r.y0 ? "Top" : "Bot";
+        const tile = SLOPE_FRAMES[`${side}${row}`];
         s.add
           .image(cxp, cy * CELL - lift, "tiles", tile)
           .setOrigin(0.5, 0)
@@ -463,16 +587,15 @@ export class WorldView {
 
   /** Multiply wash over the land, nudging the tileset green toward olive. */
   private buildWash(): void {
-    const wash = this.scene.add
-      .graphics()
-      .setDepth(D_WASH)
-      .setBlendMode(Phaser.BlendModes.MULTIPLY);
-    wash.fillStyle(0xffe2b8, 0.45);
-    for (let cy = 0; cy < ROWS; cy++) {
+    const wash = this.scene.add.graphics().setDepth(D_WASH).setBlendMode(BlendModes.MULTIPLY);
+    wash.fillStyle(0xff_e2_b8, 0.45);
+    for (let cy = 0; cy < ROWS; cy += 1) {
       let run = -1;
-      for (let cx = 0; cx <= COLS; cx++) {
+      for (let cx = 0; cx <= COLS; cx += 1) {
         const land = cx < COLS && isLandCell(cx, cy);
-        if (land && run < 0) run = cx;
+        if (land && run < 0) {
+          run = cx;
+        }
         if (!land && run >= 0) {
           wash.fillRect(run * CELL, cy * CELL, (cx - run) * CELL, CELL);
           run = -1;
@@ -487,11 +610,15 @@ export class WorldView {
    *  strips drawn on top — continuous planking, posts only on the outer rail. */
   private buildBridges(): void {
     const s = this.scene;
-    if (!s.textures.exists("t-bridge")) return;
+    if (!s.textures.exists("t-bridge")) {
+      return;
+    }
     for (const b of BRIDGES) {
-      for (let cy = b.y0; cy <= b.y1; cy++) {
-        for (let cx = b.x0; cx <= b.x1; cx++) {
-          if (isLandCell(cx, cy)) continue;
+      for (let cy = b.y0; cy <= b.y1; cy += 1) {
+        for (let cx = b.x0; cx <= b.x1; cx += 1) {
+          if (isLandCell(cx, cy)) {
+            continue;
+          }
           s.add
             .image(cx * CELL + CELL / 2, cy * CELL + CELL / 2 + 14, "t-bridge", BRIDGE_SHADOW)
             .setDepth(D_BRIDGE_SHADOW)
@@ -500,9 +627,14 @@ export class WorldView {
       }
       const yTop = b.y0 * CELL + CELL / 2;
       const yBot = b.y1 * CELL + CELL / 2;
-      for (let y = yTop, i = 0; y <= yBot; y += CELL / 2, i++) {
-        for (let cx = b.x0; cx <= b.x1; cx++) {
-          const frame = cx === b.x0 ? BRIDGE_L : cx === b.x1 ? BRIDGE_R : BRIDGE_M;
+      for (let i = 0, y = yTop; y <= yBot; y += CELL / 2, i += 1) {
+        for (let cx = b.x0; cx <= b.x1; cx += 1) {
+          let frame = BRIDGE_M;
+          if (cx === b.x0) {
+            frame = BRIDGE_L;
+          } else if (cx === b.x1) {
+            frame = BRIDGE_R;
+          }
           s.add.image(cx * CELL + CELL / 2, y, "t-bridge", frame).setDepth(D_BRIDGE - i);
         }
       }
@@ -513,14 +645,18 @@ export class WorldView {
     const s = this.scene;
     const deciduous = [1, 2, 3, 4].filter((i) => s.textures.exists(`ftree${i}`));
     const hasPine = s.textures.exists("t-tree");
-    const AUTUMN = [0xf4d24a, 0xe9a23a, 0xf2c14e, 0xe6b34a];
+    const AUTUMN = [0xf4_d2_4a, 0xe9_a2_3a, 0xf2_c1_4e, 0xe6_b3_4a];
 
     const plant = (tx: number, ty: number, seed: number): void => {
       const cx = Math.floor(tx / CELL);
       const cy = Math.floor(ty / CELL);
-      if (!isLandCell(cx, cy) || isCliffCell(cx, cy)) return;
+      if (!isLandCell(cx, cy) || isCliffCell(cx, cy)) {
+        return;
+      }
       // keep walkable high ground + ramps clear so they read (and aren't cluttered)
-      if (isWalkableHighCell(cx, cy) || isRampCell(cx, cy)) return;
+      if (isWalkableHighCell(cx, cy) || isRampCell(cx, cy)) {
+        return;
+      }
       // trees on a plateau stand on its raised surface, so lift the whole sprite
       const lift = isHighCell(cx, cy) ? -LIFT : 0;
       s.add
@@ -535,8 +671,9 @@ export class WorldView {
           .setOrigin(0.5, 0.86)
           .setScale(0.95 + pick * 0.3)
           .setDepth(ty + lift);
-        if (pick < 0.12)
+        if (pick < 0.12) {
           tree.setTint(AUTUMN[Math.floor(rng2(ty, tx) * AUTUMN.length) % AUTUMN.length]);
+        }
         this.playLoop(tree, "tree-sway", Math.floor(rng2(ty, tx) * 6));
       } else {
         const kind = deciduous[Math.floor(rng2(tx, ty) * deciduous.length) % deciduous.length] ?? 1;
@@ -552,7 +689,7 @@ export class WorldView {
     // clusters in the jungle pockets
     for (const t of TREE_CLUSTERS) {
       const n = Math.max(6, Math.floor(t.r / 24));
-      for (let i = 0; i < n; i++) {
+      for (let i = 0; i < n; i += 1) {
         const a = (i / n) * Math.PI * 2 + (t.x % 7);
         const rr = t.r * (0.2 + 0.75 * rng2(t.x + i, t.y - i));
         plant(t.x + Math.cos(a) * rr, t.y + Math.sin(a) * rr, i);
@@ -560,19 +697,24 @@ export class WorldView {
     }
     // sparse pines on the plateau tops so the heights read as wooded — but not
     // on the castle outcrops, where they'd poke through the keep
-    for (let cy = 0; cy < ROWS; cy++) {
-      for (let cx = 0; cx < COLS; cx++) {
-        if (!isHighCell(cx, cy) || isWalkableHighCell(cx, cy) || rng2(cx * 3, cy * 5) > 0.16)
-          continue; // pines only on blocked deco rises, never on walkable plateaus
+    for (let cy = 0; cy < ROWS; cy += 1) {
+      for (let cx = 0; cx < COLS; cx += 1) {
+        if (!isHighCell(cx, cy) || isWalkableHighCell(cx, cy) || rng2(cx * 3, cy * 5) > 0.16) {
+          continue;
+          // pines only on blocked deco rises, never on walkable plateaus
+        }
         const tx = cx * CELL + CELL / 2 + (rng2(cx, cy + 1) - 0.5) * 40;
         const ty = cy * CELL + CELL / 2 + (rng2(cx + 1, cy) - 0.5) * 40;
         const nearAncient = (["radiant", "dire"] as const).some(
           (t) => (tx - BASES[t].ancient.x) ** 2 + (ty - BASES[t].ancient.y) ** 2 < 320 * 320,
         );
-        if (nearAncient) continue;
+        if (nearAncient) {
+          continue;
+        }
         if (hasPine) {
           const tree = s.add
-            .sprite(tx, ty - LIFT, "t-tree", 0) // pines here are on the plateau top
+            // pines here are on the plateau top
+            .sprite(tx, ty - LIFT, "t-tree", 0)
             .setOrigin(0.5, 0.86)
             .setScale(0.9)
             .setDepth(ty - LIFT);
@@ -584,35 +726,47 @@ export class WorldView {
 
   private buildScatter(): void {
     const s = this.scene;
-    const step = 3; // every ~3 cells, maybe drop a decal
+    // every ~3 cells, maybe drop a decal
+    const step = 3;
     for (let cy = 2; cy < ROWS - 2; cy += step) {
       for (let cx = 2; cx < COLS - 2; cx += step) {
         const r = rng2(cx, cy);
-        if (r > 0.42) continue;
+        if (r > 0.42) {
+          continue;
+        }
         // wide jitter so decals scatter naturally instead of in rows
         const x = cx * CELL + CELL / 2 + (rng2(cx + 9, cy) - 0.5) * step * CELL * 0.9;
         const y = cy * CELL + CELL / 2 + (rng2(cx, cy + 9) - 0.5) * step * CELL * 0.9;
         const ccx = Math.floor(x / CELL);
         const ccy = Math.floor(y / CELL);
-        if (!isLandCell(ccx, ccy) || isCliffCell(ccx, ccy) || isRampCell(ccx, ccy)) continue;
+        if (!isLandCell(ccx, ccy) || isCliffCell(ccx, ccy) || isRampCell(ccx, ccy)) {
+          continue;
+        }
         // keep decals out of the base/fountain footprints
         const near = (fx: number, fy: number) => (x - fx) ** 2 + (y - fy) ** 2 < 420 * 420;
-        if (near(BASES.radiant.fountain.x, BASES.radiant.fountain.y)) continue;
-        if (near(BASES.dire.fountain.x, BASES.dire.fountain.y)) continue;
+        if (near(BASES.radiant.fountain.x, BASES.radiant.fountain.y)) {
+          continue;
+        }
+        if (near(BASES.dire.fountain.x, BASES.dire.fountain.y)) {
+          continue;
+        }
         // decals on a plateau sit on its raised surface
         const lift = isHighCell(ccx, ccy) ? -LIFT : 0;
         if (r < 0.08) {
           const key = `deco-rock${1 + Math.floor(rng2(cx, cy + 3) * 4)}`;
-          if (s.textures.exists(key))
+          if (s.textures.exists(key)) {
             s.add
               .image(x, y + lift, key)
               .setScale(0.7 + rng2(x, y) * 0.3)
               .setDepth(y + lift);
+          }
         } else if (r < 0.16) {
           // bushes are animated sway strips — one 128px frame each, never the sheet
           const n = 1 + Math.floor(rng2(cx + 3, cy) * 4);
           const key = `deco-bush${n}`;
-          if (!s.textures.exists(key)) continue;
+          if (!s.textures.exists(key)) {
+            continue;
+          }
           const bush = s.add
             .sprite(x, y + lift, key, 0)
             .setScale(0.55 + rng2(x, y) * 0.25)
@@ -620,12 +774,13 @@ export class WorldView {
           this.playLoop(bush, `${key}-sway`, Math.floor(rng2(y, x) * 8));
         } else {
           const key = `deco-${String(1 + Math.floor(rng2(cx + 5, cy + 5) * 18)).padStart(2, "0")}`;
-          if (s.textures.exists(key))
+          if (s.textures.exists(key)) {
             s.add
               .image(x, y + lift, key)
               .setScale(0.8 + rng2(x, y) * 0.3)
               .setDepth(y + lift)
               .setAlpha(0.95);
+          }
         }
       }
     }
@@ -634,12 +789,19 @@ export class WorldView {
   /** Animated rocks scattered through the open water for detail. */
   private buildWaterRocks(): void {
     const s = this.scene;
-    if (!s.textures.exists("wrock1")) return;
+    if (!s.textures.exists("wrock1")) {
+      return;
+    }
     for (let cy = 2; cy < ROWS - 2; cy += 2) {
       for (let cx = 2; cx < COLS - 2; cx += 2) {
-        if (isLandCell(cx, cy)) continue;
+        if (isLandCell(cx, cy)) {
+          continue;
+        }
         const r = rng2(cx * 2, cy * 2);
-        if (r > 0.1) continue; // sparse
+        if (r > 0.1) {
+          continue;
+          // sparse
+        }
         const n = 1 + Math.floor(rng2(cx, cy + 7) * 4);
         const x = cx * CELL + CELL / 2;
         const y = cy * CELL + CELL / 2;
@@ -656,9 +818,11 @@ export class WorldView {
   /** Soft clouds drifting slowly across the map (depth above everything). */
   private buildClouds(): void {
     const s = this.scene;
-    if (!s.textures.exists("clouds")) return;
+    if (!s.textures.exists("clouds")) {
+      return;
+    }
     const COUNT = 10;
-    for (let i = 0; i < COUNT; i++) {
+    for (let i = 0; i < COUNT; i += 1) {
       const frame = (i * 3) % 8;
       const x = rng2(i * 13, 1) * WORLD.width;
       const y = rng2(1, i * 17) * WORLD.height;
@@ -666,15 +830,16 @@ export class WorldView {
         .image(x, y, "clouds", frame)
         .setScale(0.7 + rng2(i, i) * 0.6)
         .setAlpha(0.45 + rng2(i, 3) * 0.25)
-        .setDepth(9000); // above units, below HUD
+        // above units, below HUD
+        .setDepth(9000);
       const dist = 600 + rng2(i, 9) * 900;
       s.tweens.add({
+        duration: 30_000 + rng2(i, 5) * 30_000,
+        ease: "Sine.InOut",
+        repeat: -1,
         targets: c,
         x: x + dist,
-        duration: 30000 + rng2(i, 5) * 30000,
         yoyo: true,
-        repeat: -1,
-        ease: "Sine.InOut",
       });
     }
   }
@@ -682,8 +847,10 @@ export class WorldView {
   /** Ambient grazing sheep on the grass — pure cosmetic life, wanders gently. */
   private buildAmbientLife(): void {
     const s = this.scene;
-    if (!s.textures.exists("sheep")) return;
-    const spots: Array<{ x: number; y: number }> = [
+    if (!s.textures.exists("sheep")) {
+      return;
+    }
+    const spots: { x: number; y: number }[] = [
       { x: 1450, y: 850 },
       { x: 950, y: 2250 },
       { x: 2650, y: 2250 },
@@ -694,19 +861,21 @@ export class WorldView {
       { x: 3480, y: 2100 },
     ];
     for (const p of spots) {
-      if (!isLandCell(Math.floor(p.x / CELL), Math.floor(p.y / CELL))) continue;
+      if (!isLandCell(Math.floor(p.x / CELL), Math.floor(p.y / CELL))) {
+        continue;
+      }
       const sh = s.add.sprite(p.x, p.y, "sheep", 0).setScale(0.5).setDepth(p.y);
       this.playLoop(sh, "sheep-idle", Math.floor(rng2(p.x, p.y) * 8));
       // gentle wander
       s.tweens.add({
+        duration: 6000 + rng2(p.x, p.y) * 6000,
+        ease: "Sine.InOut",
+        onUpdate: () => sh.setDepth(sh.y),
+        repeat: -1,
         targets: sh,
         x: p.x + (rng2(p.x, 2) - 0.5) * 160,
         y: p.y + (rng2(2, p.y) - 0.5) * 120,
-        duration: 6000 + rng2(p.x, p.y) * 6000,
         yoyo: true,
-        repeat: -1,
-        ease: "Sine.InOut",
-        onUpdate: () => sh.setDepth(sh.y),
       });
     }
   }
@@ -714,25 +883,30 @@ export class WorldView {
   /** Build structure sprites from static map data (works before any world). */
   buildStructures(): void {
     const make = (id: string, team: Team, tier: string, x: number, y: number) => {
-      const tex =
-        tier === "ancient"
-          ? `b-castle-${team === "radiant" ? "blue" : "red"}`
-          : `b-tower-${team === "radiant" ? "blue" : "red"}`;
-      const scale = tier === "ancient" ? 1.7 : tier === "base" ? 1.15 : 1.35;
+      const hue = team === "radiant" ? "blue" : "red";
+      const tex = tier === "ancient" ? `b-castle-${hue}` : `b-tower-${hue}`;
+      let scale = 1.35;
+      if (tier === "ancient") {
+        scale = 1.7;
+      } else if (tier === "base") {
+        scale = 1.15;
+      }
       const hpY = tier === "ancient" ? 150 : 110;
       const w = tier === "ancient" ? 120 : 64;
       const sp = this.scene.add
         .image(x, y - 30, tex)
         .setScale(scale)
         .setDepth(y);
-      const hpBg = this.scene.add.rectangle(x, y - hpY, w + 4, 9, 0x101522).setDepth(y + 1);
+      const hpBg = this.scene.add.rectangle(x, y - hpY, w + 4, 9, 0x10_15_22).setDepth(y + 1);
       const hpFill = this.scene.add
         .rectangle(x - w / 2, y - hpY, w, 7, teamHpColor(team))
         .setOrigin(0, 0.5)
         .setDepth(y + 2);
-      this.structs.set(id, { sprite: sp, hpBg, hpFill, range: null, fires: [], dead: false });
+      this.structs.set(id, { dead: false, fires: [], hpBg, hpFill, range: null, sprite: sp });
     };
-    for (const t of TOWERS) make(t.id, t.team, t.tier, t.x, t.y);
+    for (const t of TOWERS) {
+      make(t.id, t.team, t.tier, t.x, t.y);
+    }
     for (const team of ["radiant", "dire"] as const) {
       make(
         team === "radiant" ? "r-ancient" : "d-ancient",
@@ -774,22 +948,28 @@ export class WorldView {
     const v = this.scene.cameras.main.worldView;
     const d = Math.hypot(x - (v.x + v.width / 2), y - (v.y + v.height / 2));
     const falloff = Math.max(0, 1 - d / 1000);
-    if (falloff > 0) this.addTrauma(base * falloff);
+    if (falloff > 0) {
+      this.addTrauma(base * falloff);
+    }
   }
 
   /** Decay trauma and recompute the camera offset/rotation (offset ∝ trauma², from
    *  smooth per-axis oscillation). GameScene applies shakeX/Y/Rot after its follow. */
   private tickShake(dt: number): void {
     if (this.trauma <= 0) {
-      this.shakeX = this.shakeY = this.shakeRot = 0;
+      this.shakeX = 0;
+      this.shakeY = 0;
+      this.shakeRot = 0;
       return;
     }
-    this.trauma = Math.max(0, this.trauma - dt * 1.7); // ~0.6s to fully settle
+    // ~0.6s to fully settle
+    this.trauma = Math.max(0, this.trauma - dt * 1.7);
     const s = this.trauma * this.trauma;
     const t = this.scene.time.now;
     this.shakeX = Math.sin(t * 0.055) * 15 * s;
     this.shakeY = Math.cos(t * 0.063 + 1.3) * 15 * s;
-    this.shakeRot = Math.sin(t * 0.048 + 0.7) * 0.022 * s; // ≤ ~1.3°, keeps pixels calm
+    // ≤ ~1.3°, keeps pixels calm
+    this.shakeRot = Math.sin(t * 0.048 + 0.7) * 0.022 * s;
   }
 
   /** Position the target reticle over the currently-targeted unit (4 corner
@@ -801,39 +981,61 @@ export class WorldView {
     const v = u && !struct ? this.units.get(u.id) : undefined;
     const ok = !!u && u.alive && (struct || (!!v && !v.dead));
     if (!ok) {
-      if (this.reticle) this.reticle.setVisible(false);
+      if (this.reticle) {
+        this.reticle.setVisible(false);
+      }
       return;
     }
     if (!this.reticle) {
       // crisp opaque corner-brackets (NORMAL blend) so the marker reads clearly
       // over the busy map; tinted per relationship.
-      this.reticle = this.scene.add.image(0, 0, "cursor-target").setDepth(89000);
+      this.reticle = this.scene.add.image(0, 0, "cursor-target").setDepth(89_000);
     }
-    const size = struct ? Math.max(120, u.radius * 2.4) : u.kind === "hero" ? 96 : 68;
+    this.placeReticle(this.reticle, u, v, struct);
+  }
+
+  /** Size, position and tint the reticle over its target. */
+  private placeReticle(
+    reticle: Phaser.GameObjects.Image,
+    u: Unit,
+    v: UnitView | undefined,
+    struct: boolean,
+  ): void {
+    let size = 68;
+    if (struct) {
+      size = Math.max(120, u.radius * 2.4);
+    } else if (u.kind === "hero") {
+      size = 96;
+    }
     const bx = struct ? u.x : (v?.dx ?? u.x);
     const by = struct ? u.y : (v?.dy ?? u.y);
-    const elev = elevationFrac(bx, by) * LIFT; // ride the lifted sprite on high ground
+    // ride the lifted sprite on high ground
+    const elev = elevationFrac(bx, by) * LIFT;
     const cx = bx;
     const cy = (struct ? by - 24 : by - 16) - elev;
-    this.reticle
+    reticle
       .setVisible(true)
       .setPosition(cx, cy)
       .setDisplaySize(size, size)
-      .setTint(u.team === this.playerTeam ? 0x5dffa0 : 0xff3b3b);
+      .setTint(u.team === this.playerTeam ? 0x5d_ff_a0 : 0xff_3b_3b);
     // gentle breathing so it reads as "locked on"
     const pulse = 1 + 0.06 * Math.sin(this.scene.time.now / 120);
-    this.reticle.setScale(this.reticle.scaleX * pulse, this.reticle.scaleY * pulse);
+    reticle.setScale(reticle.scaleX * pulse, reticle.scaleY * pulse);
   }
 
   /** Occasional water splashes along shorelines near the camera, for living water. */
   private tickAmbientSplashes(dt: number): void {
     this.splashAcc += dt;
-    if (this.splashAcc < 0.55) return;
+    if (this.splashAcc < 0.55) {
+      return;
+    }
     this.splashAcc = 0;
     const s = this.scene;
-    if (this.shoreCells.length === 0 || !s.anims.exists("fx-splash")) return;
+    if (this.shoreCells.length === 0 || !s.anims.exists("fx-splash")) {
+      return;
+    }
     const view = s.cameras.main.worldView;
-    for (let tries = 0; tries < 10; tries++) {
+    for (let tries = 0; tries < 10; tries += 1) {
       const c = this.shoreCells[Math.floor(Math.random() * this.shoreCells.length)];
       if (
         !c ||
@@ -841,8 +1043,9 @@ export class WorldView {
         c.x > view.right + 100 ||
         c.y < view.y - 100 ||
         c.y > view.bottom + 100
-      )
+      ) {
         continue;
+      }
       const sp = s.add
         .sprite(c.x + (Math.random() - 0.5) * 40, c.y + (Math.random() - 0.5) * 40, "fx-splash", 0)
         .setDepth(D_FOAM + 2)
@@ -857,13 +1060,17 @@ export class WorldView {
   private syncStructures(world: World): void {
     for (const [id, sv] of this.structs) {
       const u = world.units.get(id);
-      if (!u) continue;
+      if (!u) {
+        continue;
+      }
       if (!u.alive && !sv.dead) {
         sv.dead = true;
         sv.sprite.setTexture(structureDestroyedTex(u.structure?.tier ?? "t1")).setAlpha(0.92);
         sv.hpBg.setVisible(false);
         sv.hpFill.setVisible(false);
-        for (const f of sv.fires) f.destroy();
+        for (const f of sv.fires) {
+          f.destroy();
+        }
         sv.fires = [];
         // the attack-range warning ring lives only while alive — drop it, or a
         // tower killed while you stand in range leaves an orphaned circle forever.
@@ -875,7 +1082,7 @@ export class WorldView {
         const w = u.structure?.tier === "ancient" ? 120 : 64;
         sv.hpFill.width = Math.max(0, (u.hp / u.maxHp) * w);
         const attackable = u.structure?.attackable ?? true;
-        sv.hpFill.setFillStyle(attackable ? teamHpColor(u.team) : 0x6a7488);
+        sv.hpFill.setFillStyle(attackable ? teamHpColor(u.team) : 0x6a_74_88);
         this.syncStructureFires(u, sv);
         this.syncTowerRangeRing(world, u, sv);
       }
@@ -898,8 +1105,8 @@ export class WorldView {
       (me.x - u.x) ** 2 + (me.y - u.y) ** 2 <= (range + 280) ** 2;
     if (show && !sv.range) {
       sv.range = this.scene.add
-        .circle(u.x, u.y, range, 0xff5a4a, 0.04)
-        .setStrokeStyle(2.5, 0xff5a4a, 0.4)
+        .circle(u.x, u.y, range, 0xff_5a_4a, 0.04)
+        .setStrokeStyle(2.5, 0xff_5a_4a, 0.4)
         .setDepth(D_RING + 1);
     } else if (!show && sv.range) {
       sv.range.destroy();
@@ -911,11 +1118,20 @@ export class WorldView {
   private syncStructureFires(u: Unit, sv: StructView): void {
     const s = this.scene;
     const pct = u.hp / u.maxHp;
-    const want = pct < 0.33 ? 2 : pct < 0.66 ? 1 : 0;
-    while (sv.fires.length > want) sv.fires.pop()?.destroy();
-    if (sv.fires.length >= want) return;
+    let want = 0;
+    if (pct < 0.33) {
+      want = 2;
+    } else if (pct < 0.66) {
+      want = 1;
+    }
+    while (sv.fires.length > want) {
+      sv.fires.pop()?.destroy();
+    }
+    if (sv.fires.length >= want) {
+      return;
+    }
     const big = u.structure?.tier === "ancient";
-    const offsets: Array<[number, number]> = big
+    const offsets: [number, number][] = big
       ? [
           [-50, -78],
           [44, -28],
@@ -928,7 +1144,9 @@ export class WorldView {
       const i = sv.fires.length;
       const [ox, oy] = offsets[i] ?? [0, -60];
       const key = `fx-flame${1 + ((i + Math.abs(Math.round(u.x))) % 3)}`;
-      if (!s.anims.exists(key)) return;
+      if (!s.anims.exists(key)) {
+        return;
+      }
       const f = s.add
         .sprite(u.x + ox, u.y + oy, key, 0)
         .setDepth(u.y + 3)
@@ -938,119 +1156,150 @@ export class WorldView {
     }
   }
 
+  /** Dead heroes: play the death anim once, then hide until respawn. */
+  private retireUnitView(u: Unit): void {
+    const v = this.units.get(u.id);
+    if (!v || v.dead) {
+      return;
+    }
+    v.dead = true;
+    const dkey = animKey(u, "death");
+    v.sprite.clearTint();
+    this.spawnSkull(v.dx, v.dy, u.kind === "hero" ? 0.62 : 0.5);
+    if (u.kind === "hero") {
+      this.spawnHeroDeathFx(v.dx, v.dy);
+    }
+    if (this.scene.anims.exists(dkey)) {
+      v.sprite.play(dkey);
+      v.curAnim = dkey;
+      v.sprite.once("animationcomplete", () =>
+        this.collapseSprite(v.sprite, () => v.container.setVisible(false)),
+      );
+    } else {
+      // no death sheet — procedural collapse (topple + sink + fade)
+      this.collapseSprite(v.sprite, () => v.container.setVisible(false));
+    }
+  }
+
+  /** Respawned — snap back so we don't slide from the death spot to base, and undo
+   *  the collapse transform (alpha/angle/local-y) the death applied. */
+  private reviveUnitView(u: Unit, v: UnitView): void {
+    v.dead = false;
+    v.dx = u.x;
+    v.dy = u.y;
+    v.curAnim = "";
+    this.scene.tweens.killTweensOf(v.sprite);
+    v.sprite.setAlpha(1).setAngle(0);
+    v.sprite.y = -18;
+  }
+
+  /** Smooth the display position toward the sim position, spring the hit recoil
+   *  back, lift the sprite over high ground, and re-sort by its screen feet. */
+  private syncUnitMotion(u: Unit, v: UnitView, dt: number): void {
+    // snappy enough to track the 30Hz sim without floating, smooth enough to
+    // hide the step.
+    const k = Math.min(1, dt * 18);
+    v.dx = PhaserMath.Linear(v.dx, u.x, k);
+    v.dy = PhaserMath.Linear(v.dy, u.y, k);
+    // hit recoil: a quick knockback offset on the sprite that springs back —
+    // purely visual (the sim position is untouched, so nav/MP stay authoritative).
+    v.recoilX *= 0.0008 ** dt;
+    v.recoilY *= 0.0008 ** dt;
+    if (Math.abs(v.recoilX) < 0.3) {
+      v.recoilX = 0;
+    }
+    if (Math.abs(v.recoilY) < 0.3) {
+      v.recoilY = 0;
+    }
+    // elevation lift: raise the sprite when on a plateau / climbing a ramp so it
+    // stands on the high ground (sim x/y is untouched — depth still sorts by feet)
+    const elev = elevationFrac(v.dx, v.dy) * LIFT;
+    v.container.setPosition(Math.round(v.dx + v.recoilX), Math.round(v.dy + v.recoilY - elev));
+    // sort by the lifted "screen feet" so plateau units order correctly against
+    // the lifted plateau trees/decor (which use depth = y - LIFT)
+    v.container.setDepth(v.dy - elev);
+
+    // damage flash: a brief red tint on the body when struck (cleared on expiry)
+    if (v.flashUntil > 0 && this.scene.time.now >= v.flashUntil) {
+      v.flashUntil = 0;
+      v.sprite.clearTint();
+    }
+  }
+
+  /** Running dust puffs at the feet (throttled per unit). */
+  private syncUnitDust(u: Unit, v: UnitView, speed: number): void {
+    if (speed <= 70) {
+      return;
+    }
+    const { now } = this.scene.time;
+    if (now - v.lastDustAt > (u.kind === "hero" ? 240 : 340)) {
+      v.lastDustAt = now;
+      this.spawnDust(v.dx - u.facing * 12, v.dy + 6, u.kind === "hero" ? 0.85 : 0.6, u.facing < 0);
+    }
+  }
+
+  /** Facing + animation. A fresh attack (lastAttackAt advanced) plays the FULL
+   *  attack swing once; while it's still playing we don't interrupt it with
+   *  walk/idle, so each hit reads as a complete motion. */
+  private syncUnitAnimation(u: Unit, v: UnitView, speed: number): void {
+    v.sprite.setFlipX(u.facing < 0);
+    const attackKey = animKey(u, "attack");
+    const attackPlaying = v.curAnim === attackKey && v.sprite.anims.isPlaying;
+    if (u.lastAttackAt !== v.lastAttackAt && u.pendingAttack) {
+      v.lastAttackAt = u.lastAttackAt;
+      if (this.scene.anims.exists(attackKey)) {
+        v.sprite.play(attackKey, true);
+        v.curAnim = attackKey;
+      }
+      if (u.kind === "hero") {
+        this.spawnSwing(v.dx, v.dy, u.facing, u.projectileSpeed > 0);
+      }
+    } else if (!attackPlaying) {
+      const key = animKey(u, speed > 12 ? "walk" : "idle");
+      if (v.curAnim !== key && this.scene.anims.exists(key)) {
+        v.sprite.play(key, true);
+        v.curAnim = key;
+      }
+    }
+  }
+
+  /** HP/MP bars and the selection ring. No sprite tint at all — units show their
+   *  true art; hit feedback is the impact puff + floating damage number, so
+   *  nothing pulses while moving. */
+  private syncUnitBars(u: Unit, v: UnitView): void {
+    const bw = u.kind === "hero" ? 56 : 34;
+    v.hpFill.width = Math.max(0, (u.hp / u.maxHp) * bw);
+    v.hpFill.setFillStyle(unitHpColor(u));
+    if (v.mpFill) {
+      v.mpFill.width = Math.max(0, (u.mp / Math.max(1, u.maxMp)) * bw);
+    }
+    // status tints: stun = yellow ring flash handled via ring alpha
+    const stunned = u.statuses.some((s) => s.kind === "stun" || s.kind === "taunt");
+    v.ring.setAlpha(unitRingAlpha(u, u.id === this.playerHeroId, stunned));
+  }
+
   private syncUnits(world: World, dt: number): void {
     for (const u of world.units.values()) {
-      if (u.kind === "structure") continue;
-      // dead heroes: play the death anim once, then hide until respawn
+      if (u.kind === "structure") {
+        continue;
+      }
       if (!u.alive) {
-        const v = this.units.get(u.id);
-        if (v && !v.dead) {
-          v.dead = true;
-          const dkey = animKey(u, "death");
-          v.sprite.clearTint();
-          this.spawnSkull(v.dx, v.dy, u.kind === "hero" ? 0.62 : 0.5);
-          if (u.kind === "hero") this.spawnHeroDeathFx(v.dx, v.dy);
-          if (this.scene.anims.exists(dkey)) {
-            v.sprite.play(dkey);
-            v.curAnim = dkey;
-            v.sprite.once("animationcomplete", () =>
-              this.collapseSprite(v.sprite, () => v.container.setVisible(false)),
-            );
-          } else {
-            // no death sheet — procedural collapse (topple + sink + fade)
-            this.collapseSprite(v.sprite, () => v.container.setVisible(false));
-          }
-        }
+        this.retireUnitView(u);
         continue;
       }
       let v = this.units.get(u.id);
-      if (!v) v = this.createUnitView(u);
+      if (!v) {
+        v = this.createUnitView(u);
+      }
       if (v.dead) {
-        // respawned — snap back so we don't slide from the death spot to base,
-        // and undo the collapse transform (alpha/angle/local-y) the death applied.
-        v.dead = false;
-        v.dx = u.x;
-        v.dy = u.y;
-        v.curAnim = "";
-        this.scene.tweens.killTweensOf(v.sprite);
-        v.sprite.setAlpha(1).setAngle(0);
-        v.sprite.y = -18;
+        this.reviveUnitView(u, v);
       }
       v.container.setVisible(true);
-
-      // smooth display position toward sim position — snappy enough to track the
-      // 30Hz sim without floating, smooth enough to hide the step.
-      const k = Math.min(1, dt * 18);
-      v.dx = Phaser.Math.Linear(v.dx, u.x, k);
-      v.dy = Phaser.Math.Linear(v.dy, u.y, k);
-      // hit recoil: a quick knockback offset on the sprite that springs back —
-      // purely visual (the sim position is untouched, so nav/MP stay authoritative).
-      v.recoilX *= Math.pow(0.0008, dt);
-      v.recoilY *= Math.pow(0.0008, dt);
-      if (Math.abs(v.recoilX) < 0.3) v.recoilX = 0;
-      if (Math.abs(v.recoilY) < 0.3) v.recoilY = 0;
-      // elevation lift: raise the sprite when on a plateau / climbing a ramp so it
-      // stands on the high ground (sim x/y is untouched — depth still sorts by feet)
-      const elev = elevationFrac(v.dx, v.dy) * LIFT;
-      v.container.setPosition(Math.round(v.dx + v.recoilX), Math.round(v.dy + v.recoilY - elev));
-      // sort by the lifted "screen feet" so plateau units order correctly against
-      // the lifted plateau trees/decor (which use depth = y - LIFT)
-      v.container.setDepth(v.dy - elev);
-
-      // damage flash: a brief red tint on the body when struck (cleared on expiry)
-      if (v.flashUntil > 0 && this.scene.time.now >= v.flashUntil) {
-        v.flashUntil = 0;
-        v.sprite.clearTint();
-      }
-
-      // running dust puffs at the feet (throttled per unit)
+      this.syncUnitMotion(u, v, dt);
       const speed = Math.hypot(u.vx, u.vy);
-      if (speed > 70) {
-        const now = this.scene.time.now;
-        if (now - v.lastDustAt > (u.kind === "hero" ? 240 : 340)) {
-          v.lastDustAt = now;
-          this.spawnDust(
-            v.dx - u.facing * 12,
-            v.dy + 6,
-            u.kind === "hero" ? 0.85 : 0.6,
-            u.facing < 0,
-          );
-        }
-      }
-
-      // facing + animation. A fresh attack (lastAttackAt advanced) plays the FULL
-      // attack swing once; while it's still playing we don't interrupt it with
-      // walk/idle, so each hit reads as a complete motion.
-      v.sprite.setFlipX(u.facing < 0);
-      const attackKey = animKey(u, "attack");
-      const attackPlaying = v.curAnim === attackKey && v.sprite.anims.isPlaying;
-      if (u.lastAttackAt !== v.lastAttackAt && u.pendingAttack) {
-        v.lastAttackAt = u.lastAttackAt;
-        if (this.scene.anims.exists(attackKey)) {
-          v.sprite.play(attackKey, true);
-          v.curAnim = attackKey;
-        }
-        if (u.kind === "hero") this.spawnSwing(v.dx, v.dy, u.facing, u.projectileSpeed > 0);
-      } else if (!attackPlaying) {
-        const key = animKey(u, speed > 12 ? "walk" : "idle");
-        if (v.curAnim !== key && this.scene.anims.exists(key)) {
-          v.sprite.play(key, true);
-          v.curAnim = key;
-        }
-      }
-
-      // no sprite tint at all — units show their true art; hit feedback is the
-      // impact puff + floating damage number, so nothing pulses while moving.
-
-      // bars
-      const bw = u.kind === "hero" ? 56 : 34;
-      v.hpFill.width = Math.max(0, (u.hp / u.maxHp) * bw);
-      v.hpFill.setFillStyle(u.neutral ? 0xe0a93a : u.team === "radiant" ? 0x44d07a : 0xff5d5d);
-      if (v.mpFill) v.mpFill.width = Math.max(0, (u.mp / Math.max(1, u.maxMp)) * bw);
-
-      // status tints: stun = yellow ring flash handled via ring alpha
-      const stunned = u.statuses.some((s) => s.kind === "stun" || s.kind === "taunt");
-      v.ring.setAlpha(u.id === this.playerHeroId ? 1 : stunned ? 0.9 : u.kind === "hero" ? 0.5 : 0);
+      this.syncUnitDust(u, v, speed);
+      this.syncUnitAnimation(u, v, speed);
+      this.syncUnitBars(u, v);
       // persistent status auras (orbiting stun stars, shield shimmer)
       this.syncStatusFx(u, v);
     }
@@ -1069,7 +1318,9 @@ export class WorldView {
    *  uses this when swapping subjects — a character swap isn't a death, so the
    *  default "unit vanished → death pop" path would litter the stage with skulls. */
   clearUnitViews(): void {
-    for (const [, v] of this.units) v.container.destroy();
+    for (const [, v] of this.units) {
+      v.container.destroy();
+    }
     this.units.clear();
   }
 
@@ -1080,7 +1331,9 @@ export class WorldView {
   resetStructures(world: World): void {
     for (const [id, sv] of this.structs) {
       const u = world.units.get(id);
-      if (!u || !u.alive || !sv.dead) continue;
+      if (!u || !u.alive || !sv.dead) {
+        continue;
+      }
       sv.dead = false;
       const tier = u.structure?.tier ?? "t1";
       const tex =
@@ -1104,15 +1357,15 @@ export class WorldView {
         .image(cx, cy, "spark")
         .setDepth(y + 60)
         .setScale(1.1)
-        .setTint(0xfff1c0)
-        .setBlendMode(Phaser.BlendModes.ADD);
+        .setTint(0xff_f1_c0)
+        .setBlendMode(BlendModes.ADD);
       s.tweens.add({
-        targets: flash,
-        scale: 0,
         alpha: 0,
         duration: 160,
         ease: "Quad.Out",
         onComplete: () => flash.destroy(),
+        scale: 0,
+        targets: flash,
       });
       return;
     }
@@ -1124,27 +1377,27 @@ export class WorldView {
       .graphics()
       .setPosition(cx, cy)
       .setDepth(y + 60)
-      .setBlendMode(Phaser.BlendModes.ADD);
+      .setBlendMode(BlendModes.ADD);
     const baseAng = facing >= 0 ? -0.9 : Math.PI + 0.9;
     const sweep = facing >= 0 ? 1.8 : -1.8;
     const r = 46;
-    g.lineStyle(6, 0xffffff, 0.85);
+    g.lineStyle(6, 0xff_ff_ff, 0.85);
     g.beginPath();
     g.arc(0, 0, r, baseAng, baseAng + sweep, sweep < 0);
     g.strokePath();
-    g.lineStyle(2, 0xbfe6ff, 0.9);
+    g.lineStyle(2, 0xbf_e6_ff, 0.9);
     g.beginPath();
     g.arc(0, 0, r + 5, baseAng, baseAng + sweep, sweep < 0);
     g.strokePath();
     g.setScale(0.7);
     s.tweens.add({
-      targets: g,
-      scaleX: 1.1,
-      scaleY: 1.1,
       alpha: 0,
       duration: 180,
       ease: "Quad.Out",
       onComplete: () => g.destroy(),
+      scaleX: 1.1,
+      scaleY: 1.1,
+      targets: g,
     });
   }
 
@@ -1161,7 +1414,7 @@ export class WorldView {
     const s = this.scene;
     const baseAng = Math.atan2(ny, nx);
     const n = crit ? 7 : 4;
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < n; i += 1) {
       const a = baseAng + (Math.random() - 0.5) * 1.5;
       const spd = (crit ? 90 : 60) + Math.random() * 70;
       const sp = s.add
@@ -1169,22 +1422,23 @@ export class WorldView {
         .setDepth(y + 320)
         .setScale(0.18 + Math.random() * 0.16)
         .setTint(tint)
-        .setBlendMode(Phaser.BlendModes.ADD);
+        .setBlendMode(BlendModes.ADD);
       s.tweens.add({
-        targets: sp,
-        x: x + Math.cos(a) * spd,
-        y: y + Math.sin(a) * spd + 18, // slight gravity droop
-        scale: 0,
         alpha: 0,
         duration: 230 + Math.random() * 130,
         ease: "Quad.Out",
         onComplete: () => sp.destroy(),
+        scale: 0,
+        targets: sp,
+        x: x + Math.cos(a) * spd,
+        // slight gravity droop,
+        y: y + Math.sin(a) * spd + 18,
       });
     }
     // sharp streak shards on crits/big hits — stretched along their velocity, they
     // read as fast, energetic debris (soft dots alone read mushy).
     const shards = crit ? 4 : 2;
-    for (let i = 0; i < shards; i++) {
+    for (let i = 0; i < shards; i += 1) {
       const a = baseAng + (Math.random() - 0.5) * 1.1;
       const spd = (crit ? 130 : 95) + Math.random() * 90;
       const sh = s.add
@@ -1194,16 +1448,16 @@ export class WorldView {
         .setScale(crit ? 0.8 : 0.55, 0.6)
         .setTint(tint)
         .setAlpha(0.9)
-        .setBlendMode(Phaser.BlendModes.ADD);
+        .setBlendMode(BlendModes.ADD);
       s.tweens.add({
-        targets: sh,
-        x: x + Math.cos(a) * spd,
-        y: y + Math.sin(a) * spd + 12,
-        scaleX: 0,
         alpha: 0,
         duration: 180 + Math.random() * 110,
         ease: "Quad.Out",
         onComplete: () => sh.destroy(),
+        scaleX: 0,
+        targets: sh,
+        x: x + Math.cos(a) * spd,
+        y: y + Math.sin(a) * spd + 12,
       });
     }
   }
@@ -1212,55 +1466,65 @@ export class WorldView {
    *  remembers the fight). Capped + slowly faded so marks don't pile up forever. */
   private stampScorch(x: number, y: number, radius: number): void {
     const s = this.scene;
-    if (!s.textures.exists("fx-scorch")) return;
+    if (!s.textures.exists("fx-scorch")) {
+      return;
+    }
     const mark = s.add
       .image(x, y, "fx-scorch")
       .setDepth(DEPTH_DECAL - 3)
       .setAlpha(0)
       .setAngle(Math.random() * 360)
-      .setScale(Phaser.Math.Clamp((radius / 96) * 1.4, 0.5, 2.6));
-    s.tweens.add({ targets: mark, alpha: 0.7, duration: 120 });
+      .setScale(PhaserMath.Clamp((radius / 96) * 1.4, 0.5, 2.6));
+    s.tweens.add({ alpha: 0.7, duration: 120, targets: mark });
     s.tweens.add({
-      targets: mark,
       alpha: 0,
       delay: 3500,
       duration: 3500,
       onComplete: () => {
         const i = this.scorches.indexOf(mark);
-        if (i >= 0) this.scorches.splice(i, 1);
+        if (i !== -1) {
+          this.scorches.splice(i, 1);
+        }
         mark.destroy();
       },
+      targets: mark,
     });
     this.scorches.push(mark);
     // hard cap: retire the oldest immediately if we're flooding (busy teamfights)
-    while (this.scorches.length > 36) this.scorches.shift()?.destroy();
+    while (this.scorches.length > 36) {
+      this.scorches.shift()?.destroy();
+    }
   }
 
   /** An expanding shockwave ring — reserved for crits / big nukes (not every hit). */
   private spawnShockwave(x: number, y: number, tint: number, strength: number): void {
     const s = this.scene;
-    if (!s.textures.exists("fx-ring")) return;
+    if (!s.textures.exists("fx-ring")) {
+      return;
+    }
     const ring = s.add
       .image(x, y, "fx-ring")
       .setDepth(y + 260)
       .setTint(tint)
       .setAlpha(0.7 * strength)
       .setScale(0.25)
-      .setBlendMode(Phaser.BlendModes.ADD);
+      .setBlendMode(BlendModes.ADD);
     s.tweens.add({
-      targets: ring,
-      scale: 1.3 + strength * 0.7,
       alpha: 0,
       duration: 340,
       ease: "Cubic.Out",
       onComplete: () => ring.destroy(),
+      scale: 1.3 + strength * 0.7,
+      targets: ring,
     });
   }
 
   /** A little kicked-up dust puff at the feet of a running unit. */
   private spawnDust(x: number, y: number, scale: number, flip: boolean): void {
     const s = this.scene;
-    if (!s.anims.exists("fx-dust1")) return;
+    if (!s.anims.exists("fx-dust1")) {
+      return;
+    }
     const d = s.add
       .sprite(x, y, "fx-dust1", 0)
       .setScale(scale)
@@ -1275,7 +1539,10 @@ export class WorldView {
    *  death sheet if the unit has one (barrel goblin's explosion), else collapse —
    *  plus the bouncing-skull pop either way. */
   private spawnDeathAnim(v: UnitView): void {
-    if (v.dead) return; // a hero already played its death in-place
+    if (v.dead) {
+      return;
+      // a hero already played its death in-place
+    }
     const s = this.scene;
     const tex = v.sprite.texture.key;
     const dkey = `${tex}-death`;
@@ -1289,10 +1556,10 @@ export class WorldView {
       corpse.play(dkey);
       corpse.once("animationcomplete", () => {
         s.tweens.add({
-          targets: corpse,
           alpha: 0,
           duration: 260,
           onComplete: () => corpse.destroy(),
+          targets: corpse,
         });
       });
     } else {
@@ -1307,39 +1574,41 @@ export class WorldView {
     this.stampScorch(x, y + 8, 58);
     const wisp = s.add
       .image(x, y - 8, "glow")
-      .setTint(0xbfe0ff)
+      .setTint(0xbf_e0_ff)
       .setAlpha(0.7)
       .setScale(0.5)
       .setDepth(y + 400)
-      .setBlendMode(Phaser.BlendModes.ADD);
+      .setBlendMode(BlendModes.ADD);
     s.tweens.add({
-      targets: wisp,
-      y: y - 72,
-      scaleX: 0.2,
-      scaleY: 0.95,
       alpha: 0,
       duration: 900,
       ease: "Sine.Out",
       onComplete: () => wisp.destroy(),
+      scaleX: 0.2,
+      scaleY: 0.95,
+      targets: wisp,
+      y: y - 72,
     });
-    if (!s.textures.exists("fx-star")) return;
-    for (let i = 0; i < 4; i++) {
+    if (!s.textures.exists("fx-star")) {
+      return;
+    }
+    for (let i = 0; i < 4; i += 1) {
       const st = s.add
         .image(x + (Math.random() - 0.5) * 24, y - 4, "fx-star")
-        .setTint(0xcfe6ff)
+        .setTint(0xcf_e6_ff)
         .setScale(0.22)
         .setAlpha(0.9)
         .setDepth(y + 401)
-        .setBlendMode(Phaser.BlendModes.ADD);
+        .setBlendMode(BlendModes.ADD);
       s.tweens.add({
-        targets: st,
-        y: y - 50 - Math.random() * 30,
-        x: st.x + (Math.random() - 0.5) * 30,
         alpha: 0,
         angle: 140,
         duration: 700 + Math.random() * 300,
         ease: "Sine.Out",
         onComplete: () => st.destroy(),
+        targets: st,
+        x: st.x + (Math.random() - 0.5) * 30,
+        y: y - 50 - Math.random() * 30,
       });
     }
   }
@@ -1347,7 +1616,9 @@ export class WorldView {
   /** The pack's death skull: pops out, bounces, sinks into the ground. */
   private spawnSkull(x: number, y: number, scale: number): void {
     const s = this.scene;
-    if (!s.anims.exists("skull-pop")) return;
+    if (!s.anims.exists("skull-pop")) {
+      return;
+    }
     const sk = s.add
       .sprite(x + (Math.random() - 0.5) * 10, y - 14, "skull-pop", 0)
       .setScale(scale)
@@ -1362,13 +1633,13 @@ export class WorldView {
     sprite.anims.stop();
     const dir = sprite.flipX ? -1 : 1;
     this.scene.tweens.add({
-      targets: sprite,
-      angle: dir * 78,
-      y: sprite.y + 12,
       alpha: 0,
+      angle: dir * 78,
       duration: 520,
       ease: "Quad.easeIn",
       onComplete: () => onDone?.(),
+      targets: sprite,
+      y: sprite.y + 12,
     });
   }
 
@@ -1381,34 +1652,36 @@ export class WorldView {
       .setAlpha(0.5);
     const ring = s.add.graphics();
     const isPlayer = u.id === this.playerHeroId;
-    const ringColor = u.neutral ? 0xd0a23a : u.team === "radiant" ? 0x4fa3ff : 0xff5a4a;
+    const ringColor = unitRingColor(u);
     ring
-      .lineStyle(isPlayer ? 4 : 2.5, isPlayer ? 0xffe14a : ringColor, 1)
+      .lineStyle(isPlayer ? 4 : 2.5, isPlayer ? 0xff_e1_4a : ringColor, 1)
       .strokeEllipse(0, 10, u.kind === "hero" ? 56 : 38, u.kind === "hero" ? 26 : 18);
     const sprite = s.add.sprite(0, -18, tex, 0).setScale(scale);
-    if (this.scene.anims.exists(animKey(u, "idle"))) sprite.play(animKey(u, "idle"));
+    if (this.scene.anims.exists(animKey(u, "idle"))) {
+      sprite.play(animKey(u, "idle"));
+    }
 
     const barY = u.kind === "hero" ? -64 : -42;
     const bw = u.kind === "hero" ? 56 : 34;
     const hpBg = s.add
-      .rectangle(0, barY, bw + 4, u.kind === "hero" ? 8 : 5, 0x0c1018)
-      .setStrokeStyle(1, 0x000000, 0.6);
+      .rectangle(0, barY, bw + 4, u.kind === "hero" ? 8 : 5, 0x0c_10_18)
+      .setStrokeStyle(1, 0x00_00_00, 0.6);
     const hpFill = s.add
-      .rectangle(-bw / 2, barY, bw, u.kind === "hero" ? 6 : 4, 0x44d07a)
+      .rectangle(-bw / 2, barY, bw, u.kind === "hero" ? 6 : 4, 0x44_d0_7a)
       .setOrigin(0, 0.5);
     let mpFill: Phaser.GameObjects.Rectangle | null = null;
     let label: Phaser.GameObjects.Text | null = null;
     const children: Phaser.GameObjects.GameObject[] = [shadow, ring, sprite, hpBg, hpFill];
     if (u.kind === "hero" && u.hero) {
       const mpBg = s.add
-        .rectangle(0, barY + 8, bw + 4, 5, 0x0c1018)
-        .setStrokeStyle(1, 0x000000, 0.6);
-      mpFill = s.add.rectangle(-bw / 2, barY + 8, bw, 3, 0x4a8fff).setOrigin(0, 0.5);
+        .rectangle(0, barY + 8, bw + 4, 5, 0x0c_10_18)
+        .setStrokeStyle(1, 0x00_00_00, 0.6);
+      mpFill = s.add.rectangle(-bw / 2, barY + 8, bw, 3, 0x4a_8f_ff).setOrigin(0, 0.5);
       label = s.add
         .text(0, barY - 12, "", {
+          color: "#eaf0ff",
           fontFamily: FONT,
           fontSize: "13px",
-          color: "#eaf0ff",
           stroke: "#1c1410",
           strokeThickness: 3,
         })
@@ -1418,24 +1691,24 @@ export class WorldView {
     const container = s.add.container(u.x, u.y, children).setDepth(u.y);
     const v: UnitView = {
       container,
-      sprite,
-      shadow,
-      ring,
-      hpBg,
-      hpFill,
-      mpFill,
-      label,
+      curAnim: "",
+      dead: false,
       dx: u.x,
       dy: u.y,
-      curAnim: "",
+      flashUntil: 0,
+      hpBg,
+      hpFill,
+      label,
       lastAttackAt: 0,
       lastDustAt: 0,
-      dead: false,
+      mpFill,
       recoilX: 0,
       recoilY: 0,
-      flashUntil: 0,
-      stunStars: [],
+      ring,
+      shadow,
       shieldFx: null,
+      sprite,
+      stunStars: [],
     };
     this.units.set(u.id, v);
     return v;
@@ -1446,25 +1719,27 @@ export class WorldView {
    *  as the status comes and goes; both ride the unit container so they follow it. */
   private syncStatusFx(u: Unit, v: UnitView): void {
     const s = this.scene;
-    const now = s.time.now;
+    const { now } = s.time;
     const headY = u.kind === "hero" ? -50 : -34;
     const stunned = u.statuses.some((st) => st.kind === "stun" || st.kind === "taunt");
     if (stunned && v.stunStars.length === 0 && s.textures.exists("fx-star")) {
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < 3; i += 1) {
         const star = s.add
           .image(0, headY, "fx-star")
           .setScale(0.3)
-          .setTint(0xffe14a)
-          .setBlendMode(Phaser.BlendModes.ADD);
+          .setTint(0xff_e1_4a)
+          .setBlendMode(BlendModes.ADD);
         v.container.add(star);
         v.stunStars.push(star);
       }
     } else if (!stunned && v.stunStars.length > 0) {
-      for (const st of v.stunStars) st.destroy();
+      for (const st of v.stunStars) {
+        st.destroy();
+      }
       v.stunStars = [];
     }
     const n = v.stunStars.length;
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < n; i += 1) {
       const a = now / 260 + (i / n) * Math.PI * 2;
       v.stunStars[i]?.setPosition(Math.cos(a) * 15, headY + Math.sin(a) * 5);
     }
@@ -1472,8 +1747,8 @@ export class WorldView {
     const shielded = u.statuses.some((st) => st.kind === "shield");
     if (shielded && !v.shieldFx) {
       v.shieldFx = s.add
-        .circle(0, u.kind === "hero" ? -12 : -8, u.kind === "hero" ? 32 : 22, 0x6ad0ff, 0.06)
-        .setStrokeStyle(2, 0x9fe6ff, 0.8);
+        .circle(0, u.kind === "hero" ? -12 : -8, u.kind === "hero" ? 32 : 22, 0x6a_d0_ff, 0.06)
+        .setStrokeStyle(2, 0x9f_e6_ff, 0.8);
       v.container.add(v.shieldFx);
     } else if (!shielded && v.shieldFx) {
       v.shieldFx.destroy();
@@ -1481,7 +1756,7 @@ export class WorldView {
     }
     if (v.shieldFx) {
       v.shieldFx.setScale(1 + 0.07 * Math.sin(now / 130));
-      v.shieldFx.setStrokeStyle(2, 0x9fe6ff, 0.55 + 0.3 * Math.sin(now / 150));
+      v.shieldFx.setStrokeStyle(2, 0x9f_e6_ff, 0.55 + 0.3 * Math.sin(now / 150));
     }
   }
 
@@ -1489,7 +1764,9 @@ export class WorldView {
   refreshLabels(world: World): void {
     for (const [id, v] of this.units) {
       const u = world.units.get(id);
-      if (!u || u.kind !== "hero" || !u.hero || !v.label) continue;
+      if (!u || u.kind !== "hero" || !u.hero || !v.label) {
+        continue;
+      }
       v.label.setText(`${shortName(u.hero.defId)} ${u.hero.level}`);
     }
   }
@@ -1508,62 +1785,66 @@ export class WorldView {
         } else {
           // arrow/bolt/tower share the arrow sheet — frame 0 is the full arrow
           img = this.scene.add.image(p.x, p.y, projTex(p), 0).setScale(0.7);
-          if (p.kind === "bolt") img.setTint(0xb98bff); // magic bolts read distinct from arrows
+          if (p.kind === "bolt") {
+            img.setTint(0xb9_8b_ff);
+            // magic bolts read distinct from arrows
+          }
         }
-        this.projs.set(p.id, img); // position + depth set every frame just below
+        // position + depth set every frame just below
+        this.projs.set(p.id, img);
       }
       img.setPosition(p.x, p.y);
       img.setDepth(p.y + 200);
       const ang = Math.atan2(p.ty - p.y, p.tx - p.x);
       // arrow/bolt/tower art and the fireball both point EAST (+x) natively → face travel
-      if (p.kind === "arrow" || p.kind === "bolt" || p.kind === "fireball" || p.kind === "tower")
+      if (p.kind === "arrow" || p.kind === "bolt" || p.kind === "fireball" || p.kind === "tower") {
         img.setRotation(ang);
-      else img.setRotation(0); // dynamite stays upright so its lit fuse reads
+      } else {
+        img.setRotation(0);
+        // dynamite stays upright so its lit fuse reads
+      }
       this.tickProjTrail(p);
     }
-    for (const [id, img] of this.projs)
+    for (const [id, img] of this.projs) {
       if (!world.projectiles.has(id)) {
         img.destroy();
         this.projs.delete(id);
         this.projTrailAt.delete(id);
       }
+    }
   }
 
   /** A fading additive puff dropped behind a projectile as it flies — each starts
    *  brightest and dims as the projectile pulls away, reading as speed. Throttled
    *  per projectile so the trail is a ribbon of a few puffs, not a solid smear. */
   private tickProjTrail(p: Projectile): void {
-    const now = this.scene.time.now;
-    if (now - (this.projTrailAt.get(p.id) ?? 0) < 22) return;
+    const { now } = this.scene.time;
+    if (now - (this.projTrailAt.get(p.id) ?? 0) < 22) {
+      return;
+    }
     // no point trailing a projectile the camera can't see — a fight on the far side
     // of the map would otherwise spawn puffs nobody renders (kill invisible work).
     const view = this.scene.cameras.main.worldView;
-    if (p.x < view.x - 80 || p.x > view.right + 80 || p.y < view.y - 80 || p.y > view.bottom + 80)
+    if (p.x < view.x - 80 || p.x > view.right + 80 || p.y < view.y - 80 || p.y > view.bottom + 80) {
       return;
+    }
     this.projTrailAt.set(p.id, now);
     const hot = p.kind === "fireball";
-    const col =
-      p.kind === "fireball"
-        ? 0xff9a3a
-        : p.kind === "bolt"
-          ? 0xb98bff
-          : p.kind === "dynamite"
-            ? 0xffae4a
-            : 0xdfe8ff; // arrows/tower: a faint white streak
+    const col = projTrailColor(p.kind);
     const g = this.scene.add
       .image(p.x, p.y, "spark")
       .setDepth(p.y + 199)
       .setScale(hot ? 0.5 : 0.3)
       .setTint(col)
       .setAlpha(hot ? 0.75 : 0.5)
-      .setBlendMode(Phaser.BlendModes.ADD);
+      .setBlendMode(BlendModes.ADD);
     this.scene.tweens.add({
-      targets: g,
-      scale: 0,
       alpha: 0,
       duration: hot ? 300 : 210,
       ease: "Quad.Out",
       onComplete: () => g.destroy(),
+      scale: 0,
+      targets: g,
     });
   }
 
@@ -1585,9 +1866,9 @@ export class WorldView {
         if (kind === "fire" || kind === "heal") {
           const sheet = kind === "fire" ? "sp-fire" : "sp-water";
           if (s.anims.exists(`${sheet}-loop`)) {
-            const ring = Phaser.Math.Clamp(Math.round(g.radius / 80), 0, 6);
-            const spots: Array<[number, number, number]> = [[0, 0, (g.radius * 1.1) / 128]];
-            for (let i = 0; i < ring; i++) {
+            const ring = PhaserMath.Clamp(Math.round(g.radius / 80), 0, 6);
+            const spots: [number, number, number][] = [[0, 0, (g.radius * 1.1) / 128]];
+            for (let i = 0; i < ring; i += 1) {
               const a = (i / ring) * Math.PI * 2;
               const rr = g.radius * 0.6;
               spots.push([Math.cos(a) * rr, Math.sin(a) * rr, (g.radius * 0.7) / 128]);
@@ -1598,13 +1879,15 @@ export class WorldView {
                 .setScale(sc)
                 .setAlpha(0.85)
                 .setDepth(g.y - 6);
-              if (kind === "heal") sp.setTint(0x9bf0b0).setBlendMode(Phaser.BlendModes.ADD);
+              if (kind === "heal") {
+                sp.setTint(0x9b_f0_b0).setBlendMode(BlendModes.ADD);
+              }
               this.playLoop(sp, `${sheet}-loop`, Math.floor(Math.random() * 6));
-              sprites.push({ sp, ox, oy });
+              sprites.push({ ox, oy, sp });
             }
           }
         }
-        gv = { arc, sprites, nextStrikeAt: 0 };
+        gv = { arc, nextStrikeAt: 0, sprites };
         this.grounds.set(g.id, gv);
       }
       gv.arc.setPosition(g.x, g.y);
@@ -1627,18 +1910,21 @@ export class WorldView {
             .setDepth(by + 500)
             .setScale((g.radius / 320) * 1.1)
             .setOrigin(0.5, 0.9)
-            .setBlendMode(Phaser.BlendModes.ADD);
+            .setBlendMode(BlendModes.ADD);
           bolt.play("sp-lightning");
           bolt.once("animationcomplete", () => bolt.destroy());
         }
       }
     }
-    for (const [id, gv] of this.grounds)
+    for (const [id, gv] of this.grounds) {
       if (!seen.has(id)) {
         gv.arc.destroy();
-        for (const { sp } of gv.sprites) sp.destroy();
+        for (const { sp } of gv.sprites) {
+          sp.destroy();
+        }
         this.grounds.delete(id);
       }
+    }
   }
 
   private syncMines(world: World): void {
@@ -1646,354 +1932,459 @@ export class WorldView {
       let img = this.mines.get(m.id);
       if (!img) {
         img = this.scene.add
-          .circle(m.x, m.y, 8, 0xff4d4d, 0.85)
+          .circle(m.x, m.y, 8, 0xff_4d_4d, 0.85)
           .setDepth(m.y)
-          .setStrokeStyle(2, 0x661111);
+          .setStrokeStyle(2, 0x66_11_11);
         this.mines.set(m.id, img);
       }
     }
-    for (const [id, img] of this.mines)
+    for (const [id, img] of this.mines) {
       if (!world.mines.has(id)) {
         img.destroy();
         this.mines.delete(id);
       }
+    }
   }
 
   private drainFx(world: World): void {
-    for (const fx of world.fx) this.playFx(fx);
+    for (const fx of world.fx) {
+      this.playFx(fx);
+    }
     world.fx.length = 0;
   }
 
   private playFx(fx: FxEvent): void {
-    const s = this.scene;
     switch (fx.t) {
       case "hit": {
-        sfx.hit();
-        const magic = fx.dtype === "magic";
-        const tintCol = magic ? 0xc78bff : 0xffffff;
-        // impact puff at the strike point — the clash spark that sells combat
-        const puff = s.add
-          .image(fx.x + (Math.random() - 0.5) * 12, fx.y, "spark")
-          .setDepth(fx.y + 300)
-          .setScale(0.5)
-          .setTint(tintCol)
-          .setAlpha(0.85)
-          .setBlendMode(Phaser.BlendModes.ADD);
-        s.tweens.add({
-          targets: puff,
-          scale: fx.crit ? 2.0 : 1.35,
-          alpha: 0,
-          duration: fx.crit ? 260 : 170,
-          ease: "Quad.Out",
-          onComplete: () => puff.destroy(),
-        });
-        // damage flash + knockback recoil + spark spray on the victim's sprite —
-        // the impact reactions that make combat feel weighty/action-y. Recoil and
-        // sparks fire only on real swings / crits / big nukes; small DoT & ground
-        // ticks (every 0.5s) just get the cheap flash so burning units don't twitch
-        // or spray particles twice a second.
-        const bigHit = fx.isAttack === true || fx.crit === true || fx.amount >= 30;
-        // a 1-frame near-white flash core over the puff: the bright "overload" beat
-        // before the impact cools (fast in, slow out).
-        if (bigHit) {
-          const flash = s.add
-            .image(fx.x, fx.y, "spark")
-            .setDepth(fx.y + 301)
-            .setScale(fx.crit ? 1.15 : 0.72)
-            .setAlpha(0.95)
-            .setBlendMode(Phaser.BlendModes.ADD);
-          s.tweens.add({
-            targets: flash,
-            scale: 0,
-            alpha: 0,
-            duration: fx.crit ? 150 : 95,
-            ease: "Quad.Out",
-            onComplete: () => flash.destroy(),
-          });
-        }
-        const vv = this.units.get(fx.targetId);
-        if (vv && !vv.dead) {
-          vv.sprite.setTint(magic ? 0xd9a6ff : 0xff8a8a);
-          vv.flashUntil = s.time.now + (fx.crit ? 130 : 90);
-          if (bigHit) {
-            const kick = Math.min(fx.isAttack ? 16 : 9, 4 + fx.amount * 0.12) * (fx.crit ? 1.6 : 1);
-            vv.recoilX += fx.nx * kick;
-            vv.recoilY += fx.ny * kick;
-          }
-        }
-        if (bigHit) this.spawnHitSparks(fx.x, fx.y, fx.nx, fx.ny, tintCol, fx.crit);
-        // a shockwave ring is reserved for crits / big nukes — on every hit it's noise
-        if (fx.crit || fx.amount >= 55) this.spawnShockwave(fx.x, fx.y, tintCol, fx.crit ? 1 : 0.8);
-        // trauma shake: the player taking a real hit rattles the view; a heavy blow
-        // landing near the camera nudges it (distance-weighted).
-        if (fx.targetId === this.playerHeroId && fx.amount >= 25)
-          this.addTrauma(Math.min(0.5, 0.14 + fx.amount / 400));
-        else if (fx.crit || fx.amount >= 60) this.traumaAt(fx.x, fx.y, 0.2);
-        const color = magic ? "#c78bff" : fx.crit ? "#ffd23a" : "#ffffff";
-        const size = fx.crit ? "24px" : "15px";
-        const t = s.add
-          .text(fx.x + (Math.random() - 0.5) * 16, fx.y, `${fx.amount}`, {
-            fontFamily: FONT,
-            fontSize: size,
-            color,
-            stroke: "#1c1410",
-            strokeThickness: fx.crit ? 5 : 4,
-          })
-          .setOrigin(0.5)
-          .setDepth(90000);
-        // crits punch in with an overshoot pop; everyone rises + fades
-        if (fx.crit) {
-          t.setScale(0.4);
-          s.tweens.add({ targets: t, scale: 1.15, duration: 200, ease: "Back.Out" });
-        }
-        s.tweens.add({
-          targets: t,
-          y: fx.y - (fx.crit ? 52 : 38),
-          alpha: 0,
-          duration: fx.crit ? 820 : 700,
-          ease: "Cubic.Out",
-          onComplete: () => t.destroy(),
-        });
+        this.fxHit(fx);
         break;
       }
       case "explosion": {
-        sfx.explosion();
-        this.stampScorch(fx.x, fx.y, fx.radius);
-        this.traumaAt(fx.x, fx.y, Phaser.Math.Clamp(0.12 + fx.radius / 500, 0.12, 0.5));
-        // white flash core the instant the blast lands (before the sprite's fire cools)
-        const boom = s.add
-          .image(fx.x, fx.y - 6, "glow")
-          .setDepth(fx.y + 402)
-          .setTint(0xfff2d6)
-          .setAlpha(0.85)
-          .setScale((fx.radius / 128) * 0.6)
-          .setBlendMode(Phaser.BlendModes.ADD);
-        s.tweens.add({
-          targets: boom,
-          scale: (fx.radius / 128) * 1.5,
-          alpha: 0,
-          duration: 150,
-          ease: "Quad.Out",
-          onComplete: () => boom.destroy(),
-        });
-        // the Particle FX pack's cartoon explosions, played raw (their art carries
-        // its own palette — no tint, no additive blend)
-        const key =
-          fx.radius >= 130 && s.anims.exists("fx-explode2") ? "fx-explode2" : "fx-explode1";
-        if (s.anims.exists(key)) {
-          const e = s.add.sprite(fx.x, fx.y - 10, key, 0).setDepth(fx.y + 400);
-          e.setScale(Phaser.Math.Clamp(fx.radius / 85, 0.8, 2.4));
-          e.play(key);
-          e.once("animationcomplete", () => e.destroy());
-        } else if (s.anims.exists("fx-explode")) {
-          const e = s.add
-            .sprite(fx.x, fx.y, "fx-explosion", 0)
-            .setDepth(fx.y + 400)
-            .setBlendMode(Phaser.BlendModes.ADD);
-          e.setScale((fx.radius / 96) * 1.2).setTint(fx.color);
-          e.play("fx-explode");
-          e.once("animationcomplete", () => e.destroy());
-        }
+        this.fxExplosion(fx);
         break;
       }
       case "blink": {
-        for (const [x, y] of [
-          [fx.x, fx.y],
-          [fx.x2, fx.y2],
-        ] as const) {
-          const c = s.add.circle(x, y, 24, 0x9b6bff, 0.6).setDepth(y + 100);
-          s.tweens.add({
-            targets: c,
-            scale: 0,
-            alpha: 0,
-            duration: 300,
-            onComplete: () => c.destroy(),
-          });
-        }
+        this.fxBlink(fx);
         break;
       }
       case "levelup": {
-        const v = this.units.get(fx.unitId);
-        const isMe = fx.unitId === this.playerHeroId;
-        if (isMe) sfx.level();
-        const x = v ? v.dx : fx.x;
-        const y = v ? v.dy : fx.y;
-        // overload: an expanding golden ring at the feet + a warm flash column
-        const ring = s.add
-          .circle(x, y + 10, 20, 0xffe14a, 0)
-          .setStrokeStyle(4, 0xffe14a, 1)
-          .setDepth(y + 50);
-        s.tweens.add({
-          targets: ring,
-          scale: 3,
-          alpha: 0,
-          duration: 600,
-          onComplete: () => ring.destroy(),
-        });
-        const glow = s.add
-          .image(x, y - 14, "glow")
-          .setTint(0xffe89a)
-          .setAlpha(0.7)
-          .setScale(0.4)
-          .setDepth(y + 51)
-          .setBlendMode(Phaser.BlendModes.ADD);
-        s.tweens.add({
-          targets: glow,
-          scaleX: 0.9,
-          scaleY: 2.2,
-          alpha: 0,
-          duration: 520,
-          ease: "Quad.Out",
-          onComplete: () => glow.destroy(),
-        });
-        // processing: sparkle stars rising off the hero (the lingering payoff)
-        if (s.textures.exists("fx-star")) {
-          const count = isMe ? 8 : 5;
-          for (let i = 0; i < count; i++) {
-            const sx = x + (Math.random() - 0.5) * 44;
-            const star = s.add
-              .image(sx, y + 6, "fx-star")
-              .setTint(0xfff0a8)
-              .setDepth(y + 60)
-              .setScale(0.3 + Math.random() * 0.25)
-              .setAlpha(0.95)
-              .setBlendMode(Phaser.BlendModes.ADD);
-            s.tweens.add({
-              targets: star,
-              y: y - 40 - Math.random() * 42,
-              alpha: 0,
-              angle: 180,
-              delay: i * 32,
-              duration: 620 + Math.random() * 260,
-              ease: "Sine.Out",
-              onComplete: () => star.destroy(),
-            });
-          }
-        }
+        this.fxLevelUp(fx);
         break;
       }
       case "gold": {
-        if (fx.heroId !== this.playerHeroId) break;
-        sfx.gold();
-        const t = s.add
-          .text(fx.x, fx.y, `+${fx.amount}`, {
-            fontFamily: FONT,
-            fontSize: "14px",
-            color: "#ffd23a",
-            stroke: "#1c1410",
-            strokeThickness: 4,
-          })
-          .setOrigin(0.5)
-          .setDepth(90000);
-        s.tweens.add({
-          targets: t,
-          y: fx.y - 30,
-          alpha: 0,
-          duration: 800,
-          onComplete: () => t.destroy(),
-        });
+        this.fxGold(fx);
         break;
       }
       case "heal": {
-        const t = s.add
-          .text(fx.x, fx.y - 20, `+${Math.round(fx.amount)}`, {
-            fontFamily: FONT,
-            fontSize: "14px",
-            color: "#7bf08b",
-            stroke: "#1c1410",
-            strokeThickness: 4,
-          })
-          .setOrigin(0.5)
-          .setDepth(90000);
-        s.tweens.add({
-          targets: t,
-          y: fx.y - 50,
-          alpha: 0,
-          duration: 700,
-          onComplete: () => t.destroy(),
-        });
+        this.fxHeal(fx);
         break;
       }
       case "structureDown": {
-        sfx.structureDown();
-        this.addTrauma(0.85); // a tower/ancient falling should be felt across the map
-        this.stampScorch(fx.x, fx.y, 150);
-        this.spawnShockwave(fx.x, fx.y, 0xffd9a0, 1.4);
-        // a barrage: the main blast plus offset secondary bursts (never one long one)
-        const bursts: Array<[number, number, number, number]> = [
-          [0, -50, 1.7, 0],
-          [-42, -20, 1.1, 120],
-          [46, -34, 1.2, 210],
-          [8, -84, 1.0, 340],
-        ];
-        for (const [ox, oy, sc, delay] of bursts) {
-          const key = s.anims.exists("fx-explode2") ? "fx-explode2" : "fx-explode1";
-          if (!s.anims.exists(key)) break;
-          s.time.delayedCall(delay, () => {
-            const e = s.add
-              .sprite(fx.x + ox, fx.y + oy, key, 0)
-              .setDepth(fx.y + 500)
-              .setScale(sc);
-            e.play(key);
-            e.once("animationcomplete", () => e.destroy());
-          });
-        }
+        this.fxStructureDown(fx);
         break;
       }
       case "death": {
-        if (fx.kind === "hero") sfx.death();
-        if (fx.kind === "creep") {
-          if (s.anims.exists("fx-dust2")) {
-            const puff = s.add
-              .sprite(fx.x, fx.y - 8, "fx-dust2", 0)
-              .setDepth(fx.y + 10)
-              .setScale(1.1)
-              .setAlpha(0.9);
-            puff.play("fx-dust2");
-            puff.once("animationcomplete", () => puff.destroy());
-          } else {
-            const puff = s.add
-              .image(fx.x, fx.y - 10, "spark")
-              .setDepth(fx.y + 10)
-              .setTint(0xdddddd)
-              .setScale(1.5);
-            s.tweens.add({
-              targets: puff,
-              scale: 0,
-              alpha: 0,
-              duration: 320,
-              onComplete: () => puff.destroy(),
-            });
-          }
-        }
+        this.fxDeath(fx);
         break;
       }
       case "cast": {
-        if (fx.team === this.playerTeam) sfx.ability();
-        const col = effectColor(fx.effect);
-        const ring = s.add
-          .circle(fx.x, fx.y + 6, 34, col, 0)
-          .setStrokeStyle(3, col, 0.9)
-          .setDepth(fx.y);
-        s.tweens.add({
-          targets: ring,
-          scale: 0.2,
-          alpha: 0,
-          duration: 280,
-          ease: "Quad.Out",
-          onComplete: () => ring.destroy(),
-        });
-        // self/aura cast bursts (windfoot, flashfire, powder keg, blink puff…)
-        const spec = abilityCastFx(fx.effect);
-        if (spec && spec.at === "caster")
-          this.spawnSpellSprite(fx.x, fx.y, spec.sheet, spec.scale, spec.tint);
+        this.fxCast(fx);
         break;
       }
       case "ability": {
-        this.playAbilityFx(fx);
+        this.fxAbility(fx);
         break;
       }
+      // no default
     }
+  }
+
+  private fxHit(fx: Extract<FxEvent, { t: "hit" }>): void {
+    sfx.hit();
+    const magic = fx.dtype === "magic";
+    const tintCol = magic ? 0xc7_8b_ff : 0xff_ff_ff;
+    // Recoil and sparks fire only on real swings / crits / big nukes; small DoT
+    // & ground ticks (every 0.5s) just get the cheap flash so burning units
+    // don't twitch or spray particles twice a second.
+    const bigHit = fx.isAttack === true || fx.crit === true || fx.amount >= 30;
+    this.spawnHitImpact(fx, tintCol, bigHit);
+    this.applyHitReaction(fx, magic, bigHit);
+    this.spawnHitFeedback(fx, tintCol, bigHit);
+    this.spawnDamageNumber(fx, magic);
+  }
+
+  /** Impact puff at the strike point — the clash spark that sells combat — plus,
+   *  on a big hit, a 1-frame near-white flash core over it (fast in, slow out). */
+  private spawnHitImpact(
+    fx: Extract<FxEvent, { t: "hit" }>,
+    tintCol: number,
+    bigHit: boolean,
+  ): void {
+    const s = this.scene;
+    const puff = s.add
+      .image(fx.x + (Math.random() - 0.5) * 12, fx.y, "spark")
+      .setDepth(fx.y + 300)
+      .setScale(0.5)
+      .setTint(tintCol)
+      .setAlpha(0.85)
+      .setBlendMode(BlendModes.ADD);
+    s.tweens.add({
+      alpha: 0,
+      duration: fx.crit ? 260 : 170,
+      ease: "Quad.Out",
+      onComplete: () => puff.destroy(),
+      scale: fx.crit ? 2 : 1.35,
+      targets: puff,
+    });
+    if (!bigHit) {
+      return;
+    }
+    const flash = s.add
+      .image(fx.x, fx.y, "spark")
+      .setDepth(fx.y + 301)
+      .setScale(fx.crit ? 1.15 : 0.72)
+      .setAlpha(0.95)
+      .setBlendMode(BlendModes.ADD);
+    s.tweens.add({
+      alpha: 0,
+      duration: fx.crit ? 150 : 95,
+      ease: "Quad.Out",
+      onComplete: () => flash.destroy(),
+      scale: 0,
+      targets: flash,
+    });
+  }
+
+  /** Damage flash + knockback recoil on the victim's own sprite. */
+  private applyHitReaction(
+    fx: Extract<FxEvent, { t: "hit" }>,
+    magic: boolean,
+    bigHit: boolean,
+  ): void {
+    const vv = this.units.get(fx.targetId);
+    if (!vv || vv.dead) {
+      return;
+    }
+    vv.sprite.setTint(magic ? 0xd9_a6_ff : 0xff_8a_8a);
+    vv.flashUntil = this.scene.time.now + (fx.crit ? 130 : 90);
+    if (bigHit) {
+      const kick = Math.min(fx.isAttack ? 16 : 9, 4 + fx.amount * 0.12) * (fx.crit ? 1.6 : 1);
+      vv.recoilX += fx.nx * kick;
+      vv.recoilY += fx.ny * kick;
+    }
+  }
+
+  /** Spark spray, shockwave ring and camera trauma for a landed hit. */
+  private spawnHitFeedback(
+    fx: Extract<FxEvent, { t: "hit" }>,
+    tintCol: number,
+    bigHit: boolean,
+  ): void {
+    if (bigHit) {
+      this.spawnHitSparks(fx.x, fx.y, fx.nx, fx.ny, tintCol, fx.crit);
+    }
+    // a shockwave ring is reserved for crits / big nukes — on every hit it's noise
+    if (fx.crit || fx.amount >= 55) {
+      this.spawnShockwave(fx.x, fx.y, tintCol, fx.crit ? 1 : 0.8);
+    }
+    // trauma shake: the player taking a real hit rattles the view; a heavy blow
+    // landing near the camera nudges it (distance-weighted).
+    if (fx.targetId === this.playerHeroId && fx.amount >= 25) {
+      this.addTrauma(Math.min(0.5, 0.14 + fx.amount / 400));
+    } else if (fx.crit || fx.amount >= 60) {
+      this.traumaAt(fx.x, fx.y, 0.2);
+    }
+  }
+
+  /** The floating damage number. */
+  private spawnDamageNumber(fx: Extract<FxEvent, { t: "hit" }>, magic: boolean): void {
+    const s = this.scene;
+    let color = "#ffffff";
+    if (magic) {
+      color = "#c78bff";
+    } else if (fx.crit) {
+      color = "#ffd23a";
+    }
+    const size = fx.crit ? "24px" : "15px";
+    const t = s.add
+      .text(fx.x + (Math.random() - 0.5) * 16, fx.y, `${fx.amount}`, {
+        color,
+        fontFamily: FONT,
+        fontSize: size,
+        stroke: "#1c1410",
+        strokeThickness: fx.crit ? 5 : 4,
+      })
+      .setOrigin(0.5)
+      .setDepth(90_000);
+    // crits punch in with an overshoot pop; everyone rises + fades
+    if (fx.crit) {
+      t.setScale(0.4);
+      s.tweens.add({ duration: 200, ease: "Back.Out", scale: 1.15, targets: t });
+    }
+    s.tweens.add({
+      alpha: 0,
+      duration: fx.crit ? 820 : 700,
+      ease: "Cubic.Out",
+      onComplete: () => t.destroy(),
+      targets: t,
+      y: fx.y - (fx.crit ? 52 : 38),
+    });
+  }
+
+  private fxExplosion(fx: Extract<FxEvent, { t: "explosion" }>): void {
+    const s = this.scene;
+    sfx.explosion();
+    this.stampScorch(fx.x, fx.y, fx.radius);
+    this.traumaAt(fx.x, fx.y, PhaserMath.Clamp(0.12 + fx.radius / 500, 0.12, 0.5));
+    // white flash core the instant the blast lands (before the sprite's fire cools)
+    const boom = s.add
+      .image(fx.x, fx.y - 6, "glow")
+      .setDepth(fx.y + 402)
+      .setTint(0xff_f2_d6)
+      .setAlpha(0.85)
+      .setScale((fx.radius / 128) * 0.6)
+      .setBlendMode(BlendModes.ADD);
+    s.tweens.add({
+      alpha: 0,
+      duration: 150,
+      ease: "Quad.Out",
+      onComplete: () => boom.destroy(),
+      scale: (fx.radius / 128) * 1.5,
+      targets: boom,
+    });
+    // the Particle FX pack's cartoon explosions, played raw (their art carries
+    // its own palette — no tint, no additive blend)
+    const key = fx.radius >= 130 && s.anims.exists("fx-explode2") ? "fx-explode2" : "fx-explode1";
+    if (s.anims.exists(key)) {
+      const e = s.add.sprite(fx.x, fx.y - 10, key, 0).setDepth(fx.y + 400);
+      e.setScale(PhaserMath.Clamp(fx.radius / 85, 0.8, 2.4));
+      e.play(key);
+      e.once("animationcomplete", () => e.destroy());
+    } else if (s.anims.exists("fx-explode")) {
+      const e = s.add
+        .sprite(fx.x, fx.y, "fx-explosion", 0)
+        .setDepth(fx.y + 400)
+        .setBlendMode(BlendModes.ADD);
+      e.setScale((fx.radius / 96) * 1.2).setTint(fx.color);
+      e.play("fx-explode");
+      e.once("animationcomplete", () => e.destroy());
+    }
+  }
+
+  private fxBlink(fx: Extract<FxEvent, { t: "blink" }>): void {
+    const s = this.scene;
+    for (const [x, y] of [
+      [fx.x, fx.y],
+      [fx.x2, fx.y2],
+    ] as const) {
+      const c = s.add.circle(x, y, 24, 0x9b_6b_ff, 0.6).setDepth(y + 100);
+      s.tweens.add({
+        alpha: 0,
+        duration: 300,
+        onComplete: () => c.destroy(),
+        scale: 0,
+        targets: c,
+      });
+    }
+  }
+
+  private fxLevelUp(fx: Extract<FxEvent, { t: "levelup" }>): void {
+    const s = this.scene;
+    const v = this.units.get(fx.unitId);
+    const isMe = fx.unitId === this.playerHeroId;
+    if (isMe) {
+      sfx.level();
+    }
+    const x = v ? v.dx : fx.x;
+    const y = v ? v.dy : fx.y;
+    // overload: an expanding golden ring at the feet + a warm flash column
+    const ring = s.add
+      .circle(x, y + 10, 20, 0xff_e1_4a, 0)
+      .setStrokeStyle(4, 0xff_e1_4a, 1)
+      .setDepth(y + 50);
+    s.tweens.add({
+      alpha: 0,
+      duration: 600,
+      onComplete: () => ring.destroy(),
+      scale: 3,
+      targets: ring,
+    });
+    const glow = s.add
+      .image(x, y - 14, "glow")
+      .setTint(0xff_e8_9a)
+      .setAlpha(0.7)
+      .setScale(0.4)
+      .setDepth(y + 51)
+      .setBlendMode(BlendModes.ADD);
+    s.tweens.add({
+      alpha: 0,
+      duration: 520,
+      ease: "Quad.Out",
+      onComplete: () => glow.destroy(),
+      scaleX: 0.9,
+      scaleY: 2.2,
+      targets: glow,
+    });
+    // processing: sparkle stars rising off the hero (the lingering payoff)
+    if (s.textures.exists("fx-star")) {
+      const count = isMe ? 8 : 5;
+      for (let i = 0; i < count; i += 1) {
+        const sx = x + (Math.random() - 0.5) * 44;
+        const star = s.add
+          .image(sx, y + 6, "fx-star")
+          .setTint(0xff_f0_a8)
+          .setDepth(y + 60)
+          .setScale(0.3 + Math.random() * 0.25)
+          .setAlpha(0.95)
+          .setBlendMode(BlendModes.ADD);
+        s.tweens.add({
+          alpha: 0,
+          angle: 180,
+          delay: i * 32,
+          duration: 620 + Math.random() * 260,
+          ease: "Sine.Out",
+          onComplete: () => star.destroy(),
+          targets: star,
+          y: y - 40 - Math.random() * 42,
+        });
+      }
+    }
+  }
+
+  private fxGold(fx: Extract<FxEvent, { t: "gold" }>): void {
+    const s = this.scene;
+    if (fx.heroId !== this.playerHeroId) {
+      return;
+    }
+    sfx.gold();
+    const t = s.add
+      .text(fx.x, fx.y, `+${fx.amount}`, {
+        color: "#ffd23a",
+        fontFamily: FONT,
+        fontSize: "14px",
+        stroke: "#1c1410",
+        strokeThickness: 4,
+      })
+      .setOrigin(0.5)
+      .setDepth(90_000);
+    s.tweens.add({
+      alpha: 0,
+      duration: 800,
+      onComplete: () => t.destroy(),
+      targets: t,
+      y: fx.y - 30,
+    });
+  }
+
+  private fxHeal(fx: Extract<FxEvent, { t: "heal" }>): void {
+    const s = this.scene;
+    const t = s.add
+      .text(fx.x, fx.y - 20, `+${Math.round(fx.amount)}`, {
+        color: "#7bf08b",
+        fontFamily: FONT,
+        fontSize: "14px",
+        stroke: "#1c1410",
+        strokeThickness: 4,
+      })
+      .setOrigin(0.5)
+      .setDepth(90_000);
+    s.tweens.add({
+      alpha: 0,
+      duration: 700,
+      onComplete: () => t.destroy(),
+      targets: t,
+      y: fx.y - 50,
+    });
+  }
+
+  private fxStructureDown(fx: Extract<FxEvent, { t: "structureDown" }>): void {
+    const s = this.scene;
+    sfx.structureDown();
+    // a tower/ancient falling should be felt across the map
+    this.addTrauma(0.85);
+    this.stampScorch(fx.x, fx.y, 150);
+    this.spawnShockwave(fx.x, fx.y, 0xff_d9_a0, 1.4);
+    // a barrage: the main blast plus offset secondary bursts (never one long one)
+    const bursts: [number, number, number, number][] = [
+      [0, -50, 1.7, 0],
+      [-42, -20, 1.1, 120],
+      [46, -34, 1.2, 210],
+      [8, -84, 1, 340],
+    ];
+    for (const [ox, oy, sc, delay] of bursts) {
+      const key = s.anims.exists("fx-explode2") ? "fx-explode2" : "fx-explode1";
+      if (!s.anims.exists(key)) {
+        break;
+      }
+      s.time.delayedCall(delay, () => {
+        const e = s.add
+          .sprite(fx.x + ox, fx.y + oy, key, 0)
+          .setDepth(fx.y + 500)
+          .setScale(sc);
+        e.play(key);
+        e.once("animationcomplete", () => e.destroy());
+      });
+    }
+  }
+
+  private fxDeath(fx: Extract<FxEvent, { t: "death" }>): void {
+    const s = this.scene;
+    if (fx.kind === "hero") {
+      sfx.death();
+    }
+    if (fx.kind === "creep") {
+      if (s.anims.exists("fx-dust2")) {
+        const puff = s.add
+          .sprite(fx.x, fx.y - 8, "fx-dust2", 0)
+          .setDepth(fx.y + 10)
+          .setScale(1.1)
+          .setAlpha(0.9);
+        puff.play("fx-dust2");
+        puff.once("animationcomplete", () => puff.destroy());
+      } else {
+        const puff = s.add
+          .image(fx.x, fx.y - 10, "spark")
+          .setDepth(fx.y + 10)
+          .setTint(0xdd_dd_dd)
+          .setScale(1.5);
+        s.tweens.add({
+          alpha: 0,
+          duration: 320,
+          onComplete: () => puff.destroy(),
+          scale: 0,
+          targets: puff,
+        });
+      }
+    }
+  }
+
+  private fxCast(fx: Extract<FxEvent, { t: "cast" }>): void {
+    const s = this.scene;
+    if (fx.team === this.playerTeam) {
+      sfx.ability();
+    }
+    const col = effectColor(fx.effect);
+    const ring = s.add
+      .circle(fx.x, fx.y + 6, 34, col, 0)
+      .setStrokeStyle(3, col, 0.9)
+      .setDepth(fx.y);
+    s.tweens.add({
+      alpha: 0,
+      duration: 280,
+      ease: "Quad.Out",
+      onComplete: () => ring.destroy(),
+      scale: 0.2,
+      targets: ring,
+    });
+    // self/aura cast bursts (windfoot, flashfire, powder keg, blink puff…)
+    const spec = abilityCastFx(fx.effect);
+    if (spec && spec.at === "caster") {
+      this.spawnSpellSprite(fx.x, fx.y, spec.sheet, spec.scale, spec.tint);
+    }
+  }
+
+  private fxAbility(fx: Extract<FxEvent, { t: "ability" }>): void {
+    this.playAbilityFx(fx);
   }
 
   /** Play a one-shot spell-effect sprite centred at (x,y). The packed effect art
@@ -2006,12 +2397,16 @@ export class WorldView {
     tint?: number,
   ): void {
     const s = this.scene;
-    if (!s.anims.exists(sheet)) return;
+    if (!s.anims.exists(sheet)) {
+      return;
+    }
     const sp = s.add
       .sprite(x, y, sheet, 0)
       .setDepth(y + 360)
       .setScale(scale);
-    if (tint !== undefined) sp.setTint(tint);
+    if (tint !== undefined) {
+      sp.setTint(tint);
+    }
     sp.play(sheet);
     sp.once("animationcomplete", () => sp.destroy());
   }
@@ -2020,12 +2415,13 @@ export class WorldView {
     const col = effectColor(fx.effect);
     // targeted spell bursts (shield bash, fanned daggers, death waltz, hex, heal…)
     const spec = abilityCastFx(fx.effect);
-    if (spec && spec.at === "target")
+    if (spec && spec.at === "target") {
       this.spawnSpellSprite(fx.x2, fx.y2, spec.sheet, spec.scale, spec.tint);
+    }
     // the one true skillshot LINE (Piercing Shot) → a soft electric beam, never a
     // bare white line.
     if (fx.effect === "stormcaller:Q") {
-      this.spawnBeam(fx.x, fx.y - 16, fx.x2, fx.y2 - 16, 0x8fd0ff);
+      this.spawnBeam(fx.x, fx.y - 16, fx.x2, fx.y2 - 16, 0x8f_d0_ff);
       return;
     }
     // area abilities → a soft radial impact glow sized to the zone (the detailed
@@ -2033,8 +2429,10 @@ export class WorldView {
     // plus a distance-weighted rumble and, for the big ones, a shockwave ring.
     if (fx.radius >= 90) {
       this.spawnSoftImpact(fx.x2, fx.y2, fx.radius, col);
-      this.traumaAt(fx.x2, fx.y2, Phaser.Math.Clamp(fx.radius / 900, 0.08, 0.4));
-      if (fx.radius >= 150) this.spawnShockwave(fx.x2, fx.y2, col, 1);
+      this.traumaAt(fx.x2, fx.y2, PhaserMath.Clamp(fx.radius / 900, 0.08, 0.4));
+      if (fx.radius >= 150) {
+        this.spawnShockwave(fx.x2, fx.y2, col, 1);
+      }
     }
   }
 
@@ -2052,19 +2450,18 @@ export class WorldView {
       .setRotation(ang)
       .setDisplaySize(len, 60)
       .setTint(col)
-      .setBlendMode(Phaser.BlendModes.ADD)
+      .setBlendMode(BlendModes.ADD)
       .setAlpha(0.5)
       .setDepth(depth);
     const core = s.add
       .image(mx, my, "glow")
       .setRotation(ang)
       .setDisplaySize(len, 16)
-      .setTint(0xeaf6ff)
-      .setBlendMode(Phaser.BlendModes.ADD)
+      .setTint(0xea_f6_ff)
+      .setBlendMode(BlendModes.ADD)
       .setAlpha(0.95)
       .setDepth(depth + 1);
     s.tweens.add({
-      targets: [glow, core],
       alpha: 0,
       duration: 300,
       ease: "Quad.Out",
@@ -2072,9 +2469,10 @@ export class WorldView {
         glow.destroy();
         core.destroy();
       },
+      targets: [glow, core],
     });
     // a little crackle along the bolt
-    for (let i = 1; i <= 4; i++) {
+    for (let i = 1; i <= 4; i += 1) {
       const t = i / 5;
       this.spawnHitSparks(
         x1 + (x2 - x1) * t,
@@ -2091,21 +2489,22 @@ export class WorldView {
    *  the old harsh hard-stroked ring). */
   private spawnSoftImpact(x: number, y: number, r: number, col: number): void {
     const s = this.scene;
-    const sc = (r * 2.2) / 128; // "glow" is 128px
+    // "glow" is 128px
+    const sc = (r * 2.2) / 128;
     const g = s.add
       .image(x, y, "glow")
       .setTint(col)
-      .setBlendMode(Phaser.BlendModes.ADD)
+      .setBlendMode(BlendModes.ADD)
       .setAlpha(0.5)
       .setDepth(y + 200)
       .setScale(sc * 0.6);
     s.tweens.add({
-      targets: g,
-      scale: sc,
       alpha: 0,
       duration: 360,
       ease: "Quad.Out",
       onComplete: () => g.destroy(),
+      scale: sc,
+      targets: g,
     });
     const ring = s.add
       .circle(x, y, r, col, 0)
@@ -2113,37 +2512,12 @@ export class WorldView {
       .setDepth(y + 201)
       .setScale(0.5);
     s.tweens.add({
-      targets: ring,
-      scale: 1.05,
       alpha: 0,
       duration: 380,
       ease: "Quad.Out",
       onComplete: () => ring.destroy(),
+      scale: 1.05,
+      targets: ring,
     });
   }
-}
-
-function teamHpColor(team: string): number {
-  return team === "radiant" ? 0x44d07a : 0xff5d5d;
-}
-function projTex(p: Projectile): string {
-  if (p.kind === "fireball") return "glow";
-  if (p.kind === "dynamite") return "spark";
-  return "fx-arrow";
-}
-function groundColor(g: GroundEffect): number {
-  if (g.allyHealPerTick) return 0x6be07a;
-  if (g.effect.includes("storm")) return 0x6aa8ff;
-  return 0xff6a2a;
-}
-function shortName(defId: string): string {
-  const m = new Map([
-    ["ironvow", "Garran"],
-    ["duskblade", "Vesper"],
-    ["stormcaller", "Aelwyn"],
-    ["emberhex", "Grix"],
-    ["boomtinker", "Fizzle"],
-    ["brewkeeper", "Bramble"],
-  ]);
-  return m.get(defId) ?? defId;
 }

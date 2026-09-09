@@ -17,46 +17,49 @@ import type { ControlMethod } from "@repo/embed";
 import { CONTROLS } from "./controls";
 
 const METHOD_LABELS = {
+  camera: "camera",
+  controller: "controller",
   keys: "keyboard",
   mouse: "mouse",
   touch: "touch",
-  camera: "camera",
-  controller: "controller",
 } satisfies Record<ControlMethod, string>;
 
 /** One section of the "how to play" modal. */
-type HelpSection = { readonly title: string; readonly body: string };
+interface HelpSection {
+  readonly title: string;
+  readonly body: string;
+}
 
 // The gameplay depth that used to live in the in-game How-to-Play modal —
 // controls stay in CONTROLS, this is the systems knowledge.
 const HELP: readonly HelpSection[] = [
   {
-    title: "Farming",
     body: "Till soil with the 🪏 hoe, plant 🌱 seeds in their season, water with the 💧 can (refill at the pond — rain waters for you).",
+    title: "Farming",
   },
   {
-    title: "Gathering",
     body: "🪓 Axe fells trees. ⛏ Pickaxe breaks rocks and works the mine. Walk over 🍄 mushrooms to forage them.",
+    title: "Gathering",
   },
   {
-    title: "Fishing",
     body: "Face water with the 🎣 rod to cast, then hold to reel while the fish sits in the zone.",
+    title: "Fishing",
   },
   {
-    title: "The mine",
     body: "Bring the ⚔ sword — skeletons haunt the cave.",
+    title: "The mine",
   },
   {
-    title: "Animals",
     body: "🐔 Pet your animals; buy more at the coop and barn.",
+    title: "Animals",
   },
   {
-    title: "Selling & rest",
     body: "🧺 Sell at the crate or the store. Sleep at your house to end the day.",
+    title: "Selling & rest",
   },
   {
-    title: "Villagers",
     body: "💬 Talk to villagers and gift what they like to earn ♥.",
+    title: "Villagers",
   },
 ];
 
@@ -334,20 +337,22 @@ const CSS = `
 
 let helpModal: HTMLDivElement | null = null;
 
-function div(className: string, parent: HTMLElement): HTMLDivElement {
+const div = (className: string, parent: HTMLElement): HTMLDivElement => {
   const node = document.createElement("div");
   node.className = className;
   parent.append(node);
   return node;
-}
+};
 
-function closeHelp(): void {
+const closeHelp = (): void => {
   helpModal?.remove();
   helpModal = null;
-}
+};
 
-function openHelp(host: HTMLElement): void {
-  if (helpModal) return;
+const openHelp = (host: HTMLElement): void => {
+  if (helpModal) {
+    return;
+  }
 
   helpModal = document.createElement("div");
   helpModal.className = "fp-modal";
@@ -357,7 +362,9 @@ function openHelp(host: HTMLElement): void {
   // page does nothing — neither may fall through to the overlay's resume.
   helpModal.addEventListener("pointerup", (event) => {
     event.stopPropagation();
-    if (event.target === helpModal) closeHelp();
+    if (event.target === helpModal) {
+      closeHelp();
+    }
   });
 
   const page = div("fp-page", helpModal);
@@ -382,10 +389,11 @@ function openHelp(host: HTMLElement): void {
   page.append(back);
 
   host.append(helpModal);
-}
+};
 
-function renderSign(root: HTMLElement): void {
-  root.id = "farm-pause"; // the CSS hook (kept from the pre-shell overlay)
+const renderSign = (root: HTMLElement): void => {
+  // the CSS hook (kept from the pre-shell overlay)
+  root.id = "farm-pause";
   // Same boot check as @repo/embed, re-evaluated fresh so the hint copy and
   // control rows match the device the moment we pause.
   const coarse = window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
@@ -449,20 +457,20 @@ function renderSign(root: HTMLElement): void {
     openHelp(root);
   });
   sign.append(helpBtn);
-}
+};
 
 /** Drop-in for the stock createPauseOverlay() return shape. */
 export const pauseOverlay = createPauseShell({
   css: CSS,
-  styleId: STYLE_ID,
   fadeMs: 220,
   modalOpen: () => helpModal !== null,
   onHide: closeHelp,
   render: renderSign,
+  styleId: STYLE_ID,
 });
 
 /** Mount the overlay. Idempotent while shown. */
-export const show = pauseOverlay.show;
+export const { show } = pauseOverlay;
 
 /** Unmount (fade out). Idempotent while hidden. */
-export const hide = pauseOverlay.hide;
+export const { hide } = pauseOverlay;

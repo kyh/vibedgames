@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-import { GlowLayer } from "./beacon-lights";
+import { GlowLayer } from "./glow-layer";
 
 // Headlights and tail lights for the traffic fleet. Only the player's taxi had
 // any before, so after dark the city's cars read as parked scenery drifting
@@ -17,13 +17,14 @@ import { GlowLayer } from "./beacon-lights";
 // avenue, and in daylight the whole thing is skipped (group hidden, no upload).
 
 /** What this pass needs off a traffic car. `TrafficCar` satisfies it. */
-export type LitVehicle = {
+export interface LitVehicle {
   readonly position: THREE.Vector3;
   readonly object3D: THREE.Object3D;
   readonly wrecked: boolean;
-};
+}
 
-const CAR_BUDGET = 110; // cars lit per frame, nearest first
+// cars lit per frame, nearest first
+const CAR_BUDGET = 110;
 // Traffic is the only MOVING light the city has, and from Twin Peaks or the bay
 // a string of them crawling down an avenue is what makes the place read as
 // inhabited rather than as a lit model. 240u cut that off inside one district;
@@ -38,15 +39,17 @@ const HEAD_FWD = 1.6;
 const HEAD_UP = 0.55;
 const TAIL_FWD = -1.7;
 const TAIL_UP = 0.62;
-const POOL_FWD = 5.2; // where the beam lands on the road
+// where the beam lands on the road
+const POOL_FWD = 5.2;
 const HEAD_SIZE = 1.4;
 const TAIL_SIZE = 0.8;
 const POOL_SIZE = 9;
-const POOL_LIFT = 0.09; // over the asphalt, under the kerb paint
+// over the asphalt, under the kerb paint
+const POOL_LIFT = 0.09;
 
-const HEAD_COLOR = new THREE.Color(0xfff1cf);
-const TAIL_COLOR = new THREE.Color(0xff3a22);
-const POOL_COLOR = new THREE.Color(0xffdca6);
+const HEAD_COLOR = new THREE.Color(0xff_f1_cf);
+const TAIL_COLOR = new THREE.Color(0xff_3a_22);
+const POOL_COLOR = new THREE.Color(0xff_dc_a6);
 
 const HALO_ALPHA = 0.6;
 const POOL_ALPHA = 0.3;
@@ -74,19 +77,19 @@ export class VehicleLights {
 
   constructor() {
     this.halo = new GlowLayer({
-      capacity: CAR_BUDGET * 4,
-      kind: "halo",
       alpha: HALO_ALPHA,
+      capacity: CAR_BUDGET * 4,
       gain: HALO_GAIN,
       intensity: this.intensity,
+      kind: "halo",
       time: this.time,
     });
     this.pool = new GlowLayer({
-      capacity: CAR_BUDGET,
-      kind: "pool",
       alpha: POOL_ALPHA,
+      capacity: CAR_BUDGET,
       gain: POOL_GAIN,
       intensity: this.intensity,
+      kind: "pool",
       time: this.time,
     });
     this.group.add(this.halo.mesh);
@@ -100,16 +103,23 @@ export class VehicleLights {
   }
 
   update(cars: readonly LitVehicle[], camX: number, camZ: number): void {
-    if (!this.group.visible) return;
-    const picks = this.picks;
+    if (!this.group.visible) {
+      return;
+    }
+    const { picks } = this;
     picks.length = 0;
     const rangeSq = GLOW_RANGE * GLOW_RANGE;
     for (const car of cars) {
-      if (car.wrecked) continue; // a wreck's lights are out
+      if (car.wrecked) {
+        continue;
+        // a wreck's lights are out
+      }
       const dx = car.position.x - camX;
       const dz = car.position.z - camZ;
       const d2 = dx * dx + dz * dz;
-      if (d2 < rangeSq) picks.push({ d2, car });
+      if (d2 < rangeSq) {
+        picks.push({ car, d2 });
+      }
     }
     if (picks.length > CAR_BUDGET) {
       picks.sort((a, b) => a.d2 - b.d2);
@@ -134,6 +144,7 @@ export class VehicleLights {
           HEAD_COLOR,
           HEAD_SIZE,
         );
+        // oxlint-disable-next-line unicorn/prefer-single-call -- GlowLayer.push takes one light per call, not an array element
         this.halo.push(
           p.x + fwd.x * TAIL_FWD + right.x * LAMP_SIDE * side + up.x * TAIL_UP,
           p.y + fwd.y * TAIL_FWD + right.y * LAMP_SIDE * side + up.y * TAIL_UP,

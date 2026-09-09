@@ -18,17 +18,17 @@ import { user } from "./drizzle-schema-auth";
 export const inviteCode = sqliteTable(
   "invite_code",
   {
-    id: text("id").primaryKey().notNull(),
     code: text("code").notNull().unique(),
-    createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
       .notNull(),
+    createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
     expiresAt: integer("expires_at", { mode: "timestamp_ms" }),
+    id: text("id").primaryKey().notNull(),
     maxUses: integer("max_uses").default(1),
-    usedCount: integer("used_count").notNull().default(0),
-    revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
     note: text("note"),
+    revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
+    usedCount: integer("used_count").notNull().default(0),
   },
   (table) => ({
     createdByIdx: index("invite_code_created_by_idx").on(table.createdBy),
@@ -45,10 +45,10 @@ export const inviteCodeRelations = relations(inviteCode, ({ one }) => ({
 export const waitlist = sqliteTable(
   "waitlist",
   {
-    id: text("id").primaryKey().notNull(),
-    userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
-    source: text("source"),
     email: text("email"),
+    id: text("id").primaryKey().notNull(),
+    source: text("source"),
+    userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
   },
   // SQLite doesn't auto-index FK columns; user deletions would otherwise
   // seq-scan to satisfy ON DELETE SET NULL.
@@ -73,20 +73,20 @@ export const waitlistRelations = relations(waitlist, ({ one }) => ({
 export const game = sqliteTable(
   "game",
   {
-    id: text("id").primaryKey().notNull(),
-    userId: text("user_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
-    slug: text("slug").notNull().unique(),
-    name: text("name"),
-    currentDeploymentId: text("current_deployment_id"),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
       .notNull(),
+    currentDeploymentId: text("current_deployment_id"),
+    id: text("id").primaryKey().notNull(),
+    name: text("name"),
+    slug: text("slug").notNull().unique(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" })
       .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
       .$onUpdate(() => new Date())
       .notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
   },
   (table) => ({
     userIdx: index("game_user_idx").on(table.userId),
@@ -101,21 +101,21 @@ export const game = sqliteTable(
 export const deployment = sqliteTable(
   "deployment",
   {
-    id: text("id").primaryKey().notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .notNull(),
+    fileCount: integer("file_count").notNull(),
     gameId: text("game_id")
       .notNull()
       .references(() => game.id, { onDelete: "cascade" }),
-    status: text("status", { enum: ["pending", "ready", "failed"] }).notNull(),
-    fileCount: integer("file_count").notNull(),
-    totalBytes: integer("total_bytes").notNull(),
+    id: text("id").primaryKey().notNull(),
+    sourceBytes: integer("source_bytes"),
     // Optional source archive (tar.gz) for forking, stored OUTSIDE the served
     // bundle prefix at `sources/{gameId}/{deploymentId}/source.tgz`. Null
     // unless the deploy opted in (`vg deploy --source`), which is the norm.
     sourceKey: text("source_key"),
-    sourceBytes: integer("source_bytes"),
-    createdAt: integer("created_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-      .notNull(),
+    status: text("status", { enum: ["pending", "ready", "failed"] }).notNull(),
+    totalBytes: integer("total_bytes").notNull(),
   },
   (table) => ({
     gameIdx: index("deployment_game_idx").on(table.gameId),
@@ -129,19 +129,19 @@ export const deployment = sqliteTable(
 export const deploymentFile = sqliteTable(
   "deployment_file",
   {
+    contentType: text("content_type").notNull(),
     deploymentId: text("deployment_id")
       .notNull()
       .references(() => deployment.id, { onDelete: "cascade" }),
     path: text("path").notNull(),
-    contentType: text("content_type").notNull(),
-    size: integer("size").notNull(),
-    sha256: text("sha256").notNull(),
     r2Key: text("r2_key").notNull(),
+    sha256: text("sha256").notNull(),
+    size: integer("size").notNull(),
   },
   (table) => ({
     pk: primaryKey({
-      name: "deployment_file_deployment_id_path_pk",
       columns: [table.deploymentId, table.path],
+      name: "deployment_file_deployment_id_path_pk",
     }),
   }),
 );
@@ -159,12 +159,15 @@ export const deploymentFile = sqliteTable(
 export const creditEntry = sqliteTable(
   "credit_entry",
   {
-    id: text("id").primaryKey().notNull(),
-    userId: text("user_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .notNull(),
+    /** Admin who issued a grant; null for system entries. */
+    createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
     /** Signed micro-USD. Positive = grant/refund, negative = charge. */
     deltaMicro: integer("delta_micro").notNull(),
+    endpointId: text("endpoint_id"),
+    id: text("id").primaryKey().notNull(),
     kind: text("kind", {
       enum: [
         "signup_grant",
@@ -174,15 +177,12 @@ export const creditEntry = sqliteTable(
         "generation_release",
       ],
     }).notNull(),
+    note: text("note"),
     /** Provider request id, set on generation_* entries. */
     requestId: text("request_id"),
-    endpointId: text("endpoint_id"),
-    note: text("note"),
-    /** Admin who issued a grant; null for system entries. */
-    createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
-    createdAt: integer("created_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-      .notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
   },
   (table) => ({
     userIdx: index("credit_entry_user_idx").on(table.userId),
@@ -212,26 +212,26 @@ export const creditEntryRelations = relations(creditEntry, ({ one }) => ({
 export const generation = sqliteTable(
   "generation",
   {
-    requestId: text("request_id").primaryKey().notNull(),
-    userId: text("user_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+    /** Actual units reported by the provider on the result fetch. */
+    billedUnits: real("billed_units"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .notNull(),
     endpointId: text("endpoint_id").notNull(),
+    /** Estimated charge debited at submit, micro-USD. */
+    holdMicro: integer("hold_micro").notNull(),
+    requestId: text("request_id").primaryKey().notNull(),
+    settledAt: integer("settled_at", { mode: "timestamp_ms" }),
+    /** Final charge, micro-USD. Set when status leaves `held`. */
+    settledMicro: integer("settled_micro"),
+    status: text("status", { enum: ["held", "settled", "released"] }).notNull(),
     /** Provider pricing unit (e.g. "megapixels", "seconds"); null if unknown. */
     unit: text("unit"),
     /** Micro-USD per unit at submit time; null if pricing lookup failed. */
     unitPriceMicro: integer("unit_price_micro"),
-    /** Estimated charge debited at submit, micro-USD. */
-    holdMicro: integer("hold_micro").notNull(),
-    /** Actual units reported by the provider on the result fetch. */
-    billedUnits: real("billed_units"),
-    /** Final charge, micro-USD. Set when status leaves `held`. */
-    settledMicro: integer("settled_micro"),
-    status: text("status", { enum: ["held", "settled", "released"] }).notNull(),
-    createdAt: integer("created_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-      .notNull(),
-    settledAt: integer("settled_at", { mode: "timestamp_ms" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
   },
   (table) => ({
     userIdx: index("generation_user_idx").on(table.userId),
@@ -246,19 +246,19 @@ export const generationRelations = relations(generation, ({ one }) => ({
 }));
 
 export const gameRelations = relations(game, ({ one, many }) => ({
+  deployments: many(deployment),
   user: one(user, {
     fields: [game.userId],
     references: [user.id],
   }),
-  deployments: many(deployment),
 }));
 
 export const deploymentRelations = relations(deployment, ({ one, many }) => ({
+  files: many(deploymentFile),
   game: one(game, {
     fields: [deployment.gameId],
     references: [game.id],
   }),
-  files: many(deploymentFile),
 }));
 
 export const deploymentFileRelations = relations(deploymentFile, ({ one }) => ({

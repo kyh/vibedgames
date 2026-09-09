@@ -1,7 +1,9 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
+import { BlendModes, Math as PhaserMath } from "phaser";
 
 import type { FxPool } from "../render/fx-pool";
-import { ENEMY_SPECS, type EnemyKind, type Vec } from "../shared/constants";
+import { ENEMY_SPECS } from "../shared/constants";
+import type { EnemyKind, Vec } from "../shared/constants";
 
 // Cosmetic backdrop for the start screen that mimics ACTUAL play: one hero
 // ship kiting and gunning down an endless swarm of the game's real enemies.
@@ -17,15 +19,15 @@ type ShipFactory = (tint: number, level: number) => Phaser.GameObjects.Graphics;
 type HullPoints = (level: number) => Vec[];
 /** Builds an enemy Graphics / hull (delegates to the scene's real enemy art). */
 type EnemyFactory = (kind: EnemyKind) => Phaser.GameObjects.Graphics;
-type EnemyHull = (kind: EnemyKind) => ReadonlyArray<Vec>;
+type EnemyHull = (kind: EnemyKind) => readonly Vec[];
 
-export type AttractDeps = {
+export interface AttractDeps {
   fx: FxPool;
   makeShip: ShipFactory;
   hullPoints: HullPoints;
   makeEnemy: EnemyFactory;
   enemyHull: EnemyHull;
-};
+}
 
 /** Live swarm size the spawner maintains. A dozen chasers reads as "one
  *  against the horde" without denting the frame budget: every entity is one
@@ -35,32 +37,41 @@ const SWARM_SIZE = 16;
 
 /** The light enemy kinds that swarm in real play (heavies would dwarf the
  *  title). Weighted toward drones, like an actual early arena. */
-const SWARM_KINDS: ReadonlyArray<{ kind: EnemyKind; weight: number; hp: number; speed: number }> = [
-  { kind: "drone", weight: 0.5, hp: 2, speed: 118 },
-  { kind: "wasp", weight: 0.3, hp: 3, speed: 150 },
-  { kind: "lancer", weight: 0.2, hp: 4, speed: 92 },
+const SWARM_KINDS: readonly { kind: EnemyKind; weight: number; hp: number; speed: number }[] = [
+  { hp: 2, kind: "drone", speed: 118, weight: 0.5 },
+  { hp: 3, kind: "wasp", speed: 150, weight: 0.3 },
+  { hp: 4, kind: "lancer", speed: 92, weight: 0.2 },
 ];
 
-const HERO_TINT = 0x7fb2ff;
+const HERO_TINT = 0x7f_b2_ff;
 const HERO_LEVEL = 3;
 const HERO_SPEED = 125;
-const HERO_TURN = 3.6; // rad/s toward desired heading
-const VEL_BLEND = 3.2; // how fast velocity chases heading*speed (per s)
+// rad/s toward desired heading
+const HERO_TURN = 3.6;
+// how fast velocity chases heading*speed (per s)
+const VEL_BLEND = 3.2;
 const HERO_FIRE_RANGE = 360;
 const HERO_FIRE_CD_MIN = 330;
 const HERO_FIRE_CD_MAX = 560;
-const KITE_DIST = 150; // closer than this, the hero breaks away from the pack
+// closer than this, the hero breaks away from the pack
+const KITE_DIST = 150;
 const BEAM_LIFE_MS = 110;
-const ENEMY_TURN = 2.6; // rad/s — chasers arc in rather than rail-turn
-const CONTACT_DIST = 30; // swarm reaching the hero bursts on its shield
-const ENTRY_MARGIN_MIN = 60; // spawn this far beyond the screen edge...
-const ENTRY_MARGIN_MAX = 140; // ...so every enemy visibly FLIES IN
+// rad/s — chasers arc in rather than rail-turn
+const ENEMY_TURN = 2.6;
+// swarm reaching the hero bursts on its shield
+const CONTACT_DIST = 30;
+// spawn this far beyond the screen edge...
+const ENTRY_MARGIN_MIN = 60;
+// ...so every enemy visibly FLIES IN
+const ENTRY_MARGIN_MAX = 140;
 const RESPAWN_MIN_MS = 150;
 const RESPAWN_MAX_MS = 600;
-const WEAVE_RATE = 2.3; // rad/s of heading weave
-const EDGE_PAD = 90; // hero stays inside this viewport band
+// rad/s of heading weave
+const WEAVE_RATE = 2.3;
+// hero stays inside this viewport band
+const EDGE_PAD = 90;
 
-type Hero = {
+interface Hero {
   gfx: Phaser.GameObjects.Graphics;
   x: number;
   y: number;
@@ -71,9 +82,9 @@ type Hero = {
   wpX: number;
   wpY: number;
   wpUntil: number;
-};
+}
 
-type Swarmer = {
+interface Swarmer {
   gfx: Phaser.GameObjects.Graphics;
   kind: EnemyKind;
   x: number;
@@ -86,10 +97,11 @@ type Swarmer = {
   weavePhase: number;
   weaveAmp: number;
   alive: boolean;
-  respawnAt: number; // ms; 0 while alive
-};
+  // ms; 0 while alive
+  respawnAt: number;
+}
 
-type Shot = {
+interface Shot {
   x1: number;
   y1: number;
   x2: number;
@@ -97,28 +109,34 @@ type Shot = {
   tint: number;
   width: number;
   bornAt: number;
-};
+}
 
 const rand = (a: number, b: number): number => a + Math.random() * (b - a);
 
 /** Shortest signed angle a→b. */
-function angleDelta(a: number, b: number): number {
+const angleDelta = (a: number, b: number): number => {
   let d = b - a;
-  while (d > Math.PI) d -= Math.PI * 2;
-  while (d < -Math.PI) d += Math.PI * 2;
+  while (d > Math.PI) {
+    d -= Math.PI * 2;
+  }
+  while (d < -Math.PI) {
+    d += Math.PI * 2;
+  }
   return d;
-}
+};
 
-function rollKind(): { kind: EnemyKind; hp: number; speed: number } {
+const rollKind = (): { kind: EnemyKind; hp: number; speed: number } => {
   const r = Math.random();
   let acc = 0;
   for (const s of SWARM_KINDS) {
     acc += s.weight;
-    if (r < acc) return s;
+    if (r < acc) {
+      return s;
+    }
   }
-  const last = SWARM_KINDS[SWARM_KINDS.length - 1];
-  return last ?? { kind: "drone", hp: 2, speed: 118 };
-}
+  const last = SWARM_KINDS.at(-1);
+  return last ?? { hp: 2, kind: "drone", speed: 118 };
+};
 
 export class AttractBattle {
   private hero: Hero | null = null;
@@ -126,40 +144,46 @@ export class AttractBattle {
   private readonly shots: Shot[] = [];
   private readonly beamGfx: Phaser.GameObjects.Graphics;
   private started = false;
+  private readonly scene: Phaser.Scene;
+  private readonly deps: AttractDeps;
 
-  constructor(
-    private readonly scene: Phaser.Scene,
-    private readonly deps: AttractDeps,
-  ) {
+  constructor(scene: Phaser.Scene, deps: AttractDeps) {
+    this.scene = scene;
+    this.deps = deps;
     // Below the DOM start overlay, above the starfield; additive so the beams
     // bloom like the in-game weapon fire.
-    this.beamGfx = scene.add.graphics().setDepth(8).setBlendMode(Phaser.BlendModes.ADD);
+    this.beamGfx = scene.add.graphics().setDepth(8).setBlendMode(BlendModes.ADD);
   }
 
   /** Lazily seed hero + swarm (needs a laid-out camera). */
   private seed(): void {
-    if (this.started) return;
+    if (this.started) {
+      return;
+    }
     const view = this.scene.cameras.main.worldView;
     // The first frame(s) can run before the camera has real bounds — seeding
     // then dumps everything in a tiny box at the top-left corner.
-    if (view.width < 200 || view.height < 200) return;
+    if (view.width < 200 || view.height < 200) {
+      return;
+    }
     this.started = true;
 
-    const now = this.scene.time.now;
+    const { now } = this.scene.time;
     this.hero = {
-      gfx: this.deps.makeShip(HERO_TINT, HERO_LEVEL).setDepth(9),
-      x: view.centerX + rand(-80, 80),
-      y: view.centerY + rand(60, 140), // below the title text block
-      vx: 0,
-      vy: 0,
       angle: rand(-Math.PI, Math.PI),
       fireAt: now + rand(200, 600),
+      gfx: this.deps.makeShip(HERO_TINT, HERO_LEVEL).setDepth(9),
+      vx: 0,
+      vy: 0,
+      wpUntil: 0,
       wpX: view.centerX,
       wpY: view.centerY + 100,
-      wpUntil: 0,
+      x: view.centerX + rand(-80, 80),
+      // below the title text block,
+      y: view.centerY + rand(60, 140),
     };
 
-    for (let i = 0; i < SWARM_SIZE; i++) {
+    for (let i = 0; i < SWARM_SIZE; i += 1) {
       const s = this.makeSwarmer();
       // Stagger the opening entries so the swarm streams in, not a wall.
       s.alive = false;
@@ -172,19 +196,19 @@ export class AttractBattle {
   private makeSwarmer(): Swarmer {
     const roll = rollKind();
     return {
+      alive: true,
+      angle: 0,
       gfx: this.deps.makeEnemy(roll.kind),
+      hp: roll.hp,
       kind: roll.kind,
-      x: 0,
-      y: 0,
+      respawnAt: 0,
+      speed: roll.speed,
       vx: 0,
       vy: 0,
-      angle: 0,
-      hp: roll.hp,
-      speed: roll.speed,
-      weavePhase: rand(0, Math.PI * 2),
       weaveAmp: roll.kind === "wasp" ? 0.55 : 0.22,
-      alive: true,
-      respawnAt: 0,
+      weavePhase: rand(0, Math.PI * 2),
+      x: 0,
+      y: 0,
     };
   }
 
@@ -227,7 +251,7 @@ export class AttractBattle {
   private killSwarmer(s: Swarmer, now: number): void {
     const spec = ENEMY_SPECS[s.kind];
     this.deps.fx.shatter(s.x, s.y, this.deps.enemyHull(s.kind), s.angle, spec.tint);
-    this.deps.fx.sparks(s.x, s.y, 8, spec.tint, { lifeMin: 140, lifeMax: 280 });
+    this.deps.fx.sparks(s.x, s.y, 8, spec.tint, { lifeMax: 280, lifeMin: 140 });
     s.alive = false;
     s.gfx.setVisible(false);
     s.respawnAt = now + rand(RESPAWN_MIN_MS, RESPAWN_MAX_MS);
@@ -237,8 +261,10 @@ export class AttractBattle {
    *  start screen is up; no-ops once destroyed. */
   update(dt: number, now: number): void {
     this.seed();
-    const hero = this.hero;
-    if (!hero) return;
+    const { hero } = this;
+    if (!hero) {
+      return;
+    }
     const view = this.scene.cameras.main.worldView;
 
     // ---- hero: kite the pack, gun the nearest chaser -------------------------
@@ -248,10 +274,12 @@ export class AttractBattle {
     let packY = 0;
     let packN = 0;
     for (const s of this.swarm) {
-      if (!s.alive) continue;
+      if (!s.alive) {
+        continue;
+      }
       packX += s.x;
       packY += s.y;
-      packN++;
+      packN += 1;
       const d = Math.hypot(s.x - hero.x, s.y - hero.y);
       if (d < nearestD) {
         nearestD = d;
@@ -278,9 +306,11 @@ export class AttractBattle {
       hero.x > view.right - EDGE_PAD ||
       hero.y < view.y + EDGE_PAD ||
       hero.y > view.bottom - EDGE_PAD;
-    if (outside) desired = Math.atan2(view.centerY - hero.y, view.centerX - hero.x);
+    if (outside) {
+      desired = Math.atan2(view.centerY - hero.y, view.centerX - hero.x);
+    }
 
-    hero.angle += Phaser.Math.Clamp(
+    hero.angle += PhaserMath.Clamp(
       angleDelta(hero.angle, desired),
       -HERO_TURN * dt,
       HERO_TURN * dt,
@@ -299,15 +329,22 @@ export class AttractBattle {
       hero.fireAt = now + rand(HERO_FIRE_CD_MIN, HERO_FIRE_CD_MAX);
     }
 
-    // ---- swarm: press the hero, burst on shield contact -----------------------
+    this.updateSwarm(hero, k, dt, now);
+    this.drawBeams(now);
+  }
+
+  /** Swarm: press the hero, burst on shield contact. */
+  private updateSwarm(hero: Hero, k: number, dt: number, now: number): void {
     for (const s of this.swarm) {
       if (!s.alive) {
-        if (now >= s.respawnAt) this.enter(s);
+        if (now >= s.respawnAt) {
+          this.enter(s);
+        }
         continue;
       }
       const toHero = Math.atan2(hero.y - s.y, hero.x - s.x);
       const chase = toHero + Math.sin(now * 0.001 * WEAVE_RATE + s.weavePhase) * s.weaveAmp;
-      s.angle += Phaser.Math.Clamp(angleDelta(s.angle, chase), -ENEMY_TURN * dt, ENEMY_TURN * dt);
+      s.angle += PhaserMath.Clamp(angleDelta(s.angle, chase), -ENEMY_TURN * dt, ENEMY_TURN * dt);
       s.vx += (Math.cos(s.angle) * s.speed - s.vx) * k;
       s.vy += (Math.sin(s.angle) * s.speed - s.vy) * k;
       s.x += s.vx * dt;
@@ -317,44 +354,45 @@ export class AttractBattle {
       // Reached the hero: burst against the shield (white flash, no harm —
       // the demo pilot is having a better run than you will).
       if (Math.hypot(s.x - hero.x, s.y - hero.y) < CONTACT_DIST) {
-        this.deps.fx.ring(hero.x, hero.y, 10, 44, 260, 0xffffff, 0.75);
+        this.deps.fx.ring(hero.x, hero.y, 10, 44, 260, 0xff_ff_ff, 0.75);
         this.killSwarmer(s, now);
       }
     }
-
-    this.drawBeams(now);
   }
 
   private fireHero(hero: Hero, target: Swarmer, now: number): void {
     this.shots.push({
-      x1: hero.x,
-      y1: hero.y,
-      x2: target.x,
-      y2: target.y,
+      bornAt: now,
       tint: HERO_TINT,
       width: 1.6,
-      bornAt: now,
+      x1: hero.x,
+      x2: target.x,
+      y1: hero.y,
+      y2: target.y,
     });
     this.deps.fx.sparks(hero.x, hero.y, 3, HERO_TINT, {
-      lifeMin: 60,
       lifeMax: 130,
-      speedMin: 40,
+      lifeMin: 60,
       speedMax: 120,
+      speedMin: 40,
     });
     target.hp -= 1;
-    if (target.hp <= 0) this.killSwarmer(target, now);
-    else {
+    if (target.hp <= 0) {
+      this.killSwarmer(target, now);
+    } else {
       const spec = ENEMY_SPECS[target.kind];
-      this.deps.fx.sparks(target.x, target.y, 4, spec.tint, { lifeMin: 90, lifeMax: 180 });
+      this.deps.fx.sparks(target.x, target.y, 4, spec.tint, { lifeMax: 180, lifeMin: 90 });
     }
   }
 
   private drawBeams(now: number): void {
     const g = this.beamGfx;
     g.clear();
-    for (let i = this.shots.length - 1; i >= 0; i--) {
+    for (let i = this.shots.length - 1; i >= 0; i -= 1) {
       const s = this.shots[i];
-      if (!s) continue;
+      if (!s) {
+        continue;
+      }
       const age = now - s.bornAt;
       if (age >= BEAM_LIFE_MS) {
         this.shots.splice(i, 1);
@@ -364,7 +402,7 @@ export class AttractBattle {
       // Outer glow + bright core, mirroring the in-game beam look.
       g.lineStyle(s.width * 3, s.tint, 0.18 * a);
       g.lineBetween(s.x1, s.y1, s.x2, s.y2);
-      g.lineStyle(s.width, 0xffffff, 0.85 * a);
+      g.lineStyle(s.width, 0xff_ff_ff, 0.85 * a);
       g.lineBetween(s.x1, s.y1, s.x2, s.y2);
     }
   }
@@ -373,7 +411,9 @@ export class AttractBattle {
   destroy(): void {
     this.hero?.gfx.destroy();
     this.hero = null;
-    for (const s of this.swarm) s.gfx.destroy();
+    for (const s of this.swarm) {
+      s.gfx.destroy();
+    }
     this.swarm.length = 0;
     this.shots.length = 0;
     this.beamGfx.destroy();

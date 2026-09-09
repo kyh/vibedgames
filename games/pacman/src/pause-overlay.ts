@@ -13,11 +13,11 @@ import type { ControlMethod } from "@repo/embed";
 import { CONTROLS } from "./controls";
 
 const METHOD_LABELS = {
+  camera: "face cam",
+  controller: "controller",
   keys: "keys",
   mouse: "mouse",
   touch: "touch",
-  camera: "face cam",
-  controller: "controller",
 } satisfies Record<ControlMethod, string>;
 
 const STYLE_ID = "pacman-pause-style";
@@ -226,22 +226,33 @@ const CSS = `
 `;
 
 /** Inject the shared control-card styles (pause overlay AND title banner). */
-export function ensureStyle(): void {
-  if (document.getElementById(STYLE_ID)) return;
+export const ensureStyle = (): void => {
+  if (document.querySelector(`#${STYLE_ID}`)) {
+    return;
+  }
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = CSS;
   document.head.append(style);
-}
+};
+
+const div = (className: string, parent: HTMLElement): HTMLDivElement => {
+  const node = document.createElement("div");
+  node.className = className;
+  parent.append(node);
+  return node;
+};
 
 /**
  * The grouped chip rows both instruction surfaces render — the title banner
  * and the pause overlay teach controls with the SAME UI. Null when nothing is
  * visible for the current device/pad context.
  */
-export function buildControls(coarse: boolean): HTMLElement | null {
+export const buildControls = (coarse: boolean): HTMLElement | null => {
   const groups = controlGroups(CONTROLS, { coarse });
-  if (groups.length === 0) return null;
+  if (groups.length === 0) {
+    return null;
+  }
   const list = document.createElement("div");
   list.className = "pp-groups";
   for (const group of groups) {
@@ -261,16 +272,9 @@ export function buildControls(coarse: boolean): HTMLElement | null {
     list.append(section);
   }
   return list;
-}
+};
 
-function div(className: string, parent: HTMLElement): HTMLDivElement {
-  const node = document.createElement("div");
-  node.className = className;
-  parent.append(node);
-  return node;
-}
-
-function buildChompRow(parent: HTMLElement): void {
+const buildChompRow = (parent: HTMLElement): void => {
   const row = div("pp-chomp-row", parent);
   const chomp = div("pp-chomp", row);
   const jawTop = div("pp-jaw pp-jaw-top", chomp);
@@ -278,8 +282,10 @@ function buildChompRow(parent: HTMLElement): void {
   const jawBot = div("pp-jaw pp-jaw-bot", chomp);
   div("pp-cheek", jawBot);
   const pellets = div("pp-pellets", row);
-  for (let i = 0; i < 3; i++) div("pp-pellet", pellets);
-}
+  for (let i = 0; i < 3; i += 1) {
+    div("pp-pellet", pellets);
+  }
+};
 
 let root: HTMLElement | null = null;
 
@@ -308,7 +314,9 @@ const shell = createPauseShell({
     sub.textContent = "taking a little breather ♥";
 
     const list = buildControls(coarse);
-    if (list) card.append(list);
+    if (list) {
+      card.append(list);
+    }
 
     const hint = div("pp-hint", card);
     hint.textContent = coarse ? "tap anywhere to resume" : "click or press any key to resume";
@@ -318,10 +326,10 @@ const shell = createPauseShell({
 });
 
 /** Mount the overlay. Idempotent while shown. */
-export const show = shell.show;
+export const { show } = shell;
 
 /** Unmount (fade out). Idempotent while hidden. */
-export const hide = shell.hide;
+export const { hide } = shell;
 
 /** Drop-in for the stock createPauseOverlay() return shape. */
 export const pauseOverlay = shell;

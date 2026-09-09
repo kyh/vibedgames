@@ -26,17 +26,17 @@ let controls: TouchControls | null = null;
 
 /** Mount once, from the title screen — the cluster outlives every scene, and
  *  the gallery and trailer routes never reach it. */
-export function mountTouchControls(): void {
+export const mountTouchControls = (): void => {
   controls ??= createTouchControls({
     className: "farm-touch",
     css: CSS,
-    styleId: "farm-touch-style",
     mute: { get: () => Sound.muted, set: (next) => Sound.setMuted(next) },
+    styleId: "farm-touch-style",
   });
-}
+};
 
 /** Redraw the mute glyph after something else changed the same state — a
  *  device can have both a keyboard and a touchscreen. */
-export function syncTouchControls(): void {
+export const syncTouchControls = (): void => {
   controls?.sync();
-}
+};

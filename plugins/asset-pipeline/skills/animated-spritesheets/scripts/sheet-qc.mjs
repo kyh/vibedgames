@@ -20,7 +20,6 @@
  *   node sheet-qc.mjs sheet.png --fail-on-hints  # exit 1 on soft hints too
  */
 import {
-  fail,
   failUsage,
   getFlag,
   getInt,
@@ -33,11 +32,13 @@ import {
 
 main(() => {
   const args = parseArgs(process.argv.slice(2), {
-    values: ["frame-height", "frame-width"],
     booleans: ["fail-on-hints", "json", "strict"],
+    values: ["frame-height", "frame-width"],
   });
-  const sheet = args.positionals[0];
-  if (!sheet) failUsage("a spritesheet path is required");
+  const [sheet] = args.positionals;
+  if (!sheet) {
+    failUsage("a spritesheet path is required");
+  }
 
   const frameWidth =
     getString(args, "frame-width") === undefined ? null : getInt(args, "frame-width", 0);
@@ -64,6 +65,10 @@ main(() => {
     }
   }
 
-  if (getFlag(args, "fail-on-hints") && report.verdict !== "clean") process.exit(1);
-  if (getFlag(args, "strict") && report.verdict === "warn") process.exit(1);
+  if (getFlag(args, "fail-on-hints") && report.verdict !== "clean") {
+    process.exit(1);
+  }
+  if (getFlag(args, "strict") && report.verdict === "warn") {
+    process.exit(1);
+  }
 });

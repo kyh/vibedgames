@@ -27,12 +27,8 @@ import { SolidIndex } from "../src/world/solid-index.ts";
 // time. Run: `pnpm test`.
 import { GRID_X, GRID_Z, ROAD_TILE, WORLD_HALF_X, WORLD_HALF_Z } from "../src/shared/constants.ts";
 import { generateCity } from "../src/world/grid.ts";
-import {
-  dominantCover,
-  type GroundCover,
-  makeLandClassAt,
-  wheelSurface,
-} from "../src/world/land-class.ts";
+import { dominantCover, makeLandClassAt, wheelSurface } from "../src/world/land-class.ts";
+import type { GroundCover } from "../src/world/land-class.ts";
 import { freewayPillars } from "../src/world/freeways.ts";
 import { buildLandmarks, landmarkProtection } from "../src/world/landmarks.ts";
 import { ModelCache } from "../src/assets/loader.ts";
@@ -63,12 +59,8 @@ import {
   TRANSIT_GEN_ID,
   TRANSIT_MODES,
 } from "../src/world/sf-transit.ts";
-import {
-  deserializeWorldBin,
-  type PackedTile,
-  unpackWorld,
-  WORLD_REV,
-} from "../src/world/world-bin.ts";
+import { deserializeWorldBin, unpackWorld, WORLD_REV } from "../src/world/world-bin.ts";
+import type { PackedTile } from "../src/world/world-bin.ts";
 import { packGeometry } from "../src/world/quantized-geometry.ts";
 import { BufferAttribute, BufferGeometry } from "three";
 import { packWorld, serializeWorldBin } from "../src/world/world-bin-pack.ts";
@@ -105,18 +97,29 @@ import {
 
 let pass = 0;
 let fail = 0;
-function check(name: string, cond: boolean, detail = ""): void {
+const check = (name: string, cond: boolean, detail = ""): void => {
   if (cond) {
-    pass++;
+    pass += 1;
     console.log(`  ok   ${name}${detail ? `  (${detail})` : ""}`);
   } else {
-    fail++;
+    fail += 1;
     console.log(`  FAIL ${name}${detail ? `  (${detail})` : ""}`);
   }
-}
+};
 
 const worldX = (gx: number): number => (gx + 0.5) * ROAD_TILE - WORLD_HALF_X;
 const worldZ = (gz: number): number => (gz + 0.5) * ROAD_TILE - WORLD_HALF_Z;
+const roadCellKey = (gx: number, gz: number): number => gx * GRID_Z + gz;
+const withinEps = (a: number | undefined, b: number, eps: number): boolean =>
+  a !== undefined && Math.abs(a - b) <= eps;
+const quantizedPosAt = (t: PackedTile, i: number): number =>
+  t.pos.min[i % 3] + ((t.pos.q[i] ?? 0) / 65_535) * t.pos.span[i % 3];
+const parcelPlanSignature = (r: ReturnType<typeof planParcels>): string =>
+  r.plans
+    .map(
+      (p) => `${p.id}:${p.kind}:${p.units}:${(p.ring[0] ?? 0).toFixed(3)}:${p.height.toFixed(3)}`,
+    )
+    .join("|");
 
 console.log("world-gen invariants");
 const t0 = performance.now();
@@ -138,17 +141,21 @@ await checkVehicleParking(check);
   let worst = 0;
   let worstAt = "";
   let roadCells = 0;
-  for (let gx = 0; gx < GRID_X; gx++) {
-    for (let gz = 0; gz < GRID_Z; gz++) {
-      if (plan.cells[gx]?.[gz] !== "road") continue;
-      roadCells++;
+  for (let gx = 0; gx < GRID_X; gx += 1) {
+    for (let gz = 0; gz < GRID_Z; gz += 1) {
+      if (plan.cells[gx]?.[gz] !== "road") {
+        continue;
+      }
+      roadCells += 1;
       const hit = network.nearest(worldX(gx), worldZ(gz), ROAD_TILE * 1.6);
       if (!hit) {
-        orphans++;
+        orphans += 1;
         worstAt = `${gx},${gz}`;
         continue;
       }
-      if (hit.dist > worst) worst = hit.dist;
+      if (hit.dist > worst) {
+        worst = hit.dist;
+      }
     }
   }
   check(
@@ -176,13 +183,17 @@ await checkVehicleParking(check);
       const smp = network.sample(e, s);
       const gx = Math.floor((smp.x + WORLD_HALF_X) / ROAD_TILE);
       const gz = Math.floor((smp.z + WORLD_HALF_Z) / ROAD_TILE);
-      if (gx < 0 || gz < 0 || gx >= GRID_X || gz >= GRID_Z) continue;
-      samples++;
+      if (gx < 0 || gz < 0 || gx >= GRID_X || gz >= GRID_Z) {
+        continue;
+      }
+      samples += 1;
       const cell = plan.cells[gx]?.[gz];
       // Water is legal (bridges); a LOT cell under an edge centreline is not.
       if (cell === "lot") {
-        offRoad++;
-        if (!example) example = `edge ${e.id} @ ${gx},${gz}`;
+        offRoad += 1;
+        if (!example) {
+          example = `edge ${e.id} @ ${gx},${gz}`;
+        }
       }
     }
   }
@@ -204,11 +215,12 @@ await checkVehicleParking(check);
 // --- 3. Road graph is a single connected component (grid side enforces it;
 // a fragmented VECTOR network strands traffic + fares on unreachable islands).
 {
-  const cellKey = (gx: number, gz: number): number => gx * GRID_Z + gz;
   const road = new Set<number>();
-  for (let gx = 0; gx < GRID_X; gx++) {
-    for (let gz = 0; gz < GRID_Z; gz++) {
-      if (plan.cells[gx]?.[gz] === "road") road.add(cellKey(gx, gz));
+  for (let gx = 0; gx < GRID_X; gx += 1) {
+    for (let gz = 0; gz < GRID_Z; gz += 1) {
+      if (plan.cells[gx]?.[gz] === "road") {
+        road.add(roadCellKey(gx, gz));
+      }
     }
   }
   let componentSize = 0;
@@ -219,8 +231,10 @@ await checkVehicleParking(check);
     seen.add(first);
     while (stack.length > 0) {
       const k = stack.pop();
-      if (k === undefined) break;
-      componentSize++;
+      if (k === undefined) {
+        break;
+      }
+      componentSize += 1;
       const gx = Math.floor(k / GRID_Z);
       const gz = k % GRID_Z;
       for (const [dx, dz] of [
@@ -229,7 +243,7 @@ await checkVehicleParking(check);
         [0, 1],
         [0, -1],
       ] as const) {
-        const nk = cellKey(gx + dx, gz + dz);
+        const nk = roadCellKey(gx + dx, gz + dz);
         if (road.has(nk) && !seen.has(nk)) {
           seen.add(nk);
           stack.push(nk);
@@ -259,12 +273,18 @@ await checkVehicleParking(check);
   // derived masks make this hold unless the bake drifted.
   let parkRoad = 0;
   let stranded = 0;
-  for (let gx = 0; gx < GRID_X; gx++) {
-    for (let gz = 0; gz < GRID_Z; gz++) {
-      if (plan.cells[gx]?.[gz] !== "road") continue;
-      if (!parkCell(gx, gz)) continue;
-      parkRoad++;
-      if (!network.nearest(worldX(gx), worldZ(gz), ROAD_TILE * 1.6)) stranded++;
+  for (let gx = 0; gx < GRID_X; gx += 1) {
+    for (let gz = 0; gz < GRID_Z; gz += 1) {
+      if (plan.cells[gx]?.[gz] !== "road") {
+        continue;
+      }
+      if (!parkCell(gx, gz)) {
+        continue;
+      }
+      parkRoad += 1;
+      if (!network.nearest(worldX(gx), worldZ(gz), ROAD_TILE * 1.6)) {
+        stranded += 1;
+      }
     }
   }
   check("park road cells sit on a kept edge", stranded === 0, `${parkRoad} park road cells`);
@@ -280,12 +300,16 @@ await checkVehicleParking(check);
     const bEdges = network.nodeEdges[e.b]?.length ?? 0;
     // Cut nodes are appended past SF_BASE_NODES in the baked table; deg-1.
     if (e.a >= SF_BASE_NODES) {
-      cutNodes++;
-      if (aEdges > 1) sharedCutEnds++;
+      cutNodes += 1;
+      if (aEdges > 1) {
+        sharedCutEnds += 1;
+      }
     }
     if (e.b >= SF_BASE_NODES) {
-      cutNodes++;
-      if (bEdges > 1) sharedCutEnds++;
+      cutNodes += 1;
+      if (bEdges > 1) {
+        sharedCutEnds += 1;
+      }
     }
   }
   check("clip cut-nodes stay degree-1", sharedCutEnds === 0, `${cutNodes} cut nodes`);
@@ -302,7 +326,7 @@ await checkVehicleParking(check);
   fixture.setAttribute("normal", new BufferAttribute(new Float32Array([0, 1, 0, 0, 1, 0]), 3));
   fixture.setAttribute(
     "color",
-    new BufferAttribute(new Float32Array([0.2, 0.4, 0.6, 0.8, 1.0, 0.1]), 3),
+    new BufferAttribute(new Float32Array([0.2, 0.4, 0.6, 0.8, 1, 0.1]), 3),
   );
   fixture.setIndex(new BufferAttribute(new Uint16Array([0, 1, 0]), 1));
   const tiles = [{ ...packGeometry(fixture), x: 12.25, z: -8.75 }];
@@ -315,21 +339,17 @@ await checkVehicleParking(check);
   check("bake rev survives", back.rev === WORLD_REV, `rev ${back.rev}`);
   const world = back.world === undefined ? null : unpackWorld(back.world);
   const tile = world?.tiles[0];
-  const near = (a: number | undefined, b: number, eps: number): boolean =>
-    a !== undefined && Math.abs(a - b) <= eps;
-  const posAt = (t: PackedTile, i: number): number =>
-    t.pos.min[i % 3] + ((t.pos.q[i] ?? 0) / 65535) * t.pos.span[i % 3];
   check(
     "bake tile buffers survive quantization",
     !!tile &&
       tile.x === 12.25 &&
       tile.z === -8.75 &&
       tile.pos.q.length === 6 &&
-      near(posAt(tile, 3), 4.5, 0.05) &&
-      near((tile.col?.[2] ?? 0) / 255, 0.6, 1 / 128) &&
-      near((tile.nor[1] ?? 0) / 127, 1, 0.02) &&
+      withinEps(quantizedPosAt(tile, 3), 4.5, 0.05) &&
+      withinEps((tile.col?.[2] ?? 0) / 255, 0.6, 1 / 128) &&
+      withinEps((tile.nor[1] ?? 0) / 127, 1, 0.02) &&
       tile.index?.[1] === 1,
-    tile ? `pos[3]=${posAt(tile, 3).toFixed(3)} col[2]=${tile.col?.[2]}` : "no tile",
+    tile ? `pos[3]=${quantizedPosAt(tile, 3).toFixed(3)} col[2]=${tile.col?.[2]}` : "no tile",
   );
   check("world.bin carries no road parts (by design)", world?.roadParts.length === 0);
 }
@@ -339,9 +359,11 @@ await checkVehicleParking(check);
 {
   const plan2 = generateCity();
   let diff = 0;
-  for (let gx = 0; gx < GRID_X; gx++) {
-    for (let gz = 0; gz < GRID_Z; gz++) {
-      if (plan.cells[gx]?.[gz] !== plan2.cells[gx]?.[gz]) diff++;
+  for (let gx = 0; gx < GRID_X; gx += 1) {
+    for (let gz = 0; gz < GRID_Z; gz += 1) {
+      if (plan.cells[gx]?.[gz] !== plan2.cells[gx]?.[gz]) {
+        diff += 1;
+      }
     }
   }
   check("generateCity is deterministic", diff === 0, `${diff} differing cells`);
@@ -364,17 +386,23 @@ await checkVehicleParking(check);
       ? 0
       : Math.min(network.nodeTrim(edge.b), edge.len * 0.45);
     const sec = edge.len - tA - tB;
-    if (sec <= 0) continue;
+    if (sec <= 0) {
+      continue;
+    }
     total += sec;
     const steps = Math.max(1, Math.ceil(sec / 4));
     let free = 0;
-    for (let i = 0; i <= steps; i++) {
+    for (let i = 0; i <= steps; i += 1) {
       const smp = network.sample(edge, tA + (i / steps) * sec);
-      if (!j.near(smp.x, smp.z, 1.2)) free++;
+      if (!j.near(smp.x, smp.z, 1.2)) {
+        free += 1;
+      }
     }
     const frac = free / (steps + 1);
     painted += frac * sec;
-    if (frac < 0.05) bald++;
+    if (frac < 0.05) {
+      bald += 1;
+    }
   }
   const cov = (painted / total) * 100;
   check(
@@ -395,11 +423,15 @@ await checkVehicleParking(check);
   let inLane = 0;
   for (const p of pillars) {
     const hit = network.nearest(p.x, p.z, 40);
-    if (!hit || hit.dist >= hit.edge.half + p.half) continue;
-    inRoad++;
+    if (!hit || hit.dist >= hit.edge.half + p.half) {
+      continue;
+    }
+    inRoad += 1;
     // Where the whole bay is roadway the search falls back to a MEDIAN pier,
     // which reads intentional; a pillar out in a travel lane does not.
-    if (hit.dist > 1.5) inLane++;
+    if (hit.dist > 1.5) {
+      inLane += 1;
+    }
   }
   check(
     "freeway pillars clear the street asphalt",
@@ -426,8 +458,10 @@ await checkVehicleParking(check);
   let covered = 0;
   for (const mode of TRANSIT_MODES) {
     for (const edge of transitEdges(mode)) {
-      covered++;
-      if (edge < 0 || edge >= network.edges.length) outOfRange++;
+      covered += 1;
+      if (edge < 0 || edge >= network.edges.length) {
+        outOfRange += 1;
+      }
     }
   }
   check(
@@ -438,10 +472,12 @@ await checkVehicleParking(check);
   {
     const src = loadParcelSource();
     let hero = 0;
-    for (let i = 0; i < src.count; i++) hero += src.hero[i] ?? 0;
+    for (let i = 0; i < src.count; i += 1) {
+      hero += src.hero[i] ?? 0;
+    }
     check(
       "parcel source ships the survey plus the rest of the city",
-      src.count >= 100000 && hero >= 18000 && hero <= 21023,
+      src.count >= 100_000 && hero >= 18_000 && hero <= 21_023,
       `${src.count} parcels, ${hero} from the survey`,
     );
   }
@@ -470,15 +506,23 @@ await checkVehicleParking(check);
   let beach = 0;
   let sandUnderfoot = 0;
   let vegAt = "";
-  for (let gx = 0; gx < GRID_X; gx++) {
-    for (let gz = 0; gz < GRID_Z; gz++) {
+  for (let gx = 0; gx < GRID_X; gx += 1) {
+    for (let gz = 0; gz < GRID_Z; gz += 1) {
       const l = land(worldX(gx), worldZ(gz));
-      if (l.shore.kind === "beach") beach++;
-      if (wheelSurface(l) === "sand") sandUnderfoot++;
-      if (!l.built) continue;
+      if (l.shore.kind === "beach") {
+        beach += 1;
+      }
+      if (wheelSurface(l) === "sand") {
+        sandUnderfoot += 1;
+      }
+      if (!l.built) {
+        continue;
+      }
       if (VEGETATED.has(dominantCover(l))) {
-        vegOnBuilt++;
-        if (!vegAt) vegAt = `${gx},${gz}`;
+        vegOnBuilt += 1;
+        if (!vegAt) {
+          vegAt = `${gx},${gz}`;
+        }
       }
     }
   }
@@ -533,16 +577,23 @@ await checkVehicleParking(check);
   const groundProps = props.filter((prop) => !waterBarriers.props.has(prop));
   const nonWaterSolids = rest.solids.filter((solid) => !waterBarriers.solids.has(solid));
   const cls = classifySolids(rest.solids, auditWorld, props, loadParcelSource());
-  const EMPTY_SOLID = { minX: 0, maxX: 0, minZ: 0, maxZ: 0 };
+  const EMPTY_SOLID = { maxX: 0, maxZ: 0, minX: 0, minZ: 0 };
   const massIdx: number[] = [];
   const furnIdx: number[] = [];
-  for (let i = 0; i < rest.solids.length; i++) {
+  for (let i = 0; i < rest.solids.length; i += 1) {
     const solid = rest.solids[i];
-    if (solid && waterBarriers.solids.has(solid)) continue;
+    if (solid && waterBarriers.solids.has(solid)) {
+      continue;
+    }
     const c = cls[i];
-    if (c === "map-border") continue;
-    if (c === "tree" || c === "furniture") furnIdx.push(i);
-    else massIdx.push(i);
+    if (c === "map-border") {
+      continue;
+    }
+    if (c === "tree" || c === "furniture") {
+      furnIdx.push(i);
+    } else {
+      massIdx.push(i);
+    }
   }
   const massBoxes = massIdx.map((i) => solidObb(rest.solids[i] ?? EMPTY_SOLID));
 
@@ -569,8 +620,9 @@ await checkVehicleParking(check);
   check(
     "solid interpenetration stays at its ratchet",
     ov.defects.length <= 1150,
-    `${ov.defects.length} defects of ${ov.touching} touching pairs` +
-      (ov.defects[0] ? `, worst ${uv(ov.defects[0].x, ov.defects[0].z)}` : ""),
+    `${ov.defects.length} defects of ${ov.touching} touching pairs${
+      ov.defects[0] ? `, worst ${uv(ov.defects[0].x, ov.defects[0].z)}` : ""
+    }`,
   );
 
   // Buildings in the road: corners AND edge midpoints against the drawn
@@ -582,8 +634,9 @@ await checkVehicleParking(check);
   check(
     "masses in the roadway stay at their ratchet",
     inRoad.length <= 340 && deep.length <= 8,
-    `${inRoad.length} past the kerb, ${deep.length} over 3u deep` +
-      (deep[0] ? `, worst ${deep[0].depth.toFixed(1)}u @ ${uv(deep[0].x, deep[0].z)}` : ""),
+    `${inRoad.length} past the kerb, ${deep.length} over 3u deep${
+      deep[0] ? `, worst ${deep[0].depth.toFixed(1)}u @ ${uv(deep[0].x, deep[0].z)}` : ""
+    }`,
   );
   // The landmark reservation boxes are INVISIBLE (the monument is the visual),
   // so one standing in a lane is a wall out of nowhere — the worst kind.
@@ -591,10 +644,11 @@ await checkVehicleParking(check);
   check(
     "invisible landmark boxes in the roadway stay at their ratchet",
     invisibleInRoad.length <= 24,
-    `${invisibleInRoad.length}` +
-      (invisibleInRoad[0]
+    `${invisibleInRoad.length}${
+      invisibleInRoad[0]
         ? ` worst ${invisibleInRoad[0].depth.toFixed(1)}u @ ${uv(invisibleInRoad[0].x, invisibleInRoad[0].z)}`
-        : ""),
+        : ""
+    }`,
   );
 
   // Street furniture, trees and parked cars. Roadworks props (cones, barriers,
@@ -613,8 +667,12 @@ await checkVehicleParking(check);
   let carWorst = 0;
   for (const c of rest.parkedCars) {
     const d = asphaltDepth(network, c.x, c.z);
-    if (d > 2.5) carsInLane++;
-    if (d > carWorst) carWorst = d;
+    if (d > 2.5) {
+      carsInLane += 1;
+    }
+    if (d > carWorst) {
+      carWorst = d;
+    }
   }
   check(
     "kerb props and parked cars stay out of the lanes at their ratchet",
@@ -630,10 +688,10 @@ await checkVehicleParking(check);
   // and only fixed-scale ground props qualify (a mass cuts into its own grade
   // and a plinth fills what is left, by design).
   const seat = seatReport(groundProps, auditWorld.standAt, auditWorld.terrainAt, {
-    floatGap: 0.35,
     buryDepth: 0.6,
-    minCount: 40,
+    floatGap: 0.35,
     groundSpread: 0.3,
+    minCount: 40,
     seatSamples: await treeRootSeatSamples(rest, props),
   });
   const wrongSurface = seat.groups.filter((g) => g.wrongSurface);
@@ -643,9 +701,7 @@ await checkVehicleParking(check);
   check(
     "seated props stay on the drawn surface at their ratchet",
     seat.floating <= 280 && seat.buried <= 82 && wrongSurface.length === 0,
-    `${seat.floating} floating, ${seat.buried} buried, ` +
-      `${wrongSurface.length} kinds tracking the raw field` +
-      (wrongSurface[0] ? ` (${wrongSurface[0].url})` : ""),
+    `${seat.floating} floating, ${seat.buried} buried, ${wrongSurface.length} kinds tracking the raw field${wrongSurface[0] ? ` (${wrongSurface[0].url})` : ""}`,
   );
 
   // Landmark parcels. Wave 0 shipped a skyscraper inside Oracle Park's bowl
@@ -664,10 +720,11 @@ await checkVehicleParking(check);
   check(
     "landmark-parcel squatters stay at their ratchet",
     lm.intruders.length <= 2,
-    `${lm.intruders.length} intruders` +
-      (lm.intruders[0]
+    `${lm.intruders.length} intruders${
+      lm.intruders[0]
         ? `, e.g. ${lm.intruders[0].landmark}: ${lm.intruders[0].what} @ ${uv(lm.intruders[0].x, lm.intruders[0].z)}`
-        : ""),
+        : ""
+    }`,
   );
 
   // Street grade, measured on the DRAPE that is drawn (not the raw field):
@@ -693,16 +750,16 @@ await checkVehicleParking(check);
   const terrain = makeTerrain();
   const { standAt } = buildAuditWorld();
   const source = loadParcelSource();
-  const t0 = performance.now();
-  const parcels = planParcels({ source, network, terrain, reserved: prot.reserved, standAt });
+  const parcelT0 = performance.now();
+  const parcels = planParcels({ network, reserved: prot.reserved, source, standAt, terrain });
   const { rest: bakedRest } = await loadBakedRest();
   checkPlayerSpawnFixtures(check);
   const spawnSurface = new DriveSurface(terrain, plan, () => network);
   spawnSurface.addDecks(bakedRest.decks);
   checkInstalledPlayerSpawns(check, {
-    network,
     decks: spawnSurface.getDecks(),
     heightAt: (x, z) => spawnSurface.heightAt(x, z),
+    network,
     solids: new SolidIndex([
       ...bakedRest.solids,
       ...parcels.plans.flatMap((parcel) => parcel.solids),
@@ -713,24 +770,18 @@ await checkVehicleParking(check);
   buildLandmarks(terrain, new ModelCache(), network, undefined, (body) => plantedWater.push(body));
   await checkBakedTreeClearance(check, bakedRest, parcels.plans, plantedWater);
   checkHistoricCorners(check, parcels.plans);
-  const planMs = Math.round(performance.now() - t0);
-  const again = planParcels({ source, network, terrain, reserved: prot.reserved, standAt });
-  const sig = (r: typeof parcels): string =>
-    r.plans
-      .map(
-        (p) => `${p.id}:${p.kind}:${p.units}:${(p.ring[0] ?? 0).toFixed(3)}:${p.height.toFixed(3)}`,
-      )
-      .join("|");
+  const planMs = Math.round(performance.now() - parcelT0);
+  const again = planParcels({ network, reserved: prot.reserved, source, standAt, terrain });
   check(
     "parcel plan is deterministic",
-    sig(parcels) === sig(again),
+    parcelPlanSignature(parcels) === parcelPlanSignature(again),
     `${parcels.plans.length} parcels in ${planMs}ms`,
   );
   const s = parcels.stats;
   // The old kit pass built 2,890 of these; the kerb clip is what lifts it.
   check(
     "real parcels build instead of being rejected",
-    s.built >= 120000 && s.onRoad + s.clipped <= 4200 && s.straddle <= 3600,
+    s.built >= 120_000 && s.onRoad + s.clipped <= 4200 && s.straddle <= 3600,
     `${s.built} of ${source.count} built (${s.onRoad} in a lane, ${s.clipped} clipped away, ` +
       `${s.folded} folded, ${s.straddle} straddling, ${s.stacked} stacked, ${s.park} park, ` +
       `${s.reserved} reserved, ${s.freeway} freeway, ${s.cliff} cliff, ${s.stretched} stretched; ${s.underDeck} under a deck, ${s.boxed} boxed, ${s.split} split)`,
@@ -740,12 +791,14 @@ await checkVehicleParking(check);
   let worst = 0;
   let worstAt = "";
   for (const p of parcels.plans) {
-    for (let i = 0; i < p.n; i++) {
+    for (let i = 0; i < p.n; i += 1) {
       const x = p.ring[i * 2] ?? 0;
       const z = p.ring[i * 2 + 1] ?? 0;
       const d = asphaltDepth(network, x, z);
-      if (d <= 0.5) continue;
-      pastKerb++;
+      if (d <= 0.5) {
+        continue;
+      }
+      pastKerb += 1;
       if (d > worst) {
         worst = d;
         worstAt = uv(x, z);
@@ -755,8 +808,9 @@ await checkVehicleParking(check);
   check(
     "parcel walls stay off the asphalt",
     pastKerb === 0,
-    `${pastKerb} vertices past the kerb` +
-      (worst > 0 ? `, worst ${worst.toFixed(1)}u @ ${worstAt}` : ""),
+    `${pastKerb} vertices past the kerb${
+      worst > 0 ? `, worst ${worst.toFixed(1)}u @ ${worstAt}` : ""
+    }`,
   );
   const boxes = parcels.plans.flatMap((p) => p.solids).map(solidObb);
   const inRoad = roadIntrusions(boxes, network, 0.5);
@@ -765,8 +819,9 @@ await checkVehicleParking(check);
     "parcel solids stay out of the lanes",
     // One 3u shed in Bayview lays a wall box 3.1u into its lane — a ratchet, not a pass.
     inRoad.length <= 700 && deep.length <= 1,
-    `${boxes.length} solids, ${inRoad.length} past the kerb, ${deep.length} over 3u deep` +
-      (deep[0] ? `, worst ${deep[0].depth.toFixed(1)}u @ ${uv(deep[0].x, deep[0].z)}` : ""),
+    `${boxes.length} solids, ${inRoad.length} past the kerb, ${deep.length} over 3u deep${
+      deep[0] ? `, worst ${deep[0].depth.toFixed(1)}u @ ${uv(deep[0].x, deep[0].z)}` : ""
+    }`,
   );
   // What the plan cannot build it hands over as a surface lot, so the survey
   // never leaves bare ground (the kit walk no longer fills inside it).
@@ -778,25 +833,30 @@ await checkVehicleParking(check);
   let heroWalls = 0;
   let heroCount = 0;
   for (const p of parcels.plans) {
-    if (!p.hero) continue;
-    heroCount++;
-    for (let e = 0; e < p.n; e++)
+    if (!p.hero) {
+      continue;
+    }
+    heroCount += 1;
+    for (let e = 0; e < p.n; e += 1) {
       if (p.blind[e] === 1) {
-        heroWalls++;
+        heroWalls += 1;
         break;
       }
+    }
   }
   check(
     "survey parcels keep their party walls through the bake",
-    heroCount >= 15000 && heroWalls >= heroCount * 0.45,
+    heroCount >= 15_000 && heroWalls >= heroCount * 0.45,
     `${heroWalls} of ${heroCount} survey parcels carry a party wall`,
   );
   const kinds = new Map<string, number>();
-  for (const p of parcels.plans) kinds.set(p.kind, (kinds.get(p.kind) ?? 0) + 1);
+  for (const p of parcels.plans) {
+    kinds.set(p.kind, (kinds.get(p.kind) ?? 0) + 1);
+  }
   const k = (name: string): number => kinds.get(name) ?? 0;
   check(
     "the fabric has the San Francisco mix",
-    k("rowhouse") + k("stucco") >= 90000 && k("midrise") >= 8000 && k("tower") >= 300,
+    k("rowhouse") + k("stucco") >= 90_000 && k("midrise") >= 8000 && k("tower") >= 300,
     [...kinds.entries()].map(([n, c]) => `${n} ${c}`).join(", "),
   );
   let simplified = 0;
@@ -804,18 +864,24 @@ await checkVehicleParking(check);
   let distantCorners = 0;
   let escaped = 0;
   for (const p of parcels.plans) {
-    if (p.hero) continue;
+    if (p.hero) {
+      continue;
+    }
     const lod = distantFootprint(p);
     sourceCorners += p.n;
     distantCorners += lod.n;
-    if (lod.ring === p.ring) continue;
-    simplified++;
-    for (let i = 0; i < lod.n; i++) {
+    if (lod.ring === p.ring) {
+      continue;
+    }
+    simplified += 1;
+    for (let i = 0; i < lod.n; i += 1) {
       const j = (i + 1) % lod.n;
       for (const f of [0, 0.25, 0.5, 0.75]) {
         const x = (lod.ring[i * 2] ?? 0) * (1 - f) + (lod.ring[j * 2] ?? 0) * f;
         const z = (lod.ring[i * 2 + 1] ?? 0) * (1 - f) + (lod.ring[j * 2 + 1] ?? 0) * f;
-        if (!pointInRing(p.ring, p.n, x, z) && distToRing(p.ring, p.n, x, z) > 0.001) escaped++;
+        if (!pointInRing(p.ring, p.n, x, z) && distToRing(p.ring, p.n, x, z) > 0.001) {
+          escaped += 1;
+        }
       }
     }
   }
@@ -837,7 +903,7 @@ await checkVehicleParking(check);
   const visible = visibleParcelPlans(parcels.plans);
   check(
     "overlapping source volumes retain authoritative collision plans",
-    visible.length > 120000 && visible.length < parcels.plans.length,
+    visible.length > 120_000 && visible.length < parcels.plans.length,
     `${parcels.plans.length - visible.length} enclosed render volumes suppressed; ${parcels.plans.length} collision parcels retained`,
   );
   const skyline = visible.filter((p) => p.height >= 13);
@@ -847,14 +913,15 @@ await checkVehicleParking(check);
   const skyMs = Math.round(performance.now() - t1);
   check(
     "the static skyline stays small",
-    skyline.length <= 1200 && bytesOf(sky) <= 20 * 1048576,
-    `${skyline.length} towers, ${sky.stats.vertices} verts, ${(bytesOf(sky) / 1048576).toFixed(1)} MB in ${skyMs}ms`,
+    skyline.length <= 1200 && bytesOf(sky) <= 20 * 1_048_576,
+    `${skyline.length} towers, ${sky.stats.vertices} verts, ${(bytesOf(sky) / 1_048_576).toFixed(1)} MB in ${skyMs}ms`,
   );
-  const resident = async (x: number, z: number, radius: number, detail: 1 | 2) => {
+  const resident = (x: number, z: number, radius: number, detail: 1 | 2) => {
     const keys = new Set<number>();
     for (const p of fabric) {
-      if (Math.hypot(p.obb.cx - x, p.obb.cz - z) < radius + STREAM_HYSTERESIS)
+      if (Math.hypot(p.obb.cx - x, p.obb.cz - z) < radius + STREAM_HYSTERESIS) {
         keys.add(streamCellKey(p.obb.cx, p.obb.cz));
+      }
     }
     const within = fabric.filter((p) => keys.has(streamCellKey(p.obb.cx, p.obb.cz)));
     const lotsWithin = parcels.lots.filter((l) => keys.has(streamCellKey(l.obb.cx, l.obb.cz)));
@@ -871,37 +938,37 @@ await checkVehicleParking(check);
       verts += g.stats.vertices;
       bytes += bytesOf(g);
     }
-    return { parcels: within.length, verts, mb: bytes / 1048576 };
+    return { mb: bytes / 1_048_576, parcels: within.length, verts };
   };
-  const fidi = await resident(640, -830, streamRadiusFor(1), 2);
+  const fidi = resident(640, -830, streamRadiusFor(1), 2);
   check(
     "resident fabric at FiDi fits the desktop budget",
-    fidi.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1048576 <= 110,
-    `${fidi.parcels} parcels, ${fidi.verts} verts, ${(fidi.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1048576).toFixed(2)} MiB total incl skyline + sign atlas`,
+    fidi.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1_048_576 <= 110,
+    `${fidi.parcels} parcels, ${fidi.verts} verts, ${(fidi.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1_048_576).toFixed(2)} MiB total incl skyline + sign atlas`,
   );
-  const fidiPhone = await resident(640, -830, streamRadiusFor(0.6), 1);
+  const fidiPhone = resident(640, -830, streamRadiusFor(0.6), 1);
   check(
     "resident fabric at FiDi fits the phone budget",
-    fidiPhone.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1048576 <= 70,
-    `${fidiPhone.parcels} parcels, ${fidiPhone.verts} verts, ${(fidiPhone.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1048576).toFixed(2)} MiB total incl skyline + sign atlas`,
+    fidiPhone.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1_048_576 <= 70,
+    `${fidiPhone.parcels} parcels, ${fidiPhone.verts} verts, ${(fidiPhone.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1_048_576).toFixed(2)} MiB total incl skyline + sign atlas`,
   );
-  const richmond = await resident(-396, -260, streamRadiusFor(1), 2);
+  const richmond = resident(-396, -260, streamRadiusFor(1), 2);
   check(
     "resident central-city fabric fits the desktop budget",
-    richmond.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1048576 <= 110,
-    `${richmond.parcels} Richmond parcels, ${richmond.verts} verts, ${(richmond.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1048576).toFixed(2)} MiB total incl skyline + sign atlas`,
+    richmond.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1_048_576 <= 110,
+    `${richmond.parcels} Richmond parcels, ${richmond.verts} verts, ${(richmond.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1_048_576).toFixed(2)} MiB total incl skyline + sign atlas`,
   );
-  const richmondPhoneFull = await resident(-396, -260, streamRadiusFor(1, 1), 1);
+  const richmondPhoneFull = resident(-396, -260, streamRadiusFor(1, 1), 1);
   check(
     "phone fabric stays within budget after earning maximum quality",
-    richmondPhoneFull.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1048576 <= 70,
-    `${(richmondPhoneFull.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1048576).toFixed(2)} MiB total`,
+    richmondPhoneFull.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1_048_576 <= 70,
+    `${(richmondPhoneFull.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1_048_576).toFixed(2)} MiB total`,
   );
-  const richmondPhone = await resident(-396, -260, streamRadiusFor(0.6), 1);
+  const richmondPhone = resident(-396, -260, streamRadiusFor(0.6), 1);
   check(
     "resident central-city fabric fits the phone budget",
-    richmondPhone.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1048576 <= 70,
-    `${richmondPhone.parcels} Richmond parcels, ${richmondPhone.verts} verts, ${(richmondPhone.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1048576).toFixed(2)} MiB total incl skyline + sign atlas`,
+    richmondPhone.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1_048_576 <= 70,
+    `${richmondPhone.parcels} Richmond parcels, ${richmondPhone.verts} verts, ${(richmondPhone.mb + (bytesOf(sky) + SIGN_ATLAS_BYTES) / 1_048_576).toFixed(2)} MiB total incl skyline + sign atlas`,
   );
 }
 
@@ -923,4 +990,6 @@ checkSalesforce(check);
 checkParcelClearance(check);
 
 console.log(`\n${pass} passed, ${fail} failed`);
-if (fail > 0) process.exit(1);
+if (fail > 0) {
+  process.exit(1);
+}

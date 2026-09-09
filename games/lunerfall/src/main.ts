@@ -1,4 +1,5 @@
-import Phaser from "phaser";
+import type { Types } from "phaser";
+import { Game, Scale, WEBGL } from "phaser";
 import { setPauseHandlers } from "@repo/embed";
 
 import { BASE_H, BASE_W, clampAspect } from "./config";
@@ -9,22 +10,22 @@ import { GameScene } from "./scenes/game-scene";
 import { SelectScene } from "./scenes/select-scene";
 import { mountTouchHud } from "./touch-hud";
 
-const config: Phaser.Types.Core.GameConfig = {
-  type: Phaser.WEBGL,
-  parent: "game",
+const config: Types.Core.GameConfig = {
   backgroundColor: "#05070b",
+  parent: "game",
   pixelArt: true,
   roundPixels: true,
   scale: {
-    mode: Phaser.Scale.FIT,
-    autoCenter: Phaser.Scale.CENTER_BOTH,
-    width: BASE_W,
+    autoCenter: Scale.CENTER_BOTH,
     height: BASE_H,
+    mode: Scale.FIT,
+    width: BASE_W,
   },
   scene: [BootScene, SelectScene, GameScene],
+  type: WEBGL,
 };
 
-const game = new Phaser.Game(config);
+const game = new Game(config);
 // Debug handle for perf/inspection probes (see globalThis.__game).
 Reflect.set(globalThis, "__game", game);
 // __GAME_DIAGNOSTICS__ / __GAME_TEST_HOOKS__ for bot playtests (sys/diag.ts).
@@ -35,12 +36,17 @@ const params = new URLSearchParams(window.location.search);
 // Trailer mode (?trailer=1): hand the boot to the trailer director. Lazy import
 // so the trailer module never loads — and trailer code stays dead — in normal play.
 if (params.has("trailer")) {
-  void import("./trailer/trailer-director").then((m) => m.initTrailer(game));
+  void (async () => {
+    const m = await import("./trailer/trailer-director");
+    m.initTrailer(game);
+  })();
 }
 
 // The trailer rolls itself and the viewer is a dev tool with its own chrome;
 // neither wants floating buttons over it.
-if (!params.has("trailer") && !params.has("viewer")) mountTouchHud(false);
+if (!params.has("trailer") && !params.has("viewer")) {
+  mountTouchHud(false);
+}
 
 // Wrapper-requested pause: never freeze a live co-op/versus session another
 // player is relying on, only the local sim. `froze` tracks whether onPause
@@ -54,22 +60,26 @@ const isOnline = (): boolean => {
 let froze = false;
 const pauseOverlay = createLunerfallPauseOverlay();
 setPauseHandlers({
+  // Versus binds Escape to "leave the duel" — defer to it there.
+  escapePauses: () => {
+    const scene = game.scene.getScene("game");
+    return !(game.scene.isActive("game") && scene instanceof GameScene && scene.isVersus());
+  },
   onPause: () => {
     pauseOverlay.show();
-    if (isOnline()) return;
+    if (isOnline()) {
+      return;
+    }
     froze = true;
     game.loop.sleep();
   },
   onResume: () => {
     pauseOverlay.hide();
-    if (!froze) return;
+    if (!froze) {
+      return;
+    }
     froze = false;
     game.loop.wake();
-  },
-  // Versus binds Escape to "leave the duel" — defer to it there.
-  escapePauses: () => {
-    const scene = game.scene.getScene("game");
-    return !(game.scene.isActive("game") && scene instanceof GameScene && scene.isVersus());
   },
 });
 
@@ -86,7 +96,9 @@ setPauseHandlers({
 // screen that holds no state.
 const bakedAspect = BASE_W / BASE_H;
 const aspectMoved = (): boolean => {
-  if (window.innerHeight <= 0) return false;
+  if (window.innerHeight <= 0) {
+    return false;
+  }
   const live = clampAspect(window.innerWidth / window.innerHeight);
   return Math.abs(live - bakedAspect) / bakedAspect > 0.2;
 };

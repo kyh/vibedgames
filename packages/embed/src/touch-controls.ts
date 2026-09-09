@@ -16,12 +16,12 @@ import { isPausable, pauseGame, watchPausable } from "./game";
 import { PAUSE_OVERLAY_Z } from "./pause-shell";
 import { sealPointerEvents } from "./pointer-seal";
 
-export type MuteAccessor = {
+export interface MuteAccessor {
   get: () => boolean;
   set: (next: boolean) => void;
-};
+}
 
-export type TouchControlsOptions = {
+export interface TouchControlsOptions {
   /**
    * Read/write the game's muted state. Omit for a game with no audio — the
    * button is then not rendered at all rather than rendered inert.
@@ -35,14 +35,14 @@ export type TouchControlsOptions = {
   /** Stylesheet injected once under `styleId` on first mount. */
   css?: string;
   styleId?: string;
-};
+}
 
-export type TouchControls = {
+export interface TouchControls {
   /** Re-read the mute accessor and redraw (call after changing audio elsewhere,
    *  e.g. the M key on a device that has both a keyboard and a touchscreen). */
   sync: () => void;
   destroy: () => void;
-};
+}
 
 /** Sits under the pause overlay: pausing must cover these buttons, not fight them. */
 const TOUCH_CONTROLS_Z = PAUSE_OVERLAY_Z - 10;
@@ -89,32 +89,67 @@ const BASE_CSS = `
 }
 `;
 
-function injectCss(css: string, id: string): void {
-  if (document.getElementById(id)) return;
+const injectCss = (css: string, id: string): void => {
+  if (document.querySelector(`#${id}`)) {
+    return;
+  }
   const style = document.createElement("style");
   style.id = id;
   style.textContent = css;
   document.head.append(style);
-}
+};
+
+/** Nothing is mounted on a fine pointer. */
+const noop = (): void => undefined;
+
+/**
+ * Publish the corner this cluster occupies so a game's own top bar can lay out
+ * around it: `max-width: calc(100% - 2 * var(--vg-touch-reserve))` for centred
+ * bars, or a matching padding for edge-anchored ones. It only exists while the
+ * cluster is mounted, so `var(--vg-touch-reserve, 0px)` is the desktop value.
+ *
+ * Games that ignore it are fine on a 393px phone and collide on a narrow one —
+ * starfall's boss bar overlapped the mute button by 7px at 360x640, which is an
+ * iPhone SE.
+ */
+const RESERVE_VAR = "--vg-touch-reserve";
+
+const reserveCorner = (root: HTMLElement): void => {
+  const write = (): void => {
+    const { width } = root.getBoundingClientRect();
+    if (width > 0) {
+      document.documentElement.style.setProperty(RESERVE_VAR, `${Math.ceil(width)}px`);
+    }
+  };
+
+  write();
+  // The cluster's width changes with the button count and the safe-area inset,
+  // both of which settle after first paint and again on rotation.
+  requestAnimationFrame(write);
+  window.addEventListener("resize", write);
+  window.addEventListener("orientationchange", write);
+};
 
 /**
  * Mount the touch-only pause/mute cluster. No-op on a fine pointer, so calling
  * it unconditionally at boot is correct — a desktop player keeps Escape and M
  * and sees nothing.
  */
-export function createTouchControls(options: TouchControlsOptions = {}): TouchControls {
+export const createTouchControls = (options: TouchControlsOptions = {}): TouchControls => {
   if (typeof document === "undefined" || !isCoarsePointer()) {
-    return { sync: () => undefined, destroy: () => undefined };
+    return { destroy: noop, sync: noop };
   }
 
   injectCss(BASE_CSS, "vg-touch-controls-css");
-  if (options.css) injectCss(options.css, options.styleId ?? "vg-touch-controls-game-css");
+  if (options.css) {
+    injectCss(options.css, options.styleId ?? "vg-touch-controls-game-css");
+  }
 
   const root = document.createElement("div");
   root.className = `vg-touch-controls${options.className ? ` ${options.className}` : ""}`;
   // The DOM gamepad adapter treats the whole page as its input surface; without
   // this a tap on mute would also steer.
-  root.setAttribute("data-gamepad-ignore", "");
+  root.dataset.gamepadIgnore = "";
   // Both buttons act on pointerup, so no child here needs a click kept.
   sealPointerEvents(root);
 
@@ -123,7 +158,7 @@ export function createTouchControls(options: TouchControlsOptions = {}): TouchCo
     el.type = "button";
     el.textContent = glyph;
     el.setAttribute("aria-label", label);
-    el.setAttribute("data-gamepad-ignore", "");
+    el.dataset.gamepadIgnore = "";
     // pointerup, not click: a synthesised click after touchend can land on
     // whatever is underneath once this element hides or the overlay swaps.
     // preventDefault() here does not stop that click being synthesised at all
@@ -137,10 +172,12 @@ export function createTouchControls(options: TouchControlsOptions = {}): TouchCo
     return el;
   };
 
-  const mute = options.mute;
+  const { mute } = options;
   let muteEl: HTMLButtonElement | null = null;
   const drawMute = (): void => {
-    if (!mute || !muteEl) return;
+    if (!mute || !muteEl) {
+      return;
+    }
     const muted = mute.get();
     muteEl.textContent = muted ? "🔇" : "🔊";
     muteEl.setAttribute("aria-label", muted ? "Turn sound on" : "Turn sound off");
@@ -171,36 +208,11 @@ export function createTouchControls(options: TouchControlsOptions = {}): TouchCo
   reserveCorner(root);
 
   return {
-    sync: drawMute,
     destroy: () => {
       unwatchPausable?.();
       root.remove();
       document.documentElement.style.removeProperty(RESERVE_VAR);
     },
+    sync: drawMute,
   };
-}
-
-/**
- * Publish the corner this cluster occupies so a game's own top bar can lay out
- * around it: `max-width: calc(100% - 2 * var(--vg-touch-reserve))` for centred
- * bars, or a matching padding for edge-anchored ones. It only exists while the
- * cluster is mounted, so `var(--vg-touch-reserve, 0px)` is the desktop value.
- *
- * Games that ignore it are fine on a 393px phone and collide on a narrow one —
- * starfall's boss bar overlapped the mute button by 7px at 360x640, which is an
- * iPhone SE.
- */
-const RESERVE_VAR = "--vg-touch-reserve";
-
-function reserveCorner(root: HTMLElement): void {
-  const write = (): void => {
-    const width = root.getBoundingClientRect().width;
-    if (width > 0) document.documentElement.style.setProperty(RESERVE_VAR, `${Math.ceil(width)}px`);
-  };
-  write();
-  // The cluster's width changes with the button count and the safe-area inset,
-  // both of which settle after first paint and again on rotation.
-  requestAnimationFrame(write);
-  window.addEventListener("resize", write);
-  window.addEventListener("orientationchange", write);
-}
+};

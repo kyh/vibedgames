@@ -17,27 +17,27 @@
 //
 // These games render ~4fps under headless Chrome, so this always runs headed.
 
-import { spawn } from "node:child_process";
-import { execFile } from "node:child_process";
+import { spawn, execFile } from "node:child_process";
+import { once } from "node:events";
 import { createRequire } from "node:module";
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { existsSync, rmSync, statSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import path from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const ROOT = path.resolve(import.meta.dirname, "..");
 
 // playwright-core is a dep of the game packages, not the root, so resolve it
 // through one that has it rather than adding a root dependency for tooling.
-const require = createRequire(join(ROOT, "games/crazy-waymo/package.json"));
+const require = createRequire(path.join(ROOT, "games/crazy-waymo/package.json"));
 const { chromium } = require("playwright-core");
 
 const GAMES = ["battle-arena", "crazy-waymo", "farm", "lunerfall", "moba", "starfall"];
 
 const argv = process.argv.slice(2);
-const game = argv[0];
+const [game] = argv;
 if (!game || !GAMES.includes(game)) {
   console.error(`usage: trailer-capture.mjs <${GAMES.join("|")}> [--out DIR] [--shots N]`);
   process.exit(1);
@@ -46,21 +46,19 @@ const flag = (name, fallback) => {
   const i = argv.indexOf(`--${name}`);
   return i === -1 ? fallback : argv[i + 1];
 };
-const OUT = resolve(flag("out", "/tmp/trailer-shots"), game);
+const OUT = path.resolve(flag("out", "/tmp/trailer-shots"), game);
 const SHOTS = Number(flag("shots", "4"));
-const VIEWPORT = { width: 1600, height: 900 };
+const VIEWPORT = { height: 900, width: 1600 };
 
-const gameDir = join(ROOT, "games", game);
+const gameDir = path.join(ROOT, "games", game);
 
 /** Preview port: the dev port + 400, clear of every game's dev server. */
-function previewPort() {
-  const cfg = join(gameDir, "vite.config.ts");
-  const src = existsSync(cfg) ? require("node:fs").readFileSync(cfg, "utf8") : "";
-  const m = /server:\s*\{[^}]*port:\s*(\d+)/.exec(src);
-  return (m ? Number(m[1]) : 5200) + 400;
-}
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const previewPort = () => {
+  const cfg = path.join(gameDir, "vite.config.ts");
+  const src = existsSync(cfg) ? require("node:fs").readFileSync(cfg, "utf-8") : "";
+  const port = /server:\s*\{[^}]*port:\s*(?<port>\d+)/u.exec(src)?.groups?.port;
+  return (port ? Number(port) : 5200) + 400;
+};
 
 /**
  * Only one capture at a time, machine-wide. Two headed Chromes rendering a 3D
@@ -72,59 +70,62 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const LOCK = "/tmp/trailer-capture.lock";
 const STALE_MS = 20 * 60 * 1000;
 
-async function acquireLock() {
+const acquireLock = async () => {
   for (;;) {
     try {
       await mkdir(LOCK);
-      await writeFile(join(LOCK, "owner"), `${process.pid} ${game}\n`);
+      await writeFile(path.join(LOCK, "owner"), `${process.pid} ${game}\n`);
       return;
     } catch {
       let age = 0;
       try {
         age = Date.now() - statSync(LOCK).mtimeMs;
       } catch {
-        continue; // released between the mkdir and the stat
+        // released between the mkdir and the stat
+        continue;
       }
       if (age > STALE_MS) {
-        console.warn(`[${game}] breaking stale capture lock (${Math.round(age / 60000)}m old)`);
-        await rm(LOCK, { recursive: true, force: true });
+        console.warn(`[${game}] breaking stale capture lock (${Math.round(age / 60_000)}m old)`);
+        await rm(LOCK, { force: true, recursive: true });
         continue;
       }
       console.log(`[${game}] waiting for the capture lock…`);
       await sleep(5000);
     }
   }
-}
+};
 
 const releaseLock = () => {
   try {
-    rmSync(LOCK, { recursive: true, force: true });
+    rmSync(LOCK, { force: true, recursive: true });
   } catch {
     /* already gone */
   }
 };
 
-async function waitForServer(url, timeoutMs) {
+const waitForServer = async (url, timeoutMs) => {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(2000) });
-      if (res.ok) return;
+      if (res.ok) {
+        return;
+      }
     } catch {
       /* not up yet */
     }
     await sleep(300);
   }
   throw new Error(`server never came up: ${url}`);
-}
+};
 
-function run(cmd, args, opts) {
-  return new Promise((res, rej) => {
-    const p = spawn(cmd, args, { stdio: "inherit", ...opts });
-    p.on("exit", (code) => (code === 0 ? res() : rej(new Error(`${cmd} exited ${code}`))));
-    p.on("error", rej);
-  });
-}
+const run = async (cmd, args, opts) => {
+  const p = spawn(cmd, args, { stdio: "inherit", ...opts });
+  const [code] = await once(p, "exit");
+  if (code !== 0) {
+    throw new Error(`${cmd} exited ${code}`);
+  }
+};
 
 /**
  * Recording does not begin the instant the context exists — the encoder takes a
@@ -140,7 +141,7 @@ function run(cmd, args, opts) {
  * the container duration was worse still, because Playwright's webm reports a
  * duration that disagrees with the wall clock by about a second.
  */
-async function blackEndsSec(video, pixTh) {
+const blackEndsSec = async (video, pixTh) => {
   const { stderr } = await execFileAsync(
     "ffmpeg",
     [
@@ -157,8 +158,8 @@ async function blackEndsSec(video, pixTh) {
     ],
     { maxBuffer: 32 * 1024 * 1024 },
   );
-  return [...stderr.matchAll(/black_end:\s*([\d.]+)/g)].map((m) => Number(m[1]));
-}
+  return [...stderr.matchAll(/black_end:\s*(?<end>[\d.]+)/gu)].map((m) => Number(m.groups?.end));
+};
 
 /**
  * How dark a pixel has to be to count as black, tried loosest first. A game
@@ -177,8 +178,8 @@ const TYPICAL_SKEW_SEC = -0.35;
  * black interval — a loading screen, a scene that opens on a dark frame —
  * cannot drag the fit.
  */
-function fitOffsetSec(blackEnds, sceneStartsSec, tolerance = 0.25) {
-  let best = { offset: 0, hits: -1, error: Infinity };
+const fitOffsetSec = (blackEnds, sceneStartsSec, tolerance = 0.25) => {
+  let best = { error: Infinity, hits: -1, offset: 0 };
   for (const end of blackEnds) {
     for (const start of sceneStartsSec) {
       const offset = end - start;
@@ -186,21 +187,23 @@ function fitOffsetSec(blackEnds, sceneStartsSec, tolerance = 0.25) {
       let error = 0;
       for (const s of sceneStartsSec) {
         let nearest = Infinity;
-        for (const e of blackEnds) nearest = Math.min(nearest, Math.abs(e - (s + offset)));
+        for (const e of blackEnds) {
+          nearest = Math.min(nearest, Math.abs(e - (s + offset)));
+        }
         if (nearest <= tolerance) {
-          hits++;
+          hits += 1;
           error += nearest;
         }
       }
       if (hits > best.hits || (hits === best.hits && error < best.error)) {
-        best = { offset, hits, error };
+        best = { error, hits, offset };
       }
     }
   }
   return best;
-}
+};
 
-async function extractStill(video, sec, out) {
+const extractStill = async (video, sec, out) => {
   await execFileAsync("ffmpeg", [
     "-y",
     "-ss",
@@ -213,13 +216,13 @@ async function extractStill(video, sec, out) {
     "2",
     out,
   ]);
-}
+};
 
 /** Align the recording to the scene timeline and cut the per-scene stills. */
-async function sliceScenes(video, report) {
+const sliceScenes = async (video, report) => {
   const starts = report.scenes.map((s) => s.startMs / 1000);
   const enough = Math.max(2, Math.ceil(starts.length * 0.6));
-  let fit = { offset: TYPICAL_SKEW_SEC, hits: 0 };
+  let fit = { hits: 0, offset: TYPICAL_SKEW_SEC };
   let usedTh = null;
   for (const th of PIX_THRESHOLDS) {
     const ends = await blackEndsSec(video, th);
@@ -228,13 +231,15 @@ async function sliceScenes(video, report) {
       fit = candidate;
       usedTh = th;
       report.alignment = {
+        blackIntervals: ends.length,
         cutsMatched: candidate.hits,
         ofScenes: starts.length,
-        blackIntervals: ends.length,
         pixTh: th,
       };
     }
-    if (candidate.hits >= starts.length) break;
+    if (candidate.hits >= starts.length) {
+      break;
+    }
   }
   const skewSec = fit.hits >= enough ? fit.offset : TYPICAL_SKEW_SEC;
   report.videoSkewSec = Number(skewSec.toFixed(3));
@@ -257,40 +262,42 @@ async function sliceScenes(video, report) {
     const durMs = (scene.endMs ?? scene.startMs) - scene.startMs;
     scene.durationMs = durMs;
     scene.stills = [];
-    for (let k = 0; k < SHOTS; k++) {
+    for (let k = 0; k < SHOTS; k += 1) {
       // Inset from both edges: the first and last ~12% of a scene are inside
       // the dip-to-black, and a still of the cut plate reviews nothing.
       const pct = 0.12 + (0.76 * k) / Math.max(1, SHOTS - 1);
       const sec = skewSec + (scene.startMs + durMs * pct) / 1000;
       const name = `${String(scene.index).padStart(2, "0")}-${scene.id}-${Math.round(pct * 100)}.png`;
       try {
-        await extractStill(video, sec, join(OUT, name));
+        await extractStill(video, sec, path.join(OUT, name));
         scene.stills.push(name);
-      } catch (err) {
-        console.warn(`  still failed ${name}: ${err.message}`);
+      } catch (error) {
+        console.warn(`  still failed ${name}: ${error.message}`);
       }
     }
   }
-}
+};
 
 /**
  * One frame per scene, tiled. The whole point of a trailer is the shape of the
  * cut, and that is invisible when the scenes are 48 separate files — repetition,
  * a flat palette or a saggy middle only show up when you see them side by side.
  */
-async function contactSheet(report, outDir) {
+const contactSheet = async (report, outDir) => {
   const picks = report.scenes
     .map((s) => s.stills?.find((n) => n.endsWith("-63.png")))
     .filter(Boolean);
-  if (picks.length === 0) return;
+  if (picks.length === 0) {
+    return;
+  }
   const cols = 5;
-  const inputs = picks.flatMap((n) => ["-i", join(OUT, n)]);
+  const inputs = picks.flatMap((n) => ["-i", path.join(OUT, n)]);
   const filter =
     `${picks.map((_, i) => `[${i}:v]scale=480:270[t${i}]`).join(";")};` +
     `${picks.map((_, i) => `[t${i}]`).join("")}xstack=inputs=${picks.length}:` +
     `layout=${picks.map((_, i) => `${(i % cols) * 486}_${Math.floor(i / cols) * 276}`).join("|")}:` +
     `fill=black[out]`;
-  const out = join(outDir, `contact-${game}.png`);
+  const out = path.join(outDir, `contact-${game}.png`);
   try {
     await execFileAsync("ffmpeg", [
       "-y",
@@ -306,23 +313,23 @@ async function contactSheet(report, outDir) {
       out,
     ]);
     console.log(`[${game}] contact sheet → ${out}`);
-  } catch (err) {
-    console.warn(`[${game}] contact sheet failed: ${err.message.split("\n")[0]}`);
+  } catch (error) {
+    console.warn(`[${game}] contact sheet failed: ${error.message.split("\n")[0]}`);
   }
-}
+};
 
 /** Redo alignment and stills from an already-captured run — no browser. */
-async function reslice() {
-  const video = join(OUT, "trailer.webm");
-  const report = JSON.parse(await readFile(join(OUT, "report.json"), "utf8"));
+const reslice = async () => {
+  const video = path.join(OUT, "trailer.webm");
+  const report = JSON.parse(await readFile(path.join(OUT, "report.json"), "utf-8"));
   await sliceScenes(video, report);
-  await contactSheet(report, resolve(OUT, ".."));
-  await writeFile(join(OUT, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
+  await contactSheet(report, path.resolve(OUT, ".."));
+  await writeFile(path.join(OUT, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
   console.log(`[${game}] ✓ resliced ${report.scenes.length} scenes → ${OUT}`);
-}
+};
 
-async function main() {
-  await rm(OUT, { recursive: true, force: true });
+const main = async () => {
+  await rm(OUT, { force: true, recursive: true });
   await mkdir(OUT, { recursive: true });
 
   console.log(`[${game}] building…`);
@@ -334,7 +341,7 @@ async function main() {
   const server = spawn(
     "pnpm",
     ["exec", "vite", "preview", "--port", String(port), "--strictPort"],
-    { cwd: gameDir, stdio: "ignore", detached: true },
+    { cwd: gameDir, detached: true, stdio: "ignore" },
   );
   const stopServer = () => {
     try {
@@ -348,13 +355,13 @@ async function main() {
   await acquireLock();
   process.on("exit", releaseLock);
 
-  const browser = await chromium.launch({ headless: false, channel: "chrome" });
+  const browser = await chromium.launch({ channel: "chrome", headless: false });
   const report = {
+    errors: [],
+    fps: [],
     game,
     port,
     scenes: [],
-    fps: [],
-    errors: [],
     startedAt: new Date().toISOString(),
   };
 
@@ -362,14 +369,16 @@ async function main() {
     await waitForServer(`http://localhost:${port}/`, 60_000);
 
     const context = await browser.newContext({
+      recordVideo: { dir: path.join(OUT, "raw"), size: VIEWPORT },
       viewport: VIEWPORT,
-      recordVideo: { dir: join(OUT, "raw"), size: VIEWPORT },
     });
     const videoEpoch = Date.now();
     const page = await context.newPage();
 
     page.on("console", (msg) => {
-      if (msg.type() === "error") report.errors.push(msg.text().slice(0, 400));
+      if (msg.type() === "error") {
+        report.errors.push(msg.text().slice(0, 400));
+      }
     });
     page.on("pageerror", (err) => report.errors.push(`pageerror: ${String(err).slice(0, 400)}`));
 
@@ -378,8 +387,9 @@ async function main() {
     // scene that is badly staged, and the report has to tell them apart.
     await page.addInitScript(() => {
       globalThis.__frames = 0;
+      // oxlint-disable-next-line unicorn/consistent-function-scoping -- serialized into the page; an outer binding would not exist there
       const tick = () => {
-        globalThis.__frames++;
+        globalThis.__frames += 1;
         requestAnimationFrame(tick);
       };
       requestAnimationFrame(tick);
@@ -388,8 +398,8 @@ async function main() {
     console.log(`[${game}] loading…`);
     await page.goto(url, { waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => (globalThis.__trailer?.sceneIndex ?? -1) >= 0, null, {
-      timeout: 240_000,
       polling: 200,
+      timeout: 240_000,
     });
 
     let lastIndex = -1;
@@ -405,43 +415,51 @@ async function main() {
       const now = Date.now();
 
       if (s.sceneIndex !== lastIndex && s.sceneIndex >= 0) {
-        if (report.scenes.length > 0) report.scenes.at(-1).endMs = now - videoEpoch;
-        report.scenes.push({ index: s.sceneIndex, id: s.sceneId, startMs: now - videoEpoch });
+        if (report.scenes.length > 0) {
+          report.scenes.at(-1).endMs = now - videoEpoch;
+        }
+        report.scenes.push({ id: s.sceneId, index: s.sceneIndex, startMs: now - videoEpoch });
         console.log(`[${game}] scene ${s.sceneIndex} ${s.sceneId}`);
         lastIndex = s.sceneIndex;
       }
       if (now - lastFpsAt >= 1000) {
         report.fps.push({
-          sceneId: s.sceneId,
           fps: Math.round(((s.frames - lastFrames) * 1000) / (now - lastFpsAt)),
+          sceneId: s.sceneId,
         });
         lastFrames = s.frames;
         lastFpsAt = now;
       }
       if (s.done) {
-        if (report.scenes.length > 0) report.scenes.at(-1).endMs = now - videoEpoch;
+        if (report.scenes.length > 0) {
+          report.scenes.at(-1).endMs = now - videoEpoch;
+        }
         break;
       }
-      if (now > deadline) throw new Error("trailer never reported done");
+      if (now > deadline) {
+        throw new Error("trailer never reported done");
+      }
       await sleep(40);
     }
 
     console.log(`[${game}] done, flushing video…`);
     await context.close();
-    const closedAt = Date.now();
 
-    const raw = join(OUT, "raw");
-    const [file] = (await readdir(raw)).filter((f) => f.endsWith(".webm"));
-    if (!file) throw new Error("no video recorded");
-    const video = join(OUT, "trailer.webm");
-    await rename(join(raw, file), video);
-    await rm(raw, { recursive: true, force: true });
+    const raw = path.join(OUT, "raw");
+    const recorded = await readdir(raw);
+    const file = recorded.find((f) => f.endsWith(".webm"));
+    if (!file) {
+      throw new Error("no video recorded");
+    }
+    const video = path.join(OUT, "trailer.webm");
+    await rename(path.join(raw, file), video);
+    await rm(raw, { force: true, recursive: true });
 
     await sliceScenes(video, report);
-    await contactSheet(report, resolve(OUT, ".."));
+    await contactSheet(report, path.resolve(OUT, ".."));
 
     const fpsValues = report.fps.map((f) => f.fps).filter((f) => f > 0);
-    report.fpsMedian = fpsValues.sort((a, b) => a - b)[Math.floor(fpsValues.length / 2)] ?? 0;
+    report.fpsMedian = fpsValues.toSorted((a, b) => a - b)[Math.floor(fpsValues.length / 2)] ?? 0;
     report.totalMs = (report.scenes.at(-1)?.endMs ?? 0) - (report.scenes[0]?.startMs ?? 0);
   } finally {
     await browser.close();
@@ -449,14 +467,16 @@ async function main() {
     releaseLock();
   }
 
-  await writeFile(join(OUT, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
+  await writeFile(path.join(OUT, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
   console.log(
     `[${game}] ✓ ${report.scenes.length} scenes, ${(report.totalMs / 1000).toFixed(1)}s, ` +
       `median ${report.fpsMedian}fps, ${report.errors.length} console errors → ${OUT}`,
   );
-}
+};
 
-(argv.includes("--reslice") ? reslice() : main()).catch((err) => {
-  console.error(err);
+try {
+  await (argv.includes("--reslice") ? reslice() : main());
+} catch (error) {
+  console.error(error);
   process.exit(1);
-});
+}

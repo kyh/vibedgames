@@ -1,4 +1,5 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
+import { TintModes } from "phaser";
 
 import { ENEMY_ORIGIN_Y, ENEMY_SCALE, interp } from "../config";
 import type { EnemyKind } from "../data/enemies";
@@ -10,7 +11,8 @@ import { EnemyBody } from "./enemy-body";
 export class Enemy {
   readonly body: EnemyBody;
   readonly sprite: Phaser.GameObjects.Sprite;
-  baseTint = 0xffffff; // affix recolour (elite enemies); restored after a hit-flash
+  // affix recolour (elite enemies); restored after a hit-flash
+  baseTint = 0xff_ff_ff;
   private flashing = false;
 
   constructor(scene: Phaser.Scene, grid: Grid, kind: EnemyKind, x: number, y: number) {
@@ -23,19 +25,33 @@ export class Enemy {
   private clip(): string {
     const b = this.body;
     const n = this.body.kind.name;
-    if (b.state === "dead") return n === "bomber" ? "explode" : n === "warrior" ? "dead" : "death";
-    if (b.state === "hurt") return "hit";
-    if (b.state === "spawn") return "spawn";
+    if (b.state === "dead") {
+      if (n === "bomber") {
+        return "explode";
+      }
+      return n === "warrior" ? "dead" : "death";
+    }
+    if (b.state === "hurt") {
+      return "hit";
+    }
+    if (b.state === "spawn") {
+      return "spawn";
+    }
     const moving = Math.abs(b.vx) > 10 ? "run" : "idle";
     switch (this.body.kind.behavior) {
-      case "melee":
+      case "melee": {
         return b.state === "windup" || b.state === "attack" ? "strike" : moving;
-      case "charger":
+      }
+      case "charger": {
         return b.state === "charge" ? "charge" : moving;
-      case "archer":
+      }
+      case "archer": {
         return b.state === "windup" ? "shoot" : moving;
-      case "bomber":
+      }
+      case "bomber": {
         return b.state === "windup" ? "electrocute" : moving;
+      }
+      // no default
     }
   }
 
@@ -44,26 +60,37 @@ export class Enemy {
   private clipMs(suffix: string): number | undefined {
     const k = this.body.kind;
     switch (suffix) {
-      case "run":
+      case "run": {
         return 460;
-      case "strike":
+      }
+      case "strike": {
         return ((k.windup ?? 0.3) + (k.active ?? 0.12)) * 1000;
-      case "charge":
+      }
+      case "charge": {
         return (k.chargeTime ?? 0.45) * 1000;
+      }
       case "shoot":
-      case "electrocute":
+      case "electrocute": {
         return (k.windup ?? 0.45) * 1000;
-      case "hit":
+      }
+      case "hit": {
         return 200;
-      case "spawn":
+      }
+      case "spawn": {
         return 400;
-      default:
-        return undefined; // idle / death keep authored timing
+      }
+      default: {
+        return undefined;
+        // idle / death keep authored timing
+      }
     }
   }
 
   private playSuffix(key: string, suffix: string) {
-    if (this.sprite.anims.currentAnim?.key === key) return; // already looping this clip
+    if (this.sprite.anims.currentAnim?.key === key) {
+      return;
+      // already looping this clip
+    }
     // timeScale, not duration: a play `duration` freezes per-frame-duration anims.
     this.sprite.play(key, true);
     const ms = this.clipMs(suffix);
@@ -82,10 +109,10 @@ export class Enemy {
     );
     const flash = b.hitFlash > 0;
     if (flash && !this.flashing) {
-      this.sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
+      this.sprite.setTint(0xff_ff_ff).setTintMode(TintModes.FILL);
       this.flashing = true;
     } else if (!flash && this.flashing) {
-      this.sprite.setTint(this.baseTint).setTintMode(Phaser.TintModes.MULTIPLY);
+      this.sprite.setTint(this.baseTint).setTintMode(TintModes.MULTIPLY);
       this.flashing = false;
     }
   }
@@ -101,10 +128,10 @@ export class Enemy {
       far ? y : this.sprite.y + (y - this.sprite.y) * 0.35,
     );
     if (flash && !this.flashing) {
-      this.sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
+      this.sprite.setTint(0xff_ff_ff).setTintMode(TintModes.FILL);
       this.flashing = true;
     } else if (!flash && this.flashing) {
-      this.sprite.setTint(this.baseTint).setTintMode(Phaser.TintModes.MULTIPLY);
+      this.sprite.setTint(this.baseTint).setTintMode(TintModes.MULTIPLY);
       this.flashing = false;
     }
   }

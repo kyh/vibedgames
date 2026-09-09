@@ -16,63 +16,59 @@ interface RouterContext {
   queryClient: QueryClient;
 }
 
+const RootComponent = () => (
+  <RootDocument>
+    <Outlet />
+  </RootDocument>
+);
+
 export const Route = createRootRouteWithContext<RouterContext>()({
+  component: RootComponent,
   head: () => ({
+    links: [
+      { href: appCss, rel: "stylesheet" },
+      { href: "/favicon/favicon-96x96.png", rel: "icon", sizes: "96x96", type: "image/png" },
+      { href: "/favicon/favicon.svg", rel: "icon", type: "image/svg+xml" },
+      { href: "/favicon/favicon.ico", rel: "shortcut icon" },
+      { href: "/favicon/apple-touch-icon.png", rel: "apple-touch-icon", sizes: "180x180" },
+      { href: "/favicon/site.webmanifest", rel: "manifest" },
+    ],
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
+      { content: "width=device-width, initial-scale=1", name: "viewport" },
       { title: siteConfig.name },
-      { name: "description", content: siteConfig.description },
-      { property: "og:title", content: siteConfig.name },
-      { property: "og:description", content: siteConfig.description },
-      { property: "og:image", content: `${siteConfig.url}/og.jpg` },
-      { property: "og:image:width", content: "1200" },
-      { property: "og:image:height", content: "630" },
-      { property: "og:image:alt", content: siteConfig.name },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:image", content: `${siteConfig.url}/og.jpg` },
-      { name: "twitter:creator", content: siteConfig.twitter },
-      { name: "apple-mobile-web-app-title", content: siteConfig.shortName },
-    ],
-    links: [
-      { rel: "stylesheet", href: appCss },
-      { rel: "icon", type: "image/png", sizes: "96x96", href: "/favicon/favicon-96x96.png" },
-      { rel: "icon", type: "image/svg+xml", href: "/favicon/favicon.svg" },
-      { rel: "shortcut icon", href: "/favicon/favicon.ico" },
-      { rel: "apple-touch-icon", sizes: "180x180", href: "/favicon/apple-touch-icon.png" },
-      { rel: "manifest", href: "/favicon/site.webmanifest" },
+      { content: siteConfig.description, name: "description" },
+      { content: siteConfig.name, property: "og:title" },
+      { content: siteConfig.description, property: "og:description" },
+      { content: `${siteConfig.url}/og.jpg`, property: "og:image" },
+      { content: "1200", property: "og:image:width" },
+      { content: "630", property: "og:image:height" },
+      { content: siteConfig.name, property: "og:image:alt" },
+      { content: "website", property: "og:type" },
+      { content: "summary_large_image", name: "twitter:card" },
+      { content: `${siteConfig.url}/og.jpg`, name: "twitter:image" },
+      { content: siteConfig.twitter, name: "twitter:creator" },
+      { content: siteConfig.shortName, name: "apple-mobile-web-app-title" },
     ],
   }),
-  component: RootComponent,
 });
 
-function RootComponent() {
-  return (
-    <RootDocument>
-      <Outlet />
-    </RootDocument>
-  );
-}
-
-function RootDocument({ children }: { children: React.ReactNode }) {
-  return (
-    <html lang="en" className="dark">
-      <head>
-        <HeadContent />
-      </head>
-      <body
-        className={cn(
-          "text-foreground bg-background bg-[url('/bg.webp')] bg-size-[10px] font-sans antialiased",
-        )}
-      >
-        <TooltipProvider>
-          {children}
-          <Toaster position="bottom-center" />
-          <GlobalAlertDialog />
-        </TooltipProvider>
-        <Scripts />
-      </body>
-    </html>
-  );
-}
+const RootDocument = ({ children }: { children: React.ReactNode }) => (
+  <html lang="en" className="dark">
+    <head>
+      <HeadContent />
+    </head>
+    <body
+      className={cn(
+        "text-foreground bg-background bg-[url('/bg.webp')] bg-size-[10px] font-sans antialiased",
+      )}
+    >
+      <TooltipProvider>
+        {children}
+        <Toaster position="bottom-center" />
+        <GlobalAlertDialog />
+      </TooltipProvider>
+      <Scripts />
+    </body>
+  </html>
+);

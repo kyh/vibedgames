@@ -8,9 +8,12 @@ import * as pauseOverlay from "./pause-overlay";
 import { GameScene } from "./scenes/game-scene";
 import { MAX_DT } from "./shared/constants";
 
-const container = document.getElementById("game");
-if (!container) throw new Error("missing #game container");
-container.addEventListener("contextmenu", (e) => e.preventDefault()); // long-press menus
+const container = document.querySelector("#game");
+if (!container) {
+  throw new Error("missing #game container");
+}
+// long-press menus
+container.addEventListener("contextmenu", (e) => e.preventDefault());
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
 // Phones cap DPR lower — the antialiased 3D well is fill-rate bound at DPR 3.
@@ -19,7 +22,7 @@ const applyPixelRatio = () => renderer.setPixelRatio(Math.min(window.devicePixel
 applyPixelRatio();
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
-container.appendChild(renderer.domElement);
+container.append(renderer.domElement);
 
 const game = new GameScene(window.innerWidth / window.innerHeight);
 
@@ -30,11 +33,14 @@ const game = new GameScene(window.innerWidth / window.innerHeight);
 const poseControls = new PoseControls(game.poseActions);
 game.attachPoseControls(poseControls);
 const poseCamera = new PoseCamera(poseControls.handlePose);
-if (!isCoarsePointer()) void poseCamera.start();
+if (!isCoarsePointer()) {
+  void poseCamera.start();
+}
 
 window.addEventListener("resize", () => {
   game.resize(window.innerWidth / window.innerHeight);
-  applyPixelRatio(); // DPR changes when the window moves between displays
+  // DPR changes when the window moves between displays
+  applyPixelRatio();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
@@ -54,7 +60,9 @@ setPauseHandlers({
   },
   onResume: () => {
     pauseOverlay.hide();
-    if (wrapperPausedAt === null) return;
+    if (wrapperPausedAt === null) {
+      return;
+    }
     game.shiftWallClock(performance.now() - wrapperPausedAt);
     wrapperPausedAt = null;
   },
@@ -64,11 +72,13 @@ const timer = new THREE.Timer();
 renderer.setAnimationLoop((time) => {
   timer.update(time);
   const dt = Math.min(timer.getDelta(), MAX_DT);
-  if (wrapperPausedAt === null) game.update(dt);
+  if (wrapperPausedAt === null) {
+    game.update(dt);
+  }
   renderer.render(game.scene, game.camera);
 });
 
 if (import.meta.env.DEV) {
   // __tetris: the scene; __pose: feed synthetic poses or recenter() in the console.
-  Object.assign(window, { __tetris: game, __pose: poseControls });
+  Object.assign(window, { __pose: poseControls, __tetris: game });
 }

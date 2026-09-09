@@ -1,6 +1,7 @@
 import type RAPIER from "@dimforge/rapier3d-compat";
 import type { WaterSampler } from "../world/water";
-import { DRY_WATER_CONTACT, type FloatingWaterContact, type WaterContact } from "./water-contact";
+import { DRY_WATER_CONTACT } from "./water-contact";
+import type { FloatingWaterContact, WaterContact } from "./water-contact";
 
 const FLOAT_CENTER = 0.42;
 const GRAVITY = 30;
@@ -12,14 +13,18 @@ export class Flotation {
   private sampler: WaterSampler | null = null;
   private active = false;
   private readonly contact = {
-    kind: "floating",
-    waterY: 0,
-    immersion: 0,
     entrySpeed: 0,
     entryVerticalSpeed: 0,
+    immersion: 0,
+    kind: "floating",
+    waterY: 0,
   } satisfies FloatingWaterContact;
 
-  constructor(private readonly chassis: RAPIER.RigidBody) {}
+  private readonly chassis: RAPIER.RigidBody;
+
+  constructor(chassis: RAPIER.RigidBody) {
+    this.chassis = chassis;
+  }
 
   get waterContact(): WaterContact {
     return this.active ? this.contact : DRY_WATER_CONTACT;

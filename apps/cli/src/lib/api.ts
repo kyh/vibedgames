@@ -9,14 +9,14 @@ import type { JsonValue } from "./types.js";
 const makeClient = (baseUrl: string, token?: string): RouterClient<AppRouter> =>
   createORPCClient(
     new RPCLink({
+      headers: () => (token ? { Authorization: `Bearer ${token}` } : {}),
       origin: baseUrl,
       url: "/api/orpc",
-      headers: () => (token ? { Authorization: `Bearer ${token}` } : {}),
     }),
   );
 
 /** Authenticated client — requires a saved session token. */
-export function createClient(): RouterClient<AppRouter> {
+export const createClient = (): RouterClient<AppRouter> => {
   const token = getToken();
 
   if (!token) {
@@ -24,12 +24,11 @@ export function createClient(): RouterClient<AppRouter> {
   }
 
   return makeClient(getBaseUrl(), token);
-}
+};
 
 /** The oRPC error code on a failed call, or null for non-oRPC failures. */
-export function authErrorCode(cause: unknown): string | null {
-  return cause instanceof ORPCError ? cause.code : null;
-}
+export const authErrorCode = (cause: unknown): string | null =>
+  cause instanceof ORPCError ? cause.code : null;
 
 type ForwardInput = RouterInputs["generate"]["forward"];
 
@@ -39,14 +38,10 @@ type ForwardInput = RouterInputs["generate"]["forward"];
  * everything downstream narrows with the guards in `types.ts` rather than
  * asserting a shape at the call site.
  */
-export async function forwardJson(
+export const forwardJson = async (
   client: RouterClient<AppRouter>,
   input: ForwardInput,
-): Promise<JsonValue> {
-  return await client.generate.forward(input);
-}
+): Promise<JsonValue> => await client.generate.forward(input);
 
 /** Unauthenticated client — for login flow. */
-export function createPublicClient(baseUrl: string): RouterClient<AppRouter> {
-  return makeClient(baseUrl);
-}
+export const createPublicClient = (baseUrl: string): RouterClient<AppRouter> => makeClient(baseUrl);

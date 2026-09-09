@@ -1,64 +1,16 @@
 import * as THREE from "three";
 
-import { BoostPlume, FxRings } from "./boost-plume";
+import { BoostPlume } from "./boost-plume";
+import { FxRings } from "./fx-rings";
+import { ParticleField } from "./particle-field";
+import type { EmitOpts } from "./particle-field";
 import { REINHARD_GLSL } from "./reinhard";
 import { GRIND_COLOR } from "./tier";
-import { SURFACE_FX, type LooseProfile, type MatterRecipe, type PavedSurface } from "./surface-fx";
-import { WaterFx, type WaterSprayKind } from "./water-fx";
+import { SURFACE_FX } from "./surface-fx";
+import type { LooseProfile, MatterRecipe, PavedSurface } from "./surface-fx";
+import { WaterFx } from "./water-fx";
+import type { WaterSprayKind } from "./water-fx";
 
-type EmitOpts = {
-  count: number;
-  color: THREE.Color;
-  speed: number;
-  spread: number; // lateral velocity spread
-  up: number; // upward bias
-  size: number;
-  life: number;
-  gravity: number;
-  drag: number;
-  // Optional directional term: final velocity = radial term + dir * dirSpeed.
-  dir?: { x: number; y: number; z: number };
-  dirSpeed?: number;
-  // HDR multiplier on color before additive blending. Hot FX author 2.2-3.4
-  // so a lone grain clears the ~1.6 day bloom gate through the max-channel
-  // Reinhard shoulder; inert debris (sand, grass flecks) stays at 1 and never
-  // blooms — no separate opt-out needed.
-  intensity?: number;
-  // Tier channel: the grain's color is uTierCol * intensity, re-read every
-  // frame — a tier promotion repaints grains already in the air (sparks only).
-  channel?: boolean;
-  // Inert chips share the lit, normal-blend pool but keep a sharp silhouette.
-  grain?: boolean;
-};
-
-// vAlpha = remaining life fraction (1 at birth -> 0 at death).
-// uGrow selects the size ramp: 0 = shrink over life (sparks: 1.4 -> 0.6),
-// 1 = grow over life (smoke: 0.7 -> 1.5).
-const VERT = `
-  attribute float aLife;
-  attribute float aMax;
-  attribute float aSize;
-  attribute vec3 aColor;
-  attribute float aChannel;
-  attribute float aGrain;
-  uniform float uScale;
-  uniform float uGrow;
-  uniform vec3 uTierCol;
-  varying float vAlpha;
-  varying vec3 vColor;
-  varying float vGrain;
-  void main() {
-    vGrain = aGrain;
-    vColor = aColor * mix(vec3(1.0), uTierCol, aChannel);
-    vAlpha = clamp(aLife / max(aMax, 0.0001), 0.0, 1.0);
-    float shrinkRamp = mix(0.6, 1.4, vAlpha);
-    float growRamp = mix(1.5, 0.7, vAlpha);
-    float ramp = mix(shrinkRamp, growRamp, uGrow * (1.0 - aGrain));
-    vec4 mv = modelViewMatrix * vec4(position, 1.0);
-    gl_Position = projectionMatrix * mv;
-    gl_PointSize = (aLife <= 0.0) ? 0.0 : aSize * ramp * uScale / max(-mv.z, 0.1);
-  }
-`;
 // Color cools toward death (hot core early, dark residue late); alpha is
 // fast-in-slow-out (vAlpha^2 spends most of the life dim, popping at birth).
 // Smoke is LIT: the top of each puff catches uSunTint, the underside sits in
@@ -115,131 +67,6 @@ const FRAG_SPARKS = `
   }
 `;
 
-class ParticleField {
-  readonly points: THREE.Points;
-  private pos: Float32Array;
-  private col: Float32Array;
-  private size: Float32Array;
-  private life: Float32Array;
-  private max: Float32Array;
-  private chan: Float32Array;
-  private grain: Float32Array;
-  private vel: Float32Array;
-  private grav: Float32Array;
-  private drag: Float32Array;
-  private cursor = 0;
-  private wasEmpty = false;
-  private mat: THREE.ShaderMaterial;
-  private scaleUniform = { value: typeof window === "undefined" ? 1 : window.innerHeight };
-
-  constructor(
-    private n: number,
-    blending: THREE.Blending,
-    grow: boolean,
-    frag: string,
-    extraUniforms: Record<string, THREE.IUniform>,
-  ) {
-    this.pos = new Float32Array(n * 3);
-    this.col = new Float32Array(n * 3);
-    this.size = new Float32Array(n);
-    this.life = new Float32Array(n);
-    this.max = new Float32Array(n);
-    this.chan = new Float32Array(n);
-    this.grain = new Float32Array(n);
-    this.vel = new Float32Array(n * 3);
-    this.grav = new Float32Array(n);
-    this.drag = new Float32Array(n);
-
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute("position", new THREE.BufferAttribute(this.pos, 3));
-    geo.setAttribute("aColor", new THREE.BufferAttribute(this.col, 3));
-    geo.setAttribute("aSize", new THREE.BufferAttribute(this.size, 1));
-    geo.setAttribute("aLife", new THREE.BufferAttribute(this.life, 1));
-    geo.setAttribute("aMax", new THREE.BufferAttribute(this.max, 1));
-    geo.setAttribute("aChannel", new THREE.BufferAttribute(this.chan, 1));
-    geo.setAttribute("aGrain", new THREE.BufferAttribute(this.grain, 1));
-    geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
-
-    this.mat = new THREE.ShaderMaterial({
-      uniforms: { uScale: this.scaleUniform, uGrow: { value: grow ? 1 : 0 }, ...extraUniforms },
-      vertexShader: VERT,
-      fragmentShader: frag,
-      transparent: true,
-      depthWrite: false,
-      blending,
-    });
-    this.points = new THREE.Points(geo, this.mat);
-    this.points.frustumCulled = false;
-  }
-
-  setScale(px: number): void {
-    this.scaleUniform.value = px;
-  }
-
-  emit(x: number, y: number, z: number, o: EmitOpts): void {
-    const dir = o.dir;
-    const ds = o.dirSpeed ?? 0;
-    const dx = dir ? dir.x * ds : 0;
-    const dy = dir ? dir.y * ds : 0;
-    const dz = dir ? dir.z * ds : 0;
-    const intensity = o.intensity ?? 1;
-    for (let k = 0; k < o.count; k++) {
-      const i = this.cursor;
-      this.cursor = (this.cursor + 1) % this.n;
-      this.pos[i * 3] = x;
-      this.pos[i * 3 + 1] = y;
-      this.pos[i * 3 + 2] = z;
-      const ang = Math.random() * Math.PI * 2;
-      const sp = o.speed * (0.4 + Math.random() * 0.6);
-      this.vel[i * 3] = Math.cos(ang) * o.spread + Math.cos(ang) * sp + dx;
-      this.vel[i * 3 + 1] = o.up * (0.5 + Math.random()) + dy;
-      this.vel[i * 3 + 2] = Math.sin(ang) * o.spread + Math.sin(ang) * sp + dz;
-      this.col[i * 3] = o.color.r * intensity;
-      this.col[i * 3 + 1] = o.color.g * intensity;
-      this.col[i * 3 + 2] = o.color.b * intensity;
-      this.size[i] = o.size * (0.7 + Math.random() * 0.6);
-      this.life[i] = o.life;
-      this.max[i] = o.life;
-      this.chan[i] = o.channel ? 1 : 0;
-      this.grain[i] = o.grain ? 1 : 0;
-      this.grav[i] = o.gravity;
-      this.drag[i] = o.drag;
-    }
-  }
-
-  update(dt: number): void {
-    let alive = 0;
-    for (let i = 0; i < this.n; i++) {
-      const life = this.life[i] ?? 0;
-      if (life <= 0) continue;
-      alive++;
-      this.life[i] = life - dt;
-      const dragF = Math.exp(-(this.drag[i] ?? 0) * dt);
-      const b = i * 3;
-      const vx = (this.vel[b] ?? 0) * dragF;
-      const vy = (this.vel[b + 1] ?? 0) * dragF - (this.grav[i] ?? 0) * dt;
-      const vz = (this.vel[b + 2] ?? 0) * dragF;
-      this.vel[b] = vx;
-      this.vel[b + 1] = vy;
-      this.vel[b + 2] = vz;
-      this.pos[b] = (this.pos[b] ?? 0) + vx * dt;
-      this.pos[b + 1] = (this.pos[b + 1] ?? 0) + vy * dt;
-      this.pos[b + 2] = (this.pos[b + 2] ?? 0) + vz * dt;
-    }
-    // One idle frame still uploads (to clear the last dying particle), then rest.
-    if (alive === 0 && this.wasEmpty) return;
-    this.wasEmpty = alive === 0;
-    const geo = this.points.geometry;
-    geo.getAttribute("position").needsUpdate = true;
-    geo.getAttribute("aColor").needsUpdate = true;
-    geo.getAttribute("aSize").needsUpdate = true;
-    geo.getAttribute("aLife").needsUpdate = true;
-    geo.getAttribute("aMax").needsUpdate = true;
-    geo.getAttribute("aChannel").needsUpdate = true;
-    geo.getAttribute("aGrain").needsUpdate = true;
-  }
-}
-
 export type FxTier = 0 | 1 | 2;
 
 // Drift-tier FX ladder — tiers are three DIFFERENT effects sharing a palette,
@@ -257,9 +84,9 @@ export type FxTier = 0 | 1 | 2;
 // donut test). Only one-frame moments (promotion, ignition) may cross the
 // gate; the held shower reads as sparks, not glow.
 export const TIER_FX = [
-  { rate: 34, core: 0.22, coreInt: 1.25, halo: 0.35, haloInt: 0.8, jet: 0, pulse: 0 },
-  { rate: 56, core: 0.28, coreInt: 1.35, halo: 0.45, haloInt: 0.8, jet: 0, pulse: 0 },
-  { rate: 84, core: 0.34, coreInt: 1.45, halo: 0.55, haloInt: 0.8, jet: 30, pulse: 6.5 },
+  { core: 0.22, coreInt: 1.25, halo: 0.35, haloInt: 0.8, jet: 0, pulse: 0, rate: 34 },
+  { core: 0.28, coreInt: 1.35, halo: 0.45, haloInt: 0.8, jet: 0, pulse: 0, rate: 56 },
+  { core: 0.34, coreInt: 1.45, halo: 0.55, haloInt: 0.8, jet: 30, pulse: 6.5, rate: 84 },
 ] as const;
 
 // Day-weighted additive governor floor: authored 2.2-3.4 radiances are tuned
@@ -279,14 +106,16 @@ export class Fx {
   // channel grain already in flight, that frame, for three floats.
   private tierCol = { value: new THREE.Color(GRIND_COLOR) };
   readonly smoke = new ParticleField(420, THREE.NormalBlending, true, FRAG_SMOKE, {
-    uSunTint: this.smokeSun,
     uAmbient: this.smokeAmbient,
+    uSunTint: this.smokeSun,
     uTierCol: { value: new THREE.Color(1, 1, 1) },
-  }); // grows over life
+    // grows over life
+  });
   readonly sparks = new ParticleField(500, THREE.AdditiveBlending, false, FRAG_SPARKS, {
     uFxGain: this.fxGain,
     uTierCol: this.tierCol,
-  }); // shrinks over life
+    // shrinks over life
+  });
   readonly plume = new BoostPlume(this.fxGain);
   readonly rings = new FxRings(this.fxGain);
   readonly water = new WaterFx((x, y, z, strength, velX, velZ, kind) =>
@@ -297,17 +126,17 @@ export class Fx {
   private tmpDir = { x: 0, y: 0, z: 0 };
   private waterDirection = { x: 0, y: 0, z: 0 };
   private waterSprayOptions: EmitOpts = {
-    count: 0,
     color: new THREE.Color(0.84, 0.94, 1),
+    count: 0,
+    dir: this.waterDirection,
+    dirSpeed: 1,
+    drag: 1.8,
+    gravity: 12,
+    life: 0,
+    size: 0,
     speed: 0,
     spread: 0,
     up: 0,
-    size: 0,
-    life: 0,
-    gravity: 12,
-    drag: 1.8,
-    dir: this.waterDirection,
-    dirSpeed: 1,
   };
 
   addTo(scene: THREE.Scene): void {
@@ -372,15 +201,15 @@ export class Fx {
     const profile = SURFACE_FX[surface];
     this.tmp.setRGB(profile.color.r, profile.color.g, profile.color.b);
     this.smoke.emit(x, y + 0.3, z, {
-      count: 2,
       color: this.tmp,
-      speed: 1.0,
+      count: 2,
+      drag: 2.4,
+      gravity: -1.2,
+      life: 0.6,
+      size: 1.9,
+      speed: 1,
       spread: 1.2,
       up: 1.5,
-      size: 1.9,
-      life: 0.6,
-      gravity: -1.2,
-      drag: 2.4,
     });
     // Boost-only ember kiss in the smoke. The drift-charge spark read belongs
     // to the tier shower (driftShower) — a second charged emission here at
@@ -389,16 +218,16 @@ export class Fx {
     if (boosting) {
       this.tmp.setHSL(0.08, 1, 0.6);
       this.sparks.emit(x, y + 0.3, z, {
-        count: 2,
         color: this.tmp,
+        count: 2,
+        drag: 3,
+        gravity: 0,
         intensity: 1.4,
+        life: 0.35,
+        size: 0.4,
         speed: 5,
         spread: 1,
         up: 0.5,
-        size: 0.4,
-        life: 0.35,
-        gravity: 0,
-        drag: 3,
       });
     }
   }
@@ -423,50 +252,50 @@ export class Fx {
     this.tmpDir.y = 0;
     this.tmpDir.z = dz;
     this.sparks.emit(x, y, z, {
-      count,
-      color: this.white,
       channel: true,
+      color: this.white,
+      count,
+      dir: this.tmpDir,
+      dirSpeed,
+      drag: 1.5,
+      gravity: 14,
       intensity: t.coreInt,
+      life: 0.4,
+      size: t.core,
       speed: 4.6 + 1.3 * tier,
       spread: 1.2,
       up: 2.5 + 0.5 * tier,
-      size: t.core,
-      life: 0.4,
-      gravity: 14,
-      drag: 1.5,
-      dir: this.tmpDir,
-      dirSpeed,
     });
     this.sparks.emit(x, y + 0.12, z, {
-      count: Math.max(1, count >> 1),
-      color: this.white,
       channel: true,
+      color: this.white,
+      count: Math.max(1, Math.trunc(count / 2)),
+      dir: this.tmpDir,
+      dirSpeed: dirSpeed * 0.7,
+      drag: 2.4,
+      gravity: 2,
       intensity: t.haloInt,
+      life: 0.3,
+      size: t.halo,
       speed: 1.5,
       spread: 0.9,
       up: 1.2,
-      size: t.halo,
-      life: 0.3,
-      gravity: 2,
-      drag: 2.4,
-      dir: this.tmpDir,
-      dirSpeed: dirSpeed * 0.7,
     });
     if (Math.random() < 0.6) {
       this.sparks.emit(x, y + 0.05, z, {
-        count: 1,
-        color: this.white,
         channel: true,
+        color: this.white,
+        count: 1,
+        dir: this.tmpDir,
+        dirSpeed: dirSpeed * 0.9,
+        drag: 6,
+        gravity: 0,
         intensity: 1.45,
+        life: 0.12,
+        size: 2.3 + 0.4 * tier,
         speed: 0.2,
         spread: 0.2,
         up: 0.2,
-        size: 2.3 + 0.4 * tier,
-        life: 0.12,
-        gravity: 0,
-        drag: 6,
-        dir: this.tmpDir,
-        dirSpeed: dirSpeed * 0.9,
       });
     }
   }
@@ -478,19 +307,19 @@ export class Fx {
     this.tmpDir.y = 0;
     this.tmpDir.z = iz;
     this.sparks.emit(x, y, z, {
-      count,
-      color: this.white,
       channel: true,
+      color: this.white,
+      count,
+      dir: this.tmpDir,
+      dirSpeed: 1,
+      drag: 0.55,
+      gravity: 11,
       intensity: 1.5,
+      life: 0.7,
+      size: 0.16,
       speed: 0.4,
       spread: 1.5,
       up: 6.2,
-      size: 0.16,
-      life: 0.7,
-      gravity: 11,
-      drag: 0.55,
-      dir: this.tmpDir,
-      dirSpeed: 1,
     });
   }
 
@@ -510,34 +339,34 @@ export class Fx {
     this.tmpDir.y = 0;
     this.tmpDir.z = iz;
     this.sparks.emit(x, y, z, {
-      count,
-      color: this.white,
       channel: true,
-      intensity: 3.0,
+      color: this.white,
+      count,
+      dir: this.tmpDir,
+      dirSpeed: 1,
+      drag: 1.1,
+      gravity: 13,
+      intensity: 3,
+      life: 0.62,
+      size: 0.6 + 0.12 * tier,
       speed: 6.5,
       spread: 1.4,
       up: 3.2,
-      size: 0.6 + 0.12 * tier,
-      life: 0.62,
-      gravity: 13,
-      drag: 1.1,
-      dir: this.tmpDir,
-      dirSpeed: 1,
     });
     this.sparks.emit(x, y + 0.2, z, {
-      count: Math.max(1, count >> 1),
-      color: this.white,
       channel: true,
+      color: this.white,
+      count: Math.max(1, Math.trunc(count / 2)),
+      dir: this.tmpDir,
+      dirSpeed: 0.6,
+      drag: 2.5,
+      gravity: 2,
       intensity: 1.75,
+      life: 0.4,
+      size: 1.7,
       speed: 3,
       spread: 1.2,
       up: 1.6,
-      size: 1.7,
-      life: 0.4,
-      gravity: 2,
-      drag: 2.5,
-      dir: this.tmpDir,
-      dirSpeed: 0.6,
     });
   }
 
@@ -545,17 +374,17 @@ export class Fx {
   // AIR where the chase camera actually looks.
   promotionFlare(x: number, y: number, z: number, tier: FxTier): void {
     this.sparks.emit(x, y, z, {
-      count: 1,
-      color: this.white,
       channel: true,
+      color: this.white,
+      count: 1,
+      drag: 4.5,
+      gravity: -0.5,
       intensity: 1.3 + 0.3 * tier,
+      life: 0.3,
+      size: 2 + 1 * tier,
       speed: 0.3,
       spread: 0.2,
       up: 0.2,
-      size: 2.0 + 1.0 * tier,
-      life: 0.3,
-      gravity: -0.5,
-      drag: 4.5,
     });
   }
 
@@ -566,19 +395,19 @@ export class Fx {
     this.tmpDir.y = 0;
     this.tmpDir.z = iz;
     this.sparks.emit(x, y + 0.15, z, {
-      count: 1,
-      color: this.white,
       channel: true,
+      color: this.white,
+      count: 1,
+      dir: this.tmpDir,
+      dirSpeed: 0.75,
+      drag: 5,
+      gravity: 0,
       intensity: 0.95 + 0.16 * tier,
+      life: 0.34,
+      size: 4.2 + 1.2 * tier,
       speed: 0,
       spread: 0.1,
       up: 0.05,
-      size: 4.2 + 1.2 * tier,
-      life: 0.34,
-      gravity: 0,
-      drag: 5,
-      dir: this.tmpDir,
-      dirSpeed: 0.75,
     });
   }
 
@@ -594,50 +423,50 @@ export class Fx {
     // White-hot core — small and fast, or additive stacking blows out.
     this.tmp.setHSL(0.09, 0.6, 0.72);
     this.sparks.emit(x, y, z, {
-      count: 1,
       color: this.tmp,
+      count: 1,
+      dir: this.tmpDir,
+      dirSpeed: 10,
+      drag: 2.5,
+      gravity: 0,
       intensity: 2.8,
+      life: 0.14,
+      size: 0.8,
       speed: 0.4,
       spread: 0.2,
       up: 0.2,
-      size: 0.8,
-      life: 0.14,
-      gravity: 0,
-      drag: 2.5,
-      dir: this.tmpDir,
-      dirSpeed: 10,
     });
     // Orange tongue.
     this.tmp.setHSL(0.06, 1, 0.5);
     this.sparks.emit(x, y, z, {
-      count: 1,
       color: this.tmp,
+      count: 1,
+      dir: this.tmpDir,
+      dirSpeed: 9,
+      drag: 2.5,
+      gravity: 0,
       intensity: 2.4,
+      life: 0.18,
+      size: 1.25,
       speed: 0.6,
       spread: 0.3,
       up: 0.3,
-      size: 1.25,
-      life: 0.18,
-      gravity: 0,
-      drag: 2.5,
-      dir: this.tmpDir,
-      dirSpeed: 9,
     });
     // Deep-orange wisp trailing the tongue — gives the cone its taper.
     this.tmp.setHSL(0.02, 1, 0.42);
     this.sparks.emit(x, y, z, {
-      count: 1,
       color: this.tmp,
+      count: 1,
+      dir: this.tmpDir,
+      dirSpeed: 7.5,
+      drag: 2.2,
+      gravity: 0,
       intensity: 1.8,
+      life: 0.22,
+      size: 1.5,
       speed: 0.7,
       spread: 0.4,
       up: 0.35,
-      size: 1.5,
-      life: 0.22,
-      gravity: 0,
-      drag: 2.2,
-      dir: this.tmpDir,
-      dirSpeed: 7.5,
     });
   }
 
@@ -650,50 +479,53 @@ export class Fx {
     this.tmpDir.x = dirX * inv;
     this.tmpDir.y = 0.12;
     this.tmpDir.z = dirZ * inv;
-    this.tmp.setHSL(hue, 0.55, 0.85); // near-white core
+    // near-white core
+    this.tmp.setHSL(hue, 0.55, 0.85);
     this.sparks.emit(x, y, z, {
-      count: 3,
       color: this.tmp,
-      intensity: 3.0,
+      count: 3,
+      dir: this.tmpDir,
+      dirSpeed: 13,
+      drag: 2.2,
+      gravity: 0,
+      intensity: 3,
+      life: 0.16,
+      size: 1.5,
       speed: 0.5,
       spread: 0.25,
       up: 0.3,
-      size: 1.5,
-      life: 0.16,
-      gravity: 0,
-      drag: 2.2,
-      dir: this.tmpDir,
-      dirSpeed: 13,
     });
-    this.tmp.setHSL(hue, 1, 0.55); // colored tongue
+    // colored tongue
+    this.tmp.setHSL(hue, 1, 0.55);
     this.sparks.emit(x, y, z, {
-      count: 4,
       color: this.tmp,
+      count: 4,
+      dir: this.tmpDir,
+      dirSpeed: 11,
+      drag: 2,
+      gravity: 0,
       intensity: 2.6,
+      life: 0.24,
+      size: 1.9,
       speed: 0.9,
       spread: 0.5,
       up: 0.4,
-      size: 1.9,
-      life: 0.24,
-      gravity: 0,
-      drag: 2.0,
-      dir: this.tmpDir,
-      dirSpeed: 11,
     });
-    this.tmp.setHSL(hue, 1, 0.62); // scatter flecks
+    // scatter flecks
+    this.tmp.setHSL(hue, 1, 0.62);
     this.sparks.emit(x, y, z, {
-      count: 6,
       color: this.tmp,
+      count: 6,
+      dir: this.tmpDir,
+      dirSpeed: 5,
+      drag: 1.4,
+      gravity: 6,
       intensity: 2.4,
+      life: 0.35,
+      size: 0.7,
       speed: 4.5,
       spread: 1.2,
       up: 1.4,
-      size: 0.7,
-      life: 0.35,
-      gravity: 6,
-      drag: 1.4,
-      dir: this.tmpDir,
-      dirSpeed: 5,
     });
   }
 
@@ -723,10 +555,12 @@ export class Fx {
     const options = this.waterSprayOptions;
     const entry = kind === "entry";
     const wake = kind === "wake";
-    options.count = entry ? 5 + Math.round(strength * 15) : wake ? 1 : 4;
+    const surfaceCount = wake ? 1 : 4;
+    const surfaceUp = wake ? 0.9 : 1.4;
+    options.count = entry ? 5 + Math.round(strength * 15) : surfaceCount;
     options.speed = entry ? 0.8 + strength * 2 : 0.3;
     options.spread = entry ? 0.8 : 0.4;
-    options.up = entry ? 1.7 + strength * 4 : wake ? 0.9 : 1.4;
+    options.up = entry ? 1.7 + strength * 4 : surfaceUp;
     options.size = entry ? 0.16 + strength * 0.1 : 0.13;
     options.life = entry ? 0.35 + strength * 0.28 : 0.3;
     this.waterDirection.x = velX * 0.2;
@@ -743,24 +577,24 @@ export class Fx {
     power: number,
     grain: boolean,
   ): void {
-    const color = recipe.color;
+    const { color } = recipe;
     this.tmp.setRGB(color.r, color.g, color.b);
     // Camera-facing dust needs room above the contact plane: a low centre
     // clips its soft circle into a hard horizontal stripe. Chips stay low.
     const lift = grain ? 0.16 : 0.2 + recipe.size * 0.8;
     this.smoke.emit(x, y + lift, z, {
-      count: recipe.count,
       color: this.tmp,
+      count: recipe.count,
+      dir: direction,
+      dirSpeed: power * (grain ? 1 : 0.55),
+      drag: recipe.drag,
+      grain,
+      gravity: recipe.gravity,
+      life: recipe.life,
+      size: recipe.size,
       speed: 0,
       spread: recipe.spread,
       up: recipe.up,
-      size: recipe.size,
-      life: recipe.life,
-      gravity: recipe.gravity,
-      drag: recipe.drag,
-      dir: direction,
-      dirSpeed: power * (grain ? 1 : 0.55),
-      grain,
     });
   }
 
@@ -768,23 +602,23 @@ export class Fx {
   // fixed angles (coherent shape beats a noisy swarm).
   dustRing(x: number, y: number, z: number, count: number): void {
     this.tmp.setHSL(0.09, 0.14, 0.66);
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < count; i += 1) {
       const ang = (i / count) * Math.PI * 2;
       this.tmpDir.x = Math.cos(ang);
       this.tmpDir.y = 0;
       this.tmpDir.z = Math.sin(ang);
       this.smoke.emit(x, y, z, {
-        count: 1,
         color: this.tmp,
+        count: 1,
+        dir: this.tmpDir,
+        dirSpeed: 7,
+        drag: 3,
+        gravity: -0.6,
+        life: 0.5,
+        size: 2.2,
         speed: 0,
         spread: 0,
         up: 1,
-        size: 2.2,
-        life: 0.5,
-        gravity: -0.6,
-        drag: 3,
-        dir: this.tmpDir,
-        dirSpeed: 7,
       });
     }
   }
@@ -799,35 +633,35 @@ export class Fx {
     this.tmpDir.z = nz * inv;
     this.tmp.setHSL(0.13, 1, 0.6);
     this.sparks.emit(x, y, z, {
-      count: 2 + (Math.random() < 0.5 ? 1 : 0),
       color: this.tmp,
+      count: 2 + (Math.random() < 0.5 ? 1 : 0),
+      dir: this.tmpDir,
+      dirSpeed: 4.5,
+      drag: 2,
+      gravity: 5,
       intensity: 2.3,
+      life: 0.25,
+      size: 0.8,
       speed: 2,
       spread: 0.8,
       up: 0.6,
-      size: 0.8,
-      life: 0.25,
-      gravity: 5,
-      drag: 2,
-      dir: this.tmpDir,
-      dirSpeed: 4.5,
     });
   }
 
   burst(x: number, y: number, z: number, hue: number, count: number, power: number): void {
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < count; i += 1) {
       this.tmp.setHSL((hue + Math.random() * 0.12) % 1, 0.9, 0.6);
       this.sparks.emit(x, y, z, {
-        count: 1,
         color: this.tmp,
+        count: 1,
+        drag: 1.1,
+        gravity: 9,
         intensity: 2.2,
+        life: 0.6 + Math.random() * 0.5,
+        size: 1.3,
         speed: power * (0.5 + Math.random()),
         spread: 1,
         up: power * 0.7,
-        size: 1.3,
-        life: 0.6 + Math.random() * 0.5,
-        gravity: 9,
-        drag: 1.1,
       });
     }
   }

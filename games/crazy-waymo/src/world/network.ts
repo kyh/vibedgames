@@ -1,4 +1,5 @@
-import { type RawEdge, SF_EDGES, SF_NODES } from "./sf-network";
+import { SF_EDGES, SF_NODES } from "./sf-network";
+import type { RawEdge } from "./sf-network";
 
 // Runtime view of the baked vector road network — THE source of truth for
 // road rendering, traffic routing and building alignment. Edges are world-
@@ -6,63 +7,174 @@ import { type RawEdge, SF_EDGES, SF_NODES } from "./sf-network";
 // nearest-edge queries (building setback, spawn snapping) in O(bucket).
 // Park-interior streets are already clipped at bake time — no runtime filter.
 
-export type EdgeSample = {
+export interface EdgeSample {
   readonly x: number;
   readonly z: number;
-  readonly tx: number; // unit tangent (a→b direction)
+  // unit tangent (a→b direction)
+  readonly tx: number;
   readonly tz: number;
-};
+}
 
-export type NetEdge = {
+export interface NetEdge {
   readonly id: number;
   readonly a: number;
   readonly b: number;
-  readonly half: number; // asphalt half-width
-  readonly pts: Float32Array; // [x0,z0, x1,z1, ...]
-  readonly cum: Float32Array; // arclength at each point
+  // asphalt half-width
+  readonly half: number;
+  // [x0,z0, x1,z1, ...]
+  readonly pts: Float32Array;
+  // arclength at each point
+  readonly cum: Float32Array;
   readonly len: number;
-};
+}
 
-export type NearestHit = {
+export interface NearestHit {
   readonly edge: NetEdge;
-  readonly s: number; // arclength along the edge
+  // arclength along the edge
+  readonly s: number;
   readonly dist: number;
   readonly tx: number;
   readonly tz: number;
-  readonly x: number; // closest point on the edge
+  // closest point on the edge
+  readonly x: number;
   readonly z: number;
+}
+
+// world units per bucket
+const HASH_CELL = 40;
+
+interface Arm {
+  readonly tx: number;
+  readonly tz: number;
+  readonly half: number;
+}
+
+const buildEdges = (rawEdges: readonly (RawEdge | undefined)[]): NetEdge[] => {
+  const edges: NetEdge[] = [];
+  for (const [i, raw] of rawEdges.entries()) {
+    if (!raw) {
+      continue;
+    }
+    const pts = new Float32Array(raw.p);
+    const n = pts.length / 2;
+    const cum = new Float32Array(n);
+    for (let k = 1; k < n; k += 1) {
+      const dx = (pts[k * 2] ?? 0) - (pts[k * 2 - 2] ?? 0);
+      const dz = (pts[k * 2 + 1] ?? 0) - (pts[k * 2 - 1] ?? 0);
+      cum[k] = (cum[k - 1] ?? 0) + Math.hypot(dx, dz);
+    }
+    edges.push({ a: raw.a, b: raw.b, cum, half: raw.w, id: i, len: cum[n - 1] ?? 0, pts });
+  }
+  return edges;
 };
 
-const HASH_CELL = 40; // world units per bucket
+/** Outbound unit tangents of every edge meeting node `n`. */
+const nodeArms = (n: number, ids: readonly number[], byId: ReadonlyMap<number, NetEdge>): Arm[] => {
+  const arms: Arm[] = [];
+  for (const id of ids) {
+    const e = byId.get(id);
+    if (!e) {
+      continue;
+    }
+    const m = e.pts.length / 2;
+    if (m < 2) {
+      continue;
+    }
+    if (e.a === n) {
+      const dx = (e.pts[2] ?? 0) - (e.pts[0] ?? 0);
+      const dz = (e.pts[3] ?? 0) - (e.pts[1] ?? 0);
+      const l = Math.hypot(dx, dz) || 1;
+      arms.push({ half: e.half, tx: dx / l, tz: dz / l });
+    }
+    if (e.b === n) {
+      const dx = (e.pts[m * 2 - 4] ?? 0) - (e.pts[m * 2 - 2] ?? 0);
+      const dz = (e.pts[m * 2 - 3] ?? 0) - (e.pts[m * 2 - 1] ?? 0);
+      const l = Math.hypot(dx, dz) || 1;
+      arms.push({ half: e.half, tx: dx / l, tz: dz / l });
+    }
+  }
+  return arms;
+};
+
+const junctionTrim = (arms: readonly Arm[]): number => {
+  let trim = 0;
+  for (const a of arms) {
+    trim = Math.max(trim, a.half * 1.15);
+  }
+  for (let i = 0; i < arms.length; i += 1) {
+    for (let j = i + 1; j < arms.length; j += 1) {
+      const a = arms[i];
+      const b = arms[j];
+      if (!a || !b) {
+        continue;
+      }
+      const dot = Math.min(1, Math.max(-1, a.tx * b.tx + a.tz * b.tz));
+      const halfAngle = Math.acos(dot) / 2;
+      if (halfAngle < 0.02) {
+        continue;
+        // duplicate/parallel arm — cap would explode
+      }
+      const d = (a.half + b.half) / (2 * Math.sin(halfAngle));
+      // Cap 14 (was 20): the shallow-angle formula explodes where Market
+      // meets the grid, and 20u trims x the patch reach merged whole
+      // node chains into asphalt lakes. Overlap between edge strips is
+      // dissolved by the planar-map union anyway — the trim only needs
+      // to push paint/crosswalks/hold-points clear of the junction.
+      trim = Math.max(trim, Math.min(d, 14));
+    }
+  }
+  return Math.min(trim, 14);
+};
+
+/** Spatial hash: every segment registers in the buckets its AABB spans. */
+const hashSegments = (edges: readonly NetEdge[]): Map<string, number[]> => {
+  const buckets = new Map<string, number[]>();
+  for (const e of edges) {
+    const seen = new Set<string>();
+    for (let k = 0; k + 2 < e.pts.length; k += 2) {
+      const x0 = Math.min(e.pts[k] ?? 0, e.pts[k + 2] ?? 0);
+      const x1 = Math.max(e.pts[k] ?? 0, e.pts[k + 2] ?? 0);
+      const z0 = Math.min(e.pts[k + 1] ?? 0, e.pts[k + 3] ?? 0);
+      const z1 = Math.max(e.pts[k + 1] ?? 0, e.pts[k + 3] ?? 0);
+      for (let bx = Math.floor(x0 / HASH_CELL); bx <= Math.floor(x1 / HASH_CELL); bx += 1) {
+        for (let bz = Math.floor(z0 / HASH_CELL); bz <= Math.floor(z1 / HASH_CELL); bz += 1) {
+          const key = `${bx},${bz}`;
+          if (seen.has(key)) {
+            continue;
+          }
+          seen.add(key);
+          const list = buckets.get(key);
+          if (list) {
+            list.push(e.id);
+          } else {
+            buckets.set(key, [e.id]);
+          }
+        }
+      }
+    }
+  }
+  return buckets;
+};
 
 export class RoadNetwork {
   readonly nodes: readonly (readonly [number, number])[];
   readonly edges: readonly NetEdge[];
-  readonly nodeEdges: readonly (readonly number[])[]; // node → incident edge ids
-  readonly maxNodeTrim: number; // largest nodeTrim in the network (clip-radius bound)
+  // node → incident edge ids
+  readonly nodeEdges: readonly (readonly number[])[];
+  // largest nodeTrim in the network (clip-radius bound)
+  readonly maxNodeTrim: number;
   private nodeTrims: Float32Array;
-  private passThrough: Uint8Array; // 1 = two near-collinear arms (not a real junction)
-  private buckets = new Map<string, number[]>(); // "bx,bz" → edge ids (deduped)
+  // 1 = two near-collinear arms (not a real junction)
+  private passThrough: Uint8Array;
+  // "bx,bz" → edge ids (deduped)
+  private buckets: Map<string, number[]>;
 
   constructor(
     nodes: readonly (readonly [number, number])[] = SF_NODES,
     rawEdges: readonly (RawEdge | undefined)[] = SF_EDGES,
   ) {
     this.nodes = nodes;
-    const edges: NetEdge[] = [];
-    for (let i = 0; i < rawEdges.length; i++) {
-      const raw = rawEdges[i];
-      if (!raw) continue;
-      const pts = new Float32Array(raw.p);
-      const n = pts.length / 2;
-      const cum = new Float32Array(n);
-      for (let k = 1; k < n; k++) {
-        const dx = (pts[k * 2] ?? 0) - (pts[k * 2 - 2] ?? 0);
-        const dz = (pts[k * 2 + 1] ?? 0) - (pts[k * 2 - 1] ?? 0);
-        cum[k] = (cum[k - 1] ?? 0) + Math.hypot(dx, dz);
-      }
-      edges.push({ id: i, a: raw.a, b: raw.b, half: raw.w, pts, cum, len: cum[n - 1] ?? 0 });
-    }
+    const edges = buildEdges(rawEdges);
     this.edges = edges;
 
     const nodeEdges: number[][] = nodes.map(() => []);
@@ -78,91 +190,43 @@ export class RoadNetwork {
     // the junction. Two strips separated by angle θ stop overlapping at
     // d = (h1+h2) / (2·sin(θ/2)) along each arm; take the worst pair, capped.
     const byId = new Map<number, NetEdge>();
-    for (const e of edges) byId.set(e.id, e);
+    for (const e of edges) {
+      byId.set(e.id, e);
+    }
     const trims = new Float32Array(nodes.length);
     const passThrough = new Uint8Array(nodes.length);
-    for (let n = 0; n < nodes.length; n++) {
-      const ids = nodeEdges[n] ?? [];
-      if (ids.length === 0) continue;
-      const arms: { tx: number; tz: number; half: number }[] = [];
-      for (const id of ids) {
-        const e = byId.get(id);
-        if (!e) continue;
-        const m = e.pts.length / 2;
-        if (m < 2) continue;
-        if (e.a === n) {
-          const dx = (e.pts[2] ?? 0) - (e.pts[0] ?? 0);
-          const dz = (e.pts[3] ?? 0) - (e.pts[1] ?? 0);
-          const l = Math.hypot(dx, dz) || 1;
-          arms.push({ tx: dx / l, tz: dz / l, half: e.half });
-        }
-        if (e.b === n) {
-          const dx = (e.pts[m * 2 - 4] ?? 0) - (e.pts[m * 2 - 2] ?? 0);
-          const dz = (e.pts[m * 2 - 3] ?? 0) - (e.pts[m * 2 - 1] ?? 0);
-          const l = Math.hypot(dx, dz) || 1;
-          arms.push({ tx: dx / l, tz: dz / l, half: e.half });
-        }
+    for (let n = 0; n < nodes.length; n += 1) {
+      const arms = nodeArms(n, nodeEdges[n] ?? [], byId);
+      if (arms.length === 0) {
+        continue;
       }
-      let trim = 0;
-      for (const a of arms) trim = Math.max(trim, a.half * 1.15);
-      for (let i = 0; i < arms.length; i++) {
-        for (let j = i + 1; j < arms.length; j++) {
-          const a = arms[i];
-          const b = arms[j];
-          if (!a || !b) continue;
-          const dot = Math.min(1, Math.max(-1, a.tx * b.tx + a.tz * b.tz));
-          const halfAngle = Math.acos(dot) / 2;
-          if (halfAngle < 0.02) continue; // duplicate/parallel arm — cap would explode
-          const d = (a.half + b.half) / (2 * Math.sin(halfAngle));
-          // Cap 14 (was 20): the shallow-angle formula explodes where Market
-          // meets the grid, and 20u trims x the patch reach merged whole
-          // node chains into asphalt lakes. Overlap between edge strips is
-          // dissolved by the planar-map union anyway — the trim only needs
-          // to push paint/crosswalks/hold-points clear of the junction.
-          trim = Math.max(trim, Math.min(d, 14));
-        }
-      }
-      trims[n] = Math.min(trim, 14);
+      trims[n] = junctionTrim(arms);
       if (arms.length === 2) {
-        const a = arms[0];
-        const b = arms[1];
-        if (a && b && a.tx * b.tx + a.tz * b.tz < -0.8) passThrough[n] = 1;
+        const [a, b] = arms;
+        if (a && b && a.tx * b.tx + a.tz * b.tz < -0.8) {
+          passThrough[n] = 1;
+        }
       }
     }
     this.nodeTrims = trims;
     this.passThrough = passThrough;
     let maxTrim = 0;
-    for (let n = 0; n < trims.length; n++) maxTrim = Math.max(maxTrim, trims[n] ?? 0);
-    this.maxNodeTrim = maxTrim;
-
-    // Spatial hash: every segment registers in the buckets its AABB spans.
-    for (const e of edges) {
-      const seen = new Set<string>();
-      for (let k = 0; k + 2 < e.pts.length; k += 2) {
-        const x0 = Math.min(e.pts[k] ?? 0, e.pts[k + 2] ?? 0);
-        const x1 = Math.max(e.pts[k] ?? 0, e.pts[k + 2] ?? 0);
-        const z0 = Math.min(e.pts[k + 1] ?? 0, e.pts[k + 3] ?? 0);
-        const z1 = Math.max(e.pts[k + 1] ?? 0, e.pts[k + 3] ?? 0);
-        for (let bx = Math.floor(x0 / HASH_CELL); bx <= Math.floor(x1 / HASH_CELL); bx++) {
-          for (let bz = Math.floor(z0 / HASH_CELL); bz <= Math.floor(z1 / HASH_CELL); bz++) {
-            const key = `${bx},${bz}`;
-            if (seen.has(key)) continue;
-            seen.add(key);
-            const list = this.buckets.get(key);
-            if (list) list.push(e.id);
-            else this.buckets.set(key, [e.id]);
-          }
-        }
-      }
+    for (const trim of trims) {
+      maxTrim = Math.max(maxTrim, trim);
     }
+    this.maxNodeTrim = maxTrim;
+    this.buckets = hashSegments(edges);
   }
 
   // Point + tangent at arclength s (clamped to [0, len]).
+  // oxlint-disable-next-line class-methods-use-this -- instance API every consumer calls on its network
   sample(e: NetEdge, s: number): EdgeSample {
     const cs = Math.min(Math.max(s, 0), e.len);
     const n = e.pts.length / 2;
     let k = 1;
-    while (k < n - 1 && (e.cum[k] ?? 0) < cs) k++;
+    while (k < n - 1 && (e.cum[k] ?? 0) < cs) {
+      k += 1;
+    }
     const s0 = e.cum[k - 1] ?? 0;
     const s1 = e.cum[k] ?? 0;
     const t = s1 > s0 ? (cs - s0) / (s1 - s0) : 0;
@@ -172,10 +236,10 @@ export class RoadNetwork {
     const bz = e.pts[k * 2 + 1] ?? 0;
     const dl = Math.hypot(bx - ax, bz - az) || 1;
     return {
-      x: ax + (bx - ax) * t,
-      z: az + (bz - az) * t,
       tx: (bx - ax) / dl,
       tz: (bz - az) / dl,
+      x: ax + (bx - ax) * t,
+      z: az + (bz - az) * t,
     };
   }
 
@@ -204,13 +268,17 @@ export class RoadNetwork {
     const cbx = Math.floor(x / HASH_CELL);
     const cbz = Math.floor(z / HASH_CELL);
     const seen = new Set<number>();
-    for (let bx = cbx - n; bx <= cbx + n; bx++) {
-      for (let bz = cbz - n; bz <= cbz + n; bz++) {
+    for (let bx = cbx - n; bx <= cbx + n; bx += 1) {
+      for (let bz = cbz - n; bz <= cbz + n; bz += 1) {
         for (const id of this.buckets.get(`${bx},${bz}`) ?? []) {
-          if (seen.has(id)) continue;
+          if (seen.has(id)) {
+            continue;
+          }
           seen.add(id);
           const e = this.edges[id];
-          if (e) out.push(e);
+          if (e) {
+            out.push(e);
+          }
         }
       }
     }
@@ -225,13 +293,17 @@ export class RoadNetwork {
     const cbx = Math.floor(x / HASH_CELL);
     const cbz = Math.floor(z / HASH_CELL);
     const tried = new Set<number>();
-    for (let bx = cbx - r; bx <= cbx + r; bx++) {
-      for (let bz = cbz - r; bz <= cbz + r; bz++) {
+    for (let bx = cbx - r; bx <= cbx + r; bx += 1) {
+      for (let bz = cbz - r; bz <= cbz + r; bz += 1) {
         for (const id of this.buckets.get(`${bx},${bz}`) ?? []) {
-          if (tried.has(id)) continue;
+          if (tried.has(id)) {
+            continue;
+          }
           tried.add(id);
           const e = this.edges[id];
-          if (!e) continue;
+          if (!e) {
+            continue;
+          }
           for (let k = 0; k + 2 < e.pts.length; k += 2) {
             const ax = e.pts[k] ?? 0;
             const az = e.pts[k + 1] ?? 0;
@@ -249,9 +321,9 @@ export class RoadNetwork {
               bd = d2;
               const dl = Math.sqrt(l2) || 1;
               best = {
+                dist: Math.sqrt(d2),
                 edge: e,
                 s: (e.cum[k / 2] ?? 0) + dl * t,
-                dist: Math.sqrt(d2),
                 tx: dx / dl,
                 tz: dz / dl,
                 x: px,

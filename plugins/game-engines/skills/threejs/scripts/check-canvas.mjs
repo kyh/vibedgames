@@ -32,46 +32,51 @@
  * pre-resolved via PLAYWRIGHT_BROWSERS_PATH in this environment.
  */
 
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { readFileSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+import { inflateSync } from "node:zlib";
 
 /** Print this file's header docblock, so `--help` cannot drift from the docs. */
-function printHelp() {
-  const source = readFileSync(fileURLToPath(import.meta.url), "utf8");
-  const match = /^(?:#![^\n]*\n)?\/\*\*([\s\S]*?)\*\//.exec(source);
-  const text = (match?.[1] ?? "")
+const printHelp = () => {
+  const source = readFileSync(import.meta.filename, "utf-8");
+  const match = /^(?:#![^\n]*\n)?\/\*\*(?<body>[\s\S]*?)\*\//u.exec(source);
+  const text = (match?.groups?.body ?? "")
     .split("\n")
-    .map((line) => line.replace(/^\s*\* ?/, ""))
+    .map((line) => line.replace(/^\s*\* ?/u, ""))
     .join("\n")
     .trim();
   process.stdout.write(`${text || "No help available."}\n`);
-}
-
-import { pathToFileURL } from "node:url";
-import { writeFileSync } from "node:fs";
-import { inflateSync } from "node:zlib";
+};
 
 // Starting-point render budgets (references/debugging-and-profiling.md).
 // Over-budget rows are reported, never fatal.
 const RENDER_BUDGETS = {
-  desktop: { calls: 300, triangles: 750_000, geometries: 300, textures: 60 },
-  mobile: { calls: 150, triangles: 300_000, geometries: 200, textures: 40 },
+  desktop: { calls: 300, geometries: 300, textures: 60, triangles: 750_000 },
+  mobile: { calls: 150, geometries: 200, textures: 40, triangles: 300_000 },
 };
 
-function parseArgs(argv) {
-  const opts = { selector: "canvas", out: null, wait: 1500, minStd: 4, json: false, mobile: false };
+const parseArgs = (argv) => {
+  const opts = { json: false, minStd: 4, mobile: false, out: null, selector: "canvas", wait: 1500 };
   const rest = [];
-  for (let i = 0; i < argv.length; i++) {
+  for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
-    if (a === "--selector") opts.selector = argv[++i];
-    else if (a === "--out") opts.out = argv[++i];
-    else if (a === "--wait") opts.wait = Number(argv[++i]);
-    else if (a === "--min-std") opts.minStd = Number(argv[++i]);
-    else if (a === "--json") opts.json = true;
-    else if (a === "--mobile") opts.mobile = true;
-    else rest.push(a);
+    if (a === "--selector") {
+      opts.selector = argv[(i += 1)];
+    } else if (a === "--out") {
+      opts.out = argv[(i += 1)];
+    } else if (a === "--wait") {
+      opts.wait = Number(argv[(i += 1)]);
+    } else if (a === "--min-std") {
+      opts.minStd = Number(argv[(i += 1)]);
+    } else if (a === "--json") {
+      opts.json = true;
+    } else if (a === "--mobile") {
+      opts.mobile = true;
+    } else {
+      rest.push(a);
+    }
   }
-  opts.target = rest[0];
+  [opts.target] = rest;
   // reject malformed numeric flags (e.g. a missing arg → NaN) rather than
   // silently treating NaN thresholds as "passing"
   if (!Number.isFinite(opts.wait) || opts.wait < 0) {
@@ -81,21 +86,37 @@ function parseArgs(argv) {
     throw new Error(`--min-std must be a non-negative number (got ${opts.minStd})`);
   }
   return opts;
-}
+};
 
-function toUrl(target) {
-  if (/^https?:\/\//.test(target) || /^file:\/\//.test(target)) return target;
-  return pathToFileURL(target).href; // local file path → file:// URL
-}
+const toUrl = (target) => {
+  if (/^https?:\/\//u.test(target) || target.startsWith("file://")) {
+    return target;
+  }
+  // local file path → file:// URL
+  return pathToFileURL(target).href;
+};
+
+const paeth = (a, b, c) => {
+  const p = a + b - c;
+  const pa = Math.abs(p - a);
+  const pb = Math.abs(p - b);
+  const pc = Math.abs(p - c);
+  if (pa <= pb && pa <= pc) {
+    return a;
+  }
+  return pb <= pc ? b : c;
+};
 
 /** Minimal PNG decoder: 8-bit, non-interlaced, color types 0/2/4/6. */
-function decodePng(buf) {
-  if (buf.readUInt32BE(0) !== 0x89504e47) throw new Error("not a PNG");
+const decodePng = (buf) => {
+  if (buf.readUInt32BE(0) !== 0x89_50_4e_47) {
+    throw new Error("not a PNG");
+  }
   let off = 8;
-  let width = 0,
-    height = 0,
-    colorType = 6,
-    bitDepth = 8;
+  let bitDepth = 8;
+  let colorType = 6;
+  let height = 0;
+  let width = 0;
   const idat = [];
   while (off < buf.length) {
     const len = buf.readUInt32BE(off);
@@ -104,9 +125,11 @@ function decodePng(buf) {
     if (type === "IHDR") {
       width = data.readUInt32BE(0);
       height = data.readUInt32BE(4);
-      bitDepth = data[8];
-      colorType = data[9];
-      if (data[12] !== 0) throw new Error("interlaced PNG unsupported");
+      bitDepth = data.readUInt8(8);
+      colorType = data.readUInt8(9);
+      if (data.readUInt8(12) !== 0) {
+        throw new Error("interlaced PNG unsupported");
+      }
     } else if (type === "IDAT") {
       idat.push(data);
     } else if (type === "IEND") {
@@ -114,92 +137,139 @@ function decodePng(buf) {
     }
     off += 12 + len;
   }
-  if (bitDepth !== 8) throw new Error(`bit depth ${bitDepth} unsupported`);
+  if (bitDepth !== 8) {
+    throw new Error(`bit depth ${bitDepth} unsupported`);
+  }
   const channels = { 0: 1, 2: 3, 4: 2, 6: 4 }[colorType];
-  if (!channels) throw new Error(`color type ${colorType} unsupported`);
+  if (!channels) {
+    throw new Error(`color type ${colorType} unsupported`);
+  }
 
   const raw = inflateSync(Buffer.concat(idat));
   const stride = width * channels;
   const out = Buffer.alloc(height * stride);
 
-  const paeth = (a, b, c) => {
-    const p = a + b - c;
-    const pa = Math.abs(p - a),
-      pb = Math.abs(p - b),
-      pc = Math.abs(p - c);
-    return pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
-  };
-
   let pos = 0;
-  for (let y = 0; y < height; y++) {
-    const filter = raw[pos++];
-    for (let x = 0; x < stride; x++) {
-      const v = raw[pos++];
+  for (let y = 0; y < height; y += 1) {
+    const filter = raw[pos];
+    pos += 1;
+    for (let x = 0; x < stride; x += 1) {
+      const v = raw[pos];
+      pos += 1;
       const a = x >= channels ? out[y * stride + x - channels] : 0;
       const b = y > 0 ? out[(y - 1) * stride + x] : 0;
       const c = x >= channels && y > 0 ? out[(y - 1) * stride + x - channels] : 0;
       let recon;
       switch (filter) {
-        case 0:
+        case 0: {
           recon = v;
           break;
-        case 1:
+        }
+        case 1: {
           recon = v + a;
           break;
-        case 2:
+        }
+        case 2: {
           recon = v + b;
           break;
-        case 3:
-          recon = v + ((a + b) >> 1);
+        }
+        case 3: {
+          recon = v + Math.floor((a + b) / 2);
           break;
-        case 4:
+        }
+        case 4: {
           recon = v + paeth(a, b, c);
           break;
-        default:
+        }
+        default: {
           throw new Error(`bad filter ${filter}`);
+        }
       }
-      out[y * stride + x] = recon & 0xff;
+      out[y * stride + x] = recon % 256;
     }
   }
-  return { width, height, channels, data: out };
-}
+  return { channels, data: out, height, width };
+};
 
 /** Luminance stddev + non-transparent fraction over a sampled grid. */
-function analyze({ width, height, channels, data }) {
+const analyze = ({ width, height, channels, data }) => {
   const stride = width * channels;
   const stepX = Math.max(1, Math.floor(width / 200));
   const stepY = Math.max(1, Math.floor(height / 200));
-  let n = 0,
-    sum = 0,
-    sumSq = 0,
-    opaque = 0;
+  let n = 0;
+  let opaque = 0;
+  let sum = 0;
+  let sumSq = 0;
   for (let y = 0; y < height; y += stepY) {
     for (let x = 0; x < width; x += stepX) {
       const i = y * stride + x * channels;
-      let r, g, b, alpha;
+      let alpha;
+      let b;
+      let g;
+      const r = data[i];
       if (channels >= 3) {
-        r = data[i];
         g = data[i + 1];
         b = data[i + 2];
         alpha = channels === 4 ? data[i + 3] : 255;
       } else {
-        r = g = b = data[i];
+        g = r;
+        b = r;
         alpha = channels === 2 ? data[i + 1] : 255;
       }
       const lum = 0.299 * r + 0.587 * g + 0.114 * b;
       sum += lum;
       sumSq += lum * lum;
-      if (alpha > 8) opaque++;
-      n++;
+      if (alpha > 8) {
+        opaque += 1;
+      }
+      n += 1;
     }
   }
-  if (n === 0) return { sampled: 0, meanLum: 0, stdLum: 0, opaqueFraction: 0 };
+  if (n === 0) {
+    return { meanLum: 0, opaqueFraction: 0, sampled: 0, stdLum: 0 };
+  }
   const mean = sum / n;
   const std = Math.sqrt(Math.max(0, sumSq / n - mean * mean));
-  return { sampled: n, meanLum: mean, stdLum: std, opaqueFraction: opaque / n };
-}
+  return { meanLum: mean, opaqueFraction: opaque / n, sampled: n, stdLum: std };
+};
 
-async function main() {
+const PAGE_OPTIONS = {
+  desktop: { viewport: { height: 720, width: 1280 } },
+  mobile: {
+    deviceScaleFactor: 3,
+    hasTouch: true,
+    isMobile: true,
+    viewport: { height: 844, width: 390 },
+  },
+};
+
+/** Compare `renderer.info` numbers against the tier's budget; null when the page exposes none. */
+const renderBudget = (rendererInfo, tier) => {
+  if (!rendererInfo) {
+    return null;
+  }
+  return Object.entries(RENDER_BUDGETS[tier]).map(([metric, limit]) => ({
+    actual: Number.isFinite(rendererInfo[metric]) ? rendererInfo[metric] : null,
+    limit,
+    metric,
+    ok: Number.isFinite(rendererInfo[metric]) ? rendererInfo[metric] <= limit : null,
+  }));
+};
+
+const failureReason = ({ blankLum, minStd, nearEmpty, pageErrors, stats }) => {
+  if (pageErrors.length) {
+    return `uncaught page error: ${pageErrors[0]}`;
+  }
+  if (nearEmpty) {
+    return `near-empty canvas (opaque ${(stats.opaqueFraction * 100).toFixed(1)}% ≤ 1%)`;
+  }
+  if (blankLum) {
+    return `blank/solid (stdLum ${stats.stdLum.toFixed(2)} < ${minStd})`;
+  }
+  return "rendered non-blank content";
+};
+
+const main = async () => {
   if (process.argv.includes("--help") || process.argv.includes("-h")) {
     printHelp();
     return 0;
@@ -207,8 +277,8 @@ async function main() {
   let opts;
   try {
     opts = parseArgs(process.argv.slice(2));
-  } catch (err) {
-    console.error(String(err?.message || err));
+  } catch (error) {
+    console.error(String(error?.message || error));
     return 2;
   }
   if (!opts.target) {
@@ -231,53 +301,42 @@ async function main() {
   // browser declared before the try so `finally` can always close it, even if
   // launch()/newPage() throws (otherwise a failure here leaks a Chromium process).
   let browser;
-  const consoleErrors = []; // console.error() — advisory (benign 404s etc.)
-  const pageErrors = []; // uncaught exceptions — fail the check
+  // console.error() — advisory (benign 404s etc.)
+  const consoleErrors = [];
+  // uncaught exceptions — fail the check
+  const pageErrors = [];
   try {
     browser = await chromium.launch();
-    const page = await browser.newPage(
-      opts.mobile
-        ? {
-            viewport: { width: 390, height: 844 },
-            deviceScaleFactor: 3,
-            isMobile: true,
-            hasTouch: true,
-          }
-        : { viewport: { width: 1280, height: 720 } },
-    );
+    const tier = opts.mobile ? "mobile" : "desktop";
+    const page = await browser.newPage(PAGE_OPTIONS[tier]);
     page.on("console", (m) => m.type() === "error" && consoleErrors.push(m.text()));
     page.on("pageerror", (e) => pageErrors.push(String(e)));
 
-    await page.goto(toUrl(opts.target), { waitUntil: "load", timeout: 30000 });
-    await page.waitForTimeout(opts.wait); // let assets load + a few frames render
+    await page.goto(toUrl(opts.target), { timeout: 30_000, waitUntil: "load" });
+    // let assets load + a few frames render
+    await page.waitForTimeout(opts.wait);
 
     const canvas = await page.$(opts.selector);
     if (!canvas) {
       report(opts, {
-        ok: false,
-        reason: `no element matching "${opts.selector}"`,
         consoleErrors,
+        ok: false,
         pageErrors,
+        reason: `no element matching "${opts.selector}"`,
       });
       return 2;
     }
     const png = await canvas.screenshot();
-    if (opts.out) writeFileSync(opts.out, png);
+    if (opts.out) {
+      writeFileSync(opts.out, png);
+    }
 
     // Advisory render-budget check: only when the page exposes a diagnostics
     // snapshot (window.__GAME_DIAGNOSTICS__.renderer = renderer.info numbers).
-    const tier = opts.mobile ? "mobile" : "desktop";
     const rendererInfo = await page
       .evaluate(() => globalThis.__GAME_DIAGNOSTICS__?.renderer ?? null)
       .catch(() => null);
-    const budget = rendererInfo
-      ? Object.entries(RENDER_BUDGETS[tier]).map(([metric, limit]) => ({
-          metric,
-          actual: Number.isFinite(rendererInfo[metric]) ? rendererInfo[metric] : null,
-          limit,
-          ok: Number.isFinite(rendererInfo[metric]) ? rendererInfo[metric] <= limit : null,
-        }))
-      : null;
+    const budget = renderBudget(rendererInfo, tier);
 
     const stats = analyze(decodePng(png));
     // positive comparisons negated, so a non-finite metric fails (never a false pass)
@@ -285,24 +344,20 @@ async function main() {
     const nearEmpty = !(stats.opaqueFraction > 0.01);
     // an uncaught page exception is a real render regression even if pixels drew
     const ok = !blankLum && !nearEmpty && pageErrors.length === 0;
-    const reason = ok
-      ? "rendered non-blank content"
-      : pageErrors.length
-        ? `uncaught page error: ${pageErrors[0]}`
-        : nearEmpty
-          ? `near-empty canvas (opaque ${(stats.opaqueFraction * 100).toFixed(1)}% ≤ 1%)`
-          : `blank/solid (stdLum ${stats.stdLum.toFixed(2)} < ${opts.minStd})`;
-    report(opts, { ok, reason, ...stats, tier, budget, out: opts.out, consoleErrors, pageErrors });
+    const reason = failureReason({ blankLum, minStd: opts.minStd, nearEmpty, pageErrors, stats });
+    report(opts, { ok, reason, ...stats, budget, consoleErrors, out: opts.out, pageErrors, tier });
     return ok ? 0 : 1;
-  } catch (err) {
-    report(opts, { ok: false, reason: String(err?.message || err), consoleErrors, pageErrors });
+  } catch (error) {
+    report(opts, { consoleErrors, ok: false, pageErrors, reason: String(error?.message || error) });
     return 2;
   } finally {
-    if (browser) await browser.close();
+    if (browser) {
+      await browser.close();
+    }
   }
-}
+};
 
-function report(opts, result) {
+const report = (opts, result) => {
   if (opts.json) {
     console.log(JSON.stringify(result, null, 2));
     return;
@@ -313,13 +368,17 @@ function report(opts, result) {
       `  luminance stddev: ${result.stdLum.toFixed(2)}  mean: ${result.meanLum.toFixed(1)}  opaque: ${(result.opaqueFraction * 100).toFixed(1)}%`,
     );
   }
-  if (result.out) console.log(`  screenshot: ${result.out}`);
+  if (result.out) {
+    console.log(`  screenshot: ${result.out}`);
+  }
   if (result.budget) {
     const over = result.budget.filter((row) => row.ok === false);
     const missing = result.budget.filter((row) => row.ok === null);
     if (over.length) {
       console.log(`  render budget (${result.tier} tier, advisory) — OVER:`);
-      for (const row of over) console.log(`    - ${row.metric}: ${row.actual} > ${row.limit}`);
+      for (const row of over) {
+        console.log(`    - ${row.metric}: ${row.actual} > ${row.limit}`);
+      }
     } else if (missing.length === result.budget.length) {
       console.log(
         `  render budget (${result.tier} tier): diagnostics present but no numeric metrics — not validated`,
@@ -335,12 +394,16 @@ function report(opts, result) {
   }
   if (result.pageErrors?.length) {
     console.log(`  uncaught page errors (${result.pageErrors.length}):`);
-    for (const e of result.pageErrors.slice(0, 5)) console.log(`    - ${e}`);
+    for (const e of result.pageErrors.slice(0, 5)) {
+      console.log(`    - ${e}`);
+    }
   }
   if (result.consoleErrors?.length) {
     console.log(`  console errors (${result.consoleErrors.length}, advisory):`);
-    for (const e of result.consoleErrors.slice(0, 5)) console.log(`    - ${e}`);
+    for (const e of result.consoleErrors.slice(0, 5)) {
+      console.log(`    - ${e}`);
+    }
   }
-}
+};
 
 process.exit(await main());

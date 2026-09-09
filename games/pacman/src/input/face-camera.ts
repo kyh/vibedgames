@@ -22,10 +22,12 @@ import type {
 } from "@mediapipe/tasks-vision";
 
 import { HEAD_DEBOUNCE_MS, HEAD_TURN_THRESHOLD, MOUTH_OPEN_RATIO } from "../shared/constants";
+import type * as TasksVision from "@mediapipe/tasks-vision";
+
 import { IS_TOUCH } from "./input-mode";
 
 /** The lazily-imported module: `FaceLandmarker`'s statics are needed to draw. */
-type Vision = typeof import("@mediapipe/tasks-vision");
+type Vision = typeof TasksVision;
 
 /** Verbatim legacy CDN URL (the 0.10.35 JS lib shipped against these binaries). */
 const WASM_CDN = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm";
@@ -35,7 +37,8 @@ const MODEL_PATH = "face_landmarker.task";
 // Legacy landmark indices:
 const UPPER_LIP = 13;
 const LOWER_LIP = 14;
-const FACE_TOP = 10; // "nose" reference for face height
+// "nose" reference for face height
+const FACE_TOP = 10;
 const CHIN = 152;
 const NOSE_TIP = 4;
 const LEFT_CHEEK = 234;
@@ -43,7 +46,7 @@ const RIGHT_CHEEK = 454;
 
 type HeadPosition = "center" | "left" | "right";
 
-export type FaceCameraOptions = {
+export interface FaceCameraOptions {
   video: HTMLVideoElement;
   overlay: HTMLCanvasElement;
   status: HTMLElement;
@@ -51,8 +54,25 @@ export type FaceCameraOptions = {
   onMouthChange?: (open: boolean) => void;
   onHeadTurnLeft?: () => void;
   onHeadTurnRight?: () => void;
-};
+}
 
+/**
+ * Mouth-open check (legacy detectMouthOpen): lip gap relative to face height
+ * (landmarks 13/14 lips, 10/152 vertical reference) above 0.07 = open.
+ */
+const detectMouthOpen = (landmarks: NormalizedLandmark[]): boolean => {
+  const upperLip = landmarks[UPPER_LIP];
+  const lowerLip = landmarks[LOWER_LIP];
+  const nose = landmarks[FACE_TOP];
+  const chin = landmarks[CHIN];
+  if (!upperLip || !lowerLip || !nose || !chin) {
+    return false;
+  }
+
+  const mouthOpenDistance = Math.abs(upperLip.y - lowerLip.y);
+  const faceHeight = Math.abs(nose.y - chin.y);
+  return mouthOpenDistance / faceHeight > MOUTH_OPEN_RATIO;
+};
 export class FaceCamera {
   private readonly opts: FaceCameraOptions;
   private vision: Vision | null = null;
@@ -76,20 +96,24 @@ export class FaceCamera {
    * live are ignored, so the porthole's collapse toggle can drive it.
    */
   async start(): Promise<void> {
-    if (this.state !== "idle") return;
+    if (this.state !== "idle") {
+      return;
+    }
     this.state = "starting";
     this.setStatus("starting camera…");
     try {
       const ctx = this.opts.overlay.getContext("2d");
-      if (!ctx) throw new Error("no 2d context for overlay canvas");
+      if (!ctx) {
+        throw new Error("no 2d context for overlay canvas");
+      }
       this.overlayCtx = ctx;
 
       // Camera BEFORE the model: a denied prompt must not have cost 6 MB of
       // wasm + weights, and on a phone the grant only survives inside the
       // gesture that called us.
       this.stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user" },
         audio: false,
+        video: { facingMode: "user" },
       });
 
       this.setStatus("loading face model…");
@@ -99,16 +123,16 @@ export class FaceCamera {
       const fileset = await vision.FilesetResolver.forVisionTasks(WASM_CDN);
       this.landmarker = await vision.FaceLandmarker.createFromOptions(fileset, {
         baseOptions: {
-          modelAssetPath: MODEL_PATH,
           delegate: "GPU",
+          modelAssetPath: MODEL_PATH,
         },
-        // Computed key: the lint bans "shape" identifiers; this is MediaPipe API.
-        ["outputFaceBlendshapes"]: true,
-        runningMode: "VIDEO",
         numFaces: 1,
+        // oxlint-disable-next-line anti-slop/no-shape-in-symbol-names -- MediaPipe option name
+        outputFaceBlendshapes: true,
+        runningMode: "VIDEO",
       });
 
-      const video = this.opts.video;
+      const { video } = this.opts;
       video.srcObject = this.stream;
       video.addEventListener(
         "loadeddata",
@@ -122,12 +146,14 @@ export class FaceCamera {
       );
       void video.play();
       this.state = "live";
-    } catch (err) {
+    } catch (error) {
       // warn, not error: denial is an expected, fully-handled degradation.
-      console.warn("face camera unavailable:", err);
+      console.warn("face camera unavailable:", error);
       // A stream granted before a later failure would leave the camera light
       // on with nothing reading it.
-      for (const track of this.stream?.getTracks() ?? []) track.stop();
+      for (const track of this.stream?.getTracks() ?? []) {
+        track.stop();
+      }
       this.stream = null;
       this.state = "idle";
       this.setStatus(
@@ -146,10 +172,12 @@ export class FaceCamera {
   // ---- per-frame detection (legacy predictWebcam) ----------------------------
 
   private predict = (): void => {
-    const video = this.opts.video;
+    const { video } = this.opts;
     const canvas = this.opts.overlay;
     const ctx = this.overlayCtx;
-    if (!ctx || !this.landmarker || !this.drawingUtils) return;
+    if (!ctx || !this.landmarker || !this.drawingUtils) {
+      return;
+    }
 
     if (this.lastVideoTime !== video.currentTime) {
       this.lastVideoTime = video.currentTime;
@@ -170,12 +198,15 @@ export class FaceCamera {
         // "center". Effectively: holding a turn re-fires every
         // HEAD_DEBOUNCE_MS, and recentering fires nothing (and consumes no
         // debounce slot).
-        const next = this.detectHeadTurn(landmarks);
+        const next = FaceCamera.detectHeadTurn(landmarks);
         const now = performance.now();
         if (next !== "center" && now - this.lastHeadChange > HEAD_DEBOUNCE_MS) {
           this.lastHeadChange = now;
-          if (next === "left") this.opts.onHeadTurnLeft?.();
-          else this.opts.onHeadTurnRight?.();
+          if (next === "left") {
+            this.opts.onHeadTurnLeft?.();
+          } else {
+            this.opts.onHeadTurnRight?.();
+          }
         }
       }
     }
@@ -188,7 +219,9 @@ export class FaceCamera {
   private drawMesh(landmarks: NormalizedLandmark[]): void {
     const du = this.drawingUtils;
     const face = this.vision?.FaceLandmarker;
-    if (!du || !face) return;
+    if (!du || !face) {
+      return;
+    }
     du.drawConnectors(landmarks, face.FACE_LANDMARKS_TESSELATION, {
       color: "#f5c9d655",
       lineWidth: 1,
@@ -210,34 +243,24 @@ export class FaceCamera {
    * its stale closure meant the held state was always "center" — so as shipped
    * the band resolved to "center", and we reproduce that.
    */
-  private detectHeadTurn(landmarks: NormalizedLandmark[]): HeadPosition {
+  private static detectHeadTurn(landmarks: NormalizedLandmark[]): HeadPosition {
     const leftCheek = landmarks[LEFT_CHEEK];
     const rightCheek = landmarks[RIGHT_CHEEK];
     const noseTip = landmarks[NOSE_TIP];
-    if (!leftCheek || !rightCheek || !noseTip) return "center";
+    if (!leftCheek || !rightCheek || !noseTip) {
+      return "center";
+    }
 
     const leftDistance = Math.abs(noseTip.x - leftCheek.x);
     const rightDistance = Math.abs(noseTip.x - rightCheek.x);
     const asymmetryRatio = (leftDistance - rightDistance) / (leftDistance + rightDistance);
 
-    if (asymmetryRatio > HEAD_TURN_THRESHOLD) return "left";
-    if (asymmetryRatio < -HEAD_TURN_THRESHOLD) return "right";
+    if (asymmetryRatio > HEAD_TURN_THRESHOLD) {
+      return "left";
+    }
+    if (asymmetryRatio < -HEAD_TURN_THRESHOLD) {
+      return "right";
+    }
     return "center";
   }
-}
-
-/**
- * Mouth-open check (legacy detectMouthOpen): lip gap relative to face height
- * (landmarks 13/14 lips, 10/152 vertical reference) above 0.07 = open.
- */
-function detectMouthOpen(landmarks: NormalizedLandmark[]): boolean {
-  const upperLip = landmarks[UPPER_LIP];
-  const lowerLip = landmarks[LOWER_LIP];
-  const nose = landmarks[FACE_TOP];
-  const chin = landmarks[CHIN];
-  if (!upperLip || !lowerLip || !nose || !chin) return false;
-
-  const mouthOpenDistance = Math.abs(upperLip.y - lowerLip.y);
-  const faceHeight = Math.abs(nose.y - chin.y);
-  return mouthOpenDistance / faceHeight > MOUTH_OPEN_RATIO;
 }

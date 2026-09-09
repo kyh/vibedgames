@@ -20,7 +20,7 @@ type Spray = (
   kind: WaterSprayKind,
 ) => void;
 
-type Wave = {
+interface Wave {
   kind: "ripple" | "wake";
   x: number;
   y: number;
@@ -32,24 +32,24 @@ type Wave = {
   radius: number;
   spread: number;
   alpha: number;
-};
+}
 
 /** One normal-blend foam draw. Fixed slots and thin strips keep both allocation
  * and transparent coverage small; dormant cars keep no water draw alive. */
 export class WaterFx {
   readonly mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
   private waves: Wave[] = Array.from({ length: CAPACITY }, () => ({
-    kind: "ripple",
-    x: 0,
-    y: 0,
-    z: 0,
+    age: 0,
+    alpha: 0,
     dx: 0,
     dz: 1,
-    age: 0,
+    kind: "ripple",
     life: 0,
     radius: 0,
     spread: 0,
-    alpha: 0,
+    x: 0,
+    y: 0,
+    z: 0,
   }));
   private positions = new THREE.BufferAttribute(new Float32Array(CAPACITY * VERTICES * 3), 3);
   private colors = new THREE.BufferAttribute(new Float32Array(CAPACITY * VERTICES * 4), 4);
@@ -60,8 +60,10 @@ export class WaterFx {
   private lastX = 0;
   private lastZ = 0;
   private lastWaterY = 0;
+  private readonly spray: Spray;
 
-  constructor(private readonly spray: Spray) {
+  constructor(spray: Spray) {
+    this.spray = spray;
     const geometry = new THREE.BufferGeometry();
     this.positions.setUsage(THREE.DynamicDrawUsage);
     this.colors.setUsage(THREE.DynamicDrawUsage);
@@ -69,16 +71,22 @@ export class WaterFx {
     geometry.setAttribute("color", this.colors);
     const indices = new Uint16Array(CAPACITY * INDICES);
     let n = 0;
-    for (let wave = 0; wave < CAPACITY; wave++) {
-      for (let row = 0; row < SEGMENTS; row++) {
-        for (let strip = 0; strip < 2; strip++) {
+    for (let wave = 0; wave < CAPACITY; wave += 1) {
+      for (let row = 0; row < SEGMENTS; row += 1) {
+        for (let strip = 0; strip < 2; strip += 1) {
           const a = wave * VERTICES + row * 3 + strip;
-          indices[n++] = a;
-          indices[n++] = a + 3;
-          indices[n++] = a + 1;
-          indices[n++] = a + 1;
-          indices[n++] = a + 3;
-          indices[n++] = a + 4;
+          indices[n] = a;
+          n += 1;
+          indices[n] = a + 3;
+          n += 1;
+          indices[n] = a + 1;
+          n += 1;
+          indices[n] = a + 1;
+          n += 1;
+          indices[n] = a + 3;
+          n += 1;
+          indices[n] = a + 4;
+          n += 1;
         }
       }
     }
@@ -87,12 +95,12 @@ export class WaterFx {
     this.mesh = new THREE.Mesh(
       geometry,
       new THREE.MeshBasicMaterial({
-        color: 0xf0faff,
-        vertexColors: true,
-        transparent: true,
+        color: 0xf0_fa_ff,
         depthWrite: false,
-        side: THREE.DoubleSide,
         forceSinglePass: true,
+        side: THREE.DoubleSide,
+        transparent: true,
+        vertexColors: true,
       }),
     );
     this.mesh.name = "vehicle-water-foam";
@@ -207,7 +215,9 @@ export class WaterFx {
     alpha: number,
   ): void {
     const wave = this.waves[this.cursor];
-    if (!wave) return;
+    if (!wave) {
+      return;
+    }
     this.cursor = (this.cursor + 1) % CAPACITY;
     wave.kind = kind;
     wave.x = x;
@@ -225,21 +235,25 @@ export class WaterFx {
   update(dt: number): void {
     let live = 0;
     for (const wave of this.waves) {
-      if (wave.age >= wave.life) continue;
+      if (wave.age >= wave.life) {
+        continue;
+      }
       wave.age += Math.max(0, dt);
-      if (wave.age >= wave.life) continue;
+      if (wave.age >= wave.life) {
+        continue;
+      }
       const age = wave.age / wave.life;
       const radius = wave.radius + wave.spread * age;
       const alpha = wave.alpha * (1 - age) ** 2 * Math.min(1, wave.age / 0.12);
       const thickness = 0.07 + age * 0.16;
-      for (let row = 0; row < ROWS; row++) {
+      for (let row = 0; row < ROWS; row += 1) {
         const t = row / SEGMENTS;
         const across = t * 2 - 1;
         const angle = t * Math.PI * 2;
         const along = wave.kind === "ripple" ? Math.cos(angle) : -0.2 - 0.9 * across * across;
         const side = wave.kind === "ripple" ? Math.sin(angle) : across;
         const edgeFade = wave.kind === "ripple" ? 1 : Math.min(1, (1 - Math.abs(across)) * 4);
-        for (let edge = 0; edge < 3; edge++) {
+        for (let edge = 0; edge < 3; edge += 1) {
           const offset = (edge - 1) * thickness;
           const localAlong = along * radius + (wave.kind === "ripple" ? along : -1) * offset;
           const localSide = side * radius + (wave.kind === "ripple" ? side * offset : 0);
@@ -253,7 +267,7 @@ export class WaterFx {
           this.colors.setXYZW(vertex, 1, 1, 1, edge === 1 ? alpha * edgeFade : 0);
         }
       }
-      live++;
+      live += 1;
     }
     this.mesh.geometry.setDrawRange(0, live * INDICES);
     this.mesh.visible = live > 0;

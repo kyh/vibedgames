@@ -5,31 +5,31 @@ import type { ControlsManifest } from "@repo/embed";
 // render from this (filtered per device / connected pad by @repo/embed).
 // Camera rows always show: face control is the game's core input, not a bonus.
 export const CONTROLS: ControlsManifest = [
-  { method: "keys", input: "SPACE", action: "chomp" },
-  { method: "keys", input: "← →", action: "turn" },
-  { method: "keys", input: "↓", action: "reverse" },
-  { method: "keys", input: "SHIFT", action: "selfie cam" },
-  { method: "keys", input: "M", action: "mute" },
-  { method: "keys", input: "R", action: "restart" },
-  { method: "mouse", input: "CLICK", action: "restart" },
-  { method: "touch", input: "SWIPE ↑", action: "chomp" },
-  { method: "touch", input: "SWIPE ← →", action: "turn" },
-  { method: "touch", input: "SWIPE ↓", action: "reverse" },
-  { method: "touch", input: "🤳", action: "selfie cam" },
-  { method: "touch", input: "TAP / ↻", action: "restart" },
-  { method: "touch", input: "📷", action: "face camera on / off" },
-  { method: "touch", input: "🔊", action: "mute" },
-  { method: "camera", input: "open mouth", action: "chomp" },
-  { method: "camera", input: "turn head", action: "turn" },
-  { method: "controller", input: "A / STICK ↑", action: "chomp" },
-  { method: "controller", input: "D-PAD / STICK ← →", action: "turn" },
-  { method: "controller", input: "D-PAD / STICK ↓", action: "reverse" },
-  { method: "controller", input: "LB", action: "selfie cam" },
-  { method: "controller", input: "START", action: "restart" },
+  { action: "chomp", input: "SPACE", method: "keys" },
+  { action: "turn", input: "← →", method: "keys" },
+  { action: "reverse", input: "↓", method: "keys" },
+  { action: "selfie cam", input: "SHIFT", method: "keys" },
+  { action: "mute", input: "M", method: "keys" },
+  { action: "restart", input: "R", method: "keys" },
+  { action: "restart", input: "CLICK", method: "mouse" },
+  { action: "chomp", input: "SWIPE ↑", method: "touch" },
+  { action: "turn", input: "SWIPE ← →", method: "touch" },
+  { action: "reverse", input: "SWIPE ↓", method: "touch" },
+  { action: "selfie cam", input: "🤳", method: "touch" },
+  { action: "restart", input: "TAP / ↻", method: "touch" },
+  { action: "face camera on / off", input: "📷", method: "touch" },
+  { action: "mute", input: "🔊", method: "touch" },
+  { action: "chomp", input: "open mouth", method: "camera" },
+  { action: "turn", input: "turn head", method: "camera" },
+  { action: "chomp", input: "A / STICK ↑", method: "controller" },
+  { action: "turn", input: "D-PAD / STICK ← →", method: "controller" },
+  { action: "reverse", input: "D-PAD / STICK ↓", method: "controller" },
+  { action: "selfie cam", input: "LB", method: "controller" },
+  { action: "restart", input: "START", method: "controller" },
 ];
 
 /** The merged restart inputs ("R / CLICK", "TAP / ↻") for win/gameover prose. */
-export function restartHint(): string {
+export const restartHint = (): string => {
   const row = controlHints(CONTROLS).find(([, action]) => action === "restart");
   return row ? row[0] : "R";
-}
+};

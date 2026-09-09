@@ -30,71 +30,71 @@ const PASSTHROUGH_API_ERROR_STATUSES = [
 // `keyPrefix` ← the plugin's `start` (first chars incl. prefix),
 // `lastUsedAt` ← `lastRequest`.
 export const apiKeyRouter = {
-  list: sessionOnlyProcedure.handler(async ({ context }) => {
-    const { apiKeys } = await context.auth.api.listApiKeys({ headers: context.headers });
-    const keys = apiKeys.map((k) => ({
-      id: k.id,
-      name: k.name,
-      keyPrefix: k.start ?? k.prefix ?? "",
-      createdAt: k.createdAt,
-      lastUsedAt: k.lastRequest,
-      expiresAt: k.expiresAt,
-    }));
-    return { keys };
-  }),
-
   // Mint a new key. The raw `key` is returned exactly once here and is never
   // recoverable afterwards — the plugin stores only its hash.
   create: sessionOnlyProcedure
     .input(
       z.object({
-        name: z.string().trim().min(1).max(100),
         expiresInDays: z.number().int().min(1).max(3650).nullable().default(null),
+        name: z.string().trim().min(1).max(100),
       }),
     )
     .handler(async ({ context, input }) => {
       const created = await context.auth.api.createApiKey({
-        headers: context.headers,
         body: {
+          expiresIn: input.expiresInDays === null ? null : input.expiresInDays * DAY_SECONDS,
           name: input.name,
-          expiresIn: input.expiresInDays == null ? null : input.expiresInDays * DAY_SECONDS,
         },
+        headers: context.headers,
       });
 
       return {
-        id: created.id,
-        name: created.name,
-        keyPrefix: created.start ?? created.prefix ?? "",
         createdAt: created.createdAt,
         expiresAt: created.expiresAt,
+        id: created.id,
         // `key` is the only time the caller sees the raw value.
         key: created.key,
+        keyPrefix: created.start ?? created.prefix ?? "",
+        name: created.name,
       };
     }),
+
+  list: sessionOnlyProcedure.handler(async ({ context }) => {
+    const { apiKeys } = await context.auth.api.listApiKeys({ headers: context.headers });
+    const keys = apiKeys.map((k) => ({
+      createdAt: k.createdAt,
+      expiresAt: k.expiresAt,
+      id: k.id,
+      keyPrefix: k.start ?? k.prefix ?? "",
+      lastUsedAt: k.lastRequest,
+      name: k.name,
+    }));
+    return { keys };
+  }),
 
   revoke: sessionOnlyProcedure
     .input(z.object({ id: z.string() }))
     .handler(async ({ context, input }) => {
       try {
         await context.auth.api.deleteApiKey({
-          headers: context.headers,
           body: { keyId: input.id },
+          headers: context.headers,
         });
         return { id: input.id };
-      } catch (err) {
+      } catch (error) {
         // Translate the plugin's APIError to the matching oRPC code (a missing
         // key is NOT_FOUND, a bad input BAD_REQUEST, etc.) instead of flattening
         // everything — so callers see the real failure. Unknown statuses fall
         // back to INTERNAL_SERVER_ERROR.
-        if (err instanceof APIError) {
-          const status = String(err.status);
+        if (error instanceof APIError) {
+          const status = String(error.status);
           throw new ORPCError(
             PASSTHROUGH_API_ERROR_STATUSES.find((code) => code === status) ??
               "INTERNAL_SERVER_ERROR",
-            { message: err.message || "Failed to revoke key" },
+            { message: error.message || "Failed to revoke key" },
           );
         }
-        throw err;
+        throw error;
       }
     }),
 };

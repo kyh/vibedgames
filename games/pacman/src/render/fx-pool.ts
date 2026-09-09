@@ -35,7 +35,14 @@ const CONFETTI_FLOOR_Y = FLOOR_Y + 0.03;
 
 const RING_DUR_MS = 420;
 
-type Span = { px: number; py: number; pz: number; vx: number; vy: number; vz: number };
+interface Span {
+  px: number;
+  py: number;
+  pz: number;
+  vx: number;
+  vy: number;
+  vz: number;
+}
 
 type Puff = Span & { age: number; life: number; size: number; color: THREE.Color };
 
@@ -51,17 +58,115 @@ type Confetti = Span & {
   angle: number;
 };
 
-type Ring = { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; bornAt: number; r1: number };
+interface Ring {
+  mesh: THREE.Mesh;
+  mat: THREE.MeshBasicMaterial;
+  bornAt: number;
+  r1: number;
+}
 
-export type BurstOpts = {
+/** Least-recently-started slot, for stealing when the pool is saturated. */
+const oldest = (rings: readonly Ring[]): Ring => {
+  const [first] = rings;
+  if (!first) {
+    throw new Error("ring pool is empty");
+  }
+  let best = first;
+  for (const r of rings) {
+    if (r.bornAt <= best.bornAt) {
+      best = r;
+    }
+  }
+  return best;
+};
+
+export interface BurstOpts {
   speed?: number;
   lift?: number;
   lifeMin?: number;
   lifeMax?: number;
   sizeMin?: number;
   sizeMax?: number;
-};
+}
 
+const makeInstanced = (
+  geo: THREE.BufferGeometry,
+  cap: number,
+  color = 0xff_ff_ff,
+): THREE.InstancedMesh => {
+  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.7 });
+  const mesh = new THREE.InstancedMesh(geo, mat, cap);
+  mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  mesh.count = 0;
+  mesh.frustumCulled = false;
+  return mesh;
+};
+const commit = (mesh: THREE.InstancedMesh, count: number): void => {
+  mesh.count = count;
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) {
+    mesh.instanceColor.needsUpdate = true;
+  }
+};
+/** Pop in fast (overshoot a touch), then fast-in-slow-out shrink to zero. */
+const scaleCurve = (t: number): number => {
+  if (t < POP_PORTION) {
+    const u = t / POP_PORTION;
+    return 1.08 * (1 - (1 - u) * (1 - u));
+  }
+  const u = (t - POP_PORTION) / (1 - POP_PORTION);
+  return 1.08 * (1 - u * u * (3 - 2 * u));
+};
+const softDotTexture = (): THREE.CanvasTexture => {
+  const canvas = document.createElement("canvas");
+  canvas.width = 32;
+  canvas.height = 32;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    const grad = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+    grad.addColorStop(0, "rgba(255,255,255,1)");
+    grad.addColorStop(0.6, "rgba(255,255,255,0.4)");
+    grad.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 32, 32);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+};
+/** Ambient dust motes drifting up through the maze air — quiet, constant. */
+const makeMotes = () => {
+  const positions = new Float32Array(MOTE_COUNT * 3);
+  // [vx, vy] per mote
+  const velocities = new Float32Array(MOTE_COUNT * 2);
+  for (let i = 0; i < MOTE_COUNT; i += 1) {
+    positions[i * 3] = Math.random() * GRID_COLS;
+    positions[i * 3 + 1] = 0.15 + Math.random() * 2.5;
+    positions[i * 3 + 2] = Math.random() * GRID_ROWS;
+    velocities[i * 2] = (Math.random() - 0.5) * 0.08;
+    velocities[i * 2 + 1] = 0.06 + Math.random() * 0.1;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  // Blush-tinted: white motes measure ~0 contrast against the cream fog.
+  const mat = new THREE.PointsMaterial({
+    color: 0xf2_a9_bf,
+    depthWrite: false,
+    map: softDotTexture(),
+    opacity: 0.5,
+    size: 0.06,
+    sizeAttenuation: true,
+    transparent: true,
+  });
+  const points = new THREE.Points(geo, mat);
+  points.frustumCulled = false;
+  return { points, velocities };
+};
+const randomUnit = (): THREE.Vector3 => {
+  const v = new THREE.Vector3(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1);
+  return v.lengthSq() < 1e-6 ? v.set(0, 1, 0) : v.normalize();
+};
+const rand = (min: number, max: number): number => min + Math.random() * (max - min);
 export class FxPool {
   private puffMesh: THREE.InstancedMesh;
   private heartMesh: THREE.InstancedMesh;
@@ -81,19 +186,19 @@ export class FxPool {
     this.confettiMesh = makeInstanced(new THREE.BoxGeometry(1, 0.25, 0.6), MAX_CONFETTI);
     scene.add(this.puffMesh, this.heartMesh, this.confettiMesh);
 
-    for (let i = 0; i < MAX_RINGS; i++) {
+    for (let i = 0; i < MAX_RINGS; i += 1) {
       const mat = new THREE.MeshBasicMaterial({
         color: COLORS.power,
-        transparent: true,
-        opacity: 0,
         depthWrite: false,
+        opacity: 0,
         side: THREE.DoubleSide,
+        transparent: true,
       });
       const mesh = new THREE.Mesh(new THREE.RingGeometry(0.82, 1, 48), mat);
       mesh.rotation.x = -Math.PI / 2;
       mesh.visible = false;
       scene.add(mesh);
-      this.rings.push({ mesh, mat, bornAt: -1, r1: 1 });
+      this.rings.push({ bornAt: -1, mat, mesh, r1: 1 });
     }
 
     const { points, velocities } = makeMotes();
@@ -105,42 +210,46 @@ export class FxPool {
   /** Soft round burst — the workhorse (pellet pops, ghost poofs, dust). */
   puff(at: THREE.Vector3, count: number, color: number, opts: BurstOpts = {}): void {
     const speed = opts.speed ?? 1.4;
-    for (let i = 0; i < count; i++) {
-      if (this.puffs.length >= MAX_PUFFS) this.puffs.shift();
+    for (let i = 0; i < count; i += 1) {
+      if (this.puffs.length >= MAX_PUFFS) {
+        this.puffs.shift();
+      }
       const dir = randomUnit();
       const v = speed * (0.5 + Math.random() * 0.5);
       this.puffs.push({
+        age: 0,
+        color: new THREE.Color(color).offsetHSL(0, 0, (Math.random() - 0.5) * 0.06),
+        life: rand(opts.lifeMin ?? 0.35, opts.lifeMax ?? 0.6),
         px: at.x,
         py: at.y,
         pz: at.z,
+        size: rand(opts.sizeMin ?? 0.1, opts.sizeMax ?? 0.22),
         vx: dir.x * v,
         vy: Math.abs(dir.y) * v * 0.7 + (opts.lift ?? 0.4),
         vz: dir.z * v,
-        age: 0,
-        life: rand(opts.lifeMin ?? 0.35, opts.lifeMax ?? 0.6),
-        size: rand(opts.sizeMin ?? 0.1, opts.sizeMax ?? 0.22),
-        color: new THREE.Color(color).offsetHSL(0, 0, (Math.random() - 0.5) * 0.06),
       });
     }
   }
 
   /** Rising pink hearts — power pickups and eaten ghosts (healthcare!). */
   heartBurst(at: THREE.Vector3, count: number): void {
-    for (let i = 0; i < count; i++) {
-      if (this.hearts.length >= MAX_HEARTS) this.hearts.shift();
+    for (let i = 0; i < count; i += 1) {
+      if (this.hearts.length >= MAX_HEARTS) {
+        this.hearts.shift();
+      }
       const ang = Math.random() * Math.PI * 2;
       const v = 0.5 + Math.random() * 0.9;
       this.hearts.push({
+        age: 0,
+        life: rand(0.7, 1.1),
+        phase: Math.random() * Math.PI * 2,
         px: at.x,
         py: at.y,
         pz: at.z,
+        size: rand(0.12, 0.22),
         vx: Math.cos(ang) * v * 0.6,
         vy: HEART_RISE * (0.75 + Math.random() * 0.5),
         vz: Math.sin(ang) * v * 0.6,
-        age: 0,
-        life: rand(0.7, 1.1),
-        size: rand(0.12, 0.22),
-        phase: Math.random() * Math.PI * 2,
       });
     }
   }
@@ -148,31 +257,31 @@ export class FxPool {
   /** Pastel confetti rain over the whole maze (win celebration). */
   confettiRain(count: number): void {
     const palette = [COLORS.power, COLORS.pacman, ...GHOST_COLORS];
-    for (let i = 0; i < count; i++) {
-      if (this.confetti.length >= MAX_CONFETTI) this.confetti.shift();
+    for (let i = 0; i < count; i += 1) {
+      if (this.confetti.length >= MAX_CONFETTI) {
+        this.confetti.shift();
+      }
       this.confetti.push({
+        age: 0,
+        angle: Math.random() * Math.PI * 2,
+        axis: randomUnit(),
+        color: new THREE.Color(palette[Math.floor(Math.random() * palette.length)] ?? 0xff_ff_ff),
+        life: rand(2.4, 4),
         px: Math.random() * GRID_COLS,
         py: 4 + Math.random() * 3.5,
         pz: Math.random() * GRID_ROWS,
+        size: rand(0.07, 0.13),
+        spin: rand(2, 7) * (Math.random() < 0.5 ? -1 : 1),
         vx: (Math.random() - 0.5) * 0.8,
         vy: -0.3 - Math.random() * 0.6,
         vz: (Math.random() - 0.5) * 0.8,
-        age: 0,
-        life: rand(2.4, 4),
-        size: rand(0.07, 0.13),
-        color: new THREE.Color(palette[Math.floor(Math.random() * palette.length)] ?? 0xffffff),
-        axis: randomUnit(),
-        spin: rand(2, 7) * (Math.random() < 0.5 ? -1 : 1),
-        angle: Math.random() * Math.PI * 2,
       });
     }
   }
 
   /** Expanding floor ring, Cubic.Out, fades over RING_DUR_MS. */
   ring(x: number, z: number, r1: number, color: number): void {
-    const slot =
-      this.rings.find((r) => r.bornAt < 0) ??
-      this.rings.reduce((a, b) => (a.bornAt <= b.bornAt ? a : b));
+    const slot = this.rings.find((r) => r.bornAt < 0) ?? oldest(this.rings);
     slot.bornAt = this.elapsed;
     slot.r1 = r1;
     slot.mat.color.setHex(color);
@@ -198,7 +307,9 @@ export class FxPool {
     let w = 0;
     for (const p of arr) {
       p.age += dt;
-      if (p.age >= p.life) continue;
+      if (p.age >= p.life) {
+        continue;
+      }
       p.vx *= drag;
       p.vz *= drag;
       p.vy = p.vy * drag + PUFF_LIFT * dt;
@@ -212,7 +323,8 @@ export class FxPool {
       this.dummy.updateMatrix();
       mesh.setMatrixAt(w, this.dummy.matrix);
       mesh.setColorAt(w, p.color);
-      arr[w++] = p;
+      arr[w] = p;
+      w += 1;
     }
     arr.length = w;
     commit(mesh, w);
@@ -224,7 +336,9 @@ export class FxPool {
     let w = 0;
     for (const h of arr) {
       h.age += dt;
-      if (h.age >= h.life) continue;
+      if (h.age >= h.life) {
+        continue;
+      }
       h.px += (h.vx + Math.sin(this.elapsed * HEART_WOBBLE_FREQ + h.phase) * HEART_WOBBLE_AMP) * dt;
       h.py += h.vy * dt;
       h.pz += h.vz * dt;
@@ -234,7 +348,8 @@ export class FxPool {
       this.dummy.scale.setScalar(Math.max(s, 1e-4));
       this.dummy.updateMatrix();
       mesh.setMatrixAt(w, this.dummy.matrix);
-      arr[w++] = h;
+      arr[w] = h;
+      w += 1;
     }
     arr.length = w;
     commit(mesh, w);
@@ -247,7 +362,9 @@ export class FxPool {
     let w = 0;
     for (const c of arr) {
       c.age += dt;
-      if (c.age >= c.life || c.py <= CONFETTI_FLOOR_Y) continue;
+      if (c.age >= c.life || c.py <= CONFETTI_FLOOR_Y) {
+        continue;
+      }
       c.vy += CONFETTI_GRAVITY * dt;
       c.vx *= drag;
       c.vy *= drag;
@@ -265,7 +382,8 @@ export class FxPool {
       this.dummy.updateMatrix();
       mesh.setMatrixAt(w, this.dummy.matrix);
       mesh.setColorAt(w, c.color);
-      arr[w++] = c;
+      arr[w] = c;
+      w += 1;
     }
     arr.length = w;
     commit(mesh, w);
@@ -273,14 +391,16 @@ export class FxPool {
 
   private updateRings(): void {
     for (const r of this.rings) {
-      if (r.bornAt < 0) continue;
+      if (r.bornAt < 0) {
+        continue;
+      }
       const t = ((this.elapsed - r.bornAt) * 1000) / RING_DUR_MS;
       if (t >= 1) {
         r.bornAt = -1;
         r.mesh.visible = false;
         continue;
       }
-      const eased = 1 - Math.pow(1 - t, 3);
+      const eased = 1 - (1 - t) ** 3;
       const radius = 0.15 + (r.r1 - 0.15) * eased;
       r.mesh.scale.setScalar(radius);
       r.mat.opacity = 0.55 * (1 - t);
@@ -289,12 +409,22 @@ export class FxPool {
 
   private updateMotes(dt: number): void {
     const pos = this.motes.geometry.getAttribute("position");
-    if (!(pos instanceof THREE.BufferAttribute)) return;
+    if (!(pos instanceof THREE.BufferAttribute)) {
+      return;
+    }
     const arr = pos.array;
-    if (!(arr instanceof Float32Array)) return;
-    for (let i = 0; i < MOTE_COUNT; i++) {
+    if (!(arr instanceof Float32Array)) {
+      return;
+    }
+    for (let i = 0; i < MOTE_COUNT; i += 1) {
       const x = (arr[i * 3] ?? 0) + (this.moteVel[i * 2] ?? 0) * dt;
-      arr[i * 3] = x < 0 ? GRID_COLS : x > GRID_COLS ? 0 : x;
+      let wrapped = x;
+      if (x < 0) {
+        wrapped = GRID_COLS;
+      } else if (x > GRID_COLS) {
+        wrapped = 0;
+      }
+      arr[i * 3] = wrapped;
       const y = (arr[i * 3 + 1] ?? 0) + (this.moteVel[i * 2 + 1] ?? 0) * dt;
       arr[i * 3 + 1] = y > 2.8 ? 0.15 : y;
     }
@@ -303,87 +433,3 @@ export class FxPool {
 }
 
 // ---- helpers --------------------------------------------------------------------
-
-function makeInstanced(
-  geo: THREE.BufferGeometry,
-  cap: number,
-  color = 0xffffff,
-): THREE.InstancedMesh {
-  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.7 });
-  const mesh = new THREE.InstancedMesh(geo, mat, cap);
-  mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  mesh.count = 0;
-  mesh.frustumCulled = false;
-  return mesh;
-}
-
-function commit(mesh: THREE.InstancedMesh, count: number): void {
-  mesh.count = count;
-  mesh.instanceMatrix.needsUpdate = true;
-  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-}
-
-/** Pop in fast (overshoot a touch), then fast-in-slow-out shrink to zero. */
-function scaleCurve(t: number): number {
-  if (t < POP_PORTION) {
-    const u = t / POP_PORTION;
-    return 1.08 * (1 - (1 - u) * (1 - u));
-  }
-  const u = (t - POP_PORTION) / (1 - POP_PORTION);
-  return 1.08 * (1 - u * u * (3 - 2 * u));
-}
-
-/** Ambient dust motes drifting up through the maze air — quiet, constant. */
-function makeMotes() {
-  const positions = new Float32Array(MOTE_COUNT * 3);
-  const velocities = new Float32Array(MOTE_COUNT * 2); // [vx, vy] per mote
-  for (let i = 0; i < MOTE_COUNT; i++) {
-    positions[i * 3] = Math.random() * GRID_COLS;
-    positions[i * 3 + 1] = 0.15 + Math.random() * 2.5;
-    positions[i * 3 + 2] = Math.random() * GRID_ROWS;
-    velocities[i * 2] = (Math.random() - 0.5) * 0.08;
-    velocities[i * 2 + 1] = 0.06 + Math.random() * 0.1;
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  // Blush-tinted: white motes measure ~0 contrast against the cream fog.
-  const mat = new THREE.PointsMaterial({
-    color: 0xf2a9bf,
-    size: 0.06,
-    map: softDotTexture(),
-    transparent: true,
-    opacity: 0.5,
-    depthWrite: false,
-    sizeAttenuation: true,
-  });
-  const points = new THREE.Points(geo, mat);
-  points.frustumCulled = false;
-  return { points, velocities };
-}
-
-function softDotTexture(): THREE.CanvasTexture {
-  const canvas = document.createElement("canvas");
-  canvas.width = 32;
-  canvas.height = 32;
-  const ctx = canvas.getContext("2d");
-  if (ctx) {
-    const grad = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
-    grad.addColorStop(0, "rgba(255,255,255,1)");
-    grad.addColorStop(0.6, "rgba(255,255,255,0.4)");
-    grad.addColorStop(1, "rgba(255,255,255,0)");
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 32, 32);
-  }
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
-function randomUnit(): THREE.Vector3 {
-  const v = new THREE.Vector3(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1);
-  return v.lengthSq() < 1e-6 ? v.set(0, 1, 0) : v.normalize();
-}
-
-function rand(min: number, max: number): number {
-  return min + Math.random() * (max - min);
-}

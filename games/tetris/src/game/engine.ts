@@ -23,7 +23,7 @@ import {
   SOFT_DROP_POINTS,
 } from "../shared/constants";
 
-export type LockEvent = {
+export interface LockEvent {
   /** Cells the piece occupied when it locked (for lock-dust fx). */
   lockedCells: Cell[];
   /** Colour index 1..7 of the piece that locked. */
@@ -32,18 +32,18 @@ export type LockEvent = {
   layer: number;
   clear: ClearResult;
   gameOver: boolean;
-};
+}
 
-function shuffledBag(): number[] {
+const shuffledBag = (): number[] => {
   const bag = [0, 1, 2, 3, 4, 5, 6];
-  for (let i = bag.length - 1; i > 0; i--) {
+  for (let i = bag.length - 1; i > 0; i -= 1) {
     const j = Math.floor(Math.random() * (i + 1));
     const a = bag[i] ?? 0;
     bag[i] = bag[j] ?? 0;
     bag[j] = a;
   }
   return bag;
-}
+};
 
 export class Engine {
   readonly board: Board = new Board();
@@ -66,7 +66,9 @@ export class Engine {
   }
 
   private drawFromBag(): number {
-    if (this.bag.length === 0) this.bag = shuffledBag();
+    if (this.bag.length === 0) {
+      this.bag = shuffledBag();
+    }
     return this.bag.pop() ?? 0;
   }
 
@@ -112,12 +114,18 @@ export class Engine {
   /** Cross-arms / Hold key: swap the active piece with the held one (once per
    *  piece). Aborts if the incoming piece can't spawn. Returns whether it held. */
   hold(): boolean {
-    if (this.state.status !== "playing" || !this.active || this.holdUsed) return false;
+    if (this.state.status !== "playing" || !this.active || this.holdUsed) {
+      return false;
+    }
     const cur = this.active.index;
     const incoming = this.holdIndex === null ? this.nextIndex : this.holdIndex;
     const piece = new Piece(incoming, this.board);
-    if (this.board.collides(piece.cells())) return false;
-    if (this.holdIndex === null) this.nextIndex = this.drawFromBag();
+    if (this.board.collides(piece.cells())) {
+      return false;
+    }
+    if (this.holdIndex === null) {
+      this.nextIndex = this.drawFromBag();
+    }
     this.holdIndex = cur;
     this.active = piece;
     this.fallAccumMs = 0;
@@ -131,22 +139,30 @@ export class Engine {
 
   /** Spend a full charge to clear the lowest layer. Returns cubes removed. */
   power(): number {
-    if (!this.canPower()) return 0;
+    if (!this.canPower()) {
+      return 0;
+    }
     const removed = this.board.sweepLowestLayer();
     this.charge = 0;
-    if (removed > 0) this.state.addScore(removed * POWER_SCORE_PER_CUBE);
+    if (removed > 0) {
+      this.state.addScore(removed * POWER_SCORE_PER_CUBE);
+    }
     return removed;
   }
 
   // ---- player verbs (world-space; input layer applies camera correction) ----
 
   move(dx: number, dz: number): boolean {
-    if (this.state.status !== "playing" || !this.active) return false;
+    if (this.state.status !== "playing" || !this.active) {
+      return false;
+    }
     return this.active.move(this.board, dx, dz);
   }
 
   rotate(): boolean {
-    if (this.state.status !== "playing" || !this.active) return false;
+    if (this.state.status !== "playing" || !this.active) {
+      return false;
+    }
     return this.active.rotate(this.board);
   }
 
@@ -155,9 +171,13 @@ export class Engine {
   }
 
   hardDrop(): LockEvent | null {
-    if (this.state.status !== "playing" || !this.active) return null;
+    if (this.state.status !== "playing" || !this.active) {
+      return null;
+    }
     let fallen = 0;
-    while (this.active.fall(this.board)) fallen += 1;
+    while (this.active.fall(this.board)) {
+      fallen += 1;
+    }
     this.state.addScore(fallen * HARD_DROP_POINTS);
     return this.lockActive(this.active);
   }
@@ -167,14 +187,18 @@ export class Engine {
   /** Advance gravity. `paused` (camera mid-swing) freezes the fall but keeps
    *  the game live. Returns a LockEvent on the frame a piece locks. */
   tick(dtMs: number, paused: boolean): LockEvent | null {
-    if (this.state.status !== "playing" || !this.active || paused) return null;
+    if (this.state.status !== "playing" || !this.active || paused) {
+      return null;
+    }
     const interval = this.cycleTimeMs * (this.softDropping ? SOFT_DROP_FACTOR : 1);
     this.fallAccumMs += dtMs;
     while (this.fallAccumMs >= interval) {
       this.fallAccumMs -= interval;
       const moved = this.active.fall(this.board);
       if (moved) {
-        if (this.softDropping) this.state.addScore(SOFT_DROP_POINTS);
+        if (this.softDropping) {
+          this.state.addScore(SOFT_DROP_POINTS);
+        }
       } else {
         return this.lockActive(this.active);
       }
@@ -183,7 +207,7 @@ export class Engine {
   }
 
   private lockActive(piece: Piece): LockEvent {
-    const colorIndex = piece.colorIndex;
+    const { colorIndex } = piece;
     const lockedCells = piece.cells();
     const layer = this.board.lock(lockedCells, colorIndex);
     const clear = this.board.clearLayer(layer);
@@ -205,14 +229,18 @@ export class Engine {
     let gameOver = layer >= DEATH_HEIGHT;
     if (!gameOver) {
       gameOver = !this.spawnNext();
-      if (!gameOver) this.holdUsed = false; // a fresh piece may be held again
+      if (!gameOver) {
+        this.holdUsed = false;
+        // a fresh piece may be held again
+      }
     }
 
     if (gameOver) {
       this.active = null;
-      this.state.status = "collapsing"; // scene runs the cosmetic tumble
+      // scene runs the cosmetic tumble
+      this.state.status = "collapsing";
     }
-    return { lockedCells, colorIndex, layer, clear, gameOver };
+    return { clear, colorIndex, gameOver, layer, lockedCells };
   }
 
   /** Catch-the-collapse rescue: settle the rubble, resume from a shorter

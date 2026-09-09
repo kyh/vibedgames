@@ -3,9 +3,8 @@
 
 const BASE = import.meta.env.BASE_URL;
 
-export function modelUrl(category: string, name: string): string {
-  return `${BASE}models/${category}/${name}.glb`;
-}
+export const modelUrl = (category: string, name: string): string =>
+  `${BASE}models/${category}/${name}.glb`;
 
 // --- Cars ---
 export const PLAYER_CAR = "waymo";
@@ -19,7 +18,8 @@ export const TRAFFIC_CARS = [
   "delivery",
   "delivery-flat",
   "hatchback-sports",
-  "taxi", // the OTHER cab company — SF classic
+  // the OTHER cab company — SF classic
+  "taxi",
   "race",
   "race-future",
 ] as const;
@@ -212,47 +212,58 @@ const ROADS = [ROAD_BRIDGE, BRIDGE_PILLAR, BRIDGE_PILLAR_WIDE] as const;
 // (terrain/streets/green cells/garage depots — city.ts buildPhase1) touch.
 // The title screen goes up after these; everything else streams behind it.
 // If buildPhase1 gains a new model, it MUST move into this list.
-export function earlyModelUrls(): string[] {
-  return [
-    modelUrl("cars", PLAYER_CAR),
-    modelUrl("props", TREE_LARGE),
-    modelUrl("props", TREE_SMALL),
-    modelUrl("props", PROP_WATERTOWER),
-    modelUrl("buildings", GARAGE_MODEL),
-  ];
-}
+export const earlyModelUrls = (): string[] => [
+  modelUrl("cars", PLAYER_CAR),
+  modelUrl("props", TREE_LARGE),
+  modelUrl("props", TREE_SMALL),
+  modelUrl("props", PROP_WATERTOWER),
+  modelUrl("buildings", GARAGE_MODEL),
+];
+
+// Everything the game preloads to play (early + late) — excludes the lazy
+// player skins and the editor-only kits above.
+export const allModelUrls = (): string[] => {
+  const urls: string[] = [];
+  urls.push(modelUrl("cars", PLAYER_CAR), modelUrl("cars", POLICE_CAR));
+  for (const c of TRAFFIC_CARS) {
+    urls.push(modelUrl("cars", c));
+  }
+  for (const c of SERVICE_CARS) {
+    urls.push(modelUrl("cars", c));
+  }
+  for (const c of CONSTRUCTION_VEHICLES) {
+    urls.push(modelUrl("cars", c));
+  }
+  for (const r of ROADS) {
+    urls.push(modelUrl("roads", r));
+  }
+  for (const p of PROPS) {
+    urls.push(modelUrl("props", p));
+  }
+  for (const t of PARK_TILES) {
+    urls.push(modelUrl("parks", t));
+  }
+  urls.push(modelUrl("buildings", GARAGE_MODEL));
+  for (const d of [...DEBRIS_SMALL, ...DEBRIS_BIG]) {
+    urls.push(modelUrl("debris", d));
+  }
+  for (const c of CHARACTERS) {
+    urls.push(modelUrl("characters", c));
+  }
+  return urls;
+};
 
 // Everything else — needed by the late city build (rebuildRest resolves
 // building/prop GLB refs), traffic, fares, debris. Preloaded behind the title.
-export function lateModelUrls(): string[] {
+export const lateModelUrls = (): string[] => {
   const early = new Set(earlyModelUrls());
   return allModelUrls().filter((u) => !early.has(u));
-}
+};
 
 // The kits only the map editor's roster can place: nothing in world gen or
 // `custom-props.ts` references them, so a player pays 11 requests for a
 // palette they will never open. `?editor=1` loads them itself.
-export function editorModelUrls(): string[] {
-  return [
-    ...KK_CARS.map((c) => modelUrl("cars", c)),
-    ...KK_PROPS_EXTRA.map((p) => modelUrl("props", p)),
-  ];
-}
-
-// Everything the game preloads to play (early + late) — excludes the lazy
-// player skins and the editor-only kits above.
-export function allModelUrls(): string[] {
-  const urls: string[] = [];
-  urls.push(modelUrl("cars", PLAYER_CAR));
-  urls.push(modelUrl("cars", POLICE_CAR));
-  for (const c of TRAFFIC_CARS) urls.push(modelUrl("cars", c));
-  for (const c of SERVICE_CARS) urls.push(modelUrl("cars", c));
-  for (const c of CONSTRUCTION_VEHICLES) urls.push(modelUrl("cars", c));
-  for (const r of ROADS) urls.push(modelUrl("roads", r));
-  for (const p of PROPS) urls.push(modelUrl("props", p));
-  for (const t of PARK_TILES) urls.push(modelUrl("parks", t));
-  urls.push(modelUrl("buildings", GARAGE_MODEL));
-  for (const d of [...DEBRIS_SMALL, ...DEBRIS_BIG]) urls.push(modelUrl("debris", d));
-  for (const c of CHARACTERS) urls.push(modelUrl("characters", c));
-  return urls;
-}
+export const editorModelUrls = (): string[] => [
+  ...KK_CARS.map((c) => modelUrl("cars", c)),
+  ...KK_PROPS_EXTRA.map((p) => modelUrl("props", p)),
+];

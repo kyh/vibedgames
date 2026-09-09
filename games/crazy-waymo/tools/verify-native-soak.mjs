@@ -1,8 +1,9 @@
 import { execFile, spawn } from "node:child_process";
 import { createWriteStream, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
-import { join } from "node:path";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { setTimeout as sleep } from "node:timers/promises";
 import { promisify } from "node:util";
 
 // Run serially; keep other rendering browsers and heavy builds idle.
@@ -17,43 +18,49 @@ if (process.argv.includes("--help")) {
 }
 const url = process.argv[2] ?? "http://localhost:5193/?time=noon&offline=1";
 const durationSeconds = Number(process.argv[4] ?? 240);
-if (!Number.isFinite(durationSeconds) || durationSeconds < 120 || durationSeconds > 600)
+if (!Number.isFinite(durationSeconds) || durationSeconds < 120 || durationSeconds > 600) {
   throw new Error("Soak duration must be 120..600 seconds");
+}
 const out = process.argv[3] ?? `/private/tmp/waymo-native-soak-${process.pid}`;
 const preserved = new Set();
 mkdirSync(out, { recursive: true });
 const revisionSource = readFileSync(
   fileURLToPath(new URL("../src/world/world-bin.ts", import.meta.url)),
-  "utf8",
+  "utf-8",
 );
-const expectedRevision = Number(revisionSource.match(/export const WORLD_REV = (\d+);/)?.[1]);
-if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1)
+const expectedRevision = Number(
+  revisionSource.match(/export const WORLD_REV = (?<revision>\d+);/u)?.groups?.revision,
+);
+if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1) {
   throw new Error("Cannot read expected WORLD_REV from source");
+}
 const report = {
+  cases: [],
   checkedAt: new Date().toISOString(),
-  url,
+  checks: [],
+  durationSeconds,
+  expectedRevision,
   scope:
     "Native iOS Safari simulator sustained rendering and resource stability. Default-framebuffer render submissions, not display callbacks or GPU timings. Staged routes; trusted native touch drives. No physical-phone, heap, power or thermal claim.",
-  expectedRevision,
-  durationSeconds,
-  checks: [],
-  cases: [],
+  url,
 };
 let ownedId = null;
 let appium = null;
 let sessionId = null;
 let endpoint = "";
 let cleaned = null;
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const save = () => writeFileSync(join(out, "report.json"), JSON.stringify(report, null, 2) + "\n");
+const save = () =>
+  writeFileSync(path.join(out, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
 const check = (name, passed, evidence) => {
-  const entry = { name, passed, evidence };
+  const entry = { evidence, name, passed };
   report.checks.push(entry);
   console.log(JSON.stringify(entry));
   save();
 };
-const command = async (name, args, timeout = 120000) =>
-  (await run(name, args, { timeout, maxBuffer: 8 * 1024 * 1024 })).stdout.trim();
+const command = async (name, args, timeout = 120_000) => {
+  const { stdout } = await run(name, args, { maxBuffer: 8 * 1024 * 1024, timeout });
+  return stdout.trim();
+};
 const states = async () => {
   const data = JSON.parse(await command("xcrun", ["simctl", "list", "devices", "--json"]));
   return Object.values(data.devices)
@@ -62,46 +69,59 @@ const states = async () => {
     .map((device) => ({ id: device.udid, state: device.state }))
     .toSorted((a, b) => a.id.localeCompare(b.id));
 };
-async function port() {
+const port = async () => {
   const server = createServer();
+  // oxlint-disable-next-line promise/avoid-new -- net.Server reports listen success only as an event
   await new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", resolve);
   });
   const address = server.address();
-  if (!Number.isSafeInteger(address?.port)) throw new Error("No owned local port");
+  if (!Number.isSafeInteger(address?.port)) {
+    throw new TypeError("No owned local port");
+  }
   const result = address.port;
-  await new Promise((resolve) => server.close(resolve));
+  // oxlint-disable-next-line promise/avoid-new -- net.Server close reports only through a callback
+  await new Promise((resolve) => {
+    server.close(resolve);
+  });
   return result;
-}
-async function http(method, path, body, timeout = 180000) {
+};
+const http = async (method, route, body, timeout = 180_000) => {
   const options = {
-    method,
     headers: { "content-type": "application/json" },
+    method,
     signal: AbortSignal.timeout(timeout),
   };
-  if (body !== undefined) options.body = JSON.stringify(body);
-  const response = await fetch(`${endpoint}${path}`, options);
+  if (body !== undefined) {
+    options.body = JSON.stringify(body);
+  }
+  const response = await fetch(`${endpoint}${route}`, options);
   const data = await response.json();
-  if (!response.ok || data.value?.error)
-    throw new Error(`${method} ${path}: ${JSON.stringify(data.value ?? data)}`);
+  if (!response.ok || data.value?.error) {
+    throw new Error(`${method} ${route}: ${JSON.stringify(data.value ?? data)}`);
+  }
   return data.value;
-}
-const call = (method, path, body) => {
-  if (!sessionId) throw new Error("Owned Safari session absent");
-  return http(method, `/session/${sessionId}${path}`, body);
 };
-const evaluate = (script) => call("POST", "/execute/sync", { script, args: [] });
-async function until(script, timeout = 120000) {
+const call = (method, route, body) => {
+  if (!sessionId) {
+    throw new Error("Owned Safari session absent");
+  }
+  return http(method, `/session/${sessionId}${route}`, body);
+};
+const evaluate = (script) => call("POST", "/execute/sync", { args: [], script });
+const until = async (script, timeout = 120_000) => {
   const start = Date.now();
   while (Date.now() - start < timeout) {
-    if (await evaluate(script)) return;
+    if (await evaluate(script)) {
+      return;
+    }
     await sleep(500);
   }
   throw new Error(`Timeout: ${script}`);
-}
-async function startSnapshot() {
-  return evaluate(`
+};
+const startSnapshot = () =>
+  evaluate(`
     const cta=document.querySelector('#banner-cta'),banner=document.querySelector('#banner');
     const rect=cta?.getBoundingClientRect(),style=cta?getComputedStyle(cta):null,bs=banner?getComputedStyle(banner):null;
     const center=rect?{x:rect.x+rect.width/2,y:rect.y+rect.height/2}:null;
@@ -113,14 +133,13 @@ async function startSnapshot() {
       active:describe(document.activeElement),viewport:{width:innerWidth,height:innerHeight,screenWidth:screen.width,screenHeight:screen.height,dpr:devicePixelRatio,scrollX,scrollY,visual:window.visualViewport?{offsetLeft:visualViewport.offsetLeft,offsetTop:visualViewport.offsetTop,pageTop:visualViewport.pageTop,width:visualViewport.width,height:visualViewport.height,scale:visualViewport.scale}:null},
       events:window.__coastSafari?.events??[],errors:window.__coastSafari?.errors??[]};
   `);
-}
-async function waitForStartTarget() {
-  let previous = null,
-    stable = 0;
+const waitForStartTarget = async () => {
+  let previous = null;
+  let stable = 0;
   const begin = Date.now();
-  while (Date.now() - begin < 15000) {
-    const state = await startSnapshot(),
-      center = state.cta.center;
+  while (Date.now() - begin < 15_000) {
+    const state = await startSnapshot();
+    const { center } = state.cta;
     const visible =
       state.ready &&
       state.fonts === "loaded" &&
@@ -137,16 +156,20 @@ async function waitForStartTarget() {
       center &&
       previous &&
       Math.hypot(center.x - previous.x, center.y - previous.y) < 0.5
-    )
-      stable++;
-    else stable = 0;
-    if (stable >= 2) return state;
+    ) {
+      stable += 1;
+    } else {
+      stable = 0;
+    }
+    if (stable >= 2) {
+      return state;
+    }
     previous = center;
     await sleep(250);
   }
   throw new Error("Start CTA did not become visible, hit-testable and center-stable");
-}
-async function directStartTouch(before, attempt) {
+};
+const directStartTouch = async (before, attempt) => {
   // Resolve the existing accessibility label, never rewrite DOM attributes.
   // Native and web centers also record Safari's actual viewport offset.
   const webContext = await call("GET", "/context");
@@ -156,33 +179,36 @@ async function directStartTouch(before, attempt) {
       using: "accessibility id",
       value: "Start driving",
     });
-    if (elements.length !== 1)
+    if (elements.length !== 1) {
       throw new Error(`Expected one native Start button, found ${elements.length}`);
+    }
     const id = elements[0]["element-6066-11e4-a52e-4f735466cecf"];
-    if (!id) throw new Error("Native Start accessibility element missing ID");
+    if (!id) {
+      throw new Error("Native Start accessibility element missing ID");
+    }
     const rect = await call("GET", `/element/${id}/rect`);
-    const x = Math.round(rect.x + rect.width / 2),
-      y = Math.round(rect.y + rect.height / 2);
+    const x = Math.round(rect.x + rect.width / 2);
+    const y = Math.round(rect.y + rect.height / 2);
     const evidence = {
-      method: "native-w3c-touch",
       duration: 100,
-      nativeRect: rect,
+      method: "native-w3c-touch",
       nativeCenter: { x, y },
-      webCenter: before.cta.center,
+      nativeRect: rect,
       offset: { x: x - before.cta.center.x, y: y - before.cta.center.y },
+      webCenter: before.cta.center,
     };
     await call("POST", "/actions", {
       actions: [
         {
-          type: "pointer",
+          actions: [
+            { duration: 0, origin: "viewport", type: "pointerMove", x, y },
+            { button: 0, type: "pointerDown" },
+            { duration: 100, type: "pause" },
+            { button: 0, type: "pointerUp" },
+          ],
           id: `start-${attempt}`,
           parameters: { pointerType: "touch" },
-          actions: [
-            { type: "pointerMove", duration: 0, origin: "viewport", x, y },
-            { type: "pointerDown", button: 0 },
-            { type: "pause", duration: 100 },
-            { type: "pointerUp", button: 0 },
-          ],
+          type: "pointer",
         },
       ],
     });
@@ -190,10 +216,10 @@ async function directStartTouch(before, attempt) {
   } finally {
     await call("POST", "/context", { name: webContext });
   }
-}
-async function activateStart() {
-  const before = await waitForStartTarget(),
-    eventIndex = before.events.length;
+};
+const activateStart = async () => {
+  const before = await waitForStartTarget();
+  const eventIndex = before.events.length;
   const entry = { attempt: 1, before };
   report.startAttempts = [entry];
   save();
@@ -227,10 +253,11 @@ async function activateStart() {
     );
   entry.delivery = validTouch ? "trusted-cta-pointerup" : "invalid-first-touch";
   save();
-  if (!validTouch)
+  if (!validTouch) {
     throw new Error("First native Start gesture was not a valid trusted touch release; no retries");
+  }
   try {
-    await until('return window.__taxi.game.mode.kind === "playing";', 25000);
+    await until('return window.__taxi.game.mode.kind === "playing";', 25_000);
   } catch (error) {
     entry.failureState = await startSnapshot();
     save();
@@ -245,17 +272,19 @@ async function activateStart() {
     entry.completed.mode === "playing" && validTouch,
     { attempts: report.startAttempts },
   );
-}
-async function screenshot(name) {
+};
+const screenshot = async (name) => {
   const png = await call("GET", "/screenshot");
-  writeFileSync(join(out, `${name}.png`), Buffer.from(png, "base64"));
-}
-async function cleanup() {
-  if (cleaned) return cleaned;
+  writeFileSync(path.join(out, `${name}.png`), Buffer.from(png, "base64"));
+};
+const cleanup = () => {
+  if (cleaned) {
+    return cleaned;
+  }
   cleaned = (async () => {
     if (sessionId) {
       try {
-        await http("DELETE", `/session/${sessionId}`, undefined, 45000);
+        await http("DELETE", `/session/${sessionId}`, undefined, 45_000);
       } catch (error) {
         report.sessionCleanup = String(error);
       }
@@ -263,17 +292,25 @@ async function cleanup() {
     }
     if (appium) {
       appium.kill("SIGTERM");
-      await Promise.race([new Promise((resolve) => appium.once("exit", resolve)), sleep(3000)]);
-      if (appium.exitCode === null && appium.signalCode === null) appium.kill("SIGKILL");
+      await Promise.race([
+        // oxlint-disable-next-line promise/avoid-new -- child exit arrives only as an event
+        new Promise((resolve) => {
+          appium.once("exit", resolve);
+        }),
+        sleep(3000),
+      ]);
+      if (appium.exitCode === null && appium.signalCode === null) {
+        appium.kill("SIGKILL");
+      }
     }
     if (ownedId && !preserved.has(ownedId)) {
       try {
-        await command("xcrun", ["simctl", "shutdown", ownedId], 60000);
+        await command("xcrun", ["simctl", "shutdown", ownedId], 60_000);
       } catch (error) {
         report.shutdownNote = String(error);
       }
       try {
-        await command("xcrun", ["simctl", "delete", ownedId], 60000);
+        await command("xcrun", ["simctl", "delete", ownedId], 60_000);
         report.ownedSimulatorDeleted = true;
       } catch (error) {
         report.deleteFailure = String(error);
@@ -292,13 +329,14 @@ async function cleanup() {
     save();
   })();
   return cleaned;
-}
-for (const signal of ["SIGINT", "SIGTERM"])
+};
+for (const signal of ["SIGINT", "SIGTERM"]) {
   process.once(signal, async () => {
     report.interrupted = signal;
     await cleanup();
     process.exit(1);
   });
+}
 
 // Fixed-size page instrumentation. No frame/pose history grows with soak time.
 const instrumentation = `
@@ -334,50 +372,52 @@ const instrumentation = `
   return true;
 `;
 
-async function heldTouch(label, holdMs, dragX) {
+const heldTouch = async (label, holdMs, dragX) => {
   const point = await evaluate(
     `const x=Math.round(innerWidth*.3),y=Math.round(innerHeight*.58),e=document.elementFromPoint(x,y);return {x,y,tag:e?.tagName};`,
   );
-  if (point.tag !== "CANVAS") throw new Error(`Drive input covered: ${JSON.stringify(point)}`);
-  const offset = report.startAttempts[0].gesture.offset;
-  const x = Math.round(point.x + offset.x),
-    y = Math.round(point.y + offset.y);
+  if (point.tag !== "CANVAS") {
+    throw new Error(`Drive input covered: ${JSON.stringify(point)}`);
+  }
+  const { offset } = report.startAttempts[0].gesture;
+  const x = Math.round(point.x + offset.x);
+  const y = Math.round(point.y + offset.y);
   const context = await call("GET", "/context");
   await call("POST", "/context", { name: "NATIVE_APP" });
   try {
     await call("POST", "/actions", {
       actions: [
         {
-          type: "pointer",
+          actions: [
+            { duration: 0, origin: "viewport", type: "pointerMove", x, y },
+            { button: 0, type: "pointerDown" },
+            ...(dragX
+              ? [{ duration: 200, origin: "viewport", type: "pointerMove", x: x + dragX, y }]
+              : []),
+            { duration: holdMs, type: "pause" },
+            { button: 0, type: "pointerUp" },
+          ],
           id: label,
           parameters: { pointerType: "touch" },
-          actions: [
-            { type: "pointerMove", duration: 0, origin: "viewport", x, y },
-            { type: "pointerDown", button: 0 },
-            ...(dragX
-              ? [{ type: "pointerMove", duration: 200, origin: "viewport", x: x + dragX, y }]
-              : []),
-            { type: "pause", duration: holdMs },
-            { type: "pointerUp", button: 0 },
-          ],
+          type: "pointer",
         },
       ],
     });
   } finally {
     await call("POST", "/context", { name: context });
   }
-}
+};
 
-async function stage(kind, phase) {
+const stage = async (kind, phase) => {
   await evaluate(`const t=window.__taxi,g=t.game,s=window.__coastSafari;
     s.measure.active=false;s.measure.previous=null;t.setTime(600);t.setPhase(${phase});t.setFreecam(false);g.input.setScripted(null);
     const pose=${kind === "coast" ? "{x:-1510,z:200,yaw:0}" : "s.denseSpawn"};
     g.car.reset(pose.x,pose.z,pose.yaw);g.rig.snapTo(g.car);
     g.traffic.reset({gx:g.city.gridX(pose.x),gz:g.city.gridZ(pose.z)},70);g.traffic.setHoldRecycle(true);return true;`);
   await sleep(1500);
-}
+};
 
-async function nativePauseResume() {
+const nativePauseResume = async () => {
   const context = await call("GET", "/context");
   // A page cannot synthesize a trusted native touch. Use calibrated viewport
   // coordinates for both pause and resume; never call game.requestPause here.
@@ -388,28 +428,30 @@ async function nativePauseResume() {
     const target = await evaluate(
       `const e=document.querySelector(${JSON.stringify(selector)});if(!e)return null;const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};`,
     );
-    if (!target) return { unsupportedSelector: selector };
-    const offset = report.startAttempts[0].gesture.offset;
+    if (!target) {
+      return { unsupportedSelector: selector };
+    }
+    const { offset } = report.startAttempts[0].gesture;
     await call("POST", "/context", { name: "NATIVE_APP" });
     try {
       await call("POST", "/actions", {
         actions: [
           {
-            type: "pointer",
-            id: "pause-native",
-            parameters: { pointerType: "touch" },
             actions: [
               {
-                type: "pointerMove",
                 duration: 0,
                 origin: "viewport",
+                type: "pointerMove",
                 x: Math.round(target.x + offset.x),
                 y: Math.round(target.y + offset.y),
               },
-              { type: "pointerDown", button: 0 },
-              { type: "pause", duration: 100 },
-              { type: "pointerUp", button: 0 },
+              { button: 0, type: "pointerDown" },
+              { duration: 100, type: "pause" },
+              { button: 0, type: "pointerUp" },
             ],
+            id: "pause-native",
+            parameters: { pointerType: "touch" },
+            type: "pointer",
           },
         ],
       });
@@ -421,30 +463,31 @@ async function nativePauseResume() {
       const before = await evaluate("return window.__coastSafari.measure.totalRenders;");
       await sleep(1500);
       const after = await evaluate("return window.__coastSafari.measure.totalRenders;");
-      check("Native pause stops repeated rendering", after - before <= 1, { before, after });
+      check("Native pause stops repeated rendering", after - before <= 1, { after, before });
     }
   }
   const before = await evaluate("return window.__coastSafari.measure.totalRenders;");
   await sleep(700);
   const after = await evaluate("return window.__coastSafari.measure.totalRenders;");
-  return { resumed: after - before > 10, renders: after - before };
-}
+  return { renders: after - before, resumed: after - before > 10 };
+};
 
 try {
   report.preservedBefore = await states();
-  for (const device of report.preservedBefore) preserved.add(device.id);
-  const runtimes = JSON.parse(
-    await command("xcrun", ["simctl", "list", "runtimes", "--json"]),
-  ).runtimes;
-  const runtime = runtimes
-    .filter((runtime) => runtime.isAvailable && runtime.name.startsWith("iOS"))
-    .toSorted((a, b) => b.version.localeCompare(a.version, undefined, { numeric: true }))[0];
+  for (const device of report.preservedBefore) {
+    preserved.add(device.id);
+  }
+  const { runtimes } = JSON.parse(await command("xcrun", ["simctl", "list", "runtimes", "--json"]));
+  const [runtime] = runtimes
+    .filter((candidate) => candidate.isAvailable && candidate.name.startsWith("iOS"))
+    .toSorted((a, b) => b.version.localeCompare(a.version, undefined, { numeric: true }));
   const types = JSON.parse(
     await command("xcrun", ["simctl", "list", "devicetypes", "--json"]),
   ).devicetypes;
-  const type = types.find((type) => type.name === "iPhone 17 Pro");
-  if (!runtime || !type)
+  const type = types.find((candidate) => candidate.name === "iPhone 17 Pro");
+  if (!runtime || !type) {
     throw new Error("Available iOS runtime / iPhone 17 Pro device type missing");
+  }
   ownedId = await command("xcrun", [
     "simctl",
     "create",
@@ -452,19 +495,20 @@ try {
     type.identifier,
     runtime.identifier,
   ]);
-  if (!/^[0-9A-F-]{36}$/i.test(ownedId) || preserved.has(ownedId))
+  if (!/^[0-9A-F-]{36}$/iu.test(ownedId) || preserved.has(ownedId)) {
     throw new Error("Fresh simulator ownership validation failed");
+  }
   report.ownedSimulator = ownedId;
-  report.runtime = { name: runtime.name, version: runtime.version, device: type.name };
+  report.runtime = { device: type.name, name: runtime.name, version: runtime.version };
   save();
   console.log("Created owned simulator; booting.");
   await command("xcrun", ["simctl", "boot", ownedId]);
-  await command("xcrun", ["simctl", "bootstatus", ownedId, "-b"], 180000);
+  await command("xcrun", ["simctl", "bootstatus", ownedId, "-b"], 180_000);
   await command("open", ["-a", "Simulator", "--args", "-CurrentDeviceUDID", ownedId]);
-  const appiumPort = await port(),
-    wdaPort = await port();
+  const appiumPort = await port();
+  const wdaPort = await port();
   endpoint = `http://127.0.0.1:${appiumPort}`;
-  const log = createWriteStream(join(out, "appium.log"));
+  const log = createWriteStream(path.join(out, "appium.log"));
   const appiumArgs = [
     "--address",
     "127.0.0.1",
@@ -475,10 +519,13 @@ try {
     "--log-timestamp",
   ];
   const appiumEnv = { ...process.env };
-  if (process.env.WAYMO_APPIUM_HOME !== undefined)
+  if (process.env.WAYMO_APPIUM_HOME !== undefined) {
     appiumEnv.APPIUM_HOME = process.env.WAYMO_APPIUM_HOME;
+  }
   const appiumMain = process.env.WAYMO_APPIUM_MAIN;
-  if (appiumMain !== undefined) appiumArgs.unshift(appiumMain);
+  if (appiumMain !== undefined) {
+    appiumArgs.unshift(appiumMain);
+  }
   appium = spawn(appiumMain === undefined ? "appium" : process.execPath, appiumArgs, {
     env: appiumEnv,
     stdio: ["ignore", "pipe", "pipe"],
@@ -491,8 +538,10 @@ try {
   appium.stderr.pipe(log);
   report.appiumPid = appium.pid;
   let ready = false;
-  for (let i = 0; i < 60; i++) {
-    if (appiumFailure) throw new Error("Could not launch owned Appium", { cause: appiumFailure });
+  for (let i = 0; i < 60; i += 1) {
+    if (appiumFailure) {
+      throw new Error("Could not launch owned Appium", { cause: appiumFailure });
+    }
     try {
       await http("GET", "/status", undefined, 1000);
       ready = true;
@@ -501,7 +550,9 @@ try {
       await sleep(500);
     }
   }
-  if (!ready) throw new Error("Owned Appium server did not become ready");
+  if (!ready) {
+    throw new Error("Owned Appium server did not become ready");
+  }
   console.log("Creating native Safari session; WDA may compile.");
   const session = await http(
     "POST",
@@ -509,37 +560,40 @@ try {
     {
       capabilities: {
         alwaysMatch: {
-          platformName: "iOS",
-          browserName: "Safari",
           "appium:automationName": "XCUITest",
           "appium:deviceName": type.name,
-          "appium:udid": ownedId,
+          "appium:nativeWebTap": true,
+          "appium:newCommandTimeout": 1800,
+          "appium:noReset": true,
           "appium:platformVersion": runtime.version,
-          "appium:wdaLocalPort": wdaPort,
-          "appium:shutdownOtherSimulators": false,
-          "appium:showXcodeLog": false,
+          "appium:safariInitialUrl": "about:blank",
           "appium:showSafariConsoleLog": true,
           "appium:showSafariNetworkLog": true,
-          "appium:newCommandTimeout": 1800,
-          "appium:nativeWebTap": true,
+          "appium:showXcodeLog": false,
+          "appium:shutdownOtherSimulators": false,
+          "appium:udid": ownedId,
           "appium:waitForIdleTimeout": 0,
-          "appium:safariInitialUrl": "about:blank",
-          "appium:noReset": true,
+          "appium:wdaLocalPort": wdaPort,
+          browserName: "Safari",
+          platformName: "iOS",
         },
         firstMatch: [{}],
       },
     },
-    300000,
+    300_000,
   );
-  sessionId = session.sessionId;
-  if (!sessionId) throw new Error("Appium did not return owned session ID");
+  const { sessionId: openedSession } = session;
+  sessionId = openedSession;
+  if (!sessionId) {
+    throw new Error("Appium did not return owned session ID");
+  }
   report.sessionId = sessionId;
   save();
   await call("POST", "/orientation", { orientation: "PORTRAIT" });
   await call("POST", "/url", { url });
   await until(
     'return window.__taxi?.game.isReady === true && getComputedStyle(document.querySelector("#loading")).display === "none" && document.querySelector("#banner-cta").getBoundingClientRect().width > 0;',
-    150000,
+    150_000,
   );
   const env = await evaluate(
     'return {title:document.title,width:innerWidth,height:innerHeight,dpr:devicePixelRatio,coarse:matchMedia("(pointer:coarse)").matches,post:window.__post !== null,renderer:window.__renderer.getContext().getParameter(window.__renderer.getContext().RENDERER)};',
@@ -581,7 +635,7 @@ try {
       window.__nativeSetup={revision:bin.WORLD_REV,installedRevision:installed.rev,denseSpawn:candidate};
     }).catch(e=>window.__nativeSetup={error:String(e)});return true;
   `);
-  await until("return window.__nativeSetup!==null;", 30000);
+  await until("return window.__nativeSetup!==null;", 30_000);
   report.world = await evaluate("return window.__nativeSetup;");
   check(
     "Source and installed world match",
@@ -589,29 +643,31 @@ try {
       report.world.installedRevision === expectedRevision,
     report.world,
   );
-  if (!report.checks.at(-1).passed) throw new Error("Native soak world mismatch");
+  if (!report.checks.at(-1).passed) {
+    throw new Error("Native soak world mismatch");
+  }
   report.initialResources = await evaluate("return window.__coastSafari.resources();");
   const phases = [
-    { name: "dense-day", kind: "dense", phase: 0.25 },
-    { name: "coast-day", kind: "coast", phase: 0.25 },
-    { name: "dense-night", kind: "dense", phase: 0.7 },
-    { name: "coast-night", kind: "coast", phase: 0.7 },
+    { kind: "dense", name: "dense-day", phase: 0.25 },
+    { kind: "coast", name: "coast-day", phase: 0.25 },
+    { kind: "dense", name: "dense-night", phase: 0.7 },
+    { kind: "coast", name: "coast-night", phase: 0.7 },
   ];
   for (const phase of phases) {
     await stage(phase.kind, phase.phase);
     // Fill the destination outside steady drive histograms. Timed separately.
     const loadingStart = Date.now();
-    await until("return window.__taxi.game.city.parcelStreamStats().pending===0;", 60000);
+    await until("return window.__taxi.game.city.parcelStreamStats().pending===0;", 60_000);
     const loadingMs = Date.now() - loadingStart;
     await evaluate("window.__coastSafari.resetMetrics();return true;");
     const stageReport = {
-      name: phase.name,
       kind: phase.kind,
-      phase: phase.phase,
+      legs: [],
       loadingMs,
+      name: phase.name,
+      phase: phase.phase,
       resourcesBefore: await evaluate("return window.__coastSafari.resources();"),
       samples: [],
-      legs: [],
     };
     const deadline = Date.now() + (durationSeconds * 1000) / phases.length;
     let nextResource = 0;
@@ -632,15 +688,15 @@ try {
       );
       const after = await evaluate("return window.__taxi.probe();");
       stageReport.legs.push({
+        endSpeed: after.speed,
+        headingChange: after.heading - before.heading,
         holdMs,
         travel: Math.hypot(after.x - before.x, after.z - before.z),
-        endSpeed: after.speed,
         water: after.waterContact.kind,
-        headingChange: after.heading - before.heading,
       });
       if (Date.now() >= nextResource) {
         stageReport.samples.push(await evaluate("return window.__coastSafari.resources();"));
-        nextResource = Date.now() + 15000;
+        nextResource = Date.now() + 15_000;
       }
     }
     stageReport.metrics = await evaluate("return window.__coastSafari.metrics();");
@@ -655,18 +711,19 @@ try {
         m.maxThrottle === 1 &&
         m.finite &&
         stageReport.legs.every((leg) => leg.travel > 8),
-      { metrics: m, legs: stageReport.legs.length },
+      { legs: stageReport.legs.length, metrics: m },
     );
-    if (phase.kind === "coast")
+    if (phase.kind === "coast") {
       check(
         `Floating steering and foam (${phase.name})`,
         m.wetFrames / m.frames > 0.95 && m.maxSteer > 0.4 && m.maxFoamIndices > 0,
         {
-          wetFraction: m.wetFrames / m.frames,
-          maxSteer: m.maxSteer,
           maxFoamIndices: m.maxFoamIndices,
+          maxSteer: m.maxSteer,
+          wetFraction: m.wetFrames / m.frames,
         },
       );
+    }
     await screenshot(phase.name);
   }
   const resumed = await nativePauseResume();
@@ -681,7 +738,7 @@ try {
     errors,
   );
   const logs = await call("POST", "/log", { type: "safariConsole" });
-  writeFileSync(join(out, "safari-console.json"), JSON.stringify(logs, null, 2) + "\n");
+  writeFileSync(path.join(out, "safari-console.json"), `${JSON.stringify(logs, null, 2)}\n`);
   const parsed = logs.map((entry) => {
     try {
       return JSON.parse(entry.message);
@@ -694,7 +751,7 @@ try {
       (entry.level === "error" || entry.level === "SEVERE") &&
       !(
         entry.source === "network" &&
-        /\/world\/rest\.bin\?v=\d+$/.test(entry.url ?? "") &&
+        /\/world\/rest\.bin\?v=\d+$/u.test(entry.url ?? "") &&
         String(entry.text).includes("404")
       ),
   );
@@ -705,10 +762,14 @@ try {
   if (sessionId) {
     try {
       report.failureState = await startSnapshot();
-    } catch {}
+    } catch {
+      // A dead session cannot describe itself; the failure above is the report.
+    }
     try {
       await screenshot("failure");
-    } catch {}
+    } catch {
+      // A dead session cannot be photographed; the failure above is the report.
+    }
   }
 } finally {
   await cleanup();
@@ -720,13 +781,15 @@ try {
     report.cases.length === 4 &&
     report.checks.every((c) => c.passed);
   save();
-  if (!report.passed) process.exitCode = 1;
+  if (!report.passed) {
+    process.exitCode = 1;
+  }
   console.log(
     JSON.stringify({
-      passed: report.passed,
       checks: report.checks.length,
-      report: join(out, "report.json"),
       ownedSimulatorDeleted: report.ownedSimulatorDeleted,
+      passed: report.passed,
+      report: path.join(out, "report.json"),
     }),
   );
 }

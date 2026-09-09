@@ -21,6 +21,7 @@
 import * as THREE from "three";
 import { NOISE_GLSL } from "./fx-noise";
 
+// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
 const VERT = /* glsl */ `
 varying vec2 vUv;
 varying vec3 vN;
@@ -33,6 +34,7 @@ void main() {
   gl_Position = projectionMatrix * mv;
 }`;
 
+// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
 const FRAG = /* glsl */ `
 uniform float uTime;
 uniform vec3  uCore;
@@ -78,30 +80,33 @@ void main() {
 }`;
 
 export type BeamMaterial = THREE.ShaderMaterial & {
-  setColor(core: number, shell: number): void;
-  setOpacity(o: number): void;
-  reseed(): void;
+  setColor: (core: number, shell: number) => void;
+  setOpacity: (o: number) => void;
+  reseed: () => void;
 };
 
-export function createBeamMaterial(clock: { value: number }): BeamMaterial {
+export const createBeamMaterial = (clock: { value: number }): BeamMaterial => {
   const uniforms = {
-    uTime: clock,
-    uCore: { value: new THREE.Color(0xffffff) },
-    uShell: { value: new THREE.Color(0xff8040) },
+    uCore: { value: new THREE.Color(0xff_ff_ff) },
     uOpacity: { value: 0.8 },
     uSeed: { value: 0 },
+    uShell: { value: new THREE.Color(0xff_80_40) },
+    uTime: clock,
   };
   const mat = new THREE.ShaderMaterial({
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    fragmentShader: FRAG,
+    side: THREE.DoubleSide,
+    transparent: true,
     uniforms,
     vertexShader: VERT,
-    fragmentShader: FRAG,
-    transparent: true,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-    side: THREE.DoubleSide,
   });
 
   return Object.assign(mat, {
+    reseed: () => {
+      uniforms.uSeed.value = Math.random() * 50;
+    },
     setColor: (core: number, shell: number) => {
       uniforms.uCore.value.setHex(core);
       uniforms.uShell.value.setHex(shell);
@@ -109,8 +114,5 @@ export function createBeamMaterial(clock: { value: number }): BeamMaterial {
     setOpacity: (o: number) => {
       uniforms.uOpacity.value = o;
     },
-    reseed: () => {
-      uniforms.uSeed.value = Math.random() * 50;
-    },
   });
-}
+};

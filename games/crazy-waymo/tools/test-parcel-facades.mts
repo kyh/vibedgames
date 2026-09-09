@@ -14,37 +14,42 @@ import { visualHeight } from "../src/world/parcel-style.ts";
 type Check = (name: string, condition: boolean, detail?: string) => void;
 
 /** Small SF terrace fixture: its two-storey bay used to lose every pane. */
-export function checkParcelFacades(check: Check): void {
-  const house: ParcelPlan = {
-    id: 0,
-    hero: false,
-    hint: "house",
-    kind: "rowhouse",
-    character: "victorian",
-    district: "the Haight",
-    seed: 27,
-    blockHash: 4,
-    ring: new Float32Array([0, 0, 4, 0, 4, 6, 0, 6]),
-    n: 4,
-    blind: new Uint8Array([0, 1, 0, 1]),
-    front: 0,
-    seatY: 0,
-    footY: 0,
-    storeys: 2,
-    height: visualHeight(2),
-    units: 1,
-    obb: { cx: 2, cz: 3, ex: 1, ez: 0, halfA: 2, halfB: 3 },
-    rect: true,
-    solids: [],
-  };
+const houseFixture = (): ParcelPlan => ({
+  blind: new Uint8Array([0, 1, 0, 1]),
+  blockHash: 4,
+  character: "victorian",
+  district: "the Haight",
+  footY: 0,
+  front: 0,
+  height: visualHeight(2),
+  hero: false,
+  hint: "house",
+  id: 0,
+  kind: "rowhouse",
+  n: 4,
+  obb: { cx: 2, cz: 3, ex: 1, ez: 0, halfA: 2, halfB: 3 },
+  rect: true,
+  ring: new Float32Array([0, 0, 4, 0, 4, 6, 0, 6]),
+  seatY: 0,
+  seed: 27,
+  solids: [],
+  storeys: 2,
+  units: 1,
+});
+
+const checkHouseFacades = (check: Check, house: ParcelPlan): void => {
   const close = buildParcelGeometrySync([house], 2);
   const distant = buildParcelGeometrySync([house], 0);
   const survey = buildParcelGeometrySync([{ ...house, hero: true }], 2);
   let bayPaneVertices = 0;
   for (const geo of close.geos) {
-    if (geo.mat !== "glassDark" && geo.mat !== "glassLit") continue;
+    if (geo.mat !== "glassDark" && geo.mat !== "glassLit") {
+      continue;
+    }
     for (let i = 0; i < geo.position.length; i += 3) {
-      if ((geo.position[i + 2] ?? 0) < -0.4 && (geo.position[i + 1] ?? 0) > 1.8) bayPaneVertices++;
+      if ((geo.position[i + 2] ?? 0) < -0.4 && (geo.position[i + 1] ?? 0) > 1.8) {
+        bayPaneVertices += 1;
+      }
     }
   }
   check(
@@ -64,75 +69,11 @@ export function checkParcelFacades(check: Check): void {
       distant.stats.vertices < close.stats.vertices / 4,
     `${distant.stats.vertices} distant / ${close.stats.vertices} close vertices`,
   );
-  const tower = {
-    ...house,
-    kind: "tower",
-    character: "highrise",
-    district: "the Financial District",
-    blind: new Uint8Array(4),
-    height: 24,
-    storeys: 20,
-  } satisfies ParcelPlan;
-  const towerClose = buildParcelGeometrySync([tower], 2);
-  const towerWalls = towerClose.geos.filter((geo) => geo.mat === "facade");
-  check(
-    "near tower ribbons do not stack over a second shader window grid",
-    towerWalls.length > 0 &&
-      towerWalls.every((geo) => geo.facade2?.every((value, i) => i % 3 !== 2 || (value & 8) !== 0)),
-  );
-  const towerStyles = [0, 16, 32].map((blockHash) =>
-    buildParcelGeometrySync([{ ...tower, blockHash }], 0),
-  );
-  check(
-    "distant tower construction eras share the compact geometry budget",
-    new Set(towerStyles.map((g) => g.stats.vertices)).size === 1 &&
-      new Set(towerStyles.map((g) => g.geos.find((geo) => geo.mat === "facade")?.facade2?.at(2)))
-        .size === 3,
-  );
-  check(
-    "facade LOD keeps a hysteresis band through a U-turn",
-    parcelDetailForDistance(180, 2) === 2 &&
-      parcelDetailForDistance(240, 2) === 0 &&
-      parcelDetailForDistance(240, 2, 2) === 2 &&
-      parcelDetailForDistance(340, 2, 2) === 0,
-  );
   check(
     "dimensional facade buffers contain finite, in-range geometry",
     close.geos.every(
       (g) => g.position.every(Number.isFinite) && g.index.every((i) => i < g.position.length / 3),
     ),
-  );
-  check(
-    "static skyline keeps upper windows beyond the detail cutoff",
-    towerClose.geos.some(
-      (geo) => (geo.mat === "glassDark" || geo.mat === "glassLit") && geo.tier === "far",
-    ) &&
-      towerClose.geos.every(
-        (geo) =>
-          (geo.mat !== "glassDark" && geo.mat !== "glassLit") ||
-          geo.tier !== "detail" ||
-          geo.position.every((value, i) => i % 3 !== 1 || value < 5),
-      ),
-  );
-  const setbackTower = {
-    ...tower,
-    ring: new Float32Array([0, 0, 10, 0, 10, 10, 0, 10]),
-    obb: { cx: 5, cz: 5, ex: 1, ez: 0, halfA: 5, halfB: 5 },
-  };
-  let floatingPodiumPanes = 0;
-  for (const geo of buildParcelGeometrySync([setbackTower], 2).geos) {
-    if (geo.mat !== "glassDark" && geo.mat !== "glassLit") continue;
-    for (let i = 0; i < geo.position.length; i += 3) {
-      const x = geo.position[i] ?? 0;
-      const y = geo.position[i + 1] ?? 0;
-      const z = geo.position[i + 2] ?? 0;
-      if (y > 5 && (x < 0.5 || x > 9.5 || z < 0.5 || z > 9.5)) floatingPodiumPanes++;
-    }
-  }
-  check(
-    "podium windows stop below the tower setback instead of floating above it",
-    floatingPodiumPanes === 0,
-    `${floatingPodiumPanes} unsupported upper pane vertices`,
   );
   const decoded = new Box3();
   for (const geo of distant.geos) {
@@ -149,13 +90,93 @@ export function checkParcelFacades(check: Check): void {
       Math.abs(decoded.max.z - 6) < 0.001 &&
       Math.abs(decoded.max.y - house.height) < 0.001,
   );
-  const corner = { ...house, storeys: 3, height: visualHeight(3), blind: new Uint8Array(4) };
+};
+
+const checkTowerFacades = (check: Check, house: ParcelPlan): void => {
+  const tower = {
+    ...house,
+    blind: new Uint8Array(4),
+    character: "highrise",
+    district: "the Financial District",
+    height: 24,
+    kind: "tower",
+    storeys: 20,
+  } satisfies ParcelPlan;
+  const towerClose = buildParcelGeometrySync([tower], 2);
+  const towerWalls = towerClose.geos.filter((geo) => geo.mat === "facade");
+  check(
+    "near tower ribbons do not stack over a second shader window grid",
+    towerWalls.length > 0 &&
+      towerWalls.every((geo) =>
+        // oxlint-disable-next-line no-bitwise -- facade2 packs window flags as bits
+        geo.facade2?.every((value, i) => i % 3 !== 2 || (value & 8) !== 0),
+      ),
+  );
+  const towerStyles = [0, 16, 32].map((blockHash) =>
+    buildParcelGeometrySync([{ ...tower, blockHash }], 0),
+  );
+  check(
+    "distant tower construction eras share the compact geometry budget",
+    new Set(towerStyles.map((g) => g.stats.vertices)).size === 1 &&
+      new Set(towerStyles.map((g) => g.geos.find((geo) => geo.mat === "facade")?.facade2?.at(2)))
+        .size === 3,
+  );
+  check(
+    "static skyline keeps upper windows beyond the detail cutoff",
+    towerClose.geos.some(
+      (geo) => (geo.mat === "glassDark" || geo.mat === "glassLit") && geo.tier === "far",
+    ) &&
+      towerClose.geos.every(
+        (geo) =>
+          (geo.mat !== "glassDark" && geo.mat !== "glassLit") ||
+          geo.tier !== "detail" ||
+          geo.position.every((value, i) => i % 3 !== 1 || value < 5),
+      ),
+  );
+  const setbackTower = {
+    ...tower,
+    obb: { cx: 5, cz: 5, ex: 1, ez: 0, halfA: 5, halfB: 5 },
+    ring: new Float32Array([0, 0, 10, 0, 10, 10, 0, 10]),
+  };
+  let floatingPodiumPanes = 0;
+  for (const geo of buildParcelGeometrySync([setbackTower], 2).geos) {
+    if (geo.mat !== "glassDark" && geo.mat !== "glassLit") {
+      continue;
+    }
+    for (let i = 0; i < geo.position.length; i += 3) {
+      const x = geo.position[i] ?? 0;
+      const y = geo.position[i + 1] ?? 0;
+      const z = geo.position[i + 2] ?? 0;
+      if (y > 5 && (x < 0.5 || x > 9.5 || z < 0.5 || z > 9.5)) {
+        floatingPodiumPanes += 1;
+      }
+    }
+  }
+  check(
+    "podium windows stop below the tower setback instead of floating above it",
+    floatingPodiumPanes === 0,
+    `${floatingPodiumPanes} unsupported upper pane vertices`,
+  );
+};
+
+const checkFacadeLod = (check: Check): void => {
+  check(
+    "facade LOD keeps a hysteresis band through a U-turn",
+    parcelDetailForDistance(180, 2) === 2 &&
+      parcelDetailForDistance(240, 2) === 0 &&
+      parcelDetailForDistance(240, 2, 2) === 2 &&
+      parcelDetailForDistance(340, 2, 2) === 0,
+  );
+};
+
+const checkCornerRoofs = (check: Check, house: ParcelPlan): void => {
+  const corner = { ...house, blind: new Uint8Array(4), height: visualHeight(3), storeys: 3 };
   const roofFixtures = [0, 16].map((seed) => ({ ...corner, seed }));
   check(
     "historic roof variants need exposed convex street corners",
     roofFixtures.every((p) => roofVariantOf(p) !== null) &&
-      roofVariantOf({ ...corner, seed: 0, blind: new Uint8Array([0, 1, 0, 1]) }) === null &&
-      roofVariantOf({ ...corner, seed: 0, ring: new Float32Array([0, 0, 4, 0, 1, 2, 0, 6]) }) ===
+      roofVariantOf({ ...corner, blind: new Uint8Array([0, 1, 0, 1]), seed: 0 }) === null &&
+      roofVariantOf({ ...corner, ring: new Float32Array([0, 0, 4, 0, 1, 2, 0, 6]), seed: 0 }) ===
         null,
   );
   let roofBounds = true;
@@ -173,27 +194,33 @@ export function checkParcelFacades(check: Check): void {
         for (let i = 0; i < geo.position.length; i += 3) {
           const xyz = (axis: number): number =>
             geo.encoding === "quantized"
-              ? (geo.origin[axis] ?? 0) + ((geo.position[i + axis] ?? 0) * geo.scale) / 65535
+              ? (geo.origin[axis] ?? 0) + ((geo.position[i + axis] ?? 0) * geo.scale) / 65_535
               : (geo.position[i + axis] ?? 0);
-          const x = xyz(0),
-            y = xyz(1),
-            z = xyz(2);
+          const x = xyz(0);
+          const y = xyz(1);
+          const z = xyz(2);
           maxY = Math.max(maxY, y);
-          if (y > fixture.height + 0.001) roofBounds = false;
+          if (y > fixture.height + 0.001) {
+            roofBounds = false;
+          }
           if (
             y > fixture.height - variant.rise + 0.65 &&
             !pointInRing(fixture.ring, fixture.n, x, z)
-          )
+          ) {
             roofBounds = false;
+          }
         }
       }
       heights.push(maxY);
     }
-    silhouetteStable = silhouetteStable && Math.max(...heights) - Math.min(...heights) < 0.002;
+    silhouetteStable &&= Math.max(...heights) - Math.min(...heights) < 0.002;
   }
   check("corner roofs stay inside original parcel height and footprint", roofBounds);
   check("corner roof silhouettes survive phone and distant LOD", silhouetteStable);
-  const shop = { ...house, kind: "midrise", district: "North Beach" } satisfies ParcelPlan;
+};
+
+const checkStorefronts = (check: Check, house: ParcelPlan): void => {
+  const shop = { ...house, district: "North Beach", kind: "midrise" } satisfies ParcelPlan;
   const shopGeometry = buildParcelGeometrySync([shop], 1);
   const sign = shopGeometry.geos.find((geo) => geo.mat === "sign");
   check(
@@ -209,8 +236,11 @@ export function checkParcelFacades(check: Check): void {
     "distant storefronts discard lettering geometry",
     !buildParcelGeometrySync([shop], 0).geos.some((geo) => geo.mat === "sign"),
   );
-  const outer = { ...house, id: 100, hero: true, height: 6, footY: -0.1 };
-  const inner = { ...house, id: 200, ring: new Float32Array([0, 0, 2, 0, 2, 4, 0, 4]), height: 3 };
+};
+
+const checkParcelVisibility = (check: Check, house: ParcelPlan): void => {
+  const outer = { ...house, footY: -0.1, height: 6, hero: true, id: 100 };
+  const inner = { ...house, height: 3, id: 200, ring: new Float32Array([0, 0, 2, 0, 2, 4, 0, 4]) };
   check(
     "render visibility removes fully enclosed duplicate source volumes",
     visibleParcelPlans([inner, outer]).length === 1 &&
@@ -229,13 +259,13 @@ export function checkParcelFacades(check: Check): void {
   );
   const seamOuter = {
     ...outer,
-    ring: new Float32Array([72, 0, 84, 0, 84, 6, 72, 6]),
     obb: { ...outer.obb, cx: 78, halfA: 6 },
+    ring: new Float32Array([72, 0, 84, 0, 84, 6, 72, 6]),
   };
   const seamInner = {
     ...inner,
-    ring: new Float32Array([81, 0, 83, 0, 83, 4, 81, 4]),
     obb: { ...inner.obb, cx: 82, halfA: 1 },
+    ring: new Float32Array([81, 0, 83, 0, 83, 4, 81, 4]),
   };
   check(
     "duplicate visibility resolves before neighboring stream cells split",
@@ -255,17 +285,20 @@ export function checkParcelFacades(check: Check): void {
     "setback towers cannot hide buildings in their upper footprint",
     visibleParcelPlans([{ ...outer, kind: "tower" }, inner]).length === 2,
   );
-  const duplicate = { ...outer, id: 201, hero: false };
+  const duplicate = { ...outer, hero: false, id: 201 };
   check(
     "equal survey and OSM volumes keep one deterministic survey representative",
     visibleParcelPlans([duplicate, outer])[0] === outer &&
       visibleParcelPlans([outer, duplicate]).length === 1,
   );
+};
+
+const checkParcelStreaming = (check: Check, house: ParcelPlan): void => {
   const placed = (x: number): ParcelPlan => ({
     ...house,
     id: x,
-    ring: house.ring.map((value, index) => value + (index % 2 === 0 ? x : 0)),
     obb: { ...house.obb, cx: house.obb.cx + x },
+    ring: house.ring.map((value, index) => value + (index % 2 === 0 ? x : 0)),
   });
   const root = new Group();
   root.position.set(17, 3, 9);
@@ -289,7 +322,8 @@ export function checkParcelFacades(check: Check): void {
   );
   referenceStream.update(2000, 0, 300);
   const firstBounds = new Box3().setFromObject(root);
-  root.updateMatrixWorld(true); // the Scene still forces a traversal every render
+  // the Scene still forces a traversal every render
+  root.updateMatrixWorld(true);
   const renderedBounds = new Box3().setFromObject(root);
   check(
     "new streamed cells preserve their frozen parent-world transform",
@@ -298,7 +332,7 @@ export function checkParcelFacades(check: Check): void {
       renderedBounds.equals(firstBounds),
   );
   streamer.update(1000, 0, 300);
-  for (let frame = 0; frame < 20 && streamer.stats().pending > 0; frame++) {
+  for (let frame = 0; frame < 20 && streamer.stats().pending > 0; frame += 1) {
     streamer.update(1000, 0, 300);
   }
   const arrived = streamer.stats();
@@ -321,10 +355,21 @@ export function checkParcelFacades(check: Check): void {
     "departed facade cells release their meshes",
     streamer.stats().resident === 0 && root.children.length === 0,
   );
-}
+};
+
+export const checkParcelFacades = (check: Check): void => {
+  const house = houseFixture();
+  checkHouseFacades(check, house);
+  checkTowerFacades(check, house);
+  checkFacadeLod(check);
+  checkCornerRoofs(check, house);
+  checkStorefronts(check, house);
+  checkParcelVisibility(check, house);
+  checkParcelStreaming(check, house);
+};
 
 /** Audit actual eligible source parcels, including every roof peak at each supported tier. */
-export function checkHistoricCorners(check: Check, plans: readonly ParcelPlan[]): void {
+export const checkHistoricCorners = (check: Check, plans: readonly ParcelPlan[]): void => {
   const corners = plans.flatMap((p) => {
     const roof = roofVariantOf(p);
     return roof ? [{ p, roof }] : [];
@@ -338,12 +383,15 @@ export function checkHistoricCorners(check: Check, plans: readonly ParcelPlan[])
     for (const geo of geometry.geos) {
       for (let i = 0; i < geo.position.length; i += 3) {
         const y = geo.position[i + 1] ?? 0;
-        if (y > p.seatY + p.height + 0.001) escapedHeight++;
+        if (y > p.seatY + p.height + 0.001) {
+          escapedHeight += 1;
+        }
         if (
           y > p.seatY + p.height - roof.rise + 0.65 &&
           !pointInRing(p.ring, p.n, geo.position[i] ?? 0, geo.position[i + 2] ?? 0)
-        )
-          escapedFootprint++;
+        ) {
+          escapedFootprint += 1;
+        }
       }
     }
   }
@@ -357,4 +405,4 @@ export function checkHistoricCorners(check: Check, plans: readonly ParcelPlan[])
     escapedHeight === 0 && escapedFootprint === 0,
     `${escapedHeight} high vertices, ${escapedFootprint} escaped roof vertices`,
   );
-}
+};

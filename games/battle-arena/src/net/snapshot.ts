@@ -16,6 +16,7 @@ import type {
   World,
 } from "../sim/types";
 
+// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 export type Snapshot = {
   now: number;
   gameTime: number;
@@ -39,68 +40,68 @@ export type Snapshot = {
   boss: BossState;
 };
 
-export function encodeWorld(w: World): Snapshot {
-  return {
-    now: w.now,
-    gameTime: w.gameTime,
-    phase: w.phase,
-    winner: w.winner,
-    killGoal: w.killGoal,
-    matchTime: w.matchTime,
-    suddenDeath: w.suddenDeath,
-    leaderId: w.leaderId,
-    nextCoinAt: w.nextCoinAt,
-    nextDeliveryAt: w.nextDeliveryAt,
-    campRespawnAt: w.campRespawnAt,
-    seq: w.seq,
-    rngState: w.rngState,
-    units: Object.fromEntries(w.units),
-    projectiles: Object.fromEntries(w.projectiles),
-    grounds: w.grounds,
-    strikes: w.strikes,
-    coins: w.coins,
-    deliveries: w.deliveries,
-    boss: w.boss,
-  };
-}
+export const encodeWorld = (w: World): Snapshot => ({
+  boss: w.boss,
+  campRespawnAt: w.campRespawnAt,
+  coins: w.coins,
+  deliveries: w.deliveries,
+  gameTime: w.gameTime,
+  grounds: w.grounds,
+  killGoal: w.killGoal,
+  leaderId: w.leaderId,
+  matchTime: w.matchTime,
+  nextCoinAt: w.nextCoinAt,
+  nextDeliveryAt: w.nextDeliveryAt,
+  now: w.now,
+  phase: w.phase,
+  projectiles: Object.fromEntries(w.projectiles),
+  rngState: w.rngState,
+  seq: w.seq,
+  strikes: w.strikes,
+  suddenDeath: w.suddenDeath,
+  units: Object.fromEntries(w.units),
+  winner: w.winner,
+});
 
-export function emptyGuestWorld(): World {
-  return {
-    now: 0,
-    gameTime: 0,
-    phase: "playing",
-    winner: null,
-    killGoal: KILL_GOAL_FFA,
-    matchTime: MATCH_TIME,
-    suddenDeath: false,
-    units: new Map(),
-    projectiles: new Map(),
-    grounds: [],
-    strikes: [],
-    coins: [],
-    deliveries: [],
-    boss: { x: BOSS_POS.x, y: BOSS_POS.y, hp: 4000, maxHp: 4000, alive: true },
-    leaderId: null,
-    nextCoinAt: 0,
-    nextDeliveryAt: 0,
-    campRespawnAt: {},
-    fx: [],
-    seq: 0,
-    rngState: 1,
-  };
-}
+export const emptyGuestWorld = (): World => ({
+  boss: { alive: true, hp: 4000, maxHp: 4000, x: BOSS_POS.x, y: BOSS_POS.y },
+  campRespawnAt: {},
+  coins: [],
+  deliveries: [],
+  fx: [],
+  gameTime: 0,
+  grounds: [],
+  killGoal: KILL_GOAL_FFA,
+  leaderId: null,
+  matchTime: MATCH_TIME,
+  nextCoinAt: 0,
+  nextDeliveryAt: 0,
+  now: 0,
+  phase: "playing",
+  projectiles: new Map(),
+  rngState: 1,
+  seq: 0,
+  strikes: [],
+  suddenDeath: false,
+  units: new Map(),
+  winner: null,
+});
 
-function rebuildMap<T>(map: Map<string, T>, rec: Record<string, T>): void {
+const rebuildMap = <T>(map: Map<string, T>, rec: Record<string, T>): void => {
   const seen = new Set<string>();
-  for (const k of Object.keys(rec)) {
+  for (const [k, v] of Object.entries(rec)) {
     seen.add(k);
-    map.set(k, rec[k]!);
+    map.set(k, v);
   }
-  for (const k of [...map.keys()]) if (!seen.has(k)) map.delete(k);
-}
+  for (const k of map.keys()) {
+    if (!seen.has(k)) {
+      map.delete(k);
+    }
+  }
+};
 
 /** Apply a snapshot onto a guest's World in place (preserves object identity). */
-export function applySnapshot(w: World, s: Snapshot): void {
+export const applySnapshot = (w: World, s: Snapshot): void => {
   w.now = s.now;
   w.gameTime = s.gameTime;
   w.phase = s.phase;
@@ -121,8 +122,7 @@ export function applySnapshot(w: World, s: Snapshot): void {
   w.coins = s.coins ?? [];
   w.deliveries = s.deliveries ?? [];
   w.boss = s.boss ?? w.boss;
-}
+};
 
-export function isSnapshot(v: Snapshot | JsonValue | undefined): v is Snapshot {
-  return v instanceof Object && !Array.isArray(v) && "units" in v && "gameTime" in v;
-}
+export const isSnapshot = (v: Snapshot | JsonValue | undefined): v is Snapshot =>
+  v instanceof Object && !Array.isArray(v) && "units" in v && "gameTime" in v;

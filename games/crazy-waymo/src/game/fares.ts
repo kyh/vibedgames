@@ -4,34 +4,19 @@ import type { ModelCache } from "../assets/loader";
 import { CHARACTERS, modelUrl } from "../assets/manifest";
 import { FARE, ROAD_TILE } from "../shared/constants";
 import { Rng } from "../shared/rng";
-import { type Dir, DIR_DELTA, E, N, S, W } from "../shared/types";
+import { DIR_DELTA, E, N, S, W } from "../shared/types";
+import type { Dir } from "../shared/types";
 import type { CityModel, RoadCell } from "../world/city";
-import { STREET_SURFACE_MAX } from "../world/roads";
 import type { Car } from "../vehicle/car";
+import { Beacon } from "./beacon";
+import { tierColor } from "./fare-tier";
+import type { FareTier } from "./fare-tier";
 import { parSeconds } from "./state";
 
-// Flat ground rings (fare beacons, garage pads) sit on terrain height but
-// span street layers: they must clear the worst draped street surface, plus
-// slack for terrain slope across the ring's radius.
-export const GROUND_RING_LIFT = STREET_SURFACE_MAX + 0.13; // 0.4
+export { GROUND_RING_LIFT, tierColor, tierPayMult } from "./fare-tier";
+export type { FareTier } from "./fare-tier";
 
-// Trip tiers: how far the customer wants to go — pay and beacon color follow.
-export type FareTier = "short" | "medium" | "long";
-
-const TIER_COLOR = {
-  short: 0x6bff8e, // green $
-  medium: 0xffb64d, // amber $$
-  long: 0xff5d5d, // red $$$
-} satisfies Record<FareTier, number>;
-const TIER_PAY = { short: 1, medium: 1.2, long: 1.5 } satisfies Record<FareTier, number>;
-const CARRY_COLOR = 0x49e0ff;
-
-export function tierColor(t: FareTier): number {
-  return TIER_COLOR[t];
-}
-export function tierPayMult(t: FareTier): number {
-  return TIER_PAY[t];
-}
+const CARRY_COLOR = 0x49_e0_ff;
 
 export type FareEvent =
   | { readonly kind: "none" }
@@ -51,125 +36,41 @@ export type FareEvent =
     }
   | { readonly kind: "bail"; readonly pos: THREE.Vector3 };
 
-export type Objective = {
+export interface Objective {
   readonly pos: THREE.Vector3;
   readonly kind: "seek" | "carry";
-  readonly tiles: number; // trip length when carrying (0 while seeking)
+  // trip length when carrying (0 while seeking)
+  readonly tiles: number;
   readonly tier: FareTier;
-  readonly patienceFrac: number; // 1 fresh .. 0 bailing (1 while seeking)
+  // 1 fresh .. 0 bailing (1 while seeking)
+  readonly patienceFrac: number;
+}
+
+const cellDistance = (a: RoadCell, b: RoadCell): number =>
+  Math.abs(a.gx - b.gx) + Math.abs(a.gz - b.gz);
+
+// Trip length band, in grid cells, for each tier.
+const tierRange = (t: FareTier): readonly [number, number] => {
+  if (t === "short") {
+    return [4, FARE.tierShortMax];
+  }
+  if (t === "medium") {
+    return [FARE.tierShortMax + 1, FARE.tierMediumMax];
+  }
+  return [FARE.tierMediumMax + 1, FARE.tierLongMax];
 };
 
 const PASSENGER_HEIGHT = 1.5;
 
-// Floating $-tag above each pickup beam — the tier legend, in-world. One
-// shared canvas texture + sprite material per tier (never disposed).
-const TAG_TEXT = { short: "$", medium: "$$", long: "$$$" } satisfies Record<FareTier, string>;
-const tagMaterials = new Map<FareTier, THREE.SpriteMaterial>();
-function tagMaterial(tier: FareTier): THREE.SpriteMaterial {
-  const cached = tagMaterials.get(tier);
-  if (cached) return cached;
-  const canvas = document.createElement("canvas");
-  canvas.width = 192;
-  canvas.height = 96;
-  const ctx = canvas.getContext("2d");
-  if (ctx) {
-    ctx.font = "900 60px ui-monospace, 'SF Mono', Menlo, monospace";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.lineWidth = 10;
-    ctx.lineJoin = "round";
-    ctx.strokeStyle = "rgba(10, 8, 20, 0.9)";
-    ctx.strokeText(TAG_TEXT[tier], 96, 52);
-    ctx.fillStyle = `#${TIER_COLOR[tier].toString(16).padStart(6, "0")}`;
-    ctx.fillText(TAG_TEXT[tier], 96, 52);
-  }
-  const mat = new THREE.SpriteMaterial({
-    map: new THREE.CanvasTexture(canvas),
-    transparent: true,
-    depthWrite: false,
-  });
-  tagMaterials.set(tier, mat);
-  return mat;
-}
-
-class Beacon {
-  readonly group = new THREE.Group();
-  private pillar: THREE.Mesh;
-  private ring: THREE.Mesh;
-  private mat: THREE.MeshBasicMaterial;
-  private ringMat: THREE.MeshBasicMaterial;
-  private tag: THREE.Sprite | null = null;
-  private t = 0;
-
-  constructor(color: number, tagTier?: FareTier) {
-    this.mat = new THREE.MeshBasicMaterial({
-      color,
-      transparent: true,
-      opacity: 0.32,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-    });
-    this.pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 16, 12, 1, true), this.mat);
-    this.pillar.position.y = 8;
-    this.group.add(this.pillar);
-
-    this.ringMat = new THREE.MeshBasicMaterial({
-      color,
-      transparent: true,
-      opacity: 0.85,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    });
-    this.ring = new THREE.Mesh(new THREE.RingGeometry(2.0, 2.5, 28), this.ringMat);
-    this.ring.rotation.x = -Math.PI / 2;
-    this.ring.position.y = GROUND_RING_LIFT;
-    this.group.add(this.ring);
-
-    if (tagTier) {
-      this.tag = new THREE.Sprite(tagMaterial(tagTier));
-      this.tag.scale.set(4.2, 2.1, 1);
-      this.tag.position.y = 6.5;
-      this.group.add(this.tag);
-    }
-  }
-
-  setColor(color: number): void {
-    this.mat.color.setHex(color);
-    this.ringMat.color.setHex(color);
-  }
-  setPos(x: number, y: number, z: number): void {
-    this.group.position.set(x, y, z);
-  }
-  setVisible(v: boolean): void {
-    this.group.visible = v;
-  }
-  // Beacons are created per fare — free the GPU resources when one retires.
-  dispose(): void {
-    this.pillar.geometry.dispose();
-    this.ring.geometry.dispose();
-    this.mat.dispose();
-    this.ringMat.dispose();
-  }
-  update(dt: number): void {
-    this.t += dt;
-    const pulse = 0.5 + 0.5 * Math.sin(this.t * 3);
-    this.mat.opacity = 0.2 + pulse * 0.25;
-    this.ring.rotation.z += dt * 1.5;
-    const rs = 1 + pulse * 0.12;
-    this.ring.scale.set(rs, rs, rs);
-    if (this.tag) this.tag.position.y = 6.5 + Math.sin(this.t * 2) * 0.35;
-  }
-}
-
-type WaitingFare = {
+interface WaitingFare {
   readonly cell: RoadCell;
   readonly pos: THREE.Vector3;
   readonly passenger: THREE.Object3D;
   readonly tier: FareTier;
   readonly beacon: Beacon;
-};
+}
 
-type Carrying = {
+interface Carrying {
   readonly from: RoadCell;
   readonly dest: RoadCell;
   readonly pos: THREE.Vector3;
@@ -177,10 +78,10 @@ type Carrying = {
   readonly tiles: number;
   readonly tier: FareTier;
   readonly patienceBudget: number;
-};
+}
 
 // A passenger running to the cab (pickup) or walking off (dropoff).
-type Extra = {
+interface Extra {
   readonly node: THREE.Object3D;
   readonly kind: "board" | "leave";
   t: number;
@@ -190,7 +91,7 @@ type Extra = {
   // an animation scale instead popped the passenger to a different size than
   // the one that was standing there a frame earlier.
   readonly base: number;
-};
+}
 
 export class FareManager {
   readonly group = new THREE.Group();
@@ -199,7 +100,8 @@ export class FareManager {
   private carryBeacon: Beacon;
   private extras: Extra[] = [];
   private clock = 0;
-  private spawnAt = 0; // next waiting-fare top-up time
+  // next waiting-fare top-up time
+  private spawnAt = 0;
   private firstSpawn = true;
   private rng: Rng;
   // TRAILER (src/trailer/): autonomous spawning frozen; next pickup's
@@ -207,11 +109,12 @@ export class FareManager {
   private trailerHold = false;
   private trailerDest: RoadCell | null = null;
 
-  constructor(
-    private cache: ModelCache,
-    private city: CityModel,
-    seed = 7,
-  ) {
+  private cache: ModelCache;
+  private city: CityModel;
+
+  constructor(cache: ModelCache, city: CityModel, seed = 7) {
+    this.cache = cache;
+    this.city = city;
     this.rng = new Rng(seed);
     this.carryBeacon = new Beacon(CARRY_COLOR);
     this.carryBeacon.setVisible(false);
@@ -226,7 +129,9 @@ export class FareManager {
     this.trailerDest = null;
     this.clearStreet();
     const near: RoadCell = { gx: this.city.gridX(carX), gz: this.city.gridZ(carZ) };
-    while (this.waiting.length < FARE.waitingFares) this.spawnWaiting(near);
+    while (this.waiting.length < FARE.waitingFares) {
+      this.spawnWaiting(near);
+    }
   }
 
   private clearStreet(): void {
@@ -237,7 +142,9 @@ export class FareManager {
       this.group.remove(w.beacon.group);
       w.beacon.dispose();
     }
-    for (const e of this.extras) this.group.remove(e.node);
+    for (const e of this.extras) {
+      this.group.remove(e.node);
+    }
     this.waiting = [];
     this.extras = [];
   }
@@ -246,7 +153,9 @@ export class FareManager {
    *  director stages customers explicitly with stageTrailerFare(). */
   setTrailerHold(on: boolean): void {
     this.trailerHold = on;
-    if (!on) return;
+    if (!on) {
+      return;
+    }
     this.trailerDest = null;
     this.clearStreet();
   }
@@ -263,24 +172,27 @@ export class FareManager {
     const c = this.carrying;
     if (c) {
       return {
-        pos: c.pos,
         kind: "carry",
-        tiles: c.tiles,
-        tier: c.tier,
         patienceFrac: this.patienceFrac(),
+        pos: c.pos,
+        tier: c.tier,
+        tiles: c.tiles,
       };
     }
     let best: WaitingFare | null = null;
     let bd = Infinity;
     for (const w of this.waiting) {
-      const d = w.pos.lengthSq(); // caller-relative distance handled by HUD; any stable pick works
+      // caller-relative distance handled by HUD; any stable pick works
+      const d = w.pos.lengthSq();
       if (d < bd) {
         bd = d;
         best = w;
       }
     }
-    if (!best) return null;
-    return { pos: best.pos, kind: "seek", tiles: 0, tier: best.tier, patienceFrac: 1 };
+    if (!best) {
+      return null;
+    }
+    return { kind: "seek", patienceFrac: 1, pos: best.pos, tier: best.tier, tiles: 0 };
   }
 
   // Nearest waiting customer to a world position (arrow + HUD target).
@@ -303,24 +215,24 @@ export class FareManager {
 
   // Waiting customers for the minimap.
   waitingList(): readonly { x: number; z: number; tier: FareTier }[] {
-    return this.waiting.map((w) => ({ x: w.pos.x, z: w.pos.z, tier: w.tier }));
+    return this.waiting.map((w) => ({ tier: w.tier, x: w.pos.x, z: w.pos.z }));
   }
 
   patienceFrac(): number {
     const c = this.carrying;
-    if (!c) return 1;
+    if (!c) {
+      return 1;
+    }
     const elapsed = this.clock - c.rideStart;
     return Math.max(0, Math.min(1, 1 - elapsed / c.patienceBudget));
-  }
-
-  private cellDistance(a: RoadCell, b: RoadCell): number {
-    return Math.abs(a.gx - b.gx) + Math.abs(a.gz - b.gz);
   }
 
   private hasLotNeighbor(c: RoadCell): boolean {
     for (const d of [N, E, S, W] as const) {
       const [dx, dz] = DIR_DELTA[d];
-      if (this.city.plan.cells[c.gx + dx]?.[c.gz + dz] === "lot") return true;
+      if (this.city.plan.cells[c.gx + dx]?.[c.gz + dz] === "lot") {
+        return true;
+      }
     }
     return false;
   }
@@ -328,14 +240,18 @@ export class FareManager {
   private pickCell(from: RoadCell, min: number, max: number): RoadCell {
     const cells = this.city.roadCells;
     const inRange = cells.filter((c) => {
-      const d = this.cellDistance(from, c);
+      const d = cellDistance(from, c);
       return d >= min && d <= max;
     });
     // Prefer cells with a building lot next to them so the fare stands at a real
     // curb, not stranded in the middle of a 4-way intersection.
     const curbside = inRange.filter((c) => this.hasLotNeighbor(c));
-    if (curbside.length > 0) return this.rng.pick(curbside);
-    if (inRange.length > 0) return this.rng.pick(inRange);
+    if (curbside.length > 0) {
+      return this.rng.pick(curbside);
+    }
+    if (inRange.length > 0) {
+      return this.rng.pick(inRange);
+    }
     return this.rng.pick(cells);
   }
 
@@ -364,7 +280,8 @@ export class FareManager {
         nx = -nx;
         nz = -nz;
       }
-      const off = hit.edge.half + 0.65; // on the sidewalk, facing the kerb
+      // on the sidewalk, facing the kerb
+      const off = hit.edge.half + 0.65;
       const x = hit.x + nx * off;
       const z = hit.z + nz * off;
       return new THREE.Vector3(x, this.city.heightAt(x, z), z);
@@ -376,15 +293,13 @@ export class FareManager {
 
   private rollTier(): FareTier {
     const r = this.rng.range(0, 1);
-    if (r < 0.45) return "short";
-    if (r < 0.8) return "medium";
+    if (r < 0.45) {
+      return "short";
+    }
+    if (r < 0.8) {
+      return "medium";
+    }
     return "long";
-  }
-
-  private tierRange(t: FareTier): readonly [number, number] {
-    if (t === "short") return [4, FARE.tierShortMax];
-    if (t === "medium") return [FARE.tierShortMax + 1, FARE.tierMediumMax];
-    return [FARE.tierMediumMax + 1, FARE.tierLongMax];
   }
 
   private spawnWaiting(near: RoadCell): void {
@@ -415,10 +330,10 @@ export class FareManager {
     passenger.position.copy(pos);
     passenger.rotation.y = this.rng.range(0, Math.PI * 2);
     this.group.add(passenger);
-    const beacon = new Beacon(TIER_COLOR[tier], tier);
+    const beacon = new Beacon(tierColor(tier), tier);
     beacon.setPos(pos.x, pos.y, pos.z);
     this.group.add(beacon.group);
-    this.waiting.push({ cell, pos, passenger, tier, beacon });
+    this.waiting.push({ beacon, cell, passenger, pos, tier });
   }
 
   update(dt: number, car: Car): FareEvent {
@@ -430,33 +345,11 @@ export class FareManager {
     for (const w of this.waiting) {
       w.beacon.setVisible(seeking);
       w.beacon.update(dt);
-      w.passenger.position.y = w.pos.y + Math.sin(this.clock * 4 + w.pos.x) * 0.08; // idle bob
+      // idle bob
+      w.passenger.position.y = w.pos.y + Math.sin(this.clock * 4 + w.pos.x) * 0.08;
     }
 
-    // Passenger theater: run-to-cab boarding + walk-away leaving.
-    for (let i = this.extras.length - 1; i >= 0; i--) {
-      const e = this.extras[i];
-      if (!e) continue;
-      e.t += dt;
-      if (e.kind === "board") {
-        const f = Math.min(1, e.t / 0.45);
-        e.node.position.lerpVectors(e.from, car.position, f);
-        e.node.scale.setScalar(e.base * (1 - f * 0.7));
-        if (f >= 1) {
-          this.group.remove(e.node);
-          this.extras.splice(i, 1);
-        }
-      } else {
-        const f = Math.min(1, e.t / 1.6);
-        e.node.position.copy(e.from).addScaledVector(e.dir, f * 4);
-        const pop = e.t < 0.25 ? e.t / 0.25 : 1;
-        e.node.scale.setScalar(e.base * pop);
-        if (f >= 1) {
-          this.group.remove(e.node);
-          this.extras.splice(i, 1);
-        }
-      }
-    }
+    this.updateExtras(dt, car);
 
     // Customers the taxi left far behind relocate: retire the farthest (one
     // per tick — no visible mass despawn) and let the top-up respawn it in
@@ -468,26 +361,7 @@ export class FareManager {
       gz: this.city.gridZ(car.position.z),
     };
     if (!this.trailerHold) {
-      if (!this.carrying) {
-        let farthest = -1;
-        let fd: number = FARE.seekRetire;
-        for (let i = 0; i < this.waiting.length; i++) {
-          const w = this.waiting[i];
-          if (!w) continue;
-          const d = this.cellDistance(w.cell, carCell);
-          if (d > fd) {
-            fd = d;
-            farthest = i;
-          }
-        }
-        if (farthest >= 0) this.retireWaiting(farthest);
-      }
-
-      // Top up the street to the target customer count.
-      if (this.waiting.length < FARE.waitingFares && this.clock >= this.spawnAt) {
-        this.spawnAt = this.clock + 0.4;
-        this.spawnWaiting(carCell);
-      }
+      this.relocateAndTopUp(carCell);
     }
 
     const c = this.carrying;
@@ -510,55 +384,116 @@ export class FareManager {
         this.carrying = null;
         this.carryBeacon.setVisible(false);
         this.spawnLeaver(c.pos);
-        return { kind: "dropoff", tiles: c.tiles, rideTime, pos: c.pos.clone(), tier: c.tier };
+        return { kind: "dropoff", pos: c.pos.clone(), rideTime, tier: c.tier, tiles: c.tiles };
       }
       return { kind: "none" };
     }
 
     // Seeking: board the nearest waiting customer inside the pickup radius.
-    for (let i = 0; i < this.waiting.length; i++) {
+    for (let i = 0; i < this.waiting.length; i += 1) {
       const w = this.waiting[i];
-      if (!w) continue;
+      if (!w) {
+        continue;
+      }
       const dx = car.position.x - w.pos.x;
       const dz = car.position.z - w.pos.z;
-      if (dx * dx + dz * dz > FARE.pickupRadius * FARE.pickupRadius) continue;
+      if (dx * dx + dz * dz > FARE.pickupRadius * FARE.pickupRadius) {
+        continue;
+      }
       this.waiting.splice(i, 1);
       this.group.remove(w.beacon.group);
       w.beacon.dispose();
       // The boarding run replaces the idle passenger.
       this.extras.push({
-        node: w.passenger,
-        kind: "board",
-        t: 0,
-        from: w.pos.clone(),
+        // already carries the standing scale
+        base: w.passenger.scale.x,
         dir: new THREE.Vector3(),
-        base: w.passenger.scale.x, // already carries the standing scale
+        from: w.pos.clone(),
+        kind: "board",
+        node: w.passenger,
+        t: 0,
       });
-      const [tMin, tMax] = this.tierRange(w.tier);
+      const [tMin, tMax] = tierRange(w.tier);
       const dest = this.trailerDest ?? this.pickCell(w.cell, tMin, tMax);
       const pos = this.curbPoint(dest);
-      const tiles = this.cellDistance(w.cell, dest);
+      const tiles = cellDistance(w.cell, dest);
       this.carryBeacon.setColor(CARRY_COLOR);
       this.carryBeacon.setPos(pos.x, pos.y, pos.z);
       this.carryBeacon.setVisible(true);
       this.carrying = {
-        from: w.cell,
         dest,
+        from: w.cell,
+        patienceBudget: parSeconds(tiles) * FARE.patienceParMult,
         pos,
         rideStart: this.clock,
-        tiles,
         tier: w.tier,
-        patienceBudget: parSeconds(tiles) * FARE.patienceParMult,
+        tiles,
       };
-      return { kind: "pickup", pos: w.pos.clone(), tier: w.tier, dest, tiles };
+      return { dest, kind: "pickup", pos: w.pos.clone(), tier: w.tier, tiles };
     }
     return { kind: "none" };
+  }
+
+  // Passenger theater: run-to-cab boarding + walk-away leaving.
+  private updateExtras(dt: number, car: Car): void {
+    for (let i = this.extras.length - 1; i >= 0; i -= 1) {
+      const e = this.extras[i];
+      if (!e) {
+        continue;
+      }
+      e.t += dt;
+      let f: number;
+      if (e.kind === "board") {
+        f = Math.min(1, e.t / 0.45);
+        e.node.position.lerpVectors(e.from, car.position, f);
+        e.node.scale.setScalar(e.base * (1 - f * 0.7));
+      } else {
+        f = Math.min(1, e.t / 1.6);
+        e.node.position.copy(e.from).addScaledVector(e.dir, f * 4);
+        const pop = e.t < 0.25 ? e.t / 0.25 : 1;
+        e.node.scale.setScalar(e.base * pop);
+      }
+      if (f >= 1) {
+        this.group.remove(e.node);
+        this.extras.splice(i, 1);
+      }
+    }
+  }
+
+  // Retire the farthest stranded customer (one per tick) and top the street
+  // back up around wherever the taxi is now.
+  private relocateAndTopUp(carCell: RoadCell): void {
+    if (!this.carrying) {
+      let farthest = -1;
+      let fd: number = FARE.seekRetire;
+      for (let i = 0; i < this.waiting.length; i += 1) {
+        const w = this.waiting[i];
+        if (!w) {
+          continue;
+        }
+        const d = cellDistance(w.cell, carCell);
+        if (d > fd) {
+          fd = d;
+          farthest = i;
+        }
+      }
+      if (farthest >= 0) {
+        this.retireWaiting(farthest);
+      }
+    }
+
+    if (this.waiting.length < FARE.waitingFares && this.clock >= this.spawnAt) {
+      this.spawnAt = this.clock + 0.4;
+      this.spawnWaiting(carCell);
+    }
   }
 
   // Quietly remove a waiting customer (relocation — not a pickup or bail).
   private retireWaiting(i: number): void {
     const w = this.waiting[i];
-    if (!w) return;
+    if (!w) {
+      return;
+    }
     this.waiting.splice(i, 1);
     this.group.remove(w.passenger);
     this.group.remove(w.beacon.group);
@@ -577,12 +512,12 @@ export class FareManager {
     const ang = this.rng.range(0, Math.PI * 2);
     this.group.add(node);
     this.extras.push({
-      node,
-      kind: "leave",
-      t: 0,
-      from: at.clone(),
-      dir: new THREE.Vector3(Math.sin(ang), 0, Math.cos(ang)),
       base,
+      dir: new THREE.Vector3(Math.sin(ang), 0, Math.cos(ang)),
+      from: at.clone(),
+      kind: "leave",
+      node,
+      t: 0,
     });
   }
 }

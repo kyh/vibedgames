@@ -28,7 +28,7 @@ const DEFAULT_NEXT_PATH = "/home";
  * `/\evil.example` to a cross-origin URL, so reject a slash *or* a backslash
  * there.
  */
-const PROTOCOL_RELATIVE = /^\/[/\\]/;
+const PROTOCOL_RELATIVE = /^\/[/\\]/u;
 
 const safeNextPath = (path?: string): string =>
   path?.startsWith("/") && !PROTOCOL_RELATIVE.test(path) ? path : DEFAULT_NEXT_PATH;
@@ -36,78 +36,7 @@ const safeNextPath = (path?: string): string =>
 type StepFormProps = { callbackUrl?: string } & React.HTMLAttributes<HTMLDivElement>;
 
 /** The height change outlives the crossfade, so it gets a spring of its own. */
-const STAGE_RESIZE = { type: "spring" as const, bounce: 0, visualDuration: 0.28 };
-
-/**
- * Controlled two-step register flow. The parent owns `verifiedCode` so it can
- * drive surrounding UI (e.g. the header subtitle): `null` = invite step, a
- * code = credentials step.
- *
- * The stage animates its REAL height between the one-row invite step and the
- * taller credentials step. Motion's `layout` prop is the obvious tool and the
- * wrong one here: it fakes the resize with a transform, so the element's
- * layout box still jumps in a single frame and everything around it — heading
- * above, footer below — snaps to the new position while the stage merely looks
- * smooth. Measuring the content and animating `height` moves the page as one.
- */
-export const RegisterForm = ({
-  className,
-  callbackUrl,
-  verifiedCode,
-  onVerifiedCodeChange,
-  onVerifyingChange,
-  ...props
-}: StepFormProps & {
-  verifiedCode: string | null;
-  onVerifiedCodeChange: (code: string | null) => void;
-  /** Reports the invite round-trip so the page can swap its footer for a spinner. */
-  onVerifyingChange: (verifying: boolean) => void;
-}) => {
-  const search = useSearch({ from: "/auth" });
-  const contentRef = useRef<HTMLDivElement>(null);
-  const [stageHeight, setStageHeight] = useState<number | "auto">("auto");
-
-  useEffect(() => {
-    const content = contentRef.current;
-    if (!content) return undefined;
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (entry) setStageHeight(entry.contentRect.height);
-    });
-    observer.observe(content);
-    return () => observer.disconnect();
-  }, []);
-
-  return (
-    <div className={cn("grid gap-6", className)} {...props}>
-      <MotionConfig reducedMotion="user">
-        <motion.div initial={false} animate={{ height: stageHeight }} transition={STAGE_RESIZE}>
-          <div ref={contentRef} className="grid">
-            <AnimatePresence mode="popLayout" initial={false}>
-              {verifiedCode ? (
-                <motion.div key="credentials" {...BLUR_FADE}>
-                  <RegisterCredentialsStep
-                    inviteCode={verifiedCode}
-                    callbackUrl={callbackUrl}
-                    onChangeCode={() => onVerifiedCodeChange(null)}
-                  />
-                </motion.div>
-              ) : (
-                <motion.div key="invite" {...BLUR_FADE}>
-                  <InviteCodeStep
-                    defaultValue={search.invite ?? ""}
-                    onValidated={(code) => onVerifiedCodeChange(code)}
-                    onVerifyingChange={onVerifyingChange}
-                  />
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        </motion.div>
-      </MotionConfig>
-    </div>
-  );
-};
+const STAGE_RESIZE = { bounce: 0, type: "spring" as const, visualDuration: 0.28 };
 
 /**
  * A full code auto-verifies (covers both typing and the `?invite=` prefill);
@@ -163,7 +92,10 @@ const InviteCodeStep = ({
   );
 };
 
-type Credentials = { email: string; password: string };
+interface Credentials {
+  email: string;
+  password: string;
+}
 
 /**
  * What a submit reports back, in the form's terms rather than the caller's.
@@ -184,8 +116,8 @@ type SubmitResult =
  * absence of an error.
  */
 const UNREPORTED: SubmitResult = {
-  status: "failed",
   message: "Something went wrong. Please try again.",
+  status: "failed",
 };
 
 /**
@@ -213,23 +145,25 @@ const CredentialsForm = ({
   const [shakeScope, shake] = useShake();
 
   const form = useForm({
+    defaultValues: { email: "", password: "" },
     resolver: zodResolver(
       z.object({
         email: z.email("Invalid email address"),
         password: z.string().min(1, "Password is required"),
       }),
     ),
-    defaultValues: { email: "", password: "" },
   });
 
   const handleAuthWithPassword = form.handleSubmit(async (credentials) => {
     const result = await submit(credentials);
     if (result.status === "ok") {
-      router.navigate({ to: safeNextPath(callbackUrl ?? nextPath), replace: true });
+      router.navigate({ replace: true, to: safeNextPath(callbackUrl ?? nextPath) });
       return;
     }
     toast.error(result.message);
-    if (result.status === "bounced") return;
+    if (result.status === "bounced") {
+      return;
+    }
     setAuthError(true);
     shake();
   });
@@ -321,33 +255,110 @@ const RegisterCredentialsStep = ({
     passwordAutoComplete="new-password"
     callbackUrl={callbackUrl}
     submit={async (credentials) => {
-      const emailPrefix = credentials.email.split("@")[0];
+      const [emailPrefix] = credentials.email.split("@");
       let result: SubmitResult = UNREPORTED;
       // SAFETY: `inviteCode` is an extra body field consumed by the server-side
       // `user.create.before` hook to validate + atomically redeem the invite.
       // It isn't part of better-auth's typed signup payload, so we cast.
       await authClient.signUp.email({
         email: credentials.email,
-        password: credentials.password,
-        name: emailPrefix ?? "User",
-        inviteCode,
         fetchOptions: {
-          onSuccess: () => {
-            result = { status: "ok" };
-          },
           onError: (ctx) => {
             // The atomic claim happens at signup; if the code raced and lost
             // (or was revoked between steps), kick the user back to step 1.
             const raced = ctx.error.status === 403 || ctx.error.status === 409;
-            if (raced) onChangeCode();
-            result = { status: raced ? "bounced" : "failed", message: ctx.error.message };
+            if (raced) {
+              onChangeCode();
+            }
+            result = { message: ctx.error.message, status: raced ? "bounced" : "failed" };
+          },
+          onSuccess: () => {
+            result = { status: "ok" };
           },
         },
+        inviteCode,
+        name: emailPrefix ?? "User",
+        password: credentials.password,
       } as Parameters<typeof authClient.signUp.email>[0]);
       return result;
     }}
   />
 );
+
+/**
+ * Controlled two-step register flow. The parent owns `verifiedCode` so it can
+ * drive surrounding UI (e.g. the header subtitle): `null` = invite step, a
+ * code = credentials step.
+ *
+ * The stage animates its REAL height between the one-row invite step and the
+ * taller credentials step. Motion's `layout` prop is the obvious tool and the
+ * wrong one here: it fakes the resize with a transform, so the element's
+ * layout box still jumps in a single frame and everything around it — heading
+ * above, footer below — snaps to the new position while the stage merely looks
+ * smooth. Measuring the content and animating `height` moves the page as one.
+ */
+export const RegisterForm = ({
+  className,
+  callbackUrl,
+  verifiedCode,
+  onVerifiedCodeChange,
+  onVerifyingChange,
+  ...props
+}: StepFormProps & {
+  verifiedCode: string | null;
+  onVerifiedCodeChange: (code: string | null) => void;
+  /** Reports the invite round-trip so the page can swap its footer for a spinner. */
+  onVerifyingChange: (verifying: boolean) => void;
+}) => {
+  const search = useSearch({ from: "/auth" });
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [stageHeight, setStageHeight] = useState<number | "auto">("auto");
+
+  useEffect(() => {
+    const content = contentRef.current;
+    if (!content) {
+      return;
+    }
+    const observer = new ResizeObserver((entries) => {
+      const [entry] = entries;
+      if (entry) {
+        setStageHeight(entry.contentRect.height);
+      }
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div className={cn("grid gap-6", className)} {...props}>
+      <MotionConfig reducedMotion="user">
+        <motion.div initial={false} animate={{ height: stageHeight }} transition={STAGE_RESIZE}>
+          <div ref={contentRef} className="grid">
+            <AnimatePresence mode="popLayout" initial={false}>
+              {verifiedCode ? (
+                <motion.div key="credentials" {...BLUR_FADE}>
+                  <RegisterCredentialsStep
+                    inviteCode={verifiedCode}
+                    callbackUrl={callbackUrl}
+                    onChangeCode={() => onVerifiedCodeChange(null)}
+                  />
+                </motion.div>
+              ) : (
+                <motion.div key="invite" {...BLUR_FADE}>
+                  <InviteCodeStep
+                    defaultValue={search.invite ?? ""}
+                    onValidated={(code) => onVerifiedCodeChange(code)}
+                    onVerifyingChange={onVerifyingChange}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </motion.div>
+      </MotionConfig>
+    </div>
+  );
+};
 
 export const LoginForm = ({ className, callbackUrl, ...props }: StepFormProps) => (
   <div className={cn("grid gap-6", className)} {...props}>
@@ -359,15 +370,15 @@ export const LoginForm = ({ className, callbackUrl, ...props }: StepFormProps) =
         let result: SubmitResult = UNREPORTED;
         await authClient.signIn.email({
           email: credentials.email,
-          password: credentials.password,
           fetchOptions: {
+            onError: (ctx) => {
+              result = { message: ctx.error.message, status: "failed" };
+            },
             onSuccess: () => {
               result = { status: "ok" };
             },
-            onError: (ctx) => {
-              result = { status: "failed", message: ctx.error.message };
-            },
           },
+          password: credentials.password,
         });
         return result;
       }}
@@ -377,25 +388,25 @@ export const LoginForm = ({ className, callbackUrl, ...props }: StepFormProps) =
 
 export const RequestPasswordResetForm = () => {
   const form = useForm({
+    defaultValues: {
+      email: "",
+    },
     resolver: zodResolver(
       z.object({
         email: z.email("Invalid email address"),
       }),
     ),
-    defaultValues: {
-      email: "",
-    },
   });
 
   const handlePasswordReset = form.handleSubmit(async (data) => {
     await authClient.requestPasswordReset({
       email: data.email,
       fetchOptions: {
-        onSuccess: () => {
-          toast.success("Password reset email sent successfully!");
-        },
         onError: (ctx) => {
           toast.error(ctx.error.message);
+        },
+        onSuccess: () => {
+          toast.success("Password reset email sent successfully!");
         },
       },
     });
@@ -454,35 +465,35 @@ export const UpdatePasswordForm = () => {
   const updateRouter = useRouter();
 
   const form = useForm({
+    defaultValues: {
+      confirmPassword: "",
+      password: "",
+    },
     resolver: zodResolver(
       z
         .object({
-          password: z.string().min(8, "Password must be at least 8 characters"),
           confirmPassword: z.string(),
+          password: z.string().min(8, "Password must be at least 8 characters"),
         })
         .refine((data) => data.password === data.confirmPassword, {
           message: "Passwords don't match",
           path: ["confirmPassword"],
         }),
     ),
-    defaultValues: {
-      password: "",
-      confirmPassword: "",
-    },
   });
 
   const handleUpdatePassword = form.handleSubmit(async (data) => {
     await authClient.resetPassword({
-      newPassword: data.password,
       fetchOptions: {
+        onError: (ctx) => {
+          toast.error(ctx.error.message);
+        },
         onSuccess: () => {
           toast.success("Password updated successfully!");
           updateRouter.navigate({ to: "/" });
         },
-        onError: (ctx) => {
-          toast.error(ctx.error.message);
-        },
       },
+      newPassword: data.password,
     });
   });
 

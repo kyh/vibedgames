@@ -32,7 +32,7 @@ const isPlainObject = (v) => Object.prototype.toString.call(v) === "[object Obje
 const isString = (v) => String(v) === v;
 
 /** `--json` prints structured output; otherwise dicts print as `key: value`. */
-function emit(value, asJson) {
+const emit = (value, asJson) => {
   if (asJson) {
     console.log(JSON.stringify(value, null, 2));
     return;
@@ -50,22 +50,22 @@ function emit(value, asJson) {
     return;
   }
   console.log(String(value));
-}
+};
 
 main(() => {
   const args = parseArgs(process.argv.slice(2), {
-    values: ["action", "coerce-frames", "profile"],
     booleans: ["json", "list", "list-profiles"],
+    values: ["action", "coerce-frames", "profile"],
   });
   const asJson = getFlag(args, "json");
 
   if (getFlag(args, "list-profiles")) {
     emit(
       canonicalProfiles().map((key) => ({
-        profile: PROFILES[key].profile,
+        actions: [...PROFILES[key].actions],
         description: PROFILES[key].description,
         direction: PROFILES[key].direction,
-        actions: [...PROFILES[key].actions],
+        profile: PROFILES[key].profile,
       })),
       asJson,
     );
@@ -83,7 +83,9 @@ main(() => {
       const { frames, warning } = coerceFrameCount(actionId, requested);
       facts.requestedFrames = requested;
       facts.coercedFrames = frames;
-      if (warning) facts.frameWarning = warning;
+      if (warning) {
+        facts.frameWarning = warning;
+      }
     }
     emit(facts, asJson);
     return;

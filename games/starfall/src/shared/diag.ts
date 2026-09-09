@@ -19,7 +19,7 @@
 //   overlay. Online play is untouched: the hook only ever runs when a test
 //   calls it.
 
-export type Diagnostics = {
+export interface Diagnostics {
   frame: number;
   /** Run XP — the objective metric: cumulative XP earned this run. Monotonic
    *  (never drops on level-up or the death tax), so `after > before` is a
@@ -43,36 +43,38 @@ export type Diagnostics = {
     controllerId: string | null;
     contested: boolean;
   } | null;
-};
+}
 
 export const diag: Diagnostics = {
-  frame: 0,
-  score: 0,
-  complete: false,
-  player: { x: 0, y: 0, speed: 0 },
-  entities: 0,
-  beams: 0,
   beacon: null,
+  beams: 0,
+  complete: false,
+  entities: 0,
+  frame: 0,
+  player: { speed: 0, x: 0, y: 0 },
+  score: 0,
 };
 
-export type TestHooks = {
-  setState(name: string): void;
-  setPausedForScreenshot(paused: boolean): void;
-};
+export interface TestHooks {
+  setState: (name: string) => void;
+  setPausedForScreenshot: (paused: boolean) => void;
+}
 
-export function installTestHooks(hooks: {
-  activePlay(): void;
+export const installTestHooks = (hooks: {
+  activePlay: () => void;
   /** Offline-only real freeze (see header). No-op while online. */
-  setPaused(paused: boolean): void;
-}): void {
+  setPaused: (paused: boolean) => void;
+}): void => {
   Reflect.set(globalThis, "__GAME_DIAGNOSTICS__", diag);
   const testHooks: TestHooks = {
-    setState(name: string): void {
-      if (name === "active-play") hooks.activePlay();
-    },
     setPausedForScreenshot(paused: boolean): void {
       hooks.setPaused(paused);
     },
+    setState(name: string): void {
+      if (name === "active-play") {
+        hooks.activePlay();
+      }
+    },
   };
   Reflect.set(globalThis, "__GAME_TEST_HOOKS__", testHooks);
-}
+};

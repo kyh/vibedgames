@@ -30,7 +30,7 @@ import {
 
 const STYLE_CHOICES = ["lobit-v1", "high-fidelity-v1", "preserve-reference-v1"];
 
-function styleOf(args) {
+const styleOf = (args) => {
   const style = getString(args, "style");
   if (style !== undefined && !STYLE_CHOICES.includes(style)) {
     failUsage(
@@ -38,18 +38,20 @@ function styleOf(args) {
     );
   }
   return style ?? null;
-}
+};
 
 const COMMANDS = {
   anchor(args) {
     const direction = getString(args, "direction");
-    if (!direction) failUsage("--direction is required (n,s,e,w,ne,nw,se,sw)");
+    if (!direction) {
+      failUsage("--direction is required (n,s,e,w,ne,nw,se,sw)");
+    }
 
     const prompt = renderAnchorPrompt(getDirection(direction), {
-      gameView: getString(args, "game-view") ?? "platformer",
-      anchorRole: getString(args, "role") ?? "character",
       anchorContext: getString(args, "anchor-context") ?? null,
+      anchorRole: getString(args, "role") ?? "character",
       chroma: getString(args, "chroma") ?? "#00FF00",
+      gameView: getString(args, "game-view") ?? "platformer",
       guideImage: getFlag(args, "guide-image"),
     });
     console.log(withStyle(prompt, styleOf(args)));
@@ -58,8 +60,12 @@ const COMMANDS = {
   "pose-board"(args) {
     const action = getString(args, "action");
     const direction = getString(args, "direction");
-    if (!action) failUsage("--action is required (e.g. attack, idle, walk)");
-    if (!direction) failUsage("--direction is required (n,s,e,w,ne,nw,se,sw)");
+    if (!action) {
+      failUsage("--action is required (e.g. attack, idle, walk)");
+    }
+    if (!direction) {
+      failUsage("--direction is required (n,s,e,w,ne,nw,se,sw)");
+    }
 
     const framePromptStyle = getString(args, "frame-prompt-style") ?? "specific";
     if (framePromptStyle !== "specific" && framePromptStyle !== "loose") {
@@ -69,7 +75,9 @@ const COMMANDS = {
     }
     const board = resolvePoseBoardPreset(getString(args, "pose-board") ?? "standard");
     const frames = getInt(args, "frames", 0);
-    if (frames <= 0) fail("--frames must be a positive integer");
+    if (frames <= 0) {
+      fail("--frames must be a positive integer");
+    }
     if (frames > totalCells(board)) {
       fail(
         `--frames ${frames} exceeds the ${board.id} board's ${totalCells(board)} cells; ` +
@@ -82,10 +90,10 @@ const COMMANDS = {
       getDirection(direction),
       frames,
       {
-        poseBoard: board,
-        framePromptStyle,
         chroma: getString(args, "chroma") ?? "#00FF00",
+        framePromptStyle,
         guideImage: getFlag(args, "guide-image"),
+        poseBoard: board,
       },
     );
     console.log(withStyle(prompt, styleOf(args)));
@@ -109,6 +117,8 @@ main(() => {
     ],
   });
   const run = COMMANDS[args.positionals[0]];
-  if (!run) failUsage("Usage: node sprite-prompt.mjs <anchor|pose-board> ...");
+  if (!run) {
+    failUsage("Usage: node sprite-prompt.mjs <anchor|pose-board> ...");
+  }
   run(args);
 });

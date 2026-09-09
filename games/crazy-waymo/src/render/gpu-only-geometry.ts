@@ -39,49 +39,62 @@ const pending = new Set<THREE.BufferAttribute>();
 let armed = false;
 let released = 0;
 
-function release(attr: THREE.BufferAttribute): void {
+const release = (attr: THREE.BufferAttribute): void => {
   // SAFETY: BufferAttribute only ever holds a TypedArray (its constructor
   // and BatchedMesh's allocation both require one), so its constructor is
   // one of the TypedArrayConstructor members.
   const Ctor = attr.array.constructor as THREE.TypedArrayConstructor;
   attr.array = new Ctor(0);
   attr.updateRanges.length = 0;
-  attr.onUpload(() => {});
-  released++;
-}
+  attr.onUpload(() => {
+    /* empty */
+  });
+  released += 1;
+};
 
-export function releaseArraysAfterUpload(
+const releaseOnUpload = (attr: THREE.BufferAttribute, deferred: boolean) => (): void => {
+  if (deferred && !armed) {
+    pending.add(attr);
+  } else {
+    release(attr);
+  }
+};
+
+export const releaseArraysAfterUpload = (
   geometry: THREE.BufferGeometry,
   options: { readonly deferred?: boolean } = {},
-): void {
+): void => {
   const deferred = options.deferred === true;
   const attrs: THREE.BufferAttribute[] = [];
   for (const a of Object.values(geometry.attributes)) {
-    if (a instanceof THREE.BufferAttribute) attrs.push(a);
+    if (a instanceof THREE.BufferAttribute) {
+      attrs.push(a);
+    }
   }
-  if (geometry.index) attrs.push(geometry.index);
+  if (geometry.index) {
+    attrs.push(geometry.index);
+  }
   for (const attr of attrs) {
-    if (hooked.has(attr)) continue;
+    if (hooked.has(attr)) {
+      continue;
+    }
     hooked.add(attr);
-    attr.onUpload(() => {
-      if (deferred && !armed) pending.add(attr);
-      else release(attr);
-    });
+    attr.onUpload(releaseOnUpload(attr, deferred));
     // Already on the GPU? One re-upload fires the hook (see header).
     attr.needsUpdate = true;
   }
-}
+};
 
 /** The late CPU readers are done: drop every uploaded deferred array now, and
  *  every later one the moment it uploads. */
-export function releaseDeferredArrays(): void {
+export const releaseDeferredArrays = (): void => {
   armed = true;
-  for (const attr of pending) release(attr);
+  for (const attr of pending) {
+    release(attr);
+  }
   pending.clear();
-}
+};
 
 /** True once any array is gone — a restored context can no longer rebuild
  *  the scene from the heap. */
-export function hasReleasedArrays(): boolean {
-  return released > 0;
-}
+export const hasReleasedArrays = (): boolean => released > 0;

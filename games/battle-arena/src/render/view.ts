@@ -25,36 +25,25 @@ import { terrainHeight } from "../data/terrain";
 import { PLATEAU_R, STAIR_RUN } from "../sim/elevation";
 import { teamColor } from "./palette";
 
-const INTRO_S = 2.4; // establishing fly-in duration (solo intro)
+// establishing fly-in duration (solo intro)
+const INTRO_S = 2.4;
 
 // Action-RPG chase camera: sits behind the player's facing, orbiting up/down
 // with the look pitch (FPS-style vertical look).
 const CAM = {
+  // default elevation angle above horizontal (≈6.4u high at dist 10)
+  baseElev: 0.62,
   distance: 10,
   fov: 52,
   lookAhead: 6,
   lookHeight: 1.4,
-  baseElev: 0.62, // default elevation angle above horizontal (≈6.4u high at dist 10)
-  posLerp: 10, // how fast the follow focus eases toward the player (translation only)
+  // how fast the follow focus eases toward the player (translation only)
+  posLerp: 10,
 };
 
 // Final grade: gain+lift split-tone → contrast → saturation → radial vignette.
 // Runs after OutputPass in display (sRGB) space — a "video" grade, easy to tune.
 const GradeShader = {
-  uniforms: {
-    tDiffuse: { value: null },
-    uContrast: { value: 1.08 },
-    uSaturation: { value: 1.1 },
-    // gentle + late start: over the hall's uniform flagstone midtone, a strong
-    // radial vignette reads as a bright vertical band down the screen center
-    uVignette: { value: 0.18 },
-    uVigStart: { value: 0.7 },
-    uFlash: { value: 0 }, // screen-whiten pulse (big ults) — decays in follow()
-    uLift: { value: new THREE.Vector3(-0.006, -0.003, 0.012) },
-    uGain: { value: new THREE.Vector3(1.03, 1.01, 0.97) },
-  },
-  vertexShader:
-    "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
   fragmentShader: `
     uniform sampler2D tDiffuse; uniform float uContrast,uSaturation,uVignette,uVigStart,uFlash; uniform vec3 uLift,uGain;
     varying vec2 vUv;
@@ -69,6 +58,21 @@ const GradeShader = {
       c += (vec3(1.0)-c) * uFlash;
       gl_FragColor = vec4(clamp(c,0.0,1.0),1.0);
     }`,
+  uniforms: {
+    tDiffuse: { value: null },
+    uContrast: { value: 1.08 },
+    // screen-whiten pulse (big ults) — decays in follow()
+    uFlash: { value: 0 },
+    uGain: { value: new THREE.Vector3(1.03, 1.01, 0.97) },
+    uLift: { value: new THREE.Vector3(-0.006, -0.003, 0.012) },
+    uSaturation: { value: 1.1 },
+    uVigStart: { value: 0.7 },
+    // gentle + late start: over the hall's uniform flagstone midtone, a strong
+    // radial vignette reads as a bright vertical band down the screen center
+    uVignette: { value: 0.18 },
+  },
+  vertexShader:
+    "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
 };
 
 /** `CAM.fov` is the VERTICAL angle, so holding it fixed on a portrait phone
@@ -76,16 +80,18 @@ const GradeShader = {
  *  16:9). Below square, hold the HORIZONTAL fov at its square-aspect value
  *  instead — solve vFov from hFov(1) = base — capped so extreme ratios don't
  *  fisheye. Same solve as games/tetris' camera rig. */
-export function fovForAspect(base: number, aspect: number): number {
-  if (aspect >= 1) return base;
+export const fovForAspect = (base: number, aspect: number): number => {
+  if (aspect >= 1) {
+    return base;
+  }
   return Math.min(110, (Math.atan(Math.tan((base * Math.PI) / 360) / aspect) * 360) / Math.PI);
-}
+};
 
 /** Clamped hermite smoothstep (GLSL semantics, increasing edges). */
-function sstep(e0: number, e1: number, x: number): number {
+const sstep = (e0: number, e1: number, x: number): number => {
   const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
   return t * t * (3 - 2 * t);
-}
+};
 
 // The live View's shadow re-bake hook (one View per page) — lets late scenery
 // loaders re-bake the static shadow map without holding a View reference
@@ -93,31 +99,37 @@ function sstep(e0: number, e1: number, x: number): number {
 let shadowRefresher: (() => void) | null = null;
 
 /** Re-render the static shadow map once — safe no-op before the View exists. */
-export function refreshStaticShadows(): void {
+export const refreshStaticShadows = (): void => {
   shadowRefresher?.();
-}
+};
 
-const GROUND_STONE = new THREE.Color(0x565b68); // readable cool dungeon stone
-const GROUND_DIRT = new THREE.Color(0x4a4238); // trampled earth around camp lairs
+// readable cool dungeon stone
+const GROUND_STONE = new THREE.Color(0x56_5b_68);
+// trampled earth around camp lairs
+const GROUND_DIRT = new THREE.Color(0x4a_42_38);
 
 /** Zone tint for a ground-disc vertex: dirt darkens around each camp lair.
  *  Pure function of position — identical on every client. */
-function groundZoneColor(x: number, z: number, out: THREE.Color): THREE.Color {
+const groundZoneColor = (x: number, z: number, out: THREE.Color): THREE.Color => {
   out.copy(GROUND_STONE);
   let campD2 = Infinity;
   for (const c of CAMPS) {
     const d2 = (x - c.x) ** 2 + (z - c.y) ** 2;
-    if (d2 < campD2) campD2 = d2;
+    if (d2 < campD2) {
+      campD2 = d2;
+    }
   }
   const dirtK = 1 - sstep(3.5, 5.5, Math.sqrt(campD2));
-  if (dirtK > 0) out.lerp(GROUND_DIRT, dirtK * 0.85);
+  if (dirtK > 0) {
+    out.lerp(GROUND_DIRT, dirtK * 0.85);
+  }
   return out;
-}
+};
 
 /** Build the terrain-displaced ground disc — a flat stone base under the
  *  flagstone tiles (it only shows in tile gaps + the platform skirt). Sized to
  *  reach past the hex walls; the corners tuck under the second story. One mesh. */
-function buildGroundDisc(): THREE.Mesh {
+const buildGroundDisc = (): THREE.Mesh => {
   const R = HEX_R + 6;
   const seg = 96;
   // sit 2cm below the tile layer: the dirt tiles' valley faces are authored at
@@ -129,18 +141,25 @@ function buildGroundDisc(): THREE.Mesh {
   // sampled as one coarse slab.
   const uniform = 40;
   const radii: number[] = [];
-  for (let ring = 1; ring <= uniform; ring++) radii.push((ring / uniform) * R);
+  for (let ring = 1; ring <= uniform; ring += 1) {
+    radii.push((ring / uniform) * R);
+  }
   radii.push(PLATEAU_R, PLATEAU_R + 0.05);
-  for (let i = 1; i <= 4; i++) radii.push(PLATEAU_R + (i / 4) * STAIR_RUN);
+  for (let i = 1; i <= 4; i += 1) {
+    radii.push(PLATEAU_R + (i / 4) * STAIR_RUN);
+  }
   radii.sort((a, b) => a - b);
   const rings = radii.length;
   const zc = new THREE.Color();
   groundZoneColor(0, 0, zc);
   const pos: number[] = [0, terrainHeight(0, 0) - DROP, 0];
   const col: number[] = [zc.r, zc.g, zc.b];
-  for (let ring = 1; ring <= rings; ring++) {
-    const rr = radii[ring - 1]!;
-    for (let s = 0; s < seg; s++) {
+  for (let ring = 1; ring <= rings; ring += 1) {
+    const rr = radii[ring - 1];
+    if (rr === undefined) {
+      continue;
+    }
+    for (let s = 0; s < seg; s += 1) {
       const a = (s / seg) * Math.PI * 2;
       const x = Math.cos(a) * rr;
       const z = Math.sin(a) * rr;
@@ -150,11 +169,14 @@ function buildGroundDisc(): THREE.Mesh {
     }
   }
   const idx: number[] = [];
-  for (let s = 0; s < seg; s++) idx.push(0, 1 + s, 1 + ((s + 1) % seg)); // center fan
-  for (let ring = 0; ring < rings - 1; ring++) {
+  for (let s = 0; s < seg; s += 1) {
+    idx.push(0, 1 + s, 1 + ((s + 1) % seg));
+    // center fan
+  }
+  for (let ring = 0; ring < rings - 1; ring += 1) {
     const a0 = 1 + ring * seg;
     const a1 = 1 + (ring + 1) * seg;
-    for (let s = 0; s < seg; s++) {
+    for (let s = 0; s < seg; s += 1) {
       const sn = (s + 1) % seg;
       idx.push(a0 + s, a1 + s, a0 + sn, a0 + sn, a1 + s, a1 + sn);
     }
@@ -167,15 +189,54 @@ function buildGroundDisc(): THREE.Mesh {
   const mesh = new THREE.Mesh(
     geo,
     new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      roughness: 1,
       metalness: 0,
+      roughness: 1,
       side: THREE.DoubleSide,
+      vertexColors: true,
     }),
   );
   mesh.receiveShadow = true;
   return mesh;
-}
+};
+
+/** Shorten the camera distance so an obstacle never sits between cam & player.
+ *  (px,pz) player, (dx,dz) unit dir from player toward the camera. */
+const clampCamDistance = (px: number, pz: number, dx: number, dz: number): number => {
+  let dist = CAM.distance;
+  const consider = (ox: number, oz: number, orad: number): void => {
+    const rr = orad + 0.7;
+    const rx = ox - px;
+    const rz = oz - pz;
+    // projection of obstacle onto the ray
+    const b = rx * dx + rz * dz;
+    if (b <= 0) {
+      return;
+      // obstacle is behind the player, not toward the camera
+    }
+    const c = rx * rx + rz * rz - rr * rr;
+    const disc = b * b - c;
+    if (disc < 0) {
+      return;
+      // ray misses the obstacle
+    }
+    const entry = b - Math.sqrt(disc);
+    if (entry > 0.5 && entry - 0.5 < dist) {
+      dist = entry - 0.5;
+    }
+  };
+  // only the TALL cover pillars can actually block the chase cam — the check
+  // is 2D (ignores height), so low obstacles (partition walls 2.4u, shrine
+  // statues 2.6u) must be skipped or they'd yank the camera every time you
+  // fight around cover. The throne dais (1.6u platform) is excluded for the
+  // same reason.
+  for (const o of OBSTACLES) {
+    if (o.height < 3) {
+      continue;
+    }
+    consider(o.x, o.y, o.radius);
+  }
+  return Math.max(4, dist);
+};
 
 export class View {
   readonly renderer: THREE.WebGLRenderer;
@@ -184,21 +245,30 @@ export class View {
   readonly sun: THREE.DirectionalLight;
   private look = new THREE.Vector3();
   private camPos = new THREE.Vector3();
-  private camYaw = 0; // camera heading (atan2(faceX,faceZ)) — snapped 1:1 to input
-  private camPitch = 0; // look pitch (>0 looks up) — snapped 1:1 to input
-  private focus = new THREE.Vector3(); // eased follow point (smooths translation)
-  private camGroundY = 0; // smoothed terrain height under the player
+  // camera heading (atan2(faceX,faceZ)) — snapped 1:1 to input
+  private camYaw = 0;
+  // look pitch (>0 looks up) — snapped 1:1 to input
+  private camPitch = 0;
+  // eased follow point (smooths translation)
+  private focus = new THREE.Vector3();
+  // smoothed terrain height under the player
+  private camGroundY = 0;
   private camPlaced = false;
   private scratchA = new THREE.Vector3();
   private scratchB = new THREE.Vector3();
   private scratchFwd = new THREE.Vector3();
   private shake = 0;
-  private shakeT = 0; // rotational-shake phase clock (advances with trauma time)
+  // rotational-shake phase clock (advances with trauma time)
+  private shakeT = 0;
   private shakeOff = new THREE.Vector3();
-  private kickVec = new THREE.Vector3(); // directional camera punch (impact weight), decays to 0
-  private fovPunch = 0; // degrees of punch-in (narrower FOV on big beats), decays 7/s
-  private flashAmt = 0; // screen-whiten pulse, decays ×(1−9dt)
-  private vigPunch = 0; // extra vignette squeeze, decays ×(1−5dt)
+  // directional camera punch (impact weight), decays to 0
+  private kickVec = new THREE.Vector3();
+  // degrees of punch-in (narrower FOV on big beats), decays 7/s
+  private fovPunch = 0;
+  // screen-whiten pulse, decays ×(1−9dt)
+  private flashAmt = 0;
+  // extra vignette squeeze, decays ×(1−5dt)
+  private vigPunch = 0;
   // intro fly-in: startIntro() → 2.4s easeInOutCubic blend from a high establishing
   // pose down into the chase camera. -1 = inactive.
   private introT = -1;
@@ -217,7 +287,8 @@ export class View {
   private quality: "high" | "low" = "high";
   private prNow = Math.min(window.devicePixelRatio, 2);
   private dtAvg = 1 / 60;
-  private prStep = 0; // 0=full, 1=1.5, 2=1.25 (adaptive downscale)
+  // 0=full, 1=1.5, 2=1.25 (adaptive downscale)
+  private prStep = 0;
 
   constructor(container: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({
@@ -239,18 +310,19 @@ export class View {
     this.renderer.debug.checkShaderErrors =
       import.meta.env.DEV && !new URLSearchParams(location.search).has("fastshaders");
     this.renderer.shadowMap.enabled = !coarse;
-    this.renderer.shadowMap.type = THREE.PCFShadowMap; // + shadow.radius softens
+    // + shadow.radius softens
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.shadowMap.autoUpdate = false;
     this.renderer.shadowMap.needsUpdate = true;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.0;
-    container.appendChild(this.renderer.domElement);
+    this.renderer.toneMappingExposure = 1;
+    container.append(this.renderer.domElement);
 
     // moody dungeon base — dim & atmospheric but the whole arena floor stays
     // readable; torches + bloom carve brighter pools.
-    this.scene.background = new THREE.Color(0x0c0f18);
-    this.scene.fog = new THREE.FogExp2(0x0c0f18, 0.015);
+    this.scene.background = new THREE.Color(0x0c_0f_18);
+    this.scene.fog = new THREE.FogExp2(0x0c_0f_18, 0.015);
 
     // image-based lighting so metals (coins) and PBR surfaces aren't flat
     const pmrem = new THREE.PMREMGenerator(this.renderer);
@@ -270,9 +342,9 @@ export class View {
 
     // torch-lit ruin: the cool wash drops so the 7 warm point-light pools carry
     // the scene. Fill stays high enough that nothing reads pure black.
-    this.scene.add(new THREE.HemisphereLight(0x8098c4, 0x24201a, 0.72));
-    this.scene.add(new THREE.AmbientLight(0xffffff, 0.24));
-    this.sun = new THREE.DirectionalLight(0xbcccff, 1.5);
+    this.scene.add(new THREE.HemisphereLight(0x80_98_c4, 0x24_20_1a, 0.72));
+    this.scene.add(new THREE.AmbientLight(0xff_ff_ff, 0.24));
+    this.sun = new THREE.DirectionalLight(0xbc_cc_ff, 1.5);
     this.sun.position.set(18, 34, 12);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
@@ -284,9 +356,11 @@ export class View {
     // Widening this is not free: `bias` below is a normalized-depth offset, so
     // its world-space size scales with (far − near) and peter-panning grows with it.
     this.sun.shadow.camera.far = 80;
-    this.sun.shadow.radius = 4; // soft penumbra (PCFSoft)
+    // soft penumbra (PCFSoft)
+    this.sun.shadow.radius = 4;
     const sc = this.sun.shadow.camera;
-    const shadowR = HEX_R + 8; // cover the hex + the two-story perimeter
+    // cover the hex + the two-story perimeter
+    const shadowR = HEX_R + 8;
     sc.left = -shadowR;
     sc.right = shadowR;
     sc.top = shadowR;
@@ -297,7 +371,8 @@ export class View {
     this.scene.add(this.sun);
     this.scene.add(this.sun.target);
 
-    const rim = new THREE.DirectionalLight(0x6f8cff, 0.5); // cool back-rim, no shadow
+    // cool back-rim, no shadow
+    const rim = new THREE.DirectionalLight(0x6f_8c_ff, 0.5);
     rim.position.set(-16, 10, -14);
     this.scene.add(rim);
 
@@ -314,20 +389,20 @@ export class View {
     const sky = new THREE.Mesh(
       new THREE.SphereGeometry(300, 32, 16),
       new THREE.ShaderMaterial({
-        side: THREE.BackSide,
         depthWrite: false,
         fog: false,
-        uniforms: {
-          uTop: { value: new THREE.Color(0x0a0e1c) },
-          uBot: { value: new THREE.Color(0x1a1626) },
-        },
-        vertexShader:
-          "varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
         fragmentShader:
           "varying vec3 vP; uniform vec3 uTop; uniform vec3 uBot;" +
           " void main(){ vec3 n = normalize(vP); float h = smoothstep(-0.1,0.5, n.y);" +
           " vec3 c = mix(uBot,uTop,h);" +
           " gl_FragColor = vec4(c,1.0); }",
+        side: THREE.BackSide,
+        uniforms: {
+          uBot: { value: new THREE.Color(0x1a_16_26) },
+          uTop: { value: new THREE.Color(0x0a_0e_1c) },
+        },
+        vertexShader:
+          "varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
       }),
     );
     sky.renderOrder = -1;
@@ -341,7 +416,7 @@ export class View {
     const plateauTop = terrainHeight(0, 0);
     const dais = new THREE.Mesh(
       new THREE.CylinderGeometry(BOSS_PLATFORM_RADIUS, BOSS_PLATFORM_RADIUS + 0.6, BOSS_HEIGHT, 32),
-      new THREE.MeshStandardMaterial({ color: 0x46415a, roughness: 0.85 }),
+      new THREE.MeshStandardMaterial({ color: 0x46_41_5a, roughness: 0.85 }),
     );
     dais.position.set(ARENA.throne.x, plateauTop + BOSS_HEIGHT / 2, ARENA.throne.y);
     dais.castShadow = true;
@@ -353,11 +428,11 @@ export class View {
     const aura = new THREE.Mesh(
       new THREE.RingGeometry(ARENA.throne.radius - 0.5, ARENA.throne.radius, 64),
       new THREE.MeshBasicMaterial({
-        color: 0xffcc44,
-        transparent: true,
+        color: 0xff_cc_44,
+        depthWrite: false,
         opacity: 0.5,
         side: THREE.DoubleSide,
-        depthWrite: false,
+        transparent: true,
       }),
     );
     aura.rotation.x = -Math.PI / 2;
@@ -371,14 +446,14 @@ export class View {
     // slim beacon over the throne itself — wide enough to read as "the magnet"
     // from across the arena, narrow enough not to curtain the sky behind the dais
     this.throneColumn = new THREE.Mesh(
-      new THREE.CylinderGeometry(1.2, 2.0, 11, 24, 1, true),
+      new THREE.CylinderGeometry(1.2, 2, 11, 24, 1, true),
       new THREE.MeshBasicMaterial({
-        color: 0xffcc55,
-        transparent: true,
+        blending: THREE.AdditiveBlending,
+        color: 0xff_cc_55,
+        depthWrite: false,
         opacity: 0.03,
         side: THREE.DoubleSide,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
+        transparent: true,
       }),
     );
     this.throneColumn.position.set(ARENA.throne.x, plateauTop + 5.5, ARENA.throne.y);
@@ -392,14 +467,14 @@ export class View {
       const col = teamColor(`bot:${sp.slot}`);
       const padY = terrainHeight(sp.x, sp.y);
       const rim = new THREE.Mesh(
-        new THREE.RingGeometry(4.2, 5.0, 40),
+        new THREE.RingGeometry(4.2, 5, 40),
         new THREE.MeshBasicMaterial({
-          color: col,
-          transparent: true,
-          opacity: 0.6,
           blending: THREE.AdditiveBlending,
-          side: THREE.DoubleSide,
+          color: col,
           depthWrite: false,
+          opacity: 0.6,
+          side: THREE.DoubleSide,
+          transparent: true,
         }),
       );
       rim.rotation.x = -Math.PI / 2;
@@ -414,14 +489,15 @@ export class View {
       const pad = new THREE.Mesh(
         new THREE.RingGeometry(1.4, 1.7, 4),
         new THREE.MeshBasicMaterial({
-          color: 0x66ffcc,
-          transparent: true,
-          opacity: 0.55,
+          color: 0x66_ff_cc,
           depthWrite: false,
+          opacity: 0.55,
+          transparent: true,
         }),
       );
       pad.rotation.x = -Math.PI / 2;
-      pad.position.set(d.x, terrainHeight(d.x, d.y) + 0.1, d.y); // above the 0.05 tile tops
+      // above the 0.05 tile tops
+      pad.position.set(d.x, terrainHeight(d.x, d.y) + 0.1, d.y);
       arenaGroup.add(pad);
       const cone = new THREE.ConeGeometry(0.55, 3.5, 8, 1, true);
       cone.translate(d.x, terrainHeight(d.x, d.y) + 1.75, d.y);
@@ -432,17 +508,19 @@ export class View {
       const beacons = new THREE.Mesh(
         beaconGeo,
         new THREE.MeshBasicMaterial({
-          color: 0x66ffcc,
-          transparent: true,
-          opacity: 0.05,
           blending: THREE.AdditiveBlending,
-          side: THREE.DoubleSide,
+          color: 0x66_ff_cc,
           depthWrite: false,
+          opacity: 0.05,
+          side: THREE.DoubleSide,
+          transparent: true,
         }),
       );
       arenaGroup.add(beacons);
     }
-    for (const g of beaconGeos) g.dispose();
+    for (const g of beaconGeos) {
+      g.dispose();
+    }
 
     this.scene.add(arenaGroup);
     return aura;
@@ -462,7 +540,9 @@ export class View {
     // 1:1 mouse-look: snap heading/pitch straight to the input — NO rotational
     // smoothing. Only the follow *focus* eases, so walking is steady but turning
     // is instant (rotation is computed from the snapped yaw, not an eased pos).
-    if (faceX !== 0 || faceZ !== 0) this.camYaw = Math.atan2(faceX, faceZ);
+    if (faceX !== 0 || faceZ !== 0) {
+      this.camYaw = Math.atan2(faceX, faceZ);
+    }
     this.camPitch = pitch;
     const fx = Math.sin(this.camYaw);
     const fz = Math.cos(this.camYaw);
@@ -472,16 +552,16 @@ export class View {
 
     // ease the focus point toward the player (smooths translation only)
     this.scratchA.set(x, 0, y);
-    if (!this.camPlaced) {
+    if (this.camPlaced) {
+      this.focus.lerp(this.scratchA, Math.min(1, CAM.posLerp * dt));
+    } else {
       this.focus.copy(this.scratchA);
       this.camPlaced = true;
-    } else {
-      this.focus.lerp(this.scratchA, Math.min(1, CAM.posLerp * dt));
     }
 
     // orbit vertically by pitch: looking up lowers the camera & raises the target
     const elev = Math.max(0.12, CAM.baseElev - this.camPitch * 0.55);
-    const dist = this.clampCamDistance(this.focus.x, this.focus.z, -fx, -fz);
+    const dist = clampCamDistance(this.focus.x, this.focus.z, -fx, -fz);
     const horiz = Math.cos(elev) * dist;
     const vert = Math.max(1.4, Math.sin(elev) * dist) + this.camGroundY;
     this.camPos.set(this.focus.x - fx * horiz, vert, this.focus.z - fz * horiz);
@@ -514,14 +594,22 @@ export class View {
 
     // trauma shake (+ a brief bloom/vignette punch on big impacts — free juice)
     this.shake = Math.max(0, this.shake - dt * 1.6);
-    this.shakeT += dt * 31; // rotational-shake phase
-    if (this.bloom) this.bloom.strength = 0.6 + this.shake * 0.5;
+    // rotational-shake phase
+    this.shakeT += dt * 31;
+    if (this.bloom) {
+      this.bloom.strength = 0.6 + this.shake * 0.5;
+    }
     this.flashAmt *= Math.max(0, 1 - 9 * dt);
     this.vigPunch *= Math.max(0, 1 - 5 * dt);
     const vig = this.grade?.uniforms["uVignette"];
-    if (vig) vig.value = 0.18 + this.shake * 0.25 + this.vigPunch; // base must match the GradeShader default
+    if (vig) {
+      vig.value = 0.18 + this.shake * 0.25 + this.vigPunch;
+      // base must match the GradeShader default
+    }
     const fl = this.grade?.uniforms["uFlash"];
-    if (fl) fl.value = this.flashAmt;
+    if (fl) {
+      fl.value = this.flashAmt;
+    }
     const s = this.shake * this.shake;
     this.shakeOff.set(
       (Math.random() - 0.5) * s * 1.4,
@@ -534,7 +622,9 @@ export class View {
 
     // FOV punch-in (kill / heavy hit / your R) — distinct channel from the shake
     this.fovPunch *= Math.max(0, 1 - 7 * dt);
-    if (this.fovPunch < 0.01) this.fovPunch = 0;
+    if (this.fovPunch < 0.01) {
+      this.fovPunch = 0;
+    }
     const fovNow = fovForAspect(CAM.fov, this.camera.aspect) - this.fovPunch;
     if (Math.abs(fovNow - this.camera.fov) > 0.01) {
       this.camera.fov = fovNow;
@@ -547,8 +637,10 @@ export class View {
       // live chase values (easeInOutCubic over 2.4s), then hand off seamlessly
       this.introT += dt;
       const t = Math.min(1, this.introT / INTRO_S);
-      const k = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-      if (this.introT >= INTRO_S) this.introT = -1;
+      const k = t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
+      if (this.introT >= INTRO_S) {
+        this.introT = -1;
+      }
       this.camera.position.lerpVectors(this.introPos, this.camera.position, k);
       this.introScratch.lerpVectors(this.introLook, this.look, k);
       this.camera.lookAt(this.introScratch);
@@ -571,13 +663,19 @@ export class View {
     // Bloom is the other half of a flash blowout: it smears the clipped core out
     // into a halo several times its size. Scaled HERE and nowhere else, so the
     // knob is unreachable from follow() — the one gameplay camera path.
-    if (this.bloom) this.bloom.strength = (0.6 + this.shake * 0.5) * this.bloomScale;
+    if (this.bloom) {
+      this.bloom.strength = (0.6 + this.shake * 0.5) * this.bloomScale;
+    }
     this.flashAmt *= Math.max(0, 1 - 9 * dt);
     this.vigPunch *= Math.max(0, 1 - 5 * dt);
     const vig = this.grade?.uniforms["uVignette"];
-    if (vig) vig.value = 0.18 + this.shake * 0.25 + this.vigPunch;
+    if (vig) {
+      vig.value = 0.18 + this.shake * 0.25 + this.vigPunch;
+    }
     const fl = this.grade?.uniforms["uFlash"];
-    if (fl) fl.value = this.flashAmt;
+    if (fl) {
+      fl.value = this.flashAmt;
+    }
     const s = this.shake * this.shake;
     this.shakeOff.set(
       (Math.random() - 0.5) * s * 1.4,
@@ -586,7 +684,9 @@ export class View {
     );
     this.kickVec.multiplyScalar(Math.max(0, 1 - dt * 11));
     this.fovPunch *= Math.max(0, 1 - 7 * dt);
-    if (this.fovPunch < 0.01) this.fovPunch = 0;
+    if (this.fovPunch < 0.01) {
+      this.fovPunch = 0;
+    }
     const fovNow = fovForAspect(fovBase, this.camera.aspect) - this.fovPunch;
     if (Math.abs(fovNow - this.camera.fov) > 0.01) {
       this.camera.fov = fovNow;
@@ -629,34 +729,6 @@ export class View {
     this.renderer.shadowMap.needsUpdate = true;
   }
 
-  /** Shorten the camera distance so an obstacle never sits between cam & player.
-   *  (px,pz) player, (dx,dz) unit dir from player toward the camera. */
-  private clampCamDistance(px: number, pz: number, dx: number, dz: number): number {
-    let dist = CAM.distance;
-    const consider = (ox: number, oz: number, orad: number): void => {
-      const rr = orad + 0.7;
-      const rx = ox - px;
-      const rz = oz - pz;
-      const b = rx * dx + rz * dz; // projection of obstacle onto the ray
-      if (b <= 0) return; // obstacle is behind the player, not toward the camera
-      const c = rx * rx + rz * rz - rr * rr;
-      const disc = b * b - c;
-      if (disc < 0) return; // ray misses the obstacle
-      const entry = b - Math.sqrt(disc);
-      if (entry > 0.5 && entry - 0.5 < dist) dist = entry - 0.5;
-    };
-    // only the TALL cover pillars can actually block the chase cam — the check
-    // is 2D (ignores height), so low obstacles (partition walls 2.4u, shrine
-    // statues 2.6u) must be skipped or they'd yank the camera every time you
-    // fight around cover. The throne dais (1.6u platform) is excluded for the
-    // same reason.
-    for (const o of OBSTACLES) {
-      if (o.height < 3) continue;
-      consider(o.x, o.y, o.radius);
-    }
-    return Math.max(4, dist);
-  }
-
   addTrauma(amount: number): void {
     this.shake = Math.min(1, this.shake + amount);
   }
@@ -690,12 +762,14 @@ export class View {
     const coarse = "matchMedia" in window && window.matchMedia("(pointer:coarse)").matches;
     this.quality = !coarse && this.prNow >= 1.5 ? "high" : "low";
 
-    this.composer = new EffectComposer(this.renderer); // HalfFloat HDR targets
+    // HalfFloat HDR targets
+    this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     // bloom in linear HDR — threshold 0.7 lets torch pools + >1 VFX cores glow
     this.bloom = new UnrealBloomPass(new THREE.Vector2(w, h), 0.6, 0.5, 0.82);
     this.composer.addPass(this.bloom);
-    this.composer.addPass(new OutputPass()); // ACES tone-map + sRGB encode
+    // ACES tone-map + sRGB encode
+    this.composer.addPass(new OutputPass());
     this.grade = new ShaderPass(GradeShader);
     this.composer.addPass(this.grade);
     if (this.quality === "high") {
@@ -728,7 +802,7 @@ export class View {
   samplePerf(frameDt: number): void {
     this.dtAvg = this.dtAvg * 0.95 + Math.min(frameDt, 0.1) * 0.05;
     if (1 / this.dtAvg < 50 && this.prStep < 2) {
-      this.prStep++;
+      this.prStep += 1;
       this.applyPixelRatio(this.prStep === 1 ? Math.min(1.5, this.prNow) : 1.25);
     }
   }
@@ -755,17 +829,22 @@ export class View {
     const p = this.scratchA.set(x, h, y);
     this.camera.getWorldDirection(this.scratchFwd);
     const toP = this.scratchB.copy(p).sub(this.camera.position);
-    if (toP.dot(this.scratchFwd) <= 0.1) return { x: 0, y: 0, visible: false };
+    if (toP.dot(this.scratchFwd) <= 0.1) {
+      return { visible: false, x: 0, y: 0 };
+    }
     p.project(this.camera);
     return {
+      visible: p.z < 1,
       x: (p.x * 0.5 + 0.5) * window.innerWidth,
       y: (-p.y * 0.5 + 0.5) * window.innerHeight,
-      visible: p.z < 1,
     };
   }
 
   render(): void {
-    if (this.composer) this.composer.render();
-    else this.renderer.render(this.scene, this.camera);
+    if (this.composer) {
+      this.composer.render();
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
   }
 }

@@ -5,14 +5,18 @@ import type { BacklogItem } from "./backlog.ts";
 /** How a feed line is toned when rendered. */
 export type Tone = "marker" | "text" | "tool" | "info" | "warn" | "error" | "success";
 
-export type FeedLine = { id: number; tone: Tone; text: string };
+export interface FeedLine {
+  id: number;
+  tone: Tone;
+  text: string;
+}
 
 export type CurrentTurn = TurnInfo & { startedAt: number; events: number };
 
 export type Screen = "setup" | "dashboard";
 
 /** Immutable view of everything the TUI renders. Replaced on every mutation. */
-export type Snapshot = {
+export interface Snapshot {
   screen: Screen;
   /** True while the agent loop is executing (between start and runEnded). */
   running: boolean;
@@ -32,7 +36,7 @@ export type Snapshot = {
   directive: string | null;
   /** Active agent checkpoint: what it wants feedback on + auto-continue time. */
   checkpoint: { message: string; deadline: number } | null;
-};
+}
 
 const FEED_CAP = 400;
 
@@ -43,19 +47,19 @@ const FEED_CAP = 400;
  */
 export class TuiStore {
   #snapshot: Snapshot = {
-    screen: "setup",
-    running: false,
-    stopping: false,
-    setup: null,
-    state: null,
     approvalPending: false,
-    turn: null,
-    feed: [],
     backlog: [],
-    setupError: null,
-    paused: false,
-    directive: null,
     checkpoint: null,
+    directive: null,
+    feed: [],
+    paused: false,
+    running: false,
+    screen: "setup",
+    setup: null,
+    setupError: null,
+    state: null,
+    stopping: false,
+    turn: null,
   };
   #listeners = new Set<() => void>();
   #nextId = 1;
@@ -71,21 +75,29 @@ export class TuiStore {
 
   set(patch: Partial<Snapshot>): void {
     this.#snapshot = { ...this.#snapshot, ...patch };
-    for (const listener of this.#listeners) listener();
+    for (const listener of this.#listeners) {
+      listener();
+    }
   }
 
   push(tone: Tone, text: string): void {
-    const lines = text.split("\n").map((t): FeedLine => ({ id: this.#nextId++, tone, text: t }));
+    const lines = text.split("\n").map((t): FeedLine => {
+      const id = this.#nextId;
+      this.#nextId += 1;
+      return { id, text: t, tone };
+    });
     this.set({ feed: [...this.#snapshot.feed, ...lines].slice(-FEED_CAP) });
   }
 
   turnStart(turn: TurnInfo): void {
-    this.set({ turn: { ...turn, startedAt: Date.now(), events: 0 } });
+    this.set({ turn: { ...turn, events: 0, startedAt: Date.now() } });
   }
 
   bumpEvents(): void {
-    const turn = this.#snapshot.turn;
-    if (turn) this.set({ turn: { ...turn, events: turn.events + 1 } });
+    const { turn } = this.#snapshot;
+    if (turn) {
+      this.set({ turn: { ...turn, events: turn.events + 1 } });
+    }
   }
 
   turnEnd(): void {
@@ -93,6 +105,6 @@ export class TuiStore {
   }
 
   stateChanged(state: AgentState, approvalPending: boolean): void {
-    this.set({ state, approvalPending });
+    this.set({ approvalPending, state });
   }
 }

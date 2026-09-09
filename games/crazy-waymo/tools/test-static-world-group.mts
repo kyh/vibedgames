@@ -7,12 +7,12 @@ class CountedGroup extends THREE.Group {
   visits = 0;
 
   override updateMatrixWorld(force?: boolean): void {
-    this.visits++;
+    this.visits += 1;
     super.updateMatrixWorld(force);
   }
 }
 
-export function checkStaticWorldGroup(check: Check): void {
+export const checkStaticWorldGroup = (check: Check): void => {
   const scene = new THREE.Scene();
   scene.position.x = 3;
   const root = new StaticWorldGroup();
@@ -26,7 +26,9 @@ export function checkStaticWorldGroup(check: Check): void {
   const world = child.matrixWorld.clone();
   child.visits = 0;
   // Renderer updates the live scene, whose local compose forces descendants.
-  for (let i = 0; i < 120; i++) scene.updateMatrixWorld();
+  for (let i = 0; i < 120; i += 1) {
+    scene.updateMatrixWorld();
+  }
   check("sealed city skips every redundant descendant matrix visit", child.visits === 0);
   check(
     "sealed city preserves composed parent and child transforms",
@@ -73,4 +75,4 @@ export function checkStaticWorldGroup(check: Check): void {
   clone.add(clonedChild);
   clone.updateMatrixWorld(true);
   check("cloned city roots start unsealed", clonedChild.visits === 1);
-}
+};

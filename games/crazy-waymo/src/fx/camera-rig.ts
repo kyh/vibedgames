@@ -10,11 +10,13 @@ type ChaseTarget = Pick<
   "heading" | "position" | "forwardSpeed" | "slip" | "velAngle" | "speed" | "steer" | "isBoosting"
 >;
 
-function lerpAngle(a: number, b: number, t: number): number {
+const lerpAngle = (a: number, b: number, t: number): number => {
   let d = ((b - a + Math.PI) % (Math.PI * 2)) - Math.PI;
-  if (d < -Math.PI) d += Math.PI * 2;
+  if (d < -Math.PI) {
+    d += Math.PI * 2;
+  }
   return a + d * t;
-}
+};
 
 /** The aspect CAMERA.fov was framed for. Wider than this keeps the authored
  *  vertical angle; narrower gets the Hor+ treatment below. */
@@ -35,11 +37,26 @@ const MIN_HILL_BOOM = 8.5;
  * desktop spills off both edges. Solve the vertical angle back from the
  * horizontal one the design aspect gets instead.
  */
-function verticalFovFor(designFov: number, aspect: number): number {
-  if (aspect >= DESIGN_ASPECT) return designFov;
+const verticalFovFor = (designFov: number, aspect: number): number => {
+  if (aspect >= DESIGN_ASPECT) {
+    return designFov;
+  }
   const halfH = Math.tan(THREE.MathUtils.degToRad(designFov) / 2) * DESIGN_ASPECT;
   return Math.min(MAX_VERTICAL_FOV, THREE.MathUtils.radToDeg(2 * Math.atan(halfH / aspect)));
-}
+};
+
+/**
+ * World y the camera may not exceed. Under open sky it parks just above
+ * wherever the camera already is, so the ease has a short constant distance
+ * to travel in both directions instead of chasing infinity.
+ */
+const capFor = (soffit: number, carY: number, camY: number): number => {
+  const open = camY + CAMERA.ceilingRelease;
+  if (soffit === Infinity) {
+    return open;
+  }
+  return Math.min(open, Math.max(carY + CAMERA.ceilingFloor, soffit - CAMERA.ceilingClear));
+};
 
 export class ChaseCamera {
   readonly camera: THREE.PerspectiveCamera;
@@ -49,7 +66,8 @@ export class ChaseCamera {
   private camYaw = 0;
   private look = new THREE.Vector3();
   private shake = 0;
-  private shakeT = 0; // summed-sine phase (framerate-independent shake)
+  // summed-sine phase (framerate-independent shake)
+  private shakeT = 0;
   private shakeOff = new THREE.Vector3();
   // Overhead structure the clip march found this frame (world y of the lowest
   // soffit over the car), and the eased cap the camera is actually held under.
@@ -104,7 +122,7 @@ export class ChaseCamera {
     // otherwise a respawn under a viaduct starts the run inside the deck.
     const soffit = this.ceilingOver(x, z, car.position.y);
     this.ceilY = soffit;
-    this.ceilCap = this.capFor(soffit, car.position.y, car.position.y + CAMERA.height);
+    this.ceilCap = capFor(soffit, car.position.y, car.position.y + CAMERA.height);
     this.camera.position.set(x, Math.min(car.position.y + CAMERA.height, this.ceilCap), z);
     this.clearGround(car.position.y);
     this.look.set(car.position.x, car.position.y + CAMERA.lookHeight, car.position.z);
@@ -113,19 +131,10 @@ export class ChaseCamera {
 
   /** Lowest soffit over (x, z) that the car is genuinely underneath. */
   private ceilingOver(x: number, z: number, carY: number): number {
-    if (!this.ceilings) return Infinity;
+    if (!this.ceilings) {
+      return Infinity;
+    }
     return this.ceilings.ceilingAt(x, z, carY + CAMERA.ceilingProbe);
-  }
-
-  /**
-   * World y the camera may not exceed. Under open sky it parks just above
-   * wherever the camera already is, so the ease has a short constant distance
-   * to travel in both directions instead of chasing infinity.
-   */
-  private capFor(soffit: number, carY: number, camY: number): number {
-    const open = camY + CAMERA.ceilingRelease;
-    if (soffit === Infinity) return open;
-    return Math.min(open, Math.max(carY + CAMERA.ceilingFloor, soffit - CAMERA.ceilingClear));
   }
 
   update(dt: number, car: ChaseTarget, solids: SolidIndex): void {
@@ -139,7 +148,9 @@ export class ChaseCamera {
     let targetYaw = car.heading;
     const slip = THREE.MathUtils.clamp(car.slip, -CAMERA.driftSwing, CAMERA.driftSwing);
     const vh = car.velAngle;
-    if (vh !== null && movingForward) targetYaw = car.heading + slip;
+    if (vh !== null && movingForward) {
+      targetYaw = car.heading + slip;
+    }
     this.camYaw = lerpAngle(this.camYaw, targetYaw, Math.min(1, CAMERA.yawLerp * dt));
     const fwd = this.scrFwd.set(Math.sin(this.camYaw), Math.cos(this.camYaw));
     const perp = this.scrPerp.set(fwd.y, -fwd.x);
@@ -157,13 +168,15 @@ export class ChaseCamera {
     );
     this.avoidClip(car.position, desired, solids);
     const authoredDistance = Math.hypot(distance, height);
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
       const dx = desired.x - car.position.x;
       const dz = desired.z - car.position.z;
       const rise = desired.y - car.position.y;
       const horizontal = Math.hypot(dx, dz);
       const stretch = Math.hypot(horizontal, rise) / authoredDistance;
-      if (rise <= height + 0.1 || horizontal <= MIN_HILL_BOOM || stretch <= 1.03) break;
+      if (rise <= height + 0.1 || horizontal <= MIN_HILL_BOOM || stretch <= 1.03) {
+        break;
+      }
       const shorter = Math.max(MIN_HILL_BOOM, horizontal / stretch);
       desired.set(
         car.position.x + (dx * shorter) / horizontal,
@@ -214,11 +227,16 @@ export class ChaseCamera {
     // Overhead clamp, applied to the FINAL position rather than to `desired`:
     // posLerp is a ~0.2s follow, far too slow to get out of a soffit the car
     // has already passed under. The ease lives in the cap itself instead.
-    const cap = this.capFor(this.ceilY, car.position.y, this.camera.position.y);
-    if (!Number.isFinite(this.ceilCap)) this.ceilCap = cap; // first frame of a fresh rig
+    const cap = capFor(this.ceilY, car.position.y, this.camera.position.y);
+    if (!Number.isFinite(this.ceilCap)) {
+      this.ceilCap = cap;
+      // first frame of a fresh rig
+    }
     const rate = cap < this.ceilCap ? CAMERA.ceilingDuckRate : CAMERA.ceilingRiseRate;
     this.ceilCap += (cap - this.ceilCap) * Math.min(1, rate * dt);
-    if (this.camera.position.y > this.ceilCap) this.camera.position.y = this.ceilCap;
+    if (this.camera.position.y > this.ceilCap) {
+      this.camera.position.y = this.ceilCap;
+    }
     // Follow lag and trauma are applied after avoidClip. The final position
     // needs the same floor guarantee or a downhill cut puts the near plane
     // inside the hill even while the desired position is clear.
@@ -247,10 +265,14 @@ export class ChaseCamera {
   private clearGround(carY: number): void {
     const p = this.camera.position;
     const floor = this.groundAt?.(p.x, p.z, Math.max(carY, p.y));
-    if (floor === undefined || !Number.isFinite(floor)) return;
+    if (floor === undefined || !Number.isFinite(floor)) {
+      return;
+    }
     // A reported deck above the current overhead cap is a ceiling, not the
     // road beneath this camera. Keep the existing underpass constraint.
-    if (floor >= this.ceilY) return;
+    if (floor >= this.ceilY) {
+      return;
+    }
     const ceiling = this.ceilY === Infinity ? Infinity : this.ceilCap;
     p.y = Math.max(p.y, Math.min(floor + GROUND_CLEARANCE, ceiling));
   }
@@ -272,7 +294,7 @@ export class ChaseCamera {
     const steps = 12;
     let t = 1;
     let soffit = this.ceilingOver(carPos.x, carPos.z, carPos.y);
-    for (let i = 1; i <= steps; i++) {
+    for (let i = 1; i <= steps; i += 1) {
       const f = i / steps;
       const px = carPos.x + dx * f;
       const pz = carPos.z + dz * f;
@@ -282,7 +304,9 @@ export class ChaseCamera {
         break;
       }
       const c = this.ceilingOver(px, pz, carPos.y);
-      if (c < soffit) soffit = c;
+      if (c < soffit) {
+        soffit = c;
+      }
       const floor = this.groundAt?.(px, pz, Math.max(carPos.y, rayY));
       if (floor !== undefined && floor < c && rayY < floor + GROUND_CLEARANCE) {
         // Lift the complete sightline over the crest. Pulling all the way

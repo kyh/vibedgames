@@ -45,10 +45,21 @@ export type Dir = "up" | "down" | "left" | "right";
 
 export type PowerupKind = "bomb" | "fire" | "speed";
 
-export type Powerup = { col: number; row: number; kind: PowerupKind };
+// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonRecord needs
+export type Powerup = {
+  col: number;
+  row: number;
+  kind: PowerupKind;
+};
 
-export type PlayerStats = { bombs: number; range: number; speed: number };
+// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonRecord needs
+export type PlayerStats = {
+  bombs: number;
+  range: number;
+  speed: number;
+};
 
+// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonRecord needs
 export type Bomb = {
   id: string;
   ownerId: string;
@@ -58,9 +69,10 @@ export type Bomb = {
   range: number;
 };
 
+// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonRecord needs
 export type Blast = {
   id: string;
-  tiles: Array<{ col: number; row: number }>;
+  tiles: { col: number; row: number }[];
   placedAt: number;
 };
 
@@ -68,6 +80,7 @@ export type Blast = {
  * Per-player networked state. `dir`/`moving` let remote clients pick the
  * right walk animation; `col`/`row` are the authoritative grid position.
  */
+// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonRecord needs
 export type PlayerState = {
   col: number;
   row: number;
@@ -81,6 +94,7 @@ export type PlayerState = {
  * connection), so every client renders it identically and a promoted host
  * keeps driving it. `nextMoveAt` is a host-clock timestamp gating its cadence.
  */
+// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonRecord needs
 export type Bot = {
   id: string;
   col: number;
@@ -96,6 +110,7 @@ export type Bot = {
  * (`{...prev, ...patch}`), so the host always rewrites each nested object
  * wholesale — every field that can reset MUST be present in `emptyShared()`.
  */
+// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonRecord needs
 export type SharedState = {
   grid: Cell[][];
   bombs: Record<string, Bomb>;
@@ -109,17 +124,20 @@ export type SharedState = {
 };
 
 // Player identity colors (ring + label tint), distinct and readable on dark.
-export const COLORS = [0xff5d5d, 0x5d9bff, 0x5dff8b, 0xffd95d, 0xc15dff, 0x5dffe0];
+export const COLORS = [0xff_5d_5d, 0x5d_9b_ff, 0x5d_ff_8b, 0xff_d9_5d, 0xc1_5d_ff, 0x5d_ff_e0];
 
-export function baseStats(): PlayerStats {
-  return { bombs: BASE_BOMBS, range: BASE_RANGE, speed: BASE_MOVE_MS };
+export const baseStats = (): PlayerStats => ({
+  bombs: BASE_BOMBS,
+  range: BASE_RANGE,
+  speed: BASE_MOVE_MS,
+});
+
+export const tileKey = (col: number, row: number): string => `${col},${row}`;
+
+interface Spawn {
+  col: number;
+  row: number;
 }
-
-export function tileKey(col: number, row: number): string {
-  return `${col},${row}`;
-}
-
-type Spawn = { col: number; row: number };
 
 export const SPAWN_POINTS: readonly [Spawn, Spawn, Spawn, Spawn] = [
   { col: 1, row: 1 },
@@ -129,20 +147,17 @@ export const SPAWN_POINTS: readonly [Spawn, Spawn, Spawn, Spawn] = [
 ];
 
 /** True for the 2x2 corner pockets kept crate-free so players can break out. */
-function isSafeCorner(c: number, r: number): boolean {
-  return (
-    (c <= 2 && r <= 2) ||
-    (c >= GRID_COLS - 3 && r <= 2) ||
-    (c <= 2 && r >= GRID_ROWS - 3) ||
-    (c >= GRID_COLS - 3 && r >= GRID_ROWS - 3)
-  );
-}
+const isSafeCorner = (c: number, r: number): boolean =>
+  (c <= 2 && r <= 2) ||
+  (c >= GRID_COLS - 3 && r <= 2) ||
+  (c <= 2 && r >= GRID_ROWS - 3) ||
+  (c >= GRID_COLS - 3 && r >= GRID_ROWS - 3);
 
-export function newGrid(): Cell[][] {
+export const newGrid = (): Cell[][] => {
   const grid: Cell[][] = [];
-  for (let r = 0; r < GRID_ROWS; r++) {
+  for (let r = 0; r < GRID_ROWS; r += 1) {
     const row: Cell[] = [];
-    for (let c = 0; c < GRID_COLS; c++) {
+    for (let c = 0; c < GRID_COLS; c += 1) {
       const edge = r === 0 || c === 0 || r === GRID_ROWS - 1 || c === GRID_COLS - 1;
       const pillar = r % 2 === 0 && c % 2 === 0;
       row.push(edge || pillar ? { kind: "wall" } : { kind: "empty" });
@@ -151,13 +166,19 @@ export function newGrid(): Cell[][] {
   }
   for (const [r, row] of grid.entries()) {
     for (const [c, cell] of row.entries()) {
-      if (cell.kind !== "empty") continue;
-      if (isSafeCorner(c, r)) continue;
-      if (Math.random() < 0.72) row[c] = { kind: "crate" };
+      if (cell.kind !== "empty") {
+        continue;
+      }
+      if (isSafeCorner(c, r)) {
+        continue;
+      }
+      if (Math.random() < 0.72) {
+        row[c] = { kind: "crate" };
+      }
     }
   }
   return grid;
-}
+};
 
 /** How long to wait for the party server before starting a solo match. */
 export const OFFLINE_FALLBACK_MS = 4000;
