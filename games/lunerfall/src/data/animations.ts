@@ -67,12 +67,10 @@ const sliceRanges = (from: number, to: number, n: number): [number, number][] =>
   return out;
 };
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 type AseFrame = {
   filename: string;
   duration: number;
 };
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 type AseData = {
   frames: AseFrame[];
   meta: { frameTags: { name: string; from: number; to: number }[] };

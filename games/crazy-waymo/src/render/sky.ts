@@ -60,7 +60,6 @@ const HORIZON_WELD_BAND = 0.055;
 const DITHER_RELATIVE = 0.005;
 const DITHER_ABSOLUTE = 0.0034;
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature ShaderMaterial uniforms need
 type SkyUniforms = {
   readonly turbidity: THREE.IUniform<number>;
   readonly rayleigh: THREE.IUniform<number>;

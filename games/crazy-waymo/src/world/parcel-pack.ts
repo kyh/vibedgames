@@ -51,7 +51,6 @@ const OBB_STRIDE = 6;
 // x, z, half
 const PILLAR_STRIDE = 3;
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature BinTree needs
 export type PackedPlans = {
   readonly count: number;
   /** Ring and centre coordinates are `origin + value * scale`. */
@@ -82,7 +81,6 @@ export type PackedPlans = {
   readonly districts: string[];
 };
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature BinTree needs
 export type PackedLots = {
   readonly count: number;
   readonly origin: readonly [number, number];

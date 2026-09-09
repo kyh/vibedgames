@@ -174,7 +174,6 @@ const boxesOverlap = (a: OccBox, b: OccBox): boolean => {
 
 // A streamed tile of static city geometry: its own merged meshes under one
 // group, tagged with a centre + cull radius so it can be hidden when far away.
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature BinTree needs
 export type MatRec = {
   color: number;
   roughness: number;
