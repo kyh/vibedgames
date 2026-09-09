@@ -44,6 +44,9 @@ export interface DomGamepad {
   justReleased: (id: string) => boolean;
   /** Recolor the knob + buttons (CSS color). */
   setTint: (color: string) => void;
+  /** Hide the overlay regardless of `visible` policy — e.g. behind a start
+   *  screen — and bring it back. Input keeps working while hidden. */
+  setVisible: (visible: boolean) => void;
   /** Call once per frame from your game loop: publishes press edges and
    *  redraws the overlay. */
   update: () => void;
@@ -203,6 +206,7 @@ export const attachDomGamepad = (options: DomGamepadOptions = {}): DomGamepad =>
   const policy = options.visible ?? "touch";
   const renderOpts = options.render === false ? null : (options.render ?? {});
   let isTouch = false;
+  let visible = true;
   let tint = renderOpts?.tint ?? "#fff";
   let destroyed = false;
 
@@ -275,10 +279,13 @@ export const attachDomGamepad = (options: DomGamepadOptions = {}): DomGamepad =>
     setTint(color) {
       tint = color;
     },
+    setVisible(next) {
+      visible = next;
+    },
     update() {
       pad.reconcile(live);
       pad.nextFrame();
-      view?.draw(pad, tint, isTouch || preShow(policy));
+      view?.draw(pad, tint, visible && (isTouch || preShow(policy)));
     },
   };
 };

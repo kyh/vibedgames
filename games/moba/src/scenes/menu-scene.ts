@@ -495,10 +495,18 @@ export class MenuScene extends Scene {
       action.ring.setVisible(this.focus.kind === "action" && this.focus.action === action);
     }
     if (this.navigationHint) {
-      const text =
-        this.focus.kind === "champion"
-          ? "Choose a champion · arrows / D-pad · Enter / A"
-          : `${this.focus.action.online ? "PLAY ONLINE" : "PLAY vs BOTS"} · Enter / A to play · ↑ to return`;
+      // A phone without a pad has no arrows or Enter to point at.
+      const tapOnly =
+        window.matchMedia("(pointer: coarse)").matches && !(this.pad?.connected ?? false);
+      let text: string;
+      if (this.focus.kind === "champion") {
+        text = tapOnly
+          ? "Choose a champion · tap to pick"
+          : "Choose a champion · arrows / D-pad · Enter / A";
+      } else {
+        const play = this.focus.action.online ? "PLAY ONLINE" : "PLAY vs BOTS";
+        text = tapOnly ? `${play} · tap to play` : `${play} · Enter / A to play · ↑ to return`;
+      }
       this.navigationHint.setText(text).setScale(1);
       this.navigationHint.setScale(
         Math.min(1, (this.scale.width - 32) / Math.max(1, this.navigationHint.width)),

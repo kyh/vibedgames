@@ -907,6 +907,8 @@ export class GameScene extends Scene {
       // undiscoverable before the first touch.
       visible: "coarse",
     });
+    // Gameplay chrome: nothing but the start card until play begins.
+    this.gamepad.setVisible(false);
 
     // Touch path to restart (R has no on-screen equivalent): while dead or
     // after the round ends, any fresh tap restarts. The arming delay stops
@@ -2125,6 +2127,7 @@ export class GameScene extends Scene {
     // started, over the one overlay that teaches the controls.
     unlockAudio();
     this.touchControls = createTouchControls();
+    this.gamepad.setVisible(true);
     notifyGameStarted();
     this.startEl?.classList.add("hide");
     if (this.startEl) {
