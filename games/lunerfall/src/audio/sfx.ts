@@ -1,5 +1,9 @@
-// Self-contained WebAudio synth — no sound files. All SFX + the continuous
-// neon-shrine music bed retain their authored recipes. Only ownership is bounded.
+// Self-contained WebAudio synth — no sound files. All SFX + a subtle neon-shrine
+// music bed are generated at runtime. Unlocked on the first user gesture.
+//
+// Voices are bounded: every cue is a phrase of one or more scheduled sources,
+// and admission retires the oldest routine (then local) phrases before a burst
+// of remote-player cues can starve the local player's own hits and the music.
 
 type Tone = {
   kind: "tone";
@@ -23,7 +27,6 @@ type Voice = {
   onEnded: () => void;
 };
 
-const VOICE_LIMIT = 32;
 const SFX_LIMIT = 26;
 const ROUTINE_LIMIT = 20;
 const LOCAL_LIMIT = 23;
@@ -54,28 +57,21 @@ class Sfx {
   private step = 0;
   private muteIntent = false;
   private paused = false;
-  private disposed = false;
   private voices = new Set<Voice>();
   private phrases: Phrase[] = [];
   private noiseBuffers = new Map<number, AudioBuffer>();
-  private accepted = 0;
-  private dropped = 0;
-  private stopped = 0;
-  private ended = 0;
-  private peak = 0;
 
   get muted(): boolean {
     return this.muteIntent;
   }
 
-  // Session-only preference, including trailer use. No new persistence.
   set muted(next: boolean) {
     this.muteIntent = next;
     this.applyIntent();
   }
 
   private get blocked(): boolean {
-    return this.disposed || this.muteIntent || this.paused;
+    return this.muteIntent || this.paused;
   }
 
   private setMaster(): void {
@@ -119,7 +115,7 @@ class Sfx {
   /** A completion may follow a newer mute/pause. Reconcile only that intent
    * change; an interrupted/rejected device must not spin an unlock retry loop. */
   private reconcileContext(): void {
-    if (!this.bus || this.disposed || this.bus.ctx.state === "closed") return;
+    if (!this.bus || this.bus.ctx.state === "closed") return;
     this.setMaster();
     if (this.transition) return;
     const ctx = this.bus.ctx;
@@ -138,7 +134,6 @@ class Sfx {
     this.stopMusic();
     const finish = (): void => {
       this.transition = null;
-      if (this.disposed) return;
       if (ctx.state === "running") this.hasRun = true;
       if (shouldRun !== !this.blocked) this.reconcileContext();
       else this.syncMusic();
@@ -148,7 +143,6 @@ class Sfx {
 
   // Repeated Select/Game gestures keep the same app-owned music phase/timer.
   unlock(): void {
-    if (this.disposed) return;
     this.musicRequested = true;
     this.ensure();
   }
@@ -170,10 +164,7 @@ class Sfx {
       if (index >= 0) this.phrases.splice(index, 1);
     }
     voice.source.removeEventListener("ended", voice.onEnded);
-    if (reason === "stopped") {
-      this.stopped++;
-      voice.source.stop();
-    } else this.ended++;
+    if (reason === "stopped") voice.source.stop();
     voice.source.disconnect();
     for (const node of voice.nodes) node.disconnect();
   }
@@ -185,29 +176,20 @@ class Sfx {
   private play(notes: readonly Note[], kind: Kind = "routine"): void {
     if (notes.length === 0) return;
     const bus = this.ensure();
-    let music = 0;
-    let routine = 0;
-    for (const voice of this.voices) {
-      if (voice.phrase.kind === "music") music++;
-      if (voice.phrase.kind === "routine") routine++;
-    }
-    const sfxCount = this.voices.size - music;
+    if (!bus) return;
+    const live = { routine: 0, local: 0, essential: 0, music: 0 } satisfies Record<Kind, number>;
+    for (const voice of this.voices) live[voice.phrase.kind]++;
+    const sfxCount = live.routine + live.local + live.essential;
     const limit = kind === "music" ? MUSIC_LIMIT : kind === "local" ? LOCAL_LIMIT : SFX_LIMIT;
-    let essential = 0;
-    for (const voice of this.voices) if (voice.phrase.kind === "essential") essential++;
-    if (
-      !bus ||
+    const refused =
       notes.length > limit ||
-      (kind === "local" && essential + notes.length > LOCAL_LIMIT) ||
+      (kind === "local" && live.essential + notes.length > LOCAL_LIMIT) ||
       (kind === "routine" &&
-        (routine + notes.length > ROUTINE_LIMIT || sfxCount + notes.length > SFX_LIMIT))
-    ) {
-      this.dropped += notes.length;
-      return;
-    }
+        (live.routine + notes.length > ROUTINE_LIMIT || sfxCount + notes.length > SFX_LIMIT));
+    if (refused) return;
     // Music and combat keep independent reserves. Local actions leave three
-    // SFX voices for critical cues; admission always retires whole phrases.
-    let owned = kind === "music" ? music : sfxCount;
+    // SFX voices for essential cues; admission always retires whole phrases.
+    let owned = kind === "music" ? live.music : sfxCount;
     while (owned + notes.length > limit) {
       const oldest =
         kind === "music"
@@ -272,8 +254,6 @@ class Sfx {
     };
     this.voices.add(voice);
     phrase.voices.add(voice);
-    this.accepted++;
-    this.peak = Math.max(this.peak, this.voices.size);
     source.addEventListener("ended", voice.onEnded, { once: true });
     source.start(t);
     source.stop(t + note.dur + 0.02);
@@ -362,7 +342,7 @@ class Sfx {
     }, 200);
   }
 
-  // Original sparse pentatonic bass + soft kick; no wall-time catch-up.
+  // Sparse pentatonic bass + soft kick — a moody neon-shrine bed.
   private musicTick(): void {
     if (!this.ensure()) return;
     const bass = [55, 82.4, 61.7, 73.4];
@@ -376,65 +356,6 @@ class Sfx {
     if (i === 6 || i === 12) notes.push(tone(880 * this.r(0.02), 0.12, "sine", 0.1));
     this.play(notes, "music");
     this.step++;
-  }
-
-  /** App-owned bed survives scene changes; only final game destruction disposes it. */
-  dispose(): void {
-    if (this.disposed) return;
-    this.disposed = true;
-    this.setMaster();
-    this.stopMusic();
-    for (const voice of this.voices) this.release(voice, "stopped");
-    this.noiseBuffers.clear();
-    if (this.bus) {
-      this.bus.music.disconnect();
-      this.bus.master.disconnect();
-      if (this.bus.ctx.state !== "closed") void this.bus.ctx.close().catch(() => undefined);
-    }
-  }
-
-  /** Ownership telemetry, not a measurement of physical speaker output. */
-  diagnostics() {
-    let musicVoices = 0;
-    let routineVoices = 0;
-    let localVoices = 0;
-    let scheduledVoices = 0;
-    const now = this.bus?.ctx.currentTime ?? 0;
-    for (const voice of this.voices) {
-      if (voice.phrase.kind === "music") musicVoices++;
-      if (voice.phrase.kind === "routine") routineVoices++;
-      if (voice.phrase.kind === "local") localVoices++;
-      if (voice.startsAt > now) scheduledVoices++;
-    }
-    return Object.freeze({
-      context: this.bus?.ctx.state ?? "uncreated",
-      muted: this.muted,
-      paused: this.paused,
-      disposed: this.disposed,
-      masterGain: this.bus?.master.gain.value ?? 0,
-      musicGain: this.bus?.music.gain.value ?? 0,
-      contextTransition: this.transition !== null,
-      ownedVoices: this.voices.size,
-      scheduledVoices,
-      routineVoices,
-      localVoices,
-      musicVoices,
-      essentialVoices: this.voices.size - routineVoices - localVoices - musicVoices,
-      phrases: this.phrases.length,
-      limit: VOICE_LIMIT,
-      routineLimit: ROUTINE_LIMIT,
-      localLimit: LOCAL_LIMIT,
-      sfxLimit: SFX_LIMIT,
-      musicLimit: MUSIC_LIMIT,
-      musicRequested: this.musicRequested,
-      schedulerCount: this.musicTimer === null ? 0 : 1,
-      musicStep: this.step,
-      accepted: this.accepted,
-      dropped: this.dropped,
-      stopped: this.stopped,
-      ended: this.ended,
-      peak: this.peak,
-    });
   }
 }
 

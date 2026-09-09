@@ -14,7 +14,7 @@ type SpecialBody = {
   specialCd: number;
 };
 
-/** The existing cast gates, read from either the local body or an accepted checkpoint. */
+/** The cast gates, read from either the local body or an accepted checkpoint. */
 export function specialReadiness(body: SpecialBody): SpecialReadiness {
   if (body.dead || body.downed) return { kind: "busy" };
   if (body.specialCd > 0) return { kind: "cooldown", remaining: body.specialCd };

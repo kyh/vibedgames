@@ -3,8 +3,8 @@
 // captions, no start gate, no end card — the trailer is pure gameplay from the
 // first reveal to the final cut.
 //
-// Farm's final game owner releases this runner; ordinary cuts retain the
-// original choreography in trailer-director.ts.
+// This file is copied identically into each game (like session.ts); keep copies
+// in sync. Game-specific staging lives in the game's own trailer-director file.
 //
 // Integration:
 //   1. Copy this file to games/<game>/src/trailer/trailer-shell.ts unchanged.
@@ -25,7 +25,7 @@
 //   Esc            exits back to the normal game
 
 export type TrailerScene = {
-  /** Stable id, exposed on window["__trailer"] for tooling. */
+  /** Stable id, exposed on window.__trailer for tooling. */
   id: string;
   /** Milliseconds the scene plays (excludes cut time). */
   duration: number;
@@ -78,6 +78,8 @@ export function isTrailerMode(): boolean {
   return new URLSearchParams(window.location.search).has("trailer");
 }
 
+const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
 function el(tag: string, cls: string, parent: Element): HTMLElement {
   const node = document.createElement(tag);
   node.className = cls;
@@ -97,7 +99,7 @@ const CSS = `
 `;
 
 /** The only mutable layer left: the black plate every cut fades through. */
-function buildDom(config: TrailerConfig) {
+function buildDom(config: TrailerConfig): HTMLElement {
   const style = document.createElement("style");
   style.textContent = CSS;
   document.head.appendChild(style);
@@ -105,55 +107,36 @@ function buildDom(config: TrailerConfig) {
   const root = el("div", "vgt-root", document.body);
   const stage = el("div", "vgt-stage", root);
   if (config.vignette !== false) el("div", "vgt-vignette", stage);
-  return {
-    cutPlate: el("div", "vgt-cut", stage),
-    dispose: () => {
-      root.remove();
-      style.remove();
-    },
-  };
+  return el("div", "vgt-cut", stage);
 }
 
 /** Black held after the final cut before ?loop=1 restarts the trailer. */
 const LOOP_GAP_MS = 900;
 
-export function runTrailer(config: TrailerConfig): () => void {
+export function runTrailer(config: TrailerConfig): void {
   const params = new URLSearchParams(window.location.search);
   const autoloop = params.has("loop");
   const cutMs = config.cutMs ?? 120;
-  const dom = buildDom(config);
-  const { cutPlate } = dom;
-  let disposed = false;
-  const timers = new Map<number, () => void>();
-  const frames = new Map<number, () => void>();
-  const wait = (ms: number): Promise<void> =>
-    new Promise((resolve) => {
-      const id = window.setTimeout(() => {
-        timers.delete(id);
-        resolve();
-      }, ms);
-      timers.set(id, resolve);
-    });
+  const cutPlate = buildDom(config);
 
   const state: TrailerState = { sceneId: "", sceneIndex: -1, t: 0, done: false };
-  window["__trailer"] = state;
+  window.__trailer = state;
 
-  const onEscape = (e: KeyboardEvent): void => {
-    if (disposed) return;
+  window.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     const url = new URL(window.location.href);
     for (const p of ["trailer", "loop"]) url.searchParams.delete(p);
     window.location.href = url.toString();
-  };
-  window.addEventListener("keydown", onEscape);
+  });
 
-  const fire = (e: Event): void => {
-    if (disposed || !e.isTrusted) return;
-    window.removeEventListener("pointerdown", fire);
-    window.removeEventListener("keydown", fire);
-    config.onGesture?.();
-  };
   if (config.onGesture) {
+    const onGesture = config.onGesture;
+    const fire = (e: Event): void => {
+      if (!e.isTrusted) return;
+      window.removeEventListener("pointerdown", fire);
+      window.removeEventListener("keydown", fire);
+      onGesture();
+    };
     window.addEventListener("pointerdown", fire);
     window.addEventListener("keydown", fire);
   }
@@ -177,7 +160,7 @@ export function runTrailer(config: TrailerConfig): () => void {
     try {
       await scene.setup();
     } catch (err) {
-      if (!disposed) console.error(`[trailer] setup failed for scene "${scene.id}"`, err);
+      console.error(`[trailer] setup failed for scene "${scene.id}"`, err);
     }
     if (myGen !== generation) return;
 
@@ -187,7 +170,6 @@ export function runTrailer(config: TrailerConfig): () => void {
     }
 
     await wait(cutMs * 0.2);
-    if (myGen !== generation) return;
     setCut(0, cutMs * 0.4);
 
     state.sceneId = scene.id;
@@ -197,13 +179,7 @@ export function runTrailer(config: TrailerConfig): () => void {
     await new Promise<void>((resolve) => {
       const start = performance.now();
       let last = start;
-      let frameId = 0;
-      const schedule = (): void => {
-        frameId = requestAnimationFrame(frame);
-        frames.set(frameId, resolve);
-      };
       const frame = (now: number): void => {
-        frames.delete(frameId);
         if (myGen !== generation) return resolve();
         const t = now - start;
         state.t = t;
@@ -214,14 +190,13 @@ export function runTrailer(config: TrailerConfig): () => void {
         }
         last = now;
         if (t >= scene.duration) return resolve();
-        schedule();
+        requestAnimationFrame(frame);
       };
-      schedule();
+      requestAnimationFrame(frame);
     });
   };
 
   const playFrom = async (startIndex: number): Promise<void> => {
-    if (disposed) return;
     const myGen = ++generation;
     state.done = false;
     for (let i = startIndex; i < config.scenes.length; i++) {
@@ -242,42 +217,15 @@ export function runTrailer(config: TrailerConfig): () => void {
     if (myGen === generation) void playFrom(0);
   };
 
-  const jump = (sceneIndex: number): void => {
-    if (disposed) return;
+  window.__trailerJump = (sceneIndex: number): void => {
     const clamped = Math.max(0, Math.min(config.scenes.length - 1, Math.floor(sceneIndex)));
     void playFrom(clamped);
   };
-  window["__trailerJump"] = jump;
 
   // Roll once boot is covered. Skipped if tooling already called
   // __trailerJump during the lead-in — that claimed generation 1, and starting
   // scene 0 here would silently clobber the jump.
-  void wait(config.leadInMs ?? 600).then(() => {
-    if (!disposed && generation === 0) void playFrom(0);
-    return undefined;
-  });
-  return () => {
-    if (disposed) return;
-    disposed = true;
-    generation++;
-    // Game DESTROY follows Phaser's display teardown: never call a shot's
-    // sprite/camera teardown from this final owner.
-    activeScene = null;
-    for (const [id, resolve] of timers) {
-      window.clearTimeout(id);
-      resolve();
-    }
-    timers.clear();
-    for (const [id, resolve] of frames) {
-      cancelAnimationFrame(id);
-      resolve();
-    }
-    frames.clear();
-    window.removeEventListener("keydown", onEscape);
-    window.removeEventListener("keydown", fire);
-    window.removeEventListener("pointerdown", fire);
-    dom.dispose();
-    if (window["__trailer"] === state) delete window["__trailer"];
-    if (window["__trailerJump"] === jump) delete window["__trailerJump"];
-  };
+  window.setTimeout(() => {
+    if (generation === 0) void playFrom(0);
+  }, config.leadInMs ?? 600);
 }

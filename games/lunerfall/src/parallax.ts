@@ -116,7 +116,8 @@ const LAYERS: Layer[] = [
   { row: 1, depth: -12, sf: 0.58, step: 150, scale: 1.0, alpha: 0.92, tint: 0xffffff },
 ];
 
-/** Retained trailer tag; even the nearest solid scenery stays behind actors. */
+/** Name tag on the near layer, so a caller can pick it out of the returned
+ * list (the trailer drops it on combat shots — see GameScene.trailerStage). */
 export const FG_TREE_NAME = "fg-tree";
 
 const FG_LAYER: Layer = {
@@ -259,7 +260,7 @@ export function buildParallax(
     }
   }
 
-  // Near silhouettes retain their faster parallax without masking a live actor.
+  // Near silhouettes: faster parallax, but drawn behind actors so they never mask play.
   const nearSpacing = FG_LAYER.step / scenery.trees;
   const fgN = Math.min(12, Math.ceil(roomW / nearSpacing) + 1);
   for (let i = 0; i < fgN; i++) {

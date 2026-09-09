@@ -1,7 +1,0 @@
-{
-  "commit": "4c4eb06e",
-  "originalPath": "games/pacman/src/audio/sfx.ts",
-  "originalSha256": "bb326808e7733293b1c7fea5ade8139505d08a4d890878c95437d692ae37e362",
-  "extraction": "Original Sfx owner, constants, eleven recipes and synthesis helpers; HTMLAudio music section omitted.",
-  "oracleSha256": "13752a3bda00d6234a546241c98ae736fcad66929dcbd9d3cbfff7ea904c288b"
-}

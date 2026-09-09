@@ -1,7 +1,6 @@
 import Phaser from "phaser";
 import { DEPTH } from "../config";
 import { itemIcon, type Item } from "../data/items";
-import { onSceneExit } from "./scene-lifetime";
 
 type Matter = "dust" | "droplet" | "leaf" | "spark";
 type BurstOptions = {
@@ -30,13 +29,6 @@ type Reward = {
   target: { x: number; y: number };
   age: number;
 };
-type FxCounts = {
-  particles: number;
-  rewards: number;
-  particleCapacity: number;
-  rewardCapacity: number;
-};
-
 const PARTICLE_CAP = 144;
 const REWARD_CAP = 8;
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -71,10 +63,10 @@ class SceneFx {
     }));
     const update = (_time: number, delta: number): void => this.update(Math.min(delta, 50) / 1000);
     scene.events.on(Phaser.Scenes.Events.POST_UPDATE, update);
-    onSceneExit(scene, () => {
+    // The display list destroys the rectangles on shutdown; a restart pools afresh.
+    scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       scene.events.off(Phaser.Scenes.Events.POST_UPDATE, update);
       pools.delete(scene);
-      // Phaser's display list owns destruction. No references survive a restart.
     });
   }
 
@@ -163,15 +155,6 @@ class SceneFx {
         .setScale(reduced ? 1 : 1 + Math.sin(t * Math.PI) * 0.18);
     }
   }
-
-  counts(): FxCounts {
-    return {
-      particles: this.particles.filter((p) => p.image.visible).length,
-      rewards: this.rewards.filter((r) => r.image.visible).length,
-      particleCapacity: PARTICLE_CAP,
-      rewardCapacity: REWARD_CAP,
-    };
-  }
 }
 
 function poolFor(scene: Phaser.Scene): SceneFx {
@@ -191,11 +174,6 @@ export function rewardArc(
   item: Item,
 ): void {
   poolFor(scene).reward(x, y, target, item);
-}
-
-/** Read-only pool counts for lifecycle/performance checks; never allocates a pool. */
-export function fxCounts(scene: Phaser.Scene): ReturnType<SceneFx["counts"]> | null {
-  return pools.get(scene)?.counts() ?? null;
 }
 
 /** `size` (world pixels) and `life` (ms) default to every gameplay pop; a caller

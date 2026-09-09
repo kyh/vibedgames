@@ -1,126 +1,82 @@
 import { teachingExamples } from "./teaching-examples";
 
-/** Three optional rule cards; one DOM owner, no gameplay state or clock. */
-export class RuleTeaching {
-  private readonly examples = teachingExamples();
-  private index = 0;
-  private painted = -1;
-  private disposed = false;
-  private readonly title: HTMLElement | null;
-  private readonly body: HTMLElement | null;
-  private readonly hint: HTMLElement | null;
-  private readonly count: HTMLElement | null;
-  private readonly previous: HTMLButtonElement | null;
-  private readonly next: HTMLButtonElement | null;
-  private readonly cells: SVGRectElement[] = [];
+const GRID = 8;
+const SVG_NS = "http://www.w3.org/2000/svg";
 
-  constructor(private readonly root: HTMLElement | null) {
-    if (!root) {
-      this.title = this.body = this.hint = this.count = this.previous = this.next = null;
-      return;
+/** Three browsable rule cards on the title banner: an 8×8 floor diagram plus
+ *  copy, each derived from a real Board so the numbers can't drift from play. */
+export function mountRuleTeaching(root: HTMLElement): void {
+  const examples = teachingExamples();
+  let index = 0;
+
+  const grid = document.createElementNS(SVG_NS, "svg");
+  grid.setAttribute("viewBox", "0 0 81 81");
+  grid.setAttribute("aria-hidden", "true");
+  const cells: SVGRectElement[] = [];
+  for (let z = 0; z < GRID; z++) {
+    for (let x = 0; x < GRID; x++) {
+      const cell = document.createElementNS(SVG_NS, "rect");
+      cell.setAttribute("x", String(x * 10 + 0.5));
+      cell.setAttribute("y", String(z * 10 + 0.5));
+      cell.setAttribute("width", "9");
+      cell.setAttribute("height", "9");
+      grid.append(cell);
+      cells.push(cell);
     }
-    const doc = root.ownerDocument;
-    const content = doc.createElement("div");
-    content.className = "rule-content";
-    const grid = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
-    grid.setAttribute("viewBox", "0 0 81 81");
-    grid.setAttribute("aria-hidden", "true");
-    for (let z = 0; z < 8; z++) {
-      for (let x = 0; x < 8; x++) {
-        const cell = doc.createElementNS("http://www.w3.org/2000/svg", "rect");
-        cell.setAttribute("x", String(x * 10 + 0.5));
-        cell.setAttribute("y", String(z * 10 + 0.5));
-        cell.setAttribute("width", "9");
-        cell.setAttribute("height", "9");
-        grid.append(cell);
-        this.cells.push(cell);
-      }
-    }
-    const copy = doc.createElement("div");
-    copy.className = "rule-copy";
-    copy.setAttribute("aria-live", "polite");
-    this.title = doc.createElement("strong");
-    this.body = doc.createElement("p");
-    this.hint = doc.createElement("p");
-    this.hint.className = "view-hint";
-    copy.append(this.title, this.body, this.hint);
-    content.append(grid, copy);
-    const navigation = doc.createElement("div");
-    navigation.className = "rule-navigation";
-    this.previous = doc.createElement("button");
-    this.previous.type = "button";
-    this.previous.textContent = "←";
-    this.previous.setAttribute("aria-label", "Previous rule");
-    this.count = doc.createElement("span");
-    this.count.className = "rule-count";
-    this.next = doc.createElement("button");
-    this.next.type = "button";
-    this.next.textContent = "→";
-    this.next.setAttribute("aria-label", "Next rule");
-    navigation.append(this.previous, this.count, this.next);
-    root.replaceChildren(content, navigation);
-    root.setAttribute("aria-label", "Spatial rules");
-    this.previous.addEventListener("click", this.onPrevious);
-    this.next.addEventListener("click", this.onNext);
-    for (const event of ["pointerdown", "pointerup", "pointermove", "pointercancel", "click"])
-      root.addEventListener(event, this.sealPointer);
-    root.addEventListener("keydown", this.sealActivation);
-    root.addEventListener("keyup", this.sealActivation);
-    this.refresh();
   }
 
-  private readonly onPrevious = (): void => {
-    if (this.disposed || this.index === 0) return;
-    this.index--;
-    this.refresh();
-  };
+  const copy = document.createElement("div");
+  copy.className = "rule-copy";
+  copy.setAttribute("aria-live", "polite");
+  const title = document.createElement("strong");
+  const body = document.createElement("p");
+  const hint = document.createElement("p");
+  hint.className = "view-hint";
+  copy.append(title, body, hint);
 
-  private readonly onNext = (): void => {
-    if (this.disposed || this.index >= this.examples.length - 1) return;
-    this.index++;
-    this.refresh();
-  };
+  const content = document.createElement("div");
+  content.className = "rule-content";
+  content.append(grid, copy);
 
-  private readonly sealPointer = (event: Event): void => event.stopPropagation();
-  private readonly sealActivation = (event: Event): void => {
-    if (event instanceof KeyboardEvent && (event.code === "Space" || event.key === "Enter"))
-      event.stopPropagation();
+  const navButton = (label: string, ariaLabel: string, step: number): HTMLButtonElement => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = label;
+    button.setAttribute("aria-label", ariaLabel);
+    button.addEventListener("click", () => {
+      index = Math.max(0, Math.min(examples.length - 1, index + step));
+      paint();
+    });
+    return button;
   };
+  const previous = navButton("←", "Previous rule", -1);
+  const next = navButton("→", "Next rule", 1);
+  const count = document.createElement("span");
+  count.className = "rule-count";
+  const navigation = document.createElement("div");
+  navigation.className = "rule-navigation";
+  navigation.append(previous, count, next);
 
-  /** Repeated scene/control-context refresh does not replace nodes or rewrite the grid. */
-  refresh(): void {
-    if (this.disposed || this.painted === this.index) return;
-    const example = this.examples[this.index];
+  function paint(): void {
+    const example = examples[index];
     if (!example) return;
-    this.painted = this.index;
-    if (this.title) this.title.textContent = example.title;
-    if (this.body) this.body.textContent = example.body;
-    if (this.hint) this.hint.textContent = example.hint;
-    if (this.count) this.count.textContent = `${this.index + 1} / ${this.examples.length}`;
-    if (this.previous) this.previous.disabled = this.index === 0;
-    if (this.next) this.next.disabled = this.index === this.examples.length - 1;
-    this.cells.forEach((cell, index) => {
-      const x = index % 8;
-      const z = Math.floor(index / 8);
+    title.textContent = example.title;
+    body.textContent = example.body;
+    hint.textContent = example.hint;
+    count.textContent = `${index + 1} / ${examples.length}`;
+    previous.disabled = index === 0;
+    next.disabled = index === examples.length - 1;
+    cells.forEach((cell, i) => {
+      const x = i % GRID;
+      const z = Math.floor(i / GRID);
       const occupied = example.cells.some((c) => c.x === x && c.z === z);
       const landing = example.landing.some((c) => c.x === x && c.z === z);
-      cell.setAttribute(
-        "class",
-        `rule-cell${occupied ? (example.clear ? " rule-cell-clear" : " rule-cell-locked") : ""}${landing ? " rule-cell-landing" : ""}`,
-      );
+      const fill = occupied ? (example.clear ? " rule-cell-clear" : " rule-cell-locked") : "";
+      cell.setAttribute("class", `rule-cell${fill}${landing ? " rule-cell-landing" : ""}`);
     });
   }
 
-  dispose(): void {
-    if (this.disposed) return;
-    this.disposed = true;
-    this.previous?.removeEventListener("click", this.onPrevious);
-    this.next?.removeEventListener("click", this.onNext);
-    for (const event of ["pointerdown", "pointerup", "pointermove", "pointercancel", "click"])
-      this.root?.removeEventListener(event, this.sealPointer);
-    this.root?.removeEventListener("keydown", this.sealActivation);
-    this.root?.removeEventListener("keyup", this.sealActivation);
-    this.root?.replaceChildren();
-    this.cells.length = 0;
-  }
+  root.replaceChildren(content, navigation);
+  root.setAttribute("aria-label", "Spatial rules");
+  paint();
 }

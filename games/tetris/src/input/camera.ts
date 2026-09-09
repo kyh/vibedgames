@@ -104,9 +104,9 @@ export class PoseCamera {
   private stream: MediaStream | null = null;
   private releaseMediaEvents: (() => void) | null = null;
   private rafId: number | null = null;
-  private state: "idle" | "starting" | "live" | "unavailable" | "destroyed" = "idle";
+  private state: "idle" | "starting" | "live" | "unavailable" = "idle";
+  /** Bumped on every start/failure so a stale await never touches a newer attempt. */
   private attempt = 0;
-  private tracking = false;
   private lastVideoTime = -1;
   private lastTimestamp = 0;
 
@@ -131,35 +131,23 @@ export class PoseCamera {
     this.toggle.type = "button";
     this.panel.append(this.video, this.canvas, this.status, this.toggle);
     this.panel.setAttribute("data-gamepad-ignore", "");
-    this.toggle.addEventListener("click", this.onToggle);
-    this.toggle.addEventListener("keydown", this.sealKey);
-    this.toggle.addEventListener("keyup", this.sealKey);
-    this.toggle.addEventListener("pointerdown", this.sealPointer);
-    this.toggle.addEventListener("pointerup", this.sealPointer);
+    this.toggle.addEventListener("click", (event) => {
+      this.panel.classList.toggle("expanded");
+      if (this.state === "idle" || this.state === "unavailable") void this.start();
+      this.updateToggle();
+      // A mouse click must not leave the button focused: Space would then
+      // toggle the panel instead of hard-dropping.
+      if (event.detail > 0) this.toggle.blur();
+    });
     this.updateToggle();
     document.body.appendChild(this.panel);
   }
 
-  private readonly onToggle = (event: Event): void => {
-    event.stopPropagation();
-    if (this.state === "destroyed") return;
-    this.panel.classList.toggle("expanded");
-    if (this.state === "idle" || this.state === "unavailable") void this.start();
-    this.updateToggle();
-  };
-
-  private readonly sealKey = (event: KeyboardEvent): void => {
-    if (event.code === "Enter" || event.code === "Space") event.stopPropagation();
-  };
-
-  private readonly sealPointer = (event: Event): void => event.stopPropagation();
-
-  /** Camera, video playback and model retain their original startup order.
-   * Every await belongs to one attempt, including resources returned after teardown. */
+  /** Request the camera, play the video, then load the model. Retries after a
+   *  failure (denied camera, unplugged device, model error) via the panel button. */
   async start(): Promise<void> {
     if (this.state !== "idle" && this.state !== "unavailable") return;
     const attempt = ++this.attempt;
-    this.releaseCapture();
     this.state = "starting";
     this.setStatus("starting camera…");
     this.updateToggle();
@@ -208,9 +196,11 @@ export class PoseCamera {
   }
 
   private current(attempt: number): boolean {
-    return this.state !== "destroyed" && this.attempt === attempt;
+    return this.attempt === attempt;
   }
 
+  /** Degrade to keyboard/touch: stop the stream so the webcam LED matches the
+   *  status text, and offer a retry. */
   private fail(attempt: number): void {
     if (!this.current(attempt)) return;
     this.attempt++;
@@ -240,21 +230,6 @@ export class PoseCamera {
     this.tasks = null;
     this.lastVideoTime = -1;
     this.lastTimestamp = 0;
-    this.tracking = false;
-  }
-
-  destroy(): void {
-    if (this.state === "destroyed") return;
-    this.state = "destroyed";
-    this.attempt++;
-    this.releaseCapture();
-    this.toggle.removeEventListener("click", this.onToggle);
-    this.toggle.removeEventListener("keydown", this.sealKey);
-    this.toggle.removeEventListener("keyup", this.sealKey);
-    this.toggle.removeEventListener("pointerdown", this.sealPointer);
-    this.toggle.removeEventListener("pointerup", this.sealPointer);
-    this.toggle.disabled = true;
-    this.panel.remove();
   }
 
   private async loadModel(attempt: number): Promise<void> {
@@ -299,7 +274,6 @@ export class PoseCamera {
       try {
         const result = landmarker.detectForVideo(video, timestamp);
         const landmarks = result.landmarks[0];
-        this.tracking = landmarks !== undefined;
         if (landmarks) {
           this.drawSkeleton(landmarks);
           const keypoints = landmarksToKeypoints(landmarks, video.videoWidth, video.videoHeight);
@@ -350,18 +324,6 @@ export class PoseCamera {
             : "Expand body camera";
     this.toggle.setAttribute("aria-label", action);
     this.toggle.setAttribute("aria-expanded", String(expanded));
-  }
-
-  diagnostics() {
-    return Object.freeze({
-      state: this.state,
-      attempt: this.attempt,
-      tracking: this.tracking,
-      raf: this.rafId !== null,
-      stream: this.stream !== null,
-      model: this.landmarker !== null,
-      drawing: this.drawingUtils !== null,
-    });
   }
 
   private setStatus(message: string | null): void {

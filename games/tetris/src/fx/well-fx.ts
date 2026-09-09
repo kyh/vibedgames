@@ -11,15 +11,8 @@ type Mark = {
 type Streak = { mesh: Mesh<BoxGeometry, MeshBasicMaterial>; length: number; bottom: number };
 type Pulse = { kind: "power" | "rescue"; age: number; y: number };
 
-export type WellFxState = {
-  marks: number;
-  streaks: number;
-  pulse: "power" | "rescue" | null;
-  danger: boolean;
-};
-
-/** Four drop trails, 64 exact cell contacts and one well pulse. Pure presentation:
- * no board reads, randomness, timers or references to physics-owned cube meshes. */
+/** Four drop trails, 64 cell-contact rings, one well pulse, and the HUD's
+ *  event notice + stack-height warning. Pure presentation, fed by the scene. */
 export class WellFx {
   private readonly motion = window.matchMedia("(prefers-reduced-motion: reduce)");
   private readonly marks: Mark[];
@@ -39,6 +32,7 @@ export class WellFx {
   private noticeLeft = 0;
   private danger = false;
   private warningText = "";
+  private noticeOpacity = "";
 
   constructor(scene: Scene) {
     // Four-sided rings follow the square cells, rather than introducing a new silhouette.
@@ -125,26 +119,33 @@ export class WellFx {
     this.announce("STACK SAVED", "#a7e8dc");
   }
 
+  /** Called every frame; only writes the DOM when the warning changes. */
   setHeight(maxY: number, playing: boolean): void {
-    this.danger = playing && maxY >= DEATH_HEIGHT - 2;
-    this.dangerMesh.visible = this.danger;
-    if (!this.warning) return;
-    this.warning.hidden = !this.danger;
+    const danger = playing && maxY >= DEATH_HEIGHT - 2;
     const layers = Math.max(0, DEATH_HEIGHT - maxY);
-    const text = `STACK HIGH · ${layers} LAYER${layers === 1 ? "" : "S"} TO LIMIT`;
-    if (text !== this.warningText) {
-      this.warningText = text;
-      this.warning.textContent = text;
-    }
+    const text = danger ? `STACK HIGH · ${layers} LAYER${layers === 1 ? "" : "S"} TO LIMIT` : "";
+    if (danger === this.danger && text === this.warningText) return;
+    this.danger = danger;
+    this.warningText = text;
+    this.dangerMesh.visible = danger;
+    if (!this.warning) return;
+    this.warning.hidden = !danger;
+    this.warning.textContent = text;
   }
 
   private announce(text: string, color: string): void {
     if (this.notice) {
       this.notice.textContent = text;
       this.notice.style.color = color;
-      this.notice.style.opacity = "1";
     }
     this.noticeLeft = 1.25;
+    this.setNoticeOpacity("1");
+  }
+
+  private setNoticeOpacity(opacity: string): void {
+    if (opacity === this.noticeOpacity) return;
+    this.noticeOpacity = opacity;
+    if (this.notice) this.notice.style.opacity = opacity;
   }
 
   update(dt: number): void {
@@ -182,7 +183,7 @@ export class WellFx {
     }
     if (this.noticeLeft > 0) {
       this.noticeLeft = Math.max(0, this.noticeLeft - dt);
-      if (this.notice) this.notice.style.opacity = String(Math.min(1, this.noticeLeft / 0.25));
+      this.setNoticeOpacity(Math.min(1, this.noticeLeft / 0.25).toFixed(3));
     }
   }
 
@@ -191,24 +192,13 @@ export class WellFx {
     this.pulse = null;
     this.pulseMesh.visible = false;
     this.noticeLeft = 0;
-    if (this.notice) {
-      this.notice.textContent = "";
-      this.notice.style.opacity = "0";
-    }
+    if (this.notice) this.notice.textContent = "";
+    this.setNoticeOpacity("0");
     for (const mark of this.marks) {
       mark.life = 0;
       mark.mesh.visible = false;
     }
     for (const streak of this.streaks) streak.mesh.visible = false;
     this.setHeight(-1, false);
-  }
-
-  counts(): WellFxState {
-    return {
-      marks: this.marks.filter((mark) => mark.life > 0).length,
-      streaks: this.streaks.filter((streak) => streak.mesh.visible).length,
-      pulse: this.pulse?.kind ?? null,
-      danger: this.danger,
-    };
   }
 }

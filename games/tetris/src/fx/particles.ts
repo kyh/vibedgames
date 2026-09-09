@@ -142,8 +142,4 @@ export class ParticlePool {
     this.live = 0;
     this.mesh.count = 0;
   }
-
-  get count(): number {
-    return this.live;
-  }
 }

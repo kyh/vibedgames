@@ -44,17 +44,18 @@ export function readFarmerPose(value: JsonValue | undefined): FarmerPose | null 
   return { clip, frame, elapsed, playing, revision };
 }
 
-/** Read the actual authored clip, including its sub-frame age; never restart a tool. */
+/** The local farmer's current clip with its sub-frame age, so peers show the tool mid-swing. */
 export function farmerPose(sprite: Phaser.GameObjects.Sprite, revision: number): FarmerPose | null {
   const anim = sprite.anims;
-  if (!anim.currentAnim?.key.startsWith("p-")) return null;
-  return readFarmerPose({
-    clip: anim.currentAnim?.key.slice(2),
-    frame: (anim.currentFrame?.index ?? 0) - 1,
+  const clip = anim.currentAnim?.key.replace(/^p-/, "");
+  if (!action(clip)) return null;
+  return {
+    clip,
+    frame: (anim.currentFrame?.index ?? 1) - 1,
     elapsed: anim.accumulator,
     playing: anim.isPlaying,
     revision,
-  });
+  };
 }
 
 export function readFarmer(state: JsonValue | undefined): FarmerState | null {

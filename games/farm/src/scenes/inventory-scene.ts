@@ -7,7 +7,6 @@ import { Sound } from "../render/audio";
 import { GameScene } from "./game-scene";
 import { seasonOfDay } from "../data/calendar";
 import { JournalView } from "../render/journal-view";
-import { onSceneExit } from "../render/scene-lifetime";
 import { skillPerk } from "../render/skill-readout";
 import { slotIconScale } from "../render/hotbar-layout";
 
@@ -116,23 +115,15 @@ export class InventoryScene extends Phaser.Scene {
     if (this.onResize) this.scale.off("resize", this.onResize);
     this.onResize = () => this.layout();
     this.scale.on("resize", this.onResize);
-    const scale = this.scale;
-    const resize = this.onResize;
-    const input = this.input;
-    const keyboard = input.keyboard;
-    const click = (p: Phaser.Input.Pointer): void => this.onClick(p);
-    const close = (): void => this.close();
-    input.on("pointerdown", click);
-    keyboard?.on("keydown-ESC", close);
-    keyboard?.on("keydown-I", close);
-    onSceneExit(this, () => {
-      scale.off("resize", resize);
-      input.off("pointerdown", click);
-      keyboard?.off("keydown-ESC", close);
-      keyboard?.off("keydown-I", close);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      if (this.onResize) this.scale.off("resize", this.onResize);
       journal.destroy(false);
       if (this.journal === journal) this.journal = null;
     });
+
+    this.input.on("pointerdown", (p: Phaser.Input.Pointer) => this.onClick(p));
+    this.input.keyboard?.on("keydown-ESC", () => this.close());
+    this.input.keyboard?.on("keydown-I", () => this.close());
   }
 
   private close(): void {

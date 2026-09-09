@@ -15,8 +15,8 @@ export class BootScene extends Phaser.Scene {
   preload(): void {
     this.makeUtilTextures();
 
-    // Keep the original grass beyond the new stone courtyard. Old asset files
-    // remain available; generated replacements use separate versioned paths.
+    // The original grass stays as the garden beyond the courtyard. The v2 stone
+    // floor is 384px = six slabs, so each slab lands on one 64px grid cell.
     this.load.image("grass", "assets/floor.webp");
     this.load.image("floor", "assets/floor-v2.webp");
     this.load.image("wall", "assets/wall-v2.webp");
@@ -42,8 +42,8 @@ export class BootScene extends Phaser.Scene {
   }
 
   create(): void {
-    // Smooth the painted art at the follow camera's fractional zoom. The
-    // original character sheets and fire retain the game's NEAREST sampling.
+    // Smooth the painted v2 props at the follow camera's fractional zoom; the
+    // pixel-art character sheets and fire keep NEAREST.
     for (const key of ["floor", "wall", "crate", "bomb", "pow-bomb", "pow-fire", "pow-speed"])
       this.textures.get(key).setFilter(Phaser.Textures.FilterMode.LINEAR);
 

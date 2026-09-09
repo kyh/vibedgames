@@ -2,6 +2,7 @@ import Phaser from "phaser";
 
 import { HERO_ORIGIN_Y, HERO_SCALE, interp } from "../config";
 import { kitClipKey } from "../data/clip-timing";
+import type { HeroName } from "../data/animations";
 import type { HeroDef } from "../data/heroes";
 import type { NetPlayer } from "../net/snapshot";
 import { afterImage, landPuff, smoke } from "../sys/fx";
@@ -65,7 +66,7 @@ export class Player {
   readonly body: PlayerBody;
   readonly sprite: Phaser.GameObjects.Sprite;
   private baseScale = HERO_SCALE;
-  private name: string;
+  readonly name: HeroName;
   private lastSwing = -1;
   private lastSpecial = -1;
   private lastRunDust = 0;

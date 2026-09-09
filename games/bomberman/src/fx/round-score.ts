@@ -2,8 +2,8 @@ export type RoundScoreMode = "silent" | "playing" | "duel";
 export type ScoreBeat = Readonly<{ mode: "playing" | "duel"; step: number }>;
 type ScoreFrame = { kind: "rebase" } | { kind: "beat"; beat: ScoreBeat };
 
-/** A render-driven clock: emit at most the current beat, never a missed queue.
- * Pause, transport gaps, mode changes and world rewinds all rebase silently. */
+/** A render-driven metronome: emits at most the current beat, never a missed
+ * queue. Pauses, transport gaps, mode changes and clock rewinds all rebase. */
 export class RoundScore {
   private mode: RoundScoreMode = "silent";
   private origin = 0;
@@ -35,13 +35,9 @@ export class RoundScore {
     this.step = step;
     return skipped ? { kind: "rebase" } : { kind: "beat", beat: { mode, step: step % 16 } };
   }
-
-  diagnostics() {
-    return Object.freeze({ mode: this.mode, step: this.step });
-  }
 }
 
-/** Deliberate rests keep the courtyard open. The duel adds responses, not
+/** Deliberate rests keep the courtyard open; the duel adds responses, not
  * volume. Two-note downbeats are the only simultaneous background phrase. */
 export function scoreNotes(beat: ScoreBeat): readonly number[] {
   switch (beat.step) {

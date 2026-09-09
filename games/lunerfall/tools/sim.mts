@@ -28,6 +28,13 @@ import {
 } from "../src/entities/player-body.ts";
 import { COLS, Grid, ROWS } from "../src/sys/grid.ts";
 import { RunManager } from "../src/sys/run.ts";
+import { BossActing, enemyPose, remoteBlend } from "../src/data/actor-presentation.ts";
+import { readRunRecap } from "../src/data/run-recap.ts";
+import { specialReadiness } from "../src/data/special-readiness.ts";
+import { parseRoomCode, partyLink } from "../src/hub/party-link.ts";
+import { readCheckpoint, type ExpeditionCheckpoint } from "../src/net/checkpoint.ts";
+import type { NetRoom } from "../src/net/snapshot.ts";
+import { checkpointRng, rand, reseed, restoreRng } from "../src/sys/rng.ts";
 
 const STEP = 1 / 60;
 const FLOOR_Y = (ROWS - 2) * TILE; // feet rest here on the test floor
@@ -55,6 +62,10 @@ const NEUTRAL: BodyInput = {
   specialPressed: false,
 };
 const inp = (o: Partial<BodyInput>): BodyInput => ({ ...NEUTRAL, ...o });
+// A checkpoint crosses the wire as JSON; round-trip it the same way.
+function wire<T>(v: T): T {
+  return JSON.parse(JSON.stringify(v));
+}
 
 // Settle onto the floor first (a couple steps of gravity + contact).
 function spawn(x = 240, y = FLOOR_Y, hero: keyof typeof HEROES = "axion"): PlayerBody {
@@ -729,6 +740,299 @@ check(
     "generator rarely needs the fallback",
     firstTry / N > 0.9,
     `${Math.round((firstTry / N) * 100)}% first-try`,
+  );
+}
+
+// ── Host-migration checkpoints ────────────────────────────────────────────────
+// A body restored from its checkpoint must continue exactly as the original
+// would have: the successor host resumes the sim mid-swing, mid-dash, mid-fuse.
+{
+  const p = spawn(120, FLOOR_Y, "reaper");
+  run(p, 30, { right: true }, { 3: { jumpPressed: true }, 12: { dashPressed: true } });
+  p.buffer(inp({ attackPressed: true }));
+  p.step(STEP);
+  const twin = new PlayerBody(Grid.test(), 0, 0, HEROES.reaper.kit);
+  twin.restore(wire(p.checkpoint()));
+  check(
+    "player checkpoint survives the wire",
+    JSON.stringify(twin.checkpoint()) === JSON.stringify(p.checkpoint()),
+  );
+  run(p, 40, { left: true }, { 5: { specialPressed: true }, 20: { jumpPressed: true } });
+  run(twin, 40, { left: true }, { 5: { specialPressed: true }, 20: { jumpPressed: true } });
+  check(
+    "restored player body replays identically",
+    JSON.stringify(twin.checkpoint()) === JSON.stringify(p.checkpoint()),
+  );
+  const g = Grid.test();
+  for (const kind of [ENEMIES.warrior, ENEMIES.archer, ENEMIES.bomber, ENEMIES.spearman]) {
+    const e = new EnemyBody(kind, g, 300, FLOOR_Y);
+    for (let i = 0; i < 50; i++) e.step(STEP, 200, FLOOR_Y);
+    const copy = new EnemyBody(kind, g, 0, 0);
+    copy.restore(wire(e.checkpoint()));
+    for (let i = 0; i < 90; i++) {
+      e.step(STEP, 200 + i, FLOOR_Y);
+      copy.step(STEP, 200 + i, FLOOR_Y);
+    }
+    check(
+      `restored ${kind.name} replays identically`,
+      JSON.stringify(copy.checkpoint()) === JSON.stringify(e.checkpoint()),
+      `${e.state}`,
+    );
+  }
+  const boss = new BossBody(g, 240, FLOOR_Y, 2);
+  for (let i = 0; i < 200; i++) boss.step(STEP, 120, FLOOR_Y);
+  const bossCopy = new BossBody(g, 0, 0, 2);
+  bossCopy.restore(wire(boss.checkpoint()));
+  for (let i = 0; i < 120; i++) {
+    boss.step(STEP, 120 + i, FLOOR_Y);
+    bossCopy.step(STEP, 120 + i, FLOOR_Y);
+  }
+  check(
+    "restored boss replays identically",
+    JSON.stringify(bossCopy.checkpoint()) === JSON.stringify(boss.checkpoint()),
+    boss.state,
+  );
+
+  const vs = new VersusMatch();
+  vs.beginMatch();
+  vs.step(5);
+  vs.damage("guest", 2);
+  const vsCopy = new VersusMatch();
+  vsCopy.restore(wire(vs.checkpoint()));
+  check(
+    "versus match checkpoint round-trips",
+    JSON.stringify(vsCopy.checkpoint()) === JSON.stringify(vs.checkpoint()) &&
+      vsCopy.encode().guestHp === VS_HEARTS - 2,
+  );
+
+  reseed(7);
+  rand();
+  rand();
+  const word = checkpointRng();
+  const expected = [rand(), rand(), rand()];
+  restoreRng(word);
+  check(
+    "rng checkpoint resumes the exact stream without a draw",
+    expected.every((v) => v === rand()),
+  );
+
+  const readiness = p.checkpoint();
+  check(
+    "special readiness: idle body is ready",
+    specialReadiness({
+      ...readiness,
+      specialCd: 0,
+      attackStep: 0,
+      dashTime: 0,
+      hurtStun: 0,
+      specialActive: false,
+      dead: false,
+      downed: false,
+    }).kind === "ready",
+  );
+  check(
+    "special readiness: cooldown reports remaining",
+    specialReadiness({
+      ...readiness,
+      specialCd: 1.5,
+      attackStep: 0,
+      dashTime: 0,
+      hurtStun: 0,
+      specialActive: false,
+      dead: false,
+      downed: false,
+    }).kind === "cooldown",
+  );
+  check(
+    "special readiness: a downed body is busy",
+    specialReadiness({ ...readiness, specialCd: 0, downed: true }).kind === "busy",
+  );
+
+  // The validator must admit exactly what the host encodes — nothing looser.
+  const def = START();
+  const room: NetRoom = {
+    seq: 3,
+    mode: "coop",
+    type: "start",
+    cols: def.grid.cols,
+    rows: def.grid.rows,
+    cells: Array.from(def.grid.cells),
+    spawnX: def.playerSpawn.x,
+    spawnY: def.playerSpawn.y,
+    doors: [],
+    propKey: "",
+    mustClear: false,
+  };
+  const checkpoint: ExpeditionCheckpoint = {
+    version: 1,
+    runId: "host:1",
+    writer: "host",
+    term: 0,
+    tick: 400,
+    room: 3,
+    rng: word,
+    seats: { host: "host", guest: "guest" },
+    players: [
+      {
+        id: "host",
+        hero: "reaper",
+        body: p.checkpoint(),
+        combat: {
+          hitSwing: [1],
+          lastSwing: 2,
+          hitSpecial: [],
+          lastSpecial: -1,
+          bossSwing: -1,
+          bossSpecial: -1,
+        },
+        versusHits: { swing: 0, special: 0 },
+      },
+      {
+        id: "guest",
+        hero: "axion",
+        body: twin.checkpoint(),
+        combat: {
+          hitSwing: [],
+          lastSwing: -1,
+          hitSpecial: [],
+          lastSpecial: -1,
+          bossSwing: -1,
+          bossSpecial: -1,
+        },
+        versusHits: { swing: 0, special: 0 },
+      },
+    ],
+    enemies: [
+      {
+        id: 1,
+        name: "warrior",
+        body: new EnemyBody(ENEMIES.warrior, g, 300, FLOOR_Y).checkpoint(),
+        tint: 0xffffff,
+        deathAge: null,
+      },
+    ],
+    boss: boss.checkpoint(),
+    bossDeathAge: 0,
+    nextEnemyId: 2,
+    arrows: [],
+    shots: [
+      {
+        x: 1,
+        y: 2,
+        vx: 3,
+        vy: 0,
+        life: 1,
+        dmg: 1,
+        owner: "host",
+        hit: [1],
+        hitP: [],
+        hitBoss: false,
+      },
+    ],
+    hazards: [],
+    run: { biome: 1, depth: 1, type: "start", offers: ["combat", "elite"] },
+    mods: baseMods(),
+    relics: [RELICS[0]?.id ?? ""],
+    merchant: [],
+    feature: null,
+    hearts: 3,
+    maxHearts: 3,
+    gold: 12,
+    score: 40,
+    combo: 0,
+    comboTime: 0,
+    freeze: 0,
+    accumulator: 0,
+    cleared: true,
+    phase: { kind: "active" },
+    mode: "coop",
+    versus: null,
+    lastStand: { id: "guest", bleed: 4, revive: 0.5 },
+  };
+  const ok = readCheckpoint(wire({ checkpoint, room }));
+  check("validator admits a host-shaped checkpoint", ok.kind === "ready");
+  check(
+    "absent shared state is absent, not invalid",
+    readCheckpoint(null).kind === "absent" && readCheckpoint({}).kind === "absent",
+  );
+  const reject = (label: string, patch: Partial<ExpeditionCheckpoint>, r: NetRoom = room) =>
+    check(
+      `validator rejects ${label}`,
+      readCheckpoint(wire({ checkpoint: { ...checkpoint, ...patch }, room: r })).kind === "invalid",
+    );
+  reject("a room seq mismatch", { room: 4 });
+  const [first] = checkpoint.players;
+  if (first)
+    reject("a swing hit on an unknown enemy", {
+      players: [{ ...first, combat: { ...first.combat, hitSwing: [9] } }],
+    });
+  reject("a last stand on a missing seat", { lastStand: { id: "ghost", bleed: 1, revive: 0 } });
+  reject("an enemy id past the allocator", { nextEnemyId: 1 });
+  reject("a versus checkpoint carrying last stand", {
+    mode: "versus",
+    versus: vs.checkpoint(),
+    lastStand: { id: "host", bleed: 1, revive: 0 },
+  });
+  reject("a coop checkpoint on a versus room", {}, { ...room, mode: "vs" });
+}
+
+// ── Pure hub / presentation helpers ──────────────────────────────────────────
+{
+  check("room code parses case-insensitively", parseRoomCode(" ab3z ") === "AB3Z");
+  check(
+    "room code rejects the wrong length",
+    parseRoomCode("ABC") === null && parseRoomCode("ABCDE") === null,
+  );
+  const link = partyLink("https://lunerfall.vibedgames.com/?hero=axion&debug=1#x", "AB3Z", "vs");
+  check(
+    "invite link carries only room + mode",
+    link === "https://lunerfall.vibedgames.com/?party=AB3Z&mode=vs",
+  );
+  check("coop invite omits mode", !partyLink("https://x.test/", "AB3Z", "coop").includes("mode"));
+
+  const banked = {
+    kind: "banked",
+    hero: "axion",
+    biome: 2,
+    depth: 5,
+    gold: 30,
+    score: 90,
+    shardsEarned: 12,
+    bestScore: 120,
+  };
+  check("run recap accepts a banked receipt", readRunRecap(banked)?.kind === "banked");
+  check("run recap rejects best below score", readRunRecap({ ...banked, bestScore: 10 }) === null);
+  check("run recap rejects an unknown hero", readRunRecap({ ...banked, hero: "nobody" }) === null);
+  check(
+    "run recap accepts a guest receipt",
+    readRunRecap({ kind: "coop-guest", hero: "reaper", biome: 1, depth: 1, gold: 0 })?.kind ===
+      "coop-guest",
+  );
+
+  check(
+    "remote blend matches the 0.35/frame fraction at 60Hz",
+    Math.abs(remoteBlend(1 / 60) - 0.35) < 1e-9,
+  );
+  check(
+    "remote blend is monotone in dt",
+    remoteBlend(1 / 30) > remoteBlend(1 / 60) && remoteBlend(0) === 0,
+  );
+  const strike = enemyPose(ENEMIES.warrior, { state: "attack", elapsed: 0 });
+  check("melee attack holds the contact frame", strike?.clip === "strike" && strike.frame === 3);
+  check(
+    "locomotion keeps the authored loop",
+    enemyPose(ENEMIES.warrior, { state: "chase", elapsed: 1 }) === null,
+  );
+  const acting = new BossActing();
+  acting.pose({ state: "slam", elapsed: 0.1 });
+  const landing = acting.pose({ state: "idle", elapsed: 0.05 });
+  check(
+    "boss slam landing finishes its drawing after touchdown",
+    landing?.clip === "flame-slam" && landing.frame >= 11,
+  );
+  check(
+    "boss idle without a slam has no pose",
+    new BossActing().pose({ state: "idle", elapsed: 0.05 }) === null,
   );
 }
 

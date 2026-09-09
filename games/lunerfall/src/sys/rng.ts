@@ -1,5 +1,11 @@
-// Central gameplay RNG. Offline unseeded play retains Math.random; online
-// authority can capture the exact seeded stream for a checkpoint handoff.
+// Central gameplay RNG. Unseeded it behaves like Math.random; `reseed(n)` swaps
+// in a deterministic mulberry32 stream so a whole run (room layouts, room-type
+// rolls, enemy picks, crits, relic offers, boss patterns) replays from one seed
+// — which is what makes bot playtests and bug repros reproducible, and lets an
+// online host hand its exact stream to a successor (checkpointRng/restoreRng).
+//
+// Route every roll that affects GAMEPLAY through `rand()`. View-only jitter
+// (fx particles, parallax, sfx pitch) can stay on Math.random.
 function stream(seed: number) {
   let a = seed >>> 0;
   return {
@@ -22,12 +28,12 @@ let current: ReturnType<typeof stream> | null = null;
 /** Uniform [0, 1) from the current gameplay stream. */
 export const rand = (): number => (current ? current.next() : Math.random());
 
-/** Seed the gameplay stream. Existing deterministic sequences stay exact. */
+/** Seed the gameplay stream. All rand() calls after this are deterministic. */
 export function reseed(seed: number): void {
   current = stream(seed);
 }
 
-/** Only a fresh online expedition needs to adopt a capturable stream. */
+/** Current stream word for a checkpoint; an unseeded stream adopts a random seed first. */
 export function checkpointRng(): number {
   current ??= stream(Math.floor(Math.random() * 0x100000000));
   return current.state();

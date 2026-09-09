@@ -17,13 +17,12 @@ import { blastFrame, fireCells, freshCue } from "../render/blast-frame";
 import { RoundHud } from "../render/round-hud";
 import {
   audioDiagnostics,
-  disposeAudio,
   isMuted,
   resetRoundAudio,
   setMuted,
   sfx,
-  updateRoundScore,
   unlockAudio,
+  updateRoundScore,
 } from "../fx/sfx";
 
 import {
@@ -59,13 +58,12 @@ import {
 } from "../shared/constants";
 import { buildControls, ensureStyle as ensureControlsStyle } from "../pause-overlay";
 import {
-  now as simNow,
-  pauseClock,
-  resumeClock,
   adoptClock,
   clockStamp,
+  now as simNow,
+  pauseClock,
   readClock,
-  sameClock,
+  resumeClock,
 } from "../util/clock";
 
 declare global {
@@ -131,6 +129,7 @@ const DIR_VECT = {
   right: [1, 0],
 } satisfies Record<Dir, [number, number]>;
 const DIRS: Dir[] = ["up", "down", "left", "right"];
+const PAD_START_BUTTONS = ["a", "b", "x", "y", "start"];
 
 const POWERUP_KINDS: PowerupKind[] = ["bomb", "fire", "speed"];
 const POWERUP_TEX = {
@@ -164,7 +163,6 @@ function emptyShared(arena: Arena = "classic"): SharedState {
   // omitted key carries over from the previous round.
   return {
     arena,
-    clock: clockStamp(),
     grid: createArena(arena),
     bombs: {},
     blasts: {},
@@ -247,7 +245,9 @@ export class GameScene extends Phaser.Scene {
   private gamepad!: PhaserGamepad;
   /** Physical controller: stick/d-pad move, A bombs, START restarts. */
   private readonly pad = new PhysicalGamepad();
-  private padActionsArmed = false;
+  /** False from the pad press that starts/resumes play until every pad input
+   *  is released, so that one press cannot also bomb, restart or step. */
+  private padArmed = true;
   /** Touch pause/mute cluster. */
   private touchControls: TouchControls | null = null;
   private unwatchControls: (() => void) | null = null;
@@ -256,11 +256,12 @@ export class GameScene extends Phaser.Scene {
   private restartableSince: number | null = null;
 
   private statusEl: HTMLElement | null = null;
-  private roundHud: RoundHud | null = null;
+  private readonly roundHud = new RoundHud();
   private statsEl: HTMLElement | null = null;
   private bannerEl: HTMLElement | null = null;
   private startEl: HTMLElement | null = null;
-  private readonly uiEvents = new AbortController();
+  private pickupNoteEl: HTMLElement | null = null;
+  private restartButton: HTMLButtonElement | null = null;
   private observedWinner: string | null = null;
   /** False until the player dismisses the start screen. Gates spawning so the
    *  player isn't dropped into a live arena while still reading the controls;
@@ -273,6 +274,7 @@ export class GameScene extends Phaser.Scene {
 
   /** Net/shared state changed since the last render sync — see update(). */
   private netDirty = true;
+  /** True while this client's sim clock is the one the room follows. */
   private clockAuthority = false;
   private simulationFrozen = false;
 
@@ -284,33 +286,21 @@ export class GameScene extends Phaser.Scene {
   private reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   private pickupUntil = 0;
   private frame = 0;
+  /** Living fighters as of the last render sync — drives the score bed. */
+  private aliveCount = 0;
   private controlsPaused = false;
-  private neutralInputPending = false;
-  private padMovementArmed = true;
 
-  /** Pause owns local input; a connected host keeps the other fighters running. */
+  /** The wrapper pause owns local input; a connected host keeps the other
+   *  fighters running. The embed key gate swallows keyup while paused, so
+   *  held keys would otherwise stick down. */
   setPresentationPaused(paused: boolean): void {
     if (this.controlsPaused === paused) return;
     this.controlsPaused = paused;
-    if (paused) this.roundHud?.update(simNow(), false);
+    if (paused) this.roundHud.update(simNow(), false);
     this.queuedDir = null;
-    this.moving = false;
-    this.moveCooldown = 0;
     this.input.keyboard?.resetKeys();
     this.gamepad.pad.reset();
-    this.padActionsArmed = false;
-    this.padMovementArmed = false;
-    this.neutralInputPending = true;
-    this.flushNeutralInput();
-  }
-
-  private flushNeutralInput(): void {
-    const id = this.myId;
-    if (!this.neutralInputPending || !this.live || !id) return;
-    const state = readPlayerState(this.peers[id]);
-    if (state.col === undefined || state.row === undefined) return;
-    this.netUpdateMyState({ moving: false });
-    this.neutralInputPending = false;
+    this.padArmed = false;
   }
 
   // Solo fallback: if the party server can't be reached, this client becomes
@@ -342,58 +332,47 @@ export class GameScene extends Phaser.Scene {
     return this.offline || (this.client.connectionStatus === "connected" && this.client.isHost);
   }
 
-  /** Freeze only a solo simulation; publish its anchor before the loop sleeps. */
+  /** Freeze a solo simulation. The paused stamp goes out before the loop
+   *  sleeps so a later joiner (or a promoted host) inherits the same sim time. */
   pauseSimulation(): void {
     if (!this.freezable || this.simulationFrozen) return;
-    this.syncSharedClock();
     pauseClock();
     this.simulationFrozen = true;
-    this.publishClock();
+    this.netPatchShared({});
     this.game.loop.sleep();
   }
 
   resumeSimulation(): void {
     if (!this.simulationFrozen) return;
     this.simulationFrozen = false;
-    if (this.amHost) {
-      resumeClock();
-      this.publishClock();
-    } else if (isShared(this.client.sharedState)) {
-      adoptClock(readClock(this.client.sharedState["clock"]));
-    } else resumeClock();
+    resumeClock();
+    this.netPatchShared({});
     this.game.loop.wake();
   }
 
-  /** Network callbacks remain alive while Phaser sleeps. Adoption precedes
-   * every local clock read / new-host deadline; UI pause never stalls a peer. */
+  /** Runs on every room change — the socket stays live while Phaser sleeps.
+   *  Guests follow the host's stamp; a promoted host inherits it once, then
+   *  every patch it sends carries its own. */
   private syncSharedClock(): void {
     if (this.offline) return;
     if (this.client.connectionStatus !== "connected") {
       this.clockAuthority = false;
       return;
     }
-    const state = this.client.sharedState;
     const host = this.client.isHost;
+    const state = this.client.sharedState;
     if (isShared(state) && (!host || !this.clockAuthority)) {
-      adoptClock(readClock(state["clock"]));
-      if (this.simulationFrozen && this.freezable) pauseClock();
+      adoptClock(readClock(state.clock));
+      if (this.simulationFrozen) pauseClock();
+      else if (host) resumeClock();
     }
     this.clockAuthority = host;
     if (this.simulationFrozen && !this.freezable) {
+      // Another human arrived mid-pause: our overlay stays up, but their round must run.
       this.simulationFrozen = false;
-      this.game.loop.wake(); // local controls, WebAudio and overlay stay paused
-    }
-    if (host && !this.simulationFrozen && (this.started || !this.freezable)) {
       resumeClock();
-      this.publishClock();
+      this.game.loop.wake();
     }
-  }
-
-  private publishClock(): void {
-    if (this.offline || !this.amHost || !isShared(this.client.sharedState)) return;
-    const stamp = clockStamp();
-    if (!sameClock(stamp, readClock(this.client.sharedState["clock"])))
-      this.netPatchShared({ clock: stamp });
   }
 
   private get myId(): string | null {
@@ -458,33 +437,22 @@ export class GameScene extends Phaser.Scene {
 
   create(): void {
     this.statusEl = document.getElementById("status");
-    this.roundHud = new RoundHud();
     this.statsEl = document.getElementById("stats");
     this.bannerEl = document.getElementById("banner");
-    this.buildStartScreen();
+    this.pickupNoteEl = document.getElementById("pickup-note");
     const restart = document.getElementById("round-restart");
-    restart?.addEventListener(
-      "click",
-      () => {
-        if (this.restartableSince === null || simNow() - this.restartableSince < 600) return;
-        this.requestRestart();
-      },
-      { signal: this.uiEvents.signal },
-    );
+    this.restartButton = restart instanceof HTMLButtonElement ? restart : null;
+    this.buildStartScreen();
+    this.restartButton?.addEventListener("click", () => this.requestRestart());
+    // Taps on the result card must not double as tap-to-restart on the canvas,
+    // and Space/Enter activating its button must not also drop a bomb.
     for (const type of ["pointerdown", "pointerup"])
-      this.bannerEl?.addEventListener(type, (event) => event.stopPropagation(), {
-        signal: this.uiEvents.signal,
-      });
-    // Native button activation must not also reach the canvas bomb binding.
+      this.bannerEl?.addEventListener(type, (event) => event.stopPropagation());
     for (const type of ["keydown", "keyup"])
-      this.bannerEl?.addEventListener(
-        type,
-        (event) => {
-          if (event instanceof KeyboardEvent && (event.key === " " || event.key === "Enter"))
-            event.stopPropagation();
-        },
-        { signal: this.uiEvents.signal },
-      );
+      this.bannerEl?.addEventListener(type, (event) => {
+        if (event instanceof KeyboardEvent && (event.key === " " || event.key === "Enter"))
+          event.stopPropagation();
+      });
 
     // The garden stays beyond the arena; quiet stone paving makes traversable
     // cells and warm destructible crates read clearly inside its boundary.
@@ -561,46 +529,12 @@ export class GameScene extends Phaser.Scene {
 
     this.bindInput();
 
-    // Game.destroy goes directly through DESTROY; scene.stop uses SHUTDOWN.
-    // Both release this scene's external owners exactly once.
-    let cleanedUp = false;
-    const sceneEvents = this.events;
-    const cleanupScene = (): void => {
-      if (cleanedUp) return;
-      cleanedUp = true;
-      sceneEvents.off(Phaser.Scenes.Events.SHUTDOWN, cleanupScene);
-      sceneEvents.off(Phaser.Scenes.Events.DESTROY, cleanupScene);
+    this.events.on(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.applyZoom, this);
       this.gamepad.destroy();
-      this.pad.destroy();
       this.touchControls?.destroy();
-      this.touchControls = null;
-      this.uiEvents.abort();
-      this.roundHud?.dispose();
-      this.roundHud = null;
-      this.unwatchControls?.();
-      this.unwatchControls = null;
-      this.input.keyboard?.off("keyup", this.onStartKeyUp, this);
-      // Phaser's display list has already destroyed its FX and sprites. Drop
-      // data/references without calling methods on those destroyed objects.
-      this.battleFx = null;
-      this.sparkEmitter = null;
-      for (const objs of this.players.values()) objs.action.reset();
-      this.players.clear();
-      this.deathSeen.clear();
-      this.bombSprites.clear();
-      this.blastSprites.clear();
-      this.blastSeen.clear();
-      this.powerupObjs.clear();
-      this.tileObjs = [];
-      this.tileKind = [];
-      this.winnerAction = null;
-      this.characterTime = 0;
-      disposeAudio();
       if (!this.offline) this.client.destroy(); // offline already destroyed it
-    };
-    sceneEvents.once(Phaser.Scenes.Events.SHUTDOWN, cleanupScene);
-    sceneEvents.once(Phaser.Scenes.Events.DESTROY, cleanupScene);
+    });
 
     if (import.meta.env.DEV) {
       Object.assign(window, {
@@ -648,7 +582,6 @@ export class GameScene extends Phaser.Scene {
 
   override update(_time: number, delta: number): void {
     this.frame += 1;
-    this.syncSharedClock();
     if (!this.offline) this.maybeGoOffline();
     // subscribe() (online) and the net* writers (offline) mark the scene
     // dirty; run the render sync at most once per frame, and only when
@@ -669,28 +602,28 @@ export class GameScene extends Phaser.Scene {
         entities: this.bombSprites.size + this.blastSprites.size + this.players.size,
         bombs: Object.keys(state?.bombs ?? {}).length,
         blasts: Object.keys(state?.blasts ?? {}).length,
-        audio: audioDiagnostics(),
       },
     });
     // The pad polls outside the `live` gate: "press any pad button to start"
     // must work while still connecting, exactly like the keyboard listener.
     this.pad.update();
-    const startedBeforePad = this.started;
-    if (!this.started && !this.controlsPaused) {
-      if (["a", "b", "x", "y", "start"].some((b) => this.pad.justPressed(b))) this.beginPlay();
-    }
-    if (!this.padActionsArmed && !this.pad.isButtonDown("a") && !this.pad.isButtonDown("start"))
-      this.padActionsArmed = true;
-    if (!this.live) return;
-    this.flushNeutralInput();
-    this.gamepad.update(); // reconcile dropped touches + redraw the overlay
     if (
-      !this.padMovementArmed &&
-      stickDirection4(this.pad.getStick()) === null &&
-      ["left", "right", "up", "down"].every((key) => !this.pad.isButtonDown(key))
+      !this.started &&
+      !this.controlsPaused &&
+      PAD_START_BUTTONS.some((button) => this.pad.justPressed(button))
     )
-      this.padMovementArmed = true;
-    if (startedBeforePad && this.padActionsArmed && !this.controlsPaused) {
+      this.beginPlay();
+    if (
+      !this.padArmed &&
+      !this.pad.isButtonDown("a") &&
+      !this.pad.isButtonDown("start") &&
+      stickDirection4(this.pad.getStick()) === null &&
+      DIRS.every((dir) => !this.pad.isButtonDown(dir))
+    )
+      this.padArmed = true;
+    if (!this.live) return;
+    this.gamepad.update(); // reconcile dropped touches + redraw the overlay
+    if (this.started && this.padArmed && !this.controlsPaused) {
       if (this.pad.justPressed("a")) this.requestBomb();
       if (this.pad.justPressed("start")) this.requestRestart();
     }
@@ -870,7 +803,7 @@ export class GameScene extends Phaser.Scene {
       if (this.heldKeys.down.some((key) => key.isDown)) return "down";
     }
     // Physical pad: d-pad first (exact), then the analog stick.
-    if (this.pad.connected && this.padMovementArmed) {
+    if (this.pad.connected && this.padArmed) {
       if (this.pad.isButtonDown("left")) return "left";
       if (this.pad.isButtonDown("right")) return "right";
       if (this.pad.isButtonDown("up")) return "up";
@@ -940,7 +873,6 @@ export class GameScene extends Phaser.Scene {
   // ---- connection callbacks ------------------------------------------------
 
   private handleEvent(event: string, payload: JsonValue, from: string): void {
-    this.syncSharedClock();
     if (event === "pickup") {
       const host = this.offline ? "solo" : this.client.hostId;
       if (from !== host || !this.started || !isJsonObject(payload)) return;
@@ -965,11 +897,9 @@ export class GameScene extends Phaser.Scene {
         sfx.pickup();
         this.pulsePlayer(this.myId, "pickup");
         this.statsEl?.setAttribute("data-pickup", kind);
-        const note = document.getElementById("pickup-note");
-        if (note) {
-          note.textContent =
-            kind === "bomb" ? "BOMB PICKUP" : kind === "fire" ? "FIRE PICKUP" : "SPEED PICKUP";
-          note.classList.add("on");
+        if (this.pickupNoteEl) {
+          this.pickupNoteEl.textContent = `${kind.toUpperCase()} PICKUP`;
+          this.pickupNoteEl.classList.add("on");
           this.pickupUntil = simNow() + 800;
         }
       }
@@ -1009,28 +939,34 @@ export class GameScene extends Phaser.Scene {
       for (const objs of this.players.values()) this.resetPlayerFeedback(objs);
       this.battleFx?.clear();
       this.blastSeen.clear();
-      this.roundHud?.reset();
+      this.roundHud.reset();
       this.sparkEmitter?.killAll();
-      document.getElementById("pickup-note")?.classList.remove("on");
-      this.pickupUntil = 0;
-      this.statsEl?.removeAttribute("data-pickup");
+      this.clearPickupNote();
       // Initial joins keep their existing spawn policy. A later accepted round
       // replaces cached local coordinates exactly once, even after transport loss.
       if (round !== null && previousRound !== null && this.started) this.respawnSelf();
     }
     this.trackRestartable();
     this.setStatus(this.statusText());
-    this.syncRoster();
-    this.setStats(this.statsText());
+    this.setStats();
     this.setBanner();
     // No body until the start screen is dismissed — bots and the host seed run
     // on behind the overlay, but the player isn't dropped in mid-read.
     if (this.started) this.ensureMySpawn();
+    const fighters = this.fighters();
+    this.aliveCount = fighters.filter((fighter) => this.isAlive(fighter.id)).length;
+    this.syncRoster(fighters);
     this.syncGrid();
-    this.syncBombs();
+    this.syncBombs(fighters);
     this.syncBlasts();
     this.syncPowerups();
-    this.syncPlayers();
+    this.syncPlayers(fighters);
+  }
+
+  private clearPickupNote(): void {
+    this.pickupNoteEl?.classList.remove("on");
+    this.pickupUntil = 0;
+    this.statsEl?.removeAttribute("data-pickup");
   }
 
   /** Arm/disarm tap-to-restart as the death/round-over state changes. */
@@ -1131,7 +1067,7 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private syncBombs(): void {
+  private syncBombs(fighters: readonly Fighter[]): void {
     const s = this.shared();
     if (!s) return;
     const seen = new Set<string>();
@@ -1151,10 +1087,10 @@ export class GameScene extends Phaser.Scene {
         if (fresh) sfx.place(bomb.ownerId === this.myId);
         if (fresh && bomb.ownerId === this.myId) {
           this.pulsePlayer(bomb.ownerId, "place");
-          this.roundHud?.acceptedPlacement(simNow());
+          this.roundHud.acceptedPlacement(simNow());
         }
         if (this.feedbackEnabled && this.isAlive(bomb.ownerId)) {
-          const owner = this.fighters().find((fighter) => fighter.id === bomb.ownerId);
+          const owner = fighters.find((fighter) => fighter.id === bomb.ownerId);
           if (owner)
             this.players.get(bomb.ownerId)?.action.place(bomb, simNow(), this.characterTime, owner);
         }
@@ -1233,7 +1169,7 @@ export class GameScene extends Phaser.Scene {
         -1,
         Math.min(1, ((nearest?.x ?? centerX) - centerX) / (cam.width / (2 * cam.zoom))),
       );
-      sfx.blast({ strength, pan }, newBlasts);
+      sfx.blast({ strength, pan });
     }
     for (const id of this.blastSeen) if (!seen.has(id)) this.blastSeen.delete(id);
     this.updateBlastFrames(now);
@@ -1299,9 +1235,9 @@ export class GameScene extends Phaser.Scene {
       }
   }
 
-  private syncPlayers(): void {
+  private syncPlayers(fighters: readonly Fighter[]): void {
     const seen = new Set<string>();
-    for (const f of this.fighters()) {
+    for (const f of fighters) {
       seen.add(f.id);
       const objs =
         this.players.get(f.id) ??
@@ -1456,8 +1392,6 @@ export class GameScene extends Phaser.Scene {
   // ---- host-only logic -----------------------------------------------------
 
   private hostTick(delta: number): void {
-    this.syncSharedClock();
-    if (!this.amHost || clockStamp().kind === "paused") return;
     this.hostTickAcc += delta;
     if (this.hostTickAcc < 70) return;
     this.hostTickAcc = 0;
@@ -1466,8 +1400,6 @@ export class GameScene extends Phaser.Scene {
     const now = simNow();
 
     const next: SharedState = {
-      arena: readArena(s.arena),
-      clock: clockStamp(),
       grid: s.grid,
       bombs: { ...s.bombs },
       blasts: { ...s.blasts },
@@ -1815,8 +1747,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   private hostPlaceBomb(ownerId: string, col: number, row: number): void {
-    this.syncSharedClock();
-    if (!this.amHost || clockStamp().kind === "paused") return;
     const s = this.shared();
     if (!s) return;
     if (!this.isAlive(ownerId)) return;
@@ -1936,40 +1866,19 @@ export class GameScene extends Phaser.Scene {
     const now = simNow();
     this.updateBlastFrames(now);
     const state = this.shared();
-    this.roundHud?.updateBombs(
-      Object.values(state?.bombs ?? {}),
-      this.myId,
-      this.myStats().bombs,
-      now,
-    );
-    this.roundHud?.update(
-      now,
+    const bombs = state?.bombs ?? {};
+    this.roundHud.updateBombs(bombs, this.myId, this.myStats().bombs, now);
+    const fighting =
       this.started &&
-        this.live &&
-        !this.controlsPaused &&
-        state?.winner === null &&
-        this.isAlive(this.myId),
-    );
-    const alive = this.fighters().filter((fighter) => this.isAlive(fighter.id)).length;
-    updateRoundScore(
-      this.started &&
-        this.live &&
-        !this.controlsPaused &&
-        state?.winner === null &&
-        this.isAlive(this.myId)
-        ? alive === 2
-          ? "duel"
-          : "playing"
-        : "silent",
-      now,
-    );
-    if (this.pickupUntil > 0 && now >= this.pickupUntil) {
-      document.getElementById("pickup-note")?.classList.remove("on");
-      this.pickupUntil = 0;
-      this.statsEl?.removeAttribute("data-pickup");
-    }
+      this.live &&
+      !this.controlsPaused &&
+      state?.winner === null &&
+      this.isAlive(this.myId);
+    this.roundHud.update(now, fighting);
+    updateRoundScore(fighting ? (this.aliveCount === 2 ? "duel" : "playing") : "silent", now);
+    if (this.pickupUntil > 0 && now >= this.pickupUntil) this.clearPickupNote();
     this.syncRestartButton();
-    for (const bomb of Object.values(this.shared()?.bombs ?? {})) {
+    for (const bomb of Object.values(bombs)) {
       const visual = this.bombSprites.get(bomb.id);
       if (!visual) continue;
       const { sprite, fuse } = visual;
@@ -2117,29 +2026,15 @@ export class GameScene extends Phaser.Scene {
     this.input.keyboard?.on("keyup", this.onStartKeyUp, this);
     // The overlay covers the canvas, so Phaser's pointer input never sees the
     // tap — listen on the overlay element itself.
-    this.startEl?.addEventListener(
-      "pointerup",
-      (event) => {
-        if (event.target === this.startEl) this.beginPlay();
-      },
-      { signal: this.uiEvents.signal },
-    );
-    const card = document.getElementById("start-card");
-    for (const type of ["pointerdown", "pointerup"])
-      card?.addEventListener(type, (event) => event.stopPropagation(), {
-        signal: this.uiEvents.signal,
-      });
-    document.getElementById("start-play")?.addEventListener("click", () => this.beginPlay(), {
-      signal: this.uiEvents.signal,
+    // Backdrop only: taps inside the card belong to its buttons and scroll area.
+    this.startEl?.addEventListener("pointerup", (event) => {
+      if (event.target === this.startEl) this.beginPlay();
     });
-    document.getElementById("start-sound")?.addEventListener(
-      "click",
-      () => {
-        setMuted(!isMuted());
-        this.syncSoundButton();
-      },
-      { signal: this.uiEvents.signal },
-    );
+    document.getElementById("start-play")?.addEventListener("click", () => this.beginPlay());
+    document.getElementById("start-sound")?.addEventListener("click", () => {
+      setMuted(!isMuted());
+      this.syncSoundButton();
+    });
     this.syncSoundButton();
   }
 
@@ -2162,7 +2057,7 @@ export class GameScene extends Phaser.Scene {
     if (this.started) return;
     this.started = true;
     this.netDirty = true; // spawn immediately, even if the room has no new traffic
-    this.padActionsArmed = false;
+    this.padArmed = false;
     this.input.keyboard?.off("keyup", this.onStartKeyUp, this);
     this.unwatchControls?.();
     this.unwatchControls = null;
@@ -2194,9 +2089,9 @@ export class GameScene extends Phaser.Scene {
     return this.offline ? "solo · offline" : this.amHost ? "host" : "guest";
   }
 
-  private syncRoster(): void {
-    this.roundHud?.updateRoster(
-      this.fighters().map((fighter) => ({
+  private syncRoster(fighters: readonly Fighter[]): void {
+    this.roundHud.updateRoster(
+      fighters.map((fighter) => ({
         id: fighter.id,
         label: this.labelFor(fighter.id),
         colorIdx: fighter.colorIdx,
@@ -2205,13 +2100,6 @@ export class GameScene extends Phaser.Scene {
         isBot: fighter.isBot,
       })),
     );
-  }
-
-  private statsText(): string {
-    if (!this.isAlive(this.myId)) return "";
-    const st = this.myStats();
-    const speedLvl = Math.round((BASE_MOVE_MS - st.speed) / SPEED_STEP_MS);
-    return `💣 ${st.bombs}   🔥 ${st.range}   👟 ${speedLvl}`;
   }
 
   private setBanner(): void {
@@ -2283,8 +2171,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private syncRestartButton(): void {
-    const button = document.getElementById("round-restart");
-    if (!(button instanceof HTMLButtonElement)) return;
+    const button = this.restartButton;
+    if (!button) return;
     const disabled = this.restartableSince === null || simNow() - this.restartableSince < 600;
     if (button.disabled !== disabled) button.disabled = disabled;
   }
@@ -2306,17 +2194,19 @@ export class GameScene extends Phaser.Scene {
     this.statusEl.textContent = text;
   }
 
-  private setStats(text: string): void {
-    if (!this.statsEl || text === this.lastStats) return;
-    this.lastStats = text;
-    this.statsEl.hidden = text === "";
-    if (!text) return;
+  /** Range + speed only; bomb stock ticks every frame in RoundHud. */
+  private setStats(): void {
+    if (!this.statsEl) return;
+    const alive = this.isAlive(this.myId);
     const stats = this.myStats();
+    const speedLvl = Math.round((BASE_MOVE_MS - stats.speed) / SPEED_STEP_MS);
+    const key = alive ? `${stats.range}|${speedLvl}` : "";
+    if (key === this.lastStats) return;
+    this.lastStats = key;
+    this.statsEl.hidden = !alive;
+    if (!alive) return;
     this.writeUiText("stat-fire", String(stats.range));
-    this.writeUiText(
-      "stat-speed",
-      String(Math.round((BASE_MOVE_MS - stats.speed) / SPEED_STEP_MS)),
-    );
+    this.writeUiText("stat-speed", String(speedLvl));
   }
 }
 

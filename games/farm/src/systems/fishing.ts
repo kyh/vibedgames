@@ -344,11 +344,4 @@ export class Fishing {
       else this.scene.player.anims.resume();
     }
   }
-
-  destroy(): void {
-    this.pending?.remove(false);
-    this.pending = null;
-    this.state = "idle";
-    this.cleanup();
-  }
 }

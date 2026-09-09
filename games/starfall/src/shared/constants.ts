@@ -1646,8 +1646,8 @@ export type EnemyState = {
   telegraphUntil: number;
   /** LANCER only: locked-vector charge window. */
   chargeUntil: number;
-  /** Cosmetic accepted shot/brood time; absent on older snapshots. */
-  attackAt?: number;
+  /** Last shot/brood time (cosmetic recoil only). */
+  attackAt: number;
   /** Damage flicker, as UFO. */
   blinkUntil: number;
   /** SPLITTER children: can't fire/kill while flashing in. */
@@ -1987,6 +1987,7 @@ export function spawnEnemyState(kind: EnemyKind, x: number, y: number): EnemySta
     hp: ENEMY_SPECS[kind].hp,
     telegraphUntil: 0,
     chargeUntil: 0,
+    attackAt: 0,
     blinkUntil: 0,
     graceUntil: 0,
     maxHp: ENEMY_SPECS[kind].hp,

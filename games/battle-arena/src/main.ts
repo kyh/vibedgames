@@ -288,7 +288,6 @@ async function main(): Promise<void> {
     // create input only when a match starts, so menu clicks never grab the
     // pointer (Controls' mousedown requests pointer lock).
     const controls = new Controls(view.renderer.domElement);
-    controls.resetInput();
     const touch = new TouchControls();
     const scene = new GameScene(view, lib, controls, opts, touch);
     activeScene = scene;

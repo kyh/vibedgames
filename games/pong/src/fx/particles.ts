@@ -151,9 +151,4 @@ export class ParticlePool {
     this.live += 1;
     return p;
   }
-
-  clear(): void {
-    this.live = 0;
-    this.mesh.count = 0;
-  }
 }

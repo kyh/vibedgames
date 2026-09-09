@@ -3,7 +3,7 @@ import { World } from "../world/world";
 import { Inventory } from "./inventory";
 import type { JsonValue } from "../json";
 import type { SkillsJSON } from "./skills";
-import { Collections, type CollectionsJSON } from "./collections";
+import type { CollectionsJSON } from "./collections";
 
 const KEY = "farm-rpg-save-v1";
 
@@ -40,14 +40,8 @@ export type SaveData = {
   collections?: CollectionsJSON;
 };
 
-export type SaveOutcome =
-  | { kind: "success" }
-  | { kind: "disabled" }
-  | { kind: "failure"; reason: "storage" | "missing" | "invalid" };
-
-type SaveRead =
-  | { kind: "ready"; data: SaveData }
-  | { kind: "missing" | "invalid" | "storage" | "disabled" };
+/** "failure" = storage threw (full/blocked); the caller keeps the save dirty and retries. */
+export type SaveOutcome = { kind: "success" } | { kind: "disabled" } | { kind: "failure" };
 
 // Trailer mode (src/trailer/): a staged demo run must neither read nor write
 // the player's real save. Set once by the trailer director; dead in normal play.
@@ -80,29 +74,14 @@ export function hasSave(): boolean {
 }
 
 export function loadSave(): SaveData | null {
-  const read = readSave();
-  return read.kind === "ready" ? read.data : null;
-}
-
-function readSave(): SaveRead {
-  if (savesDisabled) return { kind: "disabled" };
-  let raw: string | null;
+  if (savesDisabled) return null;
   try {
-    raw = localStorage.getItem(KEY);
-  } catch {
-    return { kind: "storage" };
-  }
-  if (raw === null) return { kind: "missing" };
-  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return null;
     const d: JsonValue = JSON.parse(raw);
-    if (!isSaveData(d)) return { kind: "invalid" };
-    const data: SaveData = d;
-    return {
-      kind: "ready",
-      data: { ...data, collections: Collections.fromJSON(data.collections).toJSON() },
-    };
+    return isSaveData(d) ? d : null;
   } catch {
-    return { kind: "invalid" };
+    return null;
   }
 }
 
@@ -112,25 +91,15 @@ export function writeSave(d: SaveData): SaveOutcome {
     localStorage.setItem(KEY, JSON.stringify(d));
     return { kind: "success" };
   } catch {
-    return { kind: "failure", reason: "storage" };
+    return { kind: "failure" };
   }
 }
 
-// Merge a partial update into the existing save (used by the mine to persist
-// inventory/skills/gold/hp progress without owning the farm world).
-export function patchSave(patch: Partial<SaveData>): SaveOutcome {
-  const read = readSave();
-  if (read.kind === "disabled") return { kind: "disabled" };
-  if (read.kind !== "ready") return { kind: "failure", reason: read.kind };
-  return writeSave({ ...read.data, ...patch });
-}
-
-export function clearSave(): SaveOutcome {
-  if (savesDisabled) return { kind: "disabled" };
+export function clearSave(): void {
+  if (savesDisabled) return;
   try {
     localStorage.removeItem(KEY);
-    return { kind: "success" };
   } catch {
-    return { kind: "failure", reason: "storage" };
+    /* ignore */
   }
 }

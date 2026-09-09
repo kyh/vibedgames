@@ -266,24 +266,13 @@ export class HudScene extends Phaser.Scene {
     this.touchUi = touchDevice();
 
     this.scale.on(Phaser.Scale.Events.RESIZE, this.layout, this);
-    let released = false;
-    const release = (): void => {
-      if (released) return;
-      released = true;
-      this.events.off(Phaser.Scenes.Events.SHUTDOWN, release);
-      this.events.off(Phaser.Scenes.Events.DESTROY, release);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.layout, this);
+      // The ability guide is DOM, not a Phaser object: the scene must remove it.
       this.guide?.root.remove();
       this.guide?.style.remove();
       this.guide = null;
-      // DisplayList already owns destruction. Only discard per-match references.
-      this.activeNotice = null;
-      this.pendingNotices = [];
-      this.resultUi = null;
-      this.resultClicked = false;
-    };
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, release);
-    this.events.once(Phaser.Scenes.Events.DESTROY, release);
+    });
     // radial vignette to frame the field — sits behind every HUD widget, above the
     // game. In the HUD scene (camera zoom = 1) so it's true screen-space.
     if (this.textures.exists("vignette")) {

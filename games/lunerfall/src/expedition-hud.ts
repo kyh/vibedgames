@@ -102,8 +102,6 @@ export class ExpeditionHud {
   private offerKey = "";
   private inset = { left: 0, right: 0, top: 0, bottom: 0 };
   private visible = true;
-  private suspended = false;
-  private disposed = false;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -132,17 +130,12 @@ export class ExpeditionHud {
     this.build.addEventListener("keydown", this.onKeyDown);
     scene.input.on("pointerdown", this.onWorldPointerDown);
     scene.scale.on("resize", this.layout);
-    scene.events.on("pause", this.onSuspend);
-    scene.events.on("sleep", this.onSuspend);
-    scene.events.on("resume", this.onResume);
-    scene.events.on("wake", this.onResume);
     scene.events.once("shutdown", this.destroy);
     this.layout();
     this.hideExtras();
   }
 
   update(state: ExpeditionHudState): void {
-    if (this.disposed) return;
     this.state = state;
     this.visible = state.visible;
     const h = Math.max(0, Math.floor(state.hearts));
@@ -166,18 +159,17 @@ export class ExpeditionHud {
     this.renderOffer();
   }
 
-  /** Versus retains its existing score display and only shares the local cue. */
+  /** Versus keeps its own score HUD; only the special-readiness cue is shared. */
   updateSpecial(special: SpecialReadiness, visible = true): void {
-    if (this.disposed) return;
     this.state = null;
     this.visible = visible;
     this.hideExtras();
     this.renderSpecial(special);
-    this.special.setVisible(visible && !this.suspended);
+    this.special.setVisible(visible);
   }
 
   setVisible(visible: boolean): void {
-    if (this.disposed) return;
+    if (this.visible === visible) return;
     this.visible = visible;
     this.refreshVisibility();
   }
@@ -186,26 +178,16 @@ export class ExpeditionHud {
     return this.build.open && !this.build.hidden;
   }
 
+  /** Scene shutdown: the Phaser texts go with the display list, the DOM panel
+   * and the scene-level listeners do not. */
   destroy = (): void => {
-    if (this.disposed) return;
-    this.disposed = true;
     this.scene.input.off("pointerdown", this.onWorldPointerDown);
     this.scene.scale.off("resize", this.layout);
-    this.scene.events.off("pause", this.onSuspend);
-    this.scene.events.off("sleep", this.onSuspend);
-    this.scene.events.off("resume", this.onResume);
-    this.scene.events.off("wake", this.onResume);
-    this.scene.events.off("shutdown", this.destroy);
     this.releasePointer();
     this.build.removeEventListener("toggle", this.onToggle);
     this.build.removeEventListener("keydown", this.onKeyDown);
     this.build.remove();
     this.style.remove();
-    this.special.destroy();
-    this.boss.destroy();
-    this.offerTitle.destroy();
-    this.offerEffect.destroy();
-    this.offerHint.destroy();
   };
 
   private text(color: string): Phaser.GameObjects.Text {
@@ -269,7 +251,7 @@ export class ExpeditionHud {
   }
 
   private refreshVisibility(): void {
-    const shown = this.visible && !this.suspended;
+    const shown = this.visible;
     this.special.setVisible(shown);
     this.boss.setVisible(shown && Boolean(this.state?.bossName));
     const safe = shown && this.state?.safeRoom === true;
@@ -323,7 +305,6 @@ export class ExpeditionHud {
   }
 
   private layout = (): void => {
-    if (this.disposed) return;
     const ins = gameInset(this.scene);
     this.inset = ins;
     this.hearts.setPosition(8 + ins.left, 6 + ins.top);
@@ -345,17 +326,7 @@ export class ExpeditionHud {
   };
 
   private onToggle = (): void => {
-    if (!this.disposed) this.renderOffer();
-  };
-
-  private onSuspend = (): void => {
-    this.suspended = true;
-    this.refreshVisibility();
-  };
-
-  private onResume = (): void => {
-    this.suspended = false;
-    this.refreshVisibility();
+    this.renderOffer();
   };
 
   private onWorldPointerDown = (): void => {

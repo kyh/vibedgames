@@ -6,7 +6,6 @@ import { Sound } from "../render/audio";
 import { buildControlsCard, type ControlsCard } from "../render/controls-card";
 import { mountTouchControls } from "../touch-controls";
 import { seasonName, seasonOfDay } from "../data/calendar";
-import { onSceneExit } from "../render/scene-lifetime";
 
 // idle.webp's nine 96×64 frames have a combined alpha silhouette y=23..39.
 // Layout uses its 16px visible height; the 64px frame includes transparent padding.
@@ -38,9 +37,9 @@ export class TitleScene extends Phaser.Scene {
       layout();
     };
     this.scale.on("resize", this.onResize);
-    const scale = this.scale;
-    const onResize = this.onResize;
-    onSceneExit(this, () => scale.off("resize", onResize));
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      if (this.onResize) this.scale.off("resize", this.onResize);
+    });
 
     // decorative idle farmer
     const farmer = this.add.sprite(0, 0, "p-idle").setScale(5).play("p-idle");
@@ -91,7 +90,7 @@ export class TitleScene extends Phaser.Scene {
     // before adding this run's, and tear it down on shutdown.
     this.unwatchControls?.();
     this.unwatchControls = watchControlContext(rebuildCard);
-    onSceneExit(this, () => {
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.unwatchControls?.();
       this.unwatchControls = undefined;
       this.controlsCard = null;

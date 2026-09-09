@@ -2,7 +2,7 @@ import Phaser from "phaser";
 import { CROP_ORDER } from "../data/crops";
 import { parseWorldMap } from "../world/worldmap";
 import { setWorldMap, getWorldMap } from "../world/map-store";
-import { FARMER_HURT_MS, SKELETON_CONTACT_MS } from "../render/character-action";
+import { FARMER_HURT_MS, SKELETON_CONTACT_MS } from "../config";
 
 const CHAR = { frameWidth: 96, frameHeight: 64 };
 
@@ -219,23 +219,12 @@ export class BootScene extends Phaser.Scene {
     });
 
     const params = new URLSearchParams(window.location.search);
-    const events = this.events;
-    let active = true;
-    const release = (): void => {
-      active = false;
-      events.off(Phaser.Scenes.Events.SHUTDOWN, release);
-      events.off(Phaser.Scenes.Events.DESTROY, release);
-    };
-    events.once(Phaser.Scenes.Events.SHUTDOWN, release);
-    events.once(Phaser.Scenes.Events.DESTROY, release);
     // ?trailer=1 hands the boot over to the trailer director (lazy-loaded so
     // trailer code stays out of the normal play path entirely; presence-check
     // only — importing trailer-shell here would hoist it into the main chunk)
     if (params.has("trailer")) {
       void import("../trailer/trailer-director").then(({ startTrailer }) => {
-        if (!active) return undefined;
         startTrailer(this.game);
-        return undefined;
       });
       return;
     }
@@ -243,10 +232,8 @@ export class BootScene extends Phaser.Scene {
     // (lazy-loaded so gallery code stays out of the main chunk)
     if (params.has("gallery")) {
       void import("./gallery-scene").then(({ GalleryScene }) => {
-        if (!active) return undefined;
         if (!this.scene.get("Gallery")) this.scene.add("Gallery", GalleryScene);
         this.scene.start("Gallery");
-        return undefined;
       });
       return;
     }

@@ -1,20 +1,31 @@
-// Procedural WebAudio. Complete phrases own every active/future source; the
-// authoritative score grid never queues missed beats or uses wall-time timers.
+// Procedural WebAudio. SFX are short synth phrases (plus an optional recorded
+// foley accent per hero); the score is a step grid driven by sim time, so a
+// paused or muted stretch never queues catch-up beats.
 
 import { ScoreClock } from "./score";
 import { abilityFoley, abilityNotes } from "./ability-sound";
-import { FoleyBank } from "./foley";
-import type { SynthTone, SynthNoise } from "./ability-sound";
+import type { FoleyKey, SynthTone, SynthNoise } from "./ability-sound";
 import type { ScoreNote, SoundscapeFrame } from "./score";
 
 const SOUND_KEY = "moba:sound";
-const VOICE_LIMIT = 32;
-const ROUTINE_LIMIT = 24;
 const MASTER_GAIN = 0.32;
+const VOICE_LIMIT = 32;
+// Ordinary SFX leave eight voices for the player's own feedback (local hits,
+// casts, level-ups, victory), which must never be crowded out by a teamfight.
+const ROUTINE_LIMIT = 24;
 const MUSIC_LIMIT = 6;
 const AMBIENCE_LIMIT = 2;
+const FOLEY_FILES: ReadonlyArray<[FoleyKey, string]> = [
+  ["buckler", "audio/foley/buckler.ogg"],
+  ["blade", "audio/foley/blade.ogg"],
+  ["bowstring", "audio/foley/bowstring.ogg"],
+  ["fire", "audio/foley/fire.ogg"],
+  ["mechanism", "audio/foley/mechanism.ogg"],
+  ["potion", "audio/foley/potion.ogg"],
+];
 
-// Blocked storage loses persistence, never the current sound preference.
+// localStorage throws in some embeds (sandboxed iframes, blocked cookies,
+// private modes). The game must boot and run without persistence.
 function storageGet(key: string): string | null {
   try {
     return window.localStorage.getItem(key);
@@ -26,51 +37,33 @@ function storageSet(key: string, value: string): void {
   try {
     window.localStorage.setItem(key, value);
   } catch {
-    // Embeds can deny storage while still allowing audio.
+    // Blocked store just loses persistence — never the run.
   }
 }
 
 type Bus = { context: AudioContext; master: GainNode };
 type BedKind = "music" | "ambience";
-type Phrase = { voices: Set<Voice> } & (
-  | { kind: "sfx"; essential: boolean }
-  | { kind: BedKind; essential: false }
-);
-type Voice = {
-  source: AudioScheduledSourceNode;
-  nodes: AudioNode[];
-  startsAt: number;
-  phrase: Phrase;
-  onEnded: () => void;
-};
-type Tone = SynthTone;
-type Noise = SynthNoise;
+type Phrase = { kind: "sfx" | BedKind; essential: boolean; voices: Set<Voice> };
+type Voice = { source: AudioScheduledSourceNode; nodes: AudioNode[]; phrase: Phrase };
 type Sample = { kind: "sample"; buffer: AudioBuffer; gain: number; at: number; dur: number };
-type Note = Tone | Noise | ScoreNote | Sample;
+type Note = SynthTone | SynthNoise | ScoreNote | Sample;
 type Reaction = { important?: boolean; gain?: number };
 type Throttle = { key: string; minMs: number };
 
 let bus: Bus | null = null;
 let contextTransition: Promise<void> | null = null;
-let hasRun = false;
 let paused = false;
-let disposed = false;
-// Muted by default; returning players can retain their explicit opt-in.
+// Muted by default; sound is opt-in ("1") and the choice persists.
 let muted = storageGet(SOUND_KEY) !== "1";
 const voices = new Set<Voice>();
 const phrases: Phrase[] = [];
 const noiseBufs = new Map<number, AudioBuffer>();
+const foleyBufs = new Map<FoleyKey, AudioBuffer>();
 const lastAt = new Map<string, number>();
 const scoreClock = new ScoreClock();
-const foley = new FoleyBank();
 const bedBuses = new Map<BedKind, GainNode>();
-let acceptedSources = 0;
-let droppedSources = 0;
-let stoppedSources = 0;
-let endedSources = 0;
-let peakSources = 0;
 
-const blocked = (): boolean => muted || paused || disposed;
+const blocked = (): boolean => muted || paused;
 
 function setMaster(): void {
   if (!bus) return;
@@ -79,30 +72,31 @@ function setMaster(): void {
   bus.master.gain.setValueAtTime(blocked() ? 0 : MASTER_GAIN, t);
 }
 
-/** A pending resume can finish after a newer pause/mute. Only reconcile that
- * intent change; a rejected/interrupted device must not spin unlock retries. */
+/** One resume/suspend in flight at a time; a pause/mute that lands mid-flight
+ *  is reconciled when the transition settles. */
 function reconcileContext(): void {
-  if (!bus || disposed || bus.context.state === "closed") return;
-  setMaster();
-  if (contextTransition) return;
+  if (!bus || contextTransition) return;
   const ctx = bus.context;
   const shouldRun = !blocked();
-  if (ctx.state === (shouldRun ? "running" : "suspended")) {
-    if (shouldRun) hasRun = true;
-    return;
-  }
-  // An early scene SFX must not park a pre-gesture resume promise ahead of the
-  // real gesture. Once unlocked, programmatic wrapper resumes are permitted.
-  if (shouldRun && !hasRun && window.navigator?.userActivation?.isActive === false) return;
+  if (ctx.state === (shouldRun ? "running" : "suspended")) return;
   const operation = shouldRun ? ctx.resume() : ctx.suspend();
   contextTransition = operation;
   const finish = (): void => {
     contextTransition = null;
-    if (disposed) return;
-    if (ctx.state === "running") hasRun = true;
     if (shouldRun !== !blocked()) reconcileContext();
   };
   void operation.then(finish, finish);
+}
+
+// Accents are optional: until (or unless) a sample lands, the synth phrase plays alone.
+function loadFoley(context: AudioContext): void {
+  for (const [key, file] of FOLEY_FILES) {
+    void fetch(file)
+      .then((response) => (response.ok ? response.arrayBuffer() : Promise.reject(response)))
+      .then((bytes) => context.decodeAudioData(bytes))
+      .then((buffer) => foleyBufs.set(key, buffer))
+      .catch(() => undefined);
+  }
 }
 
 function audio(): Bus | null {
@@ -110,53 +104,41 @@ function audio(): Bus | null {
   if (!bus) {
     const Ctor = window.AudioContext;
     if (!Ctor) return null;
-    try {
-      const context = new Ctor();
-      const master = context.createGain();
-      master.gain.value = MASTER_GAIN;
-      master.connect(context.destination);
-      bus = { context, master };
-      foley.prime(context);
-    } catch {
-      return null;
-    }
+    const context = new Ctor();
+    const master = context.createGain();
+    master.gain.value = MASTER_GAIN;
+    master.connect(context.destination);
+    bus = { context, master };
+    loadFoley(context);
   }
   reconcileContext();
-  // Never queue notes behind an autoplay gate or an asynchronous transition.
+  // Never queue notes behind the autoplay gate or an in-flight transition.
   return bus.context.state === "running" && !contextTransition ? bus : null;
 }
 
-function release(voice: Voice, reason: "ended" | "stopped"): void {
+function release(voice: Voice, stop: boolean): void {
   if (!voices.delete(voice)) return;
   voice.phrase.voices.delete(voice);
   if (voice.phrase.voices.size === 0) {
     const i = phrases.indexOf(voice.phrase);
     if (i >= 0) phrases.splice(i, 1);
   }
-  voice.source.removeEventListener("ended", voice.onEnded);
-  if (reason === "stopped") {
-    stoppedSources++;
-    voice.source.stop();
-  } else endedSources++;
+  if (stop) voice.source.stop();
   voice.source.disconnect();
   for (const node of voice.nodes) node.disconnect();
 }
 
 function stopPhrase(phrase: Phrase): void {
-  for (const voice of phrase.voices) release(voice, "stopped");
-}
-
-function stopVoices(): void {
-  for (const voice of voices) release(voice, "stopped");
+  for (const voice of phrase.voices) release(voice, true);
 }
 
 function stopBackground(kind?: BedKind): void {
   for (const voice of voices)
-    if (voice.phrase.kind !== "sfx" && (!kind || voice.phrase.kind === kind))
-      release(voice, "stopped");
+    if (voice.phrase.kind !== "sfx" && (!kind || voice.phrase.kind === kind)) release(voice, true);
 }
 
-function resetBedMix(): void {
+function stopAll(): void {
+  for (const voice of voices) release(voice, true);
   const now = bus?.context.currentTime ?? 0;
   for (const gain of bedBuses.values()) {
     gain.gain.cancelScheduledValues(now);
@@ -166,11 +148,7 @@ function resetBedMix(): void {
 
 function applyIntent(): void {
   setMaster();
-  if (blocked()) {
-    stopVoices();
-    resetBedMix();
-  }
-  // A mute/pause toggle alone does not create an unused context.
+  if (blocked()) stopAll();
   reconcileContext();
 }
 
@@ -193,7 +171,8 @@ export function toggleMute(): boolean {
   return muted;
 }
 
-/** Trailer override changes only this session, never the saved opt-in. */
+/** Session-only mute override: never persists, so the player's saved opt-in
+ *  survives. Trailer mode uses this to unmute for its run. */
 export function setMutedTransient(next: boolean): void {
   muted = next;
   applyIntent();
@@ -204,28 +183,11 @@ export function setSoundPaused(next: boolean): void {
   applyIntent();
 }
 
-/** Match/shot boundary: cancel pending notes and gates; retain user intent. */
+/** Match/shot boundary: drop pending notes and gates; keep the user's intent. */
 export function resetSound(): void {
-  stopVoices();
+  stopAll();
   lastAt.clear();
   scoreClock.reset();
-  resetBedMix();
-}
-
-/** Only final Phaser Game destruction closes the app-owned context. */
-export function disposeSound(): void {
-  if (disposed) return;
-  disposed = true;
-  setMaster();
-  resetSound();
-  noiseBufs.clear();
-  foley.dispose();
-  for (const gain of bedBuses.values()) gain.disconnect();
-  bedBuses.clear();
-  if (bus) {
-    bus.master.disconnect();
-    if (bus.context.state !== "closed") void bus.context.close().catch(() => undefined);
-  }
 }
 
 const tone = (
@@ -235,16 +197,17 @@ const tone = (
   gain: number,
   slideTo?: number,
   at = 0,
-): Tone => ({ kind: "tone", freq, dur, type, gain, slideTo, at });
+): SynthTone => ({ kind: "tone", freq, dur, type, gain, slideTo, at });
 const noise = (
   dur: number,
   gain: number,
   frequency: number,
   at = 0,
   filter: BiquadFilterType = "lowpass",
-): Noise => ({ kind: "noise", dur, gain, frequency, at, filter });
+): SynthNoise => ({ kind: "noise", dur, gain, frequency, at, filter });
 
-// Same decaying white-noise buffer per duration as the original recipes.
+// Decaying white noise is indistinguishable between calls: cache one buffer per
+// duration and replay it through a fresh (cheap) BufferSource each time.
 function noiseBuffer(ctx: AudioContext, dur: number): AudioBuffer {
   const cached = noiseBufs.get(dur);
   if (cached) return cached;
@@ -261,63 +224,39 @@ function play(
   { important = false, gain = 1 }: Reaction = {},
   throttle?: Throttle,
 ): void {
-  const level = Number.isFinite(gain) ? Math.max(0, Math.min(1, gain)) : 0;
-  // Silent/distant/paused events neither allocate audio nor consume a gate.
-  if (blocked() || level === 0 || notes.length === 0) return;
+  const level = Math.max(0, Math.min(1, gain));
+  if (level === 0 || notes.length === 0) return;
   const target = audio();
-  let routine = 0;
-  for (const voice of voices) if (!voice.phrase.essential) routine++;
-  if (!target || notes.length > VOICE_LIMIT) {
-    droppedSources += notes.length;
-    return;
+  if (!target) return;
+  // The player's own reaction is gated separately so a busy fight can't swallow it.
+  const gate = throttle && (important ? `${throttle.key}:local` : throttle.key);
+  const now = performance.now();
+  if (throttle && gate && (lastAt.get(gate) ?? -Infinity) + throttle.minMs > now) return;
+  // Background beds yield first; important sounds may then bump the oldest
+  // ordinary phrase, but nothing evicts another important sound.
+  const limit = important ? VOICE_LIMIT : ROUTINE_LIMIT;
+  while (voices.size + notes.length > limit) {
+    const victim =
+      phrases.find((p) => p.kind === "ambience") ??
+      phrases.find((p) => p.kind === "music") ??
+      (important ? phrases.find((p) => !p.essential) : undefined);
+    if (!victim) return;
+    stopPhrase(victim);
   }
-  let throttleKey: string | null = null;
-  let throttleTime = 0;
-  if (throttle) {
-    // Routine activity cannot swallow the local victim's same-frame reaction.
-    const key = important ? `${throttle.key}:local` : throttle.key;
-    const now = performance.now();
-    const previous = lastAt.get(key);
-    if (previous !== undefined && previous + throttle.minMs > now) return;
-    throttleKey = key;
-    throttleTime = now;
-  }
-  // Background phrases yield first, including to ordinary accepted combat SFX.
-  // They can never consume the eight-source essential reserve.
-  const routineBudget = important ? VOICE_LIMIT : ROUTINE_LIMIT;
-  while (voices.size + notes.length > VOICE_LIMIT || routine + notes.length > routineBudget) {
-    const background =
-      phrases.find((phrase) => phrase.kind === "ambience") ??
-      phrases.find((phrase) => phrase.kind === "music");
-    if (!background) break;
-    routine -= background.voices.size;
-    stopPhrase(background);
-  }
-  if (
-    !important &&
-    (routine + notes.length > ROUTINE_LIMIT || voices.size + notes.length > VOICE_LIMIT)
-  ) {
-    droppedSources += notes.length;
-    return;
-  }
-  while (voices.size + notes.length > VOICE_LIMIT) {
-    const oldest = phrases.find((p) => !p.essential) ?? phrases[0];
-    if (!oldest) return;
-    stopPhrase(oldest);
-  }
+  if (gate) lastAt.set(gate, now);
   const phrase: Phrase = { kind: "sfx", essential: important, voices: new Set() };
-  if (throttleKey !== null) lastAt.set(throttleKey, throttleTime);
   phrases.push(phrase);
-  const now = target.context.currentTime;
+  const t = target.context.currentTime;
   if (important) {
-    for (const [kind, gain] of bedBuses) {
-      gain.gain.cancelScheduledValues(now);
-      gain.gain.setValueAtTime(gain.gain.value, now);
-      gain.gain.linearRampToValueAtTime(kind === "music" ? 0.4 : 0.15, now + 0.015);
-      gain.gain.linearRampToValueAtTime(1, now + 0.28);
+    // Duck the beds under the player's own feedback.
+    for (const [kind, bed] of bedBuses) {
+      bed.gain.cancelScheduledValues(t);
+      bed.gain.setValueAtTime(bed.gain.value, t);
+      bed.gain.linearRampToValueAtTime(kind === "music" ? 0.4 : 0.15, t + 0.015);
+      bed.gain.linearRampToValueAtTime(1, t + 0.28);
     }
   }
-  for (const note of notes) schedule(target, phrase, note, now, level);
+  for (const note of notes) schedule(target, phrase, note, t, level);
 }
 
 function bedDestination(target: Bus, kind: BedKind): GainNode {
@@ -332,31 +271,20 @@ function bedDestination(target: Bus, kind: BedKind): GainNode {
 function playBed(target: Bus, kind: BedKind, notes: readonly ScoreNote[]): void {
   if (notes.length === 0) return;
   let category = 0;
-  let routine = 0;
-  for (const voice of voices) {
-    if (voice.phrase.kind === kind) category++;
-    if (!voice.phrase.essential) routine++;
-  }
+  for (const voice of voices) if (voice.phrase.kind === kind) category++;
   const limit = kind === "music" ? MUSIC_LIMIT : AMBIENCE_LIMIT;
-  if (
-    category + notes.length > limit ||
-    routine + notes.length > ROUTINE_LIMIT ||
-    voices.size + notes.length > VOICE_LIMIT
-  ) {
-    droppedSources += notes.length;
-    return;
-  }
+  if (category + notes.length > limit || voices.size + notes.length > ROUTINE_LIMIT) return;
   const phrase: Phrase = { kind, essential: false, voices: new Set() };
   phrases.push(phrase);
   const now = target.context.currentTime + 0.015;
   for (const note of notes) schedule(target, phrase, note, now, 1);
 }
 
-/** Call once after the frame's SFX, using accepted simulation time. Muted or
- * paused observations advance only the cursor; no old music waits for unlock. */
+/** Call once per frame after the frame's SFX, with accepted simulation time.
+ *  Muted or paused frames only advance the cursor — no old music waits for unlock. */
 export function updateSoundscape(frame: SoundscapeFrame): void {
   const previous = scoreClock.mode;
-  const previousStep = scoreClock.diagnostics().step;
+  const previousStep = scoreClock.step;
   const rewound = scoreClock.isRewind(frame.time);
   if (frame.kind === "silent" || frame.kind === "ended") {
     scoreClock.observe(frame, false);
@@ -446,18 +374,10 @@ function schedule(target: Bus, phrase: Phrase, note: Note, now: number, level: n
     gain.gain.exponentialRampToValueAtTime(0.0001, t + note.dur);
   }
   gain.connect(phrase.kind === "sfx" ? master : bedDestination(target, phrase.kind));
-  const voice: Voice = {
-    source,
-    nodes,
-    startsAt: t,
-    phrase,
-    onEnded: () => release(voice, "ended"),
-  };
+  const voice: Voice = { source, nodes, phrase };
   voices.add(voice);
   phrase.voices.add(voice);
-  acceptedSources++;
-  peakSources = Math.max(peakSources, voices.size);
-  source.addEventListener("ended", voice.onEnded, { once: true });
+  source.addEventListener("ended", () => release(voice, false), { once: true });
   source.start(t);
   if (note.kind === "tone" || note.kind === "score-tone") source.stop(t + note.dur + 0.02);
 }
@@ -467,21 +387,13 @@ export const sfx = {
     play([noise(0.06, 0.07, 1400)], reaction, { key: "hit", minMs: 60 });
   },
   ability(effect = "", gain = 1, local = false): void {
-    // Each spell has its own gate. A teammate cannot swallow the player's
-    // accepted cast; the existing essential reserve protects that response.
     const notes: Note[] = [...abilityNotes(effect)];
     const accent = abilityFoley(effect);
-    const buffer = accent ? foley.buffer(accent.key) : null;
+    const buffer = accent ? foleyBufs.get(accent.key) : undefined;
     const first = notes[0];
-    // Replace one voice, never add a parallel source or replay a missed cue.
+    // The recorded accent replaces the first synth voice rather than doubling it.
     if (buffer && accent && first)
-      notes[0] = {
-        kind: "sample",
-        buffer,
-        gain: accent.gain,
-        at: first.at,
-        dur: buffer.duration,
-      };
+      notes[0] = { kind: "sample", buffer, gain: accent.gain, at: first.at, dur: buffer.duration };
     play(notes, { gain, important: local }, { key: `ability:${effect}`, minMs: 90 });
   },
   explosion(reaction: Reaction = {}): void {
@@ -514,46 +426,12 @@ export const sfx = {
   },
 };
 
-/** Counts owned resources (future notes included), not physical audibility. */
 export function soundDiagnostics() {
-  const now = bus?.context.currentTime ?? 0;
-  let scheduledSources = 0;
-  let routineSources = 0;
-  let musicSources = 0;
-  let ambienceSources = 0;
-  for (const voice of voices) {
-    if (voice.startsAt > now) scheduledSources++;
-    if (!voice.phrase.essential) routineSources++;
-    if (voice.phrase.kind === "music") musicSources++;
-    if (voice.phrase.kind === "ambience") ambienceSources++;
-  }
-  return Object.freeze({
+  return {
     context: bus?.context.state ?? "uncreated",
     muted,
     paused,
-    disposed,
-    // Raw AudioParam reading; it may retain the last render value while suspended.
-    masterGain: bus?.master.gain.value ?? 0,
-    contextTransition: contextTransition !== null,
-    ownedSources: voices.size,
-    scheduledSources,
-    routineSources,
-    musicSources,
-    ambienceSources,
-    musicLimit: MUSIC_LIMIT,
-    ambienceLimit: AMBIENCE_LIMIT,
-    score: scoreClock.diagnostics(),
-    essentialSources: voices.size - routineSources,
-    phrases: phrases.length,
-    noiseBuffers: noiseBufs.size,
-    foley: foley.diagnostics(),
-    throttleGates: lastAt.size,
-    limit: VOICE_LIMIT,
-    routineLimit: ROUTINE_LIMIT,
-    acceptedSources,
-    droppedSources,
-    stoppedSources,
-    endedSources,
-    peakSources,
-  });
+    voices: voices.size,
+    score: { mode: scoreClock.mode, step: scoreClock.step },
+  };
 }

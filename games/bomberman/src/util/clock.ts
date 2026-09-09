@@ -11,40 +11,30 @@
 // with 2s of fuse left before a pause still has ~2s left after. Only SIM timing
 // reads `now()` — net heartbeats, connection deadlines and logging stay on real
 // `Date.now()`, because pausing them would break reconnection.
+//
+// The host publishes its stamp in shared state: every `placedAt` on the wire is
+// host sim time, so guests (and a promoted host) must run the same clock.
 
 export type ClockStamp = { kind: "running"; offset: number } | { kind: "paused"; now: number };
-type ClockWire = string | number | boolean | null | ClockWire[] | { [key: string]: ClockWire };
 
 let clock: ClockStamp = { kind: "running", offset: 0 };
 
-const isRecord = (value: ClockWire | undefined): value is { [key: string]: ClockWire } =>
-  Object.prototype.toString.call(value) === "[object Object]";
-const isFiniteNumber = (value: ClockWire | undefined): value is number => Number.isFinite(value);
-
-/** Optional only at the legacy wire boundary. A frozen timestamp carries an
- * unfinished pause through host loss; an offset alone cannot represent it. */
-export function readClock(value: ClockWire | undefined): ClockStamp {
-  if (isRecord(value)) {
-    if (value["kind"] === "running" && isFiniteNumber(value["offset"]))
-      return { kind: "running", offset: value["offset"] };
-    if (value["kind"] === "paused" && isFiniteNumber(value["now"]))
-      return { kind: "paused", now: value["now"] };
-  }
+/** Legacy rooms carry no stamp. A frozen `now` survives host loss where an
+ * offset alone could not represent an unfinished pause. */
+export function readClock(value: ClockStamp | undefined): ClockStamp {
+  if (value?.kind === "paused" && Number.isFinite(value.now))
+    return { kind: "paused", now: value.now };
+  if (value?.kind === "running" && Number.isFinite(value.offset))
+    return { kind: "running", offset: value.offset };
   return { kind: "running", offset: 0 };
 }
 
 export function clockStamp(): ClockStamp {
-  return { ...clock };
+  return clock;
 }
 
 export function adoptClock(stamp: ClockStamp): void {
-  clock = { ...stamp };
-}
-
-export function sameClock(a: ClockStamp, b: ClockStamp): boolean {
-  return a.kind === "paused"
-    ? b.kind === "paused" && a.now === b.now
-    : b.kind === "running" && a.offset === b.offset;
+  clock = stamp;
 }
 
 /** Sim clock: `Date.now()` minus all time spent paused. Frozen while paused. */

@@ -1,7 +1,7 @@
-import type { FoleyKey } from "./foley";
+export type FoleyKey = "buckler" | "blade" | "bowstring" | "fire" | "mechanism" | "potion";
 
-/** Short, complete gestures for accepted spells. Shared timbres identify a
- * champion; rhythm, register and envelope identify the action. */
+/** Short synth gestures per spell. Shared timbres identify a champion;
+ * rhythm, register and envelope identify the action. */
 export type SynthTone = {
   kind: "tone";
   freq: number;

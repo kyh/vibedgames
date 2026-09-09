@@ -43,7 +43,6 @@ export class NetSession {
   private admissionRevision = 0;
   private droppedRevision = 0;
   private unwatch: (() => void) | null = null;
-  private disposed = false;
   private full = false;
 
   private solo = false;
@@ -79,7 +78,6 @@ export class NetSession {
       let playerId = client.playerId;
       let hostId = client.hostId;
       this.unwatch = client.subscribe(() => {
-        if (this.disposed) return;
         // An invite identifies one room; the SDK's matchmaking overflow must
         // not admit this player into a different expedition under that code.
         if (client.room !== opts.room) {
@@ -104,12 +102,12 @@ export class NetSession {
     }
   }
 
-  /** Changes even if a transport loss/reconnect occurs between scene frames. */
+  /** Bumps on every status/player/host change, even ones that flip back
+   * between two scene frames — the scene keys its checkpoint adoption on it. */
   get authorityRevision(): number {
     return this.admissionRevision;
   }
 
-  /** Records even a transport loss and recovery between two scene frames. */
   get disconnectRevision(): number {
     return this.droppedRevision;
   }
@@ -121,7 +119,7 @@ export class NetSession {
   /** Call once per frame: drives the offline fallback timer. */
   tick(): void {
     const client = this.client;
-    if (this.disposed || this.solo || !client) return;
+    if (this.solo || !client) return;
     // Start the grace window on the FIRST tick, not at construction: heavy games
     // (lots of assets/wasm) can take longer than the window just to reach their
     // first frame, and counting that load time would wrongly drop a client to
@@ -153,7 +151,7 @@ export class NetSession {
 
   /** Connected to a room, or running the solo fallback. */
   get live(): boolean {
-    return !this.disposed && (this.solo || this.client?.connectionStatus === "connected");
+    return this.solo || this.client?.connectionStatus === "connected";
   }
 
   get connectionStatus(): string {
@@ -225,8 +223,6 @@ export class NetSession {
   }
 
   destroy(): void {
-    if (this.disposed) return;
-    this.disposed = true;
     this.unwatch?.();
     this.unwatch = null;
     if (!this.solo) this.client?.destroy();

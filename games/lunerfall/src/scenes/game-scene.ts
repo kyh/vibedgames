@@ -173,7 +173,7 @@ const newCombatState = (): CombatState => ({
   bossSpecial: -1,
 });
 
-const NET_HZ = 30; // unchanged puppet/prediction snapshot cadence
+const NET_HZ = 30; // host snapshot broadcast rate
 const CHECKPOINT_HZ = 10; // full private state; takeover rewinds at most one 100 ms interval
 type CheckpointMark = {
   phase: CheckpointPhase["kind"] | "transition-built";
@@ -679,42 +679,13 @@ export class GameScene extends Phaser.Scene {
     if (this.mode === "versus")
       this.input.keyboard?.on("keydown-ESC", () => this.scene.start("select"));
 
-    let cleaned = false;
-    const events = this.events;
-    const motionChanged = (): void => {
-      if (!REDUCED_MOTION.matches) return;
-      this.cameras.main.shakeEffect.reset();
-      this.tweens.killTweensOf(this.comboText);
-      this.comboText.setScale(this.trailerPinScale);
-    };
-    REDUCED_MOTION.addEventListener("change", motionChanged);
-    const cleanup = (returnToHub: boolean): void => {
-      if (cleaned) return;
-      cleaned = true;
-      events.off(Phaser.Scenes.Events.SHUTDOWN, shutdown);
-      events.off(Phaser.Scenes.Events.DESTROY, destroy);
-      REDUCED_MOTION.removeEventListener("change", motionChanged);
+    // Death → hub: drop the socket and the hub gets its mute-only touch cluster back.
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.controls.destroy();
       this.gamepad.destroy();
       this.session?.destroy();
-      this.expeditionHud?.destroy();
-      this.expeditionHud = undefined;
-      this.runRecap = null;
-      this.activeBanner = null;
-      this.pendingObjective = null;
-      this.bossAnnounced = false;
-      this.adoptedTerminal = null;
-      this.checkpointCache = { kind: "absent" };
-      this.checkpointRef = undefined;
-      this.checkpointRoomRef = undefined;
-      // Final Game.destroy already removes the app-owned touch HUD in main.
-      // Re-mounting the hub cluster there would create a fresh orphan owner.
-      if (returnToHub && !params.has("trailer")) mountTouchHud(false);
-    };
-    const shutdown = (): void => cleanup(true);
-    const destroy = (): void => cleanup(false);
-    events.once(Phaser.Scenes.Events.SHUTDOWN, shutdown);
-    events.once(Phaser.Scenes.Events.DESTROY, destroy);
+      if (!params.has("trailer")) mountTouchHud(false);
+    });
   }
 
   // Both players leave world-space cues; routine camera motion belongs to me.
@@ -853,7 +824,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.roomSeq++;
-    if (this.role === "host") this.transmitRoom();
+    if (this.role === "host") this.roomDirty = true;
     // Boss rooms announce the boss by name in spawnBoss; don't overwrite it here.
     // Descending into a new biome announces the biome instead of the room label.
     if (this.run.type !== "boss") {
@@ -886,7 +857,7 @@ export class GameScene extends Phaser.Scene {
     this.mustClear = false;
     this.cleared = true;
     this.roomSeq++;
-    if (this.role === "host") this.transmitRoom();
+    if (this.role === "host") this.roomDirty = true;
     this.showBanner("VERSUS — WAITING FOR A CHALLENGER", 2600, "critical");
   }
 
@@ -1188,7 +1159,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (this.state === "connecting") {
-      this.stepConnecting();
+      this.prepareSession();
       return;
     }
 
@@ -1387,11 +1358,6 @@ export class GameScene extends Phaser.Scene {
         sfx.door("local");
       } else this.showBanner("PLAYER 2 JOINED", 1000, "status");
     }
-  }
-
-  // Connecting: hold the black overlay until the connection reports host vs guest.
-  private stepConnecting() {
-    this.prepareSession();
   }
 
   private finishConnecting() {
@@ -1781,7 +1747,7 @@ export class GameScene extends Phaser.Scene {
 
   private ensureGuestRemote(heroRaw: string) {
     const hero = parseHero(heroRaw) ?? "axion";
-    if (this.remote?.encode("").hero === hero) return;
+    if (this.remote?.name === hero) return;
     this.remote?.destroy();
     this.remote = this.spawnPlayer(HEROES[hero], this.grid, this.roomSpawn.x, this.roomSpawn.y);
   }
@@ -2387,7 +2353,8 @@ export class GameScene extends Phaser.Scene {
       c.lastStand && downed
         ? { pl: downed, bleedT: c.lastStand.bleed, reviveT: c.lastStand.revive }
         : null;
-    // A seat removed by the server keeps the original partner-departure relief.
+    // A seat the server has already dropped gets the same one-heart relief as a
+    // partner leaving mid-last-stand.
     if (c.phase.kind !== "dead" && c.lastStand && !downed && !this.session?.players[c.lastStand.id])
       this.hearts = Math.max(this.hearts, 1);
     this.netLastStand = null;
@@ -2572,11 +2539,6 @@ export class GameScene extends Phaser.Scene {
       vs: this.vs ? this.vs.encode() : null,
       banner: "",
     };
-  }
-
-  // Host: send the current room's static layout (once per room).
-  private transmitRoom() {
-    this.roomDirty = true;
   }
 
   private encodeRoom(): NetRoom {

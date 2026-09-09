@@ -19,8 +19,9 @@ import { HubView } from "../hub/hub-view";
 import { parseRoomCode, partyLink } from "../hub/party-link";
 import { isCoarse } from "../sys/screen";
 
-/** Screen-space hub only. The same authored sprites, selection and purchase
- * callbacks serve every input; the expedition retains its baked world camera. */
+/** Screen-space hub: the DOM (HubView) lays out and takes input, Phaser draws
+ * the hero sprites over it. Only this scene resizes the game; the expedition
+ * keeps its baked BASE_W/H camera. */
 export class SelectScene extends Phaser.Scene {
   private index = 0;
   private sprites: Phaser.GameObjects.Sprite[] = [];
@@ -98,12 +99,7 @@ export class SelectScene extends Phaser.Scene {
     kb?.on("keydown", this.keyDown);
     const unwatch = watchControlContext(() => this.refresh());
     window.addEventListener("resize", this.layout);
-    let cleaned = false;
-    const cleanup = (restoreViewport: boolean): void => {
-      if (cleaned) return;
-      cleaned = true;
-      this.events.off(Phaser.Scenes.Events.SHUTDOWN, shutdown);
-      this.events.off(Phaser.Scenes.Events.DESTROY, destroy);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       window.removeEventListener("resize", this.layout);
       unwatch();
       kb?.off("keydown", this.keyDown);
@@ -111,25 +107,15 @@ export class SelectScene extends Phaser.Scene {
       this.pad = null;
       this.view?.destroy();
       this.view = null;
-      this.recap = null;
-      this.sprites = [];
-      // DisplayList owns these objects, including direct Game.destroy's path.
-      this.showcase = null;
-      this.backdrop = null;
-      this.shade = null;
-      // Restore only when a running game can accept a scene transition.
-      if (restoreViewport) this.scale.setGameSize(BASE_W, BASE_H);
-    };
-    const shutdown = (): void => cleanup(true);
-    const destroy = (): void => cleanup(false);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, shutdown);
-    this.events.once(Phaser.Scenes.Events.DESTROY, destroy);
+      // The expedition bakes BASE_W/H into its layout; hand it back before the descent.
+      this.scale.setGameSize(BASE_W, BASE_H);
+    });
     this.refresh();
     if (this.roomFull) this.view.announce("Room full. Join another code or play Solo.");
   }
 
-  /** DOM stages determine positions in CSS pixels. Only this scene changes the
-   * render size; cleanup restores the original BASE_W/BASE_H before a descent. */
+  /** DOM stages determine sprite positions in CSS pixels; the render size
+   * follows the window (capped at 720px tall) so sprites land on their stages. */
   private readonly layout = (): void => {
     const view = this.view;
     if (!view) return;
@@ -359,8 +345,8 @@ export class SelectScene extends Phaser.Scene {
     } else history.replaceState(null, "", partyLink(location.href, this.code, this.net));
   }
 
-  /** Deliberate unlock never starts a run. Keyboard/controller confirm on a
-   * locked hero remains a refusal, preserving the original purchase boundary. */
+  /** Confirm never buys: a locked hero refuses, and U / the PLAY button's
+   * UNLOCK label is the deliberate purchase path. */
   private confirm(): void {
     if (this.shopOpen) return this.buySelected();
     const hero = HERO_ORDER[this.index] ?? "axion";

@@ -99,12 +99,6 @@ export class CommonFx {
         .setVisible(false),
       live: null,
     }));
-    scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      // Phaser destroys display objects at shutdown; release our references too.
-      this.images.length = 0;
-      this.sprites.length = 0;
-      this.labels.length = 0;
-    });
   }
 
   visible(x: number, y: number, radius = 160): boolean {

@@ -21,6 +21,16 @@ export type KeyboardHandlers = {
   muteToggle(): void;
 };
 
+/** Space / Enter on a focused button (Play, rule cards, the camera toggle)
+ *  activate that control; the game must not also read them as verbs. */
+function activatesControl(e: KeyboardEvent): boolean {
+  return (
+    (e.key === " " || e.key === "Enter") &&
+    e.target instanceof Element &&
+    e.target.closest("button, input, select, textarea") !== null
+  );
+}
+
 export class Keyboard {
   private readonly handlers: KeyboardHandlers;
   private left = false;
@@ -28,8 +38,6 @@ export class Keyboard {
   private away = false;
   private near = false;
   private softDrop = false;
-  private paused = false;
-  private destroyed = false;
 
   constructor(handlers: KeyboardHandlers) {
     this.handlers = handlers;
@@ -39,17 +47,13 @@ export class Keyboard {
   }
 
   destroy(): void {
-    if (this.destroyed) return;
-    this.destroyed = true;
-    this.onBlur();
     window.removeEventListener("keydown", this.onKeyDown);
     window.removeEventListener("keyup", this.onKeyUp);
     window.removeEventListener("blur", this.onBlur);
   }
 
-  setPaused(paused: boolean): void {
-    if (this.destroyed) return;
-    this.paused = paused;
+  /** Forget held keys: a pause swallows their keyup, so they would stay held. */
+  releaseHeld(): void {
     this.onBlur();
   }
 
@@ -61,10 +65,8 @@ export class Keyboard {
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
-    if (this.destroyed || e.repeat) return;
+    if (e.repeat || activatesControl(e)) return;
     const k = e.key;
-    // Repeats never rearm a key held across pause. M remains a native sound gesture.
-    if (this.paused && k.toLowerCase() !== "m") return;
     if (k === "ArrowLeft" || k === "a" || k === "A") {
       this.left = true;
       this.handlers.setHoriz(this.horiz());
@@ -105,7 +107,6 @@ export class Keyboard {
   };
 
   private onKeyUp = (e: KeyboardEvent): void => {
-    if (this.destroyed || this.paused) return;
     const k = e.key;
     if (k === "ArrowLeft" || k === "a" || k === "A") {
       this.left = false;

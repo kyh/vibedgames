@@ -48,7 +48,8 @@ export function readSoundscape(world: World, playerId: string): SoundscapeFrame 
     !isLandCell(cx, cy + 2);
   if (!me.alive) return { kind: "fallen", time, water };
   let kind: ScoreMode = "quiet";
-  for (const [id, at] of Object.entries(me.hero.recentDamageFrom)) {
+  for (const id in me.hero.recentDamageFrom) {
+    const at = me.hero.recentDamageFrom[id] ?? 0;
     if (at > world.now || world.now - at > 1200) continue;
     const attacker = world.units.get(id);
     if (attacker?.kind === "hero" || attacker?.creep?.boss) kind = "battle";
@@ -224,7 +225,7 @@ export class ScoreClock {
     return audible ? scoreStep(step, this.mode, frame.water) : null;
   }
 
-  diagnostics() {
-    return { mode: this.mode, step: this.lastStep };
+  get step(): number {
+    return this.lastStep;
   }
 }

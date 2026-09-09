@@ -2,7 +2,7 @@ import Phaser from "phaser";
 import { setPauseHandlers } from "@repo/embed";
 
 import { hide as hidePauseOverlay, show as showPauseOverlay } from "./pause-overlay";
-import { disposeSound, setSoundPaused, soundDiagnostics } from "./render/audio";
+import { setSoundPaused, soundDiagnostics } from "./render/audio";
 import { BootScene } from "./scenes/boot-scene";
 import { GameScene } from "./scenes/game-scene";
 import { HudScene } from "./scenes/hud-scene";
@@ -31,12 +31,9 @@ const config: Phaser.Types.Core.GameConfig = {
 // The display font must be resolved before any Phaser Text is created, or those
 // texts rasterise with the fallback. Cap the wait so a blocked font CDN can
 // never hold the game hostage.
-let fontTimeout: ReturnType<typeof setTimeout> | undefined;
 const fontReady = Promise.race([
   document.fonts.load('20px "Lilita One"'),
-  new Promise((resolve) => {
-    fontTimeout = setTimeout(resolve, 1500);
-  }),
+  new Promise((resolve) => setTimeout(resolve, 1500)),
 ]);
 declare global {
   interface Window {
@@ -46,33 +43,23 @@ declare global {
 }
 
 void fontReady.then(() => {
-  clearTimeout(fontTimeout);
   const game = new Phaser.Game(config);
-  let disposed = false;
+  const activeGame = (): GameScene | null => {
+    const scene = game.scene.getScene("Game");
+    return scene instanceof GameScene && game.scene.isActive("Game") ? scene : null;
+  };
   Object.defineProperty(window, "__GAME_DIAGNOSTICS__", {
     configurable: true,
-    get: () => {
-      if (disposed)
-        return {
-          frame: game.loop.frame,
-          phase: "disposed",
-          player: null,
-          score: 0,
-          complete: false,
-          audio: soundDiagnostics(),
-        };
-      const scene = game.scene.getScene("Game");
-      return scene instanceof GameScene && game.scene.isActive("Game")
-        ? { ...scene.diagnostics(), audio: soundDiagnostics() }
-        : {
-            frame: game.loop.frame,
-            phase: "menu",
-            player: null,
-            score: 0,
-            complete: false,
-            audio: soundDiagnostics(),
-          };
-    },
+    get: () => ({
+      ...(activeGame()?.diagnostics() ?? {
+        frame: game.loop.frame,
+        phase: "menu",
+        player: null,
+        score: 0,
+        complete: false,
+      }),
+      audio: soundDiagnostics(),
+    }),
   });
   if (import.meta.env.DEV) window.__game = game;
   // Scale.RESIZE can read stale parent bounds when a resize lands while the
@@ -81,55 +68,32 @@ void fontReady.then(() => {
   // and on tab return.
   let settle: ReturnType<typeof setTimeout> | undefined;
   const refreshScale = (): void => {
-    if (disposed) return;
     clearTimeout(settle);
-    settle = setTimeout(() => {
-      if (!disposed) game.scale.refresh();
-    }, 150);
-  };
-  const onVisibility = (): void => {
-    if (!document.hidden) refreshScale();
+    settle = setTimeout(() => game.scale.refresh(), 150);
   };
   window.addEventListener("resize", refreshScale);
-  document.addEventListener("visibilitychange", onVisibility);
-  const dispose = (): void => {
-    if (disposed) return;
-    disposed = true;
-    clearTimeout(settle);
-    window.removeEventListener("resize", refreshScale);
-    document.removeEventListener("visibilitychange", onVisibility);
-    releasePauseHandlers();
-    hidePauseOverlay();
-    disposeSound();
-  };
-  // Game DESTROY runs after the scene manager is destroyed. Do not look up scenes here.
-  game.events.once(Phaser.Core.Events.DESTROY, dispose);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) refreshScale();
+  });
 
   // Sim is entirely delta-driven (update(_t, deltaMs)), so the wrapper's
   // pause can freeze/resume the loop directly — except in online mode, where
-  // freezing the host would stall every client. `froze` ensures onResume only
-  // wakes what onPause put to sleep.
-  const isOnline = (): boolean => {
-    const scene = game.scene.getScene("Game");
-    return game.scene.isActive("Game") && scene instanceof GameScene && scene.isOnline();
-  };
+  // freezing the host would stall every client; there only the local player's
+  // input stops. `froze` ensures onResume only wakes what onPause put to sleep.
   let froze = false;
-  const releasePauseHandlers = setPauseHandlers({
+  setPauseHandlers({
     onPause: () => {
-      if (disposed) return;
-      const scene = game.scene.getScene("Game");
-      if (scene instanceof GameScene && game.scene.isActive("Game")) scene.setControlsPaused(true);
+      const scene = activeGame();
+      scene?.setControlsPaused(true);
       setSoundPaused(true);
       showPauseOverlay();
-      if (isOnline()) return;
+      if (scene?.isOnline()) return;
       froze = true;
       game.loop.sleep();
       game.sound.pauseAll();
     },
     onResume: () => {
-      if (disposed) return;
-      const scene = game.scene.getScene("Game");
-      if (scene instanceof GameScene && game.scene.isActive("Game")) scene.setControlsPaused(false);
+      activeGame()?.setControlsPaused(false);
       setSoundPaused(false);
       hidePauseOverlay();
       if (!froze) return;
@@ -137,9 +101,8 @@ void fontReady.then(() => {
       game.loop.wake();
       game.sound.resumeAll();
     },
-    // Escape closes an open shop/scoreboard first; only a bare Escape pauses.
+    // Escape closes an open shop/scoreboard/guide first; only a bare Escape pauses.
     escapePauses: () => {
-      if (disposed) return false;
       const hud = game.scene.getScene("Hud");
       return !(hud instanceof HudScene && hud.escConsumed);
     },

@@ -162,17 +162,11 @@ export class WorldView {
     syncMotion();
     const stopSettings = watchPresentationSettings(syncMotion);
     motion.addEventListener("change", syncMotion);
-    let released = false;
-    const release = () => {
-      if (released) return;
-      released = true;
-      scene.events.off(Phaser.Scenes.Events.SHUTDOWN, release);
-      scene.events.off(Phaser.Scenes.Events.DESTROY, release);
+    // A restarted scene builds a fresh WorldView; the old one must stop listening.
+    scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       motion.removeEventListener("change", syncMotion);
       stopSettings();
-    };
-    scene.events.once(Phaser.Scenes.Events.SHUTDOWN, release);
-    scene.events.once(Phaser.Scenes.Events.DESTROY, release);
+    });
   }
 
   /** Start a looping anim at a deterministic offset, CLAMPED to its real frame

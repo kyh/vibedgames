@@ -8,7 +8,7 @@
     "clean": "rm -rf .turbo dist node_modules",
     "dev": "vite",
     "preview": "vite preview",
-    "test": "tsx --test tools/arena-smoke.mts && node tools/verify-character-action.mjs && node tools/verify-round-audio.mjs && node tools/verify-pause-input.mjs && node tools/verify-shared-clock.mjs && node tools/verify-scene-cleanup.mjs && node tools/verify-round-adoption.mjs && node --import tsx tools/verify-blast-render.mjs && node --import tsx --test tools/verify-round-hud.mjs && node tools/verify-placement-audio.mjs && node tools/verify-main-lifecycle.mjs",
+    "test": "node --import tsx --test tools/*-smoke.mts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

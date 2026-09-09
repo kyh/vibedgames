@@ -1035,20 +1035,10 @@ export function initTrailer(game: Phaser.Game): void {
   // scheduled against a suspended context pile up and blat all at once when a
   // later gesture resumes it. onGesture below unmutes if the viewer clicks.
   if (!sfx.muted) sfx.toggleMute();
-  let stopped = false;
-  let poll: number | undefined;
-  const releaseBoot = (): void => {
-    if (stopped) return;
-    stopped = true;
-    window.clearInterval(poll);
-    poll = undefined;
-    game.events.off(Phaser.Core.Events.DESTROY, releaseBoot);
-  };
-  poll = window.setInterval(() => {
-    if (stopped) return;
+  const poll = window.setInterval(() => {
     const scene = game.scene.getScene("game");
     if (!(scene instanceof GameScene) || !game.scene.isActive("game")) return;
-    releaseBoot();
+    window.clearInterval(poll);
     scene.trailerFreeze(9999); // hold the boot room still through the lead-in black
     runTrailer({
       vignette: false, // keeps the pixel art crisp edge to edge
@@ -1059,5 +1049,4 @@ export function initTrailer(game: Phaser.Game): void {
       scenes: BEATS.map((b) => toScene(scene, b)),
     });
   }, 80);
-  game.events.once(Phaser.Core.Events.DESTROY, releaseBoot);
 }

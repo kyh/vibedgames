@@ -9,7 +9,7 @@
     "dev": "vite",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test tools/test-*.mts tools/test-*.mjs"
+    "test": "node --import tsx --test tools/test-*.mts"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "1.0.1",

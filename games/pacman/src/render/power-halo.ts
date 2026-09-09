@@ -4,7 +4,7 @@ import { COLORS, FLOOR_Y, SCARED_MS, SCARED_WARN_MS } from "../shared/constants"
 
 const SEGMENTS = 80;
 
-/** Two fixed floor meshes. The arc reads the existing power clock, never owns one. */
+/** Floor ring under Pacman that drains with the power clock (a track + a shrinking arc). */
 export class PowerHalo {
   private group = new THREE.Group();
   private arcGeometry = new THREE.RingGeometry(0.6, 0.69, SEGMENTS, 1, Math.PI / 2);
@@ -41,7 +41,6 @@ export class PowerHalo {
     this.group.position.set(x, FLOOR_Y + 0.025, z);
     const fraction = Math.min(1, remainingMs / SCARED_MS);
     this.arcGeometry.setDrawRange(0, Math.ceil(fraction * SEGMENTS) * 6);
-    // A steady, stronger final segment; no extra flash or oscillating timer.
     this.arcMaterial.color.setHex(remainingMs <= SCARED_WARN_MS ? COLORS.heartGlow : COLORS.power);
   }
 }

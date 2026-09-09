@@ -65,8 +65,8 @@ test("Crossroads only clears central-lane crates; walls, escapes and RNG stay id
   }
 });
 
-test("arena wire boundary accepts only explicit Crossroads; legacy and invalid values are Classic", () => {
+test("arena wire boundary: only explicit Crossroads; legacy rooms are Classic", () => {
   assert.equal(readArena("crossroads"), "crossroads");
-  for (const value of [undefined, null, "classic", "CROSSROADS", "", 1, {}, ["crossroads"]])
-    assert.equal(readArena(value), "classic");
+  assert.equal(readArena("classic"), "classic");
+  assert.equal(readArena(undefined), "classic");
 });

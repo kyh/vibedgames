@@ -40,7 +40,7 @@ const button = (text: string, action: () => void, className = "lf-hub-button") =
 };
 
 /** DOM owns layout and accessible targets; SelectScene owns every choice and
- * purchase. Empty hero stages reveal the original animated Phaser sprites. */
+ * purchase. Empty hero stages reveal the animated Phaser sprites behind. */
 export class HubView {
   readonly root = element("section", "lf-hub");
   readonly heroes: HTMLButtonElement[] = [];

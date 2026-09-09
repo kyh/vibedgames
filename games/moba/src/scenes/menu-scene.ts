@@ -48,9 +48,7 @@ export class MenuScene extends Phaser.Scene {
   private pad: PhysicalGamepad | null = null;
   private padConfirmArmed = false;
   private keyboardConfirmArmed = true;
-  private menuLive = false;
   private starting = false;
-  private startTimer: Phaser.Time.TimerEvent | null = null;
   private navigationHint: Phaser.GameObjects.Text | null = null;
 
   constructor() {
@@ -64,7 +62,6 @@ export class MenuScene extends Phaser.Scene {
     this.actions = [];
     this.focus = { kind: "champion" };
     this.starting = false;
-    this.menuLive = false;
     this.navigationHint = null;
     this.padConfirmArmed = false;
     this.keyboardConfirmArmed = true;
@@ -94,31 +91,16 @@ export class MenuScene extends Phaser.Scene {
     // the menu is static, so a debounced restart is the simplest correct
     // relayout for resizes / phone rotation (`selected` survives on the instance)
     this.scale.on(Phaser.Scale.Events.RESIZE, this.queueRelayout, this);
-    let released = false;
-    const release = (): void => {
-      if (released) return;
-      released = true;
-      this.menuLive = false;
-      this.events.off(Phaser.Scenes.Events.SHUTDOWN, release);
-      this.events.off(Phaser.Scenes.Events.DESTROY, release);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.queueRelayout, this);
       this.relayout?.remove();
       this.relayout = null;
       this.unwatchControls?.();
       this.unwatchControls = null;
-      this.input.keyboard?.off("keydown", this.onMenuKeyDown, this);
-      this.input.keyboard?.off("keyup", this.onMenuKeyUp, this);
       this.pad?.destroy();
       this.pad = null;
-      this.startTimer?.remove();
-      this.startTimer = null;
-      this.actions = [];
-      this.focus = { kind: "champion" };
-    };
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, release);
-    this.events.once(Phaser.Scenes.Events.DESTROY, release);
+    });
     this.pad = new PhysicalGamepad();
-    this.menuLive = true;
     this.input.keyboard?.on("keydown", this.onMenuKeyDown, this);
     this.input.keyboard?.on("keyup", this.onMenuKeyUp, this);
 
@@ -317,7 +299,7 @@ export class MenuScene extends Phaser.Scene {
   }
 
   private onMenuKeyDown(event: KeyboardEvent): void {
-    if (!this.menuLive || this.starting) return;
+    if (this.starting) return;
     const direction =
       event.key === "ArrowLeft"
         ? "left"
@@ -345,7 +327,7 @@ export class MenuScene extends Phaser.Scene {
   }
 
   override update(): void {
-    if (!this.menuLive || this.starting || !this.pad) return;
+    if (this.starting || !this.pad) return;
     this.pad.update();
     if (!this.pad.connected) {
       this.padConfirmArmed = false;
@@ -370,7 +352,7 @@ export class MenuScene extends Phaser.Scene {
   }
 
   private moveFocus(direction: "left" | "right" | "up" | "down"): void {
-    if (!this.menuLive || this.starting) return;
+    if (this.starting) return;
     if (this.focus.kind === "action") {
       if (direction === "up") this.focus = { kind: "champion" };
       else if (direction === "left" || direction === "right") {
@@ -414,13 +396,13 @@ export class MenuScene extends Phaser.Scene {
   }
 
   private confirmFocus(): void {
-    if (!this.menuLive || this.starting) return;
+    if (this.starting) return;
     if (this.focus.kind === "champion") this.focusPlay();
     else this.beginMatch(this.focus.action);
   }
 
   private beginMatch(action: MenuAction): void {
-    if (!this.menuLive || this.starting || !this.actions.includes(action)) return;
+    if (this.starting) return;
     this.starting = true;
     this.focus = { kind: "action", action };
     this.paintFocus();
@@ -428,10 +410,7 @@ export class MenuScene extends Phaser.Scene {
     action.label.setText("LOADING…").setY(action.button.y);
     const heroId = this.selected;
     notifyGameStarted();
-    this.startTimer = this.time.delayedCall(80, () => {
-      this.startTimer = null;
-      if (this.menuLive) this.scene.start("Game", { heroId, online: action.online });
-    });
+    this.time.delayedCall(80, () => this.scene.start("Game", { heroId, online: action.online }));
   }
 
   private paintFocus(): void {
@@ -608,7 +587,7 @@ export class MenuScene extends Phaser.Scene {
   }
 
   private select(id: string): void {
-    if (!this.menuLive || this.starting || !HEROES.some((hero) => hero.id === id)) return;
+    if (this.starting) return;
     this.selected = id;
     this.focus = { kind: "champion" };
     this.preview(id);

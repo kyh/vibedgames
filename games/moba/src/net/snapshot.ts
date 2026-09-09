@@ -3,7 +3,6 @@
 // the Maps into a guest's persistent World so the renderer can read it unchanged.
 
 import type { MultiplayerClient } from "@vibedgames/multiplayer";
-import { parseCastActor } from "./cast-actor";
 
 import type { FxEvent, GroundEffect, Mine, Projectile, Unit, World } from "../sim/types";
 
@@ -124,6 +123,20 @@ const FX_TAGS = [
   "notify",
   "ability",
 ];
+/** Older peers omit `actor`; anything malformed is stripped rather than trusted
+ *  to pick a body or claim local audio priority. */
+function castActor(
+  value: MultiplayerClient["sharedState"][string] | undefined,
+): { unitId: string; at: number } | null {
+  if (!(value instanceof Object) || !("unitId" in value) || !("at" in value)) return null;
+  const { unitId, at } = value;
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- protocol boundary
+  if (typeof unitId !== "string" || !unitId || unitId.length > 128) return null;
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- protocol boundary
+  if (typeof at !== "number" || !Number.isFinite(at) || at < 0) return null;
+  return { unitId, at };
+}
+
 /** Validate the broadcast fx array in shared state into typed FxEvents,
  *  dropping bad shapes. */
 export function sharedFxBatch(state: SharedState): FxEvent[] {
@@ -135,7 +148,7 @@ export function sharedFxBatch(state: SharedState): FxEvent[] {
     )
     .map((event) => {
       if (event.t !== "cast") return event;
-      const actor = parseCastActor(event.actor);
+      const actor = castActor(event.actor);
       const { actor: _actor, ...cast } = event;
       return actor ? { ...cast, actor } : cast;
     });

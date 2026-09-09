@@ -12,8 +12,8 @@ import {
   type EnemyState,
 } from "../shared/constants";
 
-/** Read once per new warning deadline. Boss lances can outlive their phase;
- * phase at warning start owns the duration, even if HP changes mid-charge. */
+/** Read once per new warning deadline: the boss phase at warning start owns
+ * the duration, even if HP crosses a phase threshold mid-charge. */
 export function enemyChargeDuration(enemy: EnemyState): number {
   switch (enemy.kind) {
     case "drone":
@@ -28,24 +28,25 @@ export function enemyChargeDuration(enemy: EnemyState): number {
       return SNIPER_AIM_MS;
     case "spawner":
       return SPAWNER_TELEGRAPH_MS;
-    case "dreadnought":
-      return bossPhase(enemy.hp, enemy.maxHp) === 2
+    case "dreadnought": {
+      const phase = bossPhase(enemy.hp, enemy.maxHp);
+      return phase === 2
         ? BOSS_P2_AIM_MS
-        : bossPhase(enemy.hp, enemy.maxHp) === 3
+        : phase === 3
           ? BOSS_P3_TELEGRAPH_MS
           : BOSS_P1_TELEGRAPH_MS;
+    }
     case "splitter":
       return 0;
   }
 }
 
-/** Rendering only: never recalculate aim or move the host's deadline. */
+/** 0→1 across the windup; rendering only, the host's deadline is never moved. */
 export function enemyChargeProgress(deadline: number, now: number, duration: number): number {
   return duration > 0 ? Math.max(0, Math.min(1, 1 - (deadline - now) / duration)) : 0;
 }
 
-/** The host selects the firing pattern from current HP, even during a charge.
- * Cached timing cannot keep a stale lance warning over an upcoming nova. */
+/** Sniper and the boss's phase 2 aim locked lances at the warning start. */
 export function usesLockedAim(enemy: EnemyState): boolean {
   return (
     enemy.kind === "sniper" ||

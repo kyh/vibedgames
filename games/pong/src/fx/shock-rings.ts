@@ -78,11 +78,4 @@ export class RingPool {
       ring.material.opacity = ring.opacity * (1 - p);
     }
   }
-
-  clear(): void {
-    for (const ring of this.rings) {
-      ring.mesh.visible = false;
-      ring.material.opacity = 0;
-    }
-  }
 }

@@ -34,10 +34,10 @@ export type LockEvent = {
   gameOver: boolean;
 };
 
-function shuffledBag(random: () => number): number[] {
+function shuffledBag(): number[] {
   const bag = [0, 1, 2, 3, 4, 5, 6];
   for (let i = bag.length - 1; i > 0; i--) {
-    const j = Math.floor(random() * (i + 1));
+    const j = Math.floor(Math.random() * (i + 1));
     const a = bag[i] ?? 0;
     bag[i] = bag[j] ?? 0;
     bag[j] = a;
@@ -57,8 +57,6 @@ export class Engine {
   charge = 0;
 
   private bag: number[] = [];
-  /** Null keeps ordinary bags on the current global supplier, as before. */
-  private random: (() => number) | null = null;
   private fallAccumMs = 0;
   /** One hold per piece (standard Tetris). */
   private holdUsed = false;
@@ -68,7 +66,7 @@ export class Engine {
   }
 
   private drawFromBag(): number {
-    if (this.bag.length === 0) this.bag = shuffledBag(this.random ?? Math.random);
+    if (this.bag.length === 0) this.bag = shuffledBag();
     return this.bag.pop() ?? 0;
   }
 
@@ -86,8 +84,7 @@ export class Engine {
     this.nextIndex = this.drawFromBag();
   }
 
-  startGame(random: (() => number) | null = null): void {
-    this.random = random;
+  startGame(): void {
     this.reset();
     this.state.status = "playing";
     this.spawnNext();

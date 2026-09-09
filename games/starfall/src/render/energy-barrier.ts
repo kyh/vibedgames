@@ -22,11 +22,10 @@ export class EnergyBarrier {
    *  camera zoom/roll along with its other screen-fixed objects. */
   readonly vignette: Phaser.GameObjects.Graphics;
 
-  constructor(private readonly scene: Phaser.Scene) {
+  constructor(scene: Phaser.Scene) {
     this.frame = scene.add.graphics().setDepth(49).setBlendMode(Phaser.BlendModes.ADD);
     this.vignette = scene.add.graphics().setScrollFactor(0).setDepth(91);
     scene.scale.on(Phaser.Scale.Events.RESIZE, this.drawVignette, this);
-    scene.events.once(Phaser.Scenes.Events.SHUTDOWN, this.detachResize, this);
     this.drawVignette();
   }
 
@@ -93,16 +92,9 @@ export class EnergyBarrier {
     }
   }
 
-  private detachResize(): void {
-    this.scene.scale.off(Phaser.Scale.Events.RESIZE, this.drawVignette, this);
-    this.scene.events.off(Phaser.Scenes.Events.SHUTDOWN, this.detachResize, this);
-  }
-
   destroy(): void {
-    this.detachResize();
-    // Scene shutdown already destroys display-list nodes; scene reuse can
-    // still explicitly dispose this old barrier before creating its replacement.
-    if (this.frame.scene) this.frame.destroy();
-    if (this.vignette.scene) this.vignette.destroy();
+    this.frame.scene.scale.off(Phaser.Scale.Events.RESIZE, this.drawVignette, this);
+    this.frame.destroy();
+    this.vignette.destroy();
   }
 }

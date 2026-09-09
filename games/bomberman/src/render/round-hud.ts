@@ -15,17 +15,17 @@ export type BombStock = {
   next: { remaining: number; progress: number } | null;
 };
 
-/** Capacity comes from accepted stats; active bombs stay occupied until the
- * shared state removes them, even when their nominal fuse already elapsed. */
+/** Active bombs stay occupied until shared state removes them, even once
+ * their nominal fuse has elapsed — the host decides when a slot frees. */
 export function bombStock(
-  bombs: readonly Bomb[],
+  bombs: Record<string, Bomb>,
   ownerId: string | null,
   capacity: number,
   now: number,
 ): BombStock {
   let active = 0;
   let earliest = Infinity;
-  for (const bomb of bombs) {
+  for (const bomb of Object.values(bombs)) {
     if (bomb.ownerId !== ownerId) continue;
     active++;
     earliest = Math.min(earliest, bomb.placedAt);
@@ -40,8 +40,8 @@ export function bombStock(
 
 const PLACEMENT_TIP_MS = 3600;
 
-/** Owns only existing HUD text and its one finite teaching cue. No listeners,
- * animation timers, gameplay requests, or inferred local acceptance. */
+/** Bomb stock, roster and the one-shot placement tip. Every write is guarded
+ * by a change check because updateBombs runs every frame. */
 export class RoundHud {
   private readonly stockEl = document.getElementById("stat-bomb");
   private readonly bombEl = document.getElementById("bomb-availability");
@@ -55,10 +55,8 @@ export class RoundHud {
   private rosterSignature = "";
   private tipUntil = 0;
   private taughtPlacement = false;
-  private disposed = false;
 
-  updateBombs(bombs: readonly Bomb[], ownerId: string | null, capacity: number, now: number): void {
-    if (this.disposed) return;
+  updateBombs(bombs: Record<string, Bomb>, ownerId: string | null, capacity: number, now: number) {
     const stock = bombStock(bombs, ownerId, capacity, now);
     const text = `${stock.available}/${stock.capacity}`;
     if (text !== this.stockText) {
@@ -86,7 +84,7 @@ export class RoundHud {
   }
 
   updateRoster(fighters: readonly HudFighter[]): void {
-    if (this.disposed || !this.playersEl) return;
+    if (!this.playersEl) return;
     const signature = JSON.stringify(fighters);
     if (signature === this.rosterSignature) return;
     this.rosterSignature = signature;
@@ -115,32 +113,26 @@ export class RoundHud {
     this.playersEl.replaceChildren(count, roster);
   }
 
+  /** Teach "walls block the blast" once, on the first accepted bomb. */
   acceptedPlacement(now: number): void {
-    if (this.disposed || this.taughtPlacement) return;
+    if (this.taughtPlacement) return;
     this.taughtPlacement = true;
     this.tipUntil = now + PLACEMENT_TIP_MS;
     if (this.tipEl) this.tipEl.hidden = false;
   }
 
-  update(now: number, active = true): void {
-    if (this.disposed) return;
+  /** Hides the tip once it expires, or immediately when play stops (`active` false). */
+  update(now: number, active: boolean): void {
     if (active && (this.tipUntil === 0 || now < this.tipUntil)) return;
     this.tipUntil = 0;
     if (this.tipEl) this.tipEl.hidden = true;
   }
 
   reset(): void {
-    if (this.disposed) return;
     this.tipUntil = 0;
     this.taughtPlacement = false;
     this.stockText = this.stockLabel = this.rosterSignature = "";
     this.refillPercent = -1;
     if (this.tipEl) this.tipEl.hidden = true;
-  }
-
-  dispose(): void {
-    if (this.disposed) return;
-    this.reset();
-    this.disposed = true;
   }
 }

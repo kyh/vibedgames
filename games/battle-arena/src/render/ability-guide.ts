@@ -33,7 +33,6 @@ export class AbilityGuide {
   private unit: Unit | null = null;
   private shownRank = -1;
   private returnFocus: HTMLElement | null = null;
-  private disposed = false;
   private closingKey: string | null = null;
 
   constructor(private readonly onChange: (open: boolean) => void) {
@@ -72,7 +71,7 @@ export class AbilityGuide {
   }
 
   show(champion: string, unit: Unit | null = null): void {
-    if (this.disposed || this.open || !CHAMP_BY_ID[champion]) return;
+    if (this.open || !CHAMP_BY_ID[champion]) return;
     this.champion = champion;
     this.unit = unit;
     this.returnFocus =
@@ -122,7 +121,7 @@ export class AbilityGuide {
   }
 
   update(unit?: Unit | null): void {
-    if (!this.open || this.disposed) return;
+    if (!this.open) return;
     if (unit !== undefined) this.unit = unit;
     if ((this.unit?.abilities[this.selected].rank ?? 1) !== this.shownRank)
       this.select(this.selected);
@@ -174,9 +173,7 @@ export class AbilityGuide {
   }
 
   dispose(): void {
-    if (this.disposed) return;
     this.close();
-    this.disposed = true;
     this.pad.destroy();
     window.removeEventListener("keydown", this.onKeyDown, true);
     window.removeEventListener("keyup", this.onKeyUp, true);

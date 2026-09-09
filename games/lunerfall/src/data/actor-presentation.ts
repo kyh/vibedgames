@@ -176,9 +176,7 @@ export class BossActing {
   }
 }
 
-/** Same smoothing as the old 0.35 fraction at 60 Hz, independent of refresh.
- * Teleport distance remains a caller-owned world-space threshold.
- */
+/** Puppet lerp fraction: 0.35 per frame at 60 Hz, made refresh-rate independent. */
 export function remoteBlend(dt: number): number {
   return Number.isFinite(dt) ? 1 - Math.pow(0.65, Math.max(0, dt) * 60) : 0;
 }

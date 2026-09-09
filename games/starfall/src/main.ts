@@ -1,6 +1,5 @@
 import Phaser from "phaser";
 
-import { sfx } from "./audio/sfx";
 import { BootScene } from "./scenes/boot-scene";
 import { GameScene } from "./scenes/game-scene";
 import { reseed } from "./shared/rng";
@@ -45,9 +44,7 @@ declare global {
 }
 
 const game = new Phaser.Game(config);
-let disposed = false;
-game.events.once(Phaser.Core.Events.DESTROY, () => sfx.dispose());
-if (import.meta.env.DEV) window["__game"] = game;
+if (import.meta.env.DEV) window.__game = game;
 
 // Trailer mode (?trailer=1): hand the booted game to the director, which
 // stages a scripted, letterboxed gameplay trailer over a forced-offline
@@ -55,7 +52,7 @@ if (import.meta.env.DEV) window["__game"] = game;
 // director/shell UI never loads in normal play.
 if (trailerMode) {
   void import("./trailer/trailer-director").then(({ bootTrailerDirector }) =>
-    disposed ? undefined : bootTrailerDirector(game),
+    bootTrailerDirector(game),
   );
 }
 
@@ -64,24 +61,10 @@ if (trailerMode) {
 // canvas lags one size behind. Re-check once layout settles and on tab return.
 let settle: ReturnType<typeof setTimeout> | undefined;
 const refreshScale = (): void => {
-  if (disposed) return;
   clearTimeout(settle);
-  settle = setTimeout(() => {
-    settle = undefined;
-    if (!disposed) game.scale.refresh();
-  }, 150);
-};
-const onVisibilityChange = (): void => {
-  if (!document.hidden) refreshScale();
+  settle = setTimeout(() => game.scale.refresh(), 150);
 };
 window.addEventListener("resize", refreshScale);
-document.addEventListener("visibilitychange", onVisibilityChange);
-game.events.once(Phaser.Core.Events.DESTROY, () => {
-  if (disposed) return;
-  disposed = true;
-  clearTimeout(settle);
-  settle = undefined;
-  window.removeEventListener("resize", refreshScale);
-  document.removeEventListener("visibilitychange", onVisibilityChange);
-  if (window["__game"] === game) delete window["__game"];
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) refreshScale();
 });

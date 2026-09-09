@@ -4,6 +4,7 @@
 import { Board } from "../src/game/board";
 import { Engine } from "../src/game/engine";
 import { Piece } from "../src/game/piece";
+import { teachingExamples } from "../src/game/teaching-examples";
 import type { Pose } from "../src/input/camera";
 import { PoseControls } from "../src/input/pose-control";
 import { WELL_DEPTH, WELL_WIDTH } from "../src/shared/constants";
@@ -112,10 +113,40 @@ function check(label: string, cond: boolean): void {
   const e = new Engine();
   e.startGame();
   const first = e.activePieceIndex();
+  check("engine: hold unspent on spawn", e.holdSpent === false);
   const held1 = e.hold();
   check("engine: hold succeeds", held1 === true);
   check("engine: held piece recorded", e.holdIndex === first);
   check("engine: hold is one-per-piece", e.hold() === false);
+  check("engine: hold reads spent until the piece locks", e.holdSpent === true);
+  e.hardDrop();
+  check("engine: lock re-arms the hold", e.holdSpent === false && e.holdIndex === first);
+  e.hold();
+  e.reset();
+  check("engine: reset clears the hold", e.holdSpent === false && e.holdIndex === null);
+}
+
+// 7b) Title-screen rule cards are derived from real board clears.
+{
+  const [single, landing, crossed] = teachingExamples();
+  check(
+    "teaching: three cards",
+    single !== undefined && landing !== undefined && crossed !== undefined,
+  );
+  check("teaching: single row clears width cubes", single?.clear?.cubes === WELL_WIDTH);
+  check(
+    "teaching: crossed clear counts the intersection once",
+    crossed?.clear?.lines === 2 && crossed?.clear?.cubes === WELL_WIDTH + WELL_DEPTH - 1,
+  );
+  if (landing) {
+    const b = new Board();
+    b.lock(landing.cells, 6);
+    check("teaching: landing outline is a real drop", !b.collides(landing.landing));
+    check(
+      "teaching: landing outline rests on the stack",
+      b.collides(landing.landing.map((c) => ({ x: c.x, y: c.y - 1, z: c.z }))),
+    );
+  }
 }
 
 // 8) Power-sweep clears the lowest layer once charged.

@@ -1,3 +1,6 @@
+// Charged power shots and contact placement — pure rules, shared by the host
+// simulation, the guest's snapshot parsing and the unit tests.
+
 /** Charge is earned only at an authoritative paddle contact. */
 export type ShotCharge =
   | { readonly kind: "charging"; readonly hits: 0 | 1 | 2 | 3 }
@@ -7,9 +10,6 @@ export type ContactKind = "slice" | "flat" | "topspin";
 export const CHARGE_HITS = 4;
 export const POWER_MULTIPLIER = 1.4;
 export const POWER_SPEED_MAX = 17;
-const ACTION_LIMIT = 0x7fffffff;
-const ACTION_SEQUENCE_WINDOW = 64;
-export type PowerAction = Readonly<{ seq: number; rally: number; seen: number; armed: boolean }>;
 
 export function chargeHits(charge: ShotCharge): number {
   return charge.kind === "charging" ? charge.hits : CHARGE_HITS;
@@ -59,7 +59,7 @@ export function contactShot(offset: number, towardY: 1 | -1, speed: number, powe
   };
 }
 
-/* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof -- Network snapshot and action boundaries parse untrusted JSON here. */
+/* oxlint-disable anti-slop/no-unknown-parameters -- parses two fields of an untrusted snapshot. */
 export function readCharge(hits: unknown, armed: unknown): ShotCharge | null {
   if (hits === 4) return armed === true ? { kind: "armed" } : { kind: "ready" };
   if (hits === 0 || hits === 1 || hits === 2 || hits === 3) {
@@ -67,51 +67,4 @@ export function readCharge(hits: unknown, armed: unknown): ShotCharge | null {
     return { kind: "charging", hits };
   }
   return null;
-}
-
-function actionInteger(value: unknown): value is number {
-  return (
-    typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= ACTION_LIMIT
-  );
-}
-
-export function readPowerAction(value: unknown): PowerAction | null {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    !("seq" in value) ||
-    !("rally" in value) ||
-    !("seen" in value) ||
-    !("armed" in value)
-  )
-    return null;
-  const { seq, rally, seen, armed } = value;
-  return actionInteger(seq) &&
-    seq > 0 &&
-    actionInteger(rally) &&
-    actionInteger(seen) &&
-    typeof armed === "boolean"
-    ? { seq, rally, seen, armed }
-    : null;
-}
-
-export function freshPowerSequence(seq: number, lastSeq: number): boolean {
-  return seq > lastSeq && seq <= lastSeq + ACTION_SEQUENCE_WINDOW;
-}
-
-/** Sequence consumes a request even when charge is insufficient: an early arm
- * cannot be replayed after a later hit. Freshness uses host snapshot ticks. */
-export function freshPowerAction(
-  action: PowerAction,
-  lastSeq: number,
-  rally: number,
-  hostSeq: number,
-  maxAge: number,
-): boolean {
-  return (
-    freshPowerSequence(action.seq, lastSeq) &&
-    action.rally === rally &&
-    action.seen <= hostSeq &&
-    hostSeq - action.seen <= maxAge
-  );
 }

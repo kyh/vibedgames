@@ -12,6 +12,8 @@ import {
   SWORD_BASE_DAMAGE,
   PLAYER_INVULN_MS,
   DEPTH,
+  FARMER_HURT_MS,
+  SKELETON_CONTACT_MS,
 } from "../config";
 import { store } from "../systems/store";
 import { GameScene, type MineRecap } from "./game-scene";
@@ -21,8 +23,6 @@ import { isTap } from "../systems/touch";
 import type { OreId } from "../data/items";
 import { burst, floatText, shake } from "../render/fx";
 import { Sound } from "../render/audio";
-import { CharacterAction, FARMER_HURT_MS, SKELETON_CONTACT_MS } from "../render/character-action";
-import { onSceneExit } from "../render/scene-lifetime";
 import { buildMineWorld } from "../render/mine-world";
 
 const MW = 32;
@@ -64,7 +64,6 @@ export class MineScene extends Phaser.Scene {
   private shadow!: Phaser.GameObjects.Sprite;
   private facing = { x: 0, y: 1 };
   private acting = false;
-  private readonly characterAction = new CharacterAction();
   private readonly motion = window.matchMedia("(prefers-reduced-motion: reduce)");
   private hurtUntil = 0;
   /** Trailer-mode scripted movement — read like a stick when real input is silent. */
@@ -111,7 +110,8 @@ export class MineScene extends Phaser.Scene {
     this.transitioning = false;
     this.invulnUntil = 0;
     this.knock = { x: 0, y: 0 };
-    this.resetCharacterAction();
+    this.acting = false;
+    this.hurtUntil = 0;
     this.facing = { x: 0, y: 1 };
     this.trailerMove = null;
     this.cameras.main.setBackgroundColor("#0a0c12");
@@ -137,9 +137,9 @@ export class MineScene extends Phaser.Scene {
     if (this.onResizeHandler) this.scale.off("resize", this.onResizeHandler);
     this.onResizeHandler = () => cam.setZoom(this.baseZoom());
     this.scale.on("resize", this.onResizeHandler);
-    const scale = this.scale;
-    const onResize = this.onResizeHandler;
-    onSceneExit(this, () => scale.off("resize", onResize));
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      if (this.onResizeHandler) this.scale.off("resize", this.onResizeHandler);
+    });
     this.bindCameraMotion();
 
     this.setupInput();
@@ -151,12 +151,7 @@ export class MineScene extends Phaser.Scene {
     // Prime the pad so an A still held from entering the mine doesn't read as
     // a fresh press (and swing) on this scene's first frame.
     this.pad.update();
-    const releaseMusic = Sound.startMusic("mine");
-    onSceneExit(this, () => {
-      releaseMusic();
-      this.resetCharacterAction();
-      if (window.__mine === this) delete window.__mine;
-    });
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, Sound.startMusic("mine"));
     if (!this.scene.isActive("MineHud")) this.scene.launch("MineHud");
 
     floatText(this, this.player.x, this.player.y - 24, `Mine — Floor ${this.depth}`, "#cdd6e0");
@@ -181,7 +176,9 @@ export class MineScene extends Phaser.Scene {
       cam.setZoom(this.baseZoom());
     };
     motion.addEventListener("change", changed);
-    onSceneExit(this, () => motion.removeEventListener("change", changed));
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () =>
+      motion.removeEventListener("change", changed),
+    );
   }
 
   // ---------------------------------------------------------------- generation
@@ -516,13 +513,6 @@ export class MineScene extends Phaser.Scene {
     if (this.player.anims.currentAnim?.key !== next) this.player.play(next, true);
   }
 
-  /** Presentation cleanup only; Phaser owns the existing action impact timers. */
-  resetCharacterAction(): void {
-    this.characterAction.reset();
-    this.acting = false;
-    this.hurtUntil = 0;
-  }
-
   private moveBy(mx: number, my: number): void {
     const hw = 4,
       hh = 3;
@@ -602,7 +592,7 @@ export class MineScene extends Phaser.Scene {
         }
       }
     });
-    this.characterAction.watch(this.player, "p-attack", () => {
+    this.player.once("animationcomplete-p-attack", () => {
       this.acting = false;
       if (!this.transitioning) this.player.play("p-idle", true);
     });
@@ -695,7 +685,7 @@ export class MineScene extends Phaser.Scene {
         this.tweens.add({ targets: node.spr, scaleX: 1.12, scaleY: 0.9, duration: 60, yoyo: true });
       }
     });
-    this.characterAction.watch(this.player, "p-mine", () => {
+    this.player.once("animationcomplete-p-mine", () => {
       this.acting = false;
       if (!this.transitioning) this.player.play("p-idle", true);
     });
@@ -863,7 +853,6 @@ export class MineScene extends Phaser.Scene {
   private faint(): void {
     if (this.transitioning) return;
     this.transitioning = true;
-    this.characterAction.reset();
     this.hurtUntil = 0;
     const lost = Math.floor(store.gold * FAINT_GOLD_LOSS_FRAC);
     store.gold = Math.max(0, store.gold - lost);

@@ -1,5 +1,5 @@
 type MasteryWeapon = "RAILGUN" | "GLAIVE";
-export type MasteryShot = Readonly<{ generation: number; id: number }>;
+
 export type WeaponMasteryState =
   | Readonly<{ phase: "idle" }>
   | Readonly<{
@@ -12,41 +12,35 @@ export type WeaponMasteryState =
       completions: number;
     }>;
 
-type ShotContacts = { outward: Set<string>; returning: Set<string>; completed: boolean };
+/** Per-beam contact record, handed out by `shot()` and kept on the beam by the
+ * owner. The generation fences beams fired under an earlier pickup. */
+export type MasteryShot = {
+  readonly generation: number;
+  readonly outward: Set<string>;
+  readonly returning: Set<string>;
+  completed: boolean;
+};
 
-/** Personal technique feedback from acquired weapons and live local beams.
- * It owns no gameplay deadlines, rewards, randomness or network state. */
+/** HUD-only technique feedback for RAILGUN (pierce two enemies with one shot)
+ * and GLAIVE (hit the same enemy out and back). No gameplay effect. */
 export class WeaponMastery {
   private current: WeaponMasteryState = { phase: "idle" };
   private generation = 0;
-  private nextShot = 0;
-  private readonly shots = new Map<number, ShotContacts>();
 
   get state(): WeaponMasteryState {
     return this.current;
   }
 
   pickup(weapon: string, now: number, weaponUntil: number): void {
-    if (
-      (weapon !== "RAILGUN" && weapon !== "GLAIVE") ||
-      !Number.isFinite(now) ||
-      !Number.isFinite(weaponUntil) ||
-      weaponUntil <= now
-    ) {
+    if ((weapon !== "RAILGUN" && weapon !== "GLAIVE") || weaponUntil <= now) {
       this.clear();
       return;
     }
     const state = this.current;
-    if (
-      state.phase === "active" &&
-      state.weapon === weapon &&
-      now >= state.startedAt &&
-      now < state.endsAt
-    ) {
+    if (state.phase === "active" && state.weapon === weapon && this.inWindow(state, now)) {
       this.current = { ...state, endsAt: weaponUntil };
       return;
     }
-    this.clear();
     this.current = {
       phase: "active",
       weapon,
@@ -58,33 +52,26 @@ export class WeaponMastery {
     };
   }
 
-  /** Capture ownership at creation: an old glaive cannot join a later pickup. */
   shot(weapon: string, now: number): MasteryShot | null {
     const state = this.current;
-    if (
-      state.phase !== "active" ||
-      state.weapon !== weapon ||
-      now < state.startedAt ||
-      now >= state.endsAt
-    )
+    if (state.phase !== "active" || state.weapon !== weapon || !this.inWindow(state, now))
       return null;
-    return { generation: state.generation, id: this.nextShot++ };
+    return {
+      generation: state.generation,
+      outward: new Set(),
+      returning: new Set(),
+      completed: false,
+    };
   }
 
-  contact(shotId: MasteryShot, enemyId: string, returning: boolean, now: number): void {
+  contact(shot: MasteryShot, enemyId: string, returning: boolean, now: number): void {
     const state = this.current;
     if (
       state.phase !== "active" ||
-      shotId.generation !== state.generation ||
-      now < state.startedAt ||
-      now >= state.endsAt
+      shot.generation !== state.generation ||
+      !this.inWindow(state, now)
     )
       return;
-    let shot = this.shots.get(shotId.id);
-    if (!shot) {
-      shot = { outward: new Set(), returning: new Set(), completed: false };
-      this.shots.set(shotId.id, shot);
-    }
     const leg = returning ? shot.returning : shot.outward;
     if (leg.has(enemyId)) return;
     leg.add(enemyId);
@@ -95,27 +82,22 @@ export class WeaponMastery {
     this.current = {
       ...state,
       contacts: state.contacts + 1,
-      completions: state.completions + Number(first),
+      completions: state.completions + (first ? 1 : 0),
     };
   }
 
-  advance(now: number, alive: boolean, weapon: string, liveShots: readonly MasteryShot[]): void {
+  /** Once per frame: expiry, death and loadout changes end the window. */
+  advance(now: number, alive: boolean, weapon: string): void {
     const state = this.current;
     if (state.phase !== "active") return;
-    if (!alive || weapon !== state.weapon || now < state.startedAt || now >= state.endsAt) {
-      this.clear();
-      return;
-    }
-    const live = new Set(liveShots.map((shot) => shot.id));
-    for (const id of this.shots.keys()) if (!live.has(id)) this.shots.delete(id);
+    if (!alive || weapon !== state.weapon || !this.inWindow(state, now)) this.clear();
   }
 
   clear(): void {
     this.current = { phase: "idle" };
-    this.shots.clear();
   }
 
-  get trackedShots(): number {
-    return this.shots.size;
+  private inWindow(state: { startedAt: number; endsAt: number }, now: number): boolean {
+    return now >= state.startedAt && now < state.endsAt;
   }
 }

@@ -8,7 +8,7 @@
 pnpm dev:pong   # http://localhost:5188
 pnpm --filter @repo/pong typecheck   # tsc --noEmit
 pnpm --filter @repo/pong build       # vite build
-pnpm --filter @repo/pong test        # contact shots, charge, input and multiplayer invariants
+pnpm --filter @repo/pong test        # contact-shot + spin rules (node --test)
 pnpm --filter @repo/pong preview     # vite preview
 ```
 

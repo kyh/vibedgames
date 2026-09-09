@@ -1,17 +1,19 @@
 import { ENEMY_SPECS, type EnemyState } from "../shared/constants";
 import { enemyChargeProgress } from "./charge-progress";
 
-/** Hull-only pose. Accepted attack time survives late joins without replaying
- * a fresh kick; aim, collider and projectile origins stay authoritative. */
+const IDLE_POSE = { recoil: 0, scaleX: 1, scaleY: 1 };
+
+/** Hull-only pose (recoil after a shot, squash during a windup). Aim, collider
+ * and projectile origins stay authoritative; `attackAt` rides the wire so late
+ * joins see the same kick. */
 export function fleetPose(
   enemy: EnemyState,
   now: number,
   chargeDuration: number,
   reduced: boolean,
 ) {
-  const idle = { recoil: 0, scaleX: 1, scaleY: 1 };
-  if (reduced) return idle;
-  const age = now - (enemy.attackAt ?? -Infinity);
+  if (reduced) return IDLE_POSE;
+  const age = now - enemy.attackAt;
   const recoveryMs = enemy.kind === "dreadnought" ? 340 : enemy.kind === "spawner" ? 420 : 220;
   if (age >= 0 && age < recoveryMs) {
     const release = Math.pow(1 - age / recoveryMs, 2);
@@ -27,20 +29,10 @@ export function fleetPose(
   }
   if (enemy.kind === "lancer" && enemy.chargeUntil > now)
     return { recoil: 0, scaleX: 1.06, scaleY: 0.96 };
-  return idle;
+  return IDLE_POSE;
 }
 
-const TRAIL_INTERVAL_MS = 1000 / 60;
-
-/** Sim time owns emission. Long gaps skip backlog; paused frames emit nothing. */
-export function chargeTrail(nextAt: number | null, now: number, active: boolean) {
-  if (!active) return { nextAt: null, count: 0 };
-  const dueAt = nextAt ?? now;
-  const due = Math.max(0, Math.floor((now - dueAt) / TRAIL_INTERVAL_MS + 1e-7) + 1);
-  return { nextAt: dueAt + due * TRAIL_INTERVAL_MS, count: Math.min(3, due) };
-}
-
-/** Same speed bands as the existing damage classifier; no guessed shooter. */
+/** Same speed bands as the incoming-damage classifier. */
 export function hostileShotLook(speed: number): "lance" | "rail" | "burst" | "plasma" {
   if (speed >= 800) return "lance";
   if (speed >= 600) return "rail";

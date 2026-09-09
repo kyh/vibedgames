@@ -16,7 +16,6 @@ import {
 } from "../data/animals";
 import { SKILL_NAMES, type SkillId } from "../systems/skills";
 import { Sound } from "../render/audio";
-import { onSceneExit } from "../render/scene-lifetime";
 import { hotbarGrid, hotbarKey, slotIconScale } from "../render/hotbar-layout";
 import { skillPerk } from "../render/skill-readout";
 import { isPick, isTouchDevice } from "../systems/touch";
@@ -171,11 +170,7 @@ export class HudScene extends Phaser.Scene {
       visible: "coarse",
       render: { depth: 90, blendMode: Phaser.BlendModes.NORMAL },
     });
-    const gamepad = this.g.gamepad;
-    onSceneExit(this, () => {
-      gamepad.destroy();
-      if (this.g.gamepad === gamepad) this.g.gamepad = undefined;
-    });
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.g.gamepad?.destroy());
 
     this.buildHotbar();
     this.buildTouchButtons();
@@ -183,33 +178,25 @@ export class HudScene extends Phaser.Scene {
     if (this.onResize) this.scale.off("resize", this.onResize);
     this.onResize = () => this.layout();
     this.scale.on("resize", this.onResize);
-    const scale = this.scale;
-    const onResize = this.onResize;
-    onSceneExit(this, () => scale.off("resize", onResize));
-
-    const onToast = (text: string, color: string) => this.toast(text, color);
-    const onLevelUp = (skill: SkillId, level: number) =>
-      this.toast(
-        `${SKILL_NAMES[skill]} reached Level ${level}!\n${skillPerk(store.skills, skill)}`,
-        "#ffe27a",
-      );
-    const onDayBanner = (day: number, season: Season, weather: Weather, recap?: DayRecap) =>
-      this.dayBanner(day, season, weather, recap);
-    this.g.events.on("toast", onToast);
-    this.g.events.on("daybanner", onDayBanner);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      this.g.events.off("toast", onToast);
-      this.g.events.off("daybanner", onDayBanner);
-      this.g.events.off("levelup", onLevelUp);
-      for (const notice of this.notices) this.removeNotice(notice);
-      this.notices = [];
-      this.clearDayBanner();
-      this.actionTip = null;
+      if (this.onResize) this.scale.off("resize", this.onResize);
     });
+
+    this.g.events.on("toast", (text: string, color: string) => this.toast(text, color));
+    this.g.events.on(
+      "daybanner",
+      (day: number, season: Season, weather: Weather, recap?: DayRecap) =>
+        this.dayBanner(day, season, weather, recap),
+    );
     this.g.events.on("open-shop", () => this.openShop());
     this.g.events.on("open-animal-shop", (b: BuildingKind) => this.openAnimalShop(b));
     this.g.events.on("confirm-sleep", () => this.openSleep());
-    this.g.events.on("levelup", onLevelUp);
+    this.g.events.on("levelup", (skill: SkillId, level: number) =>
+      this.toast(
+        `${SKILL_NAMES[skill]} reached Level ${level}!\n${skillPerk(store.skills, skill)}`,
+        "#ffe27a",
+      ),
+    );
     this.g.events.on(
       "dialogue",
       (d: { name: string; role: string; text: string; hearts: number }) => this.showDialogue(d),
@@ -519,7 +506,6 @@ export class HudScene extends Phaser.Scene {
       duration: 700,
       onComplete: () => {
         this.notices = this.notices.filter((entry) => entry !== current);
-        // This tween already owns completion; do not destroy it from its callback.
         current.node.destroy();
         this.layoutNotices();
       },

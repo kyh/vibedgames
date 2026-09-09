@@ -44,8 +44,7 @@ export class CameraRig {
   private peekPitchTarget = 0;
 
   private readonly trauma = new TraumaCamera();
-  private readonly reducedMotion =
-    typeof window === "undefined" ? null : window.matchMedia("(prefers-reduced-motion: reduce)");
+  private readonly reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
   // Scratch (no per-frame allocation).
   private readonly rel = new Vector3();
@@ -101,7 +100,7 @@ export class CameraRig {
   }
 
   update(dt: number, nowMs: number): void {
-    const reduced = this.reducedMotion?.matches ?? false;
+    const reduced = this.reducedMotion.matches;
     // 1. ease the base eye toward the active corner.
     this.baseEye.lerp(this.target, frameLerp(CAMERA_LERP_PER_FRAME, dt));
 

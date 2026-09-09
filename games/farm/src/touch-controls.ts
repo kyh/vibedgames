@@ -23,12 +23,10 @@ const CSS = `
 `;
 
 let controls: TouchControls | null = null;
-let disposed = false;
 
 /** Mount once, from the title screen — the cluster outlives every scene, and
  *  the gallery and trailer routes never reach it. */
 export function mountTouchControls(): void {
-  if (disposed) return;
   controls ??= createTouchControls({
     className: "farm-touch",
     css: CSS,
@@ -41,12 +39,4 @@ export function mountTouchControls(): void {
  *  device can have both a keyboard and a touchscreen. */
 export function syncTouchControls(): void {
   controls?.sync();
-}
-
-/** Final app teardown; scene transitions deliberately retain these controls. */
-export function destroyTouchControls(): void {
-  if (disposed) return;
-  disposed = true;
-  controls?.destroy();
-  controls = null;
 }

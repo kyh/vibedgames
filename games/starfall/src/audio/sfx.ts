@@ -74,15 +74,16 @@ type VoiceRole = "routine" | "local" | "important" | "music";
 type Voice = {
   source: AudioBufferSourceNode;
   gain: GainNode;
-  startsAt: number;
   role: VoiceRole;
   onEnded: () => void;
 };
 
 const VOICE_LIMIT = 32;
+/** Routine chatter and music stop here so local confirmations and warnings
+ *  always have free slots without cutting a sound mid-play. */
 const ROUTINE_LIMIT = 24;
-const LOCAL_LIMIT = 28;
-const MUSIC_LIMIT = 2;
+const MUSIC_GAIN = 0.075;
+/** Never dropped: when the mix is full they evict the oldest lesser voice. */
 const IMPORTANT = new Set<SfxName>([
   "shield_hit",
   "shield_break",
@@ -98,302 +99,165 @@ const IMPORTANT = new Set<SfxName>([
   "boss_phase",
   "boss_defeat",
 ]);
+const RANK = { music: 0, routine: 0, local: 1, important: 2 } satisfies Record<VoiceRole, number>;
 
-/** Cached synth buffers; this game owns each disposable source and gain. */
+/**
+ * `Sfx.play(name)` — fire-and-forget synth playback. Call `unlock()` from a
+ * pointerdown handler; everything before that is silently dropped.
+ */
 export class Sfx {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
-  /** Routine SFX and music duck; player_death retains its direct master route. */
+  /** Routine sfx + music route through this (duckable); player_death bypasses it. */
   private duckBus: GainNode | null = null;
   private musicBus: GainNode | null = null;
   private buffers = new Map<SfxName, AudioBuffer>();
   private musicBuffers = new Map<MusicScore, AudioBuffer>();
-  private voices = new Map<AudioBufferSourceNode, Voice>();
-  private preference = storageGet(SOUND_KEY) !== "1";
+  /** Insertion order is age: the first entry is the oldest voice. */
+  private voices = new Set<Voice>();
+  /** Muted by default — returning players who opted into sound stay unmuted. */
+  muted = storageGet(SOUND_KEY) !== "1";
   private paused = false;
-  private disposed = false;
-  private hasRun = false;
-  private priming = false;
-  private transition: Promise<void> | null = null;
-  private masterTarget: number | null = null;
   private musicMode: MusicMode = "silent";
   private battleBeat: BattleBeat = "quiet";
   private musicTimer: number | null = null;
-  private musicGeneration = 0;
   private nextMusicAt = 0;
   private musicStep = 0;
-  private counts = { accepted: 0, dropped: 0, stopped: 0, ended: 0, peak: 0 };
 
-  get muted(): boolean {
-    return this.preference;
+  private get ready(): boolean {
+    return this.ctx?.state === "running" && !this.muted && !this.paused;
   }
 
-  /** Trailer's direct assignment stays temporary and cannot unlock a context. */
-  set muted(next: boolean) {
-    this.preference = next;
-    this.applyIntent();
-  }
-
-  private get blocked(): boolean {
-    return this.disposed || this.paused || this.preference;
-  }
-
-  private ready(): boolean {
-    return !this.blocked && this.ctx?.state === "running" && this.transition === null;
-  }
-
-  /** Explicit Play/canvas gesture. Inactive programmatic calls build nothing. */
   unlock(): void {
-    if (this.disposed || window.navigator?.userActivation?.isActive === false) return;
     if (!this.ctx) {
-      if (!("AudioContext" in window)) return;
-      let ctx: AudioContext;
-      try {
-        ctx = new AudioContext();
-      } catch {
-        return;
-      }
+      const ctx = new AudioContext();
       this.ctx = ctx;
       this.master = ctx.createGain();
-      this.masterTarget = this.blocked ? 0 : MASTER_GAIN;
-      this.master.gain.value = this.masterTarget;
+      this.master.gain.value = this.muted ? 0 : MASTER_GAIN;
       this.master.connect(ctx.destination);
       this.duckBus = ctx.createGain();
       this.duckBus.connect(this.master);
       this.musicBus = ctx.createGain();
-      this.musicBus.gain.value = 0.075;
+      this.musicBus.gain.value = MUSIC_GAIN;
       this.musicBus.connect(this.duckBus);
-      // Original recipes/order stay intact; additions never draw their noise RNG.
       for (const name of SFX_NAMES) this.buffers.set(name, renderBuffer(ctx, RECIPES[name]));
       this.musicBuffers.set("flight", renderBuffer(ctx, MUSIC_RECIPES.flight));
       this.musicBuffers.set("boss", renderBuffer(ctx, MUSIC_RECIPES.boss));
     }
-    // A paused sound tap may prime an EMPTY context, then suspend it again.
-    this.priming = !this.hasRun && this.ctx.state === "suspended";
-    this.applyIntent();
+    this.syncContext();
   }
 
   play(name: SfxName, opts: PlayOpts = {}): void {
-    if (!this.ready()) return;
+    if (!this.ready) return;
     const buffer = this.buffers.get(name);
-    const gain = opts.gain ?? 1;
-    const rate = opts.rate ?? 1;
-    if (!buffer || !Number.isFinite(gain) || gain <= 0 || !Number.isFinite(rate) || rate <= 0)
-      return;
+    if (!buffer) return;
     const role = IMPORTANT.has(name)
       ? "important"
       : opts.priority === "local"
         ? "local"
         : "routine";
-    if (!this.admit(1, role)) return;
+    if (!this.admit(role, 1)) return;
     const jitter = PITCH_JITTER_BASE + Math.random() * PITCH_JITTER_SPAN;
-    this.source(
-      buffer,
-      gain,
-      rate * jitter,
-      this.ctx?.currentTime ?? 0,
-      role,
-      name === "player_death",
-    );
+    const bus = name === "player_death" ? this.master : this.duckBus;
+    this.start(buffer, opts.gain ?? 1, (opts.rate ?? 1) * jitter, 0, role, bus);
     if (name === "player_death") this.duck();
   }
 
+  /**
+   * Set mute, persist the choice, and return the new state. Call from a user
+   * gesture: turning sound ON creates/resumes the AudioContext via `unlock()`.
+   */
   setMuted(next: boolean): boolean {
-    this.preference = next;
+    this.muted = next;
     storageSet(SOUND_KEY, next ? "0" : "1");
-    // Native embed buttons seal pointer events: their setter owns the gesture.
-    if (!next && window.navigator?.userActivation?.isActive === true) this.unlock();
-    else this.applyIntent();
+    if (next) this.syncContext();
+    else this.unlock();
     return this.muted;
   }
 
+  /** Flip mute (the M key); returns the new state. */
   toggleMute(): boolean {
     return this.setMuted(!this.muted);
   }
 
-  /** Store pause before unlock and gate playback before async suspension. */
+  /**
+   * Pause/resume ALL audio without touching the persisted mute choice — used by
+   * the wrapper pause overlay. Suspends the AudioContext (play() no-ops while
+   * suspended); resume only wakes it when the player hasn't muted.
+   */
   setSuspended(on: boolean): void {
     this.paused = on;
-    this.applyIntent();
+    this.syncContext();
   }
 
   setMusicMode(mode: MusicMode): void {
-    if (this.disposed || mode === this.musicMode) return;
-    this.stopMusic();
+    if (mode === this.musicMode) return;
     this.musicMode = mode;
-    // Recovery and boss-mode changes retain the motif position. In particular,
-    // a consumed aftermath must not resolve again when the player returns.
-    this.startMusic();
+    this.restartMusic();
   }
 
-  /** Current presentation beat, not an announcement. Old SFX remain owned and
-   * audible; only the music phrase changes. Repeated frame calls are inert. */
+  /** Current mood, not an announcement: only the music phrase changes. */
   setBattleBeat(beat: BattleBeat): void {
-    if (this.disposed || beat === this.battleBeat) return;
-    this.stopMusic();
+    if (beat === this.battleBeat) return;
     this.battleBeat = beat;
     this.musicStep = 0;
-    this.startMusic();
+    this.restartMusic();
   }
 
-  /** Trailer/scene cut: no old cue, duck ramp or music mode crosses the cut. */
-  clearTransient(): void {
+  /** Trailer cut: no old cue, duck ramp or music mode crosses it. */
+  stopAll(): void {
     this.musicMode = "silent";
     this.battleBeat = "quiet";
     this.musicStep = 0;
     this.stopMusic();
-    this.clearVoices();
-    this.resetDuck();
+    for (const voice of this.voices) this.release(voice, true);
+    const ctx = this.ctx;
+    const bus = this.duckBus;
+    if (!ctx || !bus) return;
+    bus.gain.cancelScheduledValues(ctx.currentTime);
+    bus.gain.setValueAtTime(1, ctx.currentTime);
   }
 
-  /** Final app owner only; ordinary scene cuts retain buffers and context. */
-  dispose(): void {
-    if (this.disposed) return;
-    this.disposed = true;
-    this.setMaster();
-    this.clearTransient();
-    this.priming = false;
-    this.master?.disconnect();
-    this.duckBus?.disconnect();
-    this.musicBus?.disconnect();
-    this.buffers.clear();
-    this.musicBuffers.clear();
-    if (this.ctx && this.ctx.state !== "closed") void this.ctx.close().catch(() => undefined);
-  }
-
-  private setMaster(): void {
+  private syncContext(): void {
     const ctx = this.ctx;
     const master = this.master;
     if (!ctx || !master) return;
-    const target = this.blocked ? 0 : MASTER_GAIN;
-    if (target === this.masterTarget) return;
-    this.masterTarget = target;
-    master.gain.cancelScheduledValues(ctx.currentTime);
-    if (this.blocked) master.gain.setValueAtTime(0, ctx.currentTime);
-    else master.gain.setTargetAtTime(MASTER_GAIN, ctx.currentTime, 0.02);
-  }
-
-  private applyIntent(): void {
-    this.setMaster();
-    if (this.blocked) {
+    master.gain.setTargetAtTime(this.muted ? 0 : MASTER_GAIN, ctx.currentTime, 0.02);
+    if (this.paused) {
+      if (ctx.state === "running") void ctx.suspend();
       this.stopMusic();
-      this.clearVoices();
-      this.resetDuck();
-    }
-    this.reconcileContext();
+    } else if (ctx.state === "suspended" && !this.muted) {
+      void ctx.resume().then(() => this.startMusic());
+    } else this.startMusic();
   }
 
-  private reconcileContext(): void {
-    const ctx = this.ctx;
-    if (!ctx || this.disposed || ctx.state === "closed" || this.transition) return;
-    if (ctx.state === "running") {
-      this.hasRun = true;
-      this.priming = false;
-    }
-    const run = this.priming || !this.blocked;
-    if (ctx.state === (run ? "running" : "suspended")) {
-      this.startMusic();
-      return;
-    }
-    if (run && !this.hasRun && !this.priming) return;
-    const operation = run ? ctx.resume() : ctx.suspend();
-    this.transition = operation;
-    const finish = (): void => {
-      this.transition = null;
-      if (this.disposed) return;
-      if (run) this.priming = false;
-      if (ctx.state === "running") this.hasRun = true;
-      // Retry only for a changed intent or a completed transition, never rejection alone.
-      if (ctx.state === (run ? "running" : "suspended") || run !== !this.blocked)
-        this.reconcileContext();
-    };
-    void operation.then(finish, finish);
-  }
-
-  private release(voice: Voice, forced: boolean): void {
-    if (!this.voices.delete(voice.source)) return;
-    voice.source.removeEventListener("ended", voice.onEnded);
-    if (forced) {
-      voice.source.stop();
-      this.counts.stopped++;
-    } else this.counts.ended++;
-    voice.source.disconnect();
-    voice.gain.disconnect();
-  }
-
-  private clearVoices(): void {
-    for (const voice of this.voices.values()) this.release(voice, true);
-  }
-
-  private musicVoices(): number {
-    let count = 0;
-    for (const voice of this.voices.values()) if (voice.role === "music") count++;
-    return count;
-  }
-
-  private admit(count: number, role: VoiceRole): boolean {
-    if (!this.ready()) return false;
-    if (role === "routine" || role === "music") {
-      let routine = 0;
-      for (const voice of this.voices.values()) if (voice.role !== "important") routine++;
-      if (
-        routine + count > ROUTINE_LIMIT ||
-        this.voices.size + count > VOICE_LIMIT ||
-        (role === "music" && this.musicVoices() + count > MUSIC_LIMIT)
-      ) {
-        this.counts.dropped += count;
-        return false;
-      }
-    } else {
-      // Local confirmations reserve four slots above chatter, leaving another
-      // four for warnings/death. Retire complete notes, never essential cues.
-      const limit = role === "local" ? LOCAL_LIMIT : VOICE_LIMIT;
-      if (role === "local") {
-        let protectedVoices = 0;
-        for (const voice of this.voices.values()) if (voice.role === "important") protectedVoices++;
-        if (protectedVoices + count > limit) {
-          this.counts.dropped += count;
-          return false;
+  private admit(role: VoiceRole, count: number): boolean {
+    const limit = RANK[role] === 0 ? ROUTINE_LIMIT : VOICE_LIMIT;
+    while (this.voices.size + count > limit) {
+      let victim: Voice | null = null;
+      for (const voice of this.voices) {
+        if (RANK[voice.role] < RANK[role]) {
+          victim = voice;
+          break;
         }
       }
-      while (this.voices.size + count > limit) {
-        if (this.musicVoices() > 0) {
-          this.clearMusicVoices();
-          continue;
-        }
-        let oldestRoutine: Voice | undefined;
-        let oldestLocal: Voice | undefined;
-        let oldestImportant: Voice | undefined;
-        for (const voice of this.voices.values()) {
-          if (voice.role === "routine") {
-            oldestRoutine = voice;
-            break;
-          }
-          if (voice.role === "local") oldestLocal ??= voice;
-          else oldestImportant ??= voice;
-        }
-        const oldest =
-          oldestRoutine ?? oldestLocal ?? (role === "important" ? oldestImportant : undefined);
-        if (!oldest) {
-          this.counts.dropped += count;
-          return false;
-        }
-        this.release(oldest, true);
-      }
+      // Important cues may retire the oldest important voice; nothing else can.
+      if (!victim && role === "important") victim = this.voices.values().next().value ?? null;
+      if (!victim) return false;
+      this.release(victim, true);
     }
     return true;
   }
 
-  private source(
+  private start(
     buffer: AudioBuffer,
     volume: number,
     rate: number,
     at: number,
     role: VoiceRole,
-    bypass = false,
+    bus: GainNode | null,
   ): void {
     const ctx = this.ctx;
-    const bus = role === "music" ? this.musicBus : bypass ? this.master : this.duckBus;
     if (!ctx || !bus) return;
     const src = ctx.createBufferSource();
     src.buffer = buffer;
@@ -401,57 +265,61 @@ export class Sfx {
     const gain = ctx.createGain();
     gain.gain.value = volume;
     src.connect(gain).connect(bus);
-    const voice: Voice = {
-      source: src,
-      gain,
-      startsAt: at,
-      role,
-      onEnded: () => this.release(voice, false),
-    };
-    this.voices.set(src, voice);
+    const voice: Voice = { source: src, gain, role, onEnded: () => this.release(voice, false) };
+    this.voices.add(voice);
     src.addEventListener("ended", voice.onEnded, { once: true });
-    this.counts.accepted++;
-    this.counts.peak = Math.max(this.counts.peak, this.voices.size);
-    if (role === "music") src.start(at);
-    else src.start();
+    src.start(at);
   }
 
-  private clearMusicVoices(): void {
-    for (const voice of this.voices.values()) if (voice.role === "music") this.release(voice, true);
+  private release(voice: Voice, cut: boolean): void {
+    if (!this.voices.delete(voice)) return;
+    voice.source.removeEventListener("ended", voice.onEnded);
+    if (cut) voice.source.stop();
+    voice.source.disconnect();
+    voice.gain.disconnect();
+  }
+
+  private musicPlaying(): boolean {
+    for (const voice of this.voices) if (voice.role === "music") return true;
+    return false;
   }
 
   private stopMusic(): void {
-    this.musicGeneration++;
     if (this.musicTimer !== null) window.clearInterval(this.musicTimer);
     this.musicTimer = null;
-    this.nextMusicAt = 0;
-    this.clearMusicVoices();
+    for (const voice of this.voices) if (voice.role === "music") this.release(voice, true);
   }
 
   private startMusic(): void {
-    if (!this.ready() || this.musicMode === "silent" || this.musicTimer !== null || !this.ctx)
-      return;
-    this.nextMusicAt = this.ctx.currentTime + scoreLeadIn(this.battleBeat);
-    const generation = ++this.musicGeneration;
-    this.musicTimer = window.setInterval(() => this.tickMusic(generation), 200);
+    const ctx = this.ctx;
+    if (!ctx || !this.ready || this.musicMode === "silent" || this.musicTimer !== null) return;
+    this.nextMusicAt = ctx.currentTime + scoreLeadIn(this.battleBeat);
+    this.musicTimer = window.setInterval(() => this.tickMusic(), 200);
   }
 
-  private tickMusic(generation: number): void {
+  private restartMusic(): void {
+    this.stopMusic();
+    this.startMusic();
+  }
+
+  private tickMusic(): void {
     const ctx = this.ctx;
     const mode = this.musicMode;
-    if (generation !== this.musicGeneration || !this.ready() || !ctx || mode === "silent") return;
+    if (!ctx || !this.ready || mode === "silent") {
+      this.stopMusic();
+      return;
+    }
     const now = ctx.currentTime;
     if (this.nextMusicAt < now - 0.25) this.nextMusicAt = now + 0.12;
     if (this.nextMusicAt > now + 0.25) return;
     const at = Math.max(now + 0.025, this.nextMusicAt);
-    const phrase = battlePhrase(mode, this.battleBeat, this.musicStep);
-    this.musicStep++;
+    const phrase = battlePhrase(mode, this.battleBeat, this.musicStep++);
     this.nextMusicAt = at + phrase.waitSeconds;
-    if (phrase.notes.length === 0) return;
     const buffer = this.musicBuffers.get(mode);
-    if (!buffer || this.musicVoices() > 0 || !this.admit(phrase.notes.length, "music")) return;
+    if (!buffer || phrase.notes.length === 0 || this.musicPlaying()) return;
+    if (!this.admit("music", phrase.notes.length)) return;
     for (const note of phrase.notes)
-      this.source(buffer, note.gain, note.rate, at + note.delay, "music");
+      this.start(buffer, note.gain, note.rate, at + note.delay, "music", this.musicBus);
   }
 
   /** Duck every routine sound while the death boom plays. */
@@ -463,55 +331,6 @@ export class Sfx {
     bus.gain.cancelScheduledValues(t);
     bus.gain.setValueAtTime(DUCK_GAIN, t);
     bus.gain.linearRampToValueAtTime(1, t + DUCK_MS / 1000);
-  }
-
-  private resetDuck(): void {
-    if (!this.ctx || !this.duckBus) return;
-    this.duckBus.gain.cancelScheduledValues(this.ctx.currentTime);
-    this.duckBus.gain.setValueAtTime(1, this.ctx.currentTime);
-  }
-
-  diagnostics() {
-    let scheduledSources = 0;
-    let routineSources = 0;
-    let essentialSources = 0;
-    let localSources = 0;
-    let musicVoices = 0;
-    const now = this.ctx?.currentTime ?? 0;
-    for (const voice of this.voices.values()) {
-      if (voice.startsAt > now) scheduledSources++;
-      if (voice.role === "important") essentialSources++;
-      else if (voice.role === "local") localSources++;
-      else routineSources++;
-      if (voice.role === "music") musicVoices++;
-    }
-    return Object.freeze({
-      contextState: this.ctx?.state ?? "locked",
-      muted: this.muted,
-      paused: this.paused,
-      disposed: this.disposed,
-      contextTransition: this.transition !== null,
-      ownedSources: this.voices.size,
-      scheduledSources,
-      routineSources,
-      essentialSources,
-      localSources,
-      musicVoices,
-      graphNodes: this.voices.size,
-      cachedBuffers: this.buffers.size + this.musicBuffers.size,
-      musicMode: this.musicMode,
-      battleBeat: this.battleBeat,
-      musicStep: this.musicStep,
-      schedulerCount: this.musicTimer === null ? 0 : 1,
-      limit: VOICE_LIMIT,
-      routineLimit: ROUTINE_LIMIT,
-      localLimit: LOCAL_LIMIT,
-      musicLimit: MUSIC_LIMIT,
-      // Raw AudioParam values may lag while the renderer is suspended.
-      masterGain: this.master?.gain.value ?? 0,
-      duckGain: this.duckBus?.gain.value ?? 1,
-      ...this.counts,
-    });
   }
 }
 

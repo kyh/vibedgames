@@ -41,8 +41,6 @@ import {
   type NormalizedLandmark,
 } from "@mediapipe/tasks-vision";
 
-import { poseStatus } from "./pose-status";
-
 // ---- legacy tuning (recovered from git — do not retune) ------------------------
 
 /** Jump fires when the smoothed nose rises above baseline by this fraction of baseline. */
@@ -119,18 +117,19 @@ type Panel = {
   recal: HTMLButtonElement;
   status: HTMLSpanElement;
   cap: HTMLDivElement;
-  release: () => void;
 };
 
 // ---- state machine ---------------------------------------------------------------
 
 class PoseCamera {
-  private disposed = false;
+  /**
+   * Startup attempt token. A failure (denied permission, track ended, tracking
+   * exception) invalidates every async continuation of the attempt it belongs
+   * to, so a late model load can't resurrect a camera the retry already replaced.
+   */
   private attempt = 0;
   private raf: number | null = null;
-  private metadataListener: (() => void) | null = null;
   private releaseMediaEvents: (() => void) | null = null;
-  private readonly listeners = new AbortController();
   private state: PoseState = "idle";
   private baselineY = 0;
   private minY = Infinity;
@@ -161,58 +160,41 @@ class PoseCamera {
     private onJump: PoseJumpHandler,
     autoStart: boolean,
   ) {
-    const options = { signal: this.listeners.signal };
     this.setStatus(autoStart ? "Click 'Start' to begin" : "Tap to enable the pose cam");
-    this.ui.button.addEventListener(
-      "click",
-      (e) => {
-        e.stopPropagation(); // don't also toggle the panel size
-        // Drop focus so Space (a game input) can't re-activate the button.
-        this.ui.button.blur();
-        this.handleMainAction();
-      },
-      options,
-    );
-    this.ui.recal.addEventListener(
-      "click",
-      (e) => {
-        e.stopPropagation(); // don't also toggle the panel size
-        this.ui.recal.blur();
-        this.recalibrate();
-      },
-      options,
-    );
+    this.ui.button.addEventListener("click", (e) => {
+      e.stopPropagation(); // don't also toggle the panel size
+      // Drop focus so Space (a game input) can't re-activate the button.
+      this.ui.button.blur();
+      this.handleMainAction();
+    });
+    this.ui.recal.addEventListener("click", (e) => {
+      e.stopPropagation(); // don't also toggle the panel size
+      this.ui.recal.blur();
+      this.recalibrate();
+    });
     // The camera view itself is the size toggle: click to expand/collapse.
     // Expanding also starts the camera if it never did (touch defers
     // getUserMedia until this user gesture).
-    this.ui.screen.addEventListener(
-      "click",
-      () => {
-        const expanding = this.collapsed;
-        this.setCollapsed(!this.collapsed);
-        if (expanding && this.state === "idle") this.start();
-      },
-      options,
-    );
-    this.ui.screen.addEventListener(
-      "keydown",
-      (event) => {
-        if (event.target !== this.ui.screen || (event.key !== "Enter" && event.key !== " ")) return;
-        event.preventDefault();
-        event.stopPropagation();
-        if (!event.repeat) this.ui.screen.click();
-      },
-      options,
-    );
-    this.ui.screen.addEventListener(
-      "keyup",
-      (event) => {
-        if (event.target !== this.ui.screen || (event.key !== "Enter" && event.key !== " ")) return;
-        event.preventDefault();
-        event.stopPropagation();
-      },
-      options,
-    );
+    this.ui.screen.addEventListener("click", () => {
+      const expanding = this.collapsed;
+      this.setCollapsed(!this.collapsed);
+      if (expanding && this.state === "idle") this.start();
+    });
+    // Keyboard activation of the focused preview must not leak Space/Enter to
+    // the game as a flap, so both edges are swallowed here.
+    const isActivationKey = (event: KeyboardEvent): boolean =>
+      event.target === this.ui.screen && (event.key === "Enter" || event.key === " ");
+    this.ui.screen.addEventListener("keydown", (event) => {
+      if (!isActivationKey(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (!event.repeat) this.ui.screen.click();
+    });
+    this.ui.screen.addEventListener("keyup", (event) => {
+      if (!isActivationKey(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+    });
     if (autoStart) {
       // Legacy mounted the component on page load and auto-started immediately.
       this.start();
@@ -220,7 +202,6 @@ class PoseCamera {
   }
 
   setHandler(onJump: PoseJumpHandler): void {
-    if (this.disposed) return;
     this.onJump = onJump;
   }
 
@@ -277,9 +258,8 @@ class PoseCamera {
   // ---- startup --------------------------------------------------------------------
 
   private start(): void {
-    if (this.disposed || this.state !== "idle") return;
+    if (this.state !== "idle") return;
     const attempt = ++this.attempt;
-    this.releaseCapture();
     this.setState("loading");
     this.ui.cap.textContent = "📷 LOADING";
     this.ui.screen.setAttribute("aria-label", "Pose camera preview");
@@ -289,16 +269,13 @@ class PoseCamera {
   }
 
   private current(attempt: number): boolean {
-    return !this.disposed && attempt === this.attempt;
+    return attempt === this.attempt;
   }
 
   private releaseCapture(): void {
     if (this.raf !== null) cancelAnimationFrame(this.raf);
     this.raf = null;
     this.detectionStarted = false;
-    if (this.metadataListener)
-      this.ui.video.removeEventListener("loadedmetadata", this.metadataListener);
-    this.metadataListener = null;
     this.releaseMediaEvents?.();
     this.releaseMediaEvents = null;
     this.ui.video.pause();
@@ -310,16 +287,6 @@ class PoseCamera {
     this.drawingUtils?.close();
     this.drawingUtils = null;
     this.overlayCtx = null;
-  }
-
-  dispose(): void {
-    if (this.disposed) return;
-    this.disposed = true;
-    this.attempt += 1;
-    this.state = "idle";
-    this.listeners.abort();
-    this.releaseCapture();
-    this.ui.release();
   }
 
   private failStart(attempt: number, message: string): void {
@@ -357,16 +324,10 @@ class PoseCamera {
           `Camera interrupted: ${video.error.message || "Video playback failed"}`,
         );
       };
-      for (const track of tracks) track.addEventListener("ended", onEnded);
-      video.addEventListener("error", onVideoError);
-      this.releaseMediaEvents = () => {
-        for (const track of tracks) track.removeEventListener("ended", onEnded);
-        video.removeEventListener("error", onVideoError);
-      };
+      // Reached from the event or, if the stream was already sized, directly
+      // below; overlayCtx marks it done for this attempt.
       const onMetadata = (): void => {
-        if (!this.current(attempt) || this.metadataListener !== onMetadata) return;
-        video.removeEventListener("loadedmetadata", onMetadata);
-        this.metadataListener = null;
+        if (!this.current(attempt) || this.overlayCtx !== null) return;
         try {
           // Reveal the video only once it has real dimensions — a stream-less
           // <video> renders at its 300×150 default and bloats the pill.
@@ -385,8 +346,14 @@ class PoseCamera {
           this.failStart(attempt, `Error: ${errorMessage(error)}`);
         }
       };
-      this.metadataListener = onMetadata;
+      for (const track of tracks) track.addEventListener("ended", onEnded);
+      video.addEventListener("error", onVideoError);
       video.addEventListener("loadedmetadata", onMetadata, { once: true });
+      this.releaseMediaEvents = () => {
+        for (const track of tracks) track.removeEventListener("ended", onEnded);
+        video.removeEventListener("error", onVideoError);
+        video.removeEventListener("loadedmetadata", onMetadata);
+      };
       video.srcObject = stream;
       if (tracks.some((track) => track.readyState === "ended")) {
         onEnded();
@@ -621,18 +588,26 @@ class PoseCamera {
     }
   }
 
+  /** Read-only projection of tracking; these labels never arm or gate controls. */
   private showReadiness(): void {
-    if (this.state !== "warming" && this.state !== "detecting" && this.state !== "jumping") return;
-    const status = poseStatus(
-      this.state === "warming",
-      this.warmupSamples,
-      WARMUP_SAMPLES,
-      this.noseVisible,
-      this.armsVisible,
-    );
-    const cap = `📷 ${status.label}`;
+    const [label, detail] = this.readiness();
+    const cap = `📷 ${label}`;
     if (this.ui.cap.textContent !== cap) this.ui.cap.textContent = cap;
-    this.setStatus(status.detail);
+    this.setStatus(detail);
+  }
+
+  private readiness(): [label: string, detail: string] {
+    if (this.state === "warming") {
+      const n = `${this.warmupSamples}/${WARMUP_SAMPLES}`;
+      return this.noseVisible
+        ? [`CENTER ${n}`, `Centering ${n} · stand naturally`]
+        : ["FIND FACE", "Step into view to center your pose"];
+    }
+    if (this.noseVisible && this.armsVisible)
+      return ["POSE READY", "Ready · jump or flap your arms"];
+    if (this.noseVisible) return ["JUMP READY", "Jump ready · show wrists to flap too"];
+    if (this.armsVisible) return ["ARMS READY", "Arms ready · show your face to jump too"];
+    return ["FIND YOU", "Step into view · keyboard and tap still work"];
   }
 
   // ---- skeleton overlay ------------------------------------------------------
@@ -681,12 +656,6 @@ export function initPoseCamera(onJump: PoseJumpHandler): void {
   const touch = isCoarsePointer();
   const compact = touch || Math.min(window.innerWidth, window.innerHeight) < 560;
   active = new PoseCamera(buildPanel(document.body, compact), onJump, !touch);
-}
-
-/** Final app ownership. A later explicit init creates a fresh panel and attempt. */
-export function disposePoseCamera(): void {
-  active?.dispose();
-  active = null;
 }
 
 /**
@@ -857,22 +826,12 @@ function buildPanel(parent: HTMLElement, collapsed: boolean): Panel {
   // The bottom-centred HUD pills reach under this panel on a narrow screen and
   // disappear behind it once it expands, so publish how much of the bottom-right
   // corner it currently owns and let index.html lift them clear.
-  let released = false;
-  const observer = new ResizeObserver(() => {
-    if (released) return;
+  new ResizeObserver(() => {
     const height = root.getBoundingClientRect().height;
     document.documentElement.style.setProperty("--fd-cam-h", `${Math.round(height)}px`);
-  });
-  observer.observe(root);
+  }).observe(root);
 
-  const release = (): void => {
-    if (released) return;
-    released = true;
-    observer.disconnect();
-    root.remove();
-    document.documentElement.style.removeProperty("--fd-cam-h");
-  };
-  return { root, screen, video, overlay, button, recal, status, cap, release };
+  return { root, screen, video, overlay, button, recal, status, cap };
 }
 
 // ---- pure helpers --------------------------------------------------------------------------

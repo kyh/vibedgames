@@ -11,8 +11,7 @@ export type FlightHudState = Readonly<{
   mastery: WeaponMasteryState;
 }>;
 
-/** A passive view of the pilot's existing state. It owns no clocks, inputs or
- * gameplay values; stacked pickups retain their complete deadline in the text. */
+/** DOM view of level / XP / special-weapon time / mastery (index.html owns the nodes). */
 export class FlightHud {
   private readonly progress = document.getElementById("flight-progress");
   private readonly level = document.getElementById("flight-level");
@@ -20,10 +19,8 @@ export class FlightHud {
   private readonly fill = document.getElementById("flight-xp-fill");
   private readonly time = document.getElementById("weapon-time");
   private readonly mastery = document.getElementById("weapon-mastery");
-  private disposed = false;
 
   update(state: FlightHudState): void {
-    if (this.disposed) return;
     if (!state.active) {
       this.reset();
       return;
@@ -33,26 +30,19 @@ export class FlightHud {
     const progress = Math.max(0, Math.min(cost, state.xp));
     const seconds = Math.max(0, Math.ceil((state.weaponUntil - state.now) / 1000));
     if (this.mastery) {
-      const mastery = state.mastery;
-      this.mastery.hidden = mastery.phase === "idle" || seconds === 0;
-      setText(
-        this.mastery,
-        mastery.phase === "active" && seconds > 0
-          ? mastery.completions > 0
-            ? `${mastery.weapon === "RAILGUN" ? "Aligned shots" : "Return hits"}: ${mastery.completions}`
-            : mastery.weapon === "RAILGUN"
-              ? "Pierce two enemies with one shot."
-              : "Hit the same enemy out and back."
-          : "",
-      );
+      const text = seconds > 0 ? masteryText(state.mastery) : "";
+      this.mastery.hidden = text === "";
+      setText(this.mastery, text);
     }
     if (this.progress) {
       this.progress.hidden = false;
-      const label = capped
-        ? `Level ${state.level}, maximum level`
-        : `Level ${state.level}, ${Math.floor(progress)} of ${cost} XP to next level`;
-      if (this.progress.getAttribute("aria-label") !== label)
-        this.progress.setAttribute("aria-label", label);
+      setAttribute(
+        this.progress,
+        "aria-label",
+        capped
+          ? `Level ${state.level}, maximum level`
+          : `Level ${state.level}, ${Math.floor(progress)} of ${cost} XP to next level`,
+      );
     }
     setText(this.level, `LV ${state.level}`);
     setText(this.xp, capped ? "MAX" : `${Math.floor(progress)}/${cost} XP`);
@@ -63,14 +53,15 @@ export class FlightHud {
     if (this.time) {
       this.time.hidden = seconds === 0;
       setText(this.time, seconds > 0 ? `${seconds}s` : "");
-      const label = seconds > 0 ? `Special weapon: ${seconds} seconds remaining` : "";
-      if (this.time.getAttribute("aria-label") !== label)
-        this.time.setAttribute("aria-label", label);
+      setAttribute(
+        this.time,
+        "aria-label",
+        seconds > 0 ? `Special weapon: ${seconds} seconds remaining` : "",
+      );
     }
   }
 
   reset(): void {
-    if (this.disposed) return;
     if (this.progress) this.progress.hidden = true;
     if (this.mastery) {
       this.mastery.hidden = true;
@@ -81,14 +72,20 @@ export class FlightHud {
       setText(this.time, "");
     }
   }
+}
 
-  dispose(): void {
-    if (this.disposed) return;
-    this.reset();
-    this.disposed = true;
-  }
+function masteryText(mastery: WeaponMasteryState): string {
+  if (mastery.phase === "idle") return "";
+  const rail = mastery.weapon === "RAILGUN";
+  if (mastery.completions > 0)
+    return `${rail ? "Aligned shots" : "Return hits"}: ${mastery.completions}`;
+  return rail ? "Pierce two enemies with one shot." : "Hit the same enemy out and back.";
 }
 
 function setText(node: HTMLElement | null, value: string): void {
   if (node && node.textContent !== value) node.textContent = value;
+}
+
+function setAttribute(node: HTMLElement, name: string, value: string): void {
+  if (node.getAttribute(name) !== value) node.setAttribute(name, value);
 }

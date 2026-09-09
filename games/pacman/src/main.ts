@@ -1,11 +1,11 @@
 import * as THREE from "three";
 import { setPauseHandlers } from "@repo/embed";
 
-import { disposeAudio, setAudioPaused, unlockAudio } from "./audio/sfx";
+import { setAudioPaused, unlockAudio } from "./audio/sfx";
 import { FaceCamera, type FaceCameraState } from "./input/face-camera";
 import { IS_TOUCH } from "./input/input-mode";
 import { pauseOverlay } from "./pause-overlay";
-import { GameScene } from "./scenes/game-scene";
+import { GameScene, type GameDiagnostics } from "./scenes/game-scene";
 import { MAX_DT, TONE_EXPOSURE } from "./shared/constants";
 
 const container = document.getElementById("game");
@@ -27,7 +27,6 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 container.appendChild(renderer.domElement);
 
 const game = new GameScene();
-let disposed = false;
 
 // First tap/keypress unlocks the synth context and starts the lullaby loop.
 // Keeping the listeners around lets a suspended context resume after tab
@@ -40,11 +39,10 @@ window.addEventListener("keydown", unlockAudio);
 const webcamPanel = elOf("webcam", HTMLElement);
 const webcamToggle = elOf("webcam-toggle", HTMLButtonElement);
 const webcamCue = elOf("webcam-cue", HTMLElement);
-let cameraState: Readonly<FaceCameraState> = { kind: "idle" };
-const renderCameraState = (): void => {
+let cameraState: FaceCameraState = { kind: "idle" };
+function renderCameraState(): void {
   const collapsed = webcamPanel.classList.contains("collapsed");
   webcamToggle.setAttribute("aria-expanded", String(!collapsed));
-  webcamToggle.disabled = disposed;
   const action =
     cameraState.kind === "unavailable"
       ? "Retry face camera"
@@ -74,7 +72,7 @@ const renderCameraState = (): void => {
             ? "📷 FACE READY"
             : "📷 FIND FACE"
           : "📷 CAMERA";
-};
+}
 const face = new FaceCamera({
   video: elOf("webcam-video", HTMLVideoElement),
   overlay: elOf("webcam-overlay", HTMLCanvasElement),
@@ -89,138 +87,99 @@ const face = new FaceCamera({
 });
 
 // The porthole IS the camera switch: tapping it toggles between the full
-// preview and a pill, and opening it starts the camera if it never ran.
-// Touch boots collapsed — the full panel blankets the lower-right playfield,
-// a phone only grants getUserMedia inside a gesture, and a player who never
-// asks for the camera never pays for the 6 MB face stack behind it. Desktop
-// keeps the legacy auto-start. Collapsing never stops tracking: a hidden
-// <video> still decodes frames.
-const onCameraClick = (event: MouseEvent): void => {
-  event.stopPropagation();
-  if (disposed) return;
+// preview and a pill, and opening it starts (or retries) the camera if it
+// isn't running. Touch boots collapsed — the full panel blankets the
+// lower-right playfield, a phone only grants getUserMedia inside a gesture,
+// and a player who never asks for the camera never pays for the 6 MB face
+// stack behind it. Desktop keeps the legacy auto-start. Collapsing never
+// stops tracking: a hidden <video> still decodes frames.
+webcamToggle.addEventListener("click", () => {
+  // Keyboard activation never reaches the window unlock listeners (see below).
   unlockAudio();
   if (cameraState.kind === "idle" || cameraState.kind === "unavailable") {
     webcamPanel.classList.remove("collapsed");
     void face.start();
   } else webcamPanel.classList.toggle("collapsed");
   renderCameraState();
-};
-// Native button activation owns Enter/Space without also starting or chomping.
+});
+// Native button activation owns Enter/Space — the window keydown handler
+// must not also chomp or start the round.
 const sealCameraKey = (event: KeyboardEvent): void => {
   if (event.code === "Space" || event.code === "Enter") event.stopPropagation();
 };
-webcamToggle.addEventListener("click", onCameraClick);
 webcamToggle.addEventListener("keydown", sealCameraKey);
 webcamToggle.addEventListener("keyup", sealCameraKey);
 if (IS_TOUCH) webcamPanel.classList.add("collapsed");
 else void face.start();
 renderCameraState();
 
-const resize = (): void => {
-  if (disposed) return;
+window.addEventListener("resize", () => {
   game.resize(window.innerWidth / window.innerHeight);
   renderer.setSize(window.innerWidth, window.innerHeight);
-};
-window.addEventListener("resize", resize);
+});
 
 // Wrapper-requested pause: show the game's plush clinic-sign overlay
-// (./pause-overlay) and freeze the sim. `timer.update` keeps running every
-// frame even while paused, so the delta never balloons across the gap —
+// (./pause-overlay) and freeze the sim + input. `timer.update` keeps running
+// every frame even while paused, so the delta never balloons across the gap —
 // resuming needs no explicit reset.
 let paused = false;
-const releasePause = setPauseHandlers({
+setPauseHandlers({
   onPause: () => {
-    if (disposed) return;
     pauseOverlay.show();
     paused = true;
-    game.setPresentationPaused(true);
+    game.setPaused(true);
     face.setActionsPaused(true);
     setAudioPaused(true);
   },
   onResume: () => {
-    if (disposed) return;
     pauseOverlay.hide();
     paused = false;
-    game.setPresentationPaused(false);
+    game.setPaused(false);
     face.setActionsPaused(false);
     setAudioPaused(false);
   },
 });
 
+// Bot-playtest telemetry (playtest skill contract): one object mutated in place.
+const diag: GameDiagnostics & { frame: number; paused: boolean } = {
+  frame: 0,
+  paused: false,
+  score: 0,
+  complete: false,
+  phase: "title",
+  player: { x: 0, y: 0 },
+  entities: 0,
+  powerMs: 0,
+};
+Reflect.set(globalThis, "__GAME_DIAGNOSTICS__", diag);
+
 const timer = new THREE.Timer();
-let frame = 0;
-type Diagnostics = ReturnType<GameScene["diagnostics"]> & { frame: number; paused: boolean };
-let diagnostics: Diagnostics | undefined;
 renderer.setAnimationLoop((time) => {
-  if (disposed) return;
   timer.update(time);
   const dt = Math.min(timer.getDelta(), MAX_DT);
   if (!paused) {
     game.update(dt);
-    frame++;
+    diag.frame++;
   }
   renderer.render(game.scene, game.camera);
-  diagnostics = { frame, paused, ...game.diagnostics() };
-  window.__GAME_DIAGNOSTICS__ = diagnostics;
+  diag.paused = paused;
+  game.writeDiagnostics(diag);
 });
 
-function dispose(): void {
-  if (disposed) return;
-  disposed = true;
-  renderer.setAnimationLoop(null);
-  window.removeEventListener("pointerdown", unlockAudio);
-  window.removeEventListener("keydown", unlockAudio);
-  window.removeEventListener("resize", resize);
-  webcamToggle.removeEventListener("click", onCameraClick);
-  webcamToggle.removeEventListener("keydown", sealCameraKey);
-  webcamToggle.removeEventListener("keyup", sealCameraKey);
-  releasePause();
-  pauseOverlay.hide();
-  face.dispose();
-  webcamPanel.hidden = true;
-  game.dispose();
-  disposeAudio();
-  timer.dispose();
-  renderer.dispose();
-  renderer.domElement.remove();
-  if (window.__pacman === devHooks) delete window.__pacman;
-  if (window.__pacmanDispose === dispose) delete window.__pacmanDispose;
-  if (window.__GAME_DIAGNOSTICS__ === diagnostics) delete window.__GAME_DIAGNOSTICS__;
-}
-
-import.meta.hot?.dispose(dispose);
-
 // Synthetic gesture hooks so the face pipeline can be driven without a webcam.
-const devHooks = {
-  game,
-  face,
-  renderer,
-  mouth: (open: boolean) => {
-    if (!disposed) game.onMouthChange(open);
-  },
-  chomp: () => {
-    if (disposed) return;
-    game.onMouthChange(true);
-    game.onMouthChange(false);
-  },
-  turnLeft: () => {
-    if (!disposed) game.onHeadTurnLeft();
-  },
-  turnRight: () => {
-    if (!disposed) game.onHeadTurnRight();
-  },
-};
-declare global {
-  interface Window {
-    __pacman?: typeof devHooks;
-    __pacmanDispose?: typeof dispose;
-    __GAME_DIAGNOSTICS__?: Diagnostics;
-  }
-}
 if (import.meta.env.DEV) {
   Object.assign(window, {
-    __pacman: devHooks,
-    __pacmanDispose: dispose,
+    __pacman: {
+      game,
+      face,
+      mouth: (open: boolean) => game.onMouthChange(open),
+      chomp: () => {
+        game.onMouthChange(true);
+        game.onMouthChange(false);
+      },
+      turnLeft: () => game.onHeadTurnLeft(),
+      turnRight: () => game.onHeadTurnRight(),
+    },
   });
 }
 

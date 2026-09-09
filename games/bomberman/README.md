@@ -26,9 +26,6 @@ pnpm --filter @repo/bomberman preview    # vite preview
 | R (pad Start, touch tap)                    | restart     |
 | M (touch 🔊)                                | mute        |
 
-Sound starts muted; unmute to enable procedural placement, blast, pickup and
-round feedback. Fuse sparks use the pause-aware clock. Flames remain the existing
-generated animation; fading smoke and scorch marks are cosmetic. Pickup feedback
-fires only on an actual collection, never when fire destroys an item.
+Sound starts muted (procedural WebAudio, no asset files); the preference persists in localStorage.
 
 Multiplayer: all players auto-join the shared `bomberman-default` room; offline it degrades to solo play.

@@ -54,21 +54,8 @@ function getMine(game: Phaser.Game): MineScene {
 }
 
 function sceneReady<T extends Phaser.Scene>(scene: T): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const clear = (): void => {
-      scene.events.off(Phaser.Scenes.Events.CREATE, onCreate);
-      scene.events.off(Phaser.Scenes.Events.DESTROY, onDestroy);
-    };
-    const onCreate = (): void => {
-      clear();
-      resolve(scene);
-    };
-    const onDestroy = (): void => {
-      clear();
-      reject(new Error("trailer: scene destroyed before create"));
-    };
-    scene.events.once(Phaser.Scenes.Events.CREATE, onCreate);
-    scene.events.once(Phaser.Scenes.Events.DESTROY, onDestroy);
+  return new Promise((resolve) => {
+    scene.events.once(Phaser.Scenes.Events.CREATE, () => resolve(scene));
   });
 }
 
@@ -83,7 +70,6 @@ async function freshFarm(game: Phaser.Game): Promise<GameScene> {
   if (mgr.isActive("Game")) gs.scene.restart({ mode: "new" });
   else mgr.start("Game", { mode: "new" });
   await ready;
-  if (game.scene.game !== game) throw new Error("trailer: game destroyed during setup");
   // Block stray real input during capture; the director speaks through
   // trailerMove + the public action verbs instead.
   gs.input.enabled = false;
@@ -114,7 +100,6 @@ async function freshMine(game: Phaser.Game, depth: number): Promise<MineScene> {
   if (mgr.isActive("Mine")) mine.scene.restart({ depth });
   else mgr.start("Mine", { depth });
   await ready;
-  if (game.scene.game !== game) throw new Error("trailer: game destroyed during setup");
   return mine;
 }
 
@@ -1840,13 +1825,11 @@ function sceneFullFarm(game: Phaser.Game): TrailerScene {
 // ---------------------------------------------------------------- entry
 
 export function startTrailer(game: Phaser.Game): void {
-  // A lazy Boot import may resolve after the final SceneManager teardown.
-  if (game.scene.game !== game) return;
   enableTrailerStaging();
   disableSaves();
   Sound.muted = true; // ignore any saved preference; onGesture owns the unmute
 
-  const release = runTrailer({
+  runTrailer({
     vignette: false, // keep the pixel art clean edge-to-edge
     cutMs: 200,
     // The trailer rolls with no user gesture, so the audio context would stay
@@ -1882,5 +1865,4 @@ export function startTrailer(game: Phaser.Game): void {
       },
     })),
   });
-  game.events.once(Phaser.Core.Events.DESTROY, release);
 }

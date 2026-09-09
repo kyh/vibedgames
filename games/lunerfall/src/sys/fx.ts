@@ -2,8 +2,11 @@ import Phaser from "phaser";
 
 import { BASE_H, BASE_W, COLORS } from "../config";
 
-// Scene-owned, bounded cosmetic pools. No combat timers or tweens live here.
-// One UPDATE listener also serves Select/Viewer and Game's early-return paths.
+// Lightweight VFX drawn from scene-owned, fixed-size pools (no per-hit
+// allocations or tweens): a runtime radial-glow texture ("fx-glow") for
+// additive neon bloom, plus dot/shard/ring shapes. The pool is created lazily on
+// the first effect and ticks off the scene's UPDATE event, so it also serves
+// scenes that never call into the game loop.
 const pools = new WeakMap<Phaser.Scene, SceneFx>();
 const PARTICLES = 192;
 const ECHOES = 32;
@@ -122,10 +125,6 @@ class SpritePool {
     }
     this.next = 0;
   }
-
-  get active(): number {
-    return this.slots.filter((s) => s.age < s.life).length;
-  }
 }
 
 type LabelFx = { text: Phaser.GameObjects.Text; age: number; x: number; y: number };
@@ -155,10 +154,10 @@ class SceneFx {
       });
     }
     scene.events.on(Phaser.Scenes.Events.UPDATE, this.update, this);
+    // Phaser destroys the display list after SHUTDOWN; only the registry needs dropping.
     scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       scene.events.off(Phaser.Scenes.Events.UPDATE, this.update, this);
       pools.delete(scene);
-      // Phaser destroys the scene display list after SHUTDOWN.
     });
   }
 
@@ -203,14 +202,6 @@ class SceneFx {
       s.text.setVisible(false).setActive(false);
     }
   }
-
-  counts() {
-    return {
-      particles: this.particles.active,
-      echoes: this.echoes.active,
-      labels: this.labels.filter((s) => s.age < 600).length,
-    };
-  }
 }
 
 function fx(scene: Phaser.Scene): SceneFx {
@@ -222,12 +213,9 @@ function fx(scene: Phaser.Scene): SceneFx {
   return pool;
 }
 
-/** Room changes recycle the same scene pool; scene shutdown drops its registry. */
+/** Room change: hide every in-flight effect so nothing lingers over the new room. */
 export function clearFx(scene: Phaser.Scene): void {
   pools.get(scene)?.clear();
-}
-export function fxCounts(scene: Phaser.Scene) {
-  return pools.get(scene)?.counts() ?? { particles: 0, echoes: 0, labels: 0 };
 }
 
 export function ensureGlow(scene: Phaser.Scene) {
@@ -422,7 +410,8 @@ export function explosion(
   }
 }
 
-// Remains a room-owned emitter: callers destroy it on room changes.
+// Slow-drifting neon embers for room ambience. Returns the emitter to destroy on
+// room change.
 export function ambientEmbers(
   scene: Phaser.Scene,
   color: number = COLORS.teal,

@@ -59,7 +59,6 @@ export type SceneOpts = {
 
 export class GameScene {
   world: World;
-  private disposed = false;
   private net: MultiplayerClient | null = null;
   private worldView: WorldView;
   private environment: Environment;
@@ -209,7 +208,6 @@ export class GameScene {
 
   // ── per-frame ──
   update(frameDt: number): void {
-    if (this.disposed) return;
     this.guide.update(this.localUnit());
     this.controls.update(this.controlsPaused || this.guide.open ? 0 : frameDt); // poll before any reads
     const inspect = this.controls.consumeGuide();
@@ -225,14 +223,9 @@ export class GameScene {
     // Surviving guests can receive a fresh world after the host restarts. Clear
     // the old match's presentation before its first new FX batch is consumed.
     if (this.musicPhase === "ended" && this.world.phase === "playing") {
-      this.musicPhase = "playing";
-      this.musicClock = 0;
-      this.musicAcc = 0;
-      this.musicIntensity = 0;
-      this.musicLowSince = -1;
+      this.resetMusicDriver();
       this.fx.bestStreak = 0;
       this.fx.lastDeath = null;
-      this.fx.audio.beginMatch();
     }
     // FX drains events first (it may arm a hit-stop), then the visual layer runs
     // on the slowed render-dt while the SIM already stepped on the real frameDt.
@@ -308,19 +301,7 @@ export class GameScene {
       this.aimY = Math.cos(yaw);
       // discard buffered edges so a stray click/keypress during the fly-in
       // doesn't fire the moment the countdown hits FIGHT
-      this.controls.consumeAbilities();
-      this.controls.consumeItems();
-      this.controls.consumeJump();
-      this.controls.consumeDash();
-      this.controls.consumeAttackEdge();
-      this.controls.consumeBuy();
-      if (this.touch) {
-        this.touch.consumeAbilities();
-        this.touch.consumeBuy();
-        this.touch.consumeJump();
-        this.touch.consumeDash();
-        this.touch.consumeJumpAttack();
-      }
+      this.drainActionInput();
       return;
     }
     const me = this.localUnit();
@@ -607,18 +588,7 @@ export class GameScene {
     );
     if (this.controlsPaused || this.world.phase === "ended") {
       // Results own input. Drain edges so a new round cannot inherit a cast.
-      this.controls.consumeAbilities();
-      this.controls.consumeAttackEdge();
-      this.controls.consumeJump();
-      this.controls.consumeDash();
-      this.controls.consumeItems();
-      this.controls.consumeBuy();
-      this.touch?.consumeAbilities();
-      this.touch?.consumeJumpAttack();
-      this.touch?.consumeJump();
-      this.touch?.consumeDash();
-      this.touch?.consumeBuy();
-      this.hud.consumeItemTaps();
+      this.drainActionInput();
       return;
     }
     if (this.guide.open) {
@@ -780,7 +750,6 @@ export class GameScene {
   }
 
   private requestBuy(itemId: string): void {
-    if (this.disposed) return;
     if (this.net && !this.prepareOnline()) return;
     if (this.controlsPaused || this.world.phase !== "playing") return;
     this.flushNeutralInput();
@@ -792,7 +761,7 @@ export class GameScene {
 
   // ── host: receive intents ──
   private onNetEvent(event: string, payload: JsonValue, from: string): void {
-    if (this.disposed || event !== INTENT_EVENT) return;
+    if (event !== INTENT_EVENT) return;
     // Parse the wire intent field-by-field — a malformed/malicious client must
     // not inject NaN/Inf or spoofed shapes into the authoritative sim.
     if (!isJsonObject(payload)) return;
@@ -876,13 +845,7 @@ export class GameScene {
   }
 
   private canRematch(): boolean {
-    return (
-      !this.disposed &&
-      !this.controlsPaused &&
-      !!this.net &&
-      this.amHost &&
-      this.world.phase === "ended"
-    );
+    return !this.controlsPaused && !!this.net && this.amHost && this.world.phase === "ended";
   }
 
   private rematch(): void {
@@ -908,18 +871,22 @@ export class GameScene {
     this.fx.resetMatch();
     this.hud.resetMatch(this.world, this.localUnit());
     this.hints.resetMatch();
-    this.fx.audio.beginMatch();
-    this.musicPhase = "playing";
-    this.musicClock = 0;
-    this.musicAcc = 0;
-    this.musicIntensity = 0;
-    this.musicLowSince = -1;
+    this.resetMusicDriver();
     this.aimInit = false;
     this.boundChamp = "";
     for (const key of ALL_ABILITY_KEYS) this.touchCdLast[key] = -1;
     this.resetHeldInput();
     this.neutralPending = true;
     this.baselineFx = true;
+  }
+
+  private resetMusicDriver(): void {
+    this.musicPhase = "playing";
+    this.musicClock = 0;
+    this.musicAcc = 0;
+    this.musicIntensity = 0;
+    this.musicLowSince = -1;
+    this.fx.audio.beginMatch();
   }
 
   private drainActionInput(): void {
@@ -989,16 +956,13 @@ export class GameScene {
       player: me ? { x: me.x, y: me.y, hp: me.hp, alive: me.alive } : null,
       score: me?.kills ?? 0,
       complete: this.world.phase === "ended",
-      disposed: this.disposed,
       online: this.net
         ? {
             connection: this.net.connectionStatus,
             playerId: this.net.playerId,
             hostId: this.net.hostId,
             authority: this.amHost,
-            prepared: this.hostReady,
             matchGeneration: this.matchGeneration,
-            controlsPaused: this.controlsPaused,
           }
         : null,
       audio: this.fx.audio.diagnostics(),
@@ -1027,8 +991,6 @@ export class GameScene {
   }
 
   dispose(): void {
-    if (this.disposed) return;
-    this.disposed = true;
     this.guide.dispose();
     this.net?.destroy();
     this.statusEl.remove();

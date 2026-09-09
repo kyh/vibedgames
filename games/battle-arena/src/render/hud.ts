@@ -242,7 +242,6 @@ export class Hud {
   private lastLowOp = -1;
   private lastLowOp2 = -1;
   private hbPhase = -1;
-  private disposed = false;
   private presentationPaused = false;
   private presentationHidden = document.hidden;
   private presentationNow = 0;
@@ -251,10 +250,7 @@ export class Hud {
   private pendingToasts: Toast[] = [];
   private confetti: ConfettiStage[] = [];
   private sawSuddenDeath = false;
-  private ownedElements: Element[] = [];
-  private ownedStyle: HTMLStyleElement | null = null;
   private readonly onVisibilityChange = (): void => {
-    if (this.disposed) return;
     this.presentationHidden = document.hidden;
     this.clearPresentation();
     this.dropIncomingPresentation();
@@ -262,7 +258,7 @@ export class Hud {
     this.showIntro("");
   };
   private readonly onMuteKey = (e: KeyboardEvent): void => {
-    if (e.code !== "KeyM" || e.repeat || this.disposed) return;
+    if (e.code !== "KeyM" || e.repeat) return;
     const t = e.target;
     if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) return;
     this.sfx.setMuted(!this.sfx.isMuted);
@@ -277,8 +273,6 @@ export class Hud {
     this.root = document.getElementById("hud")!;
     this.injectStyle();
     this.build();
-    this.root.classList.remove("ba-ended");
-    this.ownedElements = [...this.root.children];
     document.addEventListener("visibilitychange", this.onVisibilityChange);
     // persistent low-HP danger vignette (two reused nodes; opacity only).
     // Layer 1 = radial closing in from the corners, layer 2 = inset ring that
@@ -305,11 +299,10 @@ export class Hud {
   }
 
   setPlateAnchors(read: (id: string) => PlateAnchor | null): void {
-    if (!this.disposed) this.plateAnchors = read;
+    this.plateAnchors = read;
   }
 
   setKitAction(open: () => void): void {
-    if (this.disposed) return;
     this.kitAction = open;
     if (this.kitButton) this.kitButton.hidden = false;
   }
@@ -403,7 +396,7 @@ export class Hud {
       this.kitButton = kit;
       kit.addEventListener("click", (event) => {
         event.stopPropagation();
-        if (!this.disposed && !this.shownEnd && !this.presentationBlocked) this.kitAction?.();
+        if (!this.shownEnd && !this.presentationBlocked) this.kitAction?.();
       });
       for (const name of ["pointerdown", "pointerup"])
         kit.addEventListener(name, (event) => event.stopPropagation());
@@ -518,7 +511,7 @@ export class Hud {
   }
 
   toggleShop(): void {
-    if (this.disposed || this.shownEnd) return;
+    if (this.shownEnd) return;
     this.shopOpen = !this.shopOpen;
     this.shopEl.hidden = !this.shopOpen;
     if (this.shopOpen) this.sfx.uiOpen();
@@ -534,7 +527,6 @@ export class Hud {
    *  banner (any short line). The scene drives timing; empty string hides.
    *  Change-gated internally — safe to call every frame. */
   showIntro(text: string): void {
-    if (this.disposed) return;
     if (this.shownEnd || this.presentationBlocked) text = "";
     if (text === this.introText) return;
     this.introText = text;
@@ -554,7 +546,6 @@ export class Hud {
 
   /** Contextual hint slot (fed by render/hints.ts via the scene). Empty hides. */
   showHint(text: string): void {
-    if (this.disposed) return;
     if (this.shownEnd || this.presentationBlocked) text = "";
     if (text === this.hintText) return;
     this.hintText = text;
@@ -573,7 +564,6 @@ export class Hud {
     scoreHeld = false,
     frameDt = Math.max(0, (w.now - this.lastNow) / 1000),
   ): void {
-    if (this.disposed) return;
     // A snapshot/world replacement can leave the ended phase without reloading.
     // Remove result masking and pending celebration before this world's frame.
     if (this.shownEnd && (w.phase !== "ended" || !w.winner)) this.updateEnd(w, me);
@@ -612,7 +602,7 @@ export class Hud {
 
   /** A late visitor sees the accepted result without inventing a player seat. */
   updateUnassigned(w: World, frameDt: number): void {
-    if (this.disposed || w.phase !== "ended") return;
+    if (w.phase !== "ended") return;
     this.updatePresentation(frameDt);
     this.lastMe = null;
     this.updateEnd(w, null);
@@ -623,7 +613,6 @@ export class Hud {
   /** Only an accepted new match rewinds these sim-clock cursors. Baseline its
    * observed hits; neither a stale ring nor a ready/respawn cue may replay. */
   resetMatch(w: World, me: Unit | null): void {
-    if (this.disposed) return;
     this.coinState = null;
     this.deliveryState = null;
     this.plateKeepOutAt = 0;
@@ -685,7 +674,7 @@ export class Hud {
 
   /** Local presentation pause is independent of the host's live world clock. */
   setPaused(paused: boolean): void {
-    if (this.disposed || paused === this.presentationPaused) return;
+    if (paused === this.presentationPaused) return;
     this.presentationPaused = paused;
     if (paused) {
       this.clearPresentation();
@@ -696,20 +685,9 @@ export class Hud {
   }
 
   dispose(): void {
-    if (this.disposed) return;
-    this.disposed = true;
-    this.plateAnchors = null;
-    this.kitAction = null;
-    this.kitButton = null;
-    this.clearPresentation();
-    this.dropIncomingPresentation();
     window.removeEventListener("resize", this.remeasureTopBand);
     window.removeEventListener("keydown", this.onMuteKey);
     document.removeEventListener("visibilitychange", this.onVisibilityChange);
-    for (const el of this.ownedElements) el.remove();
-    this.ownedElements = [];
-    this.ownedStyle?.remove();
-    this.ownedStyle = null;
     this.lowHpEl.remove();
     this.lowHpEl2.remove();
   }
@@ -1476,7 +1454,7 @@ export class Hud {
   /** Two visible notices + three plain pending records. Priority displaces
    * lower-priority decoration; equal priority stays FIFO and expires promptly. */
   private queueToast(notice: Toast): void {
-    if (this.presentationBlocked || this.shownEnd || this.disposed) return;
+    if (this.presentationBlocked || this.shownEnd) return;
     if (this.visibleToasts.length < 2) {
       this.presentToast(notice);
       return;
@@ -1688,7 +1666,6 @@ export class Hud {
     const s = document.createElement("style");
     s.textContent = STYLE;
     document.head.appendChild(s);
-    this.ownedStyle = s;
   }
 }
 

@@ -6,9 +6,7 @@ import {
   cancelCharge,
   chargeHits,
   contactShot,
-  freshPowerAction,
   readCharge,
-  readPowerAction,
   POWER_SPEED_MAX,
 } from "../src/shared/contact-shot.ts";
 import type { ShotCharge } from "../src/shared/contact-shot.ts";
@@ -64,27 +62,11 @@ test("power uses one multiplier, does not stack topspin, and never exceeds its c
   }
 });
 
-test("charge snapshots and power commands reject invalid and oversized states", () => {
+test("charge snapshots reject invalid and oversized states", () => {
   for (const hits of [-1, 0.5, 5, Infinity, NaN, "4", null])
     assert.equal(readCharge(hits, false), null);
   assert.equal(readCharge(2, true), null);
+  assert.deepEqual(readCharge(2, false), { kind: "charging", hits: 2 });
+  assert.deepEqual(readCharge(4, false), { kind: "ready" });
   assert.deepEqual(readCharge(4, true), { kind: "armed" });
-  for (const value of [
-    null,
-    {},
-    { seq: 0, rally: 1, seen: 1, armed: true },
-    { seq: 2 ** 40, rally: 1, seen: 1, armed: true },
-    { seq: 1, rally: -1, seen: 1, armed: true },
-    { seq: 1, rally: 1, seen: Infinity, armed: true },
-    { seq: 1, rally: 1, seen: 1, armed: 1 },
-  ])
-    assert.equal(readPowerAction(value), null);
-  const action = readPowerAction({ seq: 4, rally: 8, seen: 70, armed: true });
-  assert.ok(action);
-  assert.equal(freshPowerAction(action, 3, 8, 100, 60), true);
-  assert.equal(freshPowerAction(action, 4, 8, 100, 60), false, "replay");
-  assert.equal(freshPowerAction(action, 3, 9, 100, 60), false, "old rally");
-  assert.equal(freshPowerAction(action, 3, 8, 131, 60), false, "old snapshot");
-  assert.equal(freshPowerAction(action, 3, 8, 69, 60), false, "future snapshot");
-  assert.equal(freshPowerAction({ ...action, seq: 1000 }, 3, 8, 100, 60), false, "sequence jump");
 });

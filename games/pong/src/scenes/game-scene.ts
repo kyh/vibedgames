@@ -10,15 +10,13 @@ import type { JsonObject, JsonValue } from "../net/session";
 import { SPIN_LIFE, curveVelocity } from "../shared/spin";
 import type { Spin } from "../shared/spin";
 import {
+  CHARGE_HITS,
   acceptReturn,
   armCharge,
   cancelCharge,
   chargeHits,
   contactShot,
-  freshPowerAction,
-  freshPowerSequence,
   readCharge,
-  readPowerAction,
 } from "../shared/contact-shot";
 import type { ContactKind, ShotCharge } from "../shared/contact-shot";
 import {
@@ -146,19 +144,18 @@ export class GameScene {
   private longestRally = 0;
   private serveAt: number | null = null; // elapsed time of the next auto-serve
   private spin: Spin = null;
+  // Power charge per slot. A guest arms/cancels its own (slot B) through the
+  // host, which owns both; `shotRally` tags those requests so one from a
+  // finished rally cannot arm the next.
   private chargeA: ShotCharge = { kind: "charging", hits: 0 };
   private chargeB: ShotCharge = { kind: "charging", hits: 0 };
   private shotRally = 0;
-  private powerActionSeq = 0;
-  private remoteActionSeq = 0;
   private chargeOpponentId: string | null = null;
-  private powerIntent = false;
-  private inputSuspended = false;
-  private shotLift = 1;
+  private shotLift = 1; // topspin dips the visual hop
   private powerShots = 0;
   private frame = 0;
   private spinShots = 0;
-  private random = Math.random;
+  private random = Math.random; // seedable for the playtest hooks
 
   // ---- multiplayer -----------------------------------------------------------
   private net: NetSession;
@@ -170,15 +167,12 @@ export class GameScene {
   private connWas = false; // tracks the connecting→live transition for the HUD
   private oppWas = false; // tracks opponent join/leave for the HUD
   private role: AdmittedRole = "pending";
-  private disposed = false;
-  private sessionGeneration = 0;
 
   // ---- wrapper pause -----------------------------------------------------
   // Only frozen when it's safe: a live human opponent must never desync from
-  // us, so requestPause() no-ops while one is connected (`froze` stays false)
-  // and update() keeps running behind the wrapper's overlay.
-  private paused = false;
-  private froze = false;
+  // us, so with one connected the wrapper's overlay merely suspends local
+  // input ("input") and update() keeps running behind it.
+  private pause: "none" | "input" | "frozen" = "none";
 
   // ---- feel state ------------------------------------------------------------
   private elapsed = 0;
@@ -251,17 +245,6 @@ export class GameScene {
   private chargeFillEl = el("shot-charge-fill");
   private chargeLabelEl = el("shot-charge-label");
   private serveMeterShown = false; // cached so we only touch classList on transitions
-  private readonly containedPointerEvents = [
-    "pointerdown",
-    "pointermove",
-    "pointerup",
-    "pointercancel",
-  ];
-  private readonly stopPointer = (event: Event): void => event.stopPropagation();
-  private readonly onConfirm = (): void => this.confirm();
-  private readonly onMotionChange = (event: MediaQueryListEvent): void => {
-    if (!this.disposed) this.setReducedMotion(event.matches);
-  };
 
   constructor() {
     this.net = this.createSession(false);
@@ -378,63 +361,21 @@ export class GameScene {
     window.addEventListener("pointerdown", this.onPointerDown);
     window.addEventListener("pointerup", this.onPointerUp);
     window.addEventListener("pointercancel", this.onPointerUp);
-    this.motionQuery.addEventListener("change", this.onMotionChange);
+    this.motionQuery.addEventListener("change", (e) => this.setReducedMotion(e.matches));
     this.setReducedMotion(this.reducedMotion);
 
-    // A scroll inside the instruction card must not become a canvas serve.
-    for (const eventName of this.containedPointerEvents)
-      this.bannerEl.addEventListener(eventName, this.stopPointer);
-    this.actionEl.addEventListener("click", this.onConfirm);
+    // A tap on the banner card must not double as a canvas serve.
+    for (const eventName of ["pointerdown", "pointermove", "pointerup", "pointercancel"]) {
+      this.bannerEl.addEventListener(eventName, (e) => e.stopPropagation());
+    }
+    this.actionEl.addEventListener("click", () => this.confirm());
     this.syncHud();
   }
 
   resize(aspect: number): void {
-    if (this.disposed) return;
     this.camera.aspect = aspect;
     this.camera.fov = fovForAspect(aspect);
     this.camera.updateProjectionMatrix();
-  }
-
-  /** Final app ownership. Shared mesh resources are released once, never per instance. */
-  dispose(): void {
-    if (this.disposed) return;
-    this.disposed = true;
-    this.sessionGeneration += 1;
-    this.net.destroy();
-    window.removeEventListener("blur", this.onBlur);
-    window.removeEventListener("pointermove", this.onPointerMove);
-    window.removeEventListener("pointerdown", this.onPointerDown);
-    window.removeEventListener("pointerup", this.onPointerUp);
-    window.removeEventListener("pointercancel", this.onPointerUp);
-    this.motionQuery.removeEventListener("change", this.onMotionChange);
-    for (const eventName of this.containedPointerEvents)
-      this.bannerEl.removeEventListener(eventName, this.stopPointer);
-    this.actionEl.removeEventListener("click", this.onConfirm);
-    this.dragging = false;
-    this.clearQueuedPower();
-    this.particles.clear();
-    this.rings.clear();
-    const geometries = new Set<THREE.BufferGeometry>();
-    const materials = new Set<THREE.Material>();
-    const textures = new Set<THREE.Texture>();
-    this.scene.traverse((node) => {
-      if (!(node instanceof THREE.Mesh || node instanceof THREE.LineSegments)) return;
-      geometries.add(node.geometry);
-      for (const material of Array.isArray(node.material) ? node.material : [node.material]) {
-        materials.add(material);
-        if (
-          (material instanceof THREE.MeshBasicMaterial ||
-            material instanceof THREE.MeshPhongMaterial) &&
-          material.map
-        )
-          textures.add(material.map);
-      }
-      if (node instanceof THREE.InstancedMesh) node.dispose();
-    });
-    for (const texture of textures) texture.dispose();
-    for (const material of materials) material.dispose();
-    for (const geometry of geometries) geometry.dispose();
-    this.scene.clear();
   }
 
   // ---- role / paddle ownership ---------------------------------------------
@@ -486,31 +427,21 @@ export class GameScene {
 
   // ---- wrapper pause ---------------------------------------------------------
 
-  /** Wrapper asked us to pause. No-ops while a live human opponent is
-   *  connected — freezing here would desync the shared rally state; the
-   *  wrapper's overlay still shows, the match just keeps running behind it. */
+  /** Wrapper asked us to pause. With a live human opponent the sim keeps
+   *  running behind the overlay — freezing would desync the shared rally —
+   *  and only our input is suspended. A queued power shot is released either way. */
   requestPause(): void {
-    if (this.disposed) return;
-    this.inputSuspended = true;
+    this.pause = this.hasLiveOpponent() ? "input" : "frozen";
     this.dragging = false;
     this.handX = null;
     this.lastHandX = null;
     this.cancelMyPower();
-    if (this.hasLiveOpponent()) return;
-    this.froze = true;
-    this.paused = true;
   }
 
-  /** Wrapper resume. Only unfreezes if requestPause() actually froze us. */
   requestResume(): void {
-    if (this.disposed) return;
-    this.inputSuspended = false;
-    // Poll held buttons now so the next gameplay poll cannot reuse resume A.
+    this.pause = "none";
+    // Poll held buttons now so the next gameplay poll cannot reuse the resume press.
     this.pad.update();
-    this.cancelMyPower();
-    if (!this.froze) return;
-    this.froze = false;
-    this.paused = false;
   }
 
   /** The old host left mid-game and the server promoted us. Our slot flips
@@ -518,11 +449,9 @@ export class GameScene {
    *  MEANS on screen (the view flip negates x) — remap so nothing teleports,
    *  then restart the point from a clean serve on our own clock. */
   private becomeHost(): void {
-    this.chargeA = cancelCharge(this.chargeB);
+    this.chargeA = cancelCharge(this.chargeB); // our earned charge follows us into slot A
     this.chargeB = { kind: "charging", hits: 0 };
     this.shotRally += 1;
-    this.remoteActionSeq = 0;
-    this.clearQueuedPower();
     this.spin = null;
     const myOld = this.aiX; // slot B was ours
     const oppOld = this.playerX;
@@ -558,9 +487,7 @@ export class GameScene {
 
   /** Wrist landmark x ∈ [0,1] from the webcam tracker (also the DEV hook). */
   handleHandPosition(x: number): void {
-    if (this.disposed || this.inputSuspended) return;
-    if (!Number.isFinite(x) || x < 0 || x > 1) return;
-    this.admitRole();
+    if (this.pause !== "none" || !Number.isFinite(x) || x < 0 || x > 1) return;
     this.handX = x;
     this.handSeenAt = performance.now();
   }
@@ -586,8 +513,7 @@ export class GameScene {
   // paddle ignores it; otherwise pointermove drives the paddle (unless a
   // hand currently owns it).
   private onPointerMove = (e: PointerEvent): void => {
-    if (this.disposed || this.inputSuspended) return;
-    this.admitRole();
+    if (this.pause !== "none") return;
     if (this.dragging) {
       if (e.buttons === 0) {
         this.dragging = false; // button released outside the window
@@ -602,13 +528,11 @@ export class GameScene {
     if (this.currentHandX() !== null) return; // hand owns the paddle
     if (this.padSteerX() !== null) return; // deflected stick owns the paddle
     const x = this.pointerToTableX(e);
-    if (x !== null) {
-      this.myPaddle = x;
-    }
+    if (x !== null) this.myPaddle = x;
   };
 
   private onPointerDown = (e: PointerEvent): void => {
-    if (this.disposed || this.inputSuspended) return;
+    if (this.pause !== "none") return;
     // Drag-pan is mouse-only: on touch, pointermove must keep driving the
     // paddle (it's the only non-camera control there).
     if (e.pointerType === "mouse") {
@@ -625,7 +549,7 @@ export class GameScene {
   };
 
   private onPointerUp = (e: PointerEvent): void => {
-    if (!this.inputSuspended && this.dragging && e.pointerType === "mouse") {
+    if (this.pause === "none" && this.dragging && e.pointerType === "mouse") {
       const moved = Math.hypot(e.clientX - this.downAt.x, e.clientY - this.downAt.y);
       if (moved < CLICK_DRAG_TOLERANCE_PX) this.confirm();
     }
@@ -650,12 +574,11 @@ export class GameScene {
     // Frozen for the wrapper's pause overlay: the webcam hand loop keeps
     // running (per its own contract) but must not wake the sim through a
     // fist gesture while we're paused.
-    if (this.disposed || this.paused || this.inputSuspended) return;
+    if (this.pause !== "none") return;
     // Still handshaking. A tap here is intent, not noise: rather than swallow
     // it and leave the player staring at "connecting" for the rest of the
     // fallback window, take it as "play now" and serve solo.
     if (!this.net.live) this.playSolo();
-    this.admitRole();
     if (this.phase === "rally") {
       this.armMyPower();
       return;
@@ -669,9 +592,9 @@ export class GameScene {
     this.confirmMatch();
   }
 
-  /** Authorized shared serve/rematch, independent of the local pause card. */
+  /** Serve / rematch on the authoritative side (also on a guest's behalf). */
   private confirmMatch(): void {
-    if (this.disposed || this.paused) return;
+    if (this.pause === "frozen") return;
     if (this.phase === "won") {
       this.resetCharge();
       this.scoreYou = 0;
@@ -691,24 +614,16 @@ export class GameScene {
   }
 
   private createSession(forceOffline: boolean): NetSession {
-    const generation = this.sessionGeneration;
     return new NetSession({
       room: MP_ROOM,
       maxPlayers: MP_MAX_PLAYERS,
       fallbackMs: OFFLINE_FALLBACK_MS,
       forceOffline,
-      onEvent: (event, payload, from) => {
-        if (this.disposed || generation !== this.sessionGeneration || !this.net.live) return;
-        this.admitRole();
-        this.handleEvent(event, payload, from);
-      },
+      onEvent: (event, payload, from) => this.handleEvent(event, payload, from),
     });
   }
 
-  /** Session replacements own a new transport. Reconnects keep their admitted seat. */
   private replaceSession(forceOffline: boolean): void {
-    if (this.disposed) return;
-    this.sessionGeneration += 1;
     this.net.destroy();
     this.role = "pending";
     this.net = this.createSession(forceOffline);
@@ -720,8 +635,6 @@ export class GameScene {
     this.connWas = false;
     this.oppWas = false;
     this.chargeOpponentId = null;
-    this.remoteActionSeq = 0;
-    this.powerActionSeq = 0;
     this.shotRally = 0;
     this.resetCharge();
     this.admitRole();
@@ -751,7 +664,7 @@ export class GameScene {
   // ---- simulation ------------------------------------------------------------
 
   update(dt: number): void {
-    if (this.disposed || this.paused) return;
+    if (this.pause === "frozen") return;
     this.frame += 1;
     this.elapsed += dt;
     if (this.shotUntil > 0 && this.elapsed >= this.shotUntil) {
@@ -784,14 +697,12 @@ export class GameScene {
       this.oppWas = opp;
       this.syncHud();
     }
-    // A transport gap keeps the same players and command stream. Only a real
-    // peer replacement resets the newly occupied seat and request sequence.
+    // A new peer in the other seat starts uncharged (a transport gap keeps the
+    // same peer, so an opponent's earned charge survives a reconnect).
     const opponentId = this.net.otherPlayer()?.id ?? null;
     if (this.net.live && opponentId !== this.chargeOpponentId) {
       this.chargeOpponentId = opponentId;
       this.clearQueuedPower();
-      this.remoteActionSeq = 0;
-      this.powerActionSeq = 0;
       if (this.mySlotA) this.chargeB = { kind: "charging", hits: 0 };
       else this.chargeA = { kind: "charging", hits: 0 };
       this.syncHud();
@@ -842,7 +753,7 @@ export class GameScene {
   /** Webcam-hand / controller paddle control, routed to the owned slot. The
    *  view flip keeps "screen right = paddle right" for the guest too. */
   private applyPaddleInput(dt: number): void {
-    if (this.inputSuspended) return;
+    if (this.pause !== "none") return;
     const flip = this.flip;
 
     // Hand tracking owns the paddle while a hand is in frame. Legacy mapping:
@@ -957,7 +868,6 @@ export class GameScene {
     this.shotLift = shot.lift;
     if (this.spin) this.spinShots += 1;
     if (accepted.powered) this.powerShots += 1;
-    if ((side === "player") === this.mySlotA) this.powerIntent = false;
     this.syncCharge();
     this.arc = {
       fromY: this.ballPos.y,
@@ -1005,8 +915,8 @@ export class GameScene {
     slotA: boolean,
     rallyHits: number,
     spin: number,
-    kind: ContactKind = "flat",
-    powered = false,
+    kind: ContactKind,
+    powered: boolean,
   ): void {
     const flip = this.flip;
     const sx = flip * cx;
@@ -1143,46 +1053,26 @@ export class GameScene {
   }
 
   private handleEvent(event: string, payload: JsonValue, from: string): void {
-    // Guest → host intent (serve / rematch). Only the host acts on it.
-    if (event === "power") {
-      const action = readPowerAction(payload);
-      if (
-        this.isGuest() ||
-        from !== this.net.otherPlayer()?.id ||
-        !action ||
-        !freshPowerSequence(action.seq, this.remoteActionSeq)
-      )
-        return;
-      const fresh = freshPowerAction(
-        action,
-        this.remoteActionSeq,
-        this.shotRally,
-        this.hostSeq,
-        NET_TICK_HZ * 2,
-      );
-      // Acknowledge bounded authenticated requests even when too old to arm.
-      // Otherwise a delayed request leaves its sender waiting indefinitely.
-      this.remoteActionSeq = action.seq;
-      if (this.phase !== "rally" || this.paused || action.rally !== this.shotRally) return;
-      // Cancellation cannot create a shot. A delayed view must still release
-      // its owner's queued power when pausing or losing tracking.
-      if (!action.armed) this.chargeB = cancelCharge(this.chargeB);
-      else if (fresh) this.chargeB = armCharge(this.chargeB);
-      return;
-    }
-    if (event === "confirm") {
-      if (!this.isGuest() && this.phase !== "rally" && from === this.net.otherPlayer()?.id)
-        this.confirmMatch();
-      return;
-    }
-    // Host → guest fx beats — the host already ran these locally.
-    if (!this.isGuest() || from !== this.net.hostId) return;
     const p = isJsonObject(payload) ? payload : {};
     const num = (k: string): number => {
       const v = p[k];
       return isJsonNumber(v) ? v : 0;
     };
     const bool = (k: string): boolean => p[k] === true;
+
+    // Guest → host intents (arm/cancel a power shot, serve, rematch). Only the
+    // host acts on them, and only from the guest actually seated in the room.
+    if (event === "power" || event === "confirm") {
+      if (this.isGuest() || from !== this.net.otherPlayer()?.id) return;
+      if (event === "confirm") {
+        if (this.phase !== "rally") this.confirmMatch();
+      } else if (this.phase === "rally" && num("rally") === this.shotRally) {
+        this.chargeB = bool("armed") ? armCharge(this.chargeB) : cancelCharge(this.chargeB);
+      }
+      return;
+    }
+    // Host → guest fx beats — the host already ran these locally.
+    if (!this.isGuest() || from !== this.net.hostId) return;
     switch (event) {
       case "phit":
         this.paddleHitFx(
@@ -1230,7 +1120,6 @@ export class GameScene {
       spinLeft: this.spin?.left ?? 0,
       shotLift: this.shotLift,
       shotRally: this.shotRally,
-      powerAck: this.remoteActionSeq,
       chargeA: chargeHits(this.chargeA),
       chargeB: chargeHits(this.chargeB),
       armedA: this.chargeA.kind === "armed",
@@ -1271,14 +1160,8 @@ export class GameScene {
       this.lastSeq = seq;
       this.chargeA = readCharge(s["chargeA"], s["armedA"]) ?? this.chargeA;
       this.chargeB = readCharge(s["chargeB"], s["armedB"]) ?? this.chargeB;
-      const ack = numField(s, "powerAck");
-      if (ack !== null && Number.isSafeInteger(ack) && ack >= this.powerActionSeq)
-        this.powerIntent = false;
       const rally = numField(s, "shotRally");
-      if (rally !== null && Number.isSafeInteger(rally) && rally >= 0) {
-        if (rally !== this.shotRally) this.powerIntent = false;
-        this.shotRally = rally;
-      }
+      if (rally !== null && Number.isSafeInteger(rally) && rally >= 0) this.shotRally = rally;
       this.shotLift = clamp(numField(s, "shotLift") ?? 1, 0.55, 1);
       this.ballVel.set(numField(s, "bvx") ?? 0, numField(s, "bvy") ?? 0);
       const strength = clamp(numField(s, "spin") ?? 0, -1, 1);
@@ -1314,7 +1197,6 @@ export class GameScene {
     const ph = s["phase"];
     const nextPhase: Phase = ph === "serving" || ph === "rally" || ph === "won" ? ph : this.phase;
     if (fresh) {
-      if (nextPhase !== this.phase) this.powerIntent = false;
       this.phase = nextPhase;
       if (nextPhase === "rally" || nextPhase === "won" || this.serveAt !== null)
         notifyGameStarted();
@@ -1480,7 +1362,6 @@ export class GameScene {
   }
 
   setReducedMotion(enabled: boolean): void {
-    if (this.disposed) return;
     this.reducedMotion = enabled;
     document.documentElement.classList.toggle("reduced-motion", enabled);
     if (enabled) {
@@ -1496,11 +1377,10 @@ export class GameScene {
     return this.mySlotA ? this.chargeA : this.chargeB;
   }
 
+  /** A guest's charge lives on the host: it asks, and the next snapshot shows the result. */
   private armMyPower(): void {
-    if (this.myCharge.kind !== "ready" || this.powerIntent) return;
+    if (this.myCharge.kind !== "ready") return;
     if (this.isGuest()) {
-      if (this.lastSeq < 0) return;
-      this.powerIntent = true;
       this.sendPower(true);
     } else {
       this.chargeA = armCharge(this.chargeA);
@@ -1509,36 +1389,27 @@ export class GameScene {
   }
 
   private sendPower(armed: boolean): void {
-    if (this.disposed || !this.net.live || this.net.offline) return;
-    this.powerActionSeq += 1;
-    this.net.sendEvent("power", {
-      seq: this.powerActionSeq,
-      rally: this.shotRally,
-      seen: Math.max(0, this.lastSeq),
-      armed,
-    });
+    if (!this.net.live || this.net.offline) return;
+    this.net.sendEvent("power", { rally: this.shotRally, armed });
   }
 
   private cancelMyPower(): void {
     if (this.isGuest()) {
-      if (this.myCharge.kind === "armed" || this.powerIntent) this.sendPower(false);
+      if (this.chargeB.kind === "armed") this.sendPower(false);
       this.chargeB = cancelCharge(this.chargeB);
     } else this.chargeA = cancelCharge(this.chargeA);
-    this.powerIntent = false;
     this.syncCharge();
   }
 
   private clearQueuedPower(): void {
     this.chargeA = cancelCharge(this.chargeA);
     this.chargeB = cancelCharge(this.chargeB);
-    this.powerIntent = false;
     this.syncCharge();
   }
 
   private resetCharge(): void {
     this.chargeA = { kind: "charging", hits: 0 };
     this.chargeB = { kind: "charging", hits: 0 };
-    this.powerIntent = false;
     this.shotLift = 1;
     this.syncCharge();
   }
@@ -1547,18 +1418,18 @@ export class GameScene {
     const charge = this.myCharge;
     const hits = chargeHits(charge);
     this.chargeEl.hidden = this.phase === "won";
-    this.chargeFillEl.style.transform = `scaleX(${hits / 4})`;
+    const fill = `scaleX(${hits / CHARGE_HITS})`;
+    if (this.chargeFillEl.style.transform !== fill) this.chargeFillEl.style.transform = fill;
     const value = String(hits);
     if (this.chargeEl.getAttribute("aria-valuenow") !== value)
       this.chargeEl.setAttribute("aria-valuenow", value);
-    this.chargeEl.dataset.state = charge.kind;
     setText(
       this.chargeLabelEl,
       charge.kind === "armed"
         ? "POWER ARMED"
         : charge.kind === "ready"
           ? "POWER READY"
-          : `POWER ${hits}/4`,
+          : `POWER ${hits}/${CHARGE_HITS}`,
     );
   }
 
@@ -1593,7 +1464,7 @@ export class GameScene {
         spinLeft: this.spin?.left ?? 0,
       },
       reducedMotion: this.reducedMotion,
-      paused: this.paused,
+      paused: this.pause === "frozen",
       handActive: this.currentHandX() !== null,
     };
   }
@@ -1609,13 +1480,11 @@ export class GameScene {
   }
 
   setTestState(name: string): void {
-    if (this.disposed) return;
     if (name !== "active-play" && name !== "match-point" && name !== "fail") {
       throw new Error(`Unknown Pong playtest state: ${name}`);
     }
     this.playSolo();
-    this.paused = false;
-    this.froze = false;
+    this.pause = "none";
     this.freeze = 0;
     this.phase = "serving";
     this.playerX = 0;
@@ -1646,12 +1515,12 @@ export class GameScene {
 
   // ---- HUD -----------------------------------------------------------------
 
+  /** Guest snapshots call this at 30 Hz, so every write is change-checked. */
   private syncHud(): void {
-    if (this.disposed) return;
-    this.scoreYouEl.textContent = String(this.scoreYou);
-    this.scoreAiEl.textContent = String(this.scoreAi);
+    setText(this.scoreYouEl, String(this.scoreYou));
+    setText(this.scoreAiEl, String(this.scoreAi));
     const human = this.net.live && this.hasOpponent();
-    this.oppLabelEl.textContent = human ? "RIVAL" : "AI";
+    setText(this.oppLabelEl, human ? "RIVAL" : "AI");
     const matchPoint =
       this.phase !== "won" && Math.max(this.scoreYou, this.scoreAi) === WIN_SCORE - 1;
     const matchPointText = matchPoint
@@ -1661,12 +1530,9 @@ export class GameScene {
           ? "YOUR MATCH POINT"
           : "DEFEND MATCH POINT"
       : "";
-    // Guest snapshots arrive at 30 Hz; announce the cue only when it changes.
-    if (this.matchPointEl.textContent !== matchPointText) {
-      this.matchPointEl.textContent = matchPointText;
-    }
+    setText(this.matchPointEl, matchPointText);
 
-    // The persistent action stays mounted; snapshots cannot steal its focus.
+    // The action button stays mounted across states so a snapshot never steals its focus.
     let show = true;
     if (!this.net.live)
       this.showBanner(this.connectedBefore ? "RECONNECTING" : "PONG", "FIRST TO 7", "PLAY AI");

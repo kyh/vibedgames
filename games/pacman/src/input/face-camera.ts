@@ -44,7 +44,7 @@ const RIGHT_CHEEK = 454;
 type HeadPosition = "center" | "left" | "right";
 
 export type FaceCameraState =
-  | { kind: "idle" | "unavailable" | "disposed" }
+  | { kind: "idle" | "unavailable" }
   | { kind: "starting"; stage: "camera" | "model" }
   | { kind: "live"; tracking: boolean };
 
@@ -56,8 +56,7 @@ export type FaceCameraOptions = {
   onMouthChange?: (open: boolean) => void;
   onHeadTurnLeft?: () => void;
   onHeadTurnRight?: () => void;
-  /** Presentation only. Never changes mouth/head recognition or its ordering. */
-  onState?: (state: Readonly<FaceCameraState>) => void;
+  onState?: (state: FaceCameraState) => void;
 };
 
 export class FaceCamera {
@@ -71,13 +70,17 @@ export class FaceCamera {
   private lastVideoTime = -1;
   private lastHeadChange = 0;
   private state: FaceCameraState = { kind: "idle" };
+  /**
+   * Bumped by every start/failure so an in-flight start (or its RAF loop) from
+   * a previous attempt notices it was superseded and stands down.
+   */
   private attempt = 0;
   private raf: number | null = null;
-  private loadedData: (() => void) | null = null;
   private releaseCaptureEvents: (() => void) | null = null;
   private actionsPaused = false;
   private mouthOpen = false;
   private headPosition: HeadPosition = "center";
+  /** A gesture held across a pause must return to neutral before it fires again. */
   private mouthArmed = true;
   private headArmed = true;
 
@@ -107,17 +110,15 @@ export class FaceCamera {
         video: { facingMode: "user" },
         audio: false,
       });
-      if (!this.current(attempt)) {
+      if (this.attempt !== attempt) {
         for (const track of stream.getTracks()) track.stop();
         return;
       }
       this.stream = stream;
       const video = this.opts.video;
       const tracks = stream.getTracks();
-      if (tracks.some((track) => track.readyState === "ended")) {
-        this.fail(attempt);
-        return;
-      }
+      // A camera unplugged (or revoked) mid-session flips the porthole to
+      // "retry" instead of freezing on the last frame.
       const onEnded = (): void => this.fail(attempt);
       const onVideoError = (): void => {
         if (video.srcObject === stream && video.error) this.fail(attempt);
@@ -128,14 +129,15 @@ export class FaceCamera {
         for (const track of tracks) track.removeEventListener("ended", onEnded);
         video.removeEventListener("error", onVideoError);
       };
+      if (tracks.some((track) => track.readyState === "ended")) throw new Error("camera ended");
 
       this.publish({ kind: "starting", stage: "model" });
       const vision = await import("@mediapipe/tasks-vision");
-      if (!this.current(attempt)) return;
+      if (this.attempt !== attempt) return;
       this.vision = vision;
       this.drawingUtils = new vision.DrawingUtils(ctx);
       const fileset = await vision.FilesetResolver.forVisionTasks(WASM_CDN);
-      if (!this.current(attempt)) return;
+      if (this.attempt !== attempt) return;
       const landmarker = await vision.FaceLandmarker.createFromOptions(fileset, {
         baseOptions: {
           modelAssetPath: MODEL_PATH,
@@ -146,51 +148,46 @@ export class FaceCamera {
         runningMode: "VIDEO",
         numFaces: 1,
       });
-      if (!this.current(attempt)) {
+      if (this.attempt !== attempt) {
         landmarker.close();
         return;
       }
       this.landmarker = landmarker;
 
+      let started = false;
       const loaded = (): void => {
-        if (!this.current(attempt) || this.loadedData !== loaded) return;
-        video.removeEventListener("loadeddata", loaded);
-        this.loadedData = null;
+        if (started || this.attempt !== attempt) return;
+        started = true;
         this.opts.overlay.width = video.videoWidth;
         this.opts.overlay.height = video.videoHeight;
         this.publish({ kind: "live", tracking: false });
         this.predict(attempt);
       };
-      this.loadedData = loaded;
       video.addEventListener("loadeddata", loaded, { once: true });
       video.srcObject = stream;
       await video.play();
-      if (this.current(attempt) && video.readyState >= 2 && video.videoWidth > 0) loaded();
+      // Some browsers have the first frame decoded before play() settles.
+      if (this.attempt === attempt && video.readyState >= 2 && video.videoWidth > 0) loaded();
     } catch (err) {
-      if (this.current(attempt)) console.warn("face camera unavailable:", err);
+      // warn, not error: denial is an expected, fully-handled degradation.
+      if (this.attempt === attempt) console.warn("face camera unavailable:", err);
       this.fail(attempt);
     }
   }
 
-  private current(attempt: number): boolean {
-    return this.state.kind !== "disposed" && this.attempt === attempt;
-  }
-
   private fail(attempt: number): void {
-    if (!this.current(attempt)) return;
+    if (this.attempt !== attempt) return;
     this.attempt++;
     this.releaseCapture();
     this.publish({ kind: "unavailable" });
   }
 
+  /** Stop the camera light + model; the next start() begins from scratch. */
   private releaseCapture(): void {
     if (this.raf !== null) window.cancelAnimationFrame(this.raf);
     this.raf = null;
-    if (this.loadedData) this.opts.video.removeEventListener("loadeddata", this.loadedData);
-    this.loadedData = null;
-    const releaseEvents = this.releaseCaptureEvents;
+    this.releaseCaptureEvents?.();
     this.releaseCaptureEvents = null;
-    releaseEvents?.();
     this.opts.video.pause();
     this.opts.video.srcObject = null;
     for (const track of this.stream?.getTracks() ?? []) track.stop();
@@ -206,42 +203,12 @@ export class FaceCamera {
     this.lastHeadChange = 0;
   }
 
-  /** Reusable capture stop. Collapsing the preview must not call this. */
-  stop(): void {
-    if (this.state.kind === "disposed") return;
-    this.attempt++;
-    this.releaseCapture();
-    this.publish({ kind: "idle" });
-  }
-
-  dispose(): void {
-    if (this.state.kind === "disposed") return;
-    this.attempt++;
-    this.releaseCapture();
-    this.publish({ kind: "disposed" });
-  }
-
-  /** Keep recognition/preview live, but a held gesture needs neutral on resume. */
+  /** Keep recognition + preview live, but hold gestures until they pass through neutral. */
   setActionsPaused(paused: boolean): void {
-    if (this.state.kind === "disposed" || paused === this.actionsPaused) return;
+    if (paused === this.actionsPaused) return;
     this.actionsPaused = paused;
     this.mouthArmed = !this.mouthOpen;
     this.headArmed = this.headPosition === "center";
-  }
-
-  diagnostics() {
-    return Object.freeze({
-      state: Object.freeze({ ...this.state }),
-      attempt: this.attempt,
-      raf: this.raf !== null,
-      stream: this.stream !== null,
-      model: this.landmarker !== null,
-      drawing: this.drawingUtils !== null,
-      waitingForVideo: this.loadedData !== null,
-      actionsPaused: this.actionsPaused,
-      mouthArmed: this.mouthArmed,
-      headArmed: this.headArmed,
-    });
   }
 
   private publish(state: FaceCameraState): void {
@@ -261,79 +228,69 @@ export class FaceCamera {
           ? IS_TOUCH
             ? "camera unavailable — retry · swipe: ↑ step · ←/→ turn"
             : "camera unavailable — retry · ←/→ turn · SPACE step"
-          : state.kind === "live"
-            ? state.tracking
-              ? null
-              : "camera ready — bring your face into view"
+          : state.kind === "live" && !state.tracking
+            ? "camera ready — bring your face into view"
             : null;
-    this.setStatus(text);
-    this.opts.onState?.(Object.freeze({ ...state }));
-  }
-
-  private setStatus(text: string | null): void {
     this.opts.status.textContent = text ?? "";
     this.opts.status.style.display = text === null ? "none" : "";
+    this.opts.onState?.(state);
   }
 
   // ---- per-frame detection (legacy predictWebcam) ----------------------------
 
-  private predict = (attempt: number): void => {
-    if (!this.current(attempt)) return;
+  private predict(attempt: number): void {
     this.raf = null;
     const video = this.opts.video;
     const canvas = this.opts.overlay;
     const ctx = this.overlayCtx;
     if (!ctx || !this.landmarker || !this.drawingUtils) return;
 
+    ctx.save();
     try {
       if (this.lastVideoTime !== video.currentTime) {
         this.lastVideoTime = video.currentTime;
         this.result = this.landmarker.detectForVideo(video, performance.now());
       }
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (this.result) {
+        this.publish({ kind: "live", tracking: this.result.faceLandmarks.length > 0 });
+        for (const landmarks of this.result.faceLandmarks) {
+          this.drawMesh(landmarks);
 
-      ctx.save();
-      try {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+          this.mouthOpen = detectMouthOpen(landmarks);
+          if (!this.mouthOpen) this.mouthArmed = true;
+          if (!this.actionsPaused && this.mouthArmed) this.opts.onMouthChange?.(this.mouthOpen);
 
-        if (this.result) {
-          this.publish({ kind: "live", tracking: this.result.faceLandmarks.length > 0 });
-          if (!this.current(attempt)) return;
-          for (const landmarks of this.result.faceLandmarks) {
-            this.drawMesh(landmarks);
-
-            this.mouthOpen = detectMouthOpen(landmarks);
-            if (!this.mouthOpen) this.mouthArmed = true;
-            if (!this.actionsPaused && this.mouthArmed) this.opts.onMouthChange?.(this.mouthOpen);
-            if (!this.current(attempt)) break;
-
-            // Legacy-as-shipped behavior: the legacy RAF loop recursed on its
-            // render-1 closure, so `headPosition` was permanently the stale
-            // "center". Effectively: holding a turn re-fires every
-            // HEAD_DEBOUNCE_MS, and recentering fires nothing (and consumes no
-            // debounce slot).
-            const next = this.detectHeadTurn(landmarks);
-            this.headPosition = next;
-            if (next === "center") this.headArmed = true;
-            const now = performance.now();
-            if (next !== "center" && now - this.lastHeadChange > HEAD_DEBOUNCE_MS) {
-              this.lastHeadChange = now;
-              if (!this.actionsPaused && this.headArmed) {
-                if (next === "left") this.opts.onHeadTurnLeft?.();
-                else this.opts.onHeadTurnRight?.();
-              }
+          // Legacy-as-shipped behavior: the legacy RAF loop recursed on its
+          // render-1 closure, so `headPosition` was permanently the stale
+          // "center". Effectively: holding a turn re-fires every
+          // HEAD_DEBOUNCE_MS, and recentering fires nothing (and consumes no
+          // debounce slot).
+          const next = this.detectHeadTurn(landmarks);
+          this.headPosition = next;
+          if (next === "center") this.headArmed = true;
+          const now = performance.now();
+          if (next !== "center" && now - this.lastHeadChange > HEAD_DEBOUNCE_MS) {
+            this.lastHeadChange = now;
+            if (!this.actionsPaused && this.headArmed) {
+              if (next === "left") this.opts.onHeadTurnLeft?.();
+              else this.opts.onHeadTurnRight?.();
             }
           }
         }
-      } finally {
-        ctx.restore();
       }
-    } catch (error) {
-      if (this.current(attempt)) console.warn("face camera unavailable:", error);
+    } catch (err) {
+      // A lost GPU context or a torn-down wasm runtime surfaces here — same
+      // recovery as a start() failure: the porthole offers a retry.
+      console.warn("face camera unavailable:", err);
       this.fail(attempt);
       return;
+    } finally {
+      ctx.restore();
     }
-    if (this.current(attempt)) this.raf = window.requestAnimationFrame(() => this.predict(attempt));
-  };
+    if (this.attempt === attempt)
+      this.raf = window.requestAnimationFrame(() => this.predict(attempt));
+  }
 
   /** Face-mesh overlay — legacy structure/order, restyled in pastels. */
   private drawMesh(landmarks: NormalizedLandmark[]): void {

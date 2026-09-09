@@ -12,7 +12,6 @@ import { MAX_ENERGY } from "../config";
 import { hotbarGrid, hotbarKey, slotIconScale } from "../render/hotbar-layout";
 import { isPick, isTouchDevice } from "../systems/touch";
 import { MineScene } from "./mine-scene";
-import { onSceneExit } from "../render/scene-lifetime";
 
 const FONT = "ui-monospace, monospace";
 // Same slot geometry as the farm hotbar (scenes/hud-scene): it is the same
@@ -102,21 +101,16 @@ export class MineHudScene extends Phaser.Scene {
       render: { depth: 40, blendMode: Phaser.BlendModes.NORMAL },
     });
     this.mine.gamepad = this.gamepad;
-    const gamepad = this.gamepad;
-    onSceneExit(this, () => {
-      gamepad.destroy();
-      if (this.mine.gamepad === gamepad) this.mine.gamepad = undefined;
-      this.gamepad = undefined;
-    });
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.gamepad?.destroy());
     if (this.onResize) this.scale.off("resize", this.onResize);
     this.onResize = () => {
       this.inset = safeAreaInset();
       this.positionVignette();
     };
     this.scale.on("resize", this.onResize);
-    const scale = this.scale;
-    const onResize = this.onResize;
-    onSceneExit(this, () => scale.off("resize", onResize));
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      if (this.onResize) this.scale.off("resize", this.onResize);
+    });
   }
 
   private buildVignette(): void {

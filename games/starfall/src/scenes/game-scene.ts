@@ -25,9 +25,10 @@ import { AttractBattle } from "../fx/attract-battle";
 import { FxPool, HITSPARK_SKIP_BUDGET, PARTICLE_SOFT_BUDGET } from "../render/fx-pool";
 import { BattleBackdrop } from "../render/battle-backdrop";
 import { BattleBeatDirector } from "../render/battle-beat";
+import { REDUCED_MOTION } from "../render/battle-fx";
 import { BossEncounters } from "../render/boss-encounters";
 import { contactPoint, weaponLook, type WeaponLook } from "../render/combat-visuals";
-import type { FxImportance } from "../render/fx-priority";
+import type { FxImportance } from "../render/fx-pool";
 import { enemyChargeDuration, enemyChargeProgress, usesLockedAim } from "../render/charge-progress";
 import {
   asteroidToWire,
@@ -40,7 +41,7 @@ import {
   shardToWire,
   ufoToWire,
 } from "../shared/wire";
-import { chargeTrail, fleetPose, hostileShotLook } from "../render/fleet-acting";
+import { fleetPose, hostileShotLook } from "../render/fleet-acting";
 import { FlightHud } from "../render/flight-hud";
 import { EdgePips } from "../render/edge-pips";
 import type { PipTarget } from "../render/edge-pips";
@@ -403,6 +404,8 @@ type Beam = {
   traveled: number;
   /** GLAIVE visual spin. */
   spin: number;
+  /** HUD mastery tracking for the local RAILGUN/GLAIVE window; null otherwise. */
+  mastery: MasteryShot | null;
 };
 
 type ShipObjs = {
@@ -441,7 +444,8 @@ type EnemyObjs = {
   telegraphDuration: number;
   /** Lancer close-pass trauma fires once per charge. */
   chargeTraumaDone: boolean;
-  nextTrailAt: number | null;
+  /** Lancer charge-trail cadence on the sim clock (0 = not charging). */
+  nextTrailAt: number;
 };
 
 type Splinter = {
@@ -512,6 +516,8 @@ const ROOM =
 const STARFALL_MAX_PLAYERS = 32;
 
 const DEG = Math.PI / 180;
+/** Lancer charge-trail spark cadence (sim time). */
+const LANCER_TRAIL_MS = 1000 / 60;
 /** ARC per-hop falloff for victim-side chain drains. SerializedBeam carries
  *  no weapon ref, so read it from the ARC spec (TESLA also carries an arc
  *  spec, hence the !aura filter). */
@@ -637,8 +643,7 @@ export class GameScene extends Phaser.Scene {
   // my ship + weapon
   private spawned = false;
   private readonly mastery = new WeaponMastery();
-  private readonly masteryShots = new WeakMap<Beam, MasteryShot>();
-  private flightHud: FlightHud | null = null;
+  private readonly flightHud = new FlightHud();
   private shipX = 0;
   private shipY = 0;
   private shipVX = 0;
@@ -874,7 +879,7 @@ export class GameScene extends Phaser.Scene {
   private asteroidObjs = new Map<string, AsteroidObjs>();
   private itemObjs = new Map<string, ItemObjs>();
   private enemyObjs = new Map<string, EnemyObjs>();
-  private battleBackdrop: BattleBackdrop | null = null;
+  private battleBackdrop!: BattleBackdrop;
   private ufoGfx: Phaser.GameObjects.Graphics | null = null;
   private ufoId = "";
   private beamGfx!: Phaser.GameObjects.Graphics;
@@ -906,8 +911,6 @@ export class GameScene extends Phaser.Scene {
   private bossLabelEl: HTMLElement | null = null;
   private readonly bossEncounters = new BossEncounters();
   private readonly battleBeat = new BattleBeatDirector();
-  private readonly warningLine = new Phaser.Geom.Line();
-  private readonly warningView = new Phaser.Geom.Rectangle();
   private weaponEl: HTMLElement | null = null;
   private weaponBarEl: HTMLElement | null = null;
   private shieldEl: HTMLElement | null = null;
@@ -1119,8 +1122,7 @@ export class GameScene extends Phaser.Scene {
     // clock (shared/clock.ts) holds every stored deadline, so a boost with 3s
     // left before the pause still has 3s after resume.
     const pauseOverlay = createStarfallPauseOverlay();
-    this.flightHud = new FlightHud();
-    const releasePauseHandlers = setPauseHandlers({
+    setPauseHandlers({
       onPause: () => {
         pauseOverlay.show();
         if (this.offline) this.freezeSim();
@@ -1144,35 +1146,15 @@ export class GameScene extends Phaser.Scene {
     // re-centres on the ship the moment the run starts.
     this.cameras.main.centerOn(this.world.playW / 2, this.world.playH / 2);
 
-    // Scene.stop emits SHUTDOWN; final Game.destroy emits only DESTROY. Both
-    // release external owners once, after Phaser destroys display-list nodes.
-    let cleanedUp = false;
-    const sceneEvents = this.events;
-    const cleanupScene = (): void => {
-      if (cleanedUp) return;
-      cleanedUp = true;
-      sceneEvents.off(Phaser.Scenes.Events.SHUTDOWN, cleanupScene);
-      sceneEvents.off(Phaser.Scenes.Events.DESTROY, cleanupScene);
-      releasePauseHandlers();
-      this.flightHud?.dispose();
-      this.flightHud = null;
-      this.mastery.clear();
-      pauseOverlay.hide();
-      sfx.clearTransient();
-      this.bossEncounters.reset();
-      this.battleBeat.reset();
+    // Single-start assumption: this scene is started once per page load and
+    // never restarted, so create()-initialized fields are never stale. `once`
+    // keeps the shutdown hook from stacking if that ever changes.
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.onViewportChange, this);
-      this.barrier.destroy(); // detaches its own resize listener; destroyed nodes are guarded
       this.gamepad.destroy();
-      this.pad.destroy();
-      this.unwatchControls?.();
-      this.unwatchControls = null;
-      this.input.keyboard?.off("keyup", this.onStartKeyUp, this);
       this.touchControls.destroy();
       if (!this.offline) this.client.destroy(); // offline already destroyed it
-    };
-    sceneEvents.once(Phaser.Scenes.Events.SHUTDOWN, cleanupScene);
-    sceneEvents.once(Phaser.Scenes.Events.DESTROY, cleanupScene);
+    });
 
     this.installDevHooks();
   }
@@ -1238,7 +1220,7 @@ export class GameScene extends Phaser.Scene {
       this.weapon = baseWeaponForLevel(this.level);
       this.weaponUntil = 0;
     }
-    this.updateWeaponMastery(now);
+    this.mastery.advance(now, this.alive, this.weapon.name);
     if (this.streak > 0 && now >= this.comboExpiresAt) {
       this.streak = 0;
       this.comboTier = 1;
@@ -1295,19 +1277,14 @@ export class GameScene extends Phaser.Scene {
     this.unwatchControls = watchControlContext(() => {
       if (!this.started) this.writeStartCopy();
     });
-    this.input.keyboard?.on("keyup", this.onStartKeyUp, this);
+    this.input.keyboard?.once("keyup", () => this.beginPlay());
     // The overlay covers the canvas, so listen on the element itself — and seal
     // it, because covering the canvas is NOT enough on touch: the tap's own
     // events bubble to Phaser's window listeners, and its compatibility mouse
     // burst re-targets to the canvas the instant the overlay stops hit-testing.
     if (this.startEl) {
-      sealPointerEvents(this.startEl, {
-        keepClick: (target) => target instanceof Element && target.closest("a, button") !== null,
-      });
-      this.startEl.addEventListener("pointerup", (event) => {
-        if (event.target instanceof Element && event.target.closest("a, button")) return;
-        this.beginPlay();
-      });
+      sealPointerEvents(this.startEl);
+      this.startEl.addEventListener("pointerup", () => this.beginPlay(), { once: true });
     }
   }
 
@@ -1333,7 +1310,6 @@ export class GameScene extends Phaser.Scene {
   private beginPlay(): void {
     if (this.started) return;
     this.started = true;
-    this.input.keyboard?.off("keyup", this.onStartKeyUp, this);
     // The sealed start overlay keeps its tap off the canvas, so this gesture is
     // the one that has to unlock WebAudio.
     sfx.unlock();
@@ -1353,25 +1329,9 @@ export class GameScene extends Phaser.Scene {
     this.time.delayedCall(320, () => this.startEl?.remove());
   }
 
-  private onStartKeyUp(event: KeyboardEvent): void {
-    if (event.key === "Tab") return;
-    if (event.target instanceof Element && event.target.closest("a, button")) return;
-    this.beginPlay();
-  }
-
   private recordMasteryContact(beam: Beam, enemyId: string, now: number): void {
-    const shot = this.masteryShots.get(beam);
-    if (shot) this.mastery.contact(shot, enemyId, beam.glaive?.returning ?? false, now);
-  }
-
-  private updateWeaponMastery(now: number): void {
-    if (this.mastery.state.phase === "idle") return;
-    const liveShots: MasteryShot[] = [];
-    for (const beam of this.beams) {
-      const shot = this.masteryShots.get(beam);
-      if (shot && !beam.vanished) liveShots.push(shot);
-    }
-    this.mastery.advance(now, this.alive, this.weapon.name, liveShots);
+    if (beam.mastery)
+      this.mastery.contact(beam.mastery, enemyId, beam.glaive?.returning ?? false, now);
   }
 
   /** Test hook (shared/diag.ts): jump straight into an offline solo run —
@@ -1418,8 +1378,6 @@ export class GameScene extends Phaser.Scene {
   private freezeSim(): void {
     if (this.frozen || !this.offline) return;
     this.frozen = true;
-    this.battleBeat.reset();
-    this.flightHud?.reset();
     pauseClock();
     sfx.setSuspended(true);
     this.game.loop.sleep(); // stops update() until wake()
@@ -1441,8 +1399,6 @@ export class GameScene extends Phaser.Scene {
   private pauseToSpectator(): void {
     if (this.paused) return;
     this.paused = true;
-    this.mastery.clear();
-    this.flightHud?.reset();
     // Clean despawn. Leaving alive=false + respawnAt=0 means tickRespawn can't
     // fire, and spawned=false hides my ship + gates every my-ship code path.
     this.spawned = false;
@@ -2031,16 +1987,13 @@ export class GameScene extends Phaser.Scene {
       collapseUntil: 0,
       traveled: 0,
       spin: now % 1000, // desync glaive spin phases a little
+      mastery: this.trailer ? null : this.mastery.shot(weapon.name, now),
     };
     if (weapon.windupMs > 0 && weapon.length > 0) {
       // RAILGUN: near-hitscan — the full lance renders (and hits) immediately.
       b.head.x += Math.cos(angle) * weapon.length;
       b.head.y += Math.sin(angle) * weapon.length;
       b.released = true;
-    }
-    if (!this.trailer) {
-      const shot = this.mastery.shot(weapon.name, now);
-      if (shot) this.masteryShots.set(b, shot);
     }
     return b;
   }
@@ -3550,7 +3503,6 @@ export class GameScene extends Phaser.Scene {
     sfx.play("shield_break"); // break = death, layered under the boom (§A.4)
     sfx.play("player_death");
     this.alive = false;
-    this.mastery.clear();
     this.respawnAt = now + RESPAWN_DELAY_MS;
     this.invulnUntil = 0;
     this.beams = []; // mines included — they ride in beams[]
@@ -3587,7 +3539,7 @@ export class GameScene extends Phaser.Scene {
   /** 50ms full-screen white at 0.25, fading 200ms (§9 player death). */
   private screenFlash(): void {
     this.flashRect.setSize(this.scale.width + 8, this.scale.height + 8);
-    this.flashRect.setAlpha(this.fx.battle.reducedMotion() ? 0 : 0.25);
+    this.flashRect.setAlpha(REDUCED_MOTION.matches ? 0 : 0.25);
     this.tweens.killTweensOf(this.flashRect);
     this.tweens.add({ targets: this.flashRect, alpha: 0, delay: 50, duration: 200 });
   }
@@ -4062,8 +4014,7 @@ export class GameScene extends Phaser.Scene {
       local.hp = e.hp;
       local.telegraphUntil = e.telegraphUntil;
       local.chargeUntil = e.chargeUntil;
-      if (e.attackAt !== undefined && Number.isFinite(e.attackAt)) local.attackAt = e.attackAt;
-      else delete local.attackAt;
+      local.attackAt = e.attackAt;
       // Keep the most pessimistic blink (local prediction may be ahead).
       local.blinkUntil = Math.max(local.blinkUntil, e.blinkUntil);
       local.graceUntil = e.graceUntil;
@@ -6061,11 +6012,11 @@ export class GameScene extends Phaser.Scene {
           lastTelegraphUntil: 0,
           telegraphDuration: 0,
           chargeTraumaDone: false,
-          nextTrailAt: null,
+          nextTrailAt: 0,
         };
         this.enemyObjs.set(e.id, rec);
       }
-      const reduced = this.fx.battle.reducedMotion();
+      const reduced = REDUCED_MOTION.matches;
       // A hit accents the hull without hiding the threat.
       rec.gfx.setVisible(true);
       rec.gfx.setAlpha(e.graceUntil > now ? (reduced ? 0.6 : 0.4 + 0.2 * Math.sin(now / 80)) : 1);
@@ -6089,16 +6040,15 @@ export class GameScene extends Phaser.Scene {
         .setPosition(e.x - Math.cos(e.angle) * pose.recoil, e.y - Math.sin(e.angle) * pose.recoil)
         .setRotation(e.angle)
         .setScale(pose.scaleX, pose.scaleY);
-      const trail = chargeTrail(
-        rec.nextTrailAt,
-        now,
-        e.kind === "lancer" && e.chargeUntil > now && !reduced,
-      );
-      rec.nextTrailAt = trail.nextAt;
       if (e.kind === "lancer") {
         if (e.chargeUntil > now) {
-          if (trail.count > 0)
-            this.fx.sparks(e.x, e.y, trail.count, ENEMY_SPECS.lancer.tint, {
+          // Charge trail (ADD, hull tint) at 60/s of SIM time so density is
+          // frame-rate independent; a long gap emits at most 3, not a backlog.
+          if (rec.nextTrailAt === 0) rec.nextTrailAt = now;
+          const due = Math.max(0, Math.floor((now - rec.nextTrailAt) / LANCER_TRAIL_MS) + 1);
+          rec.nextTrailAt += due * LANCER_TRAIL_MS;
+          if (due > 0 && !reduced)
+            this.fx.sparks(e.x, e.y, Math.min(3, due), ENEMY_SPECS.lancer.tint, {
               speedMin: 0,
               speedMax: 20,
               lifeMin: 250,
@@ -6115,6 +6065,7 @@ export class GameScene extends Phaser.Scene {
           }
         } else {
           rec.chargeTraumaDone = false;
+          rec.nextTrailAt = 0;
         }
       }
     }
@@ -6196,10 +6147,7 @@ export class GameScene extends Phaser.Scene {
         }
       }
       // Retain the existing damage response independently of anticipation.
-      if (
-        e.blinkUntil > now &&
-        (this.fx.battle.reducedMotion() || Math.floor(now / 66) % 4 === 0)
-      ) {
+      if (e.blinkUntil > now && (REDUCED_MOTION.matches || Math.floor(now / 66) % 4 === 0)) {
         g.lineStyle(2 * sw, 0xffffff, 0.9);
         strokeTransformed(g, enemyHullPoints(e.kind), e.x, e.y, e.angle);
       }
@@ -6469,7 +6417,7 @@ export class GameScene extends Phaser.Scene {
             b = sb.chain[i];
           if (a && b) this.fx.battle.beam(a.x, a.y, b.x, b.y, 2, sb.tint, "arc", now, importance);
         }
-        drawJitteredChain(g, sb.chain, sb.tint, this.fx.battle.reducedMotion() ? 0 : now);
+        drawJitteredChain(g, sb.chain, sb.tint, REDUCED_MOTION.matches ? 0 : now);
         return;
       }
       if (sb.glaive) {
@@ -6593,7 +6541,7 @@ export class GameScene extends Phaser.Scene {
     // (real recoil/impacts keep selling), only the follow target changes.
     const lock = this.trailer?.camPos ?? null;
     if (!this.spawned && !lock) return;
-    if (this.fx.battle.reducedMotion()) {
+    if (REDUCED_MOTION.matches) {
       this.kickX = 0;
       this.kickY = 0;
       this.trauma.reset();
@@ -7057,7 +7005,7 @@ export class GameScene extends Phaser.Scene {
 
   private updateHud(now: number): void {
     const presentation = this.started && !this.trailer;
-    this.flightHud?.update({
+    this.flightHud.update({
       level: this.level,
       xp: this.xp,
       weaponUntil: this.weaponUntil,
@@ -7164,34 +7112,23 @@ export class GameScene extends Phaser.Scene {
     this.updateRecovery(now, presentation);
   }
 
-  /** Accepted world evidence is tracked even while presentation is quiet.
-   * Blocked cues are discarded, so starting/unmuting never replays history. */
+  /** Encounter edges are tracked even while the cues are silent (start screen,
+   * trailer), so starting never replays history. */
   private observeBossEncounters(world: SharedState): void {
     const cues = this.bossEncounters.observe(world.arenaEpoch, world.enemies);
-    if (!this.started || !this.spawned || !this.alive || this.paused || this.trailer) return;
+    if (!this.started || this.trailer) return;
     for (const cue of cues) {
-      this.battleBeat.observe(cue, simNow(), world.arenaEpoch);
       if (cue.kind === "arrival") sfx.play("boss_arrival");
       else if (cue.kind === "phase") sfx.play("boss_phase");
-      else sfx.play("boss_defeat");
+      else {
+        sfx.play("boss_defeat");
+        this.battleBeat.bossDefeated(simNow(), world.arenaEpoch);
+      }
     }
   }
 
   private updateBattlePresentation(now: number): void {
-    const view = this.cameras.main.worldView;
-    this.warningView.setTo(view.x - 12, view.y - 12, view.width + 24, view.height + 24);
-    const lockedWarning = this.world.enemies.some(
-      (enemy) =>
-        enemy.telegraphUntil > now &&
-        usesLockedAim(enemy) &&
-        enemy.lances.some((aim) =>
-          Phaser.Geom.Intersects.LineToRectangle(
-            this.warningLine.setTo(enemy.x, enemy.y, aim.x, aim.y),
-            this.warningView,
-          ),
-        ),
-    );
-    const frame = this.battleBeat.update({
+    const beat = this.battleBeat.update({
       now,
       epoch: this.world.arenaEpoch,
       presenting:
@@ -7203,10 +7140,9 @@ export class GameScene extends Phaser.Scene {
         !this.frozen &&
         !this.trailer,
       bossAlive: this.world.enemies.some((enemy) => enemy.kind === "dreadnought" && enemy.hp > 0),
-      lockedWarning,
     });
-    this.battleBackdrop?.update(frame.beat);
-    sfx.setBattleBeat(frame.beat);
+    this.battleBackdrop.update(beat);
+    sfx.setBattleBeat(beat);
   }
 
   private updateRecovery(now: number, presentation: boolean): void {
@@ -7254,7 +7190,7 @@ export class GameScene extends Phaser.Scene {
       staging,
       forceStart: (): void => this.forceOfflineSolo(),
       clearWorld: (): void => {
-        sfx.clearTransient();
+        sfx.stopAll();
         this.bossEncounters.reset();
         this.battleBeat.reset();
         this.fx.reset();
@@ -7628,8 +7564,6 @@ export class GameScene extends Phaser.Scene {
           protectionMs: this.alive ? Math.max(0, this.invulnUntil - simNow()) : 0,
           recapUntil: this.recapUntil,
         },
-        encounters: this.bossEncounters.diagnostics(),
-        audio: sfx.diagnostics(),
         sector: {
           idx: sectorIdx(Math.max(0, (simNow() - this.world.arenaEpoch) / 1000)),
           rel: sectorRelT(Math.max(0, (simNow() - this.world.arenaEpoch) / 1000)),
@@ -7671,8 +7605,6 @@ type StarfallSummary = {
   intensity: number;
   now: number;
   recovery: { remainingMs: number; protectionMs: number; recapUntil: number };
-  encounters: ReturnType<BossEncounters["diagnostics"]>;
-  audio: ReturnType<typeof sfx.diagnostics>;
   sector: { idx: number; rel: number; score: number; best: number; bossIdx: number };
 };
 

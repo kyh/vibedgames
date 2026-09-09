@@ -16,7 +16,7 @@
 import type { DamageType } from "../data/config";
 import type { AbilityKey } from "../sim/types";
 import { Music } from "./music";
-import { VoicePool, type VoiceGroup } from "./audio-voices";
+import { VoicePool, type VoiceGroup, type VoicePriority } from "./audio-voices";
 
 type BusName = "sfx" | "ui" | "amb";
 
@@ -52,16 +52,8 @@ interface NoiseOpts extends VoiceOpts {
   gain: number;
 }
 
-const VOICE_CAP = 28; // retain early shedding of distant routine sounds
+const VOICE_CAP = 28; // distant spatial voices shed above this, before the pool caps
 
-type Mix = { g: number; pan: number };
-type Plan =
-  | { kind: "tone"; o: ToneOpts; mix: Mix; t: number }
-  | { kind: "noise"; o: NoiseOpts; mix: Mix; t: number; offset: number }
-  | { kind: "stack"; freq: number; at: number; dur: number; gain: number; fallTo?: number };
-function sourceCost(plan: Plan): number {
-  return plan.kind === "stack" ? 3 : 1 + (plan.o.filter?.lfo ? 1 : 0);
-}
 function readMuted(): boolean {
   try {
     return localStorage.getItem("ba-muted") !== "0";
@@ -102,18 +94,11 @@ export class Audio {
   private last: Record<string, number> = {};
   private voices = new VoicePool(48, 32);
   private ambience = new VoicePool(8, 8);
-  private plans: Plan[] | null = null;
-  private actionGates: { local: boolean; pending: Map<string, number> } | null = null;
+  private group: VoiceGroup | null = null; // the phrase under construction
   private preference = readMuted();
   private paused = false;
-  private disposed = false;
   private unlocked = false;
-  private hasRun = false;
-  private listening = true;
-  private contextTransition: Promise<void> | null = null;
-  private compressor: DynamicsCompressorNode | null = null;
   private outcome: "playing" | "won" | "lost" | "unassigned" = "playing";
-  private ambGeneration = 0;
   // listener position + screen-right basis (rx,ry) = (-aimY, aimX)
   private lx = 0;
   private ly = 0;
@@ -126,8 +111,9 @@ export class Audio {
   private ambNextMoan = 0;
 
   private unlock = (): void => {
-    if (this.disposed) return;
     this.unlocked = true;
+    window.removeEventListener("pointerdown", this.unlock);
+    window.removeEventListener("keydown", this.unlock);
     this.applyIntent();
   };
 
@@ -146,13 +132,11 @@ export class Audio {
   }
 
   private get blocked(): boolean {
-    return this.disposed || this.paused || (this.mutedOverride ?? this.preference);
+    return this.paused || (this.mutedOverride ?? this.preference);
   }
 
   private ready(): boolean {
-    return (
-      !this.blocked && this.unlocked && this.ctx?.state === "running" && !this.contextTransition
-    );
+    return !this.blocked && this.unlocked && this.ctx?.state === "running";
   }
 
   setMuted(on: boolean): void {
@@ -183,79 +167,45 @@ export class Audio {
     this.applyIntent();
   }
 
-  private setMaster(): void {
-    if (!this.master || !this.ctx) return;
-    const t = this.ctx.currentTime;
-    this.master.gain.cancelScheduledValues(t);
-    this.master.gain.setValueAtTime(this.blocked ? 0 : 0.5, t);
-  }
-
-  private stopBeds(): void {
-    this.musicInst?.silence();
-    this.stopAmbience();
-  }
-
+  /** Mute/pause/unlock all funnel here: silence in flight or bring the beds up. */
   private applyIntent(): void {
-    this.setMaster();
     if (this.blocked) {
       this.voices.clear();
-      this.stopBeds();
+      this.musicInst?.silence();
+      this.stopAmbience();
     } else this.ensure();
-    this.reconcileContext();
-  }
-
-  private removeGesture(): void {
-    if (!this.listening) return;
-    this.listening = false;
-    window.removeEventListener("pointerdown", this.unlock);
-    window.removeEventListener("keydown", this.unlock);
+    const ctx = this.ctx;
+    if (!ctx || !this.master) return;
+    const t = ctx.currentTime;
+    this.master.gain.cancelScheduledValues(t);
+    this.master.gain.setValueAtTime(this.blocked ? 0 : 0.5, t);
+    if (this.blocked) void ctx.suspend();
+    else if (ctx.state === "running") this.syncBeds();
+    else
+      void ctx.resume().then(
+        () => this.syncBeds(),
+        () => undefined,
+      );
   }
 
   private syncBeds(): void {
-    if (!this.ready()) return;
-    this.hasRun = true;
-    this.removeGesture();
-    if (this.outcome === "playing") {
-      this.musicInst?.start();
-      this.startAmbience();
-    }
-  }
-
-  private reconcileContext(): void {
-    if (!this.ctx || this.disposed || this.ctx.state === "closed") return;
-    this.setMaster();
-    if (this.contextTransition) return;
-    const ctx = this.ctx;
-    const shouldRun = !this.blocked;
-    if (ctx.state === (shouldRun ? "running" : "suspended")) {
-      this.syncBeds();
-      return;
-    }
-    if (shouldRun && !this.hasRun && window.navigator?.userActivation?.isActive === false) return;
-    const operation = shouldRun ? ctx.resume() : ctx.suspend();
-    this.contextTransition = operation;
-    const finish = (): void => {
-      this.contextTransition = null;
-      if (this.disposed) return;
-      if (ctx.state === "running") this.hasRun = true;
-      if (shouldRun !== !this.blocked) this.reconcileContext();
-      else this.syncBeds();
-    };
-    void operation.then(finish, finish);
+    if (!this.ready() || this.outcome !== "playing") return;
+    this.musicInst?.start();
+    this.startAmbience();
   }
 
   /** Store completion before unlock too; no delayed combat bed or fanfare. */
   resolveMatch(outcome: "won" | "lost" | "unassigned"): void {
-    if (this.disposed || this.outcome !== "playing") return;
+    if (this.outcome !== "playing") return;
     this.outcome = outcome;
     this.stopAmbience();
     if (this.ready() && outcome !== "unassigned") this.musicInst?.resolve(outcome === "won");
     else this.musicInst?.silence();
   }
 
-  /** Explicit ended→playing snapshot edge: fresh transport, same owned context. */
+  /** Rematch: fresh music transport on the same owned context. */
   beginMatch(): void {
-    if (this.disposed || this.outcome === "playing") return;
+    if (this.outcome === "playing") return;
     this.voices.clear();
     this.stopAmbience();
     this.musicInst?.dispose();
@@ -266,47 +216,12 @@ export class Audio {
     this.applyIntent();
   }
 
-  dispose(): void {
-    if (this.disposed) return;
-    this.disposed = true;
-    this.setMaster();
-    this.removeGesture();
-    this.voices.clear();
-    this.stopAmbience();
-    this.musicInst?.dispose();
-    for (const node of [this.sfx, this.ui, this.musicBus, this.amb, this.compressor, this.master])
-      node?.disconnect();
-    this.noiseBuf = null;
-    this.last = {};
-    if (this.ctx && this.ctx.state !== "closed") void this.ctx.close().catch(() => undefined);
-  }
-
   diagnostics() {
-    const now = this.now();
-    const sfx = this.voices.diagnostics(now);
-    const ambience = this.ambience.diagnostics(now);
-    const music = this.musicInst?.diagnostics() ?? null;
-    return Object.freeze({
+    return {
       context: this.ctx?.state ?? "uncreated",
-      muted: this.preference,
-      effectiveMuted: this.mutedOverride ?? this.preference,
-      paused: this.paused,
-      disposed: this.disposed,
-      unlocked: this.unlocked,
-      contextTransition: this.contextTransition !== null,
-      gestureListeners: this.listening ? 2 : 0,
-      // Raw render-quantum value can lag the scheduled target while suspended.
-      masterGain: this.master?.gain.value ?? 0,
-      outcome: this.outcome,
-      ownedSources: sfx.ownedSources + ambience.ownedSources + (music?.ownedSources ?? 0),
-      scheduledSources:
-        sfx.scheduledSources + ambience.scheduledSources + (music?.scheduledSources ?? 0),
-      schedulerCount: (this.ambTimer === null ? 0 : 1) + (music?.schedulerCount ?? 0),
-      limit: 80,
-      sfx,
-      ambience,
-      music,
-    });
+      muted: this.mutedOverride ?? this.preference,
+      voices: this.voices.count,
+    };
   }
 
   private ensure(): void {
@@ -325,7 +240,6 @@ export class Audio {
     this.master.gain.value = (this.mutedOverride ?? this.isMuted) ? 0 : 0.5;
     this.master.connect(ctx.destination);
     const comp = ctx.createDynamicsCompressor();
-    this.compressor = comp;
     comp.threshold.value = -18;
     comp.knee.value = 12;
     comp.ratio.value = 4;
@@ -357,12 +271,9 @@ export class Audio {
   /** Rate-limit a given voice so overlapping events don't stack into noise. */
   private gate(key: string, ms: number): boolean {
     if (!this.ready()) return false;
-    if (this.actionGates?.local) key += ":local";
     const t = this.now() * 1000;
-    const previous = this.actionGates?.pending.get(key) ?? this.last[key] ?? -1e9;
-    if (t - previous < ms) return false;
-    if (this.actionGates) this.actionGates.pending.set(key, t);
-    else this.last[key] = t;
+    if (t - (this.last[key] ?? -1e9) < ms) return false;
+    this.last[key] = t;
     return true;
   }
 
@@ -427,7 +338,7 @@ export class Audio {
     if (f.q !== undefined) filt.Q.value = f.q;
     if (f.lfo) {
       const ctx = this.ctx;
-      const lfo = group.source(() => ctx.createOscillator(), t);
+      const lfo = group.source(() => ctx.createOscillator());
       if (!lfo) return head;
       lfo.type = "sine";
       lfo.frequency.value = f.lfo.freq;
@@ -454,144 +365,93 @@ export class Audio {
     return { g: gain, pan };
   }
 
-  private tone(o: ToneOpts): void {
-    if (!this.ready() || !this.ctx) return;
-    const mix = this.mix(o, o.gain);
-    if (mix) this.submit({ kind: "tone", o, mix, t: o.at ?? this.ctx.currentTime });
+  /** The group a primitive renders into: the open phrase, else a one-off. */
+  private open(bus: BusName | undefined): VoiceGroup {
+    return this.group ?? (bus === "amb" ? this.ambience : this.voices).begin();
   }
 
-  private noise(o: NoiseOpts): void {
-    if (!this.ready() || !this.ctx || !this.noiseBuf) return;
-    const mix = this.mix(o, o.gain);
-    if (!mix) return;
-    // Freeze the original random draw here, before later recipe pitch jitter.
-    const offset = Math.random() * Math.max(0, 1 - o.dur - 0.05);
-    this.submit({ kind: "noise", o, mix, t: o.at ?? this.ctx.currentTime, offset });
+  private close(group: VoiceGroup): void {
+    if (group !== this.group) group.seal();
   }
 
-  private sawStack(freq: number, at: number, dur: number, gain = 0.07, fallTo?: number): void {
-    if (this.ready()) this.submit({ kind: "stack", freq, at, dur, gain, fallTo });
-  }
-
-  private submit(plan: Plan): void {
-    if (this.plans) {
-      this.plans.push(plan);
+  /** Voices built inside share one group, so the whole cue is dropped or kept
+   *  together when the pool is saturated. */
+  private phrase(priority: VoicePriority, build: () => void): void {
+    if (!this.ready() || this.group) {
+      build();
       return;
     }
-    const pool = plan.kind !== "stack" && plan.o.bus === "amb" ? this.ambience : this.voices;
-    const group = pool.begin(sourceCost(plan));
-    if (!group) return;
-    this.renderPlan(plan, group);
-    group.seal();
-  }
-
-  private renderPlan(plan: Plan, group: VoiceGroup): void {
-    if (plan.kind === "tone") this.renderTone(plan.o, plan.mix, plan.t, group);
-    else if (plan.kind === "noise") this.renderNoise(plan.o, plan.mix, plan.t, plan.offset, group);
-    else this.renderStack(plan.freq, plan.at, plan.dur, plan.gain, plan.fallTo, group);
+    const group = this.voices.begin(priority);
+    this.group = group;
+    try {
+      build();
+    } finally {
+      this.group = null;
+      group.seal();
+    }
   }
 
   private essential(build: () => void): void {
-    this.phrase(build, "essential");
+    this.phrase("essential", build);
   }
 
-  private phrase(build: () => void, priority: "routine" | "essential"): boolean {
-    if (!this.ready()) return false;
-    if (this.plans) {
-      build();
-      return true;
-    }
-    const plans: Plan[] = [];
-    this.plans = plans;
-    try {
-      build();
-    } finally {
-      this.plans = null;
-    }
-    if (plans.length === 0) return false;
-    const group = this.voices.begin(
-      plans.reduce((n, plan) => n + sourceCost(plan), 0),
-      priority,
-    );
-    if (!group) return false;
-    for (const plan of plans) this.renderPlan(plan, group);
-    group.seal();
-    return true;
-  }
-
-  /** Commit action throttles only after its entire audible phrase is admitted. */
-  private combatCue(
-    key: string,
-    ms: number,
-    local: boolean,
-    x: number | undefined,
-    y: number | undefined,
-    build: () => void,
-  ): void {
-    if (!this.ready() || !this.mix({ x, y }, 1)) return;
-    const pending = new Map<string, number>();
-    this.actionGates = { local, pending };
-    let admitted = false;
-    try {
-      if (this.gate(key, ms)) admitted = this.phrase(build, local ? "essential" : "routine");
-    } finally {
-      this.actionGates = null;
-    }
-    if (admitted) for (const [name, time] of pending) this.last[name] = time;
-  }
-
-  private renderTone(o: ToneOpts, m: Mix, t: number, group: VoiceGroup): void {
+  private tone(o: ToneOpts): void {
     const ctx = this.ctx;
-    if (!ctx) return;
-    const osc = group.source(() => ctx.createOscillator(), t);
-    if (!osc) return;
-    osc.type = o.type ?? "sine";
-    osc.frequency.setValueAtTime(Math.max(20, o.freq), t);
-    if (o.slideTo !== undefined)
-      osc.frequency.exponentialRampToValueAtTime(Math.max(20, o.slideTo), t + o.dur);
-    if (o.detune !== undefined) osc.detune.setValueAtTime(o.detune, t);
-    const env = group.node(ctx.createGain());
-    env.gain.setValueAtTime(0.0001, t);
-    env.gain.exponentialRampToValueAtTime(Math.max(0.0003, m.g), t + (o.attack ?? 0.005));
-    env.gain.exponentialRampToValueAtTime(0.0001, t + o.dur);
-    let head: AudioNode = osc;
-    if (o.filter) head = this.applyFilter(head, o.filter, t, o.dur, group);
-    head.connect(env);
-    this.route(env, m.pan, o.bus, group);
-    osc.start(t);
-    osc.stop(t + o.dur + 0.03);
+    if (!ctx || !this.ready()) return;
+    const m = this.mix(o, o.gain);
+    if (!m) return;
+    const t = o.at ?? ctx.currentTime;
+    const group = this.open(o.bus);
+    const osc = group.source(() => ctx.createOscillator());
+    if (osc) {
+      osc.type = o.type ?? "sine";
+      osc.frequency.setValueAtTime(Math.max(20, o.freq), t);
+      if (o.slideTo !== undefined)
+        osc.frequency.exponentialRampToValueAtTime(Math.max(20, o.slideTo), t + o.dur);
+      if (o.detune !== undefined) osc.detune.setValueAtTime(o.detune, t);
+      const env = group.node(ctx.createGain());
+      env.gain.setValueAtTime(0.0001, t);
+      env.gain.exponentialRampToValueAtTime(Math.max(0.0003, m.g), t + (o.attack ?? 0.005));
+      env.gain.exponentialRampToValueAtTime(0.0001, t + o.dur);
+      let head: AudioNode = osc;
+      if (o.filter) head = this.applyFilter(head, o.filter, t, o.dur, group);
+      head.connect(env);
+      this.route(env, m.pan, o.bus, group);
+      osc.start(t);
+      osc.stop(t + o.dur + 0.03);
+    }
+    this.close(group);
   }
 
-  private renderNoise(o: NoiseOpts, m: Mix, t: number, offset: number, group: VoiceGroup): void {
+  private noise(o: NoiseOpts): void {
     const ctx = this.ctx;
-    if (!ctx || !this.noiseBuf) return;
-    const src = group.source(() => ctx.createBufferSource(), t);
-    if (!src) return;
-    src.buffer = this.noiseBuf;
-    const env = group.node(ctx.createGain());
-    env.gain.setValueAtTime(Math.max(0.0003, m.g), t);
-    env.gain.exponentialRampToValueAtTime(0.0001, t + o.dur);
-    let head: AudioNode = src;
-    if (o.filter) head = this.applyFilter(head, o.filter, t, o.dur, group);
-    head.connect(env);
-    this.route(env, m.pan, o.bus, group);
-    src.start(t, offset);
-    src.stop(t + o.dur + 0.03);
+    if (!ctx || !this.noiseBuf || !this.ready()) return;
+    const m = this.mix(o, o.gain);
+    if (!m) return;
+    const t = o.at ?? ctx.currentTime;
+    const group = this.open(o.bus);
+    const src = group.source(() => ctx.createBufferSource());
+    if (src) {
+      src.buffer = this.noiseBuf;
+      const env = group.node(ctx.createGain());
+      env.gain.setValueAtTime(Math.max(0.0003, m.g), t);
+      env.gain.exponentialRampToValueAtTime(0.0001, t + o.dur);
+      let head: AudioNode = src;
+      if (o.filter) head = this.applyFilter(head, o.filter, t, o.dur, group);
+      head.connect(env);
+      this.route(env, m.pan, o.bus, group);
+      src.start(t, Math.random() * Math.max(0, 1 - o.dur - 0.05));
+      src.stop(t + o.dur + 0.03);
+    }
+    this.close(group);
   }
 
   /** Brass-ish stinger note: 3 detuned saws → lowpass 1250 → shared envelope. */
-  private renderStack(
-    freq: number,
-    at: number,
-    dur: number,
-    gain: number,
-    fallTo: number | undefined,
-    group: VoiceGroup,
-  ): void {
+  private sawStack(freq: number, at: number, dur: number, gain = 0.07, fallTo?: number): void {
     const ctx = this.ctx;
-    if (!ctx) return;
     const dest = this.busNode("sfx");
-    if (!dest) return;
+    if (!ctx || !dest || !this.ready()) return;
+    const group = this.open("sfx");
     const filt = group.node(ctx.createBiquadFilter());
     filt.type = "lowpass";
     filt.frequency.value = 1250;
@@ -601,8 +461,8 @@ export class Audio {
     env.gain.exponentialRampToValueAtTime(0.0001, at + dur);
     filt.connect(env).connect(dest);
     for (const det of [1, 1.006, 0.994]) {
-      const osc = group.source(() => ctx.createOscillator(), at);
-      if (!osc) return;
+      const osc = group.source(() => ctx.createOscillator());
+      if (!osc) break;
       osc.type = "sawtooth";
       osc.frequency.setValueAtTime(freq * det, at);
       if (fallTo !== undefined)
@@ -611,6 +471,7 @@ export class Audio {
       osc.start(at);
       osc.stop(at + dur + 0.05);
     }
+    this.close(group);
   }
 
   // ── layered impacts (A2) ────────────────────────────────────────────────────
@@ -618,24 +479,18 @@ export class Audio {
   /** 3-layer impact at the hit point: transient / body / tail per damage type. */
   hit(x?: number, y?: number, dtype: DamageType = "physical", important = false): void {
     if (!this.gate(important ? "hit:local" : "hit", 45)) return;
-    const play = () => {
-      this.impact(this.now(), x, y, dtype, 1);
-    };
-    if (important) this.essential(play);
-    else play();
+    this.phrase(important ? "essential" : "routine", () => this.impact(this.now(), x, y, dtype, 1));
   }
 
   /** Crit: physical layers pitched ×1.3 + 1244Hz ring + 72→48Hz sub. */
   crit(x?: number, y?: number, important = false): void {
     if (!this.gate(important ? "crit:local" : "crit", 60)) return;
-    const play = () => {
+    this.phrase(important ? "essential" : "routine", () => {
       const t = this.now();
       this.impact(t, x, y, "physical", 1.3);
       this.tone({ at: t, x, y, freq: 1244, dur: 0.05, type: "sine", gain: 0.1 });
       this.tone({ at: t, x, y, freq: 72, slideTo: 48, dur: 0.14, type: "sine", gain: 0.2 });
-    };
-    if (important) this.essential(play);
-    else play();
+    });
   }
 
   private impact(
@@ -737,7 +592,9 @@ export class Audio {
 
   /** One whoosh per swing, driven by the world-view attack one-shot delta. */
   attack(champId: string, x: number, y: number, local = false): void {
-    this.combatCue("atk:" + champId, 70, local, x, y, () => this.attackVoice(champId, x, y));
+    // a culled/shed swing must not consume the throttle for the next audible one
+    if (!this.mix({ x, y }, 1) || !this.gate(`atk:${champId}${local ? ":local" : ""}`, 70)) return;
+    this.phrase(local ? "essential" : "routine", () => this.attackVoice(champId, x, y));
   }
 
   private attackVoice(champId: string, x: number, y: number): void {
@@ -879,17 +736,22 @@ export class Audio {
 
   /** Champ base voice × CAST_MOD; R adds the ult layer (sub drop + riser). */
   cast(champId = "", key: AbilityKey = "Q", x?: number, y?: number, local = false): void {
-    this.combatCue(local ? "cast:" + key : "cast", 60, local, x, y, () =>
-      this.castPhrase(champId, key, x, y),
-    );
+    if (!this.mix({ x, y }, 1) || !this.gate(local ? `cast:${key}:local` : "cast", 60)) return;
+    this.phrase(local ? "essential" : "routine", () => this.castPhrase(champId, key, x, y, local));
   }
 
-  private castPhrase(champId: string, key: AbilityKey, x?: number, y?: number): void {
+  private castPhrase(
+    champId: string,
+    key: AbilityKey,
+    x: number | undefined,
+    y: number | undefined,
+    local: boolean,
+  ): void {
     const t = this.now();
     const m = CAST_MOD[key];
     this.castVoice(champId, t, x, y, m.p, m.d);
     if (key === "DASH") this.dodge(x, y); // crisp air-whoosh on top of the zip
-    if (m.ult && this.gate("ult", 300)) {
+    if (m.ult && this.gate(local ? "ult:local" : "ult", 300)) {
       this.tone({ at: t, x, y, freq: 55, slideTo: 38, dur: 0.4, type: "sine", gain: 0.22 });
       this.noise({
         at: t,
@@ -1235,11 +1097,10 @@ export class Audio {
     const dest = this.busNode("amb");
     if (!dest) return;
     const ctx = this.ctx;
-    const group = this.ambience.begin(1);
-    if (!group) return;
-    const src = group.source(() => ctx.createBufferSource(), ctx.currentTime);
+    const group = this.ambience.begin();
+    const src = group.source(() => ctx.createBufferSource());
     if (!src) {
-      group.cancel();
+      group.seal();
       return;
     }
     this.ambStarted = true;
@@ -1256,14 +1117,10 @@ export class Audio {
     const t = this.ctx.currentTime;
     this.ambNextPop = t + 0.4;
     this.ambNextMoan = t + 14 + Math.random() * 12;
-    const generation = ++this.ambGeneration;
-    this.ambTimer = window.setInterval(() => {
-      if (generation === this.ambGeneration) this.ambTick();
-    }, 400);
+    this.ambTimer = window.setInterval(() => this.ambTick(), 400);
   }
 
   private stopAmbience(): void {
-    this.ambGeneration++;
     if (this.ambTimer !== null) window.clearInterval(this.ambTimer);
     this.ambTimer = null;
     this.ambStarted = false;

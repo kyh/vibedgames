@@ -83,15 +83,12 @@ export class TouchControls {
   private das = 0;
   private arr = 0;
   private dropHeldMs = 0;
-  private paused = false;
-  private destroyed = false;
   private active = false;
 
   /** Free-touch tap → start/catch/resume. Fired straight off pointerdown (not
    *  frame polling) so a tap shorter than one frame still lands; touches on
    *  HUD controls or inside a fixed button's circle don't count as free. */
   private readonly onPointerDown = (e: PointerEvent): void => {
-    if (this.paused || this.destroyed) return;
     if (e.pointerType !== "touch") return;
     if (
       e.target instanceof Element &&
@@ -134,7 +131,6 @@ export class TouchControls {
 
   /** Call once per frame, before the sim tick, with the frame's dt in ms. */
   update(dtMs: number): void {
-    if (this.paused || this.destroyed) return;
     if (!this.active) {
       this.gamepad.pad.reset();
       this.gamepad.update();
@@ -165,27 +161,23 @@ export class TouchControls {
   }
 
   destroy(): void {
-    if (this.destroyed) return;
-    this.setPaused(true);
-    this.destroyed = true;
     window.removeEventListener("pointerdown", this.onPointerDown);
     this.gamepad.destroy();
     this.root.remove();
   }
 
-  /** Results own their buttons; old gameplay touches cannot activate the next run. */
+  /** The button cluster exists only in play; title and results own their taps. */
   setActive(active: boolean): void {
-    if (this.destroyed || this.active === active) return;
+    if (this.active === active) return;
     this.active = active;
     this.root.hidden = !active;
-    this.setPaused(this.paused);
+    this.release();
   }
 
-  /** Drop every old pointer and both published/queued edges before resuming. */
-  setPaused(paused: boolean): void {
-    if (this.destroyed) return;
-    this.paused = paused;
+  /** Forget every pointer and pending press edge (pause, resume, phase change). */
+  release(): void {
     this.gamepad.pad.reset();
+    // Twice: the first update publishes the reset as release edges, the second clears them.
     this.gamepad.update();
     this.gamepad.update();
     this.dir = null;

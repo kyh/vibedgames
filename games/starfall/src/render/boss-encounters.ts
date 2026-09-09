@@ -4,94 +4,51 @@ type Phase = 1 | 2 | 3;
 export type BossObservation = Readonly<Pick<EnemyState, "id" | "kind" | "hp" | "maxHp">>;
 export type BossEncounterCue =
   | { kind: "arrival"; id: string; phase: Phase }
-  | { kind: "phase"; id: string; phase: 2 | 3 }
+  | { kind: "phase"; id: string; phase: Phase }
   | { kind: "defeat"; id: string };
 
-const RETIRED_LIMIT = 32;
+const NO_CUES: readonly BossEncounterCue[] = [];
 
-/** Presentation evidence only: observe valid worlds even when cues are silent.
- * Never infers a local killer, awards anything or queues missed announcements. */
+/** Edge-detects dreadnought arrival / phase / defeat from accepted world
+ * snapshots. The first snapshot of an epoch is a baseline: nothing already
+ * in it is announced, so late joins and host migration never replay cues. */
 export class BossEncounters {
   private epoch: number | null = null;
-  private live = new Map<string, Phase>();
-  private retired = new Set<string>();
+  private readonly live = new Map<string, Phase>();
 
   reset(): void {
     this.epoch = null;
     this.live.clear();
-    this.retired.clear();
   }
 
-  observe(epoch: number, enemies: readonly BossObservation[]): BossEncounterCue[] {
-    if (!Number.isFinite(epoch)) return [];
-    const present = new Set<string>();
-    const phases = new Map<string, Phase>();
-    for (const enemy of enemies) {
-      if (enemy.kind !== "dreadnought") continue;
-      present.add(enemy.id);
-      if (
-        !Number.isFinite(enemy.hp) ||
-        !Number.isFinite(enemy.maxHp) ||
-        enemy.hp <= 0 ||
-        enemy.maxHp <= 0
-      )
-        continue;
-      const phase = bossPhase(enemy.hp, enemy.maxHp);
-      // Duplicate observations of one ID still produce at most one phase edge.
-      if (phase > (phases.get(enemy.id) ?? 0)) phases.set(enemy.id, phase);
-    }
-
-    if (this.epoch !== epoch) {
-      this.reset();
+  observe(epoch: number, enemies: readonly BossObservation[]): readonly BossEncounterCue[] {
+    if (!Number.isFinite(epoch)) return NO_CUES;
+    const baseline = this.epoch !== epoch;
+    if (baseline) {
       this.epoch = epoch;
-      for (const id of present) {
-        const phase = phases.get(id);
-        if (phase) this.live.set(id, phase);
-        else this.retire(id);
-      }
-      return [];
+      this.live.clear();
     }
-
-    const cues: BossEncounterCue[] = [];
-    for (const id of present) {
-      if (this.retired.has(id)) continue;
-      const phase = phases.get(id);
-      const previous = this.live.get(id);
-      if (!phase) {
-        // Keep positive-live evidence until actual removal. A first-dead entry
-        // has no such evidence and cannot later replay as a stale arrival.
-        if (!previous) this.retire(id);
-      } else if (!previous) {
-        this.live.set(id, phase);
-        cues.push({ kind: "arrival", id, phase });
-      } else if (phase !== 1 && phase > previous) {
-        this.live.set(id, phase);
-        cues.push({ kind: "phase", id, phase });
-      }
+    let cues: BossEncounterCue[] | null = null;
+    for (const e of enemies) {
+      if (e.kind !== "dreadnought" || !(e.hp > 0) || !(e.maxHp > 0)) continue;
+      const phase = bossPhase(e.hp, e.maxHp);
+      const previous = this.live.get(e.id);
+      if (previous !== undefined && phase <= previous) continue;
+      this.live.set(e.id, phase);
+      if (baseline) continue;
+      cues ??= [];
+      cues.push(
+        previous === undefined
+          ? { kind: "arrival", id: e.id, phase }
+          : { kind: "phase", id: e.id, phase },
+      );
     }
     for (const id of this.live.keys()) {
-      if (present.has(id)) continue;
+      if (enemies.some((e) => e.id === id)) continue;
       this.live.delete(id);
-      this.retire(id);
+      cues ??= [];
       cues.push({ kind: "defeat", id });
     }
-    return cues;
-  }
-
-  diagnostics() {
-    return Object.freeze({
-      epoch: this.epoch,
-      live: this.live.size,
-      retired: this.retired.size,
-      retiredLimit: RETIRED_LIMIT,
-    });
-  }
-
-  private retire(id: string): void {
-    this.retired.add(id);
-    if (this.retired.size > RETIRED_LIMIT) {
-      const oldest = this.retired.values().next().value;
-      if (oldest !== undefined) this.retired.delete(oldest);
-    }
+    return cues ?? NO_CUES;
   }
 }

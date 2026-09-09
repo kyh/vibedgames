@@ -34,4 +34,4 @@ On touch the porthole boots as a pill and the face camera starts on the tap that
 
 Multiplayer: auto-joins the shared `pacman-default` room (up to 4 players), solo fallback when the party server is unreachable.
 
-Power hearts show a shrinking blush arc around Pacman; another heart refills the existing ten-second clock. Quick pearl pickups reveal the existing musical chain in the HUD, with unchanged points. Wall dust follows the impact direction, and caught ghosts leave their own pastel color at capture and arrival.
+Power hearts draw a draining blush ring under Pacman (another heart refills the clock); quick pellet streaks show the pearl-chain counter; the music swells when a ghost closes in. First round shows a STEP/TURN coach card. A finished round (win or game over) shows a result card: score, best, ghosts chomped, maze left.

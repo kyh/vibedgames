@@ -33,7 +33,7 @@ export class VersusMatch {
   score = { host: 0, guest: 0 } satisfies Record<VsSide, number>;
   winner: VsSide | null = null; // round winner in roundEnd, match in matchEnd
 
-  /** Full precision for authority handoff; encode remains the compact view. */
+  /** Full precision for authority handoff (encode is the rounded wire view). */
   checkpoint() {
     return {
       phase: this.phase,

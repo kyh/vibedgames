@@ -165,9 +165,9 @@ export class GameScene extends Phaser.Scene {
   private fxSeqOut = 0; // host: increments per fx broadcast
   private inheritedFxCount = 0; // accepted old-host FX for this renderer only
   private lastFxSeq = -1; // guest: last fx batch ingested
-  // The server owns election. A disconnected/demoted client must adopt shared
-  // state before it can simulate again, even if it reconnects with the same id.
-  private hostSession: string | null = null;
+  // The server owns election. A disconnected/demoted client must adopt the
+  // shared snapshot again before it may simulate, even with the same id.
+  private adoptedHost = false;
   private joinResendAt = 0;
 
   constructor() {
@@ -206,7 +206,7 @@ export class GameScene extends Phaser.Scene {
     this.fxSeqOut = 0;
     this.lastFxSeq = -1;
     this.inheritedFxCount = 0;
-    this.hostSession = null;
+    this.adoptedHost = false;
     this.joinResendAt = 0;
     this.feed.length = 0;
     this.moveKeys = null;
@@ -234,9 +234,8 @@ export class GameScene extends Phaser.Scene {
 
     this.bindInput();
     this.bindTouch();
-    // The menu's held confirm belongs to navigation, not the first attack.
-    this.physPad.update();
-    this.physPad.update();
+    // The menu's confirm press must not become the first attack.
+    this.dropInputEdges();
     this.scene.launch("Hud", { game: this });
     if (import.meta.env.DEV) {
       this.installDebug();
@@ -253,15 +252,9 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    let released = false;
-    const release = (): void => {
-      if (released) return;
-      released = true;
-      this.events.off(Phaser.Scenes.Events.SHUTDOWN, release);
-      this.events.off(Phaser.Scenes.Events.DESTROY, release);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       stopPresentationSettings();
       resetSound();
-      this.result = null;
       this.scale.off(Phaser.Scale.Events.RESIZE, this.applyZoom, this);
       this.pad?.destroy();
       this.pad = null;
@@ -270,9 +263,7 @@ export class GameScene extends Phaser.Scene {
       this.physPad.destroy();
       this.net?.destroy();
       this.net = null;
-    };
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, release);
-    this.events.once(Phaser.Scenes.Events.DESTROY, release);
+    });
 
     const veil = document.getElementById("veil");
     if (veil) {
@@ -310,10 +301,8 @@ export class GameScene extends Phaser.Scene {
     });
     const net = this.net;
     net.subscribe(() => {
-      if (net.connectionStatus !== "connected") {
-        this.joinedSelf = false;
-      }
-      if (net.connectionStatus !== "connected" || !net.isHost) this.hostSession = null;
+      if (net.connectionStatus !== "connected") this.joinedSelf = false;
+      if (net.connectionStatus !== "connected" || !net.isHost) this.adoptedHost = false;
     });
   }
 
@@ -453,12 +442,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   private prepareOnlineHost(net: MultiplayerClient): void {
-    if (net.connectionStatus !== "connected" || !net.isHost || !net.playerId) return;
-    if (this.hostSession === net.playerId) return;
+    if (this.adoptedHost || net.connectionStatus !== "connected" || !net.isHost) return;
     const restored = restoreHostState(this.world, sharedSnapshot(net.sharedState));
     this.assign = restored.seats;
     this.picks = { ...this.picks, ...restored.picks };
-    this.hostSession = net.playerId;
+    this.adoptedHost = true;
     this.fxSeqOut = sharedFxSeq(net.sharedState) ?? 0;
     this.netFx = [];
     this.acc = 0;
@@ -497,36 +485,32 @@ export class GameScene extends Phaser.Scene {
     return this.inputPaused;
   }
 
-  /** Native HUD panels may consume key-up. Clear every input edge on both
-   * panel boundaries; the match clock and pause preference remain untouched. */
-  clearHudInput(): void {
+  /** Drop every held key/touch/button edge. HUD panels and the pause overlay
+   *  can eat the matching key-up, which would otherwise leave a phantom hold. */
+  private dropInputEdges(): void {
     this.input.keyboard?.resetKeys();
     this.pad?.pad.reset();
+    // reset releases held touches; two frames also drain a tap that landed first.
     this.pad?.pad.nextFrame();
     this.pad?.pad.nextFrame();
+    // Two samples baseline the controller so the button that closed a panel or
+    // resumed play cannot also attack on the next frame.
     this.physPad.update();
     this.physPad.update();
+  }
+
+  clearHudInput(): void {
+    this.dropInputEdges();
     this.needsPauseHold = true;
     this.flushPauseHold();
   }
 
-  /** The online simulation continues under pause; only this player's input
-   * stops. Clear keys/touches whose releases the overlay can legitimately eat. */
+  /** The online simulation continues under pause; only this player's input stops. */
   setControlsPaused(paused: boolean): void {
     if (this.inputPaused === paused) return;
     this.inputPaused = paused;
-    this.input.keyboard?.resetKeys();
-    this.pad?.pad.reset();
-    // reset releases held touches; drain a tap accumulated before the pause too.
-    this.pad?.pad.nextFrame();
-    this.pad?.pad.nextFrame();
+    this.dropInputEdges();
     if (paused) this.needsPauseHold = true;
-    else {
-      // Prime both edge samples so the controller button that resumed play
-      // cannot also cast/attack on the first resumed frame.
-      this.physPad.update();
-      this.physPad.update();
-    }
     this.flushPauseHold();
   }
 

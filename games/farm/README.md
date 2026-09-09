@@ -33,19 +33,8 @@ Multiplayer: shared farm via `@vibedgames/multiplayer` (auto-join, offline solo 
 
 ## Seasonal journal
 
-Open the bag, then Journal. Harvest crops and catch fish in their season to
-record personal discoveries. Finds persist across years; Winter lists its five
-eligible fish. Only items that fit in the bag count. Purchases, other farmers'
-finds and repeat catches do not add discoveries.
+Open the bag, then Journal. Harvesting a crop or catching a fish in its season
+records a personal discovery (only what fits in the bag counts; purchases and
+other farmers' finds don't). Finds persist across years.
 
-Sleep previews crops that will wither. Mine returns show the visit's deepest
-floor, gathered minerals, defeated enemies and net gold. These receipts do not
-award extra items or change the existing farming, fishing or combat rules.
-
-Failed saves keep pending progress and retry every three seconds. Mine trips
-retain the live farm even when storage is unavailable. Reload still requires a
-successful browser save. In co-op, pause fences local input and preserves a
-pending catch while the connection stays alive.
-
-Run `pnpm --filter @repo/farm test` for action timing, journal, save recovery,
-input, audio and lifecycle regressions.
+`pnpm --filter @repo/farm test` covers the journal and save rules.

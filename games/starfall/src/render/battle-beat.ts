@@ -1,31 +1,20 @@
 import { arenaIntensity, wavePulse } from "../shared/constants";
-import type { BossEncounterCue } from "./boss-encounters";
 
 export type BattleBeat = "quiet" | "build" | "crest" | "aftermath";
-export type BattleBeatFrame = Readonly<{
-  beat: BattleBeat;
-  accent: "arrival" | "phase" | null;
-  active: boolean;
-  lockedWarning: boolean;
-  /** A new timeline adopts its current mood without replaying crossed beats. */
-  reset: boolean;
-}>;
 export type BattleBeatInput = Readonly<{
   now: number;
   epoch: number;
   presenting: boolean;
   bossAlive: boolean;
-  lockedWarning: boolean;
 }>;
 
 const SETTLE_MS = 700;
+/** Beyond this gap (pause, tab hidden, reconnect) the timeline is adopted, not replayed. */
 const GAP_MS = 1500;
-const CUE_MAX_AGE_MS = 500;
 const AFTERMATH_MS = 6000;
 
-/** Read the existing90s phase without the unbounded difficulty ramp: once
- * gameplay intensity caps, its absolute value loses the trough entirely.
- * Presentation keeps the same wave timing and contrast in later sectors. */
+/** Read the existing 90s wave phase without the unbounded difficulty ramp: once
+ * gameplay intensity caps, its absolute value loses the trough entirely. */
 export function waveBattleBeat(tSec: number): Exclude<BattleBeat, "aftermath"> {
   if (!Number.isFinite(tSec)) return "quiet";
   const t = Math.max(0, tSec);
@@ -35,67 +24,42 @@ export function waveBattleBeat(tSec: number): Exclude<BattleBeat, "aftermath"> {
   return pressure < 0.35 ? "quiet" : pressure >= 0.68 ? "crest" : "build";
 }
 
-/** One fresh encounter edge at most. Identity/phase/death authority stays in
- * BossEncounters; this owner only times the cosmetic aftermath and hysteresis. */
+/** Music/backdrop mood with hysteresis; a boss defeat resolves into an aftermath. */
 export class BattleBeatDirector {
   private previous: BattleBeatInput | null = null;
   private beat: BattleBeat = "quiet";
   private candidate: { beat: BattleBeat; since: number } | null = null;
-  private pending: { kind: BossEncounterCue["kind"]; now: number; epoch: number } | null = null;
   private aftermathUntil = 0;
 
   reset(): void {
     this.previous = null;
     this.beat = "quiet";
     this.candidate = null;
-    this.pending = null;
     this.aftermathUntil = 0;
   }
 
-  observe(cue: BossEncounterCue, now: number, epoch: number): void {
-    const previous = this.previous;
-    if (
-      !previous?.presenting ||
-      previous.epoch !== epoch ||
-      !Number.isFinite(now) ||
-      now < previous.now ||
-      now - previous.now > GAP_MS
-    )
-      return;
-    // A defeat owns the resolving beat if several accepted cues share a frame.
-    if (this.pending?.kind === "defeat" && this.pending.now === now) return;
-    this.pending = { kind: cue.kind, now, epoch };
+  bossDefeated(now: number, epoch: number): void {
+    const p = this.previous;
+    if (!p?.presenting || p.epoch !== epoch || now < p.now || now - p.now > GAP_MS) return;
+    this.aftermathUntil = now + AFTERMATH_MS;
   }
 
-  update(input: BattleBeatInput): BattleBeatFrame {
+  update(input: BattleBeatInput): BattleBeat {
     if (!Number.isFinite(input.now) || !Number.isFinite(input.epoch)) {
       this.reset();
-      return { beat: "quiet", accent: null, active: false, lockedWarning: false, reset: true };
+      return this.beat;
     }
-    const previous = this.previous;
+    const p = this.previous;
     const adopt =
-      previous === null ||
-      previous.epoch !== input.epoch ||
-      input.now < previous.now ||
-      input.now - previous.now > GAP_MS ||
-      previous.presenting !== input.presenting;
-    this.previous = { ...input };
-    let accent: BattleBeatFrame["accent"] = null;
+      p === null ||
+      p.epoch !== input.epoch ||
+      input.now < p.now ||
+      input.now - p.now > GAP_MS ||
+      p.presenting !== input.presenting;
+    this.previous = input;
     if (adopt || !input.presenting) {
-      this.pending = null;
       this.aftermathUntil = 0;
       this.candidate = null;
-    } else if (this.pending) {
-      const cue = this.pending;
-      this.pending = null;
-      if (
-        cue.epoch === input.epoch &&
-        input.now >= cue.now &&
-        input.now - cue.now <= CUE_MAX_AGE_MS
-      ) {
-        if (cue.kind === "defeat") this.aftermathUntil = cue.now + AFTERMATH_MS;
-        else accent = cue.kind;
-      }
     }
     const desired: BattleBeat = !input.presenting
       ? "quiet"
@@ -121,14 +85,6 @@ export class BattleBeatDirector {
       this.beat = desired;
       this.candidate = null;
     }
-    // A locked sight owns the view; an encounter accent cannot wait behind it.
-    if (input.lockedWarning) accent = null;
-    return {
-      beat: this.beat,
-      accent,
-      active: input.presenting,
-      lockedWarning: input.presenting && input.lockedWarning,
-      reset: adopt,
-    };
+    return this.beat;
   }
 }

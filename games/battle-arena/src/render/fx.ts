@@ -6,7 +6,6 @@
 // for the HUD to read.
 import * as THREE from "three";
 import { HOP_HEIGHT } from "../data/config";
-import { isLocalCast } from "../net/cast-actor";
 import { terrainHeight } from "../data/terrain";
 import type { FxEvent, GroundEffect, World } from "../sim/types";
 import { Audio } from "./audio";
@@ -161,7 +160,6 @@ function sp(x: number, y: number, z: number): SpawnOptions {
 }
 
 export class Fx {
-  private disposed = false;
   readonly pools: ParticlePools;
   readonly telegraphs: Telegraphs;
   readonly chunks: ChunkPool;
@@ -363,7 +361,6 @@ export class Fx {
    * would have been without this.
    */
   warm(renderer: THREE.WebGLRenderer, camera: THREE.Camera): void {
-    if (this.disposed) return;
     // Deferred to the first update(), NOT run here. A program's cache key
     // includes the light and shadow setup it was compiled against, so compiling
     // before the caller has finished building its scene produces programs the
@@ -371,7 +368,6 @@ export class Fx {
     // stall this exists to prevent. By the first frame everything is final.
     this.pendingWarm = { renderer, camera };
     void whenFxTexturesReady().then(() => {
-      if (this.disposed) return;
       uploadFxTextures(renderer);
       // Only NOW is a compile worth doing. A material whose map has not decoded
       // yet compiles without USE_MAP, and three throws that program away the
@@ -439,7 +435,6 @@ export class Fx {
   }
 
   update(w: World, dt: number): void {
-    if (this.disposed) return;
     this.flushWarm();
     this.nowMs = w.now;
     const me = w.units.get(this.localId);
@@ -877,7 +872,7 @@ export class Fx {
       }
       case "cast":
         this.signatureCast(`${e.champId}:${e.key}`, e.x, e.y, e.dx, e.dy);
-        this.audio.cast(e.champId, e.key, e.x, e.y, isLocalCast(e.unitId, this.localId));
+        this.audio.cast(e.champId, e.key, e.x, e.y, e.unitId === this.localId);
         if (e.key === "R" && this.within(e.x, e.y, 1.5)) this.view.punchFov(2.2); // your R
         break;
       case "levelup":
@@ -2755,7 +2750,6 @@ export class Fx {
   /** An accepted rematch owns a fresh presentation clock, while the loaded
    * materials, fixed pools and audio context remain reusable. */
   resetMatch(): void {
-    if (this.disposed) return;
     this.delayed.length = 0;
     this.feed.length = this.toasts.length = this.localHits.length = 0;
     this.zoneAnim.clear();
@@ -2797,10 +2791,6 @@ export class Fx {
   }
 
   dispose(): void {
-    if (this.disposed) return;
-    this.resetMatch();
-    this.disposed = true;
-    this.audio.dispose();
     this.pendingWarm = null;
     this.delayed.length = 0;
     this.feed.length = 0;

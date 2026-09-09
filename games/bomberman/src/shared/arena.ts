@@ -3,12 +3,11 @@ import { newGrid, type Cell } from "./constants";
 export type Arena = "classic" | "crossroads";
 
 /** Legacy rooms and unknown wire values keep the original courtyard. */
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- This is the parser for untrusted arena selections and legacy room snapshots.
-export function readArena(value: unknown): Arena {
+export function readArena(value: Arena | undefined): Arena {
   return value === "crossroads" ? "crossroads" : "classic";
 }
 
-/** Sample the original grid first. Variation never changes its RNG trace. */
+/** Sample the original grid first so variation never changes its RNG trace. */
 export function createArena(arena: Arena): Cell[][] {
   const grid = newGrid();
   if (arena === "classic") return grid;

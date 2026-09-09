@@ -16,8 +16,10 @@ type ActionSheet = {
   frames: readonly [SheetFrame, SheetFrame, SheetFrame, SheetFrame];
 };
 
-// Raw generated PNGs stay intact. Unequal cuts and authored foot pivots keep
-// the existing ground anchor; one scale per sheet preserves its actual crouch.
+// Sheets were generated as 2x2 edits of the original walk sheets and shipped
+// untouched, so cells are unequal and padding is uneven: explicit cuts plus
+// measured foot pivots keep the ground anchor, and one scale per sheet keeps
+// the authored crouch depth.
 const DOWN: ActionSheet = {
   key: "player-place-down",
   url: "assets/player-place-down-v2.png",

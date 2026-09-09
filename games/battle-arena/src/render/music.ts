@@ -51,7 +51,6 @@ export class Music {
   private fadeEnds = { drone: 0, pulse: 0, kit: 0, lead: 0 } satisfies Record<LayerName, number>;
   private drone: VoiceGroup | null = null;
   private voices = new VoicePool(24, 24);
-  private generation = 0;
   private disposed = false;
   private resolved = false;
   private noiseBuf: AudioBuffer | null = null;
@@ -93,10 +92,7 @@ export class Music {
     this.applyIntensityGains();
     this.startDrone(this.gains.drone, t);
     this.nextTime = t + 0.06;
-    const generation = ++this.generation;
-    this.timer = window.setInterval(() => {
-      if (generation === this.generation) this.tick();
-    }, SCHEDULER_MS);
+    this.timer = window.setInterval(() => this.tick(), SCHEDULER_MS);
   }
 
   /** Crossfade the layer stack (1.5s); tempo shifts to 112 on the next bar at 3. */
@@ -116,7 +112,6 @@ export class Music {
 
   /** Halt the scheduler + drone; layers ramp out fast. */
   stop(): void {
-    this.generation++;
     if (this.timer !== null) {
       window.clearInterval(this.timer);
       this.timer = null;
@@ -142,8 +137,7 @@ export class Music {
     this.resolved = true;
     this.stop();
     if (this.ctx.state !== "running") return;
-    const phrase = this.voices.begin(9, "essential");
-    if (!phrase) return;
+    const phrase = this.voices.begin("essential");
     this.ensureNoise();
     const t = this.ctx.currentTime + 0.05;
     if (won) {
@@ -160,7 +154,6 @@ export class Music {
 
   /** Immediate cancellation for mute/pause; retain the musical phase and mix. */
   silence(): void {
-    this.generation++;
     if (this.timer !== null) window.clearInterval(this.timer);
     this.timer = null;
     this.running = false;
@@ -183,20 +176,6 @@ export class Music {
     if (this.gains) for (const name of LAYER_NAMES) this.gains[name].disconnect();
     this.gains = null;
     this.noiseBuf = null;
-  }
-
-  diagnostics() {
-    return Object.freeze({
-      ...this.voices.diagnostics(this.ctx.currentTime),
-      schedulerCount: this.timer === null ? 0 : 1,
-      running: this.running,
-      disposed: this.disposed,
-      resolved: this.resolved,
-      step: this.step,
-      bpm: this.bpm,
-      intensity: this.intensity,
-      layerGraphs: this.gains ? 1 : 0,
-    });
   }
 
   // ── scheduler ──────────────────────────────────────────────────────────────
@@ -290,11 +269,10 @@ export class Music {
     slideTo?: number,
     lowpass?: number,
   ): void {
-    const group = this.voices.begin(1);
-    if (!group) return;
-    const osc = group.source(() => this.ctx.createOscillator(), t);
+    const group = this.voices.begin();
+    const osc = group.source(() => this.ctx.createOscillator());
     if (!osc) {
-      group.cancel();
+      group.seal();
       return;
     }
     osc.type = type;
@@ -328,11 +306,10 @@ export class Music {
     ffreq: number,
   ): void {
     if (!this.noiseBuf) return;
-    const group = this.voices.begin(1);
-    if (!group) return;
-    const src = group.source(() => this.ctx.createBufferSource(), t);
+    const group = this.voices.begin();
+    const src = group.source(() => this.ctx.createBufferSource());
     if (!src) {
-      group.cancel();
+      group.seal();
       return;
     }
     src.buffer = this.noiseBuf;
@@ -349,8 +326,7 @@ export class Music {
   }
 
   private startDrone(layerGain: GainNode, t: number): void {
-    const group = this.voices.begin(2);
-    if (!group) return;
+    const group = this.voices.begin();
     this.drone = group;
     const filter = group.node(this.ctx.createBiquadFilter());
     filter.type = "lowpass";
@@ -359,11 +335,8 @@ export class Music {
     level.gain.value = 0.05;
     filter.connect(level).connect(layerGain);
     for (const f of [D2, D2 * 1.007]) {
-      const osc = group.source(() => this.ctx.createOscillator(), t);
-      if (!osc) {
-        group.cancel();
-        return;
-      }
+      const osc = group.source(() => this.ctx.createOscillator());
+      if (!osc) break;
       osc.type = "sawtooth";
       osc.frequency.value = f;
       osc.connect(filter);
@@ -382,8 +355,7 @@ export class Music {
     fallTo?: number,
     phrase?: VoiceGroup,
   ): void {
-    const group = phrase ?? this.voices.begin(3);
-    if (!group) return;
+    const group = phrase ?? this.voices.begin();
     const filter = group.node(this.ctx.createBiquadFilter());
     filter.type = "lowpass";
     filter.frequency.value = 1250;
@@ -393,11 +365,8 @@ export class Music {
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     filter.connect(g).connect(this.bus);
     for (const det of [1, 1.006, 0.994]) {
-      const osc = group.source(() => this.ctx.createOscillator(), t);
-      if (!osc) {
-        group.cancel();
-        return;
-      }
+      const osc = group.source(() => this.ctx.createOscillator());
+      if (!osc) break;
       osc.type = "sawtooth";
       osc.frequency.setValueAtTime(freq * det, t);
       if (fallTo !== undefined)

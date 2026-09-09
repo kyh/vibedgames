@@ -40,12 +40,10 @@ import { Skills, type SkillId, SKILL_NAMES } from "../systems/skills";
 import { store } from "../systems/store";
 import { CROPS, cropStage, isMature, type CropId } from "../data/crops";
 import { isSellable, sellValue, type Item, type ForageId } from "../data/items";
-import { loadSave, writeSave, type SaveData, type SaveOutcome } from "../systems/save";
+import { loadSave, writeSave, type SaveData } from "../systems/save";
 import { burst, floatText, shake, pop, rewardArc } from "../render/fx";
 import { FarmAmbience } from "../render/farm-ambience";
 import { Sound } from "../render/audio";
-import { CharacterAction } from "../render/character-action";
-import { onSceneExit } from "../render/scene-lifetime";
 import { seasonOfDay, type Season } from "../data/calendar";
 import { isWet, weatherForDay, type Weather } from "../systems/weather";
 import { Fishing } from "../systems/fishing";
@@ -137,7 +135,6 @@ export class GameScene extends Phaser.Scene {
   private shadow!: Phaser.GameObjects.Sprite;
   facing = { x: 0, y: 1 };
   acting = false;
-  private readonly characterAction = new CharacterAction();
   private moving = false;
   // click-to-move: waypoint pixel positions the player walks through
   private clickPath: { x: number; y: number }[] = [];
@@ -176,16 +173,14 @@ export class GameScene extends Phaser.Scene {
   trailerFrame: ((dt: number) => void) | null = null;
   private fainted = false;
   private onResizeHandler?: (gs: Phaser.Structs.Size) => void;
-  private saveHandler = (): void => {
-    this.save();
-  };
+  private saveHandler = (): void => this.save();
   /** Debounced-save state: actions mark dirty, update() flushes (see save). */
   private saveDirty = false;
   private saveAcc = 0;
   private saveFailed = false;
+  /** The instance keeps the live farm across mine trips; save() serves the mine too. */
   private farmReady = false;
   private farmPosition = { x: 0, y: 0 };
-  private finalCleanupBound = false;
 
   // ---- multiplayer (co-op shared farm) ---------------------------------------
   // The host owns the world (tilled/watered/crops) and the clock; guests adopt
@@ -236,7 +231,7 @@ export class GameScene extends Phaser.Scene {
     this.soilImgs = new Map();
     this.cropImgs = new Map();
     this.objSprites = new Map();
-    this.resetCharacterAction();
+    this.acting = false;
     this.transitioning = false;
     this.uiOpen = false;
     this.controlsPaused = false;
@@ -301,9 +296,9 @@ export class GameScene extends Phaser.Scene {
       this.cameras.main.setZoom(zoomForWidth(gs.width));
     };
     this.scale.on("resize", this.onResizeHandler);
-    const scale = this.scale;
-    const onResize = this.onResizeHandler;
-    onSceneExit(this, () => scale.off("resize", onResize));
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      if (this.onResizeHandler) this.scale.off("resize", this.onResizeHandler);
+    });
 
     const cam = this.cameras.main;
     cam.setBounds(0, 0, MAP_W * TILE, MAP_H * TILE);
@@ -320,11 +315,8 @@ export class GameScene extends Phaser.Scene {
 
     this.setupInput();
     const releaseMusic = Sound.startMusic("farm");
-    const fishing = this.fishing;
-    onSceneExit(this, () => {
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       releaseMusic();
-      fishing.destroy();
-      this.resetCharacterAction();
       this.ambience = null;
       this.collisionOverlay = null;
     });
@@ -341,19 +333,6 @@ export class GameScene extends Phaser.Scene {
     this.game.events.on("hidden", this.saveHandler);
     window.removeEventListener("beforeunload", this.saveHandler);
     window.addEventListener("beforeunload", this.saveHandler);
-    if (!this.finalCleanupBound) {
-      this.finalCleanupBound = true;
-      const gameEvents = this.game.events;
-      this.events.once(Phaser.Scenes.Events.DESTROY, () => {
-        gameEvents.off("hidden", this.saveHandler);
-        window.removeEventListener("beforeunload", this.saveHandler);
-        this.net?.destroy();
-        this.net = undefined;
-        this.pendingTileIntents = [];
-        this.farmReady = false;
-        if (window.__gs === this) delete window.__gs;
-      });
-    }
 
     if (data?.fromMine) {
       cam.fadeIn(400, 0, 0, 0);
@@ -1273,16 +1252,12 @@ export class GameScene extends Phaser.Scene {
     this.time.delayedCall((impactFrame / rate) * 1000, () => {
       if (this.acting) onImpact();
     });
-    this.characterAction.watch(this.player, `p-${action}`, () => {
+    // Keyed on this clip: a generic ANIMATION_COMPLETE would also fire for the
+    // next non-action clip to finish (casting, caught) and re-idle mid-pose.
+    this.player.once(`animationcomplete-p-${action}`, () => {
       this.acting = false;
       this.player.play("p-idle", true);
     });
-  }
-
-  /** Presentation cleanup only; Phaser owns the existing action impact timers. */
-  resetCharacterAction(): void {
-    this.characterAction.reset();
-    this.acting = false;
   }
 
   awardXP(skill: SkillId, amount: number): void {
@@ -1766,8 +1741,8 @@ export class GameScene extends Phaser.Scene {
     if (this.saveDirty && this.saveAcc >= SAVE_FLUSH_SEC) this.save();
   }
 
-  save(): SaveOutcome {
-    if (!this.farmReady) return { kind: "disabled" };
+  save(): void {
+    if (!this.farmReady) return;
     this.saveAcc = 0;
     if (this.scene.isActive()) this.farmPosition = { x: this.player.x, y: this.player.y };
     const d: SaveData = {
@@ -1790,6 +1765,8 @@ export class GameScene extends Phaser.Scene {
     };
     const outcome = writeSave(d);
     this.saveDirty = outcome.kind === "failure";
+    // The mine saves through this stopped scene; its own HUD shows the retry hint.
+    if (!this.scene.isActive()) return;
     if (outcome.kind === "failure" && !this.saveFailed) {
       this.saveFailed = true;
       this.toast("Save unavailable. Progress stays here; retrying…", "#ffd27a");
@@ -1797,7 +1774,6 @@ export class GameScene extends Phaser.Scene {
       this.saveFailed = false;
       this.toast("Progress saved.", "#d8ffb0");
     }
-    return outcome;
   }
 
   selectedItem(): Item | null {

@@ -1,8 +1,24 @@
 import Phaser from "phaser";
 
 import type { Vec } from "../shared/constants";
-import { admitFx, type FxImportance } from "./fx-priority";
-import { BattleFx } from "./battle-fx";
+import { BattleFx, REDUCED_MOTION } from "./battle-fx";
+
+export type FxImportance = "common" | "important";
+
+/** Keep a quarter of a pool free for major beats: common traffic may replace
+ * an older common effect, never a shield, progression or boss response. */
+function admitFx<T extends { importance: FxImportance }>(
+  entries: T[],
+  capacity: number,
+  importance: FxImportance,
+): boolean {
+  const limit = importance === "important" ? capacity : capacity - Math.ceil(capacity / 4);
+  if (entries.length < limit) return true;
+  const expendable = entries.findIndex((entry) => entry.importance === "common");
+  if (expendable < 0) return false;
+  entries.splice(expendable, 1);
+  return true;
+}
 
 // Pooled VFX (vfx skill rules): the two particle emitters are created ONCE and
 // fired with explode(); stroke-shatter groups, shockwave rings and converge
@@ -98,7 +114,6 @@ export class FxPool {
   private bossCue: BossCue | null = null;
   private hullText: Phaser.GameObjects.Text;
   private bossText: Phaser.GameObjects.Text;
-  private readonly motion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -137,15 +152,6 @@ export class FxPool {
       .setOrigin(0.5)
       .setDepth(22)
       .setVisible(false);
-    // Phaser destroys the display list first. Release only our data here;
-    // reset() is for a still-live scene, such as a trailer cut.
-    scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      this.shatters.length = 0;
-      this.rings.length = 0;
-      this.converges.length = 0;
-      this.hullCue = null;
-      this.bossCue = null;
-    });
   }
 
   reset(): void {
@@ -161,21 +167,6 @@ export class FxPool {
     this.ringGfx.clear();
     this.hullText.setVisible(false);
     this.bossText.setVisible(false);
-  }
-
-  counts() {
-    return {
-      battle: this.battle.counts(),
-      particles: this.aliveParticles(),
-      rings: this.rings.length,
-      shatters: this.shatters.length,
-      converges: this.converges.length,
-      importantRings: this.rings.filter((r) => r.importance === "important").length,
-      importantShatters: this.shatters.filter((s) => s.importance === "important").length,
-      importantConverges: this.converges.filter((c) => c.importance === "important").length,
-      hullCue: this.hullCue !== null,
-      bossCue: this.bossCue !== null,
-    };
   }
 
   aliveParticles(): number {
@@ -376,7 +367,7 @@ export class FxPool {
     if (hull) {
       const t = Math.min(1, (now - hull.bornAt) / 850);
       const alpha = Math.min(1, (1 - t) * 3);
-      const scale = this.motion.matches ? 2.1 : 1.4 + 1.4 * (1 - Math.pow(1 - t, 3));
+      const scale = REDUCED_MOTION.matches ? 2.1 : 1.4 + 1.4 * (1 - Math.pow(1 - t, 3));
       const g = this.shatterGfx;
       g.lineStyle(sw, 0xdce9f0, alpha * 0.75);
       const cos = Math.cos(hull.rot) * scale;
@@ -404,7 +395,7 @@ export class FxPool {
     if (boss) {
       const t = Math.min(1, (now - boss.bornAt) / 1000);
       const alpha = Math.min(1, (1 - t) * 2.5);
-      const radius = this.motion.matches ? 74 : 58 + 30 * t;
+      const radius = REDUCED_MOTION.matches ? 74 : 58 + 30 * t;
       const g = this.ringGfx;
       g.lineStyle(sw, boss.tint, alpha * 0.8);
       for (let i = 0; i < 4; i++) {
