@@ -110,7 +110,182 @@ import {
 type Phase = "serving" | "rally" | "won";
 
 /** Cosmetic hop: visual z parabola from the hit point to a landing y. */
-type Arc = { fromY: number; toY: number };
+interface Arc {
+  fromY: number;
+  toY: number;
+}
+
+const clamp = (v: number, min: number, max: number): number => Math.min(max, Math.max(min, v));
+/** Read a numeric field from an opaque shared-state record, or null. */
+const numField = (s: JsonObject, key: string): number | null => {
+  const v = s[key];
+  return isJsonNumber(v) ? v : null;
+};
+/**
+ * Vertical fov (deg) for the current aspect. Landscape keeps the authored
+ * CAM_FOV; below CAM_MIN_LANDSCAPE_ASPECT the HORIZONTAL fov of that
+ * narrowest-landscape framing is held constant instead ("Hor+"), so portrait
+ * phones widen vertically rather than cropping the paddle's ±PADDLE_X_MAX
+ * travel out of frame. Continuous at the threshold. The guest's 180° view
+ * flip only negates rendered x/y — framing is symmetric, so no special case.
+ */
+const fovForAspect = (aspect: number): number => {
+  if (aspect >= CAM_MIN_LANDSCAPE_ASPECT) {
+    return CAM_FOV;
+  }
+  const tanHalfH = Math.tan(THREE.MathUtils.degToRad(CAM_FOV / 2)) * CAM_MIN_LANDSCAPE_ASPECT;
+  return THREE.MathUtils.radToDeg(2 * Math.atan(tanHalfH / aspect));
+};
+const el = (id: string): HTMLElement => {
+  const node = document.querySelector<HTMLElement>(`#${id}`);
+  if (!node) {
+    throw new Error(`missing #${id}`);
+  }
+  return node;
+};
+/** Banner note where input words render as the pause card's ink keycap chips
+ *  ("[✋ HAND] or [MOUSE] steers…") — same chip, same visual language. Each
+ *  phrase is one unbreakable run, so a narrow screen wraps between phrases
+ *  instead of stranding "or TAP serves" on its own line. */
+const promptNote = (phrases: readonly PromptPhrase[]): HTMLElement => {
+  const node = document.createElement("small");
+  // room for chips when the line wraps
+  node.style.lineHeight = "1.9";
+  for (const [i, phrase] of phrases.entries()) {
+    if (i > 0) {
+      node.append(" ");
+    }
+    const run = document.createElement("span");
+    run.style.whiteSpace = "nowrap";
+    for (const segment of phrase) {
+      run.append(segment.kind === "chip" ? inkChip(segment.text) : segment.text);
+    }
+    if (i < phrases.length - 1) {
+      run.append(" ·");
+    }
+    node.append(run);
+  }
+  return node;
+};
+/** Convert a legacy per-frame (60fps) lerp factor into a dt-correct one. */
+const frameLerp = (perFrame: number, dt: number): number => 1 - (1 - perFrame) ** (dt * LEGACY_FPS);
+const popScore = (node: HTMLElement): void => {
+  node.classList.remove("pop");
+  // restart the CSS animation
+  void node.offsetWidth;
+  node.classList.add("pop");
+};
+const flashMaterial = (): THREE.MeshBasicMaterial =>
+  // depthWrite off, like the shadow/ring overlays: the bars sit 0.004 above the
+  // table and are usually invisible (opacity 0) — letting them write depth would
+  // let the distance sort against the goal shockwave ring (spawned at the same
+  // goal line, z 0.015) flip under camera breath/shake and flicker through the
+  // dither pass.
+  new THREE.MeshBasicMaterial({
+    color: INK,
+    depthWrite: false,
+    opacity: 0,
+    transparent: true,
+  });
+const hitsPaddle = (ball: THREE.Vector2, paddleX: number, paddleY: number): boolean =>
+  // Hitbox deliberately larger than the visible ring — keep it generous.
+  Math.abs(ball.y - paddleY) < HIT_HALF_Y && Math.abs(ball.x - paddleX) < HIT_HALF_X;
+/** Smooth ±1 pseudo-noise: two incommensurate sines, decorrelated per seed. */
+const noise = (t: number, seed: number): number =>
+  0.6 * Math.sin(t + seed * 17.31) + 0.4 * Math.sin(t * 2.3 + seed * 31.7);
+/**
+ * Paddle return: the lateral component scales linearly with the hit's x
+ * offset from paddle center — dead-center returns straight, a full-edge
+ * graze leaves MIN_VY_FRAC of the speed pointing at the opponent. Derived
+ * from x alone: the y penetration depth at the detection frame varies with
+ * frame rate and must not steer the ball (the legacy atan2-of-penetration
+ * formula made the same hit return steep at 144Hz and shallow at 30Hz).
+ * Speed stays exactly the given rally speed.
+ */
+const reflectOffPaddle = (
+  ballX: number,
+  paddleX: number,
+  towardY: 1 | -1,
+  speed: number,
+): THREE.Vector2 => {
+  const offset = clamp((ballX - paddleX) / HIT_HALF_X, -1, 1);
+  const maxVxFrac = Math.sqrt(1 - MIN_VY_FRAC * MIN_VY_FRAC);
+  const vx = offset * maxVxFrac * speed;
+  const vy = towardY * Math.sqrt(speed * speed - vx * vx);
+  return new THREE.Vector2(vx, vy);
+};
+/** "#rrggbb" for a 24-bit hex color number. */
+const cssHex = (hex: number): string => `#${hex.toString(16).padStart(6, "0")}`;
+/**
+ * Vertical sRGB gradient (plane top → bottom) for the backdrop wall. Marked
+ * sRGB so its grey values linearize the same way THREE.Color does — keeping the
+ * dither remap (t = lum / lum(BG)) matched to the intended halftone density.
+ */
+const verticalGradientTexture = (topHex: number, bottomHex: number): THREE.CanvasTexture => {
+  const w = 4;
+  const h = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    throw new Error("2d canvas unsupported");
+  }
+  const grad = ctx.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, cssHex(topHex));
+  grad.addColorStop(1, cssHex(bottomHex));
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+};
+const arcProgress = (arc: Arc, y: number): number =>
+  clamp((y - arc.fromY) / (arc.toY - arc.fromY), 0, 1);
+/** Parabola peaking at ARC_PEAK halfway through the hop. */
+const arcHeight = (arc: Arc, y: number): number => {
+  const p = arcProgress(arc, y);
+  return 4 * ARC_PEAK * p * (1 - p);
+};
+/** Radial ink→transparent gradient — a soft blob the dither pass speckles. */
+const softCircleTexture = (): THREE.CanvasTexture => {
+  const size = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    throw new Error("2d canvas unsupported");
+  }
+  const half = size / 2;
+  const grad = ctx.createRadialGradient(half, half, size * 0.06, half, half, half);
+  grad.addColorStop(0, "rgba(0,0,0,1)");
+  grad.addColorStop(0.55, "rgba(0,0,0,0.55)");
+  grad.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  return new THREE.CanvasTexture(canvas);
+};
+const UNIT_SCALE = new THREE.Vector3(1, 1, 1);
+const V3_ZERO = new THREE.Vector3(0, 0, 0);
+const SCRATCH_M4 = new THREE.Matrix4();
+
+/**
+ * One step of a critically-damped spring toward `target` (Game Programming
+ * Gems 4). Frame-rate independent; `omega` is the natural frequency (rad/s) —
+ * higher snaps faster. Returns the new position and its carried velocity in a
+ * shared scratch object (no per-frame allocation) — consume before calling again.
+ */
+const DAMP_OUT = { pos: 0, vel: 0 };
+const smoothDamp = (current: number, target: number, vel: number, omega: number, dt: number) => {
+  const x = omega * dt;
+  const exp = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
+  const change = current - target;
+  const temp = (vel + omega * change) * dt;
+  DAMP_OUT.pos = target + (change + temp) * exp;
+  DAMP_OUT.vel = (vel - omega * temp) * exp;
+  return DAMP_OUT;
+};
 
 export class GameScene {
   readonly scene = new THREE.Scene();
@@ -128,21 +303,31 @@ export class GameScene {
   private arc: Arc | null = null;
   private playerX = 0;
   private aiX = 0;
-  private scoreYou = 0; // local player's score (host: slot A, guest: slot B)
-  private scoreAi = 0; // opponent's score
+  // local player's score (host: slot A, guest: slot B)
+  private scoreYou = 0;
+  // opponent's score
+  private scoreAi = 0;
   private rallySpeed = RALLY_SPEED_BASE;
   private rallyHits = 0;
-  private serveAt: number | null = null; // elapsed time of the next auto-serve
+  // elapsed time of the next auto-serve
+  private serveAt: number | null = null;
 
   // ---- multiplayer -----------------------------------------------------------
   private net: NetSession;
-  private netAcc = 0; // host: seconds since the last shared-state broadcast
-  private paddleAcc = 0; // seconds since the last paddle broadcast
-  private hostSeq = 0; // host: monotonically increases each shared broadcast
-  private lastSeq = -1; // guest: last applied host sequence number
-  private connWas = false; // tracks the connecting→live transition for the HUD
-  private oppWas = false; // tracks opponent join/leave for the HUD
-  private roleWasGuest: boolean | null = null; // last role while live (host migration)
+  // host: seconds since the last shared-state broadcast
+  private netAcc = 0;
+  // seconds since the last paddle broadcast
+  private paddleAcc = 0;
+  // host: monotonically increases each shared broadcast
+  private hostSeq = 0;
+  // guest: last applied host sequence number
+  private lastSeq = -1;
+  // tracks the connecting→live transition for the HUD
+  private connWas = false;
+  // tracks opponent join/leave for the HUD
+  private oppWas = false;
+  // last role while live (host migration)
+  private roleWasGuest: boolean | null = null;
 
   // ---- wrapper pause -----------------------------------------------------
   // Only frozen when it's safe: a live human opponent must never desync from
@@ -153,18 +338,26 @@ export class GameScene {
 
   // ---- feel state ------------------------------------------------------------
   private elapsed = 0;
-  private freeze = 0; // hit-stop: sim halts, rendering continues
+  // hit-stop: sim halts, rendering continues
+  private freeze = 0;
   private playerPulse = 0;
   private aiPulse = 0;
   private camKick = new THREE.Vector3();
-  private camParallax = 0; // paddle-follow camera x offset (own field, smoothed)
-  private camParallaxVel = 0; // carried velocity for the critically-damped spring
-  private camDip = 0; // camera z duck, eased toward a target set by ball proximity
-  private trauma = 0; // 0-1; shake amplitude = trauma²
+  // paddle-follow camera x offset (own field, smoothed)
+  private camParallax = 0;
+  // carried velocity for the critically-damped spring
+  private camParallaxVel = 0;
+  // camera z duck, eased toward a target set by ball proximity
+  private camDip = 0;
+  // 0-1; shake amplitude = trauma²
+  private trauma = 0;
   private shakeTime = 0;
-  private invertFlash = 0; // seconds left of full-screen ink/paper swap
-  private flashNear = 0; // player's goal line (conceded to AI)
-  private flashFar = 0; // AI's goal line (conceded to player)
+  // seconds left of full-screen ink/paper swap
+  private invertFlash = 0;
+  // player's goal line (conceded to AI)
+  private flashNear = 0;
+  // AI's goal line (conceded to player)
+  private flashFar = 0;
   private trailAcc = 0;
   private particles: ParticlePool;
   private rings: RingPool;
@@ -211,14 +404,15 @@ export class GameScene {
   private serveMeterEl = el("serve-meter");
   private oppLabelEl = el("opp-label");
   private netInfoEl = el("netinfo");
-  private serveMeterShown = false; // cached so we only touch classList on transitions
+  // cached so we only touch classList on transitions
+  private serveMeterShown = false;
 
   constructor() {
     this.net = new NetSession({
-      room: MP_ROOM,
-      maxPlayers: MP_MAX_PLAYERS,
       fallbackMs: OFFLINE_FALLBACK_MS,
+      maxPlayers: MP_MAX_PLAYERS,
       onEvent: (event, payload, from) => this.handleEvent(event, payload, from),
+      room: MP_ROOM,
     });
 
     this.scene.background = new THREE.Color(BG);
@@ -237,7 +431,7 @@ export class GameScene {
 
     // One key light, for the ball's Phong glint only — every other material
     // is unlit. The glint's gradient is what the dither pass bites into.
-    const key = new THREE.DirectionalLight(0xffffff, 2);
+    const key = new THREE.DirectionalLight(0xff_ff_ff, 2);
     key.position.set(-4, -8, 9);
     this.scene.add(key);
 
@@ -258,7 +452,7 @@ export class GameScene {
       NET_DASH.count,
     );
     const netSpan = COURT_W - NET_DASH.w;
-    for (let i = 0; i < NET_DASH.count; i++) {
+    for (let i = 0; i < NET_DASH.count; i += 1) {
       const x = -netSpan / 2 + (netSpan * i) / (NET_DASH.count - 1);
       net.setMatrixAt(i, SCRATCH_M4.makeTranslation(x, 0, 0.004));
     }
@@ -306,17 +500,17 @@ export class GameScene {
     // highlight gives the sphere a dithered glint that sells the form.
     this.ball = new THREE.Mesh(
       new THREE.SphereGeometry(BALL_R, 16, 16),
-      new THREE.MeshPhongMaterial({ color: 0x111111, specular: 0xbbbbbb, shininess: 40 }),
+      new THREE.MeshPhongMaterial({ color: 0x11_11_11, shininess: 40, specular: 0xbb_bb_bb }),
     );
     this.ball.position.z = BALL_R;
     this.scene.add(this.ball);
 
     // Soft radial-gradient shadow — the falloff dithers into a speckle edge.
     this.shadowMat = new THREE.MeshBasicMaterial({
-      map: softCircleTexture(),
-      transparent: true,
-      opacity: SHADOW_MAX_OPACITY,
       depthWrite: false,
+      map: softCircleTexture(),
+      opacity: SHADOW_MAX_OPACITY,
+      transparent: true,
     });
     this.shadow = new THREE.Mesh(new THREE.PlaneGeometry(BALL_R * 5, BALL_R * 5), this.shadowMat);
     this.shadow.position.z = 0.01;
@@ -362,8 +556,11 @@ export class GameScene {
     return this.mySlotA ? this.playerX : this.aiX;
   }
   private set myPaddle(x: number) {
-    if (this.mySlotA) this.playerX = x;
-    else this.aiX = x;
+    if (this.mySlotA) {
+      this.playerX = x;
+    } else {
+      this.aiX = x;
+    }
   }
   private get oppPaddle(): number {
     return this.mySlotA ? this.aiX : this.playerX;
@@ -385,14 +582,18 @@ export class GameScene {
    *  connected — freezing here would desync the shared rally state; the
    *  wrapper's overlay still shows, the match just keeps running behind it. */
   requestPause(): void {
-    if (this.hasLiveOpponent()) return;
+    if (this.hasLiveOpponent()) {
+      return;
+    }
     this.froze = true;
     this.paused = true;
   }
 
   /** Wrapper resume. Only unfreezes if requestPause() actually froze us. */
   requestResume(): void {
-    if (!this.froze) return;
+    if (!this.froze) {
+      return;
+    }
     this.froze = false;
     this.paused = false;
   }
@@ -402,11 +603,16 @@ export class GameScene {
    *  MEANS on screen (the view flip negates x) — remap so nothing teleports,
    *  then restart the point from a clean serve on our own clock. */
   private becomeHost(): void {
-    const myOld = this.aiX; // slot B was ours
+    // slot B was ours
+    const myOld = this.aiX;
     const oppOld = this.playerX;
-    this.playerX = -myOld; // same screen position under the new flip sign
+    // same screen position under the new flip sign
+    this.playerX = -myOld;
     this.aiX = -oppOld;
-    if (this.phase !== "won") {
+    if (this.phase === "won") {
+      // rematch waits for confirm, as usual
+      this.serveAt = null;
+    } else {
       // The rally state (ball, streak, serve clock) was the old host's; the
       // serve clock in particular was in ITS `elapsed` timeline, which can sit
       // hours ahead of ours and stall the auto-serve forever.
@@ -417,8 +623,6 @@ export class GameScene {
       this.rallyHits = 0;
       this.rallySpeed = RALLY_SPEED_BASE;
       this.serveAt = this.elapsed + AUTO_SERVE_S;
-    } else {
-      this.serveAt = null; // rematch waits for confirm, as usual
     }
     this.hostSeq = 0;
     this.lastSeq = -1;
@@ -446,7 +650,9 @@ export class GameScene {
 
   /** Latest wrist x, or null once no hand has been seen for HAND_TIMEOUT_MS. */
   private currentHandX(): number | null {
-    if (this.handX === null) return null;
+    if (this.handX === null) {
+      return null;
+    }
     return performance.now() - this.handSeenAt < HAND_TIMEOUT_MS ? this.handX : null;
   }
 
@@ -462,7 +668,8 @@ export class GameScene {
   private onPointerMove = (e: PointerEvent): void => {
     if (this.dragging) {
       if (e.buttons === 0) {
-        this.dragging = false; // button released outside the window
+        // button released outside the window
+        this.dragging = false;
       } else {
         this.camDrag.x -= (e.clientX - this.lastPointer.x) * DRAG_PAN_SCALE;
         this.camDrag.y += (e.clientY - this.lastPointer.y) * DRAG_PAN_SCALE;
@@ -471,10 +678,18 @@ export class GameScene {
         return;
       }
     }
-    if (this.currentHandX() !== null) return; // hand owns the paddle
-    if (this.padSteerX() !== null) return; // deflected stick owns the paddle
+    if (this.currentHandX() !== null) {
+      return;
+      // hand owns the paddle
+    }
+    if (this.padSteerX() !== null) {
+      return;
+      // deflected stick owns the paddle
+    }
     const x = this.pointerToTableX(e);
-    if (x !== null) this.myPaddle = x;
+    if (x !== null) {
+      this.myPaddle = x;
+    }
   };
 
   private onPointerDown = (e: PointerEvent): void => {
@@ -496,7 +711,9 @@ export class GameScene {
   private onPointerUp = (e: PointerEvent): void => {
     if (this.dragging && e.pointerType === "mouse") {
       const moved = Math.hypot(e.clientX - this.downAt.x, e.clientY - this.downAt.y);
-      if (moved < CLICK_DRAG_TOLERANCE_PX) this.confirm();
+      if (moved < CLICK_DRAG_TOLERANCE_PX) {
+        this.confirm();
+      }
     }
     this.dragging = false;
   };
@@ -519,11 +736,15 @@ export class GameScene {
     // Frozen for the wrapper's pause overlay: the webcam hand loop keeps
     // running (per its own contract) but must not wake the sim through a
     // fist gesture while we're paused.
-    if (this.paused) return;
+    if (this.paused) {
+      return;
+    }
     // Still handshaking. A tap here is intent, not noise: rather than swallow
     // it and leave the player staring at "connecting" for the rest of the
     // fallback window, take it as "play now" and serve solo.
-    if (!this.net.live) this.playSolo();
+    if (!this.net.live) {
+      this.playSolo();
+    }
     // A guest can't touch the authoritative ball/score — forward the intent so
     // the host serves / rematches for both of us.
     if (this.isGuest()) {
@@ -536,7 +757,9 @@ export class GameScene {
       this.phase = "serving";
       this.syncHud();
     }
-    if (this.phase === "serving") this.serve();
+    if (this.phase === "serving") {
+      this.serve();
+    }
   }
 
   /** Abandon matchmaking for the local solo game. Replaces the session rather
@@ -545,11 +768,11 @@ export class GameScene {
   private playSolo(): void {
     this.net.destroy();
     this.net = new NetSession({
-      room: MP_ROOM,
-      maxPlayers: MP_MAX_PLAYERS,
       fallbackMs: OFFLINE_FALLBACK_MS,
       forceOffline: true,
+      maxPlayers: MP_MAX_PLAYERS,
       onEvent: (event, payload, from) => this.handleEvent(event, payload, from),
+      room: MP_ROOM,
     });
   }
 
@@ -560,7 +783,8 @@ export class GameScene {
     this.rallySpeed = RALLY_SPEED_BASE;
     this.rallyHits = 0;
     this.serveAt = null;
-    this.comboEl.style.opacity = "0"; // the rally counter resets with the new rally
+    // the rally counter resets with the new rally
+    this.comboEl.style.opacity = "0";
     this.ballVel.set(Math.cos(angle) * this.rallySpeed, Math.sin(angle) * this.rallySpeed);
     this.phase = "rally";
     sfx.serve();
@@ -571,7 +795,9 @@ export class GameScene {
   // ---- simulation ------------------------------------------------------------
 
   update(dt: number): void {
-    if (this.paused) return;
+    if (this.paused) {
+      return;
+    }
     this.elapsed += dt;
     this.invertFlash = Math.max(0, this.invertFlash - dt);
     this.net.tick();
@@ -580,7 +806,9 @@ export class GameScene {
     // early returns, so A stays as responsive as a click (confirm() carries
     // the same guards either way).
     this.pad.update();
-    if (this.pad.justPressed("a")) this.confirm();
+    if (this.pad.justPressed("a")) {
+      this.confirm();
+    }
 
     // Reflect connecting→live and opponent join/leave in the HUD once each.
     if (this.net.live !== this.connWas) {
@@ -596,7 +824,9 @@ export class GameScene {
       // Host migration: the server elected us after the old host left (the
       // check spans reconnect gaps, when `live` briefly drops).
       const guestNow = this.isGuest();
-      if (this.roleWasGuest === true && !guestNow) this.becomeHost();
+      if (this.roleWasGuest === true && !guestNow) {
+        this.becomeHost();
+      }
       this.roleWasGuest = guestNow;
     }
     if (!this.net.live) {
@@ -632,7 +862,10 @@ export class GameScene {
         this.serve();
       }
       if (this.phase === "rally") {
-        if (!this.hasOpponent()) this.updateAi(dt); // AI fills in until a human joins
+        if (!this.hasOpponent()) {
+          this.updateAi(dt);
+          // AI fills in until a human joins
+        }
         this.updateBall(dt);
       }
       this.broadcastShared(dt);
@@ -645,7 +878,7 @@ export class GameScene {
   /** Webcam-hand / controller paddle control, routed to the owned slot. The
    *  view flip keeps "screen right = paddle right" for the guest too. */
   private applyPaddleInput(dt: number): void {
-    const flip = this.flip;
+    const { flip } = this;
 
     // Hand tracking owns the paddle while a hand is in frame. Legacy mapping:
     // targetX = (1 - wristX)·9 − 4.5 clamped ±4.5, smoothed by an adaptive
@@ -676,8 +909,10 @@ export class GameScene {
    *  ±1 (so dead center and the walls stay reachable), or null while the
    *  stick is centered — null means the pad is NOT steering this frame. */
   private padSteerX(): number | null {
-    const dx = this.pad.getStick().dx;
-    if (Math.abs(dx) <= PAD_DEAD_ZONE) return null;
+    const { dx } = this.pad.getStick();
+    if (Math.abs(dx) <= PAD_DEAD_ZONE) {
+      return null;
+    }
     const norm = (Math.abs(dx) - PAD_DEAD_ZONE) / (1 - PAD_DEAD_ZONE);
     return Math.sign(dx) * Math.min(1, norm);
   }
@@ -687,11 +922,16 @@ export class GameScene {
   private smoothOppPaddle(dt: number): void {
     const other = this.net.otherPlayer();
     const raw = other?.state?.["paddle"];
-    if (!isJsonNumber(raw)) return;
+    if (!isJsonNumber(raw)) {
+      return;
+    }
     const target = clamp(raw, -PADDLE_X_MAX, PADDLE_X_MAX);
     const next = this.oppPaddle + (target - this.oppPaddle) * frameLerp(0.5, dt);
-    if (this.mySlotA) this.aiX = next;
-    else this.playerX = next;
+    if (this.mySlotA) {
+      this.aiX = next;
+    } else {
+      this.playerX = next;
+    }
   }
 
   private updateAi(dt: number): void {
@@ -730,8 +970,11 @@ export class GameScene {
     }
 
     // Scoring.
-    if (pos.y > GOAL_Y) this.onPoint("you");
-    else if (pos.y < -GOAL_Y) this.onPoint("ai");
+    if (pos.y > GOAL_Y) {
+      this.onPoint("you");
+    } else if (pos.y < -GOAL_Y) {
+      this.onPoint("ai");
+    }
   }
 
   private onPaddleHit(side: "player" | "ai"): void {
@@ -757,12 +1000,12 @@ export class GameScene {
       this.rallyHits,
     );
     this.emitBeat("phit", {
-      x: this.ballPos.x,
-      y: this.ballPos.y,
-      vx: this.ballVel.x,
-      vy: this.ballVel.y,
       a: side === "player",
       n: this.rallyHits,
+      vx: this.ballVel.x,
+      vy: this.ballVel.y,
+      x: this.ballPos.x,
+      y: this.ballPos.y,
     });
   }
 
@@ -782,23 +1025,26 @@ export class GameScene {
     slotA: boolean,
     rallyHits: number,
   ): void {
-    const flip = this.flip;
+    const { flip } = this;
     const sx = flip * cx;
     const sy = flip * cy;
     const mine = slotA === this.mySlotA;
 
     this.freeze = HIT_STOP_PADDLE;
     this.trauma = Math.min(1, this.trauma + TRAUMA_PADDLE);
-    if (mine) this.playerPulse = 1;
-    else this.aiPulse = 1;
+    if (mine) {
+      this.playerPulse = 1;
+    } else {
+      this.aiPulse = 1;
+    }
     this.squashBall("y");
     this.camKick.set(cvx * flip * NUDGE_SCALE, cvy * flip * NUDGE_SCALE, 0);
     this.particles.burst({
+      dirX: cvx * flip,
+      dirY: cvy * flip,
       x: sx,
       y: sy,
       z: this.ballHeight(),
-      dirX: cvx * flip,
-      dirY: cvy * flip,
       ...BURST_PADDLE,
     });
     this.rings.spawn({ x: sx, y: mine ? -PADDLE_Y : PADDLE_Y, ...RING_PADDLE });
@@ -824,10 +1070,12 @@ export class GameScene {
     const won = this.scoreYou >= WIN_SCORE || this.scoreAi >= WIN_SCORE;
     this.phase = won ? "won" : "serving";
     this.freeze = won ? HIT_STOP_WIN : HIT_STOP_GOAL;
-    if (!won) this.serveAt = this.elapsed + AUTO_SERVE_S;
+    if (!won) {
+      this.serveAt = this.elapsed + AUTO_SERVE_S;
+    }
 
     this.pointFx(scorer === "you", crossX, goalY, won);
-    this.emitBeat("point", { a: scorer === "you", x: crossX, y: goalY, won });
+    this.emitBeat("point", { a: scorer === "you", won, x: crossX, y: goalY });
     this.syncHud();
   }
 
@@ -839,19 +1087,23 @@ export class GameScene {
    * the win/score sfx reads as ours.
    */
   private pointFx(scorerSlotA: boolean, cx: number, cy: number, won: boolean): void {
-    const flip = this.flip;
+    const { flip } = this;
     const sx = flip * cx;
     const sy = flip * cy;
     const iScored = scorerSlotA === this.mySlotA;
     // The scored-on goal flashes: I scored → the far (opponent) line; else mine.
-    if (iScored) this.flashFar = 1;
-    else this.flashNear = 1;
+    if (iScored) {
+      this.flashFar = 1;
+    } else {
+      this.flashNear = 1;
+    }
 
     this.invertFlash = INVERT_FLASH_S;
     this.trauma = Math.min(1, this.trauma + TRAUMA_GOAL);
-    this.particles.burst({ x: sx, y: sy, z: BALL_R, dirY: -Math.sign(cy) * flip, ...BURST_GOAL });
+    this.particles.burst({ dirY: -Math.sign(cy) * flip, x: sx, y: sy, z: BALL_R, ...BURST_GOAL });
     this.rings.spawn({ x: sx, y: sy, ...RING_GOAL });
-    this.comboEl.style.opacity = "0"; // the rally is over
+    // the rally is over
+    this.comboEl.style.opacity = "0";
 
     if (won) {
       sfx.win(iScored);
@@ -863,14 +1115,14 @@ export class GameScene {
   }
 
   private wallFx(cx: number, cy: number): void {
-    const flip = this.flip;
+    const { flip } = this;
     this.squashBall("x");
     this.trauma = Math.min(1, this.trauma + TRAUMA_WALL);
     this.particles.burst({
+      dirX: -Math.sign(cx) * flip,
       x: flip * cx,
       y: flip * cy,
       z: this.ballHeight(),
-      dirX: -Math.sign(cx) * flip,
       ...BURST_WALL,
     });
     sfx.wall();
@@ -881,18 +1133,24 @@ export class GameScene {
   /** Emit a host→guest fx beat, but only when a remote guest is listening
    *  (solo/offline replays fx locally, so there is no beat to loop back). */
   private emitBeat(event: string, payload: JsonObject): void {
-    if (this.net.offline || !this.net.isHost || !this.hasOpponent()) return;
+    if (this.net.offline || !this.net.isHost || !this.hasOpponent()) {
+      return;
+    }
     this.net.sendEvent(event, payload);
   }
 
   private handleEvent(event: string, payload: JsonValue, _from: string): void {
     // Guest → host intent (serve / rematch). Only the host acts on it.
     if (event === "confirm") {
-      if (!this.isGuest()) this.confirm();
+      if (!this.isGuest()) {
+        this.confirm();
+      }
       return;
     }
     // Host → guest fx beats — the host already ran these locally.
-    if (!this.isGuest()) return;
+    if (!this.isGuest()) {
+      return;
+    }
     const p = isJsonObject(payload) ? payload : {};
     const num = (k: string): number => {
       const v = p[k];
@@ -900,19 +1158,24 @@ export class GameScene {
     };
     const bool = (k: string): boolean => p[k] === true;
     switch (event) {
-      case "phit":
+      case "phit": {
         this.paddleHitFx(num("x"), num("y"), num("vx"), num("vy"), bool("a"), num("n"));
         break;
-      case "wall":
+      }
+      case "wall": {
         this.wallFx(num("x"), num("y"));
         break;
-      case "point":
+      }
+      case "point": {
         this.pointFx(bool("a"), num("x"), num("y"), bool("won"));
         break;
-      case "serve":
+      }
+      case "serve": {
         this.comboEl.style.opacity = "0";
         sfx.serve();
         break;
+      }
+      // no default
     }
   }
 
@@ -921,34 +1184,42 @@ export class GameScene {
     // Solo/alone: nobody reads shared state — don't stream ~30 msg/s at the
     // Durable Object for an empty room. (The first snapshot after a guest
     // joins goes out within one net tick.)
-    if (this.net.offline || !this.hasOpponent()) return;
+    if (this.net.offline || !this.hasOpponent()) {
+      return;
+    }
     this.netAcc += dt;
-    if (this.netAcc < 1 / NET_TICK_HZ) return;
+    if (this.netAcc < 1 / NET_TICK_HZ) {
+      return;
+    }
     this.netAcc = 0;
-    this.hostSeq++;
+    this.hostSeq += 1;
     this.net.patchShared({
-      seq: this.hostSeq,
-      bx: this.ballPos.x,
-      by: this.ballPos.y,
+      arcFrom: this.arc ? this.arc.fromY : null,
+      arcTo: this.arc ? this.arc.toY : null,
       bvx: this.ballVel.x,
       bvy: this.ballVel.y,
+      bx: this.ballPos.x,
+      by: this.ballPos.y,
       phase: this.phase,
       rally: this.rallyHits,
+      scoreA: this.scoreYou,
+      scoreB: this.scoreAi,
+      seq: this.hostSeq,
       // Remaining time, not the absolute deadline: `serveAt` lives in OUR
       // `elapsed` timeline, which the guest's clock has no relation to.
       serveLeft: this.serveAt === null ? null : Math.max(0, this.serveAt - this.elapsed),
-      scoreA: this.scoreYou,
-      scoreB: this.scoreAi,
-      arcFrom: this.arc ? this.arc.fromY : null,
-      arcTo: this.arc ? this.arc.toY : null,
     });
   }
 
   /** Broadcast the local paddle position at ~NET_TICK_HZ (canonical frame). */
   private broadcastPaddle(dt: number): void {
-    if (this.net.offline || !this.hasOpponent()) return;
+    if (this.net.offline || !this.hasOpponent()) {
+      return;
+    }
     this.paddleAcc += dt;
-    if (this.paddleAcc < 1 / NET_TICK_HZ) return;
+    if (this.paddleAcc < 1 / NET_TICK_HZ) {
+      return;
+    }
     this.paddleAcc = 0;
     this.net.updateMyState({ paddle: this.myPaddle });
   }
@@ -957,7 +1228,9 @@ export class GameScene {
    *  between snapshots so it moves smoothly at the full frame rate. */
   private applyGuestShared(dt: number): void {
     const s = this.net.sharedState;
-    if (!s) return;
+    if (!s) {
+      return;
+    }
     const seq = numField(s, "seq");
     const fresh = seq !== null && seq !== this.lastSeq;
 
@@ -965,26 +1238,7 @@ export class GameScene {
     // once per snapshot (not every frame; this also skips re-allocating the arc).
     if (fresh && seq !== null) {
       this.lastSeq = seq;
-      this.ballVel.set(numField(s, "bvx") ?? 0, numField(s, "bvy") ?? 0);
-      this.rallyHits = numField(s, "rally") ?? 0;
-      // Re-anchor the host's remaining serve time in OUR timeline (only on a
-      // fresh snapshot — re-anchoring stale data would freeze the meter).
-      const sl = numField(s, "serveLeft");
-      this.serveAt = sl === null ? null : this.elapsed + sl;
-
-      // Slots A/B map to opponent/me for a guest.
-      const prevYou = this.scoreYou;
-      const prevAi = this.scoreAi;
-      this.scoreYou = numField(s, "scoreB") ?? 0;
-      this.scoreAi = numField(s, "scoreA") ?? 0;
-      if (this.scoreYou !== prevYou) popScore(this.scoreYouEl);
-      if (this.scoreAi !== prevAi) popScore(this.scoreAiEl);
-
-      const af = numField(s, "arcFrom");
-      const at = numField(s, "arcTo");
-      this.arc = af !== null && at !== null ? { fromY: af, toY: at } : null;
-
-      this.ballPos.set(numField(s, "bx") ?? 0, numField(s, "by") ?? 0);
+      this.adoptSnapshot(s);
     } else if (this.phase === "rally") {
       this.ballPos.addScaledVector(this.ballVel, dt);
     }
@@ -995,6 +1249,34 @@ export class GameScene {
       this.phase = nextPhase;
       this.syncHud();
     }
+  }
+
+  /** Adopt one host snapshot: ball, rally, serve clock, scores and arc. */
+  private adoptSnapshot(s: JsonObject): void {
+    this.ballVel.set(numField(s, "bvx") ?? 0, numField(s, "bvy") ?? 0);
+    this.rallyHits = numField(s, "rally") ?? 0;
+    // Re-anchor the host's remaining serve time in OUR timeline (only on a
+    // fresh snapshot — re-anchoring stale data would freeze the meter).
+    const sl = numField(s, "serveLeft");
+    this.serveAt = sl === null ? null : this.elapsed + sl;
+
+    // Slots A/B map to opponent/me for a guest.
+    const prevYou = this.scoreYou;
+    const prevAi = this.scoreAi;
+    this.scoreYou = numField(s, "scoreB") ?? 0;
+    this.scoreAi = numField(s, "scoreA") ?? 0;
+    if (this.scoreYou !== prevYou) {
+      popScore(this.scoreYouEl);
+    }
+    if (this.scoreAi !== prevAi) {
+      popScore(this.scoreAiEl);
+    }
+
+    const af = numField(s, "arcFrom");
+    const at = numField(s, "arcTo");
+    this.arc = af !== null && at !== null ? { fromY: af, toY: at } : null;
+
+    this.ballPos.set(numField(s, "bx") ?? 0, numField(s, "by") ?? 0);
   }
 
   // ---- visual effects ----------------------------------------------------------
@@ -1009,7 +1291,7 @@ export class GameScene {
     // A guest renders the canonical world flipped 180°, so its own paddle is at
     // the near (bottom) edge. `playerRing` is always the LOCAL paddle (bottom),
     // `aiRing` the opponent (top); both derive from the flipped canonical x.
-    const flip = this.flip;
+    const { flip } = this;
     this.playerPulse *= Math.exp(-PULSE_DECAY * dt);
     this.aiPulse *= Math.exp(-PULSE_DECAY * dt);
     this.playerRing.position.x = flip * this.myPaddle;
@@ -1042,7 +1324,7 @@ export class GameScene {
       this.trailAcc += dt * TRAIL_RATE;
       const ghosts = Math.floor(this.trailAcc);
       this.trailAcc -= ghosts;
-      for (let i = 0; i < ghosts; i++) {
+      for (let i = 0; i < ghosts; i += 1) {
         const back = (i + this.trailAcc) / TRAIL_RATE;
         this.particles.ghost(
           flip * (this.ballPos.x - this.ballVel.x * back),
@@ -1067,7 +1349,9 @@ export class GameScene {
 
     // Drag-pan offset eases back to rest only while not dragging (legacy:
     // 0.1 per 60fps frame). Orientation stays fixed — pan, don't re-aim.
-    if (!this.dragging) this.camDrag.lerp(V3_ZERO, frameLerp(CAM_RETURN_LERP, dt));
+    if (!this.dragging) {
+      this.camDrag.lerp(V3_ZERO, frameLerp(CAM_RETURN_LERP, dt));
+    }
     this.camKick.multiplyScalar(Math.exp(-NUDGE_DECAY * dt));
     // Ball-proximity dip: duck lower as the ball nears the player's side (0 on
     // the AI half → CAM_DIP_MAX at the player's goal), eased so it never jitters.
@@ -1158,7 +1442,12 @@ export class GameScene {
       controlsCopy = true;
     } else if (this.phase === "won") {
       const iWon = this.scoreYou > this.scoreAi;
-      const strong = iWon ? "you win" : human ? "rival wins" : "ai wins";
+      let strong = "ai wins";
+      if (iWon) {
+        strong = "you win";
+      } else if (human) {
+        strong = "rival wins";
+      }
       this.bannerEl.replaceChildren(strong, promptNote(rematchNotePhrases()));
       this.bannerEl.style.opacity = "1";
       controlsCopy = true;
@@ -1189,27 +1478,34 @@ export class GameScene {
   }
 
   private netInfoText(): string {
-    if (!this.net.live) return "connecting…";
-    if (this.net.offline) return "offline · vs AI";
+    if (!this.net.live) {
+      return "connecting…";
+    }
+    if (this.net.offline) {
+      return "offline · vs AI";
+    }
     const role = this.isGuest() ? "guest" : "host";
     return this.hasOpponent() ? `${role} · 1v1` : `${role} · waiting for player`;
   }
 
   /** Surface the running rally length as an escalating "×N" once past MIN. */
   private showCombo(hits: number): void {
-    if (hits < COMBO_MIN) return;
+    if (hits < COMBO_MIN) {
+      return;
+    }
     const tier = clamp(hits / COMBO_PEAK_HITS, 0, 1);
     this.comboEl.textContent = `×${hits}`;
     this.comboEl.style.setProperty("--combo-tier", tier.toFixed(3));
     this.comboEl.style.opacity = "1";
     this.comboEl.classList.remove("pop");
-    void this.comboEl.offsetWidth; // restart the CSS pop
+    // restart the CSS pop
+    void this.comboEl.offsetWidth;
     this.comboEl.classList.add("pop");
   }
 
   /** Deplete the serve-countdown bar over the auto-serve dead air between points. */
   private updateServeMeter(): void {
-    const serveAt = this.serveAt;
+    const { serveAt } = this;
     const active = this.phase === "serving" && serveAt !== null;
     if (active) {
       const left = Math.max(0, serveAt - this.elapsed);
@@ -1223,187 +1519,3 @@ export class GameScene {
 }
 
 // ---- module helpers (pure) --------------------------------------------------
-
-const UNIT_SCALE = new THREE.Vector3(1, 1, 1);
-const V3_ZERO = new THREE.Vector3(0, 0, 0);
-const SCRATCH_M4 = new THREE.Matrix4();
-
-function clamp(v: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, v));
-}
-
-/**
- * Vertical fov (deg) for the current aspect. Landscape keeps the authored
- * CAM_FOV; below CAM_MIN_LANDSCAPE_ASPECT the HORIZONTAL fov of that
- * narrowest-landscape framing is held constant instead ("Hor+"), so portrait
- * phones widen vertically rather than cropping the paddle's ±PADDLE_X_MAX
- * travel out of frame. Continuous at the threshold. The guest's 180° view
- * flip only negates rendered x/y — framing is symmetric, so no special case.
- */
-function fovForAspect(aspect: number): number {
-  if (aspect >= CAM_MIN_LANDSCAPE_ASPECT) return CAM_FOV;
-  const tanHalfH = Math.tan(THREE.MathUtils.degToRad(CAM_FOV / 2)) * CAM_MIN_LANDSCAPE_ASPECT;
-  return THREE.MathUtils.radToDeg(2 * Math.atan(tanHalfH / aspect));
-}
-
-/** Read a numeric field from an opaque shared-state record, or null. */
-function numField(s: JsonObject, key: string): number | null {
-  const v = s[key];
-  return isJsonNumber(v) ? v : null;
-}
-
-/** Convert a legacy per-frame (60fps) lerp factor into a dt-correct one. */
-function frameLerp(perFrame: number, dt: number): number {
-  return 1 - Math.pow(1 - perFrame, dt * LEGACY_FPS);
-}
-
-/**
- * One step of a critically-damped spring toward `target` (Game Programming
- * Gems 4). Frame-rate independent; `omega` is the natural frequency (rad/s) —
- * higher snaps faster. Returns the new position and its carried velocity in a
- * shared scratch object (no per-frame allocation) — consume before calling again.
- */
-const DAMP_OUT = { pos: 0, vel: 0 };
-function smoothDamp(current: number, target: number, vel: number, omega: number, dt: number) {
-  const x = omega * dt;
-  const exp = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
-  const change = current - target;
-  const temp = (vel + omega * change) * dt;
-  DAMP_OUT.pos = target + (change + temp) * exp;
-  DAMP_OUT.vel = (vel - omega * temp) * exp;
-  return DAMP_OUT;
-}
-
-function el(id: string): HTMLElement {
-  const node = document.getElementById(id);
-  if (!node) throw new Error(`missing #${id}`);
-  return node;
-}
-
-/** Banner note where input words render as the pause card's ink keycap chips
- *  ("[✋ HAND] or [MOUSE] steers…") — same chip, same visual language. Each
- *  phrase is one unbreakable run, so a narrow screen wraps between phrases
- *  instead of stranding "or TAP serves" on its own line. */
-function promptNote(phrases: readonly PromptPhrase[]): HTMLElement {
-  const node = document.createElement("small");
-  node.style.lineHeight = "1.9"; // room for chips when the line wraps
-  phrases.forEach((phrase, i) => {
-    if (i > 0) node.append(" ");
-    const run = document.createElement("span");
-    run.style.whiteSpace = "nowrap";
-    for (const segment of phrase) {
-      run.append(segment.kind === "chip" ? inkChip(segment.text) : segment.text);
-    }
-    if (i < phrases.length - 1) run.append(" ·");
-    node.append(run);
-  });
-  return node;
-}
-
-function popScore(node: HTMLElement): void {
-  node.classList.remove("pop");
-  void node.offsetWidth; // restart the CSS animation
-  node.classList.add("pop");
-}
-
-function flashMaterial(): THREE.MeshBasicMaterial {
-  // depthWrite off, like the shadow/ring overlays: the bars sit 0.004 above the
-  // table and are usually invisible (opacity 0) — letting them write depth would
-  // let the distance sort against the goal shockwave ring (spawned at the same
-  // goal line, z 0.015) flip under camera breath/shake and flicker through the
-  // dither pass.
-  return new THREE.MeshBasicMaterial({
-    color: INK,
-    transparent: true,
-    opacity: 0,
-    depthWrite: false,
-  });
-}
-
-function hitsPaddle(ball: THREE.Vector2, paddleX: number, paddleY: number): boolean {
-  // Hitbox deliberately larger than the visible ring — keep it generous.
-  return Math.abs(ball.y - paddleY) < HIT_HALF_Y && Math.abs(ball.x - paddleX) < HIT_HALF_X;
-}
-
-/**
- * Paddle return: the lateral component scales linearly with the hit's x
- * offset from paddle center — dead-center returns straight, a full-edge
- * graze leaves MIN_VY_FRAC of the speed pointing at the opponent. Derived
- * from x alone: the y penetration depth at the detection frame varies with
- * frame rate and must not steer the ball (the legacy atan2-of-penetration
- * formula made the same hit return steep at 144Hz and shallow at 30Hz).
- * Speed stays exactly the given rally speed.
- */
-function reflectOffPaddle(
-  ballX: number,
-  paddleX: number,
-  towardY: 1 | -1,
-  speed: number,
-): THREE.Vector2 {
-  const offset = clamp((ballX - paddleX) / HIT_HALF_X, -1, 1);
-  const maxVxFrac = Math.sqrt(1 - MIN_VY_FRAC * MIN_VY_FRAC);
-  const vx = offset * maxVxFrac * speed;
-  const vy = towardY * Math.sqrt(speed * speed - vx * vx);
-  return new THREE.Vector2(vx, vy);
-}
-
-/** Smooth ±1 pseudo-noise: two incommensurate sines, decorrelated per seed. */
-function noise(t: number, seed: number): number {
-  return 0.6 * Math.sin(t + seed * 17.31) + 0.4 * Math.sin(t * 2.3 + seed * 31.7);
-}
-
-/** Radial ink→transparent gradient — a soft blob the dither pass speckles. */
-function softCircleTexture(): THREE.CanvasTexture {
-  const size = 128;
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("2d canvas unsupported");
-  const half = size / 2;
-  const grad = ctx.createRadialGradient(half, half, size * 0.06, half, half, half);
-  grad.addColorStop(0, "rgba(0,0,0,1)");
-  grad.addColorStop(0.55, "rgba(0,0,0,0.55)");
-  grad.addColorStop(1, "rgba(0,0,0,0)");
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, size, size);
-  return new THREE.CanvasTexture(canvas);
-}
-
-/**
- * Vertical sRGB gradient (plane top → bottom) for the backdrop wall. Marked
- * sRGB so its grey values linearize the same way THREE.Color does — keeping the
- * dither remap (t = lum / lum(BG)) matched to the intended halftone density.
- */
-function verticalGradientTexture(topHex: number, bottomHex: number): THREE.CanvasTexture {
-  const w = 4;
-  const h = 256;
-  const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("2d canvas unsupported");
-  const grad = ctx.createLinearGradient(0, 0, 0, h);
-  grad.addColorStop(0, cssHex(topHex));
-  grad.addColorStop(1, cssHex(bottomHex));
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, w, h);
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
-/** "#rrggbb" for a 24-bit hex color number. */
-function cssHex(hex: number): string {
-  return `#${hex.toString(16).padStart(6, "0")}`;
-}
-
-function arcProgress(arc: Arc, y: number): number {
-  return clamp((y - arc.fromY) / (arc.toY - arc.fromY), 0, 1);
-}
-
-/** Parabola peaking at ARC_PEAK halfway through the hop. */
-function arcHeight(arc: Arc, y: number): number {
-  const p = arcProgress(arc, y);
-  return 4 * ARC_PEAK * p * (1 - p);
-}

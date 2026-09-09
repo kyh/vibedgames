@@ -1,4 +1,4 @@
-import Phaser from "phaser";
+import { Scene } from "phaser";
 
 /** Source frame size of the generated player walk sheets (2x2 grid in a 512² image). */
 const PLAYER_FRAME = 256;
@@ -6,7 +6,7 @@ const PLAYER_FRAME = 256;
 const EXPLO_FRAME = 128;
 const EXPLO_FRAMES = 16;
 
-export class BootScene extends Phaser.Scene {
+export class BootScene extends Scene {
   constructor() {
     super("Boot");
   }
@@ -24,7 +24,7 @@ export class BootScene extends Phaser.Scene {
     this.load.image("pow-speed", "assets/pow-speed.webp");
 
     // Directional walk sheets — 4 frames each (2x2). Left reuses side, flipped.
-    const pframe = { frameWidth: PLAYER_FRAME, frameHeight: PLAYER_FRAME };
+    const pframe = { frameHeight: PLAYER_FRAME, frameWidth: PLAYER_FRAME };
     this.load.spritesheet("player-down", "assets/player-down.webp", pframe);
     this.load.spritesheet("player-up", "assets/player-up.webp", pframe);
     this.load.spritesheet("player-side", "assets/player-side.webp", pframe);
@@ -32,17 +32,17 @@ export class BootScene extends Phaser.Scene {
     // Explosion: 16-frame fire burst derived from a generated video, rendered
     // additively (pure-black background contributes nothing under ADD blend).
     this.load.spritesheet("explosion", "assets/explosion.webp", {
-      frameWidth: EXPLO_FRAME,
       frameHeight: EXPLO_FRAME,
+      frameWidth: EXPLO_FRAME,
     });
   }
 
   create(): void {
     const mk = (key: string, sheet: string) => {
       this.anims.create({
-        key,
-        frames: this.anims.generateFrameNumbers(sheet, { start: 0, end: 3 }),
         frameRate: 9,
+        frames: this.anims.generateFrameNumbers(sheet, { end: 3, start: 0 }),
+        key,
         repeat: -1,
       });
     };
@@ -51,9 +51,9 @@ export class BootScene extends Phaser.Scene {
     mk("walk-side", "player-side");
 
     this.anims.create({
-      key: "explode",
-      frames: this.anims.generateFrameNumbers("explosion", { start: 0, end: EXPLO_FRAMES - 1 }),
       frameRate: 32,
+      frames: this.anims.generateFrameNumbers("explosion", { end: EXPLO_FRAMES - 1, start: 0 }),
+      key: "explode",
       repeat: 0,
     });
 
@@ -65,20 +65,20 @@ export class BootScene extends Phaser.Scene {
     const g = this.add.graphics();
 
     // Soft contact shadow (squashed ellipse, faded).
-    g.fillStyle(0x000000, 0.32).fillEllipse(32, 16, 56, 26);
+    g.fillStyle(0x00_00_00, 0.32).fillEllipse(32, 16, 56, 26);
     g.generateTexture("shadow", 64, 32);
     g.clear();
 
     // Soft round particle for poofs/sparkles (concentric falloff).
-    for (let i = 6; i >= 1; i--) {
-      g.fillStyle(0xffffff, 0.18).fillCircle(16, 16, (i / 6) * 14);
+    for (let i = 6; i >= 1; i -= 1) {
+      g.fillStyle(0xff_ff_ff, 0.18).fillCircle(16, 16, (i / 6) * 14);
     }
     g.generateTexture("spark", 32, 32);
     g.clear();
 
     // Radial glow disc (additive) for powerup pedestals and bomb tells.
-    for (let i = 16; i >= 1; i--) {
-      g.fillStyle(0xffffff, 0.05).fillCircle(64, 64, (i / 16) * 62);
+    for (let i = 16; i >= 1; i -= 1) {
+      g.fillStyle(0xff_ff_ff, 0.05).fillCircle(64, 64, (i / 16) * 62);
     }
     g.generateTexture("glow", 128, 128);
     g.destroy();

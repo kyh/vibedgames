@@ -7,7 +7,7 @@ import * as THREE from "three";
 
 import { INK } from "../shared/constants";
 
-export type RingOptions = {
+export interface RingOptions {
   x: number;
   y: number;
   /** Starting scale (the ring's outer radius in world units). */
@@ -18,9 +18,9 @@ export type RingOptions = {
   life: number;
   /** Starting opacity; fades linearly to 0 over life. */
   opacity: number;
-};
+}
 
-type Ring = {
+interface Ring {
   mesh: THREE.Mesh;
   material: THREE.MeshBasicMaterial;
   age: number;
@@ -28,30 +28,32 @@ type Ring = {
   from: number;
   to: number;
   opacity: number;
-};
+}
 
 export class RingPool {
   private readonly rings: Ring[] = [];
 
   constructor(scene: THREE.Scene, max = 4) {
     const geometry = new THREE.RingGeometry(0.82, 1, 48);
-    for (let i = 0; i < max; i++) {
+    for (let i = 0; i < max; i += 1) {
       const material = new THREE.MeshBasicMaterial({
         color: INK,
-        transparent: true,
-        opacity: 0,
         depthWrite: false,
+        opacity: 0,
+        transparent: true,
       });
       const mesh = new THREE.Mesh(geometry, material);
       mesh.visible = false;
       scene.add(mesh);
-      this.rings.push({ mesh, material, age: 0, life: 1, from: 0, to: 1, opacity: 0 });
+      this.rings.push({ age: 0, from: 0, life: 1, material, mesh, opacity: 0, to: 1 });
     }
   }
 
   spawn(opts: RingOptions): void {
     const ring = this.rings.find((r) => !r.mesh.visible) ?? this.rings[0];
-    if (!ring) return;
+    if (!ring) {
+      return;
+    }
     ring.mesh.visible = true;
     ring.mesh.position.set(opts.x, opts.y, 0.015);
     ring.mesh.scale.setScalar(opts.from);
@@ -65,7 +67,9 @@ export class RingPool {
 
   update(dt: number): void {
     for (const ring of this.rings) {
-      if (!ring.mesh.visible) continue;
+      if (!ring.mesh.visible) {
+        continue;
+      }
       ring.age += dt;
       const p = Math.min(1, ring.age / ring.life);
       if (p >= 1) {

@@ -1,4 +1,5 @@
-import Phaser from "phaser";
+import type { Types } from "phaser";
+import { Game, Scale, WEBGL } from "phaser";
 import { setPauseHandlers } from "@repo/embed";
 
 import { pauseOverlay } from "./pause-overlay";
@@ -10,26 +11,28 @@ import { MineHudScene } from "./scenes/mine-hud-scene";
 import { HudScene } from "./scenes/hud-scene";
 import { InventoryScene } from "./scenes/inventory-scene";
 
-const config: Phaser.Types.Core.GameConfig = {
-  type: Phaser.WEBGL,
-  parent: "game",
+const config: Types.Core.GameConfig = {
   backgroundColor: "#1c2030",
-  scale: { mode: Phaser.Scale.RESIZE, width: "100%", height: "100%" },
+  parent: "game",
+  physics: { arcade: { debug: false, gravity: { x: 0, y: 0 } }, default: "arcade" },
   pixelArt: true,
   roundPixels: true,
-  physics: { default: "arcade", arcade: { gravity: { x: 0, y: 0 }, debug: false } },
+  scale: { height: "100%", mode: Scale.RESIZE, width: "100%" },
   scene: [BootScene, TitleScene, GameScene, MineScene, MineHudScene, HudScene, InventoryScene],
+  type: WEBGL,
 };
 
 declare global {
   interface Window {
     /** DEV-only hook for headless verification. */
-    __game?: Phaser.Game;
+    __game?: Game;
   }
 }
 
-const game = new Phaser.Game(config);
-if (import.meta.env.DEV) window.__game = game;
+const game = new Game(config);
+if (import.meta.env.DEV) {
+  window.__game = game;
+}
 
 // Scale.RESIZE can read stale parent bounds when a resize lands while the tab
 // is hidden or the browser throttles events (tab switch, phone rotation): the
@@ -41,7 +44,9 @@ const refreshScale = (): void => {
 };
 window.addEventListener("resize", refreshScale);
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) refreshScale();
+  if (!document.hidden) {
+    refreshScale();
+  }
 });
 
 // Sim is entirely delta-driven (update(_t, dms)), so the wrapper's pause can
@@ -56,24 +61,30 @@ let froze = false;
 // Bespoke wooden-sign pause overlay (./pause-overlay) — renders CONTROLS and
 // the How-to-Play systems knowledge in the game's own cozy pixel-farm look.
 setPauseHandlers({
+  // Escape closes an open inventory/modal first; only a bare Escape pauses.
+  escapePauses: () => {
+    if (game.scene.isActive("Inventory")) {
+      return false;
+    }
+    const hud = game.scene.getScene("Hud");
+    return !(hud instanceof HudScene && hud.modalOpen);
+  },
   onPause: () => {
     pauseOverlay.show();
-    if (isOnline()) return;
+    if (isOnline()) {
+      return;
+    }
     froze = true;
     game.loop.sleep();
     game.sound.pauseAll();
   },
   onResume: () => {
     pauseOverlay.hide();
-    if (!froze) return;
+    if (!froze) {
+      return;
+    }
     froze = false;
     game.loop.wake();
     game.sound.resumeAll();
-  },
-  // Escape closes an open inventory/modal first; only a bare Escape pauses.
-  escapePauses: () => {
-    if (game.scene.isActive("Inventory")) return false;
-    const hud = game.scene.getScene("Hud");
-    return !(hud instanceof HudScene && hud.modalOpen);
   },
 });

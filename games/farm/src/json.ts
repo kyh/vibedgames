@@ -11,7 +11,9 @@ export type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
-export type JsonObject = { [key: string]: JsonValue };
+export interface JsonObject {
+  [key: string]: JsonValue;
+}
 
 export const isJsonNumber = (v: JsonValue | undefined): v is number => Number.isFinite(v);
 

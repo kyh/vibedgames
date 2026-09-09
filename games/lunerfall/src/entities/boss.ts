@@ -1,4 +1,5 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
+import { TintModes } from "phaser";
 
 import { HERO_ORIGIN_Y, interp } from "../config";
 import { bossKind } from "../data/bosses";
@@ -9,30 +10,36 @@ import { BossBody } from "./boss-body";
 const SCALE = 2.1;
 // Wind-up flare: the boss's own colour pushed toward hot amber, so a telegraph
 // BRIGHTENS the Lord instead of repainting it (see applyTint).
-const FLARE = 0xffb060;
+const FLARE = 0xff_b0_60;
 const FLARE_MIX = 0.42;
 // Seconds of charge between ghosts (= every 3rd step at the 60Hz fixed sim).
 const GHOST_EVERY = 3 / 60;
 
 // Per-channel lerp between two 0xRRGGBB colours.
-function mixColor(a: number, b: number, t: number): number {
+/* oxlint-disable no-bitwise -- unpacking and repacking 0xRRGGBB channels. */
+const mixColor = (a: number, b: number, t: number): number => {
   const ch = (shift: number): number => {
     const av = (a >> shift) & 0xff;
     const bv = (b >> shift) & 0xff;
     return Math.round(av + (bv - av) * t) << shift;
   };
   return ch(16) | ch(8) | ch(0);
-}
+};
+/* oxlint-enable no-bitwise */
 
 // Phaser view over BossBody: bigger salamander sprite recoloured per biome,
 // state-driven clips, a bright flare on wind-ups, and a white hit-flash.
 export class Boss {
   readonly body: BossBody;
   readonly sprite: Phaser.GameObjects.Sprite;
-  private readonly baseTint: number; // per-biome recolour, applied when idle
-  private readonly flareTint: number; // wind-up tint, derived from baseTint
-  private trailT = 0; // charge ghost-trail emit clock (sim seconds, not frames)
-  private lastStateT = 0; // previous stateT, to measure how far the SIM advanced
+  // per-biome recolour, applied when idle
+  private readonly baseTint: number;
+  // wind-up tint, derived from baseTint
+  private readonly flareTint: number;
+  // charge ghost-trail emit clock (sim seconds, not frames)
+  private trailT = 0;
+  // previous stateT, to measure how far the SIM advanced
+  private lastStateT = 0;
 
   constructor(scene: Phaser.Scene, grid: Grid, x: number, y: number, biome: number) {
     this.body = new BossBody(grid, x, y, biome);
@@ -50,21 +57,28 @@ export class Boss {
   private clip(): string {
     const b = this.body;
     switch (b.state) {
-      case "dead":
+      case "dead": {
         return "death";
-      case "wave":
+      }
+      case "wave": {
         return "flame-wave";
+      }
       case "jump":
-      case "slam":
+      case "slam": {
         return "flame-slam";
-      case "charge":
+      }
+      case "charge": {
         return "run";
-      case "punch":
+      }
+      case "punch": {
         return "fire-punch";
-      case "hurt":
+      }
+      case "hurt": {
         return "hit";
-      default:
+      }
+      default: {
         return Math.abs(b.vx) > 12 ? "run" : "idle";
+      }
     }
   }
 
@@ -73,9 +87,13 @@ export class Boss {
   // which cost every Lord its identity for the length of its telegraph — an ice
   // boss read as the fire boss exactly while its name was on screen.
   private applyTint(flash: boolean, telegraph: boolean) {
-    if (flash) this.sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
-    else if (telegraph) this.sprite.setTint(this.flareTint).setTintMode(Phaser.TintModes.MULTIPLY);
-    else this.sprite.setTint(this.baseTint).setTintMode(Phaser.TintModes.MULTIPLY);
+    if (flash) {
+      this.sprite.setTint(0xff_ff_ff).setTintMode(TintModes.FILL);
+    } else if (telegraph) {
+      this.sprite.setTint(this.flareTint).setTintMode(TintModes.MULTIPLY);
+    } else {
+      this.sprite.setTint(this.baseTint).setTintMode(TintModes.MULTIPLY);
+    }
   }
 
   render(alpha = 1) {
@@ -103,13 +121,17 @@ export class Boss {
         this.trailT = 0;
         afterImage(this.sprite.scene, this.sprite, this.baseTint);
       }
-    } else this.trailT = 0;
+    } else {
+      this.trailT = 0;
+    }
   }
 
   // Guest: replay the host's clip on this puppet (no local sim/state). Position
   // lerps toward the authoritative point so 30Hz snapshots render smoothly.
   applyNet(clip: string, x: number, y: number, flip: boolean, flash: boolean, telegraph: boolean) {
-    if (this.sprite.anims.currentAnim?.key !== clip) this.sprite.play(clip, true);
+    if (this.sprite.anims.currentAnim?.key !== clip) {
+      this.sprite.play(clip, true);
+    }
     this.sprite.setFlipX(flip);
     const far = Math.hypot(x - this.sprite.x, y - this.sprite.y) > 48;
     this.sprite.setPosition(

@@ -24,11 +24,11 @@
 // `config` object; adopting it is a migration, not a version bump. Don't let a
 // blanket dependency update carry this one along.
 import { Miniflare } from "miniflare";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import path from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const ROOT = join(HERE, "..");
+const HERE = import.meta.dirname;
+const ROOT = path.join(HERE, "..");
 
 const checks = [];
 const check = (name, pass, detail = "") => {
@@ -41,24 +41,26 @@ const INDEX_HTML =
 
 /** A stand-in for a rigged GLB: binary, and redundant enough to compress like
  *  one, without depending on any game's build output being present. */
-function fakeGlb(bytes) {
+const fakeGlb = (bytes) => {
   const buf = Buffer.alloc(bytes);
   buf.write("glTF");
-  for (let i = 4; i < bytes; i++) buf[i] = (i * 7) % 61;
+  for (let i = 4; i < bytes; i += 1) {
+    buf[i] = (i * 7) % 61;
+  }
   return buf;
-}
+};
 
 const mf = new Miniflare({
-  modules: true,
-  // The bundled worker ships as .js; without this Miniflare parses it as CJS.
-  modulesRules: [{ type: "ESModule", include: ["**/*.js", "**/*.mjs"] }],
-  scriptPath: join(HERE, "host-shim.mjs"),
-  modulesRoot: ROOT,
+  cache: true,
   compatibilityDate: "2025-04-01",
   compatibilityFlags: ["nodejs_compat"],
   d1Databases: { DB: "vibedgames" },
+  modules: true,
+  modulesRoot: ROOT,
+  // The bundled worker ships as .js; without this Miniflare parses it as CJS.
+  modulesRules: [{ include: ["**/*.js", "**/*.mjs"], type: "ESModule" }],
   r2Buckets: { GAMES_BUCKET: "vibedgames-games" },
-  cache: true,
+  scriptPath: path.join(HERE, "host-shim.mjs"),
 });
 
 const db = await mf.getD1Database("DB");
@@ -78,8 +80,9 @@ await bucket.put("games/g1/depA/index.html", INDEX_HTML);
 // pure CPU for ~1%, so the worker must leave it alone.
 await bucket.put("games/g1/depA/world/rest.bin", Buffer.alloc(4096, 7));
 
-const get = (path, headers = { "accept-encoding": "gzip, br" }) =>
-  mf.dispatchFetch(`https://verify.vibedgames.com${path}`, { headers });
+const ACCEPT_GZIP = { "accept-encoding": "gzip, br" };
+const get = (pathname, headers = ACCEPT_GZIP) =>
+  mf.dispatchFetch(`https://verify.vibedgames.com${pathname}`, { headers });
 const isGzip = (b) => b[0] === 0x1f && b[1] === 0x8b;
 const body = async (res) => Buffer.from(await res.arrayBuffer());
 
@@ -107,7 +110,7 @@ check(
 );
 
 // ---- edge cache ------------------------------------------------------------
-await new Promise((r) => setTimeout(r, 300));
+await sleep(300);
 const warm = await get("/models/hero.glb");
 const warmBody = await body(warm);
 check("second request is an edge-cache hit", warm.headers.get("x-vg-cache") === "hit");
@@ -161,7 +164,8 @@ check(
   (cold.headers.get("content-security-policy") ?? "").includes("frame-ancestors"),
 );
 check("assets stay immutable", (cold.headers.get("cache-control") ?? "").includes("immutable"));
-check("version probe answers", (await (await get("/__vg/version")).text()) === "depB");
+const version = await get("/__vg/version");
+check("version probe answers", (await version.text()) === "depB");
 
 const bad = await mf.dispatchFetch("https://vibedgames.com/", {});
 await bad.text();

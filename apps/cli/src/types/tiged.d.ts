@@ -13,7 +13,7 @@ declare module "tiged" {
   }
 
   interface TigedEmitter {
-    clone(target: string): Promise<void>;
+    clone: (target: string) => Promise<void>;
   }
 
   function tiged(src: string, opts?: TigedOptions): TigedEmitter;

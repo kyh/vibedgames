@@ -43,23 +43,29 @@ const TAU = Math.PI * 2;
 
 /** Deterministic per-scene jitter (never the game RNG — staging layouts stay
  *  identical across replays regardless of how much rand() the sim consumed). */
-function mulberry(seed: number): () => number {
+/* oxlint-disable no-bitwise -- mulberry32 is int32 hash arithmetic */
+const mulberry = (seed: number): (() => number) => {
   let a = seed >>> 0;
   return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
+    a = (a + 0x6d_2b_79_f5) >>> 0;
     let t = a;
     t = Math.imul(t ^ (t >>> 15), t | 1);
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296;
   };
-}
+};
+/* oxlint-enable no-bitwise */
 
 const angleTo = (from: Vec, to: Vec): number => Math.atan2(to.y - from.y, to.x - from.x);
 /** Wrap an angle difference into [-π, π]. */
 const wrapAngle = (a: number): number => {
   let r = a % TAU;
-  if (r > Math.PI) r -= TAU;
-  if (r < -Math.PI) r += TAU;
+  if (r > Math.PI) {
+    r -= TAU;
+  }
+  if (r < -Math.PI) {
+    r += TAU;
+  }
   return r;
 };
 const dist = (a: Vec, b: Vec): number => Math.hypot(a.x - b.x, a.y - b.y);
@@ -78,11 +84,18 @@ const ease = (t: number): number => {
 // damageEnemy() calls, and against the PLAYER they need no pairing at all — the
 // victim adjudicates PvP drain straight off st.beams in the real damage path.
 
-type Bolt = { x: number; y: number; vx: number; vy: number; traveled: number };
+interface Bolt {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  traveled: number;
+}
 
 type CrewMode = "idle" | "combat" | "duel";
 
 /** The peer-state keys a real client serializes — what readNetState consumes. */
+// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 type PeerNetState = {
   x: number;
   y: number;
@@ -99,7 +112,7 @@ type PeerNetState = {
   shieldMod?: { kind: ShieldModKind; until: number; active: boolean; phased: boolean };
 };
 
-type FakePeer = {
+interface FakePeer {
   player: Player;
   state: PeerNetState;
   post: Vec;
@@ -118,35 +131,26 @@ type FakePeer = {
   x: number;
   y: number;
   angle: number;
-};
+}
 
 const PEER_COLORS = ["#7ae0ff", "#ff7ad1", "#8dff9e", "#c9a2ff", "#ffd166"];
-const PEER_TINTS = [0x7ae0ff, 0xff7ad1, 0x8dff9e, 0xc9a2ff, 0xffd166];
+const PEER_TINTS = [0x7a_e0_ff, 0xff_7a_d1, 0x8d_ff_9e, 0xc9_a2_ff, 0xff_d1_66];
 const BOLT_SPEED = 560;
 const BOLT_RANGE = 740;
-const BOLT_DAMAGE = 26; // one-shots fodder (drone 20 / wasp 25), like a beam hit
+// one-shots fodder (drone 20 / wasp 25), like a beam hit
+const BOLT_DAMAGE = 26;
 /** Serialized power of a rival's PvP bolt: 0.35 → a 35 drain, victim-side. */
 const DUEL_BOLT_POWER = 0.35;
 
 const show = (node: HTMLElement | null, on: boolean): void => {
-  if (node) node.style.display = on ? "" : "none";
+  if (node) {
+    node.style.display = on ? "" : "none";
+  }
 };
 
-export function bootTrailerDirector(game: Phaser.Game): void {
-  const tryBoot = (): void => {
-    const scene = game.scene.getScene("Game");
-    if (scene instanceof GameScene && game.scene.isActive("Game")) {
-      direct(scene);
-      return;
-    }
-    window.setTimeout(tryBoot, 60);
-  };
-  tryBoot();
-}
-
-function direct(scene: GameScene): void {
+const direct = (scene: GameScene): void => {
   const api: TrailerStageApi = scene.trailerStage();
-  const staging = api.staging;
+  const { staging } = api;
   const cam = scene.cameras.main;
 
   // Straight into the offline solo arena — no start overlay, no attract mode.
@@ -165,15 +169,15 @@ function direct(scene: GameScene): void {
   // (loadout pop, combo pill, boss bar, sector tally). Canvas-side HUD (minimap,
   // edge pips) is suppressed by the trailer guards inside game-scene.
   const hud = {
-    root: document.getElementById("hud"),
+    boss: document.querySelector<HTMLElement>("#bossbar"),
+    combo: document.querySelector<HTMLElement>("#combo"),
+    countdown: document.querySelector<HTMLElement>("#countdown"),
     left: document.querySelector<HTMLElement>("#hud > div:first-of-type"),
-    right: document.getElementById("hudright"),
-    players: document.getElementById("players"),
-    boss: document.getElementById("bossbar"),
-    combo: document.getElementById("combo"),
-    pulse: document.getElementById("pulse"),
-    recap: document.getElementById("recap"),
-    countdown: document.getElementById("countdown"),
+    players: document.querySelector<HTMLElement>("#players"),
+    pulse: document.querySelector<HTMLElement>("#pulse"),
+    recap: document.querySelector<HTMLElement>("#recap"),
+    right: document.querySelector<HTMLElement>("#hudright"),
+    root: document.querySelector<HTMLElement>("#hud"),
   };
   const hudBaseline = (): void => {
     show(hud.root, false);
@@ -187,7 +191,9 @@ function direct(scene: GameScene): void {
     show(hud.countdown, true);
     // The bar is authored 14px from the viewport top; inside the 16:9 letterbox
     // that clips its top row. Scenes that turn it on push it clear.
-    if (hud.boss) hud.boss.style.top = "";
+    if (hud.boss) {
+      hud.boss.style.top = "";
+    }
   };
   hudBaseline();
 
@@ -221,7 +227,9 @@ function direct(scene: GameScene): void {
    *  overheal clamp. */
   const floorShield = (min = 85): void => {
     const p = api.player();
-    if (p.alive && p.shieldHp < min) api.setShieldHp(min);
+    if (p.alive && p.shieldHp < min) {
+      api.setShieldHp(min);
+    }
   };
   const nearestEnemy = (
     from: Vec,
@@ -231,7 +239,9 @@ function direct(scene: GameScene): void {
     let best: Readonly<EnemyState> | null = null;
     let bestD = maxD;
     for (const e of api.enemies()) {
-      if (exclude?.(e)) continue;
+      if (exclude?.(e)) {
+        continue;
+      }
       const d = Math.hypot(e.x - from.x, e.y - from.y);
       if (d < bestD) {
         bestD = d;
@@ -259,7 +269,7 @@ function direct(scene: GameScene): void {
     aimAt: Vec,
     arc?: { from: number; to: number },
   ): void => {
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < count; i += 1) {
       const span = arc ? arc.to - arc.from : TAU;
       const base = arc ? arc.from : 0;
       const ang = base + (span * (i + 0.5)) / count + (rnd() - 0.5) * (span / count) * 0.8;
@@ -281,7 +291,7 @@ function direct(scene: GameScene): void {
     ry: number,
     aimAt: Vec,
   ): void => {
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < count; i += 1) {
       const ang = (TAU * (i + 0.5)) / count + (rnd() - 0.5) * (TAU / count) * 0.8;
       const k = 0.72 + rnd() * 0.28;
       const kind = kinds[i % kinds.length] ?? "drone";
@@ -295,18 +305,28 @@ function direct(scene: GameScene): void {
   };
   /** The shot's own half-frame in world px. Every composition measurement below
    *  is expressed in these units so it survives the per-shot zoom. */
-  const halfFrame = () => ({ hw: 800 / cam.zoom, hh: 450 / cam.zoom });
+  const halfFrame = () => ({ hh: 450 / cam.zoom, hw: 800 / cam.zoom });
 
   /** A circle the rock field must not land in — the pilot's working area, a
    *  firing lane, a crowd the shot is composed around. */
-  type Keepout = { x: number; y: number; r: number };
+  interface Keepout {
+    x: number;
+    y: number;
+    r: number;
+  }
 
   /** Half-frame coordinates: (0,0) is the frame centre, (±1,±1) the corners,
    *  anything past 1 is cropped by the frame edge. */
-  type UV = { u: number; v: number };
+  interface UV {
+    u: number;
+    v: number;
+  }
 
   /** A layout's candidate sampler plus the half-frame² area it covers. */
-  type RockPlan = { coverage: number; sample: (i: number, count: number) => UV };
+  interface RockPlan {
+    coverage: number;
+    sample: (i: number, count: number) => UV;
+  }
 
   /**
    * Where a field puts its rocks.
@@ -337,7 +357,7 @@ function direct(scene: GameScene): void {
      *  black on purpose, so the dressed shots either side of it land harder. */
     | { kind: "clump"; cx: number; cy: number; spread: number };
 
-  type RockField = {
+  interface RockField {
     /** Frame centre the field is composed around — the shot's camera target
      *  AT THE MOMENT IT IS SAMPLED, which for a shot whose frame travels is not
      *  its setup anchor. Two shots measured several points emptier because the
@@ -349,8 +369,8 @@ function direct(scene: GameScene): void {
     count?: number;
     rMin?: number;
     rMax?: number;
-    keepOut?: ReadonlyArray<Keepout>;
-  };
+    keepOut?: readonly Keepout[];
+  }
 
   /** World px² of covered frame per rock. Count is a DENSITY, never a number:
    *  a shot at zoom 1.05 shows four times the world area of one at 2.0, so a
@@ -394,7 +414,7 @@ function direct(scene: GameScene): void {
    */
   const dressRocks = (rnd: () => number, f: RockField): void => {
     const { hw, hh } = halfFrame();
-    const layout = f.layout;
+    const { layout } = f;
     // Each layout yields its own candidate sampler plus the area it covers in
     // half-frame² — the count follows from that area, so a wedge does not come
     // out as crowded as a full sweep and a clump does not come out as thin as a
@@ -445,6 +465,9 @@ function direct(scene: GameScene): void {
             },
           };
         }
+        default: {
+          return { coverage: 0, sample: () => ({ u: 0, v: 0 }) };
+        }
       }
     })();
     const count =
@@ -457,16 +480,20 @@ function direct(scene: GameScene): void {
     const rMin = f.rMin ?? 50;
     const rMax = f.rMax ?? 80;
     const zones = f.keepOut ?? [];
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < count; i += 1) {
       // Four tries per slot: a rejected candidate re-rolls inside the same slot
       // rather than leaving a hole in the field.
-      for (let attempt = 0; attempt < 4; attempt++) {
+      for (let attempt = 0; attempt < 4; attempt += 1) {
         const { u, v } = plan.sample(i, count);
         const radius = rMin + rnd() * (rMax - rMin);
         const x = f.at.x + u * hw;
         const y = f.at.y + v * hh;
-        if (!inPlayBounds(x, y, radius)) continue;
-        if (zones.some((z) => Math.hypot(z.x - x, z.y - y) < z.r + radius)) continue;
+        if (!inPlayBounds(x, y, radius)) {
+          continue;
+        }
+        if (zones.some((z) => Math.hypot(z.x - x, z.y - y) < z.r + radius)) {
+          continue;
+        }
         api.spawnAsteroid(x, y, radius);
         break;
       }
@@ -507,7 +534,7 @@ function direct(scene: GameScene): void {
     const rMax = opts.rMax ?? 80;
     const cx = at.x + u * hw;
     const cy = at.y + v * hh;
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < count; i += 1) {
       // Golden-angle walk out from the centre: the lumps interlock instead of
       // stacking on one side, so the fused outline stays a blob.
       const ang = i * 2.399963 + rnd() * 0.6;
@@ -515,7 +542,9 @@ function direct(scene: GameScene): void {
       const radius = rMin + rnd() * (rMax - rMin);
       const x = cx + Math.cos(ang) * r;
       const y = cy + Math.sin(ang) * r;
-      if (!inPlayBounds(x, y, radius)) continue;
+      if (!inPlayBounds(x, y, radius)) {
+        continue;
+      }
       api.spawnAsteroid(x, y, radius);
     }
   };
@@ -532,15 +561,15 @@ function direct(scene: GameScene): void {
    *  the belt was pushed off frame entirely and measured nothing. */
   const corridor = (from: Vec, to: Vec, r = 60, steps = 5): Keepout[] => {
     const zones: Keepout[] = [];
-    for (let i = 0; i <= steps; i++) {
+    for (let i = 0; i <= steps; i += 1) {
       const f = i / steps;
-      zones.push({ x: from.x + (to.x - from.x) * f, y: from.y + (to.y - from.y) * f, r });
+      zones.push({ r, x: from.x + (to.x - from.x) * f, y: from.y + (to.y - from.y) * f });
     }
     return zones;
   };
 
   const spawnShardRing = (rnd: () => number, center: Vec, count: number, rMax: number): void => {
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < count; i += 1) {
       const ang = (TAU * (i + 0.5)) / count + (rnd() - 0.5) * 0.5;
       const r = rMax * (0.7 + 0.3 * rnd());
       api.spawnShards(1, center.x + Math.cos(ang) * r, center.y + Math.sin(ang) * r * 0.62);
@@ -564,57 +593,59 @@ function direct(scene: GameScene): void {
     },
   ): FakePeer => {
     const state: PeerNetState = {
-      x: post.x,
-      y: post.y,
+      alive: true,
       angle: opts.baseAim,
+      beams: [],
+      level: opts.level,
+      present: true,
+      sectorScore: opts.score,
+      shieldHp: 100,
       vx: 0,
       vy: 0,
-      alive: true,
-      present: true,
-      level: opts.level,
-      shieldHp: 100,
-      sectorScore: opts.score,
       weaponName: "BEAM",
-      beams: [],
+      x: post.x,
+      y: post.y,
     };
     if (opts.mod) {
       // Serialized exactly as a real client would: the victim reads kind+active
       // and runs its own RAM / TESLA adjudication off it.
       state.shieldMod = {
-        kind: opts.mod,
-        until: Date.now() + 20_000,
         active: true,
+        kind: opts.mod,
         phased: false,
+        until: Date.now() + 20_000,
       };
     }
     const player: Player = {
-      id,
       color: PEER_COLORS[colorIdx % PEER_COLORS.length] ?? "#7ae0ff",
+      id,
       state,
     };
     const peer: FakePeer = {
-      player,
-      state,
-      post,
-      postTarget: null,
-      postSpeed: 0,
-      orbitR: opts.orbitR,
       angVel: opts.angVel,
-      phase0: opts.phase0,
+      angle: opts.baseAim,
       baseAim: opts.baseAim,
-      shotGapMs: opts.shotGapMs ?? 240,
-      tint: PEER_TINTS[colorIdx % PEER_TINTS.length] ?? 0x7ae0ff,
+      bolts: [],
       // Infinity = a peer that never fires (the RAM raider: its hull is the
       // weapon). The opening stagger has to honour that too, or the first
       // bolt is already in the air before shotGapMs is ever consulted.
       nextShotAt: opts.shotGapMs === Infinity ? Infinity : 200 + colorIdx * 90,
-      bolts: [],
+      orbitR: opts.orbitR,
+      phase0: opts.phase0,
+      player,
+      post,
+      postSpeed: 0,
+      postTarget: null,
+      shotGapMs: opts.shotGapMs ?? 240,
+      state,
+      tint: PEER_TINTS[colorIdx % PEER_TINTS.length] ?? 0x7a_e0_ff,
       x: post.x,
       y: post.y,
-      angle: opts.baseAim,
     };
     crew.push(peer);
-    if (peerMap) peerMap[id] = player;
+    if (peerMap) {
+      peerMap[id] = player;
+    }
     return peer;
   };
   const installPeers = (): void => {
@@ -658,24 +689,23 @@ function direct(scene: GameScene): void {
       b.y = b.post.y + Math.sin(phase) * b.orbitR;
       const vx = -Math.sin(phase) * b.orbitR * b.angVel + postVX;
       const vy = Math.cos(phase) * b.orbitR * b.angVel + postVY;
-      const target: Vec | null =
-        mode === "duel"
-          ? me.alive
-            ? { x: me.x, y: me.y }
-            : null
-          : mode === "combat"
-            ? nearestEnemy(b, 760)
-            : null;
+      let target: Vec | null = null;
+      if (mode === "duel") {
+        target = me.alive ? { x: me.x, y: me.y } : null;
+      } else if (mode === "combat") {
+        target = nearestEnemy(b, 760);
+      }
       b.angle = target ? angleTo(b, target) : b.baseAim;
       if (target && t >= b.nextShotAt) {
-        b.nextShotAt = t + b.shotGapMs + (b.nextShotAt % 7) * 23; // deterministic stagger
+        // deterministic stagger
+        b.nextShotAt = t + b.shotGapMs + (b.nextShotAt % 7) * 23;
         const nose = { x: b.x + Math.cos(b.angle) * 10, y: b.y + Math.sin(b.angle) * 10 };
         b.bolts.push({
-          x: nose.x,
-          y: nose.y,
+          traveled: 0,
           vx: Math.cos(b.angle) * BOLT_SPEED,
           vy: Math.sin(b.angle) * BOLT_SPEED,
-          traveled: 0,
+          x: nose.x,
+          y: nose.y,
         });
       }
       const kept: Bolt[] = [];
@@ -683,7 +713,9 @@ function direct(scene: GameScene): void {
         bolt.x += bolt.vx * dts;
         bolt.y += bolt.vy * dts;
         bolt.traveled += BOLT_SPEED * dts;
-        if (bolt.traveled > BOLT_RANGE) continue;
+        if (bolt.traveled > BOLT_RANGE) {
+          continue;
+        }
         let hit = false;
         if (mode !== "duel") {
           for (const e of api.enemies()) {
@@ -695,7 +727,9 @@ function direct(scene: GameScene): void {
             }
           }
         }
-        if (!hit) kept.push(bolt);
+        if (!hit) {
+          kept.push(bolt);
+        }
       }
       b.bolts = kept;
       // Publish this frame's pose + bolts through the real wire schema.
@@ -703,15 +737,15 @@ function direct(scene: GameScene): void {
       const beams: SerializedBeam[] = b.bolts.map((bolt) => {
         const inv = 1 / BOLT_SPEED;
         return {
-          hx: bolt.x,
-          hy: bolt.y,
-          tx: bolt.x - bolt.vx * inv * 14,
-          ty: bolt.y - bolt.vy * inv * 14,
-          tint: b.tint,
-          width: 1,
           exploding: false,
           explosionRadius: 0,
+          hx: bolt.x,
+          hy: bolt.y,
           power,
+          tint: b.tint,
+          tx: bolt.x - bolt.vx * inv * 14,
+          ty: bolt.y - bolt.vy * inv * 14,
+          width: 1,
         };
       });
       b.state["x"] = b.x;
@@ -768,60 +802,13 @@ function direct(scene: GameScene): void {
   const SUPERNOVA_REFILL = 1400;
   let s1Reinforced = false;
   const supernovaOpen: TrailerScene = {
-    id: "supernova-open",
     duration: 2300,
-    setup: () => {
-      stage();
-      s1Reinforced = false;
-      // 1.5 → 1.35 (half-frame ≈ 593 × 333). The rock belt has to sit outside
-      // the blast's 360px reach or the ring deletes its own set dressing, and
-      // at 1.5 the half-HEIGHT was only 300 — every slot above and below the
-      // pilot was inside the blast, so the field could only form two vertical
-      // bands down the sides. 333 opens the corners.
-      cam.setZoom(1.35);
-      show(hud.root, true);
-      show(hud.left, false);
-      show(hud.right, false);
-      show(hud.combo, true);
-      const a = anchor(-100, 0);
-      const rnd = mulberry(5);
-      api.setLevel(3);
-      api.setPlayerPose({ x: a.x, y: a.y, angle: -Math.PI / 2, vx: 0, vy: 0 });
-      api.grantWeapon("SUPERNOVA");
-      // Every body inside explosion.range (360) so the ring lands ON the crowd.
-      spawnOval(rnd, ["drone", "drone", "wasp"], 26, a, 290, 250, a);
-      spawnOval(rnd, ["drone", "wasp"], 14, a, 180, 155, a);
-      // Survivors: DRONES only, in two side arcs at 560-760px. The 360px reach
-      // is not the whole story — the crowd closes during the 1.2s charge, and a
-      // wasp covers 283px of that. Measured on the previous cut, a mixed wave
-      // staged at 390-520 was inside the blast by the time it landed and 62 of
-      // 62 bodies died: the shot's entire second half was a debris puff at
-      // centre with scattered pickups around it, which is exactly the frame
-      // this pass exists to kill. Drones close at 70 px/s, so these are still
-      // outside when the ring goes off and are marching in through it.
-      for (const face of [0, Math.PI]) {
-        spawnRing(rnd, ["drone"], 11, a, 560, 760, a, {
-          from: face - 1.0,
-          to: face + 1.0,
-        });
-      }
-      // Rocks just OUTSIDE the blast's reach: the ring expands into something,
-      // and once the crowd is gone the aftermath frame still has bodies with
-      // real size in it. Banked down ONE side rather than ringed — a lopsided
-      // frame with a cropped mass on the far edge reads as a place; a ring
-      // reads as a target, which is the one thing this shot already has.
-      dressRocks(rnd, {
-        at: a,
-        layout: { kind: "arc", from: -1.2, to: 1.2, inner: 0.58, outer: 1.4 },
-        count: 76,
-        rMin: 50,
-        keepOut: [{ x: a.x, y: a.y, r: 375 }],
-      });
-      boulder(rnd, a, -0.98, 0.45, { count: 9, spread: 96 });
-    },
+    id: "supernova-open",
     run: (t) => {
-      steer(-Math.PI / 2 + t * 0.0002, 0.02); // slow pivot; nose glow readable
-      staging.fire = t >= SUPERNOVA_HOLD; // real windup → blast at ~1180ms
+      // slow pivot; nose glow readable
+      steer(-Math.PI / 2 + t * 0.0002, 0.02);
+      // real windup → blast at ~1180ms
+      staging.fire = t >= SUPERNOVA_HOLD;
       // Reinforcements warp in on the blast's tail (real spawn path, so they
       // arrive on the game's own grace-flash). A 360px ring that clears the
       // screen is only a power fantasy if the screen fills again: without this
@@ -843,6 +830,55 @@ function direct(scene: GameScene): void {
       }
       floorShield(130);
     },
+    setup: () => {
+      stage();
+      s1Reinforced = false;
+      // 1.5 → 1.35 (half-frame ≈ 593 × 333). The rock belt has to sit outside
+      // the blast's 360px reach or the ring deletes its own set dressing, and
+      // at 1.5 the half-HEIGHT was only 300 — every slot above and below the
+      // pilot was inside the blast, so the field could only form two vertical
+      // bands down the sides. 333 opens the corners.
+      cam.setZoom(1.35);
+      show(hud.root, true);
+      show(hud.left, false);
+      show(hud.right, false);
+      show(hud.combo, true);
+      const a = anchor(-100, 0);
+      const rnd = mulberry(5);
+      api.setLevel(3);
+      api.setPlayerPose({ angle: -Math.PI / 2, vx: 0, vy: 0, x: a.x, y: a.y });
+      api.grantWeapon("SUPERNOVA");
+      // Every body inside explosion.range (360) so the ring lands ON the crowd.
+      spawnOval(rnd, ["drone", "drone", "wasp"], 26, a, 290, 250, a);
+      spawnOval(rnd, ["drone", "wasp"], 14, a, 180, 155, a);
+      // Survivors: DRONES only, in two side arcs at 560-760px. The 360px reach
+      // is not the whole story — the crowd closes during the 1.2s charge, and a
+      // wasp covers 283px of that. Measured on the previous cut, a mixed wave
+      // staged at 390-520 was inside the blast by the time it landed and 62 of
+      // 62 bodies died: the shot's entire second half was a debris puff at
+      // centre with scattered pickups around it, which is exactly the frame
+      // this pass exists to kill. Drones close at 70 px/s, so these are still
+      // outside when the ring goes off and are marching in through it.
+      for (const face of [0, Math.PI]) {
+        spawnRing(rnd, ["drone"], 11, a, 560, 760, a, {
+          from: face - 1,
+          to: face + 1,
+        });
+      }
+      // Rocks just OUTSIDE the blast's reach: the ring expands into something,
+      // and once the crowd is gone the aftermath frame still has bodies with
+      // real size in it. Banked down ONE side rather than ringed — a lopsided
+      // frame with a cropped mass on the far edge reads as a place; a ring
+      // reads as a target, which is the one thing this shot already has.
+      dressRocks(rnd, {
+        at: a,
+        count: 76,
+        keepOut: [{ r: 375, x: a.x, y: a.y }],
+        layout: { from: -1.2, inner: 0.58, kind: "arc", outer: 1.4, to: 1.2 },
+        rMin: 50,
+      });
+      boulder(rnd, a, -0.98, 0.45, { count: 9, spread: 96 });
+    },
     teardown: sceneReset,
   };
 
@@ -861,16 +897,51 @@ function direct(scene: GameScene): void {
   const CALM_REFILL = 820;
   let s2Refilled = false;
   const calmOpen: TrailerScene = {
-    id: "calm-open",
     duration: 2000,
+    id: "calm-open",
+    run: (t) => {
+      const p = api.player();
+      // Lead space: ship a touch left of centre, the picket filling the right.
+      // 116 → 70 → 28. The lead is the one measurement that does NOT survive
+      // dividing by the zoom ratio: it is empty frame by definition, and at 2.5
+      // even 70px is 175 screen px of black bought at the cost of pushing the
+      // whole fight into the left third — which is exactly how the last cut
+      // read. 28 sits the hull one twelfth of a half-frame off centre, which is
+      // all the lead a 320px half-frame can pay for.
+      staging.camPos = { x: p.x + 28, y: p.y - 20 };
+      // The picket is CONSUMED, and it converges on the hull while it dies, so
+      // the right of frame empties twice over — once by attrition and once
+      // because the survivors walk inward. A second file staged on the pilot's
+      // own position mid-shot puts bodies back at the right edge for the whole
+      // back half, through the same spawn path as the first.
+      if (!s2Refilled && t >= CALM_REFILL) {
+        s2Refilled = true;
+        const rr = mulberry(13);
+        for (let i = 0; i < 14; i += 1) {
+          api.spawnEnemy("drone", p.x + 130 + rr() * 210, p.y - 150 + rr() * 300, p);
+        }
+        for (let i = 0; i < 4; i += 1) {
+          api.spawnEnemy("wasp", p.x + 190 + rr() * 150, p.y - 120 + rr() * 240, p);
+        }
+      }
+      engage(610, 0.34, 0);
+      // Clearing this picket earns ~95 XP against a 70 threshold — measured,
+      // the old cut hit LV2 at 1.25s and LV3 on the last frame. Both fire the
+      // level-up ring, which is scene 4's named beat, and both break this
+      // shot's own promise of the Lv1 dart. No XP bar is on screen here, so
+      // holding it is invisible; the level-ups were not.
+      api.setXp(0);
+      floorShield();
+    },
     setup: () => {
       stage();
       s2Refilled = false;
-      cam.setZoom(2.5); // half-frame ≈ 320 × 180
+      // half-frame ≈ 320 × 180
+      cam.setZoom(2.5);
       const a = anchor(-800, -200);
       const rnd = mulberry(1);
       api.setLevel(1);
-      api.setPlayerPose({ x: a.x, y: a.y, angle: 0, vx: 250, vy: 0 });
+      api.setPlayerPose({ angle: 0, vx: 250, vy: 0, x: a.x, y: a.y });
       // A picket ahead-right, sized to the 2.5 frame: the whole fight is on
       // screen and the ship is already flying into it. The box is the old one
       // divided by 1.47 — same picket, same place in frame, 47% bigger drones.
@@ -878,7 +949,7 @@ function direct(scene: GameScene): void {
       // (96 → 326, i.e. out to +0.93 half-frames of the new lead): the pilot's
       // beam sweeps a box this narrow clean, and the old one both emptied AND
       // sat entirely inside the middle third.
-      for (let i = 0; i < 32; i++) {
+      for (let i = 0; i < 32; i += 1) {
         api.spawnEnemy("drone", a.x + 96 + rnd() * 230, a.y - 102 + rnd() * 204, a);
       }
       api.spawnEnemy("drone", a.x + 170, a.y - 133, a);
@@ -900,46 +971,12 @@ function direct(scene: GameScene): void {
       const frame = { x: a.x + 204, y: a.y - 20 };
       dressRocks(rnd, {
         at: frame,
-        layout: { kind: "band", angle: 0.18, offset: 0.76, halfWidth: 0.42, length: 1.85 },
-        rMin: 33,
-        rMax: 52,
         keepOut: corridor(a, { x: a.x + 435, y: a.y }),
+        layout: { angle: 0.18, halfWidth: 0.42, kind: "band", length: 1.85, offset: 0.76 },
+        rMax: 52,
+        rMin: 33,
       });
-      boulder(rnd, frame, 0.85, -0.8, { count: 6, spread: 60, rMin: 34, rMax: 48 });
-    },
-    run: (t) => {
-      const p = api.player();
-      // Lead space: ship a touch left of centre, the picket filling the right.
-      // 116 → 70 → 28. The lead is the one measurement that does NOT survive
-      // dividing by the zoom ratio: it is empty frame by definition, and at 2.5
-      // even 70px is 175 screen px of black bought at the cost of pushing the
-      // whole fight into the left third — which is exactly how the last cut
-      // read. 28 sits the hull one twelfth of a half-frame off centre, which is
-      // all the lead a 320px half-frame can pay for.
-      staging.camPos = { x: p.x + 28, y: p.y - 20 };
-      // The picket is CONSUMED, and it converges on the hull while it dies, so
-      // the right of frame empties twice over — once by attrition and once
-      // because the survivors walk inward. A second file staged on the pilot's
-      // own position mid-shot puts bodies back at the right edge for the whole
-      // back half, through the same spawn path as the first.
-      if (!s2Refilled && t >= CALM_REFILL) {
-        s2Refilled = true;
-        const rr = mulberry(13);
-        for (let i = 0; i < 14; i++) {
-          api.spawnEnemy("drone", p.x + 130 + rr() * 210, p.y - 150 + rr() * 300, p);
-        }
-        for (let i = 0; i < 4; i++) {
-          api.spawnEnemy("wasp", p.x + 190 + rr() * 150, p.y - 120 + rr() * 240, p);
-        }
-      }
-      engage(610, 0.34, 0);
-      // Clearing this picket earns ~95 XP against a 70 threshold — measured,
-      // the old cut hit LV2 at 1.25s and LV3 on the last frame. Both fire the
-      // level-up ring, which is scene 4's named beat, and both break this
-      // shot's own promise of the Lv1 dart. No XP bar is on screen here, so
-      // holding it is invisible; the level-ups were not.
-      api.setXp(0);
-      floorShield();
+      boulder(rnd, frame, 0.85, -0.8, { count: 6, rMax: 48, rMin: 34, spread: 60 });
     },
     teardown: sceneReset,
   };
@@ -950,29 +987,61 @@ function direct(scene: GameScene): void {
   // and the payoff is immediate — a 220px cyan pierce skewering a drone file.
   let s3 = { crystal: { x: 0, y: 0 }, picked: false };
   const pickup: TrailerScene = {
-    id: "pickup",
     duration: 3000,
+    id: "pickup",
+    run: () => {
+      const p = api.player();
+      staging.camPos = { x: p.x + 122, y: p.y - 20 };
+      // The gate is the LOADOUT, not the distance. Proximity said "picked" one
+      // pixel outside ITEM_PICKUP_RADIUS (15, measured centre-to-centre with
+      // no hull padding), the director handed over to engage(), and the shot
+      // played its whole payoff with the Lv1 beam: measured, LASER never once
+      // reached the HUD. Now the approach only ends when the weapon changes.
+      if (!s3.picked) {
+        s3.picked = p.weapon === "LASER";
+      }
+      if (s3.picked) {
+        // Fodder drops are a weighted roll and this shot flies straight through
+        // the file it is clearing, so a second crystal can land under the hull
+        // and silently rewrite the loadout the shot exists to demonstrate
+        // (measured on a capture: the HUD read PLASMA CONE from ~1.6s of 3.1s).
+        // Re-assert the staged weapon through the real grant path.
+        if (p.weapon !== "LASER") {
+          api.grantWeapon("LASER");
+        }
+        engage(900, 0.16, 0);
+      } else {
+        steer(angleTo(p, s3.crystal), Math.min(0.9, dist(p, s3.crystal) / 120));
+        staging.fire = false;
+      }
+      // Eight drones with a pierce lance crosses the Lv1 threshold at ~2.4s —
+      // same reason as calm-open: the level-up ring belongs to scene 4.
+      api.setXp(0);
+      floorShield();
+    },
     setup: () => {
       stage();
       // 1.3 → 1.6, staging divided by 1.23: same frame, 23% bigger crystal,
       // hull and drone file (the crystal is the smallest named subject in the
       // reel and at 1.3 it was a ~12px glyph).
-      cam.setZoom(1.6); // half-frame ≈ 500 × 281
+      // half-frame ≈ 500 × 281
+      cam.setZoom(1.6);
       show(hud.root, true);
-      show(hud.right, false); // "solo · offline" line stays out of frame
+      // "solo · offline" line stays out of frame
+      show(hud.right, false);
       const a = anchor(-200, -640);
       api.setLevel(1);
-      api.setPlayerPose({ x: a.x, y: a.y, angle: 0, vx: 200, vy: 0 });
+      api.setPlayerPose({ angle: 0, vx: 200, vy: 0, x: a.x, y: a.y });
       s3 = { crystal: { x: a.x + 142, y: a.y - 4 }, picked: false };
       api.spawnItem("weapon", "LASER", s3.crystal.x, s3.crystal.y);
       // The payoff: a file receding to frame-right, close to collinear so one
       // pierce lance takes three of them.
-      for (let i = 0; i < 8; i++) {
+      for (let i = 0; i < 8; i += 1) {
         api.spawnEnemy("drone", a.x + 268 + i * 34, a.y - 49 + i * 14, a);
       }
       // A second file offset below it — the lance skewers one and the frame
       // still reads as a formation rather than a line of dots.
-      for (let i = 0; i < 7; i++) {
+      for (let i = 0; i < 7; i += 1) {
         api.spawnEnemy("drone", a.x + 300 + i * 34, a.y + 78 + i * 12, a);
       }
       api.spawnEnemy("drone", a.x + 325, a.y + 122, a);
@@ -999,39 +1068,13 @@ function direct(scene: GameScene): void {
       const frame = { x: a.x + 260, y: a.y - 20 };
       dressRocks(mulberry(31), {
         at: frame,
-        layout: { kind: "arc", from: -2.85, to: -0.35, inner: 0.66, outer: 1.2 },
         count: 24,
-        rMin: 32,
-        rMax: 56,
         keepOut: corridor(a, { x: a.x + 560, y: a.y }, 90),
+        layout: { from: -2.85, inner: 0.66, kind: "arc", outer: 1.2, to: -0.35 },
+        rMax: 56,
+        rMin: 32,
       });
-      boulder(mulberry(32), frame, 0.82, 0.96, { count: 4, spread: 64, rMin: 38, rMax: 54 });
-    },
-    run: () => {
-      const p = api.player();
-      staging.camPos = { x: p.x + 122, y: p.y - 20 };
-      // The gate is the LOADOUT, not the distance. Proximity said "picked" one
-      // pixel outside ITEM_PICKUP_RADIUS (15, measured centre-to-centre with
-      // no hull padding), the director handed over to engage(), and the shot
-      // played its whole payoff with the Lv1 beam: measured, LASER never once
-      // reached the HUD. Now the approach only ends when the weapon changes.
-      if (!s3.picked) s3.picked = p.weapon === "LASER";
-      if (!s3.picked) {
-        steer(angleTo(p, s3.crystal), Math.min(0.9, dist(p, s3.crystal) / 120));
-        staging.fire = false;
-      } else {
-        // Fodder drops are a weighted roll and this shot flies straight through
-        // the file it is clearing, so a second crystal can land under the hull
-        // and silently rewrite the loadout the shot exists to demonstrate
-        // (measured on a capture: the HUD read PLASMA CONE from ~1.6s of 3.1s).
-        // Re-assert the staged weapon through the real grant path.
-        if (p.weapon !== "LASER") api.grantWeapon("LASER");
-        engage(900, 0.16, 0);
-      }
-      // Eight drones with a pierce lance crosses the Lv1 threshold at ~2.4s —
-      // same reason as calm-open: the level-up ring belongs to scene 4.
-      api.setXp(0);
-      floorShield();
+      boulder(mulberry(32), frame, 0.82, 0.96, { count: 4, rMax: 54, rMin: 38, spread: 64 });
     },
     teardown: sceneReset,
   };
@@ -1051,48 +1094,16 @@ function direct(scene: GameScene): void {
    *  accelerates them in), so three staggered rings still left only 4-5 orbs in
    *  any sampled frame. A drip on this cadence holds ~20 in flight. */
   const ORB_DRIP_MS = 300;
-  const ORB_RING_R = 245; // just inside MAGNET_RANGE (260) — all of them come
+  // just inside MAGNET_RANGE (260) — all of them come
+  const ORB_RING_R = 245;
   let s4Rings = 0;
   let s4Leveled = false;
   let s4Rnd = mulberry(22);
   const levelUp: TrailerScene = {
-    id: "level-up",
     // 2000, not 2200: the beat is vacuum → pop, and the old tail spent 500ms
     // past the pop on a field the magnet had already emptied.
     duration: 2000,
-    setup: () => {
-      stage();
-      s4Rings = 0;
-      s4Leveled = false;
-      s4Rnd = mulberry(22);
-      // A portrait frame. The named beat is the HULL REBUILDING — swept wings,
-      // cockpit dot — inside the 110px level-up ring, and at any wider zoom the
-      // ship is a 30px dart and an XP orb is a 4px speck.
-      cam.setZoom(2.0); // half-frame ≈ 400 × 225
-      show(hud.root, true);
-      show(hud.right, false);
-      const a = anchor(600, 260);
-      api.setLevel(1, 0);
-      api.setPlayerPose({ x: a.x, y: a.y, angle: -Math.PI / 2, vx: 0, vy: -60 });
-      api.grantBooster("magnet");
-      spawnShardRing(mulberry(2), a, 22, ORB_RING_R);
-      // Rocks carry this shot's whole background: a 400 × 225 world-px frame,
-      // the pilot is not shooting, and the only other
-      // things on screen are 4px orbs. So it gets the reel's biggest SINGLE
-      // object rather than a belt — a mass cropped by the right edge that eats
-      // a third of the frame — with a knot of small rocks low-left for scale
-      // contrast and black everywhere else. At zoom 2 an 80px rock already
-      // draws 320 screen px of outline; thirteen fused draw a cliff.
-      boulder(mulberry(41), a, 0.92, -0.15, { count: 23, spread: 192 });
-      boulder(mulberry(43), a, -0.28, 0.94, { count: 11, spread: 116 });
-      dressRocks(mulberry(42), {
-        at: a,
-        layout: { kind: "clump", cx: -0.76, cy: 0.6, spread: 0.62 },
-        rMin: 24,
-        rMax: 60,
-        keepOut: corridor(a, { x: a.x, y: a.y - 230 }, 70),
-      });
-    },
+    id: "level-up",
     run: (t) => {
       const wobble = 0.15 * Math.sin(t * 0.002);
       steer(-Math.PI / 2 + wobble, 0.12);
@@ -1115,6 +1126,40 @@ function direct(scene: GameScene): void {
         api.grantXp(xpToNext(1));
       }
       floorShield();
+    },
+    setup: () => {
+      stage();
+      s4Rings = 0;
+      s4Leveled = false;
+      s4Rnd = mulberry(22);
+      // A portrait frame. The named beat is the HULL REBUILDING — swept wings,
+      // cockpit dot — inside the 110px level-up ring, and at any wider zoom the
+      // ship is a 30px dart and an XP orb is a 4px speck.
+      // half-frame ≈ 400 × 225
+      cam.setZoom(2);
+      show(hud.root, true);
+      show(hud.right, false);
+      const a = anchor(600, 260);
+      api.setLevel(1, 0);
+      api.setPlayerPose({ angle: -Math.PI / 2, vx: 0, vy: -60, x: a.x, y: a.y });
+      api.grantBooster("magnet");
+      spawnShardRing(mulberry(2), a, 22, ORB_RING_R);
+      // Rocks carry this shot's whole background: a 400 × 225 world-px frame,
+      // the pilot is not shooting, and the only other
+      // things on screen are 4px orbs. So it gets the reel's biggest SINGLE
+      // object rather than a belt — a mass cropped by the right edge that eats
+      // a third of the frame — with a knot of small rocks low-left for scale
+      // contrast and black everywhere else. At zoom 2 an 80px rock already
+      // draws 320 screen px of outline; thirteen fused draw a cliff.
+      boulder(mulberry(41), a, 0.92, -0.15, { count: 23, spread: 192 });
+      boulder(mulberry(43), a, -0.28, 0.94, { count: 11, spread: 116 });
+      dressRocks(mulberry(42), {
+        at: a,
+        keepOut: corridor(a, { x: a.x, y: a.y - 230 }, 70),
+        layout: { cx: -0.76, cy: 0.6, kind: "clump", spread: 0.62 },
+        rMax: 60,
+        rMin: 24,
+      });
     },
     teardown: sceneReset,
   };
@@ -1145,16 +1190,41 @@ function direct(scene: GameScene): void {
   const CHAIN_REFILL = 1150;
   let s5Refilled = false;
   const chainReactor: TrailerScene = {
-    id: "chain-reactor",
     duration: 2400,
+    id: "chain-reactor",
+    run: (t) => {
+      const p = api.player();
+      staging.camPos = { x: p.x + CHAIN_LEAD, y: p.y - 18 };
+      if (!s5Refilled && t >= CHAIN_REFILL) {
+        s5Refilled = true;
+        const rr = mulberry(35);
+        for (let i = 0; i < 14; i += 1) {
+          api.spawnEnemy("drone", p.x + 250 + rr() * 190, p.y - 190 + rr() * 380, p);
+        }
+        for (let i = 0; i < 5; i += 1) {
+          api.spawnEnemy("wasp", p.x + 230 + rr() * 160, p.y - 150 + rr() * 300, p);
+        }
+      }
+      const e = nearestEnemy(p, 900);
+      if (e) {
+        steer(angleTo(p, e), 0.06);
+      } else {
+        steer(0, 0.1);
+      }
+      // Arc is hitscan with a 460px cast range — hold fire until a target is
+      // inside it so every trigger is a full web, never a fizzle.
+      staging.fire = e !== null && dist(p, e) <= 440;
+      floorShield();
+    },
     setup: () => {
       stage();
       s5Refilled = false;
-      cam.setZoom(2.15); // half-frame ≈ 372 × 209
+      // half-frame ≈ 372 × 209
+      cam.setZoom(2.15);
       const a = anchor(-400, 250);
       const rnd = mulberry(3);
       api.setLevel(3);
-      api.setPlayerPose({ x: a.x, y: a.y, angle: 0, vx: 0, vy: 0 });
+      api.setPlayerPose({ angle: 0, vx: 0, vy: 0, x: a.x, y: a.y });
       api.grantWeapon("CHAIN REACTOR");
       // Three ranks strung ACROSS the frame from +0.06 to +0.74 half-frames,
       // every one inside the 440px fire gate from frame one and packed tight
@@ -1163,13 +1233,13 @@ function direct(scene: GameScene): void {
       // 18 → 30 → 36 bodies, and this is the one count no divide carries: a
       // pack that is tighter in WORLD px gets swept by every cast, and the shot
       // used to strip itself bare by 1.5s of 2.4s.
-      for (let i = 0; i < 16; i++) {
+      for (let i = 0; i < 16; i += 1) {
         api.spawnEnemy("drone", a.x + 180 + rnd() * 100, a.y - 180 + rnd() * 360, a);
       }
-      for (let i = 0; i < 8; i++) {
+      for (let i = 0; i < 8; i += 1) {
         api.spawnEnemy("wasp", a.x + 215 + rnd() * 90, a.y - 160 + rnd() * 320, a);
       }
-      for (let i = 0; i < 12; i++) {
+      for (let i = 0; i < 12; i += 1) {
         api.spawnEnemy("drone", a.x + 300 + rnd() * 130, a.y - 150 + rnd() * 300, a);
       }
       // Rocks are legal arc targets (arcTargets includes asteroids), so this
@@ -1186,38 +1256,17 @@ function direct(scene: GameScene): void {
       const frame = { x: a.x + CHAIN_LEAD, y: a.y - 18 };
       dressRocks(rnd, {
         at: frame,
-        layout: { kind: "band", angle: Math.PI / 2, offset: -0.82, halfWidth: 0.2, length: 1.5 },
         count: 18,
-        rMin: 30,
-        rMax: 42,
         keepOut: corridor(a, { x: a.x + 430, y: a.y }, 60, 7),
+        layout: { angle: Math.PI / 2, halfWidth: 0.2, kind: "band", length: 1.5, offset: -0.82 },
+        rMax: 42,
+        rMin: 30,
       });
       // The pilot's own side. A mass cropped by the LEFT edge below the hull
       // closes the frame behind him — the side the web is travelling away from
       // is the side that had nothing in it at all.
-      boulder(mulberry(33), frame, -1.02, 0.58, { count: 7, spread: 60, rMin: 32, rMax: 46 });
-      boulder(mulberry(34), frame, -0.72, -0.94, { count: 5, spread: 48, rMin: 30, rMax: 42 });
-    },
-    run: (t) => {
-      const p = api.player();
-      staging.camPos = { x: p.x + CHAIN_LEAD, y: p.y - 18 };
-      if (!s5Refilled && t >= CHAIN_REFILL) {
-        s5Refilled = true;
-        const rr = mulberry(35);
-        for (let i = 0; i < 14; i++) {
-          api.spawnEnemy("drone", p.x + 250 + rr() * 190, p.y - 190 + rr() * 380, p);
-        }
-        for (let i = 0; i < 5; i++) {
-          api.spawnEnemy("wasp", p.x + 230 + rr() * 160, p.y - 150 + rr() * 300, p);
-        }
-      }
-      const e = nearestEnemy(p, 900);
-      if (e) steer(angleTo(p, e), 0.06);
-      else steer(0, 0.1);
-      // Arc is hitscan with a 460px cast range — hold fire until a target is
-      // inside it so every trigger is a full web, never a fizzle.
-      staging.fire = e !== null && dist(p, e) <= 440;
-      floorShield();
+      boulder(mulberry(33), frame, -1.02, 0.58, { count: 7, rMax: 46, rMin: 32, spread: 60 });
+      boulder(mulberry(34), frame, -0.72, -0.94, { count: 5, rMax: 42, rMin: 30, spread: 48 });
     },
     teardown: sceneReset,
   };
@@ -1245,15 +1294,38 @@ function direct(scene: GameScene): void {
   const SINGULARITY_REFILL = 1250;
   let s6 = { knot: { x: 0, y: 0 }, refilled: false };
   const singularity: TrailerScene = {
-    id: "singularity",
     duration: 2400,
+    id: "singularity",
+    run: (t) => {
+      const p = api.player();
+      if (!s6.refilled && t >= SINGULARITY_REFILL) {
+        s6.refilled = true;
+        spawnRing(mulberry(153), ["drone", "wasp", "drone"], 16, s6.knot, 190, 280, s6.knot, {
+          from: -1,
+          to: 1,
+        });
+      }
+      steer(angleTo(p, s6.knot), 0.04);
+      staging.fire = true;
+      // SINGULARITY is power 1.0 — it destroys ANY asteroid outright, so this
+      // is the one shot where rock radii cannot be held above the one-shot
+      // threshold. Every rock it eats rolls the 11% item chance, and a looted
+      // weapon landing under the hull would silently replace the one the shot
+      // is named for (the pickup and shield-mod shots re-assert for the same
+      // reason). grantWeapon on the weapon already held is a no-op.
+      if (p.weapon !== "SINGULARITY") {
+        api.grantWeapon("SINGULARITY");
+      }
+      floorShield();
+    },
     setup: () => {
       stage();
-      cam.setZoom(1.9); // half-frame ≈ 421 × 237
+      // half-frame ≈ 421 × 237
+      cam.setZoom(1.9);
       const a = anchor(-100, 40);
       const rnd = mulberry(15);
       api.setLevel(3);
-      api.setPlayerPose({ x: a.x, y: a.y, angle: 0, vx: 0, vy: 0 });
+      api.setPlayerPose({ angle: 0, vx: 0, vy: 0, x: a.x, y: a.y });
       api.grantWeapon("SINGULARITY");
       // The orb collapses at 216px traveled; the knot's leading edge sits right
       // there so the 220px pull radius swallows the whole cluster.
@@ -1277,42 +1349,22 @@ function direct(scene: GameScene): void {
       const frame = { x: k.x - 165, y: k.y + 10 };
       dressRocks(rnd, {
         at: frame,
-        layout: { kind: "band", angle: -0.72, halfWidth: 0.58, length: 1.8 },
-        rMin: 34,
+        keepOut: [{ r: 240, x: k.x, y: k.y }, ...corridor(a, k, 44)],
+        layout: { angle: -0.72, halfWidth: 0.58, kind: "band", length: 1.8 },
         rMax: 52,
-        keepOut: [{ x: k.x, y: k.y, r: 240 }, ...corridor(a, k, 44)],
+        rMin: 34,
       });
-      boulder(mulberry(151), frame, -0.34, 1.02, { count: 6, spread: 53, rMin: 40, rMax: 56 });
+      boulder(mulberry(151), frame, -0.34, 1.02, { count: 6, rMax: 56, rMin: 40, spread: 53 });
       // Cropped by the RIGHT edge, 277px clear of the knot so the pull cannot
       // drag it in: the band runs lower-left to upper-right and the 240px
       // keep-out then carves everything the frame's right third had.
-      boulder(mulberry(152), frame, 1.06, -0.32, { count: 7, spread: 62, rMin: 42, rMax: 58 });
+      boulder(mulberry(152), frame, 1.06, -0.32, { count: 7, rMax: 58, rMin: 42, spread: 62 });
       // Midpoint of ship and knot: the ship lands at −0.39 half-frames, the knot
       // at +0.39, and the 220px pull radius reaches to +0.92 — so the collapse
       // fills the right of frame instead of sitting in the middle of it.
       camLock.x = frame.x;
       camLock.y = frame.y;
       staging.camPos = camLock;
-    },
-    run: (t) => {
-      const p = api.player();
-      if (!s6.refilled && t >= SINGULARITY_REFILL) {
-        s6.refilled = true;
-        spawnRing(mulberry(153), ["drone", "wasp", "drone"], 16, s6.knot, 190, 280, s6.knot, {
-          from: -1.0,
-          to: 1.0,
-        });
-      }
-      steer(angleTo(p, s6.knot), 0.04);
-      staging.fire = true;
-      // SINGULARITY is power 1.0 — it destroys ANY asteroid outright, so this
-      // is the one shot where rock radii cannot be held above the one-shot
-      // threshold. Every rock it eats rolls the 11% item chance, and a looted
-      // weapon landing under the hull would silently replace the one the shot
-      // is named for (the pickup and shield-mod shots re-assert for the same
-      // reason). grantWeapon on the weapon already held is a no-op.
-      if (p.weapon !== "SINGULARITY") api.grantWeapon("SINGULARITY");
-      floorShield();
     },
     teardown: sceneReset,
   };
@@ -1341,14 +1393,28 @@ function direct(scene: GameScene): void {
   /** Firing lane: up-and-right at the 1.9 frame's diagonal, atan(237/421). */
   const RAILGUN_LANE = -0.51;
   const railgun: TrailerScene = {
-    id: "railgun",
     duration: 2200,
+    id: "railgun",
+    run: () => {
+      const p = api.player();
+      // Hull pinned to the lower-left corner — (-0.70, +0.60) half-frames — so
+      // the lane crosses the frame corner to corner.
+      staging.camPos = { x: p.x + 295, y: p.y - 142 };
+      // Fixed heading, NOT engage(): the lane is the composition, and a
+      // nearest-target aim swings the nose — and the lance with it — off the
+      // diagonal the moment the first file dies.
+      steer(RAILGUN_LANE, 0.05);
+      // hold: the windup only charges while held
+      staging.fire = true;
+      floorShield();
+    },
     setup: () => {
       stage();
-      cam.setZoom(1.9); // half-frame ≈ 421 × 237
+      // half-frame ≈ 421 × 237
+      cam.setZoom(1.9);
       const a = anchor(300, 500);
       api.setLevel(3);
-      api.setPlayerPose({ x: a.x, y: a.y, angle: RAILGUN_LANE, vx: 0, vy: 0 });
+      api.setPlayerPose({ angle: RAILGUN_LANE, vx: 0, vy: 0, x: a.x, y: a.y });
       api.grantWeapon("RAILGUN");
       api.grantBooster("overdrive");
       const cos = Math.cos(RAILGUN_LANE);
@@ -1362,15 +1428,15 @@ function direct(scene: GameScene): void {
       // whole column, so the kill reads as a line collapsing behind the lance
       // instead of one body clipped off the end of it. Every slot is inside the
       // 421 × 237 half-frame measured from the camera's lower-left hold below.
-      for (let i = 0; i < 7; i++) {
+      for (let i = 0; i < 7; i += 1) {
         const q = lane(150 + i * 68, -34 + i * 6);
         api.spawnEnemy("drone", q.x, q.y, a);
       }
-      for (let i = 0; i < 6; i++) {
+      for (let i = 0; i < 6; i += 1) {
         const q = lane(190 + i * 74, 74 + i * 9);
         api.spawnEnemy("drone", q.x, q.y, a);
       }
-      for (let i = 0; i < 5; i++) {
+      for (let i = 0; i < 5; i += 1) {
         const q = lane(180 + i * 66, -105 - i * 4);
         api.spawnEnemy("drone", q.x, q.y, a);
       }
@@ -1381,18 +1447,6 @@ function direct(scene: GameScene): void {
       const w2 = lane(520, -90);
       api.spawnEnemy("wasp", w1.x, w1.y, a);
       api.spawnEnemy("wasp", w2.x, w2.y, a);
-    },
-    run: () => {
-      const p = api.player();
-      // Hull pinned to the lower-left corner — (-0.70, +0.60) half-frames — so
-      // the lane crosses the frame corner to corner.
-      staging.camPos = { x: p.x + 295, y: p.y - 142 };
-      // Fixed heading, NOT engage(): the lane is the composition, and a
-      // nearest-target aim swings the nose — and the lance with it — off the
-      // diagonal the moment the first file dies.
-      steer(RAILGUN_LANE, 0.05);
-      staging.fire = true; // hold: the windup only charges while held
-      floorShield();
     },
     teardown: sceneReset,
   };
@@ -1417,27 +1471,8 @@ function direct(scene: GameScene): void {
   // divided by 1.4 — same composition, 40% more subject in it.
   let s8 = { sentry: false, turret: { x: 0, y: 0 }, wave: false };
   const deployables: TrailerScene = {
-    id: "deployables",
     duration: 2600,
-    setup: () => {
-      stage();
-      s8 = { sentry: false, turret: { x: 0, y: 0 }, wave: false };
-      cam.setZoom(1.9); // half-frame ≈ 421 × 237
-      const a = anchor(1000, 500);
-      const rnd = mulberry(18);
-      api.setLevel(3);
-      api.setPlayerPose({ x: a.x, y: a.y, angle: 0, vx: 120, vy: 0 });
-      api.grantWeapon("MINES");
-      // Chase pack behind-left, close enough that the picket detonates ON
-      // camera: wasps (240 px/s) run it down, drones string out behind them.
-      // Drones only close at 70 px/s and MINE_TRIGGER_RADIUS is 60, so the
-      // ring has to start inside ~180px or nothing reaches a mine in 2.6s.
-      spawnRing(rnd, ["wasp"], 8, a, 86, 150, a, { from: Math.PI * 0.55, to: Math.PI * 1.45 });
-      spawnRing(rnd, ["drone"], 12, a, 122, 214, a, { from: Math.PI * 0.5, to: Math.PI * 1.5 });
-      // A pocket ahead for the turret to work once the ship has left it behind —
-      // inside SENTRY_RANGE (480) of where the plant lands.
-      spawnRing(rnd, ["drone", "wasp"], 7, a, 178, 257, a, { from: -0.9, to: 0.9 });
-    },
+    id: "deployables",
     run: (t) => {
       const p = api.player();
       // 1300: MINES at Lv3 fires at 0 / 614 / 1228, so this lands right after
@@ -1447,7 +1482,8 @@ function direct(scene: GameScene): void {
       // planted until ~2050 of 2600.)
       if (!s8.sentry && t >= 1300) {
         s8.sentry = true;
-        api.grantWeapon("SENTRY"); // resets the cadence — plants on this trigger
+        // resets the cadence — plants on this trigger
+        api.grantWeapon("SENTRY");
         // placeSentry seats the turret at the ship, so this IS where it lands;
         // the frame below is held on it because a 9px tripod that walks off the
         // edge is not a demonstration of anything.
@@ -1461,14 +1497,7 @@ function direct(scene: GameScene): void {
         s8.wave = true;
         spawnRing(mulberry(181), ["wasp", "drone"], 12, s8.turret, 150, 260, s8.turret);
       }
-      if (!s8.sentry) {
-        // Slow lateral strafe so the three mines lay out as a picket rather
-        // than a pile, and the pack closes instead of falling behind. The frame
-        // sits BEHIND the hull, on the wake where the diamonds are.
-        steer(0.5 + Math.sin(t * 0.0024) * 0.45, 0.2);
-        staging.fire = true;
-        staging.camPos = { x: p.x - 130, y: p.y - 30 };
-      } else {
+      if (s8.sentry) {
         // Plant, then walk away. Exactly ONE trigger: placeSentry re-seats the
         // single turret at the ship on every fire, so a second window would
         // drag it along instead of leaving it behind. 150ms is under SENTRY's
@@ -1494,8 +1523,35 @@ function direct(scene: GameScene): void {
           x: s8.turret.x + (p.x - s8.turret.x) * 0.36,
           y: s8.turret.y + (p.y - s8.turret.y) * 0.36,
         };
+      } else {
+        // Slow lateral strafe so the three mines lay out as a picket rather
+        // than a pile, and the pack closes instead of falling behind. The frame
+        // sits BEHIND the hull, on the wake where the diamonds are.
+        steer(0.5 + Math.sin(t * 0.0024) * 0.45, 0.2);
+        staging.fire = true;
+        staging.camPos = { x: p.x - 130, y: p.y - 30 };
       }
       floorShield(130);
+    },
+    setup: () => {
+      stage();
+      s8 = { sentry: false, turret: { x: 0, y: 0 }, wave: false };
+      // half-frame ≈ 421 × 237
+      cam.setZoom(1.9);
+      const a = anchor(1000, 500);
+      const rnd = mulberry(18);
+      api.setLevel(3);
+      api.setPlayerPose({ angle: 0, vx: 120, vy: 0, x: a.x, y: a.y });
+      api.grantWeapon("MINES");
+      // Chase pack behind-left, close enough that the picket detonates ON
+      // camera: wasps (240 px/s) run it down, drones string out behind them.
+      // Drones only close at 70 px/s and MINE_TRIGGER_RADIUS is 60, so the
+      // ring has to start inside ~180px or nothing reaches a mine in 2.6s.
+      spawnRing(rnd, ["wasp"], 8, a, 86, 150, a, { from: Math.PI * 0.55, to: Math.PI * 1.45 });
+      spawnRing(rnd, ["drone"], 12, a, 122, 214, a, { from: Math.PI * 0.5, to: Math.PI * 1.5 });
+      // A pocket ahead for the turret to work once the ship has left it behind —
+      // inside SENTRY_RANGE (480) of where the plant lands.
+      spawnRing(rnd, ["drone", "wasp"], 7, a, 178, 257, a, { from: -0.9, to: 0.9 });
     },
     teardown: sceneReset,
   };
@@ -1508,8 +1564,43 @@ function direct(scene: GameScene): void {
   // the frame read emptier the fuller it got).
   let s9Reinforced = false;
   const escalation1: TrailerScene = {
-    id: "escalation-1",
     duration: 2800,
+    id: "escalation-1",
+    run: (t) => {
+      // density RISES with the count
+      cam.setZoom(lerp(1.75, 2.05, ease(t / 2800)));
+      const p = api.player();
+      if (!s9Reinforced && t >= 1400) {
+        s9Reinforced = true;
+        // The count visibly doubles mid-shot: a cut-off group ahead. Held at
+        // 262-354 (the divided radii) so it lands at +0.6 → +0.8 half-frames,
+        // i.e. it arrives in the RIGHT of frame that the shortened lead opens.
+        spawnRing(mulberry(66), ["drone"], 14, p, 262, 354, p, { from: -0.9, to: 0.9 });
+      }
+      // heading bends gently downrange over the shot
+      const dir = t * 0.00016;
+      const cycle = t % 760;
+      if (cycle < 460) {
+        // run — pursuers fill the frame behind
+        steer(dir, 0.8);
+        staging.fire = false;
+        // 174 → 60, re-picked by eye rather than divided. Dividing it kept the
+        // hull at +0.38 half-frames while the divided chase ring collapsed to
+        // −0.05 → −0.37 behind it, i.e. everything piled into the middle and
+        // both edges went black. At 60 the hull sits near centre, the chase
+        // spreads back to −0.62 and the mid-shot wave arrives past +0.6.
+        staging.camPos = { x: p.x - 60, y: p.y };
+      } else {
+        const e = nearestEnemy(p, 700);
+        // the kite flip
+        steer(e ? angleTo(p, e) : dir + Math.PI, 0.05);
+        staging.fire = true;
+        // frame snaps back on the turn
+        staging.camPos = null;
+      }
+      // dense chase pack: same-frame shot stacking
+      floorShield(130);
+    },
     setup: () => {
       stage();
       s9Reinforced = false;
@@ -1518,11 +1609,12 @@ function direct(scene: GameScene): void {
       // recipe: the shot stayed the reel's second-widest frame and the hull
       // still drew as a ~25px glyph inside a scatter. Same arc on screen, 33%
       // more subject in it.
-      cam.setZoom(1.75); // half-frame ≈ 457 × 257
+      // half-frame ≈ 457 × 257
+      cam.setZoom(1.75);
       const a = anchor(-400, 150);
       const rnd = mulberry(6);
       api.setLevel(3);
-      api.setPlayerPose({ x: a.x, y: a.y, angle: 0, vx: 181, vy: 0 });
+      api.setPlayerPose({ angle: 0, vx: 181, vy: 0, x: a.x, y: a.y });
       api.grantWeapon("SEEKER SWARM");
       api.grantBooster("twin");
       // 18 → 24 and 6 → 8: a chase ring 33% tighter in world px is swept by the
@@ -1544,42 +1636,13 @@ function direct(scene: GameScene): void {
       const frame = { x: a.x + 380, y: a.y };
       dressRocks(rnd, {
         at: frame,
-        layout: { kind: "band", angle: 0.15, offset: -0.55, halfWidth: 0.5, length: 2.0 },
-        rMin: 30,
-        rMax: 56,
         keepOut: corridor(a, { x: a.x + 980, y: a.y + 140 }, 60, 8),
+        layout: { angle: 0.15, halfWidth: 0.5, kind: "band", length: 2, offset: -0.55 },
+        rMax: 56,
+        rMin: 30,
       });
-      boulder(mulberry(67), frame, 0.15, 1.05, { count: 6, spread: 65, rMin: 42, rMax: 58 });
-      boulder(mulberry(68), frame, -0.85, 0.92, { count: 5, spread: 60, rMin: 42, rMax: 58 });
-    },
-    run: (t) => {
-      cam.setZoom(lerp(1.75, 2.05, ease(t / 2800))); // density RISES with the count
-      const p = api.player();
-      if (!s9Reinforced && t >= 1400) {
-        s9Reinforced = true;
-        // The count visibly doubles mid-shot: a cut-off group ahead. Held at
-        // 262-354 (the divided radii) so it lands at +0.6 → +0.8 half-frames,
-        // i.e. it arrives in the RIGHT of frame that the shortened lead opens.
-        spawnRing(mulberry(66), ["drone"], 14, p, 262, 354, p, { from: -0.9, to: 0.9 });
-      }
-      const dir = t * 0.00016; // heading bends gently downrange over the shot
-      const cycle = t % 760;
-      if (cycle < 460) {
-        steer(dir, 0.8); // run — pursuers fill the frame behind
-        staging.fire = false;
-        // 174 → 60, re-picked by eye rather than divided. Dividing it kept the
-        // hull at +0.38 half-frames while the divided chase ring collapsed to
-        // −0.05 → −0.37 behind it, i.e. everything piled into the middle and
-        // both edges went black. At 60 the hull sits near centre, the chase
-        // spreads back to −0.62 and the mid-shot wave arrives past +0.6.
-        staging.camPos = { x: p.x - 60, y: p.y };
-      } else {
-        const e = nearestEnemy(p, 700);
-        steer(e ? angleTo(p, e) : dir + Math.PI, 0.05); // the kite flip
-        staging.fire = true;
-        staging.camPos = null; // frame snaps back on the turn
-      }
-      floorShield(130); // dense chase pack: same-frame shot stacking
+      boulder(mulberry(67), frame, 0.15, 1.05, { count: 6, rMax: 58, rMin: 42, spread: 65 });
+      boulder(mulberry(68), frame, -0.85, 0.92, { count: 5, rMax: 58, rMin: 42, spread: 60 });
     },
     teardown: sceneReset,
   };
@@ -1607,22 +1670,65 @@ function direct(scene: GameScene): void {
    *  inside +283 world px of the anchor (0.76 half-frames) and are dead by ~2s,
    *  so without this the closing frames are one lancer wreck and black. */
   const LANCER_REFILL = 1200;
-  let s10 = { lancerId: "", dodged: false, dodgeUntil: -1, finished: false, refilled: false };
+  let s10 = { dodgeUntil: -1, dodged: false, finished: false, lancerId: "", refilled: false };
   const lancerDuel: TrailerScene = {
-    id: "lancer-duel",
     duration: 2600,
+    id: "lancer-duel",
+    run: (t) => {
+      const p = api.player();
+      staging.camPos = { x: p.x + LANCER_LEAD, y: p.y };
+      if (!s10.refilled && t >= LANCER_REFILL) {
+        s10.refilled = true;
+        const rr = mulberry(77);
+        for (let i = 0; i < 11; i += 1) {
+          api.spawnEnemy("drone", p.x + 150 + rr() * 210, p.y - 190 + rr() * 380, p);
+        }
+        for (let i = 0; i < 3; i += 1) {
+          api.spawnEnemy("wasp", p.x + 210 + rr() * 150, p.y - 150 + rr() * 300, p);
+        }
+      }
+      const lancer = api.enemies().find((e) => e.id === s10.lancerId && e.hp > 0);
+      const charging = lancer !== undefined && Math.hypot(lancer.vx, lancer.vy) > 400;
+      // Gate the dodge to the visible window — it used to resolve before the
+      // first sampled frame, so the near-miss was never on camera.
+      if (charging && !s10.dodged && t >= 700) {
+        s10.dodged = true;
+        s10.dodgeUntil = t + 380;
+      }
+      if (t < s10.dodgeUntil) {
+        // Sidestep across the charge line — the near-miss beat.
+        if (lancer) {
+          steer(angleTo(p, lancer) + Math.PI / 2, 1);
+        }
+        staging.fire = false;
+      } else if (lancer) {
+        const opener = t < 600 ? nearestEnemy(p, 372, (e) => e.kind === "lancer") : null;
+        const target = opener ?? lancer;
+        steer(angleTo(p, target), 0.08);
+        staging.fire = true;
+        if (t > 1900 && !s10.finished) {
+          s10.finished = true;
+          // burst lands at ~73% of the shot
+          api.damageEnemy(lancer.id, lancer.hp + 10);
+        }
+      } else {
+        engage(521, 0.2, 0);
+      }
+      floorShield();
+    },
     setup: () => {
       stage();
-      s10 = { lancerId: "", dodged: false, dodgeUntil: -1, finished: false, refilled: false };
-      cam.setZoom(2.15); // half-frame ≈ 372 × 209
+      s10 = { dodgeUntil: -1, dodged: false, finished: false, lancerId: "", refilled: false };
+      // half-frame ≈ 372 × 209
+      cam.setZoom(2.15);
       const a = anchor(-900, 100);
       const rnd = mulberry(7);
       api.setLevel(3);
-      api.setPlayerPose({ x: a.x, y: a.y, angle: 0, vx: 60, vy: 0 });
-      for (let i = 0; i < 20; i++) {
+      api.setPlayerPose({ angle: 0, vx: 60, vy: 0, x: a.x, y: a.y });
+      for (let i = 0; i < 20; i += 1) {
         api.spawnEnemy("drone", a.x + 97 + rnd() * 186, a.y - 130 + rnd() * 260, a);
       }
-      for (let i = 0; i < 5; i++) {
+      for (let i = 0; i < 5; i += 1) {
         api.spawnEnemy("wasp", a.x + 141 + rnd() * 156, a.y - 97 + rnd() * 193, a);
       }
       s10.lancerId = api.spawnEnemy("lancer", a.x + 238, a.y, a);
@@ -1637,57 +1743,18 @@ function direct(scene: GameScene): void {
       const frame = { x: a.x + LANCER_LEAD, y: a.y };
       dressRocks(rnd, {
         at: frame,
-        layout: { kind: "arc", from: 2.5, to: 4.1, inner: 0.62, outer: 1.4 },
         count: 18,
-        rMin: 24,
-        rMax: 46,
         keepOut: corridor(a, { x: a.x + 149, y: a.y }, 67),
+        layout: { from: 2.5, inner: 0.62, kind: "arc", outer: 1.4, to: 4.1 },
+        rMax: 46,
+        rMin: 24,
       });
-      boulder(mulberry(72), frame, -0.8, 0.84, { count: 9, spread: 95, rMin: 46, rMax: 60 });
-      boulder(mulberry(74), frame, 0.9, -0.62, { count: 9, spread: 89, rMin: 46, rMax: 60 });
+      boulder(mulberry(72), frame, -0.8, 0.84, { count: 9, rMax: 60, rMin: 46, spread: 95 });
+      boulder(mulberry(74), frame, 0.9, -0.62, { count: 9, rMax: 60, rMin: 46, spread: 89 });
       // The right edge, which the old lead left as pure black: one mass cropped
       // by it, at frame height rather than in a corner, so the side the duel is
       // NOT on still has a body in it.
-      boulder(mulberry(76), frame, 1.04, 0.3, { count: 7, spread: 78, rMin: 44, rMax: 58 });
-    },
-    run: (t) => {
-      const p = api.player();
-      staging.camPos = { x: p.x + LANCER_LEAD, y: p.y };
-      if (!s10.refilled && t >= LANCER_REFILL) {
-        s10.refilled = true;
-        const rr = mulberry(77);
-        for (let i = 0; i < 11; i++) {
-          api.spawnEnemy("drone", p.x + 150 + rr() * 210, p.y - 190 + rr() * 380, p);
-        }
-        for (let i = 0; i < 3; i++) {
-          api.spawnEnemy("wasp", p.x + 210 + rr() * 150, p.y - 150 + rr() * 300, p);
-        }
-      }
-      const lancer = api.enemies().find((e) => e.id === s10.lancerId && e.hp > 0);
-      const charging = lancer !== undefined && Math.hypot(lancer.vx, lancer.vy) > 400;
-      // Gate the dodge to the visible window — it used to resolve before the
-      // first sampled frame, so the near-miss was never on camera.
-      if (charging && !s10.dodged && t >= 700) {
-        s10.dodged = true;
-        s10.dodgeUntil = t + 380;
-      }
-      if (t < s10.dodgeUntil) {
-        // Sidestep across the charge line — the near-miss beat.
-        if (lancer) steer(angleTo(p, lancer) + Math.PI / 2, 1);
-        staging.fire = false;
-      } else if (lancer) {
-        const opener = t < 600 ? nearestEnemy(p, 372, (e) => e.kind === "lancer") : null;
-        const target = opener ?? lancer;
-        steer(angleTo(p, target), 0.08);
-        staging.fire = true;
-        if (t > 1900 && !s10.finished) {
-          s10.finished = true;
-          api.damageEnemy(lancer.id, lancer.hp + 10); // burst lands at ~73% of the shot
-        }
-      } else {
-        engage(521, 0.2, 0);
-      }
-      floorShield();
+      boulder(mulberry(76), frame, 1.04, 0.3, { count: 7, rMax: 58, rMin: 44, spread: 78 });
     },
     teardown: sceneReset,
   };
@@ -1706,23 +1773,43 @@ function direct(scene: GameScene): void {
   // the splitter ~48px. This is the safest tighten in the reel because it is the
   // one shot whose camera never moves: camLock is set once, so nothing can walk
   // out of the crop mid-shot.
-  let s11 = { wardenId: "", splitterId: "", popped: false };
+  let s11 = { popped: false, splitterId: "", wardenId: "" };
   const eliteBehaviours: TrailerScene = {
-    id: "elite-behaviours",
     duration: 2600,
+    id: "elite-behaviours",
+    run: (t) => {
+      const p = api.player();
+      const warden = api.enemies().find((e) => e.id === s11.wardenId && e.hp > 0);
+      const splitter = api.enemies().find((e) => e.id === s11.splitterId && e.hp > 0);
+      const target = t < 1500 && warden ? warden : (splitter ?? warden ?? null);
+      if (target) {
+        steer(angleTo(p, target), 0.06);
+        staging.fire = true;
+      } else {
+        engage(508, 0.1, 0);
+      }
+      if (!s11.popped && t > 2050 && splitter) {
+        s11.popped = true;
+        // guarantee the 3-drone pop before the cut
+        api.killEnemy(splitter.id);
+      }
+      floorShield();
+    },
     setup: () => {
       stage();
-      s11 = { wardenId: "", splitterId: "", popped: false };
-      cam.setZoom(2.0); // half-frame ≈ 400 × 225 — elite hulls have to READ
+      s11 = { popped: false, splitterId: "", wardenId: "" };
+      // half-frame ≈ 400 × 225 — elite hulls have to READ
+      cam.setZoom(2);
       const a = anchor(-1200, -400);
       api.setLevel(3);
-      api.setPlayerPose({ x: a.x - 29, y: a.y + 44, angle: 0, vx: 0, vy: 0 });
+      api.setPlayerPose({ angle: 0, vx: 0, vy: 0, x: a.x - 29, y: a.y + 44 });
       s11.wardenId = api.spawnEnemy("warden", a.x + 170, a.y + 15, a);
       // A fresh EnemySim has nextAttackAt 0, so the warden telegraphs its lob
       // immediately (700ms) and vents at 700-2100ms. 600hp means the shielded
       // phase visibly bounces off and the vent window visibly ends it.
       api.setEnemyHp(s11.wardenId, 600);
-      api.spawnEnemy("spawner", a.x - 170, a.y - 127, a); // pulses immediately too
+      // pulses immediately too
+      api.spawnEnemy("spawner", a.x - 170, a.y - 127, a);
       s11.splitterId = api.spawnEnemy("splitter", a.x + 76, a.y + 141, a);
       const rnd = mulberry(21);
       // 10 → 24 → 32 → 44 over a box that is now the WIDTH OF THE FRAME. The
@@ -1732,10 +1819,10 @@ function direct(scene: GameScene): void {
       // side held nothing and the right one (which has no rock either) came out
       // as 45% black. -260 → +380 spans -0.55 → +1.05 of the shifted camLock
       // below, i.e. off both edges.
-      for (let i = 0; i < 44; i++) {
+      for (let i = 0; i < 44; i += 1) {
         api.spawnEnemy("drone", a.x - 260 + rnd() * 640, a.y - 172 + rnd() * 344, a);
       }
-      for (let i = 0; i < 13; i++) {
+      for (let i = 0; i < 13; i += 1) {
         api.spawnEnemy("wasp", a.x - 160 + rnd() * 430, a.y - 125 + rnd() * 250, a);
       }
       // Opposite CORNERS, with nothing across the middle: a knot low-left that
@@ -1750,36 +1837,19 @@ function direct(scene: GameScene): void {
       const frame = { x: a.x - 40, y: a.y };
       dressRocks(rnd, {
         at: frame,
-        layout: { kind: "clump", cx: -0.68, cy: 0.66, spread: 0.6 },
-        rMin: 32,
-        rMax: 54,
         keepOut: corridor({ x: a.x - 29, y: a.y + 44 }, { x: a.x + 145, y: a.y + 44 }, 58),
+        layout: { cx: -0.68, cy: 0.66, kind: "clump", spread: 0.6 },
+        rMax: 54,
+        rMin: 32,
       });
-      boulder(mulberry(211), frame, 0.95, -0.85, { count: 7, spread: 71, rMin: 44, rMax: 58 });
+      boulder(mulberry(211), frame, 0.95, -0.85, { count: 7, rMax: 58, rMin: 44, spread: 71 });
       // Cropped by the right edge at frame height. The corner mass above it
       // leaves the middle-right — the emptiest band in the shot — untouched,
       // and this shot's camera never moves, so a mass placed there stays there.
-      boulder(mulberry(213), frame, 1.06, 0.34, { count: 6, spread: 66, rMin: 42, rMax: 56 });
+      boulder(mulberry(213), frame, 1.06, 0.34, { count: 6, rMax: 56, rMin: 42, spread: 66 });
       camLock.x = frame.x;
       camLock.y = frame.y;
       staging.camPos = camLock;
-    },
-    run: (t) => {
-      const p = api.player();
-      const warden = api.enemies().find((e) => e.id === s11.wardenId && e.hp > 0);
-      const splitter = api.enemies().find((e) => e.id === s11.splitterId && e.hp > 0);
-      const target = t < 1500 && warden ? warden : (splitter ?? warden ?? null);
-      if (target) {
-        steer(angleTo(p, target), 0.06);
-        staging.fire = true;
-      } else {
-        engage(508, 0.1, 0);
-      }
-      if (!s11.popped && t > 2050 && splitter) {
-        s11.popped = true;
-        api.killEnemy(splitter.id); // guarantee the 3-drone pop before the cut
-      }
-      floorShield();
     },
     teardown: sceneReset,
   };
@@ -1800,10 +1870,44 @@ function direct(scene: GameScene): void {
    *  ~380px standoff, so the bounce lands at ~1.4s: swapping before ~1.5s
    *  throws the reflect beat away. */
   const REFLECT_MS = 1600;
-  let s12 = { ram: false, lane: { x: 0, y: 0 } };
+  let s12 = { lane: { x: 0, y: 0 }, ram: false };
   const shieldMods: TrailerScene = {
-    id: "shield-mods",
     duration: 3000,
+    id: "shield-mods",
+    run: (t) => {
+      const p = api.player();
+      if (!s12.ram && t >= REFLECT_MS) {
+        s12.ram = true;
+        api.grantShieldMod("ram");
+      }
+      if (s12.ram) {
+        // Commit: RAM only arms above RAM_ARM_SPEED (220 px/s).
+        staging.camPos = { x: p.x + 89, y: p.y + 15 };
+        steer(angleTo(p, s12.lane), 1);
+        staging.fire = false;
+        // Re-assert the mod every frame, exactly as the pickup shot re-asserts
+        // its weapon. The reflect phase kills ~14 fodder and their drops lie on
+        // the field the run then flies through, so a looted mod can silently
+        // replace the one this shot exists to demonstrate — measured on a
+        // capture, the HUD read BULWARK from ~2.6s of 3.0s. grantShieldMod only
+        // rewrites kind/until, so re-granting the mod already held is a no-op.
+        api.grantShieldMod("ram");
+      } else {
+        // Hold station facing frame-left so the bounce reads outbound — thrust
+        // 0 aims without moving, which is also what keeps the ship on the
+        // lane's origin so the staged rocks are actually in its path.
+        // Targets are the fodder, never the snipers (35hp dies long before its
+        // 900ms lock finishes) and never anything that has drifted right of
+        // the hull: the whole point of holding the nose left is that the
+        // ship's own beams must not fly down the RAM lane and shoot out the
+        // rocks it is about to run into (measured — that is what killed them).
+        staging.camPos = { x: p.x - 111, y: p.y };
+        const e = nearestEnemy(p, 900, (en) => en.kind === "sniper" || en.x > p.x - 40);
+        steer(e ? angleTo(p, e) : Math.PI, 0);
+        staging.fire = e !== null;
+      }
+      floorShield(130);
+    },
     setup: () => {
       stage();
       // 1.3 → 1.75 by the k-divide recipe (zoom ×1.346). Every STAGED distance
@@ -1811,19 +1915,21 @@ function direct(scene: GameScene): void {
       // not, and they are called out where they appear — the RAM rocks at
       // 145/200 (chosen off RAM_ARM_SPEED), the drone screen at 400-540 (chosen
       // off drone closing speed) and the snipers' own 520px kite-out.
-      cam.setZoom(1.75); // half-frame ≈ 457 × 257
+      // half-frame ≈ 457 × 257
+      cam.setZoom(1.75);
       show(hud.root, true);
       show(hud.right, false);
       const a = anchor(600, -300);
       const rnd = mulberry(26);
       api.setLevel(3);
-      api.setPlayerPose({ x: a.x, y: a.y, angle: 0, vx: 0, vy: 0 });
+      api.setPlayerPose({ angle: 0, vx: 0, vy: 0, x: a.x, y: a.y });
       api.grantShieldMod("reflect");
-      api.setShieldHp(100); // above REFLECT_MIN_SHIELD (40) — the arm is up
+      // above REFLECT_MIN_SHIELD (40) — the arm is up
+      api.setShieldHp(100);
       const cos = Math.cos(RAM_LANE_ANGLE);
       const sin = Math.sin(RAM_LANE_ANGLE);
       const lane = (d: number): Vec => ({ x: a.x + cos * d, y: a.y + sin * d });
-      s12 = { ram: false, lane: lane(700) };
+      s12 = { lane: lane(700), ram: false };
       // Frame-left arc, inside SNIPER_FIRE_RANGE: all three lock and fire at
       // ~900ms, which is the whole beat. They kite out to 520 during it — a
       // game distance, and at 1.75 that is still only 1.14 half-frames from the
@@ -1846,10 +1952,10 @@ function direct(scene: GameScene): void {
       // Stretched left to −380 (from −319): the reflect frame sits at p−111, so
       // the box only reached −0.45 half-frames and the outer left quarter — the
       // side the whole beat faces — measured empty.
-      for (let i = 0; i < 13; i++) {
+      for (let i = 0; i < 13; i += 1) {
         api.spawnEnemy("drone", a.x - 380 + rnd() * 330, a.y - 208 + rnd() * 416, a);
       }
-      for (let i = 0; i < 7; i++) {
+      for (let i = 0; i < 7; i += 1) {
         api.spawnEnemy("wasp", a.x - 280 + rnd() * 140, a.y - 163 + rnd() * 327, a);
       }
       // The RAM lane. Distances are metered off the arm: measured, the ship
@@ -1884,21 +1990,21 @@ function direct(scene: GameScene): void {
       const frame = { x: a.x + 30, y: a.y };
       dressRocks(rnd, {
         at: frame,
-        layout: { kind: "arc", from: -2.75, to: -0.4, inner: 0.6, outer: 1.18 },
         // Count down with the zoom (30 → 24) and rMax with it; rMin CANNOT come
         // down — 37 is the radius a Lv3 BEAM (power .40) destroys outright, and
         // a burst rock's 11% item roll replaces the mod this shot is about.
         count: 24,
-        rMin: 42,
-        rMax: 54,
         keepOut: [...corridor(a, lane(760), 71, 7), ...corridor({ x: a.x - 300, y: a.y }, a, 82)],
+        layout: { from: -2.75, inner: 0.6, kind: "arc", outer: 1.18, to: -0.4 },
+        rMax: 54,
+        rMin: 42,
       });
-      boulder(mulberry(261), frame, -0.82, -1.0, { count: 5, spread: 56, rMin: 42, rMax: 54 });
+      boulder(mulberry(261), frame, -0.82, -1, { count: 5, rMax: 54, rMin: 42, spread: 56 });
       // Cropped by the bottom-left corner. Both open lanes run above it — the
       // snipers sit at −123 → +145 of the anchor and the RAM lane leaves to the
       // lower RIGHT — so the one quadrant nothing in this shot ever crosses was
       // also the one quadrant with nothing in it.
-      boulder(mulberry(265), frame, -0.95, 0.72, { count: 6, spread: 58, rMin: 42, rMax: 54 });
+      boulder(mulberry(265), frame, -0.95, 0.72, { count: 6, rMax: 54, rMin: 42, spread: 58 });
       // A FLOOR under the run, composed on where the frame ENDS UP.
       //
       // Two defects, one cause: the ceiling above was 94 uncapped rocks — the
@@ -1917,49 +2023,16 @@ function direct(scene: GameScene): void {
       // (215px) with the corridor at 100 keeps it clear of the run itself, and
       // RAM only shatters rock within 28px of the hull. rMin stays above 37, the
       // radius a Lv3 BEAM (power .40) destroys outright.
-      const closing = { x: a.x + 620, y: a.y + 178 }; // on the lane at that x
+      // on the lane at that x
+      const closing = { x: a.x + 620, y: a.y + 178 };
       dressRocks(mulberry(263), {
         at: closing,
-        layout: { kind: "band", angle: RAM_LANE_ANGLE, offset: 0.62, halfWidth: 0.18, length: 1.0 },
         count: 16,
-        rMin: 42,
-        rMax: 52,
         keepOut: corridor(a, lane(1000), 74, 9),
+        layout: { angle: RAM_LANE_ANGLE, halfWidth: 0.18, kind: "band", length: 1, offset: 0.62 },
+        rMax: 52,
+        rMin: 42,
       });
-    },
-    run: (t) => {
-      const p = api.player();
-      if (!s12.ram && t >= REFLECT_MS) {
-        s12.ram = true;
-        api.grantShieldMod("ram");
-      }
-      if (!s12.ram) {
-        // Hold station facing frame-left so the bounce reads outbound — thrust
-        // 0 aims without moving, which is also what keeps the ship on the
-        // lane's origin so the staged rocks are actually in its path.
-        // Targets are the fodder, never the snipers (35hp dies long before its
-        // 900ms lock finishes) and never anything that has drifted right of
-        // the hull: the whole point of holding the nose left is that the
-        // ship's own beams must not fly down the RAM lane and shoot out the
-        // rocks it is about to run into (measured — that is what killed them).
-        staging.camPos = { x: p.x - 111, y: p.y };
-        const e = nearestEnemy(p, 900, (en) => en.kind === "sniper" || en.x > p.x - 40);
-        steer(e ? angleTo(p, e) : Math.PI, 0);
-        staging.fire = e !== null;
-      } else {
-        // Commit: RAM only arms above RAM_ARM_SPEED (220 px/s).
-        staging.camPos = { x: p.x + 89, y: p.y + 15 };
-        steer(angleTo(p, s12.lane), 1);
-        staging.fire = false;
-        // Re-assert the mod every frame, exactly as the pickup shot re-asserts
-        // its weapon. The reflect phase kills ~14 fodder and their drops lie on
-        // the field the run then flies through, so a looted mod can silently
-        // replace the one this shot exists to demonstrate — measured on a
-        // capture, the HUD read BULWARK from ~2.6s of 3.0s. grantShieldMod only
-        // rewrites kind/until, so re-granting the mod already held is a no-op.
-        api.grantShieldMod("ram");
-      }
-      floorShield(130);
     },
     teardown: sceneReset,
   };
@@ -1970,63 +2043,10 @@ function direct(scene: GameScene): void {
   // flashpoint — never fired. Here one wingmate breaks inside at ~2s: occupancy
   // hits two, the host flips contested, the gold hex strobes gold↔white at 4Hz,
   // the clash tone fires and the player's XP mote trickle cuts off mid-stream.
-  let s13 = { beacon: { x: 0, y: 0 }, rusher: -1, wave2: false, wave3: false, broke: false };
+  let s13 = { beacon: { x: 0, y: 0 }, broke: false, rusher: -1, wave2: false, wave3: false };
   const beaconContested: TrailerScene = {
-    id: "beacon-contested",
     duration: 3400,
-    setup: () => {
-      stage();
-      const b = anchor(0, -250);
-      s13 = { beacon: b, rusher: -1, wave2: false, wave3: false, broke: false };
-      cam.setZoom(1.05); // half-frame ≈ 762 × 429; the 420px hex fills it
-      camLock.x = b.x;
-      camLock.y = b.y;
-      staging.camPos = camLock;
-      api.setLevel(3);
-      // Me inside the zone (sole occupant → controller: motes stream my way).
-      api.setPlayerPose({ x: b.x - 40, y: b.y + 150, angle: -Math.PI / 2, vx: -40, vy: 0 });
-      api.spawnBeacon(b.x, b.y, 0.6, 40); // charge tail, arm flash ~600ms in
-      installPeers();
-      // Posts hand-placed on a 16:9 band: every one is >420 from the beacon (so
-      // occupancy stays at one until the break) and inside the 762×429 frame.
-      const posts: Vec[] = [
-        { x: b.x - 545, y: b.y - 115 },
-        { x: b.x - 480, y: b.y + 230 },
-        { x: b.x + 500, y: b.y - 215 },
-        { x: b.x + 560, y: b.y + 105 },
-      ];
-      posts.forEach((post, i) => {
-        addPeer(`wing-${i + 1}`, i, post, {
-          orbitR: 45,
-          angVel: 2.0,
-          phase0: i * 1.4,
-          baseAim: angleTo(post, b),
-          level: 2 + (i % 2),
-          score: 150 + i * 40,
-        });
-      });
-      // Index 2 = wing-3, PEER_COLORS[2] (green) — and the post nearest the
-      // zone, so the break-in is the shortest run on screen.
-      s13.rusher = 2;
-      const rnd = mulberry(8);
-      // Waves staged INSIDE / on the rim of the zone: the thing being defended
-      // is actually threatened on camera.
-      spawnRing(rnd, ["drone"], 12, b, 320, 430, b);
-      spawnRing(rnd, ["drone"], 6, b, 470, 560, b);
-      spawnRing(rnd, ["wasp"], 8, b, 520, 660, b);
-      // The gold hexagon owns the middle, so the dressing is a HORIZON rather
-      // than a ring around it: everything banked below, the top of frame left
-      // black, one mass cropped by the bottom edge. Held off the zone itself —
-      // a rock parked across the hex reads as damage to the beacon rather than
-      // as an asteroid.
-      dressRocks(rnd, {
-        at: b,
-        layout: { kind: "arc", from: 0.18, to: 3.15, inner: 0.66, outer: 1.4 },
-        rMin: 40,
-        keepOut: [{ x: b.x, y: b.y, r: 445 }],
-      });
-      boulder(mulberry(82), b, 0.42, 1.12, { count: 7, spread: 92 });
-    },
+    id: "beacon-contested",
     run: (t, dt) => {
       updateCrew(t, dt, "combat");
       if (!s13.wave2 && t >= 1400) {
@@ -2061,7 +2081,63 @@ function direct(scene: GameScene): void {
       } else {
         engage(700, 0.05, -Math.PI / 2);
       }
-      floorShield(130); // wave crossfire + wingmate bolts stack
+      // wave crossfire + wingmate bolts stack
+      floorShield(130);
+    },
+    setup: () => {
+      stage();
+      const b = anchor(0, -250);
+      s13 = { beacon: b, broke: false, rusher: -1, wave2: false, wave3: false };
+      // half-frame ≈ 762 × 429; the 420px hex fills it
+      cam.setZoom(1.05);
+      camLock.x = b.x;
+      camLock.y = b.y;
+      staging.camPos = camLock;
+      api.setLevel(3);
+      // Me inside the zone (sole occupant → controller: motes stream my way).
+      api.setPlayerPose({ angle: -Math.PI / 2, vx: -40, vy: 0, x: b.x - 40, y: b.y + 150 });
+      // charge tail, arm flash ~600ms in
+      api.spawnBeacon(b.x, b.y, 0.6, 40);
+      installPeers();
+      // Posts hand-placed on a 16:9 band: every one is >420 from the beacon (so
+      // occupancy stays at one until the break) and inside the 762×429 frame.
+      const posts: Vec[] = [
+        { x: b.x - 545, y: b.y - 115 },
+        { x: b.x - 480, y: b.y + 230 },
+        { x: b.x + 500, y: b.y - 215 },
+        { x: b.x + 560, y: b.y + 105 },
+      ];
+      for (const [i, post] of posts.entries()) {
+        addPeer(`wing-${i + 1}`, i, post, {
+          angVel: 2,
+          baseAim: angleTo(post, b),
+          level: 2 + (i % 2),
+          orbitR: 45,
+          phase0: i * 1.4,
+          score: 150 + i * 40,
+        });
+      }
+      // Index 2 = wing-3, PEER_COLORS[2] (green) — and the post nearest the
+      // zone, so the break-in is the shortest run on screen.
+      s13.rusher = 2;
+      const rnd = mulberry(8);
+      // Waves staged INSIDE / on the rim of the zone: the thing being defended
+      // is actually threatened on camera.
+      spawnRing(rnd, ["drone"], 12, b, 320, 430, b);
+      spawnRing(rnd, ["drone"], 6, b, 470, 560, b);
+      spawnRing(rnd, ["wasp"], 8, b, 520, 660, b);
+      // The gold hexagon owns the middle, so the dressing is a HORIZON rather
+      // than a ring around it: everything banked below, the top of frame left
+      // black, one mass cropped by the bottom edge. Held off the zone itself —
+      // a rock parked across the hex reads as damage to the beacon rather than
+      // as an asteroid.
+      dressRocks(rnd, {
+        at: b,
+        keepOut: [{ r: 445, x: b.x, y: b.y }],
+        layout: { from: 0.18, inner: 0.66, kind: "arc", outer: 1.4, to: 3.15 },
+        rMin: 40,
+      });
+      boulder(mulberry(82), b, 0.42, 1.12, { count: 7, spread: 92 });
     },
     teardown: sceneReset,
   };
@@ -2084,89 +2160,18 @@ function direct(scene: GameScene): void {
   // divided by the same 1.33 as its distance, so the interception lands on the
   // same beat (~2.3s of 2.8s); the 26px contact test is NOT scaled — that is a
   // hull-contact constant (SHIP_RADIUS × 2 = 16 plus margin), not staging.
-  let s14 = { rivalHp: 100, dead: false, rammer: -1, ramming: false, rammed: false };
+  let s14 = { dead: false, rammed: false, rammer: -1, ramming: false, rivalHp: 100 };
   const pvpDuel: TrailerScene = {
-    id: "pvp-duel",
     duration: 2800,
-    setup: () => {
-      stage();
-      s14 = { rivalHp: 100, dead: false, rammer: -1, ramming: false, rammed: false };
-      cam.setZoom(2.4); // two ships in black: they have to be BIG to read
-      const a = anchor(260, 120);
-      api.setLevel(3);
-      api.setPlayerPose({ x: a.x, y: a.y, angle: 0, vx: 0, vy: 0 });
-      api.setShieldHp(100);
-      // Rocks for depth — the only neutral thing in the arena, and they keep
-      // the frame from being two darts on pure black. (The third of the old
-      // trio sat where the cropped mass below now goes.) Radii step down with
-      // the zoom: at 2.4 a 55px rock already draws 264px across.
-      api.spawnAsteroid(a.x + 199, a.y + 135, 55);
-      api.spawnAsteroid(a.x + 23, a.y - 169, 34);
-      installPeers();
-      // The duellist: circles at close range so both hulls stay in one frame.
-      addPeer(
-        "rival",
-        1,
-        { x: a.x + 98, y: a.y - 19 },
-        {
-          orbitR: 86,
-          angVel: 1.9,
-          phase0: -0.6,
-          baseAim: Math.PI,
-          level: 3,
-          score: 410,
-          shotGapMs: 430, // paced so the drain reads as hits, not a delete
-        },
-      );
-      // The RAM run: armed frontal-arc halo, waiting at the right edge of the
-      // 333×188 half-frame. Measured, the old staging could not connect — a
-      // 747px gap, 340 px/s, and a 1.0s window closed ~500px of it while the
-      // victim-side RAM path needs hull contact inside SHIP_RADIUS×2 = 16px.
-      // 477px at 525 px/s from t=1400 lands the hit at ~2.3s of 2.8s — the same
-      // beat as the 636px-at-700 figure it replaces, both halves divided by the
-      // zoom ratio so the run covers the same fraction of frame per second.
-      const rammer = addPeer(
-        "raider",
-        4,
-        { x: a.x + 450, y: a.y + 158 },
-        {
-          orbitR: 0,
-          angVel: 0,
-          phase0: 0,
-          baseAim: Math.PI,
-          level: 3,
-          score: 260,
-          shotGapMs: Infinity, // never shoots — the hull IS the weapon
-          mod: "ram",
-        },
-      );
-      rammer.postSpeed = 525;
-      s14.rammer = crew.indexOf(rammer);
-      // Two ships in black is the emptiest frame this reel can compose. A lane
-      // the duel happens INSIDE beats a belt it happens in the middle of: the
-      // band runs down-right, following the frame as it walks from the duel
-      // circle onto the raider's line (the camera rides player↔rival, then
-      // player↔raider, which arrives from a+(450, 158)), and one mass cropped
-      // by the top-left corner gives the two darts something to be fighting
-      // between. Only the duel circle is kept clear — at zoom 2.4 the
-      // half-height is 188px, so any wider keep-out rejects every slot above
-      // and below the pair and the field measures nothing.
-      const frame = { x: a.x + 158, y: a.y + 53 };
-      dressRocks(mulberry(71), {
-        at: frame,
-        layout: { kind: "band", angle: 0.42, halfWidth: 0.82, length: 2.4 },
-        rMin: 32,
-        rMax: 58,
-        keepOut: [{ x: a.x + 83, y: a.y - 11, r: 131 }],
-      });
-      boulder(mulberry(73), frame, -0.98, -0.86, { count: 7, spread: 74, rMin: 44, rMax: 58 });
-    },
+    id: "pvp-duel",
     run: (t, dt) => {
       const p = api.player();
-      const rival = crew[0];
+      const [rival] = crew;
       const rammer = crew[s14.rammer];
       if (rammer) {
-        if (!s14.ramming && t >= 1400) s14.ramming = true;
+        if (!s14.ramming && t >= 1400) {
+          s14.ramming = true;
+        }
         if (s14.ramming && !s14.rammed) {
           // Live intercept until the hulls touch, then commit to a fly-through
           // so the raider punches past instead of parking on the wreck it just
@@ -2198,7 +2203,8 @@ function direct(scene: GameScene): void {
         }
         if (s14.rivalHp <= 0 || t > 1400) {
           s14.dead = true;
-          rival.state["alive"] = false; // real shatter + splinters + ring
+          // real shatter + splinters + ring
+          rival.state["alive"] = false;
           rival.state["beams"] = [];
         }
       } else {
@@ -2206,7 +2212,84 @@ function direct(scene: GameScene): void {
         steer(rammer ? angleTo(p, rammer) : 0, 0.5);
         staging.fire = true;
       }
-      floorShield(60); // the drain has to read, so the floor sits low
+      // the drain has to read, so the floor sits low
+      floorShield(60);
+    },
+    setup: () => {
+      stage();
+      s14 = { dead: false, rammed: false, rammer: -1, ramming: false, rivalHp: 100 };
+      // two ships in black: they have to be BIG to read
+      cam.setZoom(2.4);
+      const a = anchor(260, 120);
+      api.setLevel(3);
+      api.setPlayerPose({ angle: 0, vx: 0, vy: 0, x: a.x, y: a.y });
+      api.setShieldHp(100);
+      // Rocks for depth — the only neutral thing in the arena, and they keep
+      // the frame from being two darts on pure black. (The third of the old
+      // trio sat where the cropped mass below now goes.) Radii step down with
+      // the zoom: at 2.4 a 55px rock already draws 264px across.
+      api.spawnAsteroid(a.x + 199, a.y + 135, 55);
+      api.spawnAsteroid(a.x + 23, a.y - 169, 34);
+      installPeers();
+      // The duellist: circles at close range so both hulls stay in one frame.
+      addPeer(
+        "rival",
+        1,
+        { x: a.x + 98, y: a.y - 19 },
+        {
+          angVel: 1.9,
+          baseAim: Math.PI,
+          level: 3,
+          orbitR: 86,
+          phase0: -0.6,
+          score: 410,
+          // paced so the drain reads as hits, not a delete
+          shotGapMs: 430,
+        },
+      );
+      // The RAM run: armed frontal-arc halo, waiting at the right edge of the
+      // 333×188 half-frame. Measured, the old staging could not connect — a
+      // 747px gap, 340 px/s, and a 1.0s window closed ~500px of it while the
+      // victim-side RAM path needs hull contact inside SHIP_RADIUS×2 = 16px.
+      // 477px at 525 px/s from t=1400 lands the hit at ~2.3s of 2.8s — the same
+      // beat as the 636px-at-700 figure it replaces, both halves divided by the
+      // zoom ratio so the run covers the same fraction of frame per second.
+      const rammer = addPeer(
+        "raider",
+        4,
+        { x: a.x + 450, y: a.y + 158 },
+        {
+          angVel: 0,
+          baseAim: Math.PI,
+          level: 3,
+          mod: "ram",
+          orbitR: 0,
+          phase0: 0,
+          score: 260,
+          // never shoots — the hull IS the weapon,
+          shotGapMs: Infinity,
+        },
+      );
+      rammer.postSpeed = 525;
+      s14.rammer = crew.indexOf(rammer);
+      // Two ships in black is the emptiest frame this reel can compose. A lane
+      // the duel happens INSIDE beats a belt it happens in the middle of: the
+      // band runs down-right, following the frame as it walks from the duel
+      // circle onto the raider's line (the camera rides player↔rival, then
+      // player↔raider, which arrives from a+(450, 158)), and one mass cropped
+      // by the top-left corner gives the two darts something to be fighting
+      // between. Only the duel circle is kept clear — at zoom 2.4 the
+      // half-height is 188px, so any wider keep-out rejects every slot above
+      // and below the pair and the field measures nothing.
+      const frame = { x: a.x + 158, y: a.y + 53 };
+      dressRocks(mulberry(71), {
+        at: frame,
+        keepOut: [{ r: 131, x: a.x + 83, y: a.y - 11 }],
+        layout: { angle: 0.42, halfWidth: 0.82, kind: "band", length: 2.4 },
+        rMax: 58,
+        rMin: 32,
+      });
+      boulder(mulberry(73), frame, -0.98, -0.86, { count: 7, rMax: 58, rMin: 44, spread: 74 });
     },
     teardown: sceneReset,
   };
@@ -2224,58 +2307,8 @@ function direct(scene: GameScene): void {
   // for the whole shot while ~50 hostiles press the ship against it: nowhere to
   // run. Compressed to the 1.1 frame — density is bodies-per-SCREEN.
   const escalation2: TrailerScene = {
-    id: "escalation-2",
     duration: 2800,
-    setup: () => {
-      stage();
-      s15Waves = 0;
-      // 1.1 → 1.5 by the k-divide recipe (zoom ×1.364). It was the third-widest
-      // frame in the reel and the only reason it read at all was the barrier's
-      // own glow — the ~50 hostiles it is named for drew as a pink dust cloud.
-      cam.setZoom(1.5); // half-frame ≈ 533 × 300
-      // 420 → 330 standoff. The barrier is a frame EDGE, so its standoff is a
-      // lead and gets re-picked rather than divided: at 330 the line still
-      // lands ~19% in from frame left, exactly where it sat at 1.1, while a
-      // straight ÷1.364 would have pushed the crowd's west flank outside the
-      // play bounds (where the host culls it and the display sweep bursts it).
-      const a = edgeAnchor(330, -350);
-      const rnd = mulberry(9);
-      api.setLevel(3);
-      api.setPlayerPose({ x: a.x, y: a.y, angle: Math.PI / 2, vx: 0, vy: 191 });
-      // Crowd centre biased EAST of the ship: the swarm presses it against the
-      // wall, and nothing is staged outside the play bounds.
-      const c = { x: a.x + 150, y: a.y };
-      // 26/12/8 → 34/16/10: the ovals are 27% smaller in world px, and this is
-      // the shot whose whole claim is "nowhere to run".
-      spawnOval(rnd, ["drone"], 34, c, 345, 279, a);
-      spawnOval(rnd, ["wasp"], 16, c, 293, 242, a);
-      spawnOval(rnd, ["wasp"], 10, a, 154, 139, a); // already in burst range
-      api.spawnEnemy("sniper", a.x + 381, a.y - 220, a);
-      api.spawnEnemy("sniper", a.x + 411, a.y + 205, a);
-      api.spawnEnemy("sniper", a.x + 249, a.y - 279, a);
-      api.spawnEnemy("splitter", a.x + 249, a.y - 110, a);
-      api.spawnEnemy("splitter", a.x - 139, a.y + 128, a);
-      api.spawnEnemy("lancer", a.x + 345, a.y + 73, a);
-      api.spawnEnemy("lancer", a.x - 95, a.y - 95, a);
-      // The energy barrier already fills the left of frame, so every rock is
-      // banked RIGHT — a second wall the swarm is pressing the ship against.
-      // Dressing both sides would just redraw the wreath around a shot that
-      // already has the strongest left edge in the reel. The run tracks 700px
-      // south down the barrier; the field is composed on the middle of it, and
-      // dressRocks' bounds check keeps anything from landing outside the play
-      // area (which the host would cull, bursting it on the reveal).
-      // The run's LENGTH is thrust × time — the game's own speed — so the 700px
-      // it covers, and therefore where the field is composed, does not divide.
-      const frame = { x: a.x + 110, y: a.y + 350 };
-      dressRocks(rnd, {
-        at: frame,
-        layout: { kind: "band", angle: 1.42, offset: -0.62, halfWidth: 0.55, length: 2.0 },
-        rMin: 40,
-        rMax: 58,
-        keepOut: corridor(a, { x: a.x, y: a.y + 760 }, 62, 7),
-      });
-      boulder(mulberry(91), frame, 0.72, -0.95, { count: 6, spread: 65, rMin: 42, rMax: 58 });
-    },
+    id: "escalation-2",
     run: (t) => {
       const p = api.player();
       const due = ESC2_WAVES[s15Waves];
@@ -2304,7 +2337,60 @@ function direct(scene: GameScene): void {
         steer(heading, 0.9);
         staging.fire = false;
       }
-      floorShield(130); // heaviest bullet weather of the trailer
+      // heaviest bullet weather of the trailer
+      floorShield(130);
+    },
+    setup: () => {
+      stage();
+      s15Waves = 0;
+      // 1.1 → 1.5 by the k-divide recipe (zoom ×1.364). It was the third-widest
+      // frame in the reel and the only reason it read at all was the barrier's
+      // own glow — the ~50 hostiles it is named for drew as a pink dust cloud.
+      // half-frame ≈ 533 × 300
+      cam.setZoom(1.5);
+      // 420 → 330 standoff. The barrier is a frame EDGE, so its standoff is a
+      // lead and gets re-picked rather than divided: at 330 the line still
+      // lands ~19% in from frame left, exactly where it sat at 1.1, while a
+      // straight ÷1.364 would have pushed the crowd's west flank outside the
+      // play bounds (where the host culls it and the display sweep bursts it).
+      const a = edgeAnchor(330, -350);
+      const rnd = mulberry(9);
+      api.setLevel(3);
+      api.setPlayerPose({ angle: Math.PI / 2, vx: 0, vy: 191, x: a.x, y: a.y });
+      // Crowd centre biased EAST of the ship: the swarm presses it against the
+      // wall, and nothing is staged outside the play bounds.
+      const c = { x: a.x + 150, y: a.y };
+      // 26/12/8 → 34/16/10: the ovals are 27% smaller in world px, and this is
+      // the shot whose whole claim is "nowhere to run".
+      spawnOval(rnd, ["drone"], 34, c, 345, 279, a);
+      spawnOval(rnd, ["wasp"], 16, c, 293, 242, a);
+      // already in burst range
+      spawnOval(rnd, ["wasp"], 10, a, 154, 139, a);
+      api.spawnEnemy("sniper", a.x + 381, a.y - 220, a);
+      api.spawnEnemy("sniper", a.x + 411, a.y + 205, a);
+      api.spawnEnemy("sniper", a.x + 249, a.y - 279, a);
+      api.spawnEnemy("splitter", a.x + 249, a.y - 110, a);
+      api.spawnEnemy("splitter", a.x - 139, a.y + 128, a);
+      api.spawnEnemy("lancer", a.x + 345, a.y + 73, a);
+      api.spawnEnemy("lancer", a.x - 95, a.y - 95, a);
+      // The energy barrier already fills the left of frame, so every rock is
+      // banked RIGHT — a second wall the swarm is pressing the ship against.
+      // Dressing both sides would just redraw the wreath around a shot that
+      // already has the strongest left edge in the reel. The run tracks 700px
+      // south down the barrier; the field is composed on the middle of it, and
+      // dressRocks' bounds check keeps anything from landing outside the play
+      // area (which the host would cull, bursting it on the reveal).
+      // The run's LENGTH is thrust × time — the game's own speed — so the 700px
+      // it covers, and therefore where the field is composed, does not divide.
+      const frame = { x: a.x + 110, y: a.y + 350 };
+      dressRocks(rnd, {
+        at: frame,
+        keepOut: corridor(a, { x: a.x, y: a.y + 760 }, 62, 7),
+        layout: { angle: 1.42, halfWidth: 0.55, kind: "band", length: 2, offset: -0.62 },
+        rMax: 58,
+        rMin: 40,
+      });
+      boulder(mulberry(91), frame, 0.72, -0.95, { count: 6, rMax: 58, rMin: 42, spread: 65 });
     },
     teardown: sceneReset,
   };
@@ -2317,60 +2403,8 @@ function direct(scene: GameScene): void {
   // as a caption and tells the viewer the death carries no cost.
   let s16Killed = false;
   const deathBeat: TrailerScene = {
-    id: "death-beat",
     duration: 1900,
-    setup: () => {
-      stage();
-      s16Killed = false;
-      // 1.4 → 1.85 by the k-divide recipe (zoom ×1.32). The reel's one death is
-      // the shot that most needs a hull you can see fail, and at 1.4 the pilot
-      // drew ~25px inside a 571 × 321 half-frame with the boxing-in swarm too
-      // far out to read as a box.
-      cam.setZoom(1.85); // half-frame ≈ 432 × 243
-      show(hud.countdown, false);
-      const a = anchor(300, -100);
-      const rnd = mulberry(10);
-      api.setLevel(2, 30); // mid-level: the tax visibly costs progress
-      api.setPlayerPose({ x: a.x, y: a.y, angle: 0.3, vx: 152, vy: -45 });
-      api.setShieldHp(30); // two hits from gone
-      api.grantBooster("nitro");
-      // 16/10 → 22/14 over ovals 24% tighter in world px: the box has to still
-      // BE a box on the frames the escape runs through.
-      spawnOval(rnd, ["drone"], 22, a, 152, 125, a);
-      spawnOval(rnd, ["wasp"], 14, a, 189, 155, a);
-      // Boxed in, so the FRAME is boxed in: two masses cropped hard by the left
-      // and right edges with the swarm caught between them, and a knot of small
-      // rock overhead. A belt here would read as space around the pilot, which
-      // is the opposite of what the shot says. The escape dashes out and flips
-      // back, so both legs are corridored.
-      boulder(rnd, a, -0.72, 0.16, { count: 17, spread: 118, rMin: 44, rMax: 60 });
-      boulder(rnd, a, 1.0, -0.22, { count: 17, spread: 118, rMin: 44, rMax: 60 });
-      dressRocks(rnd, {
-        at: a,
-        layout: { kind: "clump", cx: 0.08, cy: -0.94, spread: 0.55 },
-        rMin: 26,
-        rMax: 44,
-        // The dash's REACH is thrust × time and does not divide, so both legs
-        // are corridored to the full ~280px the ship can actually cover.
-        keepOut: [
-          ...corridor(a, { x: a.x + 280, y: a.y + 224 }, 61),
-          ...corridor(a, { x: a.x - 280, y: a.y + 168 }, 61),
-        ],
-      });
-      // A floor to close the box. The two masses are the walls and the knot
-      // above is the lid; without this the bottom third stayed open, which is
-      // the one direction a shot about having nowhere to go must not offer.
-      dressRocks(mulberry(101), {
-        at: a,
-        layout: { kind: "clump", cx: -0.12, cy: 1.0, spread: 0.46 },
-        rMin: 26,
-        rMax: 44,
-        keepOut: [
-          ...corridor(a, { x: a.x + 280, y: a.y + 224 }, 61),
-          ...corridor(a, { x: a.x - 280, y: a.y + 168 }, 61),
-        ],
-      });
-    },
+    id: "death-beat",
     run: (t) => {
       const p = api.player();
       if (!p.alive) {
@@ -2379,8 +2413,11 @@ function direct(scene: GameScene): void {
         return;
       }
       // Escape script: dash for the gap, get cut off, flip — then the burst.
-      if (t < 550) steer(0.9, 1);
-      else steer(Math.PI + 0.6, 0.95);
+      if (t < 550) {
+        steer(0.9, 1);
+      } else {
+        steer(Math.PI + 0.6, 0.95);
+      }
       staging.fire = false;
       // The one scene that ends on a death still has to end on it at a chosen
       // FRAME. Left to the swarm the kill landed at 1175ms of 1900 (measured),
@@ -2394,6 +2431,61 @@ function direct(scene: GameScene): void {
         s16Killed = true;
         api.killPlayer("WASP");
       }
+    },
+    setup: () => {
+      stage();
+      s16Killed = false;
+      // 1.4 → 1.85 by the k-divide recipe (zoom ×1.32). The reel's one death is
+      // the shot that most needs a hull you can see fail, and at 1.4 the pilot
+      // drew ~25px inside a 571 × 321 half-frame with the boxing-in swarm too
+      // far out to read as a box.
+      // half-frame ≈ 432 × 243
+      cam.setZoom(1.85);
+      show(hud.countdown, false);
+      const a = anchor(300, -100);
+      const rnd = mulberry(10);
+      // mid-level: the tax visibly costs progress
+      api.setLevel(2, 30);
+      api.setPlayerPose({ angle: 0.3, vx: 152, vy: -45, x: a.x, y: a.y });
+      // two hits from gone
+      api.setShieldHp(30);
+      api.grantBooster("nitro");
+      // 16/10 → 22/14 over ovals 24% tighter in world px: the box has to still
+      // BE a box on the frames the escape runs through.
+      spawnOval(rnd, ["drone"], 22, a, 152, 125, a);
+      spawnOval(rnd, ["wasp"], 14, a, 189, 155, a);
+      // Boxed in, so the FRAME is boxed in: two masses cropped hard by the left
+      // and right edges with the swarm caught between them, and a knot of small
+      // rock overhead. A belt here would read as space around the pilot, which
+      // is the opposite of what the shot says. The escape dashes out and flips
+      // back, so both legs are corridored.
+      boulder(rnd, a, -0.72, 0.16, { count: 17, rMax: 60, rMin: 44, spread: 118 });
+      boulder(rnd, a, 1, -0.22, { count: 17, rMax: 60, rMin: 44, spread: 118 });
+      dressRocks(rnd, {
+        at: a,
+        // The dash's REACH is thrust × time and does not divide, so both legs
+        // are corridored to the full ~280px the ship can actually cover.
+        keepOut: [
+          ...corridor(a, { x: a.x + 280, y: a.y + 224 }, 61),
+          ...corridor(a, { x: a.x - 280, y: a.y + 168 }, 61),
+        ],
+        layout: { cx: 0.08, cy: -0.94, kind: "clump", spread: 0.55 },
+        rMax: 44,
+        rMin: 26,
+      });
+      // A floor to close the box. The two masses are the walls and the knot
+      // above is the lid; without this the bottom third stayed open, which is
+      // the one direction a shot about having nowhere to go must not offer.
+      dressRocks(mulberry(101), {
+        at: a,
+        keepOut: [
+          ...corridor(a, { x: a.x + 280, y: a.y + 224 }, 61),
+          ...corridor(a, { x: a.x - 280, y: a.y + 168 }, 61),
+        ],
+        layout: { cx: -0.12, cy: 1, kind: "clump", spread: 0.46 },
+        rMax: 44,
+        rMin: 26,
+      });
     },
     teardown: sceneReset,
   };
@@ -2439,103 +2531,13 @@ function direct(scene: GameScene): void {
    *  small, far, with the lances crossing the whole frame to reach us. */
   const APPROACH_BIAS = 0.34;
   const bossApproach: TrailerScene = {
-    id: "boss-approach",
     // Measured: P1 fan at ~600ms, phase-2 lock arms at ~2.79s and holds its
     // 1.1s aim, three lances away at ~3.95s. At BOSS_LANCE_SHOT_SPEED (820)
     // and the ~500px the shot holds between the capital ship and its targets,
     // the lances need ~620ms to connect — at 4500 they were still crossing
     // when the cut came (probe: three rails in flight on the final frame).
     duration: 5000,
-    setup: () => {
-      stage();
-      s17 = { bossId: "", flipped: false, wave2: false, wave3: false };
-      cam.setZoom(1.0); // half-frame 800 × 450 — the widest frame in the reel
-      const a = anchor(500, 0);
-      const rnd = mulberry(17);
-      api.setLevel(3);
-      // The whole formation is staged UP AND RIGHT of the capital ship, which
-      // sits down-left of it at 620px. At bias 0.34 that lands the boss around
-      // (-370, +175) of the half-frame and the pilot around (+190, -90): the
-      // action runs on the frame's rising diagonal, from a capital ship in the
-      // lower-left to three ships spread across the upper-right.
-      const start = { x: a.x + 260, y: a.y - 150, angle: Math.PI - 0.44, vx: -40, vy: 0 };
-      api.setPlayerPose(start);
-      api.grantWeapon("DRILL");
-      installPeers();
-      // Two wingmates: the phase-2 lock picks the three nearest PLAYERS, so
-      // without them the "triple" lock is one line onto one ship. Spread wide
-      // on the right so the three sight lines fan instead of stacking.
-      addPeer(
-        "wing-a",
-        0,
-        { x: a.x + 480, y: a.y - 330 },
-        {
-          orbitR: 55,
-          angVel: 1.2,
-          phase0: 0.4,
-          baseAim: Math.PI - 0.44,
-          level: 3,
-          score: 380,
-        },
-      );
-      addPeer(
-        "wing-b",
-        2,
-        { x: a.x + 620, y: a.y + 60 },
-        {
-          orbitR: 55,
-          angVel: -1.1,
-          phase0: 2.1,
-          baseAim: Math.PI - 0.44,
-          level: 2,
-          score: 240,
-        },
-      );
-      s17.bossId = api.spawnEnemy("dreadnought", a.x - 300, a.y + 115, start);
-      // A SCREEN of fodder, not a crowd: this is the establishing shot, and the
-      // next one owns the horde. Banked frame-right and low, which is where a
-      // composition that puts its rock along the top and its capital ship in
-      // the lower-left corner has nothing — so the two shots' pink reads as a
-      // thin sweep across an open frame here and as a wall there.
-      spawnOval(rnd, ["drone", "wasp"], 20, { x: a.x + 480, y: a.y + 20 }, 330, 270, start);
-      // A CEILING — the exact mirror of the arc the kill shot lays along its
-      // floor, and the same kind of shape rather than a band, so the two
-      // silhouettes read as opposites rather than as two unrelated ideas.
-      //
-      // It is an arc and not a full-width lane for one measured reason: the
-      // capital ship orbits the crowd centroid at 70 px/s (98 in phase 2) and
-      // over five seconds it walks ~450px, ending the shot in the frame's
-      // UPPER-LEFT. Two straight-band attempts both put a red hexagon inside a
-      // white rock lane by the 88% mark, which is the one reading this shot
-      // cannot afford. The arc stops at -2.0 rad, leaving the upper-left corner
-      // black for the capital ship to rise into, and `inner` 0.6 keeps the
-      // middle — where the three lock lines cross — clear.
-      //
-      // `outer` runs to 1.75, well past the frame, because the CAMERA falls
-      // ~300px (0.67 half-heights) across the shot as the pilot closes: an arc
-      // sized to the opening frame has walked off the top edge by the 88% mark
-      // and left the ceiling as two rocks in a corner. The band past 1.0 is the
-      // reservoir that arrives as the frame drops.
-      const frame = { x: a.x + 70, y: a.y - 60 };
-      dressRocks(rnd, {
-        at: frame,
-        layout: { kind: "arc", from: -2.0, to: -0.35, inner: 0.6, outer: 1.75 },
-        count: 80,
-        rMin: 48,
-        keepOut: [
-          { x: a.x - 300, y: a.y + 115, r: 250 }, // the boss's own station
-          ...corridor(start, { x: a.x - 300, y: a.y + 115 }, 90),
-        ],
-      });
-      boulder(rnd, frame, 0.94, -1.02, { count: 12, spread: 114 });
-      // Cropped by the RIGHT edge, at frame height rather than above it: the
-      // only mass in the shot that the falling frame cannot walk off, and it
-      // sits on the opposite side from the capital ship's late station.
-      boulder(mulberry(173), frame, 1.08, -0.2, { count: 8, spread: 100 });
-      camLock.x = frame.x;
-      camLock.y = frame.y;
-      staging.camPos = camLock;
-    },
+    id: "boss-approach",
     run: (t, dt) => {
       updateCrew(t, dt, "combat");
       const p = api.player();
@@ -2573,16 +2575,107 @@ function direct(scene: GameScene): void {
       }
       const e = nearestEnemy(p, 520, (en) => en.kind === "dreadnought");
       if (t > 2600 && boss) {
-        steer(angleTo(p, boss), 0.25); // close on the capital ship for the lances
-        staging.fire = true;
+        steer(angleTo(p, boss), 0.25);
       } else if (e) {
         steer(angleTo(p, e), 0.2);
-        staging.fire = true;
       } else {
         steer(Math.PI - 0.44, 0.35);
-        staging.fire = true;
       }
-      floorShield(130); // fans + lances + fodder stack in one step
+      staging.fire = true;
+      // fans + lances + fodder stack in one step
+      floorShield(130);
+    },
+    setup: () => {
+      stage();
+      s17 = { bossId: "", flipped: false, wave2: false, wave3: false };
+      // half-frame 800 × 450 — the widest frame in the reel
+      cam.setZoom(1);
+      const a = anchor(500, 0);
+      const rnd = mulberry(17);
+      api.setLevel(3);
+      // The whole formation is staged UP AND RIGHT of the capital ship, which
+      // sits down-left of it at 620px. At bias 0.34 that lands the boss around
+      // (-370, +175) of the half-frame and the pilot around (+190, -90): the
+      // action runs on the frame's rising diagonal, from a capital ship in the
+      // lower-left to three ships spread across the upper-right.
+      const start = { angle: Math.PI - 0.44, vx: -40, vy: 0, x: a.x + 260, y: a.y - 150 };
+      api.setPlayerPose(start);
+      api.grantWeapon("DRILL");
+      installPeers();
+      // Two wingmates: the phase-2 lock picks the three nearest PLAYERS, so
+      // without them the "triple" lock is one line onto one ship. Spread wide
+      // on the right so the three sight lines fan instead of stacking.
+      addPeer(
+        "wing-a",
+        0,
+        { x: a.x + 480, y: a.y - 330 },
+        {
+          angVel: 1.2,
+          baseAim: Math.PI - 0.44,
+          level: 3,
+          orbitR: 55,
+          phase0: 0.4,
+          score: 380,
+        },
+      );
+      addPeer(
+        "wing-b",
+        2,
+        { x: a.x + 620, y: a.y + 60 },
+        {
+          angVel: -1.1,
+          baseAim: Math.PI - 0.44,
+          level: 2,
+          orbitR: 55,
+          phase0: 2.1,
+          score: 240,
+        },
+      );
+      s17.bossId = api.spawnEnemy("dreadnought", a.x - 300, a.y + 115, start);
+      // A SCREEN of fodder, not a crowd: this is the establishing shot, and the
+      // next one owns the horde. Banked frame-right and low, which is where a
+      // composition that puts its rock along the top and its capital ship in
+      // the lower-left corner has nothing — so the two shots' pink reads as a
+      // thin sweep across an open frame here and as a wall there.
+      spawnOval(rnd, ["drone", "wasp"], 20, { x: a.x + 480, y: a.y + 20 }, 330, 270, start);
+      // A CEILING — the exact mirror of the arc the kill shot lays along its
+      // floor, and the same kind of shape rather than a band, so the two
+      // silhouettes read as opposites rather than as two unrelated ideas.
+      //
+      // It is an arc and not a full-width lane for one measured reason: the
+      // capital ship orbits the crowd centroid at 70 px/s (98 in phase 2) and
+      // over five seconds it walks ~450px, ending the shot in the frame's
+      // UPPER-LEFT. Two straight-band attempts both put a red hexagon inside a
+      // white rock lane by the 88% mark, which is the one reading this shot
+      // cannot afford. The arc stops at -2.0 rad, leaving the upper-left corner
+      // black for the capital ship to rise into, and `inner` 0.6 keeps the
+      // middle — where the three lock lines cross — clear.
+      //
+      // `outer` runs to 1.75, well past the frame, because the CAMERA falls
+      // ~300px (0.67 half-heights) across the shot as the pilot closes: an arc
+      // sized to the opening frame has walked off the top edge by the 88% mark
+      // and left the ceiling as two rocks in a corner. The band past 1.0 is the
+      // reservoir that arrives as the frame drops.
+      const frame = { x: a.x + 70, y: a.y - 60 };
+      dressRocks(rnd, {
+        at: frame,
+        count: 80,
+        keepOut: [
+          // the boss's own station
+          { r: 250, x: a.x - 300, y: a.y + 115 },
+          ...corridor(start, { x: a.x - 300, y: a.y + 115 }, 90),
+        ],
+        layout: { from: -2, inner: 0.6, kind: "arc", outer: 1.75, to: -0.35 },
+        rMin: 48,
+      });
+      boulder(rnd, frame, 0.94, -1.02, { count: 12, spread: 114 });
+      // Cropped by the RIGHT edge, at frame height rather than above it: the
+      // only mass in the shot that the falling frame cannot walk off, and it
+      // sits on the opposite side from the capital ship's late station.
+      boulder(mulberry(173), frame, 1.08, -0.2, { count: 8, spread: 100 });
+      camLock.x = frame.x;
+      camLock.y = frame.y;
+      staging.camPos = camLock;
     },
     teardown: sceneReset,
   };
@@ -2603,60 +2696,10 @@ function direct(scene: GameScene): void {
   // boss bar — held back from the approach on purpose — draining to zero on
   // camera. Every staging radius is the old 1.25 figure divided by 1.36, so the
   // composition is unchanged and every body in it is 36% bigger.
-  let s18 = { bossId: "", nextChip: 0, wave2: false, wave3: false, killed: false };
+  let s18 = { bossId: "", killed: false, nextChip: 0, wave2: false, wave3: false };
   const bossKill: TrailerScene = {
-    id: "boss-kill",
     duration: 4000,
-    setup: () => {
-      stage();
-      s18 = { bossId: "", nextChip: 600, wave2: false, wave3: false, killed: false };
-      cam.setZoom(1.7); // half-frame ≈ 471 × 265 — the climax, shot CLOSE
-      show(hud.boss, true);
-      show(hud.combo, true);
-      if (hud.boss) hud.boss.style.top = "52px";
-      const a = anchor(500, 0);
-      const rnd = mulberry(11);
-      api.setLevel(3);
-      const start = { x: a.x, y: a.y + 147, angle: -Math.PI / 2, vx: -120, vy: 0 };
-      api.setPlayerPose(start);
-      api.grantWeapon("PLASMA STORM");
-      api.grantBooster("overdrive");
-      s18.bossId = api.spawnEnemy("dreadnought", a.x, a.y - 140, start);
-      api.setEnemyHp(s18.bossId, 4300); // ≤33% → phase 3 script from frame one
-      // Sized to the 1.7 frame (±471 × ±265): the horde fills the SCREEN.
-      spawnOval(rnd, ["drone", "wasp", "drone"], 30, a, 243, 191, start);
-      spawnOval(rnd, ["wasp", "drone"], 14, a, 353, 250, start);
-      api.spawnEnemy("warden", a.x - 250, a.y + 44, start);
-      api.spawnEnemy("warden", a.x + 257, a.y - 22, start);
-      api.spawnEnemy("spawner", a.x + 287, a.y - 107, start);
-      api.spawnEnemy("sniper", a.x - 397, a.y - 88, start);
-      api.spawnEnemy("sniper", a.x + 390, a.y + 110, start);
-      // The horde is what fills this frame, so the rock stays out of its way and
-      // does one job: a ground plane under the climax — a bank sweeping the
-      // bottom of frame and one mass cropped by the right edge — instead of
-      // another ring competing with 60 bodies for the same outline colour.
-      // Thinned to a GROUND LINE, not a bank: uncapped it ran to the 96-rock
-      // ceiling and the bottom third came out brighter and more tangled than the
-      // capital ship the shot is named for. Count and radii are stepped down
-      // again with the zoom (22 at r26-46, where 1.25 took 40 at r34-60) —
-      // rock draws BIGGER as the frame tightens, and a floor is all this is.
-      const frame = { x: a.x, y: a.y - 44 };
-      dressRocks(rnd, {
-        at: frame,
-        layout: { kind: "arc", from: 0.36, to: 2.9, inner: 0.62, outer: 1.3 },
-        count: 22,
-        rMin: 26,
-        rMax: 46,
-        keepOut: [
-          { x: a.x, y: a.y - 140, r: 170 }, // the boss hull + its nova reach
-          ...corridor(start, { x: a.x, y: a.y - 103 }, 95),
-        ],
-      });
-      boulder(mulberry(112), frame, 1.06, 0.42, { count: 5, spread: 62, rMin: 34, rMax: 48 });
-      camLock.x = a.x;
-      camLock.y = a.y;
-      staging.camPos = camLock;
-    },
+    id: "boss-kill",
     run: (t) => {
       const p = api.player();
       const boss = api.enemies().find((e) => e.id === s18.bossId);
@@ -2697,9 +2740,66 @@ function direct(scene: GameScene): void {
       }
       if (boss && !s18.killed && t > 2750) {
         s18.killed = true;
-        api.killEnemy(boss.id); // fountain + two crystals; 1.2s of aftermath left
+        // fountain + two crystals; 1.2s of aftermath left
+        api.killEnemy(boss.id);
       }
-      floorShield(130); // boss novas + horde + snipers stack in one step
+      // boss novas + horde + snipers stack in one step
+      floorShield(130);
+    },
+    setup: () => {
+      stage();
+      s18 = { bossId: "", killed: false, nextChip: 600, wave2: false, wave3: false };
+      // half-frame ≈ 471 × 265 — the climax, shot CLOSE
+      cam.setZoom(1.7);
+      show(hud.boss, true);
+      show(hud.combo, true);
+      if (hud.boss) {
+        hud.boss.style.top = "52px";
+      }
+      const a = anchor(500, 0);
+      const rnd = mulberry(11);
+      api.setLevel(3);
+      const start = { angle: -Math.PI / 2, vx: -120, vy: 0, x: a.x, y: a.y + 147 };
+      api.setPlayerPose(start);
+      api.grantWeapon("PLASMA STORM");
+      api.grantBooster("overdrive");
+      s18.bossId = api.spawnEnemy("dreadnought", a.x, a.y - 140, start);
+      // ≤33% → phase 3 script from frame one
+      api.setEnemyHp(s18.bossId, 4300);
+      // Sized to the 1.7 frame (±471 × ±265): the horde fills the SCREEN.
+      spawnOval(rnd, ["drone", "wasp", "drone"], 30, a, 243, 191, start);
+      spawnOval(rnd, ["wasp", "drone"], 14, a, 353, 250, start);
+      api.spawnEnemy("warden", a.x - 250, a.y + 44, start);
+      api.spawnEnemy("warden", a.x + 257, a.y - 22, start);
+      api.spawnEnemy("spawner", a.x + 287, a.y - 107, start);
+      api.spawnEnemy("sniper", a.x - 397, a.y - 88, start);
+      api.spawnEnemy("sniper", a.x + 390, a.y + 110, start);
+      // The horde is what fills this frame, so the rock stays out of its way and
+      // does one job: a ground plane under the climax — a bank sweeping the
+      // bottom of frame and one mass cropped by the right edge — instead of
+      // another ring competing with 60 bodies for the same outline colour.
+      // Thinned to a GROUND LINE, not a bank: uncapped it ran to the 96-rock
+      // ceiling and the bottom third came out brighter and more tangled than the
+      // capital ship the shot is named for. Count and radii are stepped down
+      // again with the zoom (22 at r26-46, where 1.25 took 40 at r34-60) —
+      // rock draws BIGGER as the frame tightens, and a floor is all this is.
+      const frame = { x: a.x, y: a.y - 44 };
+      dressRocks(rnd, {
+        at: frame,
+        count: 22,
+        keepOut: [
+          // the boss hull + its nova reach
+          { r: 170, x: a.x, y: a.y - 140 },
+          ...corridor(start, { x: a.x, y: a.y - 103 }, 95),
+        ],
+        layout: { from: 0.36, inner: 0.62, kind: "arc", outer: 1.3, to: 2.9 },
+        rMax: 46,
+        rMin: 26,
+      });
+      boulder(mulberry(112), frame, 1.06, 0.42, { count: 5, rMax: 48, rMin: 34, spread: 62 });
+      camLock.x = a.x;
+      camLock.y = a.y;
+      staging.camPos = camLock;
     },
     teardown: sceneReset,
   };
@@ -2736,7 +2836,7 @@ function direct(scene: GameScene): void {
       { x: b.x + 175, y: b.y - 120 },
     ];
     for (const c of clusters) {
-      for (let i = 0; i < 7; i++) {
+      for (let i = 0; i < 7; i += 1) {
         api.spawnShards(1, c.x + (rnd() - 0.5) * 110, c.y + (rnd() - 0.5) * 90);
       }
     }
@@ -2745,7 +2845,7 @@ function direct(scene: GameScene): void {
    *  pair is on the same side of the player so nobody flies through the hull,
    *  and the two long runs come from frame-right so they overtake INTO
    *  formation rather than drifting into it. */
-  const SQUAD_RUNS: ReadonlyArray<{ from: Vec; to: Vec }> = [
+  const SQUAD_RUNS: readonly { from: Vec; to: Vec }[] = [
     { from: { x: -390, y: 250 }, to: { x: -70, y: 80 } },
     { from: { x: -400, y: -235 }, to: { x: -70, y: -80 } },
     { from: { x: 330, y: 250 }, to: { x: -190, y: 165 } },
@@ -2768,7 +2868,7 @@ function direct(scene: GameScene): void {
     span: number,
     halfH: number,
   ): void => {
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < count; i += 1) {
       api.spawnEnemy(
         i % 3 === 0 ? "wasp" : "drone",
         b.x + near + rnd() * span,
@@ -2792,87 +2892,15 @@ function direct(scene: GameScene): void {
   const SPOILS_START = 1050;
   let s19 = {
     b: { x: 0, y: 0 },
-    seeded: -1,
-    rnd: mulberry(12),
     formed: false,
+    rnd: mulberry(12),
+    seeded: -1,
     wave2: false,
     wave3: false,
   };
   const survivors: TrailerScene = {
-    id: "survivors",
     duration: SURVIVORS_MS,
-    setup: () => {
-      stage();
-      const b = anchor(0, 200);
-      cam.setZoom(1.45); // half-frame ≈ 552 × 310 — the scattered start fits
-      show(hud.root, true);
-      show(hud.left, false);
-      show(hud.players, false); // the sector tally line only
-      api.setLevel(3);
-      api.setShieldHp(100);
-      // Barely drifting: the wedge slots are anchored to the formation centre,
-      // so a leader that coasts away from it lands the shot with a 700px hole
-      // between the point of the V and the rest of it (measured at 157px of
-      // drift on the previous capture).
-      api.setPlayerPose({ x: b.x + 50, y: b.y + 10, angle: 0, vx: 0, vy: 0 });
-      api.grantBooster("magnet");
-      camLock.x = b.x;
-      camLock.y = b.y;
-      staging.camPos = camLock;
-      installPeers();
-      const scores = [240, 180, 120, 88];
-      for (let i = 0; i < 4; i++) {
-        const run = SQUAD_RUNS[i] ?? SQUAD_RUNS[0];
-        if (!run) continue;
-        addPeer(
-          `squad-${i + 1}`,
-          i,
-          { x: b.x + run.from.x, y: b.y + run.from.y },
-          {
-            orbitR: 22,
-            angVel: 0.5,
-            phase0: i * 1.6,
-            baseAim: 0,
-            level: 3,
-            score: scores[i] ?? 100,
-          },
-        );
-      }
-      // Two parked rocks: at 1.45 a 66px rock draws ~190px of hull, and the
-      // flanks want an anchor that is not itself a fused mass.
-      api.spawnAsteroid(b.x - 430, b.y - 250, 66);
-      api.spawnAsteroid(b.x + 380, b.y + 235, 58);
-      // Dressed at the FLANKS, with the fight in the gap between them.
-      //
-      // The climax used to run three bottom-weighted frames back to back: ink
-      // centroids (0.45,0.52) for boss-approach, (0.50,0.72) for boss-kill and
-      // (0.56,0.69) here, i.e. the reel ended on the same picture three times
-      // and read as one long shot. boss-kill keeps its floor because the horde
-      // needs a ground plane; this one takes the opposite composition — a knot
-      // cropped by the left edge, one mass cropped by the right, TOP AND BOTTOM
-      // OPEN. What used to sit in that gap was nothing, which is the defect the
-      // last review named: "the lowest-energy composition in the reel and it's
-      // the last thing anyone sees". Now the last wave dies in it.
-      //
-      // dressRocks measures the frame at setup (zoom 1.45) but this shot pushes
-      // to 1.85, so both flanks are composed to be crossing the edge by the
-      // closing frame (|u| > 1.45/1.85 ≈ 0.78 is off it).
-      dressRocks(mulberry(81), {
-        at: b,
-        layout: { kind: "clump", cx: -0.86, cy: 0.04, spread: 0.34 },
-        count: 14,
-        rMin: 34,
-        rMax: 62,
-        keepOut: [{ x: b.x - 60, y: b.y, r: 215 }],
-      });
-      boulder(mulberry(83), b, 0.72, -0.04, { count: 8, spread: 96, rMin: 46, rMax: 66 });
-      const rnd = mulberry(12);
-      s19 = { b, seeded: -1, rnd, formed: false, wave2: false, wave3: false };
-      // The last of the horde, ahead of the wedge. The squad forms up while
-      // clearing it, so the closer opens on five ships FIRING and lands on the
-      // spoils of what they just killed.
-      seedLastWave(b, mulberry(84), { x: b.x + 50, y: b.y + 10 }, 17, 170, 330, 235);
-    },
+    id: "survivors",
     run: (t, dt) => {
       cam.setZoom(lerp(1.45, 1.85, ease(t / (SURVIVORS_MS - 400))));
       // Form up: every peer is given the speed that lands it on its slot at the
@@ -2881,10 +2909,12 @@ function direct(scene: GameScene): void {
       if (!s19.formed && t >= SQUAD_FORM_START) {
         s19.formed = true;
         const travelS = (SQUAD_FORM_END - SQUAD_FORM_START) / 1000;
-        for (let i = 0; i < crew.length; i++) {
+        for (let i = 0; i < crew.length; i += 1) {
           const peer = crew[i];
           const run = SQUAD_RUNS[i];
-          if (!peer || !run) continue;
+          if (!peer || !run) {
+            continue;
+          }
           const target = { x: s19.b.x + run.to.x, y: s19.b.y + run.to.y };
           peer.postTarget = target;
           peer.postSpeed = dist(peer.post, target) / travelS;
@@ -2922,6 +2952,82 @@ function direct(scene: GameScene): void {
     },
     // Deliberately NOT sceneReset: see fact 2 above. Nothing follows this shot,
     // and the crew has to survive into the dip.
+    setup: () => {
+      stage();
+      const b = anchor(0, 200);
+      // half-frame ≈ 552 × 310 — the scattered start fits
+      cam.setZoom(1.45);
+      show(hud.root, true);
+      show(hud.left, false);
+      // the sector tally line only
+      show(hud.players, false);
+      api.setLevel(3);
+      api.setShieldHp(100);
+      // Barely drifting: the wedge slots are anchored to the formation centre,
+      // so a leader that coasts away from it lands the shot with a 700px hole
+      // between the point of the V and the rest of it (measured at 157px of
+      // drift on the previous capture).
+      api.setPlayerPose({ angle: 0, vx: 0, vy: 0, x: b.x + 50, y: b.y + 10 });
+      api.grantBooster("magnet");
+      camLock.x = b.x;
+      camLock.y = b.y;
+      staging.camPos = camLock;
+      installPeers();
+      const scores = [240, 180, 120, 88];
+      for (let i = 0; i < 4; i += 1) {
+        const run = SQUAD_RUNS[i] ?? SQUAD_RUNS[0];
+        if (!run) {
+          continue;
+        }
+        addPeer(
+          `squad-${i + 1}`,
+          i,
+          { x: b.x + run.from.x, y: b.y + run.from.y },
+          {
+            angVel: 0.5,
+            baseAim: 0,
+            level: 3,
+            orbitR: 22,
+            phase0: i * 1.6,
+            score: scores[i] ?? 100,
+          },
+        );
+      }
+      // Two parked rocks: at 1.45 a 66px rock draws ~190px of hull, and the
+      // flanks want an anchor that is not itself a fused mass.
+      api.spawnAsteroid(b.x - 430, b.y - 250, 66);
+      api.spawnAsteroid(b.x + 380, b.y + 235, 58);
+      // Dressed at the FLANKS, with the fight in the gap between them.
+      //
+      // The climax used to run three bottom-weighted frames back to back: ink
+      // centroids (0.45,0.52) for boss-approach, (0.50,0.72) for boss-kill and
+      // (0.56,0.69) here, i.e. the reel ended on the same picture three times
+      // and read as one long shot. boss-kill keeps its floor because the horde
+      // needs a ground plane; this one takes the opposite composition — a knot
+      // cropped by the left edge, one mass cropped by the right, TOP AND BOTTOM
+      // OPEN. What used to sit in that gap was nothing, which is the defect the
+      // last review named: "the lowest-energy composition in the reel and it's
+      // the last thing anyone sees". Now the last wave dies in it.
+      //
+      // dressRocks measures the frame at setup (zoom 1.45) but this shot pushes
+      // to 1.85, so both flanks are composed to be crossing the edge by the
+      // closing frame (|u| > 1.45/1.85 ≈ 0.78 is off it).
+      dressRocks(mulberry(81), {
+        at: b,
+        count: 14,
+        keepOut: [{ r: 215, x: b.x - 60, y: b.y }],
+        layout: { cx: -0.86, cy: 0.04, kind: "clump", spread: 0.34 },
+        rMax: 62,
+        rMin: 34,
+      });
+      boulder(mulberry(83), b, 0.72, -0.04, { count: 8, rMax: 66, rMin: 46, spread: 96 });
+      const rnd = mulberry(12);
+      s19 = { b, formed: false, rnd, seeded: -1, wave2: false, wave3: false };
+      // The last of the horde, ahead of the wedge. The squad forms up while
+      // clearing it, so the closer opens on five ships FIRING and lands on the
+      // spoils of what they just killed.
+      seedLastWave(b, mulberry(84), { x: b.x + 50, y: b.y + 10 }, 17, 170, 330, 235);
+    },
     teardown: () => {
       staging.steer = null;
       staging.fire = false;
@@ -2939,7 +3045,7 @@ function direct(scene: GameScene): void {
   };
   const inGameLoop = (s: TrailerScene): TrailerScene => {
     const body = s.run;
-    const setup = s.setup;
+    const { setup } = s;
     const wrapped: TrailerScene = {
       ...s,
       // Drop the outgoing scene's queued body: it would otherwise fire once
@@ -2949,14 +3055,15 @@ function direct(scene: GameScene): void {
         return setup();
       },
     };
-    if (body) wrapped.run = (t: number, dt: number) => void (pending = () => body(t, dt));
+    if (body) {
+      wrapped.run = (t: number, dt: number) => {
+        pending = () => body(t, dt);
+      };
+    }
     return wrapped;
   };
 
   runTrailer({
-    // The game draws its own screen vignette (energy-barrier) — stacking the
-    // shell's would double-darken the neon edges.
-    vignette: false,
     // First real click/keypress, whenever it lands: build the audio graph so
     // the rest of the trailer has SFX (nothing plays before it — the context
     // would be born suspended).
@@ -2982,5 +3089,20 @@ function direct(scene: GameScene): void {
       bossKill,
       survivors,
     ].map(inGameLoop),
+    // The game draws its own screen vignette (energy-barrier) — stacking the
+    // shell's would double-darken the neon edges.
+    vignette: false,
   });
-}
+};
+
+export const bootTrailerDirector = (game: Phaser.Game): void => {
+  const tryBoot = (): void => {
+    const scene = game.scene.getScene("Game");
+    if (scene instanceof GameScene && game.scene.isActive("Game")) {
+      direct(scene);
+      return;
+    }
+    window.setTimeout(tryBoot, 60);
+  };
+  tryBoot();
+};

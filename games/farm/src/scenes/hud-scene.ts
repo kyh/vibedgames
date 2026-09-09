@@ -1,20 +1,20 @@
-import Phaser from "phaser";
-import { attachVirtualGamepad, safeAreaInset, type Inset } from "@vibedgames/gamepad/phaser";
+import type Phaser from "phaser";
+import { BlendModes, Scene, Scenes } from "phaser";
+import { attachVirtualGamepad, safeAreaInset } from "@vibedgames/gamepad/phaser";
+import type { Inset } from "@vibedgames/gamepad/phaser";
 import { HOTBAR } from "../systems/inventory";
 import { store } from "../systems/store";
 import { itemIcon, itemName } from "../data/items";
 import { CROPS, CROP_ORDER } from "../data/crops";
 import { MAX_ENERGY, CAN_MAX } from "../config";
-import { seasonName, seasonIcon, type Season } from "../data/calendar";
-import { WEATHER_NAME, WEATHER_ICON, type Weather } from "../systems/weather";
-import {
-  ANIMALS,
-  COOP_ANIMALS,
-  BARN_ANIMALS,
-  type AnimalKind,
-  type BuildingKind,
-} from "../data/animals";
-import { SKILL_NAMES, type SkillId } from "../systems/skills";
+import { seasonName, seasonIcon } from "../data/calendar";
+import type { Season } from "../data/calendar";
+import { WEATHER_NAME, WEATHER_ICON } from "../systems/weather";
+import type { Weather } from "../systems/weather";
+import { ANIMALS, COOP_ANIMALS, BARN_ANIMALS } from "../data/animals";
+import type { AnimalKind, BuildingKind } from "../data/animals";
+import { SKILL_NAMES } from "../systems/skills";
+import type { SkillId } from "../systems/skills";
 import { Sound } from "../render/audio";
 import { hotbarGrid } from "../render/hotbar-layout";
 import { isPick, isTouchDevice } from "../systems/touch";
@@ -24,7 +24,36 @@ const FONT = "ui-monospace, monospace";
 const SLOT = 42;
 const PAD = 4;
 
-export class HudScene extends Phaser.Scene {
+const panelRect = (
+  g: Phaser.GameObjects.Graphics,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+): void => {
+  g.fillStyle(0x00_00_00, 0.4);
+  g.fillRoundedRect(x, y, w, h, 8);
+  g.lineStyle(2, 0xf3_e2_bf, 0.5);
+  g.strokeRoundedRect(x, y, w, h, 8);
+};
+
+const formatClock = (min: number): string => {
+  const h = Math.floor(min / 60);
+  const m = Math.floor(min % 60);
+  const ampm = h % 24 < 12 ? "AM" : "PM";
+  const hh = h % 12 === 0 ? 12 : h % 12;
+  return `${hh}:${m < 10 ? "0" : ""}${m} ${ampm}`;
+};
+
+// Bars keep their own colour while healthy, then warn amber and red.
+const barTint = (frac: number, healthy: number): number => {
+  if (frac > 0.5) {
+    return healthy;
+  }
+  return frac > 0.25 ? 0xff_cf_4d : 0xff_5d_5d;
+};
+
+export class HudScene extends Scene {
   private g!: GameScene;
   private slotNodes: {
     bg: Phaser.GameObjects.Graphics;
@@ -38,7 +67,7 @@ export class HudScene extends Phaser.Scene {
   /** Slots per hotbar row — drops below HOTBAR when a single row cannot hold
    *  MIN_SLOT-wide slots (portrait phone). */
   private perRow = HOTBAR;
-  private inset: Inset = { top: 0, right: 0, bottom: 0, left: 0 };
+  private inset: Inset = { bottom: 0, left: 0, right: 0, top: 0 };
   private touchUi: Phaser.GameObjects.Container[] = [];
   private topPanel!: Phaser.GameObjects.Graphics;
   private dayText!: Phaser.GameObjects.Text;
@@ -61,7 +90,9 @@ export class HudScene extends Phaser.Scene {
 
   create(): void {
     const game = this.scene.get("Game");
-    if (!(game instanceof GameScene)) throw new Error("Hud requires the Game scene");
+    if (!(game instanceof GameScene)) {
+      throw new Error("Hud requires the Game scene");
+    }
     this.g = game;
     // scene instances are reused across stop/start — reset per-create state and
     // drop stale listeners on the (persistent) game-scene emitter to avoid dupes.
@@ -87,33 +118,33 @@ export class HudScene extends Phaser.Scene {
 
     this.topPanel = this.add.graphics();
     this.dayText = this.add.text(0, 0, "", {
+      color: "#fff6d5",
       fontFamily: FONT,
       fontSize: "15px",
       fontStyle: "bold",
-      color: "#fff6d5",
     });
     this.seasonText = this.add.text(0, 0, "", {
+      color: "#dfe9ff",
       fontFamily: FONT,
       fontSize: "12px",
-      color: "#dfe9ff",
     });
     this.clockText = this.add.text(0, 0, "", {
+      color: "#dfe9ff",
       fontFamily: FONT,
       fontSize: "13px",
-      color: "#dfe9ff",
     });
 
     this.rightPanel = this.add.graphics();
     this.goldText = this.add
-      .text(0, 0, "", { fontFamily: FONT, fontSize: "16px", fontStyle: "bold", color: "#ffe27a" })
+      .text(0, 0, "", { color: "#ffe27a", fontFamily: FONT, fontSize: "16px", fontStyle: "bold" })
       .setOrigin(1, 0.5);
     this.bars = this.add.graphics();
 
     this.toolTip = this.add
       .text(0, 0, "", {
+        color: "#fff6d5",
         fontFamily: FONT,
         fontSize: "12px",
-        color: "#fff6d5",
         stroke: "#2a1e0e",
         strokeThickness: 3,
       })
@@ -125,19 +156,23 @@ export class HudScene extends Phaser.Scene {
     // action buttons: tapping a tile IS the use action (see GameScene input).
     this.g.gamepad?.destroy();
     this.g.gamepad = attachVirtualGamepad(this, {
+      render: { blendMode: BlendModes.NORMAL, depth: 90 },
       visible: "coarse",
-      render: { depth: 90, blendMode: Phaser.BlendModes.NORMAL },
     });
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.g.gamepad?.destroy());
+    this.events.once(Scenes.Events.SHUTDOWN, () => this.g.gamepad?.destroy());
 
     this.buildHotbar();
     this.buildTouchButtons();
     this.layout();
-    if (this.onResize) this.scale.off("resize", this.onResize);
+    if (this.onResize) {
+      this.scale.off("resize", this.onResize);
+    }
     this.onResize = () => this.layout();
     this.scale.on("resize", this.onResize);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      if (this.onResize) this.scale.off("resize", this.onResize);
+    this.events.once(Scenes.Events.SHUTDOWN, () => {
+      if (this.onResize) {
+        this.scale.off("resize", this.onResize);
+      }
     });
 
     this.g.events.on("toast", (text: string, color: string) => this.toast(text, color));
@@ -160,31 +195,31 @@ export class HudScene extends Phaser.Scene {
 
   private buildHotbar(): void {
     this.hotbar = this.add.container(0, 0);
-    for (let i = 0; i < HOTBAR; i++) {
+    for (let i = 0; i < HOTBAR; i += 1) {
       const bg = this.add.graphics();
       const icon = this.add.image(0, 0, "obj-wood").setVisible(false);
       const qty = this.add
         .text(0, 0, "", {
+          color: "#fff",
           fontFamily: FONT,
           fontSize: "12px",
           fontStyle: "bold",
-          color: "#fff",
           stroke: "#000",
           strokeThickness: 3,
         })
         .setOrigin(1, 1);
       const key = this.add
         .text(0, 0, `${(i + 1) % 10}`, {
+          color: "#fff",
           fontFamily: FONT,
           fontSize: "10px",
-          color: "#fff",
           stroke: "#000",
           strokeThickness: 2,
         })
         .setOrigin(0, 0)
         .setAlpha(0.7);
       const zone = this.makeSlotZone(i, SLOT);
-      this.slotNodes.push({ bg, icon, qty, key, zone });
+      this.slotNodes.push({ bg, icon, key, qty, zone });
       this.hotbar.add([bg, icon, qty, key, zone]);
     }
   }
@@ -197,7 +232,9 @@ export class HudScene extends Phaser.Scene {
     // starts a movement drag, and the floating stick claims that touch on the
     // way down — so a drag has to stay a move and not also swap tools.
     zone.on("pointerup", (p: Phaser.Input.Pointer) => {
-      if (!this.g.uiOpen && isPick(p)) store.inv.select(i);
+      if (!this.g.uiOpen && isPick(p)) {
+        store.inv.select(i);
+      }
     });
     return zone;
   }
@@ -205,13 +242,15 @@ export class HudScene extends Phaser.Scene {
   /** Always-visible tap target (inventory) for touch devices, where the I key
    *  binding is unreachable. */
   private buildTouchButtons(): void {
-    if (!isTouchDevice()) return;
+    if (!isTouchDevice()) {
+      return;
+    }
     const mk = (icon: string, onTap: () => void): Phaser.GameObjects.Text => {
       const c = this.add.container(0, 0).setDepth(60);
       const g = this.add.graphics();
-      g.fillStyle(0x000000, 0.35);
+      g.fillStyle(0x00_00_00, 0.35);
       g.fillCircle(0, 0, 24);
-      g.lineStyle(2, 0xf3e2bf, 0.5);
+      g.lineStyle(2, 0xf3_e2_bf, 0.5);
       g.strokeCircle(0, 0, 24);
       const t = this.add.text(0, 0, icon, { fontSize: "22px" }).setOrigin(0.5);
       const z = this.add.zone(0, 0, 52, 52).setInteractive({ useHandCursor: true });
@@ -250,24 +289,27 @@ export class HudScene extends Phaser.Scene {
   }
 
   private layout(): void {
-    const W = this.scale.width,
-      H = this.scale.height;
+    const W = this.scale.width;
+    const H = this.scale.height;
     this.inset = safeAreaInset();
     const { top: it, right: ir, left: il } = this.inset;
     const { slot, perRow } = hotbarGrid(W - 12 - il - ir, SLOT, PAD);
     if (slot !== this.slot || perRow !== this.perRow) {
       this.slot = slot;
       this.perRow = perRow;
-      this.hudSig = ""; // force a graphics rebuild at the new slot size
-      this.slotNodes.forEach((n, i) => {
+      // force a graphics rebuild at the new slot size
+      this.hudSig = "";
+      for (const [i, n] of this.slotNodes.entries()) {
         n.zone.destroy();
         n.zone = this.makeSlotZone(i, slot);
         this.hotbar.add(n.zone);
-      });
+      }
     }
-    for (let i = 0; i < HOTBAR; i++) {
+    for (let i = 0; i < HOTBAR; i += 1) {
       const n = this.slotNodes[i];
-      if (!n) continue;
+      if (!n) {
+        continue;
+      }
       const { x, y } = this.slotPos(i, W, H);
       n.icon.setPosition(x, y);
       n.qty.setPosition(x + slot / 2 - 4, y + slot / 2 - 3);
@@ -279,9 +321,15 @@ export class HudScene extends Phaser.Scene {
     this.clockText.setPosition(24 + il, 56 + it);
     this.goldText.setPosition(W - 22 - ir, 28 + it);
     this.toolTip.setPosition(W / 2, this.hotbarTop(H) - 8);
-    this.touchUi.forEach((c, i) => c.setPosition(34 + il, 108 + it + i * 56));
-    if (this.modal) this.modal.setPosition(W / 2, H / 2);
-    if (this.dialogueBox) this.dialogueBox.setPosition(W / 2, this.dialogueY(H));
+    for (const [i, c] of this.touchUi.entries()) {
+      c.setPosition(34 + il, 108 + it + i * 56);
+    }
+    if (this.modal) {
+      this.modal.setPosition(W / 2, H / 2);
+    }
+    if (this.dialogueBox) {
+      this.dialogueBox.setPosition(W / 2, this.dialogueY(H));
+    }
   }
 
   /** Dialogue sits just above the hotbar, whatever height the hotbar grew to. */
@@ -290,8 +338,8 @@ export class HudScene extends Phaser.Scene {
   }
 
   override update(): void {
-    const W = this.scale.width,
-      H = this.scale.height;
+    const W = this.scale.width;
+    const H = this.scale.height;
     // Graphics rebuilds are gated on a change signature; the texts below stay
     // per-frame (setText early-outs on an unchanged string).
     const sig = this.hudSignature(W, H);
@@ -305,14 +353,15 @@ export class HudScene extends Phaser.Scene {
     this.seasonText.setText(
       `${seasonIcon(s)} ${seasonName(s)}   ${WEATHER_ICON[this.g.weather]} ${WEATHER_NAME[this.g.weather]}`,
     );
-    this.clockText.setText(this.formatClock(this.g.timeMin));
+    this.clockText.setText(formatClock(this.g.timeMin));
     this.goldText.setText(`${store.gold}g`);
 
     // tooltip
     const item = store.inv.selectedItem();
     let tip = item ? itemName(item) : "";
-    if (item && item.kind === "tool" && item.tool === "can")
+    if (item && item.kind === "tool" && item.tool === "can") {
       tip += `  💧${this.g.canCharge}/${CAN_MAX}`;
+    }
     this.toolTip.setText(tip);
   }
 
@@ -328,7 +377,7 @@ export class HudScene extends Phaser.Scene {
       store.energy,
       this.g.canCharge,
     ];
-    for (let i = 0; i < HOTBAR; i++) {
+    for (let i = 0; i < HOTBAR; i += 1) {
       const slot = store.inv.slots[i];
       if (slot) {
         const ic = itemIcon(slot.item);
@@ -342,21 +391,24 @@ export class HudScene extends Phaser.Scene {
 
   private redrawGraphics(W: number, H: number): void {
     // hotbar
-    const slot = this.slot;
+    const { slot } = this;
     const { top: it, right: ir, left: il } = this.inset;
-    for (let i = 0; i < HOTBAR; i++) {
+    for (let i = 0; i < HOTBAR; i += 1) {
       const n = this.slotNodes[i];
-      if (!n) continue;
+      if (!n) {
+        continue;
+      }
       const { x, y } = this.slotPos(i, W, H);
       const sel = i === store.inv.selected;
       n.bg.clear();
-      n.bg.fillStyle(0x000000, 0.35);
+      n.bg.fillStyle(0x00_00_00, 0.35);
       n.bg.fillRoundedRect(x - slot / 2, y - slot / 2, slot, slot, 7);
-      n.bg.fillStyle(sel ? 0x6a5a2a : 0x20242f, 0.7);
+      n.bg.fillStyle(sel ? 0x6a_5a_2a : 0x20_24_2f, 0.7);
       n.bg.fillRoundedRect(x - slot / 2 + 2, y - slot / 2 + 2, slot - 4, slot - 4, 6);
-      n.bg.lineStyle(2, sel ? 0xffe27a : 0x000000, sel ? 1 : 0.3);
+      n.bg.lineStyle(2, sel ? 0xff_e2_7a : 0x00_00_00, sel ? 1 : 0.3);
       n.bg.strokeRoundedRect(x - slot / 2, y - slot / 2, slot, slot, 7);
-      n.key.setVisible(slot >= 34); // key hints are noise on tiny touch slots
+      // key hints are noise on tiny touch slots
+      n.key.setVisible(slot >= 34);
       const invSlot = store.inv.slots[i];
       if (invSlot) {
         const ic = itemIcon(invSlot.item);
@@ -387,29 +439,20 @@ export class HudScene extends Phaser.Scene {
     const w = 144;
     // HP
     const hpFrac = store.hp / store.maxHp();
-    g.fillStyle(0x2a1e0e, 1);
+    g.fillStyle(0x2a_1e_0e, 1);
     g.fillRoundedRect(x, y, w, 12, 4);
-    g.fillStyle(hpFrac > 0.5 ? 0xff7b7b : hpFrac > 0.25 ? 0xffcf4d : 0xff5d5d, 1);
+    g.fillStyle(barTint(hpFrac, 0xff_7b_7b), 1);
     g.fillRoundedRect(x, y, Math.max(2, w * hpFrac), 12, 4);
-    g.lineStyle(1, 0xffffff, 0.25);
+    g.lineStyle(1, 0xff_ff_ff, 0.25);
     g.strokeRoundedRect(x, y, w, 12, 4);
     // energy
     const enFrac = store.energy / MAX_ENERGY;
-    g.fillStyle(0x2a1e0e, 1);
+    g.fillStyle(0x2a_1e_0e, 1);
     g.fillRoundedRect(x, y + 15, w, 10, 4);
-    g.fillStyle(enFrac > 0.5 ? 0x7ed957 : enFrac > 0.25 ? 0xffcf4d : 0xff5d5d, 1);
+    g.fillStyle(barTint(enFrac, 0x7e_d9_57), 1);
     g.fillRoundedRect(x, y + 15, Math.max(2, w * enFrac), 10, 4);
-    g.lineStyle(1, 0xffffff, 0.25);
+    g.lineStyle(1, 0xff_ff_ff, 0.25);
     g.strokeRoundedRect(x, y + 15, w, 10, 4);
-  }
-
-  private formatClock(min: number): string {
-    const h = Math.floor(min / 60);
-    const m = Math.floor(min % 60);
-    const ampm = h % 24 < 12 ? "AM" : "PM";
-    let hh = h % 12;
-    if (hh === 0) hh = 12;
-    return `${hh}:${m < 10 ? "0" : ""}${m} ${ampm}`;
   }
 
   // ---------------------------------------------------------------- toasts / banner / dialogue
@@ -419,40 +462,40 @@ export class HudScene extends Phaser.Scene {
     const W = this.scale.width;
     const t = this.add
       .text(W / 2, 92 + this.toastY, text, {
+        align: "center",
+        color,
         fontFamily: FONT,
         fontSize: "15px",
         fontStyle: "bold",
-        color,
         stroke: "#2a1e0e",
         strokeThickness: 4,
-        align: "center",
       })
       .setOrigin(0.5, 0)
       .setDepth(100);
     this.toastY += 26;
     this.tweens.add({
-      targets: t,
       alpha: { from: 1, to: 0 },
-      y: t.y - 10,
       delay: 1200,
       duration: 700,
       onComplete: () => {
         t.destroy();
         this.toastY = Math.max(0, this.toastY - 26);
       },
+      targets: t,
+      y: t.y - 10,
     });
   }
 
   private dayBanner(day: number, season: Season, weather: Weather): void {
-    const W = this.scale.width,
-      H = this.scale.height;
+    const W = this.scale.width;
+    const H = this.scale.height;
     const c = this.add.container(W / 2, H / 2).setDepth(120);
     const label = this.add
       .text(0, -16, `Day ${day}`, {
+        color: "#fff6d5",
         fontFamily: FONT,
         fontSize: "54px",
         fontStyle: "900",
-        color: "#fff6d5",
         stroke: "#7a4a18",
         strokeThickness: 8,
       })
@@ -463,9 +506,9 @@ export class HudScene extends Phaser.Scene {
         30,
         `${seasonIcon(season)} ${seasonName(season)}  ·  ${WEATHER_ICON[weather]} ${WEATHER_NAME[weather]}`,
         {
+          color: "#ffe9b0",
           fontFamily: FONT,
           fontSize: "20px",
-          color: "#ffe9b0",
           stroke: "#7a4a18",
           strokeThickness: 4,
         },
@@ -473,74 +516,76 @@ export class HudScene extends Phaser.Scene {
       .setOrigin(0.5);
     c.add([label, sub]);
     c.setScale(0.7).setAlpha(0);
-    this.tweens.add({ targets: c, alpha: 1, scale: 1, duration: 400, ease: "Back.easeOut" });
+    this.tweens.add({ alpha: 1, duration: 400, ease: "Back.easeOut", scale: 1, targets: c });
     this.tweens.add({
-      targets: c,
       alpha: 0,
       delay: 1700,
       duration: 500,
       onComplete: () => c.destroy(),
+      targets: c,
     });
   }
 
   private showDialogue(d: { name: string; role: string; text: string; hearts: number }): void {
     this.dialogueBox?.destroy();
-    const W = this.scale.width,
-      H = this.scale.height;
-    const w = Math.min(460, W - 24),
-      h = 96;
+    const W = this.scale.width;
+    const H = this.scale.height;
+    const w = Math.min(460, W - 24);
+    const h = 96;
     const c = this.add.container(W / 2, this.dialogueY(H)).setDepth(130);
     const g = this.add.graphics();
-    g.fillStyle(0x000000, 0.3);
+    g.fillStyle(0x00_00_00, 0.3);
     g.fillRoundedRect(-w / 2 + 4, -h / 2 + 5, w, h, 12);
-    g.fillStyle(0xf3e2bf, 1);
+    g.fillStyle(0xf3_e2_bf, 1);
     g.fillRoundedRect(-w / 2, -h / 2, w, h, 12);
-    g.lineStyle(3, 0x9a6a35, 1);
+    g.lineStyle(3, 0x9a_6a_35, 1);
     g.strokeRoundedRect(-w / 2, -h / 2, w, h, 12);
     const name = this.add
       .text(-w / 2 + 16, -h / 2 + 12, `${d.name}`, {
+        color: "#7a4a18",
         fontFamily: FONT,
         fontSize: "16px",
         fontStyle: "bold",
-        color: "#7a4a18",
       })
       .setOrigin(0, 0);
     const role = this.add
       .text(-w / 2 + 16 + d.name.length * 11 + 8, -h / 2 + 15, d.role, {
+        color: "#a07b4c",
         fontFamily: FONT,
         fontSize: "12px",
-        color: "#a07b4c",
       })
       .setOrigin(0, 0);
     const heartStr = "♥".repeat(d.hearts) + "♡".repeat(Math.max(0, 10 - d.hearts));
     const hearts = this.add
       .text(w / 2 - 16, -h / 2 + 14, heartStr, {
+        color: "#ff5d7a",
         fontFamily: FONT,
         fontSize: "11px",
-        color: "#ff5d7a",
       })
       .setOrigin(1, 0);
     const text = this.add
       .text(-w / 2 + 16, -6, d.text, {
+        color: "#3a2a14",
         fontFamily: FONT,
         fontSize: "15px",
-        color: "#3a2a14",
         wordWrap: { width: w - 32 },
       })
       .setOrigin(0, 0);
     c.add([g, name, role, hearts, text]);
     this.dialogueBox = c;
     c.setAlpha(0);
-    this.tweens.add({ targets: c, alpha: 1, duration: 150 });
+    this.tweens.add({ alpha: 1, duration: 150, targets: c });
     this.tweens.add({
-      targets: c,
       alpha: 0,
       delay: 3600,
       duration: 400,
       onComplete: () => {
-        if (this.dialogueBox === c) this.dialogueBox = null;
+        if (this.dialogueBox === c) {
+          this.dialogueBox = null;
+        }
         c.destroy();
       },
+      targets: c,
     });
   }
 
@@ -552,7 +597,9 @@ export class HudScene extends Phaser.Scene {
   }
 
   private closeModal(): void {
-    if (!this.modal) return;
+    if (!this.modal) {
+      return;
+    }
     this.modal.destroy();
     this.modal = null;
     this.g.closeUi();
@@ -561,30 +608,30 @@ export class HudScene extends Phaser.Scene {
   private modalShell(w: number, h: number, title: string): Phaser.GameObjects.Container {
     const c = this.add.container(this.scale.width / 2, this.scale.height / 2).setDepth(200);
     const dim = this.add
-      .rectangle(0, 0, this.scale.width * 3, this.scale.height * 3, 0x000000, 0.45)
+      .rectangle(0, 0, this.scale.width * 3, this.scale.height * 3, 0x00_00_00, 0.45)
       .setInteractive();
     // universal escape: tapping the dim backdrop closes the modal (vital on
     // phones, where ESC doesn't exist)
     dim.on("pointerdown", () => this.closeModal());
     const panel = this.add.graphics();
-    panel.fillStyle(0x000000, 0.25);
+    panel.fillStyle(0x00_00_00, 0.25);
     panel.fillRoundedRect(-w / 2 + 4, -h / 2 + 6, w, h, 16);
-    panel.fillStyle(0xf3e2bf, 1);
+    panel.fillStyle(0xf3_e2_bf, 1);
     panel.fillRoundedRect(-w / 2, -h / 2, w, h, 16);
-    panel.lineStyle(4, 0x9a6a35, 1);
+    panel.lineStyle(4, 0x9a_6a_35, 1);
     panel.strokeRoundedRect(-w / 2, -h / 2, w, h, 16);
-    panel.fillStyle(0x9a6a35, 1);
-    panel.fillRoundedRect(-w / 2, -h / 2, w, 40, { tl: 16, tr: 16, bl: 0, br: 0 });
+    panel.fillStyle(0x9a_6a_35, 1);
+    panel.fillRoundedRect(-w / 2, -h / 2, w, 40, { bl: 0, br: 0, tl: 16, tr: 16 });
     const titleT = this.add
       .text(0, -h / 2 + 20, title, {
+        color: "#fff6d5",
         fontFamily: FONT,
         fontSize: "20px",
         fontStyle: "bold",
-        color: "#fff6d5",
       })
       .setOrigin(0.5);
     const close = this.add
-      .text(w / 2 - 22, -h / 2 + 20, "✕", { fontFamily: FONT, fontSize: "20px", color: "#fff6d5" })
+      .text(w / 2 - 22, -h / 2 + 20, "✕", { color: "#fff6d5", fontFamily: FONT, fontSize: "20px" })
       .setOrigin(0.5)
       .setInteractive({ useHandCursor: true });
     close.on("pointerdown", () => this.closeModal());
@@ -596,8 +643,8 @@ export class HudScene extends Phaser.Scene {
   private openShop(): void {
     // Clamp to the viewport; landscape phones (too short for one column of
     // 11 crops) reflow into two columns instead of overflowing the screen.
-    const W = this.scale.width,
-      H = this.scale.height;
+    const W = this.scale.width;
+    const H = this.scale.height;
     const rowH = 33;
     const cols = 54 + CROP_ORDER.length * rowH + 78 <= H - 24 ? 1 : 2;
     const perCol = Math.ceil(CROP_ORDER.length / cols);
@@ -607,11 +654,12 @@ export class HudScene extends Phaser.Scene {
     const c = this.modalShell(w, h, "🏪  General Store");
     const season = this.g.season();
     const startY = -h / 2 + 54;
-    CROP_ORDER.forEach((id, i) => {
+    for (const [i, id] of CROP_ORDER.entries()) {
       const def = CROPS[id];
       const inSeason = def.seasons.includes(season);
       const col = Math.floor(i / perCol);
-      const cx = cols === 1 ? 0 : col === 0 ? -(colW / 2 + 8) : colW / 2 + 8;
+      const colX = col === 0 ? -(colW / 2 + 8) : colW / 2 + 8;
+      const cx = cols === 1 ? 0 : colX;
       const ry = startY + (i % perCol) * rowH;
       const row = this.add.container(cx, ry);
       const icon = this.add
@@ -620,34 +668,38 @@ export class HudScene extends Phaser.Scene {
         .setAlpha(inSeason ? 1 : 0.4);
       const name = this.add
         .text(-colW / 2 + 40, 0, def.name, {
+          color: inSeason ? "#3a2a14" : "#9a8a6a",
           fontFamily: FONT,
           fontSize: "14px",
-          color: inSeason ? "#3a2a14" : "#9a8a6a",
         })
         .setOrigin(0, 0.5);
       const seasonTag = this.add
         .text(-colW / 2 + 40, 11, def.seasons.map(seasonName).join("/"), {
+          color: "#a07b4c",
           fontFamily: FONT,
           fontSize: "9px",
-          color: "#a07b4c",
         })
         .setOrigin(0, 0.5);
       const price = this.add
         .text(colW / 2 - 132, 0, `${def.seedPrice}g`, {
+          color: "#7a5a1a",
           fontFamily: FONT,
           fontSize: "13px",
-          color: "#7a5a1a",
         })
         .setOrigin(1, 0.5);
       const buy1 = this.shopBtn(colW / 2 - 90, "Buy", () => {
-        if (this.g.buySeed(id, 1)) this.flash(price);
+        if (this.g.buySeed(id, 1)) {
+          this.flash(price);
+        }
       });
       const buy5 = this.shopBtn(colW / 2 - 30, "x5", () => {
-        if (this.g.buySeed(id, 5)) this.flash(price);
+        if (this.g.buySeed(id, 5)) {
+          this.flash(price);
+        }
       });
       row.add([icon, name, seasonTag, price, buy1, buy5]);
       c.add(row);
-    });
+    }
     const sellRow = this.add.container(0, h / 2 - 32);
     const sellBtn = this.shopBtn(0, "Sell all crops, fish & goods", () => {
       const total = this.g.sellAll();
@@ -662,45 +714,45 @@ export class HudScene extends Phaser.Scene {
 
   private openAnimalShop(building: BuildingKind): void {
     const list: AnimalKind[] = building === "coop" ? COOP_ANIMALS : BARN_ANIMALS;
-    const w = Math.min(380, this.scale.width - 24),
-      h = Math.min(110 + list.length * 56, this.scale.height - 24);
+    const w = Math.min(380, this.scale.width - 24);
+    const h = Math.min(110 + list.length * 56, this.scale.height - 24);
     const c = this.modalShell(w, h, building === "coop" ? "🐔  Coop" : "🐄  Barn");
-    list.forEach((kind, i) => {
+    for (const [i, kind] of list.entries()) {
       const def = ANIMALS[kind];
       const ry = -h / 2 + 60 + i * 56;
       const row = this.add.container(0, ry);
       const spr = this.add.sprite(-w / 2 + 34, 0, def.texture, 0).setScale(1.4);
       const name = this.add
         .text(-w / 2 + 64, -8, def.name, {
+          color: "#3a2a14",
           fontFamily: FONT,
           fontSize: "16px",
           fontStyle: "bold",
-          color: "#3a2a14",
         })
         .setOrigin(0, 0);
       const desc = this.add
         .text(-w / 2 + 64, 10, `gives ${def.product} daily`, {
+          color: "#7a5a1a",
           fontFamily: FONT,
           fontSize: "11px",
-          color: "#7a5a1a",
         })
         .setOrigin(0, 0);
       const price = this.add
         .text(w / 2 - 90, 0, `${def.price}g`, {
+          color: "#7a5a1a",
           fontFamily: FONT,
           fontSize: "14px",
-          color: "#7a5a1a",
         })
         .setOrigin(1, 0.5);
       const buy = this.shopBtn(w / 2 - 48, "Buy", () => this.g.animals.buy(kind));
       row.add([spr, name, desc, price, buy]);
       c.add(row);
-    });
+    }
     const tip = this.add
       .text(0, h / 2 - 22, "Pet animals daily to raise friendship ♥", {
+        color: "#7a5a1a",
         fontFamily: FONT,
         fontSize: "11px",
-        color: "#7a5a1a",
       })
       .setOrigin(0.5);
     c.add(tip);
@@ -710,12 +762,12 @@ export class HudScene extends Phaser.Scene {
     const c = this.add.container(x, 0);
     const tw = label.length * 7.2 + 20;
     const g = this.add.graphics();
-    g.fillStyle(0x5fae3a, 1);
+    g.fillStyle(0x5f_ae_3a, 1);
     g.fillRoundedRect(-tw / 2, -12, tw, 24, 8);
-    g.lineStyle(2, 0xffffff, 0.4);
+    g.lineStyle(2, 0xff_ff_ff, 0.4);
     g.strokeRoundedRect(-tw / 2, -12, tw, 24, 8);
     const t = this.add
-      .text(0, 0, label, { fontFamily: FONT, fontSize: "13px", fontStyle: "bold", color: "#fff" })
+      .text(0, 0, label, { color: "#fff", fontFamily: FONT, fontSize: "13px", fontStyle: "bold" })
       .setOrigin(0.5);
     const z = this.add.zone(0, 0, tw, 24).setInteractive({ useHandCursor: true });
     z.on("pointerdown", () => {
@@ -729,25 +781,25 @@ export class HudScene extends Phaser.Scene {
   }
 
   private flash(t: Phaser.GameObjects.Text): void {
-    this.tweens.add({ targets: t, scale: 1.4, duration: 90, yoyo: true });
+    this.tweens.add({ duration: 90, scale: 1.4, targets: t, yoyo: true });
   }
 
   private openSleep(): void {
     const c = this.modalShell(Math.min(360, this.scale.width - 24), 180, "🛏  Rest for the night?");
     const body = this.add
       .text(0, -10, "Sleep until morning.\nWatered crops grow, animals produce.", {
+        align: "center",
+        color: "#3a2a14",
         fontFamily: FONT,
         fontSize: "14px",
-        color: "#3a2a14",
-        align: "center",
       })
       .setOrigin(0.5);
-    const yes = this.bigBtn(-80, 56, "Sleep", 0x3a86c8, () => {
+    const yes = this.bigBtn(-80, 56, "Sleep", 0x3a_86_c8, () => {
       this.modal?.destroy();
       this.modal = null;
       this.g.doSleep();
     });
-    const no = this.bigBtn(80, 56, "Not yet", 0xb05a3a, () => this.closeModal());
+    const no = this.bigBtn(80, 56, "Not yet", 0xb0_5a_3a, () => this.closeModal());
     c.add([body, yes, no]);
   }
 
@@ -759,15 +811,15 @@ export class HudScene extends Phaser.Scene {
     onClick: () => void,
   ): Phaser.GameObjects.Container {
     const c = this.add.container(x, y);
-    const w = 130,
-      h = 40;
+    const h = 40;
+    const w = 130;
     const g = this.add.graphics();
     g.fillStyle(color, 1);
     g.fillRoundedRect(-w / 2, -h / 2, w, h, 10);
-    g.lineStyle(2, 0xffffff, 0.4);
+    g.lineStyle(2, 0xff_ff_ff, 0.4);
     g.strokeRoundedRect(-w / 2, -h / 2, w, h, 10);
     const t = this.add
-      .text(0, 0, label, { fontFamily: FONT, fontSize: "16px", fontStyle: "bold", color: "#fff" })
+      .text(0, 0, label, { color: "#fff", fontFamily: FONT, fontSize: "16px", fontStyle: "bold" })
       .setOrigin(0.5);
     const z = this.add.zone(0, 0, w, h).setInteractive({ useHandCursor: true });
     z.on("pointerdown", () => {
@@ -777,17 +829,4 @@ export class HudScene extends Phaser.Scene {
     c.add([g, t, z]);
     return c;
   }
-}
-
-function panelRect(
-  g: Phaser.GameObjects.Graphics,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-): void {
-  g.fillStyle(0x000000, 0.4);
-  g.fillRoundedRect(x, y, w, h, 8);
-  g.lineStyle(2, 0xf3e2bf, 0.5);
-  g.strokeRoundedRect(x, y, w, h, 8);
 }

@@ -63,14 +63,17 @@ let installed = false;
  * and must run before the first program compiles (the chunks are resolved
  * then) — GameScene calls it as its first construction step.
  */
-export function installAerialFog(): void {
-  if (installed) return;
+export const installAerialFog = (): void => {
+  if (installed) {
+    return;
+  }
   installed = true;
 
   // World position without a modelMatrix: the view transform is rigid, so the
   // camera-space position rotates back with the transpose of its rotation.
   // Doing it this way means batched, instanced and skinned meshes all work —
   // `mvPosition` is already in scope wherever three includes <fog_vertex>.
+  // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
   THREE.ShaderChunk.fog_vertex = /* glsl */ `
 #ifdef USE_FOG
 	vFogDepth = - mvPosition.z;
@@ -79,6 +82,7 @@ export function installAerialFog(): void {
 #endif
 `;
 
+  // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
   THREE.ShaderChunk.fog_pars_vertex = /* glsl */ `
 #ifdef USE_FOG
 	varying float vFogDepth;
@@ -87,6 +91,7 @@ export function installAerialFog(): void {
 #endif
 `;
 
+  // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
   THREE.ShaderChunk.fog_pars_fragment = /* glsl */ `
 #ifdef USE_FOG
 
@@ -108,6 +113,7 @@ export function installAerialFog(): void {
 #endif
 `;
 
+  // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
   THREE.ShaderChunk.fog_fragment = /* glsl */ `
 #ifdef USE_FOG
 
@@ -146,4 +152,4 @@ export function installAerialFog(): void {
 
 #endif
 `;
-}
+};

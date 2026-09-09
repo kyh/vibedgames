@@ -1,11 +1,11 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
 import { DEPTH } from "../config";
 
 // Lightweight juice helpers — all built from primitives so they need no art.
 
 /** `size` (world pixels) and `life` (ms) default to every gameplay pop; a caller
  *  raises them only for a glyph that has to carry a beat on its own. */
-export function floatText(
+export const floatText = (
   scene: Phaser.Scene,
   x: number,
   y: number,
@@ -13,30 +13,30 @@ export function floatText(
   color = "#fff6d5",
   size = 11,
   life = 900,
-): void {
+): void => {
   const t = scene.add
     .text(x, y, text, {
+      color,
       fontFamily: "ui-monospace, monospace",
       fontSize: `${size}px`,
       fontStyle: "bold",
-      color,
       stroke: "#3a2a14",
       strokeThickness: Math.max(3, Math.round(size / 4)),
     })
     .setOrigin(0.5, 1)
     .setDepth(DEPTH.particles + 10);
   scene.tweens.add({
-    targets: t,
-    y: y - 22,
     alpha: { from: 1, to: 0 },
     duration: life,
     ease: "Cubic.easeOut",
     onComplete: () => t.destroy(),
+    targets: t,
+    y: y - 22,
   });
-}
+};
 
 // burst of small colored squares (dust, leaves, sparks, droplets)
-export function burst(
+export const burst = (
   scene: Phaser.Scene,
   x: number,
   y: number,
@@ -49,15 +49,15 @@ export function burst(
     up?: boolean;
     life?: number;
   },
-): void {
+): void => {
   const { colors } = opts;
   const count = opts.count ?? 8;
   const speed = opts.speed ?? 50;
   const gravity = opts.gravity ?? 120;
   const size = opts.size ?? 2;
   const life = opts.life ?? 520;
-  for (let i = 0; i < count; i++) {
-    const c = colors[(Math.random() * colors.length) | 0];
+  for (let i = 0; i < count; i += 1) {
+    const c = colors[Math.trunc(Math.random() * colors.length)];
     const r = scene.add.rectangle(x, y, size, size, c).setDepth(DEPTH.particles);
     const ang = opts.up ? -Math.PI / 2 + (Math.random() - 0.5) * 1.6 : Math.random() * Math.PI * 2;
     const sp = speed * (0.4 + Math.random() * 0.9);
@@ -65,8 +65,6 @@ export function burst(
     let vy = Math.sin(ang) * sp - (opts.up ? 30 : 0);
     const start = scene.time.now;
     const ev = scene.time.addEvent({
-      delay: 16,
-      loop: true,
       callback: () => {
         const dt = 0.016;
         vy += gravity * dt;
@@ -79,27 +77,29 @@ export function burst(
           r.destroy();
         }
       },
+      delay: 16,
+      loop: true,
     });
   }
-}
+};
 
-export function shake(scene: Phaser.Scene, intensity = 0.004, duration = 120): void {
+export const shake = (scene: Phaser.Scene, intensity = 0.004, duration = 120): void => {
   scene.cameras.main.shake(duration, intensity);
-}
+};
 
 // a quick squash-stretch "pop" tween on a sprite
-export function pop(
+export const pop = (
   scene: Phaser.Scene,
   obj: Phaser.GameObjects.Components.Transform & { scaleX: number; scaleY: number },
-): void {
-  const sx = obj.scaleX,
-    sy = obj.scaleY;
+): void => {
+  const sx = obj.scaleX;
+  const sy = obj.scaleY;
   scene.tweens.add({
-    targets: obj,
+    duration: 90,
+    ease: "Quad.easeOut",
     scaleX: sx * 1.25,
     scaleY: sy * 0.8,
-    duration: 90,
+    targets: obj,
     yoyo: true,
-    ease: "Quad.easeOut",
   });
-}
+};

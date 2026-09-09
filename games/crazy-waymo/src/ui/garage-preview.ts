@@ -10,10 +10,15 @@ import { ROBOTAXI_SKINS, buildSkinBody } from "../vehicle/car";
 // so this costs nothing during normal driving.
 const VIEW_W = 150;
 const VIEW_H = 96;
-const REST_ANGLE = -0.65; // three-quarter view
-const SPIN_RATE = 1.7; // rad/s while hovered
+// three-quarter view
+const REST_ANGLE = -0.65;
+// rad/s while hovered
+const SPIN_RATE = 1.7;
 
-type Slot = { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D };
+interface Slot {
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+}
 
 export class GaragePreview {
   private readonly renderer: THREE.WebGLRenderer;
@@ -32,18 +37,18 @@ export class GaragePreview {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.camera = new THREE.PerspectiveCamera(30, VIEW_W / VIEW_H, 0.1, 60);
 
-    this.scene.add(new THREE.HemisphereLight(0xe8f0ff, 0x33373f, 1.15));
-    const key = new THREE.DirectionalLight(0xffffff, 2.1);
+    this.scene.add(new THREE.HemisphereLight(0xe8_f0_ff, 0x33_37_3f, 1.15));
+    const key = new THREE.DirectionalLight(0xff_ff_ff, 2.1);
     key.position.set(2.5, 4, 3);
     this.scene.add(key);
-    const rim = new THREE.DirectionalLight(0x8fb4ff, 0.7);
+    const rim = new THREE.DirectionalLight(0x8f_b4_ff, 0.7);
     rim.position.set(-3, 2, -2.5);
     this.scene.add(rim);
 
     const podiumMat = new THREE.MeshStandardMaterial({
-      color: 0x272d3a,
-      roughness: 0.45,
+      color: 0x27_2d_3a,
       metalness: 0.35,
+      roughness: 0.45,
     });
     for (const sk of ROBOTAXI_SKINS) {
       const body = buildSkinBody(cache, sk);
@@ -82,38 +87,52 @@ export class GaragePreview {
   attach(container: HTMLElement): void {
     this.slots = new Map();
     for (const canvas of container.querySelectorAll("canvas.gprev")) {
-      if (!(canvas instanceof HTMLCanvasElement)) continue;
+      if (!(canvas instanceof HTMLCanvasElement)) {
+        continue;
+      }
       const id = canvas.dataset["prev"];
-      if (!id || !this.turntables.has(id)) continue;
+      if (!id || !this.turntables.has(id)) {
+        continue;
+      }
       canvas.width = this.renderer.domElement.width;
       canvas.height = this.renderer.domElement.height;
       const ctx = canvas.getContext("2d");
-      if (!ctx) continue;
+      if (!ctx) {
+        continue;
+      }
       this.slots.set(id, { canvas, ctx });
       this.renderInto(id, REST_ANGLE);
     }
   }
 
   update(dt: number): void {
-    if (!this.hovered) return;
+    if (!this.hovered) {
+      return;
+    }
     this.angle += dt * SPIN_RATE;
     this.renderInto(this.hovered, this.angle);
   }
 
   private setHovered(id: string | null): void {
-    if (id === this.hovered) return;
+    if (id === this.hovered) {
+      return;
+    }
     const prev = this.hovered;
     this.hovered = id;
     this.angle = REST_ANGLE;
     // Park the card we just left back at the showroom pose.
-    if (prev) this.renderInto(prev, REST_ANGLE);
+    if (prev) {
+      this.renderInto(prev, REST_ANGLE);
+    }
   }
 
   private renderInto(id: string, angle: number): void {
     const turntable = this.turntables.get(id);
     const slot = this.slots.get(id);
     const dist = this.camDist.get(id);
-    if (!turntable || !slot || dist === undefined) return;
+    if (!turntable || !slot || dist === undefined) {
+      return;
+    }
     turntable.visible = true;
     turntable.rotation.y = angle;
     this.camera.position.set(0, dist * 0.42, dist);

@@ -19,29 +19,43 @@ const HEAD_H = 4.38;
 // bottom when green (the housing's lamp pitch at furniture's 5u scale).
 const LAMP_PITCH = 0.24;
 const LAMP_SIZE = 0.42;
-const GREEN = new THREE.Color(0x2ecc4e);
-const RED = new THREE.Color(0xe63a28);
+const GREEN = new THREE.Color(0x2e_cc_4e);
+const RED = new THREE.Color(0xe6_3a_28);
 
 type HeightAt = (x: number, z: number) => number;
 
 export class SignalLights {
   readonly mesh: THREE.InstancedMesh;
   private readonly nodes: Int32Array;
-  private readonly txs: Float32Array; // approach tangent (outward) per lamp
+  // approach tangent (outward) per lamp
+  private readonly txs: Float32Array;
   private readonly tzs: Float32Array;
-  private readonly xs: Float32Array; // head anchor (housing centre)
+  // head anchor (housing centre)
+  private readonly xs: Float32Array;
   private readonly ys: Float32Array;
   private readonly zs: Float32Array;
-  private readonly states: Int8Array; // -1 unset, 0 red, 1 green
+  // -1 unset, 0 red, 1 green
+  private readonly states: Int8Array;
   private readonly count: number;
 
   constructor(network: RoadNetwork, heightAt: HeightAt) {
-    type Spot = { x: number; y: number; z: number; node: number; tx: number; tz: number };
+    interface Spot {
+      x: number;
+      y: number;
+      z: number;
+      node: number;
+      tx: number;
+      tz: number;
+    }
     const spots: Spot[] = [];
-    for (let n = 0; n < network.nodes.length; n++) {
-      if (junctionControl(network, n) !== "signal") continue;
+    for (let n = 0; n < network.nodes.length; n += 1) {
+      if (junctionControl(network, n) !== "signal") {
+        continue;
+      }
       const node = network.nodes[n];
-      if (!node) continue;
+      if (!node) {
+        continue;
+      }
       for (const a of controlArms(network, n)) {
         // Mirror furniture.ts placement exactly (pole on the right of the
         // approach, past the crosswalk) including its skip-on-asphalt test —
@@ -49,17 +63,19 @@ export class SignalLights {
         const px = a.px + a.tx * 4.6 + a.tz * (a.half + 1.2);
         const pz = a.pz + a.tz * 4.6 - a.tx * (a.half + 1.2);
         const hit = network.nearest(px, pz, ROAD_TILE * 1.4);
-        if (hit !== null && hit.dist < hit.edge.half + 0.3) continue;
+        if (hit !== null && hit.dist < hit.edge.half + 0.3) {
+          continue;
+        }
         const dl = Math.hypot(node[0] - px, node[1] - pz) || 1;
         const dirX = (node[0] - px) / dl;
         const dirZ = (node[1] - pz) / dl;
         spots.push({
-          x: px + dirX * ARM_REACH,
-          y: heightAt(px, pz) + HEAD_H,
-          z: pz + dirZ * ARM_REACH,
           node: n,
           tx: a.tx,
           tz: a.tz,
+          x: px + dirX * ARM_REACH,
+          y: heightAt(px, pz) + HEAD_H,
+          z: pz + dirZ * ARM_REACH,
         });
       }
     }
@@ -76,13 +92,15 @@ export class SignalLights {
     const geo = new THREE.BoxGeometry(LAMP_SIZE, LAMP_SIZE, LAMP_SIZE);
     // Basic material: the lamp is a light source — full brightness day and
     // night, no tone-mapped dimming.
-    const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
+    const mat = new THREE.MeshBasicMaterial({ color: 0xff_ff_ff, toneMapped: false });
     this.mesh = new THREE.InstancedMesh(geo, mat, this.count);
     this.mesh.frustumCulled = false;
     const m4 = new THREE.Matrix4();
-    for (let i = 0; i < this.count; i++) {
+    for (let i = 0; i < this.count; i += 1) {
       const s = spots[i];
-      if (!s) continue;
+      if (!s) {
+        continue;
+      }
       this.nodes[i] = s.node;
       this.txs[i] = s.tx;
       this.tzs[i] = s.tz;
@@ -102,10 +120,12 @@ export class SignalLights {
   private readonly m4 = new THREE.Matrix4();
   update(t: number): void {
     let dirty = false;
-    for (let i = 0; i < this.count; i++) {
+    for (let i = 0; i < this.count; i += 1) {
       const green = signalGreen(this.nodes[i] ?? 0, this.txs[i] ?? 0, this.tzs[i] ?? 0, t);
       const state = green ? 1 : 0;
-      if (this.states[i] === state) continue;
+      if (this.states[i] === state) {
+        continue;
+      }
       this.states[i] = state;
       this.mesh.setColorAt(i, green ? GREEN : RED);
       this.m4.makeTranslation(
@@ -117,7 +137,9 @@ export class SignalLights {
       dirty = true;
     }
     if (dirty) {
-      if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+      if (this.mesh.instanceColor) {
+        this.mesh.instanceColor.needsUpdate = true;
+      }
       this.mesh.instanceMatrix.needsUpdate = true;
     }
   }
@@ -125,7 +147,9 @@ export class SignalLights {
   dispose(): void {
     this.mesh.geometry.dispose();
     if (Array.isArray(this.mesh.material)) {
-      for (const m of this.mesh.material) m.dispose();
+      for (const m of this.mesh.material) {
+        m.dispose();
+      }
     } else {
       this.mesh.material.dispose();
     }

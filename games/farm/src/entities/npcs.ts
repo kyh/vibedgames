@@ -1,21 +1,15 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
+import { Math as PhaserMath } from "phaser";
 import { TILE, DEPTH, CHAR_ORIGIN_Y } from "../config";
 import { store } from "../systems/store";
-import {
-  NPCS,
-  NPC_IDS,
-  REACTION_DELTA,
-  REACTION_LINE,
-  giftable,
-  hearts,
-  type NpcId,
-} from "../data/npcs";
+import { NPCS, NPC_IDS, REACTION_DELTA, REACTION_LINE, giftable, hearts } from "../data/npcs";
+import type { NpcId } from "../data/npcs";
 import type { Item } from "../data/items";
 import { burst } from "../render/fx";
 import { Sound } from "../render/audio";
 import type { GameScene } from "../scenes/game-scene";
 
-type Live = {
+interface Live {
   id: NpcId;
   spr: Phaser.GameObjects.Sprite;
   shadow: Phaser.GameObjects.Sprite;
@@ -23,7 +17,7 @@ type Live = {
   target: { x: number; y: number };
   rest: number;
   lineIdx: number;
-};
+}
 
 export class NpcManager {
   private scene: GameScene;
@@ -38,9 +32,11 @@ export class NpcManager {
   spawnAll(): void {
     for (const id of NPC_IDS) {
       const def = NPCS[id];
-      if (store.npcFriendship[id] === undefined) store.npcFriendship[id] = 0;
-      const x = def.homeTile.tx * TILE + 8,
-        y = def.homeTile.ty * TILE + 14;
+      if (store.npcFriendship[id] === undefined) {
+        store.npcFriendship[id] = 0;
+      }
+      const x = def.homeTile.tx * TILE + 8;
+      const y = def.homeTile.ty * TILE + 14;
       const shadow = this.scene.add
         .sprite(x, y + 1, "char-shadow-tex")
         .setOrigin(0.5, 0.5)
@@ -54,13 +50,13 @@ export class NpcManager {
       spr.setDepth(DEPTH.entityBase + y);
       shadow.setDepth(spr.depth - 1);
       this.live.push({
-        id,
-        spr,
-        shadow,
         home: { x, y },
-        target: { x, y },
-        rest: Phaser.Math.FloatBetween(0, 3),
+        id,
         lineIdx: 0,
+        rest: PhaserMath.FloatBetween(0, 3),
+        shadow,
+        spr,
+        target: { x, y },
       });
     }
   }
@@ -69,7 +65,9 @@ export class NpcManager {
    *  Dead in normal play (NPCs live at their fixed homes). */
   placeNpc(id: NpcId, tx: number, ty: number): void {
     const l = this.live.find((n) => n.id === id);
-    if (!l) return;
+    if (!l) {
+      return;
+    }
     const x = tx * TILE + 8;
     const y = ty * TILE + 14;
     l.home = { x, y };
@@ -95,19 +93,24 @@ export class NpcManager {
    *  drifting back. Dead in normal play (NPCs pick their own targets). */
   trailerWalkTo(id: NpcId, tx: number, ty: number): void {
     const l = this.live.find((n) => n.id === id);
-    if (!l) return;
+    if (!l) {
+      return;
+    }
     const x = tx * TILE + 8;
     const y = ty * TILE + 14;
     l.home = { x, y };
     l.target = { x, y };
-    l.rest = 6; // long enough that no wander re-roll interrupts the walk
+    // long enough that no wander re-roll interrupts the walk
+    l.rest = 6;
   }
 
   /** Trailer staging: a live NPC's feet tile — NPCs wander around their anchor,
    *  so scripted approach/gifting resolves the live position. Dead otherwise. */
   trailerTileOf(id: NpcId): { tx: number; ty: number } | null {
     const l = this.live.find((n) => n.id === id);
-    if (!l) return null;
+    if (!l) {
+      return null;
+    }
     return { tx: Math.floor(l.spr.x / TILE), ty: Math.floor((l.spr.y - 1) / TILE) };
   }
 
@@ -117,20 +120,22 @@ export class NpcManager {
       l.rest -= dt;
       if (l.rest <= 0 && day) {
         l.target = {
-          x: l.home.x + Phaser.Math.Between(-28, 28),
-          y: l.home.y + Phaser.Math.Between(-20, 20),
+          x: l.home.x + PhaserMath.Between(-28, 28),
+          y: l.home.y + PhaserMath.Between(-20, 20),
         };
-        l.rest = Phaser.Math.FloatBetween(1.5, 4);
+        l.rest = PhaserMath.FloatBetween(1.5, 4);
       }
-      const dx = l.target.x - l.spr.x,
-        dy = l.target.y - l.spr.y;
+      const dx = l.target.x - l.spr.x;
+      const dy = l.target.y - l.spr.y;
       const dist = Math.hypot(dx, dy);
       if (dist > 1.5 && day) {
         const sp = 20 * dt;
         l.spr.x += (dx / dist) * sp;
         l.spr.y += (dy / dist) * sp;
         l.spr.setFlipX(dx < 0);
-        if (l.spr.anims.currentAnim?.key !== "p-walk") l.spr.play("p-walk", true);
+        if (l.spr.anims.currentAnim?.key !== "p-walk") {
+          l.spr.play("p-walk", true);
+        }
       } else if (l.spr.anims.currentAnim?.key !== "p-idle") {
         l.spr.play("p-idle", true);
       }
@@ -142,8 +147,8 @@ export class NpcManager {
 
   tryTalk(tx: number, ty: number, item: Item | null): boolean {
     for (const l of this.live) {
-      const nx = Math.floor(l.spr.x / TILE),
-        ny = Math.floor((l.spr.y - 1) / TILE);
+      const nx = Math.floor(l.spr.x / TILE);
+      const ny = Math.floor((l.spr.y - 1) / TILE);
       if (Math.abs(nx - tx) <= 1 && Math.abs(ny - ty) <= 1) {
         const def = NPCS[l.id];
         l.spr.setFlipX(this.scene.player.x < l.spr.x);
@@ -160,7 +165,9 @@ export class NpcManager {
 
   private giveGift(l: Live, item: Item): void {
     const def = NPCS[l.id];
-    if (!store.inv.remove(item, 1)) return;
+    if (!store.inv.remove(item, 1)) {
+      return;
+    }
     this.giftedToday.add(l.id);
     const reaction = def.react(item);
     store.npcFriendship[l.id] = Math.min(
@@ -168,10 +175,11 @@ export class NpcManager {
       (store.npcFriendship[l.id] ?? 0) + REACTION_DELTA[reaction],
     );
     burst(this.scene, l.spr.x, l.spr.y - 16, {
-      colors: reaction === "dislike" ? [0x888888, 0xb0b0b0] : [0xff5d7a, 0xff9ed2, 0xffe27a],
+      colors:
+        reaction === "dislike" ? [0x88_88_88, 0xb0_b0_b0] : [0xff_5d_7a, 0xff_9e_d2, 0xff_e2_7a],
       count: 8,
-      up: true,
       speed: 45,
+      up: true,
     });
     Sound.coins();
     this.emitDialogue(l.id, REACTION_LINE[reaction]);
@@ -193,10 +201,10 @@ export class NpcManager {
   private emitDialogue(id: NpcId, text: string): void {
     const def = NPCS[id];
     this.scene.events.emit("dialogue", {
+      hearts: hearts(store.npcFriendship[id] ?? 0),
       name: def.name,
       role: def.role,
       text,
-      hearts: hearts(store.npcFriendship[id] ?? 0),
     });
   }
 

@@ -15,7 +15,8 @@ const winAspect =
     ? window.innerWidth / window.innerHeight
     : 16 / 9;
 export const BASE_W = Math.round((BASE_H * clampAspect(winAspect)) / 2) * 2;
-export const TILE = 16; // world grid unit (px)
+// world grid unit (px)
+export const TILE = 16;
 
 // Render interpolation: the sim runs at a fixed 60Hz but the screen may refresh
 // faster (120Hz on ProMotion), so rendering the raw sim position judders. Blend
@@ -31,8 +32,10 @@ export const ENEMY_FRAME = 80;
 
 // Feet baseline within a frame, measured from the art (design/asset-bounds.json).
 // Origin is (centerX, feetY) so a sprite's (x, y) is where its feet stand.
-export const HERO_ORIGIN_Y = 79.5 / HERO_FRAME; // ~0.552
-export const ENEMY_ORIGIN_Y = 47 / ENEMY_FRAME; // ~0.588
+// ~0.552
+export const HERO_ORIGIN_Y = 79.5 / HERO_FRAME;
+// ~0.588
+export const ENEMY_ORIGIN_Y = 47 / ENEMY_FRAME;
 
 // Character content is tiny inside the big frame; scale up to arena size.
 export const HERO_SCALE = 1.2;
@@ -40,12 +43,12 @@ export const ENEMY_SCALE = 1.3;
 
 // Neon-shrine palette pulled from the tileset (teal / magenta on near-black).
 export const COLORS = {
-  bg: 0x0b0e14,
-  bgDeep: 0x05070b,
-  stone: 0x141922,
-  stoneEdge: 0x1e2733,
-  teal: 0x34e5c8,
-  magenta: 0xe83fa0,
-  ink: 0x0a0c11,
-  white: 0xf4f7fb,
+  bg: 0x0b_0e_14,
+  bgDeep: 0x05_07_0b,
+  ink: 0x0a_0c_11,
+  magenta: 0xe8_3f_a0,
+  stone: 0x14_19_22,
+  stoneEdge: 0x1e_27_33,
+  teal: 0x34_e5_c8,
+  white: 0xf4_f7_fb,
 } as const;

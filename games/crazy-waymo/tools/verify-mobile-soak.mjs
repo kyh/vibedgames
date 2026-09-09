@@ -2,17 +2,17 @@
 // node tools/verify-mobile-soak.mjs [dev-url] [output] --minutes=5 --cpu=4
 // Options: --minutes=5..10, --multi-draw, --tier=0..4, --smoke (28 timed seconds).
 // Duration means steady driving time. Loading, resets, pauses and captures add wall time.
-/* eslint-disable no-underscore-dangle, unicorn/consistent-function-scoping */
+/* eslint-disable unicorn/consistent-function-scoping */
 import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { createMobileSession } from "./mobile-browser-session.mjs";
 
 // Self-contained: installed into the page without imports or source changes.
-function installMetrics() {
-  const game = window.__taxi.game;
+const installMetrics = () => {
+  const { game } = window.__taxi;
   const renderer = window.__renderer;
-  function histogram(step = 0.25, bins = 4096) {
+  const histogram = (step = 0.25, bins = 4096) => {
     const counts = new Uint32Array(bins + 1);
     let count = 0;
     let sum = 0;
@@ -22,122 +22,145 @@ function installMetrics() {
     let over100 = 0;
     return {
       add(value) {
-        if (!Number.isFinite(value) || value < 0) return;
-        counts[Math.min(bins, Math.floor(value / step))]++;
-        count++;
+        if (!Number.isFinite(value) || value < 0) {
+          return;
+        }
+        counts[Math.min(bins, Math.floor(value / step))] += 1;
+        count += 1;
         sum += value;
         max = Math.max(max, value);
-        if (value > 33.4) over33++;
-        if (value > 50) over50++;
-        if (value > 100) over100++;
+        if (value > 33.4) {
+          over33 += 1;
+        }
+        if (value > 50) {
+          over50 += 1;
+        }
+        if (value > 100) {
+          over100 += 1;
+        }
       },
       summary() {
-        function percentile(fraction) {
-          if (!count) return null;
+        const percentile = (fraction) => {
+          if (!count) {
+            return null;
+          }
           const target = Math.ceil(count * fraction);
           let total = 0;
-          for (let index = 0; index < counts.length; index++) {
+          for (let index = 0; index < counts.length; index += 1) {
             total += counts[index];
-            if (total >= target) return index === bins ? max : index * step;
+            if (total >= target) {
+              return index === bins ? max : index * step;
+            }
           }
           return max;
-        }
+        };
         return {
           count,
+          max,
           mean: count ? sum / count : null,
           median: percentile(0.5),
-          p95: percentile(0.95),
-          p99: percentile(0.99),
-          max,
+          over100,
           over33,
           over50,
-          over100,
-          resolution: step,
           overflow: counts[bins],
+          p95: percentile(0.95),
+          p99: percentile(0.99),
+          resolution: step,
         };
       },
     };
-  }
-  const audit = (window.__mobileSoak = {
+  };
+  const audit = {
     active: false,
-    updateSerial: 0,
-    sampledSerial: -1,
-    submitted: 0,
-    updates: 0,
     contextLost: false,
     current: null,
+    sampledSerial: -1,
     start() {
       this.current = {
-        started: performance.now(),
-        previous: 0,
-        frame: histogram(),
-        update: histogram(),
-        render: histogram(),
-        stream: histogram(),
         calls: histogram(1, 8192),
-        triangles: histogram(1000, 8192),
-        tiers: new Uint32Array(5),
-        frames: 0,
-        moving: 0,
-        invalid: 0,
         distance: 0,
+        frame: histogram(),
+        frames: 0,
+        invalid: 0,
         lastX: null,
         lastZ: null,
-        longTasks: { count: 0, totalMs: 0, maxMs: 0 },
+        longTasks: { count: 0, maxMs: 0, totalMs: 0 },
+        moving: 0,
+        previous: 0,
+        render: histogram(),
+        started: performance.now(),
+        stream: histogram(),
+        tiers: new Uint32Array(5),
+        triangles: histogram(1000, 8192),
+        update: histogram(),
       };
       this.sampledSerial = this.updateSerial;
       this.active = true;
     },
     stop() {
       this.active = false;
-      const current = this.current;
-      if (!current) throw new Error("No active soak window");
+      const { current } = this;
+      if (!current) {
+        throw new Error("No active soak window");
+      }
       current.previous = 0;
       return {
-        steadyMs: performance.now() - current.started,
-        frameMs: current.frame.summary(),
-        updateMs: current.update.summary(),
-        renderMs: current.render.summary(),
-        streamMs: current.stream.summary(),
         calls: current.calls.summary(),
-        triangles: current.triangles.summary(),
-        tierFrames: Array.from(current.tiers),
-        presentedFrames: current.frames,
-        movingFrames: current.moving,
-        invalidMotionFrames: current.invalid,
         distance: current.distance,
+        frameMs: current.frame.summary(),
+        invalidMotionFrames: current.invalid,
         longTasks: current.longTasks,
+        movingFrames: current.moving,
+        presentedFrames: current.frames,
+        renderMs: current.render.summary(),
+        steadyMs: performance.now() - current.started,
+        streamMs: current.stream.summary(),
+        tierFrames: [...current.tiers],
+        triangles: current.triangles.summary(),
+        updateMs: current.update.summary(),
       };
     },
-  });
+    submitted: 0,
+    updateSerial: 0,
+    updates: 0,
+  };
+  window.__mobileSoak = audit;
   renderer.domElement.addEventListener("webglcontextlost", () => {
     audit.contextLost = true;
   });
-  const update = game.update;
-  game.update = function (dt, ...args) {
+  const baseUpdate = game.update;
+  game.update = function update(dt, ...args) {
     const start = performance.now();
     const playing = !this.paused && this.mode.kind === "playing" && dt > 0;
-    const result = update.call(this, dt, ...args);
-    audit.updates++;
-    if (playing) audit.updateSerial++;
-    if (playing && audit.active) audit.current.update.add(performance.now() - start);
+    const result = baseUpdate.call(this, dt, ...args);
+    audit.updates += 1;
+    if (playing) {
+      audit.updateSerial += 1;
+    }
+    if (playing && audit.active) {
+      audit.current.update.add(performance.now() - start);
+    }
     return result;
   };
   const stream = game.city.updateStreaming;
-  game.city.updateStreaming = function (...args) {
+  game.city.updateStreaming = function updateStreaming(...args) {
     const start = performance.now();
     const result = stream.apply(this, args);
-    if (audit.active) audit.current.stream.add(performance.now() - start);
+    if (audit.active) {
+      audit.current.stream.add(performance.now() - start);
+    }
     return result;
   };
-  const render = renderer.render;
-  renderer.render = function (scene, camera) {
+  const baseRender = renderer.render;
+  renderer.render = function render(scene, camera) {
     // Count main-scene submissions only. Sky cube faces and repeated draws after
     // the same update are not extra gameplay frames on a 120 Hz display.
     const main = scene === game.scene && camera === game.camera && this.getRenderTarget() === null;
     const start = performance.now();
-    const result = render.call(this, scene, camera);
-    if (main) audit.submitted++;
+    const result = baseRender.call(this, scene, camera);
+    if (main) {
+      audit.submitted += 1;
+    }
     if (
       main &&
       audit.active &&
@@ -146,15 +169,17 @@ function installMetrics() {
       audit.sampledSerial !== audit.updateSerial
     ) {
       audit.sampledSerial = audit.updateSerial;
-      const current = audit.current;
-      current.frames++;
+      const { current } = audit;
+      current.frames += 1;
       current.render.add(performance.now() - start);
-      if (current.previous) current.frame.add(start - current.previous);
+      if (current.previous) {
+        current.frame.add(start - current.previous);
+      }
       current.previous = start;
       current.calls.add(this.info.render.calls);
       current.triangles.add(this.info.render.triangles);
-      current.tiers[window.__perf.tier()]++;
-      const car = game.car;
+      current.tiers[window.__perf.tier()] += 1;
+      const { car } = game;
       const { x, y, z } = car.position;
       if (
         !Number.isFinite(x) ||
@@ -162,76 +187,105 @@ function installMetrics() {
         !Number.isFinite(z) ||
         !Number.isFinite(car.heading) ||
         !Number.isFinite(car.speed)
-      )
-        current.invalid++;
-      if (Math.abs(car.speed) > 5) current.moving++;
-      if (current.lastX !== null)
+      ) {
+        current.invalid += 1;
+      }
+      if (Math.abs(car.speed) > 5) {
+        current.moving += 1;
+      }
+      if (current.lastX !== null) {
         current.distance += Math.hypot(x - current.lastX, z - current.lastZ);
+      }
       current.lastX = x;
       current.lastZ = z;
     }
     return result;
   };
   new PerformanceObserver((list) => {
-    if (!audit.active) return;
+    if (!audit.active) {
+      return;
+    }
     for (const entry of list.getEntries()) {
-      if (entry.startTime < audit.current.started) continue;
+      if (entry.startTime < audit.current.started) {
+        continue;
+      }
       const tasks = audit.current.longTasks;
-      tasks.count++;
+      tasks.count += 1;
       tasks.totalMs += entry.duration;
       tasks.maxMs = Math.max(tasks.maxMs, entry.duration);
     }
   }).observe({ type: "longtask" });
-}
+};
 
-function prepareRoute() {
-  const network = window.__taxi.game.city.network;
+const prepareRoute = () => {
+  const { network } = window.__taxi.game.city;
   const byId = new Map(network.edges.map((edge) => [edge.id, edge]));
+  const startsInSunset = (first) => {
+    const midpoint = network.sample(first, first.len * 0.5);
+    return (
+      midpoint.x >= -1150 &&
+      midpoint.x <= -650 &&
+      midpoint.z >= 100 &&
+      midpoint.z <= 650 &&
+      first.half >= 3.5
+    );
+  };
+  const straightestContinuation = (edge, dir, seen) => {
+    const end = dir > 0 ? edge.b : edge.a;
+    const tangent = network.sample(edge, dir > 0 ? edge.len : 0);
+    let next = null;
+    let score = 0.985;
+    for (const id of network.nodeEdges[end] ?? []) {
+      const candidate = byId.get(id);
+      if (!candidate || seen.has(id)) {
+        continue;
+      }
+      const d = candidate.a === end ? 1 : -1;
+      const p = network.sample(candidate, d > 0 ? 0 : candidate.len);
+      const dot = tangent.tx * dir * p.tx * d + tangent.tz * dir * p.tz * d;
+      if (dot > score) {
+        next = { dir: d, edge: candidate };
+        score = dot;
+      }
+    }
+    return next;
+  };
+  const walk = (first, direction) => {
+    let edge = first;
+    let dir = direction;
+    let length = 0;
+    const steps = [];
+    const seen = new Set();
+    for (let count = 0; count < 30; count += 1) {
+      if (seen.has(edge.id)) {
+        break;
+      }
+      seen.add(edge.id);
+      steps.push({ dir, edge });
+      length += edge.len;
+      const next = straightestContinuation(edge, dir, seen);
+      if (!next) {
+        break;
+      }
+      ({ dir, edge } = next);
+    }
+    return { length, steps };
+  };
   let best = null;
   for (const first of network.edges) {
-    const midpoint = network.sample(first, first.len * 0.5);
-    if (
-      midpoint.x < -1150 ||
-      midpoint.x > -650 ||
-      midpoint.z < 100 ||
-      midpoint.z > 650 ||
-      first.half < 3.5
-    )
+    if (!startsInSunset(first)) {
       continue;
+    }
     for (const direction of [1, -1]) {
-      let edge = first;
-      let dir = direction;
-      let length = 0;
-      const steps = [];
-      const seen = new Set();
-      for (let count = 0; count < 30; count++) {
-        if (seen.has(edge.id)) break;
-        seen.add(edge.id);
-        steps.push({ edge, dir });
-        length += edge.len;
-        const end = dir > 0 ? edge.b : edge.a;
-        const tangent = network.sample(edge, dir > 0 ? edge.len : 0);
-        let next = null;
-        let score = 0.985;
-        for (const id of network.nodeEdges[end] ?? []) {
-          const candidate = byId.get(id);
-          if (!candidate || seen.has(id)) continue;
-          const d = candidate.a === end ? 1 : -1;
-          const p = network.sample(candidate, d > 0 ? 0 : candidate.len);
-          const dot = tangent.tx * dir * p.tx * d + tangent.tz * dir * p.tz * d;
-          if (dot > score) {
-            next = { edge: candidate, dir: d };
-            score = dot;
-          }
-        }
-        if (!next) break;
-        edge = next.edge;
-        dir = next.dir;
+      const { length, steps } = walk(first, direction);
+      if (length > 240 && (!best || length > best.length)) {
+        best = { length, steps };
       }
-      if (length > 240 && (!best || length > best.length)) best = { steps, length };
     }
   }
-  if (!best) throw new Error("No repeatable 240-unit Sunset road route");
+  if (!best) {
+    throw new Error("No repeatable 240-unit Sunset road route");
+  }
   const points = [];
   for (const { edge, dir } of best.steps) {
     for (let s = 0; s < edge.len; s += 6) {
@@ -239,32 +293,36 @@ function prepareRoute() {
       points.push({ x: p.x, z: p.z });
     }
   }
-  const a = points[2];
-  const b = points[3];
-  if (!a || !b) throw new Error("Route has no launch tangent");
+  const route = points.slice(2);
+  const [a, b] = route;
+  if (!a || !b) {
+    throw new Error("Route has no launch tangent");
+  }
   window.__mobileSoakRoute = {
+    index: 0,
+    length: best.length,
+    points: route,
     u: a.x / 3172 + 0.5,
     v: a.z / 2600 + 0.5,
     yaw: Math.atan2(b.x - a.x, b.z - a.z),
-    points: points.slice(2),
-    index: 0,
-    length: best.length,
   };
   return {
+    length: best.length,
     u: window.__mobileSoakRoute.u,
     v: window.__mobileSoakRoute.v,
     yaw: window.__mobileSoakRoute.yaw,
-    length: best.length,
   };
-}
+};
 
-function steering() {
+const steering = () => {
   const route = window.__mobileSoakRoute;
   const car = window.__taxi.probe();
-  if (!car) throw new Error("Missing taxi during drive");
-  let index = route.index;
+  if (!car) {
+    throw new Error("Missing taxi during drive");
+  }
+  let { index } = route;
   let distance = Infinity;
-  for (let i = index; i < Math.min(index + 20, route.points.length); i++) {
+  for (let i = index; i < Math.min(index + 20, route.points.length); i += 1) {
     const point = route.points[i];
     const d = Math.hypot(point.x - car.x, point.z - car.z);
     if (d < distance) {
@@ -277,31 +335,31 @@ function steering() {
   const want = Math.atan2(point.x - car.x, point.z - car.z);
   const error = ((want - car.heading + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
   return {
-    steer: Math.max(-0.8, Math.min(0.8, -error * 1.7)),
     distance,
-    speed: car.speed,
     mode: window.__taxi.game.mode.kind,
     nearEnd: index >= route.points.length - 4,
+    speed: car.speed,
+    steer: Math.max(-0.8, Math.min(0.8, -error * 1.7)),
   };
-}
+};
 
-function snapshot() {
+const snapshot = () => {
   const renderer = window.__renderer;
   return {
     browserMs: performance.now(),
     car: window.__taxi.probe(),
-    tier: window.__perf.tier(),
-    pixelRatio: renderer.getPixelRatio(),
+    contextLost: window.__mobileSoak.contextLost,
     memory: { ...renderer.info.memory },
+    pixelRatio: renderer.getPixelRatio(),
     stream: window.__taxi.game.city.parcelStreamStats(),
     submitted: window.__mobileSoak.submitted,
+    tier: window.__perf.tier(),
     updates: window.__mobileSoak.updates,
-    contextLost: window.__mobileSoak.contextLost,
   };
-}
+};
 
-function captureDiagnostics() {
-  const city = window.__taxi.game.city;
+const captureDiagnostics = () => {
+  const { city } = window.__taxi.game;
   const allBuffers = new Set();
   const fields = {};
   for (const name of ["restItems", "rawGeos", "capturedMerged", "rawGeoIds"]) {
@@ -318,32 +376,40 @@ function captureDiagnostics() {
     for (const record of Array.isArray(root) ? root : []) {
       for (const key of ["m", "position", "normal", "uv", "color", "index"]) {
         const view = record[key];
-        if (!ArrayBuffer.isView(view) || views.has(view)) continue;
+        if (!ArrayBuffer.isView(view) || views.has(view)) {
+          continue;
+        }
         views.add(view);
         viewBytes += view.byteLength;
         buffers.add(view.buffer);
         allBuffers.add(view.buffer);
       }
     }
+    let entries = null;
+    if (root instanceof Map) {
+      entries = root.size;
+    } else if (Array.isArray(root)) {
+      entries = root.length;
+    }
     fields[name] = {
       available: true,
-      entries: root instanceof Map ? root.size : Array.isArray(root) ? root.length : null,
+      backingBytes: [...buffers].reduce((sum, buffer) => sum + buffer.byteLength, 0),
+      entries,
       typedViewBytes: viewBytes,
       uniqueBackingBuffers: buffers.size,
-      backingBytes: [...buffers].reduce((sum, buffer) => sum + buffer.byteLength, 0),
     };
   }
   return {
     fields,
-    sharedBackingBytes: [...allBuffers].reduce((sum, buffer) => sum + buffer.byteLength, 0),
     interpretation:
       "Typed views and reachable backing buffers only; excludes JS object/string overhead. Shared backing bytes deduplicated across fields; may also be owned by live render geometry.",
+    sharedBackingBytes: [...allBuffers].reduce((sum, buffer) => sum + buffer.byteLength, 0),
   };
-}
+};
 
 // Same pose + view + tier only. Natural JS GC sawteeth are not leaks: require
 // three consecutive late samples above a deliberately generous warmed floor.
-function resourceGrowth(samples) {
+const resourceGrowth = (samples) => {
   const specs = [
     ["geometries", (s) => s.memory.geometries, 128, 0.5],
     ["textures", (s) => s.memory.textures, 16, 0.35],
@@ -355,33 +421,35 @@ function resourceGrowth(samples) {
   const tiers = new Set(samples.map((s) => s.tier));
   for (const tier of tiers) {
     const stable = samples.filter((s) => s.tier === tier).slice(2);
-    if (stable.length < 6) continue;
+    if (stable.length < 6) {
+      continue;
+    }
     for (const [name, read, allowance, fraction] of specs) {
       const first = stable.slice(0, 3).map(read);
       const last = stable.slice(-3).map(read);
       const baseline = Math.min(...first);
       const threshold = baseline + Math.max(allowance, baseline * fraction);
       results.push({
-        name,
-        tier,
         baseline,
-        threshold,
         last,
+        name,
         runaway: last.every((value) => value > threshold),
+        threshold,
+        tier,
       });
     }
   }
   return results;
-}
+};
 
-async function main() {
-  const args = process.argv.slice(2);
-  if (args.includes("--help")) {
-    console.log(
-      "node tools/verify-mobile-soak.mjs [dev-url] [output] --minutes=5..10 --cpu=4 [--multi-draw] [--tier=0..4] [--smoke]",
-    );
-    return;
+const resourceVerdict = (growth) => {
+  if (growth.length === 0) {
+    return "insufficient-samples";
   }
+  return growth.some((entry) => entry.runaway) ? "runaway" : "stable";
+};
+
+const parseOptions = (args) => {
   const positional = args.filter((value) => !value.startsWith("--"));
   const option = (name, fallback) =>
     args.find((value) => value.startsWith(`--${name}=`))?.split("=")[1] ?? fallback;
@@ -389,24 +457,42 @@ async function main() {
   const cpu = Number(option("cpu", "4"));
   const tierValue = option("tier", null);
   const tier = tierValue === null ? null : Number(tierValue);
-  if (!Number.isFinite(minutes) || minutes < 5 || minutes > 10)
+  if (!Number.isFinite(minutes) || minutes < 5 || minutes > 10) {
     throw new Error("--minutes must be 5..10");
-  if (!Number.isFinite(cpu) || cpu < 1 || cpu > 20) throw new Error("--cpu must be 1..20");
-  if (tier !== null && (!Number.isInteger(tier) || tier < 0 || tier > 4))
+  }
+  if (!Number.isFinite(cpu) || cpu < 1 || cpu > 20) {
+    throw new Error("--cpu must be 1..20");
+  }
+  if (tier !== null && (!Number.isInteger(tier) || tier < 0 || tier > 4)) {
     throw new Error("--tier must be 0..4");
+  }
   const smoke = args.includes("--smoke");
-  const durationMs = smoke ? 28_000 : minutes * 60_000;
-  const noMultiDraw = !args.includes("--multi-draw");
-  const url = positional[0] ?? "http://localhost:5193/?time=noon&offline=1";
-  const output = path.resolve(positional[1] ?? "/private/tmp/waymo-mobile-soak");
+  return {
+    cpu,
+    durationMs: smoke ? 28_000 : minutes * 60_000,
+    noMultiDraw: !args.includes("--multi-draw"),
+    output: path.resolve(positional[1] ?? "/private/tmp/waymo-mobile-soak"),
+    smoke,
+    tier,
+    url: positional[0] ?? "http://localhost:5193/?time=noon&offline=1",
+  };
+};
+
+const main = async () => {
+  const args = process.argv.slice(2);
+  if (args.includes("--help")) {
+    console.log(
+      "node tools/verify-mobile-soak.mjs [dev-url] [output] --minutes=5..10 --cpu=4 [--multi-draw] [--tier=0..4] [--smoke]",
+    );
+    return;
+  }
+  const { cpu, durationMs, noMultiDraw, output, smoke, tier, url } = parseOptions(args);
   const report = {
-    url,
     checkedAt: new Date().toISOString(),
-    kind: smoke ? "harness-smoke" : "sustained-soak",
-    requestedSteadyMs: durationMs,
+    checks: [],
     cpuRate: cpu,
     fixedTier: tier,
-    noMultiDraw,
+    kind: smoke ? "harness-smoke" : "sustained-soak",
     limitations: [
       "Headed desktop Chrome with coarse touch/DPR 3 and CPU throttling. Not physical-phone GPU, thermal or battery evidence.",
       "Frames are completed main-scene render submissions after distinct game updates; no raw rAF counts or compositor presentation timestamps.",
@@ -420,24 +506,29 @@ async function main() {
       maxWindows: 128,
       rawFrameSamples: 0,
     },
-    views: [],
+    noMultiDraw,
     pauses: [],
-    checks: [],
+    requestedSteadyMs: durationMs,
+    url,
+    views: [],
   };
-  const session = await createMobileSession({ sessionPrefix: "crazy-waymo-mobile-soak", output });
+  const session = await createMobileSession({ output, sessionPrefix: "crazy-waymo-mobile-soak" });
   const { call, evaluate, until, tap, sleep, screenshot, close, pageErrors } = session;
   const run = (fn, ...values) => evaluate(`(${fn.toString()})(...${JSON.stringify(values)})`);
   const save = () =>
     writeFileSync(path.join(output, "report.json"), JSON.stringify(report, null, 2));
-  function check(name, passed, evidence) {
-    report.checks.push({ name, passed, evidence });
-    if (!passed) throw new Error(`${name}: ${JSON.stringify(evidence)}`);
-  }
-  const release = () => call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
-  async function resources() {
-    return { ...(await run(snapshot)), heap: await call("Runtime.getHeapUsage") };
-  }
-  async function pauseCheck(name) {
+  const check = (name, passed, evidence) => {
+    report.checks.push({ evidence, name, passed });
+    if (!passed) {
+      throw new Error(`${name}: ${JSON.stringify(evidence)}`);
+    }
+  };
+  const release = () => call("Input.dispatchTouchEvent", { touchPoints: [], type: "touchEnd" });
+  const resources = async () => ({
+    ...(await run(snapshot)),
+    heap: await call("Runtime.getHeapUsage"),
+  });
+  const pauseCheck = async (name) => {
     await tap('[aria-label="Pause"]');
     await until("window.__taxi.game.paused === true");
     await sleep(300);
@@ -450,11 +541,11 @@ async function main() {
       after.car.y - before.car.y,
     );
     const entry = {
-      name,
-      durationMs: after.browserMs - before.browserMs,
       drawDelta: after.submitted - before.submitted,
-      updateDelta: after.updates - before.updates,
+      durationMs: after.browserMs - before.browserMs,
       movement,
+      name,
+      updateDelta: after.updates - before.updates,
     };
     report.pauses.push(entry);
     check(
@@ -465,25 +556,27 @@ async function main() {
     await tap("#waymo-pause .pcta");
     await until("window.__taxi.game.paused === false");
     await until(`window.__mobileSoak.submitted > ${after.submitted}`);
-    check(`${name} resumes drawing`, true, { submitted: (await run(snapshot)).submitted });
-  }
+    const resumed = await run(snapshot);
+    check(`${name} resumes drawing`, true, { submitted: resumed.submitted });
+  };
   let steadyMs = 0;
   const started = Date.now();
   try {
     await call("Page.enable");
     await call("Runtime.enable");
     await call("Emulation.setDeviceMetricsOverride", {
-      width: 390,
-      height: 844,
       deviceScaleFactor: 3,
+      height: 844,
       mobile: true,
+      width: 390,
     });
     await call("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
-    if (noMultiDraw)
+    if (noMultiDraw) {
       await call("Page.addScriptToEvaluateOnNewDocument", {
         source:
           "const getExtension=WebGL2RenderingContext.prototype.getExtension;WebGL2RenderingContext.prototype.getExtension=function(name){return name==='WEBGL_multi_draw'?null:getExtension.call(this,name)}",
       });
+    }
     await call("Page.navigate", { url });
     await until("window.__taxi?.game.isReady === true");
     report.readyMs = Date.now() - started;
@@ -494,12 +587,12 @@ async function main() {
       return {
         coarse: matchMedia("(pointer:coarse)").matches,
         dpr: devicePixelRatio,
-        touch: navigator.maxTouchPoints,
+        multiDraw: !!gl.getExtension("WEBGL_multi_draw"),
+        post: window.__post !== null,
         renderer: debug
           ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL)
           : gl.getParameter(gl.RENDERER),
-        multiDraw: !!gl.getExtension("WEBGL_multi_draw"),
-        post: window.__post !== null,
+        touch: navigator.maxTouchPoints,
         userAgent: navigator.userAgent,
       };
     });
@@ -521,32 +614,36 @@ async function main() {
     report.initialCityCapture = await run(captureDiagnostics);
     report.route = await run(prepareRoute);
     await call("Emulation.setCPUThrottlingRate", { rate: cpu });
-    if (tier !== null) await evaluate(`window.__perf.pin(${tier})`);
+    if (tier !== null) {
+      await evaluate(`window.__perf.pin(${tier})`);
+    }
     const views = [
-      { name: "portrait-day", width: 390, height: 844, phase: 0.25 },
-      { name: "landscape-day", width: 844, height: 390, phase: 0.25 },
-      { name: "portrait-night", width: 390, height: 844, phase: 0.7 },
-      { name: "landscape-night", width: 844, height: 390, phase: 0.7 },
+      { height: 844, name: "portrait-day", phase: 0.25, width: 390 },
+      { height: 390, name: "landscape-day", phase: 0.25, width: 844 },
+      { height: 844, name: "portrait-night", phase: 0.7, width: 390 },
+      { height: 390, name: "landscape-night", phase: 0.7, width: 844 },
     ];
-    for (const view of views) {
-      const result = { ...view, windows: [], growth: [] };
+    const soakView = async (view) => {
+      const result = { ...view, growth: [], windows: [] };
       report.views.push(result);
       await call("Emulation.setDeviceMetricsOverride", {
-        width: view.width,
-        height: view.height,
         deviceScaleFactor: 3,
+        height: view.height,
         mobile: true,
+        width: view.width,
       });
       await until(`innerWidth === ${view.width} && innerHeight === ${view.height}`);
       await run((phase) => window.__taxi.setPhase(phase), view.phase);
       let viewMs = 0;
       const anchor = {
+        id: 1,
         x: view.width === 390 ? 100 : 250,
         y: view.height === 844 ? 520 : 200,
-        id: 1,
       };
       while (viewMs < durationMs / 4) {
-        if (result.windows.length >= 32) throw new Error("Window budget exceeded");
+        if (result.windows.length >= 32) {
+          throw new Error("Window budget exceeded");
+        }
         await run(() => {
           const taxi = window.__taxi;
           const route = window.__mobileSoakRoute;
@@ -564,7 +661,7 @@ async function main() {
         await sleep(1500);
         await until("(window.__taxi.game.city.parcelStreamStats()?.pending ?? 0) === 0", 45_000);
         const before = await resources();
-        await call("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [anchor] });
+        await call("Input.dispatchTouchEvent", { touchPoints: [anchor], type: "touchStart" });
         await sleep(500);
         await evaluate("window.__mobileSoak.start()");
         const driveStarted = Date.now();
@@ -574,27 +671,32 @@ async function main() {
         let worstRoadDistance = 0;
         while (Date.now() - driveStarted < legMs) {
           const control = await run(steering);
-          if (!Number.isFinite(control.steer) || control.mode !== "playing")
+          if (!Number.isFinite(control.steer) || control.mode !== "playing") {
             throw new Error("Nonfinite steering or run ended during soak");
+          }
           worstRoadDistance = Math.max(worstRoadDistance, control.distance);
-          if (control.nearEnd) break;
+          if (control.nearEnd) {
+            break;
+          }
           await call("Input.dispatchTouchEvent", {
-            type: "touchMove",
             touchPoints: [{ ...anchor, x: anchor.x + control.steer * 62 }],
+            type: "touchMove",
           });
           await sleep(100);
-          if (pageErrors.length) throw new Error("Page exception during soak");
+          if (pageErrors.length) {
+            throw new Error("Page exception during soak");
+          }
         }
         const measured = await evaluate("window.__mobileSoak.stop()");
         await release();
         const after = await resources();
         const entry = {
-          index: result.windows.length,
-          excludedResetMs: driveStarted - resetStarted,
           before,
+          excludedResetMs: driveStarted - resetStarted,
+          index: result.windows.length,
           ...measured,
-          worstRoadDistance,
           after,
+          worstRoadDistance,
         };
         result.windows.push(entry);
         viewMs += measured.steadyMs;
@@ -611,24 +713,19 @@ async function main() {
             worstRoadDistance < 12 &&
             !after.contextLost,
           {
-            presented: measured.presentedFrames,
-            moving: measured.movingFrames,
-            distance: measured.distance,
-            worstRoadDistance,
             contextLost: after.contextLost,
+            distance: measured.distance,
+            moving: measured.movingFrames,
+            presented: measured.presentedFrames,
+            worstRoadDistance,
           },
         );
         console.log(
-          `SOAK ${view.name} ${Math.round(steadyMs / 1000)}/${durationMs / 1000}s ${JSON.stringify({ frameMs: measured.frameMs, tier: after.tier, memory: after.memory, heapUsed: after.heap.usedSize })}`,
+          `SOAK ${view.name} ${Math.round(steadyMs / 1000)}/${durationMs / 1000}s ${JSON.stringify({ frameMs: measured.frameMs, heapUsed: after.heap.usedSize, memory: after.memory, tier: after.tier })}`,
         );
       }
       result.growth = resourceGrowth(result.windows.map((entry) => entry.before));
-      result.resourceVerdict =
-        result.growth.length === 0
-          ? "insufficient-samples"
-          : result.growth.some((entry) => entry.runaway)
-            ? "runaway"
-            : "stable";
+      result.resourceVerdict = resourceVerdict(result.growth);
       if (result.resourceVerdict === "insufficient-samples") {
         console.log(`SOAK ${view.name} resource gate inconclusive: fewer than 8 same-tier starts`);
       } else {
@@ -641,19 +738,28 @@ async function main() {
       await screenshot(view.name);
       await pauseCheck(view.name);
       save();
+    };
+    for (const view of views) {
+      await soakView(view);
     }
     check("requested steady duration completed", steadyMs >= durationMs, {
-      steadyMs,
       requestedMs: durationMs,
+      steadyMs,
     });
     check("no page exceptions", pageErrors.length === 0, pageErrors);
   } catch (error) {
     report.error = String(error);
     process.exitCode = 1;
     console.error(error);
-    await evaluate("if(window.__mobileSoak)window.__mobileSoak.active=false").catch(() => {});
-    await release().catch(() => {});
-    await screenshot("failure").catch(() => {});
+    await evaluate("if(window.__mobileSoak)window.__mobileSoak.active=false").catch(() => {
+      /* empty */
+    });
+    await release().catch(() => {
+      /* empty */
+    });
+    await screenshot("failure").catch(() => {
+      /* empty */
+    });
   } finally {
     report.finalCityCapture = await run(captureDiagnostics).catch((error) => ({
       unavailable: String(error),
@@ -665,14 +771,14 @@ async function main() {
     save();
     close();
   }
-}
+};
 
-function selfTest() {
+const selfTest = () => {
   const sample = (value) => ({
-    tier: 4,
+    heap: { usedSize: 200_000_000 },
     memory: { geometries: value, textures: 70 },
     stream: { bytes: 34_000_000, resident: 205 },
-    heap: { usedSize: 200_000_000 },
+    tier: 4,
   });
   const stable = Array.from({ length: 12 }, (_, index) => sample(600 + (index % 3)));
   assert.ok(resourceGrowth(stable).every((entry) => !entry.runaway));
@@ -686,7 +792,10 @@ function selfTest() {
   console.log(
     "PASS resource gates distinguish persistent growth from one spike and insufficient warmup",
   );
-}
+};
 
-if (process.argv.includes("--self-test")) selfTest();
-else await main();
+if (process.argv.includes("--self-test")) {
+  selfTest();
+} else {
+  await main();
+}

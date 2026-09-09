@@ -9,8 +9,10 @@ import { GameScene } from "./scenes/game-scene";
 import { DITHER_PIXEL, MAX_DT } from "./shared/constants";
 import { COARSE_INPUT } from "./shared/input-mode";
 
-const container = document.getElementById("game");
-if (!container) throw new Error("missing #game container");
+const container = document.querySelector("#game");
+if (!container) {
+  throw new Error("missing #game container");
+}
 
 // No MSAA: the scene renders into the dither pass's low-res target, where
 // hard pixels are the point — the canvas only ever shows the quantized quad.
@@ -20,14 +22,14 @@ const renderer = new THREE.WebGLRenderer({ antialias: false });
 // device pixels. A fractional DPR (1.25/1.75 display scaling) would otherwise
 // upscale game pixels to alternating 2- and 3-device-px columns, visibly
 // warping the Bayer cells. Recomputed on resize (monitor moves change DPR).
-function applyPixelRatio(): void {
+const applyPixelRatio = (): void => {
   const dpr = Math.min(window.devicePixelRatio, 2);
   const gamePxDevice = Math.max(1, Math.round(DITHER_PIXEL * dpr));
   renderer.setPixelRatio(gamePxDevice / DITHER_PIXEL);
-}
+};
 applyPixelRatio();
 renderer.setSize(window.innerWidth, window.innerHeight);
-container.appendChild(renderer.domElement);
+container.append(renderer.domElement);
 
 const game = new GameScene();
 const dither = new DitherPass(window.innerWidth, window.innerHeight);
@@ -52,7 +54,9 @@ const touchControls = createTouchControls({
   mute: { get: isMuted, set: setMuted },
 });
 window.addEventListener("keydown", (e) => {
-  if (e.code !== "KeyM") return;
+  if (e.code !== "KeyM") {
+    return;
+  }
   setMuted(!isMuted());
   touchControls.sync();
 });
@@ -92,7 +96,7 @@ if (import.meta.env.DEV) {
   // __pongHand(x): drive the gesture→paddle path synthetically (x ∈ [0,1]).
   Object.assign(window, {
     __pong: game,
-    __pongHand: (x: number) => game.handleHandPosition(x),
     __pongCamera: handCamera,
+    __pongHand: (x: number) => game.handleHandPosition(x),
   });
 }

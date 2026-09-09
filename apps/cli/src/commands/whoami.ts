@@ -1,5 +1,5 @@
 import { defineCommand } from "citty";
-import consola from "consola";
+import { consola } from "consola";
 
 import { authErrorCode, createClient } from "../lib/api.js";
 import { getToken } from "../lib/config.js";
@@ -9,11 +9,11 @@ import { assertKnownFlags } from "../lib/strict-args.js";
 const whoamiArgs = { ...outputArgs } as const;
 
 export const whoamiCommand = defineCommand({
-  meta: {
-    name: "whoami",
-    description: "Show the currently authenticated user",
-  },
   args: whoamiArgs,
+  meta: {
+    description: "Show the currently authenticated user",
+    name: "whoami",
+  },
   run: async ({ args, rawArgs }) => {
     assertKnownFlags(rawArgs, whoamiArgs);
 
@@ -30,17 +30,19 @@ export const whoamiCommand = defineCommand({
 
     try {
       const user = await client.auth.me();
-      if (writeStructured({ id: user.id, name: user.name, email: user.email }, args)) return;
+      if (writeStructured({ email: user.email, id: user.id, name: user.name }, args)) {
+        return;
+      }
       consola.log(`${user.name} (${user.email})`);
-    } catch (err) {
+    } catch (error) {
       // Only an auth error means "log in"; surface network/server failures as
       // themselves so they aren't mistaken for a bad credential.
-      const code = authErrorCode(err);
+      const code = authErrorCode(error);
       if (code === "UNAUTHORIZED" || code === "FORBIDDEN") {
         consola.warn("Not authenticated. Run `vg login`, or check your VG_TOKEN / API key.");
       } else {
         consola.error(
-          `Failed to fetch current user: ${err instanceof Error ? err.message : String(err)}`,
+          `Failed to fetch current user: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
       process.exit(1);

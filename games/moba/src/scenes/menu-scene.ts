@@ -6,29 +6,32 @@ import {
   watchControlContext,
 } from "@repo/embed";
 import type { ControlMethod } from "@repo/embed";
-import Phaser from "phaser";
+import type Phaser from "phaser";
+import { Scale, Scene, Scenes } from "phaser";
 
 import { CONTROLS } from "../controls";
 import { HEROES } from "../data/heroes";
+import type { HeroDef } from "../data/heroes";
 import { chipTexts } from "../pause-overlay";
 import { FONT } from "../render/font";
 import { heroSheetTex } from "../render/sprites";
 
 // Section headers matching the pause plaque's GROUP_LABEL voice.
 const GROUP_LABEL = {
+  camera: "CAMERA",
+  controller: "GAMEPAD",
   keys: "KEYBOARD",
   mouse: "MOUSE",
   touch: "TOUCH",
-  camera: "CAMERA",
-  controller: "GAMEPAD",
 } satisfies Record<ControlMethod, string>;
 
-export class MenuScene extends Phaser.Scene {
+export class MenuScene extends Scene {
   private selected = "ironvow";
   private cards: { id: string; ring: Phaser.GameObjects.Rectangle }[] = [];
   private detail!: Phaser.GameObjects.Text;
   private detailName!: Phaser.GameObjects.Text;
-  private compactH = false; // short viewports (landscape phones) drop the blurb
+  // short viewports (landscape phones) drop the blurb
+  private compactH = false;
   private relayout: Phaser.Time.TimerEvent | null = null;
   private unwatchControls: (() => void) | null = null;
   private controlsPlaque: Phaser.GameObjects.Container | null = null;
@@ -42,7 +45,7 @@ export class MenuScene extends Phaser.Scene {
     this.cards = [];
     this.controlsPlaque = null;
 
-    const veil = document.getElementById("veil");
+    const veil = document.querySelector("#veil");
     if (veil) {
       veil.classList.add("hidden");
       setTimeout(() => veil.remove(), 600);
@@ -51,7 +54,9 @@ export class MenuScene extends Phaser.Scene {
     // headless / quick-start: ?hero=duskblade&auto=1 skips straight into a match
     const params = new URLSearchParams(window.location.search);
     const heroParam = params.get("hero");
-    if (heroParam && HEROES.some((h) => h.id === heroParam)) this.selected = heroParam;
+    if (heroParam && HEROES.some((h) => h.id === heroParam)) {
+      this.selected = heroParam;
+    }
     if (params.get("auto") === "1") {
       notifyGameStarted();
       this.scene.start("Game", { heroId: this.selected, online: params.get("online") === "1" });
@@ -66,49 +71,16 @@ export class MenuScene extends Phaser.Scene {
 
     // the menu is static, so a debounced restart is the simplest correct
     // relayout for resizes / phone rotation (`selected` survives on the instance)
-    this.scale.on(Phaser.Scale.Events.RESIZE, this.queueRelayout, this);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      this.scale.off(Phaser.Scale.Events.RESIZE, this.queueRelayout, this);
+    this.scale.on(Scale.Events.RESIZE, this.queueRelayout, this);
+    this.events.once(Scenes.Events.SHUTDOWN, () => {
+      this.scale.off(Scale.Events.RESIZE, this.queueRelayout, this);
       this.relayout?.remove();
       this.relayout = null;
       this.unwatchControls?.();
       this.unwatchControls = null;
     });
 
-    // backdrop: open water, slowly drifting, with rocks and clouds
-    const water = this.add.tileSprite(0, 0, W, H, "t-water").setOrigin(0).setScrollFactor(0);
-    this.tweens.add({
-      targets: water,
-      tilePositionX: 128,
-      tilePositionY: 64,
-      duration: 24000,
-      repeat: -1,
-    });
-    for (let i = 0; i < 6; i++) {
-      const n = 1 + (i % 4);
-      const x = (0.06 + 0.88 * ((i * 0.61) % 1)) * W;
-      const y = (0.58 + 0.32 * ((i * 0.37) % 1)) * H; // keep below the card row
-      const rk = this.add.sprite(x, y, `wrock${n}`, 0).setScale(0.55).setAlpha(0.9);
-      const anim = this.anims.get(`wrock${n}-anim`);
-      // clamp startFrame to the real frame count — a sheet can load with fewer
-      // frames than authored if it exceeds the GPU's max texture size.
-      if (anim && anim.frames.length > 0)
-        rk.play({ key: `wrock${n}-anim`, startFrame: (i * 3) % anim.frames.length });
-    }
-    for (let i = 0; i < 4; i++) {
-      const c = this.add
-        .image(((i + 0.4) / 4) * W, (0.12 + 0.74 * ((i * 0.53) % 1)) * H, "clouds", i % 8)
-        .setAlpha(0.4)
-        .setScale(0.8);
-      this.tweens.add({
-        targets: c,
-        x: c.x + 320,
-        duration: 26000 + i * 5000,
-        yoyo: true,
-        repeat: -1,
-        ease: "Sine.InOut",
-      });
-    }
+    this.addBackdrop(W, H);
 
     // title ribbon
     const titleY = this.compactH ? 36 : 64;
@@ -128,24 +100,25 @@ export class MenuScene extends Phaser.Scene {
       .setOrigin(0.5);
     const title = this.add
       .text(W / 2, titleY - 6, "ANCIENTS OF ELDERMOOR", {
+        color: "#f4eee0",
         fontFamily: FONT,
         fontSize: this.compactH ? "28px" : "36px",
-        color: "#f4eee0",
         stroke: "#1e2a3a",
         strokeThickness: 6,
       })
       .setOrigin(0.5);
     title.setScale(Math.min(1, (Math.min(720, W - 24) - 60) / Math.max(1, title.width)));
-    if (!this.compactH)
+    if (!this.compactH) {
       this.add
         .text(W / 2, 116, "Choose your champion · destroy the enemy Ancient", {
+          color: "#eafaf8",
           fontFamily: FONT,
           fontSize: "16px",
-          color: "#eafaf8",
           stroke: "#1e3a38",
           strokeThickness: 4,
         })
         .setOrigin(0.5);
+    }
 
     // hero cards on carved parchment panels; a 3-wide grid on narrow screens
     const n = HEROES.length;
@@ -159,67 +132,33 @@ export class MenuScene extends Phaser.Scene {
     const gy0 = this.compactH ? 80 : 150;
     const x0 = (W - (cols * stepX - 12)) / 2 + cardW / 2;
 
-    HEROES.forEach((h, i) => {
+    for (const [i, h] of HEROES.entries()) {
       const col = i % cols;
       const row = Math.floor(i / cols);
-      const card = this.add.container(x0 + col * stepX, gy0 + row * stepY + cardH / 2).setScale(f);
-      const panel = this.add
-        .nineslice(0, 0, "ui-carved9", 0, 160, 204, 20, 20, 20, 20)
-        .setInteractive({ useHandCursor: true });
-      const ring = this.add
-        .rectangle(0, 0, 166, 210, 0x000000, 0)
-        .setStrokeStyle(4, 0xffe14a, 1)
-        .setVisible(false);
-      card.add([panel, ring]);
-      const tex = heroSheetTex(h.id);
-      if (this.textures.exists(tex)) {
-        card.add(this.add.sprite(0, -30, tex, 0).setScale(0.72).setTint(h.tint));
-      }
-      const nameText = this.add
-        .text(0, 30, h.name, { fontFamily: FONT, fontSize: "16px", color: "#4a3320" })
-        .setOrigin(0.5);
-      if (nameText.width > 144) nameText.setScale(144 / nameText.width);
-      card.add(nameText);
-      card.add(
-        this.add
-          .text(0, 52, h.role, {
-            fontFamily: FONT,
-            fontSize: "11px",
-            color: "#7a6240",
-            align: "center",
-            wordWrap: { width: 142 },
-          })
-          .setOrigin(0.5, 0),
-      );
-      panel.on("pointerover", () => this.preview(h.id));
-      // restore the SELECTED hero's details when the cursor leaves, so the panel
-      // never describes a hero you're only hovering (and won't actually play).
-      panel.on("pointerout", () => this.preview(this.selected));
-      panel.on("pointerdown", () => this.select(h.id));
-      this.cards.push({ id: h.id, ring });
-    });
+      this.addHeroCard(h, x0 + col * stepX, gy0 + row * stepY + cardH / 2, f);
+    }
     const gridBottom = gy0 + rows * stepY;
 
     // detail panel
     this.detailName = this.add
       .text(W / 2, gridBottom + (this.compactH ? 16 : 30), "", {
+        color: "#fff3c4",
         fontFamily: FONT,
         fontSize: this.compactH ? "17px" : "21px",
-        color: "#fff3c4",
         stroke: "#27343c",
         strokeThickness: 5,
       })
       .setOrigin(0.5);
     this.detail = this.add
       .text(W / 2, gridBottom + (this.compactH ? 36 : 58), "", {
+        align: "center",
+        color: "#f0fffd",
         fontFamily: FONT,
         fontSize: this.compactH ? "12px" : "14px",
-        color: "#f0fffd",
-        align: "center",
+        lineSpacing: 6,
         stroke: "#1e3a38",
         strokeThickness: 3,
         wordWrap: { width: Math.min(820, W - 48) },
-        lineSpacing: 6,
       })
       .setOrigin(0.5, 0);
 
@@ -232,12 +171,14 @@ export class MenuScene extends Phaser.Scene {
         .nineslice(x, btnY, `ui-btn-${color}`, 0, w, 66, 28, 28, 20, 26)
         .setInteractive({ useHandCursor: true });
       const t = this.add
-        .text(x, btnY - 4, label, { fontFamily: FONT, fontSize: "21px", color: "#1e3a44" })
+        .text(x, btnY - 4, label, { color: "#1e3a44", fontFamily: FONT, fontSize: "21px" })
         .setOrigin(0.5);
       // shrink the type rather than the object: the hover tween owns `scale`
-      if (t.width > w - 34) t.setFontSize(Math.floor((21 * (w - 34)) / t.width));
-      b.on("pointerover", () => this.tweens.add({ targets: [b, t], scale: 1.05, duration: 110 }));
-      b.on("pointerout", () => this.tweens.add({ targets: [b, t], scale: 1, duration: 110 }));
+      if (t.width > w - 34) {
+        t.setFontSize(Math.floor((21 * (w - 34)) / t.width));
+      }
+      b.on("pointerover", () => this.tweens.add({ duration: 110, scale: 1.05, targets: [b, t] }));
+      b.on("pointerout", () => this.tweens.add({ duration: 110, scale: 1, targets: [b, t] }));
       b.on("pointerdown", () => {
         b.setTexture(`ui-btn-${color}-pressed`);
         t.setText("LOADING…").setY(btnY);
@@ -268,6 +209,86 @@ export class MenuScene extends Phaser.Scene {
     this.select(this.selected);
   }
 
+  /** One carved-parchment hero card at (x, y), scaled by `f`. */
+  private addHeroCard(h: HeroDef, x: number, y: number, f: number): void {
+    const card = this.add.container(x, y).setScale(f);
+    const panel = this.add
+      .nineslice(0, 0, "ui-carved9", 0, 160, 204, 20, 20, 20, 20)
+      .setInteractive({ useHandCursor: true });
+    const ring = this.add
+      .rectangle(0, 0, 166, 210, 0x00_00_00, 0)
+      .setStrokeStyle(4, 0xff_e1_4a, 1)
+      .setVisible(false);
+    card.add([panel, ring]);
+    const tex = heroSheetTex(h.id);
+    if (this.textures.exists(tex)) {
+      card.add(this.add.sprite(0, -30, tex, 0).setScale(0.72).setTint(h.tint));
+    }
+    const nameText = this.add
+      .text(0, 30, h.name, { color: "#4a3320", fontFamily: FONT, fontSize: "16px" })
+      .setOrigin(0.5);
+    if (nameText.width > 144) {
+      nameText.setScale(144 / nameText.width);
+    }
+    card.add(nameText);
+    card.add(
+      this.add
+        .text(0, 52, h.role, {
+          align: "center",
+          color: "#7a6240",
+          fontFamily: FONT,
+          fontSize: "11px",
+          wordWrap: { width: 142 },
+        })
+        .setOrigin(0.5, 0),
+    );
+    panel.on("pointerover", () => this.preview(h.id));
+    // restore the SELECTED hero's details when the cursor leaves, so the panel
+    // never describes a hero you're only hovering (and won't actually play).
+    panel.on("pointerout", () => this.preview(this.selected));
+    panel.on("pointerdown", () => this.select(h.id));
+    this.cards.push({ id: h.id, ring });
+  }
+
+  /** Open water, slowly drifting, with rocks and clouds. */
+  private addBackdrop(W: number, H: number): void {
+    const water = this.add.tileSprite(0, 0, W, H, "t-water").setOrigin(0).setScrollFactor(0);
+    this.tweens.add({
+      duration: 24_000,
+      repeat: -1,
+      targets: water,
+      tilePositionX: 128,
+      tilePositionY: 64,
+    });
+    for (let i = 0; i < 6; i += 1) {
+      const n = 1 + (i % 4);
+      const x = (0.06 + 0.88 * ((i * 0.61) % 1)) * W;
+      // keep below the card row
+      const y = (0.58 + 0.32 * ((i * 0.37) % 1)) * H;
+      const rk = this.add.sprite(x, y, `wrock${n}`, 0).setScale(0.55).setAlpha(0.9);
+      const anim = this.anims.get(`wrock${n}-anim`);
+      // clamp startFrame to the real frame count — a sheet can load with fewer
+      // frames than authored if it exceeds the GPU's max texture size.
+      if (anim && anim.frames.length > 0) {
+        rk.play({ key: `wrock${n}-anim`, startFrame: (i * 3) % anim.frames.length });
+      }
+    }
+    for (let i = 0; i < 4; i += 1) {
+      const c = this.add
+        .image(((i + 0.4) / 4) * W, (0.12 + 0.74 * ((i * 0.53) % 1)) * H, "clouds", i % 8)
+        .setAlpha(0.4)
+        .setScale(0.8);
+      this.tweens.add({
+        duration: 26_000 + i * 5000,
+        ease: "Sine.InOut",
+        repeat: -1,
+        targets: c,
+        x: c.x + 320,
+        yoyo: true,
+      });
+    }
+  }
+
   /** The menu's controls plaque — the pause overlay's grouped keycap language
    *  in Phaser objects: a dark bronze-edged panel, gold section headers between
    *  rules, chips split exactly like the pause plaque (shared chipTexts). Sits
@@ -279,7 +300,9 @@ export class MenuScene extends Phaser.Scene {
     const W = this.scale.width;
     const coarse = window.matchMedia("(pointer: coarse)").matches;
     const groups = controlGroups(CONTROLS, { coarse });
-    if (groups.length === 0) return;
+    if (groups.length === 0) {
+      return;
+    }
     const compact = this.compactH;
     const container = this.add.container(0, 0);
     this.controlsPlaque = container;
@@ -291,35 +314,45 @@ export class MenuScene extends Phaser.Scene {
     const maxW = compact ? Number.POSITIVE_INFINITY : Math.min(900, W - 64);
 
     type Obj = Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Transform;
-    type Item = { objs: Obj[]; width: number };
+    interface Item {
+      objs: Obj[];
+      width: number;
+    }
     const rows: Item[][] = [];
     let row: Item[] = [];
     let rowW = 0;
     const flushRow = (): void => {
-      if (row.length > 0) rows.push(row);
+      if (row.length > 0) {
+        rows.push(row);
+      }
       row = [];
       rowW = 0;
     };
     const addItem = (item: Item): void => {
       const grown = row.length > 0 ? rowW + gapX + item.width : item.width;
-      if (row.length > 0 && grown > maxW) flushRow();
+      if (row.length > 0 && grown > maxW) {
+        flushRow();
+      }
       rowW = row.length > 0 ? rowW + gapX + item.width : item.width;
       row.push(item);
     };
 
     for (const group of groups) {
-      if (!compact) flushRow(); // each method heads its own row on the plaque
+      if (!compact) {
+        flushRow();
+        // each method heads its own row on the plaque
+      }
       // gold section header between short rules, like the plaque's mp-gh
       const caption = this.add
         .text(20, 0, GROUP_LABEL[group.method], {
+          color: "#d5ae5f",
           fontFamily: FONT,
           fontSize: compact ? "9px" : "11px",
-          color: "#d5ae5f",
         })
         .setOrigin(0, 0.5);
-      const ruleL = this.add.rectangle(0, 0, 14, 1, 0x8a7350).setOrigin(0, 0.5).setAlpha(0.8);
+      const ruleL = this.add.rectangle(0, 0, 14, 1, 0x8a_73_50).setOrigin(0, 0.5).setAlpha(0.8);
       const ruleR = this.add
-        .rectangle(20 + Math.ceil(caption.width) + 6, 0, 14, 1, 0x8a7350)
+        .rectangle(20 + Math.ceil(caption.width) + 6, 0, 14, 1, 0x8a_73_50)
         .setOrigin(0, 0.5)
         .setAlpha(0.8);
       addItem({ objs: [ruleL, caption, ruleR], width: 40 + Math.ceil(caption.width) });
@@ -330,19 +363,19 @@ export class MenuScene extends Phaser.Scene {
         let x = 0;
         for (const text of chipTexts(entry.input)) {
           const cap = this.add
-            .text(0, 0, text, { fontFamily: FONT, fontSize, color: "#ffe8b0" })
+            .text(0, 0, text, { color: "#ffe8b0", fontFamily: FONT, fontSize })
             .setOrigin(0.5);
           const w = Math.max(chipH + 4, Math.ceil(cap.width) + 12);
-          chips.fillStyle(0x2f2315, 1);
+          chips.fillStyle(0x2f_23_15, 1);
           chips.fillRoundedRect(x, -chipH / 2, w, chipH, 5);
-          chips.lineStyle(1.5, 0x8a7350, 1);
+          chips.lineStyle(1.5, 0x8a_73_50, 1);
           chips.strokeRoundedRect(x, -chipH / 2, w, chipH, 5);
           cap.setPosition(x + w / 2, 0);
           objs.push(cap);
           x += w + 3;
         }
         const action = this.add
-          .text(x + 3, 0, entry.action, { fontFamily: FONT, fontSize, color: "#d8cbb2" })
+          .text(x + 3, 0, entry.action, { color: "#d8cbb2", fontFamily: FONT, fontSize })
           .setOrigin(0, 0.5);
         objs.push(action);
         addItem({ objs, width: x + 3 + Math.ceil(action.width) });
@@ -380,9 +413,9 @@ export class MenuScene extends Phaser.Scene {
     const panelH = contentH + padY * 2;
     const panelTop = -chipH / 2 - padY;
     const panel = this.add.graphics();
-    panel.fillStyle(0x150e07, 0.82);
+    panel.fillStyle(0x15_0e_07, 0.82);
     panel.fillRoundedRect(-panelW / 2, panelTop, panelW, panelH, 10);
-    panel.lineStyle(2, 0x8a7350, 0.9);
+    panel.lineStyle(2, 0x8a_73_50, 0.9);
     panel.strokeRoundedRect(-panelW / 2, panelTop, panelW, panelH, 10);
     container.addAt(panel, 0);
     const cornerDirs: readonly (readonly [number, number])[] = [
@@ -393,7 +426,7 @@ export class MenuScene extends Phaser.Scene {
     ];
     for (const [dx, dy] of cornerDirs) {
       const corner = this.add
-        .rectangle(dx * (panelW / 2 - 9), panelTop + (dy > 0 ? panelH - 9 : 9), 6, 6, 0xd5ae5f)
+        .rectangle(dx * (panelW / 2 - 9), panelTop + (dy > 0 ? panelH - 9 : 9), 6, 6, 0xd5_ae_5f)
         .setRotation(Math.PI / 4);
       container.add(corner);
     }
@@ -408,7 +441,9 @@ export class MenuScene extends Phaser.Scene {
 
   private preview(id: string): void {
     const h = HEROES.find((x) => x.id === id);
-    if (!h) return;
+    if (!h) {
+      return;
+    }
     this.detailName.setText(`${h.name}, ${h.title}  —  ${h.role}`);
     const abilities = (["Q", "W", "E", "R"] as const)
       .map((k) => `[${k}] ${h.abilities[k].name}`)
@@ -420,6 +455,8 @@ export class MenuScene extends Phaser.Scene {
   private select(id: string): void {
     this.selected = id;
     this.preview(id);
-    for (const c of this.cards) c.ring.setVisible(c.id === id);
+    for (const c of this.cards) {
+      c.ring.setVisible(c.id === id);
+    }
   }
 }

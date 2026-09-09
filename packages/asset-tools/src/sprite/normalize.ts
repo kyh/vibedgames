@@ -1,4 +1,4 @@
-import { basename, join } from "node:path";
+import path from "node:path";
 
 import { Bitmap } from "../image/raster.js";
 import { roundHalfToEven } from "../pymath.js";
@@ -18,7 +18,7 @@ import { loadFrames, median } from "./frames.js";
  * aimed at a fraction of the cell rather than filling it, leaving headroom so
  * an attack arc never clips.
  */
-export function normalizeCanvas(
+export const normalizeCanvas = (
   inputDir: string,
   outDir: string,
   options: {
@@ -29,10 +29,10 @@ export function normalizeCanvas(
     targetHeight?: number | null;
     charFill?: number;
   } = {},
-): string[] {
+): string[] => {
   const {
     glob = "frame-*.png",
-    canvas = { width: 256, height: 256 },
+    canvas = { height: 256, width: 256 },
     pad = 6,
     allowUpscale = true,
     targetHeight = null,
@@ -41,7 +41,9 @@ export function normalizeCanvas(
 
   const frames = loadFrames(inputDir, glob);
   const boxes = frames.map((f) => f.image.getBBox()).filter((b) => b !== null);
-  if (boxes.length === 0) throw new Error(`all frames in ${inputDir} are empty`);
+  if (boxes.length === 0) {
+    throw new Error(`all frames in ${inputDir} are empty`);
+  }
 
   const unionLeft = Math.min(...boxes.map((b) => b.left));
   const unionTop = Math.min(...boxes.map((b) => b.top));
@@ -61,23 +63,27 @@ export function normalizeCanvas(
   // Never let the union overflow the cell, so nothing is ever cut off.
   const scaleFit = Math.min(availableWidth / unionWidth, availableHeight / unionHeight);
   let scale = Math.min(scaleChar, scaleFit);
-  if (!allowUpscale) scale = Math.min(scale, 1);
+  if (!allowUpscale) {
+    scale = Math.min(scale, 1);
+  }
 
   const newWidth = Math.max(1, roundHalfToEven(unionWidth * scale));
   const newHeight = Math.max(1, roundHalfToEven(unionHeight * scale));
-  const pasteX = Math.floor((canvas.width - newWidth) / 2); // centred horizontally
-  const pasteY = canvas.height - pad - newHeight; // union bottom on the ground line
+  // centred horizontally
+  const pasteX = Math.floor((canvas.width - newWidth) / 2);
+  // union bottom on the ground line
+  const pasteY = canvas.height - pad - newHeight;
 
   const written: string[] = [];
   for (const frame of frames) {
     const cropped = frame.image
-      .crop({ left: unionLeft, top: unionTop, right: unionRight, bottom: unionBottom })
+      .crop({ bottom: unionBottom, left: unionLeft, right: unionRight, top: unionTop })
       .resize(newWidth, newHeight, "lanczos");
     const out = Bitmap.create(canvas.width, canvas.height);
     out.pasteMasked(cropped, pasteX, pasteY, cropped.channel(3));
-    const dst = join(outDir, basename(frame.path));
+    const dst = path.join(outDir, path.basename(frame.path));
     out.toFile(dst);
     written.push(dst);
   }
   return written;
-}
+};

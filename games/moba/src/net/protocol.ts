@@ -5,7 +5,7 @@ import { isJsonNumber, isJsonObject, isJsonString } from "./json";
 
 import type { AbilityKey } from "../data/heroes";
 import type { Order } from "../sim/types";
-import type { JsonValue } from "./json";
+import type { JsonObject, JsonValue } from "./json";
 
 export const MULTIPLAYER_HOST = import.meta.env.DEV
   ? "http://localhost:8787"
@@ -28,70 +28,105 @@ export const INTENT_EVENT = "intent";
 // Peer payloads arrive as wire JSON; validate into a typed Intent (or null) at
 // ingest instead of trusting the shape, so a malformed/version-skewed message
 // is dropped rather than crashing the host's sim.
-function isVec2(v: JsonValue | undefined): v is { x: number; y: number } {
-  return isJsonObject(v) && isJsonNumber(v.x) && isJsonNumber(v.y);
-}
-function isAbilityKey(v: JsonValue | undefined): v is AbilityKey {
-  return v === "Q" || v === "W" || v === "E" || v === "R";
-}
-function parseOrder(v: JsonValue | undefined): Order | null {
-  if (!isJsonObject(v)) return null;
-  switch (v.type) {
-    case "idle":
-      return { type: "idle" };
-    case "hold":
-      return { type: "hold" };
-    case "lane":
-      return { type: "lane" };
-    case "neutral":
-      return { type: "neutral" };
-    case "fountain":
-      return { type: "fountain" };
-    case "move":
-      return isVec2(v.to) ? { type: "move", to: { x: v.to.x, y: v.to.y } } : null;
-    case "attackMove":
-      return isVec2(v.to) ? { type: "attackMove", to: { x: v.to.x, y: v.to.y } } : null;
-    case "moveDir":
-      return isJsonNumber(v.dx) && isJsonNumber(v.dy)
-        ? { type: "moveDir", dx: v.dx, dy: v.dy }
-        : null;
-    case "attackUnit":
-      return isJsonString(v.targetId) ? { type: "attackUnit", targetId: v.targetId } : null;
-    default:
-      return null;
+const isVec2 = (v: JsonValue | undefined): v is { x: number; y: number } =>
+  isJsonObject(v) && isJsonNumber(v.x) && isJsonNumber(v.y);
+const isAbilityKey = (v: JsonValue | undefined): v is AbilityKey =>
+  v === "Q" || v === "W" || v === "E" || v === "R";
+const parseOrder = (v: JsonValue | undefined): Order | null => {
+  if (!isJsonObject(v)) {
+    return null;
   }
-}
+  switch (v.type) {
+    case "idle": {
+      return { type: "idle" };
+    }
+    case "hold": {
+      return { type: "hold" };
+    }
+    case "lane": {
+      return { type: "lane" };
+    }
+    case "neutral": {
+      return { type: "neutral" };
+    }
+    case "fountain": {
+      return { type: "fountain" };
+    }
+    case "move": {
+      return isVec2(v.to) ? { to: { x: v.to.x, y: v.to.y }, type: "move" } : null;
+    }
+    case "attackMove": {
+      return isVec2(v.to) ? { to: { x: v.to.x, y: v.to.y }, type: "attackMove" } : null;
+    }
+    case "moveDir": {
+      return isJsonNumber(v.dx) && isJsonNumber(v.dy)
+        ? { dx: v.dx, dy: v.dy, type: "moveDir" }
+        : null;
+    }
+    case "attackUnit": {
+      return isJsonString(v.targetId) ? { targetId: v.targetId, type: "attackUnit" } : null;
+    }
+    default: {
+      return null;
+    }
+  }
+};
+
+const parseCast = (v: JsonObject): Intent | null => {
+  if (!isAbilityKey(v.key)) {
+    return null;
+  }
+  const out: Intent = { key: v.key, kind: "cast" };
+  if (isVec2(v.point)) {
+    out.point = { x: v.point.x, y: v.point.y };
+  }
+  if (isJsonString(v.targetId)) {
+    out.targetId = v.targetId;
+  }
+  return out;
+};
+
+const parseUseItem = (v: JsonObject): Intent | null => {
+  if (!isJsonNumber(v.slot) || !Number.isInteger(v.slot)) {
+    return null;
+  }
+  const out: Intent = { kind: "useItem", slot: v.slot };
+  if (isVec2(v.point)) {
+    out.point = { x: v.point.x, y: v.point.y };
+  }
+  return out;
+};
 
 /** Validate a wire payload into a typed Intent, or null if malformed. */
-export function parseIntent(v: JsonValue): Intent | null {
-  if (!isJsonObject(v)) return null;
+export const parseIntent = (v: JsonValue): Intent | null => {
+  if (!isJsonObject(v)) {
+    return null;
+  }
   switch (v.kind) {
-    case "join":
-      return isJsonString(v.defId) ? { kind: "join", defId: v.defId } : null;
+    case "join": {
+      return isJsonString(v.defId) ? { defId: v.defId, kind: "join" } : null;
+    }
     case "order": {
       const order = parseOrder(v.order);
       return order ? { kind: "order", order } : null;
     }
     case "cast": {
-      if (!isAbilityKey(v.key)) return null;
-      const out: Intent = { kind: "cast", key: v.key };
-      if (isVec2(v.point)) out.point = { x: v.point.x, y: v.point.y };
-      if (isJsonString(v.targetId)) out.targetId = v.targetId;
-      return out;
+      return parseCast(v);
     }
-    case "level":
-      return isAbilityKey(v.key) ? { kind: "level", key: v.key } : null;
-    case "buy":
-      return isJsonString(v.itemId) ? { kind: "buy", itemId: v.itemId } : null;
+    case "level": {
+      return isAbilityKey(v.key) ? { key: v.key, kind: "level" } : null;
+    }
+    case "buy": {
+      return isJsonString(v.itemId) ? { itemId: v.itemId, kind: "buy" } : null;
+    }
     case "useItem": {
-      if (!isJsonNumber(v.slot) || !Number.isInteger(v.slot)) return null;
-      const out: Intent = { kind: "useItem", slot: v.slot };
-      if (isVec2(v.point)) out.point = { x: v.point.x, y: v.point.y };
-      return out;
+      return parseUseItem(v);
     }
-    case "dash":
-      return isJsonNumber(v.dx) && isJsonNumber(v.dy) ? { kind: "dash", dx: v.dx, dy: v.dy } : null;
-    default:
+    case "dash": {
+      return isJsonNumber(v.dx) && isJsonNumber(v.dy) ? { dx: v.dx, dy: v.dy, kind: "dash" } : null;
+    }
+    default: {
       return null;
+    }
   }
-}
+};

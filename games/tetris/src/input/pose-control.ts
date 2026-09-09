@@ -29,24 +29,38 @@ import {
 } from "../shared/constants";
 
 /** Game intents a detected pose can drive (wired to GameScene). */
-export type PoseActions = {
+export interface PoseActions {
   /** Held screen-horizontal steer: -1 left, 0 none, +1 right. */
-  steer(dir: -1 | 0 | 1): void;
+  steer: (dir: -1 | 0 | 1) => void;
   /** Clockwise rotate; returns whether it actually applied (for cooldown). */
-  rotate(): boolean;
+  rotate: () => boolean;
   /** Step the scene camera one corner: -1 left, +1 right. */
-  orbit(dir: -1 | 1): void;
+  orbit: (dir: -1 | 1) => void;
   /** Cross-arms: hold/swap the active piece. */
-  hold(): void;
+  hold: () => void;
   /** T-pose: spend a full charge to clear the lowest layer (scene gates). */
-  power(): void;
+  power: () => void;
   /** Throw-hands-up during the collapse (scene ignores it otherwise). */
-  catchCollapse(): void;
-};
+  catchCollapse: () => void;
+}
 
 const CALIB_FRAMES = 24;
 const ROTATE_SQUEEZE_FRACTION = 0.58;
 const CATCH_COOLDOWN_MS = 500;
+
+interface PoseFrame {
+  leftWrist: Keypoint;
+  rightWrist: Keypoint;
+  nose: Keypoint;
+  /** Sign of (right − left) shoulder x; 0 when the shoulders coincide. */
+  shoulderSign: number;
+  shoulderWidth: number;
+  shoulderY: number;
+  hipY: number;
+  width: number;
+  height: number;
+  now: number;
+}
 
 export class PoseControls {
   readonly actions: PoseActions;
@@ -91,7 +105,8 @@ export class PoseControls {
   }
 
   handlePose = (pose: Pose, ctx: CanvasRenderingContext2D | null): void => {
-    void ctx; // overlay guides removed with pose-to-pick; skeleton still drawn by PoseCamera
+    // overlay guides removed with pose-to-pick; skeleton still drawn by PoseCamera
+    void ctx;
     const find = (name: string): Keypoint | undefined =>
       pose.keypoints.find((kp) => kp.name === name);
 
@@ -136,59 +151,25 @@ export class PoseControls {
     }
 
     if (this.calibCount >= CALIB_FRAMES) {
-      // ---- STEER (nose-x vs neutral, dead-zoned) -----------------------------
-      const screenX = 1 - nose.x / W;
-      const off = screenX - this.neutralX;
-      const dir: -1 | 0 | 1 = off > NOSE_DEAD_ZONE ? 1 : off < -NOSE_DEAD_ZONE ? -1 : 0;
-      this.actions.steer(dir);
-
-      // ---- ORBIT (circle one raised hand) ------------------------------------
-      this.detectCircleOrbit(leftWrist, rightWrist, shoulderY, W, H, now);
-
-      // ---- ROTATE (turn sideways) --------------------------------------------
-      if (
-        this.baseShoulder > 0 &&
-        shoulderWidth < ROTATE_SQUEEZE_FRACTION * this.baseShoulder &&
-        now - this.lastRotateTime > ROTATE_COOLDOWN_MS
-      ) {
-        if (this.actions.rotate()) this.lastRotateTime = now;
-      }
-
-      // ---- HOLD (crossed wrists at chest) ------------------------------------
-      const shoulderSign = Math.sign(rightShoulder.x - leftShoulder.x);
-      const wristSign = Math.sign(rightWrist.x - leftWrist.x);
-      const wristsAtChest =
-        leftWrist.y > shoulderY &&
-        leftWrist.y < hipY &&
-        rightWrist.y > shoulderY &&
-        rightWrist.y < hipY;
-      const crossed = shoulderSign !== 0 && wristSign === -shoulderSign && wristsAtChest;
-      if (!crossed) this.holdArmed = true;
-      if (this.holdArmed && crossed && now - this.lastHoldTime > HOLD_COOLDOWN_MS) {
-        this.actions.hold();
-        this.holdArmed = false;
-        this.lastHoldTime = now;
-      }
-
-      // ---- POWER (T-pose: wrists out past the shoulders, shoulder height) -----
-      const out = TPOSE_WRIST_OUT * W;
-      const wristSpread = Math.abs(rightWrist.x - leftWrist.x);
-      const wristsLevel =
-        Math.abs(leftWrist.y - shoulderY) < shoulderWidth * 0.6 &&
-        Math.abs(rightWrist.y - shoulderY) < shoulderWidth * 0.6;
-      const tpose = wristSpread > shoulderWidth + 2 * out && wristsLevel;
-      if (!tpose) this.powerArmed = true;
-      if (this.powerArmed && tpose && now - this.lastPowerTime > POWER_COOLDOWN_MS) {
-        this.actions.power();
-        this.powerArmed = false;
-        this.lastPowerTime = now;
-      }
+      this.detectGestures({
+        height: H,
+        hipY,
+        leftWrist,
+        nose,
+        now,
+        rightWrist,
+        shoulderSign: Math.sign(rightShoulder.x - leftShoulder.x),
+        shoulderWidth,
+        shoulderY,
+        width: W,
+      });
     }
 
     // ---- CATCH / START (both wrists thrust UP fast) --------------------------
     const avgWristY = (leftWrist.y + rightWrist.y) / 2;
     if (this.hasPrev) {
-      const upVel = (this.prevWristY - avgWristY) / dt / H; // +up, normalised/s
+      // +up, normalised/s
+      const upVel = (this.prevWristY - avgWristY) / dt / H;
       if (upVel > CATCH_WRIST_VELOCITY && now - this.lastCatchTime > CATCH_COOLDOWN_MS) {
         this.actions.catchCollapse();
         this.lastCatchTime = now;
@@ -198,6 +179,75 @@ export class PoseControls {
     this.hasPrev = true;
     this.lastTime = now;
   };
+
+  /** One calibrated frame's worth of the landmarks every gesture reads. */
+  private detectGestures(f: PoseFrame): void {
+    // ---- STEER (nose-x vs neutral, dead-zoned) -----------------------------
+    const screenX = 1 - f.nose.x / f.width;
+    const off = screenX - this.neutralX;
+    let dir: -1 | 0 | 1 = 0;
+    if (off > NOSE_DEAD_ZONE) {
+      dir = 1;
+    } else if (off < -NOSE_DEAD_ZONE) {
+      dir = -1;
+    }
+    this.actions.steer(dir);
+
+    // ---- ORBIT (circle one raised hand) ------------------------------------
+    this.detectCircleOrbit(f.leftWrist, f.rightWrist, f.shoulderY, f.width, f.height, f.now);
+    this.detectRotate(f);
+    this.detectHold(f);
+    this.detectPower(f);
+  }
+
+  /** ROTATE: turn sideways so the shoulders foreshorten. */
+  private detectRotate(f: PoseFrame): void {
+    if (
+      this.baseShoulder > 0 &&
+      f.shoulderWidth < ROTATE_SQUEEZE_FRACTION * this.baseShoulder &&
+      f.now - this.lastRotateTime > ROTATE_COOLDOWN_MS &&
+      this.actions.rotate()
+    ) {
+      this.lastRotateTime = f.now;
+    }
+  }
+
+  /** HOLD: crossed wrists at chest height. */
+  private detectHold(f: PoseFrame): void {
+    const wristSign = Math.sign(f.rightWrist.x - f.leftWrist.x);
+    const wristsAtChest =
+      f.leftWrist.y > f.shoulderY &&
+      f.leftWrist.y < f.hipY &&
+      f.rightWrist.y > f.shoulderY &&
+      f.rightWrist.y < f.hipY;
+    const crossed = f.shoulderSign !== 0 && wristSign === -f.shoulderSign && wristsAtChest;
+    if (!crossed) {
+      this.holdArmed = true;
+    }
+    if (this.holdArmed && crossed && f.now - this.lastHoldTime > HOLD_COOLDOWN_MS) {
+      this.actions.hold();
+      this.holdArmed = false;
+      this.lastHoldTime = f.now;
+    }
+  }
+
+  /** POWER: T-pose — wrists out past the shoulders, at shoulder height. */
+  private detectPower(f: PoseFrame): void {
+    const out = TPOSE_WRIST_OUT * f.width;
+    const wristSpread = Math.abs(f.rightWrist.x - f.leftWrist.x);
+    const wristsLevel =
+      Math.abs(f.leftWrist.y - f.shoulderY) < f.shoulderWidth * 0.6 &&
+      Math.abs(f.rightWrist.y - f.shoulderY) < f.shoulderWidth * 0.6;
+    const tpose = wristSpread > f.shoulderWidth + 2 * out && wristsLevel;
+    if (!tpose) {
+      this.powerArmed = true;
+    }
+    if (this.powerArmed && tpose && f.now - this.lastPowerTime > POWER_COOLDOWN_MS) {
+      this.actions.power();
+      this.powerArmed = false;
+      this.lastPowerTime = f.now;
+    }
+  }
 
   /**
    * Orbit the camera by circling ONE raised hand. Tracks the higher wrist's
@@ -214,7 +264,8 @@ export class PoseControls {
     H: number,
     now: number,
   ): void {
-    const cw = leftWrist.y < rightWrist.y ? leftWrist : rightWrist; // the higher hand
+    // the higher hand
+    const cw = leftWrist.y < rightWrist.y ? leftWrist : rightWrist;
     if (cw.y > shoulderY) {
       // hand not raised above the shoulders → stop tracking
       this.hasCenter = false;
@@ -226,13 +277,13 @@ export class PoseControls {
     const ny = cw.y / H;
 
     // EMA centre: settles on the middle of the circling motion.
-    if (!this.hasCenter) {
+    if (this.hasCenter) {
+      this.centerX += (nx - this.centerX) * CIRCLE_CENTER_LERP;
+      this.centerY += (ny - this.centerY) * CIRCLE_CENTER_LERP;
+    } else {
       this.centerX = nx;
       this.centerY = ny;
       this.hasCenter = true;
-    } else {
-      this.centerX += (nx - this.centerX) * CIRCLE_CENTER_LERP;
-      this.centerY += (ny - this.centerY) * CIRCLE_CENTER_LERP;
     }
 
     const radius = Math.hypot(nx - this.centerX, ny - this.centerY);
@@ -246,8 +297,12 @@ export class PoseControls {
     const ang = Math.atan2(ny - this.centerY, nx - this.centerX);
     if (this.hasCircleAngle) {
       let d = ang - this.circleAngle;
-      while (d > Math.PI) d -= 2 * Math.PI;
-      while (d < -Math.PI) d += 2 * Math.PI;
+      while (d > Math.PI) {
+        d -= 2 * Math.PI;
+      }
+      while (d < -Math.PI) {
+        d += 2 * Math.PI;
+      }
       this.circleAccum += d;
     }
     this.circleAngle = ang;

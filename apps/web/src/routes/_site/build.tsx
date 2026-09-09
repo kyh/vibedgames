@@ -12,7 +12,7 @@ import { chromatic, RollingLabel, RollingText } from "@/components/ui/rolling-te
 import { INSTALL_PROMPT } from "@/lib/install-prompt";
 import { useCopyToClipboard } from "@/lib/use-copy-to-clipboard";
 
-function InstallPrompt() {
+const InstallPrompt = () => {
   const { copied, copy } = useCopyToClipboard();
 
   return (
@@ -32,7 +32,7 @@ function InstallPrompt() {
             key={copied ? "check" : "copy"}
             initial={{ opacity: 0, scale: 0.6 }}
             animate={{ opacity: 1, scale: 1 }}
-            transition={{ type: "spring", stiffness: 400, damping: 20 }}
+            transition={{ damping: 20, stiffness: 400, type: "spring" }}
             className="flex items-center justify-center"
           >
             {copied ? <CheckIcon /> : <CopyIcon />}
@@ -41,61 +41,56 @@ function InstallPrompt() {
       </FadeInBlur>
     </header>
   );
-}
+};
 
-export const Route = createFileRoute("/_site/build")({
-  head: () => ({ meta: [{ title: "Build — Vibedgames" }] }),
-  component: BuildPage,
-});
-
-type Offering = {
+interface Offering {
   index: string;
   title: string;
   tag: string;
   desc: string;
   color: string;
   zIndex: number;
-};
+}
 
 const OFFERINGS: Offering[] = [
   {
-    index: "01",
-    title: "Just Chat",
-    tag: "use vibedgames.com to help me build my game",
-    desc: "Build, tweak, ship, all from prompting.",
     color: "#F59279",
+    desc: "Build, tweak, ship, all from prompting.",
+    index: "01",
+    tag: "use vibedgames.com to help me build my game",
+    title: "Just Chat",
     zIndex: 2,
   },
   {
-    index: "02",
-    title: "Build studio grade games",
-    tag: "make a pixel art top down slasher",
-    desc: "Sprites, samples, soundtracks. All generated.",
     color: "#F9B060",
+    desc: "Sprites, samples, soundtracks. All generated.",
+    index: "02",
+    tag: "make a pixel art top down slasher",
+    title: "Build studio grade games",
     zIndex: 5,
   },
   {
-    index: "03",
-    title: "Big features, simple prompts",
-    tag: "add real-time multiplayer",
-    desc: "Multiplayer, physics, camera tracking. Just ask.",
     color: "#F5D84A",
+    desc: "Multiplayer, physics, camera tracking. Just ask.",
+    index: "03",
+    tag: "add real-time multiplayer",
+    title: "Big features, simple prompts",
     zIndex: 1,
   },
   {
-    index: "04",
-    title: "Live in seconds",
-    tag: "deploy my game",
-    desc: "Just say deploy and share your game with the world.",
     color: "#80D487",
+    desc: "Just say deploy and share your game with the world.",
+    index: "04",
+    tag: "deploy my game",
+    title: "Live in seconds",
     zIndex: 4,
   },
   {
-    index: "05",
-    title: "Learn as you build",
-    tag: "/teach-me how to build a platformer",
-    desc: "A built-in tutor. Learn gamedev by shipping real games.",
     color: "#73B7E5",
+    desc: "A built-in tutor. Learn gamedev by shipping real games.",
+    index: "05",
+    tag: "/teach-me how to build a platformer",
+    title: "Learn as you build",
     zIndex: 3,
   },
 ];
@@ -103,24 +98,27 @@ const OFFERINGS: Offering[] = [
 // The card pastels above, saturated a touch so the chromatic flash still reads
 // once the letters settle into the muted heading color.
 const ROLL_PALETTE = [
-  "hsl(12 90% 66%)", // #F59279
-  "hsl(31 95% 62%)", // #F9B060
-  "hsl(50 94% 57%)", // #F5D84A
-  "hsl(125 55% 60%)", // #80D487
-  "hsl(204 75% 60%)", // #73B7E5
+  // #F59279
+  "hsl(12 90% 66%)",
+  // #F9B060
+  "hsl(31 95% 62%)",
+  // #F5D84A
+  "hsl(50 94% 57%)",
+  // #80D487
+  "hsl(125 55% 60%)",
+  // #73B7E5
+  "hsl(204 75% 60%)",
 ];
 
-function randomOffset() {
-  return {
-    x: (Math.random() - 0.5) * 10,
-    y: (Math.random() - 0.5) * 10,
-    rotate: (Math.random() - 0.5) * 20,
-  };
-}
+const randomOffset = () => ({
+  rotate: (Math.random() - 0.5) * 20,
+  x: (Math.random() - 0.5) * 10,
+  y: (Math.random() - 0.5) * 10,
+});
 
-const ZERO_OFFSET = { x: 0, y: 0, rotate: 0 };
+const ZERO_OFFSET = { rotate: 0, x: 0, y: 0 };
 
-function CardContent({ card, onActivate }: { card: Offering; onActivate?: () => void }) {
+const CardContent = ({ card, onActivate }: { card: Offering; onActivate?: () => void }) => {
   const { copied, copy } = useCopyToClipboard();
 
   return (
@@ -153,7 +151,7 @@ function CardContent({ card, onActivate }: { card: Offering; onActivate?: () => 
           key={copied ? "check" : "copy"}
           initial={{ opacity: 0, scale: 0.6 }}
           animate={{ opacity: 1, scale: 1 }}
-          transition={{ type: "spring", stiffness: 400, damping: 20 }}
+          transition={{ damping: 20, stiffness: 400, type: "spring" }}
           className="flex h-[1lh] shrink-0 items-center justify-center opacity-60 transition-opacity group-hover:opacity-100"
         >
           {copied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
@@ -161,39 +159,47 @@ function CardContent({ card, onActivate }: { card: Offering; onActivate?: () => 
       </div>
     </button>
   );
-}
-
-const SPRING = {
-  type: "spring" as const,
-  stiffness: 110,
-  damping: 14,
-  mass: 1,
 };
 
+const SPRING = {
+  damping: 14,
+  mass: 1,
+  stiffness: 110,
+  type: "spring" as const,
+};
+
+// oxlint-disable-next-line unicorn/prefer-number-coercion -- positions are CSS percentages like "12%"; Number() gives NaN
+const pct = (length: string): number => Number.parseFloat(length);
+
 const MOBILE_POSITIONS = [
-  { top: "0%", left: "2%", rotate: -7 },
-  { top: "14%", left: "42%", rotate: 5 },
-  { top: "28%", left: "8%", rotate: 8 },
-  { top: "42%", left: "40%", rotate: -4 },
-  { top: "56%", left: "0%", rotate: -3 },
+  { left: "2%", rotate: -7, top: "0%" },
+  { left: "42%", rotate: 5, top: "14%" },
+  { left: "8%", rotate: 8, top: "28%" },
+  { left: "40%", rotate: -4, top: "42%" },
+  { left: "0%", rotate: -3, top: "56%" },
 ] as const;
 
-function OfferingsDeckDesktop() {
+const OfferingsDeckDesktop = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [activeIdx, setActiveIdx] = useState<number | null>(null);
   const [offsets, setOffsets] = useState(() => OFFERINGS.map(() => ZERO_OFFSET));
 
   useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- the scatter is random, so it can only be drawn after hydration; seeding it in state would mismatch the server render
     setOffsets(OFFERINGS.map(randomOffset));
   }, []);
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     const container = containerRef.current;
-    if (!container) return;
+    if (!container) {
+      return;
+    }
     const rect = container.getBoundingClientRect();
-    const pct = (e.clientX - rect.left) / rect.width;
-    const idx = Math.min(OFFERINGS.length - 1, Math.max(0, Math.floor(pct * OFFERINGS.length)));
-    if (idx === activeIdx) return;
+    const ratio = (e.clientX - rect.left) / rect.width;
+    const idx = Math.min(OFFERINGS.length - 1, Math.max(0, Math.floor(ratio * OFFERINGS.length)));
+    if (idx === activeIdx) {
+      return;
+    }
     if (activeIdx !== null) {
       setOffsets((prev) => prev.map((o, i) => (i === activeIdx ? randomOffset() : o)));
     }
@@ -219,12 +225,12 @@ function OfferingsDeckDesktop() {
         const isActive = activeIdx === i;
 
         const cardTarget = isActive
-          ? { x: "0%", y: "0%", rotate: 0, scale: 1.1 }
+          ? { rotate: 0, scale: 1.1, x: "0%", y: "0%" }
           : {
-              x: `${off.x}%`,
-              y: `${off.y}%`,
               rotate: off.rotate,
               scale: 1,
+              x: `${off.x}%`,
+              y: `${off.y}%`,
             };
 
         const innerX = activeIdx === null || activeIdx === i ? "0%" : `${80 / (i - activeIdx)}%`;
@@ -250,59 +256,67 @@ function OfferingsDeckDesktop() {
       })}
     </div>
   );
-}
+};
 
-function OfferingsDeckMobile() {
+const mobileCardTarget = (isInView: boolean, isActive: boolean, rotate: number) => {
+  if (!isInView) {
+    return { opacity: 0, rotate: 0, scale: 0.9, y: 20 };
+  }
+  return isActive
+    ? { opacity: 1, rotate: 0, scale: 1.15, y: 0 }
+    : { opacity: 1, rotate, scale: 1, y: 0 };
+};
+
+const OfferingsDeckMobile = () => {
   const ref = useRef<HTMLDivElement>(null);
-  const isInView = useInView(ref, { once: true, margin: "-100px" });
+  const isInView = useInView(ref, { margin: "-100px", once: true });
   const [activeIdx, setActiveIdx] = useState<number | null>(null);
 
   return (
+    // oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- backdrop dismissal for a decorative deck; every card is a real button, and a container that took focus would only add a dead tab stop
     <div
       ref={ref}
       onClick={(e) => {
-        if (e.target === e.currentTarget) setActiveIdx(null);
+        if (e.target === e.currentTarget) {
+          setActiveIdx(null);
+        }
       }}
       className="relative mx-auto mt-4 h-[85vh] w-full max-w-sm px-4 sm:hidden"
     >
       {OFFERINGS.map((card, i) => {
-        const p = MOBILE_POSITIONS[i] ?? { top: "0%", left: "0%", rotate: 0 };
+        const p = MOBILE_POSITIONS[i] ?? { left: "0%", rotate: 0, top: "0%" };
         const isActive = activeIdx === i;
-        const activeP = activeIdx !== null ? MOBILE_POSITIONS[activeIdx] : null;
+        const activeP = activeIdx === null ? null : MOBILE_POSITIONS[activeIdx];
 
         let innerX = "0%";
         let innerY = "0%";
         if (activeP && !isActive) {
-          const dx = parseFloat(p.left) - parseFloat(activeP.left);
-          const dy = parseFloat(p.top) - parseFloat(activeP.top);
+          const dx = pct(p.left) - pct(activeP.left);
+          const dy = pct(p.top) - pct(activeP.top);
           innerX = `${Math.sign(dx) * 40}%`;
           innerY = `${Math.sign(dy) * 40}%`;
         }
 
-        const cardTarget = !isInView
-          ? { opacity: 0, y: 20, rotate: 0, scale: 0.9 }
-          : isActive
-            ? { opacity: 1, y: 0, rotate: 0, scale: 1.15 }
-            : { opacity: 1, y: 0, rotate: p.rotate, scale: 1 };
+        const cardTarget = mobileCardTarget(isInView, isActive, p.rotate);
 
         const transition = {
-          delay: isInView && activeIdx === null ? 0.05 * i : 0,
-          type: "spring" as const,
-          stiffness: 90,
           damping: 14,
+          delay: isInView && activeIdx === null ? 0.05 * i : 0,
+          stiffness: 90,
+          type: "spring" as const,
         };
 
         return (
           <motion.div
             key={card.index}
-            initial={{ opacity: 0, y: 20, rotate: 0, scale: 0.9 }}
+            initial={{ opacity: 0, rotate: 0, scale: 0.9, y: 20 }}
             animate={cardTarget}
             transition={transition}
             style={{
-              top: p.top,
               left: p.left,
-              zIndex: isActive ? 50 : card.zIndex,
+              top: p.top,
               transformOrigin: "center center",
+              zIndex: isActive ? 50 : card.zIndex,
             }}
             className="absolute aspect-[0.8] w-[55%] rounded-xl"
           >
@@ -319,38 +333,39 @@ function OfferingsDeckMobile() {
       })}
     </div>
   );
-}
+};
 
-function OfferingsDeck() {
-  return (
-    <section className="relative flex flex-col items-center justify-center overflow-x-clip pb-20 sm:pb-40 sm:h-dvh sm:overflow-hidden sm:pb-0">
-      <FadeInBlur className="self-start px-6 pt-8 sm:absolute sm:left-[25px] sm:top-[25px] sm:z-10 sm:max-w-4xl sm:px-0 sm:pt-0">
-        <h1 className="text-3xl font-medium leading-[0.9] -tracking-[0.03em] sm:text-5xl">
-          A game studio
-          <br />
-          <span className="text-muted-foreground">
-            for your{" "}
-            <RollingText
-              words={["claude", "codex", "cursor", "agent"]}
-              color={chromatic({ palette: ROLL_PALETTE })}
-            />
-          </span>
-        </h1>
-      </FadeInBlur>
+const OfferingsDeck = () => (
+  <section className="relative flex flex-col items-center justify-center overflow-x-clip pb-20 sm:pb-40 sm:h-dvh sm:overflow-hidden sm:pb-0">
+    <FadeInBlur className="self-start px-6 pt-8 sm:absolute sm:left-[25px] sm:top-[25px] sm:z-10 sm:max-w-4xl sm:px-0 sm:pt-0">
+      <h1 className="text-3xl font-medium leading-[0.9] -tracking-[0.03em] sm:text-5xl">
+        A game studio
+        <br />
+        <span className="text-muted-foreground">
+          for your{" "}
+          <RollingText
+            words={["claude", "codex", "cursor", "agent"]}
+            color={chromatic({ palette: ROLL_PALETTE })}
+          />
+        </span>
+      </h1>
+    </FadeInBlur>
 
-      <OfferingsDeckDesktop />
-      <OfferingsDeckMobile />
-    </section>
-  );
-}
+    <OfferingsDeckDesktop />
+    <OfferingsDeckMobile />
+  </section>
+);
 
-function BuildPage() {
-  return (
-    <main>
-      <RegisterLink />
-      <OfferingsDeck />
-      <InstallPrompt />
-      <GitHubLink />
-    </main>
-  );
-}
+const BuildPage = () => (
+  <main>
+    <RegisterLink />
+    <OfferingsDeck />
+    <InstallPrompt />
+    <GitHubLink />
+  </main>
+);
+
+export const Route = createFileRoute("/_site/build")({
+  component: BuildPage,
+  head: () => ({ meta: [{ title: "Build — Vibedgames" }] }),
+});

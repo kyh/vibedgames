@@ -4,13 +4,24 @@
 import type { AbilityKey, Unit } from "./types";
 import { ABILITY_KEYS } from "./types";
 
-export function abilityRankCap(key: AbilityKey, level: number): number {
-  if (key === "R") return level >= 12 ? 3 : level >= 8 ? 2 : level >= 4 ? 1 : 0;
+export const abilityRankCap = (key: AbilityKey, level: number): number => {
+  if (key === "R") {
+    if (level >= 12) {
+      return 3;
+    }
+    if (level >= 8) {
+      return 2;
+    }
+    if (level >= 4) {
+      return 1;
+    }
+    return 0;
+  }
   return Math.min(4, Math.ceil(level / 2));
-}
+};
 
-export function syncAbilityRanks(u: Unit): void {
+export const syncAbilityRanks = (u: Unit): void => {
   for (const key of ABILITY_KEYS) {
     u.abilities[key].rank = abilityRankCap(key, u.level);
   }
-}
+};

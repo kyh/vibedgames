@@ -17,7 +17,9 @@ export class GameState {
   }
 
   addScore(points: number): void {
-    if (this.status !== "playing") return;
+    if (this.status !== "playing") {
+      return;
+    }
     this.score += points;
   }
 }

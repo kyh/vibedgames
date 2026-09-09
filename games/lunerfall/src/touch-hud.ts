@@ -28,11 +28,15 @@ const CSS = `
 const MUTE = {
   get: () => sfx.muted,
   set: (next: boolean): void => {
-    if (next !== sfx.muted) sfx.toggleMute();
+    if (next !== sfx.muted) {
+      sfx.toggleMute();
+    }
     // Unmuting is itself the user gesture that lets WebAudio start, and the
     // synth builds no context at all while muted — so the bed only ever begins
     // here (or on a canvas gesture), never on load.
-    if (!next) sfx.unlock();
+    if (!next) {
+      sfx.unlock();
+    }
   },
 };
 
@@ -44,20 +48,22 @@ let hasPause = false;
  * nothing to freeze, and `pauseGame()` is a no-op before a run announces
  * itself, so a pause button there would be a dead control.
  */
-export function mountTouchHud(pause: boolean): void {
-  if (controls && pause === hasPause) return;
+export const mountTouchHud = (pause: boolean): void => {
+  if (controls && pause === hasPause) {
+    return;
+  }
   controls?.destroy();
   hasPause = pause;
   controls = createTouchControls({
-    pause,
-    mute: MUTE,
     className: "lf-touch",
     css: CSS,
+    mute: MUTE,
+    pause,
     styleId: "lf-touch-css",
   });
-}
+};
 
 /** Redraw the mute glyph after something else toggled sound (the M key). */
-export function syncTouchHud(): void {
+export const syncTouchHud = (): void => {
   controls?.sync();
-}
+};

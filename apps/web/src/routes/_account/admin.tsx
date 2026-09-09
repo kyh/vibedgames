@@ -21,20 +21,18 @@ const requireAdmin = createServerFn({ method: "GET" }).handler(async () => {
   }
 });
 
+const AdminPage = () => (
+  <div>
+    <h1 className="sr-only">Admin</h1>
+    <div className="divide-y divide-white/10">
+      <UserAdmin />
+      <InviteAdmin />
+    </div>
+  </div>
+);
+
 export const Route = createFileRoute("/_account/admin")({
   beforeLoad: () => requireAdmin(),
-  head: () => ({ meta: [{ title: "Admin — Vibedgames" }] }),
   component: AdminPage,
+  head: () => ({ meta: [{ title: "Admin — Vibedgames" }] }),
 });
-
-function AdminPage() {
-  return (
-    <div>
-      <h1 className="sr-only">Admin</h1>
-      <div className="divide-y divide-white/10">
-        <UserAdmin />
-        <InviteAdmin />
-      </div>
-    </div>
-  );
-}

@@ -1,35 +1,36 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
+import { Math as PhaserMath, Scene } from "phaser";
 import { CROP_ORDER } from "../data/crops";
 import { parseWorldMap } from "../world/worldmap";
 import { setWorldMap, getWorldMap } from "../world/map-store";
 
-const CHAR = { frameWidth: 96, frameHeight: 64 };
+const CHAR = { frameHeight: 64, frameWidth: 96 };
 
 // action -> frame count (encoded in the source strip name)
 export const CHAR_FRAMES = {
-  idle: 9,
-  walk: 8,
-  run: 8,
-  dig: 13,
-  water: 5,
-  axe: 10,
-  mine: 10,
-  doing: 8,
   attack: 10,
+  axe: 10,
   casting: 15,
-  reeling: 13,
   caught: 10,
   death: 13,
+  dig: 13,
+  doing: 8,
+  idle: 9,
+  mine: 10,
+  reeling: 13,
+  run: 8,
+  walk: 8,
+  water: 5,
 } as const;
 export type CharAction = keyof typeof CHAR_FRAMES;
 
 const SKEL = {
+  death: 10,
   idle: 6,
   walk: 8,
-  death: 10,
 } as const;
 
-export class BootScene extends Phaser.Scene {
+export class BootScene extends Scene {
   constructor() {
     super("Boot");
   }
@@ -49,8 +50,8 @@ export class BootScene extends Phaser.Scene {
     // One texture, used both as the tilemap's tileset and as a 16px frame
     // sheet — loading it under two keys fetched the game's biggest asset twice.
     this.load.spritesheet("atlas", "assets/tiles/atlas.webp", {
-      frameWidth: 16,
       frameHeight: 16,
+      frameWidth: 16,
     });
     this.load.atlas("deco-atlas", "assets/deco-atlas.webp", "assets/deco-atlas.json");
     this.load.json("map", "assets/map.json");
@@ -59,8 +60,8 @@ export class BootScene extends Phaser.Scene {
     // crops
     for (const c of CROP_ORDER) {
       this.load.spritesheet(`crop-${c}`, `assets/crops/${c}.webp`, {
-        frameWidth: 16,
         frameHeight: 16,
+        frameWidth: 16,
       });
       this.load.image(`crop-${c}-icon`, `assets/crops/${c}_icon.webp`);
     }
@@ -78,31 +79,32 @@ export class BootScene extends Phaser.Scene {
     this.load.image("obj-egg", "assets/obj/egg.webp");
     this.load.image("obj-milk", "assets/obj/milk.webp");
     this.load.spritesheet("obj-mushroom-red", "assets/obj/mushroom_red.webp", {
-      frameWidth: 16,
       frameHeight: 16,
+      frameWidth: 16,
     });
     this.load.spritesheet("obj-mushroom-blue", "assets/obj/mushroom_blue.webp", {
-      frameWidth: 16,
       frameHeight: 16,
+      frameWidth: 16,
     });
 
     // animals
     this.load.spritesheet("obj-chicken", "assets/obj/chicken.webp", {
-      frameWidth: 32,
       frameHeight: 32,
+      frameWidth: 32,
     });
-    this.load.spritesheet("obj-cow", "assets/obj/cow.webp", { frameWidth: 32, frameHeight: 32 });
-    this.load.spritesheet("obj-pig", "assets/obj/pig.webp", { frameWidth: 32, frameHeight: 32 });
+    this.load.spritesheet("obj-cow", "assets/obj/cow.webp", { frameHeight: 32, frameWidth: 32 });
+    this.load.spritesheet("obj-pig", "assets/obj/pig.webp", { frameHeight: 32, frameWidth: 32 });
     this.load.spritesheet("obj-sheep", "assets/obj/sheep.webp", {
-      frameWidth: 32,
       frameHeight: 32,
+      frameWidth: 32,
     });
-    this.load.spritesheet("obj-duck", "assets/obj/duck.webp", { frameWidth: 16, frameHeight: 16 });
-    this.load.spritesheet("obj-bird", "assets/obj/bird.webp", { frameWidth: 16, frameHeight: 16 });
+    this.load.spritesheet("obj-duck", "assets/obj/duck.webp", { frameHeight: 16, frameWidth: 16 });
+    this.load.spritesheet("obj-bird", "assets/obj/bird.webp", { frameHeight: 16, frameWidth: 16 });
 
     // ui
-    for (const n of ["axe", "pickaxe", "shovel", "water", "sword", "rod"])
+    for (const n of ["axe", "pickaxe", "shovel", "water", "sword", "rod"]) {
       this.load.image(`ui-${n}`, `assets/ui/${n}.webp`);
+    }
   }
 
   create(): void {
@@ -113,9 +115,9 @@ export class BootScene extends Phaser.Scene {
   private makeAnimsAndStart(): void {
     const mk = (key: string, src: string, rate: number, repeat: number) =>
       this.anims.create({
-        key,
-        frames: this.anims.generateFrameNumbers(src, {}),
         frameRate: rate,
+        frames: this.anims.generateFrameNumbers(src, {}),
+        key,
         repeat,
       });
 
@@ -152,56 +154,58 @@ export class BootScene extends Phaser.Scene {
     for (const [name, def] of Object.entries(worldMap.deco)) {
       if (def.frames > 1) {
         this.anims.create({
-          key: `deco-${name}`,
+          frameRate: PhaserMath.Clamp(def.fps, 1, 30),
           frames: Array.from({ length: def.frames }, (_, i) => ({
-            key: "deco-atlas",
             frame: `${name}/${i}`,
+            key: "deco-atlas",
           })),
-          frameRate: Phaser.Math.Clamp(def.fps, 1, 30),
+          key: `deco-${name}`,
           repeat: -1,
         });
       }
     }
 
     this.makeIcon("icon-wool", (g) => {
-      g.fillStyle(0xf2f2f2, 1);
+      g.fillStyle(0xf2_f2_f2, 1);
       g.fillRoundedRect(2, 3, 12, 10, 4);
-      g.fillStyle(0xffffff, 1);
+      g.fillStyle(0xff_ff_ff, 1);
       g.fillCircle(5, 6, 3);
       g.fillCircle(10, 6, 3);
       g.fillCircle(8, 9, 3);
     });
     this.makeIcon("icon-truffle", (g) => {
-      g.fillStyle(0x4a3320, 1);
+      g.fillStyle(0x4a_33_20, 1);
       g.fillEllipse(8, 9, 12, 9);
-      g.fillStyle(0x6b4a2c, 1);
+      g.fillStyle(0x6b_4a_2c, 1);
       g.fillEllipse(7, 7, 8, 5);
     });
     this.makeIcon("t-cavefloor", (g) => {
-      g.fillStyle(0x2c2f3a, 1);
+      g.fillStyle(0x2c_2f_3a, 1);
       g.fillRect(0, 0, 16, 16);
-      g.fillStyle(0x262936, 1);
+      g.fillStyle(0x26_29_36, 1);
       g.fillRect(0, 0, 8, 8);
       g.fillRect(8, 8, 8, 8);
-      g.fillStyle(0x3a3f4e, 0.5);
+      g.fillStyle(0x3a_3f_4e, 0.5);
       g.fillRect(3, 11, 2, 2);
       g.fillRect(11, 4, 2, 2);
     });
     this.makeIcon("t-cavewall", (g) => {
-      g.fillStyle(0x14161e, 1);
+      g.fillStyle(0x14_16_1e, 1);
       g.fillRect(0, 0, 16, 16);
-      g.fillStyle(0x1e2230, 1);
+      g.fillStyle(0x1e_22_30, 1);
       g.fillRect(1, 1, 14, 12);
-      g.fillStyle(0x2a2f40, 1);
+      g.fillStyle(0x2a_2f_40, 1);
       g.fillRect(2, 2, 5, 4);
       g.fillRect(9, 7, 5, 4);
     });
     this.makeIcon("obj-ladder", (g) => {
-      g.fillStyle(0x8a5a2c, 1);
+      g.fillStyle(0x8a_5a_2c, 1);
       g.fillRect(2, 0, 2, 16);
       g.fillRect(12, 0, 2, 16);
-      g.fillStyle(0xb5803f, 1);
-      for (let y = 2; y < 16; y += 4) g.fillRect(2, y, 12, 2);
+      g.fillStyle(0xb5_80_3f, 1);
+      for (let y = 2; y < 16; y += 4) {
+        g.fillRect(2, y, 12, 2);
+      }
     });
 
     const params = new URLSearchParams(window.location.search);
@@ -209,21 +213,29 @@ export class BootScene extends Phaser.Scene {
     // trailer code stays out of the normal play path entirely; presence-check
     // only — importing trailer-shell here would hoist it into the main chunk)
     if (params.has("trailer")) {
-      void import("../trailer/trailer-director").then(({ startTrailer }) => {
-        startTrailer(this.game);
-      });
+      void this.startTrailer();
       return;
     }
     // ?gallery opens the asset-inspection page instead of the game
     // (lazy-loaded so gallery code stays out of the main chunk)
     if (params.has("gallery")) {
-      void import("./gallery-scene").then(({ GalleryScene }) => {
-        if (!this.scene.get("Gallery")) this.scene.add("Gallery", GalleryScene);
-        this.scene.start("Gallery");
-      });
+      void this.startGallery();
       return;
     }
     this.scene.start("Title");
+  }
+
+  private async startTrailer(): Promise<void> {
+    const { startTrailer } = await import("../trailer/trailer-director");
+    startTrailer(this.game);
+  }
+
+  private async startGallery(): Promise<void> {
+    const { GalleryScene } = await import("./gallery-scene");
+    if (!this.scene.get("Gallery")) {
+      this.scene.add("Gallery", GalleryScene);
+    }
+    this.scene.start("Gallery");
   }
 
   private makeIcon(
@@ -232,7 +244,9 @@ export class BootScene extends Phaser.Scene {
     w = 16,
     h = 16,
   ): void {
-    if (this.textures.exists(key)) return;
+    if (this.textures.exists(key)) {
+      return;
+    }
     const g = this.make.graphics({ x: 0, y: 0 });
     draw(g);
     g.generateTexture(key, w, h);

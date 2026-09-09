@@ -19,7 +19,12 @@ export type GamePhase = "lobby" | "playing" | "ended";
 // or shows up to AI/economy/HUD (their filters are hero/creep opt-in).
 export type UnitKind = "hero" | "boss" | "dummy" | "creep" | "prop";
 
-export type AbilitySlot = { rank: number; readyAt: number }; // readyAt in ms
+// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
+export type AbilitySlot = {
+  rank: number;
+  readyAt: number;
+  // readyAt in ms
+};
 
 // ── Status effects ───────────────────────────────────────────────────────────
 // Flat per-unit list; each has an `until` (ms). `id` dedupes refreshable sources
@@ -45,22 +50,27 @@ export type Status =
   | { kind: "untargetable"; until: number; id?: string }
   | { kind: "unstoppable"; until: number; id?: string }
   | { kind: "armor"; until: number; amount: number; id?: string }
-  | { kind: "attackSpeed"; until: number; amount: number; id?: string } // +pct points
+  // +pct points
+  | { kind: "attackSpeed"; until: number; amount: number; id?: string }
   | { kind: "damageAmp"; until: number; pct: number; id?: string }
   | { kind: "taunt"; until: number; sourceId: string; id?: string }
   // polymorph (witch R): can't attack or cast, move-slowed by pct. Cleansable.
   | { kind: "hex"; until: number; pct: number; id?: string };
 
 // ── Unit ─────────────────────────────────────────────────────────────────────
+// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type Unit = {
   id: string;
   kind: UnitKind;
-  team: Team; // playerId in FFA; "neutral" for the boss
-  ownerId: string; // connection id for a human hero, "bot:N" for a bot, "neutral" for boss
+  // playerId in FFA; "neutral" for the boss
+  team: Team;
+  // connection id for a human hero, "bot:N" for a bot, "neutral" for boss
+  ownerId: string;
   champId: string;
   isBot: boolean;
   name: string;
-  slot: number; // base/spawn slot (stable; survives movement)
+  // base/spawn slot (stable; survives movement)
+  slot: number;
   // neutral creep (skeleton camp) leashing — undefined for heroes
   campId?: string;
   homeX?: number;
@@ -70,7 +80,8 @@ export type Unit = {
   y: number;
   vx: number;
   vy: number;
-  facing: number; // radians, look/aim direction
+  // radians, look/aim direction
+  facing: number;
   radius: number;
   alive: boolean;
 
@@ -81,16 +92,22 @@ export type Unit = {
   // derived combat stats (recomputed on level/item change in stats.ts)
   baseDamage: number;
   armor: number;
-  magicResist: number; // fraction 0..1
+  // fraction 0..1
+  magicResist: number;
   attackType: "melee" | "ranged";
-  attackKind: string; // projectile visual for ranged; "melee" for melee
+  // projectile visual for ranged; "melee" for melee
+  attackKind: string;
   attackDamageType: DamageType;
   attackRange: number;
-  attackSpeed: number; // attacks/sec
-  moveSpeed: number; // units/sec
+  // attacks/sec
+  attackSpeed: number;
+  // units/sec
+  moveSpeed: number;
   projectileSpeed: number;
-  abilityPower: number; // additive fraction to ability damage (from items)
-  lifesteal: number; // additive fraction (from items)
+  // additive fraction to ability damage (from items)
+  abilityPower: number;
+  // additive fraction (from items)
+  lifesteal: number;
   attr: { str: number; agi: number; int: number };
 
   // progression
@@ -99,20 +116,28 @@ export type Unit = {
   gold: number;
   abilities: Record<AbilityKey, AbilitySlot>;
   items: string[];
-  itemReadyAt: Record<string, number>; // active-item cooldowns (ms)
+  // active-item cooldowns (ms)
+  itemReadyAt: Record<string, number>;
 
   // combat runtime
   lastAttackAt: number;
-  swingCount: number; // total basic swings started (cycles the per-champ rhythm +
+  // total basic swings started (cycles the per-champ rhythm +
+  swingCount: number;
   //                     picks the render swing clip; slow swings hit harder)
-  lastCastAt: number; // ms of last successful ability cast (drives the cast anim)
-  lastCastKey: AbilityKey | ""; // which ability fired last (picks the cast clip)
-  lastHitAt: number; // ms this unit last took damage (drives the hit flash)
-  lastHitDx: number; // normalized hit direction (attacker→victim) — render recoil
+  // ms of last successful ability cast (drives the cast anim)
+  lastCastAt: number;
+  // which ability fired last (picks the cast clip)
+  lastCastKey: AbilityKey | "";
+  // ms this unit last took damage (drives the hit flash)
+  lastHitAt: number;
+  // normalized hit direction (attacker→victim) — render recoil
+  lastHitDx: number;
   lastHitDy: number;
-  pendingAttack: { resolveAt: number } | null; // a swing/shot in its wind-up
+  // a swing/shot in its wind-up
+  pendingAttack: { resolveAt: number } | null;
   statuses: Status[];
-  recentDamageFrom: Record<string, number>; // attackerId -> ms (assist credit)
+  // attackerId -> ms (assist credit)
+  recentDamageFrom: Record<string, number>;
 
   // input buffering — a cast pressed slightly too early fires the moment it
   // becomes legal (drained in step() each tick; plain data → rides snapshots)
@@ -146,14 +171,17 @@ export type Unit = {
   dashUntil: number;
   dashVx: number;
   dashVy: number;
-  empowerNext: number; // flat bonus damage on the next basic attack (Rogue W)
-  ambush: boolean; // swing started FROM STEALTH → it crits for double (Rogue E)
+  // flat bonus damage on the next basic attack (Rogue W)
+  empowerNext: number;
+  // swing started FROM STEALTH → it crits for double (Rogue E)
+  ambush: boolean;
 
   // jump/hop (Space) — a brief evasive bound; mostly visual, slight speed boost
   jumpUntil: number;
 
   // death / respawn
-  respawnAt: number; // ms; 0 while alive
+  // ms; 0 while alive
+  respawnAt: number;
 
   // scoring
   kills: number;
@@ -173,6 +201,7 @@ export type ProjectileHit =
   | { tag: "root"; duration: number }
   | { tag: "burn"; dps: number; duration: number };
 
+// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type Projectile = {
   id: string;
   ownerId: string;
@@ -182,18 +211,26 @@ export type Projectile = {
   vx: number;
   vy: number;
   speed: number;
-  targetId: string | null; // homing if set
+  // homing if set
+  targetId: string | null;
   damage: number;
   dtype: DamageType;
-  radius: number; // splash radius (0 = single target)
-  hitRadius: number; // collision radius
-  pierce: boolean; // pass through enemies (multishot, ranger basics)
-  isAttack: boolean; // basic attack → carries lifesteal/on-hit
-  hitIds: string[]; // already-hit unit ids (for pierce)
+  // splash radius (0 = single target)
+  radius: number;
+  // collision radius
+  hitRadius: number;
+  // pass through enemies (multishot, ranger basics)
+  pierce: boolean;
+  // basic attack → carries lifesteal/on-hit
+  isAttack: boolean;
+  // already-hit unit ids (for pierce)
+  hitIds: string[];
   range: number;
-  burstAtEnd?: boolean; // splash projectile detonates at max range (aim-point casts)
+  // splash projectile detonates at max range (aim-point casts)
+  burstAtEnd?: boolean;
   traveled: number;
-  kind: string; // visual: "arrow" | "bolt" | "fireball" | ...
+  // visual: "arrow" | "bolt" | "fireball" | ...
+  kind: string;
   onHit: ProjectileHit;
   /** RENDER-ONLY extra launch height (world units above the normal projectile
    *  plane), 0 for everything fired from the ground. An aerial volley is loosed
@@ -204,30 +241,40 @@ export type Projectile = {
 };
 
 // ── Ground effects (AoE zones, telegraphs, delayed nukes) ────────────────────
+// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type GroundEffect = {
   id: string;
   ownerId: string;
   team: Team;
-  effect: string; // logic/visual tag
+  // logic/visual tag
+  effect: string;
   x: number;
   y: number;
   radius: number;
-  until: number; // ms
-  nextTick: number; // ms
-  tickInterval: number; // ms
+  // ms
+  until: number;
+  // ms
+  nextTick: number;
+  // ms
+  tickInterval: number;
   enemyDps?: number;
-  allyHps?: number; // heal/s for the owner's side inside the zone (consecrate)
+  // heal/s for the owner's side inside the zone (consecrate)
+  allyHps?: number;
   dtype?: DamageType;
   slowPct?: number;
-  slowMs?: number; // detonate rider: how long the slow lasts (default 1500)
+  // detonate rider: how long the slow lasts (default 1500)
+  slowMs?: number;
   rootMs?: number;
-  stunMs?: number; // detonate rider: stun everyone caught (smite)
-  hexMs?: number; // detonate rider: polymorph everyone caught (grand hex)
+  // detonate rider: stun everyone caught (smite)
+  stunMs?: number;
+  // detonate rider: polymorph everyone caught (grand hex)
+  hexMs?: number;
   // delayed single nuke (meteor/smite/vines/nova): fires once at detonateAt
   detonateAt?: number;
   detonateDmg?: number;
   detonateDtype?: DamageType;
-  telegraph?: boolean; // ground marker only until detonate
+  // ground marker only until detonate
+  telegraph?: boolean;
 };
 
 // ── Pending ability strikes ──────────────────────────────────────────────────
@@ -235,20 +282,27 @@ export type GroundEffect = {
 // actually connects (or a jump-attack lands). Plain data — rides snapshots so
 // a host migration can't drop a mid-swing strike. The hit shape re-tests at
 // resolve time, so a scheduled strike is dodgeable.
+// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type PendingStrike = {
-  at: number; // ms — when the blade/slam connects
+  // ms — when the blade/slam connects
+  at: number;
   casterId: string;
   key: AbilityKey;
-  dx: number; // aim direction captured at cast (unit vector)
+  // aim direction captured at cast (unit vector)
+  dx: number;
   dy: number;
-  px: number; // cast/landing point
+  // cast/landing point
+  px: number;
   py: number;
-  ox: number; // caster position at cast — corridor/jump origin
+  // caster position at cast — corridor/jump origin
+  ox: number;
   oy: number;
-  targetId?: string; // single-target strikes (rogue R)
+  // single-target strikes (rogue R)
+  targetId?: string;
 };
 
 // ── Signature-mechanic entities ──────────────────────────────────────────────
+// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type Coin = {
   id: string;
   x: number;
@@ -256,18 +310,24 @@ export type Coin = {
   fromX: number;
   fromY: number;
   gold: number;
-  landAt: number; // ms; flying (telegraph arc) until then, claimable after
-  expireAt: number; // ms
-  loot?: boolean; // creep drop → renders as a weapon pickup (boss coins omit it)
+  // ms; flying (telegraph arc) until then, claimable after
+  landAt: number;
+  // ms
+  expireAt: number;
+  // creep drop → renders as a weapon pickup (boss coins omit it)
+  loot?: boolean;
 };
 
+// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type Delivery = {
   id: string;
   x: number;
   y: number;
-  expireAt: number; // ms
+  // ms
+  expireAt: number;
 };
 
+// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type BossState = {
   x: number;
   y: number;
@@ -311,20 +371,25 @@ export type FxEvent =
   | { t: "delivery"; x: number; y: number; tier: string; playerName: string }
   | { t: "levelup"; x: number; y: number }
   | { t: "explosion"; x: number; y: number; radius: number; kind: string }
-  | { t: "fizzle"; x: number; y: number; kind: string } // projectile died at max range, hit nothing
+  // projectile died at max range, hit nothing
+  | { t: "fizzle"; x: number; y: number; kind: string }
   | { t: "blink"; x: number; y: number; tx: number; ty: number }
   | { t: "heal"; x: number; y: number; amount: number }
   | { t: "perfectDodge"; x: number; y: number; unit: string }
   | { t: "notify"; text: string; kind: string };
 
 // ── The World ────────────────────────────────────────────────────────────────
+// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type World = {
-  now: number; // ms host clock
-  gameTime: number; // s since match start
+  // ms host clock
+  now: number;
+  // s since match start
+  gameTime: number;
   phase: GamePhase;
   winner: Team | null;
   killGoal: number;
-  matchTime: number; // s
+  // s
+  matchTime: number;
   suddenDeath: boolean;
 
   units: Map<string, Unit>;
@@ -335,19 +400,27 @@ export type World = {
   deliveries: Delivery[];
   boss: BossState;
 
-  leaderId: Team | null; // current scoreboard leader (for bounty)
-  nextCoinAt: number; // gameTime s
-  nextDeliveryAt: number; // gameTime s
-  campRespawnAt: Record<string, number>; // campId → gameTime to repopulate
-  soloMercy?: boolean; // offline-only opt-in: enables the hidden mercy scaling
+  // current scoreboard leader (for bounty)
+  leaderId: Team | null;
+  // gameTime s
+  nextCoinAt: number;
+  // gameTime s
+  nextDeliveryAt: number;
+  // campId → gameTime to repopulate
+  campRespawnAt: Record<string, number>;
+  // offline-only opt-in: enables the hidden mercy scaling
+  soloMercy?: boolean;
 
-  fx: FxEvent[]; // drained by renderer each frame
-  seq: number; // id counter
-  rngState: number; // mulberry32 state
+  // drained by renderer each frame
+  fx: FxEvent[];
+  // id counter
+  seq: number;
+  // mulberry32 state
+  rngState: number;
 };
 
 /** Monotonic id within a World. */
-export function nextId(w: World, prefix: string): string {
+export const nextId = (w: World, prefix: string): string => {
   w.seq += 1;
   return `${prefix}${w.seq}`;
-}
+};

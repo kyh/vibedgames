@@ -10,13 +10,13 @@
 
 import { readFileSync } from "node:fs";
 
-export type Args = {
+export interface Args {
   positionals: string[];
   /** Every `--key` seen, in order, so repeatable options keep their sequence. */
   options: Map<string, string[]>;
-};
+}
 
-export type ParseOptions = {
+export interface ParseOptions {
   /**
    * Options that take no value. A script MUST list every name it later reads
    * with `getFlag`.
@@ -38,7 +38,7 @@ export type ParseOptions = {
    * that "unrecognized arguments" and exited 2.
    */
   values?: readonly string[];
-};
+}
 
 /**
  * The script's own header docblock, which is its help text.
@@ -48,43 +48,76 @@ export type ParseOptions = {
  * means help cannot drift from the documentation the way a second copy of the
  * usage string would.
  */
-function headerDoc(entry: string | undefined): string | null {
-  if (!entry) return null;
+const headerDoc = (entry: string | undefined): string | null => {
+  if (!entry) {
+    return null;
+  }
   let source: string;
   try {
-    source = readFileSync(entry, "utf8");
+    source = readFileSync(entry, "utf-8");
   } catch {
     return null;
   }
-  const match = /^(?:#![^\n]*\n)?\/\*\*([\s\S]*?)\*\//.exec(source);
-  if (!match) return null;
-  const text = match[1]!
+  const doc = /^(?:#![^\n]*\n)?\/\*\*(?<doc>[\s\S]*?)\*\//u.exec(source)?.groups?.doc;
+  if (doc === undefined) {
+    return null;
+  }
+  const text = doc
     .split("\n")
-    .map((line) => line.replace(/^\s*\* ?/, ""))
+    .map((line) => line.replace(/^\s*\* ?/u, ""))
     .join("\n")
     .trim();
   return text.length > 0 ? text : null;
-}
+};
 
-export function parseArgs(argv: string[], options: ParseOptions = {}): Args {
-  const booleans = new Set(options.booleans ?? []);
+/** Exit with a message on stderr and a non-zero status, like `SystemExit`. */
+export const fail = (message: string): never => {
+  process.stderr.write(`${message}\n`);
+  process.exit(1);
+};
+
+/**
+ * Exit 2 for a malformed invocation — an unknown value for a flag with a fixed
+ * set of choices. `argparse` reserves that code for usage errors and scripts
+ * distinguish it from a run that started and then failed, so the ported
+ * scripts keep the same convention.
+ */
+export const failUsage = (message: string): never => {
+  process.stderr.write(`${message}\n`);
+  process.exit(2);
+};
+
+const declaredOptions = (options: ParseOptions) => {
+  const booleans = new Set(options.booleans);
   // `help` is free on every script, as `-h`/`--help` were under argparse.
   const known = new Set([...booleans, ...(options.values ?? []), "help"]);
   // A script that declares nothing gets the old permissive parse; every shipped
   // script declares, and a test enforces that.
   const strict = options.booleans !== undefined || options.values !== undefined;
+  return { booleans, known, strict };
+};
+
+/** A token that can serve as an option's value: present and not itself an option. */
+const isValueToken = (token: string | undefined): token is string =>
+  token !== undefined && !token.startsWith("--");
+
+export const parseArgs = (argv: string[], options: ParseOptions = {}): Args => {
+  const { booleans, known, strict } = declaredOptions(options);
   const unknown: string[] = [];
   const positionals: string[] = [];
   const parsed = new Map<string, string[]>();
 
   const push = (key: string, value: string) => {
     const existing = parsed.get(key);
-    if (existing) existing.push(value);
-    else parsed.set(key, [value]);
+    if (existing) {
+      existing.push(value);
+    } else {
+      parsed.set(key, [value]);
+    }
   };
 
   for (let i = 0; i < argv.length; i += 1) {
-    const token = argv[i]!;
+    const token = argv[i] ?? "";
 
     // `-h` is the one short option argparse gave every script for free.
     if (token === "-h") {
@@ -105,7 +138,9 @@ export function parseArgs(argv: string[], options: ParseOptions = {}): Args {
     const equals = body.indexOf("=");
     if (equals !== -1) {
       const name = body.slice(0, equals);
-      if (strict && !known.has(name)) unknown.push(`--${name}`);
+      if (strict && !known.has(name)) {
+        unknown.push(`--${name}`);
+      }
       push(name, body.slice(equals + 1));
       continue;
     }
@@ -117,23 +152,26 @@ export function parseArgs(argv: string[], options: ParseOptions = {}): Args {
       unknown.push(`--${body}`);
       // Skip what looks like its value too, so one typo reports once rather
       // than turning the following filename into a second complaint.
-      const next = argv[i + 1];
-      if (next !== undefined && !next.startsWith("--")) i += 1;
+      if (isValueToken(argv[i + 1])) {
+        i += 1;
+      }
       continue;
     }
 
     const next = argv[i + 1];
     // A declared value option takes the next token, unless that token is
     // itself an option or there is nothing left.
-    if (next === undefined || next.startsWith("--")) {
-      push(body, "true");
-    } else {
+    if (isValueToken(next)) {
       push(body, next);
       i += 1;
+    } else {
+      push(body, "true");
     }
   }
 
-  if (unknown.length > 0) failUsage(`unrecognized arguments: ${unknown.join(" ")}`);
+  if (unknown.length > 0) {
+    failUsage(`unrecognized arguments: ${unknown.join(" ")}`);
+  }
 
   // `-h`/`--help` short-circuits before any required-argument check, the way
   // argparse did, so asking a script what it does never looks like misuse.
@@ -143,29 +181,30 @@ export function parseArgs(argv: string[], options: ParseOptions = {}): Args {
     process.exit(0);
   }
 
-  return { positionals, options: parsed };
-}
+  return { options: parsed, positionals };
+};
 
-export function getString(args: Args, key: string): string | undefined {
-  return args.options.get(key)?.at(-1);
-}
+export const getString = (args: Args, key: string): string | undefined =>
+  args.options.get(key)?.at(-1);
 
-export function getAll(args: Args, key: string): string[] {
-  return args.options.get(key) ?? [];
-}
+export const getAll = (args: Args, key: string): string[] => args.options.get(key) ?? [];
 
-export function getFlag(args: Args, key: string): boolean {
+export const getFlag = (args: Args, key: string): boolean => {
   const value = getString(args, key);
   return value !== undefined && value !== "false";
-}
+};
 
-export function getNumber(args: Args, key: string, fallback: number): number {
+export const getNumber = (args: Args, key: string, fallback: number): number => {
   const raw = getString(args, key);
-  if (raw === undefined) return fallback;
+  if (raw === undefined) {
+    return fallback;
+  }
   const value = Number(raw);
-  if (!Number.isFinite(value)) failUsage(`--${key} must be a number, got "${raw}"`);
+  if (!Number.isFinite(value)) {
+    failUsage(`--${key} must be a number, got "${raw}"`);
+  }
   return value;
-}
+};
 
 /**
  * A whole number, for the options `argparse` declared `type=int`.
@@ -174,39 +213,26 @@ export function getNumber(args: Args, key: string, fallback: number): number {
  * so a sheet was sliced on a geometry nobody asked for and the run exited 0.
  * Python refused it outright, and so does this.
  */
-export function getInt(args: Args, key: string, fallback: number): number {
+export const getInt = (args: Args, key: string, fallback: number): number => {
   const raw = getString(args, key);
-  if (raw === undefined) return fallback;
+  if (raw === undefined) {
+    return fallback;
+  }
   const value = Number(raw);
-  if (!Number.isInteger(value)) failUsage(`--${key} must be a whole number, got "${raw}"`);
+  if (!Number.isInteger(value)) {
+    failUsage(`--${key} must be a whole number, got "${raw}"`);
+  }
   return value;
-}
-
-/** Exit with a message on stderr and a non-zero status, like `SystemExit`. */
-export function fail(message: string): never {
-  process.stderr.write(`${message}\n`);
-  process.exit(1);
-}
-
-/**
- * Exit 2 for a malformed invocation — an unknown value for a flag with a fixed
- * set of choices. `argparse` reserves that code for usage errors and scripts
- * distinguish it from a run that started and then failed, so the ported
- * scripts keep the same convention.
- */
-export function failUsage(message: string): never {
-  process.stderr.write(`${message}\n`);
-  process.exit(2);
-}
+};
 
 /**
  * Run a script body, turning thrown errors into a clean one-line message.
  * A stack trace tells an agent nothing it can act on; the message does.
  */
-export function main(run: () => void): void {
+export const main = (run: () => void): void => {
   try {
     run();
   } catch (error) {
     fail(error instanceof Error ? error.message : String(error));
   }
-}
+};

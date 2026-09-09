@@ -8,43 +8,44 @@
 
 // Hill/landmark anchors: real (lat, lon) -> game (u, v) taken from sf-map.ts.
 const ANCHORS = [
-  { name: "Twin Peaks", lat: 37.7544, lon: -122.4477, u: 0.42, v: 0.56 },
-  { name: "Mount Davidson", lat: 37.7383, lon: -122.4547, u: 0.377, v: 0.693 },
-  { name: "Mount Sutro", lat: 37.7583, lon: -122.4575, u: 0.359, v: 0.486 },
-  { name: "Nob Hill", lat: 37.793, lon: -122.4161, u: 0.63, v: 0.172 },
-  { name: "Telegraph Hill", lat: 37.8024, lon: -122.4058, u: 0.683, v: 0.082 },
-  { name: "Russian Hill", lat: 37.801, lon: -122.418, u: 0.602, v: 0.091 },
-  { name: "Bernal Heights", lat: 37.744, lon: -122.416, u: 0.621, v: 0.651 },
-  { name: "Potrero Hill", lat: 37.758, lon: -122.4, u: 0.726, v: 0.509 },
-  { name: "Rincon Hill", lat: 37.788, lon: -122.39, u: 0.778, v: 0.234 },
-  { name: "Pacific Heights", lat: 37.7925, lon: -122.4382, u: 0.489, v: 0.182 },
-  { name: "Buena Vista", lat: 37.769, lon: -122.442, u: 0.457, v: 0.404 },
-  { name: "Lone Mountain", lat: 37.7787, lon: -122.4527, u: 0.396, v: 0.295 },
+  { lat: 37.7544, lon: -122.4477, name: "Twin Peaks", u: 0.42, v: 0.56 },
+  // oxlint-disable-next-line oxc/approx-constant -- 0.693 is a map v coordinate, not ln 2
+  { lat: 37.7383, lon: -122.4547, name: "Mount Davidson", u: 0.377, v: 0.693 },
+  { lat: 37.7583, lon: -122.4575, name: "Mount Sutro", u: 0.359, v: 0.486 },
+  { lat: 37.793, lon: -122.4161, name: "Nob Hill", u: 0.63, v: 0.172 },
+  { lat: 37.8024, lon: -122.4058, name: "Telegraph Hill", u: 0.683, v: 0.082 },
+  { lat: 37.801, lon: -122.418, name: "Russian Hill", u: 0.602, v: 0.091 },
+  { lat: 37.744, lon: -122.416, name: "Bernal Heights", u: 0.621, v: 0.651 },
+  { lat: 37.758, lon: -122.4, name: "Potrero Hill", u: 0.726, v: 0.509 },
+  { lat: 37.788, lon: -122.39, name: "Rincon Hill", u: 0.778, v: 0.234 },
+  { lat: 37.7925, lon: -122.4382, name: "Pacific Heights", u: 0.489, v: 0.182 },
+  { lat: 37.769, lon: -122.442, name: "Buena Vista", u: 0.457, v: 0.404 },
+  { lat: 37.7787, lon: -122.4527, name: "Lone Mountain", u: 0.396, v: 0.295 },
 ];
 
 // Ordinary least squares for y = m*x + b.
-function fit(xs, ys) {
+const fit = (xs, ys) => {
   const n = xs.length;
   const mx = xs.reduce((a, b) => a + b, 0) / n;
   const my = ys.reduce((a, b) => a + b, 0) / n;
-  let sxy = 0,
-    sxx = 0;
-  for (let i = 0; i < n; i++) {
+  let sxx = 0;
+  let sxy = 0;
+  for (let i = 0; i < n; i += 1) {
     sxy += (xs[i] - mx) * (ys[i] - my);
     sxx += (xs[i] - mx) * (xs[i] - mx);
   }
   const m = sxy / sxx;
   const b = my - m * mx;
   // R^2
-  let ssRes = 0,
-    ssTot = 0;
-  for (let i = 0; i < n; i++) {
+  let ssRes = 0;
+  let ssTot = 0;
+  for (let i = 0; i < n; i += 1) {
     const pred = m * xs[i] + b;
     ssRes += (ys[i] - pred) ** 2;
     ssTot += (ys[i] - my) ** 2;
   }
-  return { m, b, r2: 1 - ssRes / ssTot };
-}
+  return { b, m, r2: 1 - ssRes / ssTot };
+};
 
 const uFit = fit(
   ANCHORS.map((a) => a.lon),
@@ -61,8 +62,8 @@ console.log(`  u = ${uFit.m.toFixed(4)} * lon + ${uFit.b.toFixed(4)}   R^2=${uFi
 console.log(`  v = ${vFit.m.toFixed(4)} * lat + ${vFit.b.toFixed(4)}   R^2=${vFit.r2.toFixed(5)}`);
 
 // Residuals per anchor (in u/v units) to sanity-check.
-let maxResU = 0,
-  maxResV = 0;
+let maxResU = 0;
+let maxResV = 0;
 for (const a of ANCHORS) {
   const pu = uFit.m * a.lon + uFit.b;
   const pv = vFit.m * a.lat + vFit.b;
@@ -85,8 +86,8 @@ console.log(`  v=0 lat ${latAtV0.toFixed(4)} (N)  ->  v=1 lat ${latAtV1.toFixed(
 
 // True metric size of that box (WGS84 approx at SF latitude).
 const midLat = (latAtV0 + latAtV1) / 2;
-const mPerDegLat = 111132.9;
-const mPerDegLon = 111412.84 * Math.cos((midLat * Math.PI) / 180);
+const mPerDegLat = 111_132.9;
+const mPerDegLon = 111_412.84 * Math.cos((midLat * Math.PI) / 180);
 const widthM = Math.abs(lonAtU1 - lonAtU0) * mPerDegLon;
 const heightM = Math.abs(latAtV1 - latAtV0) * mPerDegLat;
 console.log("\nTrue metric size of the u,v box:");
@@ -94,4 +95,4 @@ console.log(`  width  (E-W) = ${(widthM / 1000).toFixed(2)} km`);
 console.log(`  height (N-S) = ${(heightM / 1000).toFixed(2)} km`);
 console.log(`  aspect ratio W:H = ${(widthM / heightM).toFixed(3)} : 1`);
 
-export const PROJECTION = { uFit, vFit, widthM, heightM };
+export const PROJECTION = { heightM, uFit, vFit, widthM };

@@ -11,11 +11,11 @@ import type { ControlMethod } from "@repo/embed";
 import { CONTROLS } from "./controls";
 
 const GROUP_LABEL = {
+  camera: "Camera",
+  controller: "Gamepad",
   keys: "Keyboard",
   mouse: "Mouse",
   touch: "Touch",
-  camera: "Camera",
-  controller: "Gamepad",
 } satisfies Record<ControlMethod, string>;
 
 const STYLE_ID = "moba-pause-style";
@@ -67,21 +67,22 @@ const CSS = `
 /** "Q W E R" / "X Y B RB" render as individual HUD-style keycaps; anything
  *  else ("←→↑↓", "L-STICK / D-PAD", "2ND FINGER") stays one chip. Shared with
  *  the menu's controls plaque so both surfaces split keycaps identically. */
-export function chipTexts(input: string): readonly string[] {
-  return /^[A-Z0-9]{1,2}( [A-Z0-9]{1,2})+$/.test(input) ? input.split(" ") : [input];
-}
+export const chipTexts = (input: string): readonly string[] =>
+  /^[A-Z0-9]{1,2}(?: [A-Z0-9]{1,2})+$/u.test(input) ? input.split(" ") : [input];
 
-function el(tag: string, className: string, text?: string): HTMLElement {
+const el = (tag: string, className: string, text?: string): HTMLElement => {
   const node = document.createElement(tag);
   node.className = className;
-  if (text !== undefined) node.textContent = text;
+  if (text !== undefined) {
+    node.textContent = text;
+  }
   return node;
-}
+};
 
 // Kept across show/hide so onHide can back out the panel's .mp-in slide.
 let root: HTMLElement | null = null;
 
-function renderPanel(overlay: HTMLElement): void {
+const renderPanel = (overlay: HTMLElement): void => {
   root = overlay;
   const coarse = window.matchMedia("(pointer: coarse)").matches;
 
@@ -116,7 +117,9 @@ function renderPanel(overlay: HTMLElement): void {
     const grid = el("div", "mp-grid");
     for (const entry of group.entries) {
       const keys = el("span", "mp-keys");
-      for (const text of chipTexts(entry.input)) keys.append(el("span", "mp-chip", text));
+      for (const text of chipTexts(entry.input)) {
+        keys.append(el("span", "mp-chip", text));
+      }
       grid.append(keys, el("span", "mp-action", entry.action));
     }
     panel.append(header, grid);
@@ -133,22 +136,22 @@ function renderPanel(overlay: HTMLElement): void {
 
   // Panel slide-up rides the same first frame as the shell's root fade.
   requestAnimationFrame(() => overlay.classList.add("mp-in"));
-}
+};
 
 const shell = createPauseShell({
   className: "mp-root",
   css: CSS,
-  styleId: STYLE_ID,
-  render: renderPanel,
   onHide: () => {
     // Slide the panel back down through the shell's fade-out.
     root?.classList.remove("mp-in");
     root = null;
   },
+  render: renderPanel,
+  styleId: STYLE_ID,
 });
 
 /** Mount the overlay. Idempotent while shown. */
-export const show = shell.show;
+export const { show } = shell;
 
 /** Unmount (fade out). Idempotent while hidden. */
-export const hide = shell.hide;
+export const { hide } = shell;

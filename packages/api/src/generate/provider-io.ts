@@ -3,24 +3,26 @@ import { ORPCError } from "@orpc/server";
 import type { JsonValue } from "../json";
 import { MAX_FAL_PLATFORM_JSON_BYTES } from "./limits";
 
-function parseContentLength(response: Response): number | null {
+const parseContentLength = (response: Response): number | null => {
   const raw = response.headers.get("content-length");
-  if (raw === null || raw.trim().length === 0) return null;
+  if (raw === null || raw.trim().length === 0) {
+    return null;
+  }
   const length = Number(raw);
   return Number.isFinite(length) && length >= 0 ? length : null;
-}
+};
 
-function rejectOversize(label: string, maxBytes: number): never {
+const rejectOversize = (label: string, maxBytes: number): never => {
   throw new ORPCError("BAD_GATEWAY", {
     message: `${label} exceeded ${maxBytes} bytes.`,
   });
-}
+};
 
-async function readBytesBounded(
+const readBytesBounded = async (
   response: Response,
   maxBytes: number,
   label: string,
-): Promise<Uint8Array> {
+): Promise<Uint8Array> => {
   const declared = parseContentLength(response);
   if (declared !== null && declared > maxBytes) {
     rejectOversize(label, maxBytes);
@@ -28,7 +30,9 @@ async function readBytesBounded(
 
   if (!response.body) {
     const bytes = new Uint8Array(await response.arrayBuffer());
-    if (bytes.byteLength > maxBytes) rejectOversize(label, maxBytes);
+    if (bytes.byteLength > maxBytes) {
+      rejectOversize(label, maxBytes);
+    }
     return bytes;
   }
 
@@ -38,10 +42,14 @@ async function readBytesBounded(
 
   while (true) {
     const next = await reader.read();
-    if (next.done) break;
+    if (next.done) {
+      break;
+    }
     total += next.value.byteLength;
     if (total > maxBytes) {
-      await reader.cancel().catch(() => undefined);
+      await reader.cancel().catch(() => {
+        /* empty */
+      });
       rejectOversize(label, maxBytes);
     }
     chunks.push(next.value);
@@ -54,22 +62,22 @@ async function readBytesBounded(
     offset += chunk.byteLength;
   }
   return bytes;
-}
+};
 
-async function readTextBounded(
+const readTextBounded = async (
   response: Response,
   label: string,
   maxBytes = MAX_FAL_PLATFORM_JSON_BYTES,
-): Promise<string> {
+): Promise<string> => {
   const bytes = await readBytesBounded(response, maxBytes, label);
   return new TextDecoder().decode(bytes);
-}
+};
 
-export async function readJsonBounded(
+export const readJsonBounded = async (
   response: Response,
   label: string,
   maxBytes = MAX_FAL_PLATFORM_JSON_BYTES,
-): Promise<JsonValue> {
+): Promise<JsonValue> => {
   const text = await readTextBounded(response, label, maxBytes);
   try {
     return JSON.parse(text);
@@ -78,7 +86,7 @@ export async function readJsonBounded(
       message: `${label} was not valid JSON.`,
     });
   }
-}
+};
 
 // Pull the JSON-RPC message out of an MCP streamable-HTTP (SSE) response.
 // The body is a sequence of `event:` / `data:` lines grouped into events by
@@ -86,15 +94,15 @@ export async function readJsonBounded(
 // the JSON-RPC reply. We return the last parseable data payload so a trailing
 // result wins over any earlier progress notifications. Falls back to plain
 // JSON.parse in case a deployment routes docs through a JSON gateway.
-export async function readSseJson(
+export const readSseJson = async (
   response: Response,
   label: string,
   maxBytes = MAX_FAL_PLATFORM_JSON_BYTES,
-): Promise<JsonValue> {
+): Promise<JsonValue> => {
   const text = await readTextBounded(response, label, maxBytes);
   const events: string[] = [];
   let dataBuf: string[] = [];
-  for (const line of text.split(/\r?\n/)) {
+  for (const line of text.split(/\r?\n/u)) {
     if (line === "") {
       if (dataBuf.length > 0) {
         events.push(dataBuf.join("\n"));
@@ -102,9 +110,13 @@ export async function readSseJson(
       }
       continue;
     }
-    if (line.startsWith("data:")) dataBuf.push(line.slice(5).replace(/^ /, ""));
+    if (line.startsWith("data:")) {
+      dataBuf.push(line.slice(5).replace(/^ /u, ""));
+    }
   }
-  if (dataBuf.length > 0) events.push(dataBuf.join("\n"));
+  if (dataBuf.length > 0) {
+    events.push(dataBuf.join("\n"));
+  }
 
   if (events.length === 0) {
     try {
@@ -132,24 +144,25 @@ export async function readSseJson(
     });
   }
   return last;
-}
+};
 
-async function readErrorSnippet(response: Response, label: string): Promise<string> {
+const readErrorSnippet = async (response: Response, label: string): Promise<string> => {
   try {
-    return (await readTextBounded(response, label, 8 * 1024)).slice(0, 800);
+    const text = await readTextBounded(response, label, 8 * 1024);
+    return text.slice(0, 800);
   } catch {
     return "";
   }
-}
+};
 
-export async function throwProviderError(response: Response, label: string): Promise<never> {
+export const throwProviderError = async (response: Response, label: string): Promise<never> => {
   const text = await readErrorSnippet(response, `${label} error response`);
   throw new ORPCError("BAD_GATEWAY", {
     message: `${label} failed (${response.status}): ${text}`,
   });
-}
+};
 
-export async function fetchProviderResponse({
+export const fetchProviderResponse = async ({
   url,
   init,
   label,
@@ -166,7 +179,7 @@ export async function fetchProviderResponse({
    * fetch) before surfacing the failure. Redirects are still refused.
    */
   tolerateHttpError?: boolean;
-}): Promise<Response> {
+}): Promise<Response> => {
   const response = await fetch(url, { ...init, redirect: "manual" });
   if (response.status >= 300 && response.status < 400) {
     throw new ORPCError("BAD_GATEWAY", {
@@ -179,4 +192,4 @@ export async function fetchProviderResponse({
     await throwProviderError(response, label);
   }
   return response;
-}
+};

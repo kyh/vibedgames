@@ -17,15 +17,18 @@ import { MICRO_PER_USD, usdToMicro } from "./credit-ledger";
  * Lookups are best-effort: pricing being down must never block a
  * generation, so failures degrade to the flat default hold.
  */
-export type EndpointPricing = {
+export interface EndpointPricing {
   unitPriceMicro: number | null;
   unit: string | null;
   holdMicro: number;
-};
+}
 
-export const DEFAULT_HOLD_MICRO = 100_000; // $0.10
-const MIN_HOLD_MICRO = 10_000; // $0.01
-const MAX_HOLD_MICRO = 5 * MICRO_PER_USD; // $5.00
+// $0.10
+export const DEFAULT_HOLD_MICRO = 100_000;
+// $0.01
+const MIN_HOLD_MICRO = 10_000;
+// $5.00
+const MAX_HOLD_MICRO = 5 * MICRO_PER_USD;
 
 const clampHold = (micro: number): number =>
   Math.min(MAX_HOLD_MICRO, Math.max(MIN_HOLD_MICRO, micro));
@@ -48,10 +51,12 @@ type FetchJson = (input: {
 const priceEntry = z
   .looseObject({
     endpoint_id: z.string(),
-    unit_price: z.number().finite(),
+    // oxlint-disable-next-line promise/prefer-await-to-then -- zod's .catch() is a schema fallback, not a promise
     unit: z.string().nullable().catch(null),
+    unit_price: z.number().finite(),
   })
   .nullable()
+  // oxlint-disable-next-line promise/prefer-await-to-then -- zod's .catch() is a schema fallback, not a promise
   .catch(null);
 
 const pricingPayload = z.looseObject({ prices: z.array(priceEntry) });
@@ -61,12 +66,16 @@ const readUnitPrice = (
   endpointId: string,
 ): { unitPriceMicro: number; unit: string | null } | null => {
   const parsed = pricingPayload.safeParse(payload);
-  if (!parsed.success) return null;
+  if (!parsed.success) {
+    return null;
+  }
   for (const price of parsed.data.prices) {
-    if (price === null || price.endpoint_id !== endpointId) continue;
+    if (price === null || price.endpoint_id !== endpointId) {
+      continue;
+    }
     return {
-      unitPriceMicro: usdToMicro(price.unit_price),
       unit: price.unit,
+      unitPriceMicro: usdToMicro(price.unit_price),
     };
   }
   return null;
@@ -76,7 +85,9 @@ const estimatePayload = z.looseObject({ total_cost: z.number().finite() });
 
 const readEstimate = (payload: JsonValue): number | null => {
   const parsed = estimatePayload.safeParse(payload);
-  if (!parsed.success) return null;
+  if (!parsed.success) {
+    return null;
+  }
   return parsed.data.total_cost > 0 ? usdToMicro(parsed.data.total_cost) : null;
 };
 
@@ -90,7 +101,9 @@ export const getEndpointPricing = async (
   fetchJson: FetchJson,
 ): Promise<EndpointPricing> => {
   const cached = cache.get(endpointId);
-  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.value;
+  }
 
   const [priceResult, estimateResult] = await Promise.allSettled([
     fetchJson({
@@ -99,12 +112,12 @@ export const getEndpointPricing = async (
       query: { endpoint_id: endpointId },
     }),
     fetchJson({
+      body: {
+        endpoints: { [endpointId]: { call_quantity: 1 } },
+        estimate_type: "historical_api_price",
+      },
       method: "POST",
       path: "/v1/models/pricing/estimate",
-      body: {
-        estimate_type: "historical_api_price",
-        endpoints: { [endpointId]: { call_quantity: 1 } },
-      },
     }),
   ]);
 
@@ -115,14 +128,14 @@ export const getEndpointPricing = async (
 
   const holdBasis = estimateMicro ?? price?.unitPriceMicro ?? null;
   const value: EndpointPricing = {
-    unitPriceMicro: price?.unitPriceMicro ?? null,
-    unit: price?.unit ?? null,
     holdMicro: holdBasis === null ? DEFAULT_HOLD_MICRO : clampHold(holdBasis),
+    unit: price?.unit ?? null,
+    unitPriceMicro: price?.unitPriceMicro ?? null,
   };
 
   // Don't cache total failures — the next submit should retry the lookup.
   if (price !== null || estimateMicro !== null) {
-    cache.set(endpointId, { value, expiresAt: Date.now() + CACHE_TTL_MS });
+    cache.set(endpointId, { expiresAt: Date.now() + CACHE_TTL_MS, value });
   }
   return value;
 };

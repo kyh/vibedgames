@@ -2,16 +2,8 @@ import * as THREE from "three";
 
 import { applyMaterialBreakup, CITY_BREAKUP } from "../render/material-breakup";
 import { isCoarsePointer, liveQuality } from "../render/quality";
-import {
-  buildParcelGeometry,
-  type DetailLevel,
-  FACADE_SCALE,
-  FUV_V_BIAS,
-  type ParcelGeo,
-  type ParcelGeoStats,
-  type ParcelMaterial,
-  tierDistance,
-} from "./parcel-mesh";
+import { buildParcelGeometry, FACADE_SCALE, FUV_V_BIAS, tierDistance } from "./parcel-mesh";
+import type { DetailLevel, ParcelGeo, ParcelGeoStats, ParcelMaterial } from "./parcel-mesh";
 import { TRAFFIC_CARS } from "../assets/manifest";
 import { ROAD_TILE, WORLD_HALF_X, WORLD_HALF_Z } from "../shared/constants";
 import { Rng } from "../shared/rng";
@@ -23,7 +15,8 @@ import {
   SIGN_ROWS,
 } from "./parcel-signs";
 import type { ParkedSpec } from "./furniture";
-import { distToRing, type ParcelLot, type ParcelPlan, pointInRing } from "./parcel-plan";
+import { distToRing, pointInRing } from "./parcel-plan";
+import type { ParcelLot, ParcelPlan } from "./parcel-plan";
 
 // The parcel fabric is built LIVE on both load paths, like the freeways and
 // piers — never captured into rest.bin. Three reasons, each sufficient:
@@ -36,19 +29,19 @@ import { distToRing, type ParcelLot, type ParcelPlan, pointInRing } from "./parc
 //    audits it; there is no second copy in an artifact to drift.
 
 const WALL = new THREE.MeshStandardMaterial({
-  color: 0xffffff,
-  vertexColors: true,
-  roughness: 0.92,
+  color: 0xff_ff_ff,
   metalness: 0,
+  roughness: 0.92,
+  vertexColors: true,
 });
 WALL.name = "parcel-wall";
 applyMaterialBreakup(WALL, CITY_BREAKUP);
 
 const GLASS_DARK = new THREE.MeshStandardMaterial({
-  color: 0xffffff,
-  vertexColors: true,
-  roughness: 0.38,
+  color: 0xff_ff_ff,
   metalness: 0.08,
+  roughness: 0.38,
+  vertexColors: true,
 });
 GLASS_DARK.name = "parcel-glass";
 
@@ -56,33 +49,37 @@ GLASS_DARK.name = "parcel-glass";
 // the lamp factor (day-night.ts), warm, over a vertex colour that is a dark
 // blue-grey — so the glow is the emissive, not the albedo.
 const GLASS_LIT = new THREE.MeshStandardMaterial({
-  color: 0xffffff,
-  vertexColors: true,
-  roughness: 0.38,
-  metalness: 0.08,
-  emissive: new THREE.Color(0xffc978),
+  color: 0xff_ff_ff,
+  emissive: new THREE.Color(0xff_c9_78),
   emissiveIntensity: 0,
+  metalness: 0.08,
+  roughness: 0.38,
+  vertexColors: true,
 });
 GLASS_LIT.name = "parcel-glass-lit";
 
 const SIGN = new THREE.MeshStandardMaterial({
-  color: 0xffffff,
-  roughness: 0.95,
-  metalness: 0,
-  emissive: 0xffecc5,
-  emissiveIntensity: 0,
   alphaTest: 0.12,
+  color: 0xff_ff_ff,
+  emissive: 0xff_ec_c5,
+  emissiveIntensity: 0,
+  metalness: 0,
+  roughness: 0.95,
 });
 SIGN.name = "parcel-shop-lettering";
 
 /** One small texture for the whole city, lazy so the pure generator also runs in node. */
-function signMaterial(): THREE.MeshStandardMaterial {
-  if (SIGN.map || typeof document === "undefined") return SIGN;
+const signMaterial = (): THREE.MeshStandardMaterial => {
+  if (SIGN.map || typeof document === "undefined") {
+    return SIGN;
+  }
   const canvas = document.createElement("canvas");
   canvas.width = SIGN_ATLAS_WIDTH;
   canvas.height = SIGN_ATLAS_HEIGHT;
   const context = canvas.getContext("2d");
-  if (!context) return SIGN;
+  if (!context) {
+    return SIGN;
+  }
   const cellWidth = SIGN_ATLAS_WIDTH / SIGN_COLUMNS;
   const cellHeight = SIGN_ATLAS_HEIGHT / SIGN_ROWS;
   context.fillStyle = "#fff0cf";
@@ -106,7 +103,7 @@ function signMaterial(): THREE.MeshStandardMaterial {
   SIGN.emissiveMap = texture;
   SIGN.needsUpdate = true;
   return SIGN;
-}
+};
 
 const NIGHT_EMISSIVE = 1.05;
 
@@ -120,10 +117,10 @@ const NIGHT_EMISSIVE = 1.05;
 // so the breakup and the specular AA from material-breakup.ts still apply.
 const FACADE_NIGHT = { value: 0 };
 const FACADE = new THREE.MeshStandardMaterial({
-  color: 0xffffff,
-  vertexColors: true,
-  roughness: 0.92,
+  color: 0xff_ff_ff,
   metalness: 0,
+  roughness: 0.92,
+  vertexColors: true,
 });
 FACADE.name = "parcel-facade";
 applyMaterialBreakup(FACADE, CITY_BREAKUP);
@@ -297,55 +294,65 @@ totalEmissiveRadiance += fEmit;`,
 }
 
 /** Lamp factor 0 (day) .. 1 (night) — window glow tracks it. */
-export function setParcelNight(night: number): void {
+export const setParcelNight = (night: number): void => {
   GLASS_LIT.emissiveIntensity = NIGHT_EMISSIVE * Math.max(0, Math.min(1, night));
   FACADE_NIGHT.value = Math.max(0, Math.min(1, night));
   SIGN.emissiveIntensity = FACADE_NIGHT.value * 0.38;
-}
+};
 
-export function materialFor(mat: ParcelMaterial): THREE.MeshStandardMaterial {
+export const materialFor = (mat: ParcelMaterial): THREE.MeshStandardMaterial => {
   switch (mat) {
-    case "wall":
+    case "wall": {
       return WALL;
-    case "glassLit":
+    }
+    case "glassLit": {
       return GLASS_LIT;
-    case "glassDark":
+    }
+    case "glassDark": {
       return GLASS_DARK;
-    case "facade":
+    }
+    case "facade": {
       return FACADE;
-    case "sign":
+    }
+    case "sign": {
       return signMaterial();
+    }
+    default: {
+      return WALL;
+    }
   }
-}
+};
 
-export type ParcelChunk = {
+export interface ParcelChunk {
   readonly cx: number;
   readonly cz: number;
   readonly radius: number;
   readonly dist: number;
   readonly group: THREE.Group;
-};
+}
 
-export type ParcelBuild = {
+export interface ParcelBuild {
   readonly chunks: readonly ParcelChunk[];
   readonly stats: ParcelGeoStats;
   /** Cars on the surface lots — punt-able bodies like the kerb parking. */
   readonly parkedCars: readonly ParkedSpec[];
-};
+}
 
-export type ParcelBands = {
+export interface ParcelBands {
   readonly imposter: number;
   readonly midImposter: number;
   readonly detail: number;
-};
-
-/** Device-class near detail; the streamer separately selects distant shader walls. */
-export function parcelDetailLevel(): DetailLevel {
-  if (typeof window === "undefined") return 2;
-  return isCoarsePointer() ? 1 : 2;
 }
 
-export function parcelGeometryOf(g: ParcelGeo): THREE.BufferGeometry {
+/** Device-class near detail; the streamer separately selects distant shader walls. */
+export const parcelDetailLevel = (): DetailLevel => {
+  if (typeof window === "undefined") {
+    return 2;
+  }
+  return isCoarsePointer() ? 1 : 2;
+};
+
+export const parcelGeometryOf = (g: ParcelGeo): THREE.BufferGeometry => {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute(
     "position",
@@ -359,15 +366,17 @@ export function parcelGeometryOf(g: ParcelGeo): THREE.BufferGeometry {
     geo.setAttribute("facade", new THREE.BufferAttribute(g.facade, 4, true));
     geo.setAttribute("facade2", new THREE.BufferAttribute(g.facade2, 3, false));
   }
-  if (g.uv) geo.setAttribute("uv", new THREE.BufferAttribute(g.uv, 2, true));
+  if (g.uv) {
+    geo.setAttribute("uv", new THREE.BufferAttribute(g.uv, 2, true));
+  }
   geo.computeBoundingSphere();
   return geo;
-}
+};
 
 /** Both static and streamed callers restore the same quantized coordinate frame. */
-export function parcelMeshOf(
+export const parcelMeshOf = (
   g: ParcelGeo,
-): THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial> {
+): THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial> => {
   const mesh = new THREE.Mesh(parcelGeometryOf(g), materialFor(g.mat));
   if (g.encoding === "quantized") {
     mesh.position.set(...g.origin);
@@ -376,41 +385,7 @@ export function parcelMeshOf(
   mesh.updateMatrix();
   mesh.matrixAutoUpdate = false;
   return mesh;
-}
-
-/**
- * Meshes for the plan, grouped per stream tile and cull band so the caller
- * can hand them to the chunk streamer as-is.
- */
-export async function buildParcelFabric(
-  plans: readonly ParcelPlan[],
-  lots: readonly ParcelLot[],
-  bands: ParcelBands,
-  detail: DetailLevel,
-  onBreathe?: () => Promise<void>,
-): Promise<ParcelBuild> {
-  const { geos, stats } = await buildParcelGeometry(plans, detail, onBreathe, lots);
-  const detailDist = bands.detail * liveQuality().detailScale;
-  const groups = new Map<string, ParcelChunk>();
-  for (const g of geos) {
-    const dist = tierDistance(g.tier, bands.imposter, bands.midImposter, detailDist);
-    const key = `${g.cx},${g.cz},${dist}`;
-    let chunk = groups.get(key);
-    if (!chunk) {
-      chunk = { cx: g.cx, cz: g.cz, radius: g.radius, dist, group: new THREE.Group() };
-      chunk.group.name = `parcels-${g.tier}`;
-      groups.set(key, chunk);
-    }
-    const mesh = parcelMeshOf(g);
-    mesh.name = `parcel-${g.tier}-${g.mat}`;
-    // Bodies throw the street shadows; the decals and ledges only catch them.
-    mesh.castShadow = g.tier !== "detail" && (g.mat === "wall" || g.mat === "facade");
-    mesh.receiveShadow = true;
-    mesh.matrixAutoUpdate = false;
-    chunk.group.add(mesh);
-  }
-  return { chunks: [...groups.values()], stats, parkedCars: parkOnLots(lots, plans) };
-}
+};
 
 // A car is ~2.75u long and 1.5u wide. Bays nose in toward the lot's long
 // sides at the pitch the paint uses (parcel-mesh.ts BAY_PITCH); a lot too
@@ -427,45 +402,51 @@ const BAY_PITCH = 2.2;
  * bbox fallback) with a real parcel's building inside it, and a car parked
  * through that building's wall is the one place the two passes meet.
  */
+const cellX = (x: number): number => Math.floor((x + WORLD_HALF_X) / ROAD_TILE);
+const cellZ = (z: number): number => Math.floor((z + WORLD_HALF_Z) / ROAD_TILE);
+
 class BuildingIndex {
   private readonly cells = new Map<number, ParcelPlan[]>();
   constructor(plans: readonly ParcelPlan[]) {
     for (const p of plans) {
       const r = Math.hypot(p.obb.halfA, p.obb.halfB) + 1;
-      for (let gx = this.gx(p.obb.cx - r); gx <= this.gx(p.obb.cx + r); gx++) {
-        for (let gz = this.gz(p.obb.cz - r); gz <= this.gz(p.obb.cz + r); gz++) {
+      for (let gx = cellX(p.obb.cx - r); gx <= cellX(p.obb.cx + r); gx += 1) {
+        for (let gz = cellZ(p.obb.cz - r); gz <= cellZ(p.obb.cz + r); gz += 1) {
           const k = gx * 1024 + gz;
           const arr = this.cells.get(k);
-          if (arr) arr.push(p);
-          else this.cells.set(k, [p]);
+          if (arr) {
+            arr.push(p);
+          } else {
+            this.cells.set(k, [p]);
+          }
         }
       }
     }
   }
-  private gx(x: number): number {
-    return Math.floor((x + WORLD_HALF_X) / ROAD_TILE);
-  }
-  private gz(z: number): number {
-    return Math.floor((z + WORLD_HALF_Z) / ROAD_TILE);
-  }
   /** Inside any building's box, dilated by `pad`. */
   inside(x: number, z: number, pad: number): boolean {
-    for (const p of this.cells.get(this.gx(x) * 1024 + this.gz(z)) ?? []) {
+    for (const p of this.cells.get(cellX(x) * 1024 + cellZ(z)) ?? []) {
       const dx = x - p.obb.cx;
       const dz = z - p.obb.cz;
       const a = dx * p.obb.ex + dz * p.obb.ez;
       const b = -dx * p.obb.ez + dz * p.obb.ex;
-      if (Math.abs(a) < p.obb.halfA + pad && Math.abs(b) < p.obb.halfB + pad) return true;
+      if (Math.abs(a) < p.obb.halfA + pad && Math.abs(b) < p.obb.halfB + pad) {
+        return true;
+      }
     }
     return false;
   }
 }
 
-export function parkOnLots(lots: readonly ParcelLot[], plans: readonly ParcelPlan[]): ParkedSpec[] {
+export const parkOnLots = (
+  lots: readonly ParcelLot[],
+  plans: readonly ParcelPlan[],
+): ParkedSpec[] => {
   const out: ParkedSpec[] = [];
   const buildings = new BuildingIndex(plans);
   for (const lot of lots) {
-    const rng = new Rng(lot.seed ^ 0x51ed);
+    // oxlint-disable-next-line no-bitwise -- decorrelates the lot's parking stream from its building seed
+    const rng = new Rng(lot.seed ^ 0x51_ed);
     const o = lot.obb;
     const long = o.halfA >= o.halfB;
     const lx = long ? o.ex : -o.ez;
@@ -475,21 +456,31 @@ export function parkOnLots(lots: readonly ParcelLot[], plans: readonly ParcelPla
     const halfL = long ? o.halfA : o.halfB;
     const halfS = long ? o.halfB : o.halfA;
     const clear = (x: number, z: number, r: number): boolean => {
-      if (!pointInRing(lot.ring, lot.n, x, z)) return false;
-      if (distToRing(lot.ring, lot.n, x, z) < r) return false;
-      if (buildings.inside(x, z, CAR_HALF_LEN)) return false;
+      if (!pointInRing(lot.ring, lot.n, x, z)) {
+        return false;
+      }
+      if (distToRing(lot.ring, lot.n, x, z) < r) {
+        return false;
+      }
+      if (buildings.inside(x, z, CAR_HALF_LEN)) {
+        return false;
+      }
       for (const p of lot.pillars) {
-        if (Math.hypot(p.x - x, p.z - z) < p.half + CAR_HALF_LEN + 0.4) return false;
+        if (Math.hypot(p.x - x, p.z - z) < p.half + CAR_HALF_LEN + 0.4) {
+          return false;
+        }
       }
       return true;
     };
     const place = (x: number, z: number, nx: number, nz: number, r: number): void => {
-      if (!clear(x, z, r) || !rng.chance(0.78)) return;
+      if (!clear(x, z, r) || !rng.chance(0.78)) {
+        return;
+      }
       out.push({
-        x: x + rng.range(-0.1, 0.1),
-        z: z + rng.range(-0.1, 0.1),
-        yaw: Math.atan2(nx, nz) + rng.range(-0.05, 0.05),
         model: rng.pick(TRAFFIC_CARS),
+        x: x + rng.range(-0.1, 0.1),
+        yaw: Math.atan2(nx, nz) + rng.range(-0.05, 0.05),
+        z: z + rng.range(-0.1, 0.1),
       });
     };
     if (halfS * 2 >= 3.4) {
@@ -507,11 +498,45 @@ export function parkOnLots(lots: readonly ParcelLot[], plans: readonly ParcelPla
           );
         }
       }
-    } else if (halfS * 2 >= 2.0) {
+    } else if (halfS * 2 >= 2) {
       for (let a = -halfL + CAR_HALF_LEN + 0.6; a <= halfL - CAR_HALF_LEN - 0.6; a += 3.4) {
         place(o.cx + lx * a, o.cz + lz * a, lx, lz, CAR_HALF_W + 0.1);
       }
     }
   }
   return out;
-}
+};
+
+/**
+ * Meshes for the plan, grouped per stream tile and cull band so the caller
+ * can hand them to the chunk streamer as-is.
+ */
+export const buildParcelFabric = async (
+  plans: readonly ParcelPlan[],
+  lots: readonly ParcelLot[],
+  bands: ParcelBands,
+  detail: DetailLevel,
+  onBreathe?: () => Promise<void>,
+): Promise<ParcelBuild> => {
+  const { geos, stats } = await buildParcelGeometry(plans, detail, onBreathe, lots);
+  const detailDist = bands.detail * liveQuality().detailScale;
+  const groups = new Map<string, ParcelChunk>();
+  for (const g of geos) {
+    const dist = tierDistance(g.tier, bands.imposter, bands.midImposter, detailDist);
+    const key = `${g.cx},${g.cz},${dist}`;
+    let chunk = groups.get(key);
+    if (!chunk) {
+      chunk = { cx: g.cx, cz: g.cz, dist, group: new THREE.Group(), radius: g.radius };
+      chunk.group.name = `parcels-${g.tier}`;
+      groups.set(key, chunk);
+    }
+    const mesh = parcelMeshOf(g);
+    mesh.name = `parcel-${g.tier}-${g.mat}`;
+    // Bodies throw the street shadows; the decals and ledges only catch them.
+    mesh.castShadow = g.tier !== "detail" && (g.mat === "wall" || g.mat === "facade");
+    mesh.receiveShadow = true;
+    mesh.matrixAutoUpdate = false;
+    chunk.group.add(mesh);
+  }
+  return { chunks: [...groups.values()], parkedCars: parkOnLots(lots, plans), stats };
+};

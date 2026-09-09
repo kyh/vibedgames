@@ -6,7 +6,10 @@ import * as THREE from "three";
 
 import type { Player, PlayerMap } from "@vibedgames/multiplayer";
 
-export type RemotePacState = { x: number; z: number };
+export interface RemotePacState {
+  x: number;
+  z: number;
+}
 
 /** One field of the wire player-state dictionary (parsed JSON). */
 type PlayerStateField = NonNullable<Player["state"]>[string] | undefined;
@@ -14,25 +17,41 @@ type PlayerStateField = NonNullable<Player["state"]>[string] | undefined;
 // JSON numbers are always finite, so Number.isFinite is the exact check.
 const isFiniteNumber = (v: PlayerStateField): v is number => Number.isFinite(v);
 
-function readPacState(state: Player["state"]): RemotePacState | null {
-  if (!state) return null;
-  const x = state["x"];
-  const z = state["z"];
-  if (!isFiniteNumber(x) || !isFiniteNumber(z)) return null;
+const readPacState = (state: Player["state"]): RemotePacState | null => {
+  if (!state) {
+    return null;
+  }
+  const { x } = state;
+  const { z } = state;
+  if (!isFiniteNumber(x) || !isFiniteNumber(z)) {
+    return null;
+  }
   return { x, z };
-}
+};
 
-type RemotePac = {
+interface RemotePac {
   group: THREE.Group;
   mat: THREE.MeshStandardMaterial;
   cur: THREE.Vector3;
   target: THREE.Vector3;
   seeded: boolean;
-};
+}
 
 const LERP_RATE = 12;
 const BODY_Y = 0.4;
 
+/* oxlint-disable no-bitwise, unicorn/prefer-code-point -- FNV-1a is defined over
+   UTF-16 code units and 32-bit wraparound; codePointAt or Math.trunc would change
+   the hash, and every peer has to derive the same color from an id. */
+const colorForId = (id: string): THREE.Color => {
+  let h = 2_166_136_261;
+  for (let i = 0; i < id.length; i += 1) {
+    h ^= id.charCodeAt(i);
+    h = Math.imul(h, 16_777_619);
+  }
+  return new THREE.Color().setHSL(((h >>> 0) % 360) / 360, 0.65, 0.6);
+};
+/* oxlint-enable no-bitwise, unicorn/prefer-code-point */
 export class RemotePacs {
   readonly group = new THREE.Group();
   private pacs = new Map<string, RemotePac>();
@@ -46,12 +65,18 @@ export class RemotePacs {
   sync(players: PlayerMap, myId: string | null): void {
     const seen = new Set<string>();
     for (const [id, player] of Object.entries(players)) {
-      if (id === myId) continue;
+      if (id === myId) {
+        continue;
+      }
       const st = readPacState(player.state);
-      if (!st) continue;
+      if (!st) {
+        continue;
+      }
       seen.add(id);
       let pac = this.pacs.get(id);
-      if (!pac) pac = this.spawn(id, st);
+      if (!pac) {
+        pac = this.spawn(id, st);
+      }
       pac.target.set(st.x, BODY_Y, st.z);
     }
     for (const [id, pac] of this.pacs) {
@@ -79,9 +104,9 @@ export class RemotePacs {
   private spawn(id: string, st: RemotePacState): RemotePac {
     const mat = new THREE.MeshStandardMaterial({
       color: colorForId(id),
-      roughness: 0.5,
       emissive: colorForId(id),
       emissiveIntensity: 0.12,
+      roughness: 0.5,
     });
     const body = new THREE.Mesh(this.geo, mat);
     body.castShadow = true;
@@ -89,17 +114,8 @@ export class RemotePacs {
     group.add(body);
     this.group.add(group);
     const cur = new THREE.Vector3(st.x, BODY_Y, st.z);
-    const pac: RemotePac = { group, mat, cur, target: cur.clone(), seeded: true };
+    const pac: RemotePac = { cur, group, mat, seeded: true, target: cur.clone() };
     this.pacs.set(id, pac);
     return pac;
   }
-}
-
-function colorForId(id: string): THREE.Color {
-  let h = 2166136261;
-  for (let i = 0; i < id.length; i++) {
-    h ^= id.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return new THREE.Color().setHSL(((h >>> 0) % 360) / 360, 0.65, 0.6);
 }

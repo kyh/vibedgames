@@ -9,52 +9,43 @@ var crcTable = (() => {
   const table = new Int32Array(256);
   for (let n = 0; n < 256; n += 1) {
     let c = n;
-    for (let k = 0; k < 8; k += 1) c = c & 1 ? 3988292384 ^ c >>> 1 : c >>> 1;
+    for (let k = 0; k < 8; k += 1) {
+      c = c & 1 ? 3988292384 ^ c >>> 1 : c >>> 1;
+    }
     table[n] = c;
   }
   return table;
 })();
 
 // src/asset/json.ts
-function isJsonString(value) {
-  return String(value) === value;
-}
-function isFiniteJsonNumber(value) {
-  return Number.isFinite(value);
-}
+var isJsonString = (value) => String(value) === value;
+var isFiniteJsonNumber = (value) => Number.isFinite(value);
 
 // src/sprite/presets.ts
 var action = (name, defaultFrames, recommendedFrames, fps, timing, loopable, selectionPolicy) => ({
   action: name,
   defaultFrames,
-  recommendedFrames,
   fps,
-  timing,
   loopable,
-  selectionPolicy
+  recommendedFrames,
+  selectionPolicy,
+  timing
 });
 var ACTIONS = {
-  idle: action("idle", 10, [8, 10, 12], 6, "loop", true, "cycle"),
-  hurt: action("hurt", 6, [4, 5, 6, 8], 8, "one_shot", false, "action_window"),
-  jump: action("jump", 6, [6, 8, 10], 8, "transition", false, "full_duration_include_end"),
-  crouch: action("crouch", 6, [5, 6, 8], 8, "hold", true, "hold_pose"),
   attack: action("attack", 8, [6, 8, 10, 12], 10, "one_shot", false, "action_window"),
-  death: action("death", 10, [8, 10, 12], 8, "transition", false, "full_duration_include_end"),
-  walk: action("walk", 8, [8, 10, 12], 10, "loop", true, "cycle"),
-  run: action("run", 8, [8, 10, 12], 12, "loop", true, "cycle"),
-  roll: action("roll", 8, [6, 8, 10], 14, "one_shot", false, "action_window"),
-  dash: action("dash", 6, [5, 6, 8], 14, "one_shot", false, "action_window"),
-  talk: action("talk", 12, [8, 10, 12], 8, "loop", true, "cycle"),
-  interact: action("interact", 10, [8, 10, 12], 8, "one_shot", false, "action_window"),
-  pick_up: action("pick_up", 12, [8, 10, 12], 8, "one_shot", false, "action_window"),
-  use: action("use", 10, [8, 10, 12], 8, "one_shot", false, "action_window"),
-  examine: action("examine", 10, [8, 10, 12], 8, "one_shot", false, "action_window"),
-  give: action("give", 10, [8, 10, 12], 8, "one_shot", false, "action_window"),
-  shrug: action("shrug", 10, [8, 10, 12], 8, "one_shot", false, "action_window"),
-  walk_forward: action("walk_forward", 12, [8, 10, 12], 10, "loop", true, "cycle"),
-  walk_backward: action("walk_backward", 12, [8, 10, 12], 10, "loop", true, "cycle"),
   block_high: action("block_high", 8, [4, 6, 8, 10], 10, "hold", true, "hold_pose"),
   block_low: action("block_low", 8, [4, 6, 8, 10], 10, "hold", true, "hold_pose"),
+  crouch: action("crouch", 6, [5, 6, 8], 8, "hold", true, "hold_pose"),
+  dash: action("dash", 6, [5, 6, 8], 14, "one_shot", false, "action_window"),
+  death: action("death", 10, [8, 10, 12], 8, "transition", false, "full_duration_include_end"),
+  examine: action("examine", 10, [8, 10, 12], 8, "one_shot", false, "action_window"),
+  get_up: action("get_up", 12, [6, 8, 10, 12], 8, "transition", false, "full_duration_include_end"),
+  give: action("give", 10, [8, 10, 12], 8, "one_shot", false, "action_window"),
+  heavy_attack: action("heavy_attack", 12, [6, 8, 10, 12], 10, "one_shot", false, "action_window"),
+  hurt: action("hurt", 6, [4, 5, 6, 8], 8, "one_shot", false, "action_window"),
+  idle: action("idle", 10, [8, 10, 12], 6, "loop", true, "cycle"),
+  interact: action("interact", 10, [8, 10, 12], 8, "one_shot", false, "action_window"),
+  jump: action("jump", 6, [6, 8, 10], 8, "transition", false, "full_duration_include_end"),
   knockdown: action(
     "knockdown",
     12,
@@ -64,9 +55,16 @@ var ACTIONS = {
     false,
     "full_duration_include_end"
   ),
-  get_up: action("get_up", 12, [6, 8, 10, 12], 8, "transition", false, "full_duration_include_end"),
   light_attack: action("light_attack", 8, [6, 8, 10, 12], 12, "one_shot", false, "action_window"),
-  heavy_attack: action("heavy_attack", 12, [6, 8, 10, 12], 10, "one_shot", false, "action_window")
+  pick_up: action("pick_up", 12, [8, 10, 12], 8, "one_shot", false, "action_window"),
+  roll: action("roll", 8, [6, 8, 10], 14, "one_shot", false, "action_window"),
+  run: action("run", 8, [8, 10, 12], 12, "loop", true, "cycle"),
+  shrug: action("shrug", 10, [8, 10, 12], 8, "one_shot", false, "action_window"),
+  talk: action("talk", 12, [8, 10, 12], 8, "loop", true, "cycle"),
+  use: action("use", 10, [8, 10, 12], 8, "one_shot", false, "action_window"),
+  walk: action("walk", 8, [8, 10, 12], 10, "loop", true, "cycle"),
+  walk_backward: action("walk_backward", 12, [8, 10, 12], 10, "loop", true, "cycle"),
+  walk_forward: action("walk_forward", 12, [8, 10, 12], 10, "loop", true, "cycle")
 };
 
 // src/skill/frontmatter.ts
@@ -76,41 +74,57 @@ var FrontmatterError = class extends Error {
     this.name = "FrontmatterError";
   }
 };
-function stripComment(line) {
+var stripComment = (line) => {
   let quote = null;
   for (let i = 0; i < line.length; i += 1) {
-    const ch = line[i];
+    const ch = line.charAt(i);
     if (quote) {
-      if (ch === quote) quote = null;
+      if (ch === quote) {
+        quote = null;
+      }
     } else if (ch === '"' || ch === "'") {
       quote = ch;
-    } else if (ch === "#" && (i === 0 || /\s/.test(line[i - 1]))) {
+    } else if (ch === "#" && (i === 0 || /\s/u.test(line.charAt(i - 1)))) {
       return line.slice(0, i);
     }
   }
   return line;
-}
-function parseScalar(raw) {
+};
+var parseScalar = (raw) => {
   const text = raw.trim();
-  if (text === "") return "";
+  if (text === "") {
+    return "";
+  }
   if (text.startsWith('"') && text.endsWith('"') && text.length >= 2 || text.startsWith("'") && text.endsWith("'") && text.length >= 2) {
     const body = text.slice(1, -1);
     return text[0] === '"' ? body.replaceAll(String.raw`\"`, '"').replaceAll("\\n", "\n") : body;
   }
   if (text.startsWith("[") && text.endsWith("]")) {
     const inner = text.slice(1, -1).trim();
-    if (!inner) return [];
+    if (!inner) {
+      return [];
+    }
     return inner.split(",").map((item) => parseScalar(item));
   }
-  if (text === "true") return true;
-  if (text === "false") return false;
-  if (text === "null" || text === "~") return null;
-  if (/^-?\d+$/.test(text)) return Number.parseInt(text, 10);
-  if (/^-?\d*\.\d+$/.test(text)) return Number.parseFloat(text);
+  if (text === "true") {
+    return true;
+  }
+  if (text === "false") {
+    return false;
+  }
+  if (text === "null" || text === "~") {
+    return null;
+  }
+  if (/^-?\d+$/u.test(text)) {
+    return Math.trunc(Number(text));
+  }
+  if (/^-?\d*\.\d+$/u.test(text)) {
+    return Number(text);
+  }
   return text;
-}
-function joinBlockScalar(lines, style) {
-  const indent = lines.find((l) => l.trim())?.match(/^\s*/)?.[0].length ?? 0;
+};
+var joinBlockScalar = (lines, style) => {
+  const indent = lines.find((l) => l.trim())?.match(/^\s*/u)?.[0].length ?? 0;
   const stripped = lines.map((l) => l.slice(indent));
   const literal = style.startsWith("|");
   let text = "";
@@ -118,52 +132,75 @@ function joinBlockScalar(lines, style) {
     text = stripped.join("\n");
   } else {
     for (const [i, line] of stripped.entries()) {
-      if (i === 0) text = line;
-      else if (line.trim() === "" || stripped[i - 1].trim() === "") text += `
+      if (i === 0) {
+        text = line;
+      } else if (line.trim() === "" || (stripped[i - 1] ?? "").trim() === "") {
+        text += `
 ${line}`;
-      else text += ` ${line}`;
+      } else {
+        text += ` ${line}`;
+      }
     }
   }
-  text = text.replace(/\s+$/, "");
+  text = text.replace(/\s+$/u, "");
   return style.endsWith("-") ? text : `${text}
 `;
-}
-function parseFrontmatter(text) {
+};
+var NESTED_LINE_RE = /^\s+(?<key>[^:]+):\s*(?<value>.*)$/u;
+var LINE_RE = /^(?<key>[^:]+):\s*(?<value>.*)$/u;
+var BLOCK_SCALAR_RE = /^(?<style>[|>])(?<chomp>[+-]?)$/u;
+var splitKeyValue = (re, line) => {
+  const groups = re.exec(line)?.groups;
+  if (!groups) {
+    return null;
+  }
+  return { key: (groups.key ?? "").trim(), value: groups.value ?? "" };
+};
+var parseFrontmatter = (text) => {
   const out = {};
   let currentKey = null;
   let nested = null;
   const rawLines = text.split("\n");
   for (let i = 0; i < rawLines.length; i += 1) {
-    const rawLine = rawLines[i];
+    const rawLine = rawLines[i] ?? "";
     const line = stripComment(rawLine);
-    if (!line.trim()) continue;
-    const indented = /^\s/.test(line);
+    if (!line.trim()) {
+      continue;
+    }
+    const indented = /^\s/u.test(line);
     if (indented) {
       if (!nested || currentKey === null) {
         throw new FrontmatterError(`unexpected indented line: ${rawLine.trim()}`);
       }
-      const match2 = /^\s+([^:]+):\s*(.*)$/.exec(line);
-      if (!match2) throw new FrontmatterError(`could not parse nested line: ${rawLine.trim()}`);
-      nested[match2[1].trim()] = parseScalar(match2[2]);
+      const pair2 = splitKeyValue(NESTED_LINE_RE, line);
+      if (!pair2) {
+        throw new FrontmatterError(`could not parse nested line: ${rawLine.trim()}`);
+      }
+      nested[pair2.key] = parseScalar(pair2.value);
       continue;
     }
-    const match = /^([^:]+):\s*(.*)$/.exec(line);
-    if (!match) throw new FrontmatterError(`could not parse line: ${rawLine.trim()}`);
-    const key = match[1].trim();
-    const value = match[2];
-    const block = /^([|>])([+-]?)$/.exec(value.trim());
+    const pair = splitKeyValue(LINE_RE, line);
+    if (!pair) {
+      throw new FrontmatterError(`could not parse line: ${rawLine.trim()}`);
+    }
+    const { key, value } = pair;
+    const block = BLOCK_SCALAR_RE.exec(value.trim())?.groups;
     if (block) {
       const body = [];
-      while (i + 1 < rawLines.length) {
+      for (; ; ) {
         const next = rawLines[i + 1];
-        if (next.trim() !== "" && !/^\s/.test(next)) break;
+        if (next === void 0 || next.trim() !== "" && !/^\s/u.test(next)) {
+          break;
+        }
         body.push(next);
         i += 1;
       }
-      while (body.length > 0 && body[body.length - 1].trim() === "") body.pop();
+      while (body.at(-1)?.trim() === "") {
+        body.pop();
+      }
       currentKey = null;
       nested = null;
-      out[key] = joinBlockScalar(body, block[1] + block[2]);
+      out[key] = joinBlockScalar(body, `${block.style ?? ""}${block.chomp ?? ""}`);
       continue;
     }
     if (value.trim() === "") {
@@ -177,16 +214,12 @@ function parseFrontmatter(text) {
     }
   }
   return out;
-}
+};
 
 // src/skill/analyze.ts
-function countMatches(text, pattern) {
-  return [...text.matchAll(pattern)].length;
-}
-function keywordsFound(bodyLower, keywords) {
-  return keywords.filter((keyword) => bodyLower.includes(keyword));
-}
-function checkPhilosophy(body) {
+var countMatches = (text, pattern) => [...text.matchAll(pattern)].length;
+var keywordsFound = (bodyLower, keywords) => keywords.filter((keyword) => bodyLower.includes(keyword));
+var checkPhilosophy = (body) => {
   let score = 0;
   const feedback = [];
   const found = keywordsFound(body.toLowerCase(), [
@@ -210,7 +243,7 @@ function checkPhilosophy(body) {
   } else {
     feedback.push("\u274C No clear philosophical foundation detected");
   }
-  const questions = countMatches(body, /\?[^\n]*/g);
+  const questions = countMatches(body, /\?[^\n]*/gu);
   if (questions >= 3) {
     score += 10;
     feedback.push(`\u2705 Contains ${questions} guiding questions`);
@@ -218,9 +251,9 @@ function checkPhilosophy(body) {
     score += 5;
     feedback.push(`\u26A0\uFE0F  Contains ${questions} guiding question(s)`);
   }
-  return { category: "Philosophy", score, feedback };
-}
-function checkAntiPatterns(body) {
+  return { category: "Philosophy", feedback, score };
+};
+var checkAntiPatterns = (body) => {
   let score = 0;
   const feedback = [];
   const found = keywordsFound(body.toLowerCase(), [
@@ -244,14 +277,14 @@ function checkAntiPatterns(body) {
   } else {
     feedback.push("\u274C No explicit anti-pattern warnings");
   }
-  const strong = countMatches(body, /\b(NEVER|DO NOT|DON'T)\b/g);
+  const strong = countMatches(body, /\b(?:NEVER|DO NOT|DON'T)\b/gu);
   if (strong > 0) {
     score += 10;
     feedback.push(`\u2705 Contains ${strong} strong warning(s)`);
   }
-  return { category: "Anti-Patterns", score, feedback };
-}
-function checkVariation(body) {
+  return { category: "Anti-Patterns", feedback, score };
+};
+var checkVariation = (body) => {
   let score = 0;
   const feedback = [];
   const bodyLower = body.toLowerCase();
@@ -278,18 +311,18 @@ function checkVariation(body) {
   }
   const templateWarnings = countMatches(
     bodyLower,
-    /(template|repetitive|generic|cookie-cutter|converge)/g
+    /(?:template|repetitive|generic|cookie-cutter|converge)/gu
   );
   if (templateWarnings > 0) {
     score += 10;
     feedback.push(`\u2705 Warns against generic patterns (${templateWarnings} mentions)`);
   }
-  return { category: "Variation", score, feedback };
-}
-function checkOrganization(body) {
+  return { category: "Variation", feedback, score };
+};
+var checkOrganization = (body) => {
   let score = 0;
   const feedback = [];
-  const headers = countMatches(body, /^#+\s+(.+)$/gm);
+  const headers = countMatches(body, /^#+\s+.+$/gmu);
   if (headers >= 5) {
     score += 10;
     feedback.push(`\u2705 Well-structured with ${headers} sections`);
@@ -299,14 +332,14 @@ function checkOrganization(body) {
   } else {
     feedback.push("\u274C Lacks clear organization");
   }
-  const lists = countMatches(body, /^\s*[-*]\s+/gm);
+  const lists = countMatches(body, /^\s*[-*]\s+/gmu);
   if (lists >= 10) {
     score += 5;
     feedback.push(`\u2705 Contains ${lists} list items (actionable)`);
   }
-  return { category: "Organization", score, feedback };
-}
-function checkEmpowerment(body) {
+  return { category: "Organization", feedback, score };
+};
+var checkEmpowerment = (body) => {
   let score = 0;
   const feedback = [];
   const bodyLower = body.toLowerCase();
@@ -333,12 +366,12 @@ function checkEmpowerment(body) {
     score -= 5;
     feedback.push(`\u26A0\uFE0F  Many rigid constraints (${constraints.length} instances)`);
   }
-  return { category: "Empowerment", score, feedback };
-}
-function analyzeSkillBody(frontmatter, body) {
+  return { category: "Empowerment", feedback, score };
+};
+var analyzeSkillBody = (frontmatter, body) => {
   const description = isJsonString(frontmatter.description) ? frontmatter.description : "";
   const categories = [
-    description.length > 50 ? { category: "Description", score: 5, feedback: ["\u2705 Comprehensive description"] } : { category: "Description", score: 0, feedback: ["\u274C Description too brief"] },
+    description.length > 50 ? { category: "Description", feedback: ["\u2705 Comprehensive description"], score: 5 } : { category: "Description", feedback: ["\u274C Description too brief"], score: 0 },
     checkPhilosophy(body),
     checkAntiPatterns(body),
     checkVariation(body),
@@ -346,96 +379,96 @@ function analyzeSkillBody(frontmatter, body) {
     checkEmpowerment(body)
   ];
   return {
+    categories,
     name: isJsonString(frontmatter.name) ? frontmatter.name : "unknown",
-    totalScore: categories.reduce((sum, c) => sum + c.score, 0),
-    categories
+    totalScore: categories.reduce((sum, c) => sum + c.score, 0)
   };
-}
+};
 
 // src/skill/upgrade.ts
-function generateSuggestions(frontmatter, body) {
+var generateSuggestions = (frontmatter, body) => {
   const suggestions = [];
   const bodyLower = body.toLowerCase();
   if (!bodyLower.includes("philosophy") && !bodyLower.includes("principle")) {
     suggestions.push({
       category: "Philosophy",
-      priority: "HIGH",
-      suggestion: "Add a philosophy or principles section",
       example: `## Core Philosophy
 
 Before diving into procedures, understand the fundamental approach:
 - What is the underlying philosophy guiding this domain?
 - What questions should be asked before taking action?
-- What mental model helps make better decisions?`
+- What mental model helps make better decisions?`,
+      priority: "HIGH",
+      suggestion: "Add a philosophy or principles section"
     });
   }
   if (!bodyLower.includes("anti-pattern") && !bodyLower.slice(0, 500).includes("avoid")) {
     suggestions.push({
       category: "Anti-Patterns",
-      priority: "HIGH",
-      suggestion: 'Add anti-patterns or "what to avoid" section',
       example: `## Anti-Patterns to Avoid
 
 Common mistakes when [doing this task]:
 - \u274C **Template trap**: Using rigid templates that constrain creativity
 - \u274C **Context blindness**: Applying same approach regardless of situation
-- \u274C **Over-specification**: Adding unnecessary constraints`
+- \u274C **Over-specification**: Adding unnecessary constraints`,
+      priority: "HIGH",
+      suggestion: 'Add anti-patterns or "what to avoid" section'
     });
   }
   if (!bodyLower.includes("vary") && !bodyLower.includes("different")) {
     suggestions.push({
       category: "Variation",
-      priority: "MEDIUM",
-      suggestion: "Add explicit variation encouragement",
       example: `## Encouraging Variation
 
 **IMPORTANT**: Outputs should vary based on context. Avoid converging on "favorite" patterns:
 - Adapt to the specific use case
 - Consider different approaches for different scenarios
-- No two outputs should be identical unless requirements are identical`
+- No two outputs should be identical unless requirements are identical`,
+      priority: "MEDIUM",
+      suggestion: "Add explicit variation encouragement"
     });
   }
   if (!bodyLower.includes("extraordinary") && !bodyLower.includes("capable")) {
     suggestions.push({
       category: "Empowerment",
-      priority: "LOW",
-      suggestion: "Add empowering conclusion",
       example: `## Remember
 
-Claude is capable of extraordinary work in this domain. These guidelines unlock that potential\u2014they don't constrain it. Use judgment, adapt to context, and push boundaries when appropriate.`
+Claude is capable of extraordinary work in this domain. These guidelines unlock that potential\u2014they don't constrain it. Use judgment, adapt to context, and push boundaries when appropriate.`,
+      priority: "LOW",
+      suggestion: "Add empowering conclusion"
     });
   }
   const description = isJsonString(frontmatter.description) ? frontmatter.description : "";
   if (description.length < 100) {
     suggestions.push({
       category: "Description",
-      priority: "HIGH",
-      suggestion: "Expand the description field in frontmatter",
       example: `Current: ${description}
 
-Suggested: Add more detail about when to use this skill, what triggers it, and what tasks it helps with. Aim for 100-200 characters with specific use cases.`
+Suggested: Add more detail about when to use this skill, what triggers it, and what tasks it helps with. Aim for 100-200 characters with specific use cases.`,
+      priority: "HIGH",
+      suggestion: "Expand the description field in frontmatter"
     });
   }
   const sectionCount = body.split("\n##").length - 1;
   if (sectionCount < 3) {
     suggestions.push({
       category: "Organization",
-      priority: "MEDIUM",
-      suggestion: "Add more section headers for better organization",
       example: `Organize the skill into clear sections:
 ## Philosophy/Principles
 ## Core Guidelines
 ## Anti-Patterns
 ## Examples (optional)
-## Advanced Topics (optional)`
+## Advanced Topics (optional)`,
+      priority: "MEDIUM",
+      suggestion: "Add more section headers for better organization"
     });
   }
   return suggestions;
-}
+};
 
 // src/skill/init.ts
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import path from "node:path";
 
 // src/skill/templates.ts
 var SKILL_TEMPLATE = (skillName, skillTitle) => `---
@@ -605,11 +638,9 @@ main();
 `;
 
 // src/skill/init.ts
-function titleCaseSkillName(skillName) {
-  return skillName.split("-").map((word) => word ? word[0].toUpperCase() + word.slice(1).toLowerCase() : word).join(" ");
-}
-function initSkill(skillName, path, log) {
-  const skillDir = join(resolve(path), skillName);
+var titleCaseSkillName = (skillName) => skillName.split("-").map((word) => word ? word.charAt(0).toUpperCase() + word.slice(1).toLowerCase() : word).join(" ");
+var initSkill = (skillName, parentDir, log) => {
+  const skillDir = path.join(path.resolve(parentDir), skillName);
   if (existsSync(skillDir)) {
     log(`\u274C Error: Skill directory already exists: ${skillDir}`);
     return null;
@@ -624,7 +655,7 @@ function initSkill(skillName, path, log) {
   }
   const skillTitle = titleCaseSkillName(skillName);
   try {
-    writeFileSync(join(skillDir, "SKILL.md"), SKILL_TEMPLATE(skillName, skillTitle));
+    writeFileSync(path.join(skillDir, "SKILL.md"), SKILL_TEMPLATE(skillName, skillTitle));
     log("\u2705 Created SKILL.md");
     created.push("SKILL.md");
   } catch (error) {
@@ -632,21 +663,21 @@ function initSkill(skillName, path, log) {
     return null;
   }
   try {
-    const scriptsDir = join(skillDir, "scripts");
+    const scriptsDir = path.join(skillDir, "scripts");
     mkdirSync(scriptsDir, { recursive: true });
-    const scriptPath = join(scriptsDir, "example.mjs");
+    const scriptPath = path.join(scriptsDir, "example.mjs");
     writeFileSync(scriptPath, EXAMPLE_SCRIPT(skillName));
     chmodSync(scriptPath, 493);
     log("\u2705 Created scripts/example.mjs");
     created.push("scripts/example.mjs");
-    const referencesDir = join(skillDir, "references");
+    const referencesDir = path.join(skillDir, "references");
     mkdirSync(referencesDir, { recursive: true });
-    writeFileSync(join(referencesDir, "api_reference.md"), EXAMPLE_REFERENCE(skillTitle));
+    writeFileSync(path.join(referencesDir, "api_reference.md"), EXAMPLE_REFERENCE(skillTitle));
     log("\u2705 Created references/api_reference.md");
     created.push("references/api_reference.md");
-    const assetsDir = join(skillDir, "assets");
+    const assetsDir = path.join(skillDir, "assets");
     mkdirSync(assetsDir, { recursive: true });
-    writeFileSync(join(assetsDir, "example_asset.txt"), EXAMPLE_ASSET);
+    writeFileSync(path.join(assetsDir, "example_asset.txt"), EXAMPLE_ASSET);
     log("\u2705 Created assets/example_asset.txt");
     created.push("assets/example_asset.txt");
   } catch (error) {
@@ -655,8 +686,8 @@ function initSkill(skillName, path, log) {
     );
     return null;
   }
-  return { dir: skillDir, created };
-}
+  return { created, dir: skillDir };
+};
 
 // src/skill/normalize-factory.ts
 var MARKER = "// @ts-nocheck";
@@ -668,7 +699,7 @@ var HEADER = `${MARKER}
 
 // src/skill/validate.ts
 import { existsSync as existsSync2, readFileSync } from "node:fs";
-import { join as join2 } from "node:path";
+import path2 from "node:path";
 var ALLOWED_PROPERTIES = [
   "name",
   "description",
@@ -677,103 +708,132 @@ var ALLOWED_PROPERTIES = [
   "compatibility",
   "metadata"
 ];
-function validateSkill(skillPath) {
-  const skillMd = join2(skillPath, "SKILL.md");
-  if (!existsSync2(skillMd)) return { valid: false, message: "SKILL.md not found" };
-  const content = readFileSync(skillMd, "utf8");
-  if (!content.startsWith("---")) {
-    return { valid: false, message: "No YAML frontmatter found" };
+var typeName = (value) => {
+  if (value === null) {
+    return "NoneType";
   }
-  const match = /^---\n([\s\S]*?)\n---/.exec(content);
-  if (!match) return { valid: false, message: "Invalid frontmatter format" };
-  const frontmatterText = match[1];
-  if (/^description:\s*[>|]-?\s*$/m.test(frontmatterText)) {
-    return {
-      valid: false,
-      message: "Description must use an inline string value, not YAML folded/literal scalar (`>` or `|`)."
-    };
+  if (Array.isArray(value)) {
+    return "list";
   }
+  if (isJsonString(value)) {
+    return "str";
+  }
+  if (value === true || value === false) {
+    return "bool";
+  }
+  if (isFiniteJsonNumber(value)) {
+    return Number.isInteger(value) ? "int" : "float";
+  }
+  return "dict";
+};
+var UNQUOTED_VALUE_RE = /^(?<key>[a-z-]+):\s+(?!["'|>])(?<value>.*)$/iu;
+var findUnquotedColon = (frontmatterText) => {
   for (const line of frontmatterText.split("\n")) {
-    const match2 = /^([a-z-]+):\s+(?!["'|>])(.*)$/i.exec(line);
-    if (match2 && match2[2].includes(": ")) {
+    const groups = UNQUOTED_VALUE_RE.exec(line)?.groups;
+    if (groups?.value?.includes(": ")) {
       return {
-        valid: false,
-        message: `\`${match2[1]}\` contains ": " but is not quoted, which strict YAML reads as a nested mapping \u2014 the installer will skip this skill. Wrap the value in quotes.`
+        message: `\`${groups.key}\` contains ": " but is not quoted, which strict YAML reads as a nested mapping \u2014 the installer will skip this skill. Wrap the value in quotes.`,
+        valid: false
       };
     }
+  }
+  return null;
+};
+var validateName = (rawName) => {
+  if (!isJsonString(rawName)) {
+    return { message: `Name must be a string, got ${typeName(rawName)}`, valid: false };
+  }
+  const name = rawName.trim();
+  if (!name) {
+    return null;
+  }
+  if (!/^[a-z0-9-]+$/u.test(name)) {
+    return {
+      message: `Name '${name}' should be hyphen-case (lowercase letters, digits, and hyphens only)`,
+      valid: false
+    };
+  }
+  if (name.startsWith("-") || name.endsWith("-") || name.includes("--")) {
+    return {
+      message: `Name '${name}' cannot start/end with hyphen or contain consecutive hyphens`,
+      valid: false
+    };
+  }
+  if (name.length > 64) {
+    return {
+      message: `Name is too long (${name.length} characters). Maximum is 64 characters.`,
+      valid: false
+    };
+  }
+  return null;
+};
+var validateDescription = (rawDescription) => {
+  if (!isJsonString(rawDescription)) {
+    return {
+      message: `Description must be a string, got ${typeName(rawDescription)}`,
+      valid: false
+    };
+  }
+  const description = rawDescription.trim();
+  if (!description) {
+    return null;
+  }
+  if (description.includes("<") || description.includes(">")) {
+    return { message: "Description cannot contain angle brackets (< or >)", valid: false };
+  }
+  if (description.length > 1024) {
+    return {
+      message: `Description is too long (${description.length} characters). Maximum is 1024 characters.`,
+      valid: false
+    };
+  }
+  return null;
+};
+var validateSkill = (skillPath) => {
+  const skillMd = path2.join(skillPath, "SKILL.md");
+  if (!existsSync2(skillMd)) {
+    return { message: "SKILL.md not found", valid: false };
+  }
+  const content = readFileSync(skillMd, "utf-8");
+  if (!content.startsWith("---")) {
+    return { message: "No YAML frontmatter found", valid: false };
+  }
+  const frontmatterText = /^---\n(?<front>[\s\S]*?)\n---/u.exec(content)?.groups?.front;
+  if (frontmatterText === void 0) {
+    return { message: "Invalid frontmatter format", valid: false };
+  }
+  if (/^description:\s*[>|]-?\s*$/mu.test(frontmatterText)) {
+    return {
+      message: "Description must use an inline string value, not YAML folded/literal scalar (`>` or `|`).",
+      valid: false
+    };
+  }
+  const unquoted = findUnquotedColon(frontmatterText);
+  if (unquoted) {
+    return unquoted;
   }
   let frontmatter;
   try {
     frontmatter = parseFrontmatter(frontmatterText);
   } catch (error) {
     const detail = error instanceof FrontmatterError ? error.message : String(error);
-    return { valid: false, message: `Invalid YAML in frontmatter: ${detail}` };
+    return { message: `Invalid YAML in frontmatter: ${detail}`, valid: false };
   }
-  const unexpected = Object.keys(frontmatter).filter((key) => !ALLOWED_PROPERTIES.includes(key)).sort();
+  const unexpected = Object.keys(frontmatter).filter((key) => !ALLOWED_PROPERTIES.includes(key)).toSorted();
   if (unexpected.length > 0) {
     return {
-      valid: false,
-      message: `Unexpected key(s) in SKILL.md frontmatter: ${unexpected.join(", ")}. Allowed properties are: ${[...ALLOWED_PROPERTIES].sort().join(", ")}`
+      message: `Unexpected key(s) in SKILL.md frontmatter: ${unexpected.join(", ")}. Allowed properties are: ${[...ALLOWED_PROPERTIES].toSorted().join(", ")}`,
+      valid: false
     };
   }
-  if (!("name" in frontmatter)) return { valid: false, message: "Missing 'name' in frontmatter" };
+  if (!("name" in frontmatter)) {
+    return { message: "Missing 'name' in frontmatter", valid: false };
+  }
   if (!("description" in frontmatter)) {
-    return { valid: false, message: "Missing 'description' in frontmatter" };
+    return { message: "Missing 'description' in frontmatter", valid: false };
   }
-  const rawName = frontmatter.name;
-  if (!isJsonString(rawName)) {
-    return { valid: false, message: `Name must be a string, got ${typeName(rawName)}` };
-  }
-  const name = rawName.trim();
-  if (name) {
-    if (!/^[a-z0-9-]+$/.test(name)) {
-      return {
-        valid: false,
-        message: `Name '${name}' should be hyphen-case (lowercase letters, digits, and hyphens only)`
-      };
-    }
-    if (name.startsWith("-") || name.endsWith("-") || name.includes("--")) {
-      return {
-        valid: false,
-        message: `Name '${name}' cannot start/end with hyphen or contain consecutive hyphens`
-      };
-    }
-    if (name.length > 64) {
-      return {
-        valid: false,
-        message: `Name is too long (${name.length} characters). Maximum is 64 characters.`
-      };
-    }
-  }
-  const rawDescription = frontmatter.description;
-  if (!isJsonString(rawDescription)) {
-    return {
-      valid: false,
-      message: `Description must be a string, got ${typeName(rawDescription)}`
-    };
-  }
-  const description = rawDescription.trim();
-  if (description) {
-    if (description.includes("<") || description.includes(">")) {
-      return { valid: false, message: "Description cannot contain angle brackets (< or >)" };
-    }
-    if (description.length > 1024) {
-      return {
-        valid: false,
-        message: `Description is too long (${description.length} characters). Maximum is 1024 characters.`
-      };
-    }
-  }
-  return { valid: true, message: "Skill is valid!" };
-}
-function typeName(value) {
-  if (value === null) return "NoneType";
-  if (Array.isArray(value)) return "list";
-  if (isJsonString(value)) return "str";
-  if (value === true || value === false) return "bool";
-  if (isFiniteJsonNumber(value)) return Number.isInteger(value) ? "int" : "float";
-  return "dict";
-}
+  return validateName(frontmatter.name) ?? validateDescription(frontmatter.description) ?? { message: "Skill is valid!", valid: true };
+};
 
 // src/skill/zip.ts
 import { deflateRawSync } from "node:zlib";
@@ -781,28 +841,32 @@ var crcTable2 = (() => {
   const table = new Int32Array(256);
   for (let n = 0; n < 256; n += 1) {
     let c = n;
-    for (let k = 0; k < 8; k += 1) c = c & 1 ? 3988292384 ^ c >>> 1 : c >>> 1;
+    for (let k = 0; k < 8; k += 1) {
+      c = c & 1 ? 3988292384 ^ c >>> 1 : c >>> 1;
+    }
     table[n] = c;
   }
   return table;
 })();
-function crc32(bytes) {
+var crc32 = (bytes) => {
   let c = 4294967295;
-  for (let i = 0; i < bytes.length; i += 1) c = crcTable2[(c ^ bytes[i]) & 255] ^ c >>> 8;
+  for (const byte of bytes) {
+    c = (crcTable2[(c ^ byte) & 255] ?? 0) ^ c >>> 8;
+  }
   return (c ^ 4294967295) >>> 0;
-}
-function dosDateTime(date) {
+};
+var dosDateTime = (date) => {
   const time = Math.floor(date.getSeconds() / 2) & 31 | (date.getMinutes() & 63) << 5 | (date.getHours() & 31) << 11;
   const day = date.getDate() & 31 | (date.getMonth() + 1 & 15) << 5 | (Math.max(0, date.getFullYear() - 1980) & 127) << 9;
-  return { time, date: day };
-}
+  return { date: day, time };
+};
 var FLAG_UTF8 = 2048;
-function createZip(entries) {
+var createZip = (entries) => {
   const locals = [];
   const central = [];
   let offset = 0;
   for (const entry of entries) {
-    const nameBytes = Buffer.from(entry.name, "utf8");
+    const nameBytes = Buffer.from(entry.name, "utf-8");
     const crc = crc32(entry.data);
     const deflated = deflateRawSync(entry.data, { level: 9 });
     const useDeflate = deflated.length < entry.data.length;
@@ -854,7 +918,7 @@ function createZip(entries) {
   end.writeUInt32LE(offset, 16);
   end.writeUInt16LE(0, 20);
   return Buffer.concat([...locals, centralBuffer, end]);
-}
+};
 export {
   analyzeSkillBody,
   createZip,

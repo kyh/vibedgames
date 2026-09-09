@@ -3,7 +3,6 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { RequestPasswordResetForm } from "@/components/auth/auth-form";
 
 export const Route = createFileRoute("/auth/password-reset")({
-  head: () => ({ meta: [{ title: "Reset Password" }] }),
   component: () => (
     <div className="mx-auto flex w-full flex-col justify-center space-y-6 sm:w-[350px]">
       <div className="flex flex-col gap-2 text-center">
@@ -18,4 +17,5 @@ export const Route = createFileRoute("/auth/password-reset")({
       </p>
     </div>
   ),
+  head: () => ({ meta: [{ title: "Reset Password" }] }),
 });

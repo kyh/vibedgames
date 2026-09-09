@@ -19,6 +19,7 @@ import type { DrawingUtils, GestureRecognizer } from "@mediapipe/tasks-vision";
 
 import { CLICK_DRAG_TOLERANCE_PX } from "../shared/constants";
 import { COARSE_INPUT } from "../shared/input-mode";
+import type * as TasksVision from "@mediapipe/tasks-vision";
 
 const WASM_BASE = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm";
 const MODEL_URL =
@@ -28,11 +29,11 @@ const MODEL_URL =
  *  camera; `live` — a feed is running; `error` — unavailable on this device. */
 export type HandCameraState = "off" | "loading" | "live" | "error";
 
-export type HandCamera = {
+export interface HandCamera {
   /** Start tracking. Idempotent — ignored once loading or live. */
-  enable(): void;
-  stop(): void;
-};
+  enable: () => void;
+  stop: () => void;
+}
 
 // One panel per page, so the state a control surface asks about is module
 // state: instruction copy is rendered from anywhere (banner, pause card) and
@@ -40,23 +41,24 @@ export type HandCamera = {
 let state: HandCameraState = "off";
 const watchers = new Set<(state: HandCameraState) => void>();
 
-export function handCameraState(): HandCameraState {
-  return state;
-}
+export const handCameraState = (): HandCameraState => state;
 
 /** Fires when tracking becomes available or unavailable, so instruction
  *  surfaces can stop advertising ✋/✊ on a device where they do nothing. */
-export function watchHandCamera(onChange: (state: HandCameraState) => void): () => void {
+export const watchHandCamera = (onChange: (state: HandCameraState) => void): (() => void) => {
   watchers.add(onChange);
   return () => {
     watchers.delete(onChange);
   };
-}
+};
 
 // A held fist should confirm once, not re-fire every recognition frame.
 const FIST_COOLDOWN_MS = 800;
 
-export function createHandCamera(onWristX: (x: number) => void, onFist?: () => void): HandCamera {
+export const createHandCamera = (
+  onWristX: (x: number) => void,
+  onFist?: () => void,
+): HandCamera => {
   // ---- panel DOM (styles in index.html) -----------------------------------
   const panel = document.createElement("div");
   panel.id = "camera-panel";
@@ -75,17 +77,21 @@ export function createHandCamera(onWristX: (x: number) => void, onFist?: () => v
   panel.append(video, canvas, status);
   panel.setAttribute("role", "button");
   panel.setAttribute("aria-label", "turn on hand control");
-  document.body.appendChild(panel);
+  document.body.append(panel);
 
   const setState = (next: HandCameraState): void => {
-    if (next === state) return;
+    if (next === state) {
+      return;
+    }
     state = next;
     panel.dataset.state = next;
     panel.setAttribute(
       "aria-label",
       next === "off" ? "turn on hand control" : "toggle hand-control camera panel",
     );
-    for (const watcher of watchers) watcher(next);
+    for (const watcher of watchers) {
+      watcher(next);
+    }
   };
 
   // The panel sits over the court, whose only touch control is a drag on the
@@ -95,25 +101,6 @@ export function createHandCamera(onWristX: (x: number) => void, onFist?: () => v
   for (const type of ["pointerdown", "pointerup"] as const) {
     panel.addEventListener(type, (e) => e.stopPropagation());
   }
-  // Tap turns tracking on, then toggles between the live feed and a compact
-  // "HAND CONTROL" pill. Tracking keeps running while minimized; only the
-  // preview is hidden. A drag that merely crosses the panel is not a tap.
-  let downAt: { x: number; y: number } | null = null;
-  panel.addEventListener("pointerdown", (e) => {
-    downAt = { x: e.clientX, y: e.clientY };
-  });
-  panel.addEventListener("pointerup", (e) => {
-    const from = downAt;
-    downAt = null;
-    if (from === null) return;
-    if (Math.hypot(e.clientX - from.x, e.clientY - from.y) > CLICK_DRAG_TOLERANCE_PX) return;
-    if (state === "off") {
-      enable();
-      return;
-    }
-    panel.dataset.min = panel.dataset.min === "1" ? "0" : "1";
-  });
-
   let stopped = false;
   let rafId: number | null = null;
   let stream: MediaStream | null = null;
@@ -123,7 +110,7 @@ export function createHandCamera(onWristX: (x: number) => void, onFist?: () => v
   // reused every frame — no per-frame getContext / DrawingUtils churn.
   let ctx: CanvasRenderingContext2D | null = null;
   let drawingUtils: DrawingUtils | null = null;
-  let vision: typeof import("@mediapipe/tasks-vision") | null = null;
+  let vision: typeof TasksVision | null = null;
 
   const fail = (cause: unknown): void => {
     console.error("Error starting hand tracking:", cause);
@@ -145,7 +132,9 @@ export function createHandCamera(onWristX: (x: number) => void, onFist?: () => v
   const recognizeEvery = COARSE_INPUT ? 2 : 1;
   let videoFrame = 0;
   const predictWebcam = (): void => {
-    if (stopped) return;
+    if (stopped) {
+      return;
+    }
     if (!videoPlaying || !recognizer || !ctx || !drawingUtils || !vision) {
       rafId = requestAnimationFrame(predictWebcam);
       return;
@@ -168,7 +157,7 @@ export function createHandCamera(onWristX: (x: number) => void, onFist?: () => v
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       // numHands is 1, so the first hand is the only hand.
-      const hand = results.landmarks[0];
+      const [hand] = results.landmarks;
       if (hand) {
         drawingUtils.drawConnectors(hand, vision.GestureRecognizer.HAND_CONNECTIONS, {
           color: "#00FF00",
@@ -179,8 +168,10 @@ export function createHandCamera(onWristX: (x: number) => void, onFist?: () => v
           lineWidth: 2,
         });
 
-        const wrist = hand[0];
-        if (wrist) onWristX(wrist.x);
+        const [wrist] = hand;
+        if (wrist) {
+          onWristX(wrist.x);
+        }
 
         // Closed-fist edge = a cam-only serve/rematch confirm ("grab the ball").
         const isFist = results.gestures[0]?.[0]?.categoryName === "Closed_Fist";
@@ -200,17 +191,21 @@ export function createHandCamera(onWristX: (x: number) => void, onFist?: () => v
 
   const startWebcam = async (): Promise<void> => {
     const media = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "user" },
       audio: false,
+      video: { facingMode: "user" },
     });
     if (stopped) {
-      media.getTracks().forEach((track) => track.stop());
+      for (const track of media.getTracks()) {
+        track.stop();
+      }
       return;
     }
     stream = media;
     video.srcObject = media;
     video.addEventListener("loadeddata", () => {
-      if (stopped) return;
+      if (stopped) {
+        return;
+      }
       videoPlaying = true;
       void video.play();
       canvas.width = video.videoWidth;
@@ -233,11 +228,12 @@ export function createHandCamera(onWristX: (x: number) => void, onFist?: () => v
     const fileset = await mp.FilesetResolver.forVisionTasks(WASM_BASE);
     const created = await mp.GestureRecognizer.createFromOptions(fileset, {
       baseOptions: {
-        modelAssetPath: MODEL_URL,
         delegate: "GPU",
+        modelAssetPath: MODEL_URL,
       },
+      // Only detect one hand for the paddle
+      numHands: 1,
       runningMode: "VIDEO",
-      numHands: 1, // Only detect one hand for the paddle
     });
     if (stopped) {
       created.close();
@@ -247,23 +243,60 @@ export function createHandCamera(onWristX: (x: number) => void, onFist?: () => v
     await startWebcam();
   };
 
-  function enable(): void {
-    if (stopped || state !== "off") return;
+  const enable = (): void => {
+    if (stopped || state !== "off") {
+      return;
+    }
     status.textContent = "starting camera…";
     setState("loading");
     panel.dataset.min = "0";
-    create().catch(fail);
-  }
+    void (async () => {
+      try {
+        await create();
+      } catch (error) {
+        fail(error);
+      }
+    })();
+  };
+
+  // Tap turns tracking on, then toggles between the live feed and a compact
+  // "HAND CONTROL" pill. Tracking keeps running while minimized; only the
+  // preview is hidden. A drag that merely crosses the panel is not a tap.
+  let downAt: { x: number; y: number } | null = null;
+  panel.addEventListener("pointerdown", (e) => {
+    downAt = { x: e.clientX, y: e.clientY };
+  });
+  panel.addEventListener("pointerup", (e) => {
+    const from = downAt;
+    downAt = null;
+    if (from === null) {
+      return;
+    }
+    if (Math.hypot(e.clientX - from.x, e.clientY - from.y) > CLICK_DRAG_TOLERANCE_PX) {
+      return;
+    }
+    if (state === "off") {
+      enable();
+      return;
+    }
+    panel.dataset.min = panel.dataset.min === "1" ? "0" : "1";
+  });
 
   return {
     enable,
     stop(): void {
       stopped = true;
-      if (rafId !== null) cancelAnimationFrame(rafId);
-      if (stream) stream.getTracks().forEach((track) => track.stop());
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
+      if (stream) {
+        for (const track of stream.getTracks()) {
+          track.stop();
+        }
+      }
       recognizer?.close();
       panel.remove();
       setState("off");
     },
   };
-}
+};

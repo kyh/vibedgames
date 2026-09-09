@@ -1,5 +1,6 @@
 import { setPauseHandlers } from "@repo/embed";
-import Phaser from "phaser";
+import type Phaser from "phaser";
+import { Game, Scale, WEBGL } from "phaser";
 
 import { createBombermanPauseOverlay } from "./pause-overlay";
 import { BootScene } from "./scenes/boot-scene";
@@ -7,20 +8,20 @@ import { GameScene } from "./scenes/game-scene";
 import { pauseClock, resumeClock } from "./util/clock";
 
 const config: Phaser.Types.Core.GameConfig = {
-  type: Phaser.WEBGL,
-  parent: "game",
   backgroundColor: "#0e1020",
+  parent: "game",
+  pixelArt: true,
   scale: {
     // Fill the window; GameScene owns the follow-camera + zoom.
-    mode: Phaser.Scale.RESIZE,
-    width: "100%",
     height: "100%",
+    mode: Scale.RESIZE,
+    width: "100%",
   },
-  pixelArt: true,
   scene: [BootScene, GameScene],
+  type: WEBGL,
 };
 
-const game = new Phaser.Game(config);
+const game = new Game(config);
 
 // Scale.RESIZE can read stale parent bounds when a resize lands while the tab
 // is hidden or the browser throttles events (tab switch, phone rotation): the
@@ -32,7 +33,9 @@ const refreshScale = (): void => {
 };
 window.addEventListener("resize", refreshScale);
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) refreshScale();
+  if (!document.hidden) {
+    refreshScale();
+  }
 });
 
 // Wrapper pause. The overlay always shows; we only truly FREEZE the game when
@@ -49,15 +52,20 @@ setPauseHandlers({
     pauseOverlay.show();
     const scene = game.scene.getScene<GameScene>("Game");
     // Other humans present (live online round) — leave the sim running.
-    if (!scene || !scene.freezable) return;
+    if (!scene || !scene.freezable) {
+      return;
+    }
     froze = true;
     pauseClock();
-    game.loop.sleep(); // stops update() until wake()
+    // stops update() until wake()
+    game.loop.sleep();
     game.sound.pauseAll();
   },
   onResume: () => {
     pauseOverlay.hide();
-    if (!froze) return;
+    if (!froze) {
+      return;
+    }
     froze = false;
     resumeClock();
     game.loop.wake();

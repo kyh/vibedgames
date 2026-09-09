@@ -2,6 +2,7 @@
 // auras, channels). One switch over the effect id keeps all 24 abilities here.
 
 import { abilityRankCap } from "../data/config";
+import type { DamageType } from "../data/config";
 import { HERO_BY_ID, valAt } from "../data/heroes";
 import type { AbilityDef, AbilityKey } from "../data/heroes";
 import { ITEM_BY_ID } from "../data/items";
@@ -12,160 +13,255 @@ import { addStatus, cleanseSlows, disabled, silenced, spellAmp } from "./stats";
 import type { GroundEffect, Unit, World } from "./types";
 import { nextId } from "./types";
 
-const TICK = 0.5; // ground/channel tick interval (s)
+// ground/channel tick interval (s)
+const TICK = 0.5;
 
-function abilityOf(u: Unit, key: AbilityKey): { def: AbilityDef; rank: number } | null {
-  if (!u.hero) return null;
-  const def = HERO_BY_ID[u.hero.defId]?.abilities[key];
-  if (!def) return null;
-  const rank = u.hero.abilities[key].rank;
-  if (rank <= 0) return null;
-  return { def, rank };
-}
-
-function v(def: AbilityDef, field: string, rank: number): number {
-  return valAt(def.values[field], rank);
-}
-
-export type CastInput = { key: AbilityKey; point?: Vec2; targetId?: string };
-
-/** Attempt to cast. Returns true if the cast went through (mana/cd consumed). */
-export function castAbility(w: World, caster: Unit, input: CastInput): boolean {
-  if (!caster.alive || !caster.hero) return false;
-  if (disabled(caster)) return false; // stunned — but `unstoppable` (Haste) overrides
-  const got = abilityOf(caster, input.key);
-  if (!got) return false;
-  const { def, rank } = got;
-  if (def.targeting === "passive") return false;
-  if (silenced(caster)) return false;
-  const slot = caster.hero.abilities[input.key];
-  if (w.now < slot.readyAt) return false;
-  const manaCost = valAt(def.manaCost, rank);
-  if (caster.mp < manaCost) return false;
-
-  // resolve target requirements
-  let point: Vec2 | undefined = input.point;
-  let target: Unit | undefined;
-  if (def.targeting === "unit") {
-    if (!input.targetId) return false;
-    target = w.units.get(input.targetId);
-    if (!target || !target.alive) return false;
-    if (dist(caster, target) > def.castRange + caster.radius + target.radius + 30) return false;
-    point = { x: target.x, y: target.y };
-  } else if (def.targeting === "point") {
-    if (!point) return false;
-    point = clampCastRange(caster, point, def.castRange);
-  } else {
-    point = { x: caster.x, y: caster.y };
+const abilityOf = (u: Unit, key: AbilityKey): { def: AbilityDef; rank: number } | null => {
+  if (!u.hero) {
+    return null;
   }
+  const def = HERO_BY_ID[u.hero.defId]?.abilities[key];
+  if (!def) {
+    return null;
+  }
+  const { rank } = u.hero.abilities[key];
+  if (rank <= 0) {
+    return null;
+  }
+  return { def, rank };
+};
 
-  const ok = dispatch(w, caster, def, rank, point, target);
-  if (!ok) return false;
+const v = (def: AbilityDef, field: string, rank: number): number => valAt(def.values[field], rank);
 
-  caster.mp -= manaCost;
-  slot.readyAt = w.now + valAt(def.cooldown, rank) * 1000;
-  if (caster.facing !== undefined && point) caster.facing = point.x >= caster.x ? 1 : -1;
-  w.fx.push({ t: "cast", x: caster.x, y: caster.y, effect: def.effect, team: caster.team });
-  return true;
+export interface CastInput {
+  key: AbilityKey;
+  point?: Vec2;
+  targetId?: string;
 }
 
-function clampCastRange(caster: Unit, point: Vec2, range: number): Vec2 {
+const clampCastRange = (caster: Unit, point: Vec2, range: number): Vec2 => {
   const dx = point.x - caster.x;
   const dy = point.y - caster.y;
   const d = Math.hypot(dx, dy);
-  if (d <= range || d < 1) return point;
+  if (d <= range || d < 1) {
+    return point;
+  }
   return { x: caster.x + (dx / d) * range, y: caster.y + (dy / d) * range };
-}
+};
 
-function enemiesInRadius(
+const enemiesInRadius = (
   w: World,
   team: string,
   p: Vec2,
   radius: number,
   allowStructure = true,
-): Unit[] {
+): Unit[] => {
   const out: Unit[] = [];
   const r2 = radius * radius;
   for (const u of w.units.values()) {
     // neutrals are enemies of every team; same-team non-neutrals are not
-    if (!u.alive || (!u.neutral && u.team === team)) continue;
-    if (u.kind === "structure" && (!allowStructure || !u.structure?.attackable)) continue;
-    if (u.statuses.some((s) => s.kind === "untargetable")) continue;
-    if (dist2(u, p) <= r2) out.push(u);
+    if (!u.alive || (!u.neutral && u.team === team)) {
+      continue;
+    }
+    if (u.kind === "structure" && (!allowStructure || !u.structure?.attackable)) {
+      continue;
+    }
+    if (u.statuses.some((s) => s.kind === "untargetable")) {
+      continue;
+    }
+    if (dist2(u, p) <= r2) {
+      out.push(u);
+    }
   }
   return out;
-}
+};
 
-function alliesInRadius(
+const alliesInRadius = (
   w: World,
   team: string,
   p: Vec2,
   radius: number,
   heroesOnly = false,
-): Unit[] {
+): Unit[] => {
   const out: Unit[] = [];
   const r2 = radius * radius;
   for (const u of w.units.values()) {
     // never count neutrals as allies (they carry team:"dire" only for serialization)
-    if (!u.alive || u.neutral || u.team !== team) continue;
-    if (heroesOnly && u.kind !== "hero") continue;
-    if (u.kind === "structure") continue;
-    if (dist2(u, p) <= r2) out.push(u);
+    if (!u.alive || u.neutral || u.team !== team) {
+      continue;
+    }
+    if (heroesOnly && u.kind !== "hero") {
+      continue;
+    }
+    if (u.kind === "structure") {
+      continue;
+    }
+    if (dist2(u, p) <= r2) {
+      out.push(u);
+    }
   }
   return out;
+};
+
+// ---- ground effects --------------------------------------------------------
+interface GroundOpts {
+  radius: number;
+  until: number;
+  enemyDps?: number;
+  dtype?: DamageType;
+  slowPct?: number;
+  allyHealPerTick?: number;
+  allyManaPerTick?: number;
+  cleanse?: boolean;
+  followOwner?: boolean;
+  channel?: boolean;
+  detonate?: { dmg: number; amp: number; burnDps: number; burnDur: number };
 }
 
-// ---- the dispatch ----------------------------------------------------------
-function dispatch(
+const createGround = (w: World, c: Unit, effect: string, p: Vec2, o: GroundOpts): void => {
+  // Self-following auras (e.g. Flashfire) track the caster, so recasting before the
+  // old one expires would stack two zones on the same hero → double DPS. Replace any
+  // prior aura from this caster with the same effect instead of stacking.
+  if (o.followOwner) {
+    w.groundEffects = w.groundEffects.filter(
+      (g) => !(g.followOwner && g.ownerId === c.id && g.effect === effect),
+    );
+  }
+  const g: GroundEffect = {
+    allyHealPerTick: o.allyHealPerTick,
+    allyManaPerTick: o.allyManaPerTick,
+    channel: o.channel,
+    cleanse: o.cleanse,
+    detonate: o.detonate,
+    dtype: o.dtype,
+    effect,
+    enemyDps: o.enemyDps,
+    followOwner: o.followOwner,
+    id: nextId(w, "g"),
+    nextTick: w.now + TICK * 1000,
+    ownerId: c.id,
+    radius: o.radius,
+    slowPct: o.slowPct,
+    team: c.team,
+    tickInterval: TICK * 1000,
+    until: o.until,
+    x: p.x,
+    y: p.y,
+  };
+  w.groundEffects.push(g);
+};
+
+// ---- channels --------------------------------------------------------------
+interface ChannelBundle {
+  radius: number;
+  enemyDps?: number;
+  dtype?: DamageType;
+  slowPct?: number;
+  allyHealPerTick?: number;
+  allyManaPerTick?: number;
+  cleanse?: boolean;
+}
+
+const startChannel = (
   w: World,
   c: Unit,
   def: AbilityDef,
   rank: number,
   p: Vec2,
-  target?: Unit,
-): boolean {
-  const amp = spellAmp(c);
+  b: ChannelBundle,
+): void => {
+  if (!c.hero) {
+    return;
+  }
+  const dur = v(def, "channel", rank) * 1000;
+  c.hero.channel = {
+    effect: def.effect,
+    key: def.key,
+    nextTick: w.now + TICK * 1000,
+    point: { ...p },
+    rank,
+    until: w.now + dur,
+  };
+  createGround(w, c, def.effect, p, {
+    allyHealPerTick: b.allyHealPerTick,
+    allyManaPerTick: b.allyManaPerTick,
+    channel: true,
+    cleanse: b.cleanse,
+    dtype: b.dtype,
+    enemyDps: b.enemyDps,
+    radius: b.radius,
+    slowPct: b.slowPct,
+    until: w.now + dur,
+  });
+  c.order = { type: "idle" };
+  c.path = [];
+};
+
+export const breakChannel = (w: World, u: Unit): void => {
+  if (!u.hero?.channel) {
+    return;
+  }
+  const eff = u.hero.channel.effect;
+  u.hero.channel = null;
+  w.groundEffects = w.groundEffects.filter(
+    (g) => !(g.ownerId === u.id && g.effect === eff && g.channel),
+  );
+};
+
+// ---- the dispatch ----------------------------------------------------------
+interface CastContext {
+  w: World;
+  c: Unit;
+  def: AbilityDef;
+  rank: number;
+  p: Vec2;
+  amp: number;
+  target?: Unit;
+}
+
+const castIronvow = ({ amp, c, def, rank, target, w }: CastContext): boolean => {
   switch (def.effect) {
-    // ---------------- IRONVOW ----------------
     case "ironvow:Q": {
-      if (!target) return false;
+      if (!target) {
+        return false;
+      }
       dealDamage(w, c, target, v(def, "damage", rank), "physical", {});
       addStatus(target, {
         kind: "stun",
-        until: w.now + v(def, "stun", rank) * 1000,
         sourceId: c.id,
+        until: w.now + v(def, "stun", rank) * 1000,
       });
       w.fx.push({
-        t: "ability",
         effect: def.effect,
-        x: c.x,
-        y: c.y,
-        x2: target.x,
-        y2: target.y,
         radius: 40,
+        t: "ability",
         team: c.team,
+        x: c.x,
+        x2: target.x,
+        y: c.y,
+        y2: target.y,
       });
       return true;
     }
     case "ironvow:W": {
       const dur = v(def, "duration", rank) * 1000;
       addStatus(c, {
-        kind: "armorBonus",
         amount: v(def, "bonusArmor", rank),
-        until: w.now + dur,
         id: "ironvow:W:armor",
-      });
-      addStatus(c, {
-        kind: "shield",
-        amount: v(def, "shield", rank),
+        kind: "armorBonus",
         until: w.now + dur,
-        id: "ironvow:W:shield",
       });
       addStatus(c, {
+        amount: v(def, "shield", rank),
+        id: "ironvow:W:shield",
+        kind: "shield",
+        until: w.now + dur,
+      });
+      addStatus(c, {
+        id: "ironvow:W:reflect",
         kind: "reflect",
         pct: v(def, "reflectPct", rank) / 100,
         until: w.now + dur,
-        id: "ironvow:W:reflect",
       });
       return true;
     }
@@ -173,13 +269,15 @@ function dispatch(
       const radius = v(def, "radius", rank);
       const dur = v(def, "buffDuration", rank) * 1000;
       addStatus(c, {
+        id: "ironvow:R:dr",
         kind: "damageReduction",
         pct: v(def, "damageReductionPct", rank) / 100,
         until: w.now + dur,
-        id: "ironvow:R:dr",
       });
       for (const e of enemiesInRadius(w, c.team, c, radius, false)) {
-        if (e.kind === "structure") continue;
+        if (e.kind === "structure") {
+          continue;
+        }
         dealDamage(w, c, e, v(def, "damage", rank), "magic", { attackerSpellAmp: amp });
         addStatus(e, {
           kind: "taunt",
@@ -188,19 +286,26 @@ function dispatch(
         });
       }
       w.fx.push({
-        t: "ability",
         effect: def.effect,
-        x: c.x,
-        y: c.y,
-        x2: c.x,
-        y2: c.y,
         radius,
+        t: "ability",
         team: c.team,
+        x: c.x,
+        x2: c.x,
+        y: c.y,
+        y2: c.y,
       });
       return true;
     }
 
-    // ---------------- DUSKBLADE ----------------
+    default: {
+      return false;
+    }
+  }
+};
+
+const castDuskblade = ({ c, def, p, rank, target, w }: CastContext): boolean => {
+  switch (def.effect) {
     case "duskblade:Q": {
       const from = { x: c.x, y: c.y };
       const d = Math.min(v(def, "blink", rank), dist(c, p));
@@ -210,12 +315,12 @@ function dispatch(
       c.path = [];
       c.order = { type: "idle" };
       addStatus(c, {
-        kind: "empowerNextAttack",
         bonus: v(def, "bonusNextAttack", rank),
-        until: w.now + v(def, "window", rank) * 1000,
         id: "duskblade:Q:emp",
+        kind: "empowerNextAttack",
+        until: w.now + v(def, "window", rank) * 1000,
       });
-      w.fx.push({ t: "blink", x: from.x, y: from.y, x2: c.x, y2: c.y });
+      w.fx.push({ t: "blink", x: from.x, x2: c.x, y: from.y, y2: c.y });
       return true;
     }
     case "duskblade:W": {
@@ -225,31 +330,35 @@ function dispatch(
       for (const e of enemiesInRadius(w, c.team, c, range, true)) {
         const a = Math.atan2(e.y - c.y, e.x - c.x);
         let diff = Math.abs(a - dirAng);
-        if (diff > Math.PI) diff = Math.PI * 2 - diff;
+        if (diff > Math.PI) {
+          diff = Math.PI * 2 - diff;
+        }
         if (diff <= half) {
           dealDamage(w, c, e, v(def, "damage", rank), "physical", {});
           addStatus(e, {
+            id: `duskblade:W:${e.id}`,
             kind: "slow",
             pct: v(def, "slowPct", rank) / 100,
             until: w.now + v(def, "slowDuration", rank) * 1000,
-            id: `duskblade:W:${e.id}`,
           });
         }
       }
       w.fx.push({
-        t: "ability",
         effect: def.effect,
-        x: c.x,
-        y: c.y,
-        x2: p.x,
-        y2: p.y,
         radius: range,
+        t: "ability",
         team: c.team,
+        x: c.x,
+        x2: p.x,
+        y: c.y,
+        y2: p.y,
       });
       return true;
     }
     case "duskblade:R": {
-      if (!target) return false;
+      if (!target) {
+        return false;
+      }
       const strikes = v(def, "strikes", rank);
       const per = v(def, "damagePerStrike", rank);
       addStatus(c, { kind: "untargetable", until: w.now + v(def, "untargetable", rank) * 1000 });
@@ -259,19 +368,26 @@ function dispatch(
       const total = per * (strikes - 1) + per * v(def, "critMult", rank);
       dealDamage(w, c, target, total, "physical", { crit: true });
       w.fx.push({
-        t: "ability",
         effect: def.effect,
-        x: c.x,
-        y: c.y,
-        x2: target.x,
-        y2: target.y,
         radius: 40,
+        t: "ability",
         team: c.team,
+        x: c.x,
+        x2: target.x,
+        y: c.y,
+        y2: target.y,
       });
       return true;
     }
 
-    // ---------------- STORMCALLER ----------------
+    default: {
+      return false;
+    }
+  }
+};
+
+const castStormcaller = ({ c, def, p, rank, target, w }: CastContext): boolean => {
+  switch (def.effect) {
     case "stormcaller:Q": {
       const len = v(def, "length", rank);
       const width = v(def, "width", rank);
@@ -279,115 +395,124 @@ function dispatch(
       const end = { x: c.x + Math.cos(ang) * len, y: c.y + Math.sin(ang) * len };
       const hits = enemiesInRadius(w, c.team, c, len + width, true)
         .filter((e) => pointSegDist(e, c, end) <= width / 2 + e.radius)
-        .sort((a, b) => dist2(c, a) - dist2(c, b));
+        .toSorted((a, b) => dist2(c, a) - dist2(c, b));
       const minPct = v(def, "minPct", rank) / 100;
       const falloff = v(def, "falloffPct", rank) / 100;
-      hits.forEach((e, i) => {
+      for (const [i, e] of hits.entries()) {
         const mult = Math.max(minPct, 1 - falloff * i);
         dealDamage(w, c, e, v(def, "damage", rank) * mult, "physical", {});
-      });
+      }
       w.fx.push({
-        t: "ability",
         effect: def.effect,
-        x: c.x,
-        y: c.y,
-        x2: end.x,
-        y2: end.y,
         radius: width,
+        t: "ability",
         team: c.team,
+        x: c.x,
+        x2: end.x,
+        y: c.y,
+        y2: end.y,
       });
       return true;
     }
     case "stormcaller:W": {
-      if (!target || target.kind !== "hero") return false;
+      if (!target || target.kind !== "hero") {
+        return false;
+      }
       const dur = v(def, "duration", rank) * 1000;
       addStatus(target, {
+        id: "stormcaller:W:amp",
         kind: "damageAmp",
         pct: v(def, "ampPct", rank) / 100,
         until: w.now + dur,
-        id: "stormcaller:W:amp",
       });
       addStatus(c, {
-        kind: "attackSpeed",
         amount: v(def, "bonusAsVsMarked", rank),
-        until: w.now + dur,
         id: `markAS:${target.id}`,
+        kind: "attackSpeed",
+        until: w.now + dur,
       });
       w.fx.push({
-        t: "ability",
         effect: def.effect,
-        x: target.x,
-        y: target.y,
-        x2: target.x,
-        y2: target.y,
         radius: 40,
+        t: "ability",
         team: c.team,
+        x: target.x,
+        x2: target.x,
+        y: target.y,
+        y2: target.y,
       });
       return true;
     }
     case "stormcaller:E": {
       const dur = v(def, "duration", rank) * 1000;
       addStatus(c, {
+        flat: v(def, "moveSpeed", rank),
+        id: "stormcaller:E:ms",
         kind: "speed",
         pct: 0,
-        flat: v(def, "moveSpeed", rank),
         until: w.now + dur,
-        id: "stormcaller:E:ms",
       });
       addStatus(c, {
-        kind: "attackSpeed",
         amount: v(def, "attackSpeed", rank),
-        until: w.now + dur,
         id: "stormcaller:E:as",
+        kind: "attackSpeed",
+        until: w.now + dur,
       });
       return true;
     }
     case "stormcaller:R": {
       startChannel(w, c, def, rank, p, {
-        radius: v(def, "radius", rank),
-        enemyDps: v(def, "damagePerTick", rank) / TICK,
         dtype: "physical",
+        enemyDps: v(def, "damagePerTick", rank) / TICK,
+        radius: v(def, "radius", rank),
         slowPct: v(def, "slowPct", rank) / 100,
       });
       return true;
     }
 
-    // ---------------- EMBERHEX ----------------
+    default: {
+      return false;
+    }
+  }
+};
+
+const castEmberhex = ({ amp, c, def, p, rank, w }: CastContext): boolean => {
+  switch (def.effect) {
     case "emberhex:Q": {
       spawnAbilityProjectile(w, {
-        ownerId: c.id,
-        team: c.team,
-        x: c.x,
-        y: c.y - 20,
-        speed: v(def, "projectileSpeed", rank) || 700,
-        targetId: null,
-        tx: p.x,
-        ty: p.y,
         damage: v(def, "damage", rank),
         dtype: "magic",
         kind: "fireball",
-        radius: v(def, "radius", rank),
         onHit: { tag: "none" },
+        ownerId: c.id,
+        radius: v(def, "radius", rank),
+        speed: v(def, "projectileSpeed", rank) || 700,
+        targetId: null,
+        team: c.team,
+        tx: p.x,
+        ty: p.y,
+        x: c.x,
+        y: c.y - 20,
       });
       return true;
     }
     case "emberhex:W": {
       createGround(w, c, def.effect, p, {
-        radius: v(def, "radius", rank),
-        until: w.now + v(def, "duration", rank) * 1000,
-        enemyDps: v(def, "dps", rank),
         dtype: "magic",
+        enemyDps: v(def, "dps", rank),
+        radius: v(def, "radius", rank),
         slowPct: v(def, "slowPct", rank) / 100,
+        until: w.now + v(def, "duration", rank) * 1000,
       });
       return true;
     }
     case "emberhex:E": {
       const dur = v(def, "duration", rank) * 1000;
       addStatus(c, {
+        id: "emberhex:E:amp",
         kind: "spellAmp",
         pct: v(def, "spellAmpPct", rank) / 100,
         until: w.now + dur,
-        id: "emberhex:E:amp",
       });
       // self-following burn aura
       createGround(
@@ -396,11 +521,11 @@ function dispatch(
         "flashfire",
         { x: c.x, y: c.y },
         {
+          dtype: "magic",
+          enemyDps: v(def, "dps", rank),
+          followOwner: true,
           radius: v(def, "radius", rank),
           until: w.now + dur,
-          enemyDps: v(def, "dps", rank),
-          dtype: "magic",
-          followOwner: true,
         },
       );
       return true;
@@ -413,72 +538,81 @@ function dispatch(
       const burnDur = v(def, "burnDuration", rank);
       // delayed firestorm via a one-shot ground effect that detonates on expiry
       createGround(w, c, "conflagration", p, {
+        detonate: { amp, burnDps, burnDur, dmg },
         radius,
         until: w.now + fuse * 1000,
-        detonate: { dmg, amp, burnDps, burnDur },
       });
       w.fx.push({
-        t: "ability",
         effect: def.effect,
-        x: p.x,
-        y: p.y,
-        x2: p.x,
-        y2: p.y,
         radius,
+        t: "ability",
         team: c.team,
+        x: p.x,
+        x2: p.x,
+        y: p.y,
+        y2: p.y,
       });
       return true;
     }
 
-    // ---------------- BOOMTINKER ----------------
+    default: {
+      return false;
+    }
+  }
+};
+
+const castBoomtinker = ({ amp, c, def, p, rank, w }: CastContext): boolean => {
+  switch (def.effect) {
     case "boomtinker:Q": {
       spawnAbilityProjectile(w, {
-        ownerId: c.id,
-        team: c.team,
-        x: c.x,
-        y: c.y - 20,
-        speed: v(def, "projectileSpeed", rank) || 650,
-        targetId: null,
-        tx: p.x,
-        ty: p.y,
         damage: v(def, "damage", rank),
         dtype: "magic",
         kind: "dynamite",
+        onHit: { pct: v(def, "buildingBonusPct", rank), tag: "buildingBonus" },
+        ownerId: c.id,
         radius: v(def, "radius", rank),
-        onHit: { tag: "buildingBonus", pct: v(def, "buildingBonusPct", rank) },
+        speed: v(def, "projectileSpeed", rank) || 650,
+        targetId: null,
+        team: c.team,
+        tx: p.x,
+        ty: p.y,
+        x: c.x,
+        y: c.y - 20,
       });
       return true;
     }
     case "boomtinker:W": {
       const id = nextId(w, "m");
       w.mines.set(id, {
+        armedAt: w.now + v(def, "armDelay", rank) * 1000,
+        damage: v(def, "damage", rank),
+        expireAt: w.now + v(def, "lifetime", rank) * 1000,
         id,
         ownerId: c.id,
+        slowPct: v(def, "slowPct", rank) / 100,
         team: c.team,
+        triggerRadius: v(def, "triggerRadius", rank),
         x: p.x,
         y: p.y,
-        armedAt: w.now + v(def, "armDelay", rank) * 1000,
-        expireAt: w.now + v(def, "lifetime", rank) * 1000,
-        damage: v(def, "damage", rank),
-        triggerRadius: v(def, "triggerRadius", rank),
-        slowPct: v(def, "slowPct", rank) / 100,
       });
       // enforce max mines
       const max = v(def, "maxMines", rank);
       const mine = [...w.mines.values()].filter((m) => m.ownerId === c.id);
       if (mine.length > max) {
-        mine.slice(0, mine.length - max).forEach((m) => w.mines.delete(m.id));
+        for (const m of mine.slice(0, mine.length - max)) {
+          w.mines.delete(m.id);
+        }
       }
       return true;
     }
     case "boomtinker:E": {
       addStatus(c, {
+        id: "boomtinker:E",
         kind: "splashAttacks",
         left: v(def, "attacks", rank),
-        radius: v(def, "splashRadius", rank),
         pct: v(def, "splashPct", rank) / 100,
-        until: w.now + 12000,
-        id: "boomtinker:E",
+        radius: v(def, "splashRadius", rank),
+        until: w.now + 12_000,
       });
       return true;
     }
@@ -496,74 +630,88 @@ function dispatch(
           attackerSpellAmp: amp,
           structureBonusPct: v(def, "buildingBonusPct", rank),
         });
-        if (e.kind !== "structure")
+        if (e.kind !== "structure") {
           addStatus(e, {
             kind: "stun",
-            until: w.now + v(def, "stun", rank) * 1000,
             sourceId: c.id,
+            until: w.now + v(def, "stun", rank) * 1000,
           });
+        }
       }
-      w.fx.push({ t: "blink", x: from.x, y: from.y, x2: c.x, y2: c.y });
-      w.fx.push({
-        t: "ability",
-        effect: def.effect,
-        x: c.x,
-        y: c.y,
-        x2: c.x,
-        y2: c.y,
-        radius,
-        team: c.team,
-      });
+      w.fx.push(
+        { t: "blink", x: from.x, x2: c.x, y: from.y, y2: c.y },
+        {
+          effect: def.effect,
+          radius,
+          t: "ability",
+          team: c.team,
+          x: c.x,
+          x2: c.x,
+          y: c.y,
+          y2: c.y,
+        },
+      );
       return true;
     }
 
-    // ---------------- BREWKEEPER ----------------
+    default: {
+      return false;
+    }
+  }
+};
+
+const castBrewkeeper = ({ amp, c, def, p, rank, target, w }: CastContext): boolean => {
+  switch (def.effect) {
     case "brewkeeper:Q": {
       // heal a same-team non-neutral ally, else self (never heal a neutral)
       const ally = target && !target.neutral && target.team === c.team ? target : c;
       ally.hp = Math.min(ally.maxHp, ally.hp + v(def, "heal", rank));
       addStatus(ally, {
-        kind: "heal",
         hps: v(def, "regenPerSec", rank),
-        until: w.now + v(def, "regenDuration", rank) * 1000,
-        nextTick: w.now + 500,
         id: "brewkeeper:Q:regen",
+        kind: "heal",
+        nextTick: w.now + 500,
+        until: w.now + v(def, "regenDuration", rank) * 1000,
       });
-      w.fx.push({ t: "heal", x: ally.x, y: ally.y, amount: v(def, "heal", rank) });
-      w.fx.push({
-        t: "ability",
-        effect: def.effect,
-        x: ally.x,
-        y: ally.y,
-        x2: ally.x,
-        y2: ally.y,
-        radius: 40,
-        team: c.team,
-      });
+      w.fx.push(
+        { amount: v(def, "heal", rank), t: "heal", x: ally.x, y: ally.y },
+        {
+          effect: def.effect,
+          radius: 40,
+          t: "ability",
+          team: c.team,
+          x: ally.x,
+          x2: ally.x,
+          y: ally.y,
+          y2: ally.y,
+        },
+      );
       return true;
     }
     case "brewkeeper:W": {
       const radius = v(def, "radius", rank);
       for (const e of enemiesInRadius(w, c.team, p, radius, false)) {
-        if (e.kind === "structure") continue;
+        if (e.kind === "structure") {
+          continue;
+        }
         dealDamage(w, c, e, v(def, "damage", rank), "magic", { attackerSpellAmp: amp });
         addStatus(e, { kind: "silence", until: w.now + v(def, "silence", rank) * 1000 });
         addStatus(e, {
+          id: `brewkeeper:W:${e.id}`,
           kind: "slow",
           pct: v(def, "slowPct", rank) / 100,
           until: w.now + v(def, "silence", rank) * 1000,
-          id: `brewkeeper:W:${e.id}`,
         });
       }
       w.fx.push({
-        t: "ability",
         effect: def.effect,
-        x: p.x,
-        y: p.y,
-        x2: p.x,
-        y2: p.y,
         radius,
+        t: "ability",
         team: c.team,
+        x: p.x,
+        x2: p.x,
+        y: p.y,
+        y2: p.y,
       });
       return true;
     }
@@ -571,16 +719,16 @@ function dispatch(
       const dur = v(def, "duration", rank) * 1000;
       for (const a of alliesInRadius(w, c.team, c, v(def, "auraRadius", rank))) {
         addStatus(a, {
-          kind: "shield",
           amount: v(def, "shield", rank),
-          until: w.now + dur,
           id: "brewkeeper:E:shield",
+          kind: "shield",
+          until: w.now + dur,
         });
         addStatus(a, {
-          kind: "armorBonus",
           amount: v(def, "bonusArmor", rank),
-          until: w.now + dur,
           id: "brewkeeper:E:armor",
+          kind: "armorBonus",
+          until: w.now + dur,
         });
       }
       return true;
@@ -593,132 +741,122 @@ function dispatch(
         rank,
         { x: c.x, y: c.y },
         {
-          radius: v(def, "radius", rank),
           allyHealPerTick: v(def, "healPerTick", rank),
           allyManaPerTick: v(def, "manaPerTick", rank),
           cleanse: true,
+          radius: v(def, "radius", rank),
         },
       );
       return true;
     }
+    default: {
+      return false;
+    }
   }
-  return false;
-}
-
-// ---- channels --------------------------------------------------------------
-type ChannelBundle = {
-  radius: number;
-  enemyDps?: number;
-  dtype?: import("../data/config").DamageType;
-  slowPct?: number;
-  allyHealPerTick?: number;
-  allyManaPerTick?: number;
-  cleanse?: boolean;
 };
 
-function startChannel(
+const HERO_CASTS = new Map<string, (cast: CastContext) => boolean>([
+  ["boomtinker", castBoomtinker],
+  ["brewkeeper", castBrewkeeper],
+  ["duskblade", castDuskblade],
+  ["emberhex", castEmberhex],
+  ["ironvow", castIronvow],
+  ["stormcaller", castStormcaller],
+]);
+
+const dispatch = (
   w: World,
   c: Unit,
   def: AbilityDef,
   rank: number,
   p: Vec2,
-  b: ChannelBundle,
-): void {
-  if (!c.hero) return;
-  const dur = v(def, "channel", rank) * 1000;
-  c.hero.channel = {
-    effect: def.effect,
-    key: def.key,
-    rank,
-    until: w.now + dur,
-    nextTick: w.now + TICK * 1000,
-    point: { ...p },
-  };
-  createGround(w, c, def.effect, p, {
-    radius: b.radius,
-    until: w.now + dur,
-    enemyDps: b.enemyDps,
-    dtype: b.dtype,
-    slowPct: b.slowPct,
-    allyHealPerTick: b.allyHealPerTick,
-    allyManaPerTick: b.allyManaPerTick,
-    cleanse: b.cleanse,
-    channel: true,
-  });
-  c.order = { type: "idle" };
-  c.path = [];
-}
-
-export function breakChannel(w: World, u: Unit): void {
-  if (!u.hero?.channel) return;
-  const eff = u.hero.channel.effect;
-  u.hero.channel = null;
-  w.groundEffects = w.groundEffects.filter(
-    (g) => !(g.ownerId === u.id && g.effect === eff && g.channel),
-  );
-}
-
-// ---- ground effects --------------------------------------------------------
-type GroundOpts = {
-  radius: number;
-  until: number;
-  enemyDps?: number;
-  dtype?: import("../data/config").DamageType;
-  slowPct?: number;
-  allyHealPerTick?: number;
-  allyManaPerTick?: number;
-  cleanse?: boolean;
-  followOwner?: boolean;
-  channel?: boolean;
-  detonate?: { dmg: number; amp: number; burnDps: number; burnDur: number };
+  target?: Unit,
+): boolean => {
+  const amp = spellAmp(c);
+  const [hero] = def.effect.split(":");
+  const cast = HERO_CASTS.get(hero ?? "");
+  return cast?.({ amp, c, def, p, rank, target, w }) ?? false;
 };
 
-function createGround(w: World, c: Unit, effect: string, p: Vec2, o: GroundOpts): void {
-  // Self-following auras (e.g. Flashfire) track the caster, so recasting before the
-  // old one expires would stack two zones on the same hero → double DPS. Replace any
-  // prior aura from this caster with the same effect instead of stacking.
-  if (o.followOwner)
-    w.groundEffects = w.groundEffects.filter(
-      (g) => !(g.followOwner && g.ownerId === c.id && g.effect === effect),
-    );
-  const g: GroundEffect = {
-    id: nextId(w, "g"),
-    ownerId: c.id,
-    team: c.team,
-    effect,
-    x: p.x,
-    y: p.y,
-    radius: o.radius,
-    until: o.until,
-    nextTick: w.now + TICK * 1000,
-    tickInterval: TICK * 1000,
-    enemyDps: o.enemyDps,
-    dtype: o.dtype,
-    slowPct: o.slowPct,
-    allyHealPerTick: o.allyHealPerTick,
-    allyManaPerTick: o.allyManaPerTick,
-    cleanse: o.cleanse,
-    followOwner: o.followOwner,
-    channel: o.channel,
-    detonate: o.detonate,
-  };
-  w.groundEffects.push(g);
-}
+/** Attempt to cast. Returns true if the cast went through (mana/cd consumed). */
+export const castAbility = (w: World, caster: Unit, input: CastInput): boolean => {
+  if (!caster.alive || !caster.hero) {
+    return false;
+  }
+  // stunned — but `unstoppable` (Haste) overrides
+  if (disabled(caster)) {
+    return false;
+  }
+  const got = abilityOf(caster, input.key);
+  if (!got) {
+    return false;
+  }
+  const { def, rank } = got;
+  if (def.targeting === "passive") {
+    return false;
+  }
+  if (silenced(caster)) {
+    return false;
+  }
+  const slot = caster.hero.abilities[input.key];
+  if (w.now < slot.readyAt) {
+    return false;
+  }
+  const manaCost = valAt(def.manaCost, rank);
+  if (caster.mp < manaCost) {
+    return false;
+  }
+
+  // resolve target requirements
+  let point: Vec2 | undefined = input.point;
+  let target: Unit | undefined;
+  if (def.targeting === "unit") {
+    if (!input.targetId) {
+      return false;
+    }
+    target = w.units.get(input.targetId);
+    if (!target || !target.alive) {
+      return false;
+    }
+    if (dist(caster, target) > def.castRange + caster.radius + target.radius + 30) {
+      return false;
+    }
+    point = { x: target.x, y: target.y };
+  } else if (def.targeting === "point") {
+    if (!point) {
+      return false;
+    }
+    point = clampCastRange(caster, point, def.castRange);
+  } else {
+    point = { x: caster.x, y: caster.y };
+  }
+
+  const ok = dispatch(w, caster, def, rank, point, target);
+  if (!ok) {
+    return false;
+  }
+
+  caster.mp -= manaCost;
+  slot.readyAt = w.now + valAt(def.cooldown, rank) * 1000;
+  if (caster.facing !== undefined && point) {
+    caster.facing = point.x >= caster.x ? 1 : -1;
+  }
+  w.fx.push({ effect: def.effect, t: "cast", team: caster.team, x: caster.x, y: caster.y });
+  return true;
+};
 
 // ---- per-tick processing ---------------------------------------------------
-export function tickAbilities(w: World, dt: number): void {
-  tickPassives(w, dt);
-  tickStatusDots(w);
-  tickGround(w);
-  tickChannels(w);
-}
 
 /** Apply always-on passive abilities (Banner aura, Bloodthirst). */
-function tickPassives(w: World, dt: number): void {
+const tickPassives = (w: World, dt: number): void => {
   for (const u of w.units.values()) {
-    if (!u.alive || !u.hero) continue;
+    if (!u.alive || !u.hero) {
+      continue;
+    }
     const def = HERO_BY_ID[u.hero.defId];
-    if (!def) continue;
+    if (!def) {
+      continue;
+    }
     // Ironvow E — Banner of Resolve aura
     const banner = u.hero.abilities.E.rank;
     if (def.abilities.E.effect === "ironvow:E" && banner > 0) {
@@ -727,8 +865,10 @@ function tickPassives(w: World, dt: number): void {
       const msPct = v(b, "moveSpeedPct", banner) / 100;
       const regen = v(b, "hpRegen", banner);
       for (const a of alliesInRadius(w, u.team, u, radius)) {
-        addStatus(a, { kind: "speed", pct: msPct, flat: 0, until: w.now + 400, id: "banner" });
-        if (a.hp < a.maxHp) a.hp = Math.min(a.maxHp, a.hp + regen * dt);
+        addStatus(a, { flat: 0, id: "banner", kind: "speed", pct: msPct, until: w.now + 400 });
+        if (a.hp < a.maxHp) {
+          a.hp = Math.min(a.maxHp, a.hp + regen * dt);
+        }
       }
     }
     // Duskblade E — Bloodthirst (lifesteal + attack-speed)
@@ -736,25 +876,27 @@ function tickPassives(w: World, dt: number): void {
     if (def.abilities.E.effect === "duskblade:E" && blood > 0) {
       const b = def.abilities.E;
       addStatus(u, {
+        id: "bloodthirst:ls",
         kind: "lifesteal",
         pct: v(b, "lifestealPct", blood) / 100,
         until: w.now + 500,
-        id: "bloodthirst:ls",
       });
       const asBonus = v(b, "asPerStack", blood) * v(b, "maxStacks", blood) * 0.6;
       addStatus(u, {
-        kind: "attackSpeed",
         amount: asBonus,
-        until: w.now + 500,
         id: "bloodthirst:as",
+        kind: "attackSpeed",
+        until: w.now + 500,
       });
     }
   }
-}
+};
 
-function tickStatusDots(w: World): void {
+const tickStatusDots = (w: World): void => {
   for (const u of w.units.values()) {
-    if (!u.alive) continue;
+    if (!u.alive) {
+      continue;
+    }
     for (const s of u.statuses) {
       if (s.kind === "dot") {
         while (w.now >= s.nextTick && s.nextTick <= s.until) {
@@ -763,7 +905,9 @@ function tickStatusDots(w: World): void {
             attackerSpellAmp: src ? spellAmp(src) : 0,
           });
           s.nextTick += 500;
-          if (!u.alive) break;
+          if (!u.alive) {
+            break;
+          }
         }
       } else if (s.kind === "heal") {
         while (w.now >= s.nextTick && s.nextTick <= s.until) {
@@ -773,49 +917,26 @@ function tickStatusDots(w: World): void {
       }
     }
   }
-}
+};
 
-function tickGround(w: World): void {
-  const survivors: GroundEffect[] = [];
-  for (const g of w.groundEffects) {
-    if (g.followOwner) {
-      const owner = w.units.get(g.ownerId);
-      if (owner && owner.alive) {
-        g.x = owner.x;
-        g.y = owner.y;
-      } else {
-        continue; // owner gone: drop aura
-      }
-    }
-    // ticking effects
-    while (w.now >= g.nextTick && g.nextTick <= g.until) {
-      applyGroundTick(w, g);
-      g.nextTick += g.tickInterval;
-    }
-    if (w.now >= g.until) {
-      if (g.detonate) detonateConflagration(w, g, g.detonate);
-      continue; // expired
-    }
-    survivors.push(g);
-  }
-  w.groundEffects = survivors;
-}
-
-function applyGroundTick(w: World, g: GroundEffect): void {
+const applyGroundTick = (w: World, g: GroundEffect): void => {
   if (g.enemyDps && g.enemyDps > 0) {
     const src = w.units.get(g.ownerId) ?? null;
     for (const e of enemiesInRadius(w, g.team, g, g.radius, false)) {
-      if (e.kind === "structure") continue;
+      if (e.kind === "structure") {
+        continue;
+      }
       dealDamage(w, src, e, g.enemyDps * (g.tickInterval / 1000), g.dtype ?? "magic", {
         attackerSpellAmp: src ? spellAmp(src) : 0,
       });
-      if (g.slowPct && g.slowPct > 0)
+      if (g.slowPct && g.slowPct > 0) {
         addStatus(e, {
+          id: `ground:${g.id}:${e.id}`,
           kind: "slow",
           pct: g.slowPct,
           until: w.now + 800,
-          id: `ground:${g.id}:${e.id}`,
         });
+      }
     }
   }
   if (
@@ -824,65 +945,122 @@ function applyGroundTick(w: World, g: GroundEffect): void {
     g.cleanse
   ) {
     for (const a of alliesInRadius(w, g.team, g, g.radius)) {
-      if (g.allyHealPerTick) a.hp = Math.min(a.maxHp, a.hp + g.allyHealPerTick);
-      if (g.allyManaPerTick) a.mp = Math.min(a.maxMp, a.mp + g.allyManaPerTick);
-      if (g.cleanse) cleanseSlows(a);
+      if (g.allyHealPerTick) {
+        a.hp = Math.min(a.maxHp, a.hp + g.allyHealPerTick);
+      }
+      if (g.allyManaPerTick) {
+        a.mp = Math.min(a.maxMp, a.mp + g.allyManaPerTick);
+      }
+      if (g.cleanse) {
+        cleanseSlows(a);
+      }
     }
-    if (g.allyHealPerTick) w.fx.push({ t: "heal", x: g.x, y: g.y, amount: g.allyHealPerTick });
+    if (g.allyHealPerTick) {
+      w.fx.push({ amount: g.allyHealPerTick, t: "heal", x: g.x, y: g.y });
+    }
   }
-}
+};
 
-function detonateConflagration(
+const detonateConflagration = (
   w: World,
   g: GroundEffect,
   d: NonNullable<GroundOpts["detonate"]>,
-): void {
+): void => {
   const src = w.units.get(g.ownerId) ?? null;
-  w.fx.push({ t: "explosion", x: g.x, y: g.y, radius: g.radius, color: 0xff5a1a });
+  w.fx.push({ color: 0xff_5a_1a, radius: g.radius, t: "explosion", x: g.x, y: g.y });
   for (const e of enemiesInRadius(w, g.team, g, g.radius, true)) {
     dealDamage(w, src, e, d.dmg, "magic", { attackerSpellAmp: d.amp });
-    if (e.kind !== "structure")
+    if (e.kind !== "structure") {
       addStatus(e, {
-        kind: "dot",
         dps: d.burnDps,
-        until: w.now + d.burnDur * 1000,
-        nextTick: w.now + 500,
         dtype: "magic",
-        sourceId: g.ownerId,
         id: `conflag:${e.id}`,
+        kind: "dot",
+        nextTick: w.now + 500,
+        sourceId: g.ownerId,
+        until: w.now + d.burnDur * 1000,
       });
+    }
   }
-}
+};
 
-function tickChannels(w: World): void {
+const tickGround = (w: World): void => {
+  const survivors: GroundEffect[] = [];
+  for (const g of w.groundEffects) {
+    if (g.followOwner) {
+      const owner = w.units.get(g.ownerId);
+      if (owner && owner.alive) {
+        g.x = owner.x;
+        g.y = owner.y;
+      } else {
+        // owner gone: drop aura
+        continue;
+      }
+    }
+    // ticking effects
+    while (w.now >= g.nextTick && g.nextTick <= g.until) {
+      applyGroundTick(w, g);
+      g.nextTick += g.tickInterval;
+    }
+    if (w.now >= g.until) {
+      if (g.detonate) {
+        detonateConflagration(w, g, g.detonate);
+      }
+      // expired
+      continue;
+    }
+    survivors.push(g);
+  }
+  w.groundEffects = survivors;
+};
+
+const tickChannels = (w: World): void => {
   for (const u of w.units.values()) {
     const h = u.hero;
-    if (!h?.channel) continue;
+    if (!h?.channel) {
+      continue;
+    }
     if (w.now >= h.channel.until) {
       h.channel = null;
     }
   }
-}
+};
+export const tickAbilities = (w: World, dt: number): void => {
+  tickPassives(w, dt);
+  tickStatusDots(w);
+  tickGround(w);
+  tickChannels(w);
+};
 
 // ---- item actives ----------------------------------------------------------
-export function useItem(w: World, u: Unit, itemId: string, point?: Vec2): boolean {
+export const activateItem = (w: World, u: Unit, itemId: string, point?: Vec2): boolean => {
   const h = u.hero;
-  if (!h || !u.alive || !h.items.includes(itemId)) return false;
+  if (!h || !u.alive || !h.items.includes(itemId)) {
+    return false;
+  }
   const it = ITEM_BY_ID[itemId];
-  if (!it?.active) return false;
+  if (!it?.active) {
+    return false;
+  }
   const ready = h.itemActiveReadyAt[itemId] ?? 0;
-  if (w.now < ready) return false;
+  if (w.now < ready) {
+    return false;
+  }
   switch (it.active.kind) {
-    case "haste":
-      addStatus(u, { kind: "speed", pct: 0, flat: 120, until: w.now + 3500, id: "item:haste" });
+    case "haste": {
+      addStatus(u, { flat: 120, id: "item:haste", kind: "speed", pct: 0, until: w.now + 3500 });
       addStatus(u, { kind: "unstoppable", until: w.now + 3500 });
       break;
-    case "barrier":
-      addStatus(u, { kind: "shield", amount: 350, until: w.now + 5000, id: "item:barrier" });
+    }
+    case "barrier": {
+      addStatus(u, { amount: 350, id: "item:barrier", kind: "shield", until: w.now + 5000 });
       cleanseSlows(u);
       break;
+    }
     case "blink": {
-      if (!point) return false;
+      if (!point) {
+        return false;
+      }
       const d = Math.min(600, dist(u, point));
       const a = Math.atan2(point.y - u.y, point.x - u.x);
       const from = { x: u.x, y: u.y };
@@ -890,21 +1068,49 @@ export function useItem(w: World, u: Unit, itemId: string, point?: Vec2): boolea
       u.y += Math.sin(a) * d;
       u.path = [];
       u.order = { type: "idle" };
-      w.fx.push({ t: "blink", x: from.x, y: from.y, x2: u.x, y2: u.y });
+      w.fx.push({ t: "blink", x: from.x, x2: u.x, y: from.y, y2: u.y });
+      break;
+    }
+    default: {
       break;
     }
   }
   h.itemActiveReadyAt[itemId] = w.now + it.active.cooldown * 1000;
   return true;
-}
+};
 
 // ---- leveling --------------------------------------------------------------
+
+export const levelAbility = (u: Unit, key: AbilityKey): boolean => {
+  const h = u.hero;
+  if (!h || h.abilityPoints <= 0) {
+    return false;
+  }
+  const def = HERO_BY_ID[h.defId]?.abilities[key];
+  if (!def) {
+    return false;
+  }
+  const slot = h.abilities[key];
+  const cap = Math.min(def.maxRank, abilityRankCap(key, h.level));
+  if (slot.rank >= cap) {
+    return false;
+  }
+  slot.rank += 1;
+  h.abilityPoints -= 1;
+  return true;
+};
+
 /** Spend all pending ability points: take the ultimate ASAP, then max Q>W>E. */
-export function autoLevel(w: World, u: Unit): void {
-  if (!u.hero) return;
+export const autoLevel = (w: World, u: Unit): void => {
+  if (!u.hero) {
+    return;
+  }
   let guard = 0;
-  while (u.hero.abilityPoints > 0 && guard++ < 8) {
-    if (levelAbility(u, "R")) continue;
+  while (u.hero.abilityPoints > 0 && guard < 8) {
+    guard += 1;
+    if (levelAbility(u, "R")) {
+      continue;
+    }
     let did = false;
     for (const k of ["Q", "W", "E"] satisfies AbilityKey[]) {
       if (levelAbility(u, k)) {
@@ -912,19 +1118,8 @@ export function autoLevel(w: World, u: Unit): void {
         break;
       }
     }
-    if (!did) break;
+    if (!did) {
+      break;
+    }
   }
-}
-
-export function levelAbility(u: Unit, key: AbilityKey): boolean {
-  const h = u.hero;
-  if (!h || h.abilityPoints <= 0) return false;
-  const def = HERO_BY_ID[h.defId]?.abilities[key];
-  if (!def) return false;
-  const slot = h.abilities[key];
-  const cap = Math.min(def.maxRank, abilityRankCap(key, h.level));
-  if (slot.rank >= cap) return false;
-  slot.rank += 1;
-  h.abilityPoints -= 1;
-  return true;
-}
+};

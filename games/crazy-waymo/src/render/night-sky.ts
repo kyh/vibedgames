@@ -21,10 +21,13 @@ const H = 256;
 // Below this the dome is flat horizon colour: the ground covers it, and a
 // gradient running past the horizon shows as a band under distant terrain.
 const HORIZON_V = 0.5;
-const ZENITH_MUL = 0.6; // how much of the horizon value survives at the zenith
-const HORIZON_MUL = 0.78; // matches the flat background this replaced (fog * 0.72-ish)
+// how much of the horizon value survives at the zenith
+const ZENITH_MUL = 0.6;
+// matches the flat background this replaced (fog * 0.72-ish)
+const HORIZON_MUL = 0.78;
 const STARS = 700;
-const REBAKE_EPS = 0.012; // per-channel fog drift that forces a re-bake
+// per-channel fog drift that forces a re-bake
+const REBAKE_EPS = 0.012;
 // Triangular-PDF dither amplitude for the gradient, in 8-bit steps. The dome
 // ramp spans only a few dozen values over 128 rows, so an undithered 8-bit
 // paint shows fat horizontal bands on the one half of the night frame that is
@@ -33,19 +36,21 @@ const REBAKE_EPS = 0.012; // per-channel fog drift that forces a re-bake
 const DITHER_AMPLITUDE = 0.75;
 
 // Deterministic star field: a re-bake must not re-roll the sky.
-function starRng(seed: number): () => number {
+/* oxlint-disable no-bitwise -- LCG: the uint32 wrap IS the algorithm */
+const starRng = (seed: number): (() => number) => {
   let s = seed >>> 0;
   return () => {
-    s = (s * 1664525 + 1013904223) >>> 0;
-    return s / 4294967296;
+    s = (s * 1_664_525 + 1_013_904_223) >>> 0;
+    return s / 4_294_967_296;
   };
-}
+};
+/* oxlint-enable no-bitwise */
 
 const scratch = new THREE.Color();
-const hRGB = { r: 0, g: 0, b: 0 };
-const zRGB = { r: 0, g: 0, b: 0 };
+const hRGB = { b: 0, g: 0, r: 0 };
+const zRGB = { b: 0, g: 0, r: 0 };
 
-function paint(ctx: CanvasRenderingContext2D, fog: THREE.Color): void {
+const paint = (ctx: CanvasRenderingContext2D, fog: THREE.Color): void => {
   // getStyle()/getRGB(SRGBColorSpace), never `r * 255`: with three's colour
   // management on, a Color's channels are LINEAR, and the canvas this paints
   // into is read back as sRGB. Writing linear bytes straight to it costs
@@ -69,19 +74,23 @@ function paint(ctx: CanvasRenderingContext2D, fog: THREE.Color): void {
   const rows = Math.round(H * HORIZON_V);
   const img = ctx.createImageData(W, rows);
   const px = img.data;
-  const ditherRnd = starRng(0x2b9d43);
+  const ditherRnd = starRng(0x2b_9d_43);
   let i = 0;
-  for (let y = 0; y < rows; y++) {
+  for (let y = 0; y < rows; y += 1) {
     const t = y / (rows - 1);
     const r = (zRGB.r + (hRGB.r - zRGB.r) * t) * 255;
     const g = (zRGB.g + (hRGB.g - zRGB.g) * t) * 255;
     const b = (zRGB.b + (hRGB.b - zRGB.b) * t) * 255;
-    for (let x = 0; x < W; x++) {
+    for (let x = 0; x < W; x += 1) {
       const n = (ditherRnd() + ditherRnd() - 1) * DITHER_AMPLITUDE;
-      px[i++] = r + n;
-      px[i++] = g + n;
-      px[i++] = b + n;
-      px[i++] = 255;
+      px[i] = r + n;
+      i += 1;
+      px[i] = g + n;
+      i += 1;
+      px[i] = b + n;
+      i += 1;
+      px[i] = 255;
+      i += 1;
     }
   }
   ctx.putImageData(img, 0, 0);
@@ -89,23 +98,33 @@ function paint(ctx: CanvasRenderingContext2D, fog: THREE.Color): void {
   ctx.fillRect(0, rows, W, H - rows);
 
   // Stars thin out toward the horizon (haze) and never sit below it.
-  const rnd = starRng(0x5f3a11);
-  for (let i = 0; i < STARS; i++) {
+  const rnd = starRng(0x5f_3a_11);
+  for (let star = 0; star < STARS; star += 1) {
     const x = rnd() * W;
-    const t = rnd(); // 0 horizon .. 1 zenith
+    // 0 horizon .. 1 zenith
+    const t = rnd();
     const y = H * HORIZON_V * (1 - t);
     const bright = rnd();
     const a = (0.18 + 0.72 * bright * bright) * (0.25 + 0.75 * t);
-    const r = bright > 0.94 ? 1.5 : bright > 0.75 ? 1.0 : 0.7;
+    let r = 0.7;
+    if (bright > 0.94) {
+      r = 1.5;
+    } else if (bright > 0.75) {
+      r = 1;
+    }
     // A touch of colour on the brightest ones; the rest stay neutral so the
-    // field reads as stars and not as noise.
-    const tint = bright > 0.9 ? (rnd() > 0.5 ? "255,228,205" : "205,224,255") : "255,255,255";
+    // field reads as stars and not as noise. Only the brightest draw from the
+    // stream, or every star below the cut would shift.
+    let tint = "255,255,255";
+    if (bright > 0.9) {
+      tint = rnd() > 0.5 ? "255,228,205" : "205,224,255";
+    }
     ctx.fillStyle = `rgba(${tint},${a.toFixed(3)})`;
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fill();
   }
-}
+};
 
 /**
  * Equirectangular night dome, re-painted only when the fog colour it has to
@@ -120,19 +139,25 @@ export class NightSky {
 
   texture(fog: THREE.Color): THREE.Texture | null {
     if (!this.canvas) {
-      if (typeof document === "undefined") return null;
+      if (typeof document === "undefined") {
+        return null;
+      }
       this.canvas = document.createElement("canvas");
       this.canvas.width = W;
       this.canvas.height = H;
       this.ctx = this.canvas.getContext("2d");
-      if (!this.ctx) return null;
+      if (!this.ctx) {
+        return null;
+      }
       this.tex = new THREE.CanvasTexture(this.canvas);
       this.tex.mapping = THREE.EquirectangularReflectionMapping;
       this.tex.colorSpace = THREE.SRGBColorSpace;
     }
-    const ctx = this.ctx;
-    const tex = this.tex;
-    if (!ctx || !tex) return null;
+    const { ctx } = this;
+    const { tex } = this;
+    if (!ctx || !tex) {
+      return null;
+    }
     if (
       Math.abs(fog.r - this.bakedFor.r) > REBAKE_EPS ||
       Math.abs(fog.g - this.bakedFor.g) > REBAKE_EPS ||

@@ -10,33 +10,51 @@ import { GRID_X, GRID_Z, ROAD_TILE, WORLD_HALF_X, WORLD_HALF_Z } from "../src/sh
 import { CUSTOM_MAP } from "../src/world/custom-map.ts";
 import { groundBlendInto, makeGroundBlendAt, makeGroundColorAt } from "../src/world/ground.ts";
 import type { CityPlan } from "../src/world/grid.ts";
-import {
-  type GroundCover,
-  type LandClass,
-  makeLandClassAt,
-  wheelSurface,
-} from "../src/world/land-class.ts";
+import { makeLandClassAt, wheelSurface } from "../src/world/land-class.ts";
+import type { GroundCover, LandClass, LandClassAt } from "../src/world/land-class.ts";
 import { makeTerrain } from "../src/world/sf-map.ts";
 
 type Check = (name: string, condition: boolean, detail?: string) => void;
-const blend = () => ({ turf: 0, sand: 0, stone: 0, loose: 0 });
+const blend = () => ({ loose: 0, sand: 0, stone: 0, turf: 0 });
 
-function landFixture(cover: GroundCover, under = cover, strength = 1): LandClass {
-  return {
-    cover,
-    under,
-    strength,
-    landuse: "unclassified",
-    fabric: { kind: "interior" },
-    parkland: { kind: "none" },
-    flank: { kind: "lowland" },
-    shore: { kind: "inland" },
-    built: false,
-  };
-}
+const landFixture = (cover: GroundCover, under = cover, strength = 1): LandClass => ({
+  built: false,
+  cover,
+  fabric: { kind: "interior" },
+  flank: { kind: "lowland" },
+  landuse: "unclassified",
+  parkland: { kind: "none" },
+  shore: { kind: "inland" },
+  strength,
+  under,
+});
 
-/** Material identity is tied to land semantics, never to the baked RGB palette. */
-export function checkTerrainMaterials(check: Check, plan: CityPlan): void {
+type Blend = ReturnType<typeof blend>;
+
+const surfaceMismatch = (surface: string, value: Blend): boolean => {
+  switch (surface) {
+    case "grass": {
+      return value.turf < 0.8;
+    }
+    case "sand": {
+      return value.sand < 0.68;
+    }
+    case "rock": {
+      return value.stone < 0.8;
+    }
+    case "dirt": {
+      return value.loose < 0.8;
+    }
+    case "gravel": {
+      return value.stone < 0.56 || value.loose < 0.24;
+    }
+    default: {
+      return false;
+    }
+  }
+};
+
+const checkCoverBlends = (check: Check): void => {
   const grass = blend();
   groundBlendInto(landFixture("grassland"), grass);
   const sand = blend();
@@ -52,8 +70,8 @@ export function checkTerrainMaterials(check: Check, plan: CityPlan): void {
     bareSandWeight(dune) === 0 &&
       bareSandWeight(grass) === 0 &&
       bareSandWeight(sand) === 1 &&
-      bareSandWeight({ turf: 0.07, sand: 0.85, stone: 0, loose: 0 }) > 0 &&
-      bareSandWeight({ turf: 0.07, sand: 0.85, stone: 0, loose: 0 }) < 1,
+      bareSandWeight({ loose: 0, sand: 0.85, stone: 0, turf: 0.07 }) > 0 &&
+      bareSandWeight({ loose: 0, sand: 0.85, stone: 0, turf: 0.07 }) < 1,
   );
   const mixed = blend();
   groundBlendInto(landFixture("sand", "lawn", 0.25), mixed);
@@ -61,10 +79,10 @@ export function checkTerrainMaterials(check: Check, plan: CityPlan): void {
     "material cover transitions preserve the painter's underlay strength",
     mixed.turf === 0.75 && mixed.sand === 0.25 && mixed.stone === 0 && mixed.loose === 0,
   );
-  const path = blend(),
-    rock = blend(),
-    dirt = blend(),
-    paved = blend();
+  const path = blend();
+  const rock = blend();
+  const dirt = blend();
+  const paved = blend();
   groundBlendInto(landFixture("path"), path);
   groundBlendInto(landFixture("rock"), rock);
   groundBlendInto(landFixture("industrial"), dirt);
@@ -79,15 +97,19 @@ export function checkTerrainMaterials(check: Check, plan: CityPlan): void {
       dirt.stone === 0 &&
       Object.values(paved).every((weight) => weight === 0),
   );
+};
 
+const checkBlendTexture = (check: Check): void => {
   const texture = createTerrainBlendTexture((x, z, into) => {
     into.turf = x < 0 ? 1 : 0;
     into.sand = x >= 0 && z < 0 ? 1 : 0;
     into.stone = x >= 0 && z >= 0 ? 1 : 0;
     into.loose = 0;
   });
-  const data = texture.image.data;
-  if (!(data instanceof Uint8Array)) throw new Error("Terrain classification stopped using RGBA8");
+  const { data } = texture.image;
+  if (!(data instanceof Uint8Array)) {
+    throw new Error("Terrain classification stopped using RGBA8");
+  }
   const ne = (TERRAIN_BLEND_SIZE - 1) * 4;
   const sw = (TERRAIN_BLEND_SIZE - 1) * TERRAIN_BLEND_SIZE * 4;
   const se = TERRAIN_BLEND_BYTES - 4;
@@ -110,11 +132,15 @@ export function checkTerrainMaterials(check: Check, plan: CityPlan): void {
       texture.magFilter === THREE.LinearFilter,
   );
   texture.dispose();
+};
 
-  const terrain = makeTerrain();
-  const landAt = makeLandClassAt(plan, terrain);
+const checkWorldSurfaces = (
+  check: Check,
+  plan: CityPlan,
+  landAt: LandClassAt,
+  value: Blend,
+): void => {
   const blendAt = makeGroundBlendAt(landAt);
-  const value = blend();
   const sampled = new Set<string>();
   let mismatches = 0;
   let normalized = true;
@@ -128,15 +154,14 @@ export function checkTerrainMaterials(check: Check, plan: CityPlan): void {
       normalized &&=
         weights.every((weight) => weight >= 0 && weight <= 1) &&
         weights.reduce((sum, weight) => sum + weight, 0) <= 1.000001;
-      if (land.strength < 0.8 || land.fabric.kind === "street" || land.shore.kind !== "inland")
+      if (land.strength < 0.8 || land.fabric.kind === "street" || land.shore.kind !== "inland") {
         continue;
+      }
       const surface = wheelSurface(land);
       sampled.add(surface);
-      if (surface === "grass" && value.turf < 0.8) mismatches++;
-      if (surface === "sand" && value.sand < 0.68) mismatches++;
-      if (surface === "rock" && value.stone < 0.8) mismatches++;
-      if (surface === "dirt" && value.loose < 0.8) mismatches++;
-      if (surface === "gravel" && (value.stone < 0.56 || value.loose < 0.24)) mismatches++;
+      if (surfaceMismatch(surface, value)) {
+        mismatches += 1;
+      }
     }
   }
   check("world terrain material blends stay normalized", normalized);
@@ -149,6 +174,17 @@ export function checkTerrainMaterials(check: Check, plan: CityPlan): void {
       sampled.has("rock"),
     `${mismatches} mismatches; ${[...sampled].join(", ")}`,
   );
+};
+
+/** Material identity is tied to land semantics, never to the baked RGB palette. */
+export const checkTerrainMaterials = (check: Check, plan: CityPlan): void => {
+  checkCoverBlends(check);
+  checkBlendTexture(check);
+
+  const terrain = makeTerrain();
+  const landAt = makeLandClassAt(plan, terrain);
+  const value = blend();
+  checkWorldSurfaces(check, plan, landAt, value);
 
   const originalFloor = CUSTOM_MAP.floor;
   try {
@@ -164,16 +200,16 @@ export function checkTerrainMaterials(check: Check, plan: CityPlan): void {
     const color = new THREE.Color();
     paintAt(x, z, color);
     paintedBlendAt(x, z, value);
-    const sandOverride = value.sand === 1 && value.turf === 0 && color.getHex() === 0xc7b78e;
+    const sandOverride = value.sand === 1 && value.turf === 0 && color.getHex() === 0xc7_b7_8e;
     paintAt(x + ROAD_TILE, z, color);
     paintedBlendAt(x + ROAD_TILE, z, value);
     check(
       "painted floors override both color and texture semantics with identical precedence",
       sandOverride &&
         Object.values(value).every((weight) => weight === 0) &&
-        color.getHex() === 0x9b968a,
+        color.getHex() === 0x9b_96_8a,
     );
   } finally {
     CUSTOM_MAP.floor = originalFloor;
   }
-}
+};

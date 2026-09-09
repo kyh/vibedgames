@@ -10,16 +10,14 @@ import {
 
 type Check = (name: string, condition: boolean, detail?: string) => void;
 
-export function checkSalesforce(check: Check): void {
-  const kit = getSalesforceKit();
-  const repeated = getSalesforceKit();
-  let triangles = 0,
-    bytes = 0,
-    radius = 0,
-    minY = Infinity,
-    maxY = -Infinity;
-  let finite = true,
-    degenerate = 0;
+const kitStats = (kit: ReturnType<typeof getSalesforceKit>) => {
+  let bytes = 0;
+  let radius = 0;
+  let triangles = 0;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  let degenerate = 0;
+  let finite = true;
   for (const part of kit) {
     const positions = part.geo.getAttribute("position");
     const normals = part.geo.getAttribute("normal");
@@ -30,10 +28,10 @@ export function checkSalesforce(check: Check): void {
       normals.array.byteLength +
       part.geo.getAttribute("color").array.byteLength +
       (index?.array.byteLength ?? 0);
-    for (let i = 0; i < positions.count; i++) {
-      const x = positions.getX(i),
-        y = positions.getY(i),
-        z = positions.getZ(i);
+    for (let i = 0; i < positions.count; i += 1) {
+      const x = positions.getX(i);
+      const y = positions.getY(i);
+      const z = positions.getZ(i);
       radius = Math.max(radius, Math.hypot(x, z));
       minY = Math.min(minY, y);
       maxY = Math.max(maxY, y);
@@ -41,16 +39,25 @@ export function checkSalesforce(check: Check): void {
         Number.isFinite,
       );
     }
-    const a = new THREE.Vector3(),
-      b = new THREE.Vector3(),
-      c = new THREE.Vector3();
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
+    const c = new THREE.Vector3();
     for (let i = 0; i < (index?.count ?? positions.count); i += 3) {
       a.fromBufferAttribute(positions, index?.getX(i) ?? i);
       b.fromBufferAttribute(positions, index?.getX(i + 1) ?? i + 1).sub(a);
       c.fromBufferAttribute(positions, index?.getX(i + 2) ?? i + 2).sub(a);
-      if (b.cross(c).lengthSq() <= 1e-14) degenerate++;
+      if (b.cross(c).lengthSq() <= 1e-14) {
+        degenerate += 1;
+      }
     }
   }
+  return { bytes, degenerate, finite, maxY, minY, radius, triangles };
+};
+
+export const checkSalesforce = (check: Check): void => {
+  const kit = getSalesforceKit();
+  const repeated = getSalesforceKit();
+  const { bytes, radius, triangles, minY, maxY, degenerate, finite } = kitStats(kit);
   check(
     "Salesforce preserves its circular placement and original height",
     finite && radius <= SALESFORCE_RADIUS && minY >= -1e-6 && maxY <= SALESFORCE_HEIGHT,
@@ -61,12 +68,12 @@ export function checkSalesforce(check: Check): void {
     kit.length === 6 &&
       new Set(kit.map((p) => p.mat)).size === 6 &&
       kit.every((p, i) => p.geo === repeated[i]?.geo && p.mat === repeated[i]?.mat) &&
-      triangles < 15000,
-    `${triangles} triangles, ${(bytes / 1048576).toFixed(3)} MiB`,
+      triangles < 15_000,
+    `${triangles} triangles, ${(bytes / 1_048_576).toFixed(3)} MiB`,
   );
   check("Salesforce has no collapsed triangles", degenerate === 0, `${degenerate} degenerate`);
-  const a = createSalesforceModel(),
-    b = createSalesforceModel();
+  const a = createSalesforceModel();
+  const b = createSalesforceModel();
   check(
     "Salesforce placements share buffers but own scene nodes",
     a !== b &&
@@ -101,4 +108,4 @@ export function checkSalesforce(check: Check): void {
       emitting.every((p) => p.mat.emissiveIntensity === 0) &&
       kit.every((p, i) => p.mat.color.getHex() === albedo[i]),
   );
-}
+};

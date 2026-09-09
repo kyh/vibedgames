@@ -22,28 +22,38 @@ type BusName = "sfx" | "ui" | "amb";
 interface FilterOpts {
   type: BiquadFilterType;
   from: number;
-  to?: number; // exponential sweep across the voice duration
+  // exponential sweep across the voice duration
+  to?: number;
   q?: number;
-  lfo?: { freq: number; depth: number }; // wobbles filter.frequency (necro rasp)
+  // wobbles filter.frequency (necro rasp)
+  lfo?: { freq: number; depth: number };
 }
 
 interface VoiceOpts {
-  at?: number; // absolute AudioContext time; defaults to now
-  x?: number; // world position → spatialized (gain falloff + stereo pan)
+  // absolute AudioContext time; defaults to now
+  at?: number;
+  // world position → spatialized (gain falloff + stereo pan)
+  x?: number;
   y?: number;
-  pan?: number; // manual pan, or additive offset when spatialized
-  bus?: BusName; // defaults to sfx
+  // manual pan, or additive offset when spatialized
+  pan?: number;
+  // defaults to sfx
+  bus?: BusName;
   filter?: FilterOpts;
 }
 
 interface ToneOpts extends VoiceOpts {
   freq: number;
   dur: number;
-  type?: OscillatorType; // defaults to sine
+  // defaults to sine
+  type?: OscillatorType;
   gain: number;
-  slideTo?: number; // exponential pitch slide target
-  detune?: number; // cents
-  attack?: number; // envelope attack seconds (default 0.005)
+  // exponential pitch slide target
+  slideTo?: number;
+  // cents
+  detune?: number;
+  // envelope attack seconds (default 0.005)
+  attack?: number;
 }
 
 interface NoiseOpts extends VoiceOpts {
@@ -56,7 +66,7 @@ const VOICE_CAP = 28;
 // D-minor stinger pitch set
 const D3 = 146.83;
 const F3 = 174.61;
-const A3 = 220.0;
+const A3 = 220;
 const C4 = 261.63;
 
 /** Key modifiers applied to each champ's base cast voice (result-05 A3). DASH =
@@ -64,13 +74,16 @@ const C4 = 261.63;
  *  down heave (the landing thud is the explosion fx event). */
 type CastMods = { [K in AbilityKey]: { d: number; p: number; ult?: boolean } };
 const CAST_MOD: CastMods = {
-  Q: { d: 0.8, p: 1.0 },
-  W: { d: 1.0, p: 1.15 },
-  E: { d: 1.1, p: 0.85 },
-  R: { d: 1.6, p: 0.7, ult: true },
   DASH: { d: 0.5, p: 1.2 },
+  E: { d: 1.1, p: 0.85 },
   JUMP: { d: 0.9, p: 0.85 },
+  Q: { d: 0.8, p: 1 },
+  R: { d: 1.6, p: 0.7, ult: true },
+  W: { d: 1, p: 1.15 },
 };
+
+/** ±8% pitch jitter so a repeated sample never reads as a loop. */
+const jit = (): number => 0.92 + Math.random() * 0.16;
 
 export class Audio {
   private ctx: AudioContext | null = null;
@@ -81,7 +94,8 @@ export class Audio {
   private amb: GainNode | null = null;
   private noiseBuf: AudioBuffer | null = null;
   private musicInst: Music | null = null;
-  private mutedOverride: boolean | null = null; // setMutedEphemeral — never persisted
+  // setMutedEphemeral — never persisted
+  private mutedOverride: boolean | null = null;
   private last: Record<string, number> = {};
   private live = 0;
   // listener position + screen-right basis (rx,ry) = (-aimY, aimX)
@@ -89,7 +103,8 @@ export class Audio {
   private ly = 0;
   private rx = 0;
   private ry = 1;
-  private hissFlip = false; // rogue alternating dagger pan
+  // rogue alternating dagger pan
+  private hissFlip = false;
   private ambStarted = false;
   private ambTimer: number | null = null;
   private ambNextPop = 0;
@@ -98,7 +113,9 @@ export class Audio {
   constructor() {
     const unlock = (): void => {
       this.ensure();
-      if (this.ctx?.state === "suspended") void this.ctx.resume();
+      if (this.ctx?.state === "suspended") {
+        void this.ctx.resume();
+      }
       this.musicInst?.start();
       this.startAmbience();
       window.removeEventListener("pointerdown", unlock);
@@ -115,12 +132,14 @@ export class Audio {
 
   /** MUTED BY DEFAULT — sound is opt-in (link-shared browser game; autoplaying
    *  audio is hostile). localStorage remembers the choice across visits. */
+  // oxlint-disable-next-line class-methods-use-this -- the preference lives in localStorage, but isMuted is part of the Audio instance's public API (main.ts and hud.ts read it off the instance)
   get isMuted(): boolean {
     return localStorage.getItem("ba-muted") !== "0";
   }
 
   setMuted(on: boolean): void {
-    this.mutedOverride = null; // an explicit choice always wins
+    // an explicit choice always wins
+    this.mutedOverride = null;
     try {
       localStorage.setItem("ba-muted", on ? "1" : "0");
     } catch {
@@ -146,18 +165,26 @@ export class Audio {
    *  sample-accurate scheduled voice (SFX + Music's `start(t)`/`stop(t)`
    *  envelopes) simply stalls in place instead of drifting or double-firing. */
   suspend(): void {
-    if (this.ctx?.state === "running") void this.ctx.suspend();
+    if (this.ctx?.state === "running") {
+      void this.ctx.suspend();
+    }
   }
 
   resume(): void {
-    if (this.ctx?.state === "suspended") void this.ctx.resume();
+    if (this.ctx?.state === "suspended") {
+      void this.ctx.resume();
+    }
   }
 
   private ensure(): void {
-    if (this.ctx) return;
+    if (this.ctx) {
+      return;
+    }
     const scope: typeof globalThis & { webkitAudioContext?: typeof AudioContext } = globalThis;
     const Ctor = scope.AudioContext ?? scope.webkitAudioContext;
-    if (!Ctor) return;
+    if (!Ctor) {
+      return;
+    }
     const ctx = new Ctor();
     this.ctx = ctx;
     this.master = ctx.createGain();
@@ -178,12 +205,15 @@ export class Audio {
     };
     this.sfx = mkBus(0.65);
     this.ui = mkBus(0.5);
-    this.musicBus = mkBus(0.32); // Music.duck() restores to this baseline
+    // Music.duck() restores to this baseline
+    this.musicBus = mkBus(0.32);
     this.amb = mkBus(0.22);
     // one second of white noise for percussive voices
     const buf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
     const data = buf.getChannelData(0);
-    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    for (let i = 0; i < data.length; i += 1) {
+      data[i] = Math.random() * 2 - 1;
+    }
     this.noiseBuf = buf;
     this.musicInst = new Music(ctx, this.musicBus);
   }
@@ -195,13 +225,11 @@ export class Audio {
   /** Rate-limit a given voice so overlapping events don't stack into noise. */
   private gate(key: string, ms: number): boolean {
     const t = this.now() * 1000;
-    if (t - (this.last[key] ?? -1e9) < ms) return false;
+    if (t - (this.last[key] ?? -1e9) < ms) {
+      return false;
+    }
     this.last[key] = t;
     return true;
-  }
-
-  private jit(): number {
-    return 0.92 + Math.random() * 0.16;
   }
 
   // ── listener / spatializer ──────────────────────────────────────────────────
@@ -218,8 +246,12 @@ export class Audio {
     const dx = x - this.lx;
     const dy = y - this.ly;
     const d = Math.hypot(dx, dy);
-    if (d > 55) return null; // cull past ~half arena
-    const g = 1 / (1 + (d * d) / 100); // ref dist 10u
+    if (d > 55) {
+      return null;
+      // cull past ~half arena
+    }
+    // ref dist 10u
+    const g = 1 / (1 + (d * d) / 100);
     const pan =
       d < 0.5 ? 0 : Math.max(-0.8, Math.min(0.8, ((dx * this.rx + dy * this.ry) / d) * 0.8));
     return { g: Math.max(0.06, g), pan };
@@ -228,31 +260,42 @@ export class Audio {
   // ── voice primitives ────────────────────────────────────────────────────────
 
   private busNode(name: BusName | undefined): GainNode | null {
-    if (name === "ui") return this.ui;
-    if (name === "amb") return this.amb;
+    if (name === "ui") {
+      return this.ui;
+    }
+    if (name === "amb") {
+      return this.amb;
+    }
     return this.sfx;
   }
 
   private route(node: AudioNode, pan: number, bus: BusName | undefined): void {
     const dest = this.busNode(bus);
-    if (!dest || !this.ctx) return;
-    if (pan !== 0) {
+    if (!dest || !this.ctx) {
+      return;
+    }
+    if (pan === 0) {
+      node.connect(dest);
+    } else {
       const p = this.ctx.createStereoPanner();
       p.pan.value = pan;
       node.connect(p).connect(dest);
-    } else {
-      node.connect(dest);
     }
   }
 
   private applyFilter(head: AudioNode, f: FilterOpts, t: number, dur: number): AudioNode {
-    if (!this.ctx) return head;
+    if (!this.ctx) {
+      return head;
+    }
     const filt = this.ctx.createBiquadFilter();
     filt.type = f.type;
     filt.frequency.setValueAtTime(Math.max(20, f.from), t);
-    if (f.to !== undefined)
+    if (f.to !== undefined) {
       filt.frequency.exponentialRampToValueAtTime(Math.max(20, f.to), t + dur);
-    if (f.q !== undefined) filt.Q.value = f.q;
+    }
+    if (f.q !== undefined) {
+      filt.Q.value = f.q;
+    }
     if (f.lfo) {
       const lfo = this.ctx.createOscillator();
       lfo.type = "sine";
@@ -270,33 +313,48 @@ export class Audio {
   /** Spatial gain/pan + voice-cap shedding. Returns null when the voice culls. */
   private mix(o: VoiceOpts, gain: number): { g: number; pan: number } | null {
     let pan = o.pan ?? 0;
+    let g = gain;
     if (o.x !== undefined && o.y !== undefined) {
       const s = this.spatial(o.x, o.y);
-      if (!s) return null;
-      if (this.live >= VOICE_CAP && s.g < 0.35) return null; // shed distant first
-      gain *= s.g;
+      if (!s) {
+        return null;
+      }
+      if (this.live >= VOICE_CAP && s.g < 0.35) {
+        return null;
+        // shed distant first
+      }
+      g *= s.g;
       pan = Math.max(-1, Math.min(1, s.pan + pan));
     }
-    return { g: gain, pan };
+    return { g, pan };
   }
 
   private tone(o: ToneOpts): void {
-    if (!this.ctx) return;
+    if (!this.ctx) {
+      return;
+    }
     const m = this.mix(o, o.gain);
-    if (!m) return;
+    if (!m) {
+      return;
+    }
     const t = o.at ?? this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
     osc.type = o.type ?? "sine";
     osc.frequency.setValueAtTime(Math.max(20, o.freq), t);
-    if (o.slideTo !== undefined)
+    if (o.slideTo !== undefined) {
       osc.frequency.exponentialRampToValueAtTime(Math.max(20, o.slideTo), t + o.dur);
-    if (o.detune !== undefined) osc.detune.setValueAtTime(o.detune, t);
+    }
+    if (o.detune !== undefined) {
+      osc.detune.setValueAtTime(o.detune, t);
+    }
     const env = this.ctx.createGain();
     env.gain.setValueAtTime(0.0001, t);
     env.gain.exponentialRampToValueAtTime(Math.max(0.0003, m.g), t + (o.attack ?? 0.005));
     env.gain.exponentialRampToValueAtTime(0.0001, t + o.dur);
     let head: AudioNode = osc;
-    if (o.filter) head = this.applyFilter(head, o.filter, t, o.dur);
+    if (o.filter) {
+      head = this.applyFilter(head, o.filter, t, o.dur);
+    }
     head.connect(env);
     this.route(env, m.pan, o.bus);
     this.countVoice(osc);
@@ -306,20 +364,24 @@ export class Audio {
 
   /** Track live voices for the cap; decrement when the source finishes. */
   private countVoice(src: AudioScheduledSourceNode): void {
-    this.live++;
+    this.live += 1;
     src.addEventListener(
       "ended",
       () => {
-        this.live--;
+        this.live -= 1;
       },
       { once: true },
     );
   }
 
   private noise(o: NoiseOpts): void {
-    if (!this.ctx || !this.noiseBuf) return;
+    if (!this.ctx || !this.noiseBuf) {
+      return;
+    }
     const m = this.mix(o, o.gain);
-    if (!m) return;
+    if (!m) {
+      return;
+    }
     const t = o.at ?? this.ctx.currentTime;
     const src = this.ctx.createBufferSource();
     src.buffer = this.noiseBuf;
@@ -327,7 +389,9 @@ export class Audio {
     env.gain.setValueAtTime(Math.max(0.0003, m.g), t);
     env.gain.exponentialRampToValueAtTime(0.0001, t + o.dur);
     let head: AudioNode = src;
-    if (o.filter) head = this.applyFilter(head, o.filter, t, o.dur);
+    if (o.filter) {
+      head = this.applyFilter(head, o.filter, t, o.dur);
+    }
     head.connect(env);
     this.route(env, m.pan, o.bus);
     this.countVoice(src);
@@ -337,9 +401,13 @@ export class Audio {
 
   /** Brass-ish stinger note: 3 detuned saws → lowpass 1250 → shared envelope. */
   private sawStack(freq: number, at: number, dur: number, gain = 0.07, fallTo?: number): void {
-    if (!this.ctx) return;
+    if (!this.ctx) {
+      return;
+    }
     const dest = this.busNode("sfx");
-    if (!dest) return;
+    if (!dest) {
+      return;
+    }
     const filt = this.ctx.createBiquadFilter();
     filt.type = "lowpass";
     filt.frequency.value = 1250;
@@ -353,8 +421,9 @@ export class Audio {
       const osc = this.ctx.createOscillator();
       osc.type = "sawtooth";
       osc.frequency.setValueAtTime(freq * det, at);
-      if (fallTo !== undefined)
+      if (fallTo !== undefined) {
         osc.frequency.exponentialRampToValueAtTime(freq * det * fallTo, at + dur);
+      }
       osc.connect(filt);
       if (first) {
         this.countVoice(osc);
@@ -369,17 +438,21 @@ export class Audio {
 
   /** 3-layer impact at the hit point: transient / body / tail per damage type. */
   hit(x?: number, y?: number, dtype: DamageType = "physical"): void {
-    if (!this.gate("hit", 45)) return;
+    if (!this.gate("hit", 45)) {
+      return;
+    }
     this.impact(this.now(), x, y, dtype, 1);
   }
 
   /** Crit: physical layers pitched ×1.3 + 1244Hz ring + 72→48Hz sub. */
   crit(x?: number, y?: number): void {
-    if (!this.gate("crit", 60)) return;
+    if (!this.gate("crit", 60)) {
+      return;
+    }
     const t = this.now();
     this.impact(t, x, y, "physical", 1.3);
-    this.tone({ at: t, x, y, freq: 1244, dur: 0.05, type: "sine", gain: 0.1 });
-    this.tone({ at: t, x, y, freq: 72, slideTo: 48, dur: 0.14, type: "sine", gain: 0.2 });
+    this.tone({ at: t, dur: 0.05, freq: 1244, gain: 0.1, type: "sine", x, y });
+    this.tone({ at: t, dur: 0.14, freq: 72, gain: 0.2, slideTo: 48, type: "sine", x, y });
   }
 
   private impact(
@@ -389,90 +462,90 @@ export class Audio {
     dtype: DamageType,
     p: number,
   ): void {
-    const j = this.jit();
+    const j = jit();
     if (dtype === "physical") {
       this.noise({
         at: t,
+        dur: 0.012,
+        filter: { from: 3200 * p, type: "highpass" },
+        gain: 0.22,
         x,
         y,
-        dur: 0.012,
-        gain: 0.22,
-        filter: { type: "highpass", from: 3200 * p },
       });
       this.tone({
         at: t,
+        dur: 0.09,
+        freq: 185 * p * j,
+        gain: 0.1,
+        slideTo: 95 * p * j,
+        type: "square",
         x,
         y,
-        freq: 185 * p * j,
-        slideTo: 95 * p * j,
-        dur: 0.09,
-        type: "square",
-        gain: 0.1,
       });
       this.noise({
         at: t,
+        dur: 0.12,
+        filter: { from: 1100 * p, type: "lowpass" },
+        gain: 0.07,
         x,
         y,
-        dur: 0.12,
-        gain: 0.07,
-        filter: { type: "lowpass", from: 1100 * p },
       });
     } else if (dtype === "magic") {
       this.noise({
         at: t,
-        x,
-        y,
         dur: 0.01,
+        filter: { from: 4200 * p, type: "highpass" },
         gain: 0.18,
-        filter: { type: "highpass", from: 4200 * p },
+        x,
+        y,
       });
       this.tone({
         at: t,
-        x,
-        y,
+        dur: 0.11,
         freq: 520 * p * j,
-        slideTo: 260 * p * j,
-        dur: 0.11,
-        type: "sine",
         gain: 0.1,
+        slideTo: 260 * p * j,
+        type: "sine",
+        x,
+        y,
       });
       this.tone({
         at: t,
+        dur: 0.11,
+        freq: 520 * 1.012 * p * j,
+        gain: 0.1,
+        slideTo: 260 * 1.012 * p * j,
+        type: "sine",
         x,
         y,
-        freq: 520 * 1.012 * p * j,
-        slideTo: 260 * 1.012 * p * j,
-        dur: 0.11,
-        type: "sine",
-        gain: 0.1,
       });
       this.noise({
         at: t,
+        dur: 0.1,
+        filter: { from: 900 * p, type: "bandpass" },
+        gain: 0.06,
         x,
         y,
-        dur: 0.1,
-        gain: 0.06,
-        filter: { type: "bandpass", from: 900 * p },
       });
     } else {
       // pure: magic transient, brighter triangle body, no tail
       this.noise({
         at: t,
+        dur: 0.01,
+        filter: { from: 4200 * p, type: "highpass" },
+        gain: 0.18,
         x,
         y,
-        dur: 0.01,
-        gain: 0.18,
-        filter: { type: "highpass", from: 4200 * p },
       });
       this.tone({
         at: t,
+        dur: 0.08,
+        freq: 720 * p * j,
+        gain: 0.09,
+        slideTo: 420 * p * j,
+        type: "triangle",
         x,
         y,
-        freq: 720 * p * j,
-        slideTo: 420 * p * j,
-        dur: 0.08,
-        type: "triangle",
-        gain: 0.09,
       });
     }
   }
@@ -481,44 +554,53 @@ export class Audio {
 
   /** One whoosh per swing, driven by the world-view attack one-shot delta. */
   attack(champId: string, x: number, y: number): void {
-    if (!this.gate("atk:" + champId, 70)) return;
+    if (!this.gate(`atk:${champId}`, 70)) {
+      return;
+    }
     const t = this.now();
     switch (champId) {
-      case "knight":
+      case "knight": {
         this.atkKnight(t, x, y);
         break;
-      case "rogue":
+      }
+      case "rogue": {
         this.atkRogueHiss(t, x, y, true);
         break;
-      case "ranger":
+      }
+      case "ranger": {
         // bow twang + string snap + thwip
         this.tone({
           at: t,
+          dur: 0.035,
+          freq: 235,
+          gain: 0.14,
+          slideTo: 175,
+          type: "triangle",
           x,
           y,
-          freq: 235,
-          slideTo: 175,
-          dur: 0.035,
-          type: "triangle",
-          gain: 0.14,
         });
-        this.noise({ at: t, x, y, dur: 0.02, gain: 0.1, filter: { type: "highpass", from: 4500 } });
-        this.tone({ at: t, x, y, freq: 900, slideTo: 300, dur: 0.06, type: "sine", gain: 0.06 });
+        this.noise({ at: t, dur: 0.02, filter: { from: 4500, type: "highpass" }, gain: 0.1, x, y });
+        this.tone({ at: t, dur: 0.06, freq: 900, gain: 0.06, slideTo: 300, type: "sine", x, y });
         break;
-      case "mage":
+      }
+      case "mage": {
         this.atkMageBeat(t, x, y, 1, 0.08);
-        this.tone({ at: t, x, y, freq: 1860, dur: 0.04, type: "sine", gain: 0.05 });
+        this.tone({ at: t, dur: 0.04, freq: 1860, gain: 0.05, type: "sine", x, y });
         break;
-      case "blackknight":
+      }
+      case "blackknight": {
         // heavy 2H heft pitched 0.8×, longer
         this.atkHeavy(t, x, y, 0.8, 1.25);
         break;
-      case "witch":
+      }
+      case "witch": {
         this.witchVoice(t, x, y, 1, 1, 0.07);
         break;
-      default:
+      }
+      default: {
         // creeps / skeletons
-        this.noise({ at: t, x, y, dur: 0.07, gain: 0.09, filter: { type: "lowpass", from: 1600 } });
+        this.noise({ at: t, dur: 0.07, filter: { from: 1600, type: "lowpass" }, gain: 0.09, x, y });
+      }
     }
   }
 
@@ -526,11 +608,11 @@ export class Audio {
   private atkKnight(t: number, x: number | undefined, y: number | undefined, p = 1, d = 1): void {
     this.noise({
       at: t,
+      dur: 0.13 * d,
+      filter: { from: 400 * p, to: 1300 * p, type: "bandpass" },
+      gain: 0.13,
       x,
       y,
-      dur: 0.13 * d,
-      gain: 0.13,
-      filter: { type: "bandpass", from: 400 * p, to: 1300 * p },
     });
   }
 
@@ -538,13 +620,13 @@ export class Audio {
   private atkHeavy(t: number, x: number | undefined, y: number | undefined, p = 1, d = 1): void {
     this.noise({
       at: t,
+      dur: 0.17 * d,
+      filter: { from: 250 * p, to: 800 * p, type: "bandpass" },
+      gain: 0.17,
       x,
       y,
-      dur: 0.17 * d,
-      gain: 0.17,
-      filter: { type: "bandpass", from: 250 * p, to: 800 * p },
     });
-    this.tone({ at: t, x, y, freq: 65 * p, dur: 0.07 * d, type: "sine", gain: 0.12 });
+    this.tone({ at: t, dur: 0.07 * d, freq: 65 * p, gain: 0.12, type: "sine", x, y });
   }
 
   /** Dagger hiss; `pair` adds the second shot at +45ms, pan-offset alternating. */
@@ -554,18 +636,20 @@ export class Audio {
     y: number | undefined,
     pair: boolean,
   ): void {
-    this.noise({ at: t, x, y, dur: 0.06, gain: 0.09, filter: { type: "highpass", from: 2600 } });
-    if (!pair) return;
+    this.noise({ at: t, dur: 0.06, filter: { from: 2600, type: "highpass" }, gain: 0.09, x, y });
+    if (!pair) {
+      return;
+    }
     this.hissFlip = !this.hissFlip;
     const off = this.hissFlip ? 0.15 : -0.15;
     this.noise({
       at: t + 0.045,
+      dur: 0.06,
+      filter: { from: 2600, type: "highpass" },
+      gain: 0.09,
+      pan: off,
       x,
       y,
-      pan: off,
-      dur: 0.06,
-      gain: 0.09,
-      filter: { type: "highpass", from: 2600 },
     });
   }
 
@@ -577,8 +661,8 @@ export class Audio {
     p: number,
     gain: number,
   ): void {
-    this.tone({ at: t, x, y, freq: 620 * p, dur: 0.12, type: "sine", gain });
-    this.tone({ at: t, x, y, freq: 627 * p, dur: 0.12, type: "sine", gain });
+    this.tone({ at: t, dur: 0.12, freq: 620 * p, gain, type: "sine", x, y });
+    this.tone({ at: t, dur: 0.12, freq: 627 * p, gain, type: "sine", x, y });
   }
 
   /** Witch: wobbly detuned sine pair (7Hz beat, woozy downward slide) + rising
@@ -591,28 +675,28 @@ export class Audio {
     d: number,
     gain: number,
   ): void {
-    this.tone({ at: t, x, y, freq: 315 * p, slideTo: 296 * p, dur: 0.18 * d, type: "sine", gain });
-    this.tone({ at: t, x, y, freq: 322 * p, slideTo: 308 * p, dur: 0.18 * d, type: "sine", gain });
-    for (let i = 0; i < 3; i++) {
+    this.tone({ at: t, dur: 0.18 * d, freq: 315 * p, gain, slideTo: 296 * p, type: "sine", x, y });
+    this.tone({ at: t, dur: 0.18 * d, freq: 322 * p, gain, slideTo: 308 * p, type: "sine", x, y });
+    for (let i = 0; i < 3; i += 1) {
       const f = (260 + Math.random() * 160) * p;
       this.tone({
         at: t + 0.02 + i * 0.055 * d,
+        dur: 0.05,
+        freq: f,
+        gain: 0.055,
+        slideTo: f * 2.3,
+        type: "sine",
         x,
         y,
-        freq: f,
-        slideTo: f * 2.3,
-        dur: 0.05,
-        type: "sine",
-        gain: 0.055,
       });
     }
     this.noise({
       at: t + 0.03,
+      dur: 0.03,
+      filter: { from: 1100, type: "bandpass" },
+      gain: 0.04,
       x,
       y,
-      dur: 0.03,
-      gain: 0.04,
-      filter: { type: "bandpass", from: 1100 },
     });
   }
 
@@ -620,20 +704,25 @@ export class Audio {
 
   /** Champ base voice × CAST_MOD; R adds the ult layer (sub drop + riser). */
   cast(champId = "", key: AbilityKey = "Q", x?: number, y?: number): void {
-    if (!this.gate("cast", 60)) return;
+    if (!this.gate("cast", 60)) {
+      return;
+    }
     const t = this.now();
     const m = CAST_MOD[key];
     this.castVoice(champId, t, x, y, m.p, m.d);
-    if (key === "DASH") this.dodge(x, y); // crisp air-whoosh on top of the zip
+    if (key === "DASH") {
+      this.dodge(x, y);
+      // crisp air-whoosh on top of the zip
+    }
     if (m.ult && this.gate("ult", 300)) {
-      this.tone({ at: t, x, y, freq: 55, slideTo: 38, dur: 0.4, type: "sine", gain: 0.22 });
+      this.tone({ at: t, dur: 0.4, freq: 55, gain: 0.22, slideTo: 38, type: "sine", x, y });
       this.noise({
         at: t,
+        dur: 0.5,
+        filter: { from: 300, to: 2500, type: "bandpass" },
+        gain: 0.08,
         x,
         y,
-        dur: 0.5,
-        gain: 0.08,
-        filter: { type: "bandpass", from: 300, to: 2500 },
       });
     }
   }
@@ -647,65 +736,72 @@ export class Audio {
     d: number,
   ): void {
     switch (champId) {
-      case "knight":
+      case "knight": {
         this.castKnight(t, x, y, p, d);
         break;
-      case "ranger":
+      }
+      case "ranger": {
         this.tone({
           at: t,
+          dur: 0.22 * d,
+          freq: 330 * p,
+          gain: 0.12,
+          slideTo: 660 * p,
+          type: "triangle",
           x,
           y,
-          freq: 330 * p,
-          slideTo: 660 * p,
-          dur: 0.22 * d,
-          type: "triangle",
-          gain: 0.12,
         });
         this.noise({
           at: t,
+          dur: 0.02,
+          filter: { from: 4500, type: "highpass" },
+          gain: 0.05,
           x,
           y,
-          dur: 0.02,
-          gain: 0.05,
-          filter: { type: "highpass", from: 4500 },
         });
         break;
-      case "mage":
+      }
+      case "mage": {
         this.tone({
           at: t,
+          dur: 0.22 * d,
+          freq: 320 * p,
+          gain: 0.14,
+          slideTo: 980 * p,
+          type: "sine",
           x,
           y,
-          freq: 320 * p,
-          slideTo: 980 * p,
-          dur: 0.22 * d,
-          type: "sine",
-          gain: 0.14,
         });
-        this.tone({ at: t, x, y, freq: 1560 * p, dur: 0.05, type: "sine", gain: 0.05 });
-        this.tone({ at: t + 0.04, x, y, freq: 1976 * p, dur: 0.05, type: "sine", gain: 0.05 });
-        this.tone({ at: t + 0.08, x, y, freq: 2349 * p, dur: 0.05, type: "sine", gain: 0.05 });
+        this.tone({ at: t, dur: 0.05, freq: 1560 * p, gain: 0.05, type: "sine", x, y });
+        this.tone({ at: t + 0.04, dur: 0.05, freq: 1976 * p, gain: 0.05, type: "sine", x, y });
+        this.tone({ at: t + 0.08, dur: 0.05, freq: 2349 * p, gain: 0.05, type: "sine", x, y });
         break;
-      case "rogue":
+      }
+      case "rogue": {
         this.castRogue(t, x, y, p, d);
         break;
-      case "blackknight":
+      }
+      case "blackknight": {
         this.castHeavy(t, x, y, p * 0.8, d * 1.25);
         break;
-      case "witch":
+      }
+      case "witch": {
         this.witchVoice(t, x, y, p, 1.2 * d, 0.08);
         break;
-      default:
+      }
+      default: {
         // creeps / unknown: the original rising cast chirp
         this.tone({
           at: t,
+          dur: 0.18 * d,
+          freq: 320 * p * jit(),
+          gain: 0.14,
+          slideTo: 760 * p,
+          type: "sine",
           x,
           y,
-          freq: 320 * p * this.jit(),
-          slideTo: 760 * p,
-          dur: 0.18 * d,
-          type: "sine",
-          gain: 0.14,
         });
+      }
     }
   }
 
@@ -718,15 +814,15 @@ export class Audio {
   ): void {
     this.tone({
       at: t,
+      dur: 0.22 * d,
+      freq: 220 * p,
+      gain: 0.12,
+      slideTo: 440 * p,
+      type: "square",
       x,
       y,
-      freq: 220 * p,
-      slideTo: 440 * p,
-      dur: 0.22 * d,
-      type: "square",
-      gain: 0.12,
     });
-    this.noise({ at: t, x, y, dur: 0.05, gain: 0.08, filter: { type: "highpass", from: 3000 } });
+    this.noise({ at: t, dur: 0.05, filter: { from: 3000, type: "highpass" }, gain: 0.08, x, y });
   }
 
   private castRogue(
@@ -738,21 +834,21 @@ export class Audio {
   ): void {
     this.noise({
       at: t,
+      dur: 0.18 * d,
+      filter: { from: 800, to: 3500, type: "highpass" },
+      gain: 0.09,
       x,
       y,
-      dur: 0.18 * d,
-      gain: 0.09,
-      filter: { type: "highpass", from: 800, to: 3500 },
     });
     this.tone({
       at: t,
+      dur: 0.18 * d,
+      freq: 660 * p,
+      gain: 0.1,
+      slideTo: 220 * p,
+      type: "sine",
       x,
       y,
-      freq: 660 * p,
-      slideTo: 220 * p,
-      dur: 0.18 * d,
-      type: "sine",
-      gain: 0.1,
     });
   }
 
@@ -765,14 +861,14 @@ export class Audio {
   ): void {
     this.tone({
       at: t,
+      dur: 0.25 * d,
+      filter: { from: 900, type: "lowpass" },
+      freq: 130 * p,
+      gain: 0.13,
+      slideTo: 180 * p,
+      type: "sawtooth",
       x,
       y,
-      freq: 130 * p,
-      slideTo: 180 * p,
-      dur: 0.25 * d,
-      type: "sawtooth",
-      gain: 0.13,
-      filter: { type: "lowpass", from: 900 },
     });
   }
 
@@ -781,15 +877,17 @@ export class Audio {
   /** Your kill: bright triangle pair + air. The single biggest feel win. */
   killConfirm(): void {
     const t = this.now();
-    this.tone({ at: t, freq: 784, dur: 0.09, type: "triangle", gain: 0.16 });
-    this.tone({ at: t + 0.07, freq: 1046, dur: 0.14, type: "triangle", gain: 0.16 });
-    this.noise({ at: t, dur: 0.03, gain: 0.08, filter: { type: "highpass", from: 5000 } });
+    this.tone({ at: t, dur: 0.09, freq: 784, gain: 0.16, type: "triangle" });
+    this.tone({ at: t + 0.07, dur: 0.14, freq: 1046, gain: 0.16, type: "triangle" });
+    this.noise({ at: t, dur: 0.03, filter: { from: 5000, type: "highpass" }, gain: 0.08 });
   }
 
   /** Announcer stingers, D minor: 0 spree/first-blood · 1 rampage ·
    *  2 unstoppable (staccato run + timpani) · 3 godlike (+ riser + sub). */
   stinger(tier: 0 | 1 | 2 | 3): void {
-    if (!this.gate("stinger", 250)) return;
+    if (!this.gate("stinger", 250)) {
+      return;
+    }
     const t = this.now();
     if (tier === 0) {
       this.sawStack(D3, t, 0.45);
@@ -803,22 +901,24 @@ export class Audio {
       this.sawStack(F3, t + 0.09, 0.16);
       this.sawStack(A3, t + 0.18, 0.16);
       this.sawStack(C4, t + 0.27, 0.4);
-      this.tone({ at: t, freq: 82, slideTo: 58, dur: 0.3, type: "sine", gain: 0.18 });
+      this.tone({ at: t, dur: 0.3, freq: 82, gain: 0.18, slideTo: 58, type: "sine" });
       if (tier === 3) {
         this.noise({
           at: t,
           dur: 0.6,
+          filter: { from: 400, to: 4000, type: "bandpass" },
           gain: 0.09,
-          filter: { type: "bandpass", from: 400, to: 4000 },
         });
-        this.tone({ at: t + 0.6, freq: 72, slideTo: 48, dur: 0.14, type: "sine", gain: 0.2 });
+        this.tone({ at: t + 0.6, dur: 0.14, freq: 72, gain: 0.2, slideTo: 48, type: "sine" });
       }
     }
   }
 
   /** The kill leader fell: descending saw-stack pair A3 → D3. */
   leaderSlain(): void {
-    if (!this.gate("leaderSlain", 300)) return;
+    if (!this.gate("leaderSlain", 300)) {
+      return;
+    }
     const t = this.now();
     this.sawStack(A3, t, 0.3);
     this.sawStack(D3, t + 0.3, 0.3);
@@ -827,110 +927,124 @@ export class Audio {
   // ── UI set (A6) + intro + movement ──────────────────────────────────────────
 
   uiOpen(): void {
-    this.tone({ freq: 520, dur: 0.06, type: "sine", gain: 0.1, bus: "ui" });
+    this.tone({ bus: "ui", dur: 0.06, freq: 520, gain: 0.1, type: "sine" });
   }
   uiClose(): void {
-    this.tone({ freq: 390, dur: 0.06, type: "sine", gain: 0.1, bus: "ui" });
+    this.tone({ bus: "ui", dur: 0.06, freq: 390, gain: 0.1, type: "sine" });
   }
   uiBuy(): void {
     const t = this.now();
-    this.tone({ at: t, freq: 660, dur: 0.08, type: "triangle", gain: 0.14, bus: "ui" });
-    this.tone({ at: t + 0.06, freq: 880, dur: 0.08, type: "triangle", gain: 0.14, bus: "ui" });
+    this.tone({ at: t, bus: "ui", dur: 0.08, freq: 660, gain: 0.14, type: "triangle" });
+    this.tone({ at: t + 0.06, bus: "ui", dur: 0.08, freq: 880, gain: 0.14, type: "triangle" });
   }
   uiDeny(): void {
-    if (!this.gate("uiDeny", 150)) return;
+    if (!this.gate("uiDeny", 150)) {
+      return;
+    }
     const t = this.now();
-    this.tone({ at: t, freq: 160, dur: 0.07, type: "square", gain: 0.12, bus: "ui" });
-    this.tone({ at: t + 0.09, freq: 160, dur: 0.07, type: "square", gain: 0.12, bus: "ui" });
+    this.tone({ at: t, bus: "ui", dur: 0.07, freq: 160, gain: 0.12, type: "square" });
+    this.tone({ at: t + 0.09, bus: "ui", dur: 0.07, freq: 160, gain: 0.12, type: "square" });
   }
   abilityReady(): void {
-    if (!this.gate("abilityReady", 150)) return;
-    this.tone({ freq: 1040, dur: 0.08, type: "triangle", gain: 0.07, bus: "ui" });
+    if (!this.gate("abilityReady", 150)) {
+      return;
+    }
+    this.tone({ bus: "ui", dur: 0.08, freq: 1040, gain: 0.07, type: "triangle" });
   }
   castDeny(): void {
-    if (!this.gate("castDeny", 120)) return;
-    this.tone({ freq: 140, dur: 0.05, type: "square", gain: 0.1, bus: "ui" });
+    if (!this.gate("castDeny", 120)) {
+      return;
+    }
+    this.tone({ bus: "ui", dur: 0.05, freq: 140, gain: 0.1, type: "square" });
   }
   respawnTick(): void {
-    this.tone({ freq: 440, dur: 0.05, type: "sine", gain: 0.08, bus: "ui" });
+    this.tone({ bus: "ui", dur: 0.05, freq: 440, gain: 0.08, type: "sine" });
   }
   respawnGo(): void {
-    this.tone({ freq: 440, slideTo: 880, dur: 0.15, type: "sine", gain: 0.12, bus: "ui" });
+    this.tone({ bus: "ui", dur: 0.15, freq: 440, gain: 0.12, slideTo: 880, type: "sine" });
   }
   /** Low-HP 55Hz thump pair; HUD drives the 0.9s vignette-locked cadence. */
   heartbeat(): void {
-    if (!this.gate("heartbeat", 400)) return;
+    if (!this.gate("heartbeat", 400)) {
+      return;
+    }
     const t = this.now();
-    this.tone({ at: t, freq: 55, dur: 0.09, type: "sine", gain: 0.16, bus: "ui" });
-    this.tone({ at: t + 0.13, freq: 55, dur: 0.08, type: "sine", gain: 0.1, bus: "ui" });
+    this.tone({ at: t, bus: "ui", dur: 0.09, freq: 55, gain: 0.16, type: "sine" });
+    this.tone({ at: t + 0.13, bus: "ui", dur: 0.08, freq: 55, gain: 0.1, type: "sine" });
   }
   /** Countdown numeral blip ("3 · 2 · 1"). */
   count(): void {
-    this.tone({ freq: 440, dur: 0.09, type: "sine", gain: 0.12, bus: "ui" });
+    this.tone({ bus: "ui", dur: 0.09, freq: 440, gain: 0.12, type: "sine" });
   }
   /** "FIGHT!" — bright blip + snare crack. */
   fight(): void {
     const t = this.now();
-    this.tone({ at: t, freq: 880, dur: 0.18, type: "sine", gain: 0.14, bus: "ui" });
+    this.tone({ at: t, bus: "ui", dur: 0.18, freq: 880, gain: 0.14, type: "sine" });
     this.noise({
       at: t,
-      dur: 0.09,
-      gain: 0.1,
-      filter: { type: "bandpass", from: 1800 },
       bus: "ui",
+      dur: 0.09,
+      filter: { from: 1800, type: "bandpass" },
+      gain: 0.1,
     });
   }
   /** Air-whoosh — the DASH launch (spatialized when a position is given). */
   dodge(x?: number, y?: number): void {
-    if (!this.gate("dodge", 150)) return;
+    if (!this.gate("dodge", 150)) {
+      return;
+    }
     const t = this.now();
-    this.noise({ at: t, x, y, dur: 0.1, gain: 0.12, filter: { type: "highpass", from: 5000 } });
-    this.tone({ at: t, x, y, freq: 240, slideTo: 90, dur: 0.1, type: "sine", gain: 0.06 });
+    this.noise({ at: t, dur: 0.1, filter: { from: 5000, type: "highpass" }, gain: 0.12, x, y });
+    this.tone({ at: t, dur: 0.1, freq: 240, gain: 0.06, slideTo: 90, type: "sine", x, y });
   }
   land(): void {
-    if (!this.gate("land", 150)) return;
-    this.noise({ dur: 0.08, gain: 0.1, filter: { type: "lowpass", from: 700 } });
+    if (!this.gate("land", 150)) {
+      return;
+    }
+    this.noise({ dur: 0.08, filter: { from: 700, type: "lowpass" }, gain: 0.1 });
   }
 
   // ── legacy voices (kept, spatialized, setTimeout → `at`) ────────────────────
 
   explosion(x?: number, y?: number): void {
-    if (!this.gate("boom", 60)) return;
+    if (!this.gate("boom", 60)) {
+      return;
+    }
     const t = this.now();
-    this.noise({ at: t, x, y, dur: 0.25, gain: 0.32, filter: { type: "lowpass", from: 900 } });
-    this.tone({ at: t, x, y, freq: 90, slideTo: 45, dur: 0.3, type: "sine", gain: 0.3 });
+    this.noise({ at: t, dur: 0.25, filter: { from: 900, type: "lowpass" }, gain: 0.32, x, y });
+    this.tone({ at: t, dur: 0.3, freq: 90, gain: 0.3, slideTo: 45, type: "sine", x, y });
     this.musicInst?.duck();
   }
   death(x?: number, y?: number): void {
-    this.tone({ x, y, freq: 380, slideTo: 70, dur: 0.4, type: "sawtooth", gain: 0.16 });
+    this.tone({ dur: 0.4, freq: 380, gain: 0.16, slideTo: 70, type: "sawtooth", x, y });
     this.musicInst?.duck();
   }
   coin(x?: number, y?: number): void {
     const t = this.now();
-    this.tone({ at: t, x, y, freq: 880 * this.jit(), dur: 0.07, type: "triangle", gain: 0.2 });
-    this.tone({ at: t + 0.02, x, y, freq: 1320, dur: 0.12, type: "triangle", gain: 0.18 });
+    this.tone({ at: t, dur: 0.07, freq: 880 * jit(), gain: 0.2, type: "triangle", x, y });
+    this.tone({ at: t + 0.02, dur: 0.12, freq: 1320, gain: 0.18, type: "triangle", x, y });
   }
   levelup(): void {
     const t = this.now();
-    [523, 659, 784, 1046].forEach((f, i) =>
-      this.tone({ at: t + i * 0.07, freq: f, dur: 0.14, type: "triangle", gain: 0.16 }),
-    );
+    for (const [i, f] of [523, 659, 784, 1046].entries()) {
+      this.tone({ at: t + i * 0.07, dur: 0.14, freq: f, gain: 0.16, type: "triangle" });
+    }
   }
   delivery(): void {
     const t = this.now();
-    this.tone({ at: t, freq: 660, dur: 0.12, type: "sine", gain: 0.16 });
-    this.tone({ at: t + 0.09, freq: 990, dur: 0.16, type: "sine", gain: 0.16 });
+    this.tone({ at: t, dur: 0.12, freq: 660, gain: 0.16, type: "sine" });
+    this.tone({ at: t + 0.09, dur: 0.16, freq: 990, gain: 0.16, type: "sine" });
   }
   alert(): void {
     const t = this.now();
-    this.tone({ at: t, freq: 440, dur: 0.12, type: "square", gain: 0.18 });
-    this.tone({ at: t + 0.15, freq: 440, dur: 0.12, type: "square", gain: 0.18 });
+    this.tone({ at: t, dur: 0.12, freq: 440, gain: 0.18, type: "square" });
+    this.tone({ at: t + 0.15, dur: 0.12, freq: 440, gain: 0.18, type: "square" });
   }
   victory(): void {
     const t = this.now();
-    [523, 659, 784, 1046, 1318].forEach((f, i) =>
-      this.tone({ at: t + i * 0.11, freq: f, dur: 0.2, type: "triangle", gain: 0.2 }),
-    );
+    for (const [i, f] of [523, 659, 784, 1046, 1318].entries()) {
+      this.tone({ at: t + i * 0.11, dur: 0.2, freq: f, gain: 0.2, type: "triangle" });
+    }
   }
 
   // ── ambience (A7) ───────────────────────────────────────────────────────────
@@ -938,9 +1052,13 @@ export class Audio {
   /** Dungeon bed: constant sub rumble + torch crackle pops + a distant moan.
    *  Look-ahead interval schedules `at` times — no setTimeout voices. */
   private startAmbience(): void {
-    if (this.ambStarted || !this.ctx || !this.noiseBuf) return;
+    if (this.ambStarted || !this.ctx || !this.noiseBuf) {
+      return;
+    }
     const dest = this.busNode("amb");
-    if (!dest) return;
+    if (!dest) {
+      return;
+    }
     this.ambStarted = true;
     const src = this.ctx.createBufferSource();
     src.buffer = this.noiseBuf;
@@ -960,7 +1078,9 @@ export class Audio {
 
   private ambTick(): void {
     if (!this.ctx) {
-      if (this.ambTimer !== null) window.clearInterval(this.ambTimer);
+      if (this.ambTimer !== null) {
+        window.clearInterval(this.ambTimer);
+      }
       this.ambTimer = null;
       return;
     }
@@ -968,25 +1088,25 @@ export class Audio {
     while (this.ambNextPop < horizon) {
       this.noise({
         at: this.ambNextPop,
-        dur: 0.015 + Math.random() * 0.015,
-        gain: 0.015 + Math.random() * 0.025,
         bus: "amb",
+        dur: 0.015 + Math.random() * 0.015,
+        filter: { from: 2300, type: "bandpass" },
+        gain: 0.015 + Math.random() * 0.025,
         pan: (Math.random() * 2 - 1) * 0.5,
-        filter: { type: "bandpass", from: 2300 },
       });
       this.ambNextPop += 0.15 + Math.random() * 0.45;
     }
     if (this.ambNextMoan < horizon) {
       this.tone({
         at: this.ambNextMoan,
-        freq: 290,
-        slideTo: 255,
-        dur: 3.5,
-        type: "sine",
-        gain: 0.014,
-        bus: "amb",
-        pan: (Math.random() * 2 - 1) * 0.6,
         attack: 0.9,
+        bus: "amb",
+        dur: 3.5,
+        freq: 290,
+        gain: 0.014,
+        pan: (Math.random() * 2 - 1) * 0.6,
+        slideTo: 255,
+        type: "sine",
       });
       this.ambNextMoan += 20 + Math.random() * 20;
     }

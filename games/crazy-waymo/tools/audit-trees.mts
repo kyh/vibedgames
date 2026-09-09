@@ -11,11 +11,11 @@ import type { WaterBody } from "../src/world/water.ts";
 const world = buildAuditWorld();
 const { rev, rest } = await loadBakedRest();
 const parcels = planParcels({
-  source: loadParcelSource(),
   network: world.network,
-  terrain: world.terrain,
   reserved: landmarkProtection(world.plan, world.network).reserved,
+  source: loadParcelSource(),
   standAt: world.standAt,
+  terrain: world.terrain,
 });
 const water: WaterBody[] = [];
 buildLandmarks(world.terrain, new ModelCache(), world.network, undefined, (body) =>
@@ -27,5 +27,6 @@ if (
   report.blocked.length > 0 ||
   report.missingEmbeddedColliders > 0 ||
   report.waterRoots.length > 0
-)
+) {
   process.exitCode = 1;
+}

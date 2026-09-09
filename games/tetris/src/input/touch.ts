@@ -16,31 +16,30 @@ import type { ScreenDir } from "../game/camera-correction";
 import { DROP_TAP_MS, TOUCH_ARR_MS, TOUCH_DAS_MS } from "../shared/constants";
 
 /** Game verbs the touch layer drives (a thin mirror of KeyboardHandlers). */
-export type TouchHandlers = {
+export interface TouchHandlers {
   /** One screen-relative move step; `initial` = first step of a hold (sfx). */
-  step(dir: ScreenDir, initial: boolean): void;
-  rotate(): void;
-  orbit(dir: -1 | 1): void;
+  step: (dir: ScreenDir, initial: boolean) => void;
+  rotate: () => void;
+  orbit: (dir: -1 | 1) => void;
   /** Space semantics: hard drop while playing, catch/start otherwise. */
-  drop(): void;
-  setSoftDrop(on: boolean): void;
-  hold(): void;
-  power(): void;
+  drop: () => void;
+  setSoftDrop: (on: boolean) => void;
+  hold: () => void;
+  power: () => void;
   /** A free touch (stick grab, not a button): start / catch / resume. */
-  tap(): void;
-};
+  tap: () => void;
+}
 
 /** Touch-first copy must be decided AT BOOT, not after the first touch. */
-export function isCoarsePointer(): boolean {
-  return window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
-}
+export const isCoarsePointer = (): boolean =>
+  window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
 
 /** Stick dir4 (screen-space, +y down) → the game's screen-relative steer. */
 const SCREEN_DIR = {
-  up: "away",
   down: "near",
   left: "left",
   right: "right",
+  up: "away",
 } satisfies Record<Dir4, ScreenDir>;
 
 /** Slot → grid cell, counted from the bottom-right safe-area corner: column 0
@@ -67,13 +66,13 @@ const SHORT_GRID = [
   [2, 1],
 ] as const;
 
-function cluster(v: Viewport, slot: Slot) {
+const cluster = (v: Viewport, slot: Slot) => {
   const [col, row] = (v.height < 500 ? SHORT_GRID : TALL_GRID)[slot];
   return {
     x: v.width - v.inset.right - 58 - col * 94,
     y: v.height - v.inset.bottom - 60 - row * 96,
   };
-}
+};
 
 export class TouchControls {
   private readonly gamepad: DomGamepad;
@@ -87,7 +86,9 @@ export class TouchControls {
    *  frame polling) so a tap shorter than one frame still lands; touches on
    *  HUD controls or inside a fixed button's circle don't count as free. */
   private readonly onPointerDown = (e: PointerEvent): void => {
-    if (e.pointerType !== "touch") return;
+    if (e.pointerType !== "touch") {
+      return;
+    }
     if (
       e.target instanceof Element &&
       e.target.closest("button, a, input, select, textarea, [data-gamepad-ignore]") !== null
@@ -95,7 +96,9 @@ export class TouchControls {
       return;
     }
     for (const b of this.gamepad.pad.getButtonLayout()) {
-      if (!b.rest && Math.hypot(e.clientX - b.x, e.clientY - b.y) <= b.radius) return;
+      if (!b.rest && Math.hypot(e.clientX - b.x, e.clientY - b.y) <= b.radius) {
+        return;
+      }
     }
     this.handlers.tap();
   };
@@ -103,32 +106,44 @@ export class TouchControls {
   constructor(handlers: TouchHandlers) {
     this.handlers = handlers;
     this.gamepad = attachDomGamepad({
-      visible: "coarse", // fixed buttons are discoverable before the first touch
-      stick: { radius: 56, deadZone: 10 },
       buttons: [
-        { id: "drop", label: "DROP", radius: 46, position: (v) => cluster(v, 0) },
-        { id: "rotate", label: "ROT", radius: 40, position: (v) => cluster(v, 1) },
-        { id: "hold", label: "HOLD", radius: 34, position: (v) => cluster(v, 2) },
-        { id: "power", label: "PWR", radius: 34, position: (v) => cluster(v, 3) },
-        { id: "orbit-right", label: "↻", radius: 32, position: (v) => cluster(v, 4) },
-        { id: "orbit-left", label: "↺", radius: 32, position: (v) => cluster(v, 5) },
+        { id: "drop", label: "DROP", position: (v) => cluster(v, 0), radius: 46 },
+        { id: "rotate", label: "ROT", position: (v) => cluster(v, 1), radius: 40 },
+        { id: "hold", label: "HOLD", position: (v) => cluster(v, 2), radius: 34 },
+        { id: "power", label: "PWR", position: (v) => cluster(v, 3), radius: 34 },
+        { id: "orbit-right", label: "↻", position: (v) => cluster(v, 4), radius: 32 },
+        { id: "orbit-left", label: "↺", position: (v) => cluster(v, 5), radius: 32 },
       ],
       render: { tint: "#8ea2ff" },
+      stick: { deadZone: 10, radius: 56 },
+      // fixed buttons are discoverable before the first touch,
+      visible: "coarse",
     });
     window.addEventListener("pointerdown", this.onPointerDown);
   }
 
   /** Call once per frame, before the sim tick, with the frame's dt in ms. */
   update(dtMs: number): void {
-    this.gamepad.update(); // reconcile lost touches + publish edges + redraw
+    // reconcile lost touches + publish edges + redraw
+    this.gamepad.update();
 
     this.repeatStick(dtMs);
 
-    if (this.gamepad.justPressed("rotate")) this.handlers.rotate();
-    if (this.gamepad.justPressed("orbit-left")) this.handlers.orbit(-1);
-    if (this.gamepad.justPressed("orbit-right")) this.handlers.orbit(1);
-    if (this.gamepad.justPressed("hold")) this.handlers.hold();
-    if (this.gamepad.justPressed("power")) this.handlers.power();
+    if (this.gamepad.justPressed("rotate")) {
+      this.handlers.rotate();
+    }
+    if (this.gamepad.justPressed("orbit-left")) {
+      this.handlers.orbit(-1);
+    }
+    if (this.gamepad.justPressed("orbit-right")) {
+      this.handlers.orbit(1);
+    }
+    if (this.gamepad.justPressed("hold")) {
+      this.handlers.hold();
+    }
+    if (this.gamepad.justPressed("power")) {
+      this.handlers.power();
+    }
 
     // DROP mirrors the keyboard pair: a quick tap = hard drop (Space); a held
     // press = soft drop (Shift) that never hard-drops on release.
@@ -140,7 +155,9 @@ export class TouchControls {
     }
     if (this.gamepad.justReleased("drop")) {
       this.handlers.setSoftDrop(false);
-      if (this.dropHeldMs < DROP_TAP_MS) this.handlers.drop();
+      if (this.dropHeldMs < DROP_TAP_MS) {
+        this.handlers.drop();
+      }
     }
   }
 
@@ -157,12 +174,18 @@ export class TouchControls {
       this.dir = dir;
       this.das = 0;
       this.arr = 0;
-      if (dir) this.handlers.step(SCREEN_DIR[dir], true);
+      if (dir) {
+        this.handlers.step(SCREEN_DIR[dir], true);
+      }
       return;
     }
-    if (!dir) return;
+    if (!dir) {
+      return;
+    }
     this.das += dtMs;
-    if (this.das < TOUCH_DAS_MS) return;
+    if (this.das < TOUCH_DAS_MS) {
+      return;
+    }
     this.arr += dtMs;
     while (this.arr >= TOUCH_ARR_MS) {
       this.arr -= TOUCH_ARR_MS;

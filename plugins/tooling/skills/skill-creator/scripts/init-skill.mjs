@@ -43,7 +43,9 @@ console.log(`   Location: ${path}`);
 console.log();
 
 const result = initSkill(skillName, path, (message) => console.log(message));
-if (!result) process.exit(1);
+if (!result) {
+  process.exit(1);
+}
 
 console.log(`\n✅ Skill '${skillName}' initialized successfully at ${result.dir}`);
 console.log("\nNext steps:");

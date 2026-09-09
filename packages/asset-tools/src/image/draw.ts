@@ -15,24 +15,27 @@ import type { Bitmap, RGBA } from "./raster.js";
  */
 
 /** Write ink into a single pixel, ignoring anything off-canvas. */
-function put(target: Bitmap, x: number, y: number, ink: RGBA): void {
-  if (!target.contains(x, y)) return;
+const put = (target: Bitmap, x: number, y: number, ink: RGBA): void => {
+  if (!target.contains(x, y)) {
+    return;
+  }
   const i = target.index(x, y);
-  target.data[i] = ink[0];
-  target.data[i + 1] = ink[1];
-  target.data[i + 2] = ink[2];
-  target.data[i + 3] = ink[3];
-}
+  const [r, g, b, a] = ink;
+  target.data[i] = r;
+  target.data[i + 1] = g;
+  target.data[i + 2] = b;
+  target.data[i + 3] = a;
+};
 
 /** A straight line between two inclusive endpoints (Bresenham). */
-export function drawLine(
+export const drawLine = (
   target: Bitmap,
   x0: number,
   y0: number,
   x1: number,
   y1: number,
   ink: RGBA,
-): void {
+): void => {
   let x = Math.round(x0);
   let y = Math.round(y0);
   const endX = Math.round(x1);
@@ -45,7 +48,9 @@ export function drawLine(
 
   for (;;) {
     put(target, x, y, ink);
-    if (x === endX && y === endY) return;
+    if (x === endX && y === endY) {
+      return;
+    }
     const doubled = 2 * error;
     if (doubled >= dy) {
       error += dy;
@@ -56,31 +61,33 @@ export function drawLine(
       y += stepY;
     }
   }
-}
+};
 
 /** A filled rectangle. Both corners are inclusive, as in Pillow. */
-export function fillRect(
+export const fillRect = (
   target: Bitmap,
   x0: number,
   y0: number,
   x1: number,
   y1: number,
   ink: RGBA,
-): void {
+): void => {
   const left = Math.min(x0, x1);
   const right = Math.max(x0, x1);
   const top = Math.min(y0, y1);
   const bottom = Math.max(y0, y1);
   for (let y = top; y <= bottom; y += 1) {
-    for (let x = left; x <= right; x += 1) put(target, x, y, ink);
+    for (let x = left; x <= right; x += 1) {
+      put(target, x, y, ink);
+    }
   }
-}
+};
 
 /**
  * A rectangle outline `width` pixels thick, growing inward from the given box
  * — Pillow's `rectangle(..., width=n)`.
  */
-export function strokeRect(
+export const strokeRect = (
   target: Bitmap,
   x0: number,
   y0: number,
@@ -88,19 +95,21 @@ export function strokeRect(
   y1: number,
   ink: RGBA,
   width = 1,
-): void {
+): void => {
   for (let i = 0; i < Math.max(1, width); i += 1) {
     const left = x0 + i;
     const top = y0 + i;
     const right = x1 - i;
     const bottom = y1 - i;
-    if (left > right || top > bottom) return;
+    if (left > right || top > bottom) {
+      return;
+    }
     drawLine(target, left, top, right, top, ink);
     drawLine(target, left, bottom, right, bottom, ink);
     drawLine(target, left, top, left, bottom, ink);
     drawLine(target, right, top, right, bottom, ink);
   }
-}
+};
 
 /**
  * Antialiased coverage maps for the digits 0-9, lifted from the font
@@ -118,22 +127,22 @@ const GLYPH_DATA =
 
 let glyphCache: Uint8Array | null = null;
 
-function glyphs(): Uint8Array {
+const glyphs = (): Uint8Array => {
   glyphCache ??= new Uint8Array(Buffer.from(GLYPH_DATA, "base64"));
   return glyphCache;
-}
+};
 
 /**
  * Draw a run of digits at (x, y), blending each glyph through its coverage
  * mask. Non-digit characters advance the cursor without drawing, which only
  * matters if a caller ever labels something other than a numeric tile ID.
  */
-export function drawDigits(target: Bitmap, x: number, y: number, text: string, ink: RGBA): void {
+export const drawDigits = (target: Bitmap, x: number, y: number, text: string, ink: RGBA): void => {
   const data = glyphs();
   let cursor = x;
 
   for (const ch of text) {
-    const digit = ch.charCodeAt(0) - 48;
+    const digit = (ch.codePointAt(0) ?? 0) - 48;
     if (digit < 0 || digit > 9) {
       cursor += GLYPH_WIDTH;
       continue;
@@ -141,11 +150,15 @@ export function drawDigits(target: Bitmap, x: number, y: number, text: string, i
     const base = digit * GLYPH_WIDTH * GLYPH_HEIGHT;
     for (let gy = 0; gy < GLYPH_HEIGHT; gy += 1) {
       for (let gx = 0; gx < GLYPH_WIDTH; gx += 1) {
-        const coverage = data[base + gy * GLYPH_WIDTH + gx]!;
-        if (coverage === 0) continue;
+        const coverage = data[base + gy * GLYPH_WIDTH + gx] ?? 0;
+        if (coverage === 0) {
+          continue;
+        }
         const px = cursor + gx;
         const py = y + gy;
-        if (!target.contains(px, py)) continue;
+        if (!target.contains(px, py)) {
+          continue;
+        }
 
         // Pillow blends a glyph through its coverage mask as a per-band lerp,
         // with one exception that matters here: where the destination is
@@ -156,13 +169,14 @@ export function drawDigits(target: Bitmap, x: number, y: number, text: string, i
         const m = coverage / 255;
         const transparent = target.data[i + 3] === 0;
         for (let c = 0; c < 3; c += 1) {
+          const inkChannel = ink[c] ?? 0;
           target.data[i + c] = transparent
-            ? ink[c]!
-            : Math.round(target.data[i + c]! * (1 - m) + ink[c]! * m);
+            ? inkChannel
+            : Math.round((target.data[i + c] ?? 0) * (1 - m) + inkChannel * m);
         }
-        target.data[i + 3] = Math.round(target.data[i + 3]! * (1 - m) + ink[3]! * m);
+        target.data[i + 3] = Math.round((target.data[i + 3] ?? 0) * (1 - m) + ink[3] * m);
       }
     }
     cursor += GLYPH_WIDTH;
   }
-}
+};

@@ -1,4 +1,5 @@
-import Phaser from "phaser";
+import type Phaser from "phaser";
+import { BlendModes } from "phaser";
 
 import type { Vec } from "../shared/constants";
 
@@ -21,7 +22,7 @@ const MAX_RINGS = 8;
 const MAX_CONVERGES = 6;
 const SHATTER_LIFE_MS = 500;
 
-type ShatterSeg = {
+interface ShatterSeg {
   // segment half-vector (rotates), midpoint offset from origin (flies outward)
   hx: number;
   hy: number;
@@ -29,19 +30,20 @@ type ShatterSeg = {
   my: number;
   vx: number;
   vy: number;
-  rotV: number; // rad/s
+  // rad/s
+  rotV: number;
   rot: number;
-};
+}
 
-type ShatterGroup = {
+interface ShatterGroup {
   x: number;
   y: number;
   tint: number;
   bornAt: number;
   segs: ShatterSeg[];
-};
+}
 
-type Ring = {
+interface Ring {
   x: number;
   y: number;
   r0: number;
@@ -50,9 +52,9 @@ type Ring = {
   tint: number;
   bornAt: number;
   durMs: number;
-};
+}
 
-type Converge = {
+interface Converge {
   x: number;
   y: number;
   count: number;
@@ -61,17 +63,18 @@ type Converge = {
   bornAt: number;
   durMs: number;
   seed: number;
-};
+}
 
-export type SparkOpts = {
-  angleMin?: number; // degrees
+export interface SparkOpts {
+  // degrees
+  angleMin?: number;
   angleMax?: number;
   speedMin?: number;
   speedMax?: number;
   lifeMin?: number;
   lifeMax?: number;
   scale?: number;
-};
+}
 
 export class FxPool {
   private scene: Phaser.Scene;
@@ -86,28 +89,28 @@ export class FxPool {
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
     this.sparkAdd = scene.add.particles(0, 0, "spark", {
-      speed: { min: 30, max: 140 },
-      angle: { min: 0, max: 360 },
-      lifespan: { min: 150, max: 300 },
-      scale: { start: 0.6, end: 0 },
-      alpha: { start: 1, end: 0 },
-      blendMode: Phaser.BlendModes.ADD,
+      alpha: { end: 0, start: 1 },
+      angle: { max: 360, min: 0 },
+      blendMode: BlendModes.ADD,
       emitting: false,
+      lifespan: { max: 300, min: 150 },
+      scale: { end: 0, start: 0.6 },
+      speed: { max: 140, min: 30 },
     });
     this.sparkAdd.setDepth(20);
     this.debrisNormal = scene.add.particles(0, 0, "star", {
-      speed: { min: 60, max: 160 },
-      angle: { min: 0, max: 360 },
-      lifespan: { min: 300, max: 500 },
-      scale: { start: 0.8, end: 0.2 },
-      alpha: { start: 1, end: 0 },
-      rotate: { min: 0, max: 360 },
-      blendMode: Phaser.BlendModes.NORMAL,
+      alpha: { end: 0, start: 1 },
+      angle: { max: 360, min: 0 },
+      blendMode: BlendModes.NORMAL,
       emitting: false,
+      lifespan: { max: 500, min: 300 },
+      rotate: { max: 360, min: 0 },
+      scale: { end: 0.2, start: 0.8 },
+      speed: { max: 160, min: 60 },
     });
     this.debrisNormal.setDepth(14);
     this.shatterGfx = scene.add.graphics().setDepth(16);
-    this.ringGfx = scene.add.graphics().setDepth(21).setBlendMode(Phaser.BlendModes.ADD);
+    this.ringGfx = scene.add.graphics().setDepth(21).setBlendMode(BlendModes.ADD);
   }
 
   aliveParticles(): number {
@@ -126,18 +129,22 @@ export class FxPool {
 
   /** ADD energy sparks (the one spark texture, re-tinted/re-aimed per burst). */
   sparks(x: number, y: number, count: number, tint: number, opts: SparkOpts = {}): void {
-    if (!this.onScreen(x, y)) return;
+    if (!this.onScreen(x, y)) {
+      return;
+    }
     const n = Math.min(count, Math.max(0, PARTICLE_BUDGET - this.aliveParticles()));
-    if (n <= 0) return;
+    if (n <= 0) {
+      return;
+    }
     const e = this.sparkAdd;
     // Per-burst min/max overrides must go through updateConfig (re-runs
     // loadConfig); the setEmitterAngle/setParticleLifespan/etc. mutators
     // silently no-op for min/max + eased ops in Phaser 4.
     e.updateConfig({
-      angle: { min: opts.angleMin ?? 0, max: opts.angleMax ?? 360 },
-      speed: { min: opts.speedMin ?? 150, max: opts.speedMax ?? 350 },
-      lifespan: { min: opts.lifeMin ?? 150, max: opts.lifeMax ?? 250 },
-      scale: { start: opts.scale ?? 0.6, end: 0 },
+      angle: { max: opts.angleMax ?? 360, min: opts.angleMin ?? 0 },
+      lifespan: { max: opts.lifeMax ?? 250, min: opts.lifeMin ?? 150 },
+      scale: { end: 0, start: opts.scale ?? 0.6 },
+      speed: { max: opts.speedMax ?? 350, min: opts.speedMin ?? 150 },
     });
     e.setParticleTint(tint);
     e.explode(n, x, y);
@@ -145,14 +152,18 @@ export class FxPool {
 
   /** NORMAL matter debris (star texture). */
   debris(x: number, y: number, count: number, tint: number, opts: SparkOpts = {}): void {
-    if (!this.onScreen(x, y)) return;
+    if (!this.onScreen(x, y)) {
+      return;
+    }
     const n = Math.min(count, Math.max(0, PARTICLE_BUDGET - this.aliveParticles()));
-    if (n <= 0) return;
+    if (n <= 0) {
+      return;
+    }
     const e = this.debrisNormal;
     e.updateConfig({
-      angle: { min: opts.angleMin ?? 0, max: opts.angleMax ?? 360 },
-      speed: { min: opts.speedMin ?? 60, max: opts.speedMax ?? 160 },
-      lifespan: { min: opts.lifeMin ?? 300, max: opts.lifeMax ?? 500 },
+      angle: { max: opts.angleMax ?? 360, min: opts.angleMin ?? 0 },
+      lifespan: { max: opts.lifeMax ?? 500, min: opts.lifeMin ?? 300 },
+      speed: { max: opts.speedMax ?? 160, min: opts.speedMin ?? 60 },
     });
     e.setParticleTint(tint);
     e.explode(n, x, y);
@@ -168,9 +179,14 @@ export class FxPool {
     tint: number,
     alpha0 = 0.8,
   ): void {
-    if (!this.onScreen(x, y)) return;
-    if (this.rings.length >= MAX_RINGS) this.rings.shift(); // drop oldest
-    this.rings.push({ x, y, r0, r1, alpha0, tint, bornAt: this.scene.time.now, durMs });
+    if (!this.onScreen(x, y)) {
+      return;
+    }
+    if (this.rings.length >= MAX_RINGS) {
+      this.rings.shift();
+      // drop oldest
+    }
+    this.rings.push({ alpha0, bornAt: this.scene.time.now, durMs, r0, r1, tint, x, y });
   }
 
   /**
@@ -178,16 +194,22 @@ export class FxPool {
    * decomposes into its edge segments — each flies outward 80–200 px/s,
    * rotates ±3 rad/s, fades over 500ms. NORMAL blend, hull tint.
    */
-  shatter(x: number, y: number, points: ReadonlyArray<Vec>, rot: number, tint: number): void {
-    if (!this.onScreen(x, y) || points.length < 2) return;
-    if (this.shatters.length >= MAX_SHATTER_GROUPS) this.shatters.shift();
+  shatter(x: number, y: number, points: readonly Vec[], rot: number, tint: number): void {
+    if (!this.onScreen(x, y) || points.length < 2) {
+      return;
+    }
+    if (this.shatters.length >= MAX_SHATTER_GROUPS) {
+      this.shatters.shift();
+    }
     const cos = Math.cos(rot);
     const sin = Math.sin(rot);
     const segs: ShatterSeg[] = [];
-    for (let i = 0; i < points.length; i++) {
+    for (let i = 0; i < points.length; i += 1) {
       const a = points[i];
       const b = points[(i + 1) % points.length];
-      if (!a || !b) continue;
+      if (!a || !b) {
+        continue;
+      }
       // rotate into world orientation
       const ax = a.x * cos - a.y * sin;
       const ay = a.x * sin + a.y * cos;
@@ -202,28 +224,32 @@ export class FxPool {
         hy: (by - ay) / 2,
         mx,
         my,
+        rot: 0,
+        rotV: (Math.random() * 2 - 1) * 3,
         vx: (mx / outLen) * speed,
         vy: (my / outLen) * speed,
-        rotV: (Math.random() * 2 - 1) * 3,
-        rot: 0,
       });
     }
-    this.shatters.push({ x, y, tint, bornAt: this.scene.time.now, segs });
+    this.shatters.push({ bornAt: this.scene.time.now, segs, tint, x, y });
   }
 
   /** Motes converging inward from radius→0 over durMs (anticipation). */
   converge(x: number, y: number, count: number, radius: number, durMs: number, tint: number): void {
-    if (!this.onScreen(x, y)) return;
-    if (this.converges.length >= MAX_CONVERGES) this.converges.shift();
+    if (!this.onScreen(x, y)) {
+      return;
+    }
+    if (this.converges.length >= MAX_CONVERGES) {
+      this.converges.shift();
+    }
     this.converges.push({
+      bornAt: this.scene.time.now,
+      count,
+      durMs,
+      radius,
+      seed: Math.random() * Math.PI * 2,
+      tint,
       x,
       y,
-      count,
-      radius,
-      tint,
-      bornAt: this.scene.time.now,
-      durMs,
-      seed: Math.random() * Math.PI * 2,
     });
   }
 
@@ -253,7 +279,8 @@ export class FxPool {
     this.rings = this.rings.filter((r) => now - r.bornAt < r.durMs);
     for (const r of this.rings) {
       const t = (now - r.bornAt) / r.durMs;
-      const eased = 1 - Math.pow(1 - t, 3); // Cubic.Out
+      // Cubic.Out
+      const eased = 1 - (1 - t) ** 3;
       const radius = r.r0 + (r.r1 - r.r0) * eased;
       rg.lineStyle(1, r.tint, r.alpha0 * (1 - t));
       rg.strokeCircle(r.x, r.y, radius);
@@ -263,7 +290,7 @@ export class FxPool {
       const t = (now - c.bornAt) / c.durMs;
       const dist = c.radius * (1 - t);
       rg.fillStyle(c.tint, 0.9 * (1 - t * 0.4));
-      for (let i = 0; i < c.count; i++) {
+      for (let i = 0; i < c.count; i += 1) {
         const ang = c.seed + (Math.PI * 2 * i) / c.count;
         rg.fillCircle(c.x + Math.cos(ang) * dist, c.y + Math.sin(ang) * dist, 1.5);
       }

@@ -13,19 +13,15 @@ import { createContext, use } from "react";
 import { createRpcContext } from "@/auth/server";
 
 export const makeORPCClient = createIsomorphicFn()
-  .server((): RouterClient<AppRouter> => {
-    return createRouterClient(appRouter, {
+  .server((): RouterClient<AppRouter> =>
+    createRouterClient(appRouter, {
       // Build server context per oRPC call (not at client creation)
       // because Cloudflare bindings are only available inside a request.
       context: () => createRpcContext(new Headers(getRequestHeaders())),
-    });
-  })
+    }),
+  )
   .client((): RouterClient<AppRouter> => {
     const link = new RPCLink({
-      // No `origin`: this branch only runs in the browser, where the app and
-      // the RPC route are served from the same origin, so the relative URL
-      // resolves against the page.
-      url: "/api/orpc",
       plugins: [
         // Pages mount several queries at once (/admin alone opens three) and
         // every unbatched call costs a fresh Worker invocation: a new Drizzle
@@ -34,6 +30,10 @@ export const makeORPCClient = createIsomorphicFn()
         // handler; blobs and event iterators opt themselves out.
         new BatchLinkPlugin({ groups: [{ condition: () => true, context: {} }] }),
       ],
+      // No `origin`: this branch only runs in the browser, where the app and
+      // the RPC route are served from the same origin, so the relative URL
+      // resolves against the page.
+      url: "/api/orpc",
     });
     return createORPCClient(link);
   });
@@ -50,14 +50,14 @@ export type ORPCUtils = RouterUtils<RouterClient<AppRouter>>;
 
 const ORPCContext = createContext<ORPCUtils | undefined>(undefined);
 
-export function ORPCProvider(props: { orpc: ORPCUtils; children: React.ReactNode }) {
-  return <ORPCContext.Provider value={props.orpc}>{props.children}</ORPCContext.Provider>;
-}
+export const ORPCProvider = (props: { orpc: ORPCUtils; children: React.ReactNode }) => (
+  <ORPCContext.Provider value={props.orpc}>{props.children}</ORPCContext.Provider>
+);
 
-export function useORPC(): ORPCUtils {
+export const useORPC = (): ORPCUtils => {
   const orpc = use(ORPCContext);
   if (!orpc) {
     throw new Error("useORPC must be used within an ORPCProvider");
   }
   return orpc;
-}
+};

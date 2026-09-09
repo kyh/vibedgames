@@ -7,107 +7,116 @@ const SOUND_KEY = "tetris:sound";
 
 // localStorage throws in some embeds (sandboxed iframes, blocked cookies,
 // private modes). Sound prefs just fall back to the muted default.
-function storageGet(key: string): string | null {
+const storageGet = (key: string): string | null => {
   try {
     return window.localStorage.getItem(key);
   } catch {
     return null;
   }
-}
-function storageSet(key: string, value: string): void {
+};
+const storageSet = (key: string, value: string): void => {
   try {
     window.localStorage.setItem(key, value);
   } catch {
     // Blocked store just loses persistence — never the session.
   }
-}
+};
 
 // Muted by default; returning players who opted into sound stay unmuted.
 let muted = storageGet(SOUND_KEY) !== "1";
 
-export function isMuted(): boolean {
-  return muted;
-}
-
-/** Set mute and persist the choice. Runs from a user gesture (the M key or the
- *  touch control), so turning sound on can create/resume the ctx. */
-export function setMuted(next: boolean): void {
-  muted = next;
-  storageSet(SOUND_KEY, muted ? "0" : "1");
-  if (!muted) audio();
-}
-
-/** Flip mute and return the new muted state. */
-export function toggleMute(): boolean {
-  setMuted(!muted);
-  return muted;
-}
+export const isMuted = (): boolean => muted;
 
 let ctx: AudioContext | null = null;
 
-function audio(): AudioContext | null {
-  if (ctx === null && "AudioContext" in window) ctx = new AudioContext();
-  if (ctx !== null && ctx.state === "suspended") void ctx.resume();
+const audio = (): AudioContext | null => {
+  if (ctx === null && "AudioContext" in window) {
+    ctx = new AudioContext();
+  }
+  if (ctx !== null && ctx.state === "suspended") {
+    void ctx.resume();
+  }
   return ctx;
-}
+};
+/** Set mute and persist the choice. Runs from a user gesture (the M key or the
+ *  touch control), so turning sound on can create/resume the ctx. */
+export const setMuted = (next: boolean): void => {
+  muted = next;
+  storageSet(SOUND_KEY, muted ? "0" : "1");
+  if (!muted) {
+    audio();
+  }
+};
 
-type Blip = {
+/** Flip mute and return the new muted state. */
+export const toggleMute = (): boolean => {
+  setMuted(!muted);
+  return muted;
+};
+
+interface Blip {
   freq: number;
   end?: number;
   dur: number;
   type: OscillatorType;
   gain: number;
   at?: number;
-};
+}
 
-function blip({ freq, end, dur, type, gain, at = 0 }: Blip): void {
-  if (muted) return;
+const blip = ({ freq, end, dur, type, gain, at = 0 }: Blip): void => {
+  if (muted) {
+    return;
+  }
   const ac = audio();
-  if (!ac) return;
+  if (!ac) {
+    return;
+  }
   const t0 = ac.currentTime + at;
   const jitter = 0.92 + Math.random() * 0.16;
   const osc = ac.createOscillator();
   osc.type = type;
   osc.frequency.setValueAtTime(freq * jitter, t0);
-  if (end !== undefined) osc.frequency.exponentialRampToValueAtTime(end * jitter, t0 + dur);
+  if (end !== undefined) {
+    osc.frequency.exponentialRampToValueAtTime(end * jitter, t0 + dur);
+  }
   const g = ac.createGain();
   g.gain.setValueAtTime(gain, t0);
   g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
   osc.connect(g).connect(ac.destination);
   osc.start(t0);
   osc.stop(t0 + dur + 0.02);
-}
+};
 
 export const sfx = {
-  move(): void {
-    blip({ freq: 220, dur: 0.03, type: "square", gain: 0.04 });
-  },
-  rotate(): void {
-    blip({ freq: 360, end: 460, dur: 0.05, type: "square", gain: 0.05 });
-  },
-  orbit(): void {
-    blip({ freq: 180, end: 300, dur: 0.16, type: "sine", gain: 0.06 });
-  },
-  lock(): void {
-    blip({ freq: 150, dur: 0.06, type: "triangle", gain: 0.08 });
-  },
-  hardDrop(): void {
-    blip({ freq: 120, end: 70, dur: 0.12, type: "sawtooth", gain: 0.09 });
+  catchCollapse(): void {
+    for (const [i, freq] of [330, 440, 587, 784].entries()) {
+      blip({ at: i * 0.07, dur: 0.12, freq, gain: 0.09, type: "square" });
+    }
   },
   /** Pitch climbs with the number of lines cleared. */
   clear(lines: number): void {
     const base = 380 * 2 ** (Math.min(lines, 12) / 12);
-    blip({ freq: base, dur: 0.1, type: "square", gain: 0.09 });
-    blip({ freq: base * 1.5, dur: 0.16, type: "square", gain: 0.08, at: 0.08 });
-  },
-  catch(): void {
-    [330, 440, 587, 784].forEach((freq, i) =>
-      blip({ freq, dur: 0.12, type: "square", gain: 0.09, at: i * 0.07 }),
-    );
+    blip({ dur: 0.1, freq: base, gain: 0.09, type: "square" });
+    blip({ at: 0.08, dur: 0.16, freq: base * 1.5, gain: 0.08, type: "square" });
   },
   gameOver(): void {
-    [330, 262, 196, 131].forEach((freq, i) =>
-      blip({ freq, dur: 0.18, type: "sawtooth", gain: 0.09, at: i * 0.12 }),
-    );
+    for (const [i, freq] of [330, 262, 196, 131].entries()) {
+      blip({ at: i * 0.12, dur: 0.18, freq, gain: 0.09, type: "sawtooth" });
+    }
+  },
+  hardDrop(): void {
+    blip({ dur: 0.12, end: 70, freq: 120, gain: 0.09, type: "sawtooth" });
+  },
+  lock(): void {
+    blip({ dur: 0.06, freq: 150, gain: 0.08, type: "triangle" });
+  },
+  move(): void {
+    blip({ dur: 0.03, freq: 220, gain: 0.04, type: "square" });
+  },
+  orbit(): void {
+    blip({ dur: 0.16, end: 300, freq: 180, gain: 0.06, type: "sine" });
+  },
+  rotate(): void {
+    blip({ dur: 0.05, end: 460, freq: 360, gain: 0.05, type: "square" });
   },
 };

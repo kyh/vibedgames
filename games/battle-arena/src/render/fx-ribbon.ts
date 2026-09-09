@@ -29,36 +29,52 @@ import * as THREE from "three";
 import { NOISE_GLSL } from "./fx-noise";
 
 const POOL = 6;
-const NODES = 40; // samples along the wake
-const STRANDS = 5; // ribbons per wake
+// samples along the wake
+const NODES = 40;
+// ribbons per wake
+const STRANDS = 5;
 
 const RIBBON = {
-  span: 4.5, // metres of path they reach back over
-  turns: 1.8, // turns each makes over that span
-  spin: 0.35, // turns/second they roll on top of that
-  radius: 0.34, // how far off the axis they ride, metres
-  swell: 0.5, // where along the span they are fattest
-  width: 0.07, // half-width at the head, metres
-  widthTip: 0.5, // that width at the tail, as a multiple
-  wander: 0.12, // metres the helix drifts off axis
-  wanderScale: 2.0,
-  wanderSpeed: 0.8,
-  sharp: 2.8, // falloff across the ribbon
-  core: 20.0, // the hard thread down the middle of it
-  pulse: 1.3, // charge running up it
-  pulseFreq: 2.2,
-  pulseSpeed: 1.3,
-  flicker: 0.3, // it is a curse, not a wire — let it stutter
-  flickerScale: 6.0,
+  // the hard thread down the middle of it
+  core: 20,
+  // it is a curse, not a wire — let it stutter
+  flicker: 0.3,
+  flickerScale: 6,
   flickerSpeed: 2.2,
   intensity: 1.35,
+  // seconds a wake takes to dissolve once its head is gone
+  loose: 0.3,
   opacity: 0.68,
-  loose: 0.3, // seconds a wake takes to dissolve once its head is gone
+  // charge running up it
+  pulse: 1.3,
+  pulseFreq: 2.2,
+  pulseSpeed: 1.3,
+  // how far off the axis they ride, metres
+  radius: 0.34,
+  // falloff across the ribbon
+  sharp: 2.8,
+  // metres of path they reach back over
+  span: 4.5,
+  // turns/second they roll on top of that
+  spin: 0.35,
+  // where along the span they are fattest
+  swell: 0.5,
+  // turns each makes over that span
+  turns: 1.8,
+  // metres the helix drifts off axis
+  wander: 0.12,
+  wanderScale: 2,
+  wanderSpeed: 0.8,
+  // half-width at the head, metres
+  width: 0.07,
+  // that width at the tail, as a multiple
+  widthTip: 0.5,
 } as const;
 
 /** Bog green out of a white thread, running to violet at the tail. */
-const HEX = { core: 0xf0fff0, body: 0x7fe08a, tail: 0x6a3aa8 } as const;
+const HEX = { body: 0x7f_e0_8a, core: 0xf0_ff_f0, tail: 0x6a_3a_a8 } as const;
 
+// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
 const VERT = /* glsl */ `
 #define TAU 6.283185307179586
 #define PI  3.141592653589793
@@ -124,6 +140,7 @@ void main() {
   gl_Position = projectionMatrix * viewMatrix * vec4(p0 + side * (position.y * halfWidth), 1.0);
 }`;
 
+// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
 const FRAG = /* glsl */ `
 uniform float uTime;
 uniform float uSeed;
@@ -168,9 +185,9 @@ void main() {
 }`;
 
 /** The bolt's strip: (t, ±1) per vertex, one instance per strand. */
-function createStripGeometry(): THREE.InstancedBufferGeometry {
+const createStripGeometry = (): THREE.InstancedBufferGeometry => {
   const positions = new Float32Array(NODES * 2 * 3);
-  for (let i = 0; i < NODES; i++) {
+  for (let i = 0; i < NODES; i += 1) {
     const t = i / (NODES - 1);
     const o = i * 6;
     positions[o] = t;
@@ -179,7 +196,7 @@ function createStripGeometry(): THREE.InstancedBufferGeometry {
     positions[o + 4] = 1;
   }
   const indices = new Uint16Array((NODES - 1) * 6);
-  for (let i = 0; i < NODES - 1; i++) {
+  for (let i = 0; i < NODES - 1; i += 1) {
     const a = i * 2;
     const o = i * 6;
     indices[o] = a;
@@ -190,7 +207,9 @@ function createStripGeometry(): THREE.InstancedBufferGeometry {
     indices[o + 5] = a + 2;
   }
   const strand = new Float32Array(STRANDS);
-  for (let i = 0; i < STRANDS; i++) strand[i] = i;
+  for (let i = 0; i < STRANDS; i += 1) {
+    strand[i] = i;
+  }
   const geo = new THREE.InstancedBufferGeometry();
   geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geo.setAttribute("aStrand", new THREE.InstancedBufferAttribute(strand, 1));
@@ -198,8 +217,9 @@ function createStripGeometry(): THREE.InstancedBufferGeometry {
   geo.instanceCount = STRANDS;
   geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e4);
   return geo;
-}
+};
 
+// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 type RibbonUniforms = {
   uTime: { value: number };
   uHead: { value: THREE.Vector3 };
@@ -214,56 +234,62 @@ type RibbonUniforms = {
   uColorTail: { value: THREE.Color };
 };
 
-type Ribbon = {
+interface Ribbon {
   mesh: THREE.Mesh;
   uni: RibbonUniforms;
-  id: string; // the projectile it follows; "" when free
-  fed: boolean; // followed this frame
-  loose: number; // seconds since its head last reported in
-};
+  // the projectile it follows; "" when free
+  id: string;
+  // followed this frame
+  fed: boolean;
+  // seconds since its head last reported in
+  loose: number;
+}
 
-export type RibbonPalette = { core: number; body: number; tail: number };
+export interface RibbonPalette {
+  core: number;
+  body: number;
+  tail: number;
+}
 
 /** Pooled projectile wakes, keyed by the projectile they follow. */
 export class RibbonPool {
   private ribbons: Ribbon[] = [];
   private geo = createStripGeometry();
+  private readonly scene: THREE.Scene;
 
-  constructor(
-    private scene: THREE.Scene,
-    clock: { value: number },
-  ) {
-    for (let i = 0; i < POOL; i++) {
+  constructor(scene: THREE.Scene, clock: { value: number }) {
+    this.scene = scene;
+    for (let i = 0; i < POOL; i += 1) {
       const uni: RibbonUniforms = {
-        uTime: clock,
-        uHead: { value: new THREE.Vector3() },
-        uDir: { value: new THREE.Vector3(0, 0, 1) },
-        uSide: { value: new THREE.Vector3(1, 0, 0) },
-        uUp: { value: new THREE.Vector3(0, 1, 0) },
-        uSeed: { value: 0 },
-        uSpan: { value: 0 },
-        uFade: { value: 1 },
-        uColorCore: { value: new THREE.Color(HEX.core) },
         uColorBody: { value: new THREE.Color(HEX.body) },
+        uColorCore: { value: new THREE.Color(HEX.core) },
         uColorTail: { value: new THREE.Color(HEX.tail) },
+        uDir: { value: new THREE.Vector3(0, 0, 1) },
+        uFade: { value: 1 },
+        uHead: { value: new THREE.Vector3() },
+        uSeed: { value: 0 },
+        uSide: { value: new THREE.Vector3(1, 0, 0) },
+        uSpan: { value: 0 },
+        uTime: clock,
+        uUp: { value: new THREE.Vector3(0, 1, 0) },
       };
       const mesh = new THREE.Mesh(
         this.geo,
         new THREE.ShaderMaterial({
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          fragmentShader: FRAG,
+          side: THREE.DoubleSide,
+          transparent: true,
           uniforms: uni,
           vertexShader: VERT,
-          fragmentShader: FRAG,
-          transparent: true,
-          depthWrite: false,
-          blending: THREE.AdditiveBlending,
-          side: THREE.DoubleSide,
         }),
       );
       mesh.frustumCulled = false;
       mesh.visible = false;
       mesh.renderOrder = 6;
       this.scene.add(mesh);
-      this.ribbons.push({ mesh, uni, id: "", fed: false, loose: 0 });
+      this.ribbons.push({ fed: false, id: "", loose: 0, mesh, uni });
     }
   }
 
@@ -286,7 +312,10 @@ export class RibbonPool {
     let r = this.ribbons.find((e) => e.id === id);
     if (!r) {
       r = this.ribbons.find((e) => e.id === "");
-      if (!r) return; // saturated — this bolt flies without a wake
+      if (!r) {
+        return;
+        // saturated — this bolt flies without a wake
+      }
       r.id = id;
       r.loose = 0;
       // A slot freed by a wake that had faded out still carries that fade —
@@ -308,7 +337,9 @@ export class RibbonPool {
 
   update(dt: number): void {
     for (const r of this.ribbons) {
-      if (r.id === "") continue;
+      if (r.id === "") {
+        continue;
+      }
       if (r.fed) {
         r.fed = false;
         r.loose = 0;
@@ -331,7 +362,9 @@ export class RibbonPool {
   dispose(): void {
     for (const r of this.ribbons) {
       r.mesh.removeFromParent();
-      if (r.mesh.material instanceof THREE.Material) r.mesh.material.dispose();
+      if (r.mesh.material instanceof THREE.Material) {
+        r.mesh.material.dispose();
+      }
     }
     this.ribbons.length = 0;
     this.geo.dispose();

@@ -1,19 +1,24 @@
 import * as THREE from "three";
 import { setPauseHandlers } from "@repo/embed";
 
-import { music, unlockAudio } from "./audio/sfx";
+import { music } from "./audio/music";
+import { unlockAudio } from "./audio/sfx";
 import { FaceCamera } from "./input/face-camera";
 import { IS_TOUCH } from "./input/input-mode";
 import { pauseOverlay } from "./pause-overlay";
 import { GameScene } from "./scenes/game-scene";
 import { MAX_DT, TONE_EXPOSURE } from "./shared/constants";
 
-const container = document.getElementById("game");
-if (!container) throw new Error("missing #game container");
+const container = document.querySelector("#game");
+if (!container) {
+  throw new Error("missing #game container");
+}
 
 // Touch layouts get the selfie/restart pills and re-docked stats (CSS keys
 // off this class); detection is at boot, not after the first touch.
-if (IS_TOUCH) document.body.classList.add("touch");
+if (IS_TOUCH) {
+  document.body.classList.add("touch");
+}
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -24,7 +29,7 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = TONE_EXPOSURE;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-container.appendChild(renderer.domElement);
+container.append(renderer.domElement);
 
 const game = new GameScene();
 
@@ -34,15 +39,23 @@ const game = new GameScene();
 window.addEventListener("pointerdown", unlockAudio);
 window.addEventListener("keydown", unlockAudio);
 
+const elOf = <T extends HTMLElement>(id: string, ctor: new () => T): T => {
+  const node = document.querySelector(`#${id}`);
+  if (!(node instanceof ctor)) {
+    throw new Error(`missing #${id}`);
+  }
+  return node;
+};
+
 // Webcam face control — on denial/failure the panel shows a status line and
 // keyboard/touch input keeps working.
 const face = new FaceCamera({
-  video: elOf("webcam-video", HTMLVideoElement),
-  overlay: elOf("webcam-overlay", HTMLCanvasElement),
-  status: elOf("webcam-status", HTMLElement),
-  onMouthChange: (open) => game.onMouthChange(open),
   onHeadTurnLeft: () => game.onHeadTurnLeft(),
   onHeadTurnRight: () => game.onHeadTurnRight(),
+  onMouthChange: (open) => game.onMouthChange(open),
+  overlay: elOf("webcam-overlay", HTMLCanvasElement),
+  status: elOf("webcam-status", HTMLElement),
+  video: elOf("webcam-video", HTMLVideoElement),
 });
 
 // The porthole IS the camera switch: tapping it toggles between the full
@@ -54,10 +67,15 @@ const face = new FaceCamera({
 // <video> still decodes frames.
 const webcamPanel = elOf("webcam", HTMLElement);
 webcamPanel.addEventListener("click", () => {
-  if (!webcamPanel.classList.toggle("collapsed")) void face.start();
+  if (!webcamPanel.classList.toggle("collapsed")) {
+    void face.start();
+  }
 });
-if (IS_TOUCH) webcamPanel.classList.add("collapsed");
-else void face.start();
+if (IS_TOUCH) {
+  webcamPanel.classList.add("collapsed");
+} else {
+  void face.start();
+}
 
 window.addEventListener("resize", () => {
   game.resize(window.innerWidth / window.innerHeight);
@@ -86,7 +104,9 @@ const timer = new THREE.Timer();
 renderer.setAnimationLoop((time) => {
   timer.update(time);
   const dt = Math.min(timer.getDelta(), MAX_DT);
-  if (!paused) game.update(dt);
+  if (!paused) {
+    game.update(dt);
+  }
   renderer.render(game.scene, game.camera);
 });
 
@@ -94,21 +114,15 @@ renderer.setAnimationLoop((time) => {
 if (import.meta.env.DEV) {
   Object.assign(window, {
     __pacman: {
-      game,
-      face,
-      mouth: (open: boolean) => game.onMouthChange(open),
       chomp: () => {
         game.onMouthChange(true);
         game.onMouthChange(false);
       },
+      face,
+      game,
+      mouth: (open: boolean) => game.onMouthChange(open),
       turnLeft: () => game.onHeadTurnLeft(),
       turnRight: () => game.onHeadTurnRight(),
     },
   });
-}
-
-function elOf<T extends HTMLElement>(id: string, ctor: new () => T): T {
-  const node = document.getElementById(id);
-  if (!(node instanceof ctor)) throw new Error(`missing #${id}`);
-  return node;
 }

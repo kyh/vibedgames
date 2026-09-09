@@ -1,7 +1,8 @@
 import type { RigidBody } from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
 
-import { geoLayoutKey, type ModelCache } from "../assets/loader";
+import { geoLayoutKey } from "../assets/loader";
+import type { ModelCache } from "../assets/loader";
 import { modelUrl } from "../assets/manifest";
 import type { PhysicsWorld } from "../physics/physics-world";
 import type { ParkedSpec } from "../world/furniture";
@@ -12,14 +13,19 @@ import type { ParkedSpec } from "../world/furniture";
 // actually rams one: the body is created lazily on first punt, goes dynamic,
 // and the car's batch instances follow it while it tumbles.
 
-const BODY_LIFT = 0.8; // body centre above the mesh origin (wheels)
+// body centre above the mesh origin (wheels)
+const BODY_LIFT = 0.8;
 const HIT_RADIUS = 2.6;
 const OFFSET = new THREE.Vector3();
 const EULER = new THREE.Euler();
 
-type PartRef = { batch: THREE.BatchedMesh; instanceId: number; local: THREE.Matrix4 };
+interface PartRef {
+  batch: THREE.BatchedMesh;
+  instanceId: number;
+  local: THREE.Matrix4;
+}
 
-type Parked = {
+interface Parked {
   x: number;
   y: number;
   z: number;
@@ -35,11 +41,18 @@ type Parked = {
    *  normal 135) so the full-speed plow launches it instead of spinning the
    *  taxi out. Never set in normal play. */
   light: boolean;
-};
+}
 
-type TemplatePart = { geo: THREE.BufferGeometry; mat: THREE.Material; local: THREE.Matrix4 };
+interface TemplatePart {
+  geo: THREE.BufferGeometry;
+  mat: THREE.Material;
+  local: THREE.Matrix4;
+}
 
-const CULL_DIST = 340; // parked cars are street detail — cull with props
+// parked cars are street detail — cull with props
+const bucketKey = (p: TemplatePart): string => `${p.mat.uuid}|${geoLayoutKey(p.geo)}`;
+
+const CULL_DIST = 340;
 const CULL_DIST_SQ = CULL_DIST * CULL_DIST;
 
 export class ParkedCars {
@@ -51,17 +64,24 @@ export class ParkedCars {
   private visible: Uint8Array = new Uint8Array(0);
   private cullCursor = 0;
 
+  private physics: PhysicsWorld;
+  private readonly heightAt: (x: number, z: number) => number;
+
   constructor(
     cache: ModelCache,
     specs: readonly ParkedSpec[],
-    private physics: PhysicsWorld,
-    private readonly heightAt: (x: number, z: number) => number,
+    physics: PhysicsWorld,
+    heightAt: (x: number, z: number) => number,
   ) {
+    this.physics = physics;
+    this.heightAt = heightAt;
     // Template parts per model (geometry + material + local transform).
     const templates = new Map<string, TemplatePart[]>();
     const partsOf = (model: string): TemplatePart[] => {
       let parts = templates.get(model);
-      if (parts) return parts;
+      if (parts) {
+        return parts;
+      }
       parts = [];
       const node = cache.instance(modelUrl("cars", model));
       node.updateMatrixWorld(true);
@@ -71,7 +91,7 @@ export class ParkedCars {
           c.geometry instanceof THREE.BufferGeometry &&
           !Array.isArray(c.material)
         ) {
-          parts?.push({ geo: c.geometry, mat: c.material, local: c.matrixWorld.clone() });
+          parts?.push({ geo: c.geometry, local: c.matrixWorld.clone(), mat: c.material });
         }
       });
       templates.set(model, parts);
@@ -79,7 +99,7 @@ export class ParkedCars {
     };
 
     // Size batches per (material, attribute layout).
-    type Bucket = {
+    interface Bucket {
       mat: THREE.Material;
       geos: Set<THREE.BufferGeometry>;
       verts: number;
@@ -87,15 +107,14 @@ export class ParkedCars {
       count: number;
       batch?: THREE.BatchedMesh;
       geoIds?: Map<THREE.BufferGeometry, number>;
-    };
+    }
     const buckets = new Map<string, Bucket>();
-    const keyOf = (p: TemplatePart): string => `${p.mat.uuid}|${geoLayoutKey(p.geo)}`;
     for (const s of specs) {
       for (const p of partsOf(s.model)) {
-        const k = keyOf(p);
+        const k = bucketKey(p);
         let b = buckets.get(k);
         if (!b) {
-          b = { mat: p.mat, geos: new Set(), verts: 0, indices: 0, count: 0 };
+          b = { count: 0, geos: new Set(), indices: 0, mat: p.mat, verts: 0 };
           buckets.set(k, b);
         }
         if (!b.geos.has(p.geo)) {
@@ -104,13 +123,14 @@ export class ParkedCars {
           b.verts += v;
           b.indices += p.geo.index ? p.geo.index.count : v;
         }
-        b.count++;
+        b.count += 1;
       }
     }
     for (const b of buckets.values()) {
       const batch = new THREE.BatchedMesh(b.count, b.verts, Math.max(b.indices, 3), b.mat);
       batch.castShadow = true;
-      batch.frustumCulled = false; // per-instance culling stays on inside
+      // per-instance culling stays on inside
+      batch.frustumCulled = false;
       b.batch = batch;
       b.geoIds = new Map();
       this.group.add(batch);
@@ -120,8 +140,10 @@ export class ParkedCars {
       const y = this.seatInto(s.x, s.z, s.yaw);
       const parts: PartRef[] = [];
       for (const p of partsOf(s.model)) {
-        const b = buckets.get(keyOf(p));
-        if (!b || !b.batch || !b.geoIds) continue;
+        const b = buckets.get(bucketKey(p));
+        if (!b || !b.batch || !b.geoIds) {
+          continue;
+        }
         let gid = b.geoIds.get(p.geo);
         if (gid === undefined) {
           gid = b.batch.addGeometry(p.geo);
@@ -133,19 +155,21 @@ export class ParkedCars {
         parts.push({ batch: b.batch, instanceId: iid, local: p.local });
       }
       this.cars.push({
-        x: s.x,
-        y,
-        z: s.z,
-        yaw: s.yaw,
-        homeX: s.x,
-        homeZ: s.z,
-        parts,
         body: null,
         hit: false,
+        homeX: s.x,
+        homeZ: s.z,
         light: false,
+        parts,
+        x: s.x,
+        y,
+        yaw: s.yaw,
+        z: s.z,
       });
     }
-    for (const b of buckets.values()) b.batch?.computeBoundingSphere();
+    for (const b of buckets.values()) {
+      b.batch?.computeBoundingSphere();
+    }
     this.visible = new Uint8Array(this.cars.length).fill(1);
   }
 
@@ -156,7 +180,8 @@ export class ParkedCars {
   private seatInto(x: number, z: number, yaw: number): number {
     const fx = Math.sin(yaw);
     const fz = Math.cos(yaw);
-    const rx = Math.cos(yaw); // local +X after yaw
+    // local +X after yaw
+    const rx = Math.cos(yaw);
     const rz = -Math.sin(yaw);
     const hF = this.heightAt(x + fx * 1.4, z + fz * 1.4);
     const hB = this.heightAt(x - fx * 1.4, z - fz * 1.4);
@@ -175,7 +200,9 @@ export class ParkedCars {
    *  never calls this (wreckage persisting through a run is intended). */
   restore(): void {
     for (const c of this.cars) {
-      if (!c.hit) continue;
+      if (!c.hit) {
+        continue;
+      }
       if (c.body) {
         this.physics.remove(c.body);
         c.body = null;
@@ -200,15 +227,17 @@ export class ParkedCars {
     const yaw = Math.atan2(tx, tz);
     const picked = [...this.cars]
       .filter((c) => !c.hit)
-      .sort((a, b) => {
+      .toSorted((a, b) => {
         const da = (a.x - x0) * (a.x - x0) + (a.z - z0) * (a.z - z0);
         const db = (b.x - x0) * (b.x - x0) + (b.z - z0) * (b.z - z0);
         return da - db;
       })
       .slice(0, n);
-    picked.forEach((c, i) => {
-      c.x = c.homeX = x0 + tx * spacing * i;
-      c.z = c.homeZ = z0 + tz * spacing * i;
+    for (const [i, c] of picked.entries()) {
+      c.homeX = x0 + tx * spacing * i;
+      c.x = c.homeX;
+      c.homeZ = z0 + tz * spacing * i;
+      c.z = c.homeZ;
       c.yaw = yaw;
       c.light = true;
       c.y = this.seatInto(c.x, c.z, c.yaw);
@@ -216,7 +245,7 @@ export class ParkedCars {
         this.mat4.multiplyMatrices(this.carMat4, p.local);
         p.batch.setMatrixAt(p.instanceId, this.mat4);
       }
-    });
+    }
   }
 
   // Distance-cull instances (transitions only, amortised across frames).
@@ -224,18 +253,25 @@ export class ParkedCars {
   // this every parked car in view direction draws from kilometres away.
   updateCulling(camX: number, camZ: number): void {
     const n = this.cars.length;
-    if (n === 0) return;
-    const step = Math.max(1, Math.ceil(n / 6)); // full sweep every ~6 frames
-    for (let i = 0; i < step; i++) {
+    if (n === 0) {
+      return;
+    }
+    // full sweep every ~6 frames
+    const step = Math.max(1, Math.ceil(n / 6));
+    for (let i = 0; i < step; i += 1) {
       const idx = (this.cullCursor + i) % n;
       const c = this.cars[idx];
-      if (!c) continue;
+      if (!c) {
+        continue;
+      }
       const dx = c.x - camX;
       const dz = c.z - camZ;
       const vis: 0 | 1 = c.hit || dx * dx + dz * dz < CULL_DIST_SQ ? 1 : 0;
       if (this.visible[idx] !== vis) {
         this.visible[idx] = vis;
-        for (const p of c.parts) p.batch.setVisibleAt(p.instanceId, vis === 1);
+        for (const p of c.parts) {
+          p.batch.setVisibleAt(p.instanceId, vis === 1);
+        }
       }
     }
     this.cullCursor = (this.cullCursor + step) % n;
@@ -248,7 +284,8 @@ export class ParkedCars {
   // real contact). Returns the taxi's closing speed toward the car (0 = no hit).
   tryPunt(px: number, pz: number, vx: number, vz: number, dt: number): number {
     const speed = Math.hypot(vx, vz);
-    const searchR = HIT_RADIUS + speed * dt; // this frame's travel widens the search
+    // this frame's travel widens the search
+    const searchR = HIT_RADIUS + speed * dt;
     let best: Parked | null = null;
     let bestD = searchR * searchR;
     for (const c of this.cars) {
@@ -260,15 +297,24 @@ export class ParkedCars {
         best = c;
       }
     }
-    if (!best) return 0;
+    if (!best) {
+      return 0;
+    }
     const d = Math.sqrt(bestD);
-    if (d < 1e-4) return 0;
+    if (d < 1e-4) {
+      return 0;
+    }
     const nx = (best.x - px) / d;
     const nz = (best.z - pz) / d;
-    const closing = vx * nx + vz * nz; // taxi speed toward the car
+    // taxi speed toward the car
+    const closing = vx * nx + vz * nz;
     const reach = HIT_RADIUS + Math.max(0, closing) * dt;
-    if (d > reach) return 0;
-    if (closing < 0.4 && d > HIT_RADIUS) return 0;
+    if (d > reach) {
+      return 0;
+    }
+    if (closing < 0.4 && d > HIT_RADIUS) {
+      return 0;
+    }
     if (!best.hit) {
       // Lazy body, created the frame contact is imminent; from here Rapier +
       // the taxi's momentum do the shoving (pure physics — no scripted push).
@@ -288,7 +334,9 @@ export class ParkedCars {
   // After the physics step: punted cars' batch instances follow their bodies.
   sync(): void {
     for (const c of this.cars) {
-      if (!c.hit || !c.body) continue;
+      if (!c.hit || !c.body) {
+        continue;
+      }
       const t = c.body.translation();
       const r = c.body.rotation();
       this.tmp.set(r.x, r.y, r.z, r.w);

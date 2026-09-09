@@ -35,43 +35,40 @@ import {
 // route any target through a Cloudflare AI Gateway prefix.
 
 const TARGET_DEFAULTS = {
-  queue: "https://queue.fal.run",
-  platform: "https://api.fal.ai",
-  storage: "https://rest.alpha.fal.ai",
   // fal's docs MCP lives at fal.ai/docs/mcp (docs.fal.ai 308-redirects
   // here, which we refuse to follow with credentials). It speaks MCP
   // streamable-HTTP and answers with text/event-stream, not JSON — see
   // the docs branch in `forward`.
   docs: "https://fal.ai",
+  platform: "https://api.fal.ai",
+  queue: "https://queue.fal.run",
+  storage: "https://rest.alpha.fal.ai",
 } as const;
 
 type Target = keyof typeof TARGET_DEFAULTS;
 
-function trimSlash(url: string): string {
-  return url.endsWith("/") ? url.slice(0, -1) : url;
-}
+const TARGET_OVERRIDE_KEY = {
+  docs: "falDocsBaseUrl",
+  platform: "falPlatformBaseUrl",
+  queue: "falQueueBaseUrl",
+  storage: "falStorageBaseUrl",
+} as const satisfies Record<Target, keyof MediaProviderConfig>;
 
-function nonBlank(value: string | undefined): string | undefined {
-  return value !== undefined && value.trim().length > 0 ? value : undefined;
-}
+const trimSlash = (url: string): string => (url.endsWith("/") ? url.slice(0, -1) : url);
 
-function targetBase(target: Target, media: MediaProviderConfig): string {
-  const override =
-    target === "queue"
-      ? nonBlank(media.falQueueBaseUrl)
-      : target === "platform"
-        ? nonBlank(media.falPlatformBaseUrl)
-        : target === "docs"
-          ? nonBlank(media.falDocsBaseUrl)
-          : nonBlank(media.falStorageBaseUrl);
+const nonBlank = (value: string | undefined): string | undefined =>
+  value !== undefined && value.trim().length > 0 ? value : undefined;
+
+const targetBase = (target: Target, media: MediaProviderConfig): string => {
+  const override = nonBlank(media[TARGET_OVERRIDE_KEY[target]]);
   return trimSlash(override ?? TARGET_DEFAULTS[target]);
-}
+};
 
-function badPath(reason: string): never {
+const badPath: (reason: string) => never = (reason) => {
   throw new ORPCError("BAD_REQUEST", { message: `path ${reason}.` });
-}
+};
 
-function rejectTraversal(path: string): void {
+const rejectTraversal = (path: string): void => {
   // Reject literal `..` and any percent-encoded form. The `URL` parser
   // doesn't decode `%2e%2e` itself — so `new URL(...)` would happily
   // produce a URL whose pathname looks fine here but whose downstream
@@ -80,23 +77,31 @@ function rejectTraversal(path: string): void {
   // while we attach FAL_API_KEY to it. Percent-encoded slashes get the
   // same treatment because they'd fold into segment separators after
   // decoding and could push the request past a pathname-aware allowlist.
-  if (path.includes("..")) badPath("may not contain `..`");
-  if (!path.includes("%")) return;
+  if (path.includes("..")) {
+    badPath("may not contain `..`");
+  }
+  if (!path.includes("%")) {
+    return;
+  }
   let decoded: string;
   try {
     decoded = decodeURIComponent(path);
   } catch {
     badPath("has invalid percent-encoding");
   }
-  if (decoded.includes("..")) badPath("may not contain `..` (including percent-encoded forms)");
-  if (/%2f|%5c/i.test(path)) badPath("may not contain percent-encoded path separators");
-}
+  if (decoded.includes("..")) {
+    badPath("may not contain `..` (including percent-encoded forms)");
+  }
+  if (/%2f|%5c/iu.test(path)) {
+    badPath("may not contain percent-encoded path separators");
+  }
+};
 
-function buildUrl(
+const buildUrl = (
   base: string,
   path: string,
   query: Record<string, string | string[]> | undefined,
-): URL {
+): URL => {
   rejectTraversal(path);
   // `path` is already Zod-constrained to start with `/`, and
   // rejectTraversal blocks every `..` form (literal, percent-decoded,
@@ -105,15 +110,17 @@ function buildUrl(
   const url = new URL(base + path);
   for (const [key, value] of Object.entries(query ?? {})) {
     const values = Array.isArray(value) ? value : [value];
-    for (const v of values) url.searchParams.append(key, v);
+    for (const v of values) {
+      url.searchParams.append(key, v);
+    }
   }
   return url;
-}
+};
 
 // ---- Schema ----------------------------------------------------------------
 
 const forwardInput = z.object({
-  target: z.enum(["queue", "platform", "storage", "docs"]),
+  body: z.unknown().optional(),
   method: z.enum(["GET", "POST", "PUT", "DELETE"]),
   // Must be a server-relative path. Empty bodies and trailing-only paths
   // are fine. We refuse anything that doesn't start with `/` so a caller
@@ -125,21 +132,23 @@ const forwardInput = z.object({
     .string()
     .min(1)
     .max(512)
-    .regex(/^\/[^?#]*$/, "path must start with `/` and contain no `?` or `#`"),
+    .regex(/^\/[^?#]*$/u, "path must start with `/` and contain no `?` or `#`"),
   query: z.record(z.string(), z.union([z.string(), z.array(z.string())])).optional(),
-  body: z.unknown().optional(),
+  target: z.enum(["queue", "platform", "storage", "docs"]),
 });
+
+type ForwardInput = z.infer<typeof forwardInput>;
 
 // ---- Helpers ---------------------------------------------------------------
 
-function pickFalKey(media: MediaProviderConfig | undefined) {
+const pickFalKey = (media: MediaProviderConfig | undefined) => {
   if (!media?.fal) {
     throw new ORPCError("PRECONDITION_FAILED", {
       message: "fal is not configured on the server (FAL_API_KEY missing).",
     });
   }
   return { apiKey: media.fal, config: media };
-}
+};
 
 // X-Fal-Store-IO: keep outputs on fal CDN, not inlined as base64.
 // x-app-fal-disable-fallback: surface failures instead of routing to a
@@ -151,6 +160,55 @@ const FAL_STATIC_HEADERS = {
   "x-app-fal-disable-fallback": "true",
 } as const;
 
+const serializeBody = (input: ForwardInput): string | undefined => {
+  const { body } = input;
+  if (body === undefined) {
+    return undefined;
+  }
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(body);
+  } catch {
+    throw new ORPCError("BAD_REQUEST", {
+      message: "body must be JSON-serializable.",
+    });
+  }
+  const bytes = new TextEncoder().encode(serialized).byteLength;
+  if (bytes > MAX_PARAMS_BYTES) {
+    throw new ORPCError("PAYLOAD_TOO_LARGE", {
+      message: `body exceeds ${MAX_PARAMS_BYTES} bytes.`,
+    });
+  }
+  return serialized;
+};
+
+const buildHeaders = (apiKey: string, target: Target, serialized: string | undefined): Headers => {
+  const headers = new Headers({
+    ...FAL_STATIC_HEADERS,
+    Authorization: `Key ${apiKey}`,
+  });
+  if (serialized !== undefined) {
+    headers.set("Content-Type", "application/json");
+  }
+  // The docs MCP server answers with an SSE stream and 406s unless the
+  // client advertises it accepts text/event-stream.
+  if (target === "docs") {
+    headers.set("Accept", "application/json, text/event-stream");
+  }
+  return headers;
+};
+
+const readBody = async (res: Response, target: Target): Promise<JsonValue | null> => {
+  if (res.status === 204 || res.headers.get("content-length") === "0") {
+    return null;
+  }
+  const label = `fal ${target} response`;
+  if (target === "docs") {
+    return await readSseJson(res, label);
+  }
+  return await readJsonBounded(res, label);
+};
+
 // ---- credit accounting ------------------------------------------------------
 
 /**
@@ -158,8 +216,9 @@ const FAL_STATIC_HEADERS = {
  * fetch/parse path as user-driven platform hops so size bounds and
  * redirect policy apply.
  */
-function platformFetchJson(apiKey: string, config: MediaProviderConfig) {
-  return async (req: {
+const platformFetchJson =
+  (apiKey: string, config: MediaProviderConfig) =>
+  async (req: {
     method: "GET" | "POST";
     path: string;
     query?: Record<string, string>;
@@ -176,14 +235,13 @@ function platformFetchJson(apiKey: string, config: MediaProviderConfig) {
       headers.set("Content-Type", "application/json");
     }
     const res = await fetchProviderResponse({
-      url,
-      label: `fal platform ${req.method} ${req.path}`,
       credentialed: true,
-      init: { method: req.method, headers, body },
+      init: { body, headers, method: req.method },
+      label: `fal platform ${req.method} ${req.path}`,
+      url,
     });
     return readJsonBounded(res, "fal platform response");
   };
-}
 
 /**
  * Gate a queue submit on remaining credits. Balance must be positive to
@@ -191,30 +249,32 @@ function platformFetchJson(apiKey: string, config: MediaProviderConfig) {
  * simply blocks the next submit. The message carries the
  * `insufficient_credits` token so agents can branch on it.
  */
-async function requirePositiveBalance(db: Db, userId: string): Promise<void> {
+const requirePositiveBalance = async (db: Db, userId: string): Promise<void> => {
   const balanceMicro = await getBalanceMicro(db, userId);
-  if (balanceMicro > 0) return;
+  if (balanceMicro > 0) {
+    return;
+  }
   throw new ORPCError("FORBIDDEN", {
     message:
       `insufficient_credits: your balance is ${formatUsd(balanceMicro)}. ` +
       "Generation is paused until an admin grants more credits " +
       "(check with `vg credits`).",
   });
-}
+};
 
 const submitResponse = z.looseObject({ request_id: z.string().min(1) });
 
-function readRequestId(body: JsonValue): string | null {
+const readRequestId = (body: JsonValue): string | null => {
   const parsed = submitResponse.safeParse(body);
   return parsed.success ? parsed.data.request_id : null;
-}
+};
 
 const statusResponse = z.looseObject({ status: z.string() });
 
-function readQueueStatus(body: JsonValue): string | null {
+const readQueueStatus = (body: JsonValue): string | null => {
   const parsed = statusResponse.safeParse(body);
   return parsed.success ? parsed.data.status : null;
-}
+};
 
 // ---- Router ----------------------------------------------------------------
 
@@ -248,44 +308,20 @@ export const generateRouter = {
       pricing = await getEndpointPricing(queueCall.endpointId, platformFetchJson(apiKey, config));
     }
 
-    let serialized: string | undefined;
-    if (input.body !== undefined) {
-      try {
-        serialized = JSON.stringify(input.body);
-      } catch {
-        throw new ORPCError("BAD_REQUEST", {
-          message: "body must be JSON-serializable.",
-        });
-      }
-      const bytes = new TextEncoder().encode(serialized).byteLength;
-      if (bytes > MAX_PARAMS_BYTES) {
-        throw new ORPCError("PAYLOAD_TOO_LARGE", {
-          message: `body exceeds ${MAX_PARAMS_BYTES} bytes.`,
-        });
-      }
-    }
-
+    const serialized = serializeBody(input);
     const base = targetBase(input.target, config);
     const url = buildUrl(base, input.path, input.query);
-
-    const headers = new Headers({
-      ...FAL_STATIC_HEADERS,
-      Authorization: `Key ${apiKey}`,
-    });
-    if (serialized !== undefined) headers.set("Content-Type", "application/json");
-    // The docs MCP server answers with an SSE stream and 406s unless the
-    // client advertises it accepts text/event-stream.
-    if (input.target === "docs") headers.set("Accept", "application/json, text/event-stream");
+    const headers = buildHeaders(apiKey, input.target, serialized);
 
     const fetchLabel = `fal ${input.target} ${input.method} ${input.path}`;
     const res = await fetchProviderResponse({
-      url,
-      label: fetchLabel,
       credentialed: true,
-      init: { method: input.method, headers, body: serialized },
+      init: { body: serialized, headers, method: input.method },
+      label: fetchLabel,
       // Result fetches of failed jobs come back non-2xx but may still carry
       // the billable-units header — we need the response, not a throw.
       tolerateHttpError: queueCall.kind === "result",
+      url,
     });
 
     if (!res.ok) {
@@ -297,20 +333,14 @@ export const generateRouter = {
       if (queueCall.kind === "result" && units !== null) {
         try {
           await settleGeneration(context.db, queueCall.requestId, units);
-        } catch (err) {
-          console.error(`credit settle failed for ${queueCall.requestId}`, err);
+        } catch (error) {
+          console.error(`credit settle failed for ${queueCall.requestId}`, error);
         }
       }
       await throwProviderError(res, fetchLabel);
     }
 
-    const empty = res.status === 204 || res.headers.get("content-length") === "0";
-    const label = `fal ${input.target} response`;
-    const body = empty
-      ? null
-      : input.target === "docs"
-        ? await readSseJson(res, label)
-        : await readJsonBounded(res, label);
+    const body = await readBody(res, input.target);
 
     // Ledger updates ride the same hops the client already makes; the fal
     // call has succeeded by this point, so a charge always has a real
@@ -322,12 +352,12 @@ export const generateRouter = {
         const requestId = readRequestId(body);
         if (requestId !== null) {
           await holdGeneration(context.db, {
-            userId,
-            requestId,
             endpointId: queueCall.endpointId,
+            holdMicro: pricing.holdMicro,
+            requestId,
             unit: pricing.unit,
             unitPriceMicro: pricing.unitPriceMicro,
-            holdMicro: pricing.holdMicro,
+            userId,
           });
         }
       } else if (queueCall.kind === "result") {
@@ -342,8 +372,8 @@ export const generateRouter = {
         // fal doesn't bill failed/cancelled jobs — refund the hold.
         await releaseGeneration(context.db, queueCall.requestId);
       }
-    } catch (err) {
-      console.error(`credit accounting failed for ${fetchLabel}`, err);
+    } catch (error) {
+      console.error(`credit accounting failed for ${fetchLabel}`, error);
     }
 
     return body;

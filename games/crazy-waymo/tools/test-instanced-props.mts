@@ -1,18 +1,14 @@
 import * as THREE from "three";
-import {
-  compatiblePropBatch,
-  InstancedProps,
-  type PropBatch,
-  type PropInstance,
-} from "../src/world/instanced-props.ts";
+import { compatiblePropBatch, InstancedProps } from "../src/world/instanced-props.ts";
+import type { PropBatch, PropInstance } from "../src/world/instanced-props.ts";
 
 type Check = (name: string, passed: boolean, detail?: string) => void;
 
-function sourceBatch(
+const sourceBatch = (
   items: readonly PropInstance[],
   material: THREE.Material,
   visible = true,
-): THREE.BatchedMesh {
+): THREE.BatchedMesh => {
   const geometries = new Set(items.map((item) => item.geo));
   let vertices = 0;
   let indices = 0;
@@ -30,7 +26,9 @@ function sourceBatch(
     }
     const id = mesh.addInstance(geometryId);
     mesh.setMatrixAt(id, item.matrix);
-    if (item.tint) mesh.setColorAt(id, item.tint);
+    if (item.tint) {
+      mesh.setColorAt(id, item.tint);
+    }
     mesh.setVisibleAt(id, visible);
   }
   mesh.receiveShadow = true;
@@ -39,20 +37,23 @@ function sourceBatch(
   mesh.scale.set(0.8, 1.1, 1.3);
   mesh.updateMatrixWorld(true);
   return mesh;
-}
+};
 
-function signature(matrix: THREE.Matrix4, color: THREE.Color): string {
-  return [...matrix.elements, color.r, color.g, color.b].map((v) => v.toFixed(4)).join(",");
-}
+const signature = (matrix: THREE.Matrix4, color: THREE.Color): string =>
+  [...matrix.elements, color.r, color.g, color.b].map((v) => v.toFixed(4)).join(",");
 
-function drawn(node: PropBatch): string[] {
+const drawn = (node: PropBatch): string[] => {
   const rows: string[] = [];
   node.updateMatrixWorld(true);
   node.traverse((mesh) => {
-    if (!(mesh instanceof THREE.InstancedMesh) && !(mesh instanceof THREE.BatchedMesh)) return;
+    if (!(mesh instanceof THREE.InstancedMesh) && !(mesh instanceof THREE.BatchedMesh)) {
+      return;
+    }
     const count = mesh instanceof THREE.InstancedMesh ? mesh.count : mesh.instanceCount;
-    for (let i = 0; i < count; i++) {
-      if (mesh instanceof THREE.BatchedMesh && !mesh.getVisibleAt(i)) continue;
+    for (let i = 0; i < count; i += 1) {
+      if (mesh instanceof THREE.BatchedMesh && !mesh.getVisibleAt(i)) {
+        continue;
+      }
       const matrix = new THREE.Matrix4();
       const color = new THREE.Color();
       mesh.getMatrixAt(i, matrix);
@@ -61,9 +62,9 @@ function drawn(node: PropBatch): string[] {
     }
   });
   return rows.toSorted();
-}
+};
 
-export function checkInstancedProps(check: Check): void {
+export const checkInstancedProps = (check: Check): void => {
   const box = new THREE.BoxGeometry(1, 2, 3);
   const wide = new THREE.BoxGeometry(2, 1, 1);
   const cone = new THREE.ConeGeometry(1, 2, 5);
@@ -75,7 +76,7 @@ export function checkInstancedProps(check: Check): void {
       new THREE.Vector3(0.5 + id * 0.3, 0.8, 1.1 + id * 0.1),
     );
     return id % 2 === 0
-      ? { geo, matrix, tint: new THREE.Color(0x8899bb + id * 110) }
+      ? { geo, matrix, tint: new THREE.Color(0x88_99_bb + id * 110) }
       : { geo, matrix };
   });
   const native = sourceBatch(items, material);
@@ -90,7 +91,7 @@ export function checkInstancedProps(check: Check): void {
     "fallback preserves per-instance shadow culling",
     compatiblePropBatch(casting, items, false) === casting,
   );
-  const glass = new THREE.MeshStandardMaterial({ transparent: true, opacity: 0.4 });
+  const glass = new THREE.MeshStandardMaterial({ opacity: 0.4, transparent: true });
   const transparent = sourceBatch(items, glass);
   check(
     "fallback preserves transparent batch sorting",
@@ -104,7 +105,9 @@ export function checkInstancedProps(check: Check): void {
   );
 
   let sourceDisposals = 0;
-  native.geometry.addEventListener("dispose", () => sourceDisposals++);
+  native.geometry.addEventListener("dispose", () => {
+    sourceDisposals += 1;
+  });
   const fallback = compatiblePropBatch(native, items, false);
   check(
     "repeated opaque props use native instancing without multi-draw",
@@ -136,8 +139,10 @@ export function checkInstancedProps(check: Check): void {
   }
   check("chunk transitions preserve stable IDs through swap compaction", consistent);
   const packed = fallback.children.find((node) => node instanceof THREE.InstancedMesh);
-  if (!(packed instanceof THREE.InstancedMesh)) throw new Error("Missing instanced fixture");
-  const version = packed.instanceMatrix.version;
+  if (!(packed instanceof THREE.InstancedMesh)) {
+    throw new Error("Missing instanced fixture");
+  }
+  const { version } = packed.instanceMatrix;
   fallback.setVisibleAt(0, true);
   check(
     "unchanged visibility performs no GPU buffer update",
@@ -175,7 +180,9 @@ export function checkInstancedProps(check: Check): void {
   check("instance visibility cannot override an externally hidden batch", !hidden.visible);
   hidden.setVisibleAt(0, false);
   hidden.visible = true;
-  for (let i = items.length - 1; i >= 0; i--) hidden.setVisibleAt(i, true);
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    hidden.setVisibleAt(i, true);
+  }
   const all = sourceBatch(items, material);
   check(
     "initially hidden imposters restore every original transform and color",
@@ -183,10 +190,12 @@ export function checkInstancedProps(check: Check): void {
   );
   let boundsValid = true;
   hidden.traverse((node) => {
-    if (!(node instanceof THREE.InstancedMesh)) return;
+    if (!(node instanceof THREE.InstancedMesh)) {
+      return;
+    }
     const bounds = node.boundingBox;
     const sphere = node.boundingSphere;
-    for (let i = 0; i < node.count; i++) {
+    for (let i = 0; i < node.count; i += 1) {
       const matrix = new THREE.Matrix4();
       node.getMatrixAt(i, matrix);
       const geometryBounds = node.geometry.boundingBox;
@@ -204,13 +213,20 @@ export function checkInstancedProps(check: Check): void {
   check("bounds contain all instances after an empty-to-visible transition", boundsValid);
 
   let assetDisposals = 0;
-  for (const geometry of [box, wide, cone])
-    geometry.addEventListener("dispose", () => assetDisposals++);
-  material.addEventListener("dispose", () => assetDisposals++);
+  const countAssetDisposal = (): void => {
+    assetDisposals += 1;
+  };
+  for (const geometry of [box, wide, cone]) {
+    geometry.addEventListener("dispose", countAssetDisposal);
+  }
+  material.addEventListener("dispose", countAssetDisposal);
   let instanceDisposals = 0;
   hidden.traverse((node) => {
-    if (node instanceof THREE.InstancedMesh)
-      node.addEventListener("dispose", () => instanceDisposals++);
+    if (node instanceof THREE.InstancedMesh) {
+      node.addEventListener("dispose", () => {
+        instanceDisposals += 1;
+      });
+    }
   });
   hidden.dispose();
   hidden.dispose();
@@ -230,4 +246,4 @@ export function checkInstancedProps(check: Check): void {
   cone.dispose();
   material.dispose();
   glass.dispose();
-}
+};

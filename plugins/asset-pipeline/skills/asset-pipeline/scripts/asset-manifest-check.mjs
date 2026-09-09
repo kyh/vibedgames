@@ -25,11 +25,13 @@ import {
 
 main(() => {
   const args = parseArgs(process.argv.slice(2), {
-    values: ["json", "manifest", "root"],
     booleans: ["strict"],
+    values: ["json", "manifest", "root"],
   });
   const root = defaultRoot(getString(args, "root"));
-  if (!existsSync(root)) fail(`Root not found: ${root}`);
+  if (!existsSync(root)) {
+    fail(`Root not found: ${root}`);
+  }
 
   const manifest = getString(args, "manifest") ?? autoDetectManifest();
   if (!manifest || !existsSync(manifest)) {
@@ -40,12 +42,20 @@ main(() => {
   console.log(`manifest paths: ${report.manifest_paths}`);
   console.log(`actual pngs:    ${report.actual_pngs}`);
   console.log(`missing:        ${report.missing.length}`);
-  for (const path of report.missing) console.log(`  MISSING ${path}`);
+  for (const path of report.missing) {
+    console.log(`  MISSING ${path}`);
+  }
   console.log(`extra:          ${report.extra.length}`);
-  for (const path of report.extra) console.log(`  EXTRA ${path}`);
+  for (const path of report.extra) {
+    console.log(`  EXTRA ${path}`);
+  }
 
   const json = getString(args, "json");
-  if (json) writeJsonFile(json, report);
+  if (json) {
+    writeJsonFile(json, report);
+  }
 
-  if (getFlag(args, "strict") && report.missing.length + report.extra.length > 0) process.exit(1);
+  if (getFlag(args, "strict") && report.missing.length + report.extra.length > 0) {
+    process.exit(1);
+  }
 });

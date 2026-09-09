@@ -24,36 +24,46 @@
 import * as THREE from "three";
 import { NOISE_GLSL } from "./fx-noise";
 
-const NODES = 56; // samples along the bolt — the kink-detail ceiling
-const STRANDS = 12; // filaments per bolt
+// samples along the bolt — the kink-detail ceiling
+const NODES = 56;
+// filaments per bolt
+const STRANDS = 12;
 
 const BOLT = {
+  // outer filaments carry less light than the axis
+  branchDim: 0.5,
+  coreSharp: 2.6,
+  // the middle filament is the thinnest
+  coreWidth: 0.42,
+  crawl: 5,
+  flicker: 0.35,
+  flickerSpeed: 22,
+  glowFalloff: 1.5,
+  // the halo pass, as a multiple of the core width
+  glowWidth: 4.2,
+  jitter: 0.42,
+  jitterFalloff: 0.5,
+  // kinks per metre — stays constant however far it reaches
+  jitterScale: 1.5,
+  octaves: 3,
+  // how hard both ends are pinned to their anchors
+  pinch: 0.12,
+  // times a second every filament snaps onto a new shape
+  restrike: 14,
   sag: 0,
-  restrike: 14, // times a second every filament snaps onto a new shape
-  spread: 0.5, // fan radius at the far end
-  spreadNear: 0.04, // ...and at the hand
+  // fan radius at the far end
+  spread: 0.5,
   spreadCurve: 1.5,
+  // ...and at the hand
+  spreadNear: 0.04,
+  strandFlash: 0.45,
+  tipGlow: 1.6,
+  tipLength: 0.1,
   twist: 0.35,
   twistSpeed: 0.2,
-  jitter: 0.42,
-  jitterScale: 1.5, // kinks per metre — stays constant however far it reaches
-  octaves: 3,
-  jitterFalloff: 0.5,
-  crawl: 5.0,
-  pinch: 0.12, // how hard both ends are pinned to their anchors
   width: 0.13,
-  widthTip: 0.55,
   widthCurve: 1.3,
-  coreWidth: 0.42, // the middle filament is the thinnest
-  flickerSpeed: 22,
-  strandFlash: 0.45,
-  coreSharp: 2.6,
-  glowFalloff: 1.5,
-  glowWidth: 4.2, // the halo pass, as a multiple of the core width
-  branchDim: 0.5, // outer filaments carry less light than the axis
-  flicker: 0.35,
-  tipLength: 0.1,
-  tipGlow: 1.6,
+  widthTip: 0.55,
 } as const;
 
 /**
@@ -61,9 +71,9 @@ const BOLT = {
  * here at all — the vertex shader turns that pair into a world position. One
  * instance is one filament, and `aStrand` is simply its index.
  */
-function createBoltGeometry(): THREE.InstancedBufferGeometry {
+const createBoltGeometry = (): THREE.InstancedBufferGeometry => {
   const positions = new Float32Array(NODES * 2 * 3);
-  for (let i = 0; i < NODES; i++) {
+  for (let i = 0; i < NODES; i += 1) {
     const t = i / (NODES - 1);
     const o = i * 6;
     positions[o] = t;
@@ -72,7 +82,7 @@ function createBoltGeometry(): THREE.InstancedBufferGeometry {
     positions[o + 4] = 1;
   }
   const indices = new Uint16Array((NODES - 1) * 6);
-  for (let i = 0; i < NODES - 1; i++) {
+  for (let i = 0; i < NODES - 1; i += 1) {
     const a = i * 2;
     const o = i * 6;
     indices[o] = a;
@@ -83,7 +93,9 @@ function createBoltGeometry(): THREE.InstancedBufferGeometry {
     indices[o + 5] = a + 2;
   }
   const strand = new Float32Array(STRANDS);
-  for (let i = 0; i < STRANDS; i++) strand[i] = i;
+  for (let i = 0; i < STRANDS; i += 1) {
+    strand[i] = i;
+  }
 
   const geo = new THREE.InstancedBufferGeometry();
   geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
@@ -94,8 +106,9 @@ function createBoltGeometry(): THREE.InstancedBufferGeometry {
   // meaningless — never cull it on them.
   geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e4);
   return geo;
-}
+};
 
+// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
 const VERT = /* glsl */ `
 #define PI 3.141592653589793
 #define TAU 6.283185307179586
@@ -204,6 +217,7 @@ void main() {
   gl_Position = projectionMatrix * viewMatrix * vec4(here + binormal * vSide * halfWidth, 1.0);
 }`;
 
+// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
 const FRAG = /* glsl */ `
 uniform float uTime;
 uniform float uSeed;
@@ -257,6 +271,7 @@ void main() {
 
 /** One pass's uniform block. Named rather than an open dictionary so the
  *  colour and vector values keep their types all the way to the write site. */
+// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 type BoltUniforms = {
   uTime: { value: number };
   uOrigin: { value: THREE.Vector3 };
@@ -275,16 +290,17 @@ type BoltUniforms = {
 
 type BoltMesh = THREE.Mesh<THREE.InstancedBufferGeometry, THREE.ShaderMaterial>;
 
-type Bolt = {
+interface Bolt {
   core: BoltMesh;
   glow: BoltMesh;
   uni: { core: BoltUniforms; glow: BoltUniforms };
   life: number;
   maxLife: number;
-  strikeTime: number; // seconds the front takes to travel origin → target
-};
+  // seconds the front takes to travel origin → target
+  strikeTime: number;
+}
 
-export type BoltOpts = {
+export interface BoltOpts {
   /** Seconds the bolt is on screen. */
   life?: number;
   /** Seconds the strike front takes to travel origin → target. */
@@ -293,11 +309,11 @@ export type BoltOpts = {
   scale?: number;
   color?: number;
   haloColor?: number;
-};
+}
 
 const POOL = 4;
 /** Reused by the inner-colour lerp — allocating a Color per strike is churn. */
-const WHITE = new THREE.Color(0xffffff);
+const WHITE = new THREE.Color(0xff_ff_ff);
 
 /** Pooled lightning bolts. Two draw calls each: a hot core and a wide halo. */
 export class BoltPool {
@@ -305,31 +321,31 @@ export class BoltPool {
   private geo = createBoltGeometry();
 
   constructor(scene: THREE.Scene, clock: { value: number }) {
-    for (let i = 0; i < POOL; i++) {
+    for (let i = 0; i < POOL; i += 1) {
       const mk = (glowPass: boolean) => {
         const uni: BoltUniforms = {
-          uTime: clock,
-          uOrigin: { value: new THREE.Vector3() },
-          uTarget: { value: new THREE.Vector3() },
-          uSeed: { value: 0 },
+          uCore: { value: new THREE.Color(0xff_ff_ff) },
           uFade: { value: 1 },
-          uProgress: { value: 1 },
-          uOpacity: { value: glowPass ? 0.5 : 1 },
-          uWidthScale: { value: glowPass ? BOLT.glowWidth : 1 },
           uGlowPass: { value: glowPass ? 1 : 0 },
-          uCore: { value: new THREE.Color(0xffffff) },
-          uInner: { value: new THREE.Color(0xdcefff) },
-          uOuter: { value: new THREE.Color(0x7fc4ff) },
-          uHalo: { value: new THREE.Color(0x2a6cff) },
+          uHalo: { value: new THREE.Color(0x2a_6c_ff) },
+          uInner: { value: new THREE.Color(0xdc_ef_ff) },
+          uOpacity: { value: glowPass ? 0.5 : 1 },
+          uOrigin: { value: new THREE.Vector3() },
+          uOuter: { value: new THREE.Color(0x7f_c4_ff) },
+          uProgress: { value: 1 },
+          uSeed: { value: 0 },
+          uTarget: { value: new THREE.Vector3() },
+          uTime: clock,
+          uWidthScale: { value: glowPass ? BOLT.glowWidth : 1 },
         };
         const mat = new THREE.ShaderMaterial({
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          fragmentShader: FRAG,
+          side: THREE.DoubleSide,
+          transparent: true,
           uniforms: uni,
           vertexShader: VERT,
-          fragmentShader: FRAG,
-          transparent: true,
-          depthWrite: false,
-          blending: THREE.AdditiveBlending,
-          side: THREE.DoubleSide,
         });
         const mesh = new THREE.Mesh(this.geo, mat);
         mesh.frustumCulled = false;
@@ -343,10 +359,10 @@ export class BoltPool {
       this.bolts.push({
         core: core.mesh,
         glow: glow.mesh,
-        uni: { core: core.uni, glow: glow.uni },
         life: 0,
         maxLife: 1,
         strikeTime: 0.09,
+        uni: { core: core.uni, glow: glow.uni },
       });
     }
   }
@@ -354,8 +370,11 @@ export class BoltPool {
   /** Strike from `from` to `to` (world space). */
   strike(from: THREE.Vector3Like, to: THREE.Vector3Like, opts: BoltOpts = {}): void {
     const b = this.bolts.find((x) => x.life <= 0);
-    if (!b) return; // saturated — drop
-    const { life = 0.34, scale = 1, color = 0x9fd4ff, haloColor = 0x2a6cff } = opts;
+    if (!b) {
+      return;
+      // saturated — drop
+    }
+    const { life = 0.34, scale = 1, color = 0x9f_d4_ff, haloColor = 0x2a_6c_ff } = opts;
     b.life = life;
     b.maxLife = life;
     b.core.visible = true;
@@ -379,7 +398,9 @@ export class BoltPool {
 
   update(dt: number): void {
     for (const b of this.bolts) {
-      if (b.life <= 0) continue;
+      if (b.life <= 0) {
+        continue;
+      }
       b.life -= dt;
       if (b.life <= 0) {
         b.core.visible = false;
