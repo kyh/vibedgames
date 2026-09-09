@@ -59,6 +59,16 @@ export const applyAffix = (e: Enemy, a: Affix = rollAffix()) => {
   e.sprite.setTint(a.tint);
 };
 
+export interface RoomBuilderDeps {
+  scene: Scene;
+  run: RunState;
+  expedition: RunManager;
+  room: RoomState;
+  seat: SeatState;
+  banners: BannerHud;
+  progress: RoomProgress;
+}
+
 // Builds and tears down one room's world: tiles, parallax, props, enemies,
 // boss, doors, features and merchant stock — from a RoomDef (host/solo) or
 // the host's wire broadcast (guest).
@@ -75,22 +85,14 @@ export class RoomBuilder {
   private prop?: Phaser.GameObjects.Sprite;
   private embers?: Phaser.GameObjects.Particles.ParticleEmitter;
 
-  constructor(
-    scene: Scene,
-    run: RunState,
-    expedition: RunManager,
-    room: RoomState,
-    seat: SeatState,
-    banners: BannerHud,
-    progress: RoomProgress,
-  ) {
-    this.scene = scene;
-    this.run = run;
-    this.expedition = expedition;
-    this.room = room;
-    this.seat = seat;
-    this.banners = banners;
-    this.progress = progress;
+  constructor(deps: RoomBuilderDeps) {
+    this.scene = deps.scene;
+    this.run = deps.run;
+    this.expedition = deps.expedition;
+    this.room = deps.room;
+    this.seat = deps.seat;
+    this.banners = deps.banners;
+    this.progress = deps.progress;
   }
 
   // The screen-pinned sky and the thin full-field atmosphere wash — over the

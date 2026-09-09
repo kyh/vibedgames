@@ -17,6 +17,18 @@ import type { BannerHud } from "./banner-hud";
 import type { Combat, DuelTarget } from "./combat";
 import type { SceneChrome, SceneHooks } from "./scene-hooks";
 
+export interface VersusFlowDeps {
+  scene: Scene;
+  run: RunState;
+  room: RoomState;
+  seat: SeatState;
+  banners: BannerHud;
+  combat: Combat;
+  chrome: SceneChrome;
+  touch: boolean;
+  hooks: SceneHooks;
+}
+
 // Online versus (mode "versus"): the host runs the pure match machine
 // (sys/versus.ts) and resolves the duel; guests mirror its broadcast into
 // `run.matchNet`. Everything here is null/idle in solo and co-op.
@@ -33,26 +45,16 @@ export class VersusFlow implements DuelTarget {
   // guest: opponent-left banner fired
   opponentGone = false;
 
-  constructor(
-    scene: Scene,
-    run: RunState,
-    room: RoomState,
-    seat: SeatState,
-    banners: BannerHud,
-    combat: Combat,
-    chrome: SceneChrome,
-    touch: boolean,
-    hooks: SceneHooks,
-  ) {
-    this.scene = scene;
-    this.run = run;
-    this.room = room;
-    this.seat = seat;
-    this.banners = banners;
-    this.combat = combat;
-    this.chrome = chrome;
-    this.touch = touch;
-    this.hooks = hooks;
+  constructor(deps: VersusFlowDeps) {
+    this.scene = deps.scene;
+    this.run = deps.run;
+    this.room = deps.room;
+    this.seat = deps.seat;
+    this.banners = deps.banners;
+    this.combat = deps.combat;
+    this.chrome = deps.chrome;
+    this.touch = deps.touch;
+    this.hooks = deps.hooks;
   }
 
   // Versus: the host walked away — nothing will ever update again; say so.

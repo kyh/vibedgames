@@ -165,7 +165,7 @@ const audio = (): Bus | null => {
   return bus.context.state === "running" && !contextTransition ? bus : null;
 };
 
-const release = (voice: Voice, stop: boolean): void => {
+const release = (voice: Voice): void => {
   if (!voices.delete(voice)) {
     return;
   }
@@ -176,9 +176,9 @@ const release = (voice: Voice, stop: boolean): void => {
       phrases.splice(i, 1);
     }
   }
-  if (stop) {
-    voice.source.stop();
-  }
+  // Every source has its end scheduled at creation and a second stop() throws
+  // once that has fired, so an early release only unplugs it: silent at once,
+  // reaped on schedule.
   voice.source.disconnect();
   for (const node of voice.nodes) {
     node.disconnect();
@@ -187,21 +187,21 @@ const release = (voice: Voice, stop: boolean): void => {
 
 const stopPhrase = (phrase: Phrase): void => {
   for (const voice of phrase.voices) {
-    release(voice, true);
+    release(voice);
   }
 };
 
 const stopBackground = (kind?: BedKind): void => {
   for (const voice of voices) {
     if (voice.phrase.kind !== "sfx" && (!kind || voice.phrase.kind === kind)) {
-      release(voice, true);
+      release(voice);
     }
   }
 };
 
 const stopAll = (): void => {
   for (const voice of voices) {
-    release(voice, true);
+    release(voice);
   }
   const now = bus?.context.currentTime ?? 0;
   for (const gain of bedBuses.values()) {
@@ -374,7 +374,7 @@ const schedule = (target: Bus, phrase: Phrase, note: Note, now: number, level: n
   const voice: Voice = { nodes, phrase, source };
   voices.add(voice);
   phrase.voices.add(voice);
-  source.addEventListener("ended", () => release(voice, false), { once: true });
+  source.addEventListener("ended", () => release(voice), { once: true });
   source.start(t);
   if (note.kind === "tone" || note.kind === "score-tone") {
     source.stop(t + note.dur + 0.02);

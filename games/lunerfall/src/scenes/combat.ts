@@ -45,6 +45,19 @@ export interface DuelTarget {
   hurt: (vic: Player, dmg: number, dir: number) => boolean;
 }
 
+export interface CombatDeps {
+  scene: Scene;
+  run: RunState;
+  expedition: RunManager;
+  room: RoomState;
+  seat: SeatState;
+  banners: BannerHud;
+  lastStand: LastStand;
+  progress: RoomProgress;
+  chrome: SceneChrome;
+  hooks: SceneHooks;
+}
+
 // Host-authoritative combat resolution: the damage pipeline, player offense
 // against enemies and the boss, enemy/boss offense against players, and the
 // projectiles (arrows, shots, hazards) that carry it.
@@ -62,28 +75,17 @@ export class Combat {
   // set by dmgOut so the hit site can flag a crit
   lastCrit = false;
 
-  constructor(
-    scene: Scene,
-    run: RunState,
-    expedition: RunManager,
-    room: RoomState,
-    seat: SeatState,
-    banners: BannerHud,
-    lastStand: LastStand,
-    progress: RoomProgress,
-    chrome: SceneChrome,
-    hooks: SceneHooks,
-  ) {
-    this.scene = scene;
-    this.run = run;
-    this.expedition = expedition;
-    this.room = room;
-    this.seat = seat;
-    this.banners = banners;
-    this.lastStand = lastStand;
-    this.progress = progress;
-    this.chrome = chrome;
-    this.hooks = hooks;
+  constructor(deps: CombatDeps) {
+    this.scene = deps.scene;
+    this.run = deps.run;
+    this.expedition = deps.expedition;
+    this.room = deps.room;
+    this.seat = deps.seat;
+    this.banners = deps.banners;
+    this.lastStand = deps.lastStand;
+    this.progress = deps.progress;
+    this.chrome = deps.chrome;
+    this.hooks = deps.hooks;
   }
 
   // Single outgoing-damage choke point: base × (dmg + rage-per-missing-heart),

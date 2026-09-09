@@ -26,6 +26,25 @@ import type { RoomBuilder } from "./room-builder";
 import type { SceneChrome, SceneHooks } from "./scene-hooks";
 import type { VersusFlow } from "./versus-flow";
 
+export interface OnlineFlowDeps {
+  scene: Scene;
+  run: RunState;
+  expedition: RunManager;
+  room: RoomState;
+  seat: SeatState;
+  banners: BannerHud;
+  checkpoint: CheckpointSync;
+  guest: GuestSync;
+  hostNet: HostNet;
+  rooms: RoomBuilder;
+  versus: VersusFlow;
+  chrome: SceneChrome;
+  controls: Input;
+  hooks: SceneHooks;
+  // the hub asked to restart the terminal expedition it showed
+  restartRequested: boolean;
+}
+
 // Connection lifecycle and authority: joins the party room, drains the frame's
 // input up the wire, resolves who is host or guest (initial election, takeover,
 // (re)admission), and begins or restarts the shared expedition.
@@ -51,39 +70,22 @@ export class OnlineFlow {
   private restartRequested: boolean;
   private restartSentFor: string | null = null;
 
-  constructor(
-    scene: Scene,
-    run: RunState,
-    expedition: RunManager,
-    room: RoomState,
-    seat: SeatState,
-    banners: BannerHud,
-    checkpoint: CheckpointSync,
-    guest: GuestSync,
-    hostNet: HostNet,
-    rooms: RoomBuilder,
-    versus: VersusFlow,
-    chrome: SceneChrome,
-    controls: Input,
-    hooks: SceneHooks,
-    // the hub asked to restart the terminal expedition it showed
-    restartRequested: boolean,
-  ) {
-    this.scene = scene;
-    this.run = run;
-    this.expedition = expedition;
-    this.room = room;
-    this.seat = seat;
-    this.banners = banners;
-    this.checkpoint = checkpoint;
-    this.guest = guest;
-    this.hostNet = hostNet;
-    this.rooms = rooms;
-    this.versus = versus;
-    this.chrome = chrome;
-    this.controls = controls;
-    this.hooks = hooks;
-    this.restartRequested = restartRequested;
+  constructor(deps: OnlineFlowDeps) {
+    this.scene = deps.scene;
+    this.run = deps.run;
+    this.expedition = deps.expedition;
+    this.room = deps.room;
+    this.seat = deps.seat;
+    this.banners = deps.banners;
+    this.checkpoint = deps.checkpoint;
+    this.guest = deps.guest;
+    this.hostNet = deps.hostNet;
+    this.rooms = deps.rooms;
+    this.versus = deps.versus;
+    this.chrome = deps.chrome;
+    this.controls = deps.controls;
+    this.hooks = deps.hooks;
+    this.restartRequested = deps.restartRequested;
   }
 
   // Co-op: connect, then let update() resolve host vs guest. The placeholder

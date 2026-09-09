@@ -35,7 +35,7 @@ export class VoiceGroup {
       return null;
     }
     const source = create();
-    const onEnded = (): void => this.release(source, false);
+    const onEnded = (): void => this.release(source);
     this.sources.set(source, onEnded);
     source.addEventListener("ended", onEnded, { once: true });
     return source;
@@ -59,21 +59,21 @@ export class VoiceGroup {
     }
     this.sealed = true;
     for (const source of this.sources.keys()) {
-      this.release(source, true);
+      this.release(source);
     }
     this.finish();
   }
 
-  private release(source: AudioScheduledSourceNode, stopped: boolean): void {
+  private release(source: AudioScheduledSourceNode): void {
     const onEnded = this.sources.get(source);
     if (!onEnded) {
       return;
     }
     this.sources.delete(source);
     source.removeEventListener("ended", onEnded);
-    if (stopped) {
-      source.stop();
-    }
+    // Every source has its end scheduled at creation and a second stop()
+    // throws once that has fired; unplugging is silent at once and the
+    // scheduled stop still reaps it.
     source.disconnect();
     this.finish();
   }

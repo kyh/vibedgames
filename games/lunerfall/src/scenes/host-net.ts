@@ -38,6 +38,18 @@ interface CheckpointMark {
   versus: NetVersus["phase"] | null;
 }
 
+export interface HostNetDeps {
+  run: RunState;
+  expedition: RunManager;
+  room: RoomState;
+  seat: SeatState;
+  banners: BannerHud;
+  lastStand: LastStand;
+  versus: VersusFlow;
+  checkpoint: CheckpointSync;
+  hooks: SceneHooks;
+}
+
 // Host side of the wire: broadcasts snapshots (and the checkpoint + room at
 // the slower rates), turns the guest's wire input into an edge-triggered
 // InputState, and spawns/despawns the remote player as the peer comes and goes.
@@ -58,26 +70,16 @@ export class HostNet {
   // last-seen remote press counters
   private inSeq = { a: 0, d: 0, j: 0, s: 0 };
 
-  constructor(
-    run: RunState,
-    expedition: RunManager,
-    room: RoomState,
-    seat: SeatState,
-    banners: BannerHud,
-    lastStand: LastStand,
-    versus: VersusFlow,
-    checkpoint: CheckpointSync,
-    hooks: SceneHooks,
-  ) {
-    this.run = run;
-    this.expedition = expedition;
-    this.room = room;
-    this.seat = seat;
-    this.banners = banners;
-    this.lastStand = lastStand;
-    this.versus = versus;
-    this.checkpoint = checkpoint;
-    this.hooks = hooks;
+  constructor(deps: HostNetDeps) {
+    this.run = deps.run;
+    this.expedition = deps.expedition;
+    this.room = deps.room;
+    this.seat = deps.seat;
+    this.banners = deps.banners;
+    this.lastStand = deps.lastStand;
+    this.versus = deps.versus;
+    this.checkpoint = deps.checkpoint;
+    this.hooks = deps.hooks;
   }
 
   // Host: turn the guest's latest wire input into an edge-triggered InputState.

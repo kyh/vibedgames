@@ -31,6 +31,20 @@ import type { RoomBuilder } from "./room-builder";
 import type { SceneChrome, SceneHooks } from "./scene-hooks";
 import type { VersusFlow } from "./versus-flow";
 
+export interface CheckpointSyncDeps {
+  scene: Scene;
+  run: RunState;
+  expedition: RunManager;
+  room: RoomState;
+  seat: SeatState;
+  banners: BannerHud;
+  combat: Combat;
+  rooms: RoomBuilder;
+  versus: VersusFlow;
+  chrome: SceneChrome;
+  hooks: SceneHooks;
+}
+
 // The expedition checkpoint: the host encodes its full private state for a
 // takeover; a promoted host adopts it, and a guest replays its room features.
 // Reads of the shared checkpoint are cached by reference so a frame never
@@ -52,30 +66,18 @@ export class CheckpointSync {
   private cache: CheckpointRead = { kind: "absent" };
   adoptedTerminal: ExpeditionCheckpoint | null = null;
 
-  constructor(
-    scene: Scene,
-    run: RunState,
-    expedition: RunManager,
-    room: RoomState,
-    seat: SeatState,
-    banners: BannerHud,
-    combat: Combat,
-    rooms: RoomBuilder,
-    versus: VersusFlow,
-    chrome: SceneChrome,
-    hooks: SceneHooks,
-  ) {
-    this.scene = scene;
-    this.run = run;
-    this.expedition = expedition;
-    this.room = room;
-    this.seat = seat;
-    this.banners = banners;
-    this.combat = combat;
-    this.rooms = rooms;
-    this.versus = versus;
-    this.chrome = chrome;
-    this.hooks = hooks;
+  constructor(deps: CheckpointSyncDeps) {
+    this.scene = deps.scene;
+    this.run = deps.run;
+    this.expedition = deps.expedition;
+    this.room = deps.room;
+    this.seat = deps.seat;
+    this.banners = deps.banners;
+    this.combat = deps.combat;
+    this.rooms = deps.rooms;
+    this.versus = deps.versus;
+    this.chrome = deps.chrome;
+    this.hooks = deps.hooks;
   }
 
   accepted(): CheckpointRead {

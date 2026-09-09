@@ -28,6 +28,22 @@ import type { RoomProgress } from "./room-progress";
 import type { SceneHooks } from "./scene-hooks";
 import type { VersusFlow } from "./versus-flow";
 
+export interface GuestSyncDeps {
+  scene: Scene;
+  run: RunState;
+  expedition: RunManager;
+  room: RoomState;
+  seat: SeatState;
+  banners: BannerHud;
+  checkpoint: CheckpointSync;
+  combat: Combat;
+  lastStand: LastStand;
+  progress: RoomProgress;
+  rooms: RoomBuilder;
+  versus: VersusFlow;
+  hooks: SceneHooks;
+}
+
 // Guest side of the wire: adopts the accepted checkpoint's room, applies each
 // snapshot to the puppets (other player, enemies, boss, projectiles) and
 // reconciles the locally-predicted own body against the host's copy.
@@ -46,34 +62,20 @@ export class GuestSync {
   private readonly versus: VersusFlow;
   private readonly hooks: SceneHooks;
 
-  constructor(
-    scene: Scene,
-    run: RunState,
-    expedition: RunManager,
-    room: RoomState,
-    seat: SeatState,
-    banners: BannerHud,
-    checkpoint: CheckpointSync,
-    combat: Combat,
-    lastStand: LastStand,
-    progress: RoomProgress,
-    rooms: RoomBuilder,
-    versus: VersusFlow,
-    hooks: SceneHooks,
-  ) {
-    this.scene = scene;
-    this.run = run;
-    this.expedition = expedition;
-    this.room = room;
-    this.seat = seat;
-    this.banners = banners;
-    this.checkpoint = checkpoint;
-    this.combat = combat;
-    this.lastStand = lastStand;
-    this.progress = progress;
-    this.rooms = rooms;
-    this.versus = versus;
-    this.hooks = hooks;
+  constructor(deps: GuestSyncDeps) {
+    this.scene = deps.scene;
+    this.run = deps.run;
+    this.expedition = deps.expedition;
+    this.room = deps.room;
+    this.seat = deps.seat;
+    this.banners = deps.banners;
+    this.checkpoint = deps.checkpoint;
+    this.combat = deps.combat;
+    this.lastStand = deps.lastStand;
+    this.progress = deps.progress;
+    this.rooms = deps.rooms;
+    this.versus = deps.versus;
+    this.hooks = deps.hooks;
   }
 
   // Guest: apply the latest room + snapshot, run my OWN body through the real

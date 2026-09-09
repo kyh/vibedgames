@@ -29,6 +29,20 @@ import { applyAffix } from "./room-builder";
 import type { RoomBuilder } from "./room-builder";
 import type { SceneChrome, SceneHooks } from "./scene-hooks";
 
+export interface TrailerStagingDeps {
+  scene: Scene;
+  run: RunState;
+  expedition: RunManager;
+  room: RoomState;
+  seat: SeatState;
+  banners: BannerHud;
+  combat: Combat;
+  lastStand: LastStand;
+  rooms: RoomBuilder;
+  chrome: SceneChrome;
+  hooks: SceneHooks;
+}
+
 // Staging surface for src/trailer/trailer-director.ts (?trailer=1 only). All
 // methods drive the exact same code paths gameplay uses — real rooms, real
 // enemies, real combat resolution — they only skip the menu/network plumbing.
@@ -56,30 +70,18 @@ export class TrailerStaging {
   // absolute target silently undoes the counter-transform. 1 in normal play.
   pinScale = 1;
 
-  constructor(
-    scene: Scene,
-    run: RunState,
-    expedition: RunManager,
-    room: RoomState,
-    seat: SeatState,
-    banners: BannerHud,
-    combat: Combat,
-    lastStand: LastStand,
-    rooms: RoomBuilder,
-    chrome: SceneChrome,
-    hooks: SceneHooks,
-  ) {
-    this.scene = scene;
-    this.run = run;
-    this.expedition = expedition;
-    this.room = room;
-    this.seat = seat;
-    this.banners = banners;
-    this.combat = combat;
-    this.lastStand = lastStand;
-    this.rooms = rooms;
-    this.chrome = chrome;
-    this.hooks = hooks;
+  constructor(deps: TrailerStagingDeps) {
+    this.scene = deps.scene;
+    this.run = deps.run;
+    this.expedition = deps.expedition;
+    this.room = deps.room;
+    this.seat = deps.seat;
+    this.banners = deps.banners;
+    this.combat = deps.combat;
+    this.lastStand = deps.lastStand;
+    this.rooms = deps.rooms;
+    this.chrome = deps.chrome;
+    this.hooks = deps.hooks;
   }
 
   /** Fully restage the world as one trailer shot: fresh solo/duo actors, a

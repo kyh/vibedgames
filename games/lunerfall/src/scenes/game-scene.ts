@@ -228,102 +228,118 @@ export class GameScene extends Scene implements SceneHooks {
   // parameter rather than a back-reference.
   private wireCollaborators(restartRequested: boolean) {
     const { run, expedition, room, seat, chrome } = this;
-    this.banners = new BannerHud(this, run, this);
-    this.lastStand = new LastStand(this, run, seat, this.banners, this);
-    this.progress = new RoomProgress(this, run, expedition, room, seat, this.banners, this);
-    this.rooms = new RoomBuilder(this, run, expedition, room, seat, this.banners, this.progress);
-    this.combat = new Combat(
-      this,
-      run,
+    this.banners = new BannerHud({ hooks: this, run, scene: this });
+    this.lastStand = new LastStand({ banners: this.banners, hooks: this, run, scene: this, seat });
+    this.progress = new RoomProgress({
+      banners: this.banners,
       expedition,
+      hooks: this,
       room,
+      run,
+      scene: this,
       seat,
-      this.banners,
-      this.lastStand,
-      this.progress,
+    });
+    this.rooms = new RoomBuilder({
+      banners: this.banners,
+      expedition,
+      progress: this.progress,
+      room,
+      run,
+      scene: this,
+      seat,
+    });
+    this.combat = new Combat({
+      banners: this.banners,
       chrome,
-      this,
-    );
-    this.versus = new VersusFlow(
-      this,
-      run,
+      expedition,
+      hooks: this,
+      lastStand: this.lastStand,
+      progress: this.progress,
       room,
+      run,
+      scene: this,
       seat,
-      this.banners,
-      this.combat,
+    });
+    this.versus = new VersusFlow({
+      banners: this.banners,
       chrome,
-      this.touch,
-      this,
-    );
-    this.checkpoint = new CheckpointSync(
-      this,
-      run,
-      expedition,
+      combat: this.combat,
+      hooks: this,
       room,
+      run,
+      scene: this,
       seat,
-      this.banners,
-      this.combat,
-      this.rooms,
-      this.versus,
+      touch: this.touch,
+    });
+    this.checkpoint = new CheckpointSync({
+      banners: this.banners,
       chrome,
-      this,
-    );
-    this.hostNet = new HostNet(
-      run,
+      combat: this.combat,
       expedition,
+      hooks: this,
       room,
-      seat,
-      this.banners,
-      this.lastStand,
-      this.versus,
-      this.checkpoint,
-      this,
-    );
-    this.guest = new GuestSync(
-      this,
+      rooms: this.rooms,
       run,
-      expedition,
-      room,
+      scene: this,
       seat,
-      this.banners,
-      this.checkpoint,
-      this.combat,
-      this.lastStand,
-      this.progress,
-      this.rooms,
-      this.versus,
-      this,
-    );
-    this.online = new OnlineFlow(
-      this,
+      versus: this.versus,
+    });
+    this.hostNet = new HostNet({
+      banners: this.banners,
+      checkpoint: this.checkpoint,
+      expedition,
+      hooks: this,
+      lastStand: this.lastStand,
+      room,
       run,
-      expedition,
-      room,
       seat,
-      this.banners,
-      this.checkpoint,
-      this.guest,
-      this.hostNet,
-      this.rooms,
-      this.versus,
+      versus: this.versus,
+    });
+    this.guest = new GuestSync({
+      banners: this.banners,
+      checkpoint: this.checkpoint,
+      combat: this.combat,
+      expedition,
+      hooks: this,
+      lastStand: this.lastStand,
+      progress: this.progress,
+      room,
+      rooms: this.rooms,
+      run,
+      scene: this,
+      seat,
+      versus: this.versus,
+    });
+    this.online = new OnlineFlow({
+      banners: this.banners,
+      checkpoint: this.checkpoint,
       chrome,
-      this.controls,
-      this,
+      controls: this.controls,
+      expedition,
+      guest: this.guest,
+      hooks: this,
+      hostNet: this.hostNet,
       restartRequested,
-    );
-    this.trailer = new TrailerStaging(
-      this,
-      run,
-      expedition,
       room,
+      rooms: this.rooms,
+      run,
+      scene: this,
       seat,
-      this.banners,
-      this.combat,
-      this.lastStand,
-      this.rooms,
+      versus: this.versus,
+    });
+    this.trailer = new TrailerStaging({
+      banners: this.banners,
       chrome,
-      this,
-    );
+      combat: this.combat,
+      expedition,
+      hooks: this,
+      lastStand: this.lastStand,
+      room,
+      rooms: this.rooms,
+      run,
+      scene: this,
+      seat,
+    });
     this.banners.mount();
     this.rooms.mount();
   }

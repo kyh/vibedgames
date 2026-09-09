@@ -22,6 +22,16 @@ const CLEAR_BANNER = new Map<RoomType, string>([
   ["elite", "ELITE CLEAR — pick a path"],
 ]);
 
+export interface RoomProgressDeps {
+  scene: Scene;
+  run: RunState;
+  expedition: RunManager;
+  room: RoomState;
+  seat: SeatState;
+  banners: BannerHud;
+  hooks: SceneHooks;
+}
+
 // Run progression inside a room: rewards (hearts, gold, relics, features,
 // merchant buys), the clear condition, and the doors that lead on.
 export class RoomProgress {
@@ -33,22 +43,14 @@ export class RoomProgress {
   private readonly banners: BannerHud;
   private readonly hooks: SceneHooks;
 
-  constructor(
-    scene: Scene,
-    run: RunState,
-    expedition: RunManager,
-    room: RoomState,
-    seat: SeatState,
-    banners: BannerHud,
-    hooks: SceneHooks,
-  ) {
-    this.scene = scene;
-    this.run = run;
-    this.expedition = expedition;
-    this.room = room;
-    this.seat = seat;
-    this.banners = banners;
-    this.hooks = hooks;
+  constructor(deps: RoomProgressDeps) {
+    this.scene = deps.scene;
+    this.run = deps.run;
+    this.expedition = deps.expedition;
+    this.room = deps.room;
+    this.seat = deps.seat;
+    this.banners = deps.banners;
+    this.hooks = deps.hooks;
   }
 
   private applyRelic(relic: Relic) {

@@ -25,6 +25,14 @@ const REVIVE_RANGE = 22;
 // shared hearts restored on revive
 const REVIVE_HEARTS = 2;
 
+export interface LastStandDeps {
+  scene: Scene;
+  run: RunState;
+  seat: SeatState;
+  banners: BannerHud;
+  hooks: SceneHooks;
+}
+
 // Co-op last stand: the host simulates the downed player's bleed-out clock and
 // the rescuer's revive hold; guests mirror the broadcast. Both render the
 // downed marker.
@@ -38,12 +46,12 @@ export class LastStand {
   g?: Phaser.GameObjects.Graphics;
   label?: Phaser.GameObjects.Text;
 
-  constructor(scene: Scene, run: RunState, seat: SeatState, banners: BannerHud, hooks: SceneHooks) {
-    this.scene = scene;
-    this.run = run;
-    this.seat = seat;
-    this.banners = banners;
-    this.hooks = hooks;
+  constructor(deps: LastStandDeps) {
+    this.scene = deps.scene;
+    this.run = deps.run;
+    this.seat = deps.seat;
+    this.banners = deps.banners;
+    this.hooks = deps.hooks;
   }
 
   // Guest: mirror the host's last-stand state; edge-detect enter/exit for the

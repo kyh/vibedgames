@@ -35,6 +35,12 @@ interface PendingObjective {
   remaining: number;
 }
 
+export interface BannerHudDeps {
+  scene: Scene;
+  run: RunState;
+  hooks: SceneHooks;
+}
+
 // Centre-screen cue line: one active banner and one replaceable objective,
 // ranked by kind so a payoff never loses to a room label.
 export class BannerHud {
@@ -45,10 +51,10 @@ export class BannerHud {
   active: BannerEntry | null = null;
   pending: PendingObjective | null = null;
 
-  constructor(scene: Scene, run: RunState, hooks: SceneHooks) {
-    this.scene = scene;
-    this.run = run;
-    this.hooks = hooks;
+  constructor(deps: BannerHudDeps) {
+    this.scene = deps.scene;
+    this.run = deps.run;
+    this.hooks = deps.hooks;
   }
 
   mount() {
