@@ -109,7 +109,6 @@ void main() {
   gl_FragColor = vec4(col, min(a, 1.0));
 }`;
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 type DecalUniforms = {
   uColor: THREE.IUniform<THREE.Color>;
   uRim: THREE.IUniform<THREE.Color>;

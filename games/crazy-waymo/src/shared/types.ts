@@ -58,7 +58,6 @@ export type Solid = {
   );
 
 // A drivable surface patch floating over the terrain (pier deck, bridge ramp).
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature BinTree needs
 export type SurfaceDeck = {
   readonly minX: number;
   readonly maxX: number;

@@ -388,7 +388,6 @@ void main() {
   gl_FragColor = vec4(color, alpha);
 }`;
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 type PillarUniforms = {
   uTime: { value: number };
   uCentre: { value: THREE.Vector3 };
@@ -406,7 +405,6 @@ type PillarUniforms = {
   uColorCool: { value: THREE.Color };
 };
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 type StarUniforms = {
   uTime: { value: number };
   uCentre: { value: THREE.Vector3 };
@@ -421,7 +419,6 @@ type StarUniforms = {
   uColorCool: { value: THREE.Color };
 };
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 type HaloUniforms = {
   uTime: { value: number };
   uOuter: { value: number };

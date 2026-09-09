@@ -1406,7 +1406,6 @@ export const BEACON_CONTEST_STROBE_HZ = 4;
 /** BEACON shared entry — the ONE nullable SharedState field the event adds
  *  (~90B on the wire). Six scalars, host-written; clients derive phase +
  *  countdown locally: t < activeAt → CHARGE, else ACTIVE until diesAt. */
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type BeaconState = {
   x: number;
   y: number;
@@ -1694,13 +1693,11 @@ export const MINIMAP_PAD = 12;
 
 // ---- shared/networked types ----------------------------------------------------
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type Vec = {
   x: number;
   y: number;
 };
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type AsteroidState = {
   id: string;
   x: number;
@@ -1715,7 +1712,6 @@ export type AsteroidState = {
   rot: number;
 };
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type UfoState = {
   id: string;
   x: number;
@@ -1743,7 +1739,6 @@ export type ItemState = {
   diesAt: number;
 } & ItemDrop;
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type EnemyState = {
   id: string;
   kind: EnemyKind;
@@ -1772,7 +1767,6 @@ export type EnemyState = {
   shielded: boolean;
 };
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type EnemyShotState = {
   id: string;
   x: number;
@@ -1785,7 +1779,6 @@ export type EnemyShotState = {
 /** SINGULARITY pull: until `until` (epoch-ms) the HOST drags asteroids +
  *  enemies within SINGULARITY_PULL_RANGE of (x,y) toward it; every client
  *  renders the vortex from this entry. Pruned by the host on expiry. */
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type PullState = {
   id: string;
   x: number;
@@ -1794,7 +1787,6 @@ export type PullState = {
 };
 
 /** Score shard: host-owned, drifts, +SHARD_SCORE on touch, 8s lifetime. */
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type ShardState = {
   id: string;
   x: number;
@@ -1810,7 +1802,6 @@ export type ShardState = {
  * resettable key MUST be present in `emptyShared()` and the host rewrites each
  * top-level field wholesale.
  */
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 export type SharedState = {
   asteroids: AsteroidState[];
   ufo: UfoState | null;
@@ -1840,7 +1831,6 @@ export type SharedState = {
 };
 
 /** Beam snapshot in another player's state — drawn raw, never simulated. */
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type SerializedBeam = {
   hx: number;
   hy: number;
@@ -1865,7 +1855,6 @@ export type SerializedBeam = {
   power?: number;
 };
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type ShieldModNetState = {
   kind: ShieldModKind;
   /** Epoch-ms expiry of the 20s mod window. */
@@ -1876,14 +1865,12 @@ export type ShieldModNetState = {
   phased: boolean;
 };
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature JsonValue needs
 export type BoostNetState = {
   kind: BoosterKind;
   until: number;
 };
 
 /** Per-player networked state (each client writes its own at 20Hz). */
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 export type PlayerNetState = {
   x: number;
   y: number;

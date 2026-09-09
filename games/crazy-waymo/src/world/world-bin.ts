@@ -157,11 +157,10 @@ export type Typed =
   | Int8Array
   | Uint8Array
   | Int32Array;
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature BinTree needs
-export type BufRef = {
+export interface BufRef {
   $buf: number;
   $type: "f32" | "u16" | "i16" | "u32" | "i8" | "u8" | "i32";
-};
+}
 
 /** A serialization-tree node: JSON structure with typed arrays at the leaves
  *  (runtime side) or `$buf` refs in their place (wire side). */
@@ -281,7 +280,6 @@ export type PackedTile = PackedGeometry & {
   x: number;
   z: number;
 };
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature BinTree needs
 export type PackedWorld = {
   tiles: PackedTile[];
 };
@@ -293,7 +291,6 @@ export type PackedMergedChunk = PackedGeometry & {
   mat: MatRec;
   srcMat: { url: string; idx: number } | null;
 };
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature BinTree needs
 export type PackedRawGeo = {
   pos: QPos;
   nor: Int8Array | null;
@@ -301,7 +298,6 @@ export type PackedRawGeo = {
   index: Uint16Array | Uint32Array | null;
   mat: MatRec;
 };
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature BinTree needs
 export type PackedBatchItems = {
   urls: string[];
   urlIdx: Int32Array;
@@ -313,7 +309,6 @@ export type PackedBatchItems = {
   tints: Int32Array;
   count: number;
 };
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature BinTree needs
 export type PackedRest = {
   mergedChunks: PackedMergedChunk[];
   rawGeos: PackedRawGeo[];
@@ -326,7 +321,6 @@ export type PackedRest = {
 
 /** One 320u world tile (shared/constants CHUNK): the merged static geometry
  *  inside it plus the parcel fabric whose centres fall in it. */
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature BinTree needs
 export type PackedWorldTile = {
   ix: number;
   iz: number;
@@ -339,7 +333,6 @@ export type PackedWorldTile = {
   solids: PackedSolids;
 };
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature BinTree needs
 export type WorldTileRef = {
   ix: number;
   iz: number;
@@ -353,7 +346,6 @@ export type WorldTileRef = {
  *  templates are shared GLB geometry), the base collision boxes (borders,
  *  seawalls, landmarks, furniture — the parcel walls ride their tiles), and
  *  the skyline, which reads from anywhere and is built once. */
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature BinTree needs
 export type PackedMeta = {
   rawGeos: PackedRawGeo[];
   items: PackedBatchItems;
@@ -367,13 +359,11 @@ export type PackedMeta = {
 
 /** A bake's output as one download: each entry is a finished artifact's
  *  bytes (gzipped) under its public/world path. */
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature BinTree needs
 export type BakeFile = {
   name: string;
   data: Uint8Array;
 };
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature BinTree needs
 export type WorldBinPayload = {
   rev: number;
   world?: PackedWorld;
@@ -487,7 +477,6 @@ export const unpackRawGeos = (p: readonly PackedRawGeo[]): CityRestPayload["rawG
     uv: null,
   }));
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature BinTree needs
 export type PackedSolids = {
   data: Float32Array;
   flags: Uint8Array;
@@ -497,8 +486,7 @@ export type PackedSolids = {
 
 // Mutable staging shape for Solid: the flag-gated fields are added one
 // statement at a time, and Solid itself is readonly.
-// oxlint-disable-next-line typescript/consistent-type-definitions -- type alias keeps the implicit index signature BinTree needs
-type UnpackedSolid = {
+interface UnpackedSolid {
   minX: number;
   maxX: number;
   minZ: number;
@@ -507,7 +495,7 @@ type UnpackedSolid = {
   yaw?: number;
   noBody?: boolean;
   unseen?: string;
-};
+}
 
 // oxlint-disable-next-line no-bitwise -- the solid flags are a bit set (see packSolidFlags)
 const hasFlag = (flags: number, bit: number): boolean => (flags & bit) !== 0;

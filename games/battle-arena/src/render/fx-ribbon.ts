@@ -219,7 +219,6 @@ const createStripGeometry = (): THREE.InstancedBufferGeometry => {
   return geo;
 };
 
-// oxlint-disable-next-line typescript/consistent-type-definitions -- must stay assignable to the JSON index-signature type; interfaces get no implicit index signature
 type RibbonUniforms = {
   uTime: { value: number };
   uHead: { value: THREE.Vector3 };
